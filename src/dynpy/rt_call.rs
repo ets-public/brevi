@@ -358,7 +358,7 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
             Some(r) => r?,
             None => V::None,
         };
-        *o.inner.borrow_mut() = Some(inner);
+        o.set_inner(Some(inner));
     }
     if let Some(init) = c.lookup("__init__") {
         if !is_builtin_init(&init) {
@@ -425,14 +425,14 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
                     Ok(V::None)
                 }));
             }
-            if o.inner.borrow().is_some() {
+            if o.has_inner() {
                 let me2 = me.clone();
                 return Ok(builtin("__init__", move |mut a: Args| {
                     if let V::Obj(o) = &me2 {
                         let bb = o.cls.base_bt();
                         let base = builtin_of_bt(bb);
                         if let Some(r) = builtin_type_call(&base, &mut a) {
-                            *o.inner.borrow_mut() = Some(r?);
+                            o.set_inner(Some(r?));
                         }
                     }
                     Ok(V::None)
@@ -458,7 +458,7 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
                     }));
                 }
                 // str.__repr__(self) / super().__str__() on a subclass of a builtin: the builtin value's text
-                if let Some(i) = o.inner.borrow().clone() {
+                if let Some(i) = o.inner() {
                     return Ok(st(if rep { repr(&i)? } else { to_str(&i)? }));
                 }
                 return Ok(st(format!("<{}.{} object at 0x{:x}>", o.cls.module, o.cls.name, Rc::as_ptr(o) as *const u8 as usize)));
@@ -521,11 +521,9 @@ fn bind_attr(v: V, me: &V, from_class_lookup: bool) -> V {
 pub fn getattr_ic(o: &V, name: Sym, ic: &std::sync::atomic::AtomicUsize) -> R {
     if let V::Obj(ob) = o {
         let d = ob.d.borrow();
-        if let Some((k, v)) = d.get(ic.load(std::sync::atomic::Ordering::Relaxed)) {
-            // the same name's text can sit at another address in another part of the program
-            if k.len() == name.len() && (k.as_ptr() == name.as_ptr() || k.as_bytes() == name.as_bytes()) {
-                return Ok(v.clone());
-            }
+        // the same name's text can sit at another address in another part of the program
+        if let Some(v) = d.at_named(ic.load(std::sync::atomic::Ordering::Relaxed), name) {
+            return Ok(v.clone());
         }
     }
     getattr_ic_slow(o, name, ic)
@@ -547,11 +545,9 @@ pub fn setattr_ic(o: &V, name: Sym, v: V, ic: &std::sync::atomic::AtomicUsize) -
     if let V::Obj(ob) = o {
         if ob.cls.plain_set() {
             let mut d = ob.d.borrow_mut();
-            if let Some(e) = d.get_mut(ic.load(std::sync::atomic::Ordering::Relaxed)) {
-                if e.0.len() == name.len() && (e.0.as_ptr() == name.as_ptr() || e.0.as_bytes() == name.as_bytes()) {
-                    e.1 = v;
-                    return Ok(());
-                }
+            if let Some(e) = d.at_named_mut(ic.load(std::sync::atomic::Ordering::Relaxed), name) {
+                *e = v;
+                return Ok(());
             }
         }
     }
@@ -564,7 +560,7 @@ fn setattr_ic_slow(o: &V, name: Sym, v: V, ic: &std::sync::atomic::AtomicUsize) 
             let mut d = ob.d.borrow_mut();
             let i = match d.find(name) {
                 Some(i) => {
-                    d.get_mut(i).unwrap().1 = v;
+                    *d.get_mut(i).unwrap().1 = v;
                     i
                 }
                 None => {
@@ -821,6 +817,21 @@ pub fn hasattr(o: &V, name: &str) -> Result<bool, E> {
 }
 
 // obj.name(args): methods of builtin types run directly; objects look the method up.
+// o.name(x): the commonest calls on builtin containers without building Args
+#[inline]
+pub fn call_method1(o: &V, name: &str, x: V) -> R {
+    match o {
+        V::List(l) if name == "append" => {
+            l.borrow_mut().push(x);
+            Ok(V::None)
+        }
+        V::Set(st) if name == "add" => {
+            st.borrow_mut().add(x)?;
+            Ok(V::None)
+        }
+        _ => call_method(o, name, Args::p(vec![x])),
+    }
+}
 pub fn call_method(o: &V, name: &str, mut a: Args) -> R {
     // the commonest calls on builtin containers, before the general dispatch
     if a.p.len() == 1 && a.k.is_empty() {

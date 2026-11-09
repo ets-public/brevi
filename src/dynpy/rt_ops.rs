@@ -1080,6 +1080,10 @@ pub fn len(v: &V) -> Result<usize, E> {
     })
 }
 pub fn contains(c: &V, x: &V) -> Result<bool, E> {
+    // `x in seen` for a set first: the special cases below are all for str containers
+    if let V::Set(s) = c {
+        return s.borrow().contains(x);
+    }
     // a library value standing for a str (numpy's np.str_) is that str here
     if let V::Ext(e) = x {
         if matches!(c, V::Str(_)) {
@@ -1511,7 +1515,7 @@ pub struct Iter {
 }
 impl It {
     // lists and tuples first, inline in the loop that runs them; the rest through one match
-    #[inline]
+    #[inline(always)]
     pub fn next(&mut self) -> Result<Option<V>, E> {
         if let It::Tuple(t, i) = self {
             return Ok(t.get(*i).map(|x| {

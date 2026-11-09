@@ -533,6 +533,126 @@ fn self_recursive_def(body: &[Stmt], n: &str) -> bool {
     visit_any(&d.body, &mut |x| uses |= matches!(x, Ex::Name(m) if m == n));
     uses
 }
+// A def nested in a function that later calls can reach as a plain Rust function (see Em::nested_direct): the
+// only binding of its name in that function, no decorators, positional parameters only, no yield or async,
+// and no nested function rebinding the name with nonlocal.
+fn direct_nested_def<'a>(body: &'a [Stmt], n: &str) -> Option<&'a FuncDef> {
+    fn same_scope<'a>(body: &'a [Stmt], f: &mut dyn FnMut(&'a Stmt)) {
+        for s in body {
+            f(s);
+            match &s.st {
+                St::If(arms, els) => {
+                    arms.iter().for_each(|(_, b)| same_scope(b, f));
+                    if let Some(b) = els {
+                        same_scope(b, f);
+                    }
+                }
+                St::For(_, _, b, e) | St::While(_, b, e) => {
+                    same_scope(b, f);
+                    if let Some(e) = e {
+                        same_scope(e, f);
+                    }
+                }
+                St::Try(b, hs, e, fi) => {
+                    same_scope(b, f);
+                    hs.iter().for_each(|h| same_scope(&h.body, f));
+                    if let Some(e) = e {
+                        same_scope(e, f);
+                    }
+                    if let Some(fi) = fi {
+                        same_scope(fi, f);
+                    }
+                }
+                St::With(_, b) => same_scope(b, f),
+                _ => {}
+            }
+        }
+    }
+    let mut defs = vec![];
+    let mut other = false;
+    same_scope(body, &mut |s| match &s.st {
+        St::Def(d) if d.name == n => defs.push(d),
+        // any other statement that binds n here (one at a time, so its sub-bodies are not counted twice)
+        St::If(..) | St::While(..) | St::Try(..) | St::Def(_) => {}
+        St::For(t, ..) => {
+            let mut b = BTreeSet::new();
+            target_names(t, &mut b);
+            other |= b.contains(n);
+        }
+        St::With(items, _) => {
+            for (_, t) in items {
+                if let Some(t) = t {
+                    let mut b = BTreeSet::new();
+                    target_names(t, &mut b);
+                    other |= b.contains(n);
+                }
+            }
+        }
+        _ => other |= scope_of(std::slice::from_ref(s), &[]).locals.contains(n),
+    });
+    let mut ex = vec![];
+    stmt_exprs(body, &mut ex);
+    let mut w = BTreeSet::new();
+    for e in ex {
+        walrus_names(e, &mut w);
+    }
+    let mut handler_bind = false;
+    same_scope(body, &mut |s| {
+        if let St::Try(_, hs, _, _) = &s.st {
+            handler_bind |= hs.iter().any(|h| h.name.as_deref() == Some(n));
+        }
+    });
+    if defs.len() != 1 || other || w.contains(n) || handler_bind {
+        return None;
+    }
+    let d = defs[0];
+    if !d.decorators.is_empty() || d.is_async || has_yield(&d.body) || d.params.star.is_some() || d.params.kwstar.is_some() || !d.params.kwonly.is_empty() {
+        return None;
+    }
+    if nonlocal_in(body, n) {
+        return None;
+    }
+    Some(d)
+}
+// nonlocal n (or global n) in any function nested in body
+fn nonlocal_in(body: &[Stmt], n: &str) -> bool {
+    let mut found = false;
+    fn walk(body: &[Stmt], n: &str, found: &mut bool) {
+        for s in body {
+            match &s.st {
+                St::Nonlocal(ns) | St::Global(ns) if ns.iter().any(|x| x == n) => *found = true,
+                St::Def(d) => walk(&d.body, n, found),
+                St::Class(c) => walk(&c.body, n, found),
+                St::If(arms, els) => {
+                    arms.iter().for_each(|(_, b)| walk(b, n, found));
+                    if let Some(b) = els {
+                        walk(b, n, found);
+                    }
+                }
+                St::For(_, _, b, e) | St::While(_, b, e) => {
+                    walk(b, n, found);
+                    if let Some(e) = e {
+                        walk(e, n, found);
+                    }
+                }
+                St::Try(b, hs, e, fi) => {
+                    walk(b, n, found);
+                    hs.iter().for_each(|h| walk(&h.body, n, found));
+                    if let Some(e) = e {
+                        walk(e, n, found);
+                    }
+                    if let Some(fi) = fi {
+                        walk(fi, n, found);
+                    }
+                }
+                St::With(_, b) => walk(b, n, found),
+                _ => {}
+            }
+        }
+    }
+    walk(body, n, &mut found);
+    found
+}
 fn scope_of(body: &[Stmt], params: &[String]) -> Scope {
     let mut sc = Scope::default();
     for p in params {
@@ -1056,6 +1176,8 @@ struct Func {
     is_async: bool,
     // an async def with yield: an async generator
     is_agen: bool,
+    // a def with yield: a generator
+    is_gen: bool,
 }
 
 pub struct Module {
@@ -1087,6 +1209,12 @@ impl Bridge {
 pub struct Em {
     // cells with a CellGuard (see self_recursive_def)
     guards: HashSet<String>,
+    // nested defs callable as plain Rust functions, by the cell holding them: (rust fn, captured cells, nparams).
+    // A call passes the cells along, so it skips the function value, bind() and the argument Vec.
+    nested_direct: HashMap<String, (String, Vec<String>, usize)>,
+    // cells only their own function assigns (no nonlocal for them anywhere), by name, with the depth of that
+    // function on fstack: functions nested in it may read them in place (cgs, see borrow_cells in mod.rs)
+    safe_cells: HashMap<String, usize>,
     out: String,
     items: String,
     n: usize,
@@ -1182,7 +1310,11 @@ impl Em {
     fn load(&mut self, name: &str, line: usize) -> ER<String> {
         match self.lookup(name) {
             Some(Var::Local(r)) => Ok(self.q(&format!("ld(&{r}, {})", lit(name)))),
-            Some(Var::Cell(r)) => Ok(self.q(&format!("cget(&{r}, {})", lit(name)))),
+            Some(Var::Cell(r)) => {
+                let fr = self.fstack.last().unwrap();
+                let inner = self.safe_cells.get(&r).is_some_and(|&d| self.fstack.len() > d) && !fr.is_gen && !fr.is_async;
+                Ok(self.q(&format!("{}(&{r}, {})", if inner { "cgs" } else { "cget" }, lit(name))))
+            }
             Some(Var::Global(i)) => {
                 if is_builtin_name(name) || name == "__name__" {
                     Ok(self.q(&format!("glb({i}, {})", lit(name))))
@@ -1729,6 +1861,11 @@ impl Em {
             let kws: Vec<&str> = args.iter().filter_map(|x| if let Arg::Kw(k, _) = x { Some(k.as_str()) } else { None }).collect();
             np_attr_check(m, &kws, line)?;
             let oo = self.ex(o, line)?;
+            // one positional argument: list.append, set.add and the like skip the Args Vec
+            if let [Arg::Pos(x)] = args {
+                let xx = self.ex(x, line)?;
+                return Ok(self.q(&format!("call_method1(&{oo}, {}, {xx})", lit(m))));
+            }
             let a = self.args(args, line, None)?;
             return Ok(self.q(&format!("call_method(&{oo}, {}, {a})", lit(m))));
         }
@@ -1740,6 +1877,22 @@ impl Em {
                 let a = self.args(args, line, None)?;
                 if let Some(fname) = builtin_fast(n) {
                     return Ok(self.q(&format!("{fname}({a})")));
+                }
+            }
+            // direct call of a nested def, where every cell it captures is in scope
+            if let Some(Var::Cell(c)) = self.lookup(n) {
+                if let Some((dfn, dcaps, np)) = self.nested_direct.get(&c).cloned() {
+                    let fr = self.fstack.last().unwrap();
+                    let visible = dcaps.iter().all(|r| fr.vars.values().any(|v| matches!(v, Var::Cell(x) if x == r)));
+                    if visible && args.len() == np && args.iter().all(|a| matches!(a, Arg::Pos(_))) {
+                        let mut parts: Vec<String> = dcaps.iter().map(|r| format!("{r}.clone()")).collect();
+                        for a in args {
+                            if let Arg::Pos(x) = a {
+                                parts.push(self.ex(x, line)?);
+                            }
+                        }
+                        return Ok(self.q(&format!("match cbound(&{c}, {}) {{ Ok(()) => {dfn}({}), Err(e) => Err(e) }}", lit(n), parts.join(", "))));
+                    }
                 }
             }
             // direct call of a module-level def
@@ -2527,7 +2680,7 @@ impl Em {
         // this function's frame
         let parent = self.fstack.last().unwrap();
         let (class_expr, self_name) = if self.class_ctx.is_some() { (self.class_ctx.clone(), p.pos.first().map(|x| x.0.clone())) } else { (parent.class_expr.clone(), parent.self_name.clone()) };
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, exc_vars: vec![], is_module: false, is_class: false, is_async, is_agen: is_async && is_gen };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, exc_vars: vec![], is_module: false, is_class: false, is_async, is_agen: is_async && is_gen, is_gen };
         for (n, r) in &captures {
             fr.vars.insert(n.clone(), Var::Cell(r.clone()));
         }
@@ -2569,6 +2722,28 @@ impl Em {
         }
         let saved_ctx = self.class_ctx.take();
         self.fstack.push(fr);
+        // nested defs that calls can reach directly (their captures are known now, with this frame on the stack)
+        if !is_gen && !is_async {
+            let depth = self.fstack.len();
+            for n in sc.locals.iter() {
+                if inner_free.contains(n) && !nonlocal_in(body, n) {
+                    self.safe_cells.insert(format!("k{id}_{}", rust_ident(n)), depth);
+                }
+                if !inner_free.contains(n) || all_params.contains(n) {
+                    continue;
+                }
+                if let Some(d) = direct_nested_def(body, n) {
+                    let mut caps = vec![];
+                    for x in &free_of_def(&lambda_params(&d.params), &d.body) {
+                        if let Some(Var::Cell(r)) = self.lookup(x) {
+                            caps.push(r);
+                        }
+                    }
+                    let c = format!("k{id}_{}", rust_ident(n));
+                    self.nested_direct.insert(c.clone(), (format!("dn_{c}"), caps, d.params.pos.len()));
+                }
+            }
+        }
         let body_code = self.block(body);
         self.fstack.pop();
         self.class_ctx = saved_ctx;
@@ -2619,6 +2794,22 @@ impl Em {
         // a closure
         let caps: String = captures.iter().map(|(_, r)| format!("let {r} = {r}.clone(); ")).collect();
         let bind_params: String = params.iter().map(|n| format!("let mut v_{} = __b.next().unwrap(); ", rust_ident(n))).collect();
+        // a nested def that calls reach directly: a plain Rust function taking its cells, and a wrapper
+        if is_def && !is_gen && !is_async {
+            let nd = match self.lookup(name) {
+                Some(Var::Cell(c)) => self.nested_direct.get(&c).cloned(),
+                _ => None,
+            };
+            if let Some((dfn, dcaps, _)) = nd {
+                if dcaps == captures.iter().map(|(_, r)| r.clone()).collect::<Vec<_>>() {
+                    let cparams: String = dcaps.iter().map(|r| format!("{r}: Rc<RefCell<V>>, ")).collect();
+                    write!(self.items, "fn {dfn}({cparams}{}) -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }}\n", pdecl.join(", ")).unwrap();
+                    let cargs: String = dcaps.iter().map(|r| format!("{r}.clone(), ")).collect();
+                    return Ok(format!("{{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {dfn}({cargs}{unpack}) }}) }}", dflt_all.join(", ")));
+                }
+                return Err(err(line, "internal: a nested function's captures changed"));
+            }
+        }
         if is_gen || is_async {
             let mk = if is_async && is_gen { format!("make_agen(sym({qname}), ") } else if is_async { format!("make_acoro(sym({qname}), ") } else { "make_gen(".to_string() };
             return Ok(format!(
@@ -2641,7 +2832,7 @@ impl Em {
         // invisible to the methods
         let sc = scope_of(&c.body, &[]);
         let parent = self.fstack.last().unwrap();
-        let mut fr = Func { vars: HashMap::new(), frames: parent.frames.clone(), class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, is_async: false, is_agen: false };
+        let mut fr = Func { vars: HashMap::new(), frames: parent.frames.clone(), class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, is_async: false, is_agen: false, is_gen: false };
         let mut decls = String::new();
         for n in sc.locals.iter() {
             let r = format!("a{id}_{}", rust_ident(n));
@@ -2797,6 +2988,8 @@ pub fn ic_statics() -> String {
 pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>), (String, usize, String)> {
     let mut em = Em {
         guards: HashSet::new(),
+        nested_direct: HashMap::new(),
+        safe_cells: HashMap::new(),
         out: String::new(),
         items: String::new(),
         n: 0,
@@ -2926,7 +3119,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     for m in mods {
         em.module = m.name.clone();
         IN_COPY.with(|c| c.set(OWN_COPIES.lock().unwrap().contains(&m.name)));
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, exc_vars: vec![], is_module: true, is_class: false, is_async: false, is_agen: false };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, exc_vars: vec![], is_module: true, is_class: false, is_async: false, is_agen: false, is_gen: false };
         for n in em.mod_names[&m.name].clone() {
             let i = em.gslot(&m.name, &n);
             fr.vars.insert(n.clone(), Var::Global(i));

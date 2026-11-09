@@ -900,6 +900,17 @@ pub fn ptr_hash(p: usize) -> i64 {
     let h = (h ^ (h >> 29)) as i64 & i64::MAX;
     if h == -1 { -2 } else { h }
 }
+// an instance hashed by identity (no __hash__ or __eq__ in its class), inline; the rest through py_hash
+#[inline(always)]
+pub fn hash_of(v: &V) -> Result<i64, E> {
+    if let V::Obj(o) = v {
+        let (e, b) = o.cls.plain_hash.get();
+        if b && e == CLASS_EPOCH.with(|e| e.get()) {
+            return Ok(ptr_hash(Rc::as_ptr(o) as usize));
+        }
+    }
+    py_hash(v)
+}
 pub fn py_hash(v: &V) -> Result<i64, E> {
     Ok(match v {
         V::None => 0xFCA86420u32 as i64,
@@ -938,7 +949,7 @@ pub fn py_hash(v: &V) -> Result<i64, E> {
             }
         } => ptr_hash(Rc::as_ptr(o) as usize),
         V::Obj(o) => {
-            let mixin = if is_enum(&o.cls) { o.inner.borrow().clone() } else { None };
+            let mixin = if is_enum(&o.cls) { o.inner() } else { None };
             if let Some(i) = mixin {
                 py_hash(&i)?
             } else if let Some(f) = o.cls.lookup("__hash__") {
@@ -1167,11 +1178,11 @@ impl PSet {
         }
     }
     pub fn contains(&self, k: &V) -> Result<bool, E> {
-        let h = py_hash(k)?;
+        let h = hash_of(k)?;
         Ok(self.find(k, h).is_some())
     }
     pub fn add(&mut self, k: V) -> Result<(), E> {
-        let h = py_hash(&k)?;
+        let h = hash_of(&k)?;
         self.add_h(k, h);
         Ok(())
     }
@@ -1578,61 +1589,133 @@ impl Class {
 pub struct Obj {
     pub cls: Rc<Class>,
     pub d: RefCell<Attrs>,
-    // the builtin value a subclass of a builtin type wraps (class Stack(list))
-    pub inner: RefCell<Option<V>>,
+    // the builtin value a subclass of a builtin type wraps (class Stack(list)); boxed, as most objects have none
+    inner: RefCell<Option<Box<V>>>,
 }
-// An instance's attributes in the order they were first set: the first four inside the object itself (one
-// allocation per instance, one pointer less to follow on each access), the rest in a Vec.
+// The names of an instance's attributes, in the order they were first set. Instances whose attributes were set
+// in the same order share one Shape (as V8's hidden classes do), so an instance keeps only the values: an
+// autograd node with four attributes is 160 bytes instead of 256, and the attribute names it would repeat
+// stay in one place in the cache. Shapes form a tree from the empty one: adding name n to shape s gives the
+// child of s along n, made the first time it is needed.
+pub struct Shape {
+    pub names: Vec<Sym>,
+    next: RefCell<Vec<(Sym, Rc<Shape>)>>,
+}
+// shapes with this many names, or children, make new shapes of their own instead of sharing them (an object
+// used as a dictionary should not grow the tree without bound)
+const SHAPE_MAX_NAMES: usize = 64;
+const SHAPE_MAX_NEXT: usize = 16;
+thread_local! {
+    static SHAPE_ROOT: Rc<Shape> = Rc::new(Shape { names: Vec::new(), next: RefCell::new(Vec::new()) });
+}
+impl Shape {
+    pub fn root() -> Rc<Shape> {
+        SHAPE_ROOT.with(|r| r.clone())
+    }
+    // this shape with n added at the end
+    fn with(self: &Rc<Shape>, n: Sym) -> Rc<Shape> {
+        {
+            let next = self.next.borrow();
+            for (k, s) in next.iter() {
+                if k.as_ptr() == n.as_ptr() && k.len() == n.len() {
+                    return s.clone();
+                }
+            }
+            for (k, s) in next.iter() {
+                if same_name(k, n) {
+                    return s.clone();
+                }
+            }
+        }
+        let mut names = Vec::with_capacity(self.names.len() + 1);
+        names.extend_from_slice(&self.names);
+        names.push(n);
+        let s = Rc::new(Shape { names, next: RefCell::new(Vec::new()) });
+        let mut next = self.next.borrow_mut();
+        if self.names.len() < SHAPE_MAX_NAMES && next.len() < SHAPE_MAX_NEXT {
+            next.push((n, s.clone()));
+        }
+        s
+    }
+}
+// An instance's attribute values in the order of shape.names: the first four inside the object itself (one
+// allocation per instance, one pointer less to follow on each access), the rest in a boxed Vec.
 #[derive(Clone)]
 pub struct Attrs {
-    n: usize,
-    a: [(Sym, V); 4],
-    more: Vec<(Sym, V)>,
+    shape: Rc<Shape>,
+    a: [V; 4],
+    more: Option<Box<Vec<V>>>,
 }
 impl Attrs {
     pub fn new() -> Attrs {
-        Attrs { n: 0, a: [("", V::Unbound), ("", V::Unbound), ("", V::Unbound), ("", V::Unbound)], more: Vec::new() }
+        Attrs { shape: Shape::root(), a: [V::Unbound, V::Unbound, V::Unbound, V::Unbound], more: None }
     }
-    pub fn iter(&self) -> std::iter::Chain<std::slice::Iter<'_, (Sym, V)>, std::slice::Iter<'_, (Sym, V)>> {
-        self.a[..self.n].iter().chain(self.more.iter())
+    #[inline]
+    pub fn names(&self) -> &[Sym] {
+        &self.shape.names
     }
-    pub fn iter_mut(&mut self) -> std::iter::Chain<std::slice::IterMut<'_, (Sym, V)>, std::slice::IterMut<'_, (Sym, V)>> {
-        self.a[..self.n].iter_mut().chain(self.more.iter_mut())
+    #[inline]
+    fn val(&self, i: usize) -> &V {
+        if i < 4 { &self.a[i] } else { &self.more.as_ref().unwrap()[i - 4] }
+    }
+    #[inline]
+    fn val_mut(&mut self, i: usize) -> &mut V {
+        if i < 4 { &mut self.a[i] } else { &mut self.more.as_mut().unwrap()[i - 4] }
+    }
+    pub fn iter(&self) -> impl Iterator<Item = (&Sym, &V)> + '_ {
+        self.shape.names.iter().enumerate().map(move |(i, k)| (k, self.val(i)))
+    }
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&Sym, &mut V)> + '_ {
+        let n = self.shape.names.len();
+        let Attrs { shape, a, more } = self;
+        let rest: &mut [V] = match more {
+            Some(m) => &mut m[..],
+            None => &mut [],
+        };
+        shape.names.iter().zip(a[..n.min(4)].iter_mut().chain(rest.iter_mut()))
     }
     pub fn push(&mut self, e: (Sym, V)) {
-        if self.n < 4 && self.more.is_empty() {
-            self.a[self.n] = e;
-            self.n += 1;
+        let i = self.shape.names.len();
+        self.shape = self.shape.with(e.0);
+        if i < 4 {
+            self.a[i] = e.1;
         } else {
-            self.more.push(e);
+            self.more.get_or_insert_with(|| Box::new(Vec::new())).push(e.1);
         }
     }
+    #[inline]
     pub fn len(&self) -> usize {
-        self.n + self.more.len()
+        self.shape.names.len()
     }
     #[inline]
-    pub fn get(&self, i: usize) -> Option<&(Sym, V)> {
-        if i < self.n { Some(&self.a[i]) } else { self.more.get(i - self.n) }
+    pub fn get(&self, i: usize) -> Option<(Sym, &V)> {
+        let k = *self.shape.names.get(i)?;
+        Some((k, self.val(i)))
     }
     #[inline]
-    pub fn get_mut(&mut self, i: usize) -> Option<&mut (Sym, V)> {
-        if i < self.n { Some(&mut self.a[i]) } else { self.more.get_mut(i - self.n) }
+    pub fn get_mut(&mut self, i: usize) -> Option<(Sym, &mut V)> {
+        let k = *self.shape.names.get(i)?;
+        Some((k, self.val_mut(i)))
+    }
+    // the value at i when the name there is n (an attribute cache's check)
+    #[inline(always)]
+    pub fn at_named(&self, i: usize, n: &str) -> Option<&V> {
+        match self.shape.names.get(i) {
+            Some(k) if k.len() == n.len() && (k.as_ptr() == n.as_ptr() || k.as_bytes() == n.as_bytes()) => Some(self.val(i)),
+            _ => None,
+        }
+    }
+    #[inline(always)]
+    pub fn at_named_mut(&mut self, i: usize, n: &str) -> Option<&mut V> {
+        match self.shape.names.get(i) {
+            Some(k) if k.len() == n.len() && (k.as_ptr() == n.as_ptr() || k.as_bytes() == n.as_bytes()) => Some(self.val_mut(i)),
+            _ => None,
+        }
     }
     // where a name is, by the address of its text (a call site's constant)
     #[inline]
     pub fn find_ptr(&self, n: &str) -> Option<usize> {
-        for i in 0..self.n {
-            let k = self.a[i].0;
-            if k.as_ptr() == n.as_ptr() && k.len() == n.len() {
-                return Some(i);
-            }
-        }
-        for (j, (k, _)) in self.more.iter().enumerate() {
-            if k.as_ptr() == n.as_ptr() && k.len() == n.len() {
-                return Some(self.n + j);
-            }
-        }
-        None
+        self.shape.names.iter().position(|k| k.as_ptr() == n.as_ptr() && k.len() == n.len())
     }
     // by address first, then by text
     #[inline]
@@ -1640,17 +1723,7 @@ impl Attrs {
         if let Some(i) = self.find_ptr(n) {
             return Some(i);
         }
-        for i in 0..self.n {
-            if same_name(self.a[i].0, n) {
-                return Some(i);
-            }
-        }
-        for (j, (k, _)) in self.more.iter().enumerate() {
-            if same_name(k, n) {
-                return Some(self.n + j);
-            }
-        }
-        None
+        self.shape.names.iter().position(|k| same_name(k, n))
     }
     pub fn is_empty(&self) -> bool {
         self.len() == 0
@@ -1664,8 +1737,9 @@ impl Attrs {
         r
     }
     pub fn into_vec(self) -> Vec<(Sym, V)> {
-        let Attrs { n, a, more } = self;
-        a.into_iter().take(n).chain(more).collect()
+        let Attrs { shape, a, more } = self;
+        let vals = a.into_iter().chain(more.map(|m| *m).unwrap_or_default());
+        shape.names.iter().copied().zip(vals).collect()
     }
 }
 impl IntoIterator for Attrs {
@@ -1702,6 +1776,17 @@ impl Obj {
     pub fn new(cls: Rc<Class>) -> Rc<Obj> {
         Rc::new(Obj { cls, d: RefCell::new(Attrs::new()), inner: RefCell::new(None) })
     }
+    #[inline]
+    pub fn inner(&self) -> Option<V> {
+        self.inner.borrow().as_ref().map(|b| (**b).clone())
+    }
+    #[inline]
+    pub fn has_inner(&self) -> bool {
+        self.inner.borrow().is_some()
+    }
+    pub fn set_inner(&self, v: Option<V>) {
+        *self.inner.borrow_mut() = v.map(Box::new);
+    }
     pub fn get(&self, n: &str) -> Option<V> {
         let d = self.d.borrow();
         d.find(n).map(|i| d.get(i).unwrap().1.clone())
@@ -1709,13 +1794,14 @@ impl Obj {
     pub fn set(&self, n: Sym, v: V) {
         let mut a = self.d.borrow_mut();
         match a.find(n) {
-            Some(i) => a.get_mut(i).unwrap().1 = v,
+            Some(i) => *a.get_mut(i).unwrap().1 = v,
             None => a.push((n, v)),
         }
     }
     pub fn del(&self, n: &str) -> bool {
         let mut a = self.d.borrow_mut();
-        match a.iter().position(|(k, _)| *k == n) {
+        let at = a.names().iter().position(|k| *k == n);
+        match at {
             Some(i) => {
                 a.remove(i);
                 true
@@ -1934,7 +2020,7 @@ pub fn truth(v: &V) -> Result<bool, E> {
             if let Some(f) = o.cls.lookup("__len__") {
                 return truth(&call(&f, Args::p(vec![v.clone()]))?);
             }
-            if let Some(i) = o.inner.borrow().as_ref() {
+            if let Some(i) = o.inner().as_ref() {
                 return truth(i);
             }
             true
@@ -1973,7 +2059,7 @@ pub fn range_len(v: &V) -> usize {
 // The builtin value a subclass instance wraps (class Stack(list): self.append(x)).
 pub fn inner_of(v: &V) -> Option<V> {
     if let V::Obj(o) = v {
-        return o.inner.borrow().clone();
+        return o.inner();
     }
     None
 }
