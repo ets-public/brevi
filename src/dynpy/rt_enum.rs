@@ -187,7 +187,7 @@ pub fn enum_setup(c: &Rc<Class>) -> Result<(), E> {
                 o.set("value", val.clone());
                 // class C(str, Enum) / (int, Enum): the member is also the str or int
                 if !matches!(c.base_bt(), BT::Object | BT::Other) {
-                    *o.inner.borrow_mut() = Some(val.clone());
+                    o.set_inner(Some(val.clone()));
                 }
                 let mv = V::Obj(o);
                 if let Some(f) = &init {
@@ -347,7 +347,7 @@ fn flag_member(c: &Rc<Class>, value: i64) -> R {
     o.set("_value_", V::Int(value));
     o.set("value", V::Int(value));
     if !matches!(c.base_bt(), BT::Object | BT::Other) {
-        *o.inner.borrow_mut() = Some(V::Int(value));
+        o.set_inner(Some(V::Int(value)));
     }
     let mut name = V::None;
     if member_value != 0 || aliases != 0 {

@@ -1286,8 +1286,8 @@ pub fn np_module_attr(m: &str, n: &str) -> Option<V> {
         ("numpy", "nan") => V::Float(f64::NAN),
         ("numpy", "euler_gamma") => V::Float(0.5772156649015329),
         ("numpy", "newaxis") => V::None,
-        ("numpy", "random") => V::Module("numpy.random"),
-        ("numpy", "linalg") => V::Module("numpy.linalg"),
+        ("numpy", "random") => V::Module(&ModName("numpy.random")),
+        ("numpy", "linalg") => V::Module(&ModName("numpy.linalg")),
         ("numpy.linalg", "LinAlgError") => V::Class(exc_class("LinAlgError")),
         ("numpy", "True_") => np_sc(Sc::B(true)),
         ("numpy", "False_") => np_sc(Sc::B(false)),
@@ -1654,7 +1654,7 @@ pub fn np_module_call(m: &str, n: &str, mut a: Args) -> R {
         "shape" => Ok(shape_tuple(&first(&a)?.shape)),
         "ndim" => Ok(V::Int(first(&a)?.ndim() as i64)),
         "size" => Ok(V::Int(first(&a)?.size() as i64)),
-        "dtype" => Ok(V::Ext(Rc::new(NpDtype(np_dtype_arg(&a.p[0])?.unwrap_or(NT::F))))),
+        "dtype" => Ok(V::Ext(ExtRc::new(NpDtype(np_dtype_arg(&a.p[0])?.unwrap_or(NT::F))))),
         "isscalar" => Ok(V::Bool(as_npsc(&a.p[0]).is_some() || matches!(a.p[0], V::Int(_) | V::Float(_) | V::Bool(_) | V::Big(_) | V::Str(_)))),
         "issubdtype" => {
             let d = match as_npdt(&a.p[0]) {
@@ -2250,7 +2250,7 @@ impl Ext for NpArr {
             "shape" => shape_tuple(&a.shape),
             "ndim" => V::Int(a.ndim() as i64),
             "size" => V::Int(a.size() as i64),
-            "dtype" => V::Ext(Rc::new(NpDtype(a.dt()))),
+            "dtype" => V::Ext(ExtRc::new(NpDtype(a.dt()))),
             "T" | "mT" => match np_transpose(a, None) {
                 Ok(t) => np_arr(t),
                 Err(e) => return Some(Err(e)),
@@ -2406,7 +2406,7 @@ impl Ext for NpScal {
     }
     fn attr(&self, _me: &V, n: &str) -> Option<R> {
         Some(Ok(match n {
-            "dtype" => V::Ext(Rc::new(NpDtype(self.0.dt()))),
+            "dtype" => V::Ext(ExtRc::new(NpDtype(self.0.dt()))),
             "shape" => tup(vec![]),
             "ndim" => V::Int(0),
             "size" => V::Int(1),

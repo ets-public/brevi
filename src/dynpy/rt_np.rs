@@ -884,13 +884,13 @@ pub struct NpScal(pub Sc);
 pub struct NpDtype(pub NT);
 
 pub fn np_arr(a: NdArr) -> V {
-    V::Ext(Rc::new(NpArr(a)))
+    V::Ext(ExtRc::new(NpArr(a)))
 }
 pub fn np_new(b: Buf, shape: Vec<usize>) -> V {
     np_arr(NdArr::new(b, shape))
 }
 pub fn np_sc(x: Sc) -> V {
-    V::Ext(Rc::new(NpScal(x)))
+    V::Ext(ExtRc::new(NpScal(x)))
 }
 // A 0-d result is a numpy scalar (as ufuncs and reductions return).
 pub fn np_out(b: Buf, shape: Vec<usize>) -> V {

@@ -5,7 +5,7 @@
 pub struct BytesV(pub Vec<u8>);
 
 pub fn bytesv(b: Vec<u8>) -> V {
-    V::Ext(Rc::new(BytesV(b)))
+    V::Ext(ExtRc::new(BytesV(b)))
 }
 
 pub fn bytes_of(v: &V) -> Option<Vec<u8>> {
@@ -915,7 +915,7 @@ impl Ext for HashV {
                 }
                 "digest" => bytesv(digest_of(self.name, &self.data.borrow())),
                 "hexdigest" => st(hex_of(&digest_of(self.name, &self.data.borrow()))),
-                "copy" => V::Ext(Rc::new(HashV { name: self.name, data: RefCell::new(self.data.borrow().clone()) })),
+                "copy" => V::Ext(ExtRc::new(HashV { name: self.name, data: RefCell::new(self.data.borrow().clone()) })),
                 _ => return Err(exc("AttributeError", format!("'_hashlib.HASH' object has no attribute '{n}'"))),
             })
         })())
@@ -944,7 +944,7 @@ pub fn hashlib_fn(n: &str, a: Args) -> R {
     };
     a.no_kw(n)?;
     let d = hash_data(data.as_ref())?;
-    Ok(V::Ext(Rc::new(HashV { name, data: RefCell::new(d) })))
+    Ok(V::Ext(ExtRc::new(HashV { name, data: RefCell::new(d) })))
 }
 
 // ---------- base64 and binascii ----------
