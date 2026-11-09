@@ -35,7 +35,7 @@ GUIDE = ROOT / "BREVI.md"
 
 # What Brevi's skill, MCP server and llms.txt tell an agent: its plain code runs natively, so it need not
 # hand-optimise (on the speed set this halved Sonnet's output). pyb runs get it unless --no-hint.
-NATIVE_HINT = "Your program is compiled to native code, which runs plain loops over ints and lists 10 to 50 times faster than CPython. Write the plain, direct solution; do not hand-optimise it for speed."
+NATIVE_HINT = "Your program is compiled to native code, which runs plain loops over ints and lists several times faster than CPython (1.7x to 39.5x, median 8.5x, on our 12 compute benchmarks). Write the plain, direct solution; do not hand-optimise it for speed."
 HINT = True
 
 

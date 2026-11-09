@@ -15,8 +15,8 @@ No. Write Python. Brevi also has its own language for `.bv` files, but measureme
 
 ## How is this different from Codon, Nuitka, Cython or PyPy?
 
-- **Codon** compiles a Python-like language and is very fast, but changes Python's behaviour (64-bit integers that wrap, different printing) and refuses much real code. On 591 agent programs it built 206 and got 36 of those wrong. Brevi built all 591, all matching CPython.
-- **Nuitka** matches CPython's behaviour, but keeps CPython's object model, so it runs at about CPython's speed. Brevi is 1.7x to 40x faster on the same programs.
+- **Codon** compiles a Python-like language and is very fast, but changes Python's behaviour (64-bit integers that wrap, different printing) and refuses much real code. On 591 of our saved agent programs it built 206 and got 36 of those wrong; Brevi built all 591, all matching CPython (they are our own regression set, so this favours Brevi). Codon never promised CPython's exact behaviour, and it is faster than Brevi on numeric code.
+- **Nuitka** matches CPython's behaviour, but keeps CPython's object model, so it runs at about CPython's speed. Brevi's default build is 1.7x to 39.5x faster than CPython on our 12 compute benchmarks (median 8.5x). Nuitka runs far more of Python than Brevi does today.
 - **Cython** speeds up code you annotate with C types. Brevi needs no annotations.
 - **PyPy** is a faster interpreter with a JIT. Brevi produces a standalone native binary, checks programs before they run, and gives errors built for agents.
 
@@ -24,7 +24,7 @@ No. Write Python. Brevi also has its own language for `.bv` files, but measureme
 
 ## Will my program give the same answer?
 
-Yes, or Brevi refuses to build it. A program Brevi builds prints exactly what CPython prints, with the same exit status. Every change is checked against hundreds of saved programs, behaviour traps and random programs. If you find a difference, it is a bug, so please report it.
+That is the aim, and usually yes, but not always yet. Brevi tries to refuse at build time anything it cannot match, and every change is checked against hundreds of saved programs and behaviour traps. On CPython 3.13's own tests, though, 58% match, 21% are refused, and 44 of 311 tests (14%) still build and answer differently, plus 5 that crash ([In numbers](/docs/compatibility#in-numbers)). For a program that matters, run `brevi verify x.py --input tests/`: it runs the native build and CPython on the same inputs and certifies them only if they agree. If you find a difference, it is a bug, so please report it.
 
 ## What happens when Brevi cannot build my file?
 
@@ -40,7 +40,7 @@ Brevi writes Rust and calls `rustc` to make the binary. The install script insta
 
 ## How fast are builds?
 
-Well under a second for a new small program (about 0.15 to 0.3 s), a few seconds with `--release`. The very first build after installing also builds Brevi's runtime once, about 5 to 15 seconds. Builds are cached, so running the same program again skips `rustc`.
+About 0.25 s for a tiny new program and a median of about 1.2 s for a typical agent program with no cache; about 1.5 s or more with `--release`. The very first build after installing also builds Brevi's runtime once, about 5 to 15 seconds. Builds are cached, so running the same program again skips `rustc`.
 
 ## Is it safe to run code an agent wrote?
 
@@ -48,7 +48,7 @@ Brevi programs are memory-safe, and integers never silently overflow. A program 
 
 ## Does it cost more tokens than Python?
 
-About the same. In the v0.26.0 release test (24 tasks, two runs), Brevi cost 1.07x (Sonnet) and 1.00x (Haiku) of what the same models cost running Python with CPython. Every task passed, and all 96 final programs built natively. Recent releases have stayed between 0.97x and 1.09x, and the test runs every week before a release. On heavy tasks, where the model would otherwise hand-optimise for CPython, Brevi costs about half. [Benchmarks](/docs/benchmarks#the-release-test) has every run.
+About the same. In the v0.26.0 release test (24 tasks, two runs), Brevi cost 1.07x (Sonnet) and 1.00x (Haiku) of what the same models cost running Python with CPython. Every task passed, and all 96 final programs built natively. Recent releases have stayed between 0.97x and 1.09x for Sonnet, mostly a few percent above 1.00x, so Brevi does not save model cost on ordinary tasks. In this test, when Brevi cannot build a file it runs with CPython, as `brevi run` does, so the model does not see Brevi's build errors. On four heavy tasks, telling the model (on the Brevi side only) that its code is compiled and should be written plainly brought the cost to about half; CPython has not yet been run with the same line, so that does not yet show what Brevi itself saves. [Benchmarks](/docs/benchmarks#the-release-test) has every run.
 
 ## Which platforms?
 
@@ -60,7 +60,7 @@ The compiler is open source under Apache-2.0 and will stay that way. brevi.run i
 
 ## Can I install it with pip, npm or Homebrew?
 
-Not yet. The packaging is ready and the names are reserved, but nothing is published. Use the GitHub release for now; see [Install](/docs/install).
+pip and npm, yes: `pip install brevi` or `npm install -g brevi` (or `uvx brevi mcp` / `npx brevi mcp` without installing), and the crate is on crates.io. Homebrew not yet. See [Install](/docs/install).
 
 ## Who makes Brevi?
 

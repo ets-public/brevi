@@ -1,6 +1,6 @@
 # Brevi: fast, safe native builds of AI-written Python
 
-Brevi is a compiler built for AI coding agents. The agent writes the plain Python it already writes best; Brevi builds it through Rust into a native binary that prints exactly what CPython prints and runs 1.7x to 40x faster with the default build. Anything it cannot build comes back as one short JSON line the agent can act on.
+Brevi is a compiler built for AI coding agents. The agent writes the plain Python it already writes best; Brevi builds it through Rust into a native binary that runs 1.7x to 39.5x faster than CPython (median 8.5x) on our 12 compute benchmarks with the default build, and aims to print exactly what CPython prints (58% of CPython 3.13's own tests match today; 14% still build and differ). Anything it cannot build comes back as one short JSON line the agent can act on.
 
 ```
 npm install -g brevi     # or run it without installing: npx brevi mcp
