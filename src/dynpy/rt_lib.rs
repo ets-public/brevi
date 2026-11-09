@@ -179,6 +179,9 @@ pub fn bi_int(mut a: Args) -> R {
     let base = a.kw("base");
     a.no_kw("int")?;
     if a.p.is_empty() {
+        if base.is_some() {
+            return type_err("int() missing string argument".into());
+        }
         return Ok(V::Int(0));
     }
     let base = match (a.p.get(1).cloned(), base) {
@@ -226,7 +229,9 @@ pub fn bi_bool(a: Args) -> R {
     Ok(V::Bool(truth(&a.p[0])?))
 }
 pub fn bi_list(a: Args) -> R {
-    a.no_kw("list")?;
+    if !a.k.is_empty() {
+        return type_err("list() takes no keyword arguments".into());
+    }
     if a.p.is_empty() {
         return Ok(list(vec![]));
     }

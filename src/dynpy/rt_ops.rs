@@ -830,6 +830,14 @@ fn iop_slow(a: &V, b: &V, op: &str) -> R {
             "*" => "__imul__",
             "|" => "__ior__",
             "&" => "__iand__",
+            "@" => "__imatmul__",
+            "/" => "__itruediv__",
+            "//" => "__ifloordiv__",
+            "%" => "__imod__",
+            "**" => "__ipow__",
+            "^" => "__ixor__",
+            "<<" => "__ilshift__",
+            ">>" => "__irshift__",
             _ => "",
         };
         if !name.is_empty() {

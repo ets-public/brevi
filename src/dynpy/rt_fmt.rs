@@ -130,10 +130,26 @@ pub fn repr(v: &V) -> Result<String, E> {
             if !guard(p) {
                 return Ok("[...]".into());
             }
-            let items = l.borrow().clone();
-            let r = join_repr(&items);
+            // item by item from the live list: an item's __repr__ may shorten it (CPython prints what is left)
+            let mut parts = vec![];
+            let mut i = 0;
+            let r = loop {
+                let x = {
+                    let b = l.borrow();
+                    if i >= b.len() {
+                        break Ok(());
+                    }
+                    b[i].clone()
+                };
+                match repr(&x) {
+                    Ok(t) => parts.push(t),
+                    Err(e) => break Err(e),
+                }
+                i += 1;
+            };
             unguard();
-            format!("[{}]", r?)
+            r?;
+            format!("[{}]", parts.join(", "))
         }
         V::Tuple(t) => {
             if t.len() == 1 {
@@ -226,7 +242,12 @@ pub fn repr(v: &V) -> Result<String, E> {
         }
         V::Obj(o) => {
             if let Some(f) = o.cls.lookup("__repr__") {
-                return match call(&f, Args::p(vec![v.clone()]))? {
+                // bound as an attribute lookup would bind it: a @staticmethod __repr__ gets no self
+                let r = match &f {
+                    V::Func(fun) if fun.kind.get() == 0 => call(&f, Args::p(vec![v.clone()]))?,
+                    _ => call(&getattr(v, "__repr__")?, Args::p(vec![]))?,
+                };
+                return match r {
                     V::Str(s) => Ok(s.s.clone()),
                     x => type_err(format!("__repr__ returned non-string (type {})", tn(&x))),
                 };
@@ -1009,7 +1030,10 @@ pub fn to_int(v: &V) -> R {
         V::Str(s) => parse_int(&s.s, 10).ok_or_else(|| exc("ValueError", format!("invalid literal for int() with base 10: {}", str_repr(&s.s)))),
         V::Obj(o) => {
             if let Some(f) = o.cls.lookup("__int__") {
-                return call(&f, Args::p(vec![v.clone()]));
+                return match call(&f, Args::p(vec![v.clone()]))? {
+                    r @ (V::Int(_) | V::Big(_) | V::Bool(_)) => Ok(r),
+                    r => type_err(format!("__int__ returned non-int (type {})", tn(&r))),
+                };
             }
             // a subclass of int, float or str (IntEnum, StrEnum): int's own __int__ wins over a user __index__
             if let Some(i) = inner_of(v).filter(|i| matches!(i, V::Int(_) | V::Big(_) | V::Bool(_) | V::Float(_) | V::Str(_))) {
