@@ -452,7 +452,7 @@ impl Dec {
 
 pub struct DecV(pub Dec);
 fn decv(d: Dec) -> V {
-    V::Ext(Rc::new(DecV(d)))
+    V::Ext(ExtRc::new(DecV(d)))
 }
 impl Ext for DecV {
     fn tname(&self) -> &'static str {
@@ -763,7 +763,7 @@ impl Frac {
 }
 pub struct FracV(pub Frac);
 fn fracv(f: Frac) -> V {
-    V::Ext(Rc::new(FracV(f)))
+    V::Ext(ExtRc::new(FracV(f)))
 }
 impl Ext for FracV {
     fn tname(&self) -> &'static str {
@@ -1335,7 +1335,7 @@ fn ts_us(v: &V) -> Result<i128, E> {
 // datetime.timezone: a fixed UTC offset in seconds.
 pub struct TZV(pub i32);
 fn tzv(off: i32) -> V {
-    V::Ext(Rc::new(TZV(off)))
+    V::Ext(ExtRc::new(TZV(off)))
 }
 fn tz_of(v: &V) -> Option<i32> {
     match v {
@@ -1618,7 +1618,7 @@ fn fromiso(t: &str, with_time: bool) -> Result<DT, E> {
 
 pub struct DTV(pub DT);
 fn dtv(d: DT) -> V {
-    V::Ext(Rc::new(DTV(d)))
+    V::Ext(ExtRc::new(DTV(d)))
 }
 #[derive(Clone, Copy, Debug)]
 pub struct TD {
@@ -1646,7 +1646,7 @@ impl TD {
 }
 pub struct TDV(pub TD);
 fn tdv(t: TD) -> V {
-    V::Ext(Rc::new(TDV(t)))
+    V::Ext(ExtRc::new(TDV(t)))
 }
 fn td_of(v: &V) -> Option<TD> {
     match v {
@@ -1664,7 +1664,7 @@ fn dt_of(v: &V) -> Option<DT> {
 // datetime.time: a time of day, kept as microseconds since midnight.
 pub struct TMV(pub i64);
 fn tmv(us: i64) -> V {
-    V::Ext(Rc::new(TMV(us)))
+    V::Ext(ExtRc::new(TMV(us)))
 }
 fn tm_of(v: &V) -> Option<i64> {
     match v {
@@ -2365,8 +2365,8 @@ impl Ext for CsvWriter {
             }
             let line = format!("{}{}", parts.join(&self.d.delim.to_string()), self.d.lineterm);
             match &self.f {
-                V::Module("sys.stdout") => out_write(&line),
-                V::Module("sys.stderr") => {
+                V::Module(&ModName("sys.stdout")) => out_write(&line),
+                V::Module(&ModName("sys.stderr")) => {
                     out_flush();
                     err_write(&line)
                 }
@@ -2462,7 +2462,7 @@ fn csv_fn(n: &str, mut a: Args) -> R {
             a.kw("extrasaction");
             a.kw("restval");
             let d = csv_dialect(&mut a)?;
-            Ok(V::Ext(Rc::new(CsvWriter { f, d, fields })))
+            Ok(V::Ext(ExtRc::new(CsvWriter { f, d, fields })))
         }
         _ => Err(unsupported(&format!("csv.{n}"))),
     }
@@ -2694,9 +2694,9 @@ fn threading_fn(n: &str, mut a: Args) -> R {
             let target = a.kw("target").unwrap_or(V::None);
             let args = a.kw("args").unwrap_or(tup(vec![]));
             let kwargs = a.kw("kwargs").unwrap_or(V::None);
-            Ok(V::Ext(Rc::new(Thread { target, args, kwargs })))
+            Ok(V::Ext(ExtRc::new(Thread { target, args, kwargs })))
         }
-        "Lock" | "RLock" => Ok(V::Ext(Rc::new(Lock))),
+        "Lock" | "RLock" => Ok(V::Ext(ExtRc::new(Lock))),
         "current_thread" | "main_thread" => Ok(V::None),
         "active_count" => Ok(V::Int(1)),
         _ => Err(unsupported(&format!("threading.{n}"))),
@@ -2766,7 +2766,7 @@ pub fn ext_module_call2(m: &str, n: &str, a: Args) -> Option<R> {
     }
     Some(match m {
         "decimal" => match n {
-            "getcontext" => Ok(V::Module("decimal.context")),
+            "getcontext" => Ok(V::Module(&ModName("decimal.context"))),
             "localcontext" => Err(unsupported("decimal.localcontext")),
             _ => Err(unsupported(&format!("decimal.{n}"))),
         },
