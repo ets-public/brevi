@@ -914,7 +914,7 @@ fn iop_slow(a: &V, b: &V, op: &str) -> R {
         (V::Dict(d), "|") => {
             let items = dict_items_of(b)?;
             for (k, v) in items {
-                d.borrow_mut().set(k, v)?;
+                dict_set(d, k, v)?;
             }
             return Ok(a.clone());
         }
@@ -1160,7 +1160,7 @@ pub fn contains(c: &V, x: &V) -> Result<bool, E> {
             }
             false
         }
-        V::Dict(d) => d.borrow().contains(x)?,
+        V::Dict(d) => dict_contains(d, x)?,
         V::Set(s) => s.borrow().contains(x)?,
         V::FSet(s) => s.contains(x)?,
         V::Range(r) => match x {
@@ -1175,7 +1175,7 @@ pub fn contains(c: &V, x: &V) -> Result<bool, E> {
             _ => to_vec(c)?.iter().any(|y| eq(y, x).unwrap_or(false)),
         },
         V::View(v) => match (&v.0, v.1) {
-            (V::Dict(d), 0) => d.borrow().contains(x)?,
+            (V::Dict(d), 0) => dict_contains(d, x)?,
             _ => to_vec(c)?.iter().any(|y| eq(y, x).unwrap_or(false)),
         },
         V::Deque(d) => {
@@ -1313,7 +1313,7 @@ pub fn getitem(c: &V, i: &V) -> R {
             return Ok(t[j].clone());
         }
         (V::Dict(d), _) => {
-            let got = d.borrow().get(i)?;
+            let got = dict_get(d, i)?;
             if let Some(v) = got {
                 return Ok(v);
             }
@@ -1326,7 +1326,7 @@ pub fn getitem(c: &V, i: &V) -> R {
             }
             if let Some(f) = dflt {
                 let v = call(&f, Args::p(vec![]))?;
-                d.borrow_mut().set(i.clone(), v.clone())?;
+                dict_set(d, i.clone(), v.clone())?;
                 return Ok(v);
             }
             return Err(exc_v("KeyError", i.clone()));
@@ -1395,7 +1395,7 @@ pub fn getitem(c: &V, i: &V) -> R {
             if let Some(inn) = inner_of(c) {
                 // A dict subclass with `__missing__`: a missing key calls it (`class D(dict)`).
                 if let (V::Dict(d), Some(f)) = (&inn, o.cls.lookup("__missing__")) {
-                    let got = d.borrow().get(i)?;
+                    let got = dict_get(d, i)?;
                     return match got {
                         Some(v) => Ok(v),
                         None => call(&f, Args::p(vec![c.clone(), i.clone()])),
@@ -1437,7 +1437,7 @@ pub fn setitem(c: &V, i: &V, v: V) -> Result<(), E> {
             l[j] = v;
             Ok(())
         }
-        (V::Dict(d), _) => d.borrow_mut().set(i.clone(), v),
+        (V::Dict(d), _) => dict_set(d, i.clone(), v),
         (V::List(l), V::Slice(sl)) => {
             let new = to_vec(&v)?;
             let n = l.borrow().len();
@@ -1501,7 +1501,7 @@ pub fn delitem(c: &V, i: &V) -> Result<(), E> {
             }
             Ok(())
         }
-        (V::Dict(d), _) => match d.borrow_mut().del(i)? {
+        (V::Dict(d), _) => match dict_del(d, i)? {
             Some(_) => Ok(()),
             None => Err(exc_v("KeyError", i.clone())),
         },

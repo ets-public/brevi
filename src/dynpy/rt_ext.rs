@@ -2383,7 +2383,7 @@ impl Ext for CsvWriter {
                     let mut out = vec![];
                     for f in fs {
                         out.push(match r {
-                            V::Dict(d) => d.borrow().get(f)?.unwrap_or(s("")),
+                            V::Dict(d) => dict_get(d, f)?.unwrap_or(s("")),
                             _ => getitem(r, f)?,
                         });
                     }

@@ -1046,24 +1046,35 @@ impl Dict {
         self.n
     }
     pub fn get(&self, k: &V) -> Result<Option<V>, E> {
-        let key = K { h: py_hash(k)?, v: k.clone() };
+        self.get_h(k, py_hash(k)?)
+    }
+    pub fn get_h(&self, k: &V, h: i64) -> Result<Option<V>, E> {
+        let key = K { h, v: k.clone() };
         let r = self.idx.get(&key).map(|&i| self.ents[i].as_ref().unwrap().1.clone());
         key_err()?;
         Ok(r)
     }
     pub fn contains(&self, k: &V) -> Result<bool, E> {
-        let key = K { h: py_hash(k)?, v: k.clone() };
+        self.contains_h(k, py_hash(k)?)
+    }
+    pub fn contains_h(&self, k: &V, h: i64) -> Result<bool, E> {
+        let key = K { h, v: k.clone() };
         let r = self.idx.contains_key(&key);
         key_err()?;
         Ok(r)
     }
     pub fn set(&mut self, k: V, v: V) -> Result<(), E> {
+        let h = py_hash(&k)?;
+        self.set_h(k, v, h)
+    }
+    pub fn set_h(&mut self, k: V, v: V, h: i64) -> Result<(), E> {
         // one probe, so a user __eq__ runs once per insert, as CPython's does
-        let key = K { h: py_hash(&k)?, v: k.clone() };
+        let key = K { h, v: k.clone() };
         match self.idx.entry(key) {
             std::collections::hash_map::Entry::Occupied(e) => {
                 key_err()?;
                 self.ents[*e.get()].as_mut().unwrap().1 = v;
+                self.ver += 1;
             }
             std::collections::hash_map::Entry::Vacant(e) => {
                 key_err()?;
@@ -1077,7 +1088,11 @@ impl Dict {
     }
     // `d.setdefault(k, v)`: one hash and one lookup, as CPython (a test counts the __hash__ and __eq__ calls)
     pub fn set_default(&mut self, k: V, v: V) -> Result<V, E> {
-        let key = K { h: py_hash(&k)?, v: k.clone() };
+        let h = py_hash(&k)?;
+        self.set_default_h(k, v, h)
+    }
+    pub fn set_default_h(&mut self, k: V, v: V, h: i64) -> Result<V, E> {
+        let key = K { h, v: k.clone() };
         match self.idx.entry(key) {
             std::collections::hash_map::Entry::Occupied(e) => {
                 key_err()?;
@@ -1094,7 +1109,10 @@ impl Dict {
         }
     }
     pub fn del(&mut self, k: &V) -> Result<Option<V>, E> {
-        let key = K { h: py_hash(k)?, v: k.clone() };
+        self.del_h(k, py_hash(k)?)
+    }
+    pub fn del_h(&mut self, k: &V, h: i64) -> Result<Option<V>, E> {
+        let key = K { h, v: k.clone() };
         let removed = self.idx.remove(&key);
         key_err()?;
         match removed {
@@ -1135,13 +1153,7 @@ impl Dict {
         self.ver += 1;
     }
     pub fn copy(&self) -> Dict {
-        let mut d = Dict::new();
-        d.kind = self.kind;
-        d.dflt = self.dflt.clone();
-        for (k, v) in self.items() {
-            d.set(k, v).ok();
-        }
-        d
+        self.snapshot()
     }
     pub fn move_to_end(&mut self, k: &V, last: bool) -> Result<bool, E> {
         match self.del(k)? {
@@ -1163,6 +1175,113 @@ impl Dict {
     // The i-th live entry from the start, skipping holes (for iteration by position).
     pub fn first_live(&self, from: usize) -> Option<usize> {
         (from..self.ents.len()).find(|&i| self.ents[i].is_some())
+    }
+    // A shallow copy whose keys and values are the same objects: made without calling user __hash__/__eq__,
+    // so a lookup that may run user code can run on it while the real dict stays free to be mutated.
+    fn snapshot(&self) -> Dict {
+        Dict { ents: self.ents.clone(), idx: self.idx.clone(), n: self.n, kind: self.kind, dflt: self.dflt.clone(), ver: self.ver }
+    }
+}
+
+// Dict operations that can run user __hash__/__eq__. They are done on a snapshot first, so user code
+// (for example d.clear() inside __eq__, CPython's gh-140551) never re-borrows the dict while a lookup
+// is inside it. If the real dict changed during the lookup, the operation is replayed on its new state,
+// exactly as CPython's lookup continues on the mutated table.
+fn plain_key(v: &V) -> bool {
+    match v {
+        V::None | V::Bool(_) | V::Int(_) | V::Big(_) | V::Float(_) | V::Str(_) | V::Range(_)
+        | V::Ellipsis | V::NotImpl | V::Module(_) => true,
+        V::Tuple(xs) => xs.iter().all(plain_key),
+        V::FSet(p) => p.keys().iter().all(plain_key),
+        _ => false,
+    }
+}
+pub fn dict_get(d: &Rc<RefCell<Dict>>, k: &V) -> Result<Option<V>, E> {
+    let h = py_hash(k)?;
+    if plain_key(k) {
+        return d.borrow().get_h(k, h);
+    }
+    loop {
+        let (mut snap, v0) = {
+            let d = d.borrow();
+            (d.snapshot(), d.ver)
+        };
+        let r = snap.get_h(k, h)?;
+        let mut d = d.borrow_mut();
+        if d.ver == v0 {
+            return Ok(r);
+        }
+    }
+}
+pub fn dict_contains(d: &Rc<RefCell<Dict>>, k: &V) -> Result<bool, E> {
+    let h = py_hash(k)?;
+    if plain_key(k) {
+        return d.borrow().contains_h(k, h);
+    }
+    loop {
+        let (mut snap, v0) = {
+            let d = d.borrow();
+            (d.snapshot(), d.ver)
+        };
+        let r = snap.contains_h(k, h)?;
+        let mut d = d.borrow_mut();
+        if d.ver == v0 {
+            return Ok(r);
+        }
+    }
+}
+pub fn dict_set(d: &Rc<RefCell<Dict>>, k: V, v: V) -> Result<(), E> {
+    let h = py_hash(&k)?;
+    if plain_key(&k) {
+        return d.borrow_mut().set_h(k, v, h);
+    }
+    loop {
+        let (mut snap, v0) = {
+            let d = d.borrow();
+            (d.snapshot(), d.ver)
+        };
+        snap.set_h(k.clone(), v.clone(), h)?;
+        let mut d = d.borrow_mut();
+        if d.ver == v0 {
+            *d = snap;
+            return Ok(());
+        }
+    }
+}
+pub fn dict_set_default(d: &Rc<RefCell<Dict>>, k: V, v: V) -> Result<V, E> {
+    let h = py_hash(&k)?;
+    if plain_key(&k) {
+        return d.borrow_mut().set_default_h(k, v, h);
+    }
+    loop {
+        let (mut snap, v0) = {
+            let d = d.borrow();
+            (d.snapshot(), d.ver)
+        };
+        let r = snap.set_default_h(k.clone(), v.clone(), h)?;
+        let mut d = d.borrow_mut();
+        if d.ver == v0 {
+            *d = snap;
+            return Ok(r);
+        }
+    }
+}
+pub fn dict_del(d: &Rc<RefCell<Dict>>, k: &V) -> Result<Option<V>, E> {
+    let h = py_hash(k)?;
+    if plain_key(k) {
+        return d.borrow_mut().del_h(k, h);
+    }
+    loop {
+        let (mut snap, v0) = {
+            let d = d.borrow();
+            (d.snapshot(), d.ver)
+        };
+        let r = snap.del_h(k, h)?;
+        let mut d = d.borrow_mut();
+        if d.ver == v0 {
+            *d = snap;
+            return Ok(r);
+        }
     }
 }
 
