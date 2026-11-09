@@ -183,7 +183,7 @@ Four change requests to an existing 120-line program (`edit/base/shop.{py,ax,rs}
 
 ## CPython conformance
 
-`tools/conformance.py` measures how much of Python Brevi handles with a source outside this repository: CPython's own test suite. The latest committed result is [conformance/report.md](conformance/report.md). It is not in CI, because Actions minutes are limited; run it by hand, for example before a release:
+`tools/conformance.py` measures how much of Python Brevi handles with a source outside this repository: CPython's own test suite. The latest committed result is [conformance/report.md](conformance/report.md). It runs in CI as a ratchet on every pull request that touches the compiler (`.github/workflows/toolchains.yml`, one toolchain, about 10 minutes): `--check` fails on a wrong result or crash not in `compat/conformance_known_wrong.txt`, on a line there that is no longer wrong (so the list only shrinks), and when fewer tests match than `compat/conformance_floor.json` allows (so the score only rises). `--write-baseline` resets both after a run whose results have been read. To run it by hand, for example before a release:
 
 ```
 cargo build --release
