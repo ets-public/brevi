@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Brevi: compile the Python your AI agent writes</title>
-<meta name="description" content="Brevi is built for AI coding agents: the agent writes ordinary Python, and Brevi builds it through Rust into a fast, memory-safe native binary with the same output as CPython.">
+<meta name="description" content="Brevi is built for AI coding agents: the agent writes ordinary Python, and Brevi builds it through Rust into a fast, memory-safe native binary, checked against CPython's own tests.">
 <link rel="alternate" type="text/plain" href="/llms.txt" title="llms.txt">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -22,7 +22,7 @@ __HEADER__
     <div>
       <p class="eyebrow">A compiler for AI coding agents</p>
       <h1>Run the Python your agent writes as a native binary</h1>
-      <p class="lede">Your agent keeps writing ordinary Python. Brevi compiles it through Rust into a binary that prints <strong>exactly what CPython prints</strong> and runs <strong>2 to 40 times faster</strong> on our benchmarks. When Brevi cannot build a file, it says why in one line of JSON.</p>
+      <p class="lede">Your agent keeps writing ordinary Python. Brevi compiles it through Rust into a native binary that runs <strong>1.7x to 39.5x faster</strong> than CPython (median 8.5x) on our compute benchmarks. It aims to print exactly what CPython prints and to refuse what it cannot match; today it matches <strong>58% of CPython's own tests</strong>, so it is a preview, not a drop-in <code>python3</code>. When Brevi cannot build a file, it says why in one line of JSON.</p>
 <!--public-->      <div class="install" aria-label="Install command"><span class="p">$</span><code>curl -fsSL https://raw.githubusercontent.com/ets-public/brevi/main/install.sh | sh</code></div>
 <!--/public-->      <div class="actions">
         <a class="btn primary" href="/docs/install">Get started</a>
@@ -56,7 +56,7 @@ cat: 1</pre>
       <ol class="steps">
         <li><h3>The agent writes Python</h3><p>Ordinary Python 3, with the standard library or installed packages, in one file or many. No type annotations needed.</p></li>
         <li><h3>Brevi compiles it</h3><p>It infers the type of every value and writes Rust. Where a type changes at run time, it writes Rust over dynamic values instead. <code>rustc</code> makes the binary.</p></li>
-        <li><h3>Same output, less time</h3><p>The binary prints what CPython prints. If Brevi cannot match CPython exactly, it refuses at build time, and <code>brevi run</code> runs the file with python3 instead and says so in one line.</p></li>
+        <li><h3>Checked against CPython</h3><p>Where Brevi knows it cannot match CPython, it refuses at build time, and <code>brevi run</code> runs the file with python3 instead and says so in one line (<code>--native</code> turns that off). It does not catch every difference yet, so check programs that matter with <code>brevi verify</code>.</p></li>
       </ol>
     </div>
   </section>
@@ -76,15 +76,15 @@ cat: 1</pre>
             <tr><td>Memory safety</td><td>Garbage collector</td><td>Checked by the compiler</td><td class="win">Checked by the compiler, no annotations</td></tr>
             <tr><td>Integer overflow</td><td>Unlimited integers</td><td>Wraps in release builds unless checked</td><td class="win">Unlimited, like Python: past 64 bits a value becomes a big integer</td></tr>
             <tr><td>Errors the agent reads</td><td>Multi-line tracebacks</td><td>Long compiler messages</td><td class="win">One JSON line with the line number and a fix</td></tr>
-            <tr><td>Deployment</td><td>An interpreter and its packages</td><td>One binary</td><td class="win">One binary (<code>--standalone</code> carries CPython for library programs)</td></tr>
+            <tr><td>Deployment</td><td>An interpreter and its packages</td><td>One binary</td><td class="win">One binary (library programs need Python's shared library, or <code>--standalone</code> on Linux to carry it)</td></tr>
           </tbody>
         </table>
       </div>
       <div class="grid3" style="margin-top: 40px;">
-        <div class="point"><span class="fig">591 of 591</span><h3>Same output as CPython</h3><p>On 591 saved agent programs, every Brevi build prints exactly what CPython prints, byte for byte, with the same exit status. Codon builds 36 of them with wrong output.</p></div>
-        <div class="point"><span class="fig">refuses at build time</span><h3>No silent differences</h3><p>When Brevi cannot match CPython for some piece of Python, it stops at build time and names the line. It never builds a program that might answer differently.</p></div>
+        <div class="point"><span class="fig">181 of 311</span><h3>CPython's own tests</h3><p>Of 311 tests from CPython 3.13's own suite, 181 build natively and print exactly what CPython prints, 66 are refused with a reason, 44 still build and answer differently, and 5 crash. Those 49 are bugs, and they are what we fix first. <a href="/docs/compatibility#in-numbers">The numbers</a></p></div>
+        <div class="point"><span class="fig">591 of 591</span><h3>No regressions on agent programs</h3><p>All 591 saved programs from our own benchmark runs still build and match CPython byte for byte, with the same exit status. They passed once and are kept so nothing breaks again: a regression check, not a measure of how much Python works.</p></div>
         <div class="point"><span class="fig">{"line":N,"msg":…,"fix":…}</span><h3>One-line errors</h3><p>Build and run-time errors are one line that names the source line, a fraction of a traceback's tokens. The agent fixes that line and runs again.</p></div>
-        <div class="point"><span class="fig">allow read, write</span><h3>Only the caller grants access</h3><p>Under <code>brevi run --sandbox</code> and in the MCP tools, a program cannot read or write files, call native code or load libraries unless the caller allows it. <code>allow</code> lines in the source grant nothing.</p></div>
+        <div class="point"><span class="fig">allow read, write</span><h3>Only the caller grants access</h3><p>Under <code>brevi run --sandbox</code> and in the MCP tools, a program cannot read or write files, call native code or load libraries unless the caller allows it. <code>allow</code> lines in the source grant nothing. It is a limit layer, not a security boundary: no seccomp or VM, <code>--allow-py</code> is full trust, and no outside review yet. Run untrusted code in a container too.</p></div>
         <div class="point"><span class="fig">numpy · requests · pydantic</span><h3>Installed packages work</h3><p>numpy, requests, pydantic, the LLM SDKs, MCP servers, sqlite3 and other common libraries build with Brevi's own native copies; other installed packages, such as pandas, run in CPython inside the native program. tkinter apps build too, and can be tested without a screen.</p></div>
         <div class="point"><span class="fig">Rust stable · beta · nightly</span><h3>Tested against new toolchains</h3><p>CI builds daily on Rust stable and the newest and next Python, and weekly on Rust beta and nightly. Every benchmark program that once passed must keep passing.</p></div>
       </div>
@@ -142,15 +142,17 @@ IndexError: list index out of range</pre>
               <tr><td>Group records</td><td class="n">0.68</td><td class="n win">0.26</td><td class="n">0.34</td><td class="n">0.64</td></tr>
             </tbody>
           </table>
-          <p class="note">3 November 2026, one 4-core Linux machine (Codon 0.20.6, Nuitka 4.3.4, CPython 3.13). Without <code>--release</code>, Brevi's default build is 1.7x to 40x faster than CPython on every program.</p>
+          <p class="note">3 November 2026, one 4-core Linux machine (Codon 0.20.6, Nuitka 4.3.4, CPython 3.13). Without <code>--release</code>, Brevi's default build is 1.7x to 39.5x faster than CPython on these 12 programs, median 8.5x. Codon and Nuitka were timed in an earlier session on the same machine. These are compute-heavy programs on Brevi's typed build; programs on its dynamic build run much closer to CPython's speed.</p>
         </div>
         <div>
           <div class="table-wrap" style="margin-top: 0;">
             <table>
               <thead><tr><th>Same result as CPython</th><th class="n">Brevi</th><th class="n">Codon</th><th class="n">Nuitka</th></tr></thead>
               <tbody>
-                <tr><td>Agent programs (591)</td><td class="n win">591</td><td class="n">170</td><td class="n">591</td></tr>
-                <tr><td>Built, wrong output</td><td class="n win">0</td><td class="n">36</td><td class="n">0</td></tr>
+                <tr><td>CPython 3.13's own tests (311): match</td><td class="n">181</td><td class="n">not run</td><td class="n">not run</td></tr>
+                <tr><td>... built, wrong answer or crash</td><td class="n">49</td><td class="n">not run</td><td class="n">not run</td></tr>
+                <tr><td>Our agent programs (591): built</td><td class="n">591</td><td class="n">206</td><td class="n">591</td></tr>
+                <tr><td>... match CPython</td><td class="n">591</td><td class="n">170</td><td class="n">591</td></tr>
                 <tr><td>Large programs (18)</td><td class="n win">18</td><td class="n">0</td><td class="n">18</td></tr>
                 <tr><td>Behaviour traps (13)</td><td class="n win">13</td><td class="n">4</td><td class="n">12</td></tr>
               </tbody>
@@ -161,11 +163,11 @@ IndexError: list index out of range</pre>
               <thead><tr><th>Model cost, Brevi vs CPython</th><th class="n">Sonnet</th><th class="n">Haiku</th></tr></thead>
               <tbody>
                 <tr><td>Release test, 24 tasks (v0.26.0, two runs)</td><td class="n">1.07x</td><td class="n">1.00x</td></tr>
-                <tr><td>4 heavy tasks, "write it plainly"</td><td class="n win">0.58x</td><td class="n win">0.53x</td></tr>
+                <tr><td>4 heavy tasks, Brevi side told "write it plainly" (no CPython control yet)</td><td class="n">0.58x</td><td class="n">0.53x</td></tr>
               </tbody>
             </table>
           </div>
-          <p class="note">The full API cost for a model to write Python until the tests pass, with Brevi building the code against CPython running it, 4 November 2026. On heavy tasks a plain loop is fast enough under Brevi, so the agent stops hand-optimising. <a href="/docs/benchmarks">Method and all results</a></p>
+          <p class="note">The full API cost for a model to write Python until the tests pass, with Brevi building the code against CPython running it, 9 November 2026. On ordinary tasks Brevi costs about the same as CPython, not less. The heavy-task figure comes from an extra prompt line given only to the Brevi side, so it does not yet show what Brevi itself saves; a CPython run with the same line is next. <a href="/docs/benchmarks">Method and all results</a></p>
         </div>
       </div>
     </div>

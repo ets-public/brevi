@@ -1,17 +1,21 @@
 # What works, and limits
 <!-- description: Which Python Brevi builds natively, how libraries work, typed versus dynamic builds, big integers, and the known gaps. -->
 
-Brevi's promise for a Python file is simple: **the native program prints exactly what CPython prints, or Brevi refuses to build it.** This page says how much Python that covers today and where the edges are.
+Brevi's aim for a Python file is simple: **the native program prints what CPython prints, or Brevi refuses to build it.** It does not meet that aim everywhere yet: on CPython's own tests some built programs still answer differently or crash, and the table below gives the count. This page says how much Python works today and where the edges are. For a program that matters, `brevi verify x.py --input tests/` runs the native build and CPython on the same inputs and certifies them only if they agree.
+
+What "the same" covers: stdout byte for byte and the exit status. Text on stderr is not part of it, and neither is output that CPython itself changes from run to run (the order of a set of strings, `id()`, when `__del__` runs).
 
 ## In numbers
 
 | Check | Result |
 | --- | --- |
-| Saved agent programs (591, from benchmark runs) built unchanged | 591 build, 591 match CPython on every test |
-| Large programs (18; chess, a text adventure, an interpreter; 200 to 750 lines over 3 to 4 files) | 18 build, 18 match |
+| CPython 3.13's own tests (`test_grammar`, `test_scope`, `test_int`, `test_list`, `test_dict`; 311 scored) | **181 match (58.2%)**, 66 refused at build time, **44 build but answer differently** (18 in output, 26 in exit status), **5 crash**. 34 of the matches print nothing, so they only show the program built and exited cleanly. 25 of the 230 native builds took the fast typed build ([report](repo:bench/conformance/report.md)) |
+| Saved agent programs (591, solutions to our own benchmark tasks, kept once they passed) | 591 build, 591 match CPython on every test. A regression check, not a sample of Python in general |
+| Large programs (18; chess, a text adventure, an interpreter; 200 to 750 lines over 3 to 4 files) | 18 build, 18 match (also our own saved solutions) |
 | Behaviour traps (13: big ints, `//` and `%` signs, float printing, dict order, unicode, aliasing, deep recursion, ...) | 13 match |
-| Release test (24 tasks, Sonnet and Haiku writing fresh Python) | 92 to 98% of final programs native, the rest via the CPython fallback (the two that needed it in run w156a, both `json_query`, now build natively on main) |
-| Random generated programs (bug hunt, 2 Nov 2026) | 400 of 400 match |
+| Release test, v0.26.0 (24 tasks, Sonnet and Haiku writing fresh Python, two runs) | 96 of 96 final programs native (the bar is 90%; earlier releases 92 to 100%), the rest would run via the CPython fallback |
+
+The 44 and the 5 are bugs against the aim above, and they are what we are fixing first. The CPython-test row is the closest thing to an outside sample; the saved-program rows are in-distribution by construction.
 
 "Match" means stdout byte for byte and the same exit status. See [Benchmarks](/docs/benchmarks) for the method.
 
@@ -82,7 +86,7 @@ Not built natively yet (`brevi run` falls back to CPython; `--native` refuses):
 
 ## numpy
 
-From v0.26.0, a Python file that uses numpy's core builds with Brevi's own numpy, written in Rust: no CPython and no numpy at run time, and the same output as numpy 2.x byte for byte, printing included. A program that uses anything outside it is not built this way: it gets CPython's numpy as before (see [Libraries](#libraries-numpy-pandas)), so an answer is never half Brevi's and half numpy's.
+From v0.26.0, a Python file that uses numpy's core builds with Brevi's own numpy, written in Rust: no CPython and no numpy at run time, and the same output as numpy 2.x byte for byte, printing included, on the machines described below (some last digits depend on the CPU and on numpy's thread count). A program that uses anything outside it is not built this way: it gets CPython's numpy as before (see [Libraries](#libraries-numpy-pandas)), so an answer is never half Brevi's and half numpy's.
 
 What it has:
 
@@ -281,4 +285,6 @@ These are tracked on the [roadmap](/docs/roadmap):
 - **Classes built on a library's classes** (`class Post(BaseModel)`) run in CPython as a whole, and in some layouts send the whole file to CPython.
 - **Dynamic builds are slower** than typed ones; widening what the typed build accepts is ongoing work.
 - **`match` and `eval`** are not built natively (async generators are, from v0.26.0).
-- **Cold builds** take about 0.15 to 0.3 seconds for a small program (a few seconds with `--release`), plus 5 to 15 seconds once for Brevi's runtime on the very first build. That still matters for agents that build many one-off programs; repeat builds are cached.
+- **Built programs that differ from CPython.** On CPython's own tests 44 built programs still answer differently and 5 crash (see [In numbers](#in-numbers)). Some library paths also raise `NotImplementedError` at run time instead of refusing at build time: numpy `argsort` on repeated values, some safetensors dtypes, duckdb UUID and timezone values.
+- **`brevi run` falls back to `python3` quietly.** A file Brevi cannot build runs with CPython, with one line on stderr; that run gets no speed-up and no native checks. Use `--native` (or `brevi build`) to get an error instead.
+- **Cold builds** take about 0.25 seconds for a tiny program (about 1.5 s with `--release`), and a median of about 1.2 s for a typical saved agent program with no cache; the very first build after installing also builds Brevi's runtime once, about 5 to 15 seconds. That still matters for agents that build many one-off programs; repeat builds are cached.

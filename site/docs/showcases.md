@@ -17,6 +17,8 @@ Measured 8 November 2026 with Brevi from `main` just before 0.26.0 on Linux x86_
 
 <!-- showcases:end -->
 
+Read the first three rows as start-up and import time: CPython spends most of its 614 ms, 650 ms and 371 ms starting up and importing `mcp` or `tiktoken`, and that is what Brevi's binary skips. That matters for MCP servers and tools a client starts often. The two rows that do real work for longer, counting a whole source tree and training micrograd, are 2.3x and 5.5x. The results file records `brevi 0.25.0` because `main` before the release still carried that version number.
+
 ## SQLite MCP server
 
 A notes server on the official [`mcp` Python SDK](https://github.com/modelcontextprotocol/python-sdk) with three tools: `add_note`, `search_notes` and a read-only `query`. The file is plain Python that CPython runs unchanged. Brevi builds it, SDK and SQLite included, into one 16 MB binary that does not link libpython. An agent client starts an MCP server for each session, so start-up time is the time a user waits.
