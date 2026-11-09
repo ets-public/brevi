@@ -1850,7 +1850,12 @@ impl Parser {
         if level == 2 && self.eat_kw("not") {
             return Ok(Expr::Unary("!", Box::new(self.binary(2)?)));
         }
+        let lpos = self.pos;
         let mut lhs = self.binary(level + 1)?;
+        // `(5,) + ...`: lhs is a one-item tuple written as one (kept as a one-item list, like `[5]`).
+        let lhs_tup1 = matches!(&lhs, Expr::List(xs) if xs.len() == 1) && self.pos >= lpos + 3
+            && self.toks[lpos].tok == Tok::Sym("(") && self.toks[self.pos - 1].tok == Tok::Sym(")") && self.toks[self.pos - 2].tok == Tok::Sym(",");
+        let mut first = true;
         // Python's `0 <= x < n` is `0 <= x and x < n`.
         let mut chain: Option<Expr> = None;
         loop {
@@ -1866,6 +1871,7 @@ impl Parser {
             };
             self.next();
             self.skip_newlines();
+            let was_first = std::mem::replace(&mut first, false);
             let rpos = self.pos;
             let rhs = self.binary(level + 1)?;
             // `"%s" % (x,)`: a one-item tuple (kept as a one-item list) gives the one value, as a tuple does.
@@ -1890,7 +1896,14 @@ impl Parser {
                 continue;
             }
             let empty = |e: &Expr| matches!(e, Expr::List(xs) if xs.is_empty()) || matches!(e, Expr::Map(m) if m.is_empty());
-            lhs = if op == ".." {
+            // `(5,) + tuple(ranks)`: both sides are written as tuples, so the value is a tuple (a JSON one: a
+            // list here would print as [5, ...] and sort below every tuple, as a poker score does).
+            let rhs_tuple_call = matches!(&rhs, Expr::Method(_, m, a, _) if m == "skip" && matches!(a.as_slice(), [Expr::Int(0)]))
+                && matches!(&self.toks[rpos].tok, Tok::Ident(n) if n == "tuple") && self.toks.get(rpos + 1).is_some_and(|t| t.tok == Tok::Sym("(")) && self.toks[self.pos - 1].tok == Tok::Sym(")");
+            let tup_join = op == "+" && was_first && lhs_tup1 && rhs_tuple_call && self.py;
+            lhs = if tup_join {
+                Expr::Call("ax_tup_json".into(), vec![(None, Expr::Binary("+", Box::new(lhs), Box::new(rhs)))], self.line())
+            } else if op == ".." {
                 Expr::Range(Box::new(lhs), Box::new(rhs))
             } else if (op == "==" || op == "!=") && (empty(&lhs) || empty(&rhs)) {
                 // `xs == []` and `m != {}` test for empty.

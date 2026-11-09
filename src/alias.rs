@@ -1571,6 +1571,12 @@ fn none_branches_out(e: &Expr, r: &str) -> Expr {
 
 // Puts `base[key] = r` after each statement that changes r, at any depth (not inside lambdas).
 fn add(r: &str, wb: &Stmt, stmts: &mut Vec<Stmt>, tail: &mut Option<Box<Expr>>) {
+    add_in(r, wb, stmts, tail, false)
+}
+
+// stmt: the block is a branch or body of a statement (an if, loop or match standing alone in Python), so
+// its last expression's value is not used.
+fn add_in(r: &str, wb: &Stmt, stmts: &mut Vec<Stmt>, tail: &mut Option<Box<Expr>>, stmt: bool) {
     let old = std::mem::take(stmts);
     for mut st in old {
         let d = direct_wb(r, &st);
@@ -1584,8 +1590,8 @@ fn add(r: &str, wb: &Stmt, stmts: &mut Vec<Stmt>, tail: &mut Option<Box<Expr>>) 
             }
         }
         match &mut st {
-            Stmt::Expr { expr, .. } => add_expr(r, wb, expr),
-            Stmt::Let { value, .. } | Stmt::Assign { value, .. } => add_expr(r, wb, value),
+            Stmt::Expr { expr, .. } => add_expr(r, wb, expr, true),
+            Stmt::Let { value, .. } | Stmt::Assign { value, .. } => add_expr(r, wb, value, false),
             _ => {}
         }
         stmts.push(st);
@@ -1609,8 +1615,10 @@ fn add(r: &str, wb: &Stmt, stmts: &mut Vec<Stmt>, tail: &mut Option<Box<Expr>>) 
             stmts.push(wb.clone());
             return;
         }
-        // A branch ending in `r.push(x)`: it is a statement, so the write-back can follow it.
-        if matches!(t.as_ref(), Expr::Method(recv, m, _, _) if root(recv) == Some(r) && CHANGING.contains(&m.as_str()) && !m.starts_with("pop") && m != "heap_pop" && m != "remove") {
+        // A branch ending in `r.push(x)`: it is a statement, so the write-back can follow it. So is
+        // `r.pop(i)` ending a branch of a Python if statement, whose value nothing uses.
+        let value_unused = stmt && crate::infer::py_on();
+        if matches!(t.as_ref(), Expr::Method(recv, m, _, _) if root(recv) == Some(r) && CHANGING.contains(&m.as_str()) && (value_unused || !m.starts_with("pop") && m != "heap_pop" && m != "remove")) {
             let line = match wb {
                 Stmt::Assign { line, .. } => *line,
                 _ => 0,
@@ -1619,7 +1627,7 @@ fn add(r: &str, wb: &Stmt, stmts: &mut Vec<Stmt>, tail: &mut Option<Box<Expr>>) 
             stmts.push(Stmt::Expr { expr: *t, line });
             stmts.push(wb.clone());
         } else {
-            add_expr(r, wb, t);
+            add_expr(r, wb, t, stmt);
         }
     }
 }
@@ -1646,17 +1654,17 @@ fn quiet_loop(lp: &Expr, wb: &Stmt) -> bool {
     calls_ok
 }
 
-fn add_expr(r: &str, wb: &Stmt, e: &mut Expr) {
+fn add_expr(r: &str, wb: &Stmt, e: &mut Expr, stmt: bool) {
     match e {
-        Expr::Block(s, t) => add(r, wb, s, t),
+        Expr::Block(s, t) => add_in(r, wb, s, t, stmt),
         Expr::If(_, a, b) => {
-            add_expr(r, wb, a);
+            add_expr(r, wb, a, stmt);
             if let Some(b) = b {
-                add_expr(r, wb, b);
+                add_expr(r, wb, b, stmt);
             }
         }
-        Expr::For(_, _, b) | Expr::While(_, b) => add_expr(r, wb, b),
-        Expr::Match(_, arms) => arms.iter_mut().for_each(|(_, a)| add_expr(r, wb, a)),
+        Expr::For(_, _, b) | Expr::While(_, b) => add_expr(r, wb, b, true),
+        Expr::Match(_, arms) => arms.iter_mut().for_each(|(_, a)| add_expr(r, wb, a, stmt)),
         _ => {}
     }
 }
