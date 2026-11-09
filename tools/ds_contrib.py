@@ -38,6 +38,10 @@ Rules:
 - Keep the change small and focused on this one bug. Match the surrounding code style. No new dependencies.
 - After editing Rust, call `build` and then `check_test`. Use `try_python` to test small variations, including
   cases near the fix, so you do not break nearby behaviour.
+- Never hold a RefCell borrow (`d.borrow()`, `.borrow_mut()`) across anything that can run user code: `eq`, `hash`,
+  `repr`, `call`, `add_h`, comparisons. User `__eq__`/`__repr__` may change the same dict or list, and a held
+  borrow then panics. Copy what you need out first (`let items = d.borrow().items();`). A borrow taken in a
+  `match` scrutinee or a `for` header lives for the whole match or loop.
 - If the right fix is to refuse the program (compile error) instead of running it wrongly, that is acceptable.
 - If you cannot find a correct fix, say so in `finish` with ok=false and what you learned. A wrong fix is worse
   than none.
