@@ -69,6 +69,41 @@ pub fn read_line() -> Option<String> {
         }
     })
 }
+pub fn read_line_bytes() -> Option<Vec<u8>> {
+    with_stdin(|r| {
+        let mut buf = Vec::new();
+        match r.read_until(b'\n', &mut buf) {
+            Ok(0) | Err(_) => None,
+            Ok(_) => Some(buf),
+        }
+    })
+}
+pub fn read_all_bytes() -> Vec<u8> {
+    with_stdin(|r| {
+        let mut buf = Vec::new();
+        r.read_to_end(&mut buf).ok();
+        buf
+    })
+}
+pub fn read_n_bytes(n: usize) -> Vec<u8> {
+    with_stdin(|r| {
+        let mut buf = Vec::new();
+        std::io::Read::take(r, n as u64).read_to_end(&mut buf).ok();
+        buf
+    })
+}
+// sys.stdout.buffer.write: raw bytes through the same buffer as text writes, so the two stay in order.
+pub fn out_write_bytes(b: &[u8]) {
+    OUT.with(|o| {
+        let mut o = o.borrow_mut();
+        o.buf.extend_from_slice(b);
+        if o.buf.len() > 8192 || (o.tty && b.contains(&b'\n')) {
+            let b = std::mem::take(&mut o.buf);
+            std::io::stdout().write_all(&b).ok();
+            std::io::stdout().flush().ok();
+        }
+    });
+}
 pub fn read_all() -> String {
     with_stdin(|r| {
         let mut buf = Vec::new();

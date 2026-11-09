@@ -1,0 +1,21 @@
+{
+  "id": "brevi",
+  "version": "1.0.0",
+  "name": "Brevi",
+  "description": "Installs Brevi (AI-written Python built natively and sandboxed), brevi-python and the Rust toolchain it builds with.",
+  "documentationURL": "https://github.com/ets-public/brevi/tree/main/devcontainer",
+  "licenseURL": "https://github.com/ets-public/brevi/blob/main/LICENSE",
+  "options": {
+    "version": {
+      "type": "string",
+      "default": "latest",
+      "description": "Brevi release to install, e.g. 0.27.0, or latest"
+    }
+  },
+  "containerEnv": {
+    "RUSTUP_HOME": "/usr/local/rustup",
+    "CARGO_HOME": "/usr/local/cargo",
+    "PATH": "/usr/local/cargo/bin:${PATH}"
+  },
+  "installsAfter": ["ghcr.io/devcontainers/features/common-utils", "ghcr.io/devcontainers/features/rust", "ghcr.io/devcontainers/features/python"]
+}

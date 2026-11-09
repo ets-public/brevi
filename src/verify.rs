@@ -369,7 +369,7 @@ pub fn main(argv: &[String]) -> ! {
 
     // The native build, strict: no CPython fallback, so what runs below is Brevi's own code.
     let stem = Path::new(&file).file_stem().unwrap().to_string_lossy().to_string();
-    let bin = crate::build_dir_path(&file).join(format!("{stem}-verify"));
+    let bin = crate::build_dir(&file).join(format!("{stem}-verify"));
     let mut args: Vec<String> = vec!["build".into(), file.clone(), "-o".into(), bin.to_string_lossy().to_string()];
     if release {
         args.push("--release".into());
@@ -531,7 +531,7 @@ fn python_version_opt(python: &str) -> Option<String> {
 // The strict native build `brevi verify` uses (shared with it through the result cache).
 fn build_native(file: &str, release: bool) -> (crate::runcache::Done, PathBuf) {
     let stem = Path::new(file).file_stem().unwrap().to_string_lossy().to_string();
-    let bin = crate::build_dir_path(file).join(format!("{stem}-verify"));
+    let bin = crate::build_dir(file).join(format!("{stem}-verify"));
     let mut args: Vec<String> = vec!["build".into(), file.to_string(), "-o".into(), bin.to_string_lossy().to_string()];
     if release {
         args.push("--release".into());

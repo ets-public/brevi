@@ -1,0 +1,7 @@
+{"path":"dynamic","line":4,"fn":"score","why":"score() returns a tuple on one path and one built with + or tuple(...) on another, which the typed build keeps as a list, so the typed build would differ from CPython"}
+dan (5, 8, 6, 5, 4, 3)
+ann (4, 9)
+cat (2, 9, 4, 14)
+vic (0, 13, 11, 9, 7, 2)
+(5, 8, 6, 5, 4, 3) True
+native exit 0
