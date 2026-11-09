@@ -12,6 +12,7 @@ step "Language tests"; BREVI=./target/release/brevi sh tests/check.sh | grep -v 
 BREVI=./target/release/brevi sh tests/check.sh >/dev/null
 step "MCP server"; python3 tests/mcp_test.py && python3 tests/mcp_http_test.py
 step "Python SDK and brevi-python"; BREVI=./target/release/brevi python3 tests/sdk_test.py
+BREVI=./target/release/brevi node tests/sdk_node_test.mjs
 step "Guide budget"; python3 tools/guide_budget.py
 step "Package versions"; python3 tools/version_sync.py
 step "Grammar"; python3 -c "import lark" 2>/dev/null || python3 -m pip install --quiet -r tools/requirements-ci.txt

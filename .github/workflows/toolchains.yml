@@ -191,7 +191,7 @@ jobs:
         if: steps.seen.outputs.cache-hit != 'true'
         env:
           BREVI: ./target/release/brevi
-        run: python3 tests/sdk_test.py
+        run: python3 tests/sdk_test.py && node tests/sdk_node_test.mjs
 
       - name: Core guide stays under its token budget
         if: steps.seen.outputs.cache-hit != 'true'
