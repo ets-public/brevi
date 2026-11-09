@@ -88,7 +88,9 @@ fn items_view_contains(d: &Rc<RefCell<Dict>>, x: &V) -> Result<bool, E> {
         V::Tuple(t) if t.len() == 2 => (t[0].clone(), t[1].clone()),
         _ => return Ok(false),
     };
-    match d.borrow().get(&k)? {
+    // The borrow ends before __eq__ runs: a user __eq__ may change the dict.
+    let found = d.borrow().get(&k)?;
+    match found {
         Some(w) => Ok(is(&w, &v) || eq(&w, &v)?),
         None => Ok(false),
     }
@@ -112,7 +114,8 @@ fn items_view_eq(a: &Rc<RefCell<Dict>>, b: &Rc<RefCell<Dict>>) -> Result<bool, E
     Ok(true)
 }
 fn items_view_subset(sub: &Rc<RefCell<Dict>>, sup: &Rc<RefCell<Dict>>) -> Result<bool, E> {
-    for (k, v) in sub.borrow().items() {
+    let items = sub.borrow().items();
+    for (k, v) in items {
         if !items_view_contains(sup, &tup(vec![k, v]))? {
             return Ok(false);
         }
