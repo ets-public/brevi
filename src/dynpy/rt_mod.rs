@@ -1290,6 +1290,42 @@ pub fn stream_fn(stream: &str, name: &str, a: Args) -> R {
             Ok(V::None)
         }
         ("sys.stdout" | "sys.stderr", "isatty") => Ok(V::Bool(false)),
+        // The binary streams (sys.stdin.buffer.read().split(), sys.stdout.buffer.write(b"...")), a common
+        // fast-I/O idiom: the same stdin and stdout as the text streams, as bytes.
+        ("sys.stdin.buffer", "read") => match a.p.first() {
+            Some(V::Int(n)) if *n >= 0 => Ok(bytesv(read_n_bytes(*n as usize))),
+            _ => Ok(bytesv(read_all_bytes())),
+        },
+        ("sys.stdin.buffer", "readline") => Ok(bytesv(read_line_bytes().unwrap_or_default())),
+        ("sys.stdin.buffer", "readlines") => {
+            let mut v = vec![];
+            while let Some(l) = read_line_bytes() {
+                v.push(bytesv(l));
+            }
+            Ok(list(v))
+        }
+        ("sys.stdin.buffer", "__iter__") => Ok(gen_iter(|| Ok(read_line_bytes().map(bytesv)))),
+        ("sys.stdin.buffer", "fileno") => Ok(V::Int(0)),
+        ("sys.stdin.buffer" | "sys.stdout.buffer" | "sys.stderr.buffer", "isatty") => Ok(V::Bool(false)),
+        ("sys.stdout.buffer" | "sys.stderr.buffer", "write") => {
+            let x = a1(&a, "write")?;
+            let b = match bytes_of(&x) {
+                Some(b) => b,
+                None => return type_err(format!("a bytes-like object is required, not '{}'", tn(&x))),
+            };
+            if stream == "sys.stdout.buffer" {
+                out_write_bytes(&b);
+            } else {
+                out_flush();
+                std::io::Write::write_all(&mut std::io::stderr(), &b).ok();
+            }
+            Ok(V::Int(b.len() as i64))
+        }
+        ("sys.stdout.buffer", "flush") => {
+            out_flush();
+            Ok(V::None)
+        }
+        ("sys.stderr.buffer", "flush") => Ok(V::None),
         _ => Err(unsupported(&format!("{stream}.{name}"))),
     }
 }
@@ -1336,7 +1372,7 @@ pub fn module_call(m: &str, n: &str, a: Args) -> R {
         "copy" => copy_fn(n, a),
         "operator" => operator_fn(n, a),
         "sys" => sys_fn(n, a),
-        "sys.stdin" | "sys.stdout" | "sys.stderr" => stream_fn(m, n, a),
+        "sys.stdin" | "sys.stdout" | "sys.stderr" | "sys.stdin.buffer" | "sys.stdout.buffer" | "sys.stderr.buffer" => stream_fn(m, n, a),
         "collections" => match n {
             "defaultdict" => col_defaultdict(a),
             "Counter" => col_counter(a),
@@ -1395,7 +1431,9 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         ("sys", "float_info") => return Err(unsupported("sys.float_info")),
         ("sys", "modules") => dict_new(),
         ("sys", "path") => list(vec![]),
-        ("sys.stdin", "buffer") | ("sys.stdout", "buffer") => return Err(unsupported("binary streams")),
+        ("sys.stdin", "buffer") => V::Module("sys.stdin.buffer"),
+        ("sys.stdout", "buffer") => V::Module("sys.stdout.buffer"),
+        ("sys.stderr", "buffer") => V::Module("sys.stderr.buffer"),
         ("math", "pi") => V::Float(std::f64::consts::PI),
         ("math", "e") => V::Float(std::f64::consts::E),
         ("math", "tau") => V::Float(std::f64::consts::TAU),

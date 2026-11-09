@@ -1,6 +1,6 @@
 #!/bin/sh
 # Runs every program in tests/run and every error case in tests/errors,
-# every .py file in tests/fallback, every .py file in tests/typed (built typed), and every .py file in tests/dyn (built over dynamic values), comparing output with the .expected file next to it; tests/exit also compares exit statuses. Run from the repo root.
+# every .py file in tests/fallback, every .py file in tests/typed (built typed), and every .py file in tests/dyn (built over dynamic values), comparing output (fed NAME.in on stdin when there is one) with the .expected file next to it; tests/exit also compares exit statuses. Run from the repo root.
 # Pass --update to rewrite the expected files.
 BREVI=${BREVI:-./target/debug/brevi}
 fail=0
@@ -62,8 +62,9 @@ done
 # tests take minutes if `in` scans a list instead of using AxSet's hash index.
 for f in tests/typed/*.py; do
   exp="${f%.py}.expected"
-  out=$(BREVI_DYN=0 timeout 60 $BREVI run "$f" --native 2>&1)
-  if [ "$1" = "--update" ]; then python3 "$f" > "$exp" 2>&1; continue; fi
+  inp="${f%.py}.in"; [ -f "$inp" ] || inp=/dev/null
+  out=$(BREVI_DYN=0 timeout 60 $BREVI run "$f" --native < "$inp" 2>&1)
+  if [ "$1" = "--update" ]; then python3 "$f" < "$inp" > "$exp" 2>&1; continue; fi
   if [ "$out" != "$(cat "$exp")" ]; then
     echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
   else
@@ -548,8 +549,9 @@ fi
 # Python programs built over dynamic values (BREVI_DYN=1 skips the typed build) must print what python3 prints.
 for f in tests/dyn/*.py; do
   exp="${f%.py}.expected"
-  out=$(BREVI_DYN=1 $BREVI run "$f" 2>&1)
-  if [ "$1" = "--update" ]; then python3 "$f" > "$exp" 2>&1; continue; fi
+  inp="${f%.py}.in"; [ -f "$inp" ] || inp=/dev/null
+  out=$(BREVI_DYN=1 $BREVI run "$f" < "$inp" 2>&1)
+  if [ "$1" = "--update" ]; then python3 "$f" < "$inp" > "$exp" 2>&1; continue; fi
   if [ "$out" != "$(cat "$exp")" ]; then
     echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
   else

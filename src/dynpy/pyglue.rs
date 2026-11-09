@@ -722,6 +722,13 @@ unsafe fn pyd_to(v: &V) -> Result<P, E> {
                 out_flush();
                 pyd_own((a.GetAttr)(pyd_own((a.Import)(c"sys".as_ptr()))?, CString::new(&m[4..]).unwrap().as_ptr()))?
             }
+            "sys.stdout.buffer" | "sys.stderr.buffer" | "sys.stdin.buffer" => {
+                out_flush();
+                let stream = pyd_own((a.GetAttr)(pyd_own((a.Import)(c"sys".as_ptr()))?, CString::new(&m[4..m.len() - 7]).unwrap().as_ptr()))?;
+                let buf = (a.GetAttr)(stream, c"buffer".as_ptr());
+                (a.DecRef)(stream);
+                pyd_own(buf)?
+            }
             _ => {
                 let c = CString::new(*m).unwrap();
                 pyd_own((a.Import)(c.as_ptr()))?
