@@ -17,8 +17,8 @@ links to the artifact it came from, with the date, the Brevi version and the har
 | Build after an edit, p50 | 870 ms typed, 1508 ms dynamic | v0.26.0, 9 Nov 2026 | same, and `...-dyn.json` |
 | `run`, unchanged, p50 | 4.5 ms typed, 22.0 ms dynamic (CPython 16.8 ms) | v0.26.0, 9 Nov 2026 | same |
 | Typed-path rate | 567 of 813 (70%) | v0.25.0 | `bench/typed_corpus.py`; to be rerun on v0.26.0 |
-| First-attempt native | see `bench/WEEKLY.md` from 9 Nov 2026 | | `bench/e2e.py --summary` column `n1` |
-| Tokens-to-green, errors shown | see `bench/WEEKLY.md` from 9 Nov 2026 | | `bench/e2e.py --verdict` |
+| First-attempt native | 24/24 Haiku, 24/24 Sonnet (one run, 24 tasks, errors shown) | v0.26.0, 9 Nov 2026 | `bench/logs/e2e/se1a-*.jsonl`, `--summary` column `n1` |
+| Tokens-to-green, errors shown (dollars, vs CPython) | 1.04x Haiku, 1.03x Sonnet (one run; 95% range about 0.9x to 1.1x) | v0.26.0, 9 Nov 2026 | `bench/logs/e2e/se1a-*.jsonl`, `--verdict` |
 | ANER | not measured | | needs alpha traffic |
 | Install to first run, no Rust | not possible yet | | needs a published image or the hosted path |
 

@@ -60,8 +60,8 @@ match CPython on their own tests, and do so on the first check. Fast, correct an
 | `brevi check` p50 / p95 | 94 / 114 ms | ≤50 / ≤150 ms | ≤30 / ≤80 ms | `bench/latency.py` |
 | Build after an edit, p50 | 0.87 s typed, 1.5 s dynamic | ≤500 ms | ≤300 ms | `bench/latency.py` |
 | Typed-path rate (agent corpus) | 567/813 (70%, v0.25.0) | 80% | 90% | `bench/typed_corpus.py` |
-| First-attempt native build | first measured 9 Nov 2026 | 80% | 90% | `bench/e2e.py` (`n1`), alpha traffic |
-| Tokens-to-green vs CPython, errors shown | first measured 9 Nov 2026 | ≤1.10x | ≤1.00x | `bench/e2e.py --show-errors` |
+| First-attempt native build | 24/24 (Haiku and Sonnet, one run, errors shown) | 80% | 90% | `bench/e2e.py` (`n1`), alpha traffic |
+| Tokens-to-green vs CPython, errors shown | 1.04x Haiku, 1.03x Sonnet (one run) | ≤1.10x | ≤1.00x | `bench/e2e.py --show-errors` |
 | Install to first run, no Rust | not possible | ≤60 s (container or hosted) | same | timed install test |
 | Harness integrations | 0 | 1 | 3 | third-party repos |
 | Weekly native builds (adoption) | about 0 | 100 (alpha) | 10k | opt-in counts |

@@ -17,8 +17,8 @@ Measured on v0.26.0, 9 November 2026. Latency is from one machine (4-core Xeon @
 | [`brevi check`](https://github.com/ets-public/brevi/blob/main/docs/LATENCY.md) after an edit, median | 94 ms | 50 ms | 30 ms |
 | [Build after an edit](https://github.com/ets-public/brevi/blob/main/docs/LATENCY.md), median | 0.87 s typed, 1.5 s dynamic | 0.5 s | 0.3 s |
 | Saved agent programs on the fast typed path | 567 of 813 (70%, v0.25.0) | 80% | 90% |
-| First check that builds natively, on the release test | measured from 9 November | 80% | 90% |
-| Cost to a passing answer vs CPython, with Brevi's errors shown to the model | measured from 9 November | 1.10x or less | 1.00x or less |
+| First check that builds natively, on the [release test](https://github.com/ets-public/brevi/blob/main/docs/METRICS.md) | 24 of 24 tasks (Haiku and Sonnet, one run) | 80% | 90% |
+| [Cost to a passing answer](https://github.com/ets-public/brevi/blob/main/docs/METRICS.md) vs CPython, with Brevi's errors shown to the model | 1.04x Haiku, 1.03x Sonnet (one run) | 1.10x or less | 1.00x or less |
 | Install to a first native run with no Rust installed | not possible yet | 60 s | 60 s |
 | Harnesses or sandbox platforms that ship Brevi | 0 | 1 | 3 |
 
