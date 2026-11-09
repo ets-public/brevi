@@ -744,6 +744,26 @@ if [ -n "$(ls -A "$t2/cache/runs" 2>/dev/null)" ] || printf '%s\n' "$t2out" | gr
   echo "FAIL result cache keeps a machine failure"; printf '%s\n' "$t2out"; ls -A "$t2/cache/runs"; fail=1
 else echo "ok   result cache keeps no machine failure"; fi
 rm -rf "$t2"
+# Tiered builds (src/tier.rs): run after an edit builds at opt-level 0 and builds opt-level 1 in the background;
+# the next run of the unchanged file gets the opt-level 1 binary. build, --release and BREVI_TIERED=0 never tier.
+t3=$(mktemp -d)
+printf 'print(sum(i * i for i in range(10)))\n' > "$t3/main.py"
+tr() { c=$1; shift; env BREVI_CACHE="$t3/cache" BREVI_TIME=1 $TENV $BREVI "$c" "$t3/main.py" "$@" 2>&1 | sed 's/^time .* ms  tiered:/tiered:/' | grep -v '^time '; }
+t3out=$(tr run --native; i=0; while ls -a "$t3/cache/bin" | grep -q '^\.tmp-tier-' && [ $i -lt 600 ]; do sleep 0.1; i=$((i+1)); done
+  tr run --native
+  printf 'print(sum(i * i for i in range(11)))\n' > "$t3/main.py"
+  tr build -o "$t3/out"; tr run --release; TENV=BREVI_TIERED=0 tr run; tr run --no-cache)
+t3exp='tiered: building at opt-level 0, opt-level 1 in the background
+285
+tiered: the opt-level 1 binary took the quick one'"'"'s place
+tiered: building at opt-level 0, opt-level 1 in the background
+285
+385
+385
+385'
+if [ "$t3out" != "$t3exp" ]; then echo "FAIL tiered builds"; printf '%s\n' "$t3out" | diff - "$(printf '%s\n' "$t3exp" > "$t3/exp"; echo "$t3/exp")"; fail=1
+else echo "ok   tiered builds"; fi
+rm -rf "$t3"
 # brevi verify: the native build against CPython on the same inputs. The certificate's timings, versions and
 # path are left out (they change from machine to machine); the verdicts, cases and hashes must match.
 v() { echo "-- $*"; o=$($BREVI verify "$@" 2>&1); c=$?; printf '%s\n' "$o" | sed -E 's/"(cpython_ms|brevi_ms|speedup)":[0-9.]+,?//g; s/"(brevi|python)":"[0-9.]+",?//g; s/"path":"[a-z]+",?//g; s/on two runs \(line [0-9]+: [^)]*\)/on two runs (line 1: ...)/; s/,}/}/'; echo "exit $c"; }
