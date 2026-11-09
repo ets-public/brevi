@@ -9,10 +9,11 @@ Each task is a fresh conversation. The model gets the same tools in both languag
 check() builds the program and runs the task's tests, printing PASS, the compiler errors, or the first
 failing test, exactly as run.sh does. The run ends when the model stops calling tools or after 8 checks.
 
-usage: python3 e2e.py RUN --lang brevi|python|pyb --model sonnet|haiku --set rel [--effort medium] [--jobs 3] [--show-errors]
+usage: python3 e2e.py RUN --lang brevi|python|pyb --model sonnet|haiku|deepseek|deepseek-pro --set rel [--effort medium] [--jobs 3] [--show-errors]
        python3 e2e.py --summary "logs/e2e/RUN*.jsonl"
        python3 e2e.py --verdict "logs/e2e/RUN[a-d]-*.jsonl"   (the release bar over several runs)
-Needs BENCH_ANTHROPIC_KEY and `pip install anthropic`. Writes logs/e2e/RUN-MODEL-LANG.jsonl, one line per task,
+Claude needs BENCH_ANTHROPIC_KEY and `pip install anthropic`; DeepSeek needs DEEPSEEK_API_KEY (bench/deepseek.py,
+standard library only). DeepSeek is report-only in --verdict for now (REPORT_ONLY). Writes logs/e2e/RUN-MODEL-LANG.jsonl, one line per task,
 and keeps each task's files in work/e2e/RUN-MODEL-LANG/TASK/.
 """
 import argparse, concurrent.futures as cf, glob, hashlib, json, os, subprocess, sys, tempfile, time
@@ -21,9 +22,31 @@ from pathlib import Path
 B = Path(__file__).resolve().parent
 ROOT = B.parent
 BREVI = os.environ.get("BREVI", str(ROOT / "target" / "release" / "brevi"))
-MODELS = {"sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5"}
-# $ per million tokens: input, output, cache read; a 5-minute cache write is 1.25x input.
-PRICES = {"claude-sonnet-5-5": (2.00, 10.00, 0.20), "claude-haiku-5-5": (0.10, 0.50, 0.01)}
+MODELS = {"sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5", "deepseek": "deepseek-flash", "deepseek-pro": "deepseek-v4-pro"}
+# $ per million tokens: input, output, cache read; a 5-minute cache write is 1.25x input (DeepSeek bills none).
+# DeepSeek: peak list prices (off-peak is half; pyb and python run side by side, so the ratio is the same either way),
+# as listed for deepseek-flash (V4.1 Flash) since 10 Sep 2026 and deepseek-v4-pro since 16 Aug 2026.
+PRICES = {"claude-sonnet-5-5": (2.00, 10.00, 0.20), "claude-haiku-5-5": (0.10, 0.50, 0.01),
+          "deepseek-flash": (0.30, 1.20, 0.006), "deepseek-v4-pro": (1.32, 3.96, 0.044)}
+# Models that are run and reported but do not count toward the release bar yet. DeepSeek joins the bar once it has
+# two weekly runs behind it (Nov 2026), so a provider's first-week surprises cannot fail a release.
+REPORT_ONLY = {"deepseek-flash", "deepseek-v4-pro"}
+
+
+def make_client(model):
+    """The API client for a model id: Anthropic for Claude, bench/deepseek.py (OpenAI-compatible) for DeepSeek."""
+    if model.startswith("deepseek"):
+        if not os.environ.get("DEEPSEEK_API_KEY"):
+            sys.exit("error: DEEPSEEK_API_KEY is not set")
+        import deepseek
+        return deepseek.Client(max_retries=4)
+    try:
+        import anthropic
+    except ImportError:
+        sys.exit("error: the anthropic package is missing; run `pip install anthropic` (needed for runs, not for --summary/--verdict)")
+    if not os.environ.get("BENCH_ANTHROPIC_KEY"):
+        sys.exit("error: BENCH_ANTHROPIC_KEY is not set")
+    return anthropic.Anthropic(api_key=os.environ["BENCH_ANTHROPIC_KEY"], max_retries=4)
 MAX_CHECKS = 8
 
 sys.path.insert(0, str(B))
@@ -289,7 +312,7 @@ def verdict(pattern):
         rs = [r for r in rows if r["model"] == model]
         side = {lang: [r for r in rs if r["lang"] == lang] for lang in ("pyb", "python")}
         if not side["pyb"] or not side["python"]:
-            print(f"{model}: needs both pyb and python runs"); ok = False; continue
+            print(f"{model}: needs both pyb and python runs"); ok = ok and model in REPORT_ONLY; continue
         runs = sorted({r["run"].split("-")[0] for r in side["pyb"]})
         usd = {lang: sum(r["usd"] for r in side[lang]) / len(runs) for lang in side}
         ratio = usd["pyb"] / usd["python"]
@@ -307,10 +330,12 @@ def verdict(pattern):
         sims.sort()
         lo, hi = sims[50], sims[-51]
         good = fails["pyb"] == 0 and ratio <= 1.10 and nat >= 0.9 * len(side["pyb"])
-        ok &= good
+        report_only = model in REPORT_ONLY
+        if not report_only:
+            ok &= good
         print(f"{model}: {len(runs)} runs, {len(side['pyb'])} pyb tasks, pyb ${usd['pyb']:.4f} / python ${usd['python']:.4f} per run = {ratio:.3f}x "
               f"(95% range {lo:.2f}x to {hi:.2f}x), failed pyb {fails['pyb']} python {fails['python']}, native {nat}/{len(side['pyb'])} "
-              f"({100 * nat / len(side['pyb']):.0f}%): {'meets the bar' if good else 'misses the bar'}")
+              f"({100 * nat / len(side['pyb']):.0f}%): {'meets the bar' if good else 'misses the bar'}{' (report only, not part of the release test yet)' if report_only else ''}")
         # Reported, not yet part of the bar (docs/METRICS.md): first-attempt native and tokens-to-green.
         if any("first_native" in r for r in side["pyb"]):
             n1 = sum(1 for r in side["pyb"] if r.get("first_native"))
@@ -359,14 +384,8 @@ def main():
         return verdict(a.verdict)
     if not (a.run and a.lang):
         ap.error("RUN and --lang are needed")
-    try:
-        import anthropic
-    except ImportError:
-        sys.exit("error: the anthropic package is missing; run `pip install anthropic` (needed for runs, not for --summary/--verdict)")
-    if not os.environ.get("BENCH_ANTHROPIC_KEY"):
-        sys.exit("error: BENCH_ANTHROPIC_KEY is not set")
-    client = anthropic.Anthropic(api_key=os.environ["BENCH_ANTHROPIC_KEY"], max_retries=4)
     model = MODELS[a.model]
+    client = make_client(model)
     name = f"{a.run}-{a.model}-{a.lang}"
     tasks = a.tasks.split(",") if a.tasks else SETS[a.set]
     log = B / "logs" / "e2e" / f"{name}.jsonl"

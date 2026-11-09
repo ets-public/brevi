@@ -18,6 +18,7 @@ python3 tools/lark_to_gbnf.py --check; python3 tools/grammar_check.py tests/run/
 step "GUI runtime matches tkinter stand-in"; sh tools/gui_shim_check.sh
 step "GUI window front end compiles (eframe)"; cargo check -q --manifest-path runtime/brevi_tk/Cargo.toml --features window
 step "Bench scripts compile"; python3 -m py_compile bench/*.py bench/ref/*.py tools/*.py
+step "Bench DeepSeek provider"; python3 -W ignore bench/test_deepseek.py >/dev/null 2>&1 || python3 -W ignore bench/test_deepseek.py
 step "Agent platform templates"; python3 templates/test.py >/dev/null
 if [ "$1" != --quick ]; then
   step "Every solution that ever passed still passes"; python3 tools/compat.py check
