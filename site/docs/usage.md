@@ -285,7 +285,7 @@ window "tk"
 | `answer yes\|no\|TEXT` | the answer to the next dialog (default: yes / ok) |
 | `close` | close the window |
 
-`brevi build --window app.py` gives a real window, drawn with egui.
+`brevi build --window app.py` gives a real window, drawn with egui (eframe 0.37, OpenGL). The first window build downloads and compiles eframe, about a minute, then it is cached. On Linux the window needs an X11 or Wayland display, OpenGL and `libxkbcommon-x11`; without a display, or with `BREVI_GUI=headless`, the same binary runs headless.
 
 ## Libraries
 
