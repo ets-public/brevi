@@ -1178,6 +1178,8 @@ struct Func {
     is_agen: bool,
     // a def with yield: a generator
     is_gen: bool,
+    // nested defs held in plain locals of this frame that calls here reach directly (see Em::nested_direct)
+    direct_defs: HashMap<String, (String, Vec<String>, usize)>,
 }
 
 pub struct Module {
@@ -1877,6 +1879,20 @@ impl Em {
                 let a = self.args(args, line, None)?;
                 if let Some(fname) = builtin_fast(n) {
                     return Ok(self.q(&format!("{fname}({a})")));
+                }
+            }
+            // direct call of a nested def held in a local of this frame
+            if let Some(Var::Local(r)) = self.lookup(n) {
+                if let Some((dfn, dcaps, np)) = self.fstack.last().unwrap().direct_defs.get(n).cloned() {
+                    if args.len() == np && args.iter().all(|a| matches!(a, Arg::Pos(_))) {
+                        let mut parts: Vec<String> = dcaps.iter().map(|r| format!("{r}.clone()")).collect();
+                        for a in args {
+                            if let Arg::Pos(x) = a {
+                                parts.push(self.ex(x, line)?);
+                            }
+                        }
+                        return Ok(self.q(&format!("match ldr(&{r}, {}) {{ Ok(_) => {dfn}({}), Err(e) => Err(e) }}", lit(n), parts.join(", "))));
+                    }
                 }
             }
             // direct call of a nested def, where every cell it captures is in scope
@@ -2680,7 +2696,7 @@ impl Em {
         // this function's frame
         let parent = self.fstack.last().unwrap();
         let (class_expr, self_name) = if self.class_ctx.is_some() { (self.class_ctx.clone(), p.pos.first().map(|x| x.0.clone())) } else { (parent.class_expr.clone(), parent.self_name.clone()) };
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, exc_vars: vec![], is_module: false, is_class: false, is_async, is_agen: is_async && is_gen, is_gen };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, exc_vars: vec![], is_module: false, is_class: false, is_async, is_agen: is_async && is_gen, is_gen, direct_defs: HashMap::new() };
         for (n, r) in &captures {
             fr.vars.insert(n.clone(), Var::Cell(r.clone()));
         }
@@ -2729,7 +2745,7 @@ impl Em {
                 if inner_free.contains(n) && !nonlocal_in(body, n) {
                     self.safe_cells.insert(format!("k{id}_{}", rust_ident(n)), depth);
                 }
-                if !inner_free.contains(n) || all_params.contains(n) {
+                if all_params.contains(n) {
                     continue;
                 }
                 if let Some(d) = direct_nested_def(body, n) {
@@ -2739,8 +2755,14 @@ impl Em {
                             caps.push(r);
                         }
                     }
-                    let c = format!("k{id}_{}", rust_ident(n));
-                    self.nested_direct.insert(c.clone(), (format!("dn_{c}"), caps, d.params.pos.len()));
+                    // by the def's cell when functions nested here use it, else by its name in this frame
+                    if inner_free.contains(n) {
+                        let c = format!("k{id}_{}", rust_ident(n));
+                        self.nested_direct.insert(c.clone(), (format!("dn_{c}"), caps, d.params.pos.len()));
+                    } else {
+                        let f = format!("dn{id}_{}", rust_ident(n));
+                        self.fstack.last_mut().unwrap().direct_defs.insert(n.clone(), (f, caps, d.params.pos.len()));
+                    }
                 }
             }
         }
@@ -2798,6 +2820,7 @@ impl Em {
         if is_def && !is_gen && !is_async {
             let nd = match self.lookup(name) {
                 Some(Var::Cell(c)) => self.nested_direct.get(&c).cloned(),
+                Some(Var::Local(_)) => self.fstack.last().unwrap().direct_defs.get(name).cloned(),
                 _ => None,
             };
             if let Some((dfn, dcaps, _)) = nd {
@@ -2832,7 +2855,7 @@ impl Em {
         // invisible to the methods
         let sc = scope_of(&c.body, &[]);
         let parent = self.fstack.last().unwrap();
-        let mut fr = Func { vars: HashMap::new(), frames: parent.frames.clone(), class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, is_async: false, is_agen: false, is_gen: false };
+        let mut fr = Func { vars: HashMap::new(), frames: parent.frames.clone(), class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new() };
         let mut decls = String::new();
         for n in sc.locals.iter() {
             let r = format!("a{id}_{}", rust_ident(n));
@@ -3119,7 +3142,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     for m in mods {
         em.module = m.name.clone();
         IN_COPY.with(|c| c.set(OWN_COPIES.lock().unwrap().contains(&m.name)));
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, exc_vars: vec![], is_module: true, is_class: false, is_async: false, is_agen: false, is_gen: false };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, exc_vars: vec![], is_module: true, is_class: false, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new() };
         for n in em.mod_names[&m.name].clone() {
             let i = em.gslot(&m.name, &n);
             fr.vars.insert(n.clone(), Var::Global(i));
