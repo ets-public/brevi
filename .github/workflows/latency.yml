@@ -1,0 +1,74 @@
+# Latency of the agent inner loop: check, cold build, cached run.
+#
+# Runtime speed matters only when tests are heavy; compile latency matters every iteration.
+# Weekly before the Monday release, and callable from the release workflow.
+# Shared runners are noisy, so the thresholds here are deliberately generous (about 2x the target);
+# run the hard gate on a dedicated machine if one exists.
+
+name: latency
+
+on:
+  schedule:
+    - cron: "0 4 * * 1"          # Mondays, 04:00 UTC
+  workflow_dispatch:
+  workflow_call: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: latency-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  latency:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Python 3.13
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Build Brevi
+        run: cargo build --release
+
+      - name: Generate fixtures
+        run: python3 bench/latency.py --make-fixtures "$RUNNER_TEMP/brevi-latency-fixtures"
+
+      - name: Measure (20 samples, generous CI thresholds)
+        run: |
+          python3 bench/latency.py \
+            --brevi target/release/brevi \
+            --fixtures "$RUNNER_TEMP/brevi-latency-fixtures" \
+            --runs 20 \
+            --json latency.json \
+            --markdown latency.md \
+            --max-p50-check-fast 40 \
+            --max-p50-check 100 \
+            --max-p50-build 1000 \
+            --max-p50-run 20
+
+      - name: Append table to the job summary
+        if: always()
+        run: |
+          {
+            echo "## Latency"
+            echo
+            if [ -f latency.md ]; then cat latency.md; else echo "_No results._"; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: latency
+          path: |
+            latency.json
+            latency.md
+          retention-days: 90

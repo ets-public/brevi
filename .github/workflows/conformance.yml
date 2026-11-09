@@ -1,0 +1,92 @@
+# CPython conformance as a CI signal and a release gate.
+#
+# The suite is the most independent correctness measure Brevi has, so it should not be run by hand.
+# This workflow:
+#   - runs nightly and reports the number in the job summary,
+#   - can be called from the release workflow (make the release job depend on it),
+#   - fails when a wrong result appears that is not in compat/conformance_known_wrong.txt,
+#   - fails when the known-wrong budget grows. The budget only goes down.
+#
+# PR gating is deliberately off for now: Actions minutes are limited. To gate PRs, uncomment the
+# pull_request block below; the job already skips draft PRs.
+
+name: conformance
+
+on:
+  schedule:
+    - cron: "0 3 * * *"          # nightly, 03:00 UTC
+  workflow_dispatch:
+  workflow_call: {}
+  # pull_request:
+  #   paths:
+  #     - "src/**"
+  #     - "Cargo.toml"
+  #     - "Cargo.lock"
+  #     - "tools/conformance.py"
+  #     - "compat/conformance_known_wrong.txt"
+  #     - ".github/workflows/conformance.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: conformance-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Current: 88 test/mode pairs. Lower after each release; never raise silently.
+  KNOWN_WRONG_BUDGET: "88"
+
+jobs:
+  conformance:
+    # Draft PRs skip CI (AGENTS.md), and so does this job if PR gating is enabled later.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Python 3.13 (reference interpreter)
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Build Brevi
+        run: cargo build --release
+
+      - name: Run conformance
+        run: python3 tools/conformance.py --check --out bench/conformance
+
+      - name: Append report to the job summary
+        if: always()
+        run: |
+          {
+            echo "## CPython conformance"
+            echo
+            if [ -f bench/conformance/report.md ]; then
+              cat bench/conformance/report.md
+            else
+              echo "_No report produced._"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Known-wrong budget
+        run: |
+          count=$(grep -v '^#' compat/conformance_known_wrong.txt | grep -c . || true)
+          echo "known-wrong test/mode pairs: $count (budget: $KNOWN_WRONG_BUDGET)"
+          if [ "$count" -gt "$KNOWN_WRONG_BUDGET" ]; then
+            echo "::error::known-wrong budget exceeded: $count > $KNOWN_WRONG_BUDGET. Fix the regression, or lower the budget deliberately."
+            exit 1
+          fi
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: conformance-report
+          path: bench/conformance/
+          retention-days: 90

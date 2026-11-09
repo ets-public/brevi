@@ -1,5 +1,6 @@
 /target
 bench/work/
+bench/latency-fixtures/
 site/out/
 site/out-run/
 __pycache__/
