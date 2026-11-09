@@ -716,6 +716,14 @@ pub fn getattr(o: &V, name: &str) -> R {
         V::Func(f) => match name {
             "__name__" | "__qualname__" => Ok(s(f.name)),
             "__call__" => Ok(o.clone()),
+            // Built-in functions have no code object in CPython (len.__code__ raises).
+            "__code__" if f.kind.get() != 3 => {
+                let mut c = f.code.borrow_mut();
+                if c.is_none() {
+                    *c = Some(V::Ext(Rc::new(CodeV { name: f.name, flags: f.flags.get() })));
+                }
+                Ok(c.as_ref().unwrap().clone())
+            }
             // 0 function, 1 staticmethod, 2 classmethod (Brevi's pydantic reads it)
             "__bv_kind__" => Ok(V::Int(f.kind.get() as i64)),
             "__doc__" => Ok(f.attrs.borrow().iter().find(|(k, _)| *k == "__doc__").map_or(V::None, |(_, v)| v.clone())),
@@ -723,7 +731,8 @@ pub fn getattr(o: &V, name: &str) -> R {
                 if let Some(v) = f.attrs.borrow().iter().find(|(k, _)| *k == name).map(|(_, v)| v.clone()) {
                     return Ok(v);
                 }
-                Err(exc("AttributeError", format!("'function' object has no attribute '{name}'")))
+                let tn = if f.kind.get() == 3 { "builtin_function_or_method" } else { "function" };
+                Err(exc("AttributeError", format!("'{tn}' object has no attribute '{name}'")))
             }
         },
         V::Bound(b) => match name {

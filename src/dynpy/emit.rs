@@ -2590,6 +2590,28 @@ impl Em {
         let dflt_all: Vec<String> = dflt_codes.iter().chain(kwd.iter()).cloned().collect();
         let nparams = params.len();
         let unpack: String = (0..nparams).map(|k| format!("__b.next().unwrap()")).collect::<Vec<_>>().join(", ");
+        // CPython's co_flags. CO_OPTIMIZED|CO_NEWLOCALS on every function; the others follow what the
+        // emitted function is. An async generator carries CO_ASYNC_GENERATOR instead of the generator and
+        // coroutine bits, as CPython does.
+        let mut flags: u32 = 3;
+        if star {
+            flags |= 0x4;
+        }
+        if kwstar {
+            flags |= 0x8;
+        }
+        if !(captures.is_empty() && (at_top || in_class_top)) {
+            flags |= 0x10;
+        }
+        if is_async {
+            if is_gen {
+                flags = (flags & !0xa0) | 0x200;
+            } else {
+                flags |= 0x80;
+            }
+        } else if is_gen {
+            flags |= 0x20;
+        }
         if captures.is_empty() && (at_top || in_class_top) {
             // a plain Rust function
             if is_async {
@@ -2616,10 +2638,10 @@ impl Em {
                     write!(sets, "gs({slot}, {}); ", dflt_codes[k]).unwrap();
                 }
                 let dv: Vec<String> = (0..npos).map(|k| if k >= npos - nd { format!("gr({})", slots[k - (npos - nd)]) } else { "V::Unbound".into() }).collect();
-                return Ok(format!("{{ {sets} func({qname}, move |a: Args| {{ let __d = [{}]; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}", dv.join(", ")));
+                return Ok(format!("{{ {sets} func_flags({qname}, {flags}, move |a: Args| {{ let __d = [{}]; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}", dv.join(", ")));
             }
             let _ = need_defaults;
-            return Ok(format!("{{ let __d = vec![{}]; func({qname}, move |a: Args| {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}", dflt_all.join(", ")));
+            return Ok(format!("{{ let __d = vec![{}]; func_flags({qname}, {flags}, move |a: Args| {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}", dflt_all.join(", ")));
         }
         // a closure
         let caps: String = captures.iter().map(|(_, r)| format!("let {r} = {r}.clone(); ")).collect();
@@ -2627,12 +2649,12 @@ impl Em {
         if is_gen || is_async {
             let mk = if is_async && is_gen { format!("make_agen(sym({qname}), ") } else if is_async { format!("make_acoro(sym({qname}), ") } else { "make_gen(".to_string() };
             return Ok(format!(
-                "{{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{caps} Ok({mk}move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}) }}",
+                "{{ let __d = vec![{}]; {caps} func_flags({qname}, {flags}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{caps} Ok({mk}move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}) }}",
                 dflt_all.join(", ")
             ));
         }
         Ok(format!(
-            "{{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let __depth = Depth::new()?; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{decls}{cells_init}\n{body_code}\nOk(V::None) }}) }}",
+            "{{ let __d = vec![{}]; {caps} func_flags({qname}, {flags}, move |a: Args| -> R {{ let __depth = Depth::new()?; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{decls}{cells_init}\n{body_code}\nOk(V::None) }}) }}",
             dflt_all.join(", ")
         ))
     }

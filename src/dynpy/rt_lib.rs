@@ -953,6 +953,8 @@ fn rewrap(x: &Rc<Func>, kind: u8) -> V {
         gf.kind.set(kind);
         // the wrapped function's attributes (__doc__, __bv_np__) read through, as through CPython's __func__
         *gf.attrs.borrow_mut() = x.attrs.borrow().clone();
+        gf.flags.set(x.flags.get());
+        *gf.code.borrow_mut() = x.code.borrow().clone();
     }
     g
 }

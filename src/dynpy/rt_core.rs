@@ -1420,13 +1420,45 @@ pub struct Func {
     pub f: FnBox,
     // 0 function, 1 staticmethod, 2 classmethod, 3 builtin
     pub kind: Cell<u8>,
+    // CPython's co_flags for this function's code object.
+    pub flags: Cell<u32>,
     pub attrs: RefCell<Vec<(Sym, V)>>,
+    // f.__code__, made once so f.__code__ is f.__code__ as in CPython.
+    pub code: RefCell<Option<V>>,
 }
 pub fn func(name: Sym, f: impl Fn(Args) -> R + 'static) -> V {
-    V::Func(Rc::new(Func { name, f: Box::new(f), kind: Cell::new(0), attrs: RefCell::new(vec![]) }))
+    func_flags(name, 3, f)
+}
+pub fn func_flags(name: Sym, flags: u32, f: impl Fn(Args) -> R + 'static) -> V {
+    V::Func(Rc::new(Func { name, f: Box::new(f), kind: Cell::new(0), flags: Cell::new(flags), attrs: RefCell::new(vec![]), code: RefCell::new(None) }))
 }
 pub fn builtin(name: Sym, f: impl Fn(Args) -> R + 'static) -> V {
-    V::Func(Rc::new(Func { name, f: Box::new(f), kind: Cell::new(3), attrs: RefCell::new(vec![]) }))
+    V::Func(Rc::new(Func { name, f: Box::new(f), kind: Cell::new(3), flags: Cell::new(0), attrs: RefCell::new(vec![]), code: RefCell::new(None) }))
+}
+
+// A function's __code__: Python code objects are immutable, so one per function (built on each attribute read,
+// as Brevi does not keep the object alive between reads).
+pub struct CodeV {
+    pub name: Sym,
+    pub flags: u32,
+}
+impl Ext for CodeV {
+    fn tname(&self) -> &'static str {
+        "code"
+    }
+    fn repr(&self) -> String {
+        format!("<code object {} at 0x{:x}>", self.name, self as *const CodeV as usize)
+    }
+    fn any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn attr(&self, _me: &V, n: &str) -> Option<R> {
+        match n {
+            "co_name" | "co_qualname" => Some(Ok(s(self.name))),
+            "co_flags" => Some(Ok(V::Int(self.flags as i64))),
+            _ => Some(Err(exc("AttributeError", format!("'code' object has no attribute '{n}'")))),
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
