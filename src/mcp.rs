@@ -851,7 +851,7 @@ fn verified(files: &mut Files, t: String, err: bool) -> (String, bool) {
 }
 
 fn python() -> String {
-    std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into())
+    crate::python_exe()
 }
 
 const CPYTHON_ONLY: &str = "{\"path\":\"cpython\",\"why\":\"Brevi gave a wrong answer on this program earlier in this session\",\"by\":\"python3\"}";

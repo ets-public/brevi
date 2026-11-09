@@ -703,6 +703,18 @@ impl<T: Clone> AxTupleItems<T> for (T, T, T, T, T, T, T, T) {
     }
 }
 pub fn print<T: Show>(x: T) {
+    #[cfg(windows)]
+    {
+        // CPython on Windows writes text streams with CRLF; match it, and translate every LF (even one
+        // already followed by CR), as its TextIOWrapper does.
+        use std::io::Write;
+        let s = x.show().replace('\n', "\r\n");
+        let mut o = std::io::stdout();
+        let _ = o.write_all(s.as_bytes());
+        let _ = o.write_all(b"\r\n");
+        let _ = o.flush();
+    }
+    #[cfg(not(windows))]
     println!("{}", x.show());
 }
 // Python-style truth for conditions: false, 0, "", [] and {} are false.

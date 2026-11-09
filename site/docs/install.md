@@ -9,7 +9,7 @@ Brevi turns programs into Rust and calls `rustc` to build them, so it needs the 
 | --- | --- | --- |
 | `rustc` (Rust stable) | Brevi compiles every program through it | Installed by the script if missing. Any recent stable works; CI tests stable daily and beta and nightly weekly. |
 | `python3` (optional) | The CPython fallback of `brevi run`, and programs that import libraries such as numpy | Not needed for programs that use only the standard library. Library programs need `libpython` where they run, unless built with `--standalone`. |
-| Linux, macOS or Windows | Prebuilt binaries for x86-64 and ARM64 Linux, Apple silicon and Intel Macs, and x86-64 Windows | Library calls through CPython and `--standalone` builds are not available on Windows yet. |
+| Linux, macOS or Windows | Prebuilt binaries for x86-64 and ARM64 Linux, Apple silicon and Intel Macs, and x86-64 Windows | Library calls through CPython work on Windows (the `python` on PATH needs its DLL); `--standalone` builds are Linux only for now. |
 
 ## Linux and macOS: the install script
 
@@ -44,7 +44,7 @@ $ printf 'print(sum(range(10)))\n' > hello.py && brevi run hello.py
 2. Download `brevi-x86_64-pc-windows-msvc.zip` from the latest [GitHub release](__GITHUB__/releases/latest), unzip it, and put `brevi.exe` on your PATH (for example in `%USERPROFILE%\.cargo\bin`, next to `rustc`).
 3. In PowerShell or cmd: `brevi --version`.
 
-Standard-library programs build and run natively on Windows. Python files that import packages such as numpy run with CPython instead, because the library bridge does not run on Windows yet.
+Standard-library programs build and run natively on Windows. Python files that import packages build too: their library calls run in CPython through the bridge, as on Linux and macOS (the `python` on PATH needs its DLL). `--standalone` is not available on Windows yet.
 
 ## Release downloads
 

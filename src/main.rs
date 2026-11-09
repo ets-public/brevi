@@ -144,6 +144,12 @@ fn print_diag(d: &Diag) {
     explain(&d.msg, d.fix.as_deref().unwrap_or(""));
 }
 
+/// The CPython to run when a library program falls back, or when verify compares: `python` on Windows
+/// (there `python3` is often a Store alias), `python3` elsewhere.
+pub fn python_exe() -> String {
+    std::env::var("BREVI_PYTHON").unwrap_or_else(|_| if cfg!(windows) { "python".into() } else { "python3".into() })
+}
+
 fn main() {
     tm("start");
     if let Some(args) = shim::args() {
@@ -891,7 +897,7 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
         }
         Ok(o) => {
             let out = String::from_utf8_lossy(&o.stdout).to_string();
-            let python = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
+            let python = python_exe();
             // On a sure mistake the note already names the error, so CPython's traceback is cut to its last
             // line (`--traceback` or BREVI_TRACEBACK=1 shows all of it).
             let short = o.code == Some(3) && !TRACEBACK.load(std::sync::atomic::Ordering::Relaxed);

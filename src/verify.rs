@@ -364,7 +364,7 @@ pub fn main(argv: &[String]) -> ! {
         let l = l.trim_start();
         l.starts_with("from mcp") || l.starts_with("import mcp")
     });
-    let python = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
+    let python = crate::python_exe();
     let pyver = python_version(&python);
 
     // The native build, strict: no CPython fallback, so what runs below is Brevi's own code.
@@ -747,7 +747,7 @@ pub fn run_main(argv: &[String]) -> ! {
         run_usage("--verify compares a .py file with CPython; a .bv file has no CPython answer to compare with (use brevi test)");
     }
     let src = std::fs::read(&file).unwrap_or_else(|e| run_usage(&format!("cannot read {file}: {e}")));
-    let python = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
+    let python = crate::python_exe();
     let pyver = {
         let python = python.clone();
         std::thread::spawn(move || python_version_opt(&python))
