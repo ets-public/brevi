@@ -139,8 +139,8 @@ impl Limits {
                 _ => return Err(format!("{HINT}; there is no limit '{k}'")),
             }
         }
-        if cfg!(windows) && (self.cpu.is_some() || self.mem.is_some() || self.file.is_some()) {
-            return Err("--limit cpu, mem and file are not enforced on Windows yet (time and output are); leave them out, or run on Linux or macOS".into());
+        if cfg!(windows) && self.file.is_some() {
+            return Err("--limit file is not enforced on Windows yet (cpu, mem, time and output are); leave it out, or run on Linux or macOS".into());
         }
         if cfg!(windows) && self.fds.is_some() {
             return Err("--limit fds is not enforced on Windows yet; leave it out, or run on Linux or macOS".into());
@@ -415,7 +415,68 @@ pub fn run_with(c: &mut Command, l: &Limits) -> std::io::Result<i32> {
     Ok(code(status))
 }
 
+// Windows: committed memory (pagefile usage) and user+kernel CPU time, polled while the program runs.
+#[cfg(windows)]
+pub fn over_counts(pid: u32, l: &Limits, _piped: u64) -> Option<&'static str> {
+    use std::ffi::c_void;
+    #[repr(C)]
+    struct Pmc {
+        cb: u32,
+        page_fault_count: u32,
+        peak_working_set: usize,
+        working_set: usize,
+        quota_peak_paged: usize,
+        quota_paged: usize,
+        quota_peak_nonpaged: usize,
+        quota_nonpaged: usize,
+        pagefile_usage: usize,
+        peak_pagefile_usage: usize,
+    }
+    #[repr(C)]
+    struct Ft {
+        lo: u32,
+        hi: u32,
+    }
+    unsafe extern "system" {
+        fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut c_void;
+        fn CloseHandle(h: *mut c_void) -> i32;
+        fn K32GetProcessMemoryInfo(h: *mut c_void, p: *mut Pmc, cb: u32) -> i32;
+        fn GetProcessTimes(h: *mut c_void, c: *mut Ft, e: *mut Ft, k: *mut Ft, u: *mut Ft) -> i32;
+    }
+    if l.mem.is_none() && l.cpu.is_none() {
+        return None;
+    }
+    let h = unsafe { OpenProcess(0x1000, 0, pid) };
+    if h.is_null() {
+        return None;
+    }
+    let mut out = None;
+    if let Some(m) = l.mem {
+        let mut pmc = Pmc { cb: std::mem::size_of::<Pmc>() as u32, page_fault_count: 0, peak_working_set: 0, working_set: 0, quota_peak_paged: 0, quota_paged: 0, quota_peak_nonpaged: 0, quota_nonpaged: 0, pagefile_usage: 0, peak_pagefile_usage: 0 };
+        if unsafe { K32GetProcessMemoryInfo(h, &mut pmc, pmc.cb) } != 0 && (pmc.pagefile_usage as u64) > m.saturating_mul(1 << 20) {
+            out = Some("mem");
+        }
+    }
+    if out.is_none() {
+        if let Some(c) = l.cpu {
+            let mut p = Ft { lo: 0, hi: 0 };
+            let mut e = Ft { lo: 0, hi: 0 };
+            let mut k = Ft { lo: 0, hi: 0 };
+            let mut u = Ft { lo: 0, hi: 0 };
+            if unsafe { GetProcessTimes(h, &mut p, &mut e, &mut k, &mut u) } != 0 {
+                let t = |f: &Ft| ((f.hi as u64) << 32 | f.lo as u64) as u64;
+                if (t(&k) + t(&u)) / 10_000_000 > c {
+                    out = Some("cpu");
+                }
+            }
+        }
+    }
+    unsafe { CloseHandle(h) };
+    out
+}
+
 // Linux: whether the running program is over its threads or written limit, from the kernel's counts.
+#[cfg(not(windows))]
 pub fn over_counts(pid: u32, l: &Limits, piped: u64) -> Option<&'static str> {
     if l.threads.is_none() && l.written.is_none() {
         return None;
