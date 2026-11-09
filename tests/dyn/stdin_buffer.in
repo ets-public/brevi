@@ -1,0 +1,8 @@
+2
+put a 1
+put b 2
+get a
+put c 3
+get b
+get a
+get c
