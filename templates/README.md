@@ -63,7 +63,7 @@ sandbox's own domain allowlist holds the same hosts.
 
 ## Brevi's MCP server in a sandbox
 
-From the next release, the image can also serve `brevi mcp` over HTTP, so an MCP client outside the sandbox
+From v0.26.0, the image can also serve `brevi mcp` over HTTP, so an MCP client outside the sandbox
 (Claude, the Agents SDK, any Streamable HTTP client) uses Brevi's tools without starting a process:
 
 ```sh

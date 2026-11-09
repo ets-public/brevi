@@ -96,7 +96,7 @@ Each release is published to these registries with the same prebuilt binaries as
 | --- | --- | --- |
 | PyPI | `pip install brevi`, or `uvx brevi mcp` without installing | Wheels for Linux (glibc 2.34 or later, x86-64 and ARM64), macOS 11+ (Apple silicon) and 10.12+ (Intel), and Windows x86-64. |
 | npm | `npm install -g brevi`, or `npx brevi mcp` | The first run downloads the matching release binary into `~/.cache/brevi/VERSION`. Needs Node 18 or later. |
-| crates.io | `cargo install brevi` | Builds from source, from the next release (Monday 9 November) on. |
+| crates.io | `cargo install brevi` | Builds from source, from v0.26.0 on. |
 | MCP registry | `io.github.ets-public/brevi` | Lists the PyPI and npm packages, running `brevi mcp`. |
 | Homebrew | `brew install ets-public/brevi/brevi` | Coming: the formula is ready in `packaging/homebrew`. |
 

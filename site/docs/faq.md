@@ -32,7 +32,7 @@ Yes, or Brevi refuses to build it. A program Brevi builds prints exactly what CP
 
 ## Can I use numpy, pandas or other packages?
 
-Yes. Most numpy code (arrays, broadcasting, indexing, reductions, printing) builds with Brevi's own numpy and needs no Python at run time; see [numpy](/docs/compatibility#numpy). From the next release so do requests, httpx, pydantic, the `anthropic` and `openai` SDKs, `mcp`, jinja2, polars, sqlite3, duckdb, tiktoken, tokenizers, safetensors and onnxruntime (see [What works](/docs/compatibility)). Other library calls, and numpy beyond that, run in CPython inside the native program, and the rest stays native. The machine running the program needs Python's shared library, or build with `--standalone` (Linux) to carry CPython in the binary. See [Libraries](/docs/compatibility#libraries-numpy-pandas).
+Yes. Most numpy code (arrays, broadcasting, indexing, reductions, printing) builds with Brevi's own numpy and needs no Python at run time; see [numpy](/docs/compatibility#numpy). From v0.26.0 so do requests, httpx, pydantic, the `anthropic` and `openai` SDKs, `mcp`, jinja2, polars, sqlite3, duckdb, tiktoken, tokenizers, safetensors and onnxruntime (see [What works](/docs/compatibility)). Other library calls, and numpy beyond that, run in CPython inside the native program, and the rest stays native. The machine running the program needs Python's shared library, or build with `--standalone` (Linux) to carry CPython in the binary. See [Libraries](/docs/compatibility#libraries-numpy-pandas).
 
 ## Why does it need Rust installed?
 
@@ -48,7 +48,7 @@ Brevi programs are memory-safe, and integers never silently overflow. A program 
 
 ## Does it cost more tokens than Python?
 
-About the same. In the v0.25.0 release test (24 tasks, two runs), Brevi cost 1.09x (Sonnet) and 1.01x (Haiku) of what the same models cost running Python with CPython. Every task passed, and 95 of 96 final programs built natively. Recent releases have stayed between 0.97x and 1.09x, and the test runs every week before a release. On heavy tasks, where the model would otherwise hand-optimise for CPython, Brevi costs about half. [Benchmarks](/docs/benchmarks#the-release-test) has every run.
+About the same. In the v0.26.0 release test (24 tasks, two runs), Brevi cost 1.07x (Sonnet) and 1.00x (Haiku) of what the same models cost running Python with CPython. Every task passed, and all 96 final programs built natively. Recent releases have stayed between 0.97x and 1.09x, and the test runs every week before a release. On heavy tasks, where the model would otherwise hand-optimise for CPython, Brevi costs about half. [Benchmarks](/docs/benchmarks#the-release-test) has every run.
 
 ## Which platforms?
 

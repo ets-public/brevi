@@ -38,8 +38,8 @@ test_dict.DictTest.test_valuesiterator_pickling dyn
 test_dict.DictTest.test_valuesiterator_pickling normal
 test_dict.DictTest.test_views_mapping dyn
 test_dict.DictTest.test_views_mapping normal
-test_grammar.GrammarTests.test_annotations_inheritance dyn
-test_grammar.GrammarTests.test_annotations_inheritance normal
+test_grammar.GrammarTests.test_async_await dyn
+test_grammar.GrammarTests.test_async_await normal
 test_grammar.GrammarTests.test_classdef dyn
 test_grammar.GrammarTests.test_classdef normal
 test_grammar.GrammarTests.test_comprehension_specials dyn
@@ -48,8 +48,6 @@ test_grammar.GrammarTests.test_matrix_mul dyn
 test_grammar.GrammarTests.test_matrix_mul normal
 test_grammar.GrammarTests.test_selectors dyn
 test_grammar.GrammarTests.test_selectors normal
-test_grammar.GrammarTests.test_var_annot_basic_semantics dyn
-test_grammar.GrammarTests.test_var_annot_basic_semantics normal
 test_int.IntTestCases.test_basic dyn
 test_int.IntTestCases.test_basic normal
 test_int.IntTestCases.test_int_subclass_with_index dyn
