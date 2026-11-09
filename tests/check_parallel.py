@@ -6,10 +6,12 @@ core. This script cuts check.sh into the sections that start at each `#== NAME` 
 A section marked `#== NAME split` runs its first top-level `for f in ...; do` loop as one job per file (with the
 section's lines before the loop in front of each job, and its lines after the loop as one more job).
 
-Each job gets its own folder for the scratch files check.sh writes to /tmp, so jobs never share one. The HTTP and
+Each job gets its own folder for the scratch files check.sh writes to /tmp, and as its TMPDIR (where brevi keeps
+a file's build), so jobs never share one. The HTTP and
 LLM mock servers are started once here (CHECK_SERVERS=1 tells check.sh not to start its own), so the per-file
 jobs that talk to them can run side by side.
 
+Env CHECK_ONLY=NAME,... runs only those sections.
 usage: check_parallel.py [--update] [--jobs N] [--quiet] [--changed-since REF]
   --quiet               leave out the "ok" lines
   --changed-since REF   the fast tier for a branch (tools/ci_local.sh uses it): skip the sections for Brevi's
@@ -153,7 +155,9 @@ def run(script, args, tmp):
     text = re.sub(r"/tmp/brevi(?=[_-])(?!_sb_)", tmp + "/brevi", "".join(script)) + "\nexit $fail\n"
     t = time.time()
     with (SCOPED if "tests/sandbox/scoped" in text or uses_scoped(script) else NOLOCK):
-        p = subprocess.run(["sh", "-c", text, "check.sh"] + args, cwd=ROOT, capture_output=True, text=True)
+        # TMPDIR too: brevi builds a file in TMPDIR/brevi-HASH-OF-ITS-PATH, so two jobs building the same file
+        # (tests/bv_libs and their --sandbox runs) would share that folder and clobber each other's build.
+        p = subprocess.run(["sh", "-c", text, "check.sh"] + args, cwd=ROOT, capture_output=True, text=True, env=dict(os.environ, TMPDIR=tmp))
     return p.returncode, p.stdout + p.stderr, time.time() - t
 
 
@@ -196,6 +200,9 @@ def main():
                   + ", ".join(sorted(skip)) + " (CI and releases run them)", file=sys.stderr)
     with open(CHECK) as fh:
         secs = [s for s in sections(fh.readlines()) if s[0] not in skip]
+    only = [x for x in os.environ.get("CHECK_ONLY", "").split(",") if x]  # CHECK_ONLY=polars,jinja2: just those
+    if only:
+        secs = secs[:1] + [s for s in secs[1:] if s[0] in only]
     pre = secs[0][2]
     # The preamble (BREVI=..., fail=0) goes in front of every job; it must not run checks itself.
     if any(re.match(r"(for|if|while) ", l) for l in pre):
