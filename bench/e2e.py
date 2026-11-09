@@ -104,6 +104,10 @@ LAST_PATH = {}
 # Milliseconds the task's tests took to run in the last check that passed, by (lang, work dir): the speed of the
 # program the model wrote (Brevi's native binary for pyb, CPython for python). Logged as run_ms from 7 Nov 2026.
 LAST_RUN_MS = {}
+# pyb only: test inputs on which the native binary's output differed from CPython's on the same files, by work
+# dir, in the last check (what `brevi run --verify` would have caught; docs/VERIFY_BY_DEFAULT.md). Any non-zero
+# count is a P0 Brevi bug. Logged as verify_differs from 9 Nov 2026.
+LAST_DIFFERS = {}
 
 
 def build_path(stderr):
@@ -155,6 +159,7 @@ def run_check(lang, task, work, native_only=False):
     env = dict(os.environ, PYTHONPATH=str(B / "tkshim")) if (tdir / "gui").exists() and cmd[0] == sys.executable else None
     tests = sorted(glob.glob(str(tdir / "tests" / "*.in")))
     passed, first, ms = 0, None, 0.0
+    differs = 0
     for t in tests:
         want = Path(t[:-3] + ".out").read_text()
         try:
@@ -164,11 +169,20 @@ def run_check(lang, task, work, native_only=False):
             out = (got.stdout + got.stderr).rstrip("\n")
         except subprocess.TimeoutExpired:
             out = "timeout after 10 s"
+        # The verify check: the same test under CPython, compared with the native output (not with the expected).
+        if lang == "pyb" and native:
+            try:
+                py = subprocess.run([sys.executable, str(main)], stdin=open(t), capture_output=True, text=True, timeout=10, cwd=work, env=env)
+                differs += got.stdout != py.stdout if out != "timeout after 10 s" else 0
+            except subprocess.TimeoutExpired:
+                pass
         if out == want.rstrip("\n"):
             passed += 1
         elif first is None:
             first = f"test {Path(t).stem} failed\ninput:\n{Path(t).read_text().rstrip()}\nexpected:\n{want.rstrip()}\ngot:\n{out}"
     native = native if lang == "pyb" else None
+    if lang == "pyb":
+        LAST_DIFFERS[str(work)] = differs
     note = ""
     if lang == "pyb" and SHOW_ERRORS and not native:
         note = "\n\nBrevi could not build this natively, so it ran with CPython (slower). Brevi said:\n" + refusal
@@ -191,6 +205,8 @@ def solve(client, model, lang, task, work, effort, thinking="adaptive", native_o
     checks, passed, calls, stop, native = start_checks, False, 0, "", None
     # pyb only: for each check, whether CPython passes the same files (a False where pyb failed is a Brevi bug)
     shadow = []
+    # pyb only: per check, test inputs where the native output differed from CPython's (LAST_DIFFERS)
+    differs = []
     # pyb only: whether each check built natively, in order (natives[0] is the first-attempt native build)
     natives = []
     # tokens and dollars billed up to the call that followed the first PASS (tokens-to-green); None until then
@@ -245,6 +261,7 @@ def solve(client, model, lang, task, work, effort, thinking="adaptive", native_o
                     passed = out.startswith("PASS")
                     if lang == "pyb":
                         natives.append(bool(native))
+                        differs.append(LAST_DIFFERS.get(str(work), 0))
                         shadow.append([passed, run_check("python", task, work)[0].startswith("PASS")])
                     err = not passed
                 elif b.name == "guide":
@@ -268,7 +285,7 @@ def solve(client, model, lang, task, work, effort, thinking="adaptive", native_o
     cost = price(use)
     # green counts every call up to the PASS; the closing reply after it is in usd but not in usd_to_green.
     togreen = {"tokens_to_green": sum(green.values()), "usd_to_green": round(price(green), 5)} if passed and green else {"tokens_to_green": None, "usd_to_green": None}
-    pyb = {"shadow": shadow, "path": LAST_PATH.get(str(work)), "natives": natives, "first_native": natives[0] if natives else None, "errors_shown": SHOW_ERRORS} if lang == "pyb" else {}
+    pyb = {"shadow": shadow, "path": LAST_PATH.get(str(work)), "natives": natives, "first_native": natives[0] if natives else None, "errors_shown": SHOW_ERRORS, "verify_differs": sum(differs)} if lang == "pyb" else {}
     return {"task": task, "pass": passed, "checks": checks, "calls": calls, "stop": stop, "native": native, **pyb, **use, "usd": round(cost, 5), **togreen,
             "secs": round(time.time() - started, 1), "run_ms": LAST_RUN_MS.get((lang, str(work))) if passed else None}
 
@@ -348,6 +365,11 @@ def verdict(pattern):
             tt = {lang: sum(r["tokens_to_green"] for r in g[lang] if (r["run"].split("-")[0], r["task"]) in both) for lang in g}
             shown = " (errors shown)" if all(r.get("errors_shown") for r in g["pyb"]) else ""
             print(f"  tokens-to-green{shown} over {len(both)} tasks both passed: {tt['pyb'] / tt['python']:.3f}x tokens, {tg['pyb'] / tg['python']:.3f}x dollars")
+        # The verify-by-default count (docs/VERIFY_BY_DEFAULT.md): native outputs CPython answered differently on.
+        if any("verify_differs" in r for r in side["pyb"]):
+            vd = sum(r.get("verify_differs", 0) for r in side["pyb"])
+            hit = sorted({r["task"] for r in side["pyb"] if r.get("verify_differs")})
+            print(f"  verify differs {vd} (native output unlike CPython's on the same files and input" + (f": a P0 bug, tasks {', '.join(hit)})" if vd else ")"))
     print("release test PASSED" if ok else "release test not passed")
     return 0 if ok else 1
 
