@@ -749,4 +749,28 @@ exp=tests/cache.expected
 if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"
 elif [ "$out" != "$(cat "$exp")" ]; then echo "FAIL result cache"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
 else echo "ok   result cache"; fi
+# The same file built by several brevi processes at once (MCP sessions, parallel verify runs): each builds in its
+# own folder, so none overwrites the generated Rust or the binary another is about to run. Before, they shared
+# one folder per file and one could fail its build and fall back to CPython. --native makes such a clash an error.
+# One typed file and one built over dynamic values. No folder is left behind once they have all exited.
+t3=$(mktemp -d)
+# (a tag that changes every run, so the binary cache has no build of them yet and all six run rustc at once)
+tag=$(( $$ * 1000 + $(date +%s) % 1000 ))
+printf 'total = %s\nfor i in range(1000):\n    total += i * i\nprint(total)\n' "$tag" > "$t3/typed.py"
+printf 'def f(x):\n    return x if isinstance(x, int) else len(x)\nprint(sum(f(v) for v in [%s, "ab", 3, [4, 5]]))\n' "$tag" > "$t3/dyn.py"
+for f in typed dyn; do
+  for i in 1 2 3 4 5 6; do ($BREVI run --native "$t3/$f.py" > "$t3/$f.$i.out" 2> "$t3/$f.$i.err"; echo "exit $?" >> "$t3/$f.$i.out") & done
+done
+wait
+t3bad=""
+for i in 1 2 3 4 5 6; do
+  [ "$(cat "$t3/typed.$i.out")" = "$(printf '%s\nexit 0' $((tag + 332833500)))" ] || t3bad="$t3bad typed.$i"
+  [ "$(cat "$t3/dyn.$i.out")" = "$(printf '%s\nexit 0' $((tag + 7)))" ] || t3bad="$t3bad dyn.$i"
+done
+left=$(find "${TMPDIR:-/tmp}" -maxdepth 2 -path '*/brevi-*/p*' -newer "$t3/typed.py" 2>/dev/null | wc -l)
+[ "$left" = 0 ] || t3bad="$t3bad (left $left build folders)"
+if [ -n "$t3bad" ]; then
+  echo "FAIL the same file built at once:$t3bad"; for o in "$t3"/*.out "$t3"/*.err; do echo "== $o"; cat "$o"; done; fail=1
+else echo "ok   the same file built at once"; fi
+rm -rf "$t3"
 exit $fail

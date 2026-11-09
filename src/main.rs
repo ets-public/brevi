@@ -1381,13 +1381,65 @@ fn lib_hint(mut d: Diag, src: &str) -> Diag {
     d
 }
 
-fn build_dir(file: &str) -> PathBuf {
-    let dir = build_dir_path(file);
+// This process's own build directory for a file: build_dir_path(file)/pPID. Two brevi processes that build the
+// same file at once (MCP sessions, parallel verify runs) once shared one directory, so one could overwrite the
+// generated Rust or the binary the other was about to run (and that run then fell back to CPython). Built
+// binaries are still shared through the cache in cache_dir()/bin, so a second process reuses the first's build.
+// Directories of processes that have ended are removed here, the next time the file is built.
+pub(crate) fn build_dir(file: &str) -> PathBuf {
+    let base = build_dir_path(file);
+    let me = std::process::id();
+    if let Ok(rd) = std::fs::read_dir(&base) {
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            let is_dir = e.file_type().is_ok_and(|t| t.is_dir());
+            if !is_dir {
+                // Left by brevi before 0.27, which built straight into the shared directory.
+                if name != "build.lock" {
+                    std::fs::remove_file(e.path()).ok();
+                }
+                continue;
+            }
+            let Some(pid) = name.strip_prefix('p').and_then(|p| p.parse::<u32>().ok()) else { continue };
+            // (proc::alive is always true off unix: there a directory goes once it is a day old)
+            let old = e.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|a| a > std::time::Duration::from_secs(86400));
+            if pid != me && (!proc::alive(pid) || (old && !cfg!(unix))) {
+                std::fs::remove_dir_all(e.path()).ok();
+            }
+        }
+    }
+    let dir = base.join(format!("p{me}"));
     std::fs::create_dir_all(&dir).ok();
+    let mut own = OWN_BUILD_DIRS.lock().unwrap();
+    if !own.contains(&dir) {
+        if own.is_empty() {
+            unsafe extern "C" {
+                fn atexit(f: extern "C" fn()) -> i32;
+            }
+            // SAFETY: registers a plain function with the C runtime; std::process::exit runs it.
+            unsafe { atexit(remove_own_build_dirs) };
+        }
+        own.push(dir.clone());
+    }
     dir
 }
+// This process's build folders, removed when it exits (a process that is killed leaves its folder to the next
+// build_dir call of that file).
+static OWN_BUILD_DIRS: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+extern "C" fn remove_own_build_dirs() {
+    if let Ok(own) = OWN_BUILD_DIRS.try_lock() {
+        for d in own.iter() {
+            std::fs::remove_dir_all(d).ok();
+            // The file's folder too, once it is empty (no other process building in it, no cargo project).
+            if let Some(base) = d.parent() {
+                std::fs::remove_dir(base).ok();
+            }
+        }
+    }
+}
 
-// Where a file's build goes (one directory per source path); the MCP server removes it when done.
+// The directory that holds a file's builds (one per source path, a folder per process inside it, see
+// build_dir); the MCP server removes it when done.
 pub fn build_dir_path(file: &str) -> PathBuf {
     let abs = std::fs::canonicalize(file).unwrap_or_else(|_| PathBuf::from(file));
     let mut h: u64 = 1469598103934665603;
@@ -1497,7 +1549,17 @@ pub(crate) fn cache_dir() -> PathBuf {
 
 // Builds with cargo, for programs that use crates. Same results as compile().
 fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Option<Result<(), String>> {
-    let name = dir.file_name().map(|n| n.to_string_lossy().replace('-', "_")).unwrap_or_else(|| "brevi_prog".into());
+    // The cargo project stays at one path per source file (build_dir_path/cargo, not this process's folder), so
+    // cargo's fingerprints in the shared target directory still match and an unchanged program is not rebuilt.
+    // A lock file keeps two processes building the same file from writing it at the same time.
+    let base = dir.parent().filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("brevi-"))).unwrap_or(dir);
+    let name = base.file_name().map(|n| n.to_string_lossy().replace('-', "_")).unwrap_or_else(|| "brevi_prog".into());
+    let dir = &base.join("cargo");
+    std::fs::create_dir_all(dir).ok();
+    let lock = std::fs::File::create(base.join("build.lock")).ok();
+    if let Some(l) = &lock {
+        l.lock().ok();
+    }
     let toml = ffi::cargo_toml(&name, deps);
     let tp = dir.join("Cargo.toml");
     if std::fs::read_to_string(&tp).ok().as_deref() != Some(toml.as_str()) {
