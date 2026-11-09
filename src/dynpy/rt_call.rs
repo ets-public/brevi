@@ -693,7 +693,7 @@ pub fn getattr(o: &V, name: &str) -> R {
                     if c.own("__doc__").is_none() {
                         d.set(s("__doc__"), V::None)?;
                     }
-                    Ok(V::Dict(Rc::new(RefCell::new(d))))
+                    Ok(V::View(Rc::new((V::Dict(Rc::new(RefCell::new(d))), 3))))
                 }
                 _ => {
                     if c.module == "builtins" || c.module == "collections" {
@@ -768,6 +768,13 @@ pub fn getattr(o: &V, name: &str) -> R {
                     _ => (p.0.clone(), p.1.clone()),
                 })))
             }))
+        }
+        V::View(v) if name == "mapping" && v.1 != 3 => match &v.0 {
+            V::Dict(_) => Ok(V::View(Rc::new((v.0.clone(), 3)))),
+            _ => Err(exc("AttributeError", format!("'{}' object has no attribute 'mapping'", tn(o)))),
+        },
+        V::View(v) if v.1 == 3 && matches!(name, "get" | "keys" | "values" | "items" | "copy") => {
+            Ok(V::BMeth(Rc::new((o.clone(), sym(name)))))
         }
         V::Dict(d) if name == "default_factory" => Ok(d.borrow().dflt.clone().unwrap_or(V::None)),
         V::Deque(d) if name == "maxlen" => Ok(d.borrow().max.map_or(V::None, |m| V::Int(m as i64))),

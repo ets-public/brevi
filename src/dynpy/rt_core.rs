@@ -1815,6 +1815,7 @@ pub fn init_builtin_classes() {
         ("function", BT::Func),
         ("range", BT::Range),
         ("deque", BT::Deque),
+        ("mappingproxy", BT::Other),
     ] {
         m.insert(n, Class::new(n, "builtins", vec![object.clone()], bt));
     }
@@ -1944,7 +1945,12 @@ pub fn type_name(v: &V) -> String {
         V::Slice(_) => "slice".into(),
         V::Deque(_) => "collections.deque".into(),
         V::Module(_) => "module".into(),
-        V::View(v) => ["dict_keys", "dict_values", "dict_items"][v.1 as usize].into(),
+        V::View(v) => match v.1 {
+            0 => "dict_keys".into(),
+            1 => "dict_values".into(),
+            2 => "dict_items".into(),
+            _ => "mappingproxy".into(),
+        },
         V::Prop(_) => "property".into(),
         V::Ext(x) => x.tname().into(),
         V::NotImpl => "NotImplementedType".into(),
