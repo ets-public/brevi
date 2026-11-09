@@ -9,8 +9,6 @@ test_dict.DictTest.test_dict_contain_use_after_free dyn
 test_dict.DictTest.test_dict_contain_use_after_free normal
 test_dict.DictTest.test_dictview_set_operations_on_items dyn
 test_dict.DictTest.test_dictview_set_operations_on_items normal
-test_dict.DictTest.test_errors_in_view_containment_check dyn
-test_dict.DictTest.test_errors_in_view_containment_check normal
 test_dict.DictTest.test_iterator_pickling dyn
 test_dict.DictTest.test_iterator_pickling normal
 test_dict.DictTest.test_object_set_item_single_instance_non_str_key dyn
