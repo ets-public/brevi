@@ -2,15 +2,15 @@
 "brevi": "brevi 0.26.0",
 "python": "3.13.13",
 "tag": "v3.13.13",
-"date": "2026-11-09",
+"date": "2026-11-10",
 "platform": "linux",
 "sandboxed": false,
 "timeout_s": 20,
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 209,
-"refused": 66,
+"matched": 223,
+"refused": 52,
 "wrong_output": 4,
 "wrong_exit": 15,
 "crash_or_timeout": 2,
@@ -20,13 +20,13 @@
 "total": 357,
 "scored": 311,
 "matched_through_cpython": 0,
-"matched_silent": 35,
-"coverage": 0.672,
+"matched_silent": 39,
+"coverage": 0.717,
 "wrong": 19
 },
 "dyn": {
-"matched": 209,
-"refused": 67,
+"matched": 223,
+"refused": 53,
 "wrong_output": 4,
 "wrong_exit": 14,
 "crash_or_timeout": 2,
@@ -36,8 +36,8 @@
 "total": 357,
 "scored": 311,
 "matched_through_cpython": 0,
-"matched_silent": 34,
-"coverage": 0.672,
+"matched_silent": 38,
+"coverage": 0.717,
 "wrong": 18
 }
 },
@@ -112,8 +112,8 @@
 },
 "test_int": {
 "normal": {
-"matched": 11,
-"refused": 18,
+"matched": 25,
+"refused": 4,
 "wrong_output": 0,
 "wrong_exit": 1,
 "crash_or_timeout": 0,
@@ -123,13 +123,13 @@
 "total": 47,
 "scored": 32,
 "matched_through_cpython": 0,
-"matched_silent": 0,
-"coverage": 0.3438,
+"matched_silent": 4,
+"coverage": 0.7812,
 "wrong": 1
 },
 "dyn": {
-"matched": 12,
-"refused": 18,
+"matched": 26,
+"refused": 4,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
@@ -139,8 +139,8 @@
 "total": 47,
 "scored": 32,
 "matched_through_cpython": 0,
-"matched_silent": 0,
-"coverage": 0.375,
+"matched_silent": 4,
+"coverage": 0.8125,
 "wrong": 0
 }
 },
@@ -215,14 +215,14 @@
 },
 "paths": {
 "normal": {
-"dynamic": 203,
-"refused": 66,
+"dynamic": 217,
+"refused": 52,
 "typed": 25,
 "pybridge": 2
 },
 "dyn": {
-"dynamic": 229,
-"refused": 67
+"dynamic": 243,
+"refused": 53
 }
 },
 "tests": [
@@ -2072,12 +2072,12 @@
 "file": "test_int",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`adjust_int_max_str_digits` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 12: a yield inside try/finally or with is not supported in "
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "a yield inside try/finally or with is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2086,12 +2086,12 @@
 "file": "test_int",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown function type()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys.get_int_max_str_digits is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2106,12 +2106,12 @@
 "file": "test_int",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown method .int_class()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys.get_int_max_str_digits is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2120,12 +2120,12 @@
 "file": "test_int",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "no field int_class on type IntStrDigitLimitsTests: unknown field"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys.get_int_max_str_digits is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2134,12 +2134,12 @@
 "file": "test_int",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown method .int_class()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys.get_int_max_str_digits is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2148,12 +2148,12 @@
 "file": "test_int",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "no field int_class on type IntStrDigitLimitsTests: unknown field"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys.get_int_max_str_digits is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2162,12 +2162,12 @@
 "file": "test_int",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown method .int_class()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys.get_int_max_str_digits is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2188,12 +2188,12 @@
 "file": "test_int",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`adjust_int_max_str_digits` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 12: a yield inside try/finally or with is not supported in "
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "a yield inside try/finally or with is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2202,12 +2202,12 @@
 "file": "test_int",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "_Base1__super_setUp() takes self_: _Base1, but gets IntSubclassStrDigitLimitsTests here"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys.get_int_max_str_digits is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2222,12 +2222,12 @@
 "file": "test_int",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "_Base1__super_setUp() takes self_: _Base1, but gets IntSubclassStrDigitLimitsTests here"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys.get_int_max_str_digits is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2236,12 +2236,12 @@
 "file": "test_int",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "_Base1__super_setUp() takes self_: _Base1, but gets IntSubclassStrDigitLimitsTests here"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys.get_int_max_str_digits is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2250,12 +2250,12 @@
 "file": "test_int",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "_Base1__super_setUp() takes self_: _Base1, but gets IntSubclassStrDigitLimitsTests here"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys.get_int_max_str_digits is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2264,12 +2264,12 @@
 "file": "test_int",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "_Base1__super_setUp() takes self_: _Base1, but gets IntSubclassStrDigitLimitsTests here"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys.get_int_max_str_digits is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2278,12 +2278,12 @@
 "file": "test_int",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "_Base1__super_setUp() takes self_: _Base1, but gets IntSubclassStrDigitLimitsTests here"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys.get_int_max_str_digits is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
