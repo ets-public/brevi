@@ -1,0 +1,1 @@
+- `str.maketrans` works as a static method called on the class, with CPython's argument checks and errors (review l09).
