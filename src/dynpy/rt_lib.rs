@@ -1297,12 +1297,25 @@ pub fn builtin_class_attr(c: &Rc<Class>, name: &str) -> Option<V> {
                 let me = a.p.remove(0);
                 // Base.method(self, ...) on an instance of a subclass: the base's own method, not an override
                 if let V::Obj(o) = &me {
-                    let mro = o.cls.mro.borrow().clone();
-                    if let Some(i) = mro.iter().position(|k| k.name == cname && (k.module == "builtins" || k.module == "collections")) {
-                        if i > 0 {
-                            let f = super_attr(&V::Class(mro[i - 1].clone()), &me, n)?;
-                            return call(&f, a);
+                    let base = {
+                        let mro = o.cls.mro.borrow();
+                        match mro.iter().position(|k| k.name == cname && (k.module == "builtins" || k.module == "collections")) {
+                            // object.__setattr__(obj, name, v) with nothing from object on in the MRO defining it:
+                            // super_attr would hand back the plain instance store, so do that store directly
+                            Some(i) if i > 0 && n == "__setattr__" && a.p.len() == 2 && matches!(a.p[0], V::Str(_)) && mro[i..].iter().all(|k| k.own(n).is_none()) => {
+                                drop(mro);
+                                if let V::Str(s) = &a.p[0] {
+                                    o.set_res(sym(&s.s), a.p[1].clone())?;
+                                }
+                                return Ok(V::None);
+                            }
+                            Some(i) if i > 0 => Some(mro[i - 1].clone()),
+                            _ => None,
                         }
+                    };
+                    if let Some(b) = base {
+                        let f = super_attr(&V::Class(b), &me, n)?;
+                        return call(&f, a);
                     }
                 }
                 call_method(&me, n, a)

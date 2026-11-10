@@ -982,10 +982,14 @@ class _Str:
         p = cons.get("pattern")
         self.pattern = p
         self.rx = _re.compile(p) if p is not None else None
+        # nothing to check or change on a str: v returns it as it is
+        self.plain = not (self.strip or self.lower or self.upper or self.min is not None or self.max is not None or p is not None)
 
     def v(self, x, st):
-        strict = st.strict if self.strict is None else self.strict
         tx = type(x)
+        if tx is str and self.plain:
+            return x
+        strict = st.strict if self.strict is None else self.strict
         if tx is str:
             r = x
         elif isinstance(x, str):
@@ -1764,6 +1768,7 @@ class _Schema:
         self.wrap = []
         self.computed = []
         self.built = False
+        self.flags = None
 
 
 class _ClsInfo:
@@ -2029,31 +2034,47 @@ def _obj_dict(x):
     return d
 
 
+def _field_flags(cls, s):
+    # the config values field validation reads, read once per schema (the validators bake in the config too)
+    fl = s.flags
+    if fl is None:
+        cfg = _cfg(cls)
+        fl = (cfg.get("extra", "ignore"), cfg.get("populate_by_name", False) or cfg.get("validate_by_name", False),
+              cfg.get("validate_by_alias", True), cfg.get("validate_default", False))
+        s.flags = fl
+    return fl
+
+
 def _validate_fields(cls, s, data, st):
-    cfg = _cfg(cls)
-    extra_mode = cfg.get("extra", "ignore")
-    by_name = cfg.get("populate_by_name", False) or cfg.get("validate_by_name", False)
-    by_alias = cfg.get("validate_by_alias", True)
+    extra_mode, by_name, by_alias, validate_default = _field_flags(cls, s)
     out = {}
     fset = set()
     errs = []
     used = set()
+    # only extra="forbid" / "allow" look at which keys were used
+    track = extra_mode != "ignore"
     for f in s.fields:
-        key = f.name
-        present = False
-        if f.alias is not None and by_alias:
-            if f.alias in data:
-                key = f.alias
+        name = f.name
+        alias = f.alias
+        if alias is not None and by_alias:
+            if alias in data:
+                key = alias
                 present = True
-            elif by_name and f.name in data:
-                present = True
-        elif f.name in data:
-            present = True
+            else:
+                key = name
+                present = by_name and name in data
+        else:
+            key = name
+            present = name in data
         if present:
-            used.add(key)
+            if track:
+                used.add(key)
             try:
-                out[f.name] = _run_field(cls, f, data[key], st, out)
-                fset.add(f.name)
+                if f.chain:
+                    out[name] = _run_field(cls, f, data[key], st, out)
+                else:
+                    out[name] = f.val.v(data[key], st)
+                fset.add(name)
             except _Err as er:
                 errs.extend(_at(er.lines, key))
             continue
@@ -2067,7 +2088,7 @@ def _validate_fields(cls, s, data, st):
             ln.loc.append(f.alias if (f.alias is not None and by_alias) else f.name)
             errs.append(ln)
             continue
-        if info.validate_default or cfg.get("validate_default", False):
+        if info.validate_default or validate_default:
             # a default is a Python value, even under model_validate_json
             mode = st.mode
             st.mode = "python"
@@ -2082,7 +2103,7 @@ def _validate_fields(cls, s, data, st):
     extra = None
     if extra_mode == "allow":
         extra = {}
-    for k in data:
+    for k in (data if track else ()):
         if k in used:
             continue
         if extra_mode == "forbid":
@@ -2132,10 +2153,11 @@ def _validate_model_inner(cls, s, data, st, inst):
             _fail("model_type", data, {"class_name": cls.__name__})
     out, fset, extra = _validate_fields(cls, s, data, st)
     obj = inst if inst is not None else object.__new__(cls)
+    osa = object.__setattr__
     for k, v in out.items():
-        object.__setattr__(obj, k, v)
-    object.__setattr__(obj, "__pydantic_fields_set__", fset)
-    object.__setattr__(obj, "__pydantic_extra__", extra)
+        osa(obj, k, v)
+    osa(obj, "__pydantic_fields_set__", fset)
+    osa(obj, "__pydantic_extra__", extra)
     _init_private(obj)
     if _I(cls).post_init:
         try:
