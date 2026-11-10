@@ -671,6 +671,113 @@ fn free_of_def(params: &[String], body: &[Stmt]) -> BTreeSet<String> {
     }
     used.into_iter().filter(|n| !sc.locals.contains(n) || sc.nonlocals.contains(n)).filter(|n| !sc.globals.contains(n)).collect()
 }
+// Names a generator expression reads from the scope that holds it (its own targets are bound by it).
+fn genexp_free(e: &Ex, out: &mut BTreeSet<String>) {
+    let Ex::Comp(kind, elt, val, gens) = e else { return };
+    if *kind != 'g' {
+        return;
+    }
+    let mut used = BTreeSet::new();
+    names_read_ex(elt, &mut used);
+    if let Some(v) = val {
+        names_read_ex(v, &mut used);
+    }
+    for g in gens {
+        names_read_ex(&g.iter, &mut used);
+        for c in &g.ifs {
+            names_read_ex(c, &mut used);
+        }
+    }
+    let mut bound = BTreeSet::new();
+    for g in gens {
+        target_names(&g.target, &mut bound);
+    }
+    for n in used {
+        if !bound.contains(&n) {
+            out.insert(n);
+        }
+    }
+}
+
+// Walrus targets of a generator expression's own expressions. A walrus inside any comprehension nested in
+// this one binds in the nearest non-comprehension scope, so it is free here too; a lambda is its own scope.
+fn genexp_walrus(e: &Ex, out: &mut BTreeSet<String>) {
+    if matches!(e, Ex::Lambda(..)) {
+        return;
+    }
+    if let Ex::Walrus(n, x) = e {
+        out.insert(n.clone());
+        genexp_walrus(x, out);
+        return;
+    }
+    match e {
+        Ex::List(v) | Ex::Tuple(v) | Ex::Set(v) => v.iter().for_each(|x| genexp_walrus(x, out)),
+        Ex::Dict(v) => v.iter().for_each(|(k, x)| {
+            if let Some(k) = k {
+                genexp_walrus(k, out);
+            }
+            genexp_walrus(x, out);
+        }),
+        Ex::Comp(_, elt, val, gens) => {
+            genexp_walrus(elt, out);
+            if let Some(v) = val {
+                genexp_walrus(v, out);
+            }
+            for g in gens {
+                genexp_walrus(&g.iter, out);
+                for c in &g.ifs {
+                    genexp_walrus(c, out);
+                }
+            }
+        }
+        Ex::Star(x) | Ex::Attr(x, _) | Ex::Unary(_, x) | Ex::YieldFrom(x) | Ex::Await(x) => genexp_walrus(x, out),
+        Ex::Yield(x) => {
+            if let Some(x) = x {
+                genexp_walrus(x, out);
+            }
+        }
+        Ex::Index(a, b) | Ex::Bin(_, a, b) | Ex::And(a, b) | Ex::Or(a, b) => {
+            genexp_walrus(a, out);
+            genexp_walrus(b, out);
+        }
+        Ex::Slice(a, b, c) => {
+            for x in [a, b, c].into_iter().flatten() {
+                genexp_walrus(x, out);
+            }
+        }
+        Ex::Call(c, args) => {
+            genexp_walrus(c, out);
+            for a in args {
+                match a {
+                    Arg::Pos(x) | Arg::Star(x) | Arg::Kw(_, x) | Arg::KwStar(x) => genexp_walrus(x, out),
+                }
+            }
+        }
+        Ex::Cmp(a, rest) => {
+            genexp_walrus(a, out);
+            rest.iter().for_each(|(_, x)| genexp_walrus(x, out));
+        }
+        Ex::IfExp(a, b, c) => {
+            genexp_walrus(a, out);
+            genexp_walrus(b, out);
+            genexp_walrus(c, out);
+        }
+        Ex::FStr(parts) => {
+            for p in parts {
+                if let FPart::Expr(x, _, spec, _) = p {
+                    genexp_walrus(x, out);
+                    for sp in spec {
+                        if let FPart::Expr(y, ..) = sp {
+                            genexp_walrus(y, out);
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 // free names of the defs and classes directly nested in body
 fn nested_free(body: &[Stmt]) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
@@ -750,6 +857,11 @@ fn nested_free(body: &[Stmt]) -> BTreeSet<String> {
                         out.insert(n);
                     }
                 }
+            }
+            if matches!(x, Ex::Comp('g', ..)) {
+                let mut g = BTreeSet::new();
+                genexp_free(x, &mut g);
+                out.extend(g);
             }
         });
     }
@@ -1425,7 +1537,7 @@ impl Em {
             }
             Ex::Lambda(p, body) => {
                 let ret = Stmt { line, st: St::Return(Some((**body).clone())) };
-                let f = self.closure("<lambda>", p, &[ret], line, false)?;
+                let f = self.closure("<lambda>", p, &[ret], line, false, None)?;
                 if PYD_ON.load(std::sync::atomic::Ordering::Relaxed) { format!("with_np({f}, {})", if p.star.is_some() { 99 } else { p.pos.len() }) } else { f }
             }
             Ex::Comp(kind, elt, val, gens) => self.comp(*kind, elt, val.as_deref(), gens, line)?,
@@ -1793,6 +1905,39 @@ impl Em {
                 return Err(err(line, "asynchronous comprehension outside of an asynchronous function"));
             }
         }
+        // A generator expression is a lazy generator: only its outermost iterable runs now. The rest is
+        // emitted as a hidden generator function whose one parameter is that iterator, exactly as CPython
+        // compiles it, so later writes to the names it reads are seen when it is consumed.
+        if kind == 'g' {
+            if !GEN_OK {
+                return Err(err(line, "generator expressions are not supported in dynamic builds on this platform"));
+            }
+            let id = self.id();
+            let first = self.ex(&gens[0].iter, line)?;
+            let mut body = vec![Stmt { line, st: St::Expr(Ex::Yield(Some(Box::new(elt.clone())))) }];
+            for (k, g) in gens.iter().enumerate().rev() {
+                body = g.ifs.iter().rev().fold(body, |b, c| vec![Stmt { line, st: St::If(vec![(c.clone(), b)], None) }]);
+                let it = if k == 0 { Ex::Name("__arg0".into()) } else { g.iter.clone() };
+                body = vec![Stmt { line, st: St::For(g.target.clone(), it, body, None) }];
+            }
+            // A comprehension target that this generator expression reads lazily is a cell, made so by the
+            // enclosing comprehension when it saw the nested generator expression, so the closure above
+            // captures it and sees its final value, as CPython does.
+            let params = Params { pos: vec![("__arg0".to_string(), None)], ..Params::default() };
+            let mut strip = BTreeSet::new();
+            genexp_walrus(elt, &mut strip);
+            for g in gens {
+                genexp_walrus(&g.iter, &mut strip);
+                for c in &g.ifs {
+                    genexp_walrus(c, &mut strip);
+                }
+            }
+            let f = self.closure("<genexpr>", &params, &body, line, false, Some(&strip))?;
+            let gv = format!("__g{id}");
+            let first_it = self.q(&format!("iter_v(&{first})"));
+            let call = self.q(&format!("call(&{f}, Args::p(vec![{gv}]))"));
+            return Ok(format!("{{ let {gv} = {first_it}; {call} }}"));
+        }
         // comprehension variables are fresh locals for the duration
         let id = self.id();
         let mut names = BTreeSet::new();
@@ -1800,6 +1945,10 @@ impl Em {
             target_names(&g.target, &mut names);
         }
         let saved: Vec<(String, Option<Var>)> = names.iter().map(|n| (n.clone(), self.f().vars.get(n).cloned())).collect();
+        // A target that a nested generator expression or lambda reads is a cell (CPython's comprehension
+        // scope), not a plain local, so every one of those nested scopes sees its final value.
+        let probe = Stmt { line, st: St::Expr(Ex::Comp(kind, Box::new(elt.clone()), val.cloned().map(Box::new), gens.to_vec())) };
+        let cell_names: BTreeSet<String> = names.intersection(&nested_free(&[probe])).cloned().collect();
         // the first iterable is evaluated in the enclosing scope
         let first_zip = match self.zip2(&gens[0].target, &gens[0].iter) {
             Some((a, b, _, _)) if !gens[0].is_async => Some((self.ex(a, line)?, self.ex(b, line)?)),
@@ -1808,9 +1957,15 @@ impl Em {
         let first_iter = if first_zip.is_some() { String::new() } else { self.ex(&gens[0].iter, line)? };
         let mut decl = String::new();
         for n in &names {
-            let r = format!("c{id}_{}", rust_ident(n));
-            write!(decl, "let mut {r}: V = V::Unbound; ").unwrap();
-            self.f().vars.insert(n.clone(), Var::Local(r));
+            if cell_names.contains(n) {
+                let c = format!("kc{id}_{}", rust_ident(n));
+                write!(decl, "let {c} = cell(); ").unwrap();
+                self.f().vars.insert(n.clone(), Var::Cell(c));
+            } else {
+                let r = format!("c{id}_{}", rust_ident(n));
+                write!(decl, "let mut {r}: V = V::Unbound; ").unwrap();
+                self.f().vars.insert(n.clone(), Var::Local(r));
+            }
         }
         let mut b = String::new();
         let acc = match kind {
@@ -2465,7 +2620,7 @@ impl Em {
             return Err(err(d.line, "async functions are not supported in dynamic builds on this platform"));
         }
         self.next_async = d.is_async;
-        let v = self.closure(&d.name, &d.params, &d.body, d.line, true);
+        let v = self.closure(&d.name, &d.params, &d.body, d.line, true, None);
         self.next_async = false;
         let mut v = v?;
         if let Some(doc) = docstring(&d.body) {
@@ -2483,12 +2638,19 @@ impl Em {
     }
     // A function value. Module-level functions (and methods of module-level classes) become plain Rust
     // functions plus a wrapper; nested ones are closures capturing the cells they use.
-    fn closure(&mut self, name: &str, p: &Params, body: &[Stmt], line: usize, is_def: bool) -> ER<String> {
+    fn closure(&mut self, name: &str, p: &Params, body: &[Stmt], line: usize, is_def: bool, walrus_free: Option<&BTreeSet<String>>) -> ER<String> {
         let id = self.id();
         let is_async = std::mem::take(&mut self.next_async);
         let is_gen = has_yield(body);
         let params = lambda_params(p);
-        let sc = scope_of(body, &params);
+        let mut sc = scope_of(body, &params);
+        if let Some(w) = walrus_free {
+            // A walrus in a generator expression binds in the scope holding the expression, not in the
+            // hidden generator function, so those names are free here even though scope_of counts them.
+            for n in w {
+                sc.locals.remove(n);
+            }
+        }
         let inner_free = nested_free(body);
         let at_top = self.fstack.len() == 1;
         let in_class_top = self.class_ctx.is_some() && self.fstack.len() == 2 && self.fstack[0].is_module;
@@ -2521,6 +2683,13 @@ impl Em {
         // captured cells from enclosing functions
         let mut captures: Vec<(String, String)> = vec![];
         let mut free = free_of_def(&params, body);
+        if let Some(w) = walrus_free {
+            for n in w {
+                if !params.contains(n) {
+                    free.insert(n.clone());
+                }
+            }
+        }
         if let Some(c) = &self.class_ctx {
             free.insert(c.clone());
         }
