@@ -1002,7 +1002,19 @@ class _AsCompletedIterator:
         self._done = Queue()
         self._timeout_handle = None
         loop = get_event_loop()
-        todo = {ensure_future(aw, loop=loop) for aw in set(aws)}
+        # CPython's set(aws) here decides the order the tasks are first scheduled in, by its
+        # set table order. Brevi's set of awaitables has a different order for identity-hashed
+        # values (it follows Brevi's own heap addresses), so scheduling from it makes
+        # as_completed yield a different, run-to-run-unstable order than CPython. Keep the
+        # awaitables in the order they were supplied (deduplicated): deterministic, and the
+        # order CPython produces when its set table preserves insertion order.
+        uniq = []
+        seen = {}
+        for aw in aws:
+            if seen.setdefault(aw, len(uniq)) < len(uniq):
+                continue
+            uniq.append(aw)
+        todo = [ensure_future(aw, loop=loop) for aw in uniq]
         for f in todo:
             f.add_done_callback(self._handle_completion)
         if todo and timeout is not None:
