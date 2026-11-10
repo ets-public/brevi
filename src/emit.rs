@@ -28,7 +28,7 @@ pub const METHODS: &[&str] = &[
     "text", "list", "is_null", "bool", "re_find", "re_full", "re_all", "re_list", "partition", "re_sub", "re_split",
     "trim_of", "trim_end", "trim_end_of", "trim_start", "trim_start_of", "is_upper", "is_lower", "is_alnum",
     "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "quantize", "frac", "frac_div", "csv_rows", "csv_dicts", "re_match", "re_m_find", "re_m_full", "re_m_match", "re_m_match_at", "re_m_find_at", "re_m_all", "re_findall", "next_or", "next_or_empty", "tally", "tally_words", "to_dict", "clear", "splice", "most_common", "most_common_all", "count_sub", "zfill", "title", "center", "center_with", "capitalize", "exit_with", "ljust", "rjust", "ljust_with", "rjust_with", "split_n", "rsplit_n", "update", "delta_days", "month_range", "is_leap", "is_ascii", "is_integer", "isinstance", "type_kind", "lines_keep", "pop_or", "py_repr", "py_dumps", "group_runs", "count_of", "min_or", "max_or", "first_or", "re_start", "re_end", "re_span", "re_groups", "isqrt", "lax", "int_base", "big_base", "next_or_none", "tuple_items",
-    "m_log", "m_logb", "m_log2", "m_log10", "m_log1p", "m_exp", "m_expm1", "m_sin", "m_cos", "m_tan", "m_asin", "m_acos", "m_atan", "m_atan2", "m_sinh", "m_cosh", "m_tanh", "m_hypot", "m_fabs", "m_trunc", "m_degrees", "m_radians", "m_copysign", "m_fmod", "m_isnan", "m_isinf", "m_isfinite", "m_inf", "m_nan", "m_time", "m_perf_counter", "m_monotonic", "bin_text", "hex_text", "oct_text", "starts_with_at", "ends_with_at", "csv_writerow", "csv_writerows",
+    "m_log", "m_logb", "m_log2", "m_log10", "m_log1p", "m_exp", "m_expm1", "m_sin", "m_cos", "m_tan", "m_asin", "m_acos", "m_atan", "m_atan2", "m_sinh", "m_cosh", "m_tanh", "m_hypot", "m_fabs", "m_trunc", "m_degrees", "m_radians", "m_copysign", "m_fmod", "m_isnan", "m_isinf", "m_isfinite", "m_inf", "m_nan", "m_time", "m_perf_counter", "m_monotonic", "bin_text", "hex_text", "oct_text", "starts_with_at", "ends_with_at", "csv_writerow", "csv_writerows", "lax_def", "lax_mk",
 ];
 
 // Methods that return a new value; calling one as a statement does nothing.
@@ -120,6 +120,13 @@ pub struct Emitter {
     unbox: Vec<String>,
     // Borrow lists in loops instead of copying them (off when that breaks the borrow rules).
     pub borrow_loops: bool,
+    // Names holding a defaultdict (or Counter), whose missing-key reads insert the key.
+    dd: HashSet<String>,
+    // A defaultdict whose factory gives a tuple: how many items an unpacking read gets (even before
+    // the map's full value type is known, when a slot starts empty).
+    dd_arities: HashMap<String, usize>,
+    // How many lambda bodies are being emitted: a dd read there borrows the captured dict.
+    in_lam: usize,
 }
 
 fn edit_distance(a: &str, b: &str) -> usize {
@@ -830,6 +837,71 @@ fn through_index(e: &Expr) -> bool {
     }
 }
 
+// Names the parser made defaultdicts (or Counters): their missing-key reads put the key in.
+fn dd_names(items: &[Item]) -> HashSet<String> {
+    let lax = |v: &Expr| matches!(v, Expr::Method(r, m, _, _) if matches!(m.as_str(), "lax" | "lax_def" | "lax_mk") && matches!(r.as_ref(), Expr::Map(ps) if ps.is_empty()));
+    let mut out = HashSet::new();
+    for it in items {
+        let body = match it {
+            Item::Fn { body, .. } | Item::Test { body, .. } => body,
+            _ => continue,
+        };
+        crate::infer::walk(body, &mut |e| {
+            if let Expr::Block(stmts, _) = e {
+                for s in stmts {
+                    match s {
+                        Stmt::Let { name: Pat::Bind(n), value, .. } | Stmt::Assign { target: Expr::Ident(n), value, .. } if lax(value) => {
+                            out.insert(n.clone());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        });
+    }
+    out
+}
+
+// A defaultdict whose lambda gives a tuple (`defaultdict(lambda: ([], [0]))`): how many items one entry
+// has, for unpacking reads to bind references before the entry's full type is known.
+fn dd_arities(items: &[Item]) -> HashMap<String, usize> {
+    let mut out = HashMap::new();
+    for it in items {
+        let body = match it {
+            Item::Fn { body, .. } | Item::Test { body, .. } => body,
+            _ => continue,
+        };
+        crate::infer::walk(body, &mut |e| {
+            if let Expr::Block(stmts, _) = e {
+                for s in stmts {
+                    match s {
+                        Stmt::Let { name: Pat::Bind(n), value, .. } | Stmt::Assign { target: Expr::Ident(n), value, .. } => {
+                            let d = match value {
+                                Expr::Method(_, m, a, _) => match m.as_str() {
+                                    "lax_def" => a.first(),
+                                    "lax_mk" => match a.first() {
+                                        Some(Expr::Lambda(ps, body)) if ps.is_empty() => Some(body.as_ref()),
+                                        _ => None,
+                                    },
+                                    _ => None,
+                                },
+                                _ => None,
+                            };
+                            if let Some(Expr::Tuple(xs)) = d {
+                                if xs.len() >= 2 {
+                                    out.insert(n.clone(), xs.len());
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        });
+    }
+    out
+}
+
 // A value unpacked level by level to the shape of a nested tuple pattern (lists or tuples at each level).
 fn unpack_levels(p: &Pat, v: &str, k: &mut usize) -> String {
     match p {
@@ -905,6 +977,9 @@ impl Emitter {
             loops: vec![],
             try_n: 0,
             borrow_loops: false,
+            dd: dd_names(items),
+            dd_arities: dd_arities(items),
+            in_lam: 0,
             nested: HashSet::new(),
             cur_body: String::new(),
             json_ret: false,
@@ -1085,6 +1160,9 @@ impl Emitter {
                 }
             }
         }
+        for (n, t) in gtys {
+            self.top_tys.entry(n).or_insert(t);
+        }
     }
 
     // What print shows for an argument: a Python set prints in braces ({1, 2}, or set() when empty).
@@ -1210,7 +1288,9 @@ impl Emitter {
         }
         let saved = std::mem::replace(&mut self.must, true);
         let ps: Vec<String> = params.iter().zip(&tys).map(|(p, t)| format!("{p}: {t}")).collect();
+        self.in_lam += 1;
         let out = format!("(|{}| {})", ps.join(", "), self.expr(body));
+        self.in_lam -= 1;
         self.must = saved;
         self.locals = outer;
         out
@@ -1629,7 +1709,11 @@ impl Emitter {
         let mut out = String::from("{\n");
         for (i, s) in stmts.iter().enumerate() {
             out.push_str(&self.hoist(s, &stmts[i + 1..], tail));
-            out.push_str(&self.stmt(s));
+            if let Some(r) = self.dd_unpack(s, &stmts[i + 1..], tail) {
+                out.push_str(&r);
+            } else {
+                out.push_str(&self.stmt(s));
+            }
         }
         if let Some(t) = tail {
             out.push_str(&self.loop_hoist(t));
@@ -1728,6 +1812,15 @@ impl Emitter {
             };
             let mut names = Vec::new();
             branch_sets(b, &mut names);
+            // An entry unpacked out of a defaultdict binds references: not a hoisted default value.
+            let mut dd_set = HashSet::new();
+            if let Expr::Block(body, btail) = b.as_ref() {
+                for (j, st) in body.iter().enumerate() {
+                    if let Some((ns, _)) = self.dd_unpack_shape(st, &body[j + 1..], btail.as_deref()) {
+                        dd_set.extend(ns);
+                    }
+                }
+            }
             // Names a later lambda (a comprehension) mentions: it may set its own.
             let mut in_lambda = String::new();
             let whole = Expr::Block(rest_stmts.to_vec(), tail.map(|t| Box::new(t.clone())));
@@ -1736,7 +1829,7 @@ impl Emitter {
                     in_lambda.push_str(&format!("{e:?}"));
                 }
             });
-            names.retain(|n| !in_lambda.contains(&format!("Ident({n:?})")));
+            names.retain(|n| !dd_set.contains(n) && !in_lambda.contains(&format!("Ident({n:?})")));
             let rest = format!("{rest:?} {tail:?}");
             // Not a name a later loop or comprehension binds for itself (`for sku, (q, c) in ...`).
             for n in names.into_iter().filter(|n| n != "_" && !n.starts_with("ax_broke") && !pat.contains(&format!("{n:?}")) && !rest.contains(&format!("Bind({n:?})"))) {
@@ -1774,7 +1867,11 @@ impl Emitter {
                 let mut out = String::from("{\n");
                 for (i, s) in stmts.iter().enumerate() {
                     out.push_str(&self.hoist(s, &stmts[i + 1..], tail.as_deref()));
-                    out.push_str(&self.stmt(s));
+                    if let Some(r) = self.dd_unpack(s, &stmts[i + 1..], tail.as_deref()) {
+                        out.push_str(&r);
+                    } else {
+                        out.push_str(&self.stmt(s));
+                    }
                 }
                 if let Some(t) = tail {
                     out.push_str(&self.loop_hoist(t));
@@ -2150,6 +2247,76 @@ impl Emitter {
         }
     }
 
+    // Is this place a defaultdict the typed build made (a missing-key read must insert the key)?
+    // Reads inside a lambda borrow the captured dict, so they read without inserting; the guard sends
+    // a program whose lambda read may miss to the dynamic build.
+    fn is_dd(&self, b: &Expr) -> bool {
+        self.in_lam == 0 && match b {
+            Expr::Ident(n) | Expr::Move(n) => self.dd.contains(n),
+            _ => false,
+        }
+    }
+
+    // `times, errs = data[path]` on a defaultdict the typed build made, with a name changed in place
+    // later: bind the names to the stored entry's items, so the change reaches the dict (Python shares
+    // them). A read-only unpack keeps the usual copy.
+    fn dd_unpack_shape(&self, s: &Stmt, rest: &[Stmt], tail: Option<&Expr>) -> Option<(Vec<String>, usize)> {
+        let Stmt::Assign { target: Expr::Tuple(xs), op: "=", value: Expr::Index(b, k), line } = s else { return None };
+        let b = b.as_ref();
+        if !xs.iter().all(|x| matches!(x, Expr::Ident(_))) || !self.is_dd(b) {
+            return None;
+        }
+        let names: Vec<String> = xs.iter().map(|x| if let Expr::Ident(n) = x { n.clone() } else { unreachable!() }).collect();
+        if names.len() < 2 || names.iter().any(|n| n == "_") {
+            return None;
+        }
+        // The entry must be a tuple of exactly these items: from its known type when that is a tuple,
+        // else from the factory's tuple shape (an entry slot may start empty, so the full type is
+        // not known yet).
+        let n = match b {
+            Expr::Ident(n) | Expr::Move(n) => n,
+            _ => return None,
+        };
+        let known = match self.top_tys.get(n) {
+            Some(Ty::Map(_, v)) => match v.as_ref() {
+                Ty::Tuple(ts) => Some(Some(ts.len())),
+                _ => Some(None),
+            },
+            Some(Ty::Tuple(ts)) => Some(Some(ts.len())),
+            _ => None,
+        };
+        let arity = match known {
+            Some(a) => a,
+            None => self.dd_arities.get(n).copied(),
+        };
+        if arity != Some(names.len()) {
+            return None;
+        }
+        // A plain `=` later would write through the reference, wrongly changing the entry: then keep the
+        // copy. Only when at least one name is changed in place later is the reference needed.
+        let whole = Expr::Block(rest.to_vec(), tail.map(|t| Box::new(t.clone())));
+        if names.iter().any(|n| assigns_to(&whole, n)) || !names.iter().any(|n| changes(&whole, n)) {
+            return None;
+        }
+        Some((names, *line))
+    }
+
+    fn dd_unpack(&mut self, s: &Stmt, rest: &[Stmt], tail: Option<&Expr>) -> Option<String> {
+        let (names, line) = self.dd_unpack_shape(s, rest, tail)?;
+        let Stmt::Assign { value: Expr::Index(b, k), .. } = s else { unreachable!() };
+        let (b, k) = (b.as_ref(), k.as_ref());
+        let d = self.place_mut(b);
+        let k = self.arg_ref(k);
+        let tmp = "__ax_ddv";
+        let ps = names.iter().map(|n| format!("mut {n}")).collect::<Vec<_>>().join(", ");
+        let fs = (0..names.len()).map(|i| format!("&mut {tmp}.{i}")).collect::<Vec<_>>().join(", ");
+        for n in &names {
+            self.locals.insert(n.clone());
+            self.refs.insert(n.clone());
+        }
+        Some(format!("    /*@L{line}*/ax_l({line}); let {tmp} = {d}.ax_read_miss_ref({k}); let ({ps}) = ({fs});\n"))
+    }
+
     // A place to read through without cloning (method receivers, field bases).
     fn place(&mut self, e: &Expr) -> String {
         if let Expr::Ident(n) = e {
@@ -2166,6 +2333,10 @@ impl Emitter {
             Expr::Field(b, f) if (f == "numerator" || f == "denominator") && !self.structs.values().any(|fs| fs.iter().any(|x| &x.name == f)) => format!("({}).ax_{f}()", self.expr(b)),
             Expr::Field(b, f) => format!("{}.{f}", self.place(b)),
             Expr::TupleField(b, i) => format!("{}.{i}", self.place(b)),
+            Expr::Index(b, i) if self.is_dd(b) => {
+                let b = self.place_mut(b);
+                format!("({}.ax_read_miss({}))", b, self.arg_ref(i))
+            }
             Expr::Index(b, i) => {
                 let b = self.place(b);
                 let i = self.arg_ref(i);
@@ -2467,6 +2638,7 @@ impl Emitter {
                                 self.locals.insert(p.clone());
                             }
                             let params = if unpack && ps.len() > 1 { format!("({})", ps.join(", ")) } else { ps.join(", ") };
+                            self.in_lam += 1;
                             let out = if !tries {
                                 let saved = std::mem::replace(&mut self.must, true);
                                 // A plain closure cannot return an error, so it keeps the unchecked forms.
@@ -2498,6 +2670,7 @@ impl Emitter {
                                 self.must = saved_must;
                                 format!("(|{params}| -> R<_> {{ Ok({b}) }})")
                             };
+                            self.in_lam -= 1;
                             self.locals = outer;
                             out
                         }
@@ -2552,6 +2725,7 @@ impl Emitter {
                 format!("({}).ax_{f}()", self.expr(b))
             }
             Expr::Field(..) | Expr::TupleField(..) => format!("{}.clone()", self.place(e)),
+            Expr::Index(b, _) if self.is_dd(b) => self.place(e),
             Expr::Index(..) => format!("{}.clone()", self.place(e)),
             Expr::Lambda(params, body) => {
                 let outer = self.locals.clone();
@@ -2563,7 +2737,9 @@ impl Emitter {
                 let (z, i) = (self.ck_zd, self.ck_ie);
                 self.ck_zd = false;
                 self.ck_ie = false;
+                self.in_lam += 1;
                 let out = format!("(|{}| {})", params.join(", "), self.expr(body));
+                self.in_lam -= 1;
                 self.ck_zd = z;
                 self.ck_ie = i;
                 self.must = saved;

@@ -2819,6 +2819,17 @@ impl Parser {
                     if let Some(x) = crate::gui::bare_call(&name, &args, line) {
                         return Ok(x);
                     }
+                    // defaultdict's typed forms work even while other parts run in CPython.
+                    if name == "defaultdict" && !self.user_fns.contains(&name) && args.len() == 1 {
+                        let (n, d) = &args[0];
+                        if n.as_deref() == Some("lambda") {
+                            let d = d.clone();
+                            return Ok(if empty_literal(&d) { lax_map(line) } else if immutable_default(&d) { lax_map_def(line, d) } else if fresh_default(&d) { lax_map_mk(line, d) } else { Expr::Call(name.clone(), vec![(Some("lambda".into()), d)], line) });
+                        }
+                        if n.is_none() && matches!(d, Expr::Ident(n) if matches!(n.as_str(), "int" | "float" | "str" | "list" | "set" | "dict" | "tuple" | "bool" | "Decimal" | "Fraction")) {
+                            return Ok(lax_map(line));
+                        }
+                    }
                     if let Some(x) = crate::pybridge::call_hook(&name, &args, &self.user_fns, line) {
                         return Ok(x);
                     }
@@ -2917,9 +2928,11 @@ impl Parser {
                             }
                         });
                     }
-                    // defaultdict(lambda: 0) (read as a `lambda:` named argument) with an empty default is a map.
-                    if name == "defaultdict" && args.len() == 1 && args[0].0.as_deref() == Some("lambda") && empty_literal(&args[0].1) && !self.user_fns.contains(&name) {
-                        return Ok(lax_map(line));
+                    // defaultdict(lambda: 0) (read as a `lambda:` named argument) is a map whose missing
+                    // keys read zero; a non-empty constant default starts each missing key at a copy of it.
+                    if name == "defaultdict" && args.len() == 1 && args[0].0.as_deref() == Some("lambda") && !self.user_fns.contains(&name) {
+                        let d = args.remove(0).1;
+                        return Ok(if empty_literal(&d) { lax_map(line) } else if immutable_default(&d) { lax_map_def(line, d) } else if fresh_default(&d) { lax_map_mk(line, d) } else { Expr::Call(name.clone(), vec![(Some("lambda".into()), d)], line) });
                     }
                     // enumerate(xs, start=1)
                     if name == "enumerate" && args.len() == 2 && args[1].0.as_deref() == Some("start") && !self.user_fns.contains(&name) {
@@ -3710,7 +3723,9 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
             m(args.remove(0).1, name, vec![f])
         }
         ("dict", 0) => Expr::Map(vec![]),
-        ("Counter", 0) | ("defaultdict", 1) => lax_map(line),
+        // defaultdict(int), defaultdict(list), defaultdict(Decimal): missing keys read as the type's zero.
+        ("defaultdict", 1) if matches!(&args[0].1, Expr::Ident(n) if matches!(n.as_str(), "int" | "float" | "str" | "list" | "set" | "dict" | "tuple" | "bool" | "Decimal" | "Fraction")) => lax_map(line),
+        ("Counter", 0) => lax_map(line),
         ("set", 1) => m(args.remove(0).1, "unique", vec![]),
         // dict(m) copies a map; maps are values in Brevi already.
         ("OrderedDict", 1) => args.remove(0).1,
@@ -3856,6 +3871,47 @@ fn fill_format(parts: &[StrPart], args: Vec<Expr>, percent: bool, line: usize) -
 // defaultdict(...) and Counter(): an empty map whose missing keys read as zero.
 fn lax_map(line: usize) -> Expr {
     Expr::Method(Box::new(Expr::Map(vec![])), "lax".into(), vec![], line)
+}
+// defaultdict(lambda: ...) with a constant default: an empty map whose missing keys start at a copy of it.
+fn lax_map_def(line: usize, d: Expr) -> Expr {
+    Expr::Method(Box::new(Expr::Map(vec![])), "lax_def".into(), vec![d], line)
+}
+// defaultdict(lambda: ...) whose default is a container: an empty map whose missing keys run the body
+// afresh and get that new value, as Python does.
+fn lax_map_mk(line: usize, d: Expr) -> Expr {
+    Expr::Method(Box::new(Expr::Map(vec![])), "lax_mk".into(), vec![Expr::Lambda(vec![], Box::new(d))], line)
+}
+// A lambda default the typed build can store and copy for each missing key: an immutable value. The
+// guard keeps a name only when it is bound to an immutable constant, so a mutable object is never
+// copied per key.
+fn immutable_default(e: &Expr) -> bool {
+    match e {
+        Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) | Expr::Str(_) | Expr::Ident(_) => true,
+        Expr::Tuple(xs) => xs.iter().all(immutable_default),
+        Expr::Call(n, args, _) => matches!(n.as_str(), "none" | "int" | "float" | "str" | "Decimal" | "Fraction" | "tuple") && args.iter().all(|(_, a)| immutable_default(a)),
+        Expr::Method(r, m, a, _) => matches!(m.as_str(), "dec" | "float" | "int" | "big") && a.is_empty() && immutable_default(r),
+        _ => false,
+    }
+}
+// The pieces of a fresh container default, with no names: a name's object cannot be rebuilt by the
+// stored constructor, so the guard does not take a container that reads one.
+fn immutable_lit(e: &Expr) -> bool {
+    match e {
+        Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) | Expr::Str(_) => true,
+        Expr::Tuple(xs) => xs.iter().all(immutable_lit),
+        Expr::Call(n, args, _) => matches!(n.as_str(), "none" | "int" | "float" | "str" | "Decimal" | "Fraction" | "tuple") && args.iter().all(|(_, a)| immutable_lit(a)),
+        Expr::Method(r, m, a, _) => matches!(m.as_str(), "dec" | "float" | "int" | "big") && a.is_empty() && immutable_lit(r),
+        _ => false,
+    }
+}
+// A container default the constructor builds afresh per missing key.
+fn fresh_default(e: &Expr) -> bool {
+    match e {
+        Expr::List(xs) | Expr::Tuple(xs) => xs.iter().all(|x| immutable_lit(x) || fresh_default(x)),
+        Expr::Map(ps) => ps.iter().all(|(k, v)| (immutable_lit(k) || fresh_default(k)) && (immutable_lit(v) || fresh_default(v))),
+        Expr::Call(n, args, _) => matches!(n.as_str(), "list" | "dict" | "set" | "tuple") && args.iter().all(|(_, a)| immutable_lit(a) || fresh_default(a)),
+        _ => false,
+    }
 }
 
 // `[]`, `{}`, `0`, `0.0`, `""` and `set()`/`list()`/`dict()`: the value a missing map key reads as.
