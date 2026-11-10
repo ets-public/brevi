@@ -3301,6 +3301,7 @@ impl Ck<'_, '_> {
                     _ => None,
                 };
                 if let Some((n, value, line)) = shadow {
+                    SHADOWED.with(|r| r.borrow_mut().insert(n.clone()));
                     env.remove(&n);
                     *st = Stmt::Let { name: Pat::Bind(n), ty: None, value, mutable: true, line };
                 }
@@ -4482,9 +4483,12 @@ fn holes_json(t: T) -> T {
 thread_local! {
     // Per tuple type: (rows made from mixed lists, tuples seen, which counts the rows' own tuples too).
     static ROW_TUPLES: std::cell::RefCell<HashMap<String, (usize, usize)>> = std::cell::RefCell::new(HashMap::new());
+    // Names a type-changing rebinding gave a new variable.
+    static SHADOWED: std::cell::RefCell<HashSet<String>> = std::cell::RefCell::new(HashSet::new());
 }
 pub fn rows_reset() {
     ROW_TUPLES.with(|r| r.borrow_mut().clear());
+    SHADOWED.with(|r| r.borrow_mut().clear());
 }
 // A tuple type held only by mixed-list rows: in Rust a shared row (AxRow).
 fn is_row(t: &T) -> bool {
@@ -4495,6 +4499,10 @@ pub fn is_row_ast(t: &Ty) -> bool {
     is_row(&from_ast(t))
 }
 // Some tuple type is used both for mixed-list rows and for real tuples.
+// Names a rebinding of another type gave a new variable (anywhere in the file).
+pub fn shadowed() -> HashSet<String> {
+    SHADOWED.with(|r| r.borrow().clone())
+}
 pub fn rows_clash() -> bool {
     ROW_TUPLES.with(|r| r.borrow().values().any(|(rows, all)| *rows > 0 && all > rows))
 }

@@ -107,7 +107,7 @@ fn check_body(body: &[Stmt]) -> Option<(usize, String, Vec<String>)> {
     if let Some(line) = crate::dynpy::typing::typed_isinstance(body) {
         return Some((line, "isinstance with a typing name".into(), vec![]));
     }
-    if let Some((line, why)) = odd_decorator(body).or_else(|| json_kwargs(body)).or_else(|| findall_groups(body)).or_else(|| pattern_uses(body)).or_else(|| default_reads(body)) {
+    if let Some((line, why)) = odd_decorator(body).or_else(|| json_kwargs(body)).or_else(|| findall_groups(body)).or_else(|| pattern_uses(body)).or_else(|| default_reads(body)).or_else(|| crate::share_guard::check(body)) {
         return Some((line, why, vec![]));
     }
     let mut hits = vec![];

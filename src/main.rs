@@ -24,6 +24,7 @@ mod parser;
 mod pybridge;
 mod pydiag;
 mod patch;
+mod share_guard;
 mod typed_guard;
 mod unicode_names;
 mod pysentinel;
@@ -1308,6 +1309,20 @@ fn typed(mut items: Vec<ast::Item>, py: bool, eager: bool) -> Result<Vec<ast::It
     if !errs.is_empty() {
         return Err(errs);
     }
+    // Lists the sharing proof (share_guard) passed only because the typed build borrows them: each such
+    // parameter must be `mut` (passed `&mut place`), or the file goes to the dynamic build.
+    if py {
+        let req = share_guard::required();
+        let mut missing: Vec<&(String, String)> = req.muts.iter().filter(|(f, p)| !items.iter().any(|it| matches!(it, ast::Item::Fn { name, params, .. } if name == f && params.iter().any(|q| &q.name == p && q.is_mut)))).collect();
+        missing.sort();
+        if let Some((f, p)) = missing.first() {
+            return Err(vec![diag::Diag::new("check", 1, 1, &format!("Python shares the list passed as {p} to {f}(), which the typed build would copy"))]);
+        }
+        let sh = infer::shadowed();
+        if let Some((n, l)) = req.globals.iter().find(|(n, _)| sh.contains(*n)) {
+            return Err(vec![diag::Diag::new("check", *l, 1, &format!("`{n}` is set again at module level to a value of another type after a function uses it; the typed build would keep the function's own copy"))]);
+        }
+    }
     // A tuple type used both for mixed-list rows and for real tuples: rows would print as tuples (and be
     // copied where Python shares them), so a Python file goes to the dynamic build.
     if infer::rows_clash() && py {
@@ -1416,6 +1431,10 @@ fn compile_once(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>
     // Python names share objects (`r = rows[k]; r[0] -= 1` changes rows); Brevi programs keep copies.
     if py {
         let errs = alias::writeback(&mut items);
+        if !errs.is_empty() {
+            return Err(errs);
+        }
+        let errs = alias::share_marks(&mut items);
         if !errs.is_empty() {
             return Err(errs);
         }

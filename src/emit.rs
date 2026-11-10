@@ -938,6 +938,23 @@ pub(crate) fn changes_in_place(e: &Expr, name: &str) -> bool {
     ["push", "pop_or", "pop", "insert", "remove", "sort", "sort_by", "reverse", "clear", "splice", "update", "extend", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "next_or_none"].iter().any(|m| d.contains(&format!("Method(Ident({name:?}), {m:?},")))
 }
 
+// `n = ...` other than the typed build's own write-back of an in-place change (`n = n.sort()`).
+fn rebinds_loop_var(e: &Expr, name: &str) -> bool {
+    let mut hit = false;
+    crate::infer::walk(e, &mut |x| {
+        if let Expr::Block(stmts, _) = x {
+            for s in stmts {
+                if let Stmt::Assign { target: Expr::Ident(t), value, .. } = s {
+                    if t == name && !matches!(value, Expr::Method(o, ..) if matches!(o.as_ref(), Expr::Ident(m) if m == name)) {
+                        hit = true;
+                    }
+                }
+            }
+        }
+    });
+    hit
+}
+
 pub fn assigns_to(e: &Expr, name: &str) -> bool {
     match e {
         Expr::Block(stmts, tail) => {
@@ -2871,7 +2888,10 @@ impl Emitter {
                 if let (Pat::Bind(n), Expr::Ident(_) | Expr::Index(..) | Expr::Field(..) | Expr::TupleField(..)) = (p, iter.as_ref()) {
                     // (Not when the body also reads the list's owner: it then works on a copy of each row.)
                     let root_read = root_name(iter).map_or(false, |r| { let t = format!("{body:?}"); t.contains(&format!("Ident({r:?})")) || t.contains(&format!("Move({r:?})")) });
-                    if changes(body, n) && root_name(iter).is_some() && !root_read {
+                    // In Python setting the loop variable (`line = line.strip()`) rebinds it and leaves the list
+                    // alone: only a change of the item itself walks the list in place.
+                    let ch = if crate::infer::py_on() { changes_in_place(body, n) && !rebinds_loop_var(body, n) } else { changes(body, n) };
+                    if ch && root_name(iter).is_some() && !root_read {
                         let it = self.place_mut(iter);
                         self.locals.insert(n.clone());
                         self.refs.insert(n.clone());
@@ -2880,6 +2900,9 @@ impl Emitter {
                         let lab = self.close_loop();
                         self.refs.remove(n);
                         return format!("{lab}for {n} in {it}.iter_mut() {b}");
+                    }
+                    if crate::infer::py_on() && crate::share_guard::required().iters.contains(&(self.line, n.clone())) {
+                        self.diag(self.line, &format!("the loop changes each item of a list in place through {n}, which the typed build would do on a copy"), None);
                     }
                     // Python changes the list's own items (`r[1] = v` on each row); a copy of each row would lose that.
                     if crate::infer::py_on() && root_read && changes_in_place(body, n) && !matches!(self.infer_ty(iter), Some(Ty::List(x)) if matches!(x.as_ref(), Ty::Named(k) if k != "Json")) {
@@ -3016,6 +3039,7 @@ impl Emitter {
             };
             let f = match args.get(2).map(|a| &a.1) {
                 Some(Expr::Int(2)) => "ax_shared_aug",
+                Some(Expr::Int(3)) => "ax_items_whole",
                 Some(_) => "ax_shared_whole",
                 None => "ax_shared",
             };
