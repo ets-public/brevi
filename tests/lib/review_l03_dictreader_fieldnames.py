@@ -45,3 +45,8 @@ try:
     csv.DictReader(io.StringIO("a\n"), dialect="nope")
 except csv.Error as e:
     print("Error", e)
+# the unix dialect quotes every field when writing
+buf = io.StringIO()
+w = csv.writer(buf, dialect="unix")
+w.writerow(["a", 1, "b c"])
+print(repr(buf.getvalue()), csv.reader(io.StringIO(""), dialect="unix").dialect.quoting)

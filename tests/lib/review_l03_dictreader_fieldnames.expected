@@ -25,3 +25,4 @@ unix [['a\tb'], ['1\t2']]
 [['a', 'b'], ['1', '2']]
 Error unknown dialect
 Error unknown dialect
+'"a","1","b c"\n' 1

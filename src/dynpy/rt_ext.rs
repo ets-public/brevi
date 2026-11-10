@@ -2300,15 +2300,21 @@ fn csv_dialect(a: &mut Args, dialect: V) -> Result<CsvDialect, E> {
     let mut delim = ',';
     let mut quote = '"';
     let mut lineterm = "\r\n".to_string();
+    let mut quoting_d = 0;
     match dialect {
         V::None => {}
         V::Str(x) => match x.s.as_str() {
             "excel" => {}
             "excel-tab" => delim = '\t',
-            "unix" => lineterm = "\n".into(),
+            // csv.unix_dialect: '\n' line ends and every field quoted
+            "unix" => {
+                lineterm = "\n".into();
+                quoting_d = 1;
+            }
             _ => return Err(exc("Error", "unknown dialect".into())),
         },
-        _ => return Err(exc("Error", "unknown dialect".into())),
+        // a Dialect class or instance (csv.excel_tab, a subclass): refused rather than read with the defaults
+        _ => return Err(unsupported("a csv dialect given as a class or object")),
     }
     let ch = |v: Option<V>, d: char| -> Result<char, E> {
         match v {
@@ -2329,7 +2335,7 @@ fn csv_dialect(a: &mut Args, dialect: V) -> Result<CsvDialect, E> {
     };
     let quoting = match a.kw("quoting") {
         Some(V::Int(q)) => q,
-        _ => 0,
+        _ => quoting_d,
     };
     a.kw("strict");
     a.kw("doublequote");
