@@ -224,7 +224,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "_brevi_mt" => &["new", "seed", "next", "random", "bits", "below", "shuffle"],
         "collections" => &["defaultdict", "Counter", "OrderedDict", "deque", "namedtuple"],
         "dataclasses" => &["asdict", "astuple", "dataclass", "field", "fields", "replace", "is_dataclass", "MISSING", "KW_ONLY", "InitVar", "Field", "FrozenInstanceError"],
-        "re" => &["compile", "escape", "findall", "finditer", "fullmatch", "match", "purge", "search", "split", "sub", "subn", "IGNORECASE", "I", "MULTILINE", "M", "DOTALL", "S", "VERBOSE", "X", "ASCII", "A", "error"],
+        "re" => &["compile", "escape", "findall", "finditer", "fullmatch", "match", "purge", "search", "split", "sub", "subn", "IGNORECASE", "I", "MULTILINE", "M", "DOTALL", "S", "VERBOSE", "X", "ASCII", "A", "NOFLAG", "UNICODE", "U", "DEBUG", "RegexFlag", "error"],
         "json" => &["dump", "dumps", "load", "loads", "JSONDecodeError", "JSONDecoder", "JSONEncoder"],
         "json.decoder" => &["scanstring", "JSONDecoder", "JSONDecodeError"],
         "decimal" => &["Decimal", "getcontext", "InvalidOperation", "DivisionByZero", "DecimalException", "ROUND_HALF_EVEN", "ROUND_HALF_UP", "ROUND_HALF_DOWN", "ROUND_UP", "ROUND_DOWN", "ROUND_CEILING", "ROUND_FLOOR", "ROUND_05UP"],
@@ -2106,6 +2106,10 @@ impl Em {
                 // time.strftime(fmt) formats local time, which dynamic builds do not know: CPython runs it.
                 if md == "time" && m == "strftime" && args.len() < 2 {
                     return Err(err(line, "time.strftime without a time tuple (local time) is not supported in dynamic builds"));
+                }
+                // a bytes pattern: Brevi's re matches str only, so CPython runs the program
+                if md == "re" && matches!(args.first(), Some(Arg::Pos(Ex::Call(f, _))) if matches!(f.as_ref(), Ex::Name(n) if n == "__bytes_lit")) {
+                    return Err(err(line, "re with a bytes pattern is not supported in dynamic builds"));
                 }
                 let a = self.args(args, line, None)?;
                 if !module_has(&md, m) {
