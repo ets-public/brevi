@@ -1279,6 +1279,10 @@ impl AxIntBase for String {
         }
         // base 10 takes any Unicode decimal digit (`int("१२३", 0)` is 123)
         let digits: String = digits.chars().filter(|&c| c != '_').map(|c| if b == 10 { ax_uni_digit(c) } else { c }).collect();
+        // base 0 reads a decimal literal as Python source does: no leading zeros unless the value is 0
+        if base == 0 && b == 10 && digits.len() > 1 && digits.starts_with('0') && digits.bytes().any(|c| c != b'0') {
+            return Err(bad());
+        }
         let v = i64::from_str_radix(&digits, b).map_err(|_| bad())?;
         Ok(if neg { -v } else { v })
     }
@@ -3719,6 +3723,10 @@ fn ax_big_base_impl(s: &str, base: i64) -> R<Big> {
     }
     // base 10 takes any Unicode decimal digit (`int("१२३", 0)` is 123)
     let digits: String = digits.chars().filter(|&c| c != '_').map(|c| if b == 10 { ax_uni_digit(c) } else { c }).collect();
+    // base 0 reads a decimal literal as Python source does: no leading zeros unless the value is 0
+    if base == 0 && b == 10 && digits.len() > 1 && digits.starts_with('0') && digits.bytes().any(|c| c != b'0') {
+        return Err(bad());
+    }
     let v = big_from_radix(&digits, b).ok_or_else(bad)?;
     Ok(if neg { Big::make(true, v.mag) } else { v })
 }
