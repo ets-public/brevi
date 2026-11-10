@@ -2624,6 +2624,11 @@ impl Emitter {
                 let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
                 format!("({})({})", self.expr(recv), a.join(", "))
             }
+            // A float the compiler put into an int slot (`d.get(k, float('inf'))` on a dict of ints, line 0), not
+            // a call of int(): infinity stands for "larger than any int" there, as it always has.
+            Expr::Method(recv, name, args, 0) if name == "int" && args.is_empty() && (matches!(self.infer_ty(recv), None) || matches!(self.infer_ty(recv), Some(Ty::Named(n)) if ["int", "float", "f64", "str"].contains(&n.as_str()))) => {
+                format!("AxIntSlot::ax_int_slot(&{})", self.operand(recv))
+            }
             Expr::Method(recv, name, args, line) if name == "str" && args.is_empty() => {
                 self.line = *line;
                 format!("Show::show(&{})", self.operand(recv))

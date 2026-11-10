@@ -2036,6 +2036,33 @@ pub trait AxNum {
     fn ax_float(&self) -> f64;
     fn ax_int(&self) -> i64;
 }
+// A value the compiler put into an int slot (not a call of int()): a float past 64 bits (infinity standing for
+// "no distance yet" in `d.get(k, float('inf'))`) becomes the nearest 64-bit int, as it always has.
+pub trait AxIntSlot {
+    type Out;
+    fn ax_int_slot(&self) -> Self::Out;
+}
+impl AxIntSlot for f64 {
+    type Out = i64;
+    fn ax_int_slot(&self) -> i64 {
+        if self.is_nan() {
+            panic!("ValueError: cannot convert float NaN to integer");
+        }
+        *self as i64
+    }
+}
+impl AxIntSlot for i64 {
+    type Out = i64;
+    fn ax_int_slot(&self) -> i64 {
+        *self
+    }
+}
+impl AxIntSlot for String {
+    type Out = R<i64>;
+    fn ax_int_slot(&self) -> R<i64> {
+        AxStr::ax_int(self)
+    }
+}
 impl AxNum for i64 {
     fn ax_fmt(&self, decimals: i64) -> String {
         format!("{:.*}", decimals.max(0) as usize, *self as f64)
