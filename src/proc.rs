@@ -579,11 +579,18 @@ mod tests {
     #[test]
     fn parses_limits() {
         let mut l = Limits::default();
-        l.parse("cpu=1.2,time=500ms,output=2kb,file=3").unwrap();
+        #[cfg(not(windows))]
+        let spec = "cpu=1.2,time=500ms,output=2kb,file=3";
+        #[cfg(windows)]
+        let spec = "cpu=1.2,time=500ms,output=2kb";
+        l.parse(spec).unwrap();
         assert_eq!(l.cpu, Some(2));
         assert_eq!(l.time, Some(Duration::from_millis(500)));
         assert_eq!(l.output, Some(2048));
+        #[cfg(not(windows))]
         assert_eq!(l.file, Some(3));
+        #[cfg(windows)]
+        assert!(Limits::default().parse("file=3").is_err());
         let mut back = Limits::default();
         back.parse(&l.spec()).unwrap();
         assert_eq!(back, l);
