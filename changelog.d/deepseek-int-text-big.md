@@ -1,0 +1,1 @@
+- Typed builds read `int(text)` and `int(text, base)` of any length into a big integer where the text is visible (a literal, `input()`, `parts[i]`, `s.strip()`), including Unicode digits; `int('010', 0)` is a ValueError, as in CPython (written by DeepSeek, #318).
