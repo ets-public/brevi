@@ -97,6 +97,38 @@ pub struct Coro {
 
 thread_local! {
     static CORO_NOW: RefCell<Vec<*mut Coro>> = RefCell::new(Vec::new());
+    // Generators started and not yet finished or dropped, oldest first: closed at exit, as CPython closes
+    // the ones still alive when it shuts down.
+    static CORO_LIVE: RefCell<Vec<*mut Coro>> = RefCell::new(Vec::new());
+    static CORO_EXITING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+fn live_remove(c: *mut Coro) {
+    let _ = CORO_LIVE.try_with(|l| {
+        if let Ok(mut l) = l.try_borrow_mut() {
+            if let Some(i) = l.iter().rposition(|x| *x == c) {
+                l.remove(i);
+            }
+        }
+    });
+}
+// At exit, before the output is flushed: every generator still suspended gets GeneratorExit, so its finally
+// blocks and with exits run.
+pub fn close_live_gens() {
+    let live: Vec<*mut Coro> = CORO_LIVE.with(|l| l.borrow().clone());
+    for c in live {
+        let still = CORO_LIVE.with(|l| l.borrow().contains(&c));
+        if still {
+            unsafe {
+                if let Err(E(e)) = (*c).close_py() {
+                    gen_unraisable(&e);
+                }
+            }
+        }
+    }
+    CORO_EXITING.with(|x| x.set(true));
+}
+fn gen_unraisable(e: &V) {
+    err_write(&format!("Exception ignored while closing generator:\nTraceback (most recent call last):\n{}\n", exc_line(e)));
 }
 
 extern "C" fn coro_main(c: *mut Coro) {
@@ -135,6 +167,8 @@ impl Coro {
                 self.stack = p;
                 self.sp = coro_init_stack(p.add(CORO_STACK), self as *mut Coro);
                 self.started = true;
+                let me = self as *mut Coro;
+                CORO_LIVE.with(|l| l.borrow_mut().push(me));
             }
             self.xfer = Some(sent);
             self.running = true;
@@ -152,6 +186,7 @@ impl Coro {
             Some(r) => {
                 self.result = Some(Ok(V::None));
                 self.free_stack();
+                live_remove(self as *mut Coro);
                 match r {
                     Ok(V::None) => Ok(None),
                     Ok(v) => Err(stop_with(v)),
@@ -175,10 +210,31 @@ impl Coro {
     pub fn is_suspended(&self) -> bool {
         self.started && self.result.is_none() && !self.running
     }
+    // Ends it without running anything more (an async generator that is closed some other way).
     pub fn close(&mut self) {
         if !self.running {
             self.result = Some(Ok(V::None));
             self.free_stack();
+            live_remove(self as *mut Coro);
+        }
+    }
+    // Python's generator.close(): GeneratorExit raised at the yield it is suspended at, so its finally blocks
+    // and with exits run. One that yields again is RuntimeError (and stays suspended); its return value is
+    // close()'s (Python 3.13).
+    pub fn close_py(&mut self) -> R {
+        if self.running {
+            return Err(exc("ValueError", "generator already executing".into()));
+        }
+        if !self.is_suspended() {
+            self.close();
+            return Ok(V::None);
+        }
+        match self.throw(exc0("GeneratorExit")) {
+            Ok(Some(_)) => Err(exc("RuntimeError", "generator ignored GeneratorExit".into())),
+            Ok(None) => Ok(V::None),
+            Err(E(e)) if is_exc(&e, "GeneratorExit") => Ok(V::None),
+            Err(E(e)) if is_exc(&e, "StopIteration") => Ok(exc_value(&e)),
+            Err(e) => Err(e),
         }
     }
     fn free_stack(&mut self) {
@@ -189,8 +245,16 @@ impl Coro {
     }
 }
 impl Drop for Coro {
-    // A generator dropped part way: its stack is unmapped and what it held is not dropped (a small leak).
+    // A generator dropped part way is closed, as CPython closes one when its last reference goes: its finally
+    // blocks and with exits run, and an error from them is reported and ignored.
     fn drop(&mut self) {
+        let alive = CORO_EXITING.try_with(|x| !x.get()).unwrap_or(false) && CORO_NOW.try_with(|_| ()).is_ok();
+        if alive && self.is_suspended() && !std::thread::panicking() {
+            if let Err(E(e)) = self.close_py() {
+                gen_unraisable(&e);
+            }
+        }
+        live_remove(self as *mut Coro);
         if !self.running {
             self.free_stack();
         }

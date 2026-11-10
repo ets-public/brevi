@@ -180,7 +180,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "numpy" => return np_func_kw(n).is_some() && (!np_narrow() || NP_NARROW_FUNCS.contains(&n)),
         "numpy.random" => return np_rand_kw(n).is_some(),
         "numpy.linalg" => return np_linalg_kw(n).is_some() && !np_narrow(),
-        "sys" => &["exit", "setrecursionlimit", "getrecursionlimit", "getsizeof", "intern", "set_int_max_str_digits", "stdin", "stdout", "stderr", "argv", "maxsize", "platform", "byteorder", "version_info", "version", "modules", "path", "exception", "exc_info"],
+        "sys" => &["exit", "setrecursionlimit", "getrecursionlimit", "getsizeof", "intern", "set_int_max_str_digits", "get_int_max_str_digits", "stdin", "stdout", "stderr", "argv", "maxsize", "platform", "byteorder", "version_info", "version", "modules", "path", "exception", "exc_info"],
         "math" => &["acos", "asin", "atan", "atan2", "ceil", "comb", "copysign", "cos", "cosh", "degrees", "dist", "exp", "fabs", "factorial", "floor", "fmod", "frexp", "fsum", "gcd", "hypot", "isclose", "isfinite", "isinf", "isnan", "isqrt", "lcm", "ldexp", "log", "log10", "log1p", "log2", "modf", "perm", "pow", "prod", "radians", "remainder", "sin", "sinh", "sqrt", "tan", "tanh", "trunc", "pi", "e", "tau", "inf", "nan"],
         "atexit" => &["register", "unregister", "_run_exitfuncs", "_clear", "_ncallbacks"],
         "heapq" => &["heapify", "heappop", "heappush", "heappushpop", "heapreplace", "merge", "nlargest", "nsmallest"],
@@ -1101,38 +1101,6 @@ fn nested_free(body: &[Stmt]) -> BTreeSet<String> {
 }
 // Generators switch stacks with a few lines of assembly (rt_gen.rs), written for these targets.
 const GEN_OK: bool = cfg!(all(any(target_arch = "x86_64", target_arch = "aarch64"), not(windows)));
-
-// The line of a yield inside a try that has a finally, or inside a with block.
-fn yield_in_cleanup(body: &[Stmt], inside: bool) -> Option<usize> {
-    for s in body {
-        let here = |b: &[Stmt]| -> Option<usize> { if has_yield(b) { Some(s.line) } else { None } };
-        let found = match &s.st {
-            St::Try(b, hs, e, f) => {
-                let guarded = f.is_some() || inside;
-                let mut r = yield_in_cleanup(b, guarded);
-                for h in hs {
-                    r = r.or_else(|| yield_in_cleanup(&h.body, guarded));
-                }
-                if let Some(e) = e {
-                    r = r.or_else(|| yield_in_cleanup(e, guarded));
-                }
-                if let Some(f) = f {
-                    r = r.or_else(|| here(f));
-                }
-                r
-            }
-            St::With(_, b) => here(b),
-            St::If(arms, els) => arms.iter().find_map(|(_, b)| yield_in_cleanup(b, inside)).or_else(|| els.as_ref().and_then(|b| yield_in_cleanup(b, inside))),
-            St::While(_, b, e) | St::For(_, _, b, e) => yield_in_cleanup(b, inside).or_else(|| e.as_ref().and_then(|b| yield_in_cleanup(b, inside))),
-            _ if inside => here(std::slice::from_ref(s)),
-            _ => None,
-        };
-        if found.is_some() {
-            return found;
-        }
-    }
-    None
-}
 
 // An async def anywhere in this code (nested ones too).
 pub fn uses_async(body: &[Stmt]) -> bool {
@@ -3010,11 +2978,7 @@ impl Em {
             if !GEN_OK {
                 return Err(err(d.line, "generators (yield) are not supported in dynamic builds on this platform"));
             }
-            // CPython runs a finally (or a with block's exit) when a generator left part way is dropped;
-            // here a dropped generator just stops.
-            if let Some(l) = yield_in_cleanup(&d.body, false) {
-                return Err(err(l, "a yield inside try/finally or with is not supported in dynamic builds"));
-            }
+
         }
         if d.is_async && !GEN_OK {
             return Err(err(d.line, "async functions are not supported in dynamic builds on this platform"));

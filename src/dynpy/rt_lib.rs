@@ -234,7 +234,7 @@ pub fn bi_int(mut a: Args) -> R {
             if b != 0 && !(2..=36).contains(&b) {
                 return val_err("int() base must be >= 2 and <= 36, or 0".into());
             }
-            parse_int(&x.s, b as u32).ok_or_else(|| exc("ValueError", format!("invalid literal for int() with base {}: {}", b, str_repr(&x.s))))
+            int_text_limit(&x.s, b as u32, parse_int(&x.s, b as u32))?.ok_or_else(|| exc("ValueError", format!("invalid literal for int() with base {}: {}", b, str_repr(&x.s))))
         }
         (Some(_), x) => type_err("int() can't convert non-string with explicit base".into()),
     }
@@ -2505,12 +2505,35 @@ pub fn builtin_method(o: &V, name: &str, a: Args) -> R {
                     None => Err(stop_with(V::None)),
                 }
             }
-            // A dropped or closed generator just stops (finally blocks around a yield are refused at build).
-            "close" => {
-                if let It::Coro(c) = &*it.borrow() {
-                    c.borrow_mut().close();
+            // throw(exc) or throw(type[, value[, tb]]): raised at the yield it is suspended at.
+            "throw" => {
+                let c = match &*it.borrow() {
+                    It::Coro(c) => c.clone(),
+                    _ => return bad_method(o, name),
+                };
+                if a.p.is_empty() || a.p.len() > 3 || !a.k.is_empty() {
+                    return type_err(format!("throw expected at least 1 argument, got {}", a.p.len()));
                 }
-                Ok(V::None)
+                let e = match (&a.p[0], a.p.get(1)) {
+                    (V::Class(c), Some(v)) if !matches!(v, V::None) => match make_exc(v.clone()) {
+                        Ok(e) if isinstance(&e.0, &V::Class(c.clone()))? => e,
+                        _ => E(instantiate(c, Args::p(vec![v.clone()]))?),
+                    },
+                    (x, _) => make_exc(x.clone())?,
+                };
+                let r = c.borrow_mut().throw(e);
+                match r? {
+                    Some(v) => Ok(v),
+                    None => Err(stop_with(V::None)),
+                }
+            }
+            "close" => {
+                let c = match &*it.borrow() {
+                    It::Coro(c) => c.clone(),
+                    _ => return Ok(V::None),
+                };
+                let r = c.borrow_mut().close_py();
+                r
             }
             _ => bad_method(o, name),
         },
