@@ -318,7 +318,18 @@ pub fn math_fn(name: &str, a: Args) -> R {
         }
         "modf" => {
             let x = f1(&a, name)?;
-            tup(vec![V::Float(x.fract()), V::Float(x.trunc())])
+            if x.is_infinite() {
+                // CPython: fractional part is a signed zero, integer part is x itself
+                tup(vec![V::Float(0.0f64.copysign(x)), V::Float(x)])
+            } else {
+                let ip = x.trunc();
+                let mut fp = x - ip;
+                if fp == 0.0 {
+                    // keep the sign of x (modf(-0.0) and modf(-2.0) give -0.0)
+                    fp = fp.copysign(x);
+                }
+                tup(vec![V::Float(fp), V::Float(ip)])
+            }
         }
         "frexp" => {
             let x = f1(&a, name)?;
