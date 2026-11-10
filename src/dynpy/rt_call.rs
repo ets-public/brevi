@@ -92,11 +92,13 @@ pub fn call_self(f: &V, me: V, mut a: Args) -> R {
 }
 
 // Binds call arguments to a def's parameters: (names, number of positional-or-keyword params,
-// defaults for the last params, *args?, keyword-only names and their defaults, **kwargs?).
+// number of positional-only params at the front, defaults for the last params, *args?,
+// keyword-only names and their defaults, **kwargs?).
 pub struct Sig {
     pub name: Sym,
     pub params: &'static [Sym],
     pub npos: usize,
+    pub npo: usize,
     pub star: bool,
     pub kwstar: bool,
 }
@@ -124,15 +126,22 @@ pub fn bind(sig: &Sig, dflt: &[V], mut a: Args) -> Result<Vec<V>, E> {
     }
     let mut out: Vec<V> = vec![V::Unbound; np + sig.star as usize + sig.kwstar as usize];
     let npos = sig.npos;
-    let given = a.p.len();
-    if given > npos && !sig.star {
-        let req = npos - dflt.iter().take(npos).filter(|d| !matches!(d, V::Unbound)).count();
-        return type_err(if req == npos {
-            format!("{}() takes {} positional argument{} but {} {} given", sig.name, npos, if npos == 1 { "" } else { "s" }, given, if given == 1 { "was" } else { "were" })
-        } else {
-            format!("{}() takes from {} to {} positional arguments but {} were given", sig.name, req, npos, given)
-        });
+    let npo = sig.npo;
+    // A keyword naming a positional-only parameter is an error before anything else, as in CPython;
+    // with **kwargs such keywords go into that dict instead, so this check is skipped.
+    if !sig.kwstar && npo > 0 {
+        let mut po: Vec<Sym> = vec![];
+        for (k, _) in a.k.iter() {
+            if sig.params[..npo].contains(k) && !po.contains(k) {
+                po.push(*k);
+            }
+        }
+        if !po.is_empty() {
+            let list = po.iter().map(|m| m.to_string()).collect::<Vec<_>>().join(", ");
+            return type_err(format!("{}() got some positional-only arguments passed as keyword arguments: '{}'", sig.name, list));
+        }
     }
+    let given = a.p.len();
     let mut extra = vec![];
     for (i, v) in a.p.drain(..).enumerate() {
         if i < npos {
@@ -142,12 +151,18 @@ pub fn bind(sig: &Sig, dflt: &[V], mut a: Args) -> Result<Vec<V>, E> {
         }
     }
     let mut kw = Dict::new();
+    let mut bound_kw = false;
     for (k, v) in a.k.drain(..) {
         match sig.params.iter().position(|p| *p == k) {
+            Some(i) if i < npo => {
+                // a positional-only name passed by keyword goes into **kwargs (as in CPython)
+                kw.set(s(k), v)?;
+            }
             Some(i) => {
                 if !matches!(out[i], V::Unbound) {
                     return type_err(format!("{}() got multiple values for argument '{}'", sig.name, k));
                 }
+                bound_kw = true;
                 out[i] = v;
             }
             None => {
@@ -158,6 +173,23 @@ pub fn bind(sig: &Sig, dflt: &[V], mut a: Args) -> Result<Vec<V>, E> {
                 }
             }
         }
+    }
+    if given > npos && !sig.star {
+        let req = npos - dflt.iter().take(npos).filter(|d| !matches!(d, V::Unbound)).count();
+        let takes = if req == npos {
+            format!("takes {} positional argument{}", npos, if npos == 1 { "" } else { "s" })
+        } else {
+            format!("takes from {} to {} positional arguments", req, npos)
+        };
+        if bound_kw && np > npos {
+            let k = np - npos;
+            return type_err(format!("{}() {} but {} positional argument{} (and {} keyword-only argument{}) were given", sig.name, takes, given, if given == 1 { "" } else { "s" }, k, if k == 1 { "" } else { "s" }));
+        }
+        return type_err(if req == npos {
+            format!("{}() {} but {} {} given", sig.name, takes, given, if given == 1 { "was" } else { "were" })
+        } else {
+            format!("{}() {} but {} were given", sig.name, takes, given)
+        });
     }
     let mut missing = vec![];
     for i in 0..np {

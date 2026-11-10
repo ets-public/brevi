@@ -461,6 +461,8 @@ pub struct Params {
     pub star: Option<String>,
     pub kwonly: Vec<(String, Option<Ex>)>,
     pub kwstar: Option<String>,
+    // the number of `pos` parameters before `/` (positional-only)
+    pub posonly: usize,
     // each annotated parameter's annotation (read by the MCP signature pass, mcpsig.rs; nothing else uses them)
     pub ann: Vec<(String, Ex)>,
 }
@@ -1176,7 +1178,8 @@ impl P {
                 break;
             }
             if self.eat_op("/") {
-                // positional-only marker: treat as ordinary
+                // positional-only marker: parameters before it cannot be passed by keyword
+                p.posonly = p.pos.len();
             } else if self.eat_op("**") {
                 let n = self.name()?;
                 if end == ")" && self.eat_op(":") {

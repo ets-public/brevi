@@ -2215,7 +2215,7 @@ fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> Result<(), E> {
         let order: Vec<V> = pos.iter().chain(kwo.iter()).cloned().collect();
         let mut params: Vec<Sym> = vec!["self"];
         params.extend(order.iter().map(field_name));
-        let sig = Sig { name: sym(&format!("{cname}.__init__")), params: Box::leak(params.into_boxed_slice()), npos: pos.len() + 1, star: false, kwstar: false };
+        let sig = Sig { name: sym(&format!("{cname}.__init__")), params: Box::leak(params.into_boxed_slice()), npos: pos.len() + 1, npo: 0, star: false, kwstar: false };
         // the defaults bind fills in (a factory is called afterwards, once per missing value)
         let mut dflt: Vec<V> = vec![V::Unbound];
         let factory = V::Obj(Obj::new(Class::new("_HAS_DEFAULT_FACTORY_CLASS", "dataclasses", vec![bclass("object")], BT::Other)));
