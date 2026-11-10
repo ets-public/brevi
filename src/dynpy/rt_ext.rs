@@ -1893,27 +1893,94 @@ impl Ext for TDV {
         }
     }
 }
+// timedelta's constructor in CPython: the components are summed exactly (integer parts of floats included),
+// normalized into days/seconds/microseconds, and only then is days checked: against a C int first (the stored
+// field's type), then against the 999999999 magnitude limit.
+fn td_check_us(us: i128) -> R {
+    let days = us.div_euclid(86_400_000_000i128);
+    if days > i32::MAX as i128 || days < i32::MIN as i128 {
+        return Err(exc("OverflowError", "Python int too large to convert to C int".into()));
+    }
+    if days > 999_999_999 || days < -999_999_999 {
+        return Err(exc("OverflowError", format!("days={days}; must have magnitude <= 999999999")));
+    }
+    Ok(tdv(TD { us }))
+}
+fn td_check_big(us: &Big) -> R {
+    use std::cmp::Ordering::*;
+    let (days, _) = us.divmod(&Big::from_i128(86_400_000_000));
+    if days.cmp(&Big::from_i64(i32::MIN as i64)) == Less || days.cmp(&Big::from_i64(i32::MAX as i64)) == Greater {
+        return Err(exc("OverflowError", "Python int too large to convert to C int".into()));
+    }
+    let d = days.to_i64().unwrap();
+    if d > 999_999_999 || d < -999_999_999 {
+        return Err(exc("OverflowError", format!("days={d}; must have magnitude <= 999999999")));
+    }
+    Ok(tdv(TD { us: us.to_i128().unwrap() }))
+}
+// Add an exact term in microseconds: i128 while it fits, the big-int accumulator once any term does not.
+fn td_add_int(us: &mut i128, acc: &mut Option<Big>, x: i128) {
+    match acc {
+        Some(b) => *b = b.add(&Big::from_i128(x)),
+        None => match us.checked_add(x) {
+            Some(t) => *us = t,
+            None => *acc = Some(Big::from_i128(*us).add(&Big::from_i128(x))),
+        },
+    }
+}
+fn td_add_big(us: &mut i128, acc: &mut Option<Big>, b: &Big) {
+    match acc {
+        Some(x) => *x = x.add(b),
+        None => *acc = Some(Big::from_i128(*us).add(b)),
+    }
+}
+// The fractional microsecond parts of float components are added as CPython adds them: to the integer
+// total's microsecond field first, then the sum is rounded half to even (so a tie rounds with the field's
+// parity, not the fraction's alone).
+fn td_with_left(us: &Big, left: f64) -> R {
+    if left == 0.0 {
+        return td_check_big(us);
+    }
+    let micro = us.divmod(&Big::from_i64(1_000_000)).1.to_i64().unwrap_or(0) as f64;
+    let r = (micro + left).round_ties_even();
+    let total = us.sub(&Big::from_i64(micro as i64)).add(&Big::from_f64(r));
+    td_check_big(&total)
+}
 fn td_new(mut a: Args) -> R {
     let names = ["days", "seconds", "microseconds", "milliseconds", "minutes", "hours", "weeks"];
     let mult: [f64; 7] = [86400e6, 1e6, 1.0, 1e3, 60e6, 3600e6, 604800e6];
     let multi: [i128; 7] = [86_400_000_000, 1_000_000, 1, 1000, 60_000_000, 3_600_000_000, 604_800_000_000];
     let mut us: i128 = 0;
-    let mut fus: f64 = 0.0;
+    let mut acc: Option<Big> = None;
+    let mut left: f64 = 0.0;
     for (k, n) in names.iter().enumerate() {
         let v = a.kw(n).or_else(|| a.p.get(k).cloned());
         match v {
             None => {}
-            Some(V::Int(i)) => us += i as i128 * multi[k],
-            Some(V::Bool(b)) => us += b as i128 * multi[k],
-            Some(V::Float(f)) => fus += f * mult[k],
+            Some(V::Int(i)) => td_add_int(&mut us, &mut acc, i as i128 * multi[k]),
+            Some(V::Bool(b)) => td_add_int(&mut us, &mut acc, b as i128 * multi[k]),
+            Some(V::Big(x)) => td_add_big(&mut us, &mut acc, &x.mul(&Big::from_i128(multi[k]))),
+            Some(V::Float(f)) => {
+                if f.is_nan() {
+                    return Err(exc("ValueError", "cannot convert float NaN to integer".into()));
+                }
+                if f.is_infinite() {
+                    return Err(exc("OverflowError", "cannot convert float infinity to integer".into()));
+                }
+                let ip = f.trunc();
+                left += (f - ip) * mult[k];
+                td_add_big(&mut us, &mut acc, &Big::from_f64(ip).mul(&Big::from_i128(multi[k])));
+            }
             Some(x) => return type_err(format!("unsupported type for timedelta {n} component: {}", tn(&x))),
         }
     }
     if let Some((k, _)) = a.k.first() {
         return type_err(format!("'{k}' is an invalid keyword argument for __new__()"));
     }
-    us += fus.round_ties_even() as i128;
-    Ok(tdv(TD { us }))
+    match acc {
+        Some(b) => td_with_left(&b, left),
+        None => td_check_us(us),
+    }
 }
 impl Ext for DTV {
     fn tname(&self) -> &'static str {

@@ -1,0 +1,8 @@
+OverflowError days=1000000000; must have magnitude <= 999999999
+999999999 days, 0:00:00
+-999999999 days, 0:00:00
+OverflowError days=-1000000000; must have magnitude <= 999999999
+OverflowError days=1000000000; must have magnitude <= 999999999
+OverflowError days=1000000001; must have magnitude <= 999999999
+1 day, 0:00:00
+OverflowError Python int too large to convert to C int
