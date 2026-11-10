@@ -2123,6 +2123,8 @@ struct DcOpts {
     unsafe_hash: bool,
     frozen: bool,
     kw_only: bool,
+    slots: bool,
+    weakref_slot: bool,
 }
 pub fn dataclass_fn(n: &str, mut a: Args) -> R {
     match n {
@@ -2136,10 +2138,10 @@ pub fn dataclass_fn(n: &str, mut a: Args) -> R {
                 unsafe_hash: flag("unsafe_hash", false)?,
                 frozen: flag("frozen", false)?,
                 kw_only: flag("kw_only", false)?,
+                slots: flag("slots", false)?,
+                weakref_slot: flag("weakref_slot", false)?,
             };
-            let _ = a.kw("slots");
             let _ = a.kw("match_args");
-            let _ = a.kw("weakref_slot");
             if !a.k.is_empty() {
                 return type_err(format!("dataclass() got an unexpected keyword argument '{}'", a.k[0].0));
             }
@@ -2436,6 +2438,39 @@ fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> Result<(), E> {
             Some(slot) => slot.1 = f,
             None => fields.push((name, f)),
         }
+    }
+    if o.slots {
+        // CPython's dataclasses._add_slots: the field names not already stored in a base's slot, plus
+        // __weakref__ when asked; the class's own field attributes leave its dict (their defaults still
+        // feed the generated __init__ through the Field objects)
+        if c.own("__slots__").is_some() {
+            return type_err(format!("{} already specifies __slots__", c.name));
+        }
+        let mro = c.mro.borrow().clone();
+        let mut inherited: Vec<Sym> = vec![];
+        for b in mro.iter().skip(1).filter(|b| b.bt != BT::Object) {
+            if let Some(sv) = b.own("__slots__") {
+                slot_names(&sv, &mut inherited);
+            }
+        }
+        let mut seen: Vec<Sym> = vec![];
+        let mut new_slots: Vec<V> = vec![];
+        for (n, f) in &fields {
+            if field_kind(f) != "_FIELD_INITVAR" && !inherited.contains(n) && !seen.contains(n) {
+                seen.push(*n);
+                new_slots.push(s(*n));
+            }
+        }
+        if o.weakref_slot && !inherited.iter().any(|k| *k == "__weakref__") {
+            new_slots.push(s("__weakref__"));
+        }
+        for (n, f) in &fields {
+            if field_kind(f) != "_FIELD_INITVAR" {
+                c.attrs.borrow_mut().retain(|(k, _)| *k != *n);
+            }
+        }
+        class_changed();
+        c.set("__slots__", tup(new_slots));
     }
     let fd = dict_new();
     if let V::Dict(d) = &fd {

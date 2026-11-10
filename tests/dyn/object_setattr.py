@@ -1,5 +1,5 @@
 # object.__setattr__ and super().__setattr__: past a class's own __setattr__, through properties, argument checks.
-# (Not covered: __slots__, which the dynamic build does not enforce on any assignment yet.)
+# (Slots are enforced now; see slots_enforced.py for the __slots__ cases.)
 class Plain:
     pass
 

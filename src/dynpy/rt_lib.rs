@@ -1047,7 +1047,13 @@ pub fn bi_format(a: Args) -> R {
     fmt_v(&a.p[0], &spec)
 }
 pub fn bi_vars(a: Args) -> R {
-    getattr(&a1(&a, "vars")?, "__dict__")
+    let x = a1(&a, "vars")?;
+    if let V::Obj(o) = &x {
+        if !o.cls.has_dict() {
+            return type_err("vars() argument must have __dict__ attribute".into());
+        }
+    }
+    getattr(&x, "__dict__")
 }
 pub fn bi_exit(a: Args) -> R {
     let code = a.p.first().cloned().unwrap_or(V::None);
@@ -1278,7 +1284,7 @@ fn builtin_class_attr_raw(c: &Rc<Class>, name: &str) -> Option<V> {
             };
             match o {
                 V::Obj(ob) => {
-                    if n.s == "__dict__" && ob.cls.lookup(&n.s).is_none() {
+                    if n.s == "__dict__" && ob.cls.lookup(&n.s).is_none() && ob.cls.has_dict() {
                         return ob.dict();
                     }
                     if let Some(v) = ob.get_attr(&n.s)? {
