@@ -703,7 +703,34 @@ impl<T: Clone> AxTupleItems<T> for (T, T, T, T, T, T, T, T) {
     }
 }
 pub fn print<T: Show>(x: T) {
+    #[cfg(windows)]
+    {
+        let mut s = x.show();
+        s.push('\n');
+        ax_out(&s);
+    }
+    #[cfg(not(windows))]
     println!("{}", x.show());
+}
+// Text to stdout, then flushed. CPython's text streams on Windows write CRLF for every LF (even one already
+// after a CR), as its TextIOWrapper does; Brevi's output matches that there.
+pub fn ax_out(s: &str) {
+    use std::io::Write;
+    let mut o = std::io::stdout();
+    #[cfg(windows)]
+    let _ = o.write_all(s.replace('\n', "\r\n").as_bytes());
+    #[cfg(not(windows))]
+    let _ = o.write_all(s.as_bytes());
+    let _ = o.flush();
+}
+// Text to stderr (stdout flushed first, so the two stay in order), with CRLF on Windows as CPython writes it.
+pub fn ax_err(s: &str) {
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
+    #[cfg(windows)]
+    let _ = std::io::stderr().write_all(s.replace('\n', "\r\n").as_bytes());
+    #[cfg(not(windows))]
+    let _ = std::io::stderr().write_all(s.as_bytes());
 }
 // Python-style truth for conditions: false, 0, "", [] and {} are false.
 pub trait AxTruth {
@@ -1097,7 +1124,7 @@ fn ax_csv_line<T: Show>(w: &str, row: Vec<T>) -> String {
 }
 impl AxCsvW for String {
     fn ax_csv_writerow<T: Show>(&self, row: Vec<T>) {
-        print!("{}", ax_csv_line(self, row));
+        ax_out(&ax_csv_line(self, row));
     }
     fn ax_csv_writerows<T: Show>(&self, rows: Vec<Vec<T>>) {
         for r in rows {
@@ -4474,13 +4501,13 @@ impl AxExit for i64 {
 }
 impl AxExit for String {
     fn ax_exit_with(&self) -> ! {
-        eprintln!("{self}");
+        ax_err(&format!("{self}\n"));
         std::process::exit(1)
     }
 }
 impl AxExit for &str {
     fn ax_exit_with(&self) -> ! {
-        eprintln!("{self}");
+        ax_err(&format!("{self}\n"));
         std::process::exit(1)
     }
 }

@@ -13,9 +13,40 @@ mod brevi_sqlglue {
 
     type P = *mut c_void;
 
+    #[cfg(unix)]
     extern "C" {
         fn dlopen(f: *const c_char, flag: c_int) -> P;
         fn dlsym(h: P, s: *const c_char) -> P;
+    }
+    #[cfg(windows)]
+    unsafe extern "system" {
+        fn LoadLibraryA(f: *const c_char) -> P;
+        fn LoadLibraryExA(f: *const c_char, file: P, flags: u32) -> P;
+        fn GetProcAddress(h: P, s: *const c_char) -> *mut c_void;
+    }
+    #[cfg(unix)]
+    unsafe fn ax_dlopen(f: *const c_char, flag: c_int) -> P {
+        dlopen(f, flag)
+    }
+    #[cfg(windows)]
+    unsafe fn ax_dlopen(f: *const c_char, _flag: c_int) -> P {
+        // winsqlite3.dll is Windows' own copy in System32: LOAD_LIBRARY_SEARCH_SYSTEM32 (0x800) keeps a
+        // sqlite3.dll in the program's folder or CWD from being picked up instead. Any other name is an
+        // explicit absolute path (Python's DLL, or BREVI_SQLITE_LIB).
+        let name = CStr::from_ptr(f).to_string_lossy();
+        if name.eq_ignore_ascii_case("winsqlite3.dll") {
+            LoadLibraryExA(f, std::ptr::null_mut(), 0x800)
+        } else {
+            LoadLibraryA(f)
+        }
+    }
+    #[cfg(unix)]
+    unsafe fn ax_dlsym(h: P, s: *const c_char) -> P {
+        dlsym(h, s)
+    }
+    #[cfg(windows)]
+    unsafe fn ax_dlsym(h: P, s: *const c_char) -> P {
+        GetProcAddress(h, s)
     }
 
     struct Lib {
@@ -163,6 +194,12 @@ mod brevi_sqlglue {
         if cfg!(target_os = "macos") {
             names.push("/usr/lib/libsqlite3.dylib".into());
             names.push("libsqlite3.dylib".into());
+        } else if cfg!(windows) {
+            // Windows' own winsqlite3.dll (System32), loaded with LOAD_LIBRARY_SEARCH_SYSTEM32 so a
+            // sqlite3.dll in the program's folder or CWD never runs. BREVI_SQLITE_LIB can name another
+            // absolute path (outside the sandbox); Python's sqlite3.dll is not used because it crashes a
+            // process that has not started CPython.
+            names.push("winsqlite3.dll".into());
         } else {
             names.push("libsqlite3.so.0".into());
             names.push("libsqlite3.so".into());
@@ -170,18 +207,18 @@ mod brevi_sqlglue {
         let mut h: P = std::ptr::null_mut();
         for n in &names {
             let c = CString::new(n.as_str()).unwrap();
-            h = dlopen(c.as_ptr(), 2 /* RTLD_NOW */);
+            h = ax_dlopen(c.as_ptr(), 2 /* RTLD_NOW */);
             if !h.is_null() {
                 break;
             }
         }
         if h.is_null() {
-            return Err(format!("brevi: sqlite3 needs the SQLite library ({}); install it (apt install libsqlite3-0) or set BREVI_SQLITE_LIB", names.last().unwrap()));
+            return Err(format!("brevi: sqlite3 needs the SQLite library ({}); install it or set BREVI_SQLITE_LIB", names.last().unwrap()));
         }
         macro_rules! sym {
             ($n:expr) => {{
                 let c = CString::new($n).unwrap();
-                let p = dlsym(h, c.as_ptr());
+                let p = ax_dlsym(h, c.as_ptr());
                 if p.is_null() {
                     return Err(format!("brevi: the SQLite library lacks {}", $n));
                 }

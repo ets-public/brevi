@@ -11,6 +11,11 @@ thread_local! {
     pub static ARGV: RefCell<Vec<String>> = RefCell::new(vec![]);
 }
 pub fn out_write(t: &str) {
+    // CPython's text streams on Windows write CRLF; match them (every LF, as its TextIOWrapper does).
+    #[cfg(windows)]
+    let t = t.replace('\n', "\r\n");
+    #[cfg(windows)]
+    let t = t.as_str();
     OUT.with(|o| {
         let mut o = o.borrow_mut();
         if o.buf.len() + t.len() > 8192 {
@@ -39,6 +44,10 @@ pub fn out_flush() {
     });
 }
 pub fn err_write(t: &str) {
+    #[cfg(windows)]
+    let t = t.replace('\n', "\r\n");
+    #[cfg(windows)]
+    let t = t.as_str();
     std::io::stderr().write_all(t.as_bytes()).ok();
 }
 fn with_stdin<T>(f: impl FnOnce(&mut std::io::BufReader<std::io::Stdin>) -> T) -> T {

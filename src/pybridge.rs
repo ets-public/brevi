@@ -276,7 +276,7 @@ pub fn learn(diags: &[crate::diag::Diag], src: &str) -> bool {
 
 // Whether a public class of CPython's module m has attribute f (asked of python3).
 fn class_has(m: &str, f: &str) -> bool {
-    let exe = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
+    let exe = py_exe();
     let q = "import sys, importlib\nm = importlib.import_module(sys.argv[1])\nprint(any(isinstance(getattr(m, n, None), type) and hasattr(getattr(m, n), sys.argv[2]) for n in dir(m) if not n.startswith('_')))";
     std::process::Command::new(exe).args(["-c", q, m, f]).output().is_ok_and(|o| String::from_utf8_lossy(&o.stdout).trim() == "True")
 }
@@ -1213,6 +1213,10 @@ pub const LOADER: &str = include_str!("pyrt_load.rs");
 
 // Asked of python3 when the program is built: libpython's path, PYTHONHOME and sys.path (minus the script's
 // folder), joined by \x01.
+fn py_exe() -> String {
+    std::env::var("BREVI_PYTHON").unwrap_or_else(|_| if cfg!(windows) { "python".into() } else { "python3".into() })
+}
+
 pub const QUERY: &str = r#"import sys, os, sysconfig
 d = sysconfig.get_config_var
 c = []
@@ -1224,6 +1228,9 @@ for n in (d('INSTSONAME'), d('LDLIBRARY')):
 fw = d('PYTHONFRAMEWORKPREFIX')
 if fw:
     c.append(os.path.join(fw, d('PYTHONFRAMEWORK') + '.framework', 'Versions', d('py_version_short'), d('PYTHONFRAMEWORK')))
+if sys.platform == 'win32':
+    for n in ('python%d%d.dll' % sys.version_info[:2], 'python3.dll'):
+        c.append(os.path.join(sys.base_prefix, n))
 lib = next((x for x in c if os.path.isfile(x) and not x.endswith('.a')), '')
 print('\x01'.join([lib, sys.base_prefix] + sys.path[1:]))
 "#;
@@ -1237,7 +1244,7 @@ pub fn set_file(f: &str) {
 fn conf() -> &'static Result<String, String> {
     static C: std::sync::OnceLock<Result<String, String>> = std::sync::OnceLock::new();
     C.get_or_init(|| {
-        let exe = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
+        let exe = py_exe();
         let out = std::process::Command::new(&exe).args(["-c", QUERY]).output().map_err(|e| format!("cannot start {exe}: {e}"))?;
         let s = String::from_utf8_lossy(&out.stdout).trim_end().to_string();
         match s.split('\u{1}').next() {
@@ -1319,7 +1326,7 @@ pub fn bundle(file: &str, bin: &std::path::Path) -> Result<String, String> {
     }
     let conf = conf().clone()?;
     let lib = conf.split('\u{1}').next().unwrap_or_default().to_string();
-    let exe = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
+    let exe = py_exe();
     let out = std::process::Command::new(&exe)
         .args(["-c", BUNDLER, file, &bin.to_string_lossy(), &lib])
         .output()

@@ -2813,7 +2813,7 @@ impl Emitter {
             let sep = named("sep").map(|e| format!("Show::show(&{})", self.expr(&e))).unwrap_or_else(|| "String::from(\" \")".to_string());
             let end = named("end").map(|e| format!("Show::show(&{})", self.expr(&e))).unwrap_or_else(|| "\"\\n\"".to_string());
             let items: Vec<String> = args.iter().filter(|(n, _)| n.is_none()).map(|(_, a)| format!("Show::show(&{})", self.print_arg(a))).collect();
-            return format!("{{ use std::io::Write; let __s = [{}].join(&{sep}); print!(\"{{}}{{}}\", __s, {end}); let _ = std::io::stdout().flush(); }}", items.join(", "));
+            return format!("{{ let mut __s = [{}].join(&{sep}); __s.push_str(&{end}); ax_out(&__s); }}", items.join(", "));
         }
         let plain: Vec<String> = args.iter().map(|(_, a)| if name == "print" { self.print_arg(a) } else { self.expr(a) }).collect();
         match name {
@@ -2824,7 +2824,7 @@ impl Emitter {
             "print" | "read" | "write" | "args" | "input" | "stdin" | "lines" | "json" | "csv" | "date" | "abs" | "min" | "max" | "heap" => return format!("{name}({})", plain.join(", ")),
             "__readline" => return "ax_readline()".to_string(),
             "__one" => return format!("ax_one({})", plain.join(", ")),
-            "__eprint" => return format!("{{ use std::io::Write; let _ = std::io::stdout().flush(); eprint!(\"{{}}\", {}); }}", plain.join(", ")),
+            "__eprint" => return format!("ax_err(&format!(\"{{}}\", {}))", plain.join(", ")),
             "__try_read" => return format!("ax_try_read({}.to_string())", plain.join(", ")),
             "str" => return format!("({}).show()", plain.join(", ")),
             "none" => return "ax_none()".to_string(),
