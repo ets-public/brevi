@@ -35,9 +35,10 @@ def fail(msg):
 
 def build(py, exe):
     # the path report on stderr says the program was built over dynamic values (Brevi's own mcp), never by
-    # handing the file to CPython ("py")
+    # handing the file to CPython ("py"). --no-cache: a replay from a different interpreter/path must not
+    # turn a good build into "the dynamic build's code did not compile".
     env = dict(os.environ, BREVI_PATH="1")
-    r = subprocess.run([BREVI, "build", py, "-o", exe], capture_output=True, text=True, env=env)
+    r = subprocess.run([BREVI, "build", "--no-cache", py, "-o", exe], capture_output=True, text=True, env=env)
     report = (r.stdout or "") + (r.stderr or "")
     if r.returncode != 0:
         fail("build %s exited %d\n%s" % (py, r.returncode, report))
@@ -50,8 +51,10 @@ def run(cmd, **kw):
     env = dict(os.environ, PYTHONIOENCODING="utf-8")
     try:
         return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=240, env=env, **kw)
-    except subprocess.TimeoutExpired:
-        fail("%s timed out" % " ".join(cmd))
+    except subprocess.TimeoutExpired as e:
+        out = (e.stdout or "") if isinstance(e.stdout, str) else (e.stdout or b"").decode("utf-8", "replace")
+        err = (e.stderr or "") if isinstance(e.stderr, str) else (e.stderr or b"").decode("utf-8", "replace")
+        fail("%s timed out\n--- stdout ---\n%s\n--- stderr ---\n%s" % (" ".join(cmd), out, err))
 
 
 def replies(transcript):
