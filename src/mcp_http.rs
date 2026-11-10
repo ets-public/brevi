@@ -37,7 +37,7 @@ struct Front {
     next: AtomicU64,
 }
 
-const USAGE: &str = "usage: brevi mcp --http [HOST:]PORT [--token TOKEN] [--path /mcp] [--allow-origin ORIGIN]... [--timeout SECONDS] [--mem-mb MB]";
+const USAGE: &str = "usage: brevi mcp --http [HOST:]PORT [--token TOKEN] [--path /mcp] [--allow-origin ORIGIN]... [--timeout SECONDS] [--mem-mb MB] [--allow CAPS] [--allow-py MODULES] [--allow-net HOSTS] [--allow-read DIRS] [--allow-write DIRS] [--trust-calls]";
 
 pub fn serve(argv: &[String]) -> ! {
     let mut addr = None;
@@ -56,6 +56,16 @@ pub fn serve(argv: &[String]) -> ! {
             ("--timeout" | "--mem-mb", Some(v)) => {
                 rest.push(argv[i].clone());
                 rest.push(v);
+            }
+            // the server's policy (mcp.rs parse_cfg), passed on to the stdio server
+            (f, v) if crate::mcp::POLICY_FLAGS.iter().any(|(p, _)| *p == f) => {
+                rest.push(argv[i].clone());
+                if crate::mcp::POLICY_FLAGS.iter().any(|(p, takes)| *p == f && *takes) {
+                    rest.push(v.unwrap_or_else(|| fail(USAGE)));
+                } else {
+                    i += 1;
+                    continue;
+                }
             }
             _ => fail(USAGE),
         }

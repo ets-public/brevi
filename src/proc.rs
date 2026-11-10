@@ -45,7 +45,37 @@ pub fn program(bin: impl AsRef<std::ffi::OsStr>) -> Command {
     let mut c = Command::new(bin);
     die_with_parent(&mut c);
     apply(&mut c, &Limits::default());
+    if crate::caps::sandboxed() {
+        hold_env(&mut c, crate::caps::granted("native") || crate::caps::grant_flags().iter().any(|f| f == "--allow-py"));
+    }
     c
+}
+
+// Under --sandbox the program starts with a short environment, not the caller's: the caller's variables can
+// hold keys and tokens, and a program granted reads could find them in /proc/self/environ. Kept: the search
+// path, locale, time zone, terminal size, temp folders, Windows' system folders and Brevi's own settings (not
+// the MCP server's token). `cpython`: the program may load CPython (--allow-py or --allow native), whose
+// libraries also need the home folder and the proxy and certificate settings.
+pub fn hold_env(c: &mut Command, cpython: bool) {
+    let keep = |k: &str| {
+        let k = k.to_ascii_uppercase();
+        let base = matches!(k.as_str(), "PATH" | "PATHEXT" | "LANG" | "LANGUAGE" | "TZ" | "TERM" | "COLUMNS" | "LINES" | "TMPDIR" | "TEMP" | "TMP" | "SYSTEMROOT" | "WINDIR" | "SYSTEMDRIVE")
+            || k.starts_with("LC_")
+            || (k.starts_with("BREVI_") && k != "BREVI_MCP_TOKEN" && !k.starts_with("BREVI_LIMIT_"));
+        let py = matches!(k.as_str(), "HOME" | "USERPROFILE" | "APPDATA" | "LOCALAPPDATA" | "XDG_CACHE_HOME" | "HTTP_PROXY" | "HTTPS_PROXY" | "ALL_PROXY" | "NO_PROXY" | "SSL_CERT_FILE" | "SSL_CERT_DIR" | "REQUESTS_CA_BUNDLE" | "CURL_CA_BUNDLE");
+        base || (cpython && py)
+    };
+    // What this command was already given (apply's limit counts), set again after the clear.
+    let set: Vec<(std::ffi::OsString, std::ffi::OsString)> = c.get_envs().filter_map(|(k, v)| v.map(|v| (k.to_os_string(), v.to_os_string()))).collect();
+    c.env_clear();
+    for (k, v) in std::env::vars_os() {
+        if k.to_str().is_some_and(keep) {
+            c.env(k, v);
+        }
+    }
+    for (k, v) in set {
+        c.env(k, v);
+    }
 }
 
 // ---- Resource limits (`--limit cpu=2,mem=256,time=5,output=64,file=10`) ----
@@ -62,15 +92,17 @@ pub struct Limits {
     pub time: Option<std::time::Duration>,
     pub output: Option<u64>,
     pub file: Option<u64>,
-    // Threads at once (Linux: the process's thread count, checked as it runs).
+    // Threads at once, of the program and everything it starts (Linux: the kernel's pids controller, which
+    // refuses the thread or process past it; cgroup.rs).
     pub threads: Option<u64>,
     // Open file descriptors at once (RLIMIT_NOFILE: an open past it fails with "Too many open files").
     pub fds: Option<u64>,
-    // MB written other than to stdout and stderr: files, pipes, sockets (Linux: the kernel's count of bytes
-    // the process wrote, /proc/PID/io wchar, checked as it runs).
+    // Bytes written to files (stdout and stderr are `output`, the network `net`), counted by Brevi's own file
+    // layer before each write, so a write past it never starts (fsscope.rs brevi_written).
     pub written: Option<u64>,
     // Files the program creates, and bytes it sends and receives over the network, counted by Brevi's own file
-    // and network layers in the program (fsscope.rs); so only under --sandbox without CPython or native code.
+    // and network layers in the program (fsscope.rs). These three are only under --sandbox without CPython or
+    // native code, which could write or connect around those layers.
     pub files: Option<u64>,
     pub net: Option<u64>,
 }
@@ -139,14 +171,23 @@ impl Limits {
                 _ => return Err(format!("{HINT}; there is no limit '{k}'")),
             }
         }
-        if cfg!(windows) && (self.cpu.is_some() || self.mem.is_some() || self.file.is_some()) {
-            return Err("--limit cpu, mem and file are not enforced on Windows yet (time and output are); leave them out, or run on Linux or macOS".into());
+        // Windows holds mem with a Job Object (spawn_limited). Its job CPU limit counts user-mode time only (a
+        // program could spend unlimited kernel time), and it has no per-file size limit: both are refused.
+        if cfg!(windows) && (self.cpu.is_some() || self.file.is_some()) {
+            return Err("--limit cpu and file are not enforced on Windows yet (mem, time and output are): Windows can hold neither all of a program's CPU time (user and kernel) nor one file's size; leave them out, or run on Linux or macOS".into());
         }
         if cfg!(windows) && self.fds.is_some() {
             return Err("--limit fds is not enforced on Windows yet; leave it out, or run on Linux or macOS".into());
         }
-        if !cfg!(target_os = "linux") && (self.threads.is_some() || self.written.is_some()) {
-            return Err("--limit threads and written are enforced on Linux only (they read the kernel's counts in /proc); leave them out, or run on Linux".into());
+        if self.threads.is_some() {
+            #[cfg(target_os = "linux")]
+            {
+                crate::cgroup::available().map_err(|why| format!("--limit threads needs a cgroup with the kernel's pids controller that Brevi can create, and there is none here ({why}); leave it out, or run as root, in a container with its own cgroup, or under systemd-run --user -p Delegate=yes"))?;
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                return Err("--limit threads is enforced on Linux only (by the kernel's pids controller); leave it out, or run on Linux".into());
+            }
         }
         if cfg!(target_os = "macos") && self.mem.is_some() {
             return Err("--limit mem is not enforced on macOS (the kernel ignores an address-space limit); leave it out, or run on Linux".into());
@@ -216,6 +257,13 @@ pub fn take_limit_flags(argv: &mut Vec<String>) -> Result<Limits, String> {
 // smaller memory limit wins). If one cannot be set, the program does not start: it never runs unlimited.
 #[allow(unused_variables)]
 pub fn apply(c: &mut Command, l: &Limits) {
+    // files, net and written are counted by the program itself (fsscope.rs reads these once), on every OS.
+    for (k, v) in [("BREVI_LIMIT_FILES", l.files), ("BREVI_LIMIT_NET", l.net), ("BREVI_LIMIT_WRITTEN", l.written)] {
+        match v {
+            Some(n) => drop(c.env(k, n.to_string())),
+            None => drop(c.env_remove(k)),
+        }
+    }
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -227,13 +275,6 @@ pub fn apply(c: &mut Command, l: &Limits) {
         // Only Linux holds a program to an address-space limit; BREVI_MEM_MB is ignored elsewhere.
         let mem = if cfg!(target_os = "linux") { mem.map(|m| m.saturating_mul(1 << 20)) } else { None };
         let (cpu, file, fds) = (l.cpu, l.file.map(|f| f.saturating_mul(1 << 20)), l.fds);
-        // files and net are counted by the program itself (fsscope.rs reads these once).
-        for (k, v) in [("BREVI_LIMIT_FILES", l.files), ("BREVI_LIMIT_NET", l.net)] {
-            match v {
-                Some(n) => drop(c.env(k, n.to_string())),
-                None => drop(c.env_remove(k)),
-            }
-        }
         if mem.is_none() && cpu.is_none() && file.is_none() && fds.is_none() {
             return;
         }
@@ -273,6 +314,239 @@ unsafe extern "C" {
     fn setrlimit(resource: i32, rlim: *const [u64; 2]) -> i32;
 }
 
+// Starts a command under the limits that need the OS's help after the process exists. On Windows that is mem:
+// the program starts suspended, goes into a Job Object holding its committed memory
+// (JOB_OBJECT_LIMIT_JOB_MEMORY), and only then runs its first instruction, so it never runs unlimited; everything it starts is in the job too, and the job is closed (and
+// anything left in it killed) when the returned Job drops. If the job cannot be set up, the program is killed
+// before it runs and the error is returned. `group`: the command also asked for its own process group
+// (own_group), which this keeps. Elsewhere this is a plain spawn: apply() has set the kernel limits.
+pub fn spawn_limited(c: &mut Command, l: &Limits, group: bool) -> std::io::Result<(Child, Job)> {
+    #[cfg(windows)]
+    {
+        if l.mem.is_some() {
+            use std::os::windows::process::CommandExt;
+            const CREATE_SUSPENDED: u32 = 0x4;
+            const CREATE_NEW_PROCESS_GROUP: u32 = 0x200;
+            c.creation_flags(CREATE_SUSPENDED | if group { CREATE_NEW_PROCESS_GROUP } else { 0 });
+            let mut child = c.spawn()?;
+            return match unsafe { winjob::start(&child, l) } {
+                Ok(j) => Ok((child, j)),
+                Err(e) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    Err(e)
+                }
+            };
+        }
+    }
+    // Linux, threads: the program goes into a cgroup of its own whose pids.max is the limit before its first
+    // instruction (it moves itself in between fork and exec), so the kernel refuses every thread or process
+    // past it, in the program and in anything it starts.
+    #[cfg(target_os = "linux")]
+    if let Some(n) = l.threads {
+        let g = crate::cgroup::Group::new(n).map_err(|why| std::io::Error::other(format!("--limit threads: cannot set up the program's cgroup ({why})")))?;
+        g.enter_on_start(c);
+        let child = c.spawn()?;
+        return Ok((child, Job { cg: Some(g) }));
+    }
+    let _ = (l, group);
+    Ok((c.spawn()?, Job::default()))
+}
+
+// The Job Object a program runs in (Windows, with a mem limit); nothing elsewhere.
+#[derive(Default)]
+pub struct Job {
+    #[cfg(windows)]
+    h: Option<(winjob::H, winjob::H)>,
+    // Linux, with a threads limit: the cgroup the program runs in (removed, with anything left in it, on drop).
+    #[cfg(target_os = "linux")]
+    cg: Option<crate::cgroup::Group>,
+}
+
+impl Job {
+    // The limit that stopped a program which ended with `status`: the job's own report that an allocation was
+    // refused at its memory limit, when the program then failed.
+    pub fn hit(&self, l: &Limits, status: ExitStatus) -> Option<&'static str> {
+        #[cfg(windows)]
+        if let Some((_, port)) = self.h {
+            let mem = unsafe { winjob::messages(port) };
+            if mem && l.mem.is_some() && !status.success() {
+                return Some("mem");
+            }
+        }
+        // The kernel refused a thread or process at the threads limit, and the program then failed.
+        #[cfg(target_os = "linux")]
+        if let Some(g) = &self.cg {
+            if l.threads.is_some() && !status.success() && g.refused() {
+                return Some("threads");
+            }
+        }
+        let _ = (l, status);
+        None
+    }
+}
+
+#[cfg(windows)]
+impl Drop for Job {
+    fn drop(&mut self) {
+        if let Some((job, port)) = self.h.take() {
+            unsafe {
+                winjob::CloseHandle(job);
+                winjob::CloseHandle(port);
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+#[allow(unsafe_op_in_unsafe_fn)]
+mod winjob {
+    use super::{Job, Limits};
+    use std::ffi::c_void;
+    use std::os::windows::io::AsRawHandle;
+    pub type H = *mut c_void;
+
+    #[repr(C)]
+    #[derive(Default)]
+    struct BasicLimit {
+        per_process_user_time: i64,
+        per_job_user_time: i64,
+        flags: u32,
+        min_working_set: usize,
+        max_working_set: usize,
+        active_processes: u32,
+        affinity: usize,
+        priority_class: u32,
+        scheduling_class: u32,
+    }
+    #[repr(C)]
+    #[derive(Default)]
+    struct ExtendedLimit {
+        basic: BasicLimit,
+        io: [u64; 6],
+        process_memory: usize,
+        job_memory: usize,
+        peak_process_memory: usize,
+        peak_job_memory: usize,
+    }
+    #[repr(C)]
+    struct Port {
+        key: *mut c_void,
+        port: H,
+    }
+    #[repr(C)]
+    struct ThreadEntry {
+        size: u32,
+        usage: u32,
+        thread_id: u32,
+        owner_pid: u32,
+        base_pri: i32,
+        delta_pri: i32,
+        flags: u32,
+    }
+
+    unsafe extern "system" {
+        fn CreateJobObjectW(sa: *mut c_void, name: *const u16) -> H;
+        fn SetInformationJobObject(job: H, class: i32, info: *const c_void, len: u32) -> i32;
+        fn AssignProcessToJobObject(job: H, process: H) -> i32;
+        fn CreateIoCompletionPort(file: H, existing: H, key: usize, threads: u32) -> H;
+        fn GetQueuedCompletionStatus(port: H, bytes: *mut u32, key: *mut usize, ov: *mut *mut c_void, ms: u32) -> i32;
+        fn CreateToolhelp32Snapshot(flags: u32, pid: u32) -> H;
+        fn Thread32First(snap: H, e: *mut ThreadEntry) -> i32;
+        fn Thread32Next(snap: H, e: *mut ThreadEntry) -> i32;
+        fn OpenThread(access: u32, inherit: i32, tid: u32) -> H;
+        fn ResumeThread(h: H) -> u32;
+        pub fn CloseHandle(h: H) -> i32;
+    }
+
+    const JOB_OBJECT_LIMIT_JOB_MEMORY: u32 = 0x200;
+    const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: u32 = 0x2000;
+    const EXTENDED_LIMIT_INFORMATION: i32 = 9;
+    const ASSOCIATE_COMPLETION_PORT: i32 = 7;
+    const MSG_PROCESS_MEMORY_LIMIT: u32 = 9;
+    const MSG_JOB_MEMORY_LIMIT: u32 = 10;
+    const INVALID: H = usize::MAX as H;
+
+    fn os_err(what: &str) -> std::io::Error {
+        let e = std::io::Error::last_os_error();
+        std::io::Error::new(e.kind(), format!("cannot hold the program to its --limit ({what}): {e}"))
+    }
+
+    // Job, limits and completion port first, then the suspended process into the job, then its threads resumed.
+    pub unsafe fn start(child: &std::process::Child, l: &Limits) -> std::io::Result<Job> {
+        let job = CreateJobObjectW(std::ptr::null_mut(), std::ptr::null());
+        if job.is_null() {
+            return Err(os_err("CreateJobObject"));
+        }
+        let port = CreateIoCompletionPort(INVALID, std::ptr::null_mut(), 0, 1);
+        if port.is_null() {
+            CloseHandle(job);
+            return Err(os_err("CreateIoCompletionPort"));
+        }
+        // from here the Job closes both handles when it drops, error or not
+        let j = Job { h: Some((job, port)) };
+        let mut x = ExtendedLimit::default();
+        x.basic.flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        if let Some(m) = l.mem {
+            x.basic.flags |= JOB_OBJECT_LIMIT_JOB_MEMORY;
+            x.job_memory = (m as usize).saturating_mul(1 << 20);
+        }
+        if SetInformationJobObject(job, EXTENDED_LIMIT_INFORMATION, &x as *const _ as *const c_void, std::mem::size_of::<ExtendedLimit>() as u32) == 0 {
+            return Err(os_err("SetInformationJobObject"));
+        }
+        let p = Port { key: job, port };
+        if SetInformationJobObject(job, ASSOCIATE_COMPLETION_PORT, &p as *const _ as *const c_void, std::mem::size_of::<Port>() as u32) == 0 {
+            return Err(os_err("job completion port"));
+        }
+        if AssignProcessToJobObject(job, child.as_raw_handle() as H) == 0 {
+            return Err(os_err("AssignProcessToJobObject"));
+        }
+        // A process created suspended has one thread, suspended once: resume it (and any other of its own).
+        let snap = CreateToolhelp32Snapshot(0x4 /* TH32CS_SNAPTHREAD */, 0);
+        if snap == INVALID {
+            return Err(os_err("CreateToolhelp32Snapshot"));
+        }
+        let pid = child.id();
+        let mut e = ThreadEntry { size: std::mem::size_of::<ThreadEntry>() as u32, usage: 0, thread_id: 0, owner_pid: 0, base_pri: 0, delta_pri: 0, flags: 0 };
+        let mut resumed = 0;
+        let mut more = Thread32First(snap, &mut e) != 0;
+        while more {
+            if e.owner_pid == pid {
+                let t = OpenThread(0x2 /* THREAD_SUSPEND_RESUME */, 0, e.thread_id);
+                if !t.is_null() {
+                    if ResumeThread(t) != u32::MAX {
+                        resumed += 1;
+                    }
+                    CloseHandle(t);
+                }
+            }
+            e.size = std::mem::size_of::<ThreadEntry>() as u32;
+            more = Thread32Next(snap, &mut e) != 0;
+        }
+        CloseHandle(snap);
+        if resumed == 0 {
+            return Err(os_err("ResumeThread"));
+        }
+        Ok(j)
+    }
+
+    // Whether the job reported an allocation refused at its memory limit.
+    pub unsafe fn messages(port: H) -> bool {
+        let mut mem = false;
+        loop {
+            let (mut msg, mut key, mut ov) = (0u32, 0usize, std::ptr::null_mut());
+            if GetQueuedCompletionStatus(port, &mut msg, &mut key, &mut ov, 0) == 0 {
+                break;
+            }
+            match msg {
+                MSG_JOB_MEMORY_LIMIT | MSG_PROCESS_MEMORY_LIMIT => mem = true,
+                _ => {}
+            }
+        }
+        mem
+    }
+}
+
 // Which limit stopped a program that ended with this status and stderr, if one did.
 pub fn limit_hit(l: &Limits, status: ExitStatus, err_tail: &str) -> Option<&'static str> {
     #[cfg(unix)]
@@ -302,8 +576,8 @@ pub fn limit_line(l: &Limits, on: &str) -> String {
             (format!("{t} s"), format!("the program was stopped after {t} s of wall-clock time"))
         }
         "output" => (format!("{} bytes", l.output.unwrap_or(0)), format!("the program was stopped after writing {} bytes to stdout and stderr", l.output.unwrap_or(0))),
-        "threads" => (format!("{} threads", l.threads.unwrap_or(0)), format!("the program started more than {} threads", l.threads.unwrap_or(0))),
-        "written" => (format!("{} bytes", l.written.unwrap_or(0)), format!("the program wrote more than {} bytes (files, pipes and sockets; stdout and stderr not counted)", l.written.unwrap_or(0))),
+        "threads" => (format!("{} threads", l.threads.unwrap_or(0)), format!("the program tried to run more than {} threads at once (its own and those of anything it started)", l.threads.unwrap_or(0))),
+        "written" => (format!("{} bytes", l.written.unwrap_or(0)), format!("the program tried to write more than {} bytes to files", l.written.unwrap_or(0))),
         _ => (format!("{} MB", l.file.unwrap_or(0)), format!("the program tried to write a file over {} MB", l.file.unwrap_or(0))),
     };
     format!("{{\"e\":\"limit\",\"on\":\"{on}\",\"limit\":\"{limit}\",\"msg\":\"{msg}\",\"fix\":\"raise it with --limit {on}=... if the program needs more\"}}")
@@ -328,15 +602,14 @@ pub fn run_with(c: &mut Command, l: &Limits) -> std::io::Result<i32> {
     let tail = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
     let over = Arc::new(AtomicBool::new(false));
     let mut pumps = vec![];
-    // written subtracts stdout and stderr, so both are counted here
-    if l.output.is_some() || l.mem.is_some() || l.written.is_some() {
+    if l.output.is_some() || l.mem.is_some() {
         c.stderr(std::process::Stdio::piped());
     }
-    if l.output.is_some() || l.written.is_some() {
+    if l.output.is_some() {
         c.stdout(std::process::Stdio::piped());
     }
     let start = std::time::Instant::now();
-    let mut child = c.spawn()?;
+    let (mut child, job) = spawn_limited(c, l, false)?;
     let written = Arc::new(AtomicU64::new(0));
     let cap = l.output.unwrap_or(u64::MAX);
     let streams: Vec<(Box<dyn Read + Send>, bool)> = [child.stdout.take().map(|r| (Box::new(r) as Box<dyn Read + Send>, true)), child.stderr.take().map(|r| (Box::new(r) as Box<dyn Read + Send>, false))].into_iter().flatten().collect();
@@ -382,8 +655,6 @@ pub fn run_with(c: &mut Command, l: &Limits) -> std::io::Result<i32> {
                 stopped = Some("output");
             } else if l.time.is_some_and(|t| start.elapsed() >= t) {
                 stopped = Some("time");
-            } else if let Some(on) = over_counts(child.id(), l, written.load(Ordering::SeqCst)) {
-                stopped = Some(on);
             }
             if stopped.is_some() {
                 let _ = child.kill();
@@ -407,34 +678,12 @@ pub fn run_with(c: &mut Command, l: &Limits) -> std::io::Result<i32> {
         stopped = Some("output");
     }
     let tail = String::from_utf8_lossy(&tail.lock().unwrap_or_else(|e| e.into_inner())).to_string();
-    if let Some(on) = stopped.or_else(|| limit_hit(l, status, &tail)) {
+    if let Some(on) = stopped.or_else(|| job.hit(l, status)).or_else(|| limit_hit(l, status, &tail)) {
         let _ = std::io::stdout().flush();
         eprintln!("{}", limit_line(l, on));
         return Ok(LIMIT_EXIT);
     }
     Ok(code(status))
-}
-
-// Linux: whether the running program is over its threads or written limit, from the kernel's counts.
-pub fn over_counts(pid: u32, l: &Limits, piped: u64) -> Option<&'static str> {
-    if l.threads.is_none() && l.written.is_none() {
-        return None;
-    }
-    let field = |file: &str, key: &str| -> Option<u64> {
-        let t = std::fs::read_to_string(format!("/proc/{pid}/{file}")).ok()?;
-        t.lines().find_map(|x| x.strip_prefix(key)).and_then(|v| v.trim().parse().ok())
-    };
-    if let Some(n) = l.threads {
-        if field("status", "Threads:").is_some_and(|t| t > n) {
-            return Some("threads");
-        }
-    }
-    if let Some(b) = l.written {
-        if field("io", "wchar:").is_some_and(|w| w.saturating_sub(piped) > b) {
-            return Some("written");
-        }
-    }
-    None
 }
 
 // The exit code to pass on for a program's status. A program killed by a signal has no code: say what
@@ -558,11 +807,11 @@ mod tests {
         }
     }
 
-    // threads and written are read from /proc while the program runs.
+    // threads is held by the kernel (a pids cgroup per program); skipped where none can be made.
     #[cfg(target_os = "linux")]
     #[test]
-    fn holds_threads_and_written() {
-        if Command::new("python3").arg("-c").arg("1").status().map_or(true, |s| !s.success()) {
+    fn holds_threads() {
+        if crate::cgroup::available().is_err() || Command::new("python3").arg("-c").arg("1").status().map_or(true, |s| !s.success()) {
             return;
         }
         let py = |code: &str| {
@@ -577,12 +826,9 @@ mod tests {
         let mut few = Limits::default();
         few.parse("threads=16,time=20").unwrap();
         assert_eq!(run_with(&mut py("import threading; t = threading.Thread(target=print); t.start(); t.join()"), &few).unwrap(), 0);
-        let dir = std::env::temp_dir().join(format!("brevi-written-{}", std::process::id()));
-        let mut w = Limits::default();
-        w.parse("written=1,time=20").unwrap();
-        let big = format!("import time\nfor i in range(40):\n    open({:?}, 'w').write('x' * 100000)\n    time.sleep(0.01)\n", dir.to_string_lossy());
-        assert_eq!(run_with(&mut py(&big), &w).unwrap(), LIMIT_EXIT);
-        let _ = std::fs::remove_file(&dir);
+        // Processes it starts count too.
+        let procs = "import subprocess\nps = [subprocess.Popen(['sleep', '2']) for _ in range(8)]\n[p.wait() for p in ps]\n";
+        assert_eq!(run_with(&mut py(procs), &l).unwrap(), LIMIT_EXIT);
     }
 
     #[test]

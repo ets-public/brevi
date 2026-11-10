@@ -48,8 +48,21 @@ exit 1
 {"verify":"timeout","msg":"CPython had not finished N ms after the native run; the native answer above is unverified"}
 exit 0
 -- run --verify --sandbox tests/verify/sq.py
-{"verify":"error","msg":"--verify runs the program under CPython too, which the sandbox cannot hold to its grants; use --verify only for code you would run with python3","fix":"usage: brevi run --verify FILE.py [--strict] [--timeout SECS] [--limit SPEC] [--release] [--no-cache] [-- ARGS...]"}
-exit 2
+{"verify":"refused","against":"dynamic","why":"the program took the dynamic build, not the typed one; under the sandbox only the typed build is checked, against the dynamic build","msg":"not checked: the answer is the build's own"}
+0
+1
+4
+exit 0
+-- run --verify --sandbox tests/verify/shared_sort.py
+1
+[1, 2, 3]
+{"verify":"differs","against":"dynamic","on":"stdout","line":2,"typed":"[3, 1, 2]","dynamic":"[1, 2, 3]","msg":"a wrong answer from Brevi's typed build: the output above is the dynamic build's, which follows Python's rules for lists and numbers"}
+exit 0
+-- run --verify --sandbox tests/verify/argsum.py -- 3 4
+sum 7
+done
+{"verify":"identical","against":"dynamic"}
+exit 0
 -- run --verify tests/run/arm_map.bv
 {"verify":"error","msg":"--verify compares a .py file with CPython; a .bv file has no CPython answer to compare with (use brevi test)","fix":"usage: brevi run --verify FILE.py [--strict] [--timeout SECS] [--limit SPEC] [--release] [--no-cache] [-- ARGS...]"}
 exit 2

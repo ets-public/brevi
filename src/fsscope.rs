@@ -35,9 +35,10 @@ pub fn brevi_scoped(p: &str, roots: &[&str], cap: &str) -> Result<String, String
     }
 }
 
-// --limit files=N and net=MB (proc.rs passes them as BREVI_LIMIT_FILES and BREVI_LIMIT_NET, read once): the
-// files the program creates and the bytes it sends and receives, counted where Brevi's own code creates a file
-// or moves bytes. Past either, the program stops as a kernel limit stops it: one JSON line on stderr, exit 124.
+// --limit files=N, net=MB and written=MB (proc.rs passes them as BREVI_LIMIT_FILES, BREVI_LIMIT_NET and
+// BREVI_LIMIT_WRITTEN, read once): the files the program creates, the bytes it sends and receives, and the bytes
+// it writes to files, counted where Brevi's own code creates a file, moves bytes or writes them. Past any, the
+// program stops as a kernel limit stops it: one JSON line on stderr, exit 124.
 pub fn brevi_limit_stop(on: &str, limit: u64, unit: &str, msg: &str) -> ! {
     use std::io::Write;
     let _ = std::io::stdout().flush();
@@ -46,8 +47,8 @@ pub fn brevi_limit_stop(on: &str, limit: u64, unit: &str, msg: &str) -> ! {
 }
 
 fn brevi_limit_env(i: usize) -> Option<u64> {
-    static L: [std::sync::OnceLock<Option<u64>>; 2] = [std::sync::OnceLock::new(), std::sync::OnceLock::new()];
-    *L[i].get_or_init(|| std::env::var(["BREVI_LIMIT_FILES", "BREVI_LIMIT_NET"][i]).ok().and_then(|v| v.parse().ok()))
+    static L: [std::sync::OnceLock<Option<u64>>; 3] = [std::sync::OnceLock::new(), std::sync::OnceLock::new(), std::sync::OnceLock::new()];
+    *L[i].get_or_init(|| std::env::var(["BREVI_LIMIT_FILES", "BREVI_LIMIT_NET", "BREVI_LIMIT_WRITTEN"][i]).ok().and_then(|v| v.parse().ok()))
 }
 
 // Before the program's code creates (or may create) the file at `p`.
@@ -66,6 +67,24 @@ pub fn brevi_net_bytes(n: u64) {
     if let Some(l) = brevi_limit_env(1) {
         if N.fetch_add(n, std::sync::atomic::Ordering::SeqCst) + n > l {
             brevi_limit_stop("net", l, "bytes", &format!("the program sent and received more than {l} bytes over the network"));
+        }
+    }
+}
+
+// Whether --limit written is set: native libraries that write files on their own (SQLite, DuckDB, ONNX Runtime)
+// then write none, since their bytes would not pass through brevi_written.
+pub fn brevi_written_held() -> bool {
+    brevi_limit_env(2).is_some()
+}
+
+// Before the program's code writes `n` bytes to a file. The check comes first, so a write that would pass the
+// limit never starts: the limit holds to the byte, however large one write is.
+pub fn brevi_written(n: u64) {
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    if let Some(l) = brevi_limit_env(2) {
+        let before = N.fetch_add(n, std::sync::atomic::Ordering::SeqCst);
+        if before.saturating_add(n) > l {
+            brevi_limit_stop("written", l, "bytes", &format!("the program tried to write more than {l} bytes to files"));
         }
     }
 }

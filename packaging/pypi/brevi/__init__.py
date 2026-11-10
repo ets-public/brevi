@@ -241,7 +241,9 @@ class Session(_Base):
     def _start(self):
         exe = self.brevi or binary()
         try:
-            self._proc = subprocess.Popen([exe, "mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            # --trust-calls: the calls are this code's (the model only fills TOOL's code and stdin), so the
+            # grants and sandbox setting they carry are the caller's own.
+            self._proc = subprocess.Popen([exe, "mcp", "--trust-calls"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                           stderr=subprocess.DEVNULL, cwd=self.cwd, bufsize=0)
         except OSError as e:
             raise BreviError("cannot start %s mcp: %s" % (exe, e))
@@ -322,7 +324,7 @@ class AsyncSession(_Base):
     async def _start(self):
         exe = self.brevi or binary()
         try:
-            self._proc = await asyncio.create_subprocess_exec(exe, "mcp", stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            self._proc = await asyncio.create_subprocess_exec(exe, "mcp", "--trust-calls", stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                                               stderr=subprocess.DEVNULL, cwd=self.cwd, limit=1 << 26)
         except OSError as e:
             raise BreviError("cannot start %s mcp: %s" % (exe, e))

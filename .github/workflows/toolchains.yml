@@ -56,6 +56,9 @@ jobs:
       next_python: ${{ steps.py.outputs.next }}
       matrix: ${{ steps.m.outputs.matrix }}
     steps:
+      - uses: actions/checkout@v7
+      - name: No built programs or large files in git
+        run: python3 tools/no_binaries.py
       - id: py
         name: Find the next Python release (pre-release)
         # Never blocks the matrix: if the lookup fails, fall back to a guess.

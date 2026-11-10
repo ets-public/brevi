@@ -92,11 +92,13 @@ pub fn call_self(f: &V, me: V, mut a: Args) -> R {
 }
 
 // Binds call arguments to a def's parameters: (names, number of positional-or-keyword params,
-// defaults for the last params, *args?, keyword-only names and their defaults, **kwargs?).
+// number of positional-only params at the front, defaults for the last params, *args?,
+// keyword-only names and their defaults, **kwargs?).
 pub struct Sig {
     pub name: Sym,
     pub params: &'static [Sym],
     pub npos: usize,
+    pub npo: usize,
     pub star: bool,
     pub kwstar: bool,
 }
@@ -124,15 +126,22 @@ pub fn bind(sig: &Sig, dflt: &[V], mut a: Args) -> Result<Vec<V>, E> {
     }
     let mut out: Vec<V> = vec![V::Unbound; np + sig.star as usize + sig.kwstar as usize];
     let npos = sig.npos;
-    let given = a.p.len();
-    if given > npos && !sig.star {
-        let req = npos - dflt.iter().take(npos).filter(|d| !matches!(d, V::Unbound)).count();
-        return type_err(if req == npos {
-            format!("{}() takes {} positional argument{} but {} {} given", sig.name, npos, if npos == 1 { "" } else { "s" }, given, if given == 1 { "was" } else { "were" })
-        } else {
-            format!("{}() takes from {} to {} positional arguments but {} were given", sig.name, req, npos, given)
-        });
+    let npo = sig.npo;
+    // A keyword naming a positional-only parameter is an error before anything else, as in CPython;
+    // with **kwargs such keywords go into that dict instead, so this check is skipped.
+    if !sig.kwstar && npo > 0 {
+        let mut po: Vec<Sym> = vec![];
+        for (k, _) in a.k.iter() {
+            if sig.params[..npo].contains(k) && !po.contains(k) {
+                po.push(*k);
+            }
+        }
+        if !po.is_empty() {
+            let list = po.iter().map(|m| m.to_string()).collect::<Vec<_>>().join(", ");
+            return type_err(format!("{}() got some positional-only arguments passed as keyword arguments: '{}'", sig.name, list));
+        }
     }
+    let given = a.p.len();
     let mut extra = vec![];
     for (i, v) in a.p.drain(..).enumerate() {
         if i < npos {
@@ -142,11 +151,20 @@ pub fn bind(sig: &Sig, dflt: &[V], mut a: Args) -> Result<Vec<V>, E> {
         }
     }
     let mut kw = Dict::new();
+    // keyword-only parameters given a value (CPython names their count in the too-many-positional error)
+    let mut kwonly_given = 0usize;
     for (k, v) in a.k.drain(..) {
         match sig.params.iter().position(|p| *p == k) {
+            Some(i) if i < npo => {
+                // a positional-only name passed by keyword goes into **kwargs (as in CPython)
+                kw.set(s(k), v)?;
+            }
             Some(i) => {
                 if !matches!(out[i], V::Unbound) {
                     return type_err(format!("{}() got multiple values for argument '{}'", sig.name, k));
+                }
+                if i >= npos {
+                    kwonly_given += 1;
                 }
                 out[i] = v;
             }
@@ -158,6 +176,23 @@ pub fn bind(sig: &Sig, dflt: &[V], mut a: Args) -> Result<Vec<V>, E> {
                 }
             }
         }
+    }
+    if given > npos && !sig.star {
+        let req = npos - dflt.iter().take(npos).filter(|d| !matches!(d, V::Unbound)).count();
+        let takes = if req == npos {
+            format!("takes {} positional argument{}", npos, if npos == 1 { "" } else { "s" })
+        } else {
+            format!("takes from {} to {} positional arguments", req, npos)
+        };
+        if kwonly_given > 0 {
+            let k = kwonly_given;
+            return type_err(format!("{}() {} but {} positional argument{} (and {} keyword-only argument{}) were given", sig.name, takes, given, if given == 1 { "" } else { "s" }, k, if k == 1 { "" } else { "s" }));
+        }
+        return type_err(if req == npos {
+            format!("{}() {} but {} {} given", sig.name, takes, given, if given == 1 { "was" } else { "were" })
+        } else {
+            format!("{}() {} but {} were given", sig.name, takes, given)
+        });
     }
     let mut missing = vec![];
     for i in 0..np {
@@ -560,17 +595,37 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
     }
     if name == "__setattr__" {
         let me2 = me.clone();
-        return Ok(builtin("__setattr__", move |a: Args| {
-            if let (V::Obj(o), V::Str(n)) = (&me2, &a.p[0]) {
-                o.set_res(sym(&n.s), a.p[1].clone())?;
-            }
-            Ok(V::None)
-        }));
+        return Ok(builtin("__setattr__", move |a: Args| object_setattr(&me2, &a.p)));
     }
     if let Some(inner) = inner_of(me) {
         return getattr(&inner, name);
     }
     Err(exc("AttributeError", format!("'super' object has no attribute '{name}'")))
+}
+// object.__setattr__(me, name, value): the store without the class's own __setattr__, but through a property
+pub fn object_setattr(me: &V, a: &[V]) -> R {
+    if a.len() != 2 {
+        // CPython names no function here: its message starts with a space
+        return type_err(format!(" expected 2 arguments, got {}", a.len()));
+    }
+    let V::Str(n) = &a[0] else {
+        return type_err(format!("attribute name must be string, not '{}'", tn(&a[0])));
+    };
+    let V::Obj(o) = me else {
+        return Ok(V::None);
+    };
+    let name = sym(&n.s);
+    if o.cls.is_prop(name) {
+        if let Some(V::Prop(p)) = o.cls.lookup(name) {
+            if matches!(p.1, V::None) {
+                return Err(exc("AttributeError", format!("property '{}' of '{}' object has no setter", name, o.cls.name)));
+            }
+            call(&p.1, Args::p(vec![me.clone(), a[1].clone()]))?;
+            return Ok(V::None);
+        }
+    }
+    o.set_res(name, a[1].clone())?;
+    Ok(V::None)
 }
 fn bind_attr(v: V, me: &V, from_class_lookup: bool) -> V {
     match &v {

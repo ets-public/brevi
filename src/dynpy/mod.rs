@@ -241,7 +241,7 @@ fn package_native(pkg: &Path, top: &str) -> bool {
         if p.extension().and_then(|x| x.to_str()) != Some("py") {
             continue;
         }
-        let Ok(src) = std::fs::read_to_string(&p) else { return false };
+        let Ok(src) = crate::read_src(&p) else { return false };
         for l in src.lines() {
             let t = l.trim_start();
             let names: Vec<&str> = if let Some(r) = t.strip_prefix("import ") {
@@ -475,7 +475,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     let given = SOURCE.lock().unwrap().as_ref().filter(|(f, _)| f == file).map(|(_, t)| t.clone());
     let src = match given {
         Some(t) => t,
-        None => std::fs::read_to_string(file).map_err(|e| (file.to_string(), 0, e.to_string()))?,
+        None => crate::read_src(file).map_err(|e| (file.to_string(), 0, e.to_string()))?,
     };
     let src = crate::modules::fill_file_name(&src, Path::new(file));
     // `allow` lines (checked in main.rs before this runs) are not Python.
@@ -573,7 +573,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
             }
             if p.exists() {
                 let ps = p.to_string_lossy().to_string();
-                let src = std::fs::read_to_string(&p).map_err(|e| (ps.clone(), 0, e.to_string()))?;
+                let src = crate::read_src(&p).map_err(|e| (ps.clone(), 0, e.to_string()))?;
                 let src = crate::modules::fill_file_name(&src, &p);
                 let src = crate::caps::split(&src).0;
                 let mut body = parse::parse(&src).map_err(|(l, m)| (ps.clone(), l, m))?;
@@ -1085,10 +1085,10 @@ fn build(rust: &str, dir: &Path, out: &Path, opt: &str, cache: &Path, rustc_v: &
         let used = if cached.with_extension("plain").exists() { plain() } else { rust.to_string() };
         return Ok(used);
     }
-    // A build that isn't --release links Brevi's library copies from a library compiled once (split_build); when
-    // that can't be done the program is built whole, as before.
+    // A build links Brevi's library copies from a library compiled once per optimisation level (split_build);
+    // when that can't be done the program is built whole, as before.
     let mut used = rust.to_string();
-    if release || !use_cache || std::env::var("BREVI_DYN_SPLIT").is_ok_and(|v| v == "0") || !split_build(rust, dir, out, opt, &cdir, &lib) {
+    if !use_cache || std::env::var("BREVI_DYN_SPLIT").is_ok_and(|v| v == "0") || !split_build(rust, dir, out, opt, &cdir, &lib) {
     let rs = dir.join("dyn_main.rs");
     let run = |src: &str| -> Result<std::process::Output, String> {
         std::fs::write(&rs, src).map_err(|e| e.to_string())?;
@@ -1161,7 +1161,9 @@ fn split_build(rust: &str, dir: &Path, out: &Path, opt: &str, cdir: &Path, dynrt
         let rs = dir.join(format!("{name}.rs"));
         std::fs::write(&rs, src).map_err(|e| e.to_string())?;
         let r = crate::rustc_cmd()
-            .args(["--edition", "2021", "--crate-name", name, "-A", "warnings", "-C", opt, "-C", "overflow-checks=off", "-C", crate::codegen_units()])
+            .args(["--edition", "2021", "--crate-name", name, "-A", "warnings", "-C", opt, "-C", "overflow-checks=off"])
+            // a --release build keeps rustc's own codegen units, as a whole build does
+            .args(if opt == "opt-level=3" { None } else { Some(["-C", crate::codegen_units()]) }.into_iter().flatten())
             .args(kind)
             .arg("--extern")
             .arg(format!("brevi_dyn={}", dynrt.display()))

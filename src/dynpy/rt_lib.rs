@@ -1297,12 +1297,22 @@ pub fn builtin_class_attr(c: &Rc<Class>, name: &str) -> Option<V> {
                 let me = a.p.remove(0);
                 // Base.method(self, ...) on an instance of a subclass: the base's own method, not an override
                 if let V::Obj(o) = &me {
-                    let mro = o.cls.mro.borrow().clone();
-                    if let Some(i) = mro.iter().position(|k| k.name == cname && (k.module == "builtins" || k.module == "collections")) {
-                        if i > 0 {
-                            let f = super_attr(&V::Class(mro[i - 1].clone()), &me, n)?;
-                            return call(&f, a);
+                    let base = {
+                        let mro = o.cls.mro.borrow();
+                        match mro.iter().position(|k| k.name == cname && (k.module == "builtins" || k.module == "collections")) {
+                            // object.__setattr__(obj, name, v) with nothing from object on in the MRO defining it:
+                            // super_attr would hand back the plain instance store, so do that store directly
+                            Some(i) if i > 0 && n == "__setattr__" && mro[i..].iter().all(|k| k.own(n).is_none()) => {
+                                drop(mro);
+                                return object_setattr(&me, &a.p);
+                            }
+                            Some(i) if i > 0 => Some(mro[i - 1].clone()),
+                            _ => None,
                         }
+                    };
+                    if let Some(b) = base {
+                        let f = super_attr(&V::Class(b), &me, n)?;
+                        return call(&f, a);
                     }
                 }
                 call_method(&me, n, a)
@@ -1700,7 +1710,7 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             }
         }
         "swapcase" => st(t.chars().map(|c| if c.is_uppercase() { c.to_lowercase().collect::<String>() } else { c.to_uppercase().collect() }).collect()),
-        "isdigit" | "isdecimal" | "isnumeric" => V::Bool(!t.is_empty() && t.chars().all(|c| if name == "isnumeric" { c.is_numeric() } else { c.is_ascii_digit() || (c.is_numeric() && c.to_digit(10).is_some()) || (name == "isdigit" && "²³¹⁰⁴⁵⁶⁷⁸⁹".contains(c)) })),
+        "isdigit" | "isdecimal" | "isnumeric" => V::Bool(!t.is_empty() && t.chars().all(|c| if name == "isnumeric" { c.is_numeric() } else { c.is_ascii_digit() || is_nd(c) || (name == "isdigit" && "²³¹⁰⁴⁵⁶⁷⁸⁹".contains(c)) })),
         "isalpha" => V::Bool(!t.is_empty() && t.chars().all(|c| c.is_alphabetic())),
         "isalnum" => V::Bool(!t.is_empty() && t.chars().all(|c| c.is_alphanumeric())),
         "isspace" => V::Bool(!t.is_empty() && t.chars().all(|c| c.is_whitespace())),
@@ -1708,7 +1718,7 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
         "islower" => V::Bool(t.chars().any(|c| c.is_lowercase()) && !t.chars().any(|c| c.is_uppercase())),
         "istitle" => V::Bool(t.chars().any(|c| c.is_alphabetic()) && py_title(t) == t),
         "isascii" => V::Bool(t.is_ascii()),
-        "isprintable" => V::Bool(t.chars().all(|c| !c.is_control())),
+        "isprintable" => V::Bool(t.chars().all(|c| if c.is_ascii() { (' '..='~').contains(&c) } else { !tab_has(PY_NOPRINT, c) })),
         "isidentifier" => V::Bool({
             let mut cs = t.chars();
             match cs.next() {
@@ -1793,12 +1803,10 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             }
             list(out)
         }
-        "format" => st(str_format(t, &a)?),
+        "format" => st(str_format(t, &a, None)?),
         "format_map" => {
             let m = a1(&a, "format_map")?;
-            let items = dict_items_of(&m)?;
-            let k: Vec<(Sym, V)> = items.into_iter().map(|(k, v)| (sym(&to_str(&k).unwrap_or_default()), v)).collect();
-            st(str_format(t, &Args { p: vec![], k })?)
+            st(str_format(t, &Args { p: vec![], k: vec![] }, Some(&m))?)
         }
         "removeprefix" => {
             let p = arg_str(&a1(&a, name)?, name)?;
@@ -1908,8 +1916,8 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
         _ => return bad_method(o, name),
     })
 }
-// "{} {name} {0:>5}".format(...)
-pub fn str_format(t: &str, a: &Args) -> Result<String, E> {
+// "{} {name} {0:>5}".format(...); `mapping` is str.format_map's mapping, resolved lazily with [key].
+pub fn str_format(t: &str, a: &Args, mapping: Option<&V>) -> Result<String, E> {
     let c: Vec<char> = t.chars().collect();
     let mut out = String::new();
     let mut i = 0;
@@ -1949,16 +1957,24 @@ pub fn str_format(t: &str, a: &Args) -> Result<String, E> {
                 None => (head, None),
             };
             // nested fields in the spec
-            let spec = if spec.contains('{') { str_format(&spec, &Args { p: a.p.clone(), k: a.k.clone() })? } else { spec };
+            let spec = if spec.contains('{') { str_format(&spec, &Args { p: a.p.clone(), k: a.k.clone() }, mapping)? } else { spec };
             // first part: index or name, then .attr / [key]
             let name_end = head.find(|ch: char| ch == '.' || ch == '[').unwrap_or(head.len());
             let first = &head[..name_end];
             let mut v = if first.is_empty() {
+                if mapping.is_some() {
+                    return val_err("Format string contains positional fields".into());
+                }
                 let v = a.p.get(auto).cloned().ok_or_else(|| exc("IndexError", format!("Replacement index {auto} out of range for positional args tuple")))?;
                 auto += 1;
                 v
             } else if let Ok(k) = first.parse::<usize>() {
+                if mapping.is_some() {
+                    return val_err("Format string contains positional fields".into());
+                }
                 a.p.get(k).cloned().ok_or_else(|| exc("IndexError", format!("Replacement index {k} out of range for positional args tuple")))?
+            } else if let Some(m) = mapping {
+                getitem(m, &s(first))?
             } else {
                 a.k.iter().find(|(n, _)| *n == first).map(|(_, v)| v.clone()).ok_or_else(|| exc_v("KeyError", s(first)))?
             };

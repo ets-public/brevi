@@ -602,6 +602,11 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                         i += 2;
                         col += 2;
                     }
+                    // Any other brace in a Python f-string opens or closes a value the typed build did not read
+                    // (`f"{ {1: 2}[1] }"`): refused, never printed as literal text.
+                    Some('{' | '}') if py && is_f => {
+                        return Err(Diag::new("lex", tl, tc, "an f-string value the typed build cannot read").fix_hint("compute the value first: v = ...; then f\"{v}\""));
+                    }
                     Some(&b @ ('{' | '}')) => {
                         s.push(b);
                         s.push(b);
@@ -812,6 +817,11 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
                         s.push('{');
                         i += 1;
                         col += 1;
+                    }
+                    // Any other brace in a Python f-string opens or closes a value the typed build did not read
+                    // (`f"{ {1: 2}[1] }"`): refused, never printed as literal text.
+                    Some('{' | '}') if py && is_f => {
+                        return Err(Diag::new("lex", tl, tc, "an f-string value the typed build cannot read").fix_hint("compute the value first: v = ...; then f\"{v}\""));
                     }
                     // Any other brace is literal; it is doubled so the string parser reads it that way.
                     Some(&b @ ('{' | '}')) => {

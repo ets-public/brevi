@@ -3156,6 +3156,7 @@ impl Em {
         let mut names: Vec<String> = p.pos.iter().map(|x| x.0.clone()).collect();
         names.extend(p.kwonly.iter().map(|x| x.0.clone()));
         let npos = p.pos.len();
+        let npo = p.posonly;
         let star = p.star.is_some();
         let kwstar = p.kwstar.is_some();
         let names_lit = names.iter().map(|n| lit(n)).collect::<Vec<_>>().join(", ");
@@ -3288,7 +3289,7 @@ impl Em {
             code_flags |= 0x10; // CO_NESTED
         }
         let code = code_flags.to_string();
-        let sig = format!("Sig {{ name: {qname}, params: &[{names_lit}], npos: {npos}, star: {star}, kwstar: {kwstar} }}");
+        let sig = format!("Sig {{ name: {qname}, params: &[{names_lit}], npos: {npos}, npo: {npo}, star: {star}, kwstar: {kwstar} }}");
         let dflt_all: Vec<String> = dflt_codes.iter().chain(kwd.iter()).cloned().collect();
         let nparams = params.len();
         let unpack: String = (0..nparams).map(|k| format!("__b.next().unwrap()")).collect::<Vec<_>>().join(", ");

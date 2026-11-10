@@ -1720,6 +1720,7 @@ pub enum It {
     Str(Rc<S>, usize),
     Range(i64, i64, i64),
     Dict(Rc<RefCell<Dict>>, usize, u8, u64, usize),
+    Set(Rc<RefCell<PSet>>, usize, i64),
     Gen(Box<dyn FnMut() -> Result<Option<V>, E>>),
     // A generator expression: like Gen, but an error escapes to the caller once and then the iterator is
     // exhausted, as in CPython.
@@ -1824,6 +1825,22 @@ impl It {
                 }
                 Ok(None)
             }
+            It::Set(s, i, n0) => {
+                let s = s.borrow();
+                // CPython only counts entries (add + remove keeps it), and once it has raised, every later
+                // next() on that iterator raises too (n0 is turned negative to stay failed).
+                if *n0 < 0 || s.used as i64 != *n0 {
+                    *n0 = -1;
+                    return Err(exc("RuntimeError", "Set changed size during iteration".into()));
+                }
+                while *i < s.t.len() {
+                    *i += 1;
+                    if let Slot::Full(k, _) = &s.t[*i - 1] {
+                        return Ok(Some(k.clone()));
+                    }
+                }
+                Ok(None)
+            }
             It::Gen(f) => f(),
             It::GenExp(f, done) => {
                 if *done {
@@ -1889,7 +1906,10 @@ pub fn iter(v: &V) -> Result<It, E> {
             }
             _ => It::Done,
         },
-        V::Set(s) => It::Vec(s.borrow().keys().into_iter()),
+        V::Set(s) => {
+            let n = s.borrow().used as i64;
+            It::Set(s.clone(), 0, n)
+        }
         V::FSet(s) => It::Vec(s.keys().into_iter()),
         V::Deque(d) => It::Vec(d.borrow().v.iter().cloned().collect::<Vec<_>>().into_iter()),
         V::Iter(it) => It::Ref(it.clone()),

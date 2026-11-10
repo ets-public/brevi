@@ -59,14 +59,29 @@ fn run_until(mut c: std::process::Command, stdin: &[u8], limit: Duration, sessio
     c.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     crate::proc::own_group(&mut c);
     let start = Instant::now();
-    let mut child = c.spawn().map_err(|e| format!("cannot start {}: {e}", c.get_program().to_string_lossy()))?;
+    let (mut child, job) = crate::proc::spawn_limited(&mut c, &lim, true).map_err(|e| format!("cannot start {}: {e}", c.get_program().to_string_lossy()))?;
     let si = child.stdin.take();
     let input = stdin.to_vec();
+    // stdout and stderr bytes so far, for an output limit (the program is stopped once past it)
+    let seen = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let cap = lim.output.unwrap_or(u64::MAX);
     let read = |r: Option<Box<dyn Read + Send>>| {
+        let seen = seen.clone();
         std::thread::spawn(move || {
             let mut b = vec![];
             if let Some(mut r) = r {
-                let _ = r.read_to_end(&mut b);
+                let mut buf = [0u8; 16384];
+                loop {
+                    match r.read(&mut buf) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => {
+                            let before = seen.fetch_add(n as u64, std::sync::atomic::Ordering::SeqCst);
+                            // past the limit nothing more is kept (the program is being stopped)
+                            let room = cap.saturating_add(1).saturating_sub(before).min(n as u64) as usize;
+                            b.extend_from_slice(&buf[..room]);
+                        }
+                    }
+                }
             }
             b
         })
@@ -108,9 +123,16 @@ fn run_until(mut c: std::process::Command, stdin: &[u8], limit: Duration, sessio
     };
     let err = read(child.stderr.take().map(|r| Box::new(r) as Box<dyn Read + Send>));
     let mut timed_out = false;
+    let mut over = false;
     let status = loop {
         match child.try_wait() {
             Ok(Some(s)) => break Some(s),
+            Ok(None) if seen.load(std::sync::atomic::Ordering::SeqCst) > cap => {
+                over = true;
+                crate::proc::stop(&mut child);
+                let _ = child.wait();
+                break None;
+            }
             Ok(None) if start.elapsed() > limit || cancel.as_ref().is_some_and(|c| c.load(std::sync::atomic::Ordering::Relaxed)) => {
                 timed_out = true;
                 crate::proc::stop(&mut child);
@@ -128,10 +150,10 @@ fn run_until(mut c: std::process::Command, stdin: &[u8], limit: Duration, sessio
     let tail = String::from_utf8_lossy(&err[err.len().saturating_sub(4096)..]).to_string();
     let hit = if timed_out && lim.time.is_some_and(|t| t <= limit) {
         Some("time")
-    } else if lim.output.is_some_and(|o| (out.len() + err.len()) as u64 > o) {
+    } else if over || lim.output.is_some_and(|o| (out.len() + err.len()) as u64 > o) {
         Some("output")
     } else {
-        status.and_then(|s| crate::proc::limit_hit(&lim, s, &tail))
+        status.and_then(|s| job.hit(&lim, s).or_else(|| crate::proc::limit_hit(&lim, s, &tail)))
     };
     let timed_out = timed_out && hit.is_none();
     Ok(Run { out, err, code: status.and_then(|s| exit_code(s)), ms, timed_out, hit })
@@ -350,8 +372,8 @@ pub fn main(argv: &[String]) -> ! {
         }
         i += 1;
     }
-    if lims.files.is_some() || lims.net.is_some() {
-        usage("--limit files and net are counted by Brevi's own code under --sandbox, and CPython is not; verify does not take them");
+    if lims.files.is_some() || lims.net.is_some() || lims.written.is_some() {
+        usage("--limit files, net and written are counted by Brevi's own code under --sandbox, and CPython is not; verify does not take them");
     }
     let _ = crate::proc::LIMITS.set(lims);
     let Some(file) = file else { usage("verify needs a .py file") };
@@ -530,13 +552,21 @@ fn python_version_opt(python: &str) -> Option<String> {
 
 // The strict native build `brevi verify` uses (shared with it through the result cache).
 fn build_native(file: &str, release: bool) -> (crate::runcache::Done, PathBuf) {
+    build_held(file, release, &[], false)
+}
+
+// build_native under the sandbox's flags (`held`: --sandbox, --allow...), as the typed build or, with
+// `dynamic`, as Brevi's dynamic build (BREVI_DYN=1).
+fn build_held(file: &str, release: bool, held: &[String], dynamic: bool) -> (crate::runcache::Done, PathBuf) {
     let stem = Path::new(file).file_stem().unwrap().to_string_lossy().to_string();
-    let bin = crate::build_dir(file).join(format!("{stem}-verify"));
+    let bin = crate::build_dir(file).join(format!("{stem}-verify{}", if dynamic { "-dyn" } else { "" }));
     let mut args: Vec<String> = vec!["build".into(), file.to_string(), "-o".into(), bin.to_string_lossy().to_string()];
     if release {
         args.push("--release".into());
     }
-    let envs = [("BREVI_NATIVE", "1"), ("BREVI_PATH", "1")];
+    args.extend(held.iter().cloned());
+    let envs: &[(&str, &str)] = if dynamic { &[("BREVI_NATIVE", "1"), ("BREVI_PATH", "1"), ("BREVI_DYN", "1")] } else { &[("BREVI_NATIVE", "1"), ("BREVI_PATH", "1")] };
+    let envs = envs.to_vec();
     let built = if crate::runcache::on() {
         crate::runcache::phase(&args, file, Some(&bin), &envs, true)
     } else {
@@ -699,6 +729,8 @@ pub fn run_main(argv: &[String]) -> ! {
     let mut lims = crate::proc::Limits::default();
     // passed on to a plain `brevi run` when nothing is verified
     let mut pass: Vec<String> = vec![];
+    // the sandbox's flags, when the run is held
+    let mut held: Vec<String> = vec![];
     let mut i = 0;
     while i < dash {
         let a = argv[i].as_str();
@@ -710,6 +742,18 @@ pub fn run_main(argv: &[String]) -> ! {
                 pass.push(a.into());
             }
             "--traceback" | "--explain" => pass.push(a.into()),
+            // Under the sandbox the run is checked against Brevi's dynamic build instead of CPython (which the
+            // sandbox cannot hold): cross_main.
+            "--sandbox" => {
+                held.push(a.into());
+                pass.push(a.into());
+            }
+            "--allow" | "--allow-py" | "--allow-net" | "--allow-read" | "--allow-write" => {
+                let v = value(i);
+                held.extend([a.to_string(), v.clone()]);
+                pass.extend([a.to_string(), v]);
+                i += 1;
+            }
             "--no-cache" => {
                 crate::runcache::turn_off();
                 pass.push(a.into());
@@ -729,22 +773,24 @@ pub fn run_main(argv: &[String]) -> ! {
                 lims.parse(&a["--limit=".len()..]).unwrap_or_else(|m| run_usage(&m));
                 pass.push(a.into());
             }
-            _ if a == "--sandbox" || a.starts_with("--allow") => run_usage(
-                "--verify runs the program under CPython too, which the sandbox cannot hold to its grants; use --verify only for code you would run with python3",
-            ),
             _ if a.starts_with('-') => run_usage(&format!("run --verify has no option {a}")),
             _ if file.is_none() => file = Some(a.to_string()),
             _ => run_usage(&format!("one file at a time ({a} is a second one); pass program arguments after --")),
         }
         i += 1;
     }
-    if lims.files.is_some() || lims.net.is_some() {
-        run_usage("--limit files and net are counted by Brevi's own code under --sandbox, and CPython is not; --verify does not take them");
+    // CPython runs no Brevi code, nor does what --allow-py or --allow native let in
+    let cpython = held.windows(2).any(|w| w[0] == "--allow-py" || (w[0] == "--allow" && w[1].split([',', ' ']).any(|c| c == "native")));
+    if (lims.files.is_some() || lims.net.is_some() || lims.written.is_some()) && (held.is_empty() || cpython) {
+        run_usage("--limit files, net and written are counted by Brevi's own code under --sandbox, and CPython is not; they need --sandbox without --allow native or --allow-py");
     }
     let _ = crate::proc::LIMITS.set(lims);
     let Some(file) = file else { run_usage("run --verify needs a .py file") };
     if !file.ends_with(".py") {
         run_usage("--verify compares a .py file with CPython; a .bv file has no CPython answer to compare with (use brevi test)");
+    }
+    if !held.is_empty() {
+        cross_main(&file, &held, cpython, strict, release, limit, &pass, &prog_args);
     }
     let src = std::fs::read(&file).unwrap_or_else(|e| run_usage(&format!("cannot read {file}: {e}")));
     let python = crate::python_exe();
@@ -898,6 +944,135 @@ pub fn run_main(argv: &[String]) -> ! {
             std::io::stderr().write_all(&p.err).ok();
             eprintln!("{verdict}");
             exit(p.code.unwrap_or(1))
+        }
+    }
+}
+
+// `brevi run --verify --sandbox`: CPython cannot run under the sandbox, so the typed build's answer is checked
+// against Brevi's dynamic build instead, which runs the same source over Python's own values and shares no code
+// with the typed build's lists, numbers and copies (the bugs the typed build can have). Both are built under the
+// same grants and run under the same limits, each with the sandbox's short environment. When they agree the
+// verdict is identical; when they differ the answer is the dynamic build's, with a differs line naming both.
+// A program that does not take the typed build, or that the dynamic build cannot build, is not compared: its
+// run says so. Never returns.
+#[allow(clippy::too_many_arguments)]
+fn cross_main(file: &str, held: &[String], cpython: bool, strict: bool, release: bool, limit: Duration, pass: &[String], prog_args: &[String]) -> ! {
+    let files = program_files(file);
+    let not_compared = |why: &str| -> ! {
+        eprintln!("{{\"verify\":\"refused\",\"against\":\"dynamic\",\"why\":\"{}\",\"msg\":\"not checked: the answer is the build's own\"}}", esc(why));
+        if strict {
+            exit(1);
+        }
+        plain_run(file, pass, prog_args)
+    };
+    if let Some(why) = unrepeatable(&files) {
+        not_compared(why);
+    }
+    if let Some(why) = side_effects(file) {
+        not_compared(why);
+    }
+    // Both builds at once.
+    let dyn_build = {
+        let (file, held) = (file.to_string(), held.to_vec());
+        std::thread::spawn(move || build_held(&file, release, &held, true))
+    };
+    let (built, bin) = build_held(file, release, held, false);
+    if !built.ok() {
+        // The refusal (or error) is the answer, as `brevi run --sandbox` gives it.
+        std::io::stdout().write_all(&built.stdout).ok();
+        std::io::stderr().write_all(&built.stderr).ok();
+        exit(built.code.unwrap_or(1));
+    }
+    let err = String::from_utf8_lossy(&built.stderr).to_string();
+    let path = err.lines().find(|l| l.starts_with("{\"path\":")).and_then(crate::json::parse).and_then(|j| j.get("path").and_then(|v| v.str()).map(String::from)).unwrap_or_else(|| "typed".into());
+    if path != "typed" {
+        not_compared(&format!("the program took the {path} build, not the typed one; under the sandbox only the typed build is checked, against the dynamic build"));
+    }
+    let show_path = std::env::var("BREVI_PATH").is_ok_and(|v| v == "1");
+    for l in err.lines() {
+        if !l.starts_with("{\"path\":") || show_path {
+            eprintln!("{l}");
+        }
+    }
+    let mut stdin = vec![];
+    let _ = std::io::stdin().read_to_end(&mut stdin);
+    let start = |bin: &Path| {
+        let mut c = crate::proc::script(bin, file);
+        c.args(prog_args);
+        crate::proc::hold_env(&mut c, cpython);
+        c
+    };
+    let (dyn_built, dyn_bin) = dyn_build.join().unwrap_or_else(|_| exit(1));
+    let dyn_run = dyn_built.ok().then(|| {
+        let (c, stdin) = (start(&dyn_bin), stdin.clone());
+        std::thread::spawn(move || run(c, &stdin, limit, false))
+    });
+    let t = run(start(&bin), &stdin, limit, false).unwrap_or_else(|m| {
+        eprintln!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&m));
+        exit(1)
+    });
+    let out = |r: &Run, line: &str| -> ! {
+        std::io::stdout().write_all(&r.out).ok();
+        std::io::stdout().flush().ok();
+        std::io::stderr().write_all(&r.err).ok();
+        if !line.is_empty() {
+            eprintln!("{line}");
+        }
+        exit(r.code.unwrap_or(1))
+    };
+    if let Some(on) = t.hit {
+        std::io::stdout().write_all(&t.out).ok();
+        std::io::stdout().flush().ok();
+        std::io::stderr().write_all(&t.err).ok();
+        eprintln!("{}", crate::proc::limit_line(&crate::proc::limits(), on));
+        exit(crate::proc::LIMIT_EXIT)
+    }
+    if t.timed_out {
+        out(&t, &format!("{{\"e\":\"timeout\",\"msg\":\"stopped after {} s; pass --timeout SECS for a longer run\"}}", limit.as_secs()));
+    }
+    let unchecked = |why: &str| -> ! {
+        if strict {
+            eprintln!("{{\"verify\":\"refused\",\"against\":\"dynamic\",\"why\":\"{}\"}}", esc(why));
+            exit(1);
+        }
+        out(&t, &format!("{{\"verify\":\"refused\",\"against\":\"dynamic\",\"why\":\"{}\",\"msg\":\"not checked: the answer above is the typed build's own\"}}", esc(why)))
+    };
+    let Some(d) = dyn_run else { unchecked("Brevi's dynamic build could not build this program") };
+    let d = match d.join() {
+        Ok(Ok(d)) => d,
+        _ => unchecked("the dynamic build did not run"),
+    };
+    if d.hit.is_some() || d.timed_out {
+        unchecked("the dynamic build was stopped at the limit");
+    }
+    // A crash (a Rust panic is 101, a signal 128 + n), such as running out of memory, is no answer to compare.
+    let crashed = |c: Option<i32>| c.is_none_or(|c| c >= 101);
+    if crashed(d.code) {
+        unchecked(&format!("the dynamic build stopped abnormally (exit {})", opt_code(d.code)));
+    }
+    let differs = if d.out != t.out {
+        let (line, a, b) = first_diff(&d.out, &t.out);
+        Some(("stdout", line, a, b))
+    } else if d.code != t.code {
+        Some(("exit code", 0, opt_code(d.code), opt_code(t.code)))
+    } else {
+        None
+    };
+    match differs {
+        None => out(&t, &format!("{{\"verify\":\"identical\",\"against\":\"dynamic\",\"path\":\"typed\",\"typed_ms\":{},\"dynamic_ms\":{}}}", t.ms, d.ms)),
+        Some((on, line, dv, tv)) => {
+            let at = if line > 0 { format!(",\"line\":{line}") } else { String::new() };
+            let verdict = format!(
+                "{{\"verify\":\"differs\",\"against\":\"dynamic\",\"on\":\"{on}\"{at},\"typed\":\"{}\",\"dynamic\":\"{}\",\"msg\":\"a wrong answer from Brevi's typed build: {}\"}}",
+                esc(&tv),
+                esc(&dv),
+                if strict { "nothing printed (--strict)" } else { "the output above is the dynamic build's, which follows Python's rules for lists and numbers" }
+            );
+            if strict {
+                eprintln!("{verdict}");
+                exit(1);
+            }
+            out(&d, &verdict)
         }
     }
 }

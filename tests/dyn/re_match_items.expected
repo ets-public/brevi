@@ -1,0 +1,9 @@
+a a None a
+a a a
+IndexError no such group
+IndexError no such group
+IndexError no such group
+IndexError no such group
+TypeError 're.Match' object does not support item assignment
+A-?
+ValueError Format string contains positional fields

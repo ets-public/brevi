@@ -1,0 +1,1 @@
+- CI rejects a pull request that adds a built program or a file over 2 MB (`tools/no_binaries.py`), and `.gitignore` ignores files without an extension at the top of the checkout, where `brevi build` without `-o` writes its output. This removes 44 test programs that were committed by mistake in #347.

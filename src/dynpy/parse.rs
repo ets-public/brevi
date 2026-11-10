@@ -204,48 +204,64 @@ pub fn lex(src: &str) -> Result<Lexed, (usize, String)> {
             let body_start = k;
             let raw = prefix.contains('r');
             // An f-string's replacement fields may hold strings in the same quotes and, in a single-quoted f-string,
-            // newlines (PEP 701, Python 3.12): skip over them as nested literals.
-            let mut fdepth = 0usize;
+            // newlines (PEP 701, Python 3.12): skip over them as nested literals. Each open field is (bracket depth,
+            // in its format spec): a `#` is a comment only in a field's expression, never in a spec (`{255:#x}`),
+            // and a `{` in a spec opens a nested field (`{x:>{w}}`).
+            let mut fields: Vec<(usize, bool)> = vec![];
             loop {
                 if k >= cs.len() {
                     return Err(err(start_line, "unterminated string literal"));
                 }
                 if prefix.contains('f') {
-                    if cs[k] == '{' {
-                        if fdepth == 0 && k + 1 < cs.len() && cs[k + 1] == '{' {
-                            k += 2;
-                            continue;
+                    match fields.last_mut() {
+                        None => {
+                            if cs[k] == '{' {
+                                if k + 1 < cs.len() && cs[k + 1] == '{' {
+                                    k += 2;
+                                    continue;
+                                }
+                                fields.push((0, false));
+                                k += 1;
+                                continue;
+                            }
                         }
-                        fdepth += 1;
-                        k += 1;
-                        continue;
-                    }
-                    if cs[k] == '}' && fdepth > 0 {
-                        fdepth -= 1;
-                        k += 1;
-                        continue;
-                    }
-                    if fdepth > 0 {
-                        if cs[k] == '\n' {
-                            line += 1;
+                        Some((_, true)) => {
+                            if cs[k] == '{' {
+                                fields.push((0, false));
+                                k += 1;
+                                continue;
+                            }
+                            if cs[k] == '}' {
+                                fields.pop();
+                                k += 1;
+                                continue;
+                            }
+                        }
+                        Some((br, spec)) => {
+                            match cs[k] {
+                                '\n' => line += 1,
+                                '\'' | '"' => {
+                                    k = skip_nested_str(&cs, k, &mut line).ok_or_else(|| err(start_line, "unterminated string literal"))?;
+                                    continue;
+                                }
+                                '#' => {
+                                    while k < cs.len() && cs[k] != '\n' {
+                                        k += 1;
+                                    }
+                                    continue;
+                                }
+                                '(' | '[' | '{' => *br += 1,
+                                ')' | ']' => *br = br.saturating_sub(1),
+                                '}' if *br > 0 => *br -= 1,
+                                '}' => {
+                                    fields.pop();
+                                }
+                                ':' if *br == 0 => *spec = true,
+                                _ => {}
+                            }
                             k += 1;
                             continue;
                         }
-                        if cs[k] == '[' || cs[k] == '(' {
-                            // brackets inside a field: a ':' or '!' in them is not a format spec, nothing to do here
-                        }
-                        if cs[k] == '\'' || cs[k] == '"' {
-                            k = skip_nested_str(&cs, k, &mut line).ok_or_else(|| err(start_line, "unterminated string literal"))?;
-                            continue;
-                        }
-                        if cs[k] == '#' {
-                            while k < cs.len() && cs[k] != '\n' {
-                                k += 1;
-                            }
-                            continue;
-                        }
-                        k += 1;
-                        continue;
                     }
                 }
                 if cs[k] == '\\' {
@@ -445,6 +461,8 @@ pub struct Params {
     pub star: Option<String>,
     pub kwonly: Vec<(String, Option<Ex>)>,
     pub kwstar: Option<String>,
+    // the number of `pos` parameters before `/` (positional-only)
+    pub posonly: usize,
     // each annotated parameter's annotation (read by the MCP signature pass, mcpsig.rs; nothing else uses them)
     pub ann: Vec<(String, Ex)>,
 }
@@ -1160,7 +1178,8 @@ impl P {
                 break;
             }
             if self.eat_op("/") {
-                // positional-only marker: treat as ordinary
+                // positional-only marker: parameters before it cannot be passed by keyword
+                p.posonly = p.pos.len();
             } else if self.eat_op("**") {
                 let n = self.name()?;
                 if end == ")" && self.eat_op(":") {

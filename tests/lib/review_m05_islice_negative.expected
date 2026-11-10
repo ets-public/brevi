@@ -1,0 +1,27 @@
+VE Stop argument for islice() must be None or an integer: 0 <= x <= sys.maxsize.
+VE r must be non-negative
+islice stop -1 ValueError Stop argument for islice() must be None or an integer: 0 <= x <= sys.maxsize.
+islice stop -2 ValueError Indices for islice() must be None or an integer: 0 <= x <= sys.maxsize.
+islice stop -1 3arg ValueError Stop argument for islice() must be None or an integer: 0 <= x <= sys.maxsize.
+islice stop -2 3arg ValueError Indices for islice() must be None or an integer: 0 <= x <= sys.maxsize.
+islice start -1 ValueError Indices for islice() must be None or an integer: 0 <= x <= sys.maxsize.
+islice start -2 ValueError Indices for islice() must be None or an integer: 0 <= x <= sys.maxsize.
+islice step -1 ValueError Step for islice() must be a positive integer or None.
+islice step 0 ValueError Step for islice() must be a positive integer or None.
+islice huge stop ValueError Stop argument for islice() must be None or an integer: 0 <= x <= sys.maxsize.
+islice huge start ValueError Indices for islice() must be None or an integer: 0 <= x <= sys.maxsize.
+islice huge step ValueError Step for islice() must be a positive integer or None.
+islice none bounds [1, 2, 3]
+islice normal [2, 4]
+islice missing args TypeError islice expected at least 2 arguments, got 1
+islice too many args TypeError islice expected at most 4 arguments, got 5
+islice keyword TypeError islice() takes no keyword arguments
+permutations r -1 ValueError r must be non-negative
+permutations r -5 ValueError r must be non-negative
+permutations r None [(1, 2), (2, 1)]
+permutations huge r OverflowError Python int too large to convert to C ssize_t
+combinations r -1 ValueError r must be non-negative
+combinations_with_replacement r -1 ValueError r must be non-negative
+product repeat -1 ValueError repeat argument cannot be negative
+product repeat 0 [()]
+product repeat huge OverflowError Python int too large to convert to C ssize_t

@@ -50,6 +50,154 @@ type Sig = (Vec<String>, Vec<Option<Expr>>, Option<usize>);
 
 type R<T> = Result<T, Diag>;
 
+// The regex syntax the typed build's matcher (the prelude's ax_rx) handles. A pattern outside it would match
+// wrongly there, so a literal one sends the program to the dynamic build, whose matcher has the rest of Python's
+// syntax: back-references, look-arounds, named and atomic groups, possessive quantifiers, inline flags in the
+// middle, `\B`, and so on. Errors CPython raises at compile time (nothing to repeat, unbalanced parentheses) go
+// there too, so CPython's error is what the program sees.
+pub fn rx_typed_unsupported(p: &str) -> Option<&'static str> {
+    let c: Vec<char> = p.chars().collect();
+    let mut i = 0;
+    // (?i) first, then one group of s, m and a: the forms ax_rx_search_at and ax_rx_flags read.
+    if c.starts_with(&['(', '?', 'i', ')']) {
+        i = 4;
+    }
+    if c[i..].starts_with(&['(', '?']) {
+        let mut j = i + 2;
+        while j < c.len() && matches!(c[j], 's' | 'm' | 'a') {
+            j += 1;
+        }
+        if j > i + 2 && c.get(j) == Some(&')') {
+            i = j + 1;
+        }
+    }
+    let hex = |i: usize, e: char| -> Option<usize> {
+        let n = match e { 'x' => 2, 'u' => 4, 'U' => 8, _ => return Some(0) };
+        let h: String = c.iter().skip(i).take(n).collect();
+        (h.len() == n && u32::from_str_radix(&h, 16).ok().and_then(char::from_u32).is_some()).then_some(n)
+    };
+    // whether the escape `\e` (e already read, at i - 1) is one the typed matcher reads as CPython does
+    let esc_ok = |e: char, in_class: bool| -> bool {
+        if e.is_ascii_digit() {
+            return false;
+        }
+        if !e.is_ascii_alphabetic() {
+            return true;
+        }
+        matches!(e, 'd' | 'D' | 'w' | 'W' | 's' | 'S' | 'n' | 't' | 'r' | 'f' | 'v' | 'a' | 'x' | 'u' | 'U') || (!in_class && matches!(e, 'b' | 'A' | 'Z'))
+    };
+    let mut depth = 0usize;
+    // whether the last item can take a quantifier, and whether it already has one
+    let (mut atom, mut quantified) = (false, false);
+    while i < c.len() {
+        let ch = c[i];
+        i += 1;
+        match ch {
+            '\\' => {
+                let Some(&e) = c.get(i) else { return Some("a trailing backslash") };
+                i += 1;
+                if !esc_ok(e, false) {
+                    return Some("this escape");
+                }
+                match hex(i, e) { Some(n) => i += n, None => return Some("a bad \\x or \\u escape") }
+                (atom, quantified) = (!matches!(e, 'b' | 'A' | 'Z'), false);
+            }
+            '(' => {
+                if c.get(i) == Some(&'?') {
+                    if c.get(i + 1) != Some(&':') {
+                        return Some("this group syntax");
+                    }
+                    i += 2;
+                }
+                depth += 1;
+                (atom, quantified) = (false, false);
+            }
+            ')' => {
+                if depth == 0 {
+                    return Some("an unbalanced parenthesis");
+                }
+                depth -= 1;
+                (atom, quantified) = (true, false);
+            }
+            '|' => (atom, quantified) = (false, false),
+            '*' | '+' | '?' | '{' => {
+                let mut lo_hi = None;
+                if ch == '{' {
+                    let mut j = i;
+                    let num = |j: &mut usize| -> Option<u64> {
+                        let s = *j;
+                        while *j < c.len() && c[*j].is_ascii_digit() {
+                            *j += 1;
+                        }
+                        (*j > s).then(|| c[s..*j].iter().collect::<String>().parse().unwrap_or(u64::MAX))
+                    };
+                    let lo = num(&mut j);
+                    let hi = if c.get(j) == Some(&',') { j += 1; num(&mut j) } else { lo };
+                    if c.get(j) != Some(&'}') || (lo.is_none() && (hi.is_some() || c.get(i) == Some(&','))) {
+                        if lo.is_none() && c.get(i) == Some(&',') && c.get(j) == Some(&'}') {
+                            return Some("{,n}");
+                        }
+                        // not a repeat: a literal `{`, as in CPython
+                        (atom, quantified) = (true, false);
+                        continue;
+                    }
+                    if lo.is_none() {
+                        (atom, quantified) = (true, false);
+                        continue;
+                    }
+                    lo_hi = Some((lo, hi));
+                    i = j + 1;
+                }
+                if let Some((lo, hi)) = lo_hi {
+                    // CPython's limit is MAXREPEAT; past it, or min above max, CPython raises
+                    if lo.unwrap_or(0) >= u32::MAX as u64 || hi.map_or(false, |h| h >= u32::MAX as u64 || h < lo.unwrap_or(0)) {
+                        return Some("this repeat count");
+                    }
+                }
+                if !atom || quantified {
+                    return Some("a repeat with nothing to repeat");
+                }
+                if c.get(i) == Some(&'?') {
+                    i += 1;
+                } else if c.get(i) == Some(&'+') {
+                    return Some("a possessive quantifier");
+                }
+                quantified = true;
+            }
+            '[' => {
+                if c.get(i) == Some(&'^') {
+                    i += 1;
+                }
+                let mut first = true;
+                loop {
+                    let Some(&k) = c.get(i) else { return Some("an unterminated character class") };
+                    i += 1;
+                    if k == ']' && !first {
+                        break;
+                    }
+                    first = false;
+                    if k == '\\' {
+                        let Some(&e) = c.get(i) else { return Some("an unterminated character class") };
+                        i += 1;
+                        if !esc_ok(e, true) {
+                            return Some("this escape in a character class");
+                        }
+                        match hex(i, e) { Some(n) => i += n, None => return Some("a bad \\x or \\u escape") }
+                    } else if k == '[' && matches!(c.get(i), Some(':' | '=' | '.')) {
+                        return Some("a nested set");
+                    }
+                }
+                (atom, quantified) = (true, false);
+            }
+            _ => (atom, quantified) = (!matches!(ch, '^' | '$'), false),
+        }
+    }
+    if depth > 0 {
+        return Some("an unbalanced parenthesis");
+    }
+    None
+}
+
 // pybridge: values of Python libraries (see pybridge.rs). The program is parsed again while new names that
 // hold them are found, so a use before the assignment (in an earlier function) counts.
 pub fn parse_program(src: &str) -> R<Vec<Item>> {
@@ -2228,7 +2376,7 @@ impl Parser {
                                 }
                             }
                             // Flags at the end of a re call (`re.fullmatch(p, s, re.ASCII)`, `re.compile(p, re.I)`):
-                            // IGNORECASE goes into the pattern as (?i); ASCII is dropped. Other flags stay (not supported).
+                            // IGNORECASE goes into the pattern as (?i), DOTALL, MULTILINE and ASCII as (?s), (?m), (?a). Other flags stay (not supported).
                             if matches!(&e, Expr::Ident(m) if m == "re") && args.len() >= 2 {
                                 let mut inline = String::new();
                                 let mut ok = true;
@@ -2249,7 +2397,7 @@ impl Parser {
                                             "I" | "IGNORECASE" => inline.push('i'),
                                             "S" | "DOTALL" => inline.push('s'),
                                             "M" | "MULTILINE" => inline.push('m'),
-                                            "A" | "ASCII" => {}
+                                            "A" | "ASCII" => inline.push('a'),
                                             _ => ok = false,
                                         }
                                     }
@@ -2278,6 +2426,14 @@ impl Parser {
                             }
                             // Python's re module: a compiled pattern is its string, a match is read as [whole, group1, ...] (empty for none).
                             if matches!(&e, Expr::Ident(m) if m == "re") {
+                                if matches!(name.as_str(), "compile" | "match" | "fullmatch" | "search" | "findall" | "finditer" | "split" | "sub") {
+                                    if let Some(Expr::Str(parts)) = args.first() {
+                                        let lit: Option<String> = parts.iter().map(|p| if let StrPart::Lit(l) = p { Some(l.as_str()) } else { None }).collect();
+                                        if let Some(why) = lit.as_deref().and_then(rx_typed_unsupported) {
+                                            return Err(self.err(&format!("a regex with {why} is not in the typed build")));
+                                        }
+                                    }
+                                }
                                 let r = |s: Expr, n: &str, a: Vec<Expr>| Expr::Method(Box::new(s), n.into(), a, line);
                                 let done = match (name.as_str(), args.len()) {
                                     ("compile", 1) => Some(args.remove(0)),
@@ -2819,6 +2975,17 @@ impl Parser {
                     if let Some(x) = crate::gui::bare_call(&name, &args, line) {
                         return Ok(x);
                     }
+                    // defaultdict's typed forms work even while other parts run in CPython.
+                    if name == "defaultdict" && !self.user_fns.contains(&name) && args.len() == 1 {
+                        let (n, d) = &args[0];
+                        if n.as_deref() == Some("lambda") {
+                            let d = d.clone();
+                            return Ok(if empty_literal(&d) { lax_map(line) } else if immutable_default(&d) { lax_map_def(line, d) } else if fresh_default(&d) { lax_map_mk(line, d) } else { Expr::Call(name.clone(), vec![(Some("lambda".into()), d)], line) });
+                        }
+                        if n.is_none() && type_factory(d) {
+                            return Ok(lax_map(line));
+                        }
+                    }
                     if let Some(x) = crate::pybridge::call_hook(&name, &args, &self.user_fns, line) {
                         return Ok(x);
                     }
@@ -2917,9 +3084,11 @@ impl Parser {
                             }
                         });
                     }
-                    // defaultdict(lambda: 0) (read as a `lambda:` named argument) with an empty default is a map.
-                    if name == "defaultdict" && args.len() == 1 && args[0].0.as_deref() == Some("lambda") && empty_literal(&args[0].1) && !self.user_fns.contains(&name) {
-                        return Ok(lax_map(line));
+                    // defaultdict(lambda: 0) (read as a `lambda:` named argument) is a map whose missing
+                    // keys read zero; a non-empty constant default starts each missing key at a copy of it.
+                    if name == "defaultdict" && args.len() == 1 && args[0].0.as_deref() == Some("lambda") && !self.user_fns.contains(&name) {
+                        let d = args.remove(0).1;
+                        return Ok(if empty_literal(&d) { lax_map(line) } else if immutable_default(&d) { lax_map_def(line, d) } else if fresh_default(&d) { lax_map_mk(line, d) } else { Expr::Call(name.clone(), vec![(Some("lambda".into()), d)], line) });
                     }
                     // enumerate(xs, start=1)
                     if name == "enumerate" && args.len() == 2 && args[1].0.as_deref() == Some("start") && !self.user_fns.contains(&name) {
@@ -3710,7 +3879,9 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
             m(args.remove(0).1, name, vec![f])
         }
         ("dict", 0) => Expr::Map(vec![]),
-        ("Counter", 0) | ("defaultdict", 1) => lax_map(line),
+        // defaultdict(int), defaultdict(list), defaultdict(Decimal): missing keys read as the type's zero.
+        ("defaultdict", 1) if type_factory(&args[0].1) => lax_map(line),
+        ("Counter", 0) => lax_map(line),
         ("set", 1) => m(args.remove(0).1, "unique", vec![]),
         // dict(m) copies a map; maps are values in Brevi already.
         ("OrderedDict", 1) => args.remove(0).1,
@@ -3854,8 +4025,58 @@ fn fill_format(parts: &[StrPart], args: Vec<Expr>, percent: bool, line: usize) -
 }
 
 // defaultdict(...) and Counter(): an empty map whose missing keys read as zero.
+// defaultdict(int), defaultdict(list), defaultdict(Decimal): a built-in type as the factory. int, float and str
+// passed as values reach here as the conversion lambda `v_.int()` the parser makes for them.
+fn type_factory(e: &Expr) -> bool {
+    match e {
+        Expr::Ident(n) => matches!(n.as_str(), "int" | "float" | "str" | "list" | "set" | "dict" | "tuple" | "bool" | "Decimal" | "Fraction"),
+        Expr::Lambda(ps, b) if ps.len() == 1 => matches!(b.as_ref(), Expr::Method(r, m, a, _) if a.is_empty() && matches!(m.as_str(), "int" | "float" | "str") && matches!(r.as_ref(), Expr::Ident(v) if *v == ps[0])),
+        _ => false,
+    }
+}
 fn lax_map(line: usize) -> Expr {
     Expr::Method(Box::new(Expr::Map(vec![])), "lax".into(), vec![], line)
+}
+// defaultdict(lambda: ...) with a constant default: an empty map whose missing keys start at a copy of it.
+fn lax_map_def(line: usize, d: Expr) -> Expr {
+    Expr::Method(Box::new(Expr::Map(vec![])), "lax_def".into(), vec![d], line)
+}
+// defaultdict(lambda: ...) whose default is a container: an empty map whose missing keys run the body
+// afresh and get that new value, as Python does.
+fn lax_map_mk(line: usize, d: Expr) -> Expr {
+    Expr::Method(Box::new(Expr::Map(vec![])), "lax_mk".into(), vec![Expr::Lambda(vec![], Box::new(d))], line)
+}
+// A lambda default the typed build can store and copy for each missing key: an immutable value. The
+// guard keeps a name only when it is bound to an immutable constant, so a mutable object is never
+// copied per key.
+fn immutable_default(e: &Expr) -> bool {
+    match e {
+        Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) | Expr::Str(_) | Expr::Ident(_) => true,
+        Expr::Tuple(xs) => xs.iter().all(immutable_default),
+        Expr::Call(n, args, _) => matches!(n.as_str(), "none" | "int" | "float" | "str" | "Decimal" | "Fraction" | "tuple") && args.iter().all(|(_, a)| immutable_default(a)),
+        Expr::Method(r, m, a, _) => matches!(m.as_str(), "dec" | "float" | "int" | "big") && a.is_empty() && immutable_default(r),
+        _ => false,
+    }
+}
+// The pieces of a fresh container default, with no names: a name's object cannot be rebuilt by the
+// stored constructor, so the guard does not take a container that reads one.
+fn immutable_lit(e: &Expr) -> bool {
+    match e {
+        Expr::Int(_) | Expr::Float(_) | Expr::Bool(_) | Expr::Str(_) => true,
+        Expr::Tuple(xs) => xs.iter().all(immutable_lit),
+        Expr::Call(n, args, _) => matches!(n.as_str(), "none" | "int" | "float" | "str" | "Decimal" | "Fraction" | "tuple") && args.iter().all(|(_, a)| immutable_lit(a)),
+        Expr::Method(r, m, a, _) => matches!(m.as_str(), "dec" | "float" | "int" | "big") && a.is_empty() && immutable_lit(r),
+        _ => false,
+    }
+}
+// A container default the constructor builds afresh per missing key.
+fn fresh_default(e: &Expr) -> bool {
+    match e {
+        Expr::List(xs) | Expr::Tuple(xs) => xs.iter().all(|x| immutable_lit(x) || fresh_default(x)),
+        Expr::Map(ps) => ps.iter().all(|(k, v)| (immutable_lit(k) || fresh_default(k)) && (immutable_lit(v) || fresh_default(v))),
+        Expr::Call(n, args, _) => matches!(n.as_str(), "list" | "dict" | "set" | "tuple") && args.iter().all(|(_, a)| immutable_lit(a) || fresh_default(a)),
+        _ => false,
+    }
 }
 
 // `[]`, `{}`, `0`, `0.0`, `""` and `set()`/`list()`/`dict()`: the value a missing map key reads as.
@@ -5781,6 +6002,20 @@ fn fn_aliases(items: &mut [Item], script: &mut Vec<Stmt>) {
                 Stmt::Let { value: e, .. } | Stmt::Assign { value: e, .. } | Stmt::Expr { expr: e, .. } | Stmt::Return { value: Some(e), .. } => walk_mut(e, &mut fix),
                 _ => {}
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod rx_gate_tests {
+    use super::rx_typed_unsupported as un;
+    #[test]
+    fn typed_regex_subset() {
+        for p in [r"\d+", r"(?i)ab[c-e]*", r"(?sm)^a.$", r"(?i)(?a)\w+", r"(a|b)+?c{2,3}", r"x{", r"x{a}", r"[]a]", r"[\]\d-]", r"\x41é", r"\bword\b\Z", r"a\.b\-c", "[\u{2e}\u{3002}]"] {
+            assert_eq!(un(p), None, "{p}");
+        }
+        for p in [r"(\w)\1", r"(?P<y>\d)", r"a(?=b)", r"(?<=a)b", r"(?>a+)", r"a++", r"a*+", r"x\By", r"(?x) a", r"a(?i)b", r"(?im)a", r"*a", r"a**", r"(a", r"a)", r"x{,3}", r"[\b]", r"\q", r"\x4", r"a{5,2}", r"[a"] {
+            assert!(un(p).is_some(), "{p}");
         }
     }
 }

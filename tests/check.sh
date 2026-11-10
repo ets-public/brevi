@@ -76,6 +76,24 @@ for f in tests/typed/*.py; do
     echo "ok   $f"
   fi
 done
+#== replay split
+# An int past 64 bits on the typed build: `brevi run` runs the program again on the dynamic build (src/replay.rs),
+# with the same stdin, passing on only the output not written yet; stdout and the exit status must be python3's.
+# no_*.py may not run twice (they write a file): they stop with an error (their .expected is Brevi's own).
+for f in tests/replay/*.py; do
+  exp="${f%.py}.expected"
+  inp="${f%.py}.in"; [ -f "$inp" ] || inp=/dev/null
+  out=$(timeout 120 $BREVI run "$f" --native < "$inp" 2>/dev/null; echo "exit $?")
+  if [ "$1" = "--update" ]; then
+    case "$f" in */no_*) printf '%s\n' "$out" > "$exp" ;; *) (python3 "$f" < "$inp" 2>/dev/null; echo "exit $?") > "$exp" ;; esac
+    continue
+  fi
+  if [ "$out" != "$(cat "$exp")" ]; then
+    echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
+  else
+    echo "ok   $f"
+  fi
+done
 #== lib split
 # Standard-library programs must print what python3 prints, natively: whichever path the build takes
 # (typed or dynamic), never CPython (pybridge or the python3 fallback).
@@ -646,6 +664,8 @@ for f in tests/limits/*.py; do
   exp="${f%.py}.expected"
   g=$(cat "${f%.py}.flags")
   case "$f" in */mem.py) [ "$(uname)" = Linux ] || continue ;; esac
+  # threads needs a pids cgroup Brevi can create (refused elsewhere, checked after this loop).
+  case "$f" in */threads.py) $BREVI run --limit threads=64 tests/limits/within.py >/dev/null 2>&1 || { echo "skip $f (no pids cgroup here)"; continue; } ;; esac
   out=$($BREVI run --sandbox $g "$f" 2>/tmp/brevi-limits-err; echo "exit $?"; tail -1 /tmp/brevi-limits-err)
   rm -f limits-*.out /tmp/brevi-limits-err
   if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
@@ -655,12 +675,27 @@ for f in tests/limits/*.py; do
     echo "ok   $f"
   fi
 done
+# --limit threads runs where a pids cgroup can be made and is refused (exit 2) everywhere else, never ignored.
+out=$($BREVI run --limit threads=64 tests/limits/within.py 2>&1 >/dev/null; echo "exit $?")
+case "$out" in
+  *"exit 0"|"--limit threads needs a cgroup with the kernel's pids controller"*"exit 2"|"--limit threads is enforced on Linux only"*"exit 2") echo "ok   threads limit held or refused" ;;
+  *) echo "FAIL threads limit neither held nor refused: $out"; fail=1 ;;
+esac
 out=$($BREVI run --limit cpu=x tests/limits/within.py 2>&1; echo "exit $?"; $BREVI build --limit cpu=1 tests/limits/within.py 2>&1; echo "exit $?")
 want='--limit takes cpu=SECS, mem=MB, time=SECS, output=KB, file=MB, written=MB, net=MB, threads=N, fds=N, files=N, comma separated (cpu=2,mem=256,time=5); '"'cpu=x'"' is not a number above 0
 exit 2
 --limit holds a program while it runs: use it with brevi run or brevi test (brevi verify takes it too)
 exit 2'
 if [ "$out" = "$want" ]; then echo "ok   --limit usage errors"; else echo "FAIL --limit usage errors"; printf '%s\n' "$out"; fail=1; fi
+# written is counted by Brevi's own file layer: refused where code outside it could write (no sandbox, CPython).
+out=$($BREVI run --limit written=1 tests/limits/within.py 2>&1 >/dev/null; echo "exit $?"; $BREVI run --sandbox --allow-py json --limit written=1 tests/limits/within.py 2>&1 >/dev/null; echo "exit $?")
+case "$out" in
+  *"need --sandbox without --allow native or --allow-py"*"exit 2"*"need --sandbox without"*"exit 2") echo "ok   --limit written refused outside Brevi's file layer" ;;
+  *) echo "FAIL --limit written refused outside Brevi's file layer"; printf '%s\n' "$out"; fail=1 ;;
+esac
+# --sandbox: the program starts without the caller's environment (keys and tokens there stay out of reach).
+out=$(SECRET_TEST_TOKEN=hunter2 $BREVI run --sandbox --allow read tests/sandbox_env/environ.py 2>&1)
+if [ "$out" = "False" ] || [ "$(uname)" != Linux ]; then echo "ok   --sandbox clears the environment"; else echo "FAIL --sandbox clears the environment"; printf '%s\n' "$out"; fail=1; fi
 #== exit split
 # Exit status, which the loops above do not compare: a Python file must exit as python3 does on both native
 # paths, with its stdout written first. A .bv program stops with status 101 at a runtime error.
@@ -725,6 +760,41 @@ in an empty root: $bare"
     echo "ok   $f"
   fi
 done
+#== cli
+# The command line, on both native builds: `brevi run FILE a b` hands `a b` to the program as python3 does (Brevi's
+# own options may still follow FILE), a dashed word after FILE that is no Brevi option is refused (it may be a
+# misspelt --sandbox) unless it follows --, a byte order mark may start a file, a `#` in an f-string's format spec
+# is no comment, and an uncaught error on the typed build names its class.
+for d in 0 1; do
+  for c in "a b|a b" "a --native b|a --native b" "a -- --x|a -- --x" "-- --x a|--x a" "--fast a b|a b" "a b -- c|a b -- c"; do
+    out=$(BREVI_DYN=$d $BREVI run tests/cli/argv.py --native ${c%%|*} 2>&1); want=$(python3 tests/cli/argv.py ${c#*|})
+    if [ "$out" = "$want" ]; then echo "ok   cli args ($d: ${c%%|*})"; else echo "FAIL cli args ($d: ${c%%|*})"; echo "want $want"; echo "got  $out"; fail=1; fi
+  done
+  out=$(BREVI_DYN=$d $BREVI run tests/cli/argv.py --native --sandbx 2>&1; echo "exit $?")
+  if printf '%s\n' "$out" | grep -q 'no option --sandbx' && printf '%s\n' "$out" | grep -qx 'exit 2'; then echo "ok   cli unknown option refused ($d)"; else echo "FAIL cli unknown option refused ($d)"; printf '%s\n' "$out"; fail=1; fi
+  for f in fstring_spec bom; do
+    out=$(BREVI_DYN=$d $BREVI run tests/cli/$f.py --native 2>&1); want=$(python3 tests/cli/$f.py 2>&1)
+    if [ "$out" = "$want" ]; then echo "ok   cli $f ($d)"; else echo "FAIL cli $f ($d)"; printf '%s\n' "$want" | diff - "$(printf '%s\n' "$out" > /tmp/brevi_cli_$$; echo /tmp/brevi_cli_$$)"; fail=1; fi
+  done
+done
+rm -f /tmp/brevi_cli_$$
+out=$(BREVI_DYN=0 $BREVI run tests/cli/raised.py --native 2>&1; echo "exit $?")
+want='before
+{"e":"runtime","line":4,"type":"MyErr","msg":"custom failure"}
+exit 1'
+if [ "$out" = "$want" ]; then echo "ok   cli uncaught error type"; else echo "FAIL cli uncaught error type"; printf '%s\n' "$out"; fail=1; fi
+# A value in an f-string that the typed build cannot read is refused there, never printed as text (it printed
+# `{  1[1] }` for `f"{ {1: 2}[1] }"`); the default run builds it over dynamic values.
+out=$(BREVI_DYN=0 $BREVI run tests/cli/fstring_brace_field.py --native 2>&1; echo "exit $?")
+if printf '%s\n' "$out" | grep -q 'f-string value the typed build cannot read' && printf '%s\n' "$out" | grep -qx 'exit 1'; then echo "ok   cli f-string field refused typed"; else echo "FAIL cli f-string field refused typed"; printf '%s\n' "$out"; fail=1; fi
+out=$($BREVI run tests/cli/fstring_brace_field.py --native 2>/dev/null)
+if [ "$out" = "$(python3 tests/cli/fstring_brace_field.py)" ]; then echo "ok   cli f-string field"; else echo "FAIL cli f-string field"; printf '%s\n' "$out"; fail=1; fi
+# A reader that stops early ends brevi report quietly (it panicked on the closed pipe).
+t=$(mktemp -d); i=0
+while [ $i -lt 400 ]; do mkdir -p "$t/differs/r$i"; printf '{"file":"x.py","on":"stdout"}\n' > "$t/differs/r$i/verdict.json"; i=$((i+1)); done
+BREVI_CACHE="$t" $BREVI report 2>"$t/err" | head -1 >/dev/null
+if [ ! -s "$t/err" ]; then echo "ok   cli report into a closed pipe"; else echo "FAIL cli report into a closed pipe"; cat "$t/err"; fail=1; fi
+rm -rf "$t"
 #== cache
 # The result cache: an unchanged program is replayed (path report line included), a changed module is built
 # again, and --no-cache always builds.
@@ -787,7 +857,7 @@ else echo "ok   brevi verify"; fi
 # brevi run --verify: the run checked against CPython (docs/VERIFY_BY_DEFAULT.md). Same: the native output and a
 # certificate on stderr; different: CPython's output and the first differing line, logged for brevi report.
 rv_cache=$(mktemp -d)
-rv() { echo "-- run --verify $*"; o=$(env BREVI_CACHE="$rv_cache" $BREVI run --verify "$@" 2>&1); c=$?; printf '%s\n' "$o" | grep -v '^{"path":' | sed -E 's/"(cpython_ms|brevi_ms|speedup)":[0-9.]+,?//g; s/"(brevi|cpython)":"[0-9]+\.[0-9]+\.[0-9]+",?//g; s/"path":"[a-z]+",?//g; s/"logged":"[^"]*",?//g; s/,}/}/; s/ [0-9]+ ms after/ N ms after/'; echo "exit $c"; }
+rv() { echo "-- run --verify $*"; o=$(env BREVI_CACHE="$rv_cache" $BREVI run --verify "$@" 2>&1); c=$?; printf '%s\n' "$o" | grep -v '^{"path":' | sed -E 's/"(cpython_ms|brevi_ms|typed_ms|dynamic_ms|speedup)":[0-9.]+,?//g; s/"(brevi|cpython)":"[0-9]+\.[0-9]+\.[0-9]+",?//g; s/"path":"[a-z]+",?//g; s/"logged":"[^"]*",?//g; s/,}/}/; s/ [0-9]+ ms after/ N ms after/'; echo "exit $c"; }
 rvout=$(printf '4\n' | rv tests/verify/sq.py
   printf '7\n' | rv tests/verify/sq.py
   rv tests/verify/argsum.py -- 3 4 </dev/null
@@ -798,6 +868,8 @@ rvout=$(printf '4\n' | rv tests/verify/sq.py
   printf '2\n' | BREVI_PYTHON=tests/verify/fakepy.sh rv --strict tests/verify/sq.py
   printf '2\n' | BREVI_PYTHON=tests/verify/slowpy.sh rv tests/verify/sq.py
   rv --sandbox tests/verify/sq.py </dev/null
+  rv --sandbox tests/verify/shared_sort.py </dev/null
+  rv --sandbox tests/verify/argsum.py -- 3 4 </dev/null
   rv tests/run/arm_map.bv </dev/null
   echo "-- report"; env BREVI_CACHE="$rv_cache" $BREVI report | grep -c '^--- issue body'
   env BREVI_CACHE="$rv_cache" $BREVI report --clear; env BREVI_CACHE="$rv_cache" $BREVI report | sed 's/(.*)/(...)/')
