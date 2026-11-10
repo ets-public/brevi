@@ -1,0 +1,2 @@
+exit 124
+{"e":"limit","on":"threads","limit":"4 threads","msg":"the program tried to run more than 4 threads at once (its own and those of anything it started)","fix":"raise it with --limit threads=... if the program needs more"}

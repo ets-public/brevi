@@ -370,7 +370,10 @@ mod brevi_duckglue {
         // --allow-read / --allow-write DIR: the database file is inside them (opened read-only when only the
         // read grant holds it), and SQL reaches files only in folders granted both.
         // --limit files=N: DuckDB's SQL could create files uncounted, so it reaches none; a new database counts
-        let counted = std::env::var_os("BREVI_LIMIT_FILES").is_some();
+        // --limit written: DuckDB writes its files itself, where Brevi cannot count the bytes, so it writes none:
+        // a database file opens read-only, SQL reaches no file, and nothing spills to a temporary folder
+        let written = brevi_written_held();
+        let counted = std::env::var_os("BREVI_LIMIT_FILES").is_some() || written;
         if counted && !memory {
             brevi_new_file(path);
         }
@@ -389,13 +392,16 @@ mod brevi_duckglue {
             (l.create_config)(&mut c);
             let mut all: Vec<(String, String)> = cfg.to_vec();
             if FS_SANDBOX {
-                if !memory && (!FS_WRITE || ro_scope) {
+                if !memory && (!FS_WRITE || ro_scope || written) {
                     all.push(("access_mode".into(), "READ_ONLY".into()));
+                }
+                if written {
+                    all.push(("temp_directory".into(), "".into()));
                 }
                 for (k, v) in [("autoinstall_known_extensions", "false"), ("autoload_known_extensions", "false"), ("allow_community_extensions", "false"), ("allow_unsigned_extensions", "false")] {
                     all.push((k.into(), v.into()));
                 }
-                if !(FS_READ && FS_WRITE) {
+                if !(FS_READ && FS_WRITE) || written {
                     all.push(("enable_external_access".into(), "false".into()));
                 }
                 // held to folders: allowed_directories can only be set once the database runs (below)

@@ -27,11 +27,11 @@ r = brevi.verify(code, inputs=["1\n", "2\n"])                 # certificate (san
 r.for_model()                        # the short text to hand back to the model (as templates/brevi_tool.py does)
 ```
 
-- **No shelling out per call.** The module starts one `brevi mcp` child per `brevi.Session` (a default session is made
+- **No shelling out per call.** The module starts one `brevi mcp --trust-calls` child per `brevi.Session` (a default session is made
   on first use) and sends it JSON-RPC over stdio. That process already keeps the build cache warm and gives the
   structured replies the MCP tools give, so the SDK is a thin client and the daemon of WS2 drops in behind it later.
 - **The same safe defaults as the MCP server:** `sandbox=True`, no grants, the caller passes `allow`, `allow_py`,
-  `allow_net`, `allow_read`, `allow_write` and `limits`. Code can never grant itself anything.
+  `allow_net`, `allow_read`, `allow_write` and `limits`. Code can never grant itself anything. `--trust-calls` is safe here because the calls are the host program's code (the model only fills in the tool's code and stdin), so the SDK behaves as before the MCP server's default policy of v0.27.0.
 - **Result object:** `stdout`, `stderr`, `exit_code`, `path` (`typed`, `dynamic`, `pybridge`, `cpython` or `None`),
   `limit` (which limit stopped it), `certificate` (from verify), `ms`. `for_model(cap=8000)` trims for a model.
 - **Async:** `brevi.AsyncSession` with the same methods, for harnesses built on asyncio.
