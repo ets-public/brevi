@@ -1085,10 +1085,10 @@ fn build(rust: &str, dir: &Path, out: &Path, opt: &str, cache: &Path, rustc_v: &
         let used = if cached.with_extension("plain").exists() { plain() } else { rust.to_string() };
         return Ok(used);
     }
-    // A build that isn't --release links Brevi's library copies from a library compiled once (split_build); when
-    // that can't be done the program is built whole, as before.
+    // A build links Brevi's library copies from a library compiled once per optimisation level (split_build);
+    // when that can't be done the program is built whole, as before.
     let mut used = rust.to_string();
-    if release || !use_cache || std::env::var("BREVI_DYN_SPLIT").is_ok_and(|v| v == "0") || !split_build(rust, dir, out, opt, &cdir, &lib) {
+    if !use_cache || std::env::var("BREVI_DYN_SPLIT").is_ok_and(|v| v == "0") || !split_build(rust, dir, out, opt, &cdir, &lib) {
     let rs = dir.join("dyn_main.rs");
     let run = |src: &str| -> Result<std::process::Output, String> {
         std::fs::write(&rs, src).map_err(|e| e.to_string())?;
@@ -1161,7 +1161,9 @@ fn split_build(rust: &str, dir: &Path, out: &Path, opt: &str, cdir: &Path, dynrt
         let rs = dir.join(format!("{name}.rs"));
         std::fs::write(&rs, src).map_err(|e| e.to_string())?;
         let r = crate::rustc_cmd()
-            .args(["--edition", "2021", "--crate-name", name, "-A", "warnings", "-C", opt, "-C", "overflow-checks=off", "-C", crate::codegen_units()])
+            .args(["--edition", "2021", "--crate-name", name, "-A", "warnings", "-C", opt, "-C", "overflow-checks=off"])
+            // a --release build keeps rustc's own codegen units, as a whole build does
+            .args(if opt == "opt-level=3" { None } else { Some(["-C", crate::codegen_units()]) }.into_iter().flatten())
             .args(kind)
             .arg("--extern")
             .arg(format!("brevi_dyn={}", dynrt.display()))
