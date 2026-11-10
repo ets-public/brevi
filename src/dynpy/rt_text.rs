@@ -884,12 +884,38 @@ pub struct RMatch {
     pos: usize,
     endpos: usize,
 }
+// The integer a re group argument means: ints, bools and (transitively) int subclasses. Anything else has no index.
+fn group_int(v: &V) -> Option<i64> {
+    match v {
+        V::Int(i) => Some(*i),
+        V::Bool(b) => Some(*b as i64),
+        V::Big(b) => b.to_i64(),
+        V::Obj(_) => inner_of(v).and_then(|i| group_int(&i)),
+        _ => None,
+    }
+}
+fn group_is_int(v: &V) -> bool {
+    matches!(v, V::Int(_) | V::Bool(_) | V::Big(_)) || matches!(v, V::Obj(_)) && inner_of(v).is_some_and(|i| group_is_int(&i))
+}
 impl RMatch {
     fn group_idx(&self, g: &V) -> Result<usize, E> {
-        match g {
-            V::Int(i) if *i >= 0 && (*i as usize) <= self.prog.ngroups => Ok(*i as usize),
-            V::Bool(b) => Ok(*b as usize),
-            V::Str(n) => self.prog.names.iter().find(|x| x.0 == n.s).map(|x| x.1).ok_or_else(|| exc("IndexError", "no such group".into())),
+        let n = match g {
+            V::Str(n) => return self.prog.names.iter().find(|x| x.0 == n.s).map(|x| x.1).ok_or_else(|| exc("IndexError", "no such group".into())),
+            V::Obj(o) => {
+                if let Some(f) = o.cls.lookup("__index__") {
+                    let r = call(&f, Args::p(vec![g.clone()]))?;
+                    if !group_is_int(&r) {
+                        return type_err(format!("__index__ returned non-int (type {})", tn(&r)));
+                    }
+                    group_int(&r)
+                } else {
+                    group_int(g)
+                }
+            }
+            _ => group_int(g),
+        };
+        match n {
+            Some(i) if i >= 0 && (i as usize) <= self.prog.ngroups => Ok(i as usize),
             _ => Err(exc("IndexError", "no such group".into())),
         }
     }
