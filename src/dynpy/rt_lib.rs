@@ -666,6 +666,14 @@ pub fn bi_next(a: Args) -> R {
             },
             None => return type_err(format!("'{}' object is not an iterator", tn(&a.p[0]))),
         },
+        V::Ext(x) => match x.next_item() {
+            Some(r) => match r {
+                Ok(v) => Some(v),
+                Err(E(e)) if is_exc(&e, "StopIteration") => None,
+                Err(e) => return Err(e),
+            },
+            None => return type_err(format!("'{}' object is not an iterator", tn(&a.p[0]))),
+        },
         x => return type_err(format!("'{}' object is not an iterator", tn(x))),
     };
     match r {

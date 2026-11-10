@@ -2294,7 +2294,22 @@ struct CsvDialect {
     lineterm: String,
     quoting: i64,
 }
-fn csv_dialect(a: &mut Args) -> Result<CsvDialect, E> {
+fn csv_dialect(a: &mut Args, dialect: V) -> Result<CsvDialect, E> {
+    // The three dialects CPython's csv module always has, by name; any other name is refused rather than
+    // silently read with the default dialect.
+    let mut delim = ',';
+    let mut quote = '"';
+    let mut lineterm = "\r\n".to_string();
+    match dialect {
+        V::None => {}
+        V::Str(x) => match x.s.as_str() {
+            "excel" => {}
+            "excel-tab" => delim = '\t',
+            "unix" => lineterm = "\n".into(),
+            _ => return Err(exc("Error", "unknown dialect".into())),
+        },
+        _ => return Err(exc("Error", "unknown dialect".into())),
+    }
     let ch = |v: Option<V>, d: char| -> Result<char, E> {
         match v {
             None => Ok(d),
@@ -2302,21 +2317,20 @@ fn csv_dialect(a: &mut Args) -> Result<CsvDialect, E> {
             Some(_) => type_err("\"delimiter\" must be a 1-character string".into()),
         }
     };
-    let delim = ch(a.kw("delimiter"), ',')?;
-    let quote = ch(a.kw("quotechar"), '"')?;
+    let delim = ch(a.kw("delimiter"), delim)?;
+    let quote = ch(a.kw("quotechar"), quote)?;
     let skipinit = match a.kw("skipinitialspace") {
         Some(v) => truth(&v)?,
         None => false,
     };
     let lineterm = match a.kw("lineterminator") {
         Some(v) => to_str(&v)?,
-        None => "\r\n".into(),
+        None => lineterm,
     };
     let quoting = match a.kw("quoting") {
         Some(V::Int(q)) => q,
         _ => 0,
     };
-    a.kw("dialect");
     a.kw("strict");
     a.kw("doublequote");
     a.kw("escapechar");
@@ -2474,24 +2488,29 @@ impl Ext for CsvWriter {
         })
     }
 }
-// The reader a DictReader reads its rows from: the same csv.reader value CPython keeps as .reader, with
-// line_num counted as records are read (the source iterator is shared so it can be stepped re-entrantly).
+// The reader a DictReader reads its rows from: the same csv.reader value CPython keeps as .reader. line_num
+// counts physical source lines read, as CPython's reader does, so a record whose quoted field spans lines
+// counts every line (the source iterator is shared so it can be stepped re-entrantly).
 struct CsvReaderSt {
     it: Rc<RefCell<It>>,
     d: CsvDialect,
     ln: Cell<usize>,
+    dobj: V, // the _csv.Dialect object the .dialect attribute gives
 }
 pub struct CsvReader(Rc<CsvReaderSt>);
 impl CsvReader {
     fn next_row(&self) -> Result<Option<Vec<V>>, E> {
         let state = &self.0;
         let row = {
-            let mut next = || iter_step(&state.it);
+            let mut next = || {
+                let n = iter_step(&state.it)?;
+                if n.is_some() {
+                    state.ln.set(state.ln.get() + 1);
+                }
+                Ok(n)
+            };
             csv_record(&mut next, &state.d)?
         };
-        if row.is_some() {
-            state.ln.set(state.ln.get() + 1);
-        }
         Ok(row.map(|f| f.into_iter().map(st).collect()))
     }
 }
@@ -2508,6 +2527,7 @@ impl Ext for CsvReader {
     fn attr(&self, _me: &V, n: &str) -> Option<R> {
         match n {
             "line_num" => Some(Ok(V::Int(self.0.ln.get() as i64))),
+            "dialect" => Some(Ok(self.0.dobj.clone())),
             _ => None,
         }
     }
@@ -2515,6 +2535,33 @@ impl Ext for CsvReader {
         let st = self.0.clone();
         Some(Ok(It::Gen(Box::new(move || Ok(CsvReader(Rc::clone(&st)).next_row()?.map(list))))))
     }
+    fn next_item(&self) -> Option<R> {
+        Some(self.next_row().and_then(|r| match r {
+            Some(row) => Ok(list(row)),
+            None => Err(exc0("StopIteration")),
+        }))
+    }
+}
+// The dialect object CPython's reader gives as .dialect: a _csv.Dialect with the same fields a named or
+// fmtparams-built dialect has.
+thread_local! {
+    static CSVDL: RefCell<Option<Rc<Class>>> = RefCell::new(None);
+}
+fn csv_dialect_obj(d: &CsvDialect) -> V {
+    CSVDL.with(|j| {
+        let mut j = j.borrow_mut();
+        let c = j.get_or_insert_with(|| Class::new("Dialect", "_csv", vec![bclass("object")], BT::Other));
+        let o = Obj::new(c.clone());
+        o.set("delimiter", st(d.delim.to_string()));
+        o.set("quotechar", st(d.quote.to_string()));
+        o.set("doublequote", V::Bool(true));
+        o.set("skipinitialspace", V::Bool(d.skipinit));
+        o.set("lineterminator", st(d.lineterm.clone()));
+        o.set("quoting", V::Int(d.quoting));
+        o.set("escapechar", V::None);
+        o.set("strict", V::Bool(false));
+        V::Obj(o)
+    })
 }
 fn csv_reader_next(v: &V) -> Result<Option<Vec<V>>, E> {
     match v {
@@ -2565,9 +2612,10 @@ pub fn csv_dictreader_class() -> Rc<Class> {
                 let restkey = a.kw("restkey").or_else(|| a.p.get(3).cloned()).unwrap_or(V::None);
                 let restval = a.kw("restval").or_else(|| a.p.get(4).cloned()).unwrap_or(V::None);
                 let dialect = a.kw("dialect").or_else(|| a.p.get(5).cloned()).unwrap_or_else(|| s("excel"));
-                let d = csv_dialect(&mut a)?;
+                let d = csv_dialect(&mut a, dialect.clone())?;
                 let sit = shared_input(&src)?;
-                let rd = V::Ext(ExtRc::new(CsvReader(Rc::new(CsvReaderSt { it: sit, d, ln: Cell::new(0) }))));
+                let dobj = csv_dialect_obj(&d);
+                let rd = V::Ext(ExtRc::new(CsvReader(Rc::new(CsvReaderSt { it: sit, d, ln: Cell::new(0), dobj }))));
                 if let V::Obj(o) = &me {
                     o.set("_fieldnames", fieldnames);
                     o.set("restkey", restkey);
@@ -2613,6 +2661,9 @@ pub fn csv_dictreader_class() -> Rc<Class> {
                     Some(r) => r,
                     None => return Err(exc0("StopIteration")),
                 };
+                // CPython's DictReader.__next__ refreshes line_num after that first reader call (blank rows
+                // skipped below do not move it until the next row).
+                o.set("line_num", getattr(&rd, "line_num")?);
                 while row.is_empty() {
                     match csv_reader_next(&rd)? {
                         Some(r) => row = r,
@@ -2644,19 +2695,19 @@ fn csv_fn(n: &str, mut a: Args) -> R {
     match n {
         "reader" => {
             let src = a.p.first().cloned().unwrap_or(V::None);
-            let d = csv_dialect(&mut a)?;
-            let mut it = iter(&src)?;
-            Ok(gen_iter(move || {
-                let mut next = || it.next();
-                Ok(csv_record(&mut next, &d)?.map(|f| list(f.into_iter().map(st).collect())))
-            }))
+            let dialect = a.kw("dialect").or_else(|| a.p.get(1).cloned()).unwrap_or_else(|| s("excel"));
+            let d = csv_dialect(&mut a, dialect)?;
+            let sit = shared_input(&src)?;
+            let dobj = csv_dialect_obj(&d);
+            Ok(V::Ext(ExtRc::new(CsvReader(Rc::new(CsvReaderSt { it: sit, d, ln: Cell::new(0), dobj })))))
         }
         "writer" | "DictWriter" => {
             let f = a.p.first().cloned().unwrap_or(V::None);
             let fields = if n == "DictWriter" { Some(to_vec(&a.kw("fieldnames").or_else(|| a.p.get(1).cloned()).unwrap_or(V::None))?) } else { None };
             a.kw("extrasaction");
             a.kw("restval");
-            let d = csv_dialect(&mut a)?;
+            let dialect = a.kw("dialect").or_else(|| a.p.get(if n == "DictWriter" { 2 } else { 1 }).cloned()).unwrap_or_else(|| s("excel"));
+            let d = csv_dialect(&mut a, dialect)?;
             Ok(V::Ext(ExtRc::new(CsvWriter { f, d, fields })))
         }
         _ => Err(unsupported(&format!("csv.{n}"))),

@@ -1,0 +1,1 @@
+- The dynamic build's `csv.reader` now keeps CPython's physical `line_num` (counting every source line of a quoted field) and `.dialect` object, and `csv.DictReader.line_num` follows it; `csv` accepts the `excel`, `excel-tab` and `unix` dialect names and raises `csv.Error("unknown dialect")` for unknown names instead of silently using the default.

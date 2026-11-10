@@ -14,3 +14,14 @@ excel 0
 []
 ['p', 'q']
 [{'p': 'a', 'q': 'b'}, {'p': '1', 'q': '2'}]
+3 3
+4 4
+0 , " '\r\n'
+['a', 'b'] 1
+['1', 'x\ny'] 3
+excel [['a\tb'], ['1\t2']]
+excel-tab [['a', 'b'], ['1', '2']]
+unix [['a\tb'], ['1\t2']]
+[['a', 'b'], ['1', '2']]
+Error unknown dialect
+Error unknown dialect

@@ -176,6 +176,10 @@ pub trait Ext {
     fn lazy_iter(&self) -> Option<Result<It, E>> {
         None
     }
+    // `next(x)` for an iterator-valued library object (csv.reader): its own next step.
+    fn next_item(&self) -> Option<R> {
+        None
+    }
     fn native(&self) -> Option<R> {
         None
     }
