@@ -651,6 +651,13 @@ impl Ext for CmpKey {
     fn any(&self) -> &dyn std::any::Any {
         self
     }
+    // the wrapped value, as CPython's KeyWrapper.obj
+    fn attr(&self, _me: &V, n: &str) -> Option<R> {
+        if n == "obj" {
+            return Some(Ok(self.v.clone()));
+        }
+        None
+    }
     fn eq_rich(&self, _me: &V, o: &V, _right: bool) -> Option<Result<bool, E>> {
         Some(match cmp_key_of(o) {
             Some(k) => cmp_key_cmp(&self.f, &self.v, &k.v, "=="),

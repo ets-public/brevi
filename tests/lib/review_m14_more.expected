@@ -1,0 +1,10 @@
+True False True True True True
+[1, 2, 3] 3 1
+TE other argument must be K instance
+TE other argument must be K instance
+TE other argument must be K instance
+TE other argument must be K instance
+TE other argument must be K instance
+TE unhashable type: 'functools.KeyWrapper'
+True [(5, 5)]
+VE boom
