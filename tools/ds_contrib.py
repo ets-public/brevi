@@ -178,7 +178,8 @@ def box_env(extra=None):
 
 def chown_tree(p):
     p = Path(p)
-    if not p.exists():
+    # already the box's (a later boxed run): files under it were made in the box
+    if not p.exists() or p.stat().st_uid == NOBODY:
         return
     os.lchown(p, NOBODY, NOBODY)
     for d, dirs, files in os.walk(p):
@@ -239,14 +240,17 @@ def box_script():
     lines.append(f"mkdir {q(str(STAGE))}/root && mount --rbind /root {q(str(STAGE))}/root")
     for i, k in enumerate(keep):
         lines.append(f"mkdir {q(str(STAGE))}/k{i} && mount --bind {q(k)} {q(str(STAGE))}/k{i}")
-    if DSC.is_dir():
-        lines.append(f"mkdir {q(str(STAGE))}/dsc && mount --bind {q(str(DSC))} {q(str(STAGE))}/dsc")
+    # read-only folders a reviewer adds for --boxed runs (DS_BOX_RO=/a:/b), e.g. a corpus of programs
+    ro = [DSC] + [Path(x) for x in os.environ.get("DS_BOX_RO", "").split(":") if x]
+    ro = [r for r in ro if r.is_dir()]
+    for i, r in enumerate(ro):
+        lines.append(f"mkdir {q(str(STAGE))}/r{i} && mount --bind {q(str(r))} {q(str(STAGE))}/r{i}")
     lines.append("mount -t tmpfs -o mode=755 tmpfs /root")
     for t in TOOLCHAINS:
         lines.append(f"mkdir /root/{t} && mount --rbind {q(str(STAGE))}/root/{t} /root/{t} && mount -o remount,bind,ro /root/{t}")
     lines.append("mount -t tmpfs -o mode=755 tmpfs /mnt")
-    if DSC.is_dir():
-        lines.append(f"mkdir -p {q(str(DSC))} && mount --bind {q(str(STAGE))}/dsc {q(str(DSC))} && mount -o remount,bind,ro {q(str(DSC))}")
+    for i, r in enumerate(ro):
+        lines.append(f"mkdir -p {q(str(r))} && mount --bind {q(str(STAGE))}/r{i} {q(str(r))} && mount -o remount,bind,ro {q(str(r))}")
     lines.append("mount -t tmpfs -o mode=1777 tmpfs /tmp")
     for i, k in enumerate(keep):
         lines.append(f"mkdir -p {q(k)} && mount --bind {q(str(STAGE))}/k{i} {q(k)}")
@@ -471,7 +475,25 @@ def baseline_ids():
     return sorted({l.split()[0] for l in BASELINE.read_text().splitlines() if l.strip() and not l.startswith("#")})
 
 
+def boxed_main(cmd):
+    """`ds_contrib.py --boxed CMD...`: run one command in the same box, from the current directory (a checkout), with
+    its output shown as it comes. For reviewing a model's branch: its compiler and the programs it builds never run
+    outside the box either."""
+    global ROOT
+    here = Path.cwd().resolve()
+    top = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip()
+    ROOT = Path(top) if top else here
+    box_init()
+    atexit.register(box_done)
+    box_selftest()
+    box = ["unshare", "--mount", "--pid", "--net", "--fork", "--mount-proc", "--", "sh", "-c", box_script(), "box"]
+    return subprocess.run(box + ["env", "-i", *[f"{k}={v}" for k, v in box_env().items()], *cmd], cwd=here,
+                          env={"PATH": BOX_PATH}).returncode
+
+
 def main():
+    if sys.argv[1:2] == ["--boxed"]:
+        return boxed_main(sys.argv[2:])
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("test_id", nargs="?")
     ap.add_argument("--list", action="store_true")
