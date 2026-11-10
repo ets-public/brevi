@@ -43,6 +43,8 @@ const F_M: i64 = 8;
 const F_S: i64 = 16;
 const F_X: i64 = 64;
 const F_A: i64 = 256;
+// The largest repeat count CPython's sre accepts (2**32 - 2); one more raises OverflowError.
+const MAX_REPEAT: usize = 0xFFFF_FFFE;
 
 fn re_err<T>(msg: String) -> Result<T, E> {
     Err(exc("error", msg))
@@ -125,6 +127,21 @@ impl<'a> RP<'a> {
             self.c[s..self.i].iter().collect::<String>().parse().ok()
         }
     }
+    // A quantifier count: None when there are no digits, plus a flag when the digits
+    // overflow usize or CPython's largest accepted repeat (MAX_REPEAT).
+    fn rep_num(&mut self) -> (Option<usize>, bool) {
+        let s = self.i;
+        while self.peek().is_some_and(|c| c.is_ascii_digit()) {
+            self.i += 1;
+        }
+        if s == self.i {
+            return (None, false);
+        }
+        match self.c[s..self.i].iter().collect::<String>().parse::<usize>() {
+            Ok(n) if n <= MAX_REPEAT => (Some(n), false),
+            _ => (None, true),
+        }
+    }
     fn quant(&mut self) -> Result<Option<(usize, usize, bool, bool)>, E> {
         let (lo, hi) = match self.peek() {
             Some('*') => {
@@ -142,14 +159,22 @@ impl<'a> RP<'a> {
             Some('{') => {
                 let save = self.i;
                 self.i += 1;
-                let lo = self.num();
-                let r = if self.peek() == Some(',') {
+                let (lo, lo_big) = self.rep_num();
+                let (r, big) = if self.peek() == Some(',') {
                     self.i += 1;
-                    let hi = self.num();
-                    (lo.unwrap_or(0), hi.unwrap_or(usize::MAX))
+                    let (hi, hi_big) = self.rep_num();
+                    ((lo.unwrap_or(0), hi.unwrap_or(usize::MAX)), lo_big || hi_big)
                 } else {
                     match lo {
-                        Some(n) => (n, n),
+                        Some(n) => ((n, n), lo_big),
+                        None if lo_big => {
+                            if self.peek() == Some('}') {
+                                self.i += 1;
+                                return Err(exc("OverflowError", "the repetition number is too large".into()));
+                            }
+                            self.i = save;
+                            return Ok(None);
+                        }
                         None => {
                             self.i = save;
                             return Ok(None);
@@ -161,6 +186,9 @@ impl<'a> RP<'a> {
                     return Ok(None);
                 }
                 self.i += 1;
+                if big {
+                    return Err(exc("OverflowError", "the repetition number is too large".into()));
+                }
                 if r.1 < r.0 {
                     return re_err(format!("min repeat greater than max repeat at position {}", save + 1));
                 }
