@@ -1,0 +1,1 @@
+- Functions have `__code__` with `co_name` and `co_flags` (coroutine, generator, async generator, varargs, nested) in dynamic builds, so code that checks a function's kind through its flags works (written by DeepSeek, #317).
