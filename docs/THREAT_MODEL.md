@@ -31,12 +31,12 @@ Under the sandbox:
 
 `--limit cpu=S,mem=MB,time=S,output=KB,file=MB,written=MB,net=MB,threads=N,fds=N,files=N` (MCP: `limits`) bounds how much the program may use. Each limit but `files` and `net` holds with or without the sandbox:
 
-- `cpu`, `mem` and `file` are kernel limits (`RLIMIT_CPU`, `RLIMIT_AS`, `RLIMIT_FSIZE`) set in the program's process before its first instruction. The program cannot raise them, and CPython loaded through `--allow-py` is held by them too.
+- `cpu`, `mem` and `file` are kernel limits (`RLIMIT_CPU`, `RLIMIT_AS`, `RLIMIT_FSIZE`) set in the program's process before its first instruction on Linux and macOS. The program cannot raise them, and CPython loaded through `--allow-py` is held by them too. On Windows (from the next release) `cpu` and `mem` are a Job Object's limits: the program is created suspended, put in the job, and only then started, so its first instruction already runs inside it, and every process it starts is in the same job. `cpu` there is user-mode CPU time (Windows' job limit has no kernel-time counterpart) and `mem` is committed memory of the whole job.
 - `fds` is a kernel limit too (`RLIMIT_NOFILE`): an open past it fails inside the program.
 - `time` and `output` are held by the `brevi` process that started the program, which stops it (SIGKILL) once either is reached.
 - `threads` and `written` (Linux) are the kernel's own counts for the program's process (`/proc/PID/status` threads, `/proc/PID/io` bytes written less what went to stdout and stderr), read by `brevi` every few milliseconds; the program can overshoot them by what it does between two reads. Processes the program starts (only possible with `--allow native` or `--allow-py`) are not counted.
 - `files` and `net` are counted by Brevi's own file and network code inside the program, so they need `--sandbox` without `--allow-py` or `--allow native` (refused otherwise): a program with neither has no other way to create a file or open a socket.
-- A limit the platform cannot enforce is refused, never silently dropped: `mem` on macOS; `written` and `threads` outside Linux; `cpu`, `mem`, `file` and `fds` on Windows.
+- A limit the platform cannot enforce is refused, never silently dropped: `mem` on macOS; `written` and `threads` outside Linux; `file` and `fds` on Windows.
 - A program stopped by a limit exits 124 and its last stderr line names the limit.
 
 ## How it is enforced, and where that is weaker than a VM
