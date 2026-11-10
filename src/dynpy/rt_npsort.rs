@@ -800,14 +800,23 @@ fn x86_v4() -> bool {
     false
 }
 
+// numpy skips a CPU feature group named in NPY_DISABLE_CPU_FEATURES (space or comma separated), and so do we, so
+// the order still matches numpy's when that variable is set.
+fn np_disabled(group: &str) -> bool {
+    std::env::var("NPY_DISABLE_CPU_FEATURES").is_ok_and(|v| v.split([' ', ',', '\t']).any(|g| g.eq_ignore_ascii_case(group)))
+}
 fn np_path() -> NpPath {
-    if x86_v4() {
+    if x86_v4() && !np_disabled("X86_V4") {
         NpPath::Avx512
-    } else if x86_v3() {
+    } else if x86_v3() && !np_disabled("X86_V3") {
         NpPath::Avx2
     } else {
         NpPath::Intro
     }
+}
+// Off x86, numpy may sort with another library (Highway on Arm), whose order of ties is not reproduced here.
+fn intro_is_numpys() -> bool {
+    cfg!(target_arch = "x86_64")
 }
 
 // Fill out with numpy's default-kind argsort of v. false = this path is not reproduced
@@ -816,20 +825,20 @@ pub fn np_default_argsort_i64(v: &[i64], out: &mut [usize]) -> bool {
     match np_path() {
         NpPath::Avx512 => xss_argsort::<8, true, i64>(v, out),
         NpPath::Avx2 => xss_argsort::<4, false, i64>(v, out),
-        NpPath::Intro => {
+        NpPath::Intro => intro_is_numpys() && {
             intro_argsort::<i64>(v, out);
             true
-        }
+        },
     }
 }
 pub fn np_default_argsort_i32(v: &[i32], out: &mut [usize]) -> bool {
     match np_path() {
         NpPath::Avx512 => xss_argsort::<8, true, i32>(v, out),
         NpPath::Avx2 => xss_argsort::<4, false, i32>(v, out),
-        NpPath::Intro => {
+        NpPath::Intro => intro_is_numpys() && {
             intro_argsort::<i32>(v, out);
             true
-        }
+        },
     }
 }
 pub fn np_default_argsort_f64(v: &[f64], out: &mut [usize]) -> bool {
@@ -837,16 +846,16 @@ pub fn np_default_argsort_f64(v: &[f64], out: &mut [usize]) -> bool {
         NpPath::Avx512 | NpPath::Avx2 => {
             if f64::any_nan(v) {
                 false
-            } else if x86_v4() {
+            } else if np_path() == NpPath::Avx512 {
                 xss_argsort::<8, true, f64>(v, out)
             } else {
                 xss_argsort::<4, false, f64>(v, out)
             }
         }
-        NpPath::Intro => {
+        NpPath::Intro => intro_is_numpys() && {
             intro_argsort::<f64>(v, out);
             true
-        }
+        },
     }
 }
 pub fn np_default_argsort_f32(v: &[f32], out: &mut [usize]) -> bool {
@@ -854,15 +863,15 @@ pub fn np_default_argsort_f32(v: &[f32], out: &mut [usize]) -> bool {
         NpPath::Avx512 | NpPath::Avx2 => {
             if f32::any_nan(v) {
                 false
-            } else if x86_v4() {
+            } else if np_path() == NpPath::Avx512 {
                 xss_argsort::<8, true, f32>(v, out)
             } else {
                 xss_argsort::<4, false, f32>(v, out)
             }
         }
-        NpPath::Intro => {
+        NpPath::Intro => intro_is_numpys() && {
             intro_argsort::<f32>(v, out);
             true
-        }
+        },
     }
 }
