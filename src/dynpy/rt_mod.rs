@@ -2091,10 +2091,8 @@ pub fn namedtuple(mut a: Args) -> R {
     let nf = fields.len();
     let nv = func("__new__", move |mut a: Args| {
         let cls = a.p.first().cloned().unwrap_or(V::Class(cnew.clone()));
-        let cname = match &cls {
-            V::Class(k) => k.name.to_string(),
-            _ => cnew.name.to_string(),
-        };
+        // CPython's errors name the namedtuple's own __new__ (P.__new__), also when called on a subclass
+        let cname = format!("{}.__new__", cnew.name);
         if !a.p.is_empty() {
             a.p.remove(0);
         }
@@ -2116,14 +2114,23 @@ pub fn namedtuple(mut a: Args) -> R {
                 None => return type_err(format!("{}() got an unexpected keyword argument '{}'", cname, k)),
             }
         }
+        let mut missing: Vec<String> = vec![];
         for i in 0..nf {
             if matches!(vals[i], V::Unbound) {
                 if i + nd >= nf {
                     vals[i] = dnew[i + nd - nf].clone();
                 } else {
-                    return type_err(format!("{}() missing 1 required positional argument: '{}'", cname, fnew[i]));
+                    missing.push(format!("'{}'", fnew[i]));
                 }
             }
+        }
+        if !missing.is_empty() {
+            let list = match missing.len() {
+                1 => missing[0].clone(),
+                2 => format!("{} and {}", missing[0], missing[1]),
+                _ => format!("{}, and {}", missing[..missing.len() - 1].join(", "), missing.last().unwrap()),
+            };
+            return type_err(format!("{}() missing {} required positional argument{}: {}", cname, missing.len(), if missing.len() == 1 { "" } else { "s" }, list));
         }
         let oc = match cls {
             V::Class(k) => k.clone(),
