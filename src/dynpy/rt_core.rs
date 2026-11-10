@@ -467,6 +467,22 @@ pub fn set_new() -> V {
 pub fn exc_class(name: &str) -> Rc<Class> {
     BUILTIN_CLASSES.with(|b| b.borrow().get(name).cloned()).unwrap_or_else(|| panic!("no exception class {name}"))
 }
+thread_local! {
+    // The OSError class, for the hot per-exception checks in instantiate/str/__dict__; filled on first
+    // use and emptied by init_builtin_classes, like the type cache.
+    static OSE_CLASS: RefCell<Option<Rc<Class>>> = RefCell::new(None);
+}
+#[inline]
+pub fn ose_class() -> Rc<Class> {
+    OSE_CLASS.with(|c| {
+        if let Some(k) = &*c.borrow() {
+            return k.clone();
+        }
+        let k = exc_class("OSError");
+        *c.borrow_mut() = Some(k.clone());
+        k
+    })
+}
 pub fn exc(name: &str, msg: String) -> E {
     let c = exc_class(name);
     let o = Obj::new(c);
@@ -2924,6 +2940,27 @@ impl Obj {
     fn dict_free(&self, n: &str) -> bool {
         n.starts_with("__pydantic_") || self.cls.is_slot(n) || n == "args" && self.cls.base_bt() == BT::Exc
     }
+    // Exception fields CPython stores in C slots rather than the instance __dict__: args, OSError's
+    // errno/strerror/filename/filename2, ImportError's name/path, AttributeError's name/obj and
+    // NameError's name. Like args, they stay in the object's own storage through setattr and vars().
+    fn exc_slot(&self, n: &str) -> bool {
+        if self.cls.base_bt() != BT::Exc {
+            return false;
+        }
+        if n == "args" {
+            return true;
+        }
+        if self.cls.is_sub(&ose_class()) && matches!(n, "errno" | "strerror" | "filename" | "filename2") {
+            return true;
+        }
+        if self.cls.is_sub(&exc_class("ImportError")) && matches!(n, "name" | "path") {
+            return true;
+        }
+        if self.cls.is_sub(&exc_class("AttributeError")) && matches!(n, "name" | "obj") {
+            return true;
+        }
+        self.cls.is_sub(&exc_class("NameError")) && n == "name"
+    }
     pub fn set_inner(&self, v: Option<V>) {
         *self.inner.borrow_mut() = v.map(Box::new);
     }
@@ -2969,8 +3006,8 @@ impl Obj {
         }
         let mut d = self.d.borrow_mut();
         if let Some(dd) = d.dict.clone() {
-            // a slot's value (and an exception's args) stay out of the managed dict, as in CPython
-            if self.cls.is_slot(n) || n == "args" && self.cls.base_bt() == BT::Exc {
+            // a slot's value (and an exception's args and C fields) stay out of the managed dict, as in CPython
+            if self.cls.is_slot(n) || self.exc_slot(n) {
                 match d.attrs.find(n) {
                     Some(i) => *d.attrs.get_mut(i).unwrap().1 = v,
                     None => d.attrs.push((n, v)),
@@ -2996,8 +3033,10 @@ impl Obj {
         }
         let mut entries: Vec<(Sym, V)> = vec![];
         let mut keep = Attrs::new();
+        // Exception `args` (and OSError's errno/strerror/filename/filename2, ImportError's name/path,
+        // AttributeError's name/obj, NameError's name) are C slots in CPython: they never show in __dict__.
         for (k, v) in d.attrs.iter() {
-            if self.dict_free(k) {
+            if self.dict_free(k) || self.exc_slot(k) {
                 keep.push((*k, v.clone()));
             } else {
                 entries.push((*k, v.clone()));
@@ -3020,7 +3059,7 @@ impl Obj {
         let mut d = self.d.borrow_mut();
         let mut keep = Attrs::new();
         for (k, x) in d.attrs.iter() {
-            if self.dict_free(k) {
+            if self.dict_free(k) || self.exc_slot(k) {
                 keep.push((*k, x.clone()));
             }
         }
@@ -3058,6 +3097,18 @@ impl Obj {
         }
         if n == "args" && self.cls.base_bt() == BT::Exc {
             return Err(exc("TypeError", "args may not be deleted".into()));
+        }
+        // Deleting an exception's C field empties it (a later read gives None), it does not raise.
+        if self.exc_slot(n) {
+            let mut d = self.d.borrow_mut();
+            let at = d.attrs.names().iter().position(|k| *k == n);
+            return Ok(match at {
+                Some(i) => {
+                    d.attrs.remove(i);
+                    true
+                }
+                None => false,
+            });
         }
         if self.cls.is_slot(n) {
             // deleting a set slot resets it; an unset one raises with the bare name, as CPython's
@@ -3175,6 +3226,10 @@ pub fn init_builtin_classes() {
         ("ImportError", "Exception"),
         ("ModuleNotFoundError", "ImportError"),
         ("OSError", "Exception"),
+        ("InterruptedError", "OSError"),
+        ("BlockingIOError", "OSError"),
+        ("ChildProcessError", "OSError"),
+        ("ProcessLookupError", "OSError"),
         ("FileNotFoundError", "OSError"),
         ("PermissionError", "OSError"),
         ("IsADirectoryError", "OSError"),
@@ -3242,6 +3297,7 @@ pub fn init_builtin_classes() {
     let ae = m["AttributeError"].clone();
     m.insert("FrozenInstanceError", Class::new("FrozenInstanceError", "dataclasses", vec![ae], BT::Exc));
     BUILTIN_CLASSES.with(|b| *b.borrow_mut() = m);
+    OSE_CLASS.with(|c| *c.borrow_mut() = None);
     TYPE_CACHE.with(|c| *c.borrow_mut() = Default::default());
     BV_CACHE.with(|c| *c.borrow_mut() = Default::default());
 }
