@@ -1,0 +1,1 @@
+- **Windows: native sqlite3.** Brevi's own sqlite3 now loads SQLite on Windows (`sqlite3.dll` next to Python, or Windows' `winsqlite3.dll`) instead of sending the program to CPython, so `sqlite3.connect`, queries and the sandbox VFS work natively there. `BREVI_SQLITE_LIB` still overrides the library.

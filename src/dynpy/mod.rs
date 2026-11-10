@@ -777,9 +777,6 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         rust.push_str(include_str!("fsglue.rs"));
     }
     if sql_used {
-        if !cfg!(unix) {
-            return Err((file.to_string(), 0, "Brevi's own sqlite3 runs on Linux and macOS".into()));
-        }
         rust = rust.replacen("fn main() { ", "fn main() { SQL.set(brevi_sqlglue::ops()).ok(); ", 1);
         rust.push_str(include_str!("sqlglue.rs"));
     }

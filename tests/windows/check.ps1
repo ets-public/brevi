@@ -46,8 +46,10 @@ Check-Verify "bridge_yaml.py"
 Check-Verify "bridge_yaml_dynamic.py"
 Check-Verify "generator.py"
 Check-Verify "async.py"
+Check-Verify "sqlite.py"
 Check-Run "plain.py"
 Check-Run "bridge_yaml.py"
+Check-Run "sqlite.py"
 
 $explain = (& $brevi check (Join-Path $root "tests\windows\bridge_yaml_dynamic.py") --explain 2>&1 | ForEach-Object { "$_" }) -join "`n"
 if ($explain -notmatch '"path":"dynamic"') { throw "dynamic bridge program did not take the dynamic path`n$explain" }
