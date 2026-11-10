@@ -1793,12 +1793,10 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             }
             list(out)
         }
-        "format" => st(str_format(t, &a)?),
+        "format" => st(str_format(t, &a, None)?),
         "format_map" => {
             let m = a1(&a, "format_map")?;
-            let items = dict_items_of(&m)?;
-            let k: Vec<(Sym, V)> = items.into_iter().map(|(k, v)| (sym(&to_str(&k).unwrap_or_default()), v)).collect();
-            st(str_format(t, &Args { p: vec![], k })?)
+            st(str_format(t, &Args { p: vec![], k: vec![] }, Some(&m))?)
         }
         "removeprefix" => {
             let p = arg_str(&a1(&a, name)?, name)?;
@@ -1908,8 +1906,8 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
         _ => return bad_method(o, name),
     })
 }
-// "{} {name} {0:>5}".format(...)
-pub fn str_format(t: &str, a: &Args) -> Result<String, E> {
+// "{} {name} {0:>5}".format(...); `mapping` is str.format_map's mapping, resolved lazily with [key].
+pub fn str_format(t: &str, a: &Args, mapping: Option<&V>) -> Result<String, E> {
     let c: Vec<char> = t.chars().collect();
     let mut out = String::new();
     let mut i = 0;
@@ -1949,16 +1947,24 @@ pub fn str_format(t: &str, a: &Args) -> Result<String, E> {
                 None => (head, None),
             };
             // nested fields in the spec
-            let spec = if spec.contains('{') { str_format(&spec, &Args { p: a.p.clone(), k: a.k.clone() })? } else { spec };
+            let spec = if spec.contains('{') { str_format(&spec, &Args { p: a.p.clone(), k: a.k.clone() }, mapping)? } else { spec };
             // first part: index or name, then .attr / [key]
             let name_end = head.find(|ch: char| ch == '.' || ch == '[').unwrap_or(head.len());
             let first = &head[..name_end];
             let mut v = if first.is_empty() {
+                if mapping.is_some() {
+                    return val_err("Format string contains positional fields".into());
+                }
                 let v = a.p.get(auto).cloned().ok_or_else(|| exc("IndexError", format!("Replacement index {auto} out of range for positional args tuple")))?;
                 auto += 1;
                 v
             } else if let Ok(k) = first.parse::<usize>() {
+                if mapping.is_some() {
+                    return val_err("Format string contains positional fields".into());
+                }
                 a.p.get(k).cloned().ok_or_else(|| exc("IndexError", format!("Replacement index {k} out of range for positional args tuple")))?
+            } else if let Some(m) = mapping {
+                getitem(m, &s(first))?
             } else {
                 a.k.iter().find(|(n, _)| *n == first).map(|(_, v)| v.clone()).ok_or_else(|| exc_v("KeyError", s(first)))?
             };

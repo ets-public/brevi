@@ -962,6 +962,10 @@ impl Ext for RMatch {
         }))
     }
     fn method(&self, me: &V, n: &str, a: &mut Args) -> Option<R> {
+        // No item assignment or deletion: leave it to the caller's TypeError, like len() and iteration.
+        if matches!(n, "__setitem__" | "__delitem__") {
+            return None;
+        }
         let r = (|| -> R {
             match n {
                 "group" | "__getitem__" => {
