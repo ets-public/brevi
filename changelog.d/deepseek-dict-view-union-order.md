@@ -1,0 +1,1 @@
+- **Dict view unions iterate in CPython's order.** `d1.items() | d2.items()` and `d.keys() | other` now build the result the way CPython's `dictviews_or` does, so the resulting set prints in the same order (fixes `test_dict.test_dictview_set_operations_on_items`; written by DeepSeek V4 Pro, reviewed by Claude).
