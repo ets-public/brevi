@@ -333,6 +333,7 @@ pub fn is(a: &V, b: &V) -> bool {
         (V::Iter(x), V::Iter(y)) => Rc::ptr_eq(x, y),
         (V::Ext(x), V::Ext(y)) => ExtRc::ptr_eq(x, y),
         (V::Module(x), V::Module(y)) => x == y,
+        (V::NTF(x), V::NTF(y)) => Rc::ptr_eq(x, y),
         (V::NotImpl, V::NotImpl) | (V::Ellipsis, V::Ellipsis) => true,
         _ => false,
     }
@@ -1575,6 +1576,53 @@ fn slice_positions(sl: &(V, V, V), n: usize) -> Result<Vec<usize>, E> {
 pub fn str_chars(s: &S) -> Vec<char> {
     s.s.chars().collect()
 }
+// A class subscripted in a dynamic build (list[int], a namedtuple's Group[int, list[int]]): the origin
+// class, the args, and the few attributes CPython's types.GenericAlias exposes.
+struct GAlias {
+    origin: Rc<Class>,
+    args: Vec<V>,
+}
+fn alias_arg_repr(v: &V) -> String {
+    match v {
+        V::Class(k) if k.module == "builtins" => k.name.to_string(),
+        V::Class(k) => format!("{}.{}", k.module, k.name),
+        _ => repr(v).unwrap_or_default(),
+    }
+}
+impl Ext for GAlias {
+    fn tname(&self) -> &'static str {
+        "types.GenericAlias"
+    }
+    fn repr(&self) -> String {
+        let oname = if self.origin.module == "builtins" {
+            self.origin.name.to_string()
+        } else {
+            format!("{}.{}", self.origin.module, self.origin.name)
+        };
+        format!("{oname}[{}]", self.args.iter().map(alias_arg_repr).collect::<Vec<_>>().join(", "))
+    }
+    fn any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn attr(&self, _me: &V, n: &str) -> Option<R> {
+        Some(match n {
+            "__origin__" => Ok(V::Class(self.origin.clone())),
+            "__args__" => Ok(tup(self.args.clone())),
+            "__parameters__" => Ok(tup(vec![])),
+            _ => Err(exc("AttributeError", format!("'types.GenericAlias' object has no attribute '{n}'"))),
+        })
+    }
+    fn method(&self, _me: &V, n: &str, a: &mut Args) -> Option<R> {
+        if n == "__call__" {
+            return Some(instantiate(&self.origin, Args { p: a.p.clone(), k: a.k.clone() }));
+        }
+        None
+    }
+    fn instancecheck(&self, _x: &V) -> Option<Result<bool, E>> {
+        Some(type_err("isinstance() argument 2 cannot be a parameterized generic".into()))
+    }
+}
+
 pub fn getitem(c: &V, i: &V) -> R {
     match (c, i) {
         (V::List(l), V::Int(k)) => {
@@ -1681,6 +1729,20 @@ pub fn getitem(c: &V, i: &V) -> R {
             return type_err(format!("'{}' object is not subscriptable", tn(c)));
         }
         (V::Class(k), _) if is_enum(k) => return enum_getitem(k, i),
+        (V::Class(k), _) if k.lookup("__bv_namedtuple__").is_some() => {
+            let args = match i {
+                V::Tuple(t) => t.to_vec(),
+                other => vec![other.clone()],
+            };
+            return Ok(V::Ext(ExtRc::new(GAlias { origin: k.clone(), args })));
+        }
+        (V::Class(k), _) if k.module == "builtins" && matches!(k.name, "list" | "dict" | "set" | "frozenset" | "tuple") => {
+            let args = match i {
+                V::Tuple(t) => t.to_vec(),
+                other => vec![other.clone()],
+            };
+            return Ok(V::Ext(ExtRc::new(GAlias { origin: k.clone(), args })));
+        }
         (V::Class(_), _) => return Ok(c.clone()), // typing: list[int]
         (V::Ext(x), _) => {
             if let Some(r) = x.method(c, "__getitem__", &mut Args::p(vec![i.clone()])) {

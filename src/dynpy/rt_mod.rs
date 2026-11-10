@@ -2100,24 +2100,89 @@ fn abc_class() -> Rc<Class> {
     })
 }
 
-// collections.namedtuple: a class whose instances keep their fields in order.
-pub fn namedtuple(mut a: Args) -> R {
+// The same checks CPython's namedtuple makes, on the str values field_names was mapped with str().
+fn py_ident(s: &str) -> bool {
+    let mut cs = s.chars();
+    match cs.next() {
+        Some(c) if c == '_' || c.is_alphabetic() => cs.all(|c| c == '_' || c.is_alphanumeric()),
+        _ => false,
+    }
+}
+fn py_keyword(s: &str) -> bool {
+    matches!(s,
+        "False" | "None" | "True" | "and" | "as" | "assert" | "async" | "await" | "break" | "class" |
+        "continue" | "def" | "del" | "elif" | "else" | "except" | "finally" | "for" | "from" | "global" |
+        "if" | "import" | "in" | "is" | "lambda" | "nonlocal" | "not" | "or" | "pass" | "raise" | "return" |
+        "try" | "while" | "with" | "yield")
+}
+
+// collections.namedtuple: the class CPython's collections.namedtuple builds, step for step. Fields are
+// read-only class descriptors that read from the tuple the instance wraps; only the tuple holds the values
+// (never instance attributes), so a subclass's __dict__ starts empty, as in CPython.
+pub fn namedtuple(a: Args) -> R {
+    namedtuple_with(a, true)
+}
+// For the runtime's own tuple types whose CPython name is dotted (time.struct_time): the type name is not a
+// user's, so it skips the identifier check; the fields are still checked.
+pub fn namedtuple_runtime_type(a: Args) -> R {
+    namedtuple_with(a, false)
+}
+fn namedtuple_with(mut a: Args, check_name: bool) -> R {
+    let rename = match a.kw("rename") {
+        Some(v) => truth(&v)?,
+        None => false,
+    };
     let defaults = a.kw("defaults");
-    let _ = a.kw("rename");
-    let module = match a.kw("module") {
-        Some(m) => sym(&to_str(&m)?),
+    let module = a.kw("module");
+    let module_sym: Sym = match &module {
+        Some(m) => sym(&to_str(m)?),
         None => "__main__",
     };
     a.no_kw("namedtuple")?;
     a.want("namedtuple", 2, 2)?;
     let name = sym(&to_str(&a.p[0])?);
-    let fields: Vec<Sym> = match &a.p[1] {
+    let mut fields: Vec<Sym> = match &a.p[1] {
         V::Str(x) => x.s.replace(',', " ").split_whitespace().map(sym).collect(),
-        x => to_vec(x)?.iter().map(|f| sym(&to_str(f).unwrap_or_default())).collect(),
+        x => {
+            let mut out = vec![];
+            for f in to_vec(x)? {
+                out.push(sym(&to_str(&f)?));
+            }
+            out
+        }
     };
-    let dflt: Vec<V> = match defaults {
-        Some(d) => to_vec(&d)?,
-        None => vec![],
+    if rename {
+        let mut seen: Vec<Sym> = vec![];
+        let original = fields.clone();
+        for (index, f) in fields.iter_mut().enumerate() {
+            if !py_ident(f) || py_keyword(f) || f.starts_with('_') || seen.contains(f) {
+                *f = sym(&format!("_{index}"));
+            }
+            seen.push(original[index]);
+        }
+    }
+    for f in std::iter::once(&name).filter(|_| check_name).chain(fields.iter()) {
+        if !py_ident(f) {
+            return val_err(format!("Type names and field names must be valid identifiers: {}", str_repr(f)));
+        }
+        if py_keyword(f) {
+            return val_err(format!("Type names and field names cannot be a keyword: {}", str_repr(f)));
+        }
+    }
+    let mut seen: Vec<Sym> = vec![];
+    for f in &fields {
+        if f.starts_with('_') && !rename {
+            return val_err(format!("Field names cannot start with an underscore: {}", str_repr(f)));
+        }
+        if seen.contains(f) {
+            return val_err(format!("Encountered duplicate field name: {}", str_repr(f)));
+        }
+        seen.push(*f);
+    }
+    let defaults_given = matches!(&defaults, Some(d) if !matches!(d, V::None));
+    let dflt: Vec<V> = match &defaults {
+        Some(d) if !matches!(d, V::None) => to_vec(d)?,
+        _ => vec![],
     };
     if dflt.len() > fields.len() {
         return type_err("Got more default values than field names".into());
@@ -2127,89 +2192,173 @@ pub fn namedtuple(mut a: Args) -> R {
         fdd.set(s(k), v.clone())?;
     }
     let fd = V::Dict(Rc::new(RefCell::new(fdd)));
-    let c = Class::new(name, module, vec![bclass("tuple")], BT::Tuple);
+    let arg_list = if fields.len() == 1 {
+        format!("{},", fields[0])
+    } else {
+        fields.join(", ")
+    };
+    let c = Class::new(name, module_sym, vec![bclass("tuple")], BT::Tuple);
     *c.fields.borrow_mut() = fields.clone();
-    let f2 = fields.clone();
-    let cc = c.clone();
-    c.set("__new__", func("__new__", move |mut a: Args| {
-        a.p.remove(0);
-        let mut vals: Vec<V> = vec![V::Unbound; f2.len()];
-        let n = a.p.len();
-        if n > f2.len() {
-            return type_err(format!("{}() takes {} positional arguments but {} were given", cc.name, f2.len() + 1, n + 1));
+    c.set("__bv_namedtuple__", V::Bool(true));
+    c.set("__slots__", tup(vec![]));
+    c.set("_fields", tup(fields.iter().map(|f| s(f)).collect()));
+    c.set("__match_args__", tup(fields.iter().map(|f| s(f)).collect()));
+    c.set("__doc__", st(format!("{name}({arg_list})")));
+    c.set("_field_defaults", fd);
+    c.set("__module__", module.unwrap_or_else(|| s("__main__")));
+
+    // __new__: built exactly once; a subclass call passes its own class, so the instance (and its repr)
+    // belong to the class the call was made on.
+    let cnew = c.clone();
+    let fnew = fields.clone();
+    let dnew = dflt.clone();
+    let nd = dflt.len();
+    let nf = fields.len();
+    let nv = func("__new__", move |mut a: Args| {
+        let cls = a.p.first().cloned().unwrap_or(V::Class(cnew.clone()));
+        // CPython's errors name the namedtuple's own __new__ (P.__new__), also when called on a subclass
+        let cname = format!("{}.__new__", cnew.name);
+        if !a.p.is_empty() {
+            a.p.remove(0);
+        }
+        let mut vals: Vec<V> = vec![V::Unbound; nf];
+        if a.p.len() > nf {
+            return type_err(format!("{}() takes {} positional arguments but {} were given", cname, nf + 1, a.p.len() + 1));
         }
         for (i, v) in a.p.drain(..).enumerate() {
             vals[i] = v;
         }
         for (k, v) in a.k.drain(..) {
-            match f2.iter().position(|f| *f == k) {
-                Some(i) => vals[i] = v,
-                None => return type_err(format!("{}() got an unexpected keyword argument '{}'", cc.name, k)),
+            match fnew.iter().position(|f| *f == k) {
+                Some(i) => {
+                    if !matches!(vals[i], V::Unbound) {
+                        return type_err(format!("{}() got multiple values for argument '{}'", cname, k));
+                    }
+                    vals[i] = v;
+                }
+                None => return type_err(format!("{}() got an unexpected keyword argument '{}'", cname, k)),
             }
         }
-        let nd = dflt.len();
-        let nf = f2.len();
+        let mut missing: Vec<String> = vec![];
         for i in 0..nf {
             if matches!(vals[i], V::Unbound) {
                 if i + nd >= nf {
-                    vals[i] = dflt[i + nd - nf].clone();
+                    vals[i] = dnew[i + nd - nf].clone();
                 } else {
-                    return type_err(format!("{}() missing 1 required positional argument: '{}'", cc.name, f2[i]));
+                    missing.push(format!("'{}'", fnew[i]));
                 }
             }
         }
-        let o = Obj::new(cc.clone());
-        for (f, v) in f2.iter().zip(vals.iter()) {
-            o.set(f, v.clone());
+        if !missing.is_empty() {
+            let list = match missing.len() {
+                1 => missing[0].clone(),
+                2 => format!("{} and {}", missing[0], missing[1]),
+                _ => format!("{}, and {}", missing[..missing.len() - 1].join(", "), missing.last().unwrap()),
+            };
+            return type_err(format!("{}() missing {} required positional argument{}: {}", cname, missing.len(), if missing.len() == 1 { "" } else { "s" }, list));
         }
+        let oc = match cls {
+            V::Class(k) => k.clone(),
+            _ => cnew.clone(),
+        };
+        let o = Obj::new(oc);
         o.set_inner(Some(tup(vals)));
         Ok(V::Obj(o))
-    }));
-    let f3 = fields.clone();
+    });
+    if let V::Func(f) = &nv {
+        let mut fa = f.attrs.borrow_mut();
+        fa.push(("__defaults__", if defaults_given { tup(dflt.clone()) } else { V::None }));
+        let builtins = V::Dict(Rc::new(RefCell::new(Dict::new())));
+        let mut g = Dict::new();
+        g.set(s("__builtins__"), builtins.clone())?;
+        fa.push(("__globals__", V::Dict(Rc::new(RefCell::new(g)))));
+        fa.push(("__builtins__", builtins));
+        fa.push(("__doc__", st(format!("Create new instance of {name}({arg_list})"))));
+    }
+    c.set("__new__", nv);
+
+    // each field is a read-only descriptor holding its index in the wrapped tuple (V::NTF): getattr reads
+    // the tuple directly for it, with no Args allocation and no call (see getattr in rt_call.rs).
+    for (i, f) in fields.iter().enumerate() {
+        c.set(*f, V::NTF(Rc::new(i as i64)));
+    }
+
+    let frepr = fields.clone();
     c.set("__repr__", func("__repr__", move |a: Args| {
-        let me = &a.p[0];
-        if let V::Obj(o) = me {
-            let mut parts = vec![];
-            for f in &f3 {
-                parts.push(format!("{}={}", f, repr(&o.get(f).unwrap_or(V::None))?));
-            }
-            return Ok(st(format!("{}({})", o.cls.name, parts.join(", "))));
+        let me = a.p.first().cloned().unwrap_or(V::None);
+        let cname = match &me {
+            V::Obj(o) => o.cls.name.to_string(),
+            _ => String::new(),
+        };
+        let inner = inner_of(&me).unwrap_or_else(|| tup(vec![]));
+        let mut parts = vec![];
+        for (i, f) in frepr.iter().enumerate() {
+            let v = getitem(&inner, &V::Int(i as i64))?;
+            parts.push(format!("{}={}", f, repr(&v)?));
         }
-        Ok(s(""))
+        Ok(st(format!("{}({})", cname, parts.join(", "))))
     }));
-    let f4 = fields.clone();
+    let fas = fields.clone();
     c.set("_asdict", func("_asdict", move |a: Args| {
         let mut d = Dict::new();
-        if let V::Obj(o) = &a.p[0] {
-            for f in &f4 {
-                d.set(s(f), o.get(f).unwrap_or(V::None))?;
-            }
+        let me = a.p.first().cloned().unwrap_or(V::None);
+        let inner = inner_of(&me).unwrap_or_else(|| tup(vec![]));
+        for (i, f) in fas.iter().enumerate() {
+            d.set(s(f), getitem(&inner, &V::Int(i as i64))?)?;
         }
         Ok(V::Dict(Rc::new(RefCell::new(d))))
     }));
-    let f5 = fields.clone();
-    c.set("_replace", func("_replace", move |mut a: Args| {
-        let me = a.p.remove(0);
-        if let V::Obj(o) = &me {
-            let mut vals = vec![];
-            for f in &f5 {
-                vals.push(match a.k.iter().find(|(k, _)| k == f) {
-                    Some((_, v)) => v.clone(),
-                    None => o.get(f).unwrap_or(V::None),
-                });
-            }
-            return instantiate(&o.cls, Args::p(vals));
+    let frep = fields.clone();
+    let rv = func("_replace", move |a: Args| {
+        let me = a.p.first().cloned().unwrap_or(V::None);
+        if a.p.len() > 1 {
+            return type_err(format!("_replace() takes 1 positional argument but {} were given", a.p.len()));
         }
-        Ok(V::None)
-    }));
-    c.set("_fields", tup(fields.iter().map(|f| s(f)).collect()));
-    c.set("__doc__", st(format!("{}({})", name, fields.join(", "))));
-    c.set("_field_defaults", fd);
-    let c6 = c.clone();
-    c.set("_make", builtin("_make", move |a: Args| {
-        let it = a.p.last().cloned().unwrap_or(V::None);
-        instantiate(&c6, Args::p(to_vec(&it)?))
-    }));
+        let cls = match &me {
+            V::Obj(o) => o.cls.clone(),
+            _ => return type_err("descriptor '_replace' for 'tuple' objects doesn't apply to a 'NoneType' object".into()),
+        };
+        let inner = inner_of(&me).unwrap_or_else(|| tup(vec![]));
+        let mut vals = vec![];
+        for (i, f) in frep.iter().enumerate() {
+            match a.k.iter().find(|(k, _)| k == f) {
+                Some((_, v)) => vals.push(v.clone()),
+                None => vals.push(getitem(&inner, &V::Int(i as i64))?),
+            }
+        }
+        let unknown: Vec<Sym> = a.k.iter().filter_map(|(k, _)| if frep.contains(k) { None } else { Some(*k) }).collect();
+        if !unknown.is_empty() {
+            return type_err(format!("Got unexpected field names: {}", repr(&list(unknown.iter().map(|k| s(k)).collect()))?));
+        }
+        let o = Obj::new(cls);
+        o.set_inner(Some(tup(vals)));
+        Ok(V::Obj(o))
+    });
+    c.set("_replace", rv.clone());
+    c.set("__replace__", rv);
+    let cmk = c.clone();
+    let fmk = fields.clone();
+    let nfm = fields.len();
+    let mk = func("_make", move |a: Args| {
+        let cls = a.p.first().cloned().unwrap_or(V::Class(cmk.clone()));
+        let it = a.p.get(1).cloned().unwrap_or(V::None);
+        let vals = to_vec(&it)?;
+        if vals.len() != nfm {
+            return type_err(format!("Expected {} arguments, got {}", nfm, vals.len()));
+        }
+        let oc = match cls {
+            V::Class(k) => k.clone(),
+            _ => cmk.clone(),
+        };
+        let o = Obj::new(oc);
+        o.set_inner(Some(tup(vals)));
+        Ok(V::Obj(o))
+    });
+    if let V::Func(f) = &mk {
+        f.kind.set(2);
+    }
+    c.set("_make", mk);
+    c.set("__getnewargs__", func("__getnewargs__", |a: Args| Ok(inner_of(&a.p[0]).unwrap_or_else(|| tup(vec![])))));
     c.set("__eq__", func("__eq__", |a: Args| {
         let (x, y) = (inner_of(&a.p[0]).unwrap_or(a.p[0].clone()), inner_of(&a.p[1]).unwrap_or(a.p[1].clone()));
         Ok(V::Bool(eq(&x, &y)?))

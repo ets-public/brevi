@@ -1322,7 +1322,7 @@ fn builtin_class_attr_raw(c: &Rc<Class>, name: &str) -> Option<V> {
         _ => {
             let n = sym(name);
             let cname = c.name;
-            Some(builtin(n, move |mut a: Args| {
+            let v = builtin(n, move |mut a: Args| {
                 if a.p.is_empty() {
                     return type_err(format!("descriptor '{n}' needs an argument"));
                 }
@@ -1348,7 +1348,14 @@ fn builtin_class_attr_raw(c: &Rc<Class>, name: &str) -> Option<V> {
                     }
                 }
                 call_method(&me, n, a)
-            }))
+            });
+            if let V::Func(f) = &v {
+                // CPython reprs tuple's slot wrappers with the type ("<slot wrapper '__getitem__' of 'tuple' objects>")
+                if cname == "tuple" && matches!(n, "__getitem__" | "__contains__" | "__iter__" | "__len__" | "__add__" | "__mul__" | "__rmul__" | "__hash__" | "__repr__") {
+                    f.attrs.borrow_mut().push(("__bv_repr__", st(format!("<slot wrapper '{n}' of 'tuple' objects>"))));
+                }
+            }
+            Some(v)
         }
     }
 }

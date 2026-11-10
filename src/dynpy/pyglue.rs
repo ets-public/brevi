@@ -59,8 +59,18 @@ def _atexit():
     _flush_files()
 _d.mods = {}
 _d.done = set()
+_d.nts = {}
+def _nt(cls, name, fields, values):
+    c = _d.nts.get(cls)
+    if c is None:
+        import collections as _co
+        c = _co.namedtuple(name, fields, module='_brevi_dyn')
+        setattr(_d, name, c)
+        _d.nts[cls] = c
+    return c(*values)
 _d.it = _BrIt
 _d.pyclass = _pyclass
+_d._nt = _nt
 _d.atexit = _atexit
 _d.contains = lambda a, b: b in a
 _d.op = lambda n, a, b: getattr(_o, n)(a, b)
@@ -606,6 +616,26 @@ unsafe fn pyd_str_arg(module: &str, name: &str, text: &str) -> Result<P, E> {
     r
 }
 
+// A namedtuple instance as a CPython namedtuple of the same name and fields, registered in _brevi_dyn so
+// pickle can find its class again. The class is made once per Brevi class and kept by the helper module.
+unsafe fn pyd_namedtuple(v: &V) -> Result<P, E> {
+    let o = match v {
+        V::Obj(o) => o,
+        _ => return type_err("expected a namedtuple".into()),
+    };
+    let cls = pyd_callable(&V::Class(o.cls.clone()))?;
+    let name = pyd_str_obj(o.cls.name);
+    let fields = pyd_to(&o.cls.lookup("_fields").unwrap_or_else(|| tup(vec![])))?;
+    let values = pyd_to(&inner_of(v).unwrap_or_else(|| tup(vec![])))?;
+    let r = pyd_mod_call("_brevi_dyn", "_nt", &[cls, name, fields, values]);
+    let a = pyd_api();
+    (a.DecRef)(cls);
+    (a.DecRef)(name);
+    (a.DecRef)(fields);
+    (a.DecRef)(values);
+    r
+}
+
 // The program's value `v` as a new Python object.
 unsafe fn pyd_to(v: &V) -> Result<P, E> {
     let a = pyd_api();
@@ -822,6 +852,7 @@ unsafe fn pyd_to(v: &V) -> Result<P, E> {
             e
         }
         V::Class(c) if c.module == "builtins" && (c.bt == BT::Exc || c.is_sub(&exc_class("BaseException"))) => pyd_builtins_attr(c.name)?,
+        V::Obj(o) if o.cls.lookup("__bv_namedtuple__").is_some() => pyd_namedtuple(v)?,
         V::Iter(_) => {
             let me = v.clone();
             let next = func(sym("__next__"), move |_a: Args| bi_next(Args::p(vec![me.clone()])));

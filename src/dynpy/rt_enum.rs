@@ -208,7 +208,7 @@ pub fn enum_setup(c: &Rc<Class>) -> Result<(), E> {
     let mut v2m: Vec<(V, V)> = vec![];
     let map = dict_new();
     for (n, v) in attrs {
-        if (n.starts_with('_') && enum_not_member(c.name, n)) || matches!(v, V::Func(_) | V::Class(_) | V::Prop(_) | V::Bound(_) | V::BMeth(_)) {
+        if (n.starts_with('_') && enum_not_member(c.name, n)) || matches!(v, V::Func(_) | V::Class(_) | V::Prop(_) | V::NTF(_) | V::Bound(_) | V::BMeth(_)) {
             continue;
         }
         let val = match &v {

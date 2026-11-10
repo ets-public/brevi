@@ -40,6 +40,9 @@ pub enum V {
     Module(&'static ModName),
     View(Rc<(V, u8)>),
     Prop(Rc<(V, V)>),
+    // a namedtuple field: a read-only descriptor holding the field's index in the wrapped tuple (the Rc
+    // gives each descriptor its own identity, so `P.x is P.x` stays true, as in CPython)
+    NTF(Rc<i64>),
     Ext(ExtRc),
     NotImpl,
     Ellipsis,
@@ -93,6 +96,7 @@ impl V {
             V::Module(x) => V::Module(x.clone()),
             V::View(x) => V::View(x.clone()),
             V::Prop(x) => V::Prop(x.clone()),
+            V::NTF(x) => V::NTF(x.clone()),
             V::Ext(x) => V::Ext(x.clone()),
             V::NotImpl => V::NotImpl,
             V::Ellipsis => V::Ellipsis,
@@ -2320,7 +2324,7 @@ impl Class {
                     slot_names(v, &mut own);
                 } else {
                     shadow.push(*k);
-                    if matches!(v, V::Prop(_)) && !props.contains(k) {
+                    if matches!(v, V::Prop(_) | V::NTF(_)) && !props.contains(k) {
                         props.push(*k);
                     }
                 }
@@ -3236,6 +3240,7 @@ pub fn type_name(v: &V) -> String {
             _ => "mappingproxy".into(),
         },
         V::Prop(_) => "property".into(),
+        V::NTF(_) => "_tuplegetter".into(),
         V::Ext(x) => x.tname().into(),
         V::NotImpl => "NotImplementedType".into(),
         V::Ellipsis => "ellipsis".into(),
