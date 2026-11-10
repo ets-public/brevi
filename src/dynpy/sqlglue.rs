@@ -21,6 +21,7 @@ mod brevi_sqlglue {
     #[cfg(windows)]
     unsafe extern "system" {
         fn LoadLibraryA(f: *const c_char) -> P;
+        fn LoadLibraryExA(f: *const c_char, file: P, flags: u32) -> P;
         fn GetProcAddress(h: P, s: *const c_char) -> *mut c_void;
     }
     #[cfg(unix)]
@@ -29,7 +30,15 @@ mod brevi_sqlglue {
     }
     #[cfg(windows)]
     unsafe fn ax_dlopen(f: *const c_char, _flag: c_int) -> P {
-        LoadLibraryA(f)
+        // winsqlite3.dll is Windows' own copy in System32: LOAD_LIBRARY_SEARCH_SYSTEM32 (0x800) keeps a
+        // sqlite3.dll in the program's folder or CWD from being picked up instead. Any other name is an
+        // explicit absolute path (Python's DLL, or BREVI_SQLITE_LIB).
+        let name = CStr::from_ptr(f).to_string_lossy();
+        if name.eq_ignore_ascii_case("winsqlite3.dll") {
+            LoadLibraryExA(f, std::ptr::null_mut(), 0x800)
+        } else {
+            LoadLibraryA(f)
+        }
     }
     #[cfg(unix)]
     unsafe fn ax_dlsym(h: P, s: *const c_char) -> P {
@@ -186,8 +195,12 @@ mod brevi_sqlglue {
             names.push("/usr/lib/libsqlite3.dylib".into());
             names.push("libsqlite3.dylib".into());
         } else if cfg!(windows) {
-            // The SQLite DLL next to Python, then Windows' own winsqlite3.dll (System32).
-            names.push("sqlite3.dll".into());
+            // Python's SQLite DLL (same build as CPython's _sqlite3) when the program was built with it,
+            // then Windows' own winsqlite3.dll (System32). No bare sqlite3.dll: the loader search path
+            // would let a DLL in the program's folder or CWD run.
+            if let Some(p) = SQLITE_DLL {
+                names.push(p.to_string());
+            }
             names.push("winsqlite3.dll".into());
         } else {
             names.push("libsqlite3.so.0".into());

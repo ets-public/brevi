@@ -16,10 +16,49 @@ mod brevi_duckglue {
 
     type P = *mut c_void;
 
+    // libduckdb is dlopen'd on Unix; on Windows the same library (libduckdb.dll, or the DuckDB library inside
+    // the duckdb Python package) is LoadLibraryA'd, and GetLastError names what a failed load wanted.
+    #[cfg(unix)]
     extern "C" {
         fn dlopen(f: *const c_char, flag: i32) -> P;
         fn dlsym(h: P, s: *const c_char) -> P;
         fn dlerror() -> *const c_char;
+    }
+    #[cfg(windows)]
+    unsafe extern "system" {
+        fn LoadLibraryA(f: *const c_char) -> P;
+        fn GetProcAddress(h: P, s: *const c_char) -> P;
+        fn GetLastError() -> u32;
+    }
+    #[cfg(unix)]
+    unsafe fn ax_dlopen(f: *const c_char, flag: i32) -> P {
+        dlopen(f, flag)
+    }
+    #[cfg(windows)]
+    unsafe fn ax_dlopen(f: *const c_char, _flag: i32) -> P {
+        LoadLibraryA(f)
+    }
+    #[cfg(unix)]
+    unsafe fn ax_dlsym(h: P, s: *const c_char) -> P {
+        dlsym(h, s)
+    }
+    #[cfg(windows)]
+    unsafe fn ax_dlsym(h: P, s: *const c_char) -> P {
+        GetProcAddress(h, s)
+    }
+    #[cfg(unix)]
+    unsafe fn ax_dlerror() -> String {
+        let e = dlerror();
+        if e.is_null() {
+            String::new()
+        } else {
+            CStr::from_ptr(e).to_string_lossy().into_owned()
+        }
+    }
+    #[cfg(windows)]
+    unsafe fn ax_dlerror() -> String {
+        let c = GetLastError();
+        format!("{} (Win32 error {c})", std::io::Error::from_raw_os_error(c as i32))
     }
 
     #[repr(C)]
@@ -164,7 +203,11 @@ mod brevi_duckglue {
                 names.push((p, ""));
             }
         }
+        #[cfg(unix)]
         names.push((if cfg!(target_os = "macos") { "libduckdb.dylib" } else { "libduckdb.so" }.to_string(), ""));
+        // Windows has no bare-name fallback: a duckdb.dll in the program's folder or CWD must not run.
+        // DUCK_LIBS holds the absolute path from the duckdb package found at build time; BREVI_DUCKDB_LIB
+        // is the explicit override.
         for l in DUCK_LIBS {
             names.push((l.to_string(), DUCK_PRELOAD));
         }
@@ -174,16 +217,21 @@ mod brevi_duckglue {
             if !pre.is_empty() {
                 let c = CString::new(*pre).unwrap();
                 // RTLD_NOW | RTLD_GLOBAL: CPython's symbols, for the duckdb package's library
-                dlopen(c.as_ptr(), 2 | 0x100);
+                ax_dlopen(c.as_ptr(), 2 | 0x100);
             }
             let c = CString::new(n.as_str()).unwrap();
-            h = dlopen(c.as_ptr(), 2);
+            h = ax_dlopen(c.as_ptr(), 2);
             if !h.is_null() {
                 break;
             }
-            let e = dlerror();
-            if !e.is_null() && !pre.is_empty() {
-                why = CStr::from_ptr(e).to_string_lossy().into_owned();
+            // a Windows load failure is worth telling even for the bare names: it names the missing DLL
+            #[cfg(windows)]
+            {
+                why = ax_dlerror();
+            }
+            #[cfg(not(windows))]
+            if !pre.is_empty() {
+                why = ax_dlerror();
             }
         }
         if h.is_null() {
@@ -192,7 +240,7 @@ mod brevi_duckglue {
         macro_rules! sym {
             ($n:expr) => {{
                 let c = CString::new(concat!("duckdb_", $n)).unwrap();
-                let p = dlsym(h, c.as_ptr());
+                let p = ax_dlsym(h, c.as_ptr());
                 if p.is_null() {
                     return Err(format!("brevi: the DuckDB library lacks duckdb_{}", $n));
                 }
@@ -1117,10 +1165,12 @@ mod brevi_duckglue {
         Ok(rows)
     }
 
+    #[cfg(unix)]
     extern "C" {
         fn isatty(fd: i32) -> i32;
         fn ioctl(fd: i32, req: u64, ...) -> i32;
     }
+    #[cfg(unix)]
     fn term() -> i64 {
         unsafe {
             if isatty(1) == 0 {
@@ -1130,6 +1180,53 @@ mod brevi_duckglue {
             let req: u64 = if cfg!(target_os = "macos") { 0x40087468 } else { 0x5413 };
             if ioctl(1, req, ws.as_mut_ptr()) == 0 && ws[1] > 0 {
                 ws[1] as i64
+            } else {
+                80
+            }
+        }
+    }
+    #[cfg(windows)]
+    #[repr(C)]
+    struct WinCoord {
+        x: i16,
+        y: i16,
+    }
+    #[cfg(windows)]
+    #[repr(C)]
+    struct WinRect {
+        left: i16,
+        top: i16,
+        right: i16,
+        bottom: i16,
+    }
+    #[cfg(windows)]
+    #[repr(C)]
+    struct WinConsoleInfo {
+        size: WinCoord,
+        cursor: WinCoord,
+        attributes: u16,
+        window: WinRect,
+        maximum_size: WinCoord,
+    }
+    #[cfg(windows)]
+    unsafe extern "system" {
+        fn GetStdHandle(which: u32) -> P;
+        fn GetConsoleMode(h: P, mode: *mut u32) -> i32;
+        fn GetConsoleScreenBufferInfo(h: P, info: *mut WinConsoleInfo) -> i32;
+    }
+    // isatty(1) and the terminal width on Windows: the console window's columns, 80 if that is unknown, 0 when
+    // stdout is no console (a pipe or a file, as isatty says on Unix)
+    #[cfg(windows)]
+    fn term() -> i64 {
+        unsafe {
+            let h = GetStdHandle(0xffff_fff5); // STD_OUTPUT_HANDLE
+            let mut mode = 0u32;
+            if h.is_null() || GetConsoleMode(h, &mut mode) == 0 {
+                return 0;
+            }
+            let mut info: WinConsoleInfo = std::mem::zeroed();
+            if GetConsoleScreenBufferInfo(h, &mut info) != 0 && info.window.right > info.window.left {
+                (info.window.right - info.window.left + 1) as i64
             } else {
                 80
             }

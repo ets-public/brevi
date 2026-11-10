@@ -1,5 +1,6 @@
-# Windows platform checks: the CPython library bridge (typed and dynamic), output parity,
-# and the cpu/mem resource limits. Runs on PRs that touch the compiler or these tests.
+# Windows platform checks: the CPython library bridge, output parity, generators/async,
+# Brevi's native requests/httpx, sqlite3, duckdb, onnxruntime and MCP, and the resource limits.
+# Runs on PRs that touch the compiler or these tests.
 name: windows
 
 on:
@@ -37,8 +38,12 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: PyYAML (the bridged library)
-        run: python -m pip install --quiet pyyaml
+      - name: Python libraries for the checks
+        run: python -m pip install --quiet pyyaml requests
+
+      - name: Optional native-copy libraries (checks skip when absent)
+        continue-on-error: true
+        run: python -m pip install --quiet duckdb onnxruntime
 
       - name: Build Brevi
         run: cargo build --release
