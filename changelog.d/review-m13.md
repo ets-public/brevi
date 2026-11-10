@@ -1,0 +1,1 @@
+- A caught `StopIteration` has `.value` (the generator's return value or the first argument, else `None`), as in CPython.
