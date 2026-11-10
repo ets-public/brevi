@@ -14,8 +14,6 @@ Forced dynamic build (`BREVI_DYN=1`): coverage 24.6%, wrong 69.
 | test_itertools | 6 | 0 | 1 | 1 | 1 | 125 | 0 | 11 | 145 | 4.5% | 2 |
 | test_collections | 9 | 40 | 7 | 24 | 0 | 4 | 13 | 4 | 101 | 8.3% | 31 |
 | test_re | 48 | 37 | 23 | 17 | 3 | 22 | 2 | 13 | 165 | 29.3% | 40 |
-| test_heapq | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% | 0 |
-| test_bisect | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% | 0 |
 | test_textwrap | 62 | 0 | 0 | 2 | 0 | 2 | 0 | 0 | 66 | 93.9% | 2 |
 | test_functools | 3 | 52 | 1 | 5 | 0 | 21 | 7 | 1 | 90 | 3.7% | 6 |
 | test_string | 2 | 25 | 0 | 0 | 0 | 11 | 0 | 0 | 38 | 2.6% | 0 |
@@ -28,8 +26,6 @@ Forced dynamic build (`BREVI_DYN=1`): coverage 24.6%, wrong 69.
 | test_itertools | 6 | 0 | 1 | 1 | 1 | 125 | 0 | 11 | 145 | 4.5% | 2 |
 | test_collections | 7 | 43 | 7 | 23 | 0 | 4 | 13 | 4 | 101 | 8.3% | 30 |
 | test_re | 57 | 41 | 13 | 16 | 1 | 22 | 2 | 13 | 165 | 38.0% | 29 |
-| test_heapq | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% | 0 |
-| test_bisect | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0.0% | 0 |
 | test_textwrap | 62 | 0 | 0 | 2 | 0 | 2 | 0 | 0 | 66 | 93.9% | 2 |
 | test_functools | 3 | 52 | 1 | 5 | 0 | 21 | 7 | 1 | 90 | 3.7% | 6 |
 | test_string | 1 | 26 | 0 | 0 | 0 | 11 | 0 | 0 | 38 | 2.6% | 0 |

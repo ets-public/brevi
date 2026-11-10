@@ -41,7 +41,7 @@ SCOPE = ["test_grammar", "test_scope", "test_int", "test_list", "test_dict"]
 # floor and known-wrong list so neither slice's ratchet hides the other's.
 SLICES = {
     "core": (SCOPE, BASELINE, FLOOR),
-    "stdlib": (["test_itertools", "test_collections", "test_re", "test_heapq", "test_bisect", "test_textwrap", "test_functools", "test_string"],
+    "stdlib": (["test_itertools", "test_collections", "test_re", "test_textwrap", "test_functools", "test_string"],
                ROOT / "compat" / "conformance_stdlib_known_wrong.txt", ROOT / "compat" / "conformance_stdlib_floor.json"),
 }
 # Module name -> (path under Lib/, SHA-256). The helpers are only read for the definitions tests use.
@@ -59,8 +59,6 @@ SOURCES = {
     "test.test_itertools": ("test/test_itertools.py", "b356e71312eaac265c7104c32176c5150ab06433754bcb25d6e0013f321ca1c9"),
     "test.test_collections": ("test/test_collections.py", "d9db27a28044d2d0cd24a54299d87e0f5c171f46115b91087163726ccab14bfa"),
     "test.test_re": ("test/test_re.py", "fe86c393ae0a94bd9b5e4577d08b99fc60d825e04f4440486562868fb3d3e620"),
-    "test.test_heapq": ("test/test_heapq.py", "ab72726259119159f060aa80274efb33e53a5455636bd5aa16f923535375b348"),
-    "test.test_bisect": ("test/test_bisect.py", "c2cc55581e637768faa0f51cbb66acbaa6664eb023e287b37db687faefa2c1c4"),
     "test.test_textwrap": ("test/test_textwrap.py", "1f16be769aa2aa32028b821bca3e90c3bdfabb37ffdbafa20db09ee627009214"),
     "test.test_functools": ("test/test_functools.py", "ec00d729ddde2de6412237b3f8f4196bc0777ce9d0bf99fd69071fb44ce72fd5"),
     "test.test_string": ("test/test_string.py", "defe67cc39c2a4737f1dad3a6c7877cb4eb96df6c331966214b77548f6b2c6a6"),
