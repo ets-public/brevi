@@ -384,8 +384,20 @@ fn np_ufunc1(name: &str, v: &V) -> R {
         return Err(np_unsup(&format!("np.{name} of a bool array (numpy gives float16)")));
     }
     if d == NT::F32 {
-        // the correctly rounded ones: float64's result rounded once is float32's. numpy's float32 exp, log,
-        // sin, ... are its own SIMD code, which Brevi does not have.
+        // numpy's float32 exp, tanh, log1p, sin and cos are its own SIMD loops (numpy 2.x); the helpers
+        // below follow them (AVX-512) and the rest are correctly rounded ones where float64's result
+        // rounded once is float32's.
+        if matches!(name, "exp" | "tanh" | "log1p" | "sin" | "cos") {
+            let x = o.a.vals().f32v();
+            let rv: Vec<f32> = match name {
+                "exp" => x.iter().map(|v| np_exp_f32(*v)).collect(),
+                "tanh" => x.iter().map(|v| np_tanh_f32(*v)).collect(),
+                "log1p" => x.iter().map(|v| np_log1p_f32(*v)).collect(),
+                "sin" => x.iter().map(|v| np_sincos_f32(*v, false)).collect(),
+                _ => x.iter().map(|v| np_sincos_f32(*v, true)).collect(),
+            };
+            return Ok(np_out(Buf::F32(rv), shape));
+        }
         if !matches!(name, "sqrt" | "floor" | "ceil" | "trunc" | "fix" | "rint" | "square" | "reciprocal" | "sign") {
             return Err(np_unsup(&format!("np.{name} of float32")));
         }
@@ -460,6 +472,191 @@ fn np_ufunc1_f(name: &str, x: &[f64], shape: Vec<usize>) -> R {
         np_warn(&format!("invalid value encountered in {name}"));
     }
     Ok(np_out(Buf::F(r), shape))
+}
+
+// ---------- float32 ufuncs (numpy 2.x's SIMD loops) ----------
+// numpy's float32 exp: loops_exponent_log.dispatch.c.src simd_exp_FLOAT (AVX512F; the AVX2 code is the
+// same per element). Cody-Waite reduction x = q*ln2 + r, P/Q polynomial, then scale by 2^q.
+fn np_exp_f32(x: f32) -> f32 {
+    const XMAX: f32 = 88.72283935546875;
+    const XMIN: f32 = -103.97208404541015625;
+    const LOG2E: f32 = 1.4426950216293335;
+    const C1: f32 = -6.93145752e-1;
+    const C2: f32 = -1.42860677e-6;
+    const MAGIC: f32 = 12582912.0;
+    const P0: f32 = 9.999999999980870924916e-01;
+    const P1: f32 = 7.257664613233124478488e-01;
+    const P2: f32 = 2.473615434895520810817e-01;
+    const P3: f32 = 5.114512081637298353406e-02;
+    const P4: f32 = 6.757896990527504603057e-03;
+    const P5: f32 = 5.082762527590693718096e-04;
+    const Q0: f32 = 1.0;
+    const Q1: f32 = -2.742335390411667452936e-01;
+    const Q2: f32 = 2.159509375685829852307e-02;
+    if x.is_nan() {
+        return f32::NAN;
+    }
+    if x >= XMAX {
+        return f32::INFINITY;
+    }
+    if x <= XMIN {
+        return 0.0;
+    }
+    let q = (x * LOG2E + MAGIC) - MAGIC;
+    let mut r = np_fmaf(q, C1, x);
+    r = np_fmaf(q, C2, r);
+    let mut n = np_fmaf(P5, r, P4);
+    n = np_fmaf(n, r, P3);
+    n = np_fmaf(n, r, P2);
+    n = np_fmaf(n, r, P1);
+    n = np_fmaf(n, r, P0);
+    let mut d = np_fmaf(Q2, r, Q1);
+    d = np_fmaf(d, r, Q0);
+    let qi = q as i32;
+    // _mm512_scalef_ps: multiply by 2^q (q is an integer)
+    if qi > 127 {
+        return f32::INFINITY;
+    }
+    if qi < -149 {
+        return 0.0;
+    }
+    let two = if qi >= -126 { f32::from_bits(((qi + 127) as u32) << 23) } else { f32::from_bits(1u32 << (149 + qi)) };
+    (n / d) * two
+}
+// numpy's float32 tanh: loops_hyperbolic.dispatch.cpp.src simd_tanh_f32 (ported from Intel SVML): a
+// 32-entry table picked by the exponent, one odd polynomial, and sign/xor of the result.
+fn np_tanh_f32(x: f32) -> f32 {
+    // c6, c5, c4, c3, c2, c1, c0, b
+    const LUT: [[u32; 8]; 32] = [
+        [0xbc0e2f66, 0x3e0910e9, 0xb76dd6b9, 0xbeaaaaa5, 0xb0343c7b, 0x3f800000, 0x0, 0x0],
+        [0x460bda12, 0x43761143, 0xbe1c276d, 0xbeab0612, 0xbd6ee69d, 0x3f7f1f84, 0x3d6fb9c9, 0x3d700000],
+        [0x43d638ef, 0x4165ecdc, 0x3c1dcf2f, 0xbea7f01f, 0xbd8f0da7, 0x3f7ebd11, 0x3d8fc35f, 0x3d900000],
+        [0xc3e11c3e, 0xc190f756, 0x3dc1a78d, 0xbea4e120, 0xbdae477d, 0x3f7e1e5f, 0x3daf9169, 0x3db00000],
+        [0xc2baa4e9, 0xc08c097d, 0x3d96f985, 0xbea387b7, 0xbdcd2a1f, 0x3f7d609f, 0x3dcf49ab, 0x3dd00000],
+        [0xc249da2d, 0xc02ba813, 0x3da2b61b, 0xbea15962, 0xbdeba80d, 0x3f7c842d, 0x3deee849, 0x3df00000],
+        [0xc1859b82, 0xbf7f6bda, 0x3dc13397, 0xbe9d57f7, 0xbe0c443b, 0x3f7b00e5, 0x3e0f0ee8, 0x3e100000],
+        [0x40dd5b57, 0x3f2b1dc0, 0x3dd2f670, 0xbe976b5a, 0xbe293cf3, 0x3f789580, 0x3e2e4984, 0x3e300000],
+        [0x40494640, 0x3ece105d, 0x3df48a0a, 0xbe90230d, 0xbe44f282, 0x3f75b8ad, 0x3e4d2f8e, 0x3e500000],
+        [0x40c730a8, 0x3f426a94, 0x3e06c5a8, 0xbe880dff, 0xbe5f3651, 0x3f726fd9, 0x3e6bb32e, 0x3e700000],
+        [0xbf0f160e, 0xbadb0dc4, 0x3e1a3aba, 0xbe7479b3, 0xbe81c7c0, 0x3f6cc59b, 0x3e8c51cd, 0x3e900000],
+        [0x3e30e76f, 0x3da43b17, 0x3e27c405, 0xbe4c3d88, 0xbe96d7ca, 0x3f63fb92, 0x3ea96163, 0x3eb00000],
+        [0xbea81387, 0xbd51ab88, 0x3e2e78d0, 0xbe212482, 0xbea7fb8e, 0x3f59ff97, 0x3ec543f1, 0x3ed00000],
+        [0xbdb26a1c, 0xbcaea23d, 0x3e2c3e44, 0xbdeb8cba, 0xbeb50e9e, 0x3f4f11d7, 0x3edfd735, 0x3ef00000],
+        [0xbd351e57, 0xbd3b6d8d, 0x3e1d3097, 0xbd5e78ad, 0xbec12efe, 0x3f3d7573, 0x3f028438, 0x3f100000],
+        [0xbb4c01a0, 0xbd6caaad, 0x3df4a8f4, 0x3c6b5e6e, 0xbec4be92, 0x3f24f360, 0x3f18abf0, 0x3f300000],
+        [0x3c1d7bfb, 0xbd795bed, 0x3da38508, 0x3d839143, 0xbebce070, 0x3f0cbfe7, 0x3f2bc480, 0x3f500000],
+        [0x3c722cd1, 0xbd5fddda, 0x3d31416a, 0x3dc21ee1, 0xbead510e, 0x3eec1a69, 0x3f3bec1c, 0x3f700000],
+        [0x3c973f1c, 0xbd038f3b, 0x3b562657, 0x3de347af, 0xbe8ef7d6, 0x3eb0a801, 0x3f4f2e5b, 0x3f900000],
+        [0x3c33a31b, 0xbc1cad63, 0xbcaeeac9, 0x3dcbec96, 0xbe4b8704, 0x3e6753a2, 0x3f613c53, 0x3fb00000],
+        [0x3b862ef4, 0x3abb4766, 0xbcce9419, 0x3d99ef2d, 0xbe083237, 0x3e132f1a, 0x3f6ce37d, 0x3fd00000],
+        [0x3a27b3d0, 0x3b95f10b, 0xbcaaeac4, 0x3d542ea1, 0xbdaf7449, 0x3db7e7d3, 0x3f743c4f, 0x3ff00000],
+        [0xba3b5907, 0x3b825873, 0xbc49e7d0, 0x3cdde701, 0xbd2e1ec4, 0x3d320845, 0x3f7a5feb, 0x40100000],
+        [0xba0efc22, 0x3afaea66, 0xbba71ddd, 0x3c2cca67, 0xbc83bf06, 0x3c84d3d4, 0x3f7dea85, 0x40300000],
+        [0xb97f9f0f, 0x3a49f878, 0xbb003b0e, 0x3b81cb27, 0xbbc3e0b5, 0x3bc477b7, 0x3f7f3b3d, 0x40500000],
+        [0xb8c8af50, 0x39996bf3, 0xba3f9a05, 0x3ac073a1, 0xbb10aadc, 0x3b10d3da, 0x3f7fb78c, 0x40700000],
+        [0xb7bdddfb, 0x388f3e6c, 0xb92c08a7, 0x39ac3032, 0xba0157db, 0x3a01601e, 0x3f7fefd4, 0x40900000],
+        [0xb64f2950, 0x371bb0e3, 0xb7ba9232, 0x383a94d9, 0xb88c18f2, 0x388c1a3b, 0x3f7ffdd0, 0x40b00000],
+        [0xb4e085b1, 0x35a8a5e6, 0xb64a0b0f, 0x36ca081d, 0xb717b096, 0x3717b0da, 0x3f7fffb4, 0x40d00000],
+        [0xb3731dfa, 0x34369b17, 0xb4dac169, 0x355abd4c, 0xb5a43bae, 0x35a43bce, 0x3f7ffff6, 0x40f00000],
+        [0xb15a1f04, 0x322487b0, 0xb2ab78ac, 0x332b3cb6, 0xb383012c, 0x338306c6, 0x3f7fffff, 0x41100000],
+        [0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x3f800000, 0x0],
+    ];
+    if x.is_nan() {
+        return f32::NAN;
+    }
+    let bits = x.to_bits();
+    let nd = (bits & 0x7fe0_0000) as i32;
+    let special = nd <= 0x7f00_0000;
+    let mut idxs = nd - 0x3d40_0000i32;
+    idxs = idxs.max(0).min(0x03e0_0000);
+    let row = LUT[((idxs as u32) >> 21) as usize];
+    let b = f32::from_bits(row[7]);
+    let y = x.abs() - b;
+    let mut r = np_fmaf(f32::from_bits(row[0]), y, f32::from_bits(row[1]));
+    r = np_fmaf(r, y, f32::from_bits(row[2]));
+    r = np_fmaf(r, y, f32::from_bits(row[3]));
+    r = np_fmaf(r, y, f32::from_bits(row[4]));
+    r = np_fmaf(r, y, f32::from_bits(row[5]));
+    r = np_fmaf(r, y, f32::from_bits(row[6]));
+    if !special {
+        r = 1.0;
+    }
+    f32::from_bits(r.to_bits() | (bits & 0x8000_0000))
+}
+// numpy's float32 log1p: __svml_log1pf16 on AVX512_SKX (svml_z0_log1p_s_la.s). 1+x is split into hi+lo,
+// r = (1+x)*2^-n - 1 with one odd polynomial, then n*ln2 + r + r^2*poly(r). The kernel's rare path
+// (x < 0, tiny, huge) is not reproduced: those inputs fall back to libm, which can differ in the last bit.
+fn np_log1p_f32(x: f32) -> f32 {
+    if x.is_nan() {
+        return f32::NAN;
+    }
+    if x == -1.0 {
+        return f32::NEG_INFINITY;
+    }
+    if x < -1.0 {
+        return f32::NAN;
+    }
+    if x < 0.0 || x < f32::from_bits(0x3380_0000) || x >= f32::from_bits(0x4e80_0000) {
+        return x.ln_1p();
+    }
+    let one = 1.0f32;
+    let (mx, mn) = (x.max(one), x.min(one));
+    let hi = mn + mx;
+    let lo = (mx - hi) + mn;
+    let b = hi.to_bits().wrapping_sub(0x3f2a_aaab);
+    let n = (b >> 23) as i32;
+    let two = f32::from_bits(0x3f80_0000u32.wrapping_sub((n as u32) << 23));
+    let mut r = lo * two;
+    let hi2 = f32::from_bits((b & 0x007f_ffff) + 0x3f2a_aaab);
+    r += hi2 - one;
+    let mut t = np_fmaf(r, f32::from_bits(0x3e0d_84ed), f32::from_bits(0xbe1a_d9e3));
+    t = np_fmaf(t, r, f32::from_bits(0x3e0f_cb12));
+    t = np_fmaf(t, r, f32::from_bits(0xbe28_ad37));
+    t = np_fmaf(t, r, f32::from_bits(0x3e4c_e190));
+    t = np_fmaf(t, r, f32::from_bits(0xbe80_058e));
+    t = np_fmaf(t, r, f32::from_bits(0x3eaa_aa94));
+    t = np_fmaf(t, r, -0.5);
+    let p = r * t;
+    let p = np_fmaf(p, r, r);
+    np_fmaf(n as f32, f32::from_bits(0x3f31_7218), p)
+}
+// numpy's float32 sin and cos: loops_trigonometric.dispatch.cpp simd_sincos_f32 (Cody-Waite reduction,
+// two polynomials, quadrant selection); outside its range numpy falls back to libm.
+fn np_sincos_f32(x: f32, cos: bool) -> f32 {
+    if x.is_nan() {
+        return f32::NAN;
+    }
+    let max_cody = if cos { 71476.0625f32 } else { 117435.992f32 };
+    if x.abs() > max_cody {
+        return if cos { x.cos() } else { x.sin() };
+    }
+    let two_over_pi = f32::from_bits(0x3f22_f983);
+    let (c1, c2, c3) = (f32::from_bits(0xbfc9_0fd8), f32::from_bits(0xb4a8_885a), f32::from_bits(0xa7c2_34c4));
+    let magic = 12582912.0f32;
+    let mut q = x * two_over_pi;
+    q = (q + magic) - magic;
+    let mut rx = np_fmaf(q, c1, x);
+    rx = np_fmaf(q, c2, rx);
+    rx = np_fmaf(q, c3, rx);
+    let x2 = rx * rx;
+    let mut cp = np_fmaf(f32::from_bits(0x37cc_730b), x2, f32::from_bits(0xbab6_036e));
+    cp = np_fmaf(cp, x2, f32::from_bits(0x3d2a_aa9e));
+    cp = np_fmaf(cp, x2, -0.5);
+    cp = np_fmaf(cp, x2, 1.0);
+    let mut sp = np_fmaf(f32::from_bits(0x363e_9dde), x2, f32::from_bits(0xb950_35dd));
+    sp = np_fmaf(sp, x2, f32::from_bits(0x3c08_88cd));
+    sp = np_fmaf(sp, x2, f32::from_bits(0xbe2a_aaab));
+    sp = np_fmaf(sp, x2, 0.0);
+    sp = np_fmaf(sp, rx, rx);
+    let mut iq = q as i32;
+    if cos {
+        iq += 1;
+    }
+    let mut r = if iq & 1 == 0 { sp } else { cp };
+    if iq & 2 == 2 {
+        r = -r;
+    }
+    r
 }
 trait CloneOr {
     fn clone_or(&self, v: &V) -> V;
@@ -1451,12 +1648,12 @@ pub fn np_construct(cls: &str, a: Args) -> Option<R> {
 const NP_NARROW_OK: &[&str] = &[
     "float64", "double", "int64", "int_", "intp", "bool_", "bool", "float32", "single", "int32", "intc",
     "array", "asarray", "asanyarray", "copy", "zeros", "ones", "empty", "full", "zeros_like", "ones_like", "empty_like", "full_like",
-    "arange", "linspace", "eye", "identity", "set_printoptions", "shape", "ndim", "size", "dtype", "isscalar", "issubdtype",
+    "arange", "linspace", "eye", "identity", "set_printoptions", "shape", "ndim", "size", "dtype", "isscalar", "issubdtype", "dot", "matmul",
     "sum", "mean", "std", "var", "prod", "max", "min", "amax", "amin", "argmax", "argmin", "any", "all", "cumsum", "cumprod", "round", "around", "clip",
     "reshape", "ravel", "transpose", "swapaxes", "squeeze", "diagonal", "nonzero", "argsort", "repeat", "sort", "count_nonzero", "where", "argwhere", "flatnonzero",
     "unique", "concatenate", "stack", "vstack", "hstack", "column_stack", "atleast_1d", "atleast_2d", "expand_dims", "flip", "fliplr", "flipud", "roll",
     "diff", "outer", "array_equal", "searchsorted", "tile", "meshgrid", "diag", "fill_diagonal", "unravel_index",
-    "abs", "absolute", "negative", "positive", "sqrt", "floor", "ceil", "trunc", "rint", "fix", "square", "reciprocal", "sign", "isnan", "isinf", "isfinite", "logical_not",
+    "abs", "absolute", "negative", "positive", "sqrt", "exp", "tanh", "log1p", "sin", "cos", "floor", "ceil", "trunc", "rint", "fix", "square", "reciprocal", "sign", "isnan", "isinf", "isfinite", "logical_not",
     "add", "subtract", "multiply", "divide", "true_divide", "floor_divide", "mod", "remainder", "power", "maximum", "minimum", "fmax", "fmin",
     "equal", "not_equal", "less", "less_equal", "greater", "greater_equal", "logical_and", "logical_or", "logical_xor",
     "bitwise_and", "bitwise_or", "bitwise_xor", "left_shift", "right_shift",
@@ -1577,7 +1774,7 @@ pub fn np_module_call(m: &str, n: &str, mut a: Args) -> R {
         let d = a.p.iter().chain(a.k.iter().map(|(_, v)| v)).find_map(np_store_dt).unwrap();
         return Err(np_store_err(d, &format!("{}{n}()", if m == "numpy" { "np.".to_string() } else { format!("{m}.") })));
     }
-    if m != "numpy" || !NP_NARROW_OK.contains(&n) {
+    if (m != "numpy" || !NP_NARROW_OK.contains(&n)) && !(m == "numpy.linalg" && n == "norm") {
         if np_narrow_args(&a) {
             return Err(np_unsup(&format!("{}{n}() of float32 or int32 values", if m == "numpy" { "np.".to_string() } else { format!("{m}.") })));
         }

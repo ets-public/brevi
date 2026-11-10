@@ -2063,6 +2063,126 @@ fn np_ddot(x: &[f64], y: &[f64], unit: bool) -> f64 {
     }
     d
 }
+
+// ---------- float32 (OpenBLAS sgemm / sdot) ----------
+// a * b + c rounded once, like the CPU's fmaf
+#[inline(always)]
+fn np_fmaf(a: f32, b: f32, c: f32) -> f32 {
+    a.mul_add(b, c)
+}
+// numpy's float32 matrix @ matrix is OpenBLAS's sgemm. On SkylakeX (AVX-512) both the small-matrix
+// kernels (sgemm_small_kernel_{nn,nt,tn,tt}_skylakex.c, except their M <= 8, k >= 32 dot-like branch,
+// which np_dot2 refuses) and the regular kernel sgemm_kernel_16x4_skylakex_3.c hold one 16-lane
+// accumulator per column of a row block and fuse one k product into it at a time, so each element is one
+// fused multiply-add chain over k, and the k-blocks (and the threads' parts) add up in k order.
+// xf / yf: OpenBLAS reads that operand transposed.
+fn np_sgemm(xv: &[f32], yv: &[f32], m: usize, k: usize, n: usize, _xf: bool, _yf: bool) -> Vec<f32> {
+    let mut c = vec![0.0f32; m * n];
+    for j in 0..m {
+        for i in 0..n {
+            let mut s = 0.0f32;
+            for t in 0..k {
+                s = np_fmaf(xv[j * k + t], yv[t * n + i], s);
+            }
+            c[j * n + i] = s;
+        }
+    }
+    c
+}
+// OpenBLAS sdot on one thread's share (sdot.c + sdot_microk_skylakex-2.c; the AVX2 path, since the
+// AVX-512 one only takes 64-value blocks, which the wrapper never passes it: it gives one call over all
+// 32-value blocks). unit strides: products go through the kernel's 8-lane accumulators, the tail and the
+// block sum into a double; otherwise pairs are summed in float and added to the double.
+fn np_sdot1(x: &[f32], y: &[f32], unit: bool, k: Blas) -> f32 {
+    let n = x.len();
+    if k == Blas::Plain || !unit {
+        if unit {
+            let mut s = 0.0f32;
+            for i in 0..n {
+                s += y[i] * x[i];
+            }
+            return s;
+        }
+        let mut d = 0.0f64;
+        let n1 = n & !1;
+        let mut i = 0;
+        while i < n1 {
+            d += (y[i] * x[i] + y[i + 1] * x[i + 1]) as f64;
+            i += 2;
+        }
+        while i < n {
+            d += (y[i] * x[i]) as f64;
+            i += 1;
+        }
+        return d as f32;
+    }
+    let n1 = n & !31;
+    let mut d = 0.0f64;
+    if n1 > 0 {
+        // sdot_kernel_16 over the whole n1: 64-value AVX-512 blocks folded, then 32-value AVX2 blocks,
+        // four 8-lane accumulators, then (v0+v1)+(v2+v3) of their folded halves
+        let mut acc = [[0.0f32; 8]; 4];
+        let n64 = n1 & !63;
+        let mut z = [[0.0f32; 16]; 4];
+        let mut i = 0;
+        while i < n64 {
+            for g in 0..4 {
+                for l in 0..16 {
+                    let p = i + g * 16 + l;
+                    z[g][l] += x[p] * y[p];
+                }
+            }
+            i += 64;
+        }
+        for g in 0..4 {
+            for l in 0..8 {
+                acc[g][l] += z[g][l] + z[g][l + 8];
+            }
+        }
+        while i < n1 {
+            for g in 0..4 {
+                for l in 0..8 {
+                    let p = i + g * 8 + l;
+                    acc[g][l] += x[p] * y[p];
+                }
+            }
+            i += 32;
+        }
+        let mut v = [0.0f32; 8];
+        for l in 0..8 {
+            v[l] = ((acc[0][l] + acc[1][l]) + acc[2][l]) + acc[3][l];
+        }
+        let mut h = [0.0f32; 4];
+        for l in 0..4 {
+            h[l] = v[l] + v[l + 4];
+        }
+        d += ((h[0] + h[1]) + (h[2] + h[3])) as f64;
+    }
+    for i in n1..n {
+        d += (y[i] * x[i]) as f64;
+    }
+    d as f32
+}
+// cblas_sdot: like cblas_ddot, over 10000 values the work is split across threads and the parts added
+fn np_sdot(x: &[f32], y: &[f32], unit: bool) -> f32 {
+    let k = np_blas();
+    let n = x.len();
+    if n <= 10000 || k == Blas::Plain {
+        return np_sdot1(x, y, unit, k);
+    }
+    let nt = std::thread::available_parallelism().map_or(1, |v| v.get()).min(64);
+    let (mut rest, mut pos, mut d) = (n, 0usize, 0.0f32);
+    for j in 0..nt {
+        if rest == 0 {
+            break;
+        }
+        let w = ((rest + nt - j - 1) / (nt - j)).min(rest);
+        d += np_sdot1(&x[pos..pos + w], &y[pos..pos + w], unit, k);
+        pos += w;
+        rest -= w;
+    }
+    d
+}
 // one element of a float matrix product: the k-loop as one fused multiply-add chain (OpenBLAS's gemm
 // kernels); for a matrix times a vector, gemv's four lanes
 fn dot_f(x: &[f64], y: &[f64]) -> f64 {
@@ -2832,9 +2952,6 @@ pub fn np_dot2(x: &NdArr, y: &NdArr, matmul: bool) -> R {
         return Err(np_unsup("dot/matmul of arrays with more than 2 dimensions"));
     }
     let d = np_promote(x.dt(), y.dt());
-    if d == NT::F32 {
-        return Err(np_unsup("float32 dot/matmul (OpenBLAS sgemm)"));
-    }
     let (m, k) = if x.ndim() == 1 { (1, x.shape[0]) } else { (x.shape[0], x.shape[1]) };
     let (k2, n) = if y.ndim() == 1 { (y.shape[0], 1) } else { (y.shape[0], y.shape[1]) };
     if k != k2 {
@@ -2955,6 +3072,40 @@ pub fn np_dot2(x: &NdArr, y: &NdArr, matmul: bool) -> R {
                     }
                     Buf::F(o)
                 }
+            }
+        }
+        NT::F32 => {
+            // OpenBLAS's float32 dot and matmul (sdot / sgemm); sgemv is not modelled yet.
+            if np_blas() != Blas::Skx {
+                return Err(np_unsup("float32 dot/matmul (OpenBLAS sgemm on this CPU)"));
+            }
+            let (xv, yv) = (x.vals().f32v(), y.vals().f32v());
+            if x.ndim() == 1 && y.ndim() == 1 {
+                let unit = x.st.first().is_none_or(|s| *s == 1) && y.st.first().is_none_or(|s| *s == 1);
+                Buf::F32(vec![np_sdot(&xv, &yv, unit)])
+            } else if x.ndim() == 2 && y.ndim() == 2 && m > 1 && n > 1 && k > 0 {
+                // the small kernels' M <= 8, k >= 32 dot-like branch sums 16 k values in lanes; refused here
+                if m <= 8 && k >= 32 && m as f64 * n as f64 * k as f64 <= 1e6 {
+                    return Err(np_unsup("float32 matmul (OpenBLAS sgemm dot-like small kernel)"));
+                }
+                let bl2 = |a: &NdArr| {
+                    let ok = |s0: isize, s1: isize, d1: usize| s1 == 1 && s0 >= d1 as isize;
+                    a.ndim() != 2 || ok(a.st[0], a.st[1], a.shape[1]) || ok(a.st[1], a.st[0], a.shape[0]) || a.shape.contains(&1)
+                };
+                let tr = |a: &NdArr| {
+                    if !matmul {
+                        a.st[0] == 1 && a.st[1] == a.shape[0] as isize
+                    } else if bl2(a) {
+                        !(a.st[1] == 1 && a.st[0] >= a.shape[1] as isize)
+                    } else {
+                        a.st[0].abs() < a.st[1].abs()
+                    }
+                };
+                Buf::F32(np_sgemm(&xv, &yv, m, k, n, tr(x), tr(y)))
+            } else if k == 0 {
+                Buf::F32(vec![0.0; m * n])
+            } else {
+                return Err(np_unsup("float32 matrix/vector product (OpenBLAS sgemv)"));
             }
         }
         NT::I | NT::I32 => {
