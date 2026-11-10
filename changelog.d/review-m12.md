@@ -1,0 +1,1 @@
+- Passing the same keyword twice (`f(**a, **b)` with a shared key, `f(x=1, **{"x": 2})`) raises CPython's "got multiple values for keyword argument" TypeError instead of silently keeping one value.
