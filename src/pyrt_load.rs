@@ -91,6 +91,7 @@ mod ax_pyffi {
         // For the dynamic builds' bridge (dynpy/pyglue.rs).
         pub RichCompareBool: unsafe extern "C" fn(P, P, c_int) -> c_int,
         pub IsInstance: unsafe extern "C" fn(P, P) -> c_int,
+        pub IsSubclass: unsafe extern "C" fn(P, P) -> c_int,
         pub Type: unsafe extern "C" fn(P) -> P,
         pub Size: unsafe extern "C" fn(P) -> isize,
         pub LongFromStr: unsafe extern "C" fn(*const c_char, *mut *mut c_char, c_int) -> P,
@@ -672,6 +673,7 @@ fn ax_pyb_load() -> Result<ax_pyffi::Api, String> {
         None: sym("_Py_NoneStruct")?,
         RichCompareBool: f!("PyObject_RichCompareBool"),
         IsInstance: f!("PyObject_IsInstance"),
+        IsSubclass: f!("PyObject_IsSubclass"),
         Type: f!("PyObject_Type"),
         Size: f!("PyObject_Size"),
         LongFromStr: f!("PyLong_FromString"),

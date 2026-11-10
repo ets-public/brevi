@@ -210,6 +210,9 @@ pub fn eq(a: &V, b: &V) -> Result<bool, E> {
         }
         (V::Tuple(x), V::Tuple(y)) => Tup::ptr_eq(x, y) || seq_eq(x, y)?,
         (V::Dict(x), V::Dict(y)) => {
+            if x.borrow().kind == 2 && y.borrow().kind == 2 {
+                return Ok(counter_eq(x, y)?);
+            }
             if Rc::ptr_eq(x, y) {
                 return Ok(true);
             }
@@ -411,6 +414,55 @@ fn swap_op(op: &str) -> &'static str {
         _ => "<=",
     }
 }
+// Counter ordering helpers. The counts are copied out first: comparing them may run user __eq__/__lt__, which
+// may change either counter.
+fn counter_pair(a: &V, b: &V) -> Option<(Rc<RefCell<Dict>>, Rc<RefCell<Dict>>)> {
+    match (a, b) {
+        (V::Dict(x), V::Dict(y)) if x.borrow().kind == 2 && y.borrow().kind == 2 => Some((x.clone(), y.clone())),
+        _ => None,
+    }
+}
+fn counter_eq(x: &Rc<RefCell<Dict>>, y: &Rc<RefCell<Dict>>) -> Result<bool, E> {
+    if Rc::ptr_eq(x, y) {
+        return Ok(true);
+    }
+    let xs = x.borrow().items();
+    let ys = y.borrow().items();
+    for (k, v) in xs {
+        let w = Dict::get_cell(y, &k)?.unwrap_or(V::Int(0));
+        if !eq(&v, &w)? {
+            return Ok(false);
+        }
+    }
+    for (k, v) in ys {
+        let w = Dict::get_cell(x, &k)?.unwrap_or(V::Int(0));
+        if !eq(&v, &w)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+fn counter_rich(x: &Rc<RefCell<Dict>>, y: &Rc<RefCell<Dict>>, op: &str) -> Result<bool, E> {
+    if op == "<" || op == ">" {
+        let incl = counter_rich(x, y, if op == "<" { "<=" } else { ">=" })?;
+        return Ok(incl && !counter_eq(x, y)?);
+    }
+    let xs = x.borrow().items();
+    let ys = y.borrow().items();
+    for (k, v) in xs {
+        let w = Dict::get_cell(y, &k)?.unwrap_or(V::Int(0));
+        if !rich(&v, &w, op)? {
+            return Ok(false);
+        }
+    }
+    for (k, v) in ys {
+        let w = Dict::get_cell(x, &k)?.unwrap_or(V::Int(0));
+        if !rich(&w, &v, op)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
 fn dunder(op: &str) -> &'static str {
     match op {
         "<" => "__lt__",
@@ -469,6 +521,9 @@ pub fn rich(a: &V, b: &V, op: &str) -> Result<bool, E> {
             return rich(&ia.unwrap_or(a.clone()), &ib.unwrap_or(b.clone()), op);
         }
         return Err(cmp_err(op, a, b));
+    }
+    if let Some((x, y)) = counter_pair(a, b) {
+        return Ok(counter_rich(&x, &y, op)?);
     }
     use std::cmp::Ordering::*;
     let o = order(a, b, op)?;
@@ -903,6 +958,9 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
             let r = set_op(&to_set(a)?, &to_set(b)?, op)?;
             return Ok(V::Set(Rc::new(RefCell::new(r))));
         }
+        (V::Dict(x), V::Dict(y)) if matches!(op, "+" | "-" | "|" | "&") && x.borrow().kind == 2 && y.borrow().kind == 2 => {
+            return counter_op(x, y, op);
+        }
         (V::Dict(x), V::Dict(y)) if op == "|" => {
             let mut d = x.borrow().copy();
             let items = y.borrow().items();
@@ -913,9 +971,6 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
         }
         (V::View(x), _) if x.1 == 3 && op == "|" => return binop(&x.0, b, op),
         (_, V::View(y)) if y.1 == 3 && op == "|" => return binop(a, &y.0, op),
-        (V::Dict(x), V::Dict(y)) if (op == "+" || op == "-") && x.borrow().kind == 2 => {
-            return counter_op(x, y, op);
-        }
         (V::Deque(x), V::Deque(y)) if op == "+" => {
             let mut v = x.borrow().v.clone();
             v.extend(y.borrow().v.iter().cloned());
@@ -1098,19 +1153,19 @@ fn iop_slow(a: &V, b: &V, op: &str) -> R {
             }
             return Ok(a.clone());
         }
-        (V::Dict(d), "|") => {
-            let items = dict_items_of(b)?;
-            for (k, v) in items {
-                Dict::set_cell(d, k, v)?;
-            }
-            return Ok(a.clone());
-        }
-        (V::Dict(d), "+" | "-") if d.borrow().kind == 2 => {
-            let r = binop(a, b, op)?;
+        (V::Dict(d), cop @ ("+" | "-" | "|" | "&")) if d.borrow().kind == 2 => {
+            let r = binop(a, b, cop)?;
             if let V::Dict(r) = r {
                 let r = r.borrow().copy();
                 *d.borrow_mut() = r;
                 d.borrow_mut().kind = 2;
+            }
+            return Ok(a.clone());
+        }
+        (V::Dict(d), "|") => {
+            let items = dict_items_of(b)?;
+            for (k, v) in items {
+                Dict::set_cell(d, k, v)?;
             }
             return Ok(a.clone());
         }
@@ -1135,19 +1190,42 @@ fn counter_op(x: &Rc<RefCell<Dict>>, y: &Rc<RefCell<Dict>>, op: &str) -> R {
     let mut d = Dict::new();
     d.kind = 2;
     let xs = x.borrow().items();
+    let ys = y.borrow().items();
     for (k, v) in xs {
         let w = Dict::get_cell(y, &k)?.unwrap_or(V::Int(0));
-        let r = binop(&v, &w, op)?;
+        let r = match op {
+            "+" => binop(&v, &w, "+")?,
+            "-" => binop(&v, &w, "-")?,
+            "|" => if rich(&v, &w, "<")? { w } else { v },
+            "&" => if rich(&v, &w, "<")? { v } else { w },
+            _ => return Err(op_err(op, &V::Dict(x.clone()), &V::Dict(y.clone()))),
+        };
         if rich(&r, &V::Int(0), ">")? {
             d.set(k, r)?;
         }
     }
-    if op == "+" {
-        let ys = y.borrow().items();
+    // The right operand's keys the left does not have: + keeps positive counts, - keeps flipped negative
+    // counts, | keeps positive counts, & has nothing (the left missing count is zero, the minimum).
+    if matches!(op, "+" | "|" | "-") {
         for (k, v) in ys {
-            if !Dict::contains_cell(x, &k)? && rich(&v, &V::Int(0), ">")? {
-                d.set(k, v)?;
+            if !Dict::contains_cell(x, &k)? {
+                let r = if op == "-" { neg(&v)? } else { v };
+                if rich(&r, &V::Int(0), ">")? {
+                    d.set(k, r)?;
+                }
             }
+        }
+    }
+    Ok(V::Dict(Rc::new(RefCell::new(d))))
+}
+// unary + and -: a new Counter with only positive counts (+), or the flipped positive counts (-).
+fn counter_unary(x: &Rc<RefCell<Dict>>, negate: bool) -> R {
+    let mut d = Dict::new();
+    d.kind = 2;
+    for (k, v) in x.borrow().items() {
+        let r = if negate { neg(&v)? } else { v };
+        if rich(&r, &V::Int(0), ">")? {
+            d.set(k, r)?;
         }
     }
     Ok(V::Dict(Rc::new(RefCell::new(d))))
@@ -1218,6 +1296,7 @@ pub fn neg(a: &V) -> R {
         V::Bool(b) => Ok(V::Int(-(*b as i64))),
         V::Big(b) => Ok(b.neg().norm()),
         V::Float(f) => Ok(V::Float(-f)),
+        V::Dict(d) if d.borrow().kind == 2 => counter_unary(d, true),
         V::Obj(o) => match o.cls.lookup("__neg__") {
             Some(f) => call(&f, Args::p(vec![a.clone()])),
             None => match inner_of(a) {
@@ -1236,6 +1315,7 @@ pub fn pos(a: &V) -> R {
     match a {
         V::Int(_) | V::Big(_) | V::Float(_) => Ok(a.clone()),
         V::Bool(b) => Ok(V::Int(*b as i64)),
+        V::Dict(d) if d.borrow().kind == 2 => counter_unary(d, false),
         V::Ext(x) => match x.binop(a, "pos", &V::None, false) {
             Some(r) => r,
             None => type_err(format!("bad operand type for unary +: '{}'", tn(a))),
@@ -1696,10 +1776,16 @@ pub fn delitem(c: &V, i: &V) -> Result<(), E> {
             }
             Ok(())
         }
-        (V::Dict(d), _) => match Dict::del_cell(d, i)? {
-            Some(_) => Ok(()),
-            None => Err(exc_v("KeyError", i.clone())),
-        },
+        (V::Dict(d), _) => {
+            // Counter.__delitem__ ignores missing keys; dict.__delitem__ raises KeyError.
+            if d.borrow().kind == 2 && !Dict::contains_cell(d, i)? {
+                return Ok(());
+            }
+            match Dict::del_cell(d, i)? {
+                Some(_) => Ok(()),
+                None => Err(exc_v("KeyError", i.clone())),
+            }
+        }
         (V::Deque(d), _) => {
             let mut d = d.borrow_mut();
             let j = norm_idx(idx_of(i)?, d.v.len(), "deque")?;
@@ -1739,8 +1825,8 @@ pub enum It {
     Set(Rc<RefCell<PSet>>, usize, i64),
     Gen(Box<dyn FnMut() -> Result<Option<V>, E>>),
     // A generator expression: like Gen, but an error escapes to the caller once and then the iterator is
-    // exhausted, as in CPython.
-    GenExp(Box<dyn FnMut() -> Result<Option<V>, E>>, bool),
+    // exhausted, as in CPython. `name` is the genexp's dotted __qualname__ (f.<locals>.<genexpr>).
+    GenExp(Box<dyn FnMut() -> Result<Option<V>, E>>, Sym, bool),
     Coro(Rc<RefCell<Box<Coro>>>),
     Obj(V),
     // another iterator object, stepped through iter_step so that re-entrant calls work
@@ -1858,7 +1944,7 @@ impl It {
                 Ok(None)
             }
             It::Gen(f) => f(),
-            It::GenExp(f, done) => {
+            It::GenExp(f, _, done) => {
                 if *done {
                     return Ok(None);
                 }
@@ -2004,8 +2090,8 @@ pub fn to_vec(v: &V) -> Result<Vec<V>, E> {
 pub fn gen_iter(f: impl FnMut() -> Result<Option<V>, E> + 'static) -> V {
     V::Iter(Rc::new(RefCell::new(It::Gen(Box::new(f)))))
 }
-pub fn genexp_iter(f: impl FnMut() -> Result<Option<V>, E> + 'static) -> V {
-    V::Iter(Rc::new(RefCell::new(It::GenExp(Box::new(f), false))))
+pub fn genexp_iter(name: Sym, f: impl FnMut() -> Result<Option<V>, E> + 'static) -> V {
+    V::Iter(Rc::new(RefCell::new(It::GenExp(Box::new(f), name, false))))
 }
 pub fn vec_iter(v: Vec<V>) -> V {
     V::Iter(Rc::new(RefCell::new(It::Vec(v.into_iter()))))

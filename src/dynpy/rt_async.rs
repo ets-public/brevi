@@ -55,7 +55,7 @@ impl ACoro {
                         return Err(exc("TypeError", "can't send non-None value to a just-started coroutine".into()));
                     }
                     let ACState::Fresh(body) = std::mem::replace(&mut *st, ACState::Done) else { unreachable!() };
-                    let c = Rc::new(RefCell::new(Coro::new(body)));
+                    let c = Rc::new(RefCell::new(Coro::new(self.name, body)));
                     *st = ACState::Run(c.clone());
                     c
                 }
@@ -1376,7 +1376,7 @@ pub struct AGen {
 }
 
 pub fn make_agen(name: Sym, body: impl FnOnce() -> R + 'static) -> V {
-    V::Ext(ExtRc::new(AGen { name, st: RefCell::new(AGState { coro: Rc::new(RefCell::new(Coro::new(Box::new(body)))), running: false, hooked: false, finalizer: V::None, closed: false }) }))
+    V::Ext(ExtRc::new(AGen { name, st: RefCell::new(AGState { coro: Rc::new(RefCell::new(Coro::new(name, Box::new(body)))), running: false, hooked: false, finalizer: V::None, closed: false }) }))
 }
 
 fn ag_of(x: &V) -> Option<&AGen> {

@@ -121,6 +121,8 @@ const MAP_ANON_FLAGS: i32 = 0x0002 | 0x1000;
 const MAP_ANON_FLAGS: i32 = 0x0002 | 0x0020 | 0x4000;
 
 pub struct Coro {
+    // CPython's dotted __qualname__ of the generator function (__name__ is its last component)
+    pub name: Sym,
     stack: *mut u8,
     sp: *mut u8,
     caller_sp: *mut u8,
@@ -165,6 +167,9 @@ thread_local! {
     // guard page) per short-lived coroutine is two syscalls plus page-table work, and asyncio's gather makes
     // one coroutine per child. A few are enough: concurrent tasks reuse them as fast as they are freed.
     static CORO_FREE: RefCell<Vec<*mut u8>> = RefCell::new(Vec::new());
+    // The __qualname__ of the generator whose body is running now: repr()/__qualname__ of a generator called
+    // from its own body cannot borrow its cells (they are held across the body), so read the name from here.
+    static CUR_GEN_NAME: std::cell::Cell<Option<Sym>> = const { std::cell::Cell::new(None) };
 }
 const CORO_POOL_MAX: usize = 128;
 #[cfg(not(windows))]
@@ -269,8 +274,9 @@ unsafe extern "system" fn coro_fiber_proc(c: *mut std::ffi::c_void) {
 }
 
 impl Coro {
-    fn new(body: Box<dyn FnOnce() -> R>) -> Box<Coro> {
+    fn new(name: Sym, body: Box<dyn FnOnce() -> R>) -> Box<Coro> {
         Box::new(Coro {
+            name,
             stack: std::ptr::null_mut(),
             sp: std::ptr::null_mut(),
             caller_sp: std::ptr::null_mut(),
@@ -333,7 +339,9 @@ impl Coro {
             self.depth_base = DEPTH.with(|d| d.get());
             DEPTH.with(|d| d.set(self.depth_base + self.depth));
             CORO_NOW.with(|s| s.borrow_mut().push(self as *mut Coro));
+            CUR_GEN_NAME.with(|n| n.set(Some(self.name)));
             brevi_ctx_switch(&mut self.caller_sp, self.sp);
+            CUR_GEN_NAME.with(|n| n.set(None));
             CORO_NOW.with(|s| s.borrow_mut().pop());
             self.running = false;
             self.depth = DEPTH.with(|d| d.get()).saturating_sub(self.depth_base);
@@ -504,8 +512,12 @@ pub fn gen_yield_from(it: &V) -> R {
 }
 
 // A generator object: the function body, started at the first next().
-pub fn make_gen(body: impl FnOnce() -> R + 'static) -> V {
-    V::Iter(Rc::new(RefCell::new(It::Coro(Rc::new(RefCell::new(Coro::new(Box::new(body))))))))
+pub fn make_gen(name: Sym, body: impl FnOnce() -> R + 'static) -> V {
+    V::Iter(Rc::new(RefCell::new(It::Coro(Rc::new(RefCell::new(Coro::new(name, Box::new(body))))))))
+}
+// The __qualname__ of the generator whose body is running now (None otherwise).
+pub fn running_gen_name() -> Option<Sym> {
+    CUR_GEN_NAME.with(|n| n.get())
 }
 
 pub fn coro_next(c: &Rc<RefCell<Box<Coro>>>, sent: V) -> Result<Option<V>, E> {
