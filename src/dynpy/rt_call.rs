@@ -560,17 +560,37 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
     }
     if name == "__setattr__" {
         let me2 = me.clone();
-        return Ok(builtin("__setattr__", move |a: Args| {
-            if let (V::Obj(o), V::Str(n)) = (&me2, &a.p[0]) {
-                o.set_res(sym(&n.s), a.p[1].clone())?;
-            }
-            Ok(V::None)
-        }));
+        return Ok(builtin("__setattr__", move |a: Args| object_setattr(&me2, &a.p)));
     }
     if let Some(inner) = inner_of(me) {
         return getattr(&inner, name);
     }
     Err(exc("AttributeError", format!("'super' object has no attribute '{name}'")))
+}
+// object.__setattr__(me, name, value): the store without the class's own __setattr__, but through a property
+pub fn object_setattr(me: &V, a: &[V]) -> R {
+    if a.len() != 2 {
+        // CPython names no function here: its message starts with a space
+        return type_err(format!(" expected 2 arguments, got {}", a.len()));
+    }
+    let V::Str(n) = &a[0] else {
+        return type_err(format!("attribute name must be string, not '{}'", tn(&a[0])));
+    };
+    let V::Obj(o) = me else {
+        return Ok(V::None);
+    };
+    let name = sym(&n.s);
+    if o.cls.is_prop(name) {
+        if let Some(V::Prop(p)) = o.cls.lookup(name) {
+            if matches!(p.1, V::None) {
+                return Err(exc("AttributeError", format!("property '{}' of '{}' object has no setter", name, o.cls.name)));
+            }
+            call(&p.1, Args::p(vec![me.clone(), a[1].clone()]))?;
+            return Ok(V::None);
+        }
+    }
+    o.set_res(name, a[1].clone())?;
+    Ok(V::None)
 }
 fn bind_attr(v: V, me: &V, from_class_lookup: bool) -> V {
     match &v {
