@@ -9,11 +9,11 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 200,
+"matched": 202,
 "refused": 163,
 "wrong_output": 32,
 "wrong_exit": 52,
-"crash_or_timeout": 3,
+"crash_or_timeout": 1,
 "not_extractable": 104,
 "unstable": 22,
 "excluded": 29,
@@ -21,7 +21,7 @@
 "scored": 554,
 "matched_through_cpython": 9,
 "matched_silent": 27,
-"coverage": 0.3448,
+"coverage": 0.3484,
 "wrong": 84
 },
 "dyn": {
@@ -112,11 +112,11 @@
 },
 "test_re": {
 "normal": {
-"matched": 48,
+"matched": 50,
 "refused": 37,
 "wrong_output": 23,
 "wrong_exit": 17,
-"crash_or_timeout": 3,
+"crash_or_timeout": 1,
 "not_extractable": 22,
 "unstable": 2,
 "excluded": 13,
@@ -124,7 +124,7 @@
 "scored": 150,
 "matched_through_cpython": 4,
 "matched_silent": 2,
-"coverage": 0.2933,
+"coverage": 0.3067,
 "wrong": 40
 },
 "dyn": {
@@ -3503,6 +3503,20 @@
 }
 },
 {
+"id": "test_re.ReTests.test_bug_418626",
+"file": "test_re",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
 "id": "test_re.ReTests.test_bug_448951",
 "file": "test_re",
 "modes": {
@@ -4814,6 +4828,20 @@
 "dyn": {
 "category": "refused",
 "detail": "re.PatternError is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_re.ReTests.test_stack_overflow",
+"file": "test_re",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
