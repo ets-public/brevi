@@ -49,6 +49,8 @@ struct FnSig {
 }
 
 pub struct Emitter {
+    // The next expression is an operand of + - *: its own result is not checked (see expr).
+    ck_raw: bool,
     // Locals set from set(...) / a - b on sets in this function, so `s - k` on them is set difference.
     set_vars: HashSet<String>,
     // Local lists kept as AxSet (a list with a hash index, so `x in s` is O(1)); see fast_sets.
@@ -989,6 +991,7 @@ impl Emitter {
             cur_body: String::new(),
             json_ret: false,
             own_locals: HashSet::new(),
+            ck_raw: false,
             set_vars: HashSet::new(),
             hash_sets: HashSet::new(),
             set_params: HashMap::new(),
@@ -2216,7 +2219,11 @@ impl Emitter {
                     }
                     (_, "+=") => {
                         let p = self.place_mut(target);
-                        format!("{{ let __v = {v}; let __p = &mut {p}; *__p = Plus::plus(std::mem::take(__p), __v); }}")
+                        format!("{{ let __v = {v}; let __p = &mut {p}; *__p = ax_ck(Plus::plus(std::mem::take(__p), __v)); }}")
+                    }
+                    (_, op @ ("-=" | "*=")) => {
+                        let p = self.place_mut(target);
+                        format!("{{ let __v = {v}; let __p = &mut {p}; *__p {op} __v; ax_ck_ref(&*__p); }}")
                     }
                     (_, op) => {
                         let p = self.place_mut(target);
@@ -2427,6 +2434,11 @@ impl Emitter {
     }
 
     pub fn expr(&mut self, e: &Expr) -> String {
+        // ax_ck checks a sum, difference or product against the None marks (see the prelude); only the one
+        // that leaves an arithmetic expression needs it, so an operand that is itself one is emitted raw.
+        let raw = std::mem::take(&mut self.ck_raw);
+        let ck = move |s: String| if raw { format!("({s})") } else { format!("ax_ck({s})") };
+        let arith = |x: &Expr| matches!(x, Expr::Binary("+" | "-" | "*", ..) | Expr::Unary("-", _));
         match e {
             Expr::Int(n) => format!("{n}i64"),
             Expr::Float(f) => format!("{f:?}f64"),
@@ -2527,6 +2539,10 @@ impl Emitter {
             }
             Expr::Tuple(items) => format!("({})", items.iter().map(|i| self.expr(i)).collect::<Vec<_>>().join(", ")),
             Expr::Unary(op, a) if *op == "!" => format!("(!{})", self.cond(a)),
+            Expr::Unary(op, a) if *op == "-" => {
+                self.ck_raw = arith(a);
+                ck(format!("-{}", self.expr(a)))
+            }
             Expr::Unary(op, a) => format!("({op}{})", self.expr(a)),
             // `v is MISSING` / `v is not MISSING`: identity with the sentinel the name was made from.
             Expr::Binary(op @ ("==" | "!="), a, b) if sentinel_call(a).is_some() || sentinel_call(b).is_some() => {
@@ -2566,9 +2582,18 @@ impl Emitter {
             Expr::Binary(op, a, b) => {
                 // Comparisons read their operands in place, without copying them.
                 let pow_zd = pow_can_zd(b);
-                let (a, b) = if ["==", "!=", "<", ">", "<=", ">=", "in"].contains(op) { (self.operand(a), self.operand(b)) } else { (self.expr(a), self.expr(b)) };
+                let sums = matches!(*op, "+" | "-" | "*");
+                let (a, b) = if ["==", "!=", "<", ">", "<=", ">=", "in"].contains(op) {
+                    (self.operand(a), self.operand(b))
+                } else {
+                    self.ck_raw = sums && arith(a);
+                    let a = self.expr(a);
+                    self.ck_raw = sums && arith(b);
+                    (a, self.expr(b))
+                };
                 match *op {
-                    "+" => format!("Plus::plus({a}, {b})"),
+                    // ax_ck: a result equal to a None mark (see the prelude) is never shown as None.
+                    "+" => ck(format!("Plus::plus({a}, {b})")),
                     "and" | "or" => unreachable!(),
                     "~=" => format!("ax_approx({a}, {b})"),
                     "//" if self.py_mode && !self.catch.is_empty() && self.catches("ZeroDivisionError") => {
@@ -2593,6 +2618,7 @@ impl Emitter {
                     }
                     "%" if self.py_mode && self.ck_zd => format!("({a}).ax_pymod_try({b})?"),
                     "%" if self.py_mode => format!("AxPyMod::ax_pymod({a}, {b})"),
+                    op @ ("-" | "*") => ck(format!("{a} {op} {b}")),
                     op => format!("({a} {op} {b})"),
                 }
             }
@@ -3072,7 +3098,7 @@ impl Emitter {
                 let b = plain.get(1).cloned().unwrap_or_default();
                 return format!("({a}).ax_truediv_try({b})?");
             }
-            "__truediv" => return format!("AxTrueDiv::ax_truediv({})", plain.join(", ")),
+            "__truediv" => return format!("ax_ck(AxTrueDiv::ax_truediv({}))", plain.join(", ")),
             "fail" if !self.catch.is_empty() => {
                 let lab = self.catch.last().unwrap().clone();
                 let brk = if lab.starts_with("ax_tryv") { " None" } else { "" };
