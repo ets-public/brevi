@@ -4357,7 +4357,7 @@ fn in_place(e: &Expr, n: &str, muts: &HashMap<String, Vec<bool>>) -> bool {
                 }
             }
         }
-        Expr::Method(recv, m, _, _) if ["push", "pop", "insert", "remove", "clear", "splice", "heap_push", "heap_pop", "heap_push_pop", "heap_replace", "heapify", "pop_at", "pop_item", "update", "move_to_end"].contains(&m.as_str()) && root_is(recv, n) => hit = true,
+        Expr::Method(recv, m, _, _) if ["push", "pop", "insert", "remove", "clear", "splice", "heap_push", "heap_pop", "heap_push_pop", "heap_replace", "heapify", "pop_at", "pop_item", "update", "move_to_end", "sort", "sort_by", "sort_by_rev", "reverse", "extend", "add", "discard", "appendleft", "popleft", "push_front", "pop_front", "setdefault", "rotate", "difference_update", "intersection_update", "symmetric_difference_update", "subtract", "retain", "truncate"].contains(&m.as_str()) && root_is(recv, n) => hit = true,
         // `for b in self.backs: b[2] -= 1` changes the items of n's list in place.
         Expr::For(p, it, body) => {
             let mut src = it.as_ref();
