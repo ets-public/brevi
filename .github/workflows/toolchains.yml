@@ -228,6 +228,11 @@ jobs:
           uv python install 3.13.13 --quiet
           python3 tools/conformance.py --check --python "$(uv python find 3.13.13)" --out conformance-report
           cat conformance-report/report.md >> "$GITHUB_STEP_SUMMARY"
+          # The stdlib slice (itertools, collections, re, ...) takes as long again, so only the daily run checks it.
+          if [ "${{ github.event_name }}" = schedule ]; then
+            python3 tools/conformance.py --slice stdlib --check --python "$(uv python find 3.13.13)" --out conformance-stdlib
+            cat conformance-stdlib/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Fuzz for panics (generated programs; a panic, signal or compiler crash fails the run)
         # Pull requests replay the saved corpus (bench/fuzz/corpus: once-failing cases that must stay fixed); the daily
