@@ -1062,6 +1062,34 @@ pub fn hash_float(f: f64) -> i64 {
     }
     h
 }
+// A fresh NaN value: CPython's float("nan") is a new float object each call, and `x in [x]` (or
+// `[x] == [x]`, a dict key, a set member) is true only for that same object. The runtime's floats are
+// plain f64 values, so each NaN object carries its own quiet-NaN payload as its identity; `is` and
+// `same_obj` compare those bits, while `==` still treats NaN as unequal.
+static NAN_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+const NAN_PAYLOAD: u64 = (1u64 << 51) - 1;
+pub fn nan_obj() -> f64 {
+    let id = NAN_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    f64::from_bits(0x7ff8_0000_0000_0000 | (id & NAN_PAYLOAD))
+}
+// The result of a float computation. CPython makes a new float object for every computed value
+// (nan + 1, inf - inf, abs(nan), math.fabs(nan), ...), so a NaN result gets a fresh payload rather than
+// propagating an operand's payload; a NaN only passed through (an assignment, unary +, float(x),
+// max/min) keeps its bits and stays the same object. The branch is never taken for non-NaN results.
+#[inline]
+pub fn fresh_float(r: f64) -> f64 {
+    if r.is_nan() {
+        nan_obj().copysign(r)
+    } else {
+        r
+    }
+}
+// Two NaNs are the same object only when both carry one of nan_obj's payloads. A NaN the floating-point
+// hardware made outside the runtime's float ops (a numpy cast, for example) has no such identity, so it
+// keeps the value-only behaviour.
+pub fn same_nan(x: f64, y: f64) -> bool {
+    x.is_nan() && y.is_nan() && x.to_bits() == y.to_bits() && (x.to_bits() & NAN_PAYLOAD) != 0
+}
 fn frexp(f: f64) -> (f64, i32) {
     if f == 0.0 {
         return (0.0, 0);
@@ -1783,6 +1811,7 @@ pub fn same_obj(a: &V, b: &V) -> bool {
     match (a, b) {
         (V::Obj(x), V::Obj(y)) => Rc::ptr_eq(x, y),
         (V::Class(x), V::Class(y)) => Rc::ptr_eq(x, y),
+        (V::Float(x), V::Float(y)) => same_nan(*x, *y),
         _ => false,
     }
 }

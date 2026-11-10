@@ -8,6 +8,11 @@ fn f1(a: &Args, f: &str) -> Result<f64, E> {
 fn math_dom<T>() -> Result<T, E> {
     val_err("math domain error".into())
 }
+// math.nan is one object for the whole run, so every read of it carries the same NaN payload.
+fn math_nan() -> f64 {
+    static N: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
+    *N.get_or_init(nan_obj)
+}
 fn fl_int(f: f64) -> R {
     if f.is_nan() {
         return val_err("cannot convert float NaN to integer".into());
@@ -35,7 +40,7 @@ fn isqrt(n: &Big) -> Big {
     }
 }
 pub fn math_fn(name: &str, a: Args) -> R {
-    Ok(match name {
+    let v = match name {
         "sqrt" => {
             let x = f1(&a, name)?;
             if x < 0.0 {
@@ -350,6 +355,12 @@ pub fn math_fn(name: &str, a: Args) -> R {
             V::Float(x - (x / y).round_ties_even() * y)
         }
         _ => return Err(unsupported(&format!("math.{name}"))),
+    };
+    // A computed float result is a new object in CPython: a NaN it makes (math.fabs(nan), math.sqrt(nan),
+    // math.fmod(nan, 1.0), ...) is not the NaN passed in.
+    Ok(match v {
+        V::Float(r) => V::Float(fresh_float(r)),
+        x => x,
     })
 }
 
@@ -2094,7 +2105,7 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         ("math", "e") => V::Float(std::f64::consts::E),
         ("math", "tau") => V::Float(std::f64::consts::TAU),
         ("math", "inf") => V::Float(f64::INFINITY),
-        ("math", "nan") => V::Float(f64::NAN),
+        ("math", "nan") => V::Float(math_nan()),
         ("collections", "defaultdict" | "Counter" | "OrderedDict" | "deque") => V::Class(bclass(name)),
         ("string", "ascii_lowercase") => s("abcdefghijklmnopqrstuvwxyz"),
         ("string", "ascii_uppercase") => s("ABCDEFGHIJKLMNOPQRSTUVWXYZ"),

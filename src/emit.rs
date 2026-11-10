@@ -185,6 +185,28 @@ pub fn rust_ty(t: &Ty) -> String {
     }
 }
 
+// A type whose values may be (or hold) a NaN. Such values in Python's equality, membership, index, count
+// and remove compare by object identity first, which the typed build's unboxed f64 cannot do: the emitted
+// code stops with "AX_DYN: NaN identity" (see ax_nan_stop / ax_eq in the prelude) and re-runs dynamically.
+fn ty_may_float(t: &Ty) -> bool {
+    match t {
+        Ty::Named(n) => matches!(n.as_str(), "f64" | "float" | "json"),
+        Ty::List(x) => ty_may_float(x),
+        Ty::Map(k, v) => ty_may_float(k) || ty_may_float(v),
+        Ty::Tuple(ts) => ts.iter().any(ty_may_float),
+        Ty::Unit => false,
+    }
+}
+// `==` / `!=` on a bare float compares by value (NaN != NaN), exactly as CPython does; inside a container
+// CPython compares each item with `is` first, so a container that may hold a float goes through ax_eq.
+fn ty_nan_eq(t: &Ty) -> bool {
+    match t {
+        Ty::Named(n) => matches!(n.as_str(), "json"),
+        Ty::List(_) | Ty::Map(..) | Ty::Tuple(_) => ty_may_float(t),
+        _ => false,
+    }
+}
+
 fn rust_str_lit(s: &str) -> String {
     format!("{s:?}")
 }
@@ -2598,6 +2620,7 @@ impl Emitter {
             }
             Expr::Binary(op, a, b) => {
                 // Comparisons read their operands in place, without copying them.
+                let (na, nb) = (self.infer_ty(a), self.infer_ty(b));
                 let pow_zd = pow_can_zd(b);
                 let sums = matches!(*op, "+" | "-" | "*");
                 let (a, b) = if ["==", "!=", "<", ">", "<=", ">=", "in"].contains(op) {
@@ -2628,6 +2651,11 @@ impl Emitter {
                     }
                     "**" if self.py_mode && pow_zd && self.ck_zd => format!("AxPowTry::ax_pow_try({a}, {b})?"),
                     "**" => format!("AxPow::ax_pow({a}, {b})"),
+                    // Membership with a NaN on either side of the compare: CPython answers by identity,
+                    // which the typed build's unboxed floats cannot; it stops and re-runs dynamically.
+                    "in" if self.py_mode && na.as_ref().is_some_and(ty_may_float) => {
+                        format!("{{ let __k = &{a}; ax_nan_stop(__k); AxIn::ax_in(&{b}, __k) }}")
+                    }
                     "in" => format!("AxIn::ax_in(&{b}, &{a})"),
                     "%" if self.py_mode && !self.catch.is_empty() && self.catches("ZeroDivisionError") => {
                         let lab = self.catch.last().unwrap().clone();
@@ -2635,6 +2663,10 @@ impl Emitter {
                     }
                     "%" if self.py_mode && self.ck_zd => format!("({a}).ax_pymod_try({b})?"),
                     "%" if self.py_mode => format!("AxPyMod::ax_pymod({a}, {b})"),
+                    // Container equality may compare a NaN with `is` first in CPython; ax_eq stops and
+                    // re-runs dynamically when either side holds one (bare floats compare as CPython's).
+                    "==" if self.py_mode && [na.as_ref(), nb.as_ref()].iter().any(|t| t.is_some_and(ty_nan_eq)) => format!("ax_eq(&{a}, &{b})"),
+                    "!=" if self.py_mode && [na.as_ref(), nb.as_ref()].iter().any(|t| t.is_some_and(ty_nan_eq)) => format!("!(ax_eq(&{a}, &{b}))"),
                     op @ ("-" | "*") => ck(format!("{a} {op} {b}")),
                     op => format!("({a} {op} {b})"),
                 }
@@ -2691,6 +2723,15 @@ impl Emitter {
             Expr::Method(recv, name, args, line) if name == "zip" && args.len() == 1 && matches!(self.infer_ty(&args[0]), Some(Ty::Named(n)) if n == "str") => {
                 let chars = Expr::Method(Box::new(args[0].clone()), "chars".into(), vec![], *line);
                 self.expr(&Expr::Method(recv.clone(), name.clone(), vec![chars], *line))
+            }
+            // xs.contains(x) / xs.index_of(x) / xs.count_of(x) with an item that may be NaN: Python's
+            // answer uses identity (`is`) before `==`, which the typed build's floats cannot; it stops
+            // with "AX_DYN: NaN identity" and the program re-runs on the dynamic build.
+            Expr::Method(recv, name, args, line) if self.py_mode && args.len() == 1 && matches!(name.as_str(), "contains" | "index_of" | "count_of") && self.infer_ty(&args[0]).as_ref().is_some_and(ty_may_float) => {
+                self.line = *line;
+                let r = self.place(recv);
+                let k = self.arg_ref(&args[0]);
+                format!("{{ let __k = {k}; ax_nan_stop(__k); {r}.ax_{name}(__k) }}")
             }
             Expr::Method(recv, name, args, line) => {
                 self.line = *line;

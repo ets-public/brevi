@@ -1036,7 +1036,7 @@ pub fn parse_float(t: &str) -> Option<f64> {
     let neg = l.starts_with('-');
     let r = match body {
         "inf" | "infinity" => Some(f64::INFINITY),
-        "nan" => Some(f64::NAN),
+        "nan" => Some(nan_obj()),
         _ => {
             if body.is_empty() || !body.chars().all(|c| c.is_ascii_digit() || matches!(c, '.' | 'e' | '+' | '-' | '_')) || body.starts_with('_') || body.ends_with('_') || body.contains("__") {
                 return None;
