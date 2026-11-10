@@ -984,6 +984,39 @@ pub fn getattr(o: &V, name: &str) -> R {
                 "__module__" => Ok(s(c.module)),
                 "__mro__" => Ok(tup(c.mro.borrow().iter().map(|k| V::Class(k.clone())).collect())),
                 "__bases__" => Ok(tup(c.bases.iter().map(|k| V::Class(k.clone())).collect())),
+                "__subclasses__" => {
+                    // the type class itself exposes the unbound descriptor; every other class gets it bound
+                    if c.module == "builtins" && c.name == "type" {
+                        return Ok(builtin("__subclasses__", |mut a: Args| {
+                            if a.p.is_empty() {
+                                return Err(exc("TypeError", "unbound method type.__subclasses__() needs an argument".into()));
+                            }
+                            let me = a.p.remove(0);
+                            match me {
+                                V::Class(k) => {
+                                    if !a.p.is_empty() {
+                                        return Err(exc("TypeError", format!("type.__subclasses__() takes no arguments ({} given)", a.p.len())));
+                                    }
+                                    if !a.k.is_empty() {
+                                        return Err(exc("TypeError", "type.__subclasses__() takes no keyword arguments".into()));
+                                    }
+                                    Ok(list(k.subs.borrow().iter().filter_map(|w| w.upgrade()).map(V::Class).collect()))
+                                }
+                                other => Err(exc("TypeError", format!("descriptor '__subclasses__' for 'type' objects doesn't apply to a '{}' object", tn(&other)))),
+                            }
+                        }));
+                    }
+                    let c = c.clone();
+                    Ok(builtin("__subclasses__", move |a: Args| {
+                        if !a.p.is_empty() {
+                            return Err(exc("TypeError", format!("{}.__subclasses__() takes no arguments ({} given)", c.name, a.p.len())));
+                        }
+                        if !a.k.is_empty() {
+                            return Err(exc("TypeError", format!("{}.__subclasses__() takes no keyword arguments", c.name)));
+                        }
+                        Ok(list(c.subs.borrow().iter().filter_map(|w| w.upgrade()).map(V::Class).collect()))
+                    }))
+                }
                 "__doc__" => Ok(V::None),
                 // the class's own names in the order its body bound them (CPython's is a read-only view
                 // with a few more dunder names)

@@ -7,7 +7,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt::Write as _;
 use std::hash::{BuildHasherDefault, Hash, Hasher};
 use std::io::{BufRead, Read, Write};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 pub type R = Result<V, E>;
 pub type Sym = &'static str;
@@ -2173,6 +2173,8 @@ pub struct Class {
     pub module: Sym,
     pub bases: Vec<Rc<Class>>,
     pub mro: RefCell<Vec<Rc<Class>>>,
+    // every class made directly on this one, in creation order (__subclasses__(); Weak, as CPython's list is)
+    pub subs: RefCell<Vec<Weak<Class>>>,
     pub attrs: RefCell<Vec<(Sym, V)>>,
     pub bt: BT,
     pub fields: RefCell<Vec<Sym>>,
@@ -2222,7 +2224,7 @@ impl Class {
         Self::with_qualname(name, name, module, bases, bt)
     }
     pub fn with_qualname(name: Sym, qualname: Sym, module: Sym, bases: Vec<Rc<Class>>, bt: BT) -> Rc<Class> {
-        let c = Rc::new(Class { name, qualname: Cell::new(qualname), module, bases: bases.clone(), mro: RefCell::new(vec![]), attrs: RefCell::new(vec![]), bt, fields: RefCell::new(vec![]), lcache: RefCell::new((0, HashMap::default())), fcache: RefCell::new((0, Default::default())), set_info: RefCell::new((0, false, vec![], None)), plain_new: Cell::new((0, false)), plain_hash: Cell::new((0, false)) });
+        let c = Rc::new(Class { name, qualname: Cell::new(qualname), module, bases: bases.clone(), mro: RefCell::new(vec![]), subs: RefCell::new(vec![]), attrs: RefCell::new(vec![]), bt, fields: RefCell::new(vec![]), lcache: RefCell::new((0, HashMap::default())), fcache: RefCell::new((0, Default::default())), set_info: RefCell::new((0, false, vec![], None)), plain_new: Cell::new((0, false)), plain_hash: Cell::new((0, false)) });
         // C3 linearization
         let mut seqs: Vec<Vec<Rc<Class>>> = bases.iter().map(|b| b.mro.borrow().clone()).collect();
         seqs.push(bases.clone());
@@ -2252,6 +2254,9 @@ impl Class {
             out.push(p);
         }
         *c.mro.borrow_mut() = out;
+        for b in &bases {
+            b.subs.borrow_mut().push(Rc::downgrade(&c));
+        }
         c
     }
     pub fn own(&self, n: &str) -> Option<V> {
