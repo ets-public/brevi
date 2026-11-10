@@ -31,6 +31,12 @@ async def slow():
         await asyncio.sleep(0.002)
         yield i
 
+async def stalls():
+    # Yields once at once, then never again: a timeout always fires after "0", however slow the machine.
+    yield 0
+    await asyncio.sleep(3600)
+    yield 1
+
 async def show(tag, aw):
     try:
         print(tag, await aw)
@@ -79,16 +85,16 @@ async def main():
     a.close()
     c.close()
     await show("athrow cls", g.athrow(KeyError))
-    async def agen_wait_for():
-        async for x in slow():
+    async def agen_wait_for(src):
+        async for x in src:
             yield x
-    async def consume():
-        return [x async for x in agen_wait_for()]
-    await show("wait_for", asyncio.wait_for(consume(), 0.003))
-    await show("wait_for ok", asyncio.wait_for(consume(), 1))
+    async def consume(src):
+        return [x async for x in agen_wait_for(src)]
+    await show("wait_for", asyncio.wait_for(consume(stalls()), 0.05))
+    await show("wait_for ok", asyncio.wait_for(consume(slow()), 60))
     try:
-        async with asyncio.timeout(0.003):
-            async for x in slow():
+        async with asyncio.timeout(0.05):
+            async for x in stalls():
                 print("slow", x)
     except TimeoutError:
         print("timed out")

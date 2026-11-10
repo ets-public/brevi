@@ -77,5 +77,5 @@ https://osv.dev/vulnerability/{h['id']}
 
 - [ ] Move to a fixed version (Cargo.lock / Cargo.toml / `use` line / tools/upstream_pins.json / tools/requirements-ci.txt)
 - [ ] If Brevi mirrors this library natively, check whether Brevi's own copy has the same flaw
-- [ ] Note the fix in CHANGELOG (Unreleased) under Security
+- [ ] Note the fix in a changelog.d/ fragment (Security)
 """)
