@@ -9,9 +9,9 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 207,
+"matched": 209,
 "refused": 171,
-"wrong_output": 25,
+"wrong_output": 23,
 "wrong_exit": 46,
 "crash_or_timeout": 1,
 "not_extractable": 104,
@@ -21,13 +21,13 @@
 "scored": 554,
 "matched_through_cpython": 8,
 "matched_silent": 27,
-"coverage": 0.3592,
-"wrong": 71
+"coverage": 0.3628,
+"wrong": 69
 },
 "dyn": {
-"matched": 212,
+"matched": 215,
 "refused": 180,
-"wrong_output": 13,
+"wrong_output": 10,
 "wrong_exit": 44,
 "crash_or_timeout": 1,
 "not_extractable": 104,
@@ -37,8 +37,8 @@
 "scored": 554,
 "matched_through_cpython": 0,
 "matched_silent": 27,
-"coverage": 0.3827,
-"wrong": 57
+"coverage": 0.3881,
+"wrong": 54
 }
 },
 "files": {
@@ -112,9 +112,9 @@
 },
 "test_re": {
 "normal": {
-"matched": 55,
+"matched": 57,
 "refused": 45,
-"wrong_output": 16,
+"wrong_output": 14,
 "wrong_exit": 11,
 "crash_or_timeout": 1,
 "not_extractable": 22,
@@ -124,13 +124,13 @@
 "scored": 150,
 "matched_through_cpython": 3,
 "matched_silent": 2,
-"coverage": 0.3467,
-"wrong": 27
+"coverage": 0.36,
+"wrong": 25
 },
 "dyn": {
-"matched": 65,
+"matched": 68,
 "refused": 48,
-"wrong_output": 4,
+"wrong_output": 1,
 "wrong_exit": 10,
 "crash_or_timeout": 1,
 "not_extractable": 22,
@@ -140,8 +140,8 @@
 "scored": 150,
 "matched_through_cpython": 0,
 "matched_silent": 2,
-"coverage": 0.4333,
-"wrong": 14
+"coverage": 0.4533,
+"wrong": 11
 }
 },
 "test_textwrap": {
@@ -3438,9 +3438,8 @@
 "detail": "line 3: expected \"''\", got \"'xyy'\""
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 3: expected \"''\", got \"'xyy'\""
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3621,14 +3620,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 7: expected 'None', got \"<re.Match object; span=(0, 1), match='\u2165'>\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 7: expected 'None', got \"<re.Match object; span=(0, 1), match='\u2165'>\""
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4464,14 +4461,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 10: expected \"('',)\", got \"('e',)\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 10: expected \"('',)\", got \"('e',)\""
+"category": "matched",
+"path": "dynamic"
 }
 }
 },

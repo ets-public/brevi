@@ -2228,7 +2228,7 @@ impl Parser {
                                 }
                             }
                             // Flags at the end of a re call (`re.fullmatch(p, s, re.ASCII)`, `re.compile(p, re.I)`):
-                            // IGNORECASE goes into the pattern as (?i); ASCII is dropped. Other flags stay (not supported).
+                            // IGNORECASE goes into the pattern as (?i), DOTALL, MULTILINE and ASCII as (?s), (?m), (?a). Other flags stay (not supported).
                             if matches!(&e, Expr::Ident(m) if m == "re") && args.len() >= 2 {
                                 let mut inline = String::new();
                                 let mut ok = true;
@@ -2249,7 +2249,7 @@ impl Parser {
                                             "I" | "IGNORECASE" => inline.push('i'),
                                             "S" | "DOTALL" => inline.push('s'),
                                             "M" | "MULTILINE" => inline.push('m'),
-                                            "A" | "ASCII" => {}
+                                            "A" | "ASCII" => inline.push('a'),
                                             _ => ok = false,
                                         }
                                     }

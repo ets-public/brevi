@@ -1,0 +1,3 @@
+- Regex `\d`, `\w` and `\s` on the typed build now follow Python's Unicode rules, so accented and non-Latin letters and digits match as in CPython (they were ASCII-only). `(?a)` and `re.ASCII` keep the ASCII meaning. On the dynamic build, `\d`, `str.isdigit()` and `str.isdecimal()` no longer take characters such as `Ⅵ` and `½`, which are numeric but not decimal digits.
+- `repr()` of a string escapes every character Python treats as non-printable (for example `​` and `\xad`), on both builds, and `str.isprintable()` agrees with it.
+- A repeated group whose last iteration matches the empty string keeps that iteration's groups, as CPython does.
