@@ -81,7 +81,7 @@ Not built natively yet (`brevi run` falls back to CPython; `--native` refuses):
 - Asynchronous generator expressions (`(x async for x in it)`, or `await` inside a generator expression); async generators and async list, set and dict comprehensions are native from v0.26.0
 - `asyncio` with sockets, threads, signals or `loop.subprocess_exec`, and printing a `Task` (its repr shows where the coroutine is waiting)
 - The `match` statement
-- `eval`, `exec` and other run-time code generation
+- `eval` of text known only at run time, `exec` and other run-time code generation (`eval()` of literal text builds from the next release)
 - Modules outside the list above in a program that also needs the dynamic build (see below)
 
 ## numpy
@@ -288,7 +288,7 @@ These are tracked on the [roadmap](/docs/roadmap):
 
 - **Classes built on a library's classes** (`class Post(BaseModel)`) run in CPython as a whole, and in some layouts send the whole file to CPython.
 - **Dynamic builds are slower** than typed ones; widening what the typed build accepts is ongoing work.
-- **`match` and `eval`** are not built natively (async generators are, from v0.26.0).
+- **`match` and `eval` of run-time text** are not built natively (async generators are, from v0.26.0).
 - **Built programs that differ from CPython.** On CPython's own tests 44 built programs still answer differently and 5 crash (see [In numbers](#in-numbers)). Some library paths also raise `NotImplementedError` at run time instead of refusing at build time: numpy `argsort` on repeated values, some safetensors dtypes, duckdb UUID and timezone values.
 - **`brevi run` falls back to `python3` quietly.** A file Brevi cannot build runs with CPython, with one line on stderr; that run gets no speed-up and no native checks. Use `--native` (or `brevi build`) to get an error instead.
 - **Cold builds** take about 0.25 seconds for a tiny program (about 1.5 s with `--release`), and a median of about 1.2 s for a typical saved agent program with no cache; the very first build after installing also builds Brevi's runtime once, about 5 to 15 seconds. That still matters for agents that build many one-off programs; repeat builds are cached.
