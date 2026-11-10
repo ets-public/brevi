@@ -15,8 +15,6 @@ test_dict.DictTest.test_reversevaluesiterator_pickling dyn
 test_dict.DictTest.test_reversevaluesiterator_pickling normal
 test_dict.DictTest.test_valuesiterator_pickling dyn
 test_dict.DictTest.test_valuesiterator_pickling normal
-test_grammar.GrammarTests.test_selectors dyn
-test_grammar.GrammarTests.test_selectors normal
 test_list.ListTest.test_iterator_pickle dyn
 test_list.ListTest.test_iterator_pickle normal
 test_list.ListTest.test_reversed_pickle dyn
