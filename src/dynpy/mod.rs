@@ -432,7 +432,9 @@ fn duck_libs() -> (Vec<String>, String) {
 }
 
 // The SQLite DLL next to the Python the program was built with, so native sqlite3 reports the same
-// sqlite_version() as CPython. Empty when there is none; the glue then uses Windows' winsqlite3.dll.
+// sqlite_version() as CPython. Not used on Windows: Python 3.13's sqlite3.dll crashes a native process that
+// has not started CPython (Windows' winsqlite3.dll is used instead).
+#[allow(dead_code)]
 fn sqlite_dll() -> Option<String> {
     const Q: &str = "import os, sys\nfor d in (os.path.join(sys.base_prefix, 'DLLs'), os.path.dirname(sys.executable)):\n    p = os.path.join(d, 'sqlite3.dll')\n    if os.path.isfile(p):\n        print(p)\n        break";
     let out = std::process::Command::new(crate::python_exe()).args(["-I", "-c", Q]).output().ok()?;
@@ -794,11 +796,6 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         rust.push_str(include_str!("fsglue.rs"));
     }
     if sql_used {
-        if cfg!(windows) {
-            // The SQLite DLL next to Python (same build CPython's _sqlite3 uses), so version-dependent
-            // output matches; the generated program falls back to System32's winsqlite3.dll.
-            rust.push_str(&format!("\nconst SQLITE_DLL: Option<&str> = {:?};\n", sqlite_dll()));
-        }
         rust = rust.replacen("fn main() { ", "fn main() { SQL.set(brevi_sqlglue::ops()).ok(); ", 1);
         rust.push_str(include_str!("sqlglue.rs"));
     }

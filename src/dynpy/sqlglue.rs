@@ -195,12 +195,10 @@ mod brevi_sqlglue {
             names.push("/usr/lib/libsqlite3.dylib".into());
             names.push("libsqlite3.dylib".into());
         } else if cfg!(windows) {
-            // Python's SQLite DLL (same build as CPython's _sqlite3) when the program was built with it,
-            // then Windows' own winsqlite3.dll (System32). No bare sqlite3.dll: the loader search path
-            // would let a DLL in the program's folder or CWD run.
-            if let Some(p) = SQLITE_DLL {
-                names.push(p.to_string());
-            }
+            // Windows' own winsqlite3.dll (System32), loaded with LOAD_LIBRARY_SEARCH_SYSTEM32 so a
+            // sqlite3.dll in the program's folder or CWD never runs. BREVI_SQLITE_LIB can name another
+            // absolute path (outside the sandbox); Python's sqlite3.dll is not used because it crashes a
+            // process that has not started CPython.
             names.push("winsqlite3.dll".into());
         } else {
             names.push("libsqlite3.so.0".into());
