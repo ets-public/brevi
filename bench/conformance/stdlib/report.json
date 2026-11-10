@@ -9,10 +9,10 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 222,
+"matched": 226,
 "refused": 172,
-"wrong_output": 12,
-"wrong_exit": 43,
+"wrong_output": 10,
+"wrong_exit": 41,
 "crash_or_timeout": 1,
 "not_extractable": 104,
 "unstable": 22,
@@ -21,14 +21,14 @@
 "scored": 554,
 "matched_through_cpython": 7,
 "matched_silent": 27,
-"coverage": 0.3881,
-"wrong": 55
+"coverage": 0.3953,
+"wrong": 51
 },
 "dyn": {
-"matched": 217,
+"matched": 220,
 "refused": 180,
-"wrong_output": 10,
-"wrong_exit": 42,
+"wrong_output": 9,
+"wrong_exit": 40,
 "crash_or_timeout": 1,
 "not_extractable": 104,
 "unstable": 22,
@@ -37,8 +37,8 @@
 "scored": 554,
 "matched_through_cpython": 0,
 "matched_silent": 27,
-"coverage": 0.3917,
-"wrong": 52
+"coverage": 0.3971,
+"wrong": 49
 }
 },
 "files": {
@@ -112,10 +112,10 @@
 },
 "test_re": {
 "normal": {
-"matched": 70,
+"matched": 74,
 "refused": 46,
-"wrong_output": 3,
-"wrong_exit": 8,
+"wrong_output": 1,
+"wrong_exit": 6,
 "crash_or_timeout": 1,
 "not_extractable": 22,
 "unstable": 2,
@@ -124,14 +124,14 @@
 "scored": 150,
 "matched_through_cpython": 2,
 "matched_silent": 2,
-"coverage": 0.4533,
-"wrong": 11
+"coverage": 0.48,
+"wrong": 7
 },
 "dyn": {
-"matched": 70,
+"matched": 73,
 "refused": 48,
-"wrong_output": 1,
-"wrong_exit": 8,
+"wrong_output": 0,
+"wrong_exit": 6,
 "crash_or_timeout": 1,
 "not_extractable": 22,
 "unstable": 2,
@@ -140,8 +140,8 @@
 "scored": 150,
 "matched_through_cpython": 0,
 "matched_silent": 2,
-"coverage": 0.4667,
-"wrong": 9
+"coverage": 0.4867,
+"wrong": 6
 }
 },
 "test_textwrap": {
@@ -3531,9 +3531,8 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "typed",
-"detail": "line 1: expected \"'abc\\\\ndef\\\\n'\", got \"'abc\\\\\\\\ndef\\\\\\\\n'\""
+"category": "matched",
+"path": "typed"
 },
 "dyn": {
 "category": "matched",
@@ -3574,14 +3573,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 're.Pattern' object has no attribute 'scanner'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 're.Pattern' object has no attribute 'scanner'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3845,7 +3842,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "a compiled pattern shown or passed to a builtin, where the typed build has the pattern's string, and this file cannot be built over dynamic values (case.py line 8: re.Pattern is not supported in dynam"
+"detail": "a compiled pattern shown or passed to a builtin, which the typed build keeps as a plain string, and this file cannot be built over dynamic values (case.py line 8: re.Pattern is not supported in dynami"
 },
 "dyn": {
 "category": "refused",
@@ -4218,14 +4215,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 're.Pattern' object has no attribute 'scanner'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 're.Pattern' object has no attribute 'scanner'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4437,7 +4432,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "a compiled pattern shown or passed to a builtin, where the typed build has the pattern's string, and this file cannot be built over dynamic values (case.py line 14: re._compile is not supported in dyn"
+"detail": "a compiled pattern shown or passed to a builtin, which the typed build keeps as a plain string, and this file cannot be built over dynamic values (case.py line 14: re._compile is not supported in dyna"
 },
 "dyn": {
 "category": "refused",
@@ -4642,14 +4637,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 13: expected 'raises OverflowError', got 'NO-RAISE'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 13: expected 'raises OverflowError', got 'NO-RAISE'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -5015,7 +5008,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "a compiled pattern shown or passed to a builtin, where the typed build has the pattern's string, and this file cannot be built over dynamic values (case.py line 11: re.L is not supported in dynamic bu"
+"detail": "a compiled pattern shown or passed to a builtin, which the typed build keeps as a plain string, and this file cannot be built over dynamic values (case.py line 11: re.L is not supported in dynamic bui"
 },
 "dyn": {
 "category": "refused",

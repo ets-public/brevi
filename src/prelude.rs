@@ -298,8 +298,63 @@ pub fn ax_init(files: &'static [(&'static str, usize, usize)], fs: AxFs) {
             None => info.payload().downcast_ref::<String>().cloned().unwrap_or_else(|| "panic".into()),
         };
         let at = ax_at(AX_LINE.load(std::sync::atomic::Ordering::Relaxed));
+        let msg = match ax_needs_dyn(&msg) {
+            Some(what) if AX_PY_FILE.load(std::sync::atomic::Ordering::Relaxed) => ax_i64_stop(what),
+            Some(what) if msg.starts_with("AX_DYN: ") => what.to_string(),
+            _ => msg,
+        };
         eprintln!("{{\"e\":\"runtime\",{at},\"msg\":{msg:?}}}");
     }));
+}
+
+// Python's ints have no size limit; the typed build's are 64 bits. An int that outgrows them (Rust's
+// `attempt to multiply with overflow`, or a value the typed build cannot hold: `AX_DYN: ...`) is never
+// wrapped or capped. In a Python file, `brevi run` set BREVI_I64_REPLAY: the run stops here, before the
+// panic can unwind, and brevi re-runs the program from the start on the dynamic build (big ints), passing on
+// only the output this run had not written yet (src/replay.rs). The program may only do that when the build
+// proved it touches nothing a second run would change (no file writes, network or native code): the build
+// calls ax_i64_mode with "" then, or with the reason it cannot. Anywhere else the run stops with an error
+// that says so: never a wrong number.
+static AX_I64_WHY: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+pub fn ax_i64_mode(why: &'static str) {
+    AX_I64_WHY.set(why).ok();
+}
+pub fn ax_needs_dyn(msg: &str) -> Option<&str> {
+    if let Some(w) = msg.strip_prefix("AX_DYN: ") {
+        return Some(w);
+    }
+    (msg.starts_with("attempt to ") && msg.ends_with(" with overflow")).then_some("an int passed 64 bits")
+}
+fn ax_i64_stop(what: &str) -> String {
+    let why = AX_I64_WHY.get().copied().unwrap_or("it was not built as a Python file");
+    match std::env::var_os("BREVI_I64_REPLAY") {
+        Some(p) if why.is_empty() => {
+            use std::io::Write;
+            let _ = std::io::stdout().flush();
+            let _ = std::io::stderr().flush();
+            if std::fs::write(&p, what).is_ok() {
+                std::process::exit(AX_REPLAY_EXIT);
+            }
+            format!("OverflowError: the typed build stopped ({what}), and the dynamic build could not be started")
+        }
+        Some(_) => format!("OverflowError: the typed build stopped ({what}: its ints are 64 bits, Python's have no limit); Brevi cannot re-run this program on the dynamic build because {why}. Run it with BREVI_DYN=1 for exact big ints"),
+        None => format!("OverflowError: the typed build stopped ({what}: its ints are 64 bits, Python's have no limit); `brevi run` re-runs such a program on the dynamic build, or build it with BREVI_DYN=1"),
+    }
+}
+pub const AX_REPLAY_EXIT: i32 = 70;
+// int(x) of a float: truncated toward zero. One past 64 bits needs a big int (see ax_needs_dyn); i64::MIN is
+// None's mark, so it is one too.
+#[inline]
+pub fn ax_f2i(x: f64) -> i64 {
+    if !x.is_finite() {
+        panic!("{}", if x.is_nan() { "ValueError: cannot convert float NaN to integer" } else { "OverflowError: cannot convert float infinity to integer" });
+    }
+    let t = x.trunc();
+    if t > -9.223372036854775808e18 && t < 9.223372036854775808e18 {
+        t as i64
+    } else {
+        panic!("AX_DYN: int() of a float past 64 bits")
+    }
 }
 
 // Python mode: a program written as Python (it uses def, class or global) prints as Python does:
@@ -894,6 +949,7 @@ pub fn read(path: String) -> R<String> {
 pub fn write(path: String, text: String) -> R<()> {
     let p = ax_fs_path(&path, true)?;
     brevi_new_file(&p);
+    brevi_written(text.len() as u64);
     std::fs::write(&p, text).map_err(|e| AxErr(format!("write {path}: {e}")))
 }
 // open(path).read() where a missing file reads as "" (the typed build's fix_opens).
@@ -1038,6 +1094,53 @@ impl AxPyMod for f64 {
     }
 }
 // The same `%`, but a zero divisor is a ZeroDivisionError a Python try can catch.
+// Python's x << n and x >> n on ints: bits shifted past 64 are never dropped (x << n that does not fit needs a
+// big int), and x >> n past 63 is 0 or -1.
+#[inline]
+pub fn ax_shl(a: i64, b: i64) -> i64 {
+    if b < 0 {
+        panic!("ValueError: negative shift count");
+    }
+    if a == 0 {
+        return 0;
+    }
+    if b < 64 {
+        let r = a << b;
+        if r >> b == a {
+            return r;
+        }
+    }
+    panic!("attempt to shift left with overflow")
+}
+#[inline]
+pub fn ax_shr(a: i64, b: i64) -> i64 {
+    if b < 0 {
+        panic!("ValueError: negative shift count");
+    }
+    a >> b.min(63)
+}
+// (a * b + c) % m on ints, worked out in 128 bits so a hash such as `(h * 1000003 + ord(c)) % MOD` with MOD near
+// 2**61 gives Python's answer without leaving 64 bits; a sum past 128 bits is an overflow like any other.
+pub trait AxMod128<B> {
+    fn ax_mod128(self, b: B) -> B;
+}
+impl AxMod128<i64> for i128 {
+    #[inline]
+    fn ax_mod128(self, b: i64) -> i64 {
+        if b == 0 {
+            panic!("ZeroDivisionError: integer modulo by zero");
+        }
+        let r = self.rem_euclid(b as i128);
+        (if b < 0 && r != 0 { r + b as i128 } else { r }) as i64
+    }
+}
+// int % float: the int is made a float first, as Python does.
+impl AxMod128<f64> for i128 {
+    #[inline]
+    fn ax_mod128(self, b: f64) -> f64 {
+        AxPyMod::ax_pymod(self as f64, b)
+    }
+}
 pub trait AxPyModTry<B = Self>: Sized {
     fn ax_pymod_try(self, b: B) -> R<Self>;
 }
@@ -1280,7 +1383,7 @@ pub trait AxMath {
         if !x.is_finite() {
             panic!("{}", if x.is_nan() { "ValueError: cannot convert float NaN to integer" } else { "OverflowError: cannot convert float infinity to integer" });
         }
-        x.trunc() as i64
+        ax_f2i(x)
     }
     fn ax_m_degrees(&self) -> f64 {
         self.ax_f().to_degrees()
@@ -1934,6 +2037,33 @@ pub trait AxNum {
     fn ax_float(&self) -> f64;
     fn ax_int(&self) -> i64;
 }
+// A value the compiler put into an int slot (not a call of int()): a float past 64 bits (infinity standing for
+// "no distance yet" in `d.get(k, float('inf'))`) becomes the nearest 64-bit int, as it always has.
+pub trait AxIntSlot {
+    type Out;
+    fn ax_int_slot(&self) -> Self::Out;
+}
+impl AxIntSlot for f64 {
+    type Out = i64;
+    fn ax_int_slot(&self) -> i64 {
+        if self.is_nan() {
+            panic!("ValueError: cannot convert float NaN to integer");
+        }
+        *self as i64
+    }
+}
+impl AxIntSlot for i64 {
+    type Out = i64;
+    fn ax_int_slot(&self) -> i64 {
+        *self
+    }
+}
+impl AxIntSlot for String {
+    type Out = R<i64>;
+    fn ax_int_slot(&self) -> R<i64> {
+        AxStr::ax_int(self)
+    }
+}
 impl AxNum for i64 {
     fn ax_fmt(&self, decimals: i64) -> String {
         format!("{:.*}", decimals.max(0) as usize, *self as f64)
@@ -1959,7 +2089,7 @@ impl AxNum for f64 {
         *self
     }
     fn ax_int(&self) -> i64 {
-        *self as i64
+        ax_f2i(*self)
     }
 }
 pub trait AxFloat {
@@ -3975,11 +4105,12 @@ impl AxBigInt for Big {
         for d in self.mag.iter().rev() {
             v = v * BIG_BASE as i128 + *d as i128;
             if v > i64::MAX as i128 + 1 {
-                return Err(AxErr("OverflowError: Python int too large to convert to C long".into()));
+                panic!("AX_DYN: a big int used where the typed build needs a 64-bit int");
             }
         }
         let v = if self.neg { -v } else { v };
-        i64::try_from(v).map_err(|_| AxErr("OverflowError: Python int too large to convert to C long".into()))
+        // Python has no such limit, so this is never an OverflowError a program could catch.
+        Ok(i64::try_from(v).ok().filter(|v| *v != i64::MIN).unwrap_or_else(|| panic!("AX_DYN: a big int used where the typed build needs a 64-bit int")))
     }
 }
 pub trait AxStrBig {
@@ -4892,7 +5023,7 @@ const DEC_ONE: i128 = 1_000_000_000;
 // numerator or denominator needs more than 64 bits stops the program loudly rather than rounding.
 const FRAC: u8 = 255;
 fn frac_fail(what: String) -> ! {
-    panic!("{what} is too large for Brevi's typed Fraction (numerator and denominator must fit in 64 bits); run this program with CPython")
+    panic!("AX_DYN: {what} needs more than 64 bits (the typed Fraction holds 64-bit numerators and denominators)")
 }
 fn frac_mul(a: i128, b: i128) -> i128 {
     a.checked_mul(b).unwrap_or_else(|| frac_fail("a Fraction".into()))
@@ -5690,16 +5821,80 @@ pub trait AxRoundTo {
 impl AxRoundTo for Dec {
     fn ax_round_to(&self, n: i64) -> Dec {
         if self.is_frac() {
-            // round(Fraction, n) stays a Fraction.
-            return Dec::parse(&self.ax_fmt(n.clamp(0, 9))).unwrap().frac_of();
+            // round(Fraction, n) stays a Fraction: the multiple of 10**-n nearest to it, a tie to the even one.
+            let (a, b) = self.nd();
+            let p = 10i128.checked_pow(n.unsigned_abs().min(40) as u32).filter(|_| n.unsigned_abs() <= 38).unwrap_or_else(|| frac_fail(format!("round(Fraction, {n})")));
+            let (num, den) = if n >= 0 { (frac_mul(a, p), b) } else { (a, frac_mul(b, p)) };
+            let q = frac_floor_div(num, den);
+            let r = num - q * den;
+            let q = match (2 * r).cmp(&den) {
+                std::cmp::Ordering::Greater => q + 1,
+                std::cmp::Ordering::Equal if q % 2 != 0 => q + 1,
+                _ => q,
+            };
+            return if n >= 0 { frac_new(q, p) } else { frac_new(frac_mul(q, p), 1) };
         }
-        Dec::parse(&self.ax_fmt(n.clamp(0, 9))).unwrap()
+        // A Decimal rounded to tens (`1.2E+3`) or to more places than the typed Decimal holds prints in a way
+        // it cannot show.
+        if !(0..=9).contains(&n) {
+            panic!("AX_DYN: round(Decimal, {n})");
+        }
+        Dec::parse(&self.ax_fmt(n)).unwrap()
     }
 }
+// round(x, n) of a float, as CPython does it: x rounded half to even at 10**-n on its exact binary value, then
+// read back as the nearest float. Rust's fixed-point formatting is exact, so for n >= 0 it is the rounding.
 impl AxRoundTo for f64 {
     fn ax_round_to(&self, n: i64) -> f64 {
-        format!("{:.*}", n.clamp(0, 15) as usize, self).parse().unwrap_or(*self)
+        ax_round_float(*self, n)
     }
+}
+pub fn ax_round_float(x: f64, n: i64) -> f64 {
+    if !x.is_finite() || x == 0.0 || n > 323 {
+        return x;
+    }
+    if n < -308 {
+        return 0.0 * x;
+    }
+    if n >= 0 {
+        return format!("{:.*}", n as usize, x).parse().unwrap_or(x);
+    }
+    // n < 0: the exact digits of |x|'s integer part, rounded at the k-th digit from the right.
+    let k = n.unsigned_abs() as usize;
+    let ax = x.abs();
+    let t = ax.trunc();
+    let frac = ax - t;
+    let digits = format!("{t:.0}");
+    let (head, tail) = if digits.len() > k { digits.split_at(digits.len() - k) } else { ("", digits.as_str()) };
+    let tail = format!("{tail:0>k$}");
+    let half = format!("5{}", "0".repeat(k - 1));
+    let mut h: Vec<u8> = if head.is_empty() { vec![b'0'] } else { head.as_bytes().to_vec() };
+    let up = match tail.as_str().cmp(half.as_str()) {
+        std::cmp::Ordering::Greater => true,
+        std::cmp::Ordering::Equal => frac > 0.0 || (h.last().unwrap() - b'0') % 2 == 1,
+        std::cmp::Ordering::Less => false,
+    };
+    if up {
+        let mut i = h.len();
+        loop {
+            if i == 0 {
+                h.insert(0, b'1');
+                break;
+            }
+            i -= 1;
+            if h[i] == b'9' {
+                h[i] = b'0';
+            } else {
+                h[i] += 1;
+                break;
+            }
+        }
+    }
+    let r: f64 = format!("{}e{k}", String::from_utf8(h).unwrap()).parse().unwrap();
+    if r.is_infinite() {
+        panic!("OverflowError: rounded value too large to represent");
+    }
+    if x < 0.0 { -r } else { r }
 }
 
 // A boxed field, for types that contain themselves (an expression tree).
@@ -7507,6 +7702,111 @@ fn ax_rx_sub(s: &str, p: &str, mut f: impl FnMut(&[char], &AxCaps) -> String) ->
     out.extend(&cs[last.min(cs.len())..]);
     out
 }
+// Python's re.sub replacement string: escapes, \0 octal escapes, \n \t ... and group references \1, \12
+// and \g<name>, read the same way CPython's re._parser.parse_template does.
+fn ax_rx_group_text(g: &[String], n: usize) -> &str {
+    g.get(n).filter(|s| !s.ax_is_none()).map_or("", |s| s.as_str())
+}
+fn ax_rx_template(t: &str, g: &[String]) -> Result<String, String> {
+    let c: Vec<char> = t.chars().collect();
+    let groups = g.len().saturating_sub(1);
+    let mut out = String::new();
+    let mut add = |out: &mut String, n: usize, pos: usize| -> Result<(), String> {
+        if n > groups {
+            return Err(format!("invalid group reference {n} at position {pos}"));
+        }
+        out.push_str(ax_rx_group_text(g, n));
+        Ok(())
+    };
+    let mut i = 0;
+    while i < c.len() {
+        if c[i] != '\\' {
+            out.push(c[i]);
+            i += 1;
+            continue;
+        }
+        if i + 1 >= c.len() {
+            return Err("bad escape (end of pattern)".into());
+        }
+        let e = c[i + 1];
+        match e {
+            'g' => {
+                if c.get(i + 2) != Some(&'<') {
+                    return Err("missing <".into());
+                }
+                let st = i + 3;
+                let Some(end) = c[st..].iter().position(|x| *x == '>') else {
+                    return Err(if st == c.len() { "missing group name".into() } else { "missing >, unterminated name".into() });
+                };
+                if end == 0 {
+                    return Err("missing group name".into());
+                }
+                let name: String = c[st..st + end].iter().collect();
+                if name.bytes().all(|b| b.is_ascii_digit()) {
+                    match name.parse::<usize>() {
+                        Ok(n) => add(&mut out, n, st)?,
+                        Err(_) => return Err(format!("invalid group reference {name}")),
+                    }
+                } else {
+                    // The typed matcher has no named groups, so no name can name one.
+                    return Err(format!("unknown group name '{name}'"));
+                }
+                i = st + end + 1;
+                continue;
+            }
+            '0' => {
+                let mut digits = vec!['0'];
+                let mut j = i + 2;
+                while digits.len() < 3 && c.get(j).is_some_and(|d| matches!(d, '0'..='7')) {
+                    digits.push(c[j]);
+                    j += 1;
+                }
+                let v = u32::from_str_radix(&digits.iter().collect::<String>(), 8).unwrap();
+                out.push(char::from_u32(v & 0xff).unwrap());
+                i = j;
+                continue;
+            }
+            '1'..='9' => {
+                let mut j = i + 2;
+                let mut n = e as usize - '0' as usize;
+                if c.get(j).is_some_and(|d| d.is_ascii_digit()) {
+                    let d = c[j];
+                    j += 1;
+                    n = n * 10 + d as usize - '0' as usize;
+                    if matches!(e, '0'..='7') && matches!(d, '0'..='7') && c.get(j).is_some_and(|x| matches!(x, '0'..='7')) {
+                        let x = c[j];
+                        j += 1;
+                        let v = (e as u32 - '0' as u32) * 64 + (d as u32 - '0' as u32) * 8 + (x as u32 - '0' as u32);
+                        if v > 0o377 {
+                            return Err(format!("octal escape value \\{e}{d}{x} outside of range 0-0o377 at position {i}"));
+                        }
+                        out.push(char::from_u32(v).unwrap());
+                        i = j;
+                        continue;
+                    }
+                }
+                add(&mut out, n, i + 1)?;
+                i = j;
+                continue;
+            }
+            'a' => out.push('\x07'),
+            'b' => out.push('\x08'),
+            'f' => out.push('\x0c'),
+            'n' => out.push('\n'),
+            'r' => out.push('\r'),
+            't' => out.push('\t'),
+            'v' => out.push('\x0b'),
+            '\\' => out.push('\\'),
+            x if x.is_ascii_alphabetic() => return Err(format!("bad escape \\{x} at position {i}")),
+            x => {
+                out.push('\\');
+                out.push(x);
+            }
+        }
+        i += 2;
+    }
+    Ok(out)
+}
 // The same with a function that can raise: the first error stops the substitution and is passed on.
 fn ax_rx_try_sub(s: &str, p: &str, mut f: impl FnMut(&[char], &AxCaps) -> R<String>) -> R<String> {
     let mut err = None;
@@ -7547,6 +7847,15 @@ impl AxRe for String {
     }
     fn ax_re_sub(&self, p: String, r: String) -> String {
         let rc: Vec<char> = r.chars().collect();
+        if ax_py_on() {
+            // CPython reads the template before looking for a match, so a bad reference is an error
+            // even when the pattern never matches.
+            let groups = ax_rx(&p).1;
+            if let Err(e) = ax_rx_template(&r, &vec![String::new(); groups + 1]) {
+                panic!("error: {e}");
+            }
+            return self.ax_re_sub_with(p, |g| ax_rx_template(&r, &g).unwrap_or_else(|e| panic!("error: {e}")));
+        }
         self.ax_re_sub_with(p, |g| {
             let mut o = String::new();
             let mut i = 0;

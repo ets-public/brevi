@@ -513,7 +513,41 @@ pub fn enum_getitem(c: &Rc<Class>, k: &V) -> R {
     }
     Err(exc_v("KeyError", k.clone()))
 }
+fn is_val_err(e: &E) -> bool {
+    matches!(&e.0, V::Obj(o) if o.cls.name == "ValueError")
+}
+// EnumType.__contains__: an instance of the class is in it; a Flag also accepts any value its _missing_
+// turns into a member (pseudo-members included); finally a value equal to a member's value is in it.
 pub fn enum_contains(c: &Rc<Class>, x: &V) -> Result<bool, E> {
+    if let V::Obj(o) = x {
+        if o.cls.is_sub(c) {
+            return Ok(true);
+        }
+    }
+    if is_flag(c) {
+        let keep = c.lookup("__bv_keep__").is_some();
+        let v = match x {
+            V::Int(i) => Some(*i),
+            V::Bool(b) => Some(*b as i64),
+            V::Obj(_) => match inner_of(x) {
+                Some(V::Int(i)) => Some(i),
+                Some(V::Bool(b)) => Some(b as i64),
+                Some(V::Big(_)) if keep => return Err(unsupported("IntFlag values past 2**62")),
+                _ => None,
+            },
+            V::Big(_) if keep => return Err(unsupported("IntFlag values past 2**62")),
+            _ => None,
+        };
+        if let Some(v) = v {
+            // _missing_ raises ValueError for values it cannot make a member of; EnumType.__contains__ then
+            // falls through to the member-value check below (and returns False there).
+            return match flag_member(c, v) {
+                Ok(_) => Ok(true),
+                Err(e) if is_val_err(&e) => Ok(false),
+                Err(e) => Err(e),
+            };
+        }
+    }
     if let V::List(l) = enum_members(c) {
         for m in l.borrow().iter() {
             if is(m, x) {

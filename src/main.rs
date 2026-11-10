@@ -1,9 +1,11 @@
 mod alias;
 mod bvpy;
 mod records;
+mod replay;
 mod ast;
 mod bigint;
 mod caps;
+mod cgroup;
 mod diag;
 mod dynpy;
 mod emit;
@@ -347,10 +349,10 @@ fn main() {
             eprintln!("--limit holds a program while it runs: use it with brevi run or brevi test (brevi verify takes it too)");
             exit(2);
         }
-        // files and net are counted by Brevi's own file and network layers, which hold only a sandboxed
-        // program that runs no CPython or native code.
-        if (limits.files.is_some() || limits.net.is_some()) && (!sandbox || grant.iter().any(|g| g == "native" || g.starts_with("py:"))) {
-            eprintln!("--limit files and net are counted by Brevi's own file and network code, so they need --sandbox without --allow native or --allow-py (CPython and native code are not counted); leave them out, or drop those grants");
+        // files, net and written are counted by Brevi's own file and network layers, which hold only a
+        // sandboxed program that runs no CPython or native code.
+        if (limits.files.is_some() || limits.net.is_some() || limits.written.is_some()) && (!sandbox || grant.iter().any(|g| g == "native" || g.starts_with("py:"))) {
+            eprintln!("--limit files, net and written are counted by Brevi's own file and network code, so they need --sandbox without --allow native or --allow-py (CPython and native code are not counted); leave them out, or drop those grants");
             exit(2);
         }
         proc::LIMITS.set(limits).ok();
@@ -417,6 +419,9 @@ fn main() {
     // Python the typed build would answer differently (a set printed or walked in CPython's hash order):
     // built over dynamic values, or refused, never built typed.
     let mut unread = None;
+    if is_py(&file) && matches!(cmd, "build" | "run" | "emit") {
+        emit::I64_WHY.set(replay::why_not(&file)).ok();
+    }
     if is_py(&file) && matches!(cmd, "build" | "run" | "check" | "emit") && std::env::var("BREVI_DYN").map_or(true, |v| v != "0") {
         let guard;
         (guard, unread) = guard_files(&file);
@@ -644,7 +649,7 @@ fn main() {
             } else {
                 c.args(&prog_args);
             }
-            let code = proc::run(c).unwrap_or_else(|e| {
+            let code = if cmd == "run" { replay::run(c, &file, &prog_args, release) } else { proc::run(c) }.unwrap_or_else(|e| {
                 println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
                 exit(1);
             });
@@ -916,7 +921,8 @@ fn cached(cmd: &str, file: &str, argv: &[String], flags: &[String]) -> ! {
     }
     let mut c = proc::script(bin.as_ref().unwrap(), file);
     c.args(argv.get(dash + 1..).unwrap_or(&[]));
-    let code = proc::run(c).unwrap_or_else(|e| {
+    let release = argv[2..dash].iter().any(|a| a == "--release");
+    let code = replay::run(c, file, argv.get(dash + 1..).unwrap_or(&[]), release).unwrap_or_else(|e| {
         println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
         exit(1);
     });
@@ -969,7 +975,8 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
             std::io::stderr().write_all(&o.stderr).ok();
             let mut c = proc::script(&bin, file);
             c.args(&prog_args);
-            proc::run(c).unwrap_or_else(|e| {
+            let release = argv[2..dash].iter().any(|a| a == "--release");
+            replay::run(c, file, &prog_args, release).unwrap_or_else(|e| {
                 println!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&e.to_string()));
                 1
             })

@@ -124,7 +124,9 @@ class Session {
 
   start() {
     const exe = this.brevi || binary();
-    const p = spawn(exe, ["mcp"], { cwd: this.cwd, stdio: ["pipe", "pipe", "ignore"] });
+    // --trust-calls: the calls are this code's (the model only fills TOOL's code and stdin), so the grants and
+    // sandbox setting they carry are the caller's own.
+    const p = spawn(exe, ["mcp", "--trust-calls"], { cwd: this.cwd, stdio: ["pipe", "pipe", "ignore"] });
     this.proc = p;
     let buf = "";
     p.stdout.setEncoding("utf8");

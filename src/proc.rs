@@ -45,7 +45,37 @@ pub fn program(bin: impl AsRef<std::ffi::OsStr>) -> Command {
     let mut c = Command::new(bin);
     die_with_parent(&mut c);
     apply(&mut c, &Limits::default());
+    if crate::caps::sandboxed() {
+        hold_env(&mut c, crate::caps::granted("native") || crate::caps::grant_flags().iter().any(|f| f == "--allow-py"));
+    }
     c
+}
+
+// Under --sandbox the program starts with a short environment, not the caller's: the caller's variables can
+// hold keys and tokens, and a program granted reads could find them in /proc/self/environ. Kept: the search
+// path, locale, time zone, terminal size, temp folders, Windows' system folders and Brevi's own settings (not
+// the MCP server's token). `cpython`: the program may load CPython (--allow-py or --allow native), whose
+// libraries also need the home folder and the proxy and certificate settings.
+pub fn hold_env(c: &mut Command, cpython: bool) {
+    let keep = |k: &str| {
+        let k = k.to_ascii_uppercase();
+        let base = matches!(k.as_str(), "PATH" | "PATHEXT" | "LANG" | "LANGUAGE" | "TZ" | "TERM" | "COLUMNS" | "LINES" | "TMPDIR" | "TEMP" | "TMP" | "SYSTEMROOT" | "WINDIR" | "SYSTEMDRIVE")
+            || k.starts_with("LC_")
+            || (k.starts_with("BREVI_") && k != "BREVI_MCP_TOKEN" && !k.starts_with("BREVI_LIMIT_"));
+        let py = matches!(k.as_str(), "HOME" | "USERPROFILE" | "APPDATA" | "LOCALAPPDATA" | "XDG_CACHE_HOME" | "HTTP_PROXY" | "HTTPS_PROXY" | "ALL_PROXY" | "NO_PROXY" | "SSL_CERT_FILE" | "SSL_CERT_DIR" | "REQUESTS_CA_BUNDLE" | "CURL_CA_BUNDLE");
+        base || (cpython && py)
+    };
+    // What this command was already given (apply's limit counts), set again after the clear.
+    let set: Vec<(std::ffi::OsString, std::ffi::OsString)> = c.get_envs().filter_map(|(k, v)| v.map(|v| (k.to_os_string(), v.to_os_string()))).collect();
+    c.env_clear();
+    for (k, v) in std::env::vars_os() {
+        if k.to_str().is_some_and(keep) {
+            c.env(k, v);
+        }
+    }
+    for (k, v) in set {
+        c.env(k, v);
+    }
 }
 
 // ---- Resource limits (`--limit cpu=2,mem=256,time=5,output=64,file=10`) ----
@@ -62,15 +92,17 @@ pub struct Limits {
     pub time: Option<std::time::Duration>,
     pub output: Option<u64>,
     pub file: Option<u64>,
-    // Threads at once (Linux: the process's thread count, checked as it runs).
+    // Threads at once, of the program and everything it starts (Linux: the kernel's pids controller, which
+    // refuses the thread or process past it; cgroup.rs).
     pub threads: Option<u64>,
     // Open file descriptors at once (RLIMIT_NOFILE: an open past it fails with "Too many open files").
     pub fds: Option<u64>,
-    // MB written other than to stdout and stderr: files, pipes, sockets (Linux: the kernel's count of bytes
-    // the process wrote, /proc/PID/io wchar, checked as it runs).
+    // Bytes written to files (stdout and stderr are `output`, the network `net`), counted by Brevi's own file
+    // layer before each write, so a write past it never starts (fsscope.rs brevi_written).
     pub written: Option<u64>,
     // Files the program creates, and bytes it sends and receives over the network, counted by Brevi's own file
-    // and network layers in the program (fsscope.rs); so only under --sandbox without CPython or native code.
+    // and network layers in the program (fsscope.rs). These three are only under --sandbox without CPython or
+    // native code, which could write or connect around those layers.
     pub files: Option<u64>,
     pub net: Option<u64>,
 }
@@ -147,8 +179,15 @@ impl Limits {
         if cfg!(windows) && self.fds.is_some() {
             return Err("--limit fds is not enforced on Windows yet; leave it out, or run on Linux or macOS".into());
         }
-        if !cfg!(target_os = "linux") && (self.threads.is_some() || self.written.is_some()) {
-            return Err("--limit threads and written are enforced on Linux only (they read the kernel's counts in /proc); leave them out, or run on Linux".into());
+        if self.threads.is_some() {
+            #[cfg(target_os = "linux")]
+            {
+                crate::cgroup::available().map_err(|why| format!("--limit threads needs a cgroup with the kernel's pids controller that Brevi can create, and there is none here ({why}); leave it out, or run as root, in a container with its own cgroup, or under systemd-run --user -p Delegate=yes"))?;
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                return Err("--limit threads is enforced on Linux only (by the kernel's pids controller); leave it out, or run on Linux".into());
+            }
         }
         if cfg!(target_os = "macos") && self.mem.is_some() {
             return Err("--limit mem is not enforced on macOS (the kernel ignores an address-space limit); leave it out, or run on Linux".into());
@@ -218,6 +257,13 @@ pub fn take_limit_flags(argv: &mut Vec<String>) -> Result<Limits, String> {
 // smaller memory limit wins). If one cannot be set, the program does not start: it never runs unlimited.
 #[allow(unused_variables)]
 pub fn apply(c: &mut Command, l: &Limits) {
+    // files, net and written are counted by the program itself (fsscope.rs reads these once), on every OS.
+    for (k, v) in [("BREVI_LIMIT_FILES", l.files), ("BREVI_LIMIT_NET", l.net), ("BREVI_LIMIT_WRITTEN", l.written)] {
+        match v {
+            Some(n) => drop(c.env(k, n.to_string())),
+            None => drop(c.env_remove(k)),
+        }
+    }
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -229,13 +275,6 @@ pub fn apply(c: &mut Command, l: &Limits) {
         // Only Linux holds a program to an address-space limit; BREVI_MEM_MB is ignored elsewhere.
         let mem = if cfg!(target_os = "linux") { mem.map(|m| m.saturating_mul(1 << 20)) } else { None };
         let (cpu, file, fds) = (l.cpu, l.file.map(|f| f.saturating_mul(1 << 20)), l.fds);
-        // files and net are counted by the program itself (fsscope.rs reads these once).
-        for (k, v) in [("BREVI_LIMIT_FILES", l.files), ("BREVI_LIMIT_NET", l.net)] {
-            match v {
-                Some(n) => drop(c.env(k, n.to_string())),
-                None => drop(c.env_remove(k)),
-            }
-        }
         if mem.is_none() && cpu.is_none() && file.is_none() && fds.is_none() {
             return;
         }
@@ -300,6 +339,16 @@ pub fn spawn_limited(c: &mut Command, l: &Limits, group: bool) -> std::io::Resul
             };
         }
     }
+    // Linux, threads: the program goes into a cgroup of its own whose pids.max is the limit before its first
+    // instruction (it moves itself in between fork and exec), so the kernel refuses every thread or process
+    // past it, in the program and in anything it starts.
+    #[cfg(target_os = "linux")]
+    if let Some(n) = l.threads {
+        let g = crate::cgroup::Group::new(n).map_err(|why| std::io::Error::other(format!("--limit threads: cannot set up the program's cgroup ({why})")))?;
+        g.enter_on_start(c);
+        let child = c.spawn()?;
+        return Ok((child, Job { cg: Some(g) }));
+    }
     let _ = (l, group);
     Ok((c.spawn()?, Job::default()))
 }
@@ -309,6 +358,9 @@ pub fn spawn_limited(c: &mut Command, l: &Limits, group: bool) -> std::io::Resul
 pub struct Job {
     #[cfg(windows)]
     h: Option<(winjob::H, winjob::H)>,
+    // Linux, with a threads limit: the cgroup the program runs in (removed, with anything left in it, on drop).
+    #[cfg(target_os = "linux")]
+    cg: Option<crate::cgroup::Group>,
 }
 
 impl Job {
@@ -320,6 +372,13 @@ impl Job {
             let mem = unsafe { winjob::messages(port) };
             if mem && l.mem.is_some() && !status.success() {
                 return Some("mem");
+            }
+        }
+        // The kernel refused a thread or process at the threads limit, and the program then failed.
+        #[cfg(target_os = "linux")]
+        if let Some(g) = &self.cg {
+            if l.threads.is_some() && !status.success() && g.refused() {
+                return Some("threads");
             }
         }
         let _ = (l, status);
@@ -517,8 +576,8 @@ pub fn limit_line(l: &Limits, on: &str) -> String {
             (format!("{t} s"), format!("the program was stopped after {t} s of wall-clock time"))
         }
         "output" => (format!("{} bytes", l.output.unwrap_or(0)), format!("the program was stopped after writing {} bytes to stdout and stderr", l.output.unwrap_or(0))),
-        "threads" => (format!("{} threads", l.threads.unwrap_or(0)), format!("the program started more than {} threads", l.threads.unwrap_or(0))),
-        "written" => (format!("{} bytes", l.written.unwrap_or(0)), format!("the program wrote more than {} bytes (files, pipes and sockets; stdout and stderr not counted)", l.written.unwrap_or(0))),
+        "threads" => (format!("{} threads", l.threads.unwrap_or(0)), format!("the program tried to run more than {} threads at once (its own and those of anything it started)", l.threads.unwrap_or(0))),
+        "written" => (format!("{} bytes", l.written.unwrap_or(0)), format!("the program tried to write more than {} bytes to files", l.written.unwrap_or(0))),
         _ => (format!("{} MB", l.file.unwrap_or(0)), format!("the program tried to write a file over {} MB", l.file.unwrap_or(0))),
     };
     format!("{{\"e\":\"limit\",\"on\":\"{on}\",\"limit\":\"{limit}\",\"msg\":\"{msg}\",\"fix\":\"raise it with --limit {on}=... if the program needs more\"}}")
@@ -543,11 +602,10 @@ pub fn run_with(c: &mut Command, l: &Limits) -> std::io::Result<i32> {
     let tail = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
     let over = Arc::new(AtomicBool::new(false));
     let mut pumps = vec![];
-    // written subtracts stdout and stderr, so both are counted here
-    if l.output.is_some() || l.mem.is_some() || l.written.is_some() {
+    if l.output.is_some() || l.mem.is_some() {
         c.stderr(std::process::Stdio::piped());
     }
-    if l.output.is_some() || l.written.is_some() {
+    if l.output.is_some() {
         c.stdout(std::process::Stdio::piped());
     }
     let start = std::time::Instant::now();
@@ -597,8 +655,6 @@ pub fn run_with(c: &mut Command, l: &Limits) -> std::io::Result<i32> {
                 stopped = Some("output");
             } else if l.time.is_some_and(|t| start.elapsed() >= t) {
                 stopped = Some("time");
-            } else if let Some(on) = over_counts(child.id(), l, written.load(Ordering::SeqCst)) {
-                stopped = Some(on);
             }
             if stopped.is_some() {
                 let _ = child.kill();
@@ -628,28 +684,6 @@ pub fn run_with(c: &mut Command, l: &Limits) -> std::io::Result<i32> {
         return Ok(LIMIT_EXIT);
     }
     Ok(code(status))
-}
-
-// Linux: whether the running program is over its threads or written limit, from the kernel's counts.
-pub fn over_counts(pid: u32, l: &Limits, piped: u64) -> Option<&'static str> {
-    if l.threads.is_none() && l.written.is_none() {
-        return None;
-    }
-    let field = |file: &str, key: &str| -> Option<u64> {
-        let t = std::fs::read_to_string(format!("/proc/{pid}/{file}")).ok()?;
-        t.lines().find_map(|x| x.strip_prefix(key)).and_then(|v| v.trim().parse().ok())
-    };
-    if let Some(n) = l.threads {
-        if field("status", "Threads:").is_some_and(|t| t > n) {
-            return Some("threads");
-        }
-    }
-    if let Some(b) = l.written {
-        if field("io", "wchar:").is_some_and(|w| w.saturating_sub(piped) > b) {
-            return Some("written");
-        }
-    }
-    None
 }
 
 // The exit code to pass on for a program's status. A program killed by a signal has no code: say what
@@ -773,11 +807,11 @@ mod tests {
         }
     }
 
-    // threads and written are read from /proc while the program runs.
+    // threads is held by the kernel (a pids cgroup per program); skipped where none can be made.
     #[cfg(target_os = "linux")]
     #[test]
-    fn holds_threads_and_written() {
-        if Command::new("python3").arg("-c").arg("1").status().map_or(true, |s| !s.success()) {
+    fn holds_threads() {
+        if crate::cgroup::available().is_err() || Command::new("python3").arg("-c").arg("1").status().map_or(true, |s| !s.success()) {
             return;
         }
         let py = |code: &str| {
@@ -792,12 +826,9 @@ mod tests {
         let mut few = Limits::default();
         few.parse("threads=16,time=20").unwrap();
         assert_eq!(run_with(&mut py("import threading; t = threading.Thread(target=print); t.start(); t.join()"), &few).unwrap(), 0);
-        let dir = std::env::temp_dir().join(format!("brevi-written-{}", std::process::id()));
-        let mut w = Limits::default();
-        w.parse("written=1,time=20").unwrap();
-        let big = format!("import time\nfor i in range(40):\n    open({:?}, 'w').write('x' * 100000)\n    time.sleep(0.01)\n", dir.to_string_lossy());
-        assert_eq!(run_with(&mut py(&big), &w).unwrap(), LIMIT_EXIT);
-        let _ = std::fs::remove_file(&dir);
+        // Processes it starts count too.
+        let procs = "import subprocess\nps = [subprocess.Popen(['sleep', '2']) for _ in range(8)]\n[p.wait() for p in ps]\n";
+        assert_eq!(run_with(&mut py(procs), &l).unwrap(), LIMIT_EXIT);
     }
 
     #[test]

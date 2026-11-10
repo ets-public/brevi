@@ -1,3 +1,11 @@
+# `brevi build` without -o writes the program into the current folder: at the top of the checkout, ignore
+# every file without an extension except the ones listed (tools/no_binaries.py also checks this in CI).
+# This block comes first so the folder rules below still apply.
+/*
+!/*.*
+!/*/
+!/LICENSE
+!/Dockerfile
 /target
 bench/work/
 site/out/

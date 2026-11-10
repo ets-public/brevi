@@ -43,6 +43,7 @@ mod brevi_fsglue {
         }
         let real = scoped(p, true)?;
         brevi_new_file(&real);
+        brevi_written(t.len() as u64);
         let mut f = std::fs::OpenOptions::new().write(true).create(true).append(append).truncate(!append).open(real).map_err(|e| os_err(e, p))?;
         f.write_all(t.as_bytes()).map_err(|e| os_err(e, p))
     }
@@ -79,6 +80,7 @@ mod brevi_fsglue {
         }
         let real = scoped(p, true)?;
         brevi_new_file(&real);
+        brevi_written(b.len() as u64);
         std::fs::write(real, b).map_err(|e| os_err(e, p))
     }
 
@@ -146,6 +148,7 @@ mod brevi_fsglue {
         }
         let real = scoped(p, true)?;
         brevi_new_file(&real);
+        brevi_written(b.len() as u64);
         let mut o = std::fs::OpenOptions::new();
         o.write(true);
         match mode {

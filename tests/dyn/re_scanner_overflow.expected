@@ -1,0 +1,7 @@
+[(0, 0), (1, 3), (3, 3), (4, 4), None, None]
+['1', None, None, None]
+(1, 2) (3, 4) None x
+OverflowError the repetition number is too large
+ok a{4294967294}
+OverflowError the repetition number is too large
+OverflowError the repetition number is too large
