@@ -110,6 +110,9 @@ def _lacks(what):
 # -- utils
 
 
+_DICT_ATTRS = frozenset(("clear", "copy", "fromkeys", "get", "items", "keys", "pop", "popitem", "setdefault", "update", "values"))
+
+
 class _Missing:
     def __repr__(self):
         return "missing"
@@ -4024,6 +4027,13 @@ class Environment:
             return self.undefined(obj=obj, name=argument)
 
     def getattr(self, obj, attribute):
+        # a plain dict has no attribute by a name like this, so getattr() would raise and obj[attribute] decide:
+        # go there directly instead of raising and catching an AttributeError on every {{ m.role }}
+        if type(obj) is dict and type(attribute) is str and attribute[:1] != "_" and attribute not in _DICT_ATTRS:
+            try:
+                return obj[attribute]
+            except (TypeError, LookupError, AttributeError):
+                return self.undefined(obj=obj, name=attribute)
         try:
             return getattr(obj, attribute)
         except AttributeError:

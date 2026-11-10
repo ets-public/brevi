@@ -630,7 +630,7 @@ fn getattr_ic_slow(o: &V, name: Sym, ic: &std::sync::atomic::AtomicUsize) -> R {
 #[inline]
 pub fn setattr_ic(o: &V, name: Sym, v: V, ic: &std::sync::atomic::AtomicUsize) -> Result<(), E> {
     if let V::Obj(ob) = o {
-        if ob.cls.plain_set() {
+        if ob.cls.plain_set(name) {
             let mut d = ob.d.borrow_mut();
             if d.dict.is_some() {
                 drop(d);
@@ -662,7 +662,7 @@ fn setattr_ic_slow(o: &V, name: Sym, v: V, ic: &std::sync::atomic::AtomicUsize) 
         return setattr(o, name, v);
     }
     if let V::Obj(ob) = o {
-        if ob.cls.plain_set() {
+        if ob.cls.plain_set(name) {
             let mut d = ob.d.borrow_mut();
             if d.dict.is_some() {
                 drop(d);
@@ -863,7 +863,7 @@ pub fn getattr(o: &V, name: &str) -> R {
 }
 pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
     match o {
-        V::Obj(ob) if ob.cls.plain_set() => {
+        V::Obj(ob) if ob.cls.plain_set(name) => {
             ob.set_res(name, v)?;
             Ok(())
         }
