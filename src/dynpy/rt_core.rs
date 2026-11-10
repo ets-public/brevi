@@ -2959,8 +2959,11 @@ impl Obj {
         }
         let mut entries: Vec<(Sym, V)> = vec![];
         let mut keep = Attrs::new();
+        // Exception `args` (and OSError's errno/strerror/filename/filename2) are C slots in CPython:
+        // they never show in __dict__.
+        let skip_ose = self.cls.is_sub(&exc_class("OSError"));
         for (k, v) in d.attrs.iter() {
-            if self.dict_free(k) {
+            if self.dict_free(k) || (skip_ose && matches!(*k, "errno" | "strerror" | "filename" | "filename2")) {
                 keep.push((*k, v.clone()));
             } else {
                 entries.push((*k, v.clone()));

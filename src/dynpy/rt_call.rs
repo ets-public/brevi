@@ -495,11 +495,22 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
         }
         return Ok(g);
     }
-    let o = Obj::new(c.clone());
+    // CPython 3.13's OSError is a factory: OSError(errno, strerror, ...) makes the subclass the errno names
+    // (PermissionError and so on), so the fields below belong to that subclass.
+    let c2 = if c.module == "builtins" && c.name == "OSError" { ose_factory(c, &a.p) } else { c.clone() };
+    let o = Obj::new(c2.clone());
     let me = V::Obj(o.clone());
-    let bb = c.base_bt();
+    let bb = c2.base_bt();
     if bb == BT::Exc {
-        o.set("args", tup(a.p.clone()));
+        // builtin exception constructors take no keyword arguments (ExceptionGroup is handled above)
+        if !a.k.is_empty() && c2.lookup("__init__").map_or(true, |f| is_builtin_init(&f)) {
+            return type_err(format!("{}() takes no keyword arguments", c.name));
+        }
+        if c2.is_sub(&exc_class("OSError")) && c2.lookup("__init__").map_or(true, |f| is_builtin_init(&f)) {
+            ose_init(&o, &a.p);
+        } else {
+            o.set("args", tup(a.p.clone()));
+        }
     } else if bb != BT::Object && bb != BT::Other {
         // subclass of a builtin container: the instance wraps a builtin value
         let mut a0 = Args { p: vec![], k: vec![] };
@@ -531,6 +542,41 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
 fn is_builtin_init(f: &V) -> bool {
     matches!(f, V::Func(x) if x.kind.get() == 3 && x.name.get() == "__init__")
 }
+// The subclass a plain OSError(errno, ...) really is (OSError itself when the errno names no subclass).
+fn ose_factory(c: &Rc<Class>, p: &[V]) -> Rc<Class> {
+    if (2..=5).contains(&p.len()) {
+        let myerrno = match &p[0] {
+            V::Int(i) => *i,
+            V::Bool(b) => *b as i64,
+            _ => -1,
+        };
+        let name = ose_errno_name(myerrno);
+        if name != "OSError" {
+            return exc_class(name);
+        }
+    }
+    c.clone()
+}
+// OSError(errno, strerror, filename, winerror=None, filename2=None), as CPython 3.13 lays it out: the first
+// two arguments are also the args attribute unless a filename is given (it then lives only in the field, so
+// args is (errno, strerror)).
+fn ose_init(o: &Rc<Obj>, p: &[V]) {
+    let n = p.len();
+    let mut stored = p.to_vec();
+    if n >= 2 && n <= 5 {
+        o.set(sym("errno"), p[0].clone());
+        o.set(sym("strerror"), p[1].clone());
+        if n >= 3 && !matches!(p[2], V::None) {
+            o.set(sym("filename"), p[2].clone());
+            if n >= 5 && !matches!(p[4], V::None) {
+                o.set(sym("filename2"), p[4].clone());
+            }
+            stored = p[..2].to_vec();
+        }
+    }
+    o.set("args", tup(stored));
+}
+
 fn builtin_of_bt(bt: BT) -> Rc<Class> {
     bclass(match bt {
         BT::List => "list",
@@ -593,7 +639,11 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
                 let me2 = me.clone();
                 return Ok(builtin("__init__", move |a: Args| {
                     if let V::Obj(o) = &me2 {
-                        o.set("args", tup(a.p));
+                        if o.cls.is_sub(&exc_class("OSError")) {
+                            ose_init(o, &a.p);
+                        } else {
+                            o.set("args", tup(a.p));
+                        }
                     }
                     Ok(V::None)
                 }));
@@ -623,6 +673,9 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
                     let args = o.get("args").unwrap_or(tup(vec![]));
                     if rep {
                         return Ok(st(format!("{}{}", o.cls.name, repr(&args)?)));
+                    }
+                    if o.cls.is_sub(&exc_class("OSError")) {
+                        return Ok(st(ose_str(o, &args)?));
                     }
                     return Ok(st(match &args {
                         V::Tuple(t) if t.len() == 1 => to_str(&t[0])?,
@@ -950,6 +1003,10 @@ pub fn getattr(o: &V, name: &str) -> R {
                         _ => V::None,
                     });
                 }
+                // OSError's constructor-derived fields; once deleted the slot reads None, as in CPython.
+                "errno" | "strerror" | "filename" | "filename2" if ob.cls.base_bt() == BT::Exc && ob.cls.is_sub(&exc_class("OSError")) => {
+                    return Ok(ob.get(name).unwrap_or(V::None));
+                }
                 _ => {}
             }
             if let Some(ga) = ob.cls.lookup("__getattr__") {
@@ -1217,6 +1274,14 @@ pub fn delattr(o: &V, name: &str) -> Result<(), E> {
         V::Obj(ob) => {
             if let Some(da) = ob.cls.lookup("__delattr__") {
                 call(&da, Args::p(vec![o.clone(), s(name)]))?;
+                return Ok(());
+            }
+            // deleting an OSError field empties the slot (getattr then reads None), it does not raise
+            if matches!(name, "errno" | "strerror" | "filename" | "filename2")
+                && ob.cls.base_bt() == BT::Exc
+                && ob.cls.is_sub(&exc_class("OSError"))
+            {
+                ob.del_attr(name)?;
                 return Ok(());
             }
             if ob.del_attr(name)? {

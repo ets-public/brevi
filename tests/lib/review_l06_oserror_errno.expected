@@ -1,0 +1,15 @@
+(2, 'no file') 2 no file x.txt [Errno 2] no file: 'x.txt'
+FileNotFoundError(2, 'no file') FileNotFoundError
+(2, 'no file') 2 no file None [Errno 2] no file
+('msg',) None None None msg
+() None None None 
+(2,) None None None 2
+1 PermissionError PermissionError(1, 'denied')
+110 TimeoutError [Errno 110] timed out: 'x'
+5 OSError OSError(5, 'io')
+3 no file x.txt [Errno 3] no file: 'x.txt' FileNotFoundError(2, 'no file') (2, 'no file')
+(2, 'no file', None) 2 no file None [Errno 2] no file FileNotFoundError(2, 'no file', None)
+(2, 'no file') 2 no file x.txt other [Errno 2] no file: 'x.txt' -> 'other'
+TypeError OSError() takes no keyword arguments
+(2, 'no file') 2 no file x.txt [Errno 2] no file: 'x.txt' MyErr(2, 'no file') MyErr
+{}

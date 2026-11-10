@@ -1,0 +1,25 @@
+e=OSError(2,"no file","x.txt")
+print(e.args, e.errno, e.strerror, e.filename, str(e))
+print(repr(e), type(e).__name__)
+print(OSError(2,"no file").args, OSError(2,"no file").errno, OSError(2,"no file").strerror, OSError(2,"no file").filename, str(OSError(2,"no file")))
+print(OSError("msg").args, OSError("msg").errno, OSError("msg").strerror, OSError("msg").filename, str(OSError("msg")))
+print(OSError().args, OSError().errno, OSError().strerror, OSError().filename, str(OSError()))
+print(OSError(2).args, OSError(2).errno, OSError(2).strerror, OSError(2).filename, str(OSError(2)))
+print(OSError(1,"denied","x").errno, type(OSError(1,"denied","x")).__name__, repr(OSError(1,"denied","x")))
+print(OSError(110,"timed out","x").errno, type(OSError(110,"timed out","x")).__name__, str(OSError(110,"timed out","x")))
+print(OSError(5,"io").errno, type(OSError(5,"io")).__name__, repr(OSError(5,"io")))
+e=OSError(2,"no file","x.txt")
+e.errno=3
+print(e.errno, e.strerror, e.filename, str(e), repr(e), e.args)
+e=OSError(2,"no file",None)
+print(e.args, e.errno, e.strerror, e.filename, str(e), repr(e))
+e=OSError(2,"no file","x.txt","ignored","other")
+print(e.args, e.errno, e.strerror, e.filename, e.filename2, str(e))
+try:
+    OSError(errno=2)
+except TypeError as t:
+    print("TypeError", str(t))
+class MyErr(OSError): pass
+m=MyErr(2,"no file","x.txt")
+print(m.args, m.errno, m.strerror, m.filename, str(m), repr(m), type(m).__name__)
+print(vars(OSError(2,"no file","x.txt")))
