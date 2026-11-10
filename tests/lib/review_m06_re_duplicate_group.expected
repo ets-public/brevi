@@ -1,0 +1,7 @@
+err redefinition of group name 'x' as group 2; was group 1 at position 12
+{'y': 1} 2 None
+'(?P<xx>a)(?P<xx>b)' err redefinition of group name 'xx' as group 2; was group 1 at position 13
+'(?P<x>a)(?:c)(?P<x>b)' err redefinition of group name 'x' as group 2; was group 1 at position 17
+'((?P<x>a))(?P<x>b)' err redefinition of group name 'x' as group 3; was group 2 at position 14
+'(?P<x>a)*(?P<x>b)' err redefinition of group name 'x' as group 2; was group 1 at position 13
+'(?P<x>a)|(?P<x>b)' err redefinition of group name 'x' as group 2; was group 1 at position 13
