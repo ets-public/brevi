@@ -318,6 +318,10 @@ pub fn ax_init(files: &'static [(&'static str, usize, usize)], fs: AxFs) {
 static AX_I64_WHY: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
 pub fn ax_i64_mode(why: &'static str) {
     AX_I64_WHY.set(why).ok();
+    if why.is_empty() && std::env::var_os("BREVI_I64_REPLAY").is_some() {
+        AX_MERGED.store(std::env::var_os("BREVI_I64_MERGED").is_some(), std::sync::atomic::Ordering::Relaxed);
+        AX_ARMED.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 pub fn ax_needs_dyn(msg: &str) -> Option<&str> {
     if let Some(w) = msg.strip_prefix("AX_DYN: ") {
@@ -330,18 +334,61 @@ fn ax_i64_stop(what: &str) -> String {
     match std::env::var_os("BREVI_I64_REPLAY") {
         Some(p) if why.is_empty() => {
             use std::io::Write;
-            let _ = std::io::stdout().flush();
+            let mut o = std::io::stdout().lock();
+            let flushed = o.flush().is_ok();
             let _ = std::io::stderr().flush();
-            if std::fs::write(&p, what).is_ok() {
+            let t = unsafe { &*AX_TALLY.0.get() };
+            let taken = ax_stdin_taken();
+            let mut inp = p.clone();
+            inp.push(".in");
+            let inp_ok = taken.is_some_and(|b| std::fs::write(&inp, b).is_ok());
+            let tally = format!("{what}\n{} {} {} {} {}", t.n[0], t.h[0].end(), t.n[1], t.h[1].end(), t.bad || !flushed || !inp_ok);
+            if std::fs::write(&p, tally).is_ok() {
                 std::process::exit(AX_REPLAY_EXIT);
             }
-            format!("OverflowError: the typed build stopped ({what}), and the dynamic build could not be started")
+            format!("the typed build stopped: {what}, and the dynamic build could not be started")
         }
-        Some(_) => format!("OverflowError: the typed build stopped ({what}: its ints are 64 bits, Python's have no limit); Brevi cannot re-run this program on the dynamic build because {why}. Run it with BREVI_DYN=1 for exact big ints"),
-        None => format!("OverflowError: the typed build stopped ({what}: its ints are 64 bits, Python's have no limit); `brevi run` re-runs such a program on the dynamic build, or build it with BREVI_DYN=1"),
+        Some(_) => format!("the typed build stopped: {what}, which its 64-bit numbers cannot hold exactly; Brevi cannot re-run this program on the dynamic build because {why}. Run it with BREVI_DYN=1 for Python's exact values"),
+        None => format!("the typed build stopped: {what}, which its 64-bit numbers cannot hold exactly; `brevi run` re-runs such a program on the dynamic build, or build it with BREVI_DYN=1"),
     }
 }
 pub const AX_REPLAY_EXIT: i32 = 70;
+// The typed build marks None inside a number or text: i64::MIN, f64::MIN, i128::MIN in a Decimal and the text
+// "\0None". A result that is one of those as a value (`-(2**62) * 2`, `-sys.float_info.max`, chr(0) + "None")
+// would be shown as None, so it is a value the typed build cannot hold (see ax_needs_dyn). Every + - * / and
+// unary minus the program does passes its result here; for other types this is nothing.
+#[inline(always)]
+pub fn ax_ck<T: 'static>(x: T) -> T {
+    ax_ck_ref(&x);
+    x
+}
+#[inline(always)]
+pub fn ax_ck_ref<T: 'static>(x: &T) {
+    use std::any::TypeId;
+    let t = TypeId::of::<T>();
+    let p = x as *const T;
+    let clash = if t == TypeId::of::<i64>() {
+        unsafe { *(p as *const i64) == i64::MIN }
+    } else if t == TypeId::of::<f64>() {
+        unsafe { *(p as *const f64) == f64::MIN }
+    } else if t == TypeId::of::<Dec>() {
+        let d = unsafe { &*(p as *const Dec) };
+        d.0 == i128::MIN && !d.is_frac()
+    } else if t == TypeId::of::<String>() {
+        unsafe { (*(p as *const String)).as_str() == "\u{0}None" }
+    } else {
+        false
+    };
+    if clash {
+        ax_none_clash();
+    }
+}
+#[cold]
+#[inline(never)]
+fn ax_none_clash() -> ! {
+    panic!("AX_DYN: a value equal to the typed build's mark for None")
+}
+
 // int(x) of a float: truncated toward zero. One past 64 bits needs a big int (see ax_needs_dyn); i64::MIN is
 // None's mark, so it is one too.
 #[inline]
@@ -812,27 +859,107 @@ pub fn print<T: Show>(x: T) {
         ax_out(&s);
     }
     #[cfg(not(windows))]
-    println!("{}", x.show());
+    {
+        if !AX_ARMED.load(std::sync::atomic::Ordering::Relaxed) {
+            println!("{}", x.show());
+            return;
+        }
+        use std::io::Write;
+        let mut s = x.show();
+        s.push('\n');
+        let mut o = std::io::stdout().lock();
+        let ok = o.write_all(s.as_bytes()).is_ok();
+        ax_tally(&o, 0, s.as_bytes(), ok);
+    }
+}
+// What the program has written to stdout and stderr (a count and a hash of each, or of both together when
+// they go to one place): kept only when `brevi run` may run it again on the dynamic build, which then skips
+// that much of the second run's output after checking it is the same (src/replay.rs has the same hash).
+// Kept under the stdout lock, which every write here holds.
+#[derive(Clone, Copy)]
+pub struct AxHs {
+    h: u64,
+    tail: u64,
+    tn: u32,
+}
+impl AxHs {
+    const fn new() -> AxHs {
+        AxHs { h: 0x243F_6A88_85A3_08D3, tail: 0, tn: 0 }
+    }
+    #[inline]
+    fn word(&mut self, w: u64) {
+        self.h = (self.h ^ w).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        self.h ^= self.h >> 31;
+    }
+    fn add(&mut self, mut b: &[u8]) {
+        while self.tn != 0 && !b.is_empty() {
+            self.tail |= (b[0] as u64) << (8 * self.tn);
+            self.tn = (self.tn + 1) % 8;
+            b = &b[1..];
+            if self.tn == 0 {
+                let t = self.tail;
+                self.word(t);
+                self.tail = 0;
+            }
+        }
+        let mut it = b.chunks_exact(8);
+        for c in &mut it {
+            self.word(u64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]));
+        }
+        for &x in it.remainder() {
+            self.tail |= (x as u64) << (8 * self.tn);
+            self.tn += 1;
+        }
+    }
+    fn end(&self) -> u64 {
+        let mut c = *self;
+        c.word(c.tail ^ ((c.tn as u64) << 59));
+        c.h
+    }
+}
+struct AxOutCount {
+    n: [u64; 2],
+    h: [AxHs; 2],
+    bad: bool,
+}
+struct AxOutCountCell(std::cell::UnsafeCell<AxOutCount>);
+unsafe impl Sync for AxOutCountCell {}
+static AX_TALLY: AxOutCountCell = AxOutCountCell(std::cell::UnsafeCell::new(AxOutCount { n: [0, 0], h: [AxHs::new(), AxHs::new()], bad: false }));
+static AX_ARMED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static AX_MERGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+#[inline]
+fn ax_tally(_held: &std::io::StdoutLock, stream: usize, b: &[u8], ok: bool) {
+    let i = if AX_MERGED.load(std::sync::atomic::Ordering::Relaxed) { 0 } else { stream };
+    // The stdout lock is held (the argument proves it), so no other thread is here.
+    let t = unsafe { &mut *AX_TALLY.0.get() };
+    t.n[i] += b.len() as u64;
+    t.h[i].add(b);
+    t.bad |= !ok;
 }
 // Text to stdout, then flushed. CPython's text streams on Windows write CRLF for every LF (even one already
 // after a CR), as its TextIOWrapper does; Brevi's output matches that there.
 pub fn ax_out(s: &str) {
     use std::io::Write;
-    let mut o = std::io::stdout();
+    let mut o = std::io::stdout().lock();
     #[cfg(windows)]
-    let _ = o.write_all(s.replace('\n', "\r\n").as_bytes());
-    #[cfg(not(windows))]
-    let _ = o.write_all(s.as_bytes());
+    let s = &s.replace('\n', "\r\n");
+    let ok = o.write_all(s.as_bytes()).is_ok();
+    if AX_ARMED.load(std::sync::atomic::Ordering::Relaxed) {
+        ax_tally(&o, 0, s.as_bytes(), ok);
+    }
     let _ = o.flush();
 }
 // Text to stderr (stdout flushed first, so the two stay in order), with CRLF on Windows as CPython writes it.
 pub fn ax_err(s: &str) {
     use std::io::Write;
-    let _ = std::io::stdout().flush();
+    let mut o = std::io::stdout().lock();
+    let _ = o.flush();
     #[cfg(windows)]
-    let _ = std::io::stderr().write_all(s.replace('\n', "\r\n").as_bytes());
-    #[cfg(not(windows))]
-    let _ = std::io::stderr().write_all(s.as_bytes());
+    let s = &s.replace('\n', "\r\n");
+    let ok = std::io::stderr().write_all(s.as_bytes()).is_ok();
+    if AX_ARMED.load(std::sync::atomic::Ordering::Relaxed) {
+        ax_tally(&o, 1, s.as_bytes(), ok);
+    }
 }
 // Python-style truth for conditions: false, 0, "", [] and {} are false.
 pub trait AxTruth {
@@ -969,24 +1096,89 @@ pub fn ax_py_digits(s: &str) -> std::borrow::Cow<'_, str> {
     let ok = cs.iter().enumerate().all(|(i, c)| *c != '_' || (i > 0 && i + 1 < cs.len() && cs[i - 1].is_ascii_alphanumeric() && cs[i + 1].is_ascii_alphanumeric()));
     if ok { std::borrow::Cow::Owned(s.replace('_', "")) } else { std::borrow::Cow::Borrowed(s) }
 }
+// stdin, when `brevi run` may run the program again (see AxOutCount): read through Brevi's own buffer, so what
+// was taken from the input so far (what the program read, and what the buffer holds) can be handed to the
+// second run. Linux and macOS only; elsewhere brevi passes stdin through itself instead. A regular file is not
+// kept: brevi moves back to where it started in the file.
+#[cfg(unix)]
+static AX_IN: std::sync::Mutex<Option<(std::io::BufReader<std::fs::File>, AxKept, bool)>> = std::sync::Mutex::new(None);
+// Bytes kept in 1 MB pieces, so keeping them never copies what was kept before.
+#[derive(Default)]
+struct AxKept {
+    parts: Vec<Vec<u8>>,
+    len: usize,
+    file: bool,
+}
+impl AxKept {
+    fn add(&mut self, b: &[u8]) {
+        self.len += b.len();
+        match self.parts.last_mut() {
+            Some(p) if p.capacity() - p.len() >= b.len() => p.extend_from_slice(b),
+            _ => {
+                let mut p = Vec::with_capacity(b.len().max(1 << 20));
+                p.extend_from_slice(b);
+                self.parts.push(p);
+            }
+        }
+    }
+}
+fn ax_stdin_read<T>(f: impl FnOnce(&mut dyn std::io::BufRead) -> (std::io::Result<usize>, T), text: impl Fn(&T) -> &[u8]) -> (std::io::Result<usize>, T) {
+    #[cfg(unix)]
+    if AX_ARMED.load(std::sync::atomic::Ordering::Relaxed) {
+        use std::os::unix::io::FromRawFd;
+        let mut g = AX_IN.lock().unwrap_or_else(|e| e.into_inner());
+        let (r, kept, bad) = g.get_or_insert_with(|| {
+            let f = unsafe { std::fs::File::from_raw_fd(0) };
+            let file = f.metadata().is_ok_and(|m| m.is_file());
+            (std::io::BufReader::with_capacity(65536, f), AxKept { file, ..Default::default() }, false)
+        });
+        let out = f(r);
+        match &out.0 {
+            Ok(_) if kept.file => {}
+            Ok(_) if kept.len < (64 << 20) => kept.add(text(&out.1)),
+            _ => *bad = true,
+        }
+        return out;
+    }
+    f(&mut std::io::stdin().lock())
+}
+// At a stop for a second run: everything taken from stdin so far, or None if it was not all kept.
+fn ax_stdin_taken() -> Option<Vec<u8>> {
+    #[cfg(unix)]
+    {
+        let g = AX_IN.lock().unwrap_or_else(|e| e.into_inner());
+        return match g.as_ref() {
+            None => Some(Vec::new()),
+            Some((_, _, true)) => None,
+            Some((_, kept, _)) if kept.file => Some(Vec::new()),
+            Some((r, kept, _)) => Some([kept.parts.concat().as_slice(), r.buffer()].concat()),
+        };
+    }
+    #[cfg(not(unix))]
+    Some(Vec::new())
+}
 pub fn input() -> String {
-    let mut s = String::new();
+    let (n, mut s) = ax_stdin_read(|r| {
+        let mut s = String::new();
+        (r.read_line(&mut s), s)
+    }, |s| s.as_bytes());
     // Python's input() at the end of the input raises EOFError.
-    if matches!(std::io::stdin().read_line(&mut s), Ok(0)) && ax_py_on() {
+    if matches!(n, Ok(0)) && ax_py_on() {
         panic!("EOFError: EOF when reading a line");
     }
-    s.trim_end_matches(['\n', '\r']).to_string()
+    ax_ck(s.trim_end_matches(['\n', '\r']).to_string())
 }
 pub fn stdin() -> String {
-    use std::io::Read;
-    let mut s = String::new();
-    std::io::stdin().read_to_string(&mut s).ok();
-    s
+    ax_stdin_read(|r| {
+        let mut s = String::new();
+        (r.read_to_string(&mut s), s)
+    }, |s| s.as_bytes()).1
 }
 pub fn ax_readline() -> String {
-    let mut s = String::new();
-    std::io::stdin().read_line(&mut s).ok();
-    s
+    ax_stdin_read(|r| {
+        let mut s = String::new();
+        (r.read_line(&mut s), s)
+    }, |s| s.as_bytes()).1
 }
 pub fn lines() -> Vec<String> {
     stdin().lines().map(String::from).collect()
@@ -1107,7 +1299,7 @@ pub fn ax_shl(a: i64, b: i64) -> i64 {
     if b < 64 {
         let r = a << b;
         if r >> b == a {
-            return r;
+            return ax_ck(r);
         }
     }
     panic!("attempt to shift left with overflow")
@@ -2203,7 +2395,11 @@ impl AxStr for String {
     fn ax_int(&self) -> R<i64> {
         let t = self.trim();
         let t: std::borrow::Cow<str> = if t.is_ascii() { ax_py_digits(t) } else { std::borrow::Cow::Owned(t.chars().map(ax_uni_digit).collect()) };
-        t.parse::<i64>().map_err(|_| {
+        t.parse::<i64>().map(ax_ck).map_err(|e| {
+            // Digits past 64 bits are a Python int all the same, never a ValueError.
+            if ax_py_on() && matches!(e.kind(), std::num::IntErrorKind::PosOverflow | std::num::IntErrorKind::NegOverflow) {
+                panic!("AX_DYN: int() of digits past 64 bits");
+            }
             if ax_py_on() {
                 AxErr(format!("invalid literal for int() with base 10: {}", ax_py_repr(self)))
             } else {
@@ -2212,7 +2408,7 @@ impl AxStr for String {
         })
     }
     fn ax_float(&self) -> R<f64> {
-        ax_py_digits(self.trim()).parse::<f64>().map_err(|_| if ax_py_on() { AxErr(format!("could not convert string to float: {}", ax_py_repr(self))) } else { AxErr(format!("not a float: {self:?}")) })
+        ax_py_digits(self.trim()).parse::<f64>().map(ax_ck).map_err(|_| if ax_py_on() { AxErr(format!("could not convert string to float: {}", ax_py_repr(self))) } else { AxErr(format!("not a float: {self:?}")) })
     }
     fn ax_slice(&self, a: i64, b: i64) -> String {
         let cs: Vec<char> = self.chars().collect();
@@ -2485,7 +2681,7 @@ pub trait AxSum<T> {
 }
 impl AxSum<i64> for Vec<i64> {
     fn ax_sum(&self) -> i64 {
-        self.iter().sum()
+        ax_ck(self.iter().sum())
     }
 }
 // CPython 3.12+ sums floats with compensation (Neumaier), and so does bi_sum in the dynamic build.
@@ -6515,7 +6711,7 @@ impl AxPow<i64> for i64 {
             panic!("int ** negative power gives a fraction: write a float, like 2.0 ** {b}");
         }
         match u32::try_from(b) {
-            Ok(e) => self.pow(e),
+            Ok(e) => ax_ck(self.pow(e)),
             Err(_) if self == 0 || self == 1 => self,
             Err(_) if self == -1 => if b % 2 == 0 { 1 } else { -1 },
             Err(_) => panic!("attempt to multiply with overflow"),
