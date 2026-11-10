@@ -2835,7 +2835,7 @@ fn struct_time_class() -> R {
     if let Some(c) = STRUCT_TIME.with(|c| c.borrow().clone()) {
         return Ok(c);
     }
-    let c = namedtuple(Args::p(vec![s("time.struct_time"), s("tm_year tm_mon tm_mday tm_hour tm_min tm_sec tm_wday tm_yday tm_isdst")]))?;
+    let c = namedtuple_runtime_type(Args::p(vec![s("time.struct_time"), s("tm_year tm_mon tm_mday tm_hour tm_min tm_sec tm_wday tm_yday tm_isdst")]))?;
     STRUCT_TIME.with(|x| *x.borrow_mut() = Some(c.clone()));
     Ok(c)
 }

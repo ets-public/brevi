@@ -652,7 +652,7 @@ pub fn heapq_fn(name: &str, mut a: Args) -> R {
             let revv = a.kw("reverse").unwrap_or(V::None);
             a.no_kw("merge")?;
             let mut st = MergeState { inputs: std::mem::take(&mut a.p), heap: vec![], started: false, hole: false, tail: false, revv, rev: None };
-            genexp_iter(move || st.next(key.as_ref()))
+            genexp_iter("merge", move || st.next(key.as_ref()))
         }
         _ => return Err(unsupported(&format!("heapq.{name}"))),
     })
@@ -701,9 +701,10 @@ pub fn bisect_fn(name: &str, mut a: Args) -> R {
 
 fn lru_cache_wrap(f: V) -> V {
     let cache: Rc<RefCell<Dict>> = Rc::new(RefCell::new(Dict::new()));
-    let name = match &f {
-        V::Func(x) => x.name,
-        _ => "wrapper",
+    // CPython's update_wrapper copies __name__ and __qualname__ from the wrapped function.
+    let (name, qualname) = match &f {
+        V::Func(x) => (x.name.get(), x.qualname.get()),
+        _ => ("wrapper", "wrapper"),
     };
     let c2 = cache.clone();
     let w = func(name, move |a: Args| {
@@ -726,6 +727,32 @@ fn lru_cache_wrap(f: V) -> V {
             c3.borrow_mut().clear();
             Ok(V::None)
         })));
+    }
+    with_qualname(w, qualname)
+}
+// CPython's functools.update_wrapper: copy __qualname__ and every attribute in the wrapped function's
+// __dict__ (__doc__, __module__, __annotations__, user attributes), and set __wrapped__.
+fn update_wrapper(w: V, f: &V) -> V {
+    let wf = match &w {
+        V::Func(wf) => wf.clone(),
+        _ => return w,
+    };
+    let V::Func(x) = f else {
+        return w;
+    };
+    wf.name.set(x.name.get());
+    wf.qualname.set(x.qualname.get());
+    if !Rc::ptr_eq(&wf, x) {
+        let mut a = wf.attrs.borrow_mut();
+        for (k, v) in x.attrs.borrow().iter() {
+            match a.iter_mut().find(|(n, _)| *n == *k) {
+                Some(e) => e.1 = v.clone(),
+                None => a.push((*k, v.clone())),
+            }
+        }
+        if !a.iter().any(|(n, _)| *n == "__wrapped__") {
+            a.push(("__wrapped__", f.clone()));
+        }
     }
     w
 }
@@ -779,7 +806,14 @@ pub fn functools_fn(name: &str, mut a: Args) -> R {
                 call(&f, Args { p, k })
             })
         }
-        "wraps" => builtin("wraps", |a: Args| Ok(a1(&a, "wraps")?)),
+        "wraps" => {
+            let f = a1(&a, name)?;
+            // CPython's functools.wraps(f) is a decorator that applies update_wrapper to the wrapped def.
+            builtin("wraps", move |a: Args| {
+                let w = a1(&a, "wraps")?;
+                Ok(update_wrapper(w, &f))
+            })
+        }
         "total_ordering" => {
             let c = a1(&a, name)?;
             if let V::Class(k) = &c {
@@ -2006,13 +2040,25 @@ fn py_keyword(s: &str) -> bool {
 // collections.namedtuple: the class CPython's collections.namedtuple builds, step for step. Fields are
 // read-only class descriptors that read from the tuple the instance wraps; only the tuple holds the values
 // (never instance attributes), so a subclass's __dict__ starts empty, as in CPython.
-pub fn namedtuple(mut a: Args) -> R {
+pub fn namedtuple(a: Args) -> R {
+    namedtuple_with(a, true)
+}
+// For the runtime's own tuple types whose CPython name is dotted (time.struct_time): the type name is not a
+// user's, so it skips the identifier check; the fields are still checked.
+pub fn namedtuple_runtime_type(a: Args) -> R {
+    namedtuple_with(a, false)
+}
+fn namedtuple_with(mut a: Args, check_name: bool) -> R {
     let rename = match a.kw("rename") {
         Some(v) => truth(&v)?,
         None => false,
     };
     let defaults = a.kw("defaults");
     let module = a.kw("module");
+    let module_sym: Sym = match &module {
+        Some(m) => sym(&to_str(m)?),
+        None => "__main__",
+    };
     a.no_kw("namedtuple")?;
     a.want("namedtuple", 2, 2)?;
     let name = sym(&to_str(&a.p[0])?);
@@ -2036,7 +2082,7 @@ pub fn namedtuple(mut a: Args) -> R {
             seen.push(original[index]);
         }
     }
-    for f in std::iter::once(&name).chain(fields.iter()) {
+    for f in std::iter::once(&name).filter(|_| check_name).chain(fields.iter()) {
         if !py_ident(f) {
             return val_err(format!("Type names and field names must be valid identifiers: {}", str_repr(f)));
         }
@@ -2072,7 +2118,7 @@ pub fn namedtuple(mut a: Args) -> R {
     } else {
         fields.join(", ")
     };
-    let c = Class::new(name, "__main__", vec![bclass("tuple")], BT::Tuple);
+    let c = Class::new(name, module_sym, vec![bclass("tuple")], BT::Tuple);
     *c.fields.borrow_mut() = fields.clone();
     c.set("__bv_namedtuple__", V::Bool(true));
     c.set("__slots__", tup(vec![]));
@@ -2715,7 +2761,12 @@ fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> Result<(), E> {
             for f in &fs {
                 parts.push(format!("{}={}", f, repr(&getattr(me, f)?)?));
             }
-            Ok(st(format!("{}({})", tn(me), parts.join(", "))))
+            // CPython's dataclass repr uses self.__class__.__qualname__
+            let qn = match me {
+                V::Obj(o) => o.cls.qualname.get().to_string(),
+                _ => tn(me),
+            };
+            Ok(st(format!("{qn}({})", parts.join(", "))))
         }));
     }
     let cmp = names(&real, "compare")?;

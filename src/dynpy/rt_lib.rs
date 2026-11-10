@@ -706,7 +706,7 @@ pub fn isinstance(x: &V, c: &V) -> Result<bool, E> {
             None => type_err("isinstance() arg 2 must be a type, a tuple of types, or a union".into()),
         },
         // the builtin slice is a function here (builtin_value), the type of slice objects
-        V::Func(f) if &*f.name == "slice" => Ok(matches!(x, V::Slice(_))),
+        V::Func(f) if &*f.name.get() == "slice" => Ok(matches!(x, V::Slice(_))),
         _ => type_err("isinstance() arg 2 must be a type, a tuple of types, or a union".into()),
     }
 }
@@ -779,6 +779,10 @@ pub fn bi_issubclass(a: Args) -> R {
     let check = |k: &V| -> Result<bool, E> {
         match k {
             V::Class(k) => Ok(sub.is_sub(k)),
+            V::Ext(e) => match e.subclasscheck(&V::Class(sub.clone())) {
+                Some(r) => r,
+                None => type_err("issubclass() arg 2 must be a class, a tuple of classes, or a union".into()),
+            },
             _ => type_err("issubclass() arg 2 must be a class, a tuple of classes, or a union".into()),
         }
     };
@@ -1085,10 +1089,12 @@ pub fn bi_classmethod(a: Args) -> R {
 }
 fn rewrap(x: &Rc<Func>, kind: u8) -> V {
     let inner = V::Func(x.clone());
-    let g = func(x.name, move |a: Args| call(&inner, a));
+    let g = func(x.name.get(), move |a: Args| call(&inner, a));
     if let V::Func(gf) = &g {
         gf.kind.set(kind);
         gf.fq.set(x.fq.get());
+        // a @staticmethod/@classmethod keeps the def's dotted __qualname__ (T.s, outer.<locals>.C.c)
+        gf.qualname.set(x.qualname.get());
         // the wrapped function's attributes (__doc__, __bv_np__) read through, as through CPython's __func__
         *gf.attrs.borrow_mut() = x.attrs.borrow().clone();
     }
@@ -1298,7 +1304,11 @@ fn builtin_class_attr_raw(c: &Rc<Class>, name: &str) -> Option<V> {
                 _ => getattr(o, &n.s),
             }
         })),
-        ("dict", "fromkeys") | ("OrderedDict", "fromkeys") | ("Counter", "fromkeys") => Some(builtin("fromkeys", |a: Args| {
+        // Counter.fromkeys is defined only to refuse: initializing counts to a constant has no clear meaning.
+        ("Counter", "fromkeys") => Some(builtin("fromkeys", |_a: Args| {
+            Err(exc("NotImplementedError", "Counter.fromkeys() is undefined.  Use Counter(iterable) instead.".into()))
+        })),
+        ("dict", "fromkeys") | ("OrderedDict", "fromkeys") => Some(builtin("fromkeys", |a: Args| {
             let v = a.p.get(1).cloned().unwrap_or(V::None);
             let mut d = Dict::new();
             for k in to_vec(&a.p[0])? {
@@ -1362,36 +1372,81 @@ pub fn col_defaultdict(mut a: Args) -> R {
     Ok(d)
 }
 pub fn col_counter(mut a: Args) -> R {
+    // CPython's Counter.__init__(self, iterable=None, /, **kwds): the positional argument is iterable only.
+    if a.p.len() > 1 {
+        return type_err(format!("Counter.__init__() takes from 1 to 2 positional arguments but {} were given", a.p.len() + 1));
+    }
     let mut d = Dict::new();
     d.kind = 2;
     let v = V::Dict(Rc::new(RefCell::new(d)));
     counter_update(&v, a, true)?;
     Ok(v)
 }
+fn counter_dict(c: &V) -> Option<Rc<RefCell<Dict>>> {
+    match c {
+        V::Dict(d) if d.borrow().kind == 2 => Some(d.clone()),
+        _ => None,
+    }
+}
+// `dict_items_of`, but a mapping is told apart from an iterable of keys: a dict subclass's `items()` are its
+// (key, count) pairs, while iterating it yields its keys.
+fn is_counter_mapping(v: &V) -> bool {
+    match v {
+        V::Dict(_) => true,
+        V::View(x) => x.1 == 3,
+        V::Obj(o) => o.cls.lookup("keys").is_some(),
+        _ => false,
+    }
+}
+// CPython's Counter.update/subtract: the positional iterable (None = none) first, then the keywords as if they
+// were a mapping. An empty counter updating from a mapping copies the counts instead of adding to a zero, so
+// `Counter(iterable=None)` keeps the None value instead of computing 0 + None.
 fn counter_update(c: &V, mut a: Args, add: bool) -> R {
-    let d = match c {
-        V::Dict(d) => d.clone(),
-        _ => return Ok(V::None),
+    let Some(d) = counter_dict(c) else {
+        return Ok(V::None);
     };
-    let mut pairs: Vec<(V, V)> = vec![];
-    if let Some(src) = a.p.first() {
-        match src {
-            V::Dict(_) => pairs = dict_items_of(src)?,
-            x => {
-                for k in to_vec(x)? {
-                    pairs.push((k, V::Int(1)));
+    a.want(if add { "Counter.update" } else { "Counter.subtract" }, 0, 1)?;
+    if let Some(src) = a.p.first().cloned() {
+        if !matches!(src, V::None) {
+            if is_counter_mapping(&src) {
+                counter_update_pairs(&d, dict_items_of(&src)?, add)?;
+            } else {
+                for k in to_vec(&src)? {
+                    counter_update_pair(&d, k, V::Int(1), add, false)?;
                 }
             }
         }
     }
-    for (k, v) in a.k.drain(..) {
-        pairs.push((s(k), v));
+    let kw = a.k.drain(..).map(|(n, v)| (s(n), v)).collect();
+    counter_update_pairs(&d, kw, add)?;
+    Ok(V::None)
+}
+fn counter_update_pairs(d: &Rc<RefCell<Dict>>, pairs: Vec<(V, V)>, add: bool) -> R {
+    // CPython's empty fast path: super().update(iterable) copies the values as they are.
+    if add && d.borrow().n == 0 {
+        for (k, v) in pairs {
+            Dict::set_cell(d, k, v)?;
+        }
+        return Ok(V::None);
     }
     for (k, v) in pairs {
-        let cur = Dict::get_cell(&d, &k)?.unwrap_or(V::Int(0));
-        let n = if add { binop(&cur, &v, "+")? } else { binop(&cur, &v, "-")? };
-        Dict::set_cell(&d, k, n)?;
+        counter_update_pair(d, k, v, add, true)?;
     }
+    Ok(V::None)
+}
+// add: count + self_get(elem, 0); subtract: self_get(elem, 0) - count. `mapping` only orders the operands.
+fn counter_update_pair(d: &Rc<RefCell<Dict>>, k: V, v: V, add: bool, mapping: bool) -> R {
+    let cur = Dict::get_cell(d, &k)?.unwrap_or(V::Int(0));
+    let n = if add {
+        if mapping {
+            binop(&v, &cur, "+")?
+        } else {
+            binop(&cur, &v, "+")?
+        }
+    } else {
+        binop(&cur, &v, "-")?
+    };
+    Dict::set_cell(d, k, n)?;
     Ok(V::None)
 }
 pub fn col_deque(mut a: Args) -> R {
@@ -2269,6 +2324,12 @@ pub fn dict_method(d: &Rc<RefCell<Dict>>, o: &V, name: &str, mut a: Args) -> R {
             V::None
         }
         "subtract" => return counter_update(o, a, false),
+        "__init__" => {
+            if d.borrow().kind == 2 {
+                return counter_update(o, a, true);
+            }
+            return bad_method(o, name);
+        }
         "__or__" | "__ror__" => {
             let x = a1(&a, name)?;
             let V::Dict(y) = &x else { return Ok(V::NotImpl) };
@@ -2335,8 +2396,17 @@ pub fn dict_method(d: &Rc<RefCell<Dict>>, o: &V, name: &str, mut a: Args) -> R {
         }
         "__contains__" => V::Bool(contains(o, &a1(&a, name)?)?),
         "__delitem__" => {
-            delitem(o, &a1(&a, name)?)?;
-            V::None
+            // Counter.__delitem__ does not raise for missing keys (dict.__delitem__ does).
+            if d.borrow().kind == 2 {
+                let k = a1(&a, name)?;
+                if Dict::contains_cell(d, &k)? {
+                    Dict::del_cell(d, &k)?;
+                }
+                V::None
+            } else {
+                delitem(o, &a1(&a, name)?)?;
+                V::None
+            }
         }
         "__iter__" => iter_v(o)?,
         "__eq__" => V::Bool(eq(o, &a1(&a, name)?)?),

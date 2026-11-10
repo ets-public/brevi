@@ -169,6 +169,10 @@ pub trait Ext {
     fn instancecheck(&self, _x: &V) -> Option<Result<bool, E>> {
         None
     }
+    // `issubclass(sub, me)` with me a Python library class (a bridged collections.abc ABC, ...).
+    fn subclasscheck(&self, _sub: &V) -> Option<Result<bool, E>> {
+        None
+    }
     fn lazy_iter(&self) -> Option<Result<It, E>> {
         None
     }
@@ -2039,7 +2043,9 @@ impl Args {
 
 pub type FnBox = Box<dyn Fn(Args) -> R>;
 pub struct Func {
-    pub name: Sym,
+    pub name: Cell<Sym>,
+    // CPython's dotted __qualname__ (name itself for builtins and top-level defs)
+    pub qualname: Cell<Sym>,
     // the name CPython prints in "got multiple values for keyword argument" errors: the
     // qualified name with its module ("__main__.show", "dict", "collections.Counter")
     pub fq: Cell<Sym>,
@@ -2062,15 +2068,22 @@ pub enum FastFn {
     F4(fn(V, V, V, V) -> R),
 }
 pub fn func(name: Sym, f: impl Fn(Args) -> R + 'static) -> V {
-    V::Func(Rc::new(Func { name, fq: Cell::new(name), f: Box::new(f), kind: Cell::new(0), attrs: RefCell::new(vec![]), code_flags: Cell::new(0), fast: Cell::new(FastFn::No) }))
+    V::Func(Rc::new(Func { name: Cell::new(name), qualname: Cell::new(name), fq: Cell::new(name), f: Box::new(f), kind: Cell::new(0), attrs: RefCell::new(vec![]), code_flags: Cell::new(0), fast: Cell::new(FastFn::No) }))
 }
 pub fn builtin(name: Sym, f: impl Fn(Args) -> R + 'static) -> V {
-    V::Func(Rc::new(Func { name, fq: Cell::new(name), f: Box::new(f), kind: Cell::new(3), attrs: RefCell::new(vec![]), code_flags: Cell::new(0), fast: Cell::new(FastFn::No) }))
+    V::Func(Rc::new(Func { name: Cell::new(name), qualname: Cell::new(name), fq: Cell::new(name), f: Box::new(f), kind: Cell::new(3), attrs: RefCell::new(vec![]), code_flags: Cell::new(0), fast: Cell::new(FastFn::No) }))
 }
 // a def's function value, with the qualified name duplicate-keyword errors print
 pub fn with_fq(f: V, fq: Sym) -> V {
     if let V::Func(x) = &f {
         x.fq.set(fq);
+    }
+    f
+}
+// a def's function value, with CPython's dotted __qualname__
+pub fn with_qualname(f: V, qualname: Sym) -> V {
+    if let V::Func(x) = &f {
+        x.qualname.set(qualname);
     }
     f
 }
@@ -2155,6 +2168,8 @@ pub struct SlotSet {
 }
 pub struct Class {
     pub name: Sym,
+    // CPython's dotted __qualname__ (name itself for builtins and top-level classes)
+    pub qualname: Cell<Sym>,
     pub module: Sym,
     pub bases: Vec<Rc<Class>>,
     pub mro: RefCell<Vec<Rc<Class>>>,
@@ -2204,7 +2219,10 @@ impl std::hash::Hasher for FnvH {
 }
 impl Class {
     pub fn new(name: Sym, module: Sym, bases: Vec<Rc<Class>>, bt: BT) -> Rc<Class> {
-        let c = Rc::new(Class { name, module, bases: bases.clone(), mro: RefCell::new(vec![]), attrs: RefCell::new(vec![]), bt, fields: RefCell::new(vec![]), lcache: RefCell::new((0, HashMap::default())), fcache: RefCell::new((0, Default::default())), set_info: RefCell::new((0, false, vec![], None)), plain_new: Cell::new((0, false)), plain_hash: Cell::new((0, false)) });
+        Self::with_qualname(name, name, module, bases, bt)
+    }
+    pub fn with_qualname(name: Sym, qualname: Sym, module: Sym, bases: Vec<Rc<Class>>, bt: BT) -> Rc<Class> {
+        let c = Rc::new(Class { name, qualname: Cell::new(qualname), module, bases: bases.clone(), mro: RefCell::new(vec![]), attrs: RefCell::new(vec![]), bt, fields: RefCell::new(vec![]), lcache: RefCell::new((0, HashMap::default())), fcache: RefCell::new((0, Default::default())), set_info: RefCell::new((0, false, vec![], None)), plain_new: Cell::new((0, false)), plain_hash: Cell::new((0, false)) });
         // C3 linearization
         let mut seqs: Vec<Vec<Rc<Class>>> = bases.iter().map(|b| b.mro.borrow().clone()).collect();
         seqs.push(bases.clone());
