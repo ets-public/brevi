@@ -84,9 +84,14 @@ if '"verify"' in call("run", sandbox=False, stdin="5", verify=False)[0] or '"ver
     print("FAIL run: verify false must not verify")
 # Under the sandbox (no CPython) the typed build is checked against Brevi's dynamic build instead.
 expect("run verifies under the sandbox", call("run", stdin="5"), '30\n{"verify":"identical","against":"dynamic"', False)
+# A typed-build bug still open (review m07: the typed build's str.isdigit is ASCII only). When it is fixed,
+# swap in another one the typed and dynamic builds still disagree on. (c01, a list sorted in a function, was
+# the example until the sharing proof fixed it: tests/verify/shared_sort.py is now identical.)
+m07 = 'print("\\u0661".isdigit())\n'
+expect("sandboxed run catches a typed-build bug", call("run", code=m07), 'True\n{"verify":"differs","against":"dynamic","on":"stdout","line":1,"typed":"False"', False)
+expect("sandboxed check names the dynamic build", call("run", code=m07), "the output above is from Brevi's dynamic build", False)
 c01 = "def smallest(xs):\n    xs.sort()\n    return xs[0]\ndata = [3, 1, 2]\nprint(smallest(data))\nprint(data)\n"
-expect("sandboxed run catches a typed-build bug", call("run", code=c01), '1\n[1, 2, 3]\n{"verify":"differs","against":"dynamic","on":"stdout","line":2,"typed":"[3, 1, 2]"', False)
-expect("sandboxed check names the dynamic build", call("run", code=c01), "the output above is from Brevi's dynamic build", False)
+expect("sandboxed run of a list sorted in a function", call("run", code=c01), '1\n[1, 2, 3]\n{"verify":"identical","against":"dynamic"', False)
 expect("sandboxed check skips the dynamic path", call("run", code="def show(xs):\n    print(set(xs))\n\nshow([2, 'a'])\n"), '"verify":"refused","against":"dynamic"', False)
 expect("run verify refuses the clock", call("run", sandbox=False, code="import time\nprint(time.time() > 0)\n"), '{"verify":"refused","why":"reads the clock"}', False)
 expect("run verify refuses writes", call("run", sandbox=False, code="open('x.txt', 'w').write('x')\nprint(1)\n"), '"why":"writes files"', False)
