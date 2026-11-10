@@ -817,42 +817,121 @@ pub fn functools_fn(name: &str, mut a: Args) -> R {
         "total_ordering" => {
             let c = a1(&a, name)?;
             if let V::Class(k) = &c {
-                total_ordering(k);
+                total_ordering(k)?;
             }
             c
         }
         _ => return Err(unsupported(&format!("functools.{name}"))),
     })
 }
-fn total_ordering(k: &Rc<Class>) {
-    let has = |n: &str| k.lookup(n).is_some() && !matches!(k.lookup(n), Some(V::Func(f)) if f.kind.get() == 3);
-    if has("__lt__") {
-        let lt_ = k.lookup("__lt__").unwrap();
-        let l2 = lt_.clone();
-        k.set("__gt__", func("__gt__", move |a: Args| {
-            let r = call(&l2, Args::p(vec![a.p[0].clone(), a.p[1].clone()]))?;
-            if matches!(r, V::NotImpl) {
-                return Ok(r);
-            }
-            Ok(V::Bool(!truth(&r)? && !eq(&a.p[0], &a.p[1])?))
-        }));
-        let l3 = lt_.clone();
-        k.set("__le__", func("__le__", move |a: Args| {
-            let r = call(&l3, Args::p(vec![a.p[0].clone(), a.p[1].clone()]))?;
-            if matches!(r, V::NotImpl) {
-                return Ok(r);
-            }
-            Ok(V::Bool(truth(&r)? || eq(&a.p[0], &a.p[1])?))
-        }));
-        let l4 = lt_.clone();
-        k.set("__ge__", func("__ge__", move |a: Args| {
-            let r = call(&l4, Args::p(vec![a.p[0].clone(), a.p[1].clone()]))?;
-            if matches!(r, V::NotImpl) {
-                return Ok(r);
-            }
-            Ok(V::Bool(!truth(&r)?))
-        }));
+// functools.total_ordering, as CPython 3.13's: _convert maps each root to the comparisons it derives and
+// the helper function whose name, qualname and docstring the derived method keeps; a root is a comparison
+// whose lookup differs from object's; __lt__ is preferred over __le__ over __gt__ over __ge__; and each
+// missing comparison is filled in with the same short-circuit and NotImplemented propagation as _gt_from_lt
+// & co. (the helpers call the root directly, not through the operator, so NotImplemented passes through).
+fn total_ordering(k: &Rc<Class>) -> Result<(), E> {
+    // root, then (comparison, helper name, helper doc) exactly as CPython's _convert and helpers.
+    const CONVERT: &[(&str, &[(&str, &str, &str)])] = &[
+        ("__lt__", &[
+            ("__gt__", "_gt_from_lt", "Return a > b.  Computed by @total_ordering from (not a < b) and (a != b)."),
+            ("__le__", "_le_from_lt", "Return a <= b.  Computed by @total_ordering from (a < b) or (a == b)."),
+            ("__ge__", "_ge_from_lt", "Return a >= b.  Computed by @total_ordering from (not a < b)."),
+        ]),
+        ("__le__", &[
+            ("__ge__", "_ge_from_le", "Return a >= b.  Computed by @total_ordering from (not a <= b) or (a == b)."),
+            ("__lt__", "_lt_from_le", "Return a < b.  Computed by @total_ordering from (a <= b) and (a != b)."),
+            ("__gt__", "_gt_from_le", "Return a > b.  Computed by @total_ordering from (not a <= b)."),
+        ]),
+        ("__gt__", &[
+            ("__lt__", "_lt_from_gt", "Return a < b.  Computed by @total_ordering from (not a > b) and (a != b)."),
+            ("__ge__", "_ge_from_gt", "Return a >= b.  Computed by @total_ordering from (a > b) or (a == b)."),
+            ("__le__", "_le_from_gt", "Return a <= b.  Computed by @total_ordering from (not a > b)."),
+        ]),
+        ("__ge__", &[
+            ("__le__", "_le_from_ge", "Return a <= b.  Computed by @total_ordering from (not a >= b) or (a == b)."),
+            ("__gt__", "_gt_from_ge", "Return a > b.  Computed by @total_ordering from (a >= b) and (a != b)."),
+            ("__lt__", "_lt_from_ge", "Return a < b.  Computed by @total_ordering from (not a >= b)."),
+        ]),
+    ];
+    // CPython's roots: {op for op in _convert if getattr(cls, op, None) is not getattr(object, op, None)}.
+    // A lookup that is Some holds a comparison the class defines or inherits from a user class (or a
+    // namedtuple/dataclass base); None means no entry, i.e. object's own comparison, which is not a root.
+    // A builtin base other than object's (list, ...) provides the comparison as CPython's slot wrappers do,
+    // but Brevi has no callable for it, so a class deriving from such a root is refused below, never panics.
+    // Exception classes only reach object's own comparisons, as in CPython.
+    let is_root = |n: &str| match k.lookup(n) {
+        Some(v) => !matches!(v, V::None),
+        None => k
+            .mro
+            .borrow()
+            .iter()
+            .skip(1)
+            .any(|c| (c.module == "builtins" || c.module == "collections") && c.name != "object" && c.name != "type" && c.base_bt() != BT::Exc),
+    };
+    let roots: Vec<&str> = CONVERT.iter().map(|(r, _)| *r).filter(|n| is_root(n)).collect();
+    if roots.is_empty() {
+        return val_err("must define at least one ordering operation: < > <= >=".into());
     }
+    // max: prefer __lt__ to __le__ to __gt__ to __ge__
+    let root = *roots.iter().max().unwrap();
+    let derived: Vec<(&str, &str, &str)> = CONVERT.iter().find(|(r, _)| *r == root).unwrap().1.iter().filter(|(n, _, _)| !is_root(n)).copied().collect();
+    if derived.is_empty() {
+        return Ok(());
+    }
+    let rf = match k.lookup(root) {
+        Some(f) => f,
+        None => return Err(unsupported(&format!("functools.total_ordering: {root} inherited from a builtin base"))),
+    };
+    for (n, helper, doc) in derived {
+        let rf2 = rf.clone();
+        let f = func(n, move |a: Args| {
+            let r = call(&rf2, Args::p(vec![a.p[0].clone(), a.p[1].clone()]))?;
+            if matches!(r, V::NotImpl) {
+                return Ok(r);
+            }
+            let t = truth(&r)?;
+            let eqv = || cmp_v(&a.p[0], &a.p[1], "==");
+            let nev = || cmp_v(&a.p[0], &a.p[1], "!=");
+            match (root, n) {
+                ("__lt__", "__gt__") => {
+                    if t { Ok(V::Bool(false)) } else { nev() }
+                }
+                ("__lt__", "__le__") => {
+                    if t { Ok(r) } else { eqv() }
+                }
+                ("__lt__", "__ge__") => Ok(V::Bool(!t)),
+                ("__le__", "__ge__") => {
+                    if !t { Ok(V::Bool(true)) } else { eqv() }
+                }
+                ("__le__", "__lt__") => {
+                    if t { nev() } else { Ok(r) }
+                }
+                ("__le__", "__gt__") => Ok(V::Bool(!t)),
+                ("__gt__", "__lt__") => {
+                    if t { Ok(V::Bool(false)) } else { nev() }
+                }
+                ("__gt__", "__ge__") => {
+                    if t { Ok(r) } else { eqv() }
+                }
+                ("__gt__", "__le__") => Ok(V::Bool(!t)),
+                ("__ge__", "__lt__") => Ok(V::Bool(!t)),
+                ("__ge__", "__gt__") => {
+                    if t { nev() } else { Ok(r) }
+                }
+                ("__ge__", "__le__") => {
+                    if !t { Ok(V::Bool(true)) } else { eqv() }
+                }
+                _ => unreachable!(),
+            }
+        });
+        // as CPython: opfunc.__name__ = opname; the helper's own qualname and docstring remain
+        if let V::Func(fv) = &f {
+            fv.qualname.set(sym(helper));
+            fv.attrs.borrow_mut().push(("__doc__", s(doc)));
+        }
+        k.set(n, f);
+    }
+    Ok(())
 }
 pub struct CmpKey {
     pub f: V,
@@ -2632,7 +2711,7 @@ fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> Result<(), E> {
             match (x, y) {
                 (V::Obj(p), V::Obj(q)) if Rc::ptr_eq(&p.cls, &q.cls) => {
                     for f in &fs {
-                        if !rich(&getattr(x, f)?, &getattr(y, f)?, "==")? {
+                        if !eq(&getattr(x, f)?, &getattr(y, f)?)? {
                             return Ok(V::Bool(false));
                         }
                     }
