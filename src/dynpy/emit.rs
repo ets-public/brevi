@@ -2699,6 +2699,11 @@ impl Em {
                     let bind = a.clone().unwrap_or(top.clone());
                     let target = if a.is_some() { m.clone() } else { top.clone() };
                     let id = self.id();
+                    // `import a.b` binds `a` but CPython registers `a.b` in sys.modules too
+                    if target != *m && (self.user_modules.contains(m) || builtin_mod(m.as_str()) || m == "os.path") {
+                        let reg = self.q(&format!("sys_modules_set({}, &V::Module(&ModName({})))", lit(m), lit(m)));
+                        write!(b, "{reg}; ").unwrap();
+                    }
                     if self.user_modules.contains(&target) {
                         let init = self.q(&format!("init_{}()", rust_ident(&target)));
                         let v = format!("V::Module(&ModName({}))", lit(&target));
