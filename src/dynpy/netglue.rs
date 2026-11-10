@@ -197,7 +197,7 @@ mod brevi_netglue {
             10054 => ("ConnectionResetError", "An existing connection was forcibly closed by the remote host"),
             10053 => ("ConnectionAbortedError", "An established connection was aborted by the software in your host machine"),
             10060 => ("TimeoutError", "A connection attempt failed because the connected party did not properly respond after a period of time, or established connection failed because connected host has failed to respond"),
-            10058 => ("BrokenPipeError", "An established connection was aborted by the software in your host machine"),
+            10058 => ("BrokenPipeError", "A request to send or receive data was disallowed because the socket had already been shut down in that direction with a previous shutdown call"),
             10004 => ("InterruptedError", "A blocking operation was interrupted by a call to WSACancelBlockingCall"),
             10065 => ("OSError", "No route to host"),
             10051 => ("OSError", "Network is unreachable"),

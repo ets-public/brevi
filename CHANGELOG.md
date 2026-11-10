@@ -4,7 +4,6 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 
 ## Unreleased
 
-
 - **`sys.stdin.buffer` and `sys.stdout.buffer` in dynamic builds.** The fast-I/O idiom `sys.stdin.buffer.read().split()`, `sys.stdin.buffer.readline()`, `for line in sys.stdin.buffer` and `sys.stdout.buffer.write(b"...")` now run natively, reading and writing bytes on the same streams as the text calls, in order. Before, a program using them built and then stopped with `NotImplementedError: binary streams` (found by the DeepSeek release test).
 - **`int()` of a text local is a big integer when it needs to be.** In the typed build, `a, b = parts[0], parts[1]` then `str(int(a) + int(b))`, or `s = input()` then `n = int(s)`, now handle numbers past 64 bits as Python does, instead of failing with "invalid literal for int()". `int(x)` of a float next to big integers truncates as Python's does.
 - **Running the same file twice at once no longer clashes.** Every build of a file used one shared folder (`$TMPDIR/brevi-HASH`), so two `brevi run`, `build` or `verify` processes on the same file at the same time (parallel MCP sessions, parallel verify runs) could overwrite each other's generated code or binary, and one then failed its build and quietly ran with CPython (or, with `--native`, failed). Each process now builds in its own folder inside that one, removed when it exits; built binaries are still shared through the build cache, so the second process reuses the first one's build.

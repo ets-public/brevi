@@ -50,25 +50,6 @@ fn brevi_limit_env(i: usize) -> Option<u64> {
     *L[i].get_or_init(|| std::env::var(["BREVI_LIMIT_FILES", "BREVI_LIMIT_NET"][i]).ok().and_then(|v| v.parse().ok()))
 }
 
-// Windows has no RLIMIT_FSIZE, so proc.rs passes the `file` limit in bytes as BREVI_LIMIT_FILE and
-// Brevi's own file writes check it. CPython or native code writing a file is not counted (as with
-// `files` and `net`).
-fn brevi_limit_file() -> Option<u64> {
-    static L: std::sync::OnceLock<Option<u64>> = std::sync::OnceLock::new();
-    *L.get_or_init(|| std::env::var("BREVI_LIMIT_FILE").ok().and_then(|v| v.parse().ok()).filter(|n| *n > 0))
-}
-
-// Before writing `add` more bytes to a file that already holds `existing`: stop when it would pass the limit.
-pub fn brevi_file_room(p: &str, existing: u64, add: u64) {
-    let _ = p;
-    if let Some(l) = brevi_limit_file() {
-        if existing.saturating_add(add) > l {
-            let mb = l.div_ceil(1 << 20);
-            brevi_limit_stop("file", mb, "MB", &format!("the program tried to write a file over {mb} MB"));
-        }
-    }
-}
-
 // Before the program's code creates (or may create) the file at `p`.
 pub fn brevi_new_file(p: &str) {
     static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);

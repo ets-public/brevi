@@ -434,17 +434,6 @@ fn duck_libs() -> (Vec<String>, String) {
     (parts.filter(|x| !x.is_empty()).collect(), pre)
 }
 
-// The SQLite DLL next to the Python the program was built with, so native sqlite3 reports the same
-// sqlite_version() as CPython. Not used on Windows: Python 3.13's sqlite3.dll crashes a native process that
-// has not started CPython (Windows' winsqlite3.dll is used instead).
-#[allow(dead_code)]
-fn sqlite_dll() -> Option<String> {
-    const Q: &str = "import os, sys\nfor d in (os.path.join(sys.base_prefix, 'DLLs'), os.path.dirname(sys.executable)):\n    p = os.path.join(d, 'sqlite3.dll')\n    if os.path.isfile(p):\n        print(p)\n        break";
-    let out = std::process::Command::new(crate::python_exe()).args(["-I", "-c", Q]).output().ok()?;
-    let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if p.is_empty() { None } else { Some(p) }
-}
-
 // The Python DLL folder that holds libssl/libcrypto, and certifi's CA bundle, embedded at build time so a
 // Windows program never loads (or trusts) a DLL or bundle from its own folder or PATH.
 fn python_ssl_dir() -> String {

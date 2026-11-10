@@ -705,17 +705,32 @@ impl<T: Clone> AxTupleItems<T> for (T, T, T, T, T, T, T, T) {
 pub fn print<T: Show>(x: T) {
     #[cfg(windows)]
     {
-        // CPython on Windows writes text streams with CRLF; match it, and translate every LF (even one
-        // already followed by CR), as its TextIOWrapper does.
-        use std::io::Write;
-        let s = x.show().replace('\n', "\r\n");
-        let mut o = std::io::stdout();
-        let _ = o.write_all(s.as_bytes());
-        let _ = o.write_all(b"\r\n");
-        let _ = o.flush();
+        let mut s = x.show();
+        s.push('\n');
+        ax_out(&s);
     }
     #[cfg(not(windows))]
     println!("{}", x.show());
+}
+// Text to stdout, then flushed. CPython's text streams on Windows write CRLF for every LF (even one already
+// after a CR), as its TextIOWrapper does; Brevi's output matches that there.
+pub fn ax_out(s: &str) {
+    use std::io::Write;
+    let mut o = std::io::stdout();
+    #[cfg(windows)]
+    let _ = o.write_all(s.replace('\n', "\r\n").as_bytes());
+    #[cfg(not(windows))]
+    let _ = o.write_all(s.as_bytes());
+    let _ = o.flush();
+}
+// Text to stderr (stdout flushed first, so the two stay in order), with CRLF on Windows as CPython writes it.
+pub fn ax_err(s: &str) {
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
+    #[cfg(windows)]
+    let _ = std::io::stderr().write_all(s.replace('\n', "\r\n").as_bytes());
+    #[cfg(not(windows))]
+    let _ = std::io::stderr().write_all(s.as_bytes());
 }
 // Python-style truth for conditions: false, 0, "", [] and {} are false.
 pub trait AxTruth {
@@ -832,12 +847,7 @@ pub fn read(path: String) -> R<String> {
 pub fn write(path: String, text: String) -> R<()> {
     let p = ax_fs_path(&path, true)?;
     brevi_new_file(&p);
-    let mut opts = std::fs::OpenOptions::new();
-    opts.write(true).create(true).truncate(true);
-    let mut f = opts.open(&p).map_err(|e| AxErr(format!("write {path}: {e}")))?;
-    brevi_file_room(&p, 0, text.len() as u64);
-    use std::io::Write;
-    f.write_all(text.as_bytes()).map_err(|e| AxErr(format!("write {path}: {e}")))
+    std::fs::write(&p, text).map_err(|e| AxErr(format!("write {path}: {e}")))
 }
 // open(path).read() where a missing file reads as "" (the typed build's fix_opens).
 pub fn ax_try_read(path: String) -> String {
@@ -1114,7 +1124,7 @@ fn ax_csv_line<T: Show>(w: &str, row: Vec<T>) -> String {
 }
 impl AxCsvW for String {
     fn ax_csv_writerow<T: Show>(&self, row: Vec<T>) {
-        print!("{}", ax_csv_line(self, row));
+        ax_out(&ax_csv_line(self, row));
     }
     fn ax_csv_writerows<T: Show>(&self, rows: Vec<Vec<T>>) {
         for r in rows {
@@ -4479,13 +4489,13 @@ impl AxExit for i64 {
 }
 impl AxExit for String {
     fn ax_exit_with(&self) -> ! {
-        eprintln!("{self}");
+        ax_err(&format!("{self}\n"));
         std::process::exit(1)
     }
 }
 impl AxExit for &str {
     fn ax_exit_with(&self) -> ! {
-        eprintln!("{self}");
+        ax_err(&format!("{self}\n"));
         std::process::exit(1)
     }
 }

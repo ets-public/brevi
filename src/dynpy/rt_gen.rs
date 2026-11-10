@@ -306,7 +306,8 @@ impl Coro {
         }
     }
     // throw(e): raised at the yield the generator is suspended at; one not started yet ends with it unrun.
-    pub fn throw(&mut self, e: E) -> Result<Option<V>, E> {        if self.result.is_some() || !self.started {
+    pub fn throw(&mut self, e: E) -> Result<Option<V>, E> {
+        if self.result.is_some() || !self.started {
             if !self.running {
                 self.result = Some(Ok(V::None));
                 self.body = None;

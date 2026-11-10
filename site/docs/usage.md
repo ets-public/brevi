@@ -242,11 +242,11 @@ The sandbox decides what a program may touch; `--limit` decides how much it may 
 
 | Limit | Unit | Holds | How |
 | --- | --- | --- | --- |
-| `cpu` | seconds | CPU time, all threads together | the kernel (`RLIMIT_CPU`) on Linux and macOS; on Windows `brevi` checks the process's CPU time every few milliseconds |
-| `mem` | MB | address space on Linux; committed memory on Windows | the kernel (`RLIMIT_AS`) on Linux; on Windows `brevi` checks the process's pagefile usage every few milliseconds (not on macOS) |
+| `cpu` | seconds | CPU time, all threads together | the kernel (`RLIMIT_CPU`) |
+| `mem` | MB | address space, Linux only | the kernel (`RLIMIT_AS`) |
 | `time` | seconds | wall-clock time, waiting included | `brevi`, which stops the program |
 | `output` | KB | stdout and stderr together | `brevi`, which passes output on and stops the program at the limit |
-| `file` | MB | the size of any one file the program writes | the kernel (`RLIMIT_FSIZE`) on Linux and macOS; on Windows Brevi's own file writes check it (writes through CPython or native code do not count) |
+| `file` | MB | the size of any one file the program writes | the kernel (`RLIMIT_FSIZE`) |
 | `written` | MB | bytes written in all, to files, pipes and sockets (stdout and stderr not counted), Linux only | the kernel's count (`/proc/PID/io`), which `brevi` checks as the program runs |
 | `files` | count | files the program creates | Brevi's own file code in the program; `--sandbox` without `--allow-py` or `native` only |
 | `net` | MB | bytes sent and received over the network | Brevi's own network code in the program; `--sandbox` without `--allow-py` or `native` only |
@@ -265,12 +265,11 @@ $ echo $?
 
 A program stopped by a limit exits with status 124 and its last stderr line is one JSON line naming the limit (`"on"` names it: `cpu`, `mem`, `time`, `output`, `file`, `written`, `files`, `net` or `threads`). Output written before the limit is kept (with `output`, exactly up to it); output a program had buffered but not yet written when it was stopped is lost.
 
-- On Linux and macOS the kernel limits are set in the program's own process before it starts, so nothing in it can raise them, CPython loaded through `--allow-py` included. On Windows `cpu` and `mem` are checked by `brevi` as the program runs, so it can overshoot briefly. Memory counts address space on Linux and committed memory (pagefile usage) on Windows, not resident memory: CPython and numpy reserve more than they touch, so give a program that loads them a few hundred MB.
+- The kernel limits are set in the program's own process before it starts, so nothing in it can raise them, CPython loaded through `--allow-py` included. Memory counts address space, not resident memory: CPython and numpy reserve more than they touch, so give a program that loads them a few hundred MB.
 - The limits hold the program, not the build: a cold first build can take longer than `time`. `brevi build` and `brevi check` refuse `--limit`.
 - With `output` (or `mem`, which reads stderr to tell an out-of-memory stop from a crash) the program's stdout or stderr is a pipe, not the terminal.
 - `written` and `threads` are checked every few milliseconds, so a program can pass them by what it does in that time before it is stopped. `files` and `net` are counted inside the program by Brevi's own file and network code (`open`, polars, sqlite3, duckdb, safetensors, onnxruntime, requests, httpx and the SDKs over it), which is why they need `--sandbox` without `--allow-py` or `--allow native`: CPython and native code would not be counted. Under `files`, DuckDB's SQL reaches no files besides the database.
-- A limit Brevi cannot enforce on the machine is refused, never ignored: `mem` on macOS, `written` and `threads` outside Linux, and `fds` on Windows, give an error and the program does not run.
-- On Windows the `file` limit is checked in Brevi's own file code (`open`, `write`, polars, …); bytes written through CPython, native code, or SQLite/DuckDB's engine are not counted, as with `files` and `net`.
+- A limit Brevi cannot enforce on the machine is refused, never ignored: `mem` on macOS, `written` and `threads` outside Linux, and `cpu`, `mem`, `file` and `fds` on Windows, give an error and the program does not run.
 - In the MCP tools `run`, `test` and `verify` take `limits: {"cpu": 2, "mem": 512, "time": 10, "output": 64, "file": 10}` (and `written`, `net`, `threads`, `fds`, `files`) (each `cases` entry is held to them separately). The call's `timeout` still covers build and run together.
 
 What the sandbox and the limits protect against, and what they do not, is in the [threat model](https://github.com/ets-public/brevi/blob/main/docs/THREAT_MODEL.md).

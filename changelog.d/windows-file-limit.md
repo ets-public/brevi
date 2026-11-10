@@ -1,1 +1,0 @@
-- **Windows: `--limit file`.** On Windows, where there is no `RLIMIT_FSIZE`, a program's own file writes (`open`, `write`, polars, sqlite3's VFS, …) are now checked against `--limit file=MB` and stop with the usual limit line and exit 124. Bytes written through CPython or native code are not counted, like `files` and `net`; `fds` is still refused on Windows.

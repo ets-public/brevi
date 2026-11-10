@@ -1,5 +1,5 @@
 # Windows platform checks: library bridge (typed and dynamic), output parity, and the
-# cpu/mem resource limits. Run from the repository root after `cargo build --release`.
+# refusal of the resource limits Windows cannot enforce yet. Run from the repository root after `cargo build --release`.
 $ErrorActionPreference = "Continue"
 
 $root = (Get-Location).Path
@@ -31,17 +31,10 @@ function Check-Run([string]$name) {
     Write-Host "PASS run $name"
 }
 
-function Check-Limit([string]$name, [string]$limit, [string]$on) {
-    $file = Join-Path $root "tests\windows\$name"
-    $raw = & $brevi run --limit $limit $file 2>&1
-    $code = $LASTEXITCODE
-    $out = ($raw | ForEach-Object { "$_" }) -join "`n"
-    if ($code -ne 124) { throw "limit $limit on $name exited $code`n$out" }
-    if ($out -notmatch ('"on":"' + $on + '"')) { throw "limit $limit on $name did not name $on`n$out" }
-    Write-Host "PASS limit $limit ($on)"
-}
 
 Check-Verify "plain.py"
+Check-Verify "print_end.py"
+Check-Verify "print_csv.py"
 Check-Verify "bridge_yaml.py"
 Check-Verify "bridge_yaml_dynamic.py"
 Check-Verify "generator.py"
@@ -55,9 +48,14 @@ $explain = (& $brevi check (Join-Path $root "tests\windows\bridge_yaml_dynamic.p
 if ($explain -notmatch '"path":"dynamic"') { throw "dynamic bridge program did not take the dynamic path`n$explain" }
 Write-Host "PASS dynamic path"
 
-Check-Limit "limit_cpu.py" "cpu=1" "cpu"
-Check-Limit "limit_mem.py" "mem=64" "mem"
-Check-Limit "limit_file.py" "file=1" "file"
+# Windows has no kernel limit Brevi sets for cpu, mem, file or fds yet, so each is refused, never half enforced
+foreach ($lim in @("cpu=1", "mem=64", "file=1", "fds=16")) {
+    $raw = & $brevi run --limit $lim (Join-Path $root "tests\windows\plain.py") 2>&1
+    $code = $LASTEXITCODE
+    $out = ($raw | ForEach-Object { "$_" }) -join "`n"
+    if ($code -eq 0 -or $out -notmatch 'not enforced on Windows') { throw "--limit $lim was not refused on Windows (exit $code)`n$out" }
+    Write-Host "PASS limit $lim refused"
+}
 $duck = & python -c "import importlib.util,glob,os,sys; s=importlib.util.find_spec('duckdb'); d=os.path.dirname(list(s.submodule_search_locations)[0]) if s else ''; sys.exit(0 if d and glob.glob(os.path.join(d,'*duckdb*')) else 1)" 2>$null
 if ($LASTEXITCODE -eq 0) { Check-Verify "duckdb_native.py"; Check-Run "duckdb_native.py" }
 $ort = & python -c "import importlib.util,glob,os,sys; s=importlib.util.find_spec('onnxruntime'); d=os.path.dirname(list(s.submodule_search_locations)[0]) if s else ''; sys.exit(0 if d and glob.glob(os.path.join(d,'capi','onnxruntime*.dll')) else 1)" 2>$null

@@ -58,7 +58,9 @@ mod brevi_duckglue {
     #[cfg(windows)]
     unsafe fn ax_dlerror() -> String {
         let c = GetLastError();
-        format!("{} (Win32 error {c})", std::io::Error::from_raw_os_error(c as i32))
+        let m = std::io::Error::from_raw_os_error(c as i32).to_string();
+        let m = m.split(" (os error").next().unwrap_or_default().to_string();
+        format!("{m} (Win32 error {c})")
     }
 
     #[repr(C)]
