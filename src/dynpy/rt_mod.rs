@@ -2399,11 +2399,7 @@ pub fn ext_module_attr(m: &str, n: &str) -> Result<Option<V>, E> {
         return Ok(Some(v));
     }
     Ok(match (m, n) {
-        ("re", "IGNORECASE" | "I") => Some(V::Int(2)),
-        ("re", "MULTILINE" | "M") => Some(V::Int(8)),
-        ("re", "DOTALL" | "S") => Some(V::Int(16)),
-        ("re", "VERBOSE" | "X") => Some(V::Int(64)),
-        ("re", "ASCII" | "A") => Some(V::Int(256)),
+        ("re", _) if re_flag(n).is_some() => re_flag(n),
         ("re", "error") => Some(V::Class(exc_class("error"))),
         ("json" | "json.decoder", "JSONDecodeError") => Some(V::Class(exc_class("JSONDecodeError"))),
         ("json" | "json.decoder", "JSONDecoder") => Some(V::Class(json_decoder_class())),

@@ -556,3 +556,80 @@ pub fn enum_fn(n: &str, a: Args) -> R {
         _ => Err(unsupported(&format!("enum.{n}"))),
     }
 }
+// ---------- re.RegexFlag ----------
+// re.IGNORECASE and the rest are members of an IntFlag, as in CPython, so they print as `re.IGNORECASE` and
+// combine as `re.IGNORECASE|re.DOTALL`, while still working as ints.
+const RE_FLAGS: [(Sym, Sym, i64); 9] = [
+    ("NOFLAG", "", 0),
+    ("ASCII", "A", 256),
+    ("IGNORECASE", "I", 2),
+    ("LOCALE", "L", 4),
+    ("UNICODE", "U", 32),
+    ("MULTILINE", "M", 8),
+    ("DOTALL", "S", 16),
+    ("VERBOSE", "X", 64),
+    ("DEBUG", "", 128),
+];
+thread_local! {
+    static RE_FLAG: RefCell<Option<Rc<Class>>> = RefCell::new(None);
+}
+// CPython's re.global_flag_repr over a flags value: the members in definition order, then the unknown bits in hex
+pub fn re_flag_names(v: i64) -> String {
+    if v == 0 {
+        return "re.NOFLAG".into();
+    }
+    let mut parts = vec![];
+    let mut rest = v;
+    for (n, _, b) in RE_FLAGS {
+        if b != 0 && v & b == b {
+            parts.push(format!("re.{n}"));
+            rest &= !b;
+        }
+    }
+    if rest > 0 {
+        parts.push(format!("{rest:#x}"));
+    } else if rest < 0 {
+        parts.push(format!("-{:#x}", rest.unsigned_abs()));
+    }
+    parts.join("|")
+}
+pub fn re_flag_class() -> Rc<Class> {
+    if let Some(c) = RE_FLAG.with(|r| r.borrow().clone()) {
+        return c;
+    }
+    let ifl = enum_more()[3].clone();
+    let c = Class::new("RegexFlag", "re", vec![ifl], BT::Other);
+    for (n, a, b) in RE_FLAGS {
+        c.set(n, V::Int(b));
+        if !a.is_empty() {
+            c.set(a, V::Int(b));
+        }
+    }
+    let rep = builtin("__repr__", |a: Args| {
+        let v = match a.p.first() {
+            Some(V::Obj(o)) => o.get("_value_").unwrap_or(V::Int(0)),
+            Some(x) => x.clone(),
+            None => V::Int(0),
+        };
+        match v {
+            V::Int(i) => Ok(s(&re_flag_names(i))),
+            x => Ok(s(&repr(&x)?)),
+        }
+    });
+    c.set("__repr__", rep.clone());
+    c.set("__str__", rep);
+    let _ = enum_setup(&c);
+    RE_FLAG.with(|r| *r.borrow_mut() = Some(c.clone()));
+    c
+}
+// re.IGNORECASE, re.I, ..., re.RegexFlag
+pub fn re_flag(n: &str) -> Option<V> {
+    if n == "RegexFlag" {
+        return Some(V::Class(re_flag_class()));
+    }
+    // re.LOCALE is for bytes patterns, which Brevi's re does not match: a program using it is refused
+    if n == "LOCALE" || n == "L" || !RE_FLAGS.iter().any(|(a, b, _)| *a == n || *b == n) {
+        return None;
+    }
+    re_flag_class().lookup(n)
+}

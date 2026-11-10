@@ -917,6 +917,10 @@ impl Ext for RMatch {
             "pos" => V::Int(self.pos as i64),
             "endpos" => V::Int(self.endpos as i64),
             "re" => V::Ext(ExtRc::new(RPat { prog: self.prog.clone() })),
+            "regs" => {
+                let f = |v: usize| if v == UNSET { V::Int(-1) } else { V::Int(v as i64) };
+                tup((0..=self.prog.ngroups).map(|g| tup(vec![f(self.caps[2 * g]), f(self.caps[2 * g + 1])])).collect())
+            }
             "lastindex" => {
                 let mut best: Option<(usize, usize)> = None;
                 for g in 1..=self.prog.ngroups {
@@ -1010,7 +1014,12 @@ impl Ext for RPat {
         "re.Pattern"
     }
     fn repr(&self) -> String {
-        format!("re.compile({})", str_repr(&self.prog.src))
+        // CPython's: the pattern's repr cut to 200 characters, then the flags other than the implied UNICODE
+        let r: String = str_repr(&self.prog.src).chars().take(200).collect();
+        match self.prog.flags & !32 {
+            0 => format!("re.compile({r})"),
+            f => format!("re.compile({r}, {})", re_flag_names(f)),
+        }
     }
     fn any(&self) -> &dyn std::any::Any {
         self
@@ -1027,7 +1036,7 @@ impl Ext for RPat {
     fn attr(&self, _me: &V, n: &str) -> Option<R> {
         Some(Ok(match n {
             "pattern" => s(&self.prog.src),
-            "flags" => V::Int(self.prog.flags | 32),
+            "flags" => V::Int(if self.prog.flags & F_A != 0 { self.prog.flags } else { self.prog.flags | 32 }),
             "groups" => V::Int(self.prog.ngroups as i64),
             "groupindex" => {
                 let mut d = Dict::new();
@@ -1036,7 +1045,12 @@ impl Ext for RPat {
                         return Some(Err(e));
                     }
                 }
-                V::Dict(Rc::new(RefCell::new(d)))
+                // a read-only view, as CPython's mappingproxy (a plain empty dict when there are no names)
+                if self.prog.names.is_empty() {
+                    V::Dict(Rc::new(RefCell::new(d)))
+                } else {
+                    V::View(Rc::new((V::Dict(Rc::new(RefCell::new(d))), 3)))
+                }
             }
             _ => return None,
         }))
@@ -1271,7 +1285,10 @@ fn flags_arg(a: &mut Args, i: usize) -> Result<i64, E> {
         None => Ok(0),
         Some(V::Int(f)) => Ok(f),
         Some(V::Bool(b)) => Ok(b as i64),
-        Some(x) => type_err(format!("unsupported operand type(s) for &: '{}' and 'int'", tn(&x))),
+        Some(x) => match inner_of(&x) {
+            Some(V::Int(f)) => Ok(f),
+            _ => type_err(format!("unsupported operand type(s) for &: '{}' and 'int'", tn(&x))),
+        },
     }
 }
 fn pat_of(v: &V, flags: i64) -> Result<Rc<Prog>, E> {
@@ -1284,6 +1301,7 @@ fn pat_of(v: &V, flags: i64) -> Result<Rc<Prog>, E> {
                 }
                 Ok(p.prog.clone())
             }
+            None if tn(v) == "bytes" => Err(unsupported("re with a bytes pattern")),
             None => type_err("first argument must be string or compiled pattern".into()),
         },
         _ => type_err("first argument must be string or compiled pattern".into()),
@@ -1306,8 +1324,13 @@ pub fn re_fn(n: &str, mut a: Args) -> R {
     match n {
         "compile" => {
             let f = flags_arg(&mut a, 0)?;
-            if let V::Ext(_) = &pv {
-                return Ok(pv);
+            if let V::Ext(x) = &pv {
+                if x.any().downcast_ref::<RPat>().is_some() {
+                    if f != 0 {
+                        return Err(exc("ValueError", "cannot process flags argument with a compiled pattern".into()));
+                    }
+                    return Ok(pv);
+                }
             }
             Ok(V::Ext(ExtRc::new(RPat { prog: pat_of(&pv, f)? })))
         }
