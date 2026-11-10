@@ -1455,6 +1455,24 @@ pub fn module_call(m: &str, n: &str, a: Args) -> R {
         _ => ext_module_call(m, n, a),
     }
 }
+// CPython's sys.modules: one dict for the whole program, so every read sees the same object and the imports
+// each statement registers (a copy would lose `d = sys.modules; d['x'] = 1; sys.modules['x']`).
+thread_local! {
+    static SYS_MODS: RefCell<Option<Rc<RefCell<Dict>>>> = const { RefCell::new(None) };
+}
+pub fn sys_modules() -> V {
+    SYS_MODS.with(|s| {
+        let mut s = s.borrow_mut();
+        V::Dict(s.get_or_insert_with(|| Rc::new(RefCell::new(Dict::new()))).clone())
+    })
+}
+// `import m` records the module object the program bound to `m`, so `sys.modules['m'] is m`.
+pub fn sys_modules_set(name: &str, v: &V) -> R {
+    if let V::Dict(d) = sys_modules() {
+        d.borrow_mut().set(s(name), v.clone())?;
+    }
+    Ok(V::None)
+}
 pub fn module_attr(m: &'static str, name: &str) -> R {
     let v = match (m, name) {
         ("sys", "stdin") => V::Module(&ModName("sys.stdin")),
@@ -1467,7 +1485,7 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         ("sys", "version_info") => tup(vec![V::Int(3), V::Int(13), V::Int(0)]),
         ("sys", "version") => s("3.13.0 (brevi)"),
         ("sys", "float_info") => return Err(unsupported("sys.float_info")),
-        ("sys", "modules") => dict_new(),
+        ("sys", "modules") => sys_modules(),
         // CPython puts the script's folder first; a built program has only itself, so its folder stands in
         ("sys", "path") => list(vec![s(&std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_string_lossy().into_owned())).unwrap_or_default())]),
         ("sys.stdin", "buffer") => V::Module(&ModName("sys.stdin.buffer")),
