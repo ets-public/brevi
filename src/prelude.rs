@@ -832,7 +832,12 @@ pub fn read(path: String) -> R<String> {
 pub fn write(path: String, text: String) -> R<()> {
     let p = ax_fs_path(&path, true)?;
     brevi_new_file(&p);
-    std::fs::write(&p, text).map_err(|e| AxErr(format!("write {path}: {e}")))
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    let mut f = opts.open(&p).map_err(|e| AxErr(format!("write {path}: {e}")))?;
+    brevi_file_room(&p, 0, text.len() as u64);
+    use std::io::Write;
+    f.write_all(text.as_bytes()).map_err(|e| AxErr(format!("write {path}: {e}")))
 }
 // open(path).read() where a missing file reads as "" (the typed build's fix_opens).
 pub fn ax_try_read(path: String) -> String {

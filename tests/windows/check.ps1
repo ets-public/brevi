@@ -55,4 +55,5 @@ Write-Host "PASS dynamic path"
 
 Check-Limit "limit_cpu.py" "cpu=1" "cpu"
 Check-Limit "limit_mem.py" "mem=64" "mem"
+Check-Limit "limit_file.py" "file=1" "file"
 Write-Host "all Windows checks passed"

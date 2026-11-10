@@ -246,7 +246,7 @@ The sandbox decides what a program may touch; `--limit` decides how much it may 
 | `mem` | MB | address space on Linux; committed memory on Windows | the kernel (`RLIMIT_AS`) on Linux; on Windows `brevi` checks the process's pagefile usage every few milliseconds (not on macOS) |
 | `time` | seconds | wall-clock time, waiting included | `brevi`, which stops the program |
 | `output` | KB | stdout and stderr together | `brevi`, which passes output on and stops the program at the limit |
-| `file` | MB | the size of any one file the program writes | the kernel (`RLIMIT_FSIZE`); not on Windows |
+| `file` | MB | the size of any one file the program writes | the kernel (`RLIMIT_FSIZE`) on Linux and macOS; on Windows Brevi's own file writes check it (writes through CPython or native code do not count) |
 | `written` | MB | bytes written in all, to files, pipes and sockets (stdout and stderr not counted), Linux only | the kernel's count (`/proc/PID/io`), which `brevi` checks as the program runs |
 | `files` | count | files the program creates | Brevi's own file code in the program; `--sandbox` without `--allow-py` or `native` only |
 | `net` | MB | bytes sent and received over the network | Brevi's own network code in the program; `--sandbox` without `--allow-py` or `native` only |
@@ -269,7 +269,8 @@ A program stopped by a limit exits with status 124 and its last stderr line is o
 - The limits hold the program, not the build: a cold first build can take longer than `time`. `brevi build` and `brevi check` refuse `--limit`.
 - With `output` (or `mem`, which reads stderr to tell an out-of-memory stop from a crash) the program's stdout or stderr is a pipe, not the terminal.
 - `written` and `threads` are checked every few milliseconds, so a program can pass them by what it does in that time before it is stopped. `files` and `net` are counted inside the program by Brevi's own file and network code (`open`, polars, sqlite3, duckdb, safetensors, onnxruntime, requests, httpx and the SDKs over it), which is why they need `--sandbox` without `--allow-py` or `--allow native`: CPython and native code would not be counted. Under `files`, DuckDB's SQL reaches no files besides the database.
-- A limit Brevi cannot enforce on the machine is refused, never ignored: `mem` on macOS, `written` and `threads` outside Linux, and `file` and `fds` on Windows, give an error and the program does not run.
+- A limit Brevi cannot enforce on the machine is refused, never ignored: `mem` on macOS, `written` and `threads` outside Linux, and `fds` on Windows, give an error and the program does not run.
+- On Windows the `file` limit is checked in Brevi's own file code (`open`, `write`, polars, sqlite3's VFS, …); bytes written through CPython or native code are not counted, as with `files` and `net`.
 - In the MCP tools `run`, `test` and `verify` take `limits: {"cpu": 2, "mem": 512, "time": 10, "output": 64, "file": 10}` (and `written`, `net`, `threads`, `fds`, `files`) (each `cases` entry is held to them separately). The call's `timeout` still covers build and run together.
 
 What the sandbox and the limits protect against, and what they do not, is in the [threat model](https://github.com/ets-public/brevi/blob/main/docs/THREAT_MODEL.md).

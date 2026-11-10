@@ -139,9 +139,6 @@ impl Limits {
                 _ => return Err(format!("{HINT}; there is no limit '{k}'")),
             }
         }
-        if cfg!(windows) && self.file.is_some() {
-            return Err("--limit file is not enforced on Windows yet (cpu, mem, time and output are); leave it out, or run on Linux or macOS".into());
-        }
         if cfg!(windows) && self.fds.is_some() {
             return Err("--limit fds is not enforced on Windows yet; leave it out, or run on Linux or macOS".into());
         }
@@ -263,6 +260,20 @@ pub fn apply(c: &mut Command, l: &Limits) {
                 }
                 Ok(())
             });
+        }
+    }
+    #[cfg(windows)]
+    {
+        // Brevi's own file writes check the per-file limit (fsscope.rs); CPython/native writes do not.
+        for (k, v) in [("BREVI_LIMIT_FILES", l.files), ("BREVI_LIMIT_NET", l.net)] {
+            match v {
+                Some(n) => drop(c.env(k, n.to_string())),
+                None => drop(c.env_remove(k)),
+            }
+        }
+        match l.file {
+            Some(m) => drop(c.env("BREVI_LIMIT_FILE", (m.saturating_mul(1 << 20)).to_string())),
+            None => drop(c.env_remove("BREVI_LIMIT_FILE")),
         }
     }
 }
