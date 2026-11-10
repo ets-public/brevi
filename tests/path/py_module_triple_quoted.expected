@@ -1,3 +1,3 @@
-{"path":"dynamic","file":"_tokre.py","line":4,"why":"unknown name 're'"}
-{"path":"dynamic","file":"_tokre.py","line":4,"why":"unknown name 're'"}
-{"path":"dynamic","file":"_tokre.py","line":4,"why":"unknown name 're'","fix":"set it first: re = ..."}
+{"path":"dynamic","file":"_tokre.py","line":7,"why":"a regex with this group syntax is not in the typed build"}
+{"path":"dynamic","file":"_tokre.py","line":7,"why":"a regex with this group syntax is not in the typed build"}
+{"path":"dynamic","file":"_tokre.py","line":7,"why":"a regex with this group syntax is not in the typed build"}
