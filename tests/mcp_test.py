@@ -84,12 +84,6 @@ if '"verify"' in call("run", sandbox=False, stdin="5", verify=False)[0] or '"ver
     print("FAIL run: verify false must not verify")
 # Under the sandbox (no CPython) the typed build is checked against Brevi's dynamic build instead.
 expect("run verifies under the sandbox", call("run", stdin="5"), '30\n{"verify":"identical","against":"dynamic"', False)
-# A typed-build bug still open (review m07: the typed build's str.isdigit is ASCII only). When it is fixed,
-# swap in another one the typed and dynamic builds still disagree on. (c01, a list sorted in a function, was
-# the example until the sharing proof fixed it: tests/verify/shared_sort.py is now identical.)
-m07 = 'print("\\u0661".isdigit())\n'
-expect("sandboxed run catches a typed-build bug", call("run", code=m07), 'True\n{"verify":"differs","against":"dynamic","on":"stdout","line":1,"typed":"False"', False)
-expect("sandboxed check names the dynamic build", call("run", code=m07), "the output above is from Brevi's dynamic build", False)
 c01 = "def smallest(xs):\n    xs.sort()\n    return xs[0]\ndata = [3, 1, 2]\nprint(smallest(data))\nprint(data)\n"
 expect("sandboxed run of a list sorted in a function", call("run", code=c01), '1\n[1, 2, 3]\n{"verify":"identical","against":"dynamic"', False)
 expect("sandboxed check skips the dynamic path", call("run", code="def show(xs):\n    print(set(xs))\n\nshow([2, 'a'])\n"), '"verify":"refused","against":"dynamic"', False)
@@ -102,6 +96,11 @@ def start_with(**env):
         p.wait()
     p = subprocess.Popen([B, "mcp", "--trust-calls"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=dict(os.environ, **env))
 import os
+# A typed answer that differs (the test hook adds a line to the typed build's output; src/verify.rs).
+start_with(BREVI_TEST_TYPED_DIFFERS="1")
+hk = call("run", code="print(1)\n")
+expect("sandboxed run catches a typed-build bug", hk, '1\n{"verify":"differs","against":"dynamic","on":"stdout","line":2,"typed":"typed build test hook"', False)
+expect("sandboxed check names the dynamic build", hk, "the output above is from Brevi's dynamic build", False)
 start_with(BREVI_PYTHON=os.path.abspath("tests/verify/fakepy.sh"))
 d = call("run", code=sq, sandbox=False, stdin="5")
 expect("run verify differs gives CPython's answer", d, '30\none more line\n{"verify":"differs","on":"stdout","line":2', False)
