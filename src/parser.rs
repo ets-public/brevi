@@ -61,6 +61,7 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
         k += 1;
         if !crate::pybridge::grew() || k >= 6 {
             crate::pybridge::lower(&mut items);
+            expand_tuple_stars(&mut items);
             return Ok(items);
         }
     }
@@ -2311,6 +2312,17 @@ impl Parser {
                                     e = r(args.remove(0), m, vec![e]);
                                     continue;
                                 }
+                                // pat.match(s, pos), pat.search(s, pos): a tokenizer's loop.
+                                let at = match (name.as_str(), args.len()) {
+                                    ("match", 2) if self.py => Some("re_m_match_at"),
+                                    ("search", 2) if self.py => Some("re_m_find_at"),
+                                    _ => None,
+                                };
+                                if let Some(m) = at {
+                                    let pos = args.remove(1);
+                                    e = r(args.remove(0), m, vec![e, pos]);
+                                    continue;
+                                }
                                 if name == "sub" && args.len() == 2 {
                                     let s = args.remove(1);
                                     let mut f = args.remove(0);
@@ -4549,6 +4561,142 @@ fn fix_opens(stmts: &mut [Stmt]) {
                 break;
             }
         }
+    }
+}
+
+// `f(*NOT_FOUND)` where NOT_FOUND is a tuple literal set once at the top level and never set, shadowed or
+// taken as a parameter anywhere else: the same call as `f(NOT_FOUND[0], NOT_FOUND[1])`, which the typed build
+// checks against f's parameters (a `*` argument of unknown length it cannot).
+fn expand_tuple_stars(items: &mut [Item]) {
+    // Functions whose every return (and the last statement is one) gives a tuple of one length.
+    let mut tuple_fns: HashMap<String, usize> = HashMap::new();
+    for it in items.iter() {
+        if let Item::Fn { name, script: false, body, .. } = it {
+            let Expr::Block(stmts, None) = body else { continue };
+            if !matches!(stmts.last(), Some(Stmt::Return { .. })) {
+                continue;
+            }
+            let mut lens: Vec<Option<usize>> = vec![];
+            let mut b = body.clone();
+            walk_mut(&mut b, &mut |e| {
+                if let Expr::Block(st, _) = e {
+                    for s in st.iter() {
+                        if let Stmt::Return { value, .. } = s {
+                            lens.push(match value {
+                                Some(Expr::Tuple(xs)) => Some(xs.len()),
+                                _ => None,
+                            });
+                        }
+                    }
+                }
+            });
+            if let Some(Some(n)) = lens.first() {
+                if lens.iter().all(|l| *l == Some(*n)) {
+                    tuple_fns.insert(name.clone(), *n);
+                }
+            }
+        }
+    }
+    // name -> (length, made a list: `(1, 2)` is read as one)
+    let mut consts: HashMap<String, (usize, bool)> = HashMap::new();
+    for it in items.iter() {
+        if let Item::Fn { script: true, body, .. } = it {
+            let mut b = body.clone();
+            let mut all: Vec<Stmt> = vec![];
+            walk_mut(&mut b, &mut |e| {
+                if let Expr::Block(st, _) = e {
+                    all.extend(st.iter().cloned());
+                }
+            });
+            for st in &all {
+                match st {
+                    Stmt::Let { name: Pat::Bind(n), value, .. } | Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } => match value {
+                        Expr::Tuple(xs) => {
+                            consts.insert(n.clone(), (xs.len(), false));
+                        }
+                        Expr::List(xs) if !xs.is_empty() => {
+                            consts.insert(n.clone(), (xs.len(), true));
+                        }
+                        Expr::Call(f, _, _) if tuple_fns.contains_key(f) => {
+                            consts.insert(n.clone(), (tuple_fns[f], false));
+                        }
+                        _ => {}
+                    },
+                    _ => {}
+                }
+            }
+        }
+    }
+    let text = format!("{items:?}");
+    // Every mention of the name, but for reads (`Ident`), is its one definition.
+    // A list is also never changed: every read is a `*` argument or an item read.
+    consts.retain(|n, (_, list)| {
+        let q = format!("{n:?}");
+        let all = text.matches(&q).count() - text.matches(&format!("Lit({q})")).count();
+        let sets = text.matches(&format!("Bind({q})")).count() + text.matches(&format!("target: Ident({q})")).count();
+        let reads = text.matches(&format!("Ident({q})")).count() + text.matches(&format!("Bind({q})")).count() - sets;
+        let fixed = !*list || text.matches(&format!("(Some(\"__star\"), Ident({q}))")).count() + text.matches(&format!("Index(Ident({q}), Int(")).count() == reads;
+        fixed && sets == 1 && all == reads + 1
+    });
+    for it in items.iter_mut() {
+        let (body, params, script) = match it {
+            Item::Fn { body, params, script, .. } => (body, params.iter().map(|p| p.name.clone()).collect::<Vec<_>>(), *script),
+            Item::Test { body, .. } => (body, vec![], false),
+            _ => continue,
+        };
+        // A function's own local set once, from a tuple or a call to one of tuple_fns, and not a parameter.
+        let mut consts = consts.clone();
+        if !script && !tuple_fns.is_empty() {
+            let text = format!("{body:?}");
+            let mut b = body.clone();
+            let mut found: Vec<(String, usize)> = vec![];
+            walk_mut(&mut b, &mut |e| {
+                if let Expr::Block(st, _) = e {
+                    for s in st.iter() {
+                        if let Stmt::Let { name: Pat::Bind(n), value, .. } | Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } = s {
+                            let len = match value {
+                                Expr::Tuple(xs) => Some(xs.len()),
+                                Expr::Call(f, _, _) => tuple_fns.get(f).copied(),
+                                _ => None,
+                            };
+                            if let Some(len) = len {
+                                found.push((n.clone(), len));
+                            }
+                        }
+                    }
+                }
+            });
+            for (n, len) in found {
+                let q = format!("{n:?}");
+                let sets = text.matches(&format!("Bind({q})")).count() + text.matches(&format!("target: Ident({q})")).count();
+                let reads = text.matches(&format!("Ident({q})")).count() + text.matches(&format!("Bind({q})")).count() - sets;
+                if sets == 1 && text.matches(&q).count() - text.matches(&format!("Lit({q})")).count() == reads + 1 && !params.contains(&n) {
+                    consts.insert(n, (len, false));
+                }
+            }
+        }
+        if consts.is_empty() {
+            continue;
+        }
+        walk_mut(body, &mut |e| {
+            if let Expr::Call(_, args, _) = e {
+                if !args.iter().any(|(k, a)| k.as_deref() == Some("__star") && matches!(a, Expr::Ident(n) if consts.contains_key(n))) {
+                    return;
+                }
+                let mut out = Vec::with_capacity(args.len());
+                for (k, a) in std::mem::take(args) {
+                    match (&k, &a) {
+                        (Some(s), Expr::Ident(n)) if s == "__star" && consts.contains_key(n) => {
+                            for i in 0..consts[n].0 {
+                                out.push((None, Expr::Index(Box::new(Expr::Ident(n.clone())), Box::new(Expr::Int(i as i64)))));
+                            }
+                        }
+                        _ => out.push((k, a)),
+                    }
+                }
+                *args = out;
+            }
+        });
     }
 }
 

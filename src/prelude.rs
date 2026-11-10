@@ -6007,6 +6007,29 @@ impl AxCalendar for i64 {
         y % 4 == 0 && (y % 100 != 0 || y % 400 == 0)
     }
 }
+// Python's float.is_integer() (and int's, always True since 3.12).
+pub trait AxIsInteger {
+    fn ax_is_integer(&self) -> bool;
+}
+impl AxIsInteger for f64 {
+    fn ax_is_integer(&self) -> bool {
+        self.is_finite() && self.fract() == 0.0
+    }
+}
+impl AxIsInteger for i64 {
+    fn ax_is_integer(&self) -> bool {
+        true
+    }
+}
+impl AxIsInteger for Json {
+    fn ax_is_integer(&self) -> bool {
+        match self {
+            Json::Num { v, .. } => v.ax_is_integer(),
+            Json::Bool { .. } => true,
+            _ => panic!("AttributeError: object has no attribute 'is_integer'"),
+        }
+    }
+}
 pub trait AxIsAscii {
     fn ax_is_ascii(&self) -> bool;
 }
@@ -6997,6 +7020,8 @@ impl AxRe for Json {
 pub trait AxRePy {
     fn ax_re_match(&self, p: impl AsRef<str>) -> Vec<String>;
     fn ax_re_m_match(&self, p: impl AsRef<str>) -> AxMatch;
+    fn ax_re_m_match_at(&self, p: impl AsRef<str>, pos: i64) -> AxMatch;
+    fn ax_re_m_find_at(&self, p: impl AsRef<str>, pos: i64) -> AxMatch;
     fn ax_re_findall(&self, p: impl AsRef<str>) -> Vec<String>;
 }
 impl AxRePy for String {
@@ -7007,6 +7032,18 @@ impl AxRePy for String {
     fn ax_re_m_match(&self, p: impl AsRef<str>) -> AxMatch {
         let cs: Vec<char> = self.chars().collect();
         ax_rx_search_at(p.as_ref(), &cs, 0, false, true).map_or_else(AxMatch::default, |(_, c)| ax_rx_match(&cs, &c))
+    }
+    // pat.match(s, pos) and pat.search(s, pos): from char pos (clamped to the text, as Python does) of the whole
+    // text, so spans count from its start and `\b` sees the char before pos.
+    fn ax_re_m_match_at(&self, p: impl AsRef<str>, pos: i64) -> AxMatch {
+        let cs: Vec<char> = self.chars().collect();
+        let from = pos.clamp(0, cs.len() as i64) as usize;
+        ax_rx_search_at(p.as_ref(), &cs, from, false, true).map_or_else(AxMatch::default, |(_, c)| ax_rx_match(&cs, &c))
+    }
+    fn ax_re_m_find_at(&self, p: impl AsRef<str>, pos: i64) -> AxMatch {
+        let cs: Vec<char> = self.chars().collect();
+        let from = pos.clamp(0, cs.len() as i64) as usize;
+        ax_rx_search_at(p.as_ref(), &cs, from, false, false).map_or_else(AxMatch::default, |(_, c)| ax_rx_match(&cs, &c))
     }
     fn ax_re_findall(&self, p: impl AsRef<str>) -> Vec<String> {
         let all = self.ax_re_all(p.as_ref().to_string());
@@ -7019,6 +7056,12 @@ impl AxRePy for Json {
     }
     fn ax_re_m_match(&self, p: impl AsRef<str>) -> AxMatch {
         match self { Json::Str { v } => v.ax_re_m_match(p), _ => panic!("TypeError: expected string or bytes-like object") }
+    }
+    fn ax_re_m_match_at(&self, p: impl AsRef<str>, pos: i64) -> AxMatch {
+        match self { Json::Str { v } => v.ax_re_m_match_at(p, pos), _ => panic!("TypeError: expected string or bytes-like object") }
+    }
+    fn ax_re_m_find_at(&self, p: impl AsRef<str>, pos: i64) -> AxMatch {
+        match self { Json::Str { v } => v.ax_re_m_find_at(p, pos), _ => panic!("TypeError: expected string or bytes-like object") }
     }
     fn ax_re_findall(&self, p: impl AsRef<str>) -> Vec<String> {
         match self { Json::Str { v } => v.ax_re_findall(p), _ => panic!("TypeError: expected string or bytes-like object") }
