@@ -1007,10 +1007,17 @@ fn cross_main(file: &str, held: &[String], cpython: bool, strict: bool, release:
         let (c, stdin) = (start(&dyn_bin), stdin.clone());
         std::thread::spawn(move || run(c, &stdin, limit, false))
     });
-    let t = run(start(&bin), &stdin, limit, false).unwrap_or_else(|m| {
+    #[allow(unused_mut)]
+    let mut t = run(start(&bin), &stdin, limit, false).unwrap_or_else(|m| {
         eprintln!("{{\"e\":\"io\",\"msg\":\"{}\"}}", esc(&m));
         exit(1)
     });
+    // Test hook (tests/mcp_test.py, tests/check.sh): the typed build's output gets one extra line, so the
+    // check that catches a wrong typed answer is tested without a real typed-build bug staying open. It is
+    // read only by the brevi process itself; nothing a program or an MCP call sends can set it.
+    if std::env::var("BREVI_TEST_TYPED_DIFFERS").is_ok_and(|v| v == "1") {
+        t.out.extend_from_slice(b"typed build test hook\n");
+    }
     let out = |r: &Run, line: &str| -> ! {
         std::io::stdout().write_all(&r.out).ok();
         std::io::stdout().flush().ok();

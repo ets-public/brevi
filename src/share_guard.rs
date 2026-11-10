@@ -128,7 +128,9 @@ struct Prog<'a> {
     fromimp: HashMap<String, (String, String)>, // `from m import n as a`: a -> (m's first part, n)
     module_names: HashSet<String>,             // module-level names
     bound_other: HashSet<String>,
-    dicts: HashSet<String>, // see dict_only              // module-level names some statement other than an import binds
+    dicts: HashSet<String>, // see dict_only
+    regex: HashSet<String>, // see regex_only
+    lambdas: HashMap<(usize, String), &'a Ex>, // see lambda_names              // module-level names some statement other than an import binds
     fn_globals: HashSet<String>,               // module-level names some function mentions
     // kinds
     kl: HashMap<(usize, String), K>, // (function, name) -> shape; function usize::MAX is the module
@@ -153,6 +155,8 @@ pub fn check(body: &[Stmt]) -> Option<(usize, String)> {
         module_names: HashSet::new(),
         bound_other: HashSet::new(),
         dicts: HashSet::new(),
+        regex: HashSet::new(),
+        lambdas: HashMap::new(),
         fn_globals: HashSet::new(),
         kl: HashMap::new(),
         kf: HashMap::new(),
@@ -161,7 +165,10 @@ pub fn check(body: &[Stmt]) -> Option<(usize, String)> {
         sums: vec![],
     };
     collect(body, None, None, &mut p);
+    close_captures(&mut p);
     p.dicts = dict_only(body);
+    p.regex = regex_only(body, p.modules.contains("re"));
+    p.lambdas = lambda_names(body, &p);
     let rebound = rebound_globals(body, &p);
     kinds(body, &mut p);
     p.sums = vec![Sum::default(); p.fns.len()];
@@ -397,6 +404,41 @@ fn child_blocks_has_def(s: &Stmt) -> bool {
     hit
 }
 
+// A nested def that calls another (`expr()` calling `eat()`, which changes the enclosing `pos`) captures what
+// that one captures, as the typed build passes it on.
+fn close_captures(p: &mut Prog) {
+    let mentions: Vec<HashSet<String>> = p.fns.iter().map(|f| {
+        let mut u = HashSet::new();
+        mentioned_block(&f.def.body, &mut u);
+        u
+    }).collect();
+    loop {
+        let mut add: Vec<(usize, String)> = vec![];
+        for (i, f) in p.fns.iter().enumerate() {
+            let Some(pa) = f.parent else { continue };
+            for (j, g) in p.fns.iter().enumerate() {
+                if i == j || !mentions[i].contains(&g.def.name) || !(g.parent == f.parent || g.parent == Some(i)) {
+                    continue;
+                }
+                for c in &g.captured {
+                    if !f.captured.contains(c) && !f.locals.contains(c) && !f.globals.contains(c) && in_enclosing(p, pa, c) {
+                        add.push((i, c.clone()));
+                    }
+                }
+            }
+        }
+        if add.is_empty() {
+            return;
+        }
+        for (i, c) in add {
+            if !p.fns[i].captured.contains(&c) {
+                p.fns[i].captured.push(c.clone());
+                p.fns[i].params.push(c);
+            }
+        }
+    }
+}
+
 fn in_enclosing(p: &Prog, mut f: usize, n: &str) -> bool {
     loop {
         if p.fns[f].locals.contains(n) {
@@ -433,7 +475,40 @@ fn dict_only(body: &[Stmt]) -> HashSet<String> {
             _ => false,
         }
     }
-    fn walk(b: &[Stmt], yes: &mut HashSet<String>, no: &mut HashSet<String>) {
+    only_bound_to(body, &is_dict)
+}
+
+// Names bound only to compiled patterns and their matches (`R = re.compile(...)`, `m = R.match(s)`,
+// `m = re.search(...)`): their methods change nothing and keep nothing of the program's.
+fn regex_only(body: &[Stmt], has_re: bool) -> HashSet<String> {
+    if !has_re {
+        return HashSet::new();
+    }
+    let mut known: HashSet<String> = HashSet::new();
+    for _ in 0..4 {
+        let k = known.clone();
+        let is_re = move |v: &Ex| match v {
+            Ex::Call(f, _) => match f.as_ref() {
+                Ex::Attr(o, m) => {
+                    (matches!(o.as_ref(), Ex::Name(r) if r == "re") && matches!(m.as_str(), "compile" | "match" | "fullmatch" | "search"))
+                        || (matches!(o.as_ref(), Ex::Name(r) if k.contains(r)) && matches!(m.as_str(), "match" | "fullmatch" | "search"))
+                }
+                _ => false,
+            },
+            Ex::NoneV => true,
+            _ => false,
+        };
+        let next = only_bound_to(body, &is_re);
+        if next == known {
+            break;
+        }
+        known = next;
+    }
+    known
+}
+
+fn only_bound_to(body: &[Stmt], is_dict: &dyn Fn(&Ex) -> bool) -> HashSet<String> {
+    fn walk(b: &[Stmt], yes: &mut HashSet<String>, no: &mut HashSet<String>, is_dict: &dyn Fn(&Ex) -> bool) {
         for st in b {
             match &st.st {
                 St::Assign(_, v) | St::AnnAssign(_, Some(v), _) => {
@@ -458,25 +533,25 @@ fn dict_only(body: &[Stmt]) -> HashSet<String> {
                     no.extend(d.params.star.clone());
                     no.extend(d.params.kwstar.clone());
                     no.insert(d.name.clone());
-                    walk(&d.body, yes, no);
+                    walk(&d.body, yes, no, is_dict);
                 }
                 St::Class(c) => {
                     no.insert(c.name.clone());
-                    walk(&c.body, yes, no);
+                    walk(&c.body, yes, no, is_dict);
                 }
                 St::Expr(_) | St::Return(_) | St::Raise(..) | St::Assert(..) | St::Pass | St::Break | St::Continue | St::Global(_) | St::Nonlocal(_) | St::Del(_) => {}
                 _ => {
                     let mut g = HashSet::new();
                     assigned(std::slice::from_ref(st), no, &mut g);
                     for c in child_blocks(st) {
-                        walk(c, yes, no);
+                        walk(c, yes, no, is_dict);
                     }
                 }
             }
         }
     }
     let (mut yes, mut no) = (HashSet::new(), HashSet::new());
-    walk(body, &mut yes, &mut no);
+    walk(body, &mut yes, &mut no, is_dict);
     each_expr_block(body, &mut |e| {
         walk_ex(e, &mut |x| match x {
             Ex::Walrus(n, _) => {
@@ -491,6 +566,80 @@ fn dict_only(body: &[Stmt]) -> HashSet<String> {
     });
     yes.retain(|n| !no.contains(n));
     yes
+}
+
+// Per scope (a function's index, or MODULE), the names whose one binding there is `name = lambda ...`: a call of
+// one is followed into the lambda's body (see Cx::call_in).
+fn lambda_names<'a>(body: &'a [Stmt], p: &Prog<'a>) -> HashMap<(usize, String), &'a Ex> {
+    fn walk<'a>(b: &'a [Stmt], lam: &mut HashMap<String, Vec<&'a Ex>>, other: &mut HashSet<String>) {
+        for st in b {
+            match &st.st {
+                St::Assign(ts, v) if ts.len() == 1 && matches!(v, Ex::Lambda(..)) && matches!(ts[0], Ex::Name(_)) => {
+                    let Ex::Name(n) = &ts[0] else { continue };
+                    lam.entry(n.clone()).or_default().push(v);
+                }
+                St::Def(d) => {
+                    other.insert(d.name.clone());
+                }
+                St::Class(c) => {
+                    other.insert(c.name.clone());
+                }
+                St::If(..) | St::While(..) | St::For(..) | St::Try(..) | St::With(..) => {
+                    // the statement's own bindings (loop targets, `as` names, walruses in its heads)
+                    let mut l = HashSet::new();
+                    let mut g = HashSet::new();
+                    assigned(std::slice::from_ref(st), &mut l, &mut g);
+                    let mut inner = HashMap::new();
+                    for c in child_blocks(st) {
+                        walk(c, &mut inner, other);
+                    }
+                    for (n, v) in inner {
+                        l.remove(&n);
+                        lam.entry(n).or_default().extend(v);
+                    }
+                    // what assigned() found that is not a lambda binding inside
+                    other.extend(l);
+                }
+                _ => {
+                    let mut g = HashSet::new();
+                    assigned(std::slice::from_ref(st), other, &mut g);
+                    other.extend(g);
+                }
+            }
+        }
+    }
+    let mut out = HashMap::new();
+    let mut scopes: Vec<(usize, &'a [Stmt], Vec<String>)> = vec![(MODULE, body, vec![])];
+    for (i, f) in p.fns.iter().enumerate() {
+        scopes.push((i, &f.def.body, f.params.clone()));
+    }
+    // a name some function sets as global or nonlocal is bound in more places than its own scope
+    let mut shared = HashSet::new();
+    for f in &p.fns {
+        shared.extend(f.globals.iter().cloned());
+        fn nonlocals(b: &[Stmt], out: &mut HashSet<String>) {
+            for st in b {
+                if let St::Nonlocal(v) = &st.st {
+                    out.extend(v.iter().cloned());
+                }
+                for c in child_blocks(st) {
+                    nonlocals(c, out);
+                }
+            }
+        }
+        nonlocals(&f.def.body, &mut shared);
+    }
+    for (id, b, params) in scopes {
+        let mut lam = HashMap::new();
+        let mut other: HashSet<String> = params.into_iter().collect();
+        walk(b, &mut lam, &mut other);
+        for (n, v) in lam {
+            if v.len() == 1 && !other.contains(&n) && !shared.contains(&n) {
+                out.insert((id, n), v[0]);
+            }
+        }
+    }
+    out
 }
 
 fn child_blocks(s: &Stmt) -> Vec<&[Stmt]> {
@@ -2992,6 +3141,50 @@ impl<'p, 'a> Cx<'p, 'a> {
         out
     }
 
+    // A call of a local lambda: its body with the parameters bound to the arguments (a lambda changes nothing
+    // itself; a lambda that would is refused where it is made).
+    fn inline_lambda(&mut self, ps: &crate::dynpy::parse::Params, body: &Ex, a: &[(Option<String>, bool, Option<Ex>, Vec<Src>)]) -> Vec<Src> {
+        let mut map = HashMap::new();
+        let names: Vec<String> = ps.pos.iter().chain(ps.kwonly.iter()).map(|(n, _)| n.clone()).chain(ps.star.clone()).chain(ps.kwstar.clone()).collect();
+        let star = a.iter().any(|x| x.1);
+        let mut bind: HashMap<String, Vec<Src>> = HashMap::new();
+        let mut i = 0;
+        for x in a {
+            match (&x.0, x.1) {
+                (_, true) => {}
+                (Some(k), false) => bind.entry(k.clone()).or_default().extend(x.3.iter().cloned()),
+                (None, false) => {
+                    match ps.pos.get(i) {
+                        Some((n, _)) => bind.entry(n.clone()).or_default().extend(x.3.iter().cloned()),
+                        // past the positional parameters: into *args, one level down
+                        None => {
+                            if let Some(st) = &ps.star {
+                                bind.entry(st.clone()).or_default().extend(x.3.iter().map(|(p, dp, dv)| (p.clone(), *dp, add_d(*dv, 1))));
+                            }
+                        }
+                    }
+                    i += 1;
+                }
+            }
+        }
+        let all: Vec<Src> = a.iter().flat_map(|x| x.3.iter().map(|(p, dp, dv)| (p.clone(), *dp, if x.1 { *dv } else { add_d(*dv, 1) }))).collect();
+        for n in &names {
+            let h = format!("{n}#{}", ps as *const _ as usize);
+            self.kloc.insert(h.clone(), UNK);
+            // a * or ** argument may fill any parameter, at any depth: everything it holds goes to each
+            let mut v = bind.get(n).cloned().unwrap_or_default();
+            if star || ps.kwstar.as_ref() == Some(n) {
+                v.extend(all.iter().cloned());
+            }
+            self.store(&Pl::L(h.clone()), 0, &v);
+            map.insert(n.clone(), h);
+        }
+        self.comp.push(map);
+        let v = self.eval(body);
+        self.comp.pop();
+        v
+    }
+
     fn call(&mut self, f: &Ex, args: &[Arg]) -> Vec<Src> {
         // sorted/min/max/sort only compare what a key function hands back; re.sub's must be a str
         let key_ok = match f {
@@ -3042,7 +3235,11 @@ impl<'p, 'a> Cx<'p, 'a> {
                     }
                 }
                 let local = !matches!(self.place(n), Pl::G(_)) || self.p.module_names.contains(n.as_str());
+                let lam = if matches!(self.place(n), Pl::L(_)) || self.f == MODULE { self.p.lambdas.get(&(self.f, n.clone())).copied() } else { None };
                 let a = self.eval_args(args);
+                if let Some(Ex::Lambda(ps, body)) = lam {
+                    return self.inline_lambda(ps, body, &a);
+                }
                 let cbs = self.callbacks_in(&a);
                 if !cbs.is_empty() {
                     self.callback_effects(&a, cbs);
@@ -3100,6 +3297,20 @@ impl<'p, 'a> Cx<'p, 'a> {
                         return self.module_call(mo, m, args, &a);
                     }
                 }
+                // `datetime.datetime.strptime(...)`, `os.path.join(...)`: a function of a standard-library
+                // module's class or submodule changes none of its arguments and keeps none
+                let mut root = o.as_ref();
+                while let Ex::Attr(r, _) = root {
+                    root = r;
+                }
+                if !std::ptr::eq(root, o.as_ref()) && self.is_module(root) && matches!(root, Ex::Name(r) if STDLIB.contains(&r.as_str())) {
+                    let a = self.eval_args(args);
+                    let cbs = self.callbacks_in(&a);
+                    if !cbs.is_empty() {
+                        self.callback_effects(&a, cbs);
+                    }
+                    return a.iter().flat_map(|x| shallow(&x.3)).collect();
+                }
                 let so = self.eval(o);
                 let ko = self.ex_kind(o);
                 let a = self.eval_args(args);
@@ -3150,7 +3361,17 @@ impl<'p, 'a> Cx<'p, 'a> {
         let mut mutp = false;
         for id in ids {
             let s = self.p.sums[id].clone();
-            mutp |= !s.mutp.is_empty();
+            // A captured name is the enclosing function's own (`codes.append(...)` in a callback): that one
+            // changes; the others are the callback's parameters, which may be given anything passed here.
+            let captured = self.p.fns[id].captured.clone();
+            for (pn, d) in &s.mutp {
+                if captured.contains(pn) {
+                    let pl = self.place(pn);
+                    self.mutate_place(&pl, *d, "by a function passed on as a value", false);
+                } else {
+                    mutp = true;
+                }
+            }
             for (fl, d) in &s.mutf {
                 self.mutate_place(&Pl::F(fl.clone()), *d, "by a function passed on as a value", false);
             }
@@ -3326,6 +3547,15 @@ impl<'p, 'a> Cx<'p, 'a> {
                 }
             }
             _ if user => vec![],
+            // a compiled pattern's or a match's method: new strings, lists and matches; only a callback it is
+            // given (`R.sub(repl, s)`) may change something
+            _ if matches!(o, Ex::Name(n) if self.p.regex.contains(n)) => {
+                let cbs = self.callbacks_in(a);
+                if !cbs.is_empty() {
+                    self.callback_effects(a, cbs);
+                }
+                vec![]
+            }
             _ => {
                 // A method no list, dict, set or deque has cannot change one (it would raise); a library
                 // object's method may still change or keep its arguments (unknown_call).
