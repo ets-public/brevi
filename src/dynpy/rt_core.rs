@@ -1851,9 +1851,21 @@ impl Class {
 
 pub struct Obj {
     pub cls: Rc<Class>,
-    pub d: RefCell<Attrs>,
+    // the instance's attributes. Inline Attrs values until the first read or write of __dict__; from then on a
+    // Dict holds every normal attribute (the single source of truth), and Attrs keeps only Brevi's slot names
+    // (pydantic's __pydantic_* attributes, which CPython keeps out of __dict__).
+    pub d: RefCell<AStore>,
     // the builtin value a subclass of a builtin type wraps (class Stack(list)); boxed, as most objects have none
     inner: RefCell<Option<Box<V>>>,
+}
+pub struct AStore {
+    pub attrs: Attrs,
+    pub dict: Option<Rc<RefCell<Dict>>>,
+}
+impl AStore {
+    pub fn new() -> AStore {
+        AStore { attrs: Attrs::new(), dict: None }
+    }
 }
 // The names of an instance's attributes, in the order they were first set. Instances whose attributes were set
 // in the same order share one Shape (as V8's hidden classes do), so an instance keeps only the values: an
@@ -2056,7 +2068,7 @@ pub fn same_name(a: &str, b: &str) -> bool {
 }
 impl Obj {
     pub fn new(cls: Rc<Class>) -> Rc<Obj> {
-        Rc::new(Obj { cls, d: RefCell::new(Attrs::new()), inner: RefCell::new(None) })
+        Rc::new(Obj { cls, d: RefCell::new(AStore::new()), inner: RefCell::new(None) })
     }
     #[inline]
     pub fn inner(&self) -> Option<V> {
@@ -2069,27 +2081,140 @@ impl Obj {
     pub fn set_inner(&self, v: Option<V>) {
         *self.inner.borrow_mut() = v.map(Box::new);
     }
+    // o.name for code that must match CPython exactly: errors from a dict key's __eq__ are raised.
+    pub fn get_attr(&self, n: &str) -> Result<Option<V>, E> {
+        let dd = {
+            let d = self.d.borrow();
+            if let Some(i) = d.attrs.find(n) {
+                return Ok(Some(d.attrs.get(i).unwrap().1.clone()));
+            }
+            match d.dict.clone() {
+                Some(dd) => dd,
+                None => return Ok(None),
+            }
+        };
+        let got = dd.borrow().get(&s(n))?;
+        Ok(got)
+    }
+    // o.name for the runtime's own bookkeeping (exception args, enum values, ...), where those objects never
+    // hold a managed dict.
     pub fn get(&self, n: &str) -> Option<V> {
-        let d = self.d.borrow();
-        d.find(n).map(|i| d.get(i).unwrap().1.clone())
+        self.get_attr(n).ok().flatten()
     }
     pub fn set(&self, n: Sym, v: V) {
-        let mut a = self.d.borrow_mut();
-        match a.find(n) {
-            Some(i) => *a.get_mut(i).unwrap().1 = v,
-            None => a.push((n, v)),
+        let _ = self.set_res(n, v);
+    }
+    // o.name = v (also object.__setattr__); the Result matters only for __dict__ and managed-dict keys.
+    pub fn set_res(&self, n: Sym, v: V) -> Result<(), E> {
+        if n == "__dict__" {
+            return self.set_dict(v);
         }
+        // pydantic keeps these in slots, not in __dict__ (see the Obj comment)
+        if n.starts_with("__pydantic_") {
+            let mut d = self.d.borrow_mut();
+            match d.attrs.find(n) {
+                Some(i) => *d.attrs.get_mut(i).unwrap().1 = v,
+                None => d.attrs.push((n, v)),
+            }
+            return Ok(());
+        }
+        let mut d = self.d.borrow_mut();
+        if let Some(dd) = d.dict.clone() {
+            drop(d);
+            dd.borrow_mut().set(s(n), v)?;
+            return Ok(());
+        }
+        match d.attrs.find(n) {
+            Some(i) => *d.attrs.get_mut(i).unwrap().1 = v,
+            None => d.attrs.push((n, v)),
+        }
+        Ok(())
+    }
+    // The instance's live __dict__, materializing it on first use: normal attributes move from Attrs into
+    // the Dict, which is then the single source of truth for them.
+    pub fn dict(&self) -> R {
+        let mut d = self.d.borrow_mut();
+        if let Some(dd) = d.dict.clone() {
+            return Ok(V::Dict(dd));
+        }
+        let mut entries: Vec<(Sym, V)> = vec![];
+        let mut keep = Attrs::new();
+        for (k, v) in d.attrs.iter() {
+            if k.starts_with("__pydantic_") {
+                keep.push((*k, v.clone()));
+            } else {
+                entries.push((*k, v.clone()));
+            }
+        }
+        let mut nd = Dict::new();
+        for (k, v) in entries {
+            nd.set(s(k), v)?;
+        }
+        d.attrs = keep;
+        let dd = Rc::new(RefCell::new(nd));
+        d.dict = Some(dd.clone());
+        Ok(V::Dict(dd))
+    }
+    // o.__dict__ = v: the given dict replaces the instance's attributes (CPython drops the old dict).
+    pub fn set_dict(&self, v: V) -> Result<(), E> {
+        let V::Dict(dd) = v else {
+            return Err(exc("TypeError", format!("__dict__ must be set to a dictionary, not a '{}'", type_name(&v))));
+        };
+        let mut d = self.d.borrow_mut();
+        let mut keep = Attrs::new();
+        for (k, x) in d.attrs.iter() {
+            if k.starts_with("__pydantic_") {
+                keep.push((*k, x.clone()));
+            }
+        }
+        d.attrs = keep;
+        d.dict = Some(dd);
+        Ok(())
+    }
+    pub fn del_attr(&self, n: &str) -> Result<bool, E> {
+        if n == "__dict__" {
+            // del o.__dict__ empties the managed dict (a fresh one, as in CPython); slots stay.
+            let mut d = self.d.borrow_mut();
+            let mut keep = Attrs::new();
+            for (k, x) in d.attrs.iter() {
+                if k.starts_with("__pydantic_") {
+                    keep.push((*k, x.clone()));
+                }
+            }
+            d.attrs = keep;
+            d.dict = Some(Rc::new(RefCell::new(Dict::new())));
+            return Ok(true);
+        }
+        if n.starts_with("__pydantic_") {
+            let mut d = self.d.borrow_mut();
+            let at = d.attrs.names().iter().position(|k| *k == n);
+            return Ok(match at {
+                Some(i) => {
+                    d.attrs.remove(i);
+                    true
+                }
+                None => false,
+            });
+        }
+        let dd = {
+            let mut d = self.d.borrow_mut();
+            if d.dict.is_none() {
+                let at = d.attrs.names().iter().position(|k| *k == n);
+                return Ok(match at {
+                    Some(i) => {
+                        d.attrs.remove(i);
+                        true
+                    }
+                    None => false,
+                });
+            }
+            d.dict.clone().unwrap()
+        };
+        let gone = dd.borrow_mut().del(&s(n))?.is_some();
+        Ok(gone)
     }
     pub fn del(&self, n: &str) -> bool {
-        let mut a = self.d.borrow_mut();
-        let at = a.names().iter().position(|k| *k == n);
-        match at {
-            Some(i) => {
-                a.remove(i);
-                true
-            }
-            None => false,
-        }
+        self.del_attr(n).unwrap_or(false)
     }
 }
 
