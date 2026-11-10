@@ -114,6 +114,10 @@ pub trait Ext {
     fn eq(&self, _o: &V) -> Option<bool> {
         None
     }
+    // `self == o` when the answer can be an error (a cmp_to_key key next to a non-key, as CPython raises).
+    fn eq_rich(&self, _me: &V, _o: &V, _right: bool) -> Option<Result<bool, E>> {
+        None
+    }
     fn cmp(&self, _o: &V) -> Option<std::cmp::Ordering> {
         None
     }

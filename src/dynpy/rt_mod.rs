@@ -834,6 +834,28 @@ impl Ext for CmpKey {
     fn any(&self) -> &dyn std::any::Any {
         self
     }
+    // the wrapped value, as CPython's KeyWrapper.obj
+    fn attr(&self, _me: &V, n: &str) -> Option<R> {
+        if n == "obj" {
+            return Some(Ok(self.v.clone()));
+        }
+        None
+    }
+    fn eq_rich(&self, _me: &V, o: &V, _right: bool) -> Option<Result<bool, E>> {
+        Some(match cmp_key_of(o) {
+            Some(k) => cmp_key_cmp(&self.f, &self.v, &k.v, "=="),
+            None => type_err("other argument must be K instance".into()),
+        })
+    }
+    fn rich(&self, _me: &V, op: &str, o: &V, _right: bool) -> Option<Result<bool, E>> {
+        match op {
+            "<" | ">" | "<=" | ">=" => Some(match cmp_key_of(o) {
+                Some(k) => cmp_key_cmp(&self.f, &self.v, &k.v, op),
+                None => type_err("other argument must be K instance".into()),
+            }),
+            _ => None,
+        }
+    }
     fn cmp(&self, o: &V) -> Option<std::cmp::Ordering> {
         if let V::Ext(x) = o {
             if let Some(k) = x.any().downcast_ref::<CmpKey>() {
@@ -856,6 +878,22 @@ impl Ext for CmpKey {
             }
         }
         None
+    }
+}
+fn cmp_key_of(o: &V) -> Option<&CmpKey> {
+    match o {
+        V::Ext(x) => x.any().downcast_ref::<CmpKey>(),
+        _ => None,
+    }
+}
+// CPython's KeyWrapper does `mycmp(self.obj, other.obj) OP 0` for OP in ==, <, >, <=, >=: the
+// comparison runs on whatever mycmp returned, so errors and odd result types come out as they do there.
+fn cmp_key_cmp(f: &V, x: &V, y: &V, op: &str) -> Result<bool, E> {
+    let r = call(f, Args::p(vec![x.clone(), y.clone()]))?;
+    if op == "==" {
+        eq(&r, &V::Int(0))
+    } else {
+        rich(&r, &V::Int(0), op)
     }
 }
 

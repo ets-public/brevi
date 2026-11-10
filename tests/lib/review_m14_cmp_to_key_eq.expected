@@ -1,0 +1,43 @@
+True False False True
+False True False False True
+[1, 2, 3]
+['a', 'bb', 'ccc']
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError other argument must be K instance
+TypeError unhashable type: 'functools.KeyWrapper'
+True True
+False False

@@ -168,7 +168,14 @@ pub fn eq(a: &V, b: &V) -> Result<bool, E> {
         (V::Int(x), V::Int(y)) => x == y,
         (V::Str(x), V::Str(y)) => Rc::ptr_eq(x, y) || x.s == y.s,
         (V::None, V::None) => true,
-        (V::None, _) | (_, V::None) if !matches!(a, V::Obj(_)) && !matches!(b, V::Obj(_)) => false,
+        (V::None, _) | (_, V::None)
+            if !matches!(a, V::Obj(_))
+                && !matches!(b, V::Obj(_))
+                && !matches!(a, V::Ext(_))
+                && !matches!(b, V::Ext(_)) =>
+        {
+            false
+        }
         (V::Float(x), V::Float(y)) => x == y,
         (x, y) if is_intlike(x) && is_intlike(y) => match (ival(x), ival(y)) {
             (Some(p), Some(q)) => p == q,
@@ -266,14 +273,23 @@ pub fn eq(a: &V, b: &V) -> Result<bool, E> {
             }
             is(a, b)
         }
-        (V::Ext(x), _) => match x.eq(b) {
-            Some(r) => r,
-            None => match b {
-                V::Ext(y) => y.eq(a).unwrap_or(false),
-                _ => false,
+        (V::Ext(x), _) => match x.eq_rich(a, b, false) {
+            Some(r) => r?,
+            None => match x.eq(b) {
+                Some(r) => r,
+                None => match b {
+                    V::Ext(y) => match y.eq_rich(b, a, true) {
+                        Some(r) => r?,
+                        None => y.eq(a).unwrap_or(false),
+                    },
+                    _ => false,
+                },
             },
         },
-        (_, V::Ext(y)) => y.eq(a).unwrap_or(false),
+        (_, V::Ext(y)) => match y.eq_rich(b, a, true) {
+            Some(r) => r?,
+            None => y.eq(a).unwrap_or(false),
+        },
         _ => is(a, b),
     })
 }
