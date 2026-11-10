@@ -1,0 +1,1 @@
+- `in` on a Flag class accepts composite members (`Perm.READ | Perm.WRITE in Perm`) and valid int values, as CPython 3.12+ does.
