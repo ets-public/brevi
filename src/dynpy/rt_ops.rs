@@ -206,14 +206,15 @@ pub fn eq(a: &V, b: &V) -> Result<bool, E> {
             if Rc::ptr_eq(x, y) {
                 return Ok(true);
             }
-            let (x, y) = (x.borrow(), y.borrow());
-            if x.n != y.n {
+            if x.borrow().n != y.borrow().n {
                 return Ok(false);
             }
-            let items = x.items();
+            // no borrow is held while a key's or value's __eq__ runs: it may clear either dict (bpo-27945)
+            let items = x.borrow().items();
             let mut ok = true;
             for (k, v) in items {
-                match y.get(&k)? {
+                let found = y.borrow().get(&k)?;
+                match found {
                     Some(w) => {
                         if !eq(&v, &w)? {
                             ok = false;

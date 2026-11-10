@@ -2381,6 +2381,7 @@ pub fn run_main(f: fn() -> Result<(), E>) {
             }
         };
         atexit_run();
+        unsafe { fin_exit(&*std::ptr::addr_of!(GL)) };
         close_live_gens();
         out_flush();
         code

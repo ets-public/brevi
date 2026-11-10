@@ -1403,6 +1403,8 @@ impl Bridge {
 }
 
 pub struct Em {
+    // some module mentions __del__: statements run waiting finalizers (block)
+    has_del: bool,
     // cells with a CellGuard (see self_recursive_def)
     guards: HashSet<String>,
     // nested defs callable as plain Rust functions, by the cell holding them: (rust fn, captured cells, nparams).
@@ -2472,8 +2474,16 @@ impl Em {
     // ---- statements ----
     fn block(&mut self, body: &[Stmt]) -> ER<String> {
         let mut b = String::new();
+        if self.has_del {
+            // a loop body starts here too, so what rebinding the loop target freed is finalized before the body
+            b.push_str("fin_point();\n");
+        }
         for s in body {
             b.push_str(&self.stmt(s)?);
+            // A program with __del__ runs the finalizers its statement made waiting (rt_core's fin_point).
+            if self.has_del && matches!(s.st, St::Expr(_) | St::Assign(..) | St::AugAssign(..) | St::Del(_)) {
+                b.push_str(" fin_point();");
+            }
             b.push('\n');
         }
         Ok(b)
@@ -2804,12 +2814,7 @@ impl Em {
                     let v = self.q(&format!("pyd_class({}, {}, {}, {}, {})", lit(&m), lit(&imports), lit(&src), lit(&c.name), lit(&file)));
                     return Ok(self.store(&c.name, &v));
                 }
-                // `__del__` runs when CPython frees the object (reference counts), which dynamic builds do not track:
-                // the program's output could differ, so CPython runs it.
-                if let Some(d) = c.body.iter().find(|s| matches!(&s.st, St::Def(d) if d.name == "__del__")) {
-                    return Err(err(d.line, "__del__ is not supported in dynamic builds"));
-                }
-                let v = self.class(c)?;
+                        let v = self.class(c)?;
                 self.store(&c.name, &v)
             }
         })
@@ -3416,7 +3421,9 @@ pub fn ic_statics() -> String {
     s
 }
 pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>), (String, usize, String)> {
+    let has_del = mods.iter().any(|m| format!("{:?}", m.body).contains("\"__del__\""));
     let mut em = Em {
+        has_del,
         guards: HashSet::new(),
         nested_direct: HashMap::new(),
         safe_cells: HashMap::new(),
@@ -3602,11 +3609,31 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         out.push_str(&gtab(&em, &m.name));
     }
     let consts: Vec<String> = em.consts.iter().map(|c| format!("s({})", lit(c))).collect();
+    // At exit CPython finalizes __main__'s globals in the order they were first set; the slots are in name order,
+    // so the order is the names' first appearance in the module's source.
+    let del_on = if em.has_del {
+        let main = &mods[0];
+        let src = format!("{:?}", main.body);
+        let mut order: Vec<(usize, usize)> = em
+            .mod_names
+            .get(&main.name)
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .map(|n| (src.find(&format!("{:?}", n)).unwrap_or(usize::MAX), em.gslot(&main.name, n)))
+            .collect();
+        order.sort();
+        let idx: Vec<String> = order.iter().map(|(_, i)| i.to_string()).collect();
+        format!("set_del_on(vec![{}]);", idx.join(", "))
+    } else {
+        String::new()
+    };
     write!(
         out,
-        "fn __run() -> Result<(), E> {{ unsafe {{ GL = vec![V::Unbound; {}]; K = vec![{}]; }} USER_MOD.with(|u| u.set(Some(user_mod))); init___main__() }}\nfn main() {{ run_main(__run); }}\n",
+        "fn __run() -> Result<(), E> {{ unsafe {{ GL = vec![V::Unbound; {}]; K = vec![{}]; }} USER_MOD.with(|u| u.set(Some(user_mod))); {} let r = init___main__(); fin_point(); r }}\nfn main() {{ run_main(__run); }}\n",
         em.nglobals.max(1),
-        consts.join(", ")
+        consts.join(", "),
+        del_on
     )
     .unwrap();
     let _ = &em.out;
