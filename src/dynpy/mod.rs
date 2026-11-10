@@ -1135,6 +1135,9 @@ fn split_build(rust: &str, dir: &Path, out: &Path, opt: &str, cdir: &Path, dynrt
     // Another build of the same copies under way (programs built side by side): wait for its library rather
     // than compile the same copies again.
     let lock = cdir.join(format!(".tmp-lib-{key}.lock"));
+    if std::fs::create_dir_all(cdir).is_err() {
+        return false;
+    }
     let owned = crate::build_lock(&lock, &|| rlib.exists() || failed.exists());
     let unlock = || {
         if owned {

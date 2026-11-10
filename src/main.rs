@@ -1470,9 +1470,14 @@ pub fn build_lock(lock: &Path, ready: &dyn Fn() -> bool) -> bool {
         old || dead
     };
     while !ready() {
-        if let Ok(mut f) = std::fs::OpenOptions::new().write(true).create_new(true).open(lock) {
-            f.write_all(me.as_bytes()).ok();
-            return true;
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(lock) {
+            Ok(mut f) => {
+                f.write_all(me.as_bytes()).ok();
+                return true;
+            }
+            // No lock can be made here (no folder, no permission): build without one rather than wait forever.
+            Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => return true,
+            Err(_) => {}
         }
         if stale() {
             // Remove it and race for a new one, so only one waiter takes over.

@@ -1,0 +1,1 @@
+- **Fixed: the first dynamic build on a fresh cache could hang.** A program importing one of Brevi's library copies (jinja2, mcp, pydantic, ...) waited forever when the build cache had no `bin` folder yet, because the build lock was taken before that folder was made. The folder is now made first, and a lock that cannot be created no longer makes a build wait.
