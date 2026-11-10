@@ -94,6 +94,10 @@ for f in tests/replay/*.py; do
     echo "ok   $f"
   fi
 done
+# More piped input than one kept piece (8 MB), with the int passing 64 bits only after all of it was read.
+big=$(seq 1 2000000 | timeout 120 $BREVI run tests/replay/late_overflow.py --native 2>/dev/null; echo "exit $?")
+want=$(seq 1 2000000 | python3 tests/replay/late_overflow.py; echo "exit $?")
+if [ "$big" != "$want" ]; then echo "FAIL late_overflow (piped)"; fail=1; else echo "ok   late_overflow (piped)"; fi
 #== lib split
 # Standard-library programs must print what python3 prints, natively: whichever path the build takes
 # (typed or dynamic), never CPython (pybridge or the python3 fallback).

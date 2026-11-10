@@ -159,14 +159,17 @@ pub fn run(mut c: Command, file: &str, args: &[String], release: bool) -> std::i
     if direct_in {
         feed.lock().unwrap_or_else(|e| e.into_inner()).kept.buf = taken.unwrap_or_default();
     }
-    // "what\nN_OUT H_OUT N_ERR H_ERR BAD" (stream 0 is both together when merged).
+    // "what\nN_OUT H_OUT N_ERR H_ERR BAD" (BAD: false, output or input; stream 0 is both together when merged).
     let (what, nums) = tally.split_once('\n').unwrap_or((tally.as_str(), ""));
     let what = what.to_string();
     let f: Vec<&str> = nums.split_whitespace().collect();
     let num = |i: usize| f.get(i).and_then(|x| x.parse::<u64>().ok());
     let skips = match (num(0), num(1), num(2), num(3), f.get(4)) {
         (Some(a), Some(b), Some(c), Some(d), Some(&"false")) => [(a, b), (c, d)],
-        _ => return Ok(stop(&format!("the typed build stopped: {what}, which its 64-bit numbers cannot hold exactly; Brevi cannot re-run this program on the dynamic build because its output could not all be written. Run it with BREVI_DYN=1 for Python's exact values"))),
+        (.., why) => {
+            let why = if why == Some(&"input") { "it read more input than Brevi keeps for a second run (64 MB), or its input could not be read" } else { "its output could not all be written" };
+            return Ok(stop(&format!("the typed build stopped: {what}, which its 64-bit numbers cannot hold exactly; Brevi cannot re-run this program on the dynamic build because {why}. Run it with BREVI_DYN=1 for Python's exact values")));
+        }
     };
     // stdin a regular file: the second run reads it again from where the first started.
     let reread = direct_in && start.is_some_and(stdin_seek);

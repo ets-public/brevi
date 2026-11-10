@@ -342,7 +342,7 @@ fn ax_i64_stop(what: &str) -> String {
             let mut inp = p.clone();
             inp.push(".in");
             let inp_ok = taken.is_some_and(|b| std::fs::write(&inp, b).is_ok());
-            let tally = format!("{what}\n{} {} {} {} {}", t.n[0], t.h[0].end(), t.n[1], t.h[1].end(), t.bad || !flushed || !inp_ok);
+            let tally = format!("{what}\n{} {} {} {} {}", t.n[0], t.h[0].end(), t.n[1], t.h[1].end(), if t.bad || !flushed { "output" } else if !inp_ok { "input" } else { "false" });
             if std::fs::write(&p, tally).is_ok() {
                 std::process::exit(AX_REPLAY_EXIT);
             }
@@ -1101,44 +1101,97 @@ pub fn ax_py_digits(s: &str) -> std::borrow::Cow<'_, str> {
 // second run. Linux and macOS only; elsewhere brevi passes stdin through itself instead. A regular file is not
 // kept: brevi moves back to where it started in the file.
 #[cfg(unix)]
-static AX_IN: std::sync::Mutex<Option<(std::io::BufReader<std::fs::File>, AxKept, bool)>> = std::sync::Mutex::new(None);
-// Bytes kept in 1 MB pieces, so keeping them never copies what was kept before.
-#[derive(Default)]
-struct AxKept {
-    parts: Vec<Vec<u8>>,
+static AX_IN: std::sync::Mutex<Option<std::io::BufReader<AxTee>>> = std::sync::Mutex::new(None);
+// fd 0, keeping a copy of each chunk read from it (one append per read of up to 1 MB, never per line) while a
+// second run is still possible. A regular file is not kept, and the copy is dropped once a second run is ruled
+// out (more than 64 MB read, or a read error).
+#[cfg(unix)]
+struct AxTee {
+    f: std::fs::File,
+    kept: Vec<AxInPiece>,
     len: usize,
-    file: bool,
+    keep: bool,
+    bad: bool,
 }
-impl AxKept {
-    fn add(&mut self, b: &[u8]) {
-        self.len += b.len();
-        match self.parts.last_mut() {
-            Some(p) if p.capacity() - p.len() >= b.len() => p.extend_from_slice(b),
-            _ => {
-                let mut p = Vec::with_capacity(b.len().max(1 << 20));
-                p.extend_from_slice(b);
-                self.parts.push(p);
-            }
+// 8 MB of kept input, 2 MB aligned and marked for huge pages on Linux, so filling it takes a few page faults
+// instead of one per 4 KB (that was most of what keeping cost).
+#[cfg(unix)]
+struct AxInPiece(*mut u8, usize);
+#[cfg(unix)]
+unsafe impl Send for AxInPiece {}
+#[cfg(unix)]
+const AX_IN_PIECE: usize = 8 << 20;
+#[cfg(unix)]
+fn ax_in_piece_layout() -> std::alloc::Layout {
+    std::alloc::Layout::from_size_align(AX_IN_PIECE, 2 << 20).unwrap()
+}
+#[cfg(unix)]
+impl AxInPiece {
+    fn new() -> AxInPiece {
+        let p = unsafe { std::alloc::alloc(ax_in_piece_layout()) };
+        if p.is_null() {
+            std::alloc::handle_alloc_error(ax_in_piece_layout());
         }
+        #[cfg(target_os = "linux")]
+        {
+            extern "C" {
+                fn madvise(addr: *mut std::ffi::c_void, len: usize, advice: i32) -> i32;
+            }
+            unsafe { madvise(p.cast(), AX_IN_PIECE, 14) }; // MADV_HUGEPAGE; only a hint
+        }
+        AxInPiece(p, 0)
+    }
+    fn bytes(&self) -> &[u8] {
+        unsafe { std::slice::from_raw_parts(self.0, self.1) }
     }
 }
-fn ax_stdin_read<T>(f: impl FnOnce(&mut dyn std::io::BufRead) -> (std::io::Result<usize>, T), text: impl Fn(&T) -> &[u8]) -> (std::io::Result<usize>, T) {
+#[cfg(unix)]
+impl Drop for AxInPiece {
+    fn drop(&mut self) {
+        unsafe { std::alloc::dealloc(self.0, ax_in_piece_layout()) }
+    }
+}
+#[cfg(unix)]
+impl std::io::Read for AxTee {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let r = self.f.read(buf);
+        if self.keep {
+            match &r {
+                Ok(n) if self.len + n <= (64 << 20) => {
+                    self.len += n;
+                    let mut b = &buf[..*n];
+                    while !b.is_empty() {
+                        if self.kept.last().is_none_or(|c| c.1 == AX_IN_PIECE) {
+                            self.kept.push(AxInPiece::new());
+                        }
+                        let c = self.kept.last_mut().unwrap();
+                        let k = b.len().min(AX_IN_PIECE - c.1);
+                        unsafe { std::ptr::copy_nonoverlapping(b.as_ptr(), c.0.add(c.1), k) };
+                        c.1 += k;
+                        b = &b[k..];
+                    }
+                }
+                _ => {
+                    self.keep = false;
+                    self.bad = true;
+                    self.kept = Vec::new();
+                }
+            }
+        }
+        r
+    }
+}
+fn ax_stdin_read<T>(f: impl FnOnce(&mut dyn std::io::BufRead) -> (std::io::Result<usize>, T)) -> (std::io::Result<usize>, T) {
     #[cfg(unix)]
     if AX_ARMED.load(std::sync::atomic::Ordering::Relaxed) {
         use std::os::unix::io::FromRawFd;
         let mut g = AX_IN.lock().unwrap_or_else(|e| e.into_inner());
-        let (r, kept, bad) = g.get_or_insert_with(|| {
+        let r = g.get_or_insert_with(|| {
             let f = unsafe { std::fs::File::from_raw_fd(0) };
-            let file = f.metadata().is_ok_and(|m| m.is_file());
-            (std::io::BufReader::with_capacity(65536, f), AxKept { file, ..Default::default() }, false)
+            let keep = !f.metadata().is_ok_and(|m| m.is_file());
+            std::io::BufReader::with_capacity(1 << 20, AxTee { f, kept: Vec::new(), len: 0, keep, bad: false })
         });
-        let out = f(r);
-        match &out.0 {
-            Ok(_) if kept.file => {}
-            Ok(_) if kept.len < (64 << 20) => kept.add(text(&out.1)),
-            _ => *bad = true,
-        }
-        return out;
+        return f(r);
     }
     f(&mut std::io::stdin().lock())
 }
@@ -1147,11 +1200,10 @@ fn ax_stdin_taken() -> Option<Vec<u8>> {
     #[cfg(unix)]
     {
         let g = AX_IN.lock().unwrap_or_else(|e| e.into_inner());
-        return match g.as_ref() {
+        return match g.as_ref().map(|r| r.get_ref()) {
             None => Some(Vec::new()),
-            Some((_, _, true)) => None,
-            Some((_, kept, _)) if kept.file => Some(Vec::new()),
-            Some((r, kept, _)) => Some([kept.parts.concat().as_slice(), r.buffer()].concat()),
+            Some(t) if t.bad => None,
+            Some(t) => Some(t.kept.iter().flat_map(|c| c.bytes()).copied().collect()),
         };
     }
     #[cfg(not(unix))]
@@ -1161,7 +1213,7 @@ pub fn input() -> String {
     let (n, mut s) = ax_stdin_read(|r| {
         let mut s = String::new();
         (r.read_line(&mut s), s)
-    }, |s| s.as_bytes());
+    });
     // Python's input() at the end of the input raises EOFError.
     if matches!(n, Ok(0)) && ax_py_on() {
         panic!("EOFError: EOF when reading a line");
@@ -1172,13 +1224,13 @@ pub fn stdin() -> String {
     ax_stdin_read(|r| {
         let mut s = String::new();
         (r.read_to_string(&mut s), s)
-    }, |s| s.as_bytes()).1
+    }).1
 }
 pub fn ax_readline() -> String {
     ax_stdin_read(|r| {
         let mut s = String::new();
         (r.read_line(&mut s), s)
-    }, |s| s.as_bytes()).1
+    }).1
 }
 pub fn lines() -> Vec<String> {
     stdin().lines().map(String::from).collect()
