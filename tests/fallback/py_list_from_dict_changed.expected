@@ -1,0 +1,7 @@
+{"path":"dynamic","why":"the typed build's Rust did not compile (the trait bound `Vec<brevi_rt::AxRow<(String, i64)>>: brevi_rt::AxWhole` is not satisfied)"}
+done x1
+partial x2 2
+{'tea': [['x2', 2]], 'coffee': [['x3', 1]]}
+done x2
+{'tea': [], 'coffee': [['x3', 1]]}
+native exit 0
