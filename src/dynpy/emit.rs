@@ -3278,19 +3278,8 @@ impl Em {
         if let Some(doc) = docstring(&d.body) {
             v = format!("with_doc({v}, {})", lit(doc));
         }
-        v = format!("with_module({v}, {})", lit(&self.module));
-        // annotations evaluate at def time, after defaults (as in CPython), in parameter order then `return`
-        if !d.params.ann.is_empty() || d.ret.is_some() {
-            let mut pairs = vec![];
-            for (n, e) in &d.params.ann {
-                let ee = self.ex(e, d.line)?;
-                pairs.push(format!("({}, {})", lit(n), ee));
-            }
-            if let Some(r) = &d.ret {
-                let rr = self.ex(r, d.line)?;
-                pairs.push(format!("(\"return\", {})", rr));
-            }
-            v = format!("with_anns({v}, vec![{}])", pairs.join(", "));
+        if self.module != "__main__" {
+            v = format!("with_module({v}, {})", lit(&self.module));
         }
         if PYD_ON.load(std::sync::atomic::Ordering::Relaxed) {
             let n = if d.params.star.is_some() { 99 } else { d.params.pos.len() };

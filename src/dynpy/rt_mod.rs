@@ -712,26 +712,71 @@ fn lru_cache_wrap(f: V, maxsize: V, typed: bool) -> R {
     let h2 = hits.clone();
     let m2 = misses.clone();
     let f2 = f.clone();
+    // CPython's bound: None is unbounded, 0 or less caches nothing, n keeps the n most recently used results
+    let bound: Option<usize> = match &maxsize {
+        V::None => None,
+        V::Int(n) => Some((*n).max(0) as usize),
+        V::Bool(b) => Some(*b as usize),
+        x => return type_err(format!("Expected first argument to be an integer, a callable, or None, not '{}'", tn(x))),
+    };
+    let maxsize = match bound {
+        Some(n) if matches!(maxsize, V::Int(m) if m < 0) => V::Int(n as i64),
+        _ => maxsize,
+    };
     let w = func(name, move |a: Args| {
-        let mut key = a.p.clone();
+        // positional and keyword arguments in separate tuples, so f(1, "k", 2) and f(1, k=2) are different calls;
+        // typed=True also keys on each argument's type, so f(1) and f(1.0) are cached apart
+        let mut kw = vec![];
         for (k, v) in &a.k {
-            key.push(s(k));
-            key.push(v.clone());
+            kw.push(s(k));
+            kw.push(v.clone());
         }
-        let key = tup(key);
-        if let Some(v) = Dict::get_cell(&cache, &key)? {
-            h2.set(h2.get() + 1);
-            return Ok(v);
+        let mut parts = vec![tup(a.p.clone()), tup(kw)];
+        if typed {
+            parts.push(tup(a.p.iter().chain(a.k.iter().map(|(_, v)| v)).map(|x| V::Class(type_of(x))).collect()));
+        }
+        let key = tup(parts);
+        if bound != Some(0) {
+            if let Some(v) = Dict::get_cell(&cache, &key)? {
+                h2.set(h2.get() + 1);
+                if bound.is_some() {
+                    // most recently used moves to the end
+                    Dict::del_cell(&cache, &key)?;
+                    Dict::set_cell(&cache, key, v.clone())?;
+                }
+                return Ok(v);
+            }
         }
         m2.set(m2.get() + 1);
         let r = call(&f2, a)?;
-        Dict::set_cell(&cache, key, r.clone())?;
+        match bound {
+            Some(0) => {}
+            Some(n) => {
+                if Dict::get_cell(&cache, &key)?.is_none() {
+                    Dict::set_cell(&cache, key, r.clone())?;
+                    while cache.borrow().n > n {
+                        let oldest = cache.borrow().items().into_iter().next().map(|(k, _)| k);
+                        match oldest {
+                            Some(k) => {
+                                Dict::del_cell(&cache, &k)?;
+                            }
+                            None => break,
+                        }
+                    }
+                }
+            }
+            None => Dict::set_cell(&cache, key, r.clone())?,
+        }
         Ok(r)
     });
     if let V::Func(wf) = &w {
         let c3 = c2.clone();
+        let h3 = hits.clone();
+        let m3 = misses.clone();
         wf.attrs.borrow_mut().push(("cache_clear", builtin("cache_clear", move |_a: Args| {
             c3.borrow_mut().clear();
+            h3.set(0);
+            m3.set(0);
             Ok(V::None)
         })));
         let c4 = c2.clone();
@@ -773,6 +818,14 @@ fn update_wrapper(wrapper: V, wrapped: V, assigned: V, updated: V) -> R {
     let mut it = iter(&assigned)?;
     while let Some(x) = it.next()? {
         let n = wraps_name(&x)?;
+        // annotations Brevi doesn't keep: the wrapper's stay unkept too (reading either is refused)
+        if n == "__annotations__" {
+            if let V::Func(wd) = &wrapped {
+                if wd.attrs.borrow().iter().all(|(k, _)| *k != "__annotations__") {
+                    continue;
+                }
+            }
+        }
         match getattr(&wrapped, &n) {
             Ok(v) => setattr(&wrapper, sym(&n), v)?,
             Err(E(e)) if is_exc(&e, "AttributeError") => {}

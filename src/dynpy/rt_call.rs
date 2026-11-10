@@ -404,22 +404,44 @@ pub fn with_doc(f: V, doc: &str) -> V {
     }
     f
 }
-// A def's __module__, and its evaluated __annotations__ dict (empty when it has no annotations).
+// A def's __module__ when it isn't __main__ (the default getattr gives).
 pub fn with_module(f: V, m: &str) -> V {
     if let V::Func(ff) = &f {
         ff.attrs.borrow_mut().push(("__module__", s(m)));
     }
     f
 }
-pub fn with_anns(f: V, pairs: Vec<(Sym, V)>) -> V {
-    if let V::Func(ff) = &f {
-        let mut d = Dict::new();
-        for (k, v) in pairs {
-            d.set(s(k), v).ok();
-        }
-        ff.attrs.borrow_mut().push(("__annotations__", V::Dict(Rc::new(RefCell::new(d)))));
+// A def's user attributes live in its attrs until its __dict__ is read; from then on that dict holds them, so
+// writes through `f.__dict__` and through `f.x = ...` are the same.
+fn func_dict(f: &Rc<Func>) -> Option<Rc<RefCell<Dict>>> {
+    match f.attrs.borrow().iter().find(|(k, _)| *k == "__bv_dict__") {
+        Some((_, V::Dict(d))) => Some(d.clone()),
+        _ => None,
     }
-    f
+}
+fn func_dict_make(f: &Rc<Func>) -> Result<Rc<RefCell<Dict>>, E> {
+    if let Some(d) = func_dict(f) {
+        return Ok(d);
+    }
+    let mut d = Dict::new();
+    let mut a = f.attrs.borrow_mut();
+    for (k, v) in a.iter().filter(|(k, _)| !FUNC_SLOT_ATTRS.contains(k)) {
+        d.set(s(k), v.clone())?;
+    }
+    a.retain(|(k, _)| FUNC_SLOT_ATTRS.contains(k));
+    let d = Rc::new(RefCell::new(d));
+    a.push(("__bv_dict__", V::Dict(d.clone())));
+    Ok(d)
+}
+// A user attribute of a def (None when it has none).
+pub fn func_user_attr(f: &Rc<Func>, name: &str) -> Result<Option<V>, E> {
+    if let Some(v) = f.attrs.borrow().iter().find(|(k, _)| *k == name).map(|(_, v)| v.clone()) {
+        return Ok(Some(v));
+    }
+    match func_dict(f) {
+        Some(d) => Dict::get_cell(&d, &s(name)),
+        None => Ok(None),
+    }
 }
 // a class of the program's own, of object or another such class: calling it makes an instance and runs __init__
 fn plain_new(c: &Rc<Class>) -> bool {
@@ -1080,22 +1102,20 @@ pub fn getattr(o: &V, name: &str) -> R {
             module_attr(m, name)
         }
         V::Func(f) => match name {
-            // assignments to __name__/__qualname__ live in attrs; the cells below are the def's originals
-            "__name__" | "__qualname__" => Ok(f.attrs
-                .borrow()
-                .iter()
-                .find(|(k, _)| *k == name)
-                .map_or_else(|| s(if name == "__name__" { f.name.get() } else { f.qualname.get() }), |(_, v)| v.clone())),
+            "__name__" => Ok(s(f.name.get())),
+            "__qualname__" => Ok(s(f.qualname.get())),
             "__module__" => Ok(f.attrs
                 .borrow()
                 .iter()
                 .find(|(k, _)| *k == "__module__")
                 .map(|(_, v)| v.clone())
                 .unwrap_or_else(|| s(if f.kind.get() == 3 { "builtins" } else { "__main__" }))),
+            // Brevi doesn't evaluate annotations (the typing pass refuses a written `.__annotations__` when the
+            // program is built); one assigned to the def reads back, any other read is refused
             "__annotations__" => match f.attrs.borrow().iter().find(|(k, _)| *k == "__annotations__").map(|(_, v)| v.clone()) {
                 Some(v) => Ok(v),
-                None if f.kind.get() == 3 => Err(exc("AttributeError", format!("'{}' object has no attribute '__annotations__'", if f.kind.get() == 3 { "builtin_function_or_method" } else { "function" }))),
-                None => Ok(dict_new()),
+                None if f.kind.get() == 3 => Err(exc("AttributeError", "'builtin_function_or_method' object has no attribute '__annotations__'".to_string())),
+                None => Err(unsupported("a def's __annotations__")),
             },
             "__type_params__" => match f.attrs.borrow().iter().find(|(k, _)| *k == "__type_params__").map(|(_, v)| v.clone()) {
                 Some(v) => Ok(v),
@@ -1109,18 +1129,12 @@ pub fn getattr(o: &V, name: &str) -> R {
                 fl => Ok(mk_code(f.name.get(), fl)),
             },
             // the dict of attributes assigned to the function; slot-backed names stay out, as in CPython
-            "__dict__" if f.kind.get() != 3 => {
-                let mut d = Dict::new();
-                for (k, v) in f.attrs.borrow().iter().filter(|(k, _)| !FUNC_SLOT_ATTRS.contains(k)) {
-                    d.set(s(k), v.clone()).ok();
-                }
-                Ok(V::Dict(Rc::new(RefCell::new(d))))
-            }
+            "__dict__" if f.kind.get() != 3 => Ok(V::Dict(func_dict_make(f)?)),
             // 0 function, 1 staticmethod, 2 classmethod (Brevi's pydantic reads it)
             "__bv_kind__" => Ok(V::Int(f.kind.get() as i64)),
             "__doc__" => Ok(f.attrs.borrow().iter().find(|(k, _)| *k == "__doc__").map_or(V::None, |(_, v)| v.clone())),
             _ => {
-                if let Some(v) = f.attrs.borrow().iter().find(|(k, _)| *k == name).map(|(_, v)| v.clone()) {
+                if let Some(v) = func_user_attr(f, name)? {
                     return Ok(v);
                 }
                 Err(exc("AttributeError", format!("'function' object has no attribute '{name}'")))
@@ -1247,6 +1261,19 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
             None => Err(exc("AttributeError", format!("'{}' object has no attribute '{}' and no __dict__ for setting new attributes", tn(o), name))),
         },
         V::Func(f) => {
+            // a def's name cells are what its repr and errors show, so assignments go there, as in CPython
+            if name == "__name__" || name == "__qualname__" {
+                let V::Str(t) = &v else {
+                    return type_err(format!("{name} must be set to a string object"));
+                };
+                if name == "__name__" { f.name.set(sym(&t.s)) } else { f.qualname.set(sym(&t.s)) }
+                return Ok(());
+            }
+            if !FUNC_SLOT_ATTRS.contains(&name) {
+                if let Some(d) = func_dict(f) {
+                    return Dict::set_cell(&d, s(name), v);
+                }
+            }
             let mut a = f.attrs.borrow_mut();
             match a.iter_mut().find(|(k, _)| *k == name) {
                 Some(e) => e.1 = v,
