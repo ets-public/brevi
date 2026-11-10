@@ -476,7 +476,7 @@ fn spawn_capped(mut c: Command, stdin: &str, limit: Duration, out_cap: Option<u6
         return Err("cancelled".into());
     }
     let over = over || out_cap.is_some_and(|c| seen.load(Ordering::SeqCst) > c);
-    // A Windows job that ran out of CPU time or refused an allocation at the memory limit (proc::spawn_limited).
+    // A Windows job that refused an allocation at the memory limit (proc::spawn_limited).
     let on = on.or_else(|| watch.zip(status).and_then(|(l, s)| job.hit(&l, s)));
     drop(job);
     Ok(Done { out, err, status, timed_out, over, on })

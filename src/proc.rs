@@ -139,9 +139,10 @@ impl Limits {
                 _ => return Err(format!("{HINT}; there is no limit '{k}'")),
             }
         }
-        // Windows holds cpu and mem with a Job Object (spawn_limited); it has no per-file size limit.
-        if cfg!(windows) && self.file.is_some() {
-            return Err("--limit file is not enforced on Windows yet (cpu, mem, time and output are); leave it out, or run on Linux or macOS".into());
+        // Windows holds mem with a Job Object (spawn_limited). Its job CPU limit counts user-mode time only (a
+        // program could spend unlimited kernel time), and it has no per-file size limit: both are refused.
+        if cfg!(windows) && (self.cpu.is_some() || self.file.is_some()) {
+            return Err("--limit cpu and file are not enforced on Windows yet (mem, time and output are): Windows can hold neither all of a program's CPU time (user and kernel) nor one file's size; leave them out, or run on Linux or macOS".into());
         }
         if cfg!(windows) && self.fds.is_some() {
             return Err("--limit fds is not enforced on Windows yet; leave it out, or run on Linux or macOS".into());
@@ -274,17 +275,16 @@ unsafe extern "C" {
     fn setrlimit(resource: i32, rlim: *const [u64; 2]) -> i32;
 }
 
-// Starts a command under the limits that need the OS's help after the process exists. On Windows that is cpu and
-// mem: the program starts suspended, goes into a Job Object holding its user-mode CPU time
-// (JOB_OBJECT_LIMIT_JOB_TIME) and committed memory (JOB_OBJECT_LIMIT_JOB_MEMORY), and only then runs its first
-// instruction, so it never runs unlimited; everything it starts is in the job too, and the job is closed (and
+// Starts a command under the limits that need the OS's help after the process exists. On Windows that is mem:
+// the program starts suspended, goes into a Job Object holding its committed memory
+// (JOB_OBJECT_LIMIT_JOB_MEMORY), and only then runs its first instruction, so it never runs unlimited; everything it starts is in the job too, and the job is closed (and
 // anything left in it killed) when the returned Job drops. If the job cannot be set up, the program is killed
 // before it runs and the error is returned. `group`: the command also asked for its own process group
 // (own_group), which this keeps. Elsewhere this is a plain spawn: apply() has set the kernel limits.
 pub fn spawn_limited(c: &mut Command, l: &Limits, group: bool) -> std::io::Result<(Child, Job)> {
     #[cfg(windows)]
     {
-        if l.cpu.is_some() || l.mem.is_some() {
+        if l.mem.is_some() {
             use std::os::windows::process::CommandExt;
             const CREATE_SUSPENDED: u32 = 0x4;
             const CREATE_NEW_PROCESS_GROUP: u32 = 0x200;
@@ -304,7 +304,7 @@ pub fn spawn_limited(c: &mut Command, l: &Limits, group: bool) -> std::io::Resul
     Ok((c.spawn()?, Job::default()))
 }
 
-// The Job Object a program runs in (Windows, with a cpu or mem limit); nothing elsewhere.
+// The Job Object a program runs in (Windows, with a mem limit); nothing elsewhere.
 #[derive(Default)]
 pub struct Job {
     #[cfg(windows)]
@@ -312,15 +312,12 @@ pub struct Job {
 }
 
 impl Job {
-    // The limit that stopped a program which ended with `status`: the job's own report that it used up its CPU
-    // time, or that an allocation was refused at its memory limit and the program then failed.
+    // The limit that stopped a program which ended with `status`: the job's own report that an allocation was
+    // refused at its memory limit, when the program then failed.
     pub fn hit(&self, l: &Limits, status: ExitStatus) -> Option<&'static str> {
         #[cfg(windows)]
         if let Some((_, port)) = self.h {
-            let (time, mem) = unsafe { winjob::messages(port) };
-            if time && l.cpu.is_some() {
-                return Some("cpu");
-            }
+            let mem = unsafe { winjob::messages(port) };
             if mem && l.mem.is_some() && !status.success() {
                 return Some("mem");
             }
@@ -403,12 +400,10 @@ mod winjob {
         pub fn CloseHandle(h: H) -> i32;
     }
 
-    const JOB_OBJECT_LIMIT_JOB_TIME: u32 = 0x4;
     const JOB_OBJECT_LIMIT_JOB_MEMORY: u32 = 0x200;
     const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: u32 = 0x2000;
     const EXTENDED_LIMIT_INFORMATION: i32 = 9;
     const ASSOCIATE_COMPLETION_PORT: i32 = 7;
-    const MSG_END_OF_JOB_TIME: u32 = 1;
     const MSG_PROCESS_MEMORY_LIMIT: u32 = 9;
     const MSG_JOB_MEMORY_LIMIT: u32 = 10;
     const INVALID: H = usize::MAX as H;
@@ -433,10 +428,6 @@ mod winjob {
         let j = Job { h: Some((job, port)) };
         let mut x = ExtendedLimit::default();
         x.basic.flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        if let Some(s) = l.cpu {
-            x.basic.flags |= JOB_OBJECT_LIMIT_JOB_TIME;
-            x.basic.per_job_user_time = (s as i64).saturating_mul(10_000_000);
-        }
         if let Some(m) = l.mem {
             x.basic.flags |= JOB_OBJECT_LIMIT_JOB_MEMORY;
             x.job_memory = (m as usize).saturating_mul(1 << 20);
@@ -480,21 +471,20 @@ mod winjob {
         Ok(j)
     }
 
-    // What the job reported: (its CPU time ran out, an allocation hit its memory limit).
-    pub unsafe fn messages(port: H) -> (bool, bool) {
-        let (mut time, mut mem) = (false, false);
+    // Whether the job reported an allocation refused at its memory limit.
+    pub unsafe fn messages(port: H) -> bool {
+        let mut mem = false;
         loop {
             let (mut msg, mut key, mut ov) = (0u32, 0usize, std::ptr::null_mut());
             if GetQueuedCompletionStatus(port, &mut msg, &mut key, &mut ov, 0) == 0 {
                 break;
             }
             match msg {
-                MSG_END_OF_JOB_TIME => time = true,
                 MSG_JOB_MEMORY_LIMIT | MSG_PROCESS_MEMORY_LIMIT => mem = true,
                 _ => {}
             }
         }
-        (time, mem)
+        mem
     }
 }
 

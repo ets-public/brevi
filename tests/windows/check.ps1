@@ -1,5 +1,5 @@
 # Windows platform checks: library bridge (typed and dynamic), output parity, and the
-# resource limits (cpu/mem in a Job Object; file and fds refused). Run from the repository root after `cargo build --release`.
+# resource limits (mem in a Job Object; cpu, file and fds refused). Run from the repository root after `cargo build --release`.
 $ErrorActionPreference = "Continue"
 
 $root = (Get-Location).Path
@@ -57,17 +57,16 @@ $explain = (& $brevi check (Join-Path $root "tests\windows\bridge_yaml_dynamic.p
 if ($explain -notmatch '"path":"dynamic"') { throw "dynamic bridge program did not take the dynamic path`n$explain" }
 Write-Host "PASS dynamic path"
 
-# cpu and mem are held by a Windows Job Object: the program stops at the limit with the limit line and exit 124
-Check-Limit "limit_cpu.py" "cpu=1" "cpu"
-Check-Limit "limit_cpu_child.py" "cpu=2" "cpu"
+# mem is held by a Windows Job Object: the program (and anything it starts) stops at the limit with exit 124
 Check-Limit "limit_mem.py" "mem=64" "mem"
-# under its limits a program runs as usual
-$raw = & $brevi run --limit cpu=10,mem=512 (Join-Path $root "tests\windows\plain.py") 2>&1
+Check-Limit "limit_mem_child.py" "mem=64" "mem"
+# under its limit a program runs as usual
+$raw = & $brevi run --limit mem=512 (Join-Path $root "tests\windows\plain.py") 2>&1
 $out = Clean-Output $raw
-if ($LASTEXITCODE -ne 0 -or $out -ne "45") { throw "plain.py under cpu/mem limits exited $LASTEXITCODE`n$out" }
-Write-Host "PASS run under cpu/mem limits"
-# file and fds have no OS limit on Windows, so they are refused, never half enforced
-foreach ($lim in @("file=1", "fds=16")) {
+if ($LASTEXITCODE -ne 0 -or $out -ne "45") { throw "plain.py under a mem limit exited $LASTEXITCODE`n$out" }
+Write-Host "PASS run under a mem limit"
+# cpu (Windows caps only user-mode time), file and fds have no full OS limit on Windows: refused, never half enforced
+foreach ($lim in @("cpu=1", "file=1", "fds=16")) {
     $raw = & $brevi run --limit $lim (Join-Path $root "tests\windows\plain.py") 2>&1
     $code = $LASTEXITCODE
     $out = ($raw | ForEach-Object { "$_" }) -join "`n"
