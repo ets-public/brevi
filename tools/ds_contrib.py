@@ -65,7 +65,8 @@ inputs the check uses.
 
 Rules:
 - Keep the change small and focused on this one task. Match the surrounding code style. No new dependencies.
-- After editing Rust, call `build`, then `run_check`. Use `brevi_path` to see which path a file takes and why, and
+- After editing Rust, call `build`, then `run_check`. Use `brevi_path` to see which path a file takes and why,
+  `typed_rust_errors` when the typed Rust does not compile, and
   `try_python` to test small variations next to CPython, including cases near your change, so nearby behaviour
   does not break. Any program that now takes the typed build must print exactly what CPython prints.
 - Never hold a RefCell borrow (`d.borrow()`, `.borrow_mut()`) across anything that can run user code: `eq`, `hash`,
@@ -93,6 +94,10 @@ TOOLS = [
     ("run_check", "Task mode only: run the task's check command and show its exit code and output (exit 0 = done).", {}, []),
     ("brevi_path", "Build a Python file under the repository with the current Brevi and show the path it took "
      "(typed, dynamic, pybridge, python) and why: the one JSON line BREVI_PATH=1 prints.", {"path": "string"}, ["path"]),
+    ("typed_rust_errors", "Emit the typed build's Rust for a Python file under the repository (brevi emit), compile it "
+     "with rustc, and show each rustc error with the Rust lines around it and the Python line it came from (the "
+     "nearest /*@L<n>*/ marker). Use it when brevi_path says the typed build's Rust did not compile.",
+     {"path": "string"}, ["path"]),
     ("try_python", "Run a Python snippet under CPython 3.13 and as a Brevi native build (normal and forced dynamic), "
      "and show stdout, stderr and exit code of each.", {"code": "string"}, ["code"]),
     ("git_diff", "Show your changes so far (git diff).", {}, []),
@@ -206,6 +211,29 @@ def brevi_path(path):
     return "\n".join(paths) or "typed (no path line: the typed build ran)"
 
 
+def typed_rust_errors(path):
+    src = safe_path(path)
+    d = Path(tempfile.mkdtemp(prefix="dsc-rs-"))
+    brevi = str(ROOT / "target" / "release" / "brevi")
+    c, rust, se = sh([brevi, "emit", str(src)], timeout=300)
+    if c != 0 or not rust.strip():
+        return f"brevi emit failed (exit {c}):\n" + clip(se, 4000)
+    (d / "prog.rs").write_text(rust)
+    c, so, se = sh(["rustc", "--edition", "2021", "--error-format", "short", "-o", str(d / "prog"), "prog.rs"], timeout=600, cwd=d)
+    if c == 0:
+        return "the typed Rust compiles"
+    lines = rust.splitlines()
+    py = src.read_text(errors="replace").splitlines()
+    out = []
+    for e in [l for l in se.splitlines() if l.startswith("prog.rs:") and ": error" in l][:12]:
+        n = int(e.split(":")[1])
+        mark = next((re.search(r"/\*@L(\d+)\*/", lines[i]) for i in range(n - 1, -1, -1) if re.search(r"/\*@L(\d+)\*/", lines[i])), None)
+        pl = int(mark.group(1)) if mark else 0
+        ctx = "\n".join(f"  {i + 1}: {lines[i][:220]}" for i in range(max(0, n - 3), min(len(lines), n + 2)))
+        out.append(f"{e}\n{ctx}\n  python line {pl}: {py[pl - 1].strip() if 0 < pl <= len(py) else '?'}")
+    return clip("\n\n".join(out) or se, 12000)
+
+
 def try_python(code, python):
     d = Path(tempfile.mkdtemp(prefix="dsc-try-"))
     (d / "case.py").write_text(code)
@@ -264,6 +292,8 @@ def run_tool(name, a, task):
         return task.run_check()[1]
     if name == "brevi_path":
         return brevi_path(a["path"])
+    if name == "typed_rust_errors":
+        return typed_rust_errors(a["path"])
     if name == "try_python":
         return try_python(a["code"], task.python)
     if name == "git_diff":
