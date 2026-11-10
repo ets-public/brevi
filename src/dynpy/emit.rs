@@ -2840,12 +2840,42 @@ impl Em {
             St::Global(_) | St::Nonlocal(_) => String::new(),
             St::Del(ts) => {
                 let mut b = String::new();
+                // a class body's `del x` is DELETE_NAME: it sees only the class namespace, so an unbound
+                // (or enclosing-scope) name raises NameError, never UnboundLocalError or a free-variable error
+                let in_class = self.f().is_class;
                 for t in ts {
                     match t {
-                        Ex::Name(n) => match self.lookup(n) {
-                            Some(Var::Local(r)) => write!(b, "{r} = V::Unbound; ").unwrap(),
-                            Some(Var::Cell(r)) => write!(b, "cset(&{r}, V::Unbound); ").unwrap(),
-                            Some(Var::Global(i)) => write!(b, "gs({i}, V::Unbound); ").unwrap(),
+                        Ex::Name(n) => match self.lookup(&n) {
+                            Some(Var::Local(r)) => {
+                                let (cls, msg) = if in_class {
+                                    ("NameError", format!("name '{n}' is not defined"))
+                                } else {
+                                    ("UnboundLocalError", format!("cannot access local variable '{n}' where it is not associated with a value"))
+                                };
+                                let raise = self.raise_code(&format!("exc({}, {}.into())", lit(cls), lit(&msg)));
+                                write!(b, "if matches!({r}, V::Unbound) {{ {raise} }} {r} = V::Unbound; ").unwrap();
+                            }
+                            Some(Var::Cell(r)) => {
+                                if in_class {
+                                    let msg = format!("name '{n}' is not defined");
+                                    let raise = self.raise_code(&format!("exc(\"NameError\", {}.into())", lit(&msg)));
+                                    write!(b, "{raise} ").unwrap();
+                                } else {
+                                    // a cell this function owns is a local here; one from an outer function is a free variable
+                                    let own = !self.f().cells.is_empty() && r.starts_with(&self.f().cells);
+                                    let (cls, msg) = if own {
+                                        ("UnboundLocalError", format!("cannot access local variable '{n}' where it is not associated with a value"))
+                                    } else {
+                                        ("NameError", format!("cannot access free variable '{n}' where it is not associated with a value in enclosing scope"))
+                                    };
+                                    let raise = self.raise_code(&format!("exc({}, {}.into())", lit(cls), lit(&msg)));
+                                    write!(b, "if matches!(&*{r}.borrow(), V::Unbound) {{ {raise} }} cset(&{r}, V::Unbound); ").unwrap();
+                                }
+                            }
+                            Some(Var::Global(i)) => {
+                                let c = self.q(&format!("gdel({i}, {})", lit(&n)));
+                                write!(b, "{c}; ").unwrap();
+                            }
                             None => return Err(err(line, "del of an unknown name")),
                         },
                         Ex::Index(o, i) => {

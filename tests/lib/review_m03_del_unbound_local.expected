@@ -1,0 +1,12 @@
+cannot access local variable 'nope' where it is not associated with a value
+UnboundLocalError: cannot access local variable 'x' where it is not associated with a value
+cannot access local variable 'x' where it is not associated with a value
+UnboundLocalError: cannot access local variable 'y' where it is not associated with a value
+NameError: cannot access free variable 'y' where it is not associated with a value in enclosing scope
+NameError: name 'gv' is not defined
+NameError: name 'gv2' is not defined
+UnboundLocalError: cannot access local variable 'len' where it is not associated with a value
+name 'z' is not defined
+NameError: name 'x' is not defined
+NameError: name 'x' is not defined
+type object 'C' has no attribute 'x'
