@@ -809,7 +809,7 @@ pub fn bi_getattr(a: Args) -> R {
     // the default, without making and catching an AttributeError. Dunder names keep the general path.
     if a.p.len() == 3 && !n.starts_with("__") {
         if let V::Func(f) = &a.p[0] {
-            let found = f.attrs.borrow().iter().find(|(k, _)| **k == *n).map(|(_, v)| v.clone());
+            let found = func_user_attr(f, &n)?;
             return Ok(found.unwrap_or_else(|| a.p[2].clone()));
         }
     }

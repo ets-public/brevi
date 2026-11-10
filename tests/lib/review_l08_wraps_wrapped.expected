@@ -1,0 +1,20 @@
+stacked doc here 10 stacked
+__main__ stacked
+[1, 'y', (2.5,), True] annotated annotated <function annotated
+t1 ['__wrapped__', 'tag']
+42
+7 True True
+dflt 42 True
+True target target doc 1 True
+wrapper2 target doc False
+2 twice doc twice
+6765 CacheInfo(hits=18, misses=21, maxsize=32, currsize=21) fib doc fib
+{'maxsize': 32, 'typed': False}
+CacheInfo(hits=0, misses=0, maxsize=32, currsize=0)
+[1, 2, 3, 2, 1] CacheInfo(hits=1, misses=5, maxsize=2, currsize=2)
+((1, 'k', 2), []) ((1,), [('k', 2)]) CacheInfo(hits=0, misses=2, maxsize=None, currsize=2)
+int float bool CacheInfo(hits=0, misses=3, maxsize=128, currsize=3)
+1 1 CacheInfo(hits=0, misses=2, maxsize=0, currsize=0)
+CacheInfo(hits=1, misses=1, maxsize=None, currsize=1) {'maxsize': None, 'typed': False}
+renamed <function Q.renamed
+TypeError __name__ must be set to a string object

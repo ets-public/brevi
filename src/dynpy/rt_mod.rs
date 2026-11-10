@@ -710,70 +710,179 @@ pub fn bisect_fn(name: &str, mut a: Args) -> R {
     Ok(V::Int(lo as i64))
 }
 
-fn lru_cache_wrap(f: V) -> V {
+fn lru_cache_wrap(f: V, maxsize: V, typed: bool) -> R {
     let cache: Rc<RefCell<Dict>> = Rc::new(RefCell::new(Dict::new()));
+    let hits: Rc<Cell<i64>> = Rc::new(Cell::new(0));
+    let misses: Rc<Cell<i64>> = Rc::new(Cell::new(0));
     // CPython's update_wrapper copies __name__ and __qualname__ from the wrapped function.
     let (name, qualname) = match &f {
         V::Func(x) => (x.name.get(), x.qualname.get()),
         _ => ("wrapper", "wrapper"),
     };
     let c2 = cache.clone();
+    let h2 = hits.clone();
+    let m2 = misses.clone();
+    let f2 = f.clone();
+    // CPython's bound: None is unbounded, 0 or less caches nothing, n keeps the n most recently used results
+    let bound: Option<usize> = match &maxsize {
+        V::None => None,
+        V::Int(n) => Some((*n).max(0) as usize),
+        V::Bool(b) => Some(*b as usize),
+        x => return type_err(format!("Expected first argument to be an integer, a callable, or None, not '{}'", tn(x))),
+    };
+    let maxsize = match bound {
+        Some(n) if matches!(maxsize, V::Int(m) if m < 0) => V::Int(n as i64),
+        _ => maxsize,
+    };
     let w = func(name, move |a: Args| {
-        let mut key = a.p.clone();
+        // positional and keyword arguments in separate tuples, so f(1, "k", 2) and f(1, k=2) are different calls;
+        // typed=True also keys on each argument's type, so f(1) and f(1.0) are cached apart
+        let mut kw = vec![];
         for (k, v) in &a.k {
-            key.push(s(k));
-            key.push(v.clone());
+            kw.push(s(k));
+            kw.push(v.clone());
         }
-        let key = tup(key);
-        if let Some(v) = Dict::get_cell(&cache, &key)? {
-            return Ok(v);
+        let mut parts = vec![tup(a.p.clone()), tup(kw)];
+        if typed {
+            parts.push(tup(a.p.iter().chain(a.k.iter().map(|(_, v)| v)).map(|x| V::Class(type_of(x))).collect()));
         }
-        let r = call(&f, a)?;
-        Dict::set_cell(&cache, key, r.clone())?;
+        let key = tup(parts);
+        if bound != Some(0) {
+            if let Some(v) = Dict::get_cell(&cache, &key)? {
+                h2.set(h2.get() + 1);
+                if bound.is_some() {
+                    // most recently used moves to the end
+                    Dict::del_cell(&cache, &key)?;
+                    Dict::set_cell(&cache, key, v.clone())?;
+                }
+                return Ok(v);
+            }
+        }
+        m2.set(m2.get() + 1);
+        let r = call(&f2, a)?;
+        match bound {
+            Some(0) => {}
+            Some(n) => {
+                if Dict::get_cell(&cache, &key)?.is_none() {
+                    Dict::set_cell(&cache, key, r.clone())?;
+                    while cache.borrow().n > n {
+                        let oldest = cache.borrow().items().into_iter().next().map(|(k, _)| k);
+                        match oldest {
+                            Some(k) => {
+                                Dict::del_cell(&cache, &k)?;
+                            }
+                            None => break,
+                        }
+                    }
+                }
+            }
+            None => Dict::set_cell(&cache, key, r.clone())?,
+        }
         Ok(r)
     });
     if let V::Func(wf) = &w {
         let c3 = c2.clone();
+        let h3 = hits.clone();
+        let m3 = misses.clone();
         wf.attrs.borrow_mut().push(("cache_clear", builtin("cache_clear", move |_a: Args| {
             c3.borrow_mut().clear();
+            h3.set(0);
+            m3.set(0);
             Ok(V::None)
         })));
+        let c4 = c2.clone();
+        let h4 = hits.clone();
+        let m4 = misses.clone();
+        let ms4 = maxsize.clone();
+        let info = namedtuple_runtime_type(Args { p: vec![s("CacheInfo"), tup(vec![s("hits"), s("misses"), s("maxsize"), s("currsize")])], k: vec![("module", s("functools"))] })?;
+        wf.attrs.borrow_mut().push(("cache_info", builtin("cache_info", move |_a: Args| {
+            call(&info, Args::p(vec![V::Int(h4.get()), V::Int(m4.get()), ms4.clone(), V::Int(c4.borrow().n as i64)]))
+        })));
+        let ms5 = maxsize.clone();
+        wf.attrs.borrow_mut().push(("cache_parameters", func("cache_parameters", move |_a: Args| {
+            let mut d = Dict::new();
+            d.set(s("maxsize"), ms5.clone())?;
+            d.set(s("typed"), V::Bool(typed))?;
+            Ok(V::Dict(Rc::new(RefCell::new(d))))
+        })));
     }
-    with_qualname(w, qualname)
+    let w = with_qualname(w, qualname);
+    let w = update_wrapper(w, f, wraps_assigned(), wraps_updated())?;
+    Ok(w)
 }
-// CPython's functools.update_wrapper: copy __qualname__ and every attribute in the wrapped function's
-// __dict__ (__doc__, __module__, __annotations__, user attributes), and set __wrapped__.
-fn update_wrapper(w: V, f: &V) -> V {
-    let wf = match &w {
-        V::Func(wf) => wf.clone(),
-        _ => return w,
-    };
-    let V::Func(x) = f else {
-        return w;
-    };
-    wf.name.set(x.name.get());
-    wf.qualname.set(x.qualname.get());
-    if !Rc::ptr_eq(&wf, x) {
-        let mut a = wf.attrs.borrow_mut();
-        for (k, v) in x.attrs.borrow().iter() {
-            match a.iter_mut().find(|(n, _)| *n == *k) {
-                Some(e) => e.1 = v.clone(),
-                None => a.push((*k, v.clone())),
+// functools.wraps' defaults, shared with update_wrapper (CPython 3.13's WRAPPER_ASSIGNMENTS/UPDATES).
+fn wraps_assigned() -> V {
+    tup(vec![s("__module__"), s("__name__"), s("__qualname__"), s("__doc__"), s("__annotations__"), s("__type_params__")])
+}
+fn wraps_updated() -> V {
+    tup(vec![s("__dict__")])
+}
+fn wraps_name(x: &V) -> Result<Sym, E> {
+    match x {
+        V::Str(s) => Ok(sym(&s.s)),
+        _ => type_err(format!("attribute name must be string, not '{}'", tn(x))),
+    }
+}
+// functools.update_wrapper: copy the `assigned` attributes from `wrapped` onto `wrapper`, merge the `updated`
+// attributes, and point __wrapped__ at `wrapped`, exactly as CPython 3.13 does.
+fn update_wrapper(wrapper: V, wrapped: V, assigned: V, updated: V) -> R {
+    let mut it = iter(&assigned)?;
+    while let Some(x) = it.next()? {
+        let n = wraps_name(&x)?;
+        // annotations Brevi doesn't keep: the wrapper's stay unkept too (reading either is refused)
+        if n == "__annotations__" {
+            if let V::Func(wd) = &wrapped {
+                if wd.attrs.borrow().iter().all(|(k, _)| *k != "__annotations__") {
+                    continue;
+                }
             }
         }
-        if !a.iter().any(|(n, _)| *n == "__wrapped__") {
-            a.push(("__wrapped__", f.clone()));
+        match getattr(&wrapped, &n) {
+            Ok(v) => setattr(&wrapper, sym(&n), v)?,
+            Err(E(e)) if is_exc(&e, "AttributeError") => {}
+            Err(e) => return Err(e),
         }
     }
-    w
+    let mut it = iter(&updated)?;
+    while let Some(x) = it.next()? {
+        let n = wraps_name(&x)?;
+        // A function's __dict__ is its assigned attributes; update it directly (for any wrapped object with
+        // one: another function, a class, a callable instance, a partial, an lru_cache wrapper).
+        if n == "__dict__" && matches!(&wrapper, V::Func(_)) {
+            let other = match getattr(&wrapped, &n) {
+                Ok(v) => v,
+                Err(E(e)) if is_exc(&e, "AttributeError") => dict_new(),
+                Err(e) => return Err(e),
+            };
+            for (k, v) in dict_items_of(&other)? {
+                if let V::Str(ks) = &k {
+                    setattr(&wrapper, sym(&ks.s), v)?;
+                }
+            }
+            continue;
+        }
+        let d = getattr(&wrapper, &n)?;
+        let other = match getattr(&wrapped, &n) {
+            Ok(v) => v,
+            Err(E(e)) if is_exc(&e, "AttributeError") => dict_new(),
+            Err(e) => return Err(e),
+        };
+        call_method(&d, "update", Args::p(vec![other]))?;
+    }
+    setattr(&wrapper, sym("__wrapped__"), wrapped)?;
+    Ok(wrapper)
 }
 pub fn functools_fn(name: &str, mut a: Args) -> R {
     Ok(match name {
         "lru_cache" | "cache" => {
-            // @lru_cache, @lru_cache(), @lru_cache(maxsize=None)
+            // @lru_cache, @lru_cache(), @lru_cache(maxsize=None); cache is lru_cache(maxsize=None)
             match a.p.first() {
-                Some(f @ (V::Func(_) | V::Bound(_))) => lru_cache_wrap(f.clone()),
-                _ => builtin("lru_cache", |a: Args| Ok(lru_cache_wrap(a1(&a, "lru_cache")?))),
+                Some(f @ (V::Func(_) | V::Bound(_))) => lru_cache_wrap(f.clone(), if name == "cache" { V::None } else { V::Int(128) }, false)?,
+                _ => {
+                    let maxsize = a.kw("maxsize").or_else(|| a.p.first().cloned()).unwrap_or(if name == "cache" { V::None } else { V::Int(128) });
+                    let typed = a.kw("typed").unwrap_or(V::Bool(false));
+                    builtin("lru_cache", move |a: Args| lru_cache_wrap(a1(&a, "lru_cache")?, maxsize.clone(), truth(&typed)?))
+                }
             }
         }
         "reduce" => {
@@ -817,12 +926,34 @@ pub fn functools_fn(name: &str, mut a: Args) -> R {
                 call(&f, Args { p, k })
             })
         }
+        "update_wrapper" => {
+            if a.p.is_empty() {
+                return type_err("update_wrapper() missing 2 required positional arguments: 'wrapper' and 'wrapped'".into());
+            }
+            let wrapper = a.p[0].clone();
+            let wrapped = match a.p.get(1) {
+                Some(v) => v.clone(),
+                None => return type_err("update_wrapper() missing 1 required positional argument: 'wrapped'".into()),
+            };
+            let assigned = a.kw("assigned").or_else(|| a.p.get(2).cloned()).unwrap_or_else(wraps_assigned);
+            let updated = a.kw("updated").or_else(|| a.p.get(3).cloned()).unwrap_or_else(wraps_updated);
+            a.want(name, 2, 4)?;
+            a.no_kw(name)?;
+            update_wrapper(wrapper, wrapped, assigned, updated)?
+        }
         "wraps" => {
-            let f = a1(&a, name)?;
-            // CPython's functools.wraps(f) is a decorator that applies update_wrapper to the wrapped def.
+            let wrapped = match a.p.first() {
+                Some(v) => v.clone(),
+                None => return type_err("wraps() missing 1 required positional argument: 'wrapped'".into()),
+            };
+            let assigned = a.kw("assigned").or_else(|| a.p.get(1).cloned()).unwrap_or_else(wraps_assigned);
+            let updated = a.kw("updated").or_else(|| a.p.get(2).cloned()).unwrap_or_else(wraps_updated);
+            a.want(name, 1, 3)?;
+            a.no_kw(name)?;
+            // functools.wraps(f) is a decorator that applies update_wrapper to the wrapped def.
             builtin("wraps", move |a: Args| {
                 let w = a1(&a, "wraps")?;
-                Ok(update_wrapper(w, &f))
+                update_wrapper(w, wrapped.clone(), assigned.clone(), updated.clone())
             })
         }
         "total_ordering" => {
