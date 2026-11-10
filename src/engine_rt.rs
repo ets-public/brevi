@@ -93,7 +93,7 @@ pub fn ax_pyb_mod(name: impl AsRef<str>) -> R<AxPy> {
     let name: &str = name.as_ref();
     match __dyn::__bv_mod(name) {
         Some(r) => ax_dyn_r(r),
-        None => Ok(AxPy(brevi_dyn::V::Module(ax_dyn_sym(name)))),
+        None => Ok(AxPy(brevi_dyn::module_v(name))),
     }
 }
 
@@ -471,7 +471,7 @@ impl AxToPy for Json {
 impl AxToPy for Dec {
     fn ax_to_py(&self) -> AxPy {
         ax_dyn_init();
-        let d = ax_pyb_call(AxPy(brevi_dyn::V::Module("decimal")), "Decimal", vec![self.show().ax_to_py()], vec![]);
+        let d = ax_pyb_call(AxPy(brevi_dyn::V::Module(&brevi_dyn::ModName("decimal"))), "Decimal", vec![self.show().ax_to_py()], vec![]);
         d.unwrap_or_else(|e| panic!("{}", ax_exc_msg(&e.0)))
     }
 }
@@ -580,7 +580,7 @@ impl<K: AxFromPy + Hash + Eq + Ord + Clone, V: AxFromPy> AxFromPy for AxM<K, V> 
 impl AxFromPy for Json {
     fn ax_from_py(p: &AxPy) -> R<Self> {
         ax_dyn_init();
-        let s = ax_pyb_call(AxPy(brevi_dyn::V::Module("json")), "dumps", vec![p.clone()], vec![])?;
+        let s = ax_pyb_call(AxPy(brevi_dyn::V::Module(&brevi_dyn::ModName("json"))), "dumps", vec![p.clone()], vec![])?;
         json(ax_pyb_str(s)?)
     }
 }

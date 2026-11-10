@@ -281,7 +281,7 @@ fn tok_list(t: Vec<u32>) -> V {
     list(t.into_iter().map(|x| V::Int(x as i64)).collect())
 }
 
-fn tok_core_of(v: &V) -> Result<Rc<dyn Ext>, E> {
+fn tok_core_of(v: &V) -> Result<ExtRc, E> {
     match v {
         V::Ext(x) if x.any().downcast_ref::<TokCore>().is_some() => Ok(x.clone()),
         _ => type_err("expected a CoreBPE".into()),
@@ -445,7 +445,7 @@ pub fn brevi_tok_fn(n: &str, a: Args) -> R {
                 sp_enc.insert(t.clone(), *r);
                 sp_dec.insert(*r, t.as_bytes().to_vec());
             }
-            Ok(V::Ext(Rc::new(TokCore { r, sp, sp_enc, sp_dec, sp_first, re })))
+            Ok(V::Ext(ExtRc::new(TokCore { r, sp, sp_enc, sp_dec, sp_first, re })))
         }
         // ranks(core): the mergeable ranks as a dict, in their file's order
         "ranks" => {

@@ -102,11 +102,50 @@ SHOWCASES = [
         "beside": {"micrograd": ("micrograd", None)},
         "metric": "training finished",
     },
+    {
+        "name": "microgpt",
+        "title": "microgpt, a GPT trained for 1000 steps and sampled",
+        "file": "microgpt.py",
+        "kind": "cli",
+        # Karpathy's gist, unchanged, and the names it trains on, fetched once into bench/work/fetched
+        "fetch": {
+            "microgpt.py": ("https://gist.githubusercontent.com/karpathy/8627fe009c40f57531cb18360106ce95/raw/microgpt.py",
+                            "d47d88c2fd432c8ebdc1048beab7f7eb64ea7e0e664e11b812d72a6d95ebccee"),
+            "input.txt": ("https://raw.githubusercontent.com/karpathy/makemore/988aa59/names.txt",
+                          "0a30b5557f192f32ab962680889aac5f6fda0f4cecf40a6d0b5694f58ea8cc4d"),
+        },
+        "data": ["input.txt"],  # copied into each run's folder, so the program reads it instead of downloading it
+        "runs": 3,  # about 4 minutes a run for both sides together
+        "metric": "training and sampling finished",
+    },
 ]
+
+
+def fetch(files):
+    # Downloads each file once and checks it is the version the numbers were measured with.
+    import hashlib
+    import urllib.request
+    d = os.path.join(ROOT, "bench", "work", "fetched")
+    os.makedirs(d, exist_ok=True)
+    for name, (url, sha) in files.items():
+        p = os.path.join(d, name)
+        if not os.path.exists(p):
+            urllib.request.urlretrieve(url, p)
+        got = hashlib.sha256(open(p, "rb").read()).hexdigest()
+        if got != sha:
+            return d, "%s is not the version measured (sha256 %s, want %s): delete it to fetch again" % (p, got, sha)
+    return d, None
 
 
 def measure(sc, runs, work):
     src = os.path.join(HERE, sc["file"])
+    data = []
+    if sc.get("fetch"):
+        fd, err = fetch(sc["fetch"])
+        if err:
+            return {"name": sc["name"], "error": err}
+        src = os.path.join(fd, sc["file"])
+        data = [os.path.join(fd, f) for f in sc.get("data", [])]
     if sc.get("beside"):
         d = os.path.join(work, sc["name"] + "_src")
         os.makedirs(d)
@@ -132,8 +171,10 @@ def measure(sc, runs, work):
     outs = {}
     for side, cmd in sides.items():
         firsts, totals = [], []
-        for i in range(runs):
+        for i in range(sc.get("runs", runs)):
             d = tempfile.mkdtemp(dir=work)
+            for f in data:
+                shutil.copy(f, d)
             if sc["kind"] == "mcp":
                 out, first, total = mcp_session(cmd + sc.get("args", []), os.path.join(HERE, sc["script"]), d, env)
             else:
@@ -144,7 +185,7 @@ def measure(sc, runs, work):
             totals.append(total)
         res[side] = {"first_s": statistics.median(firsts), "total_s": statistics.median(totals)}
     return {
-        "name": sc["name"], "title": sc["title"], "metric": sc["metric"], "runs": runs,
+        "name": sc["name"], "title": sc["title"], "metric": sc["metric"], "runs": sc.get("runs", runs),
         "same_output": outs["brevi"] == outs["cpython"],
         "brevi": res["brevi"], "cpython": res["cpython"],
         "speedup": res["cpython"]["first_s"] / res["brevi"]["first_s"],

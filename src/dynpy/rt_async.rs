@@ -26,7 +26,7 @@ pub struct ACoro {
 }
 
 pub fn make_acoro(name: Sym, body: impl FnOnce() -> R + 'static) -> V {
-    V::Ext(Rc::new(ACoro { name, kind: "coroutine", st: RefCell::new(ACState::Fresh(Box::new(body))), agen: None }))
+    V::Ext(ExtRc::new(ACoro { name, kind: "coroutine", st: RefCell::new(ACState::Fresh(Box::new(body))), agen: None }))
 }
 
 impl ACoro {
@@ -592,7 +592,7 @@ pub fn afor_next(it: &V) -> Result<Option<V>, E> {
 thread_local! {
     static AG_YIELDED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static AG_HOOKS: RefCell<(V, V)> = const { RefCell::new((V::None, V::None)) };
-    static AG_TRACKED: RefCell<Vec<(i64, std::rc::Weak<dyn Ext>)>> = const { RefCell::new(Vec::new()) };
+    static AG_TRACKED: RefCell<Vec<(i64, std::rc::Weak<Box<dyn Ext>>)>> = const { RefCell::new(Vec::new()) };
 }
 
 struct AGState {
@@ -609,7 +609,7 @@ pub struct AGen {
 }
 
 pub fn make_agen(name: Sym, body: impl FnOnce() -> R + 'static) -> V {
-    V::Ext(Rc::new(AGen { name, st: RefCell::new(AGState { coro: Rc::new(RefCell::new(Coro::new(Box::new(body)))), running: false, hooked: false, finalizer: V::None, closed: false }) }))
+    V::Ext(ExtRc::new(AGen { name, st: RefCell::new(AGState { coro: Rc::new(RefCell::new(Coro::new(Box::new(body)))), running: false, hooked: false, finalizer: V::None, closed: false }) }))
 }
 
 fn ag_of(x: &V) -> Option<&AGen> {
@@ -723,7 +723,7 @@ fn ag_step(me: &V, op: AOp, kind: &'static str) -> R {
     let me = me.clone();
     let name = ag_of(&me).unwrap().name.clone();
     let agen = Some(me.clone());
-    Ok(V::Ext(Rc::new(ACoro { name, kind, st: RefCell::new(ACState::Fresh(Box::new(move || ag_drive(&me, op)))), agen })))
+    Ok(V::Ext(ExtRc::new(ACoro { name, kind, st: RefCell::new(ACState::Fresh(Box::new(move || ag_drive(&me, op)))), agen })))
 }
 
 impl Ext for AGen {
@@ -814,7 +814,7 @@ impl Drop for AGen {
             return;
         }
         let again = AGen { name: self.name.clone(), st: RefCell::new(AGState { coro: st.coro.clone(), running: false, hooked: true, finalizer: V::None, closed: false }) };
-        let _ = call(&fin, Args::p(vec![V::Ext(Rc::new(again))]));
+        let _ = call(&fin, Args::p(vec![V::Ext(ExtRc::new(again))]));
     }
 }
 
@@ -831,7 +831,7 @@ fn ag_hook_fn(n: &str, a: &Args) -> R {
             a.want(n, 2, 2)?;
             let key = match &a.p[0] { V::Int(i) => *i as i64, _ => 0 };
             let V::Ext(e) = &a.p[1] else { return Ok(V::None) };
-            let w = Rc::downgrade(e);
+            let w = ExtRc::downgrade(e);
             AG_TRACKED.with(|t| {
                 let mut t = t.borrow_mut();
                 t.retain(|(k, x)| x.strong_count() > 0 && !(*k == key && std::rc::Weak::ptr_eq(x, &w)));
@@ -846,7 +846,7 @@ fn ag_hook_fn(n: &str, a: &Args) -> R {
             let key = match &a.p[0] { V::Int(i) => *i as i64, _ => 0 };
             let out: Vec<V> = AG_TRACKED.with(|t| {
                 let mut t = t.borrow_mut();
-                let out = t.iter().filter(|(k, _)| *k == key).filter_map(|(_, x)| x.upgrade()).map(V::Ext).collect();
+                let out = t.iter().filter(|(k, _)| *k == key).filter_map(|(_, x)| x.upgrade()).map(|r| V::Ext(ExtRc(r))).collect();
                 t.retain(|(k, x)| *k != key && x.strong_count() > 0);
                 out
             });
