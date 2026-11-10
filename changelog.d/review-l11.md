@@ -1,0 +1,1 @@
+- `str.format` numbers fields inside nested format specs as CPython does, and raises its errors for mixed manual/automatic numbering and too-deep nesting (review l11).
