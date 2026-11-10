@@ -1710,7 +1710,7 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             }
         }
         "swapcase" => st(t.chars().map(|c| if c.is_uppercase() { c.to_lowercase().collect::<String>() } else { c.to_uppercase().collect() }).collect()),
-        "isdigit" | "isdecimal" | "isnumeric" => V::Bool(!t.is_empty() && t.chars().all(|c| if name == "isnumeric" { c.is_numeric() } else { c.is_ascii_digit() || (c.is_numeric() && c.to_digit(10).is_some()) || (name == "isdigit" && "²³¹⁰⁴⁵⁶⁷⁸⁹".contains(c)) })),
+        "isdigit" | "isdecimal" | "isnumeric" => V::Bool(!t.is_empty() && t.chars().all(|c| if name == "isnumeric" { c.is_numeric() } else { c.is_ascii_digit() || is_nd(c) || (name == "isdigit" && "²³¹⁰⁴⁵⁶⁷⁸⁹".contains(c)) })),
         "isalpha" => V::Bool(!t.is_empty() && t.chars().all(|c| c.is_alphabetic())),
         "isalnum" => V::Bool(!t.is_empty() && t.chars().all(|c| c.is_alphanumeric())),
         "isspace" => V::Bool(!t.is_empty() && t.chars().all(|c| c.is_whitespace())),
@@ -1718,7 +1718,7 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
         "islower" => V::Bool(t.chars().any(|c| c.is_lowercase()) && !t.chars().any(|c| c.is_uppercase())),
         "istitle" => V::Bool(t.chars().any(|c| c.is_alphabetic()) && py_title(t) == t),
         "isascii" => V::Bool(t.is_ascii()),
-        "isprintable" => V::Bool(t.chars().all(|c| !c.is_control())),
+        "isprintable" => V::Bool(t.chars().all(|c| if c.is_ascii() { (' '..='~').contains(&c) } else { !tab_has(PY_NOPRINT, c) })),
         "isidentifier" => V::Bool({
             let mut cs = t.chars();
             match cs.next() {
