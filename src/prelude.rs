@@ -897,6 +897,26 @@ impl AxFloorDiv<i64> for Dec {
 pub fn ax_floordiv<T: AxFloorDiv<B>, B>(a: T, b: B) -> T {
     a.floordiv(b)
 }
+// The same division, but a zero divisor is a ZeroDivisionError a Python try can catch.
+pub trait AxFloorDivTry<B = Self>: Sized {
+    fn ax_floordiv_try(self, b: B) -> R<Self>;
+}
+impl AxFloorDivTry for i64 {
+    fn ax_floordiv_try(self, b: i64) -> R<i64> {
+        if b == 0 {
+            return Err(ax_zd_err("integer division or modulo by zero"));
+        }
+        Ok(self.floordiv(b))
+    }
+}
+impl AxFloorDivTry for f64 {
+    fn ax_floordiv_try(self, b: f64) -> R<f64> {
+        if b == 0.0 {
+            return Err(ax_zd_err("float floor division by zero"));
+        }
+        Ok(self.floordiv(b))
+    }
+}
 // a % b in Python mode takes the sign of b, as Python's does (-7 % 3 is 2); Brevi's own % keeps Rust's.
 pub trait AxPyMod<B = Self> {
     fn ax_pymod(self, b: B) -> Self;
@@ -941,6 +961,26 @@ impl AxPyMod for f64 {
             return 0.0f64.copysign(b);
         }
         if (r < 0.0) != (b < 0.0) { r + b } else { r }
+    }
+}
+// The same `%`, but a zero divisor is a ZeroDivisionError a Python try can catch.
+pub trait AxPyModTry<B = Self>: Sized {
+    fn ax_pymod_try(self, b: B) -> R<Self>;
+}
+impl AxPyModTry for i64 {
+    fn ax_pymod_try(self, b: i64) -> R<i64> {
+        if b == 0 {
+            return Err(ax_zd_err("integer modulo by zero"));
+        }
+        Ok(self.ax_pymod(b))
+    }
+}
+impl AxPyModTry for f64 {
+    fn ax_pymod_try(self, b: f64) -> R<f64> {
+        if b == 0.0 {
+            return Err(ax_zd_err("float modulo by zero"));
+        }
+        Ok(self.ax_pymod(b))
     }
 }
 impl AxPyMod for Json {
@@ -1980,6 +2020,24 @@ fn ax_idx(i: i64, len: usize) -> usize {
     }
     j as usize
 }
+// Python's IndexError and ZeroDivisionError as catchable errors (a Rust panic is not one), with the class
+// chain `except A, B:` matching uses and the message CPython prints.
+#[inline]
+pub fn ax_idx_err(msg: &str) -> AxErr {
+    AxErr(ax_exc("IndexError,LookupError,Exception,BaseException".into(), msg.into()))
+}
+#[inline]
+pub fn ax_zd_err(msg: &str) -> AxErr {
+    AxErr(ax_exc("ZeroDivisionError,ArithmeticError,Exception,BaseException".into(), msg.into()))
+}
+#[inline]
+pub fn ax_checked_idx(i: i64, len: usize, msg: &str) -> R<usize> {
+    let j = if i < 0 { len as i64 + i } else { i };
+    if j < 0 || j as usize >= len {
+        return Err(ax_idx_err(msg));
+    }
+    Ok(j as usize)
+}
 
 pub trait AxList<T: Clone> {
     fn ax_len(&self) -> i64;
@@ -2821,6 +2879,110 @@ impl AxMut<i64, Json> for Json {
             Json::Arr { v } => {
                 let j = ax_idx(*i, v.len());
                 &mut v[j]
+            }
+            _ => panic!("{} is not a list", self.show()),
+        }
+    }
+}
+// The same reads and writes, but an index out of range is a Python IndexError a try can catch instead of a
+// Rust panic. Reads and writes that do not raise (map entries, JSON objects) keep their AxRef/AxMut behavior.
+pub trait AxRefTry<K, V> {
+    fn ax_try_ref(&self, k: &K) -> R<&V>;
+}
+pub trait AxMutTry<K, V> {
+    fn ax_try_mut(&mut self, k: &K) -> R<&mut V>;
+}
+impl<T> AxRefTry<i64, T> for Vec<T> {
+    fn ax_try_ref(&self, i: &i64) -> R<&T> {
+        let j = ax_checked_idx(*i, self.len(), "list index out of range")?;
+        Ok(&self[j])
+    }
+}
+impl<T> AxMutTry<i64, T> for Vec<T> {
+    fn ax_try_mut(&mut self, i: &i64) -> R<&mut T> {
+        let j = ax_checked_idx(*i, self.len(), "list assignment index out of range")?;
+        Ok(&mut self[j])
+    }
+}
+impl<T> AxRefTry<i64, T> for (T, T) {
+    fn ax_try_ref(&self, i: &i64) -> R<&T> {
+        let j = ax_checked_idx(*i, 2, "tuple index out of range")?;
+        Ok([&self.0, &self.1][j])
+    }
+}
+impl<T> AxRefTry<i64, T> for (T, T, T) {
+    fn ax_try_ref(&self, i: &i64) -> R<&T> {
+        let j = ax_checked_idx(*i, 3, "tuple index out of range")?;
+        Ok([&self.0, &self.1, &self.2][j])
+    }
+}
+impl<T> AxRefTry<i64, T> for (T, T, T, T) {
+    fn ax_try_ref(&self, i: &i64) -> R<&T> {
+        let j = ax_checked_idx(*i, 4, "tuple index out of range")?;
+        Ok([&self.0, &self.1, &self.2, &self.3][j])
+    }
+}
+impl<K: Hash + Eq + Ord + Show + 'static, V: Default + 'static> AxRefTry<K, V> for AxM<K, V> {
+    fn ax_try_ref(&self, k: &K) -> R<&V> {
+        Ok(self.ax_ref(k))
+    }
+}
+impl<K: Hash + Eq + Ord + Clone, V: Default> AxMutTry<K, V> for AxM<K, V> {
+    fn ax_try_mut(&mut self, k: &K) -> R<&mut V> {
+        Ok(self.ax_mut(k))
+    }
+}
+impl AxRefTry<i64, String> for String {
+    fn ax_try_ref(&self, i: &i64) -> R<&String> {
+        if ax_ascii(self) {
+            ax_checked_idx(*i, self.len(), "string index out of range")?;
+        } else {
+            ax_checked_idx(*i, self.chars().count(), "string index out of range")?;
+        }
+        Ok(self.ax_ref(i))
+    }
+}
+impl AxRefTry<String, Json> for Json {
+    fn ax_try_ref(&self, k: &String) -> R<&Json> {
+        Ok(self.ax_ref(k))
+    }
+}
+impl AxRefTry<i64, Json> for Json {
+    fn ax_try_ref(&self, i: &i64) -> R<&Json> {
+        match self {
+            Json::Arr { v } | Json::Tup { v } => {
+                let msg = if matches!(self, Json::Tup { .. }) { "tuple index out of range" } else { "list index out of range" };
+                let j = ax_checked_idx(*i, v.len(), msg)?;
+                Ok(&v[j])
+            }
+            Json::Str { v } => {
+                let j = ax_checked_idx(*i, v.chars().count(), "string index out of range")?;
+                Ok(ax_char_json(v.chars().nth(j).unwrap()))
+            }
+            _ => Ok(&AX_NULL),
+        }
+    }
+}
+impl AxRefTry<Json, Json> for Json {
+    fn ax_try_ref(&self, k: &Json) -> R<&Json> {
+        match k {
+            Json::Str { v } => Ok(self.ax_ref(v)),
+            Json::Num { v, .. } => self.ax_try_ref(&(*v as i64)),
+            _ => Ok(&AX_NULL),
+        }
+    }
+}
+impl AxMutTry<String, Json> for Json {
+    fn ax_try_mut(&mut self, k: &String) -> R<&mut Json> {
+        Ok(self.ax_mut(k))
+    }
+}
+impl AxMutTry<i64, Json> for Json {
+    fn ax_try_mut(&mut self, i: &i64) -> R<&mut Json> {
+        match self {
+            Json::Arr { v } => {
+                let j = ax_checked_idx(*i, v.len(), "list assignment index out of range")?;
+                Ok(&mut v[j])
             }
             _ => panic!("{} is not a list", self.show()),
         }
@@ -6011,6 +6173,42 @@ impl AxTrueDiv<f64> for f64 {
         self / b
     }
 }
+// The same division, but a zero divisor is a ZeroDivisionError a Python try can catch.
+pub trait AxTrueDivTry<B> {
+    fn ax_truediv_try(self, b: B) -> R<f64>;
+}
+impl AxTrueDivTry<i64> for i64 {
+    fn ax_truediv_try(self, b: i64) -> R<f64> {
+        if b == 0 {
+            return Err(ax_zd_err("division by zero"));
+        }
+        Ok(self as f64 / b as f64)
+    }
+}
+impl AxTrueDivTry<f64> for i64 {
+    fn ax_truediv_try(self, b: f64) -> R<f64> {
+        if b == 0.0 {
+            return Err(ax_zd_err("float division by zero"));
+        }
+        Ok(self as f64 / b)
+    }
+}
+impl AxTrueDivTry<i64> for f64 {
+    fn ax_truediv_try(self, b: i64) -> R<f64> {
+        if b == 0 {
+            return Err(ax_zd_err("float division by zero"));
+        }
+        Ok(self / b as f64)
+    }
+}
+impl AxTrueDivTry<f64> for f64 {
+    fn ax_truediv_try(self, b: f64) -> R<f64> {
+        if b == 0.0 {
+            return Err(ax_zd_err("float division by zero"));
+        }
+        Ok(self / b)
+    }
+}
 // Python's s.update(xs) on a set() list, m.update(other) on a dict, c.update(xs) on a Counter.
 pub trait AxUpdate<O> {
     fn ax_update(&mut self, o: O);
@@ -6847,6 +7045,17 @@ impl AxMatch {
 impl AxRef<i64, String> for AxMatch {
     fn ax_ref(&self, n: &i64) -> &String {
         &self.groups[self.ax_group(*n)]
+    }
+}
+impl AxRefTry<i64, String> for AxMatch {
+    fn ax_try_ref(&self, n: &i64) -> R<&String> {
+        if self.groups.is_empty() {
+            ax_none_attr();
+        }
+        if *n < 0 || *n as usize >= self.groups.len() {
+            return Err(ax_idx_err("no such group"));
+        }
+        Ok(&self.groups[*n as usize])
     }
 }
 impl AxTruth for AxMatch {

@@ -1228,7 +1228,11 @@ impl Parser {
                 handler.0.insert(0, Stmt::Let { name: Pat::Bind(err_name), ty: None, value: Expr::Call("__err".into(), vec![], line), mutable: false, line });
             }
             let handler = Expr::Block(handler.0, handler.1);
-            let t = Expr::If(Box::new(Expr::Call("__try".into(), vec![], line)), Box::new(body), Some(Box::new(handler)));
+            // The built-in error classes this try's handlers name, so the emitter can raise a ZeroDivisionError
+            // or IndexError catchably only where one of them is caught.
+            let names: Vec<String> = clauses.iter().flat_map(|(cs, _, _)| cs.iter()).cloned().collect();
+            let try_args = if self.py { vec![(None, Expr::Str(vec![StrPart::Lit(names.join(","))]))] } else { vec![] };
+            let t = Expr::If(Box::new(Expr::Call("__try".into(), try_args, line)), Box::new(body), Some(Box::new(handler)));
             return Ok(match fin {
                 Some(Expr::Block(mut fs, ft)) => {
                     fs.insert(0, Stmt::Expr { expr: t, line });
@@ -1275,9 +1279,9 @@ impl Parser {
                 };
                 let msg = match e {
                     Expr::Call(n, mut args, _) if n.chars().next().map_or(false, |c| c.is_uppercase()) => {
-                        if args.is_empty() { Expr::Str(vec![StrPart::Lit(n)]) } else { Expr::Call("str".into(), vec![(None, args.remove(0).1)], line) }
+                        if args.is_empty() { Expr::Str(vec![StrPart::Lit(if self.py { String::new() } else { n })]) } else { Expr::Call("str".into(), vec![(None, args.remove(0).1)], line) }
                     }
-                    Expr::Ident(n) => Expr::Str(vec![StrPart::Lit(n)]),
+                    Expr::Ident(n) => Expr::Str(vec![StrPart::Lit(if self.py { String::new() } else { n })]),
                     other => Expr::Call("str".into(), vec![(None, other)], line),
                 };
                 // Python: the error carries its class and the classes above it, for `except Base:`.

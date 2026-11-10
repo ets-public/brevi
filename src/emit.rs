@@ -75,6 +75,8 @@ pub struct Emitter {
     pub py_mode: bool,
     // Labels of the try blocks being emitted: a failure inside one jumps to its handler.
     catch: Vec<String>,
+    // The built-in exception classes each open catch's handler names; empty = `except:` (any error).
+    catch_names: Vec<Vec<String>>,
     try_n: usize,
     // Open loops: (label, how many try blocks were open at the loop, whether a break/continue used the label).
     loops: Vec<(String, usize, bool)>,
@@ -675,6 +677,7 @@ impl Emitter {
             must: false,
             py_mode: false,
             catch: vec![],
+            catch_names: vec![],
             loops: vec![],
             try_n: 0,
             borrow_loops: false,
@@ -1547,6 +1550,11 @@ impl Emitter {
         }
     }
 
+    // Whether the try being emitted catches an error of this Python class.
+    fn catches(&self, name: &str) -> bool {
+        self.catch_names.last().map_or(false, |ns| ns.is_empty() || ns.iter().any(|n| caught_by(n, name)))
+    }
+
     // A `break`/`continue` inside a try block (a labeled block in Rust) names its loop.
     fn loop_label(&mut self) -> String {
         let depth = self.catch.len();
@@ -1575,8 +1583,11 @@ impl Emitter {
             Expr::If(c, t, Some(h)) if is_try(c) => {
                 self.try_n += 1;
                 let lab = format!("ax_try{}", self.try_n);
+                let names = try_names(c);
                 self.catch.push(lab.clone());
+                self.catch_names.push(names);
                 let body = self.block_d(t, true);
+                self.catch_names.pop();
                 self.catch.pop();
                 let handler = self.block_d(h, true);
                 format!("{{ let mut {lab}: Option<AxErr> = None; '{lab}: {body} if let Some(AxErr(ax_err)) = {lab} {{ let _ = &ax_err; {handler} }} }}")
@@ -1815,9 +1826,14 @@ impl Emitter {
                 };
                 match (target, *op) {
                     (Expr::Index(base, idx), "=") => {
-                        let b = self.place_mut(base);
-                        let i = self.expr(idx);
-                        format!("{{ let __v = {v}; {b}.ax_set({i}, __v); }}")
+                        if self.py_mode && !self.catch.is_empty() && self.catches("IndexError") {
+                            let p = self.place_mut(target);
+                            format!("{{ let __v = {v}; {p} = __v; }}")
+                        } else {
+                            let b = self.place_mut(base);
+                            let i = self.expr(idx);
+                            format!("{{ let __v = {v}; {b}.ax_set({i}, __v); }}")
+                        }
                     }
                     (_, "+=") => {
                         let p = self.place_mut(target);
@@ -1870,7 +1886,12 @@ impl Emitter {
                 let reads_base = root_name(b).map_or(true, |r| format!("{i:?}").contains(&format!("({r:?})")));
                 let b = self.place_mut(b);
                 let i = if reads_base { format!("&({})", self.expr(i)) } else { self.arg_ref(i) };
-                format!("(*{b}.ax_mut({i}))")
+                if self.py_mode && !self.catch.is_empty() && self.catches("IndexError") {
+                    let lab = self.catch.last().unwrap().clone();
+                    format!("(*match {b}.ax_try_mut({i}) {{ Ok(v) => v, Err(e) => {{ {lab} = Some(e); break '{lab}; }} }})")
+                } else {
+                    format!("(*{b}.ax_mut({i}))")
+                }
             }
             other => {
                 self.diag(self.line, "this expression cannot be assigned to", Some("assign to a variable, field or index".into()));
@@ -1897,7 +1918,13 @@ impl Emitter {
             Expr::TupleField(b, i) => format!("{}.{i}", self.place(b)),
             Expr::Index(b, i) => {
                 let b = self.place(b);
-                format!("(*{b}.ax_ref({}))", self.arg_ref(i))
+                let i = self.arg_ref(i);
+                if self.py_mode && !self.catch.is_empty() && self.catches("IndexError") {
+                    let lab = self.catch.last().unwrap().clone();
+                    format!("(*match {b}.ax_try_ref({i}) {{ Ok(v) => v, Err(e) => {{ {lab} = Some(e); break '{lab}; }} }})")
+                } else {
+                    format!("(*{b}.ax_ref({i}))")
+                }
             }
             other => format!("({})", self.expr(other)),
         }
@@ -2066,12 +2093,20 @@ impl Emitter {
                     "+" => format!("Plus::plus({a}, {b})"),
                     "and" | "or" => unreachable!(),
                     "~=" => format!("ax_approx({a}, {b})"),
+                    "//" if self.py_mode && !self.catch.is_empty() && self.catches("ZeroDivisionError") => {
+                        let lab = self.catch.last().unwrap().clone();
+                        format!("(match ({a}).ax_floordiv_try({b}) {{ Ok(v) => v, Err(e) => {{ {lab} = Some(e); break '{lab}; }} }})")
+                    }
                     "//" => format!("ax_floordiv({a}, {b})"),
                     // Bitwise on ints, union and intersection on lists used as Python sets.
                     "|" => format!("AxBits::ax_bor({a}, {b})"),
                     "&" => format!("AxBits::ax_band({a}, {b})"),
                     "**" => format!("AxPow::ax_pow({a}, {b})"),
                     "in" => format!("AxIn::ax_in(&{b}, &{a})"),
+                    "%" if self.py_mode && !self.catch.is_empty() && self.catches("ZeroDivisionError") => {
+                        let lab = self.catch.last().unwrap().clone();
+                        format!("(match ({a}).ax_pymod_try({b}) {{ Ok(v) => v, Err(e) => {{ {lab} = Some(e); break '{lab}; }} }})")
+                    }
                     "%" if self.py_mode => format!("AxPyMod::ax_pymod({a}, {b})"),
                     op => format!("({a} {op} {b})"),
                 }
@@ -2161,8 +2196,10 @@ impl Emitter {
                                 let saved_must = std::mem::replace(&mut self.must, false);
                                 // Inside the lambda a failure is its Err value; the try around it is outside.
                                 let saved_catch = std::mem::take(&mut self.catch);
+                                let saved_names = std::mem::take(&mut self.catch_names);
                                 let b = self.expr(body);
                                 self.catch = saved_catch;
+                                self.catch_names = saved_names;
                                 self.fallible = saved;
                                 self.must = saved_must;
                                 format!("(|{params}| -> R<_> {{ Ok({b}) }})")
@@ -2270,8 +2307,11 @@ impl Emitter {
             Expr::If(c, t, Some(h)) if is_try(c) => {
                 self.try_n += 1;
                 let lab = format!("ax_tryv{}", self.try_n);
+                let names = try_names(c);
                 self.catch.push(lab.clone());
+                self.catch_names.push(names);
                 let body = self.block(t);
+                self.catch_names.pop();
                 self.catch.pop();
                 let handler = self.block(h);
                 format!("{{ let mut {lab}: Option<AxErr> = None; match '{lab}: {{ Some({body}) }} {{ Some(v) => v, None => {{ let AxErr(ax_err) = {lab}.unwrap(); let _ = &ax_err; {handler} }} }} }}")
@@ -2472,6 +2512,12 @@ impl Emitter {
             "__default" => return "AxFresh::ax_fresh()".to_string(),
             // The value type's zero (0, "", [], {}), for a key put in by `m.setdefault(k, [])`.
             "__zero" => return "Default::default()".to_string(),
+            "__truediv" if self.py_mode && !self.catch.is_empty() && self.catches("ZeroDivisionError") => {
+                let lab = self.catch.last().unwrap().clone();
+                let a = plain.first().cloned().unwrap_or_default();
+                let b = plain.get(1).cloned().unwrap_or_default();
+                return format!("(match ({a}).ax_truediv_try({b}) {{ Ok(v) => v, Err(e) => {{ {lab} = Some(e); break '{lab}; }} }})");
+            }
             "__truediv" => return format!("AxTrueDiv::ax_truediv({})", plain.join(", ")),
             "fail" if !self.catch.is_empty() => {
                 let lab = self.catch.last().unwrap().clone();
@@ -2635,7 +2681,31 @@ fn slug(s: &str) -> String {
 
 // The condition of the if that a Python try statement becomes.
 fn is_try(c: &Expr) -> bool {
-    matches!(c, Expr::Call(n, a, _) if n == "__try" && a.is_empty())
+    matches!(c, Expr::Call(n, _, _) if n == "__try")
+}
+
+// The built-in exception classes a Python try's handlers name (one comma-separated string argument).
+fn try_names(c: &Expr) -> Vec<String> {
+    match c {
+        Expr::Call(n, args, _) if n == "__try" => args.iter().find_map(|(_, a)| match a {
+            Expr::Str(parts) => match parts.as_slice() {
+                [StrPart::Lit(s)] => Some(s.split(',').filter(|s| !s.is_empty()).map(String::from).collect()),
+                _ => None,
+            },
+            _ => None,
+        }),
+        _ => None,
+    }
+    .unwrap_or_default()
+}
+
+// Whether a handler naming `n` catches an error of Python class `name` (Exception and BaseException catch
+// everything, and an empty list is a bare `except:`).
+fn caught_by(n: &str, name: &str) -> bool {
+    n == name
+        || matches!(n, "Exception" | "BaseException")
+        || (n == "ArithmeticError" && name == "ZeroDivisionError")
+        || (n == "LookupError" && name == "IndexError")
 }
 
 // A `break` of this loop (not one of a loop inside it).
