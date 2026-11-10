@@ -7507,6 +7507,111 @@ fn ax_rx_sub(s: &str, p: &str, mut f: impl FnMut(&[char], &AxCaps) -> String) ->
     out.extend(&cs[last.min(cs.len())..]);
     out
 }
+// Python's re.sub replacement string: escapes, \0 octal escapes, \n \t ... and group references \1, \12
+// and \g<name>, read the same way CPython's re._parser.parse_template does.
+fn ax_rx_group_text(g: &[String], n: usize) -> &str {
+    g.get(n).filter(|s| !s.ax_is_none()).map_or("", |s| s.as_str())
+}
+fn ax_rx_template(t: &str, g: &[String]) -> Result<String, String> {
+    let c: Vec<char> = t.chars().collect();
+    let groups = g.len().saturating_sub(1);
+    let mut out = String::new();
+    let mut add = |out: &mut String, n: usize, pos: usize| -> Result<(), String> {
+        if n > groups {
+            return Err(format!("invalid group reference {n} at position {pos}"));
+        }
+        out.push_str(ax_rx_group_text(g, n));
+        Ok(())
+    };
+    let mut i = 0;
+    while i < c.len() {
+        if c[i] != '\\' {
+            out.push(c[i]);
+            i += 1;
+            continue;
+        }
+        if i + 1 >= c.len() {
+            return Err("bad escape (end of pattern)".into());
+        }
+        let e = c[i + 1];
+        match e {
+            'g' => {
+                if c.get(i + 2) != Some(&'<') {
+                    return Err("missing <".into());
+                }
+                let st = i + 3;
+                let Some(end) = c[st..].iter().position(|x| *x == '>') else {
+                    return Err(if st == c.len() { "missing group name".into() } else { "missing >, unterminated name".into() });
+                };
+                if end == 0 {
+                    return Err("missing group name".into());
+                }
+                let name: String = c[st..st + end].iter().collect();
+                if name.bytes().all(|b| b.is_ascii_digit()) {
+                    match name.parse::<usize>() {
+                        Ok(n) => add(&mut out, n, st)?,
+                        Err(_) => return Err(format!("invalid group reference {name}")),
+                    }
+                } else {
+                    // The typed matcher has no named groups, so no name can name one.
+                    return Err(format!("unknown group name '{name}'"));
+                }
+                i = st + end + 1;
+                continue;
+            }
+            '0' => {
+                let mut digits = vec!['0'];
+                let mut j = i + 2;
+                while digits.len() < 3 && c.get(j).is_some_and(|d| matches!(d, '0'..='7')) {
+                    digits.push(c[j]);
+                    j += 1;
+                }
+                let v = u32::from_str_radix(&digits.iter().collect::<String>(), 8).unwrap();
+                out.push(char::from_u32(v & 0xff).unwrap());
+                i = j;
+                continue;
+            }
+            '1'..='9' => {
+                let mut j = i + 2;
+                let mut n = e as usize - '0' as usize;
+                if c.get(j).is_some_and(|d| d.is_ascii_digit()) {
+                    let d = c[j];
+                    j += 1;
+                    n = n * 10 + d as usize - '0' as usize;
+                    if matches!(e, '0'..='7') && matches!(d, '0'..='7') && c.get(j).is_some_and(|x| matches!(x, '0'..='7')) {
+                        let x = c[j];
+                        j += 1;
+                        let v = (e as u32 - '0' as u32) * 64 + (d as u32 - '0' as u32) * 8 + (x as u32 - '0' as u32);
+                        if v > 0o377 {
+                            return Err(format!("octal escape value \\{e}{d}{x} outside of range 0-0o377 at position {i}"));
+                        }
+                        out.push(char::from_u32(v).unwrap());
+                        i = j;
+                        continue;
+                    }
+                }
+                add(&mut out, n, i + 1)?;
+                i = j;
+                continue;
+            }
+            'a' => out.push('\x07'),
+            'b' => out.push('\x08'),
+            'f' => out.push('\x0c'),
+            'n' => out.push('\n'),
+            'r' => out.push('\r'),
+            't' => out.push('\t'),
+            'v' => out.push('\x0b'),
+            '\\' => out.push('\\'),
+            x if x.is_ascii_alphabetic() => return Err(format!("bad escape \\{x} at position {i}")),
+            x => {
+                out.push('\\');
+                out.push(x);
+            }
+        }
+        i += 2;
+    }
+    Ok(out)
+}
 // The same with a function that can raise: the first error stops the substitution and is passed on.
 fn ax_rx_try_sub(s: &str, p: &str, mut f: impl FnMut(&[char], &AxCaps) -> R<String>) -> R<String> {
     let mut err = None;
@@ -7547,6 +7652,15 @@ impl AxRe for String {
     }
     fn ax_re_sub(&self, p: String, r: String) -> String {
         let rc: Vec<char> = r.chars().collect();
+        if ax_py_on() {
+            // CPython reads the template before looking for a match, so a bad reference is an error
+            // even when the pattern never matches.
+            let groups = ax_rx(&p).1;
+            if let Err(e) = ax_rx_template(&r, &vec![String::new(); groups + 1]) {
+                panic!("error: {e}");
+            }
+            return self.ax_re_sub_with(p, |g| ax_rx_template(&r, &g).unwrap_or_else(|e| panic!("error: {e}")));
+        }
         self.ax_re_sub_with(p, |g| {
             let mut o = String::new();
             let mut i = 0;
