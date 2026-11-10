@@ -9,8 +9,8 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 244,
-"refused": 44,
+"matched": 250,
+"refused": 38,
 "wrong_output": 0,
 "wrong_exit": 8,
 "crash_or_timeout": 0,
@@ -20,13 +20,13 @@
 "total": 357,
 "scored": 311,
 "matched_through_cpython": 0,
-"matched_silent": 44,
-"coverage": 0.7846,
+"matched_silent": 46,
+"coverage": 0.8039,
 "wrong": 8
 },
 "dyn": {
-"matched": 244,
-"refused": 44,
+"matched": 251,
+"refused": 37,
 "wrong_output": 0,
 "wrong_exit": 8,
 "crash_or_timeout": 0,
@@ -36,16 +36,16 @@
 "total": 357,
 "scored": 311,
 "matched_through_cpython": 0,
-"matched_silent": 44,
-"coverage": 0.7846,
+"matched_silent": 47,
+"coverage": 0.8071,
 "wrong": 8
 }
 },
 "files": {
 "test_grammar": {
 "normal": {
-"matched": 43,
-"refused": 29,
+"matched": 47,
+"refused": 25,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
@@ -55,13 +55,13 @@
 "total": 79,
 "scored": 79,
 "matched_through_cpython": 0,
-"matched_silent": 24,
-"coverage": 0.5443,
+"matched_silent": 25,
+"coverage": 0.5949,
 "wrong": 0
 },
 "dyn": {
-"matched": 42,
-"refused": 30,
+"matched": 47,
+"refused": 25,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
@@ -71,31 +71,15 @@
 "total": 79,
 "scored": 79,
 "matched_through_cpython": 0,
-"matched_silent": 23,
-"coverage": 0.5316,
+"matched_silent": 25,
+"coverage": 0.5949,
 "wrong": 0
 }
 },
 "test_scope": {
 "normal": {
-"matched": 25,
-"refused": 8,
-"wrong_output": 0,
-"wrong_exit": 2,
-"crash_or_timeout": 0,
-"not_extractable": 3,
-"unstable": 0,
-"excluded": 3,
-"total": 41,
-"scored": 38,
-"matched_through_cpython": 0,
-"matched_silent": 2,
-"coverage": 0.6579,
-"wrong": 2
-},
-"dyn": {
-"matched": 26,
-"refused": 7,
+"matched": 27,
+"refused": 6,
 "wrong_output": 0,
 "wrong_exit": 2,
 "crash_or_timeout": 0,
@@ -106,7 +90,23 @@
 "scored": 38,
 "matched_through_cpython": 0,
 "matched_silent": 3,
-"coverage": 0.6842,
+"coverage": 0.7105,
+"wrong": 2
+},
+"dyn": {
+"matched": 28,
+"refused": 5,
+"wrong_output": 0,
+"wrong_exit": 2,
+"crash_or_timeout": 0,
+"not_extractable": 3,
+"unstable": 0,
+"excluded": 3,
+"total": 41,
+"scored": 38,
+"matched_through_cpython": 0,
+"matched_silent": 4,
+"coverage": 0.7368,
 "wrong": 2
 }
 },
@@ -215,14 +215,14 @@
 },
 "paths": {
 "normal": {
-"dynamic": 225,
-"refused": 44,
+"dynamic": 231,
+"refused": 38,
 "typed": 25,
 "pybridge": 2
 },
 "dyn": {
-"dynamic": 252,
-"refused": 44
+"dynamic": 259,
+"refused": 37
 }
 },
 "tests": [
@@ -259,12 +259,12 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected an expression, found .."
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "eval() is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -293,12 +293,12 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown name 'SyntaxWarning'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "eval() is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -336,7 +336,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "except OverflowError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 15: eval() is not supported in dynamic builds)"
+"detail": "except OverflowError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 31: eval() is not supported in dynamic builds)"
 },
 "dyn": {
 "category": "refused",
@@ -605,12 +605,12 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unterminated string"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "unterminated string literal"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -703,12 +703,12 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown function eval()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "eval() is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -903,8 +903,8 @@
 "path": "typed"
 },
 "dyn": {
-"category": "refused",
-"detail": "nonlocal 'y' is not supported here"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1054,7 +1054,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "except ZeroDivisionError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 27: compile() is not supported in dynamic builds)"
+"detail": "except EOFError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 27: compile() is not supported in dynamic builds)"
 },
 "dyn": {
 "category": "refused",
@@ -1096,7 +1096,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "except ZeroDivisionError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 27: typing: .__annotations__ needs CPython's typing"
+"detail": "expected a name, found 1"
 },
 "dyn": {
 "category": "refused",
@@ -1395,12 +1395,12 @@
 "file": "test_scope",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found ("
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "eval() is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1533,12 +1533,12 @@
 "file": "test_scope",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found ("
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "locals() is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },

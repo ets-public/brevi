@@ -1,3 +1,3 @@
-{"line":2,"msg":"unknown function eval()"}
-{"path":"cpython","line":2,"fn":"g","why":"Brevi could not build it: unknown function eval()","by":"python3"}
-{"path":"cpython","line":2,"fn":"g","why":"Brevi could not build it: unknown function eval()","by":"python3","dynamic":{"file":"py_cpython.py","line":2,"msg":"eval() is not supported in dynamic builds"}}
+{"line":2,"msg":"unknown function exec()"}
+{"path":"cpython","line":2,"fn":"g","why":"Brevi could not build it: unknown function exec()","by":"python3"}
+{"path":"cpython","line":2,"fn":"g","why":"Brevi could not build it: unknown function exec()","by":"python3","dynamic":{"file":"py_cpython.py","line":2,"msg":"exec() is not supported in dynamic builds"}}

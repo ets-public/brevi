@@ -693,6 +693,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     emit::NP_ATTR_ST.store(own_mods.contains("safetensors"), std::sync::atomic::Ordering::Relaxed);
     emit::NP_NARROW.store(emit::NP_ON.load(std::sync::atomic::Ordering::Relaxed) && (narrow_libs || texts.values().any(|(_, t)| emit::names_narrow(t))), std::sync::atomic::Ordering::Relaxed);
     *emit::OWN_COPIES.lock().unwrap() = own_mods.iter().cloned().collect();
+    *emit::LIB_COPIES.lock().unwrap() = lib_copies(&own_mods);
     emit::ic_reset();
     let (mut rust, used) = emit::program(&mods, bridge).map_err(|(md, l, m)| {
         let f = match texts.get(&md) {
@@ -856,6 +857,46 @@ fn net_glue() -> String {
 // The runtime as a library for a typed program's engine (engine.rs).
 pub fn runtime_lib_path() -> Result<PathBuf, String> {
     runtime_lib(&crate::cache_dir(), crate::rustc_version())
+}
+
+// A library copy at least this large (its Python source) is compiled into the cached library of copies; smaller
+// ones are built with the program (see emit::LIB_COPIES).
+const LIB_COPY_BYTES: usize = 32_000;
+
+// The copies compiled into the cached library: the large ones, and every copy they import (directly or not), since
+// the library's modules start before the program's and so can only import each other. Small copies only the
+// program or a re-export shim imports are left to the program.
+fn lib_copies(own: &HashSet<String>) -> Vec<String> {
+    let mut lib: std::collections::BTreeSet<String> = own.iter().filter(|m| sandbox_module(m).is_some_and(|t| t.len() >= LIB_COPY_BYTES)).cloned().collect();
+    loop {
+        let mut more = vec![];
+        for m in &lib {
+            for line in sandbox_module(m).unwrap_or("").lines() {
+                let l = line.trim_start();
+                let names: Vec<&str> = if let Some(r) = l.strip_prefix("from ") {
+                    r.split_whitespace().next().into_iter().collect()
+                } else if let Some(r) = l.strip_prefix("import ") {
+                    r.split(',').filter_map(|x| x.split_whitespace().next()).collect()
+                } else {
+                    continue;
+                };
+                for n in names {
+                    // `import a.b.c` needs a, a.b and a.b.c
+                    let parts: Vec<&str> = n.split('.').collect();
+                    for k in 1..=parts.len() {
+                        let p = parts[..k].join(".");
+                        if own.contains(&p) && !lib.contains(&p) {
+                            more.push(p);
+                        }
+                    }
+                }
+            }
+        }
+        if more.is_empty() {
+            return lib.into_iter().collect();
+        }
+        lib.extend(more);
+    }
 }
 
 // The runtime as a library, built once per rustc version into the cache.
