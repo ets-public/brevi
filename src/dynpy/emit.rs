@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 type ER<T> = Result<T, (usize, String)>;
 
-pub const BUILTIN_MODULES: [&str; 47] = ["_brevi_srv", "_brevi_proc", "importlib.metadata", "zoneinfo", "tzlocal", "atexit", "_brevi_async", "_brevi_net", "_brevi_fs", "_brevi_st", "_brevi_ort", "_brevi_sqlite", "_brevi_duckdb", "_brevi_stdio", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading"];
+pub const BUILTIN_MODULES: [&str; 49] = ["_brevi_srv", "_brevi_proc", "importlib.metadata", "zoneinfo", "tzlocal", "atexit", "_brevi_async", "_brevi_net", "_brevi_fs", "_brevi_st", "_brevi_ort", "_brevi_sqlite", "_brevi_duckdb", "_brevi_stdio", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading", "gc", "weakref"];
 
 
 // ---------- numpy, natively (rt_np*.rs) ----------
@@ -180,7 +180,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "numpy" => return np_func_kw(n).is_some() && (!np_narrow() || NP_NARROW_FUNCS.contains(&n)),
         "numpy.random" => return np_rand_kw(n).is_some(),
         "numpy.linalg" => return np_linalg_kw(n).is_some() && !np_narrow(),
-        "sys" => &["exit", "setrecursionlimit", "getrecursionlimit", "getsizeof", "intern", "set_int_max_str_digits", "stdin", "stdout", "stderr", "argv", "maxsize", "platform", "byteorder", "version_info", "version", "modules", "path", "exception", "exc_info"],
+        "sys" => &["exit", "setrecursionlimit", "getrecursionlimit", "getsizeof", "intern", "set_int_max_str_digits", "get_int_max_str_digits", "stdin", "stdout", "stderr", "argv", "maxsize", "platform", "byteorder", "version_info", "version", "modules", "path", "exception", "exc_info"],
         "math" => &["acos", "asin", "atan", "atan2", "ceil", "comb", "copysign", "cos", "cosh", "degrees", "dist", "exp", "fabs", "factorial", "floor", "fmod", "frexp", "fsum", "gcd", "hypot", "isclose", "isfinite", "isinf", "isnan", "isqrt", "lcm", "ldexp", "log", "log10", "log1p", "log2", "modf", "perm", "pow", "prod", "radians", "remainder", "sin", "sinh", "sqrt", "tan", "tanh", "trunc", "pi", "e", "tau", "inf", "nan"],
         "atexit" => &["register", "unregister", "_run_exitfuncs", "_clear", "_ncallbacks"],
         "heapq" => &["heapify", "heappop", "heappush", "heappushpop", "heapreplace", "merge", "nlargest", "nsmallest"],
@@ -232,9 +232,17 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "tzlocal" => &["get_localzone_name", "get_localzone"],
         "importlib.metadata" => &["version", "PackageNotFoundError"],
         "zoneinfo" => &["ZoneInfo", "ZoneInfoNotFoundError", "available_timezones", "TZPATH", "reset_tzpath"],
+        "gc" => &["collect"],
+        "weakref" => &["ref"],
         _ => return false,
     };
     names.contains(&n)
+}
+
+// gc and weakref have a couple of native names (module_has); their other names keep running in CPython,
+// as they did before those native implementations were added.
+fn hybrid_bridged(m: &str) -> bool {
+    matches!(m, "gc" | "weakref") && super::bridge_ok()
 }
 // Python builtins dynamic builds do not have: refused when the program is built.
 fn is_missing_builtin(n: &str) -> bool {
@@ -767,6 +775,222 @@ fn names_read_ex(e: &Ex, out: &mut BTreeSet<String>) {
         _ => {}
     });
 }
+// Free names of an expression relative to the scope around it: names it reads that are not bound by
+// lambdas or comprehensions inside it. A nested comprehension's outermost iterable runs in the
+// surrounding scope, so its names count too.
+fn expr_free(e: &Ex, out: &mut BTreeSet<String>) {
+    match e {
+        Ex::Name(n) => {
+            out.insert(n.clone());
+        }
+        Ex::Walrus(n, v) => {
+            out.insert(n.clone());
+            expr_free(v, out);
+        }
+        Ex::Lambda(p, body) => {
+            for (_, d) in p.pos.iter().chain(p.kwonly.iter()) {
+                if let Some(d) = d {
+                    expr_free(d, out);
+                }
+            }
+            let mut inner = BTreeSet::new();
+            expr_free(body, &mut inner);
+            let ps: HashSet<String> = lambda_params(p).into_iter().collect();
+            for n in inner {
+                if !ps.contains(&n) {
+                    out.insert(n);
+                }
+            }
+        }
+        Ex::Comp(_, elt, val, gens) => {
+            let mut inner = BTreeSet::new();
+            expr_free(elt, &mut inner);
+            if let Some(v) = val {
+                expr_free(v, &mut inner);
+            }
+            for g in gens {
+                expr_free(&g.iter, &mut inner);
+                g.ifs.iter().for_each(|x| expr_free(x, &mut inner));
+            }
+            let mut bound = BTreeSet::new();
+            for g in gens {
+                target_names(&g.target, &mut bound);
+            }
+            for n in inner {
+                if !bound.contains(&n) {
+                    out.insert(n);
+                }
+            }
+        }
+        Ex::List(v) | Ex::Tuple(v) | Ex::Set(v) => v.iter().for_each(|x| expr_free(x, out)),
+        Ex::Dict(v) => v.iter().for_each(|(k, x)| {
+            if let Some(k) = k {
+                expr_free(k, out);
+            }
+            expr_free(x, out)
+        }),
+        Ex::Star(x) | Ex::Attr(x, _) | Ex::Unary(_, x) | Ex::YieldFrom(x) | Ex::Await(x) => expr_free(x, out),
+        Ex::Yield(x) => {
+            if let Some(x) = x {
+                expr_free(x, out)
+            }
+        }
+        Ex::Index(a, b) | Ex::Bin(_, a, b) | Ex::And(a, b) | Ex::Or(a, b) => {
+            expr_free(a, out);
+            expr_free(b, out)
+        }
+        Ex::Slice(a, b, c) => {
+            for x in [a, b, c].into_iter().flatten() {
+                expr_free(x, out);
+            }
+        }
+        Ex::Call(c, args) => {
+            expr_free(c, out);
+            for a in args {
+                match a {
+                    Arg::Pos(x) | Arg::Star(x) | Arg::Kw(_, x) | Arg::KwStar(x) => expr_free(x, out),
+                }
+            }
+        }
+        Ex::Cmp(a, rest) => {
+            expr_free(a, out);
+            rest.iter().for_each(|(_, x)| expr_free(x, out))
+        }
+        Ex::IfExp(a, b, c) => {
+            expr_free(a, out);
+            expr_free(b, out);
+            expr_free(c, out)
+        }
+        Ex::FStr(parts) => {
+            for p in parts {
+                if let FPart::Expr(x, _, spec, _) = p {
+                    expr_free(x, out);
+                    for sp in spec {
+                        if let FPart::Expr(y, ..) = sp {
+                            expr_free(y, out);
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+// The names a generator expression's lazy part reads from the scope around it: element, conditions and
+// the iterables after the first. (The outermost iterable is evaluated where the genexp is written, so its
+// names are not free.)
+fn genexp_free(gens: &[CompFor], elt: &Ex, val: Option<&Ex>) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    expr_free(elt, &mut out);
+    if let Some(v) = val {
+        expr_free(v, &mut out);
+    }
+    for (k, g) in gens.iter().enumerate() {
+        if k > 0 {
+            expr_free(&g.iter, &mut out);
+        }
+        g.ifs.iter().for_each(|x| expr_free(x, &mut out));
+    }
+    let mut bound = BTreeSet::new();
+    for g in gens {
+        target_names(&g.target, &mut bound);
+    }
+    out.retain(|n| !bound.contains(n));
+    out
+}
+// Names read by scopes nested in an expression (lambdas and comprehensions), relative to the expression's
+// scope. Used to decide which comprehension targets a nested scope reads, so those targets are cells.
+fn nested_scope_free(e: &Ex, out: &mut BTreeSet<String>) {
+    match e {
+        Ex::Lambda(p, body) => {
+            let mut inner = BTreeSet::new();
+            expr_free(body, &mut inner);
+            let ps: HashSet<String> = lambda_params(p).into_iter().collect();
+            for n in inner {
+                if !ps.contains(&n) {
+                    out.insert(n);
+                }
+            }
+            for (_, d) in p.pos.iter().chain(p.kwonly.iter()) {
+                if let Some(d) = d {
+                    nested_scope_free(d, out);
+                }
+            }
+        }
+        Ex::Comp(_, elt, val, gens) => {
+            let mut inner = BTreeSet::new();
+            expr_free(elt, &mut inner);
+            if let Some(v) = val {
+                expr_free(v, &mut inner);
+            }
+            for g in gens {
+                expr_free(&g.iter, &mut inner);
+                g.ifs.iter().for_each(|x| expr_free(x, &mut inner));
+            }
+            let mut bound = BTreeSet::new();
+            for g in gens {
+                target_names(&g.target, &mut bound);
+            }
+            for n in inner {
+                if !bound.contains(&n) {
+                    out.insert(n);
+                }
+            }
+        }
+        Ex::List(v) | Ex::Tuple(v) | Ex::Set(v) => v.iter().for_each(|x| nested_scope_free(x, out)),
+        Ex::Dict(v) => v.iter().for_each(|(k, x)| {
+            if let Some(k) = k {
+                nested_scope_free(k, out);
+            }
+            nested_scope_free(x, out)
+        }),
+        Ex::Star(x) | Ex::Attr(x, _) | Ex::Unary(_, x) | Ex::Walrus(_, x) | Ex::YieldFrom(x) | Ex::Await(x) => nested_scope_free(x, out),
+        Ex::Yield(x) => {
+            if let Some(x) = x {
+                nested_scope_free(x, out)
+            }
+        }
+        Ex::Index(a, b) | Ex::Bin(_, a, b) | Ex::And(a, b) | Ex::Or(a, b) => {
+            nested_scope_free(a, out);
+            nested_scope_free(b, out)
+        }
+        Ex::Slice(a, b, c) => {
+            for x in [a, b, c].into_iter().flatten() {
+                nested_scope_free(x, out);
+            }
+        }
+        Ex::Call(c, args) => {
+            nested_scope_free(c, out);
+            for a in args {
+                match a {
+                    Arg::Pos(x) | Arg::Star(x) | Arg::Kw(_, x) | Arg::KwStar(x) => nested_scope_free(x, out),
+                }
+            }
+        }
+        Ex::Cmp(a, rest) => {
+            nested_scope_free(a, out);
+            rest.iter().for_each(|(_, x)| nested_scope_free(x, out))
+        }
+        Ex::IfExp(a, b, c) => {
+            nested_scope_free(a, out);
+            nested_scope_free(b, out);
+            nested_scope_free(c, out)
+        }
+        Ex::FStr(parts) => {
+            for p in parts {
+                if let FPart::Expr(x, _, spec, _) = p {
+                    nested_scope_free(x, out);
+                    for sp in spec {
+                        if let FPart::Expr(y, ..) = sp {
+                            nested_scope_free(y, out);
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
 fn lambda_params(p: &Params) -> Vec<String> {
     let mut v: Vec<String> = p.pos.iter().map(|x| x.0.clone()).collect();
     v.extend(p.kwonly.iter().map(|x| x.0.clone()));
@@ -871,44 +1095,20 @@ fn nested_free(body: &[Stmt]) -> BTreeSet<String> {
                     }
                 }
             }
+            // A generator expression's lazy part runs in its own scope: locals it reads must be cells.
+            if let Ex::Comp(kind, elt, val, gens) = x {
+                if *kind == 'g' {
+                    for n in genexp_free(gens, elt, val.as_deref()) {
+                        out.insert(n);
+                    }
+                }
+            }
         });
     }
     out
 }
 // Generators switch stacks with a few lines of assembly (rt_gen.rs), or with a Windows fiber, for these targets.
 const GEN_OK: bool = cfg!(any(target_arch = "x86_64", target_arch = "aarch64"));
-
-// The line of a yield inside a try that has a finally, or inside a with block.
-fn yield_in_cleanup(body: &[Stmt], inside: bool) -> Option<usize> {
-    for s in body {
-        let here = |b: &[Stmt]| -> Option<usize> { if has_yield(b) { Some(s.line) } else { None } };
-        let found = match &s.st {
-            St::Try(b, hs, e, f) => {
-                let guarded = f.is_some() || inside;
-                let mut r = yield_in_cleanup(b, guarded);
-                for h in hs {
-                    r = r.or_else(|| yield_in_cleanup(&h.body, guarded));
-                }
-                if let Some(e) = e {
-                    r = r.or_else(|| yield_in_cleanup(e, guarded));
-                }
-                if let Some(f) = f {
-                    r = r.or_else(|| here(f));
-                }
-                r
-            }
-            St::With(_, b) => here(b),
-            St::If(arms, els) => arms.iter().find_map(|(_, b)| yield_in_cleanup(b, inside)).or_else(|| els.as_ref().and_then(|b| yield_in_cleanup(b, inside))),
-            St::While(_, b, e) | St::For(_, _, b, e) => yield_in_cleanup(b, inside).or_else(|| e.as_ref().and_then(|b| yield_in_cleanup(b, inside))),
-            _ if inside => here(std::slice::from_ref(s)),
-            _ => None,
-        };
-        if found.is_some() {
-            return found;
-        }
-    }
-    None
-}
 
 // An async def anywhere in this code (nested ones too).
 pub fn uses_async(body: &[Stmt]) -> bool {
@@ -1176,6 +1376,8 @@ struct Func {
     is_async: bool,
     // an async def with yield: an async generator
     is_agen: bool,
+    // prefix of the names of the cells this function owns ("k{id}_"); empty for module and class bodies
+    cells: String,
     // a def with yield: a generator
     is_gen: bool,
     // nested defs held in plain locals of this frame that calls here reach directly (see Em::nested_direct)
@@ -1313,9 +1515,11 @@ impl Em {
         match self.lookup(name) {
             Some(Var::Local(r)) => Ok(self.q(&format!("ld(&{r}, {})", lit(name)))),
             Some(Var::Cell(r)) => {
+                let own = !self.f().cells.is_empty() && r.starts_with(&self.f().cells);
                 let fr = self.fstack.last().unwrap();
                 let inner = self.safe_cells.get(&r).is_some_and(|&d| self.fstack.len() > d) && !fr.is_gen && !fr.is_async;
-                Ok(self.q(&format!("{}(&{r}, {})", if inner { "cgs" } else { "cget" }, lit(name))))
+                let f = if own { "cget_own" } else if inner { "cgs" } else { "cget" };
+                Ok(self.q(&format!("{f}(&{r}, {})", lit(name))))
             }
             Some(Var::Global(i)) => {
                 if is_builtin_name(name) || name == "__name__" {
@@ -1467,6 +1671,10 @@ impl Em {
                         return self.user_mod_load(&m, n, line);
                     }
                     if !module_has(&m, n) {
+                        if hybrid_bridged(&m) {
+                            self.bridged_used.insert(m.clone());
+                            return Ok(self.q(&format!("pyd_from({}, {})", lit(&m), lit(n))));
+                        }
                         return Err(err(line, &format!("{m}.{n} is not supported in dynamic builds")));
                     }
                     return Ok(self.q(&format!("module_attr({}, {})", lit(&m), lit(n))));
@@ -1839,6 +2047,11 @@ impl Em {
                 }
                 let a = self.args(args, line, None)?;
                 if !module_has(&md, m) {
+                    if hybrid_bridged(&md) {
+                        self.bridged_used.insert(md.clone());
+                        let f = self.q(&format!("pyd_from({}, {})", lit(&md), lit(m)));
+                        return Ok(self.q(&format!("call(&{f}, {a})")));
+                    }
                     return Err(err(line, &format!("{md}.{m} is not supported in dynamic builds")));
                 }
                 if md == "numpy" || md == "numpy.random" || md == "numpy.linalg" {
@@ -1940,6 +2153,166 @@ impl Em {
     fn load_raw(&mut self, name: &str, line: usize) -> ER<String> {
         self.load(name, line)
     }
+    // A generator expression is a lazy iterator value, not a list: only the outermost iterable is evaluated
+    // here. The rest runs as a small state machine in an It::GenExp closure, so conditions, inner iterables
+    // and the element see each value of the names they read when the consumer pulls (CPython semantics), and
+    // any()/all() short-circuit.
+    fn genexp(&mut self, elt: &Ex, gens: &[CompFor], line: usize) -> ER<String> {
+        let id = self.id();
+        // CPython only allows `yield` in the outermost iterable (it runs in the enclosing generator); a
+        // yield anywhere in the lazy part is a syntax error, so refuse it rather than miscompile it.
+        let mut lazy_yield = false;
+        let mut scan = |e: &Ex, lazy_yield: &mut bool| {
+            visit_ex(e, &mut |x| {
+                if matches!(x, Ex::Yield(_) | Ex::YieldFrom(_)) {
+                    *lazy_yield = true;
+                }
+            });
+        };
+        scan(elt, &mut lazy_yield);
+        for (k, g) in gens.iter().enumerate() {
+            if k > 0 {
+                scan(&g.iter, &mut lazy_yield);
+            }
+            g.ifs.iter().for_each(|c| scan(c, &mut lazy_yield));
+        }
+        if lazy_yield {
+            return Err(err(line, "'yield' inside generator expression"));
+        }
+        // Names the lazy part reads from enclosing scopes (its own targets are not free).
+        let free = genexp_free(gens, elt, None);
+        let mut names = BTreeSet::new();
+        for g in gens {
+            target_names(&g.target, &mut names);
+        }
+        // A target read by a scope nested in the lazy part must itself be a cell.
+        let mut inner_free = BTreeSet::new();
+        nested_scope_free(elt, &mut inner_free);
+        for (k, g) in gens.iter().enumerate() {
+            if k > 0 {
+                nested_scope_free(&g.iter, &mut inner_free);
+            }
+            g.ifs.iter().for_each(|c| nested_scope_free(c, &mut inner_free));
+        }
+        inner_free.retain(|n| names.contains(n));
+        // The outermost iterable (or zip pair) is evaluated now, in the enclosing scope.
+        let first_zip = match self.zip2(&gens[0].target, &gens[0].iter) {
+            Some((a, b, t0, t1)) if !gens[0].is_async => Some((self.ex(a, line)?, self.ex(b, line)?, t0, t1)),
+            _ => None,
+        };
+        let first_iter = if first_zip.is_some() { String::new() } else { self.ex(&gens[0].iter, line)? };
+        let first_it = match &first_zip {
+            Some((za, zb, _, _)) => (
+                self.q(&format!("iter(&{za})")),
+                self.q(&format!("iter(&{zb})")),
+                String::new(),
+            ),
+            None => (String::new(), String::new(), self.q(&format!("iter(&{first_iter})"))),
+        };
+        // zip pairs of inner levels, recognized now; their expressions are emitted inside the closure frame.
+        // A target called `zip` would shadow the builtin in later clauses, so stay on the general path then.
+        let mut zips: Vec<Option<(&Ex, &Ex, &Ex, &Ex)>> = Vec::with_capacity(gens.len());
+        for (k, g) in gens.iter().enumerate() {
+            zips.push(if k == 0 || g.is_async || names.contains("zip") { None } else { self.zip2(&g.target, &g.iter) });
+        }
+        // The genexp's own frame: targets are its locals, enclosing cells are captured. It behaves like a
+        // nested generator function (class context and self reach the lazy part too).
+        let parent = self.fstack.last().unwrap();
+        let (class_expr, self_name) = (parent.class_expr.clone(), parent.self_name.clone());
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, exc_vars: vec![], is_module: false, is_class: false, is_async: false, is_agen: false, is_gen: true, direct_defs: HashMap::new(), cells: format!("g{id}_") };
+        let mut tdecl = String::new();
+        for n in &names {
+            if inner_free.contains(n) {
+                let c = format!("g{id}_{}", rust_ident(n));
+                write!(tdecl, "let {c} = cell(); ").unwrap();
+                fr.vars.insert(n.clone(), Var::Cell(c));
+            } else {
+                let r = format!("c{id}_{}", rust_ident(n));
+                write!(tdecl, "let mut {r}: V = V::Unbound; ").unwrap();
+                fr.vars.insert(n.clone(), Var::Local(r));
+            }
+        }
+        let mut captures: Vec<(String, String)> = vec![];
+        for n in &free {
+            match self.lookup(n) {
+                Some(Var::Cell(r)) => {
+                    fr.vars.insert(n.clone(), Var::Cell(r.clone()));
+                    captures.push((n.clone(), r));
+                }
+                // a plain local the closure cannot share, such as an enclosing comprehension's target
+                // (`[x for x in xs if any(f(x) for f in fs)]`): the genexp gets its value now
+                Some(Var::Local(r)) => {
+                    fr.vars.insert(n.clone(), Var::Local(r.clone()));
+                    captures.push((n.clone(), r));
+                }
+                _ => {}
+            }
+        }
+        self.fstack.push(fr);
+        let mut arms = String::new();
+        let mut inner_decl = String::new();
+        let mut res = Ok(());
+        for (k, g) in gens.iter().enumerate() {
+            let build = (|| -> ER<String> {
+                let mut arm = String::new();
+                let next = if k + 1 < gens.len() {
+                    format!("__st{id} = {};", k + 1)
+                } else {
+                    let e = self.ex(elt, line)?;
+                    format!("return Ok(Some({e}));")
+                };
+                let mut conds = String::new();
+                for c in &g.ifs {
+                    let cc = self.cond(c, line)?;
+                    write!(conds, "if !({cc}) {{ continue; }} ").unwrap();
+                }
+                if k == 0 {
+                    if let Some((_, _, t0, t1)) = &first_zip {
+                        let a0 = self.assign(t0, &format!("__x{id}_0a"), line)?;
+                        let a1 = self.assign(t1, &format!("__x{id}_0b"), line)?;
+                        write!(arm, "0 => match __it{id}_0a.next()? {{ Some(__x{id}_0a) => match __it{id}_0b.next()? {{ Some(__x{id}_0b) => {{ {a0} {a1} {conds}{next} }} None => return Ok(None) }} None => return Ok(None) }}, ").unwrap();
+                        return Ok(arm);
+                    }
+                    let asg = self.assign(&g.target, &format!("__x{id}_0"), line)?;
+                    write!(arm, "0 => match __it{id}_0.next()? {{ Some(__x{id}_0) => {{ {asg} {conds}{next} }} None => return Ok(None) }}, ").unwrap();
+                    return Ok(arm);
+                }
+                if let Some((ta, tb, t0, t1)) = zips[k] {
+                    let ea = self.ex(ta, line)?;
+                    let eb = self.ex(tb, line)?;
+                    write!(inner_decl, "let mut __it{id}_{k}a: Option<It> = None; let mut __it{id}_{k}b: Option<It> = None; ").unwrap();
+                    let a0 = self.assign(t0, &format!("__x{id}_{k}a"), line)?;
+                    let a1 = self.assign(t1, &format!("__x{id}_{k}b"), line)?;
+                    write!(arm, "{k} => {{ if __it{id}_{k}a.is_none() {{ __it{id}_{k}a = Some(iter(&{ea})?); __it{id}_{k}b = Some(iter(&{eb})?); }} match __it{id}_{k}a.as_mut().unwrap().next()? {{ Some(__x{id}_{k}a) => match __it{id}_{k}b.as_mut().unwrap().next()? {{ Some(__x{id}_{k}b) => {{ {a0} {a1} {conds}{next} }} None => {{ __it{id}_{k}a = None; __it{id}_{k}b = None; __st{id} = {}; }} }} None => {{ __it{id}_{k}a = None; __it{id}_{k}b = None; __st{id} = {}; }} }} }}, ", k - 1, k - 1).unwrap();
+                    return Ok(arm);
+                }
+                let asg = self.assign(&g.target, &format!("__x{id}_{k}"), line)?;
+                let it = self.ex(&g.iter, line)?;
+                write!(inner_decl, "let mut __it{id}_{k}: Option<It> = None; ").unwrap();
+                write!(arm, "{k} => {{ if __it{id}_{k}.is_none() {{ __it{id}_{k} = Some(iter(&{it})?); }} match __it{id}_{k}.as_mut().unwrap().next()? {{ Some(__x{id}_{k}) => {{ {asg} {conds}{next} }} None => {{ __it{id}_{k} = None; __st{id} = {}; }} }} }}, ", k - 1).unwrap();
+                Ok(arm)
+            })();
+            match build {
+                Ok(a) => arms.push_str(&a),
+                Err(e) => {
+                    res = Err(e);
+                    break;
+                }
+            }
+        }
+        self.fstack.pop();
+        res?;
+        let caps: String = captures.iter().map(|(_, r)| format!("let {r} = {r}.clone(); ")).collect();
+        let (a0, b0, it0) = first_it;
+        let head = if a0.is_empty() {
+            format!("let mut __it{id}_0 = {it0}; ")
+        } else {
+            format!("let mut __it{id}_0a = {a0}; let mut __it{id}_0b = {b0}; ")
+        };
+        Ok(format!(
+            "{{ {head}{tdecl}{inner_decl}let mut __st{id}: u8 = 0; {caps}genexp_iter(move || loop {{ match __st{id} {{ {arms}_ => unreachable!() }} }}) }}"
+        ))
+    }
     fn comp(&mut self, kind: char, elt: &Ex, val: Option<&Ex>, gens: &[CompFor], line: usize) -> ER<String> {
         // `async for` clauses and `await`s: the comprehension runs in place in the async function (CPython inlines
         // it too). A generator expression with them is an async generator, which Brevi builds eagerly: refused.
@@ -1956,6 +2329,9 @@ impl Em {
             if !self.fstack.last().unwrap().is_async {
                 return Err(err(line, "asynchronous comprehension outside of an asynchronous function"));
             }
+        }
+        if kind == 'g' {
+            return self.genexp(elt, gens, line);
         }
         // comprehension variables are fresh locals for the duration
         let id = self.id();
@@ -2307,16 +2683,29 @@ impl Em {
                     let top = m.split('.').next().unwrap().to_string();
                     let bind = a.clone().unwrap_or(top.clone());
                     let target = if a.is_some() { m.clone() } else { top.clone() };
+                    let id = self.id();
+                    // `import a.b` binds `a` but CPython registers `a.b` in sys.modules too
+                    if target != *m && (self.user_modules.contains(m) || builtin_mod(m.as_str()) || m == "os.path") {
+                        let reg = self.q(&format!("sys_modules_set({}, &V::Module(&ModName({})))", lit(m), lit(m)));
+                        write!(b, "{reg}; ").unwrap();
+                    }
                     if self.user_modules.contains(&target) {
                         let init = self.q(&format!("init_{}()", rust_ident(&target)));
-                        write!(b, "{init}; ").unwrap();
-                        b.push_str(&self.store(&bind, &format!("V::Module(&ModName({}))", lit(&target))));
+                        let v = format!("V::Module(&ModName({}))", lit(&target));
+                        let reg = self.q(&format!("sys_modules_set({}, &__m{id})", lit(&target)));
+                        write!(b, "let __m{id} = {v}; {reg}; {init}; ").unwrap();
+                        b.push_str(&self.store(&bind, &format!("__m{id}")));
                     } else if self.bridge.has(m) {
                         self.bridged_used.insert(m.split('.').next().unwrap_or(m).to_string());
                         let v = self.q(&format!("pyd_import({}, {})", lit(m), a.is_none()));
-                        b.push_str(&self.store(&bind, &v));
+                        let reg = self.q(&format!("sys_modules_set({}, &__m{id})", lit(&target)));
+                        write!(b, "let __m{id} = {v}; {reg}; ").unwrap();
+                        b.push_str(&self.store(&bind, &format!("__m{id}")));
                     } else if builtin_mod(target.as_str()) || matches!(target.as_str(), "os.path") {
-                        b.push_str(&self.store(&bind, &format!("V::Module(&ModName({}))", lit(&target))));
+                        let v = format!("V::Module(&ModName({}))", lit(&target));
+                        let reg = self.q(&format!("sys_modules_set({}, &__m{id})", lit(&target)));
+                        write!(b, "let __m{id} = {v}; {reg}; ").unwrap();
+                        b.push_str(&self.store(&bind, &format!("__m{id}")));
                     } else {
                         return Err(err(line, &format!("module '{m}' is not supported in dynamic builds")));
                     }
@@ -2342,9 +2731,13 @@ impl Em {
                 }
                 if user {
                     let init = self.q(&format!("init_{}()", rust_ident(m)));
-                    write!(b, "{init}; ").unwrap();
+                    let reg = self.q(&format!("sys_modules_set({}, &V::Module(&ModName({})))", lit(m), lit(m)));
+                    write!(b, "{reg}; {init}; ").unwrap();
                 } else if !builtin_mod(m.as_str()) {
                     return Err(err(line, &format!("module '{m}' is not supported in dynamic builds")));
+                } else {
+                    let reg = self.q(&format!("sys_modules_set({}, &V::Module(&ModName({})))", lit(m), lit(m)));
+                    write!(b, "{reg}; ").unwrap();
                 }
                 for (n, a) in names {
                     if n == "*" {
@@ -2360,13 +2753,20 @@ impl Em {
                     }
                     let bind = a.clone().unwrap_or(n.clone());
                     if !user && !module_has(m, n) {
+                        if hybrid_bridged(m) {
+                            self.bridged_used.insert(m.to_string());
+                            let v = self.q(&format!("pyd_from({}, {})", lit(m), lit(n)));
+                            b.push_str(&self.store(&bind, &v));
+                            continue;
+                        }
                         return Err(err(line, &format!("{m}.{n} is not supported in dynamic builds")));
                     }
                     let sub = format!("{m}.{n}");
                     if user && self.user_modules.contains(&sub) && (self.module == *m || !self.mod_names.get(m).is_some_and(|s| s.contains(n))) {
                         // `from pkg import sub`: the package's module sub
                         let init = self.q(&format!("init_{}()", rust_ident(&sub)));
-                        write!(b, "{init}; ").unwrap();
+                        let reg = self.q(&format!("sys_modules_set({}, &V::Module(&ModName({})))", lit(&sub), lit(&sub)));
+                        write!(b, "{reg}; {init}; ").unwrap();
                         b.push_str(&self.store(&bind, &format!("V::Module(&ModName({}))", lit(&sub))));
                         continue;
                     }
@@ -2619,11 +3019,7 @@ impl Em {
             if !GEN_OK {
                 return Err(err(d.line, "generators (yield) are not supported in dynamic builds on this platform"));
             }
-            // CPython runs a finally (or a with block's exit) when a generator left part way is dropped;
-            // here a dropped generator just stops.
-            if let Some(l) = yield_in_cleanup(&d.body, false) {
-                return Err(err(l, "a yield inside try/finally or with is not supported in dynamic builds"));
-            }
+
         }
         if d.is_async && !GEN_OK {
             return Err(err(d.line, "async functions are not supported in dynamic builds on this platform"));
@@ -2696,7 +3092,7 @@ impl Em {
         // this function's frame
         let parent = self.fstack.last().unwrap();
         let (class_expr, self_name) = if self.class_ctx.is_some() { (self.class_ctx.clone(), p.pos.first().map(|x| x.0.clone())) } else { (parent.class_expr.clone(), parent.self_name.clone()) };
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, exc_vars: vec![], is_module: false, is_class: false, is_async, is_agen: is_async && is_gen, is_gen, direct_defs: HashMap::new() };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, exc_vars: vec![], is_module: false, is_class: false, is_async, is_agen: is_async && is_gen, is_gen, direct_defs: HashMap::new(), cells: format!("k{id}_") };
         for (n, r) in &captures {
             fr.vars.insert(n.clone(), Var::Cell(r.clone()));
         }
@@ -2778,6 +3174,28 @@ impl Em {
             None => format!("d{id}_{}", rust_ident(name)),
         };
         let qname = lit(name);
+        // co_flags, as CPython sets them: CO_OPTIMIZED | CO_NEWLOCALS, plus the function's kind and nesting.
+        let mut code_flags: u32 = 0x1 | 0x2;
+        if star {
+            code_flags |= 0x4; // CO_VARARGS
+        }
+        if kwstar {
+            code_flags |= 0x8; // CO_VARKEYWORDS
+        }
+        if is_async && is_gen {
+            code_flags |= 0x200; // CO_ASYNC_GENERATOR
+        } else {
+            if is_gen {
+                code_flags |= 0x20; // CO_GENERATOR
+            }
+            if is_async {
+                code_flags |= 0x80; // CO_COROUTINE
+            }
+        }
+        if !(at_top || in_class_top) {
+            code_flags |= 0x10; // CO_NESTED
+        }
+        let code = code_flags.to_string();
         let sig = format!("Sig {{ name: {qname}, params: &[{names_lit}], npos: {npos}, star: {star}, kwstar: {kwstar} }}");
         let dflt_all: Vec<String> = dflt_codes.iter().chain(kwd.iter()).cloned().collect();
         let nparams = params.len();
@@ -2808,14 +3226,14 @@ impl Em {
                     write!(sets, "gs({slot}, {}); ", dflt_codes[k]).unwrap();
                 }
                 let dv: Vec<String> = (0..npos).map(|k| if k >= npos - nd { format!("gr({})", slots[k - (npos - nd)]) } else { "V::Unbound".into() }).collect();
-                let v = format!("{{ {sets} func({qname}, move |a: Args| {{ let __d = [{}]; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}", dv.join(", "));
+                let v = format!("with_code({{ {sets} func({qname}, move |a: Args| {{ let __d = [{}]; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}, {code})", dv.join(", "));
                 if !is_async && !is_gen && (1..=4).contains(&nparams) {
                     return Ok(format!("with_fast({v}, FastFn::F{nparams}({fname}))"));
                 }
                 return Ok(v);
             }
             let _ = need_defaults;
-            let v = format!("{{ let __d = vec![{}]; func({qname}, move |a: Args| {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}", dflt_all.join(", "));
+            let v = format!("with_code({{ let __d = vec![{}]; func({qname}, move |a: Args| {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}, {code})", dflt_all.join(", "));
             // methods (and defs not called directly): calls passing every parameter by position skip bind()
             if !is_async && !is_gen && !star && !kwstar && p.kwonly.is_empty() && (1..=4).contains(&nparams) {
                 return Ok(format!("with_fast({v}, FastFn::F{nparams}({fname}))"));
@@ -2837,7 +3255,7 @@ impl Em {
                     let cparams: String = dcaps.iter().map(|r| format!("{r}: Rc<RefCell<V>>, ")).collect();
                     write!(self.items, "fn {dfn}({cparams}{}) -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }}\n", pdecl.join(", ")).unwrap();
                     let cargs: String = dcaps.iter().map(|r| format!("{r}.clone(), ")).collect();
-                    return Ok(format!("{{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {dfn}({cargs}{unpack}) }}) }}", dflt_all.join(", ")));
+                    return Ok(format!("with_code({{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {dfn}({cargs}{unpack}) }}) }}, {code})", dflt_all.join(", ")));
                 }
                 return Err(err(line, "internal: a nested function's captures changed"));
             }
@@ -2845,12 +3263,12 @@ impl Em {
         if is_gen || is_async {
             let mk = if is_async && is_gen { format!("make_agen(sym({qname}), ") } else if is_async { format!("make_acoro(sym({qname}), ") } else { "make_gen(".to_string() };
             return Ok(format!(
-                "{{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{caps} Ok({mk}move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}) }}",
+                "with_code({{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{caps} Ok({mk}move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}) }}, {code})",
                 dflt_all.join(", ")
             ));
         }
         Ok(format!(
-            "{{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let __depth = Depth::new()?; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{decls}{cells_init}\n{body_code}\nOk(V::None) }}) }}",
+            "with_code({{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let __depth = Depth::new()?; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{decls}{cells_init}\n{body_code}\nOk(V::None) }}) }}, {code})",
             dflt_all.join(", ")
         ))
     }
@@ -2864,7 +3282,7 @@ impl Em {
         // invisible to the methods
         let sc = scope_of(&c.body, &[]);
         let parent = self.fstack.last().unwrap();
-        let mut fr = Func { vars: HashMap::new(), frames: parent.frames.clone(), class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new() };
+        let mut fr = Func { vars: HashMap::new(), frames: parent.frames.clone(), class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new() };
         let mut decls = String::new();
         for n in sc.locals.iter() {
             let r = format!("a{id}_{}", rust_ident(n));
@@ -2998,6 +3416,8 @@ pub fn rust_ident(n: &str) -> String {
 // inline caches for attribute access (getattr_ic): the program declares IC0..IC{n-1}
 thread_local! {
     static IC_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    // the inline caches below this are the library copies' (emitted with them, see program)
+    static IC_LIB_END: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 fn new_ic() -> usize {
     IC_COUNT.with(|c| {
@@ -3008,11 +3428,12 @@ fn new_ic() -> usize {
 }
 pub fn ic_reset() {
     IC_COUNT.with(|c| c.set(0));
+    IC_LIB_END.with(|c| c.set(0));
 }
 pub fn ic_statics() -> String {
     let n = IC_COUNT.with(|c| c.get());
     let mut s = String::new();
-    for k in 0..n {
+    for k in IC_LIB_END.with(|c| c.get())..n {
         s.push_str(&format!("static IC{k}: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(usize::MAX);\n"));
     }
     s
@@ -3041,130 +3462,150 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         bridge,
         bridged_used: BTreeSet::new(),
     };
-    // module-level names, import aliases and directly callable defs
-    for m in mods {
-        let sc = scope_of(&m.body, &[]);
-        let mut names = sc.locals.clone();
-        // names declared global in functions
-        fn globals_in(body: &[Stmt], out: &mut BTreeSet<String>) {
-            for s in body {
-                match &s.st {
-                    St::Def(d) => {
-                        let sc = scope_of(&d.body, &[]);
-                        out.extend(sc.globals.iter().cloned());
-                        globals_in(&d.body, out);
-                    }
-                    St::Class(c) => globals_in(&c.body, out),
-                    St::If(arms, els) => {
-                        for (_, b) in arms {
-                            globals_in(b, out);
-                        }
-                        if let Some(b) = els {
-                            globals_in(b, out);
-                        }
-                    }
-                    St::For(_, _, b, e) | St::While(_, b, e) => {
-                        globals_in(b, out);
-                        if let Some(e) = e {
-                            globals_in(e, out);
-                        }
-                    }
-                    St::Try(b, hs, e, f) => {
-                        globals_in(b, out);
-                        for h in hs {
-                            globals_in(&h.body, out);
-                        }
-                        if let Some(e) = e {
-                            globals_in(e, out);
-                        }
-                        if let Some(f) = f {
-                            globals_in(f, out);
-                        }
-                    }
-                    St::With(_, b) => globals_in(b, out),
-                    _ => {}
-                }
-            }
-        }
-        globals_in(&m.body, &mut names);
-        // how often each name is bound at module level (top level statements only)
-        let mut binds: HashMap<String, usize> = HashMap::new();
-        let mut import_of: HashMap<String, String> = HashMap::new();
-        let mut def_names: HashSet<String> = HashSet::new();
-        fn count(body: &[Stmt], binds: &mut HashMap<String, usize>, import_of: &mut HashMap<String, String>, defs: &mut HashSet<String>, top: bool) {
-            for s in body {
-                let mut b = BTreeSet::new();
-                match &s.st {
-                    St::Import(v) => {
-                        for (m, a) in v {
-                            let bind = a.clone().unwrap_or_else(|| m.split('.').next().unwrap().to_string());
-                            let target = if a.is_some() { m.clone() } else { m.split('.').next().unwrap().to_string() };
-                            import_of.insert(bind.clone(), target);
-                            b.insert(bind);
-                        }
-                    }
-                    St::Def(d) => {
-                        if top && d.decorators.is_empty() {
-                            defs.insert(d.name.clone());
-                        }
-                        b.insert(d.name.clone());
-                    }
-                    _ => {
-                        let sc = scope_of(std::slice::from_ref(s), &[]);
-                        b = sc.locals;
-                    }
-                }
-                for n in b {
-                    *binds.entry(n).or_default() += 1;
-                }
-            }
-        }
-        count(&m.body, &mut binds, &mut import_of, &mut def_names, true);
-        // assignments to globals from inside functions also rebind
-        let mut fn_globals = BTreeSet::new();
-        globals_in(&m.body, &mut fn_globals);
-        for (n, t) in import_of {
-            if binds.get(&n) == Some(&1) && !fn_globals.contains(&n) && !(em.bridge.has(&t) && !builtin_mod(t.as_str()) && !em.user_modules.contains(&t)) {
-                em.mod_alias.insert((m.name.clone(), n), t);
-            }
-        }
-        for s in &m.body {
-            if let St::Def(d) = &s.st {
-                let n = &d.name;
-                let p = &d.params;
-                if def_names.contains(n) && binds.get(n) == Some(&1) && !fn_globals.contains(n) && p.star.is_none() && p.kwstar.is_none() && p.kwonly.is_empty() && !has_yield(&d.body) && !d.is_async {
-                    em.direct_ok.insert((m.name.clone(), n.clone()));
-                    let npos = p.pos.len();
-                    let nd = p.pos.iter().rev().take_while(|x| x.1.is_some()).count();
-                    let slots: Vec<usize> = (npos - nd..npos).map(|k| em.gslot(&m.name, &format!("<default {n} {k}>"))).collect();
-                    em.direct.insert((m.name.clone(), n.clone()), (format!("f_{}_{}", rust_ident(&m.name), rust_ident(n)), npos, slots));
-                }
-            }
-        }
-        for n in &names {
-            em.gslot(&m.name, n);
-        }
-        em.mod_names.insert(m.name.clone(), names);
-    }
-    // bodies
+    // Brevi's own library copies first, each group named and numbered on its own, then the program's modules:
+    // the copies' Rust (everything before LIB_END) is then the same for every program that imports them, so a
+    // build can compile it once into a cached library (dynpy::compile) instead of with every program.
+    let own = OWN_COPIES.lock().unwrap().clone();
+    let mut libs: Vec<&Module> = mods.iter().skip(1).filter(|m| own.contains(&m.name)).collect();
+    libs.sort_by(|a, b| a.name.cmp(&b.name));
+    let users: Vec<&Module> = mods.iter().filter(|m| !libs.iter().any(|l| l.name == m.name)).collect();
+    let mut lib_part = String::new();
     let mut inits = String::new();
-    for m in mods {
-        em.module = m.name.clone();
-        IN_COPY.with(|c| c.set(OWN_COPIES.lock().unwrap().contains(&m.name)));
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, exc_vars: vec![], is_module: true, is_class: false, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new() };
-        for n in em.mod_names[&m.name].clone() {
-            let i = em.gslot(&m.name, &n);
-            fr.vars.insert(n.clone(), Var::Global(i));
+    for (gi, group) in [libs.clone(), users].into_iter().enumerate() {
+    // module-level names, import aliases and directly callable defs
+        for m in group.iter().copied() {
+            let sc = scope_of(&m.body, &[]);
+            let mut names = sc.locals.clone();
+            // names declared global in functions
+            fn globals_in(body: &[Stmt], out: &mut BTreeSet<String>) {
+                for s in body {
+                    match &s.st {
+                        St::Def(d) => {
+                            let sc = scope_of(&d.body, &[]);
+                            out.extend(sc.globals.iter().cloned());
+                            globals_in(&d.body, out);
+                        }
+                        St::Class(c) => globals_in(&c.body, out),
+                        St::If(arms, els) => {
+                            for (_, b) in arms {
+                                globals_in(b, out);
+                            }
+                            if let Some(b) = els {
+                                globals_in(b, out);
+                            }
+                        }
+                        St::For(_, _, b, e) | St::While(_, b, e) => {
+                            globals_in(b, out);
+                            if let Some(e) = e {
+                                globals_in(e, out);
+                            }
+                        }
+                        St::Try(b, hs, e, f) => {
+                            globals_in(b, out);
+                            for h in hs {
+                                globals_in(&h.body, out);
+                            }
+                            if let Some(e) = e {
+                                globals_in(e, out);
+                            }
+                            if let Some(f) = f {
+                                globals_in(f, out);
+                            }
+                        }
+                        St::With(_, b) => globals_in(b, out),
+                        _ => {}
+                    }
+                }
+            }
+            globals_in(&m.body, &mut names);
+            // how often each name is bound at module level (top level statements only)
+            let mut binds: HashMap<String, usize> = HashMap::new();
+            let mut import_of: HashMap<String, String> = HashMap::new();
+            let mut def_names: HashSet<String> = HashSet::new();
+            fn count(body: &[Stmt], binds: &mut HashMap<String, usize>, import_of: &mut HashMap<String, String>, defs: &mut HashSet<String>, top: bool) {
+                for s in body {
+                    let mut b = BTreeSet::new();
+                    match &s.st {
+                        St::Import(v) => {
+                            for (m, a) in v {
+                                let bind = a.clone().unwrap_or_else(|| m.split('.').next().unwrap().to_string());
+                                let target = if a.is_some() { m.clone() } else { m.split('.').next().unwrap().to_string() };
+                                import_of.insert(bind.clone(), target);
+                                b.insert(bind);
+                            }
+                        }
+                        St::Def(d) => {
+                            if top && d.decorators.is_empty() {
+                                defs.insert(d.name.clone());
+                            }
+                            b.insert(d.name.clone());
+                        }
+                        _ => {
+                            let sc = scope_of(std::slice::from_ref(s), &[]);
+                            b = sc.locals;
+                        }
+                    }
+                    for n in b {
+                        *binds.entry(n).or_default() += 1;
+                    }
+                }
+            }
+            count(&m.body, &mut binds, &mut import_of, &mut def_names, true);
+            // assignments to globals from inside functions also rebind
+            let mut fn_globals = BTreeSet::new();
+            globals_in(&m.body, &mut fn_globals);
+            for (n, t) in import_of {
+                if binds.get(&n) == Some(&1) && !fn_globals.contains(&n) && !(em.bridge.has(&t) && !builtin_mod(t.as_str()) && !em.user_modules.contains(&t)) {
+                    em.mod_alias.insert((m.name.clone(), n), t);
+                }
+            }
+            for s in &m.body {
+                if let St::Def(d) = &s.st {
+                    let n = &d.name;
+                    let p = &d.params;
+                    if def_names.contains(n) && binds.get(n) == Some(&1) && !fn_globals.contains(n) && p.star.is_none() && p.kwstar.is_none() && p.kwonly.is_empty() && !has_yield(&d.body) && !d.is_async {
+                        em.direct_ok.insert((m.name.clone(), n.clone()));
+                        let npos = p.pos.len();
+                        let nd = p.pos.iter().rev().take_while(|x| x.1.is_some()).count();
+                        let slots: Vec<usize> = (npos - nd..npos).map(|k| em.gslot(&m.name, &format!("<default {n} {k}>"))).collect();
+                        em.direct.insert((m.name.clone(), n.clone()), (format!("f_{}_{}", rust_ident(&m.name), rust_ident(n)), npos, slots));
+                    }
+                }
+            }
+            for n in &names {
+                em.gslot(&m.name, n);
+            }
+            em.mod_names.insert(m.name.clone(), names);
         }
-        em.fstack.push(fr);
-        let name_slot = em.gslot(&m.name, "__name__");
-        let body = em.block(&m.body).map_err(|(l, e)| (m.name.clone(), l, e))?;
-        em.fstack.pop();
-        let ident = rust_ident(&m.name);
-        let nm = lit(&m.name);
-        write!(inits, "thread_local! {{ static DONE_{ident}: Cell<bool> = Cell::new(false); }}\nfn init_{ident}() -> Result<(), E> {{ if DONE_{ident}.with(|d| d.replace(true)) {{ return Ok(()); }} gs({name_slot}, s({nm}));\n{body}\nOk(()) }}\n").unwrap();
+    // bodies
+        for m in group.iter().copied() {
+            em.module = m.name.clone();
+            IN_COPY.with(|c| c.set(OWN_COPIES.lock().unwrap().contains(&m.name)));
+            let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, exc_vars: vec![], is_module: true, is_class: false, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new() };
+            for n in em.mod_names[&m.name].clone() {
+                let i = em.gslot(&m.name, &n);
+                fr.vars.insert(n.clone(), Var::Global(i));
+            }
+            em.fstack.push(fr);
+            let name_slot = em.gslot(&m.name, "__name__");
+            let body = em.block(&m.body).map_err(|(l, e)| (m.name.clone(), l, e))?;
+            em.fstack.pop();
+            let ident = rust_ident(&m.name);
+            let nm = lit(&m.name);
+            write!(inits, "thread_local! {{ static DONE_{ident}: Cell<bool> = Cell::new(false); }}\nfn init_{ident}() -> Result<(), E> {{ if DONE_{ident}.with(|d| d.replace(true)) {{ return Ok(()); }} gs({name_slot}, s({nm}));\n{body}\nOk(()) }}\n").unwrap();
+        }
+        if gi == 0 && !libs.is_empty() {
+            lib_part.push_str(&std::mem::take(&mut em.items));
+            lib_part.push_str(&std::mem::take(&mut inits));
+            for m in &libs {
+                lib_part.push_str(&gtab(&em, &m.name));
+            }
+            lib_part.push_str(&ic_statics());
+            IC_LIB_END.with(|c| c.set(IC_COUNT.with(|n| n.get())));
+            lib_part.push_str(LIB_END);
+        }
     }
-    let mut out = String::new();
+    let mut out = lib_part;
     out.push_str(&em.items);
     out.push_str(&inits);
     // user module attribute hook
@@ -3180,14 +3621,8 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     hook.push_str("_ => None } }\n");
     out.push_str(&hook);
     // name -> global slot, per module, for globals()
-    for m in mods {
-        let mut slots: Vec<(String, usize)> = em.globals.iter().filter(|((mm, n), _)| mm == &m.name && !n.starts_with('<')).map(|((_, n), i)| (n.clone(), *i)).collect();
-        slots.sort();
-        write!(out, "#[allow(dead_code)] fn gtab_{}(k: &str) -> Option<usize> {{ match k {{ ", rust_ident(&m.name)).unwrap();
-        for (n, i) in slots {
-            write!(out, "{} => Some({i}), ", lit(&n)).unwrap();
-        }
-        out.push_str("_ => None } }\n");
+    for m in mods.iter().filter(|m| !libs.iter().any(|l| l.name == m.name)) {
+        out.push_str(&gtab(&em, &m.name));
     }
     let consts: Vec<String> = em.consts.iter().map(|c| format!("s({})", lit(c))).collect();
     write!(
@@ -3199,6 +3634,21 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     .unwrap();
     let _ = &em.out;
     Ok((out, em.bridged_used.into_iter().collect()))
+}
+
+// The program's Rust up to this line is its library copies (see program).
+pub const LIB_END: &str = "\n//==BREVI_LIB_END==\n";
+
+// name -> global slot in module `m`, for globals()
+fn gtab(em: &Em, m: &str) -> String {
+    let mut slots: Vec<(String, usize)> = em.globals.iter().filter(|((mm, n), _)| mm == m && !n.starts_with('<')).map(|((_, n), i)| (n.clone(), *i)).collect();
+    slots.sort();
+    let mut out = format!("#[allow(dead_code)] fn gtab_{}(k: &str) -> Option<usize> {{ match k {{ ", rust_ident(m));
+    for (n, i) in slots {
+        write!(out, "{} => Some({i}), ", lit(&n)).unwrap();
+    }
+    out.push_str("_ => None } }\n");
+    out
 }
 
 // fields used by the code above

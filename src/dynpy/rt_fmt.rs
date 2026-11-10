@@ -118,8 +118,9 @@ pub fn repr(v: &V) -> Result<String, E> {
         V::Int(i) => i.to_string(),
         V::Big(b) => {
             let s = b.to_string();
-            if s.len() > 4300 + b.neg as usize {
-                return val_err("Exceeds the limit (4300 digits) for integer string conversion; use sys.set_int_max_str_digits() to increase the limit".into());
+            let lim = int_max_digits();
+            if lim > 0 && s.len() > lim + b.neg as usize {
+                return val_err(format!("Exceeds the limit ({lim} digits) for integer string conversion; use sys.set_int_max_str_digits() to increase the limit"));
             }
             s
         }
@@ -130,10 +131,26 @@ pub fn repr(v: &V) -> Result<String, E> {
             if !guard(p) {
                 return Ok("[...]".into());
             }
-            let items = l.borrow().clone();
-            let r = join_repr(&items);
+            // item by item from the live list: an item's __repr__ may shorten it (CPython prints what is left)
+            let mut parts = vec![];
+            let mut i = 0;
+            let r = loop {
+                let x = {
+                    let b = l.borrow();
+                    if i >= b.len() {
+                        break Ok(());
+                    }
+                    b[i].clone()
+                };
+                match repr(&x) {
+                    Ok(t) => parts.push(t),
+                    Err(e) => break Err(e),
+                }
+                i += 1;
+            };
             unguard();
-            format!("[{}]", r?)
+            r?;
+            format!("[{}]", parts.join(", "))
         }
         V::Tuple(t) => {
             if t.len() == 1 {
@@ -226,7 +243,12 @@ pub fn repr(v: &V) -> Result<String, E> {
         }
         V::Obj(o) => {
             if let Some(f) = o.cls.lookup("__repr__") {
-                return match call(&f, Args::p(vec![v.clone()]))? {
+                // bound as an attribute lookup would bind it: a @staticmethod __repr__ gets no self
+                let r = match &f {
+                    V::Func(fun) if fun.kind.get() == 0 => call(&f, Args::p(vec![v.clone()]))?,
+                    _ => call(&getattr(v, "__repr__")?, Args::p(vec![]))?,
+                };
+                return match r {
                     V::Str(s) => Ok(s.s.clone()),
                     x => type_err(format!("__repr__ returned non-string (type {})", tn(&x))),
                 };
@@ -270,6 +292,28 @@ pub fn repr(v: &V) -> Result<String, E> {
         }
         V::Module(m) => format!("<module '{}'>", m),
         V::View(x) => {
+            // kind 3 is a mappingproxy: the dict's own repr in `mappingproxy({...})`.
+            if x.1 == 3 {
+                if let V::Dict(d) = &x.0 {
+                    let p = Rc::as_ptr(d) as usize;
+                    if !guard(p) {
+                        return Ok("mappingproxy({...})".into());
+                    }
+                    let mut parts = vec![];
+                    // Copy the items out first: a user __repr__ may change the dict.
+                    let items = d.borrow().items();
+                    let r = (|| -> Result<(), E> {
+                        for (k, v) in items {
+                            parts.push(format!("{}: {}", repr(&k)?, repr(&v)?));
+                        }
+                        Ok(())
+                    })();
+                    unguard();
+                    r?;
+                    return Ok(format!("mappingproxy({{{}}})", parts.join(", ")));
+                }
+                return Ok("mappingproxy({})".into());
+            }
             let name = ["dict_keys", "dict_values", "dict_items"][x.1 as usize];
             format!("{}([{}])", name, join_repr(&to_vec(v)?)?)
         }
@@ -358,6 +402,7 @@ pub fn to_str(v: &V) -> Result<String, E> {
             }
             repr(v)?
         }
+        V::View(x) if x.1 == 3 => repr(&x.0)?,
         V::Ext(x) => x.str_(),
         _ => repr(v)?,
     })
@@ -939,6 +984,43 @@ pub fn parse_float(t: &str) -> Option<f64> {
     }?;
     Some(if neg { -r } else { r })
 }
+// sys.set_int_max_str_digits: how many decimal digits int(str) reads and str(int) writes (0: no limit).
+static INT_MAX_DIGITS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(4300);
+pub fn int_max_digits() -> usize {
+    INT_MAX_DIGITS.load(std::sync::atomic::Ordering::Relaxed)
+}
+pub fn set_int_max_digits(v: &V) -> Result<(), E> {
+    let n = idx_of(v)?;
+    if n != 0 && n < 640 {
+        return val_err("maxdigits must be 0 or larger than 640".into());
+    }
+    INT_MAX_DIGITS.store(n as usize, std::sync::atomic::Ordering::Relaxed);
+    Ok(())
+}
+// int(text, base) past the limit: CPython counts the digits (not the sign, spaces or underscores), and only
+// for a base that is not a power of two.
+pub fn int_text_limit(t: &str, base: u32, r: Option<V>) -> Result<Option<V>, E> {
+    let lim = int_max_digits();
+    if lim == 0 || !matches!(r, Some(V::Big(_))) {
+        return Ok(r);
+    }
+    let lower = t.trim().trim_start_matches(['+', '-']).to_ascii_lowercase();
+    let b = match base {
+        0 if lower.starts_with("0x") => 16,
+        0 if lower.starts_with("0o") => 8,
+        0 if lower.starts_with("0b") => 2,
+        0 => 10,
+        b => b,
+    };
+    if b.is_power_of_two() {
+        return Ok(r);
+    }
+    let n = lower.chars().filter(|c| *c != '_').count();
+    if n > lim {
+        return val_err(format!("Exceeds the limit ({lim} digits) for integer string conversion: value has {n} digits; use sys.set_int_max_str_digits() to increase the limit"));
+    }
+    Ok(r)
+}
 pub fn parse_int(t: &str, base: u32) -> Option<V> {
     let t = t.trim();
     let (neg, mut body) = match t.strip_prefix('-') {
@@ -972,9 +1054,8 @@ pub fn parse_int(t: &str, base: u32) -> Option<V> {
     let digits: String = body.chars().filter(|&c| c != '_').collect();
     if !digits.chars().all(|c| c.is_digit(base)) {
         // allow non-ascii digits for base 10
-        if base == 10 && digits.chars().all(|c| c.is_numeric()) {
-            let d: String = digits.chars().map(|c| c.to_digit(10).map(|x| std::char::from_digit(x, 10).unwrap()).unwrap_or(c)).collect();
-            if d.chars().all(|c| c.is_ascii_digit()) {
+        if base == 10 {
+            if let Some(d) = digits.chars().map(|c| uni_decimal(c).map(|x| std::char::from_digit(x, 10).unwrap())).collect::<Option<String>>() {
                 return parse_int(&format!("{}{}", if neg { "-" } else { "" }, d), 10);
             }
         }
@@ -1006,16 +1087,22 @@ pub fn to_int(v: &V) -> R {
                 Ok(Big::from_f64(t).norm())
             }
         }
-        V::Str(s) => parse_int(&s.s, 10).ok_or_else(|| exc("ValueError", format!("invalid literal for int() with base 10: {}", str_repr(&s.s)))),
+        V::Str(s) => int_text_limit(&s.s, 10, parse_int(&s.s, 10))?.ok_or_else(|| exc("ValueError", format!("invalid literal for int() with base 10: {}", str_repr(&s.s)))),
         V::Obj(o) => {
-            for n in ["__int__", "__index__", "__trunc__"] {
+            if let Some(f) = o.cls.lookup("__int__") {
+                return match call(&f, Args::p(vec![v.clone()]))? {
+                    r @ (V::Int(_) | V::Big(_) | V::Bool(_)) => Ok(r),
+                    r => type_err(format!("__int__ returned non-int (type {})", tn(&r))),
+                };
+            }
+            // a subclass of int, float or str (IntEnum, StrEnum): int's own __int__ wins over a user __index__
+            if let Some(i) = inner_of(v).filter(|i| matches!(i, V::Int(_) | V::Big(_) | V::Bool(_) | V::Float(_) | V::Str(_))) {
+                return to_int(&i);
+            }
+            for n in ["__index__", "__trunc__"] {
                 if let Some(f) = o.cls.lookup(n) {
                     return call(&f, Args::p(vec![v.clone()]));
                 }
-            }
-            // a subclass of int, float or str (IntEnum, StrEnum)
-            if let Some(i) = inner_of(v).filter(|i| matches!(i, V::Int(_) | V::Big(_) | V::Bool(_) | V::Float(_) | V::Str(_))) {
-                return to_int(&i);
             }
             type_err(format!("int() argument must be a string, a bytes-like object or a real number, not '{}'", tn(v)))
         }
@@ -1113,4 +1200,17 @@ pub fn sort_values(v: &mut Vec<V>, key: Option<&V>, reverse: bool) -> Result<(),
     }
     *v = keyed.into_iter().map(|x| x.1).collect();
     Ok(())
+}
+
+/// The value of a Unicode decimal digit (category Nd, Unicode 15.1): `int("१२३")` is 123, as in CPython.
+fn uni_decimal(c: char) -> Option<u32> {
+    const ZEROS: &[u32] = &[
+        0x30, 0x660, 0x6f0, 0x7c0, 0x966, 0x9e6, 0xa66, 0xae6, 0xb66, 0xbe6, 0xc66, 0xce6, 0xd66, 0xde6, 0xe50, 0xed0, 0xf20,
+        0x1040, 0x1090, 0x17e0, 0x1810, 0x1946, 0x19d0, 0x1a80, 0x1a90, 0x1b50, 0x1bb0, 0x1c40, 0x1c50, 0xa620, 0xa8d0, 0xa900,
+        0xa9d0, 0xa9f0, 0xaa50, 0xabf0, 0xff10, 0x104a0, 0x10d30, 0x11066, 0x110f0, 0x11136, 0x111d0, 0x112f0, 0x11450, 0x114d0,
+        0x11650, 0x116c0, 0x11730, 0x118e0, 0x11950, 0x11c50, 0x11d50, 0x11da0, 0x11f50, 0x16a60, 0x16ac0, 0x16b50, 0x1d7ce, 0x1d7d8,
+        0x1d7e2, 0x1d7ec, 0x1d7f6, 0x1e140, 0x1e2f0, 0x1e4f0, 0x1e950, 0x1fbf0,
+    ];
+    let u = c as u32;
+    ZEROS.iter().find(|&&z| u >= z && u < z + 10).map(|z| u - z)
 }

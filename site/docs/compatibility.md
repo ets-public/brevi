@@ -9,7 +9,7 @@ What "the same" covers: stdout byte for byte and the exit status. Text on stderr
 
 | Check | Result |
 | --- | --- |
-| CPython 3.13's own tests (`test_grammar`, `test_scope`, `test_int`, `test_list`, `test_dict`; 311 scored) | **181 match (58.2%)**, 66 refused at build time, **44 build but answer differently** (18 in output, 26 in exit status), **5 crash**. 34 of the matches print nothing, so they only show the program built and exited cleanly. 25 of the 230 native builds took the fast typed build ([report](repo:bench/conformance/report.md)) |
+| CPython 3.13's own tests (`test_grammar`, `test_scope`, `test_int`, `test_list`, `test_dict`; 311 scored) | **181 match (58.2%)**, 66 refused at build time, **44 build but answer differently** (18 in output, 26 in exit status), **5 crash**. 34 of the matches print nothing, so they only show the program built and exited cleanly. 25 of the 230 native builds took the fast typed build. On main, from the next release: **230 match (74.0%)**, 52 refused, 12 answer differently, 2 crash ([report](repo:bench/conformance/report.md)) |
 | Saved agent programs (591, solutions to our own benchmark tasks, kept once they passed) | 591 build, 591 match CPython on every test. A regression check, not a sample of Python in general |
 | Large programs (18; chess, a text adventure, an interpreter; 200 to 750 lines over 3 to 4 files) | 18 build, 18 match (also our own saved solutions) |
 | Behaviour traps (13: big ints, `//` and `%` signs, float printing, dict order, unicode, aliasing, deep recursion, ...) | 13 match |

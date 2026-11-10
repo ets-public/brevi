@@ -1141,7 +1141,7 @@ pub fn py_hash(v: &V) -> Result<i64, E> {
                 o.cls.plain_hash.set((ep, b));
                 b
             }
-        } => ptr_hash(Rc::as_ptr(o) as usize),
+        } && o.inner.borrow().is_none() => ptr_hash(Rc::as_ptr(o) as usize),
         V::Obj(o) => {
             let mixin = if is_enum(&o.cls) { o.inner() } else { None };
             if let Some(i) = mixin {
@@ -1158,6 +1158,9 @@ pub fn py_hash(v: &V) -> Result<i64, E> {
                 }
             } else if o.cls.lookup("__eq__").is_some() {
                 return type_err(format!("unhashable type: '{}'", o.cls.name));
+            } else if let Some(i) = o.inner.borrow().clone() {
+                // a subclass of str, int or tuple hashes as its value, so it finds the same dict slot
+                py_hash(&i)?
             } else {
                 ptr_hash(Rc::as_ptr(o) as usize)
             }
@@ -1186,12 +1189,41 @@ impl Hash for K {
         st.write_i64(self.h);
     }
 }
+thread_local! {
+    static KEY_ERR: Cell<Option<E>> = const { Cell::new(None) };
+    // While this is set, K compares by identity only: the dict code applies a result it already probed
+    // outside the borrow, so the second probe under the borrow must not call user __eq__.
+    static IDENT_EQ: Cell<bool> = const { Cell::new(false) };
+}
 impl PartialEq for K {
     fn eq(&self, o: &K) -> bool {
-        self.h == o.h && eq(&self.v, &o.v).unwrap_or(false)
+        // The hash map's own comparison cannot return an error, so one a user __eq__ raises waits in KEY_ERR
+        // until the dict operation reads it (key_err) and raises it, as CPython would.
+        if self.h != o.h {
+            return false;
+        }
+        if same_obj(&self.v, &o.v) {
+            return true;
+        }
+        if IDENT_EQ.with(|c| c.get()) {
+            return same_key(&self.v, &o.v);
+        }
+        match eq(&self.v, &o.v) {
+            Ok(b) => b,
+            Err(e) => {
+                KEY_ERR.with(|c| c.set(Some(e)));
+                false
+            }
+        }
     }
 }
 impl Eq for K {}
+fn key_err() -> Result<(), E> {
+    match KEY_ERR.with(|c| c.take()) {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
+}
 
 #[derive(Default)]
 pub struct IdH(u64);
@@ -1214,45 +1246,111 @@ pub type HM<KK, VV> = HashMap<KK, VV, BuildHasherDefault<IdH>>;
 
 pub struct Dict {
     pub ents: Vec<Option<(V, V)>>,
-    pub idx: HM<K, usize>,
+    // Index from stored hash to the key's position in ents. Rc so a lookup can snapshot it cheaply:
+    // user __eq__ may mutate the dict during a probe, and the snapshot stays valid while that runs.
+    pub idx: Rc<HM<K, usize>>,
     pub n: usize,
     // 0 dict, 1 defaultdict, 2 Counter, 3 OrderedDict
     pub kind: u8,
     pub dflt: Option<V>,
     pub ver: u64,
+    // number of stored keys whose == may run user code (lookups on such a dict drop the RefCell borrow)
+    pub unsafe_eq: usize,
 }
+// At most this many restarts of a lookup whose key comparison changed the dict; then give up instead of
+// looping forever (CPython restarts on the changed table; a dict cleared in __eq__ is empty the second time).
+const LOOKUP_RESTARTS: usize = 200;
 impl Dict {
     pub fn new() -> Dict {
-        Dict { ents: vec![], idx: HM::default(), n: 0, kind: 0, dflt: None, ver: 0 }
+        Dict { ents: vec![], idx: Rc::new(HM::default()), n: 0, kind: 0, dflt: None, ver: 0, unsafe_eq: 0 }
     }
     pub fn len(&self) -> usize {
         self.n
     }
     pub fn get(&self, k: &V) -> Result<Option<V>, E> {
         let key = K { h: py_hash(k)?, v: k.clone() };
-        Ok(self.idx.get(&key).map(|&i| self.ents[i].as_ref().unwrap().1.clone()))
+        self.get_key(&key)
+    }
+    // The old single-borrow probe. Only call this when no comparison can run user code (the caller checked
+    // key_eq_safe on both the lookup key and every stored key).
+    fn get_key(&self, key: &K) -> Result<Option<V>, E> {
+        let r = self.idx.get(key).map(|&i| self.ents[i].as_ref().unwrap().1.clone());
+        key_err()?;
+        Ok(r)
     }
     pub fn contains(&self, k: &V) -> Result<bool, E> {
         let key = K { h: py_hash(k)?, v: k.clone() };
-        Ok(self.idx.contains_key(&key))
+        self.contains_key(&key)
+    }
+    fn contains_key(&self, key: &K) -> Result<bool, E> {
+        let r = self.idx.contains_key(key);
+        key_err()?;
+        Ok(r)
     }
     pub fn set(&mut self, k: V, v: V) -> Result<(), E> {
         let key = K { h: py_hash(&k)?, v: k.clone() };
-        if let Some(&i) = self.idx.get(&key) {
-            self.ents[i].as_mut().unwrap().1 = v;
-        } else {
-            self.ents.push(Some((k, v)));
-            self.idx.insert(key, self.ents.len() - 1);
-            self.n += 1;
-            self.ver += 1;
+        self.set_key(key, k, v)
+    }
+    fn set_key(&mut self, key: K, k: V, v: V) -> Result<(), E> {
+        let unsafe_k = !key_eq_safe(&k);
+        match Rc::make_mut(&mut self.idx).entry(key) {
+            std::collections::hash_map::Entry::Occupied(e) => {
+                key_err()?;
+                self.ents[*e.get()].as_mut().unwrap().1 = v;
+            }
+            std::collections::hash_map::Entry::Vacant(e) => {
+                key_err()?;
+                let i = self.ents.len();
+                self.ents.push(Some((k, v)));
+                e.insert(i);
+                if unsafe_k {
+                    self.unsafe_eq += 1;
+                }
+                self.n += 1;
+                self.ver += 1;
+            }
         }
         Ok(())
     }
+    // `d.setdefault(k, v)`: one hash and one lookup, as CPython (a test counts the __hash__ and __eq__ calls)
+    pub fn set_default(&mut self, k: V, v: V) -> Result<V, E> {
+        let key = K { h: py_hash(&k)?, v: k.clone() };
+        self.set_default_key(key, k, v)
+    }
+    fn set_default_key(&mut self, key: K, k: V, v: V) -> Result<V, E> {
+        let unsafe_k = !key_eq_safe(&k);
+        match Rc::make_mut(&mut self.idx).entry(key) {
+            std::collections::hash_map::Entry::Occupied(e) => {
+                key_err()?;
+                Ok(self.ents[*e.get()].as_ref().unwrap().1.clone())
+            }
+            std::collections::hash_map::Entry::Vacant(e) => {
+                key_err()?;
+                let i = self.ents.len();
+                self.ents.push(Some((k, v.clone())));
+                e.insert(i);
+                if unsafe_k {
+                    self.unsafe_eq += 1;
+                }
+                self.n += 1;
+                self.ver += 1;
+                Ok(v)
+            }
+        }
+    }
     pub fn del(&mut self, k: &V) -> Result<Option<V>, E> {
         let key = K { h: py_hash(k)?, v: k.clone() };
-        match self.idx.remove(&key) {
+        self.del_key(&key)
+    }
+    fn del_key(&mut self, key: &K) -> Result<Option<V>, E> {
+        let removed = Rc::make_mut(&mut self.idx).remove(key);
+        key_err()?;
+        match removed {
             Some(i) => {
-                let (_, v) = self.ents[i].take().unwrap();
+                let (k, v) = self.ents[i].take().unwrap();
+                if !key_eq_safe(&k) {
+                    self.unsafe_eq = self.unsafe_eq.saturating_sub(1);
+                }
                 self.n -= 1;
                 self.ver += 1;
                 if self.ents.len() > 16 && self.ents.len() > 2 * self.n {
@@ -1264,16 +1362,32 @@ impl Dict {
         }
     }
     pub fn compact(&mut self) {
-        let ents: Vec<Option<(V, V)>> = std::mem::take(&mut self.ents).into_iter().filter(|e| e.is_some()).collect();
-        self.idx.clear();
-        for (i, e) in ents.iter().enumerate() {
-            let k = &e.as_ref().unwrap().0;
-            self.idx.insert(K { h: py_hash(k).unwrap_or(0), v: k.clone() }, i);
+        // Rebuild the index from the entries' stored hashes: no __hash__ or __eq__ call can run here,
+        // so a compact is always safe inside a borrow.
+        let mut at = vec![usize::MAX; self.ents.len()];
+        let mut ents = Vec::with_capacity(self.n);
+        for (old_i, e) in std::mem::take(&mut self.ents).into_iter().enumerate() {
+            if e.is_some() {
+                at[old_i] = ents.len();
+                ents.push(e);
+            }
         }
+        let mut idx = HM::default();
+        for (k, &old_i) in self.idx.iter() {
+            idx_insert_ident(&mut idx, k.clone(), at[old_i]);
+        }
+        self.idx = Rc::new(idx);
         self.ents = ents;
     }
     pub fn keys(&self) -> Vec<V> {
         self.ents.iter().flatten().map(|(k, _)| k.clone()).collect()
+    }
+    // The live keys in insertion order, with the hashes the dict already computed.
+    pub fn keys_h(&self) -> Vec<(V, i64)> {
+        let mut kv: Vec<(usize, (V, i64))> =
+            self.idx.iter().map(|(k, &i)| (i, (k.v.clone(), k.h))).collect();
+        kv.sort_by_key(|&(i, _)| i);
+        kv.into_iter().map(|(_, kv)| kv).collect()
     }
     pub fn values(&self) -> Vec<V> {
         self.ents.iter().flatten().map(|(_, v)| v.clone()).collect()
@@ -1283,18 +1397,23 @@ impl Dict {
     }
     pub fn clear(&mut self) {
         self.ents.clear();
-        self.idx.clear();
+        self.idx = Rc::new(HM::default());
         self.n = 0;
+        self.unsafe_eq = 0;
         self.ver += 1;
     }
     pub fn copy(&self) -> Dict {
-        let mut d = Dict::new();
-        d.kind = self.kind;
-        d.dflt = self.dflt.clone();
-        for (k, v) in self.items() {
-            d.set(k, v).ok();
+        // A plain copy of the table and its index: no __hash__ or __eq__ runs, so copying is safe inside
+        // a borrow even when the keys would run user code.
+        Dict {
+            ents: self.ents.clone(),
+            idx: Rc::new((*self.idx).clone()),
+            n: self.n,
+            kind: self.kind,
+            dflt: self.dflt.clone(),
+            ver: 0,
+            unsafe_eq: self.unsafe_eq,
         }
-        d
     }
     pub fn move_to_end(&mut self, k: &V, last: bool) -> Result<bool, E> {
         match self.del(k)? {
@@ -1303,11 +1422,31 @@ impl Dict {
                 if last {
                     self.set(k.clone(), v)?;
                 } else {
-                    let mut rest = std::mem::take(&mut self.ents);
-                    rest.insert(0, Some((k.clone(), v)));
-                    self.ents = rest;
+                    let unsafe_k = !key_eq_safe(k);
+                    let key = K { h: py_hash(k).unwrap_or(0), v: k.clone() };
+                    // Rebuild the table with k first, keeping the other live entries in order. The old
+                    // index gives their stored hashes; the old positions map through the holes.
+                    let mut old = std::mem::take(&mut self.ents);
+                    let mut at = vec![usize::MAX; old.len()];
+                    let mut ents = Vec::with_capacity(old.len());
+                    ents.push(Some((k.clone(), v)));
+                    for (old_i, e) in old.drain(..).enumerate() {
+                        if e.is_some() {
+                            at[old_i] = ents.len();
+                            ents.push(e);
+                        }
+                    }
+                    let mut idx = HM::default();
+                    idx_insert_ident(&mut idx, key, 0);
+                    for (kk, &old_i) in self.idx.iter() {
+                        idx_insert_ident(&mut idx, kk.clone(), at[old_i]);
+                    }
+                    self.idx = Rc::new(idx);
+                    self.ents = ents;
                     self.n += 1;
-                    self.compact();
+                    if unsafe_k {
+                        self.unsafe_eq += 1;
+                    }
                 }
                 Ok(true)
             }
@@ -1317,6 +1456,288 @@ impl Dict {
     pub fn first_live(&self, from: usize) -> Option<usize> {
         (from..self.ents.len()).find(|&i| self.ents[i].is_some())
     }
+
+    // The same operations, but the dict lives in a RefCell that user __eq__/__hash__ may re-enter. The hash
+    // is computed first, then (for keys whose comparisons may run user code) the probe runs on a snapshot of
+    // the index outside any borrow; the borrow is taken again only to check the version and apply the result.
+    fn restart_err() -> E {
+        exc("RuntimeError", "dict mutated during lookup".into())
+    }
+    pub fn get_cell(d: &Rc<RefCell<Dict>>, k: &V) -> Result<Option<V>, E> {
+        let h = py_hash(k)?;
+        let key = K { h, v: k.clone() };
+        if key_eq_safe(k) && d.borrow().unsafe_eq == 0 {
+            return d.borrow().get_key(&key);
+        }
+        let mut restarts = 0;
+        loop {
+            let (idx, ver) = { let dd = d.borrow(); (dd.idx.clone(), dd.ver) };
+            let i = idx.get(&key).map(|&i| i);
+            key_err()?;
+            let dd = d.borrow();
+            if dd.ver == ver {
+                return Ok(i.map(|i| dd.ents[i].as_ref().unwrap().1.clone()));
+            }
+            restarts += 1;
+            if restarts > LOOKUP_RESTARTS {
+                return Err(Self::restart_err());
+            }
+        }
+    }
+    pub fn contains_cell(d: &Rc<RefCell<Dict>>, k: &V) -> Result<bool, E> {
+        let h = py_hash(k)?;
+        let key = K { h, v: k.clone() };
+        if key_eq_safe(k) && d.borrow().unsafe_eq == 0 {
+            return d.borrow().contains_key(&key);
+        }
+        let mut restarts = 0;
+        loop {
+            let (idx, ver) = { let dd = d.borrow(); (dd.idx.clone(), dd.ver) };
+            let found = idx.contains_key(&key);
+            key_err()?;
+            let dd = d.borrow();
+            if dd.ver == ver {
+                return Ok(found);
+            }
+            restarts += 1;
+            if restarts > LOOKUP_RESTARTS {
+                return Err(Self::restart_err());
+            }
+        }
+    }
+    pub fn set_cell(d: &Rc<RefCell<Dict>>, k: V, v: V) -> Result<(), E> {
+        let h = py_hash(&k)?;
+        let key = K { h, v: k.clone() };
+        if key_eq_safe(&k) && d.borrow().unsafe_eq == 0 {
+            return d.borrow_mut().set_key(key, k, v);
+        }
+        let mut restarts = 0;
+        loop {
+            let (idx, ver) = { let dd = d.borrow(); (dd.idx.clone(), dd.ver) };
+            let i = idx.get(&key).map(|&i| i);
+            key_err()?;
+            let mut dd = d.borrow_mut();
+            if dd.ver != ver {
+                restarts += 1;
+                if restarts > LOOKUP_RESTARTS {
+                    return Err(Self::restart_err());
+                }
+                continue;
+            }
+            match i {
+                Some(i) => {
+                    dd.ents[i].as_mut().unwrap().1 = v;
+                    return Ok(());
+                }
+                None => {
+                    drop(idx);
+                    let unsafe_k = !key_eq_safe(&k);
+                    let i = dd.ents.len();
+                    match idx_insert_ident(Rc::make_mut(&mut dd.idx), key, i) {
+                        None => {
+                            dd.ents.push(Some((k, v)));
+                            if unsafe_k {
+                                dd.unsafe_eq += 1;
+                            }
+                            dd.n += 1;
+                            dd.ver += 1;
+                            return Ok(());
+                        }
+                        Some(oi) => {
+                            dd.ents[oi].as_mut().unwrap().1 = v;
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    pub fn set_default_cell(d: &Rc<RefCell<Dict>>, k: V, v: V) -> Result<V, E> {
+        let h = py_hash(&k)?;
+        let key = K { h, v: k.clone() };
+        if key_eq_safe(&k) && d.borrow().unsafe_eq == 0 {
+            return d.borrow_mut().set_default_key(key, k, v);
+        }
+        let mut restarts = 0;
+        loop {
+            let (idx, ver) = { let dd = d.borrow(); (dd.idx.clone(), dd.ver) };
+            let i = idx.get(&key).map(|&i| i);
+            key_err()?;
+            let mut dd = d.borrow_mut();
+            if dd.ver != ver {
+                restarts += 1;
+                if restarts > LOOKUP_RESTARTS {
+                    return Err(Self::restart_err());
+                }
+                continue;
+            }
+            match i {
+                Some(i) => return Ok(dd.ents[i].as_ref().unwrap().1.clone()),
+                None => {
+                    drop(idx);
+                    let unsafe_k = !key_eq_safe(&k);
+                    let i = dd.ents.len();
+                    match idx_insert_ident(Rc::make_mut(&mut dd.idx), key, i) {
+                        None => {
+                            dd.ents.push(Some((k, v.clone())));
+                            if unsafe_k {
+                                dd.unsafe_eq += 1;
+                            }
+                            dd.n += 1;
+                            dd.ver += 1;
+                            return Ok(v);
+                        }
+                        Some(oi) => return Ok(dd.ents[oi].as_ref().unwrap().1.clone()),
+                    }
+                }
+            }
+        }
+    }
+    pub fn del_cell(d: &Rc<RefCell<Dict>>, k: &V) -> Result<Option<V>, E> {
+        let h = py_hash(k)?;
+        let key = K { h, v: k.clone() };
+        if key_eq_safe(k) && d.borrow().unsafe_eq == 0 {
+            return d.borrow_mut().del_key(&key);
+        }
+        let mut restarts = 0;
+        loop {
+            let (idx, ver) = { let dd = d.borrow(); (dd.idx.clone(), dd.ver) };
+            let i = idx.get(&key).map(|&i| i);
+            key_err()?;
+            let mut dd = d.borrow_mut();
+            if dd.ver != ver {
+                restarts += 1;
+                if restarts > LOOKUP_RESTARTS {
+                    return Err(Self::restart_err());
+                }
+                continue;
+            }
+            match i {
+                None => return Ok(None),
+                Some(i) => {
+                    let (sk, v) = dd.ents[i].take().unwrap();
+                    drop(idx);
+                    let unsafe_sk = !key_eq_safe(&sk);
+                    if unsafe_sk {
+                        dd.unsafe_eq = dd.unsafe_eq.saturating_sub(1);
+                    }
+                    let rk = K { h: key.h, v: sk.clone() };
+                    if !idx_remove_ident(Rc::make_mut(&mut dd.idx), &rk) {
+                        dd.ents[i] = Some((sk, v));
+                        if unsafe_sk {
+                            dd.unsafe_eq += 1;
+                        }
+                        return Err(Self::restart_err());
+                    }
+                    dd.n -= 1;
+                    dd.ver += 1;
+                    if dd.ents.len() > 16 && dd.ents.len() > 2 * dd.n {
+                        dd.compact();
+                    }
+                    return Ok(Some(v));
+                }
+            }
+        }
+    }
+    pub fn move_to_end_cell(d: &Rc<RefCell<Dict>>, k: &V, last: bool) -> Result<bool, E> {
+        let h = py_hash(k)?;
+        match Self::del_cell(d, k)? {
+            None => Ok(false),
+            Some(v) => {
+                if last {
+                    Self::set_cell(d, k.clone(), v)?;
+                } else {
+                    let unsafe_k = !key_eq_safe(k);
+                    let key = K { h, v: k.clone() };
+                    let mut dd = d.borrow_mut();
+                    // Rebuild the table with k first, keeping the other live entries in order. The old
+                    // index gives their stored hashes; the old positions map through the holes.
+                    let mut old = std::mem::take(&mut dd.ents);
+                    let mut at = vec![usize::MAX; old.len()];
+                    let mut ents = Vec::with_capacity(old.len());
+                    ents.push(Some((k.clone(), v)));
+                    for (old_i, e) in old.drain(..).enumerate() {
+                        if e.is_some() {
+                            at[old_i] = ents.len();
+                            ents.push(e);
+                        }
+                    }
+                    let mut idx = HM::default();
+                    idx_insert_ident(&mut idx, key, 0);
+                    for (kk, &old_i) in dd.idx.iter() {
+                        idx_insert_ident(&mut idx, kk.clone(), at[old_i]);
+                    }
+                    dd.idx = Rc::new(idx);
+                    dd.ents = ents;
+                    dd.n += 1;
+                    if unsafe_k {
+                        dd.unsafe_eq += 1;
+                    }
+                }
+                Ok(true)
+            }
+        }
+    }
+}
+
+// May comparing this key with another key run user code? (Builtin values compare without it, and an
+// instance whose class defines neither __eq__ nor __hash__ compares by identity.)
+fn key_eq_safe(v: &V) -> bool {
+    match v {
+        V::None | V::Bool(_) | V::Int(_) | V::Big(_) | V::Float(_) | V::Str(_) | V::Range(_) | V::Class(_) | V::Func(_) | V::Module(_) | V::Ellipsis | V::NotImpl => true,
+        V::Tuple(xs) => xs.iter().all(key_eq_safe),
+        V::FSet(p) => p.keys().iter().all(key_eq_safe),
+        V::Obj(o) => o.cls.lookup("__eq__").is_none() && o.inner.borrow().as_ref().map_or(true, |i| key_eq_safe(i)),
+        _ => false,
+    }
+}
+// The exact same key object as the one in ents[i]: clones of V share their heap object, so this is an
+// identity check that cannot call user code.
+fn same_key(a: &V, b: &V) -> bool {
+    match (a, b) {
+        (V::Obj(x), V::Obj(y)) => Rc::ptr_eq(x, y),
+        (V::Class(x), V::Class(y)) => Rc::ptr_eq(x, y),
+        (V::Tuple(x), V::Tuple(y)) => Tup::ptr_eq(x, y),
+        (V::FSet(x), V::FSet(y)) => Rc::ptr_eq(x, y),
+        (V::Ext(x), V::Ext(y)) => ExtRc::ptr_eq(x, y),
+        (V::Str(x), V::Str(y)) => Rc::ptr_eq(x, y),
+        (V::Big(x), V::Big(y)) => Rc::ptr_eq(x, y),
+        (V::Range(x), V::Range(y)) => Rc::ptr_eq(x, y),
+        (V::Func(x), V::Func(y)) => Rc::ptr_eq(x, y),
+        (V::Module(x), V::Module(y)) => x == y,
+        (V::None, V::None) => true,
+        (V::Bool(x), V::Bool(y)) => x == y,
+        (V::Int(x), V::Int(y)) => x == y,
+        (V::Float(x), V::Float(y)) => x.to_bits() == y.to_bits(),
+        (V::Ellipsis, V::Ellipsis) | (V::NotImpl, V::NotImpl) => true,
+        _ => false,
+    }
+}
+// Run a HashMap probe with user __eq__ turned off (identity only). The caller probed outside the borrow and
+// re-checked `ver`, so the identity probe reaches the same slot the full probe did.
+fn with_ident_eq<R>(f: impl FnOnce() -> R) -> R {
+    IDENT_EQ.with(|c| {
+        let was = c.replace(true);
+        let r = f();
+        c.set(was);
+        r
+    })
+}
+// Insert knowing the key is absent, without comparing keys (so no user code runs). The one entry it could
+// match by identity would have been matched by the full probe, which found none.
+fn idx_insert_ident(idx: &mut HM<K, usize>, k: K, i: usize) -> Option<usize> {
+    use std::collections::hash_map::Entry;
+    with_ident_eq(|| match idx.entry(k) {
+        Entry::Vacant(e) => {
+            e.insert(i);
+            None
+        }
+        Entry::Occupied(e) => Some(*e.get()),
+    })
+}
+// Remove the entry holding exactly `stored` (its clone shares the heap object), without comparing keys.
+fn idx_remove_ident(idx: &mut HM<K, usize>, k: &K) -> bool {
+    with_ident_eq(|| idx.remove(k).is_some())
 }
 
 // ---------- set (CPython's table layout, so iteration order matches for numbers and tuples) ----------
@@ -1528,6 +1949,24 @@ impl PSet {
         }
         Ok(p)
     }
+    // CPython's set_update_dict: one resize up front, then the dict's own
+    // hashes are reused, so the table order matches even for colliding keys.
+    // Takes the dict's keys_h() rather than the dict: add_h may run a user __eq__, which may change the
+    // dict, so the caller copies the keys out and releases its borrow first.
+    pub fn update_dict(&mut self, keys: Vec<(V, i64)>) {
+        let n = keys.len();
+        if (self.fill + n) * 5 >= self.mask() * 3 {
+            self.resize((self.used + n) * 2);
+        }
+        for (k, h) in keys {
+            self.add_h(k, h);
+        }
+    }
+    pub fn from_dict(keys: Vec<(V, i64)>) -> PSet {
+        let mut p = PSet::new();
+        p.update_dict(keys);
+        p
+    }
 }
 
 // ---------- functions, classes, objects ----------
@@ -1574,6 +2013,9 @@ pub struct Func {
     // 0 function, 1 staticmethod, 2 classmethod, 3 builtin
     pub kind: Cell<u8>,
     pub attrs: RefCell<Vec<(Sym, V)>>,
+    // co_flags of the def's code object (0: none, as for builtins); the object itself is made when
+    // __code__ is read, so creating a function allocates nothing extra
+    pub code_flags: Cell<u32>,
     // the plain Rust function behind a def that takes exactly n positional arguments, for calls with n of them
     pub fast: Cell<FastFn>,
 }
@@ -1586,10 +2028,10 @@ pub enum FastFn {
     F4(fn(V, V, V, V) -> R),
 }
 pub fn func(name: Sym, f: impl Fn(Args) -> R + 'static) -> V {
-    V::Func(Rc::new(Func { name, f: Box::new(f), kind: Cell::new(0), attrs: RefCell::new(vec![]), fast: Cell::new(FastFn::No) }))
+    V::Func(Rc::new(Func { name, f: Box::new(f), kind: Cell::new(0), attrs: RefCell::new(vec![]), code_flags: Cell::new(0), fast: Cell::new(FastFn::No) }))
 }
 pub fn builtin(name: Sym, f: impl Fn(Args) -> R + 'static) -> V {
-    V::Func(Rc::new(Func { name, f: Box::new(f), kind: Cell::new(3), attrs: RefCell::new(vec![]), fast: Cell::new(FastFn::No) }))
+    V::Func(Rc::new(Func { name, f: Box::new(f), kind: Cell::new(3), attrs: RefCell::new(vec![]), code_flags: Cell::new(0), fast: Cell::new(FastFn::No) }))
 }
 // a def's function value, with its plain Rust function for calls that pass every parameter by position
 pub fn with_fast(f: V, fast: FastFn) -> V {
@@ -1597,6 +2039,40 @@ pub fn with_fast(f: V, fast: FastFn) -> V {
         x.fast.set(fast);
     }
     f
+}
+// a def's function value, with its code object's flags
+pub fn with_code(f: V, flags: u32) -> V {
+    if let V::Func(x) = &f {
+        x.code_flags.set(flags);
+    }
+    f
+}
+
+// A code object for a def or lambda: the parts the Python library reads (co_name, co_flags).
+pub struct CodeObj {
+    pub name: Sym,
+    pub flags: u32,
+}
+pub fn mk_code(name: Sym, flags: u32) -> V {
+    V::Ext(ExtRc::new(CodeObj { name, flags }))
+}
+impl Ext for CodeObj {
+    fn tname(&self) -> &'static str {
+        "code"
+    }
+    fn repr(&self) -> String {
+        format!("<code object {} at {:#x}>", &*self.name, self as *const CodeObj as usize)
+    }
+    fn any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn attr(&self, _me: &V, n: &str) -> Option<R> {
+        Some(match n {
+            "co_name" => Ok(st(self.name.to_string())),
+            "co_flags" => Ok(V::Int(self.flags as i64)),
+            _ => Err(exc("AttributeError", format!("'code' object has no attribute '{n}'"))),
+        })
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -1799,9 +2275,21 @@ impl Class {
 
 pub struct Obj {
     pub cls: Rc<Class>,
-    pub d: RefCell<Attrs>,
+    // the instance's attributes. Inline Attrs values until the first read or write of __dict__; from then on a
+    // Dict holds every normal attribute (the single source of truth), and Attrs keeps only Brevi's slot names
+    // (pydantic's __pydantic_* attributes, which CPython keeps out of __dict__).
+    pub d: RefCell<AStore>,
     // the builtin value a subclass of a builtin type wraps (class Stack(list)); boxed, as most objects have none
     inner: RefCell<Option<Box<V>>>,
+}
+pub struct AStore {
+    pub attrs: Attrs,
+    pub dict: Option<Rc<RefCell<Dict>>>,
+}
+impl AStore {
+    pub fn new() -> AStore {
+        AStore { attrs: Attrs::new(), dict: None }
+    }
 }
 // The names of an instance's attributes, in the order they were first set. Instances whose attributes were set
 // in the same order share one Shape (as V8's hidden classes do), so an instance keeps only the values: an
@@ -2004,7 +2492,7 @@ pub fn same_name(a: &str, b: &str) -> bool {
 }
 impl Obj {
     pub fn new(cls: Rc<Class>) -> Rc<Obj> {
-        Rc::new(Obj { cls, d: RefCell::new(Attrs::new()), inner: RefCell::new(None) })
+        Rc::new(Obj { cls, d: RefCell::new(AStore::new()), inner: RefCell::new(None) })
     }
     #[inline]
     pub fn inner(&self) -> Option<V> {
@@ -2017,27 +2505,143 @@ impl Obj {
     pub fn set_inner(&self, v: Option<V>) {
         *self.inner.borrow_mut() = v.map(Box::new);
     }
+    // o.name for code that must match CPython exactly: errors from a dict key's __eq__ are raised.
+    pub fn get_attr(&self, n: &str) -> Result<Option<V>, E> {
+        let dd = {
+            let d = self.d.borrow();
+            if let Some(i) = d.attrs.find(n) {
+                return Ok(Some(d.attrs.get(i).unwrap().1.clone()));
+            }
+            match d.dict.clone() {
+                Some(dd) => dd,
+                None => return Ok(None),
+            }
+        };
+        let got = dd.borrow().get(&s(n))?;
+        Ok(got)
+    }
+    // o.name for the runtime's own bookkeeping (exception args, enum values, ...), where those objects never
+    // hold a managed dict.
+    pub fn take_inner(&self) -> Option<Box<V>> {
+        self.inner.borrow_mut().take()
+    }
     pub fn get(&self, n: &str) -> Option<V> {
-        let d = self.d.borrow();
-        d.find(n).map(|i| d.get(i).unwrap().1.clone())
+        self.get_attr(n).ok().flatten()
     }
     pub fn set(&self, n: Sym, v: V) {
-        let mut a = self.d.borrow_mut();
-        match a.find(n) {
-            Some(i) => *a.get_mut(i).unwrap().1 = v,
-            None => a.push((n, v)),
+        let _ = self.set_res(n, v);
+    }
+    // o.name = v (also object.__setattr__); the Result matters only for __dict__ and managed-dict keys.
+    pub fn set_res(&self, n: Sym, v: V) -> Result<(), E> {
+        if n == "__dict__" {
+            return self.set_dict(v);
         }
+        // pydantic keeps these in slots, not in __dict__ (see the Obj comment)
+        if n.starts_with("__pydantic_") {
+            let mut d = self.d.borrow_mut();
+            match d.attrs.find(n) {
+                Some(i) => *d.attrs.get_mut(i).unwrap().1 = v,
+                None => d.attrs.push((n, v)),
+            }
+            return Ok(());
+        }
+        let mut d = self.d.borrow_mut();
+        if let Some(dd) = d.dict.clone() {
+            drop(d);
+            dd.borrow_mut().set(s(n), v)?;
+            return Ok(());
+        }
+        match d.attrs.find(n) {
+            Some(i) => *d.attrs.get_mut(i).unwrap().1 = v,
+            None => d.attrs.push((n, v)),
+        }
+        Ok(())
+    }
+    // The instance's live __dict__, materializing it on first use: normal attributes move from Attrs into
+    // the Dict, which is then the single source of truth for them.
+    pub fn dict(&self) -> R {
+        let mut d = self.d.borrow_mut();
+        if let Some(dd) = d.dict.clone() {
+            return Ok(V::Dict(dd));
+        }
+        let mut entries: Vec<(Sym, V)> = vec![];
+        let mut keep = Attrs::new();
+        for (k, v) in d.attrs.iter() {
+            if k.starts_with("__pydantic_") {
+                keep.push((*k, v.clone()));
+            } else {
+                entries.push((*k, v.clone()));
+            }
+        }
+        let mut nd = Dict::new();
+        for (k, v) in entries {
+            nd.set(s(k), v)?;
+        }
+        d.attrs = keep;
+        let dd = Rc::new(RefCell::new(nd));
+        d.dict = Some(dd.clone());
+        Ok(V::Dict(dd))
+    }
+    // o.__dict__ = v: the given dict replaces the instance's attributes (CPython drops the old dict).
+    pub fn set_dict(&self, v: V) -> Result<(), E> {
+        let V::Dict(dd) = v else {
+            return Err(exc("TypeError", format!("__dict__ must be set to a dictionary, not a '{}'", type_name(&v))));
+        };
+        let mut d = self.d.borrow_mut();
+        let mut keep = Attrs::new();
+        for (k, x) in d.attrs.iter() {
+            if k.starts_with("__pydantic_") {
+                keep.push((*k, x.clone()));
+            }
+        }
+        d.attrs = keep;
+        d.dict = Some(dd);
+        Ok(())
+    }
+    pub fn del_attr(&self, n: &str) -> Result<bool, E> {
+        if n == "__dict__" {
+            // del o.__dict__ empties the managed dict (a fresh one, as in CPython); slots stay.
+            let mut d = self.d.borrow_mut();
+            let mut keep = Attrs::new();
+            for (k, x) in d.attrs.iter() {
+                if k.starts_with("__pydantic_") {
+                    keep.push((*k, x.clone()));
+                }
+            }
+            d.attrs = keep;
+            d.dict = Some(Rc::new(RefCell::new(Dict::new())));
+            return Ok(true);
+        }
+        if n.starts_with("__pydantic_") {
+            let mut d = self.d.borrow_mut();
+            let at = d.attrs.names().iter().position(|k| *k == n);
+            return Ok(match at {
+                Some(i) => {
+                    d.attrs.remove(i);
+                    true
+                }
+                None => false,
+            });
+        }
+        let dd = {
+            let mut d = self.d.borrow_mut();
+            if d.dict.is_none() {
+                let at = d.attrs.names().iter().position(|k| *k == n);
+                return Ok(match at {
+                    Some(i) => {
+                        d.attrs.remove(i);
+                        true
+                    }
+                    None => false,
+                });
+            }
+            d.dict.clone().unwrap()
+        };
+        let gone = dd.borrow_mut().del(&s(n))?.is_some();
+        Ok(gone)
     }
     pub fn del(&self, n: &str) -> bool {
-        let mut a = self.d.borrow_mut();
-        let at = a.names().iter().position(|k| *k == n);
-        match at {
-            Some(i) => {
-                a.remove(i);
-                true
-            }
-            None => false,
-        }
+        self.del_attr(n).unwrap_or(false)
     }
 }
 
@@ -2079,6 +2683,7 @@ pub fn init_builtin_classes() {
         ("function", BT::Func),
         ("range", BT::Range),
         ("deque", BT::Deque),
+        ("mappingproxy", BT::Other),
     ] {
         m.insert(n, Class::new(n, "builtins", vec![object.clone()], bt));
     }
@@ -2208,7 +2813,12 @@ pub fn type_name(v: &V) -> String {
         V::Slice(_) => "slice".into(),
         V::Deque(_) => "collections.deque".into(),
         V::Module(_) => "module".into(),
-        V::View(v) => ["dict_keys", "dict_values", "dict_items"][v.1 as usize].into(),
+        V::View(v) => match v.1 {
+            0 => "dict_keys".into(),
+            1 => "dict_values".into(),
+            2 => "dict_items".into(),
+            _ => "mappingproxy".into(),
+        },
         V::Prop(_) => "property".into(),
         V::Ext(x) => x.tname().into(),
         V::NotImpl => "NotImplementedType".into(),

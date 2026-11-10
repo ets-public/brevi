@@ -1457,6 +1457,39 @@ extern "C" fn remove_own_build_dirs() {
     }
 }
 
+// One build at a time of something built once into the cache (a runtime, a library of copies): true when this
+// process took `lock` and should build, false when `ready()` came true while another process built it. The lock
+// names its owner (pid and boot id); a lock whose owner has died (killed, or the machine restarted) is taken over
+// at once, and any lock over 20 minutes old is too. The owner removes `lock` when done.
+pub fn build_lock(lock: &Path, ready: &dyn Fn() -> bool) -> bool {
+    use std::io::Write;
+    let boot = || std::fs::read_to_string("/proc/sys/kernel/random/boot_id").unwrap_or_default().trim().to_string();
+    let me = format!("{} {}", std::process::id(), boot());
+    let stale = || {
+        let old = std::fs::metadata(lock).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|d| d.as_secs() >= 1200);
+        let owner = std::fs::read_to_string(lock).unwrap_or_default();
+        let mut it = owner.split_whitespace();
+        let dead = match (it.next().and_then(|p| p.parse::<u32>().ok()), it.next().unwrap_or("")) {
+            (Some(pid), b) => b != boot() || !proc::alive(pid),
+            _ => false, // being written, or a lock from an older brevi: only its age counts
+        };
+        old || dead
+    };
+    while !ready() {
+        if let Ok(mut f) = std::fs::OpenOptions::new().write(true).create_new(true).open(lock) {
+            f.write_all(me.as_bytes()).ok();
+            return true;
+        }
+        if stale() {
+            // Remove it and race for a new one, so only one waiter takes over.
+            std::fs::remove_file(lock).ok();
+            continue;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+    false
+}
+
 // The directory that holds a file's builds (one per source path, a folder per process inside it, see
 // build_dir); the MCP server removes it when done.
 pub fn build_dir_path(file: &str) -> PathBuf {
@@ -1875,9 +1908,23 @@ fn runtime_lib(release: bool) -> Option<PathBuf> {
                 return Some(lib);
             }
             std::fs::create_dir_all(&dir).ok()?;
+            // programs built side by side wait for one build of it
+            let lock = dir.join(".lock");
+            let owned = build_lock(&lock, &|| lib.exists());
+            let unlock = || {
+                if owned {
+                    std::fs::remove_file(&lock).ok();
+                }
+            };
+            if lib.exists() {
+                unlock();
+                return Some(lib);
+            }
             let tmp = dir.join(format!("build-{}", std::process::id()));
-            std::fs::create_dir_all(&tmp).ok()?;
-            std::fs::write(tmp.join("rt.rs"), &src).ok()?;
+            if std::fs::create_dir_all(&tmp).is_err() || std::fs::write(tmp.join("rt.rs"), &src).is_err() {
+                unlock();
+                return None;
+            }
             let mut c = rustc_cmd();
             c.args(["--edition", "2021", "--crate-type", "rlib", "--crate-name", "brevi_rt", "-A", "warnings", "-C", "overflow-checks=on"]);
             // Built once, so always optimised: programs built without --release call into it too.
@@ -1886,6 +1933,7 @@ fn runtime_lib(release: bool) -> Option<PathBuf> {
             let ok = c.output().map_or(false, |o| o.status.success());
             let moved = ok && std::fs::rename(tmp.join("libbrevi_rt.rlib"), &lib).is_ok();
             std::fs::remove_dir_all(&tmp).ok();
+            unlock();
             if moved || lib.exists() { Some(lib) } else { None }
         })
         .clone()

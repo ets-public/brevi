@@ -519,11 +519,11 @@ fn lru_cache_wrap(f: V) -> V {
             key.push(v.clone());
         }
         let key = tup(key);
-        if let Some(v) = cache.borrow().get(&key)? {
+        if let Some(v) = Dict::get_cell(&cache, &key)? {
             return Ok(v);
         }
         let r = call(&f, a)?;
-        cache.borrow_mut().set(key, r.clone())?;
+        Dict::set_cell(&cache, key, r.clone())?;
         Ok(r)
     });
     if let V::Func(wf) = &w {
@@ -990,7 +990,24 @@ pub fn shallow_copy(x: &V) -> R {
                 return call(&f, Args::p(vec![x.clone()]));
             }
             let n = Obj::new(o.cls.clone());
-            *n.d.borrow_mut() = o.d.borrow().clone();
+            let (attrs, dict) = {
+                let d = o.d.borrow();
+                (d.attrs.clone(), d.dict.clone())
+            };
+            *n.d.borrow_mut() = AStore { attrs, dict: None };
+            if let Some(dd) = dict {
+                let (kind, dflt, items) = {
+                    let src = dd.borrow();
+                    (src.kind, src.dflt.clone(), src.items())
+                };
+                let mut nd = Dict::new();
+                nd.kind = kind;
+                nd.dflt = dflt;
+                for (k, v) in items {
+                    nd.set(k, v)?;
+                }
+                n.set_dict(V::Dict(Rc::new(RefCell::new(nd))))?;
+            }
             n.set_inner(match o.inner() {
                 Some(i) => Some(shallow_copy(&i)?),
                 None => None,
@@ -1049,7 +1066,7 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
             for (k, v) in items {
                 let k = deepcopy(&k, memo)?;
                 let v = deepcopy(&v, memo)?;
-                n.borrow_mut().set(k, v)?;
+                Dict::set_cell(&n, k, v)?;
             }
             V::Dict(n)
         }
@@ -1077,10 +1094,31 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
             }
             let n = Obj::new(o.cls.clone());
             memo.push((p.unwrap(), V::Obj(n.clone())));
-            let attrs = o.d.borrow().clone();
-            for (k, v) in attrs {
-                let c = deepcopy(&v, memo)?;
-                n.set(k, c);
+            let (attrs, dict) = {
+                let d = o.d.borrow();
+                (d.attrs.clone(), d.dict.clone())
+            };
+            if let Some(dd) = dict {
+                let (kind, dflt, items) = {
+                    let src = dd.borrow();
+                    (src.kind, src.dflt.clone(), src.items())
+                };
+                let mut nd = Dict::new();
+                nd.kind = kind;
+                nd.dflt = dflt;
+                for (k, v) in items {
+                    let k = deepcopy(&k, memo)?;
+                    let v = deepcopy(&v, memo)?;
+                    nd.set(k, v)?;
+                }
+                for (k, v) in attrs.into_iter() {
+                    n.set_res(k, deepcopy(&v, memo)?)?;
+                }
+                n.set_dict(V::Dict(Rc::new(RefCell::new(nd))))?;
+            } else {
+                for (k, v) in attrs.into_iter() {
+                    n.set_res(k, deepcopy(&v, memo)?)?;
+                }
             }
             let inner = o.inner();
             if let Some(i) = inner {
@@ -1229,7 +1267,21 @@ pub fn sys_fn(name: &str, a: Args) -> R {
             Ok(V::None)
         }
         "getrecursionlimit" => Ok(V::Int(REC_LIMIT.with(|l| l.get()) as i64)),
-        "set_int_max_str_digits" => Ok(V::None),
+        "set_int_max_str_digits" => {
+            let mut a = a;
+            let kw = a.kw("maxdigits");
+            let v = match (a.p.first(), kw) {
+                (Some(v), None) if a.p.len() == 1 && a.k.is_empty() => v.clone(),
+                (None, Some(v)) if a.k.is_empty() => v,
+                _ => return type_err("set_int_max_str_digits() takes exactly one argument (maxdigits)".into()),
+            };
+            set_int_max_digits(&v)?;
+            Ok(V::None)
+        }
+        "get_int_max_str_digits" => {
+            a.want(name, 0, 0)?;
+            Ok(V::Int(int_max_digits() as i64))
+        }
         "intern" => Ok(a1(&a, name)?),
         "getsizeof" => Ok(V::Int(64)),
         "exception" => {
@@ -1414,8 +1466,28 @@ pub fn module_call(m: &str, n: &str, a: Args) -> R {
         "typing" | "typing_extensions" => typing_call(n, a),
         "dataclasses" => dataclass_fn(n, a),
         "abc" => Ok(a.p.first().cloned().unwrap_or(V::None)),
+        "gc" => gc_fn(n, a),
+        "weakref" => weakref_fn(n, a),
         _ => ext_module_call(m, n, a),
     }
+}
+// CPython's sys.modules: one dict for the whole program, so every read sees the same object and the imports
+// each statement registers (a copy would lose `d = sys.modules; d['x'] = 1; sys.modules['x']`).
+thread_local! {
+    static SYS_MODS: RefCell<Option<Rc<RefCell<Dict>>>> = const { RefCell::new(None) };
+}
+pub fn sys_modules() -> V {
+    SYS_MODS.with(|s| {
+        let mut s = s.borrow_mut();
+        V::Dict(s.get_or_insert_with(|| Rc::new(RefCell::new(Dict::new()))).clone())
+    })
+}
+// `import m` records the module object the program bound to `m`, so `sys.modules['m'] is m`.
+pub fn sys_modules_set(name: &str, v: &V) -> R {
+    if let V::Dict(d) = sys_modules() {
+        d.borrow_mut().set(s(name), v.clone())?;
+    }
+    Ok(V::None)
 }
 pub fn module_attr(m: &'static str, name: &str) -> R {
     let v = match (m, name) {
@@ -1429,8 +1501,9 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         ("sys", "version_info") => tup(vec![V::Int(3), V::Int(13), V::Int(0)]),
         ("sys", "version") => s("3.13.0 (brevi)"),
         ("sys", "float_info") => return Err(unsupported("sys.float_info")),
-        ("sys", "modules") => dict_new(),
-        ("sys", "path") => list(vec![]),
+        ("sys", "modules") => sys_modules(),
+        // CPython puts the script's folder first; a built program has only itself, so its folder stands in
+        ("sys", "path") => list(vec![s(&std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_string_lossy().into_owned())).unwrap_or_default())]),
         ("sys.stdin", "buffer") => V::Module(&ModName("sys.stdin.buffer")),
         ("sys.stdout", "buffer") => V::Module(&ModName("sys.stdout.buffer")),
         ("sys.stderr", "buffer") => V::Module(&ModName("sys.stderr.buffer")),
@@ -2310,6 +2383,7 @@ pub fn run_main(f: fn() -> Result<(), E>) {
             }
         };
         atexit_run();
+        close_live_gens();
         out_flush();
         code
     });

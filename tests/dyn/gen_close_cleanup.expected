@@ -1,0 +1,25 @@
+1
+leaving f
+finally local
+after f
+got 1
+finally loop
+after loop
+finally close
+None
+None
+exit seen
+42
+RuntimeError generator ignored GeneratorExit
+enter 3
+body 6
+exit 3
+enter 4
+exit 4
+caught boom
+enter 5
+10
+exit 5
+after del
+end
+finally global

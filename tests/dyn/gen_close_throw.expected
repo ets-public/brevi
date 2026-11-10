@@ -1,0 +1,23 @@
+a
+inner finally
+outer finally
+closed
+a
+inner finally
+outer finally
+KeyError 'k'
+0 5 6
+value error inside
+-1
+skip
+counter done 6
+OSError in finally
+inner finally
+outer finally
+list dropped
+fib stop at 5
+[0, 1, 1, 2, 3]
+10
+end
+inner finally
+outer finally

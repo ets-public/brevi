@@ -222,7 +222,13 @@ pub fn bi_str(mut a: Args) -> R {
 pub fn bi_int(mut a: Args) -> R {
     let base = a.kw("base");
     a.no_kw("int")?;
+    if a.p.len() > 2 {
+        return type_err(format!("int() takes at most 2 arguments ({} given)", a.p.len()));
+    }
     if a.p.is_empty() {
+        if base.is_some() {
+            return type_err("int() missing string argument".into());
+        }
         return Ok(V::Int(0));
     }
     let base = match (a.p.get(1).cloned(), base) {
@@ -237,7 +243,7 @@ pub fn bi_int(mut a: Args) -> R {
             if b != 0 && !(2..=36).contains(&b) {
                 return val_err("int() base must be >= 2 and <= 36, or 0".into());
             }
-            parse_int(&x.s, b as u32).ok_or_else(|| exc("ValueError", format!("invalid literal for int() with base {}: {}", b, str_repr(&x.s))))
+            int_text_limit(&x.s, b as u32, parse_int(&x.s, b as u32))?.ok_or_else(|| exc("ValueError", format!("invalid literal for int() with base {}: {}", b, str_repr(&x.s))))
         }
         (Some(_), x) => type_err("int() can't convert non-string with explicit base".into()),
     }
@@ -270,7 +276,9 @@ pub fn bi_bool(a: Args) -> R {
     Ok(V::Bool(truth(&a.p[0])?))
 }
 pub fn bi_list(a: Args) -> R {
-    a.no_kw("list")?;
+    if !a.k.is_empty() {
+        return type_err("list() takes no keyword arguments".into());
+    }
     if a.p.is_empty() {
         return Ok(list(vec![]));
     }
@@ -716,6 +724,7 @@ pub fn type_of(x: &V) -> Rc<Class> {
         V::Func(_) | V::Bound(_) | V::BMeth(_) => bclass("function"),
         V::Range(_) => bclass("range"),
         V::Deque(_) => bclass("deque"),
+        V::View(x) if x.1 == 3 => bclass("mappingproxy"),
         V::Ext(e) => ext_class(e.tname()),
         _ => bclass("object"),
     }
@@ -1147,7 +1156,10 @@ pub fn builtin_class_attr(c: &Rc<Class>, name: &str) -> Option<V> {
             };
             match o {
                 V::Obj(ob) => {
-                    if let Some(v) = ob.get(&n.s) {
+                    if n.s == "__dict__" && ob.cls.lookup(&n.s).is_none() {
+                        return ob.dict();
+                    }
+                    if let Some(v) = ob.get_attr(&n.s)? {
                         return Ok(v);
                     }
                     if ob.cls.lookup(&n.s).is_some() || n.s == "__class__" || n.s == "__dict__" {
@@ -1166,6 +1178,8 @@ pub fn builtin_class_attr(c: &Rc<Class>, name: &str) -> Option<V> {
             }
             Ok(V::Dict(Rc::new(RefCell::new(d))))
         })),
+        // only defaultdict has __missing__ (dict subclasses test `hasattr(dict, "__missing__")`)
+        _ if name == "__missing__" && c.name != "defaultdict" => None,
         _ => {
             let n = sym(name);
             let cname = c.name;
@@ -1229,9 +1243,9 @@ fn counter_update(c: &V, mut a: Args, add: bool) -> R {
         pairs.push((s(k), v));
     }
     for (k, v) in pairs {
-        let cur = d.borrow().get(&k)?.unwrap_or(V::Int(0));
+        let cur = Dict::get_cell(&d, &k)?.unwrap_or(V::Int(0));
         let n = if add { binop(&cur, &v, "+")? } else { binop(&cur, &v, "-")? };
-        d.borrow_mut().set(k, n)?;
+        Dict::set_cell(&d, k, n)?;
     }
     Ok(V::None)
 }
@@ -1902,6 +1916,13 @@ pub fn list_method(l: &Rc<RefCell<Vec<V>>>, o: &V, name: &str, mut a: Args) -> R
             l.borrow_mut().push(x);
             V::None
         }
+        // `a.__init__([4, 5, 6])` called on an existing list replaces its items
+        "__init__" => {
+            a.want("__init__", 0, 1)?;
+            let v = match a.p.first() { Some(x) => to_vec(x)?, None => vec![] };
+            *l.borrow_mut() = v;
+            V::None
+        }
         "extend" => {
             let x = a1(&a, "extend")?;
             let v = to_vec(&x)?;
@@ -1918,6 +1939,9 @@ pub fn list_method(l: &Rc<RefCell<Vec<V>>>, o: &V, name: &str, mut a: Args) -> R
             V::None
         }
         "pop" => {
+            if a.p.len() > 1 || !a.k.is_empty() {
+                return type_err(format!("pop expected at most 1 argument, got {}", a.p.len() + a.k.len()));
+            }
             let mut l = l.borrow_mut();
             if l.is_empty() {
                 return Err(exc("IndexError", "pop from empty list".into()));
@@ -2024,24 +2048,18 @@ pub fn dict_method(d: &Rc<RefCell<Dict>>, o: &V, name: &str, mut a: Args) -> R {
     Ok(match name {
         "get" => {
             a.want("get", 1, 2)?;
-            let r = d.borrow().get(&a.p[0])?;
+            let r = Dict::get_cell(d, &a.p[0])?;
             r.unwrap_or_else(|| a.p.get(1).cloned().unwrap_or(V::None))
         }
         "setdefault" => {
             a.want("setdefault", 1, 2)?;
-            let r = d.borrow().get(&a.p[0])?;
-            match r {
-                Some(v) => v,
-                None => {
-                    let v = a.p.get(1).cloned().unwrap_or(V::None);
-                    d.borrow_mut().set(a.p[0].clone(), v.clone())?;
-                    v
-                }
-            }
+            let v = a.p.get(1).cloned().unwrap_or(V::None);
+            let k = a.p[0].clone();
+            Dict::set_default_cell(d, k, v)?
         }
         "pop" => {
             a.want("pop", 1, 2)?;
-            let r = d.borrow_mut().del(&a.p[0])?;
+            let r = Dict::del_cell(d, &a.p[0])?;
             match r {
                 Some(v) => v,
                 None => match a.p.get(1) {
@@ -2066,7 +2084,7 @@ pub fn dict_method(d: &Rc<RefCell<Dict>>, o: &V, name: &str, mut a: Args) -> R {
             };
             match k {
                 Some(k) => {
-                    let v = d.borrow_mut().del(&k)?.unwrap();
+                    let v = Dict::del_cell(d, &k)?.unwrap();
                     tup(vec![k, v])
                 }
                 None => return Err(exc("KeyError", "popitem(): dictionary is empty".into())),
@@ -2080,16 +2098,40 @@ pub fn dict_method(d: &Rc<RefCell<Dict>>, o: &V, name: &str, mut a: Args) -> R {
                 return counter_update(o, a, true);
             }
             if let Some(x) = a.p.first() {
+                let other = if let V::Dict(y) = x { Some((y.clone(), y.borrow().n)) } else { None };
                 for (k, v) in dict_items_of(x)? {
-                    d.borrow_mut().set(k, v)?;
+                    Dict::set_cell(d, k, v)?;
+                    if let Some((y, n0)) = &other {
+                        if y.try_borrow().map_or(false, |y| y.n != *n0) {
+                            return Err(exc("RuntimeError", "dict mutated during update".into()));
+                        }
+                    }
                 }
             }
             for (k, v) in a.k.drain(..) {
-                d.borrow_mut().set(s(k), v)?;
+                Dict::set_cell(d, s(k), v)?;
             }
             V::None
         }
         "subtract" => return counter_update(o, a, false),
+        "__or__" | "__ror__" => {
+            let x = a1(&a, name)?;
+            let V::Dict(y) = &x else { return Ok(V::NotImpl) };
+            let (first, second) = if name == "__or__" { (d, y) } else { (y, d) };
+            let mut r = first.borrow().copy();
+            let items = second.borrow().items();
+            for (k, v) in items {
+                r.set(k, v)?;
+            }
+            V::Dict(Rc::new(RefCell::new(r)))
+        }
+        "__ior__" => {
+            let x = a1(&a, name)?;
+            for (k, v) in dict_items_of(&x)? {
+                Dict::set_cell(d, k, v)?;
+            }
+            o.clone()
+        }
         "copy" => V::Dict(Rc::new(RefCell::new(d.borrow().copy()))),
         "clear" => {
             d.borrow_mut().clear();
@@ -2124,7 +2166,7 @@ pub fn dict_method(d: &Rc<RefCell<Dict>>, o: &V, name: &str, mut a: Args) -> R {
         "move_to_end" => {
             let last = a.kw("last").or_else(|| a.p.get(1).cloned()).map(|x| truth(&x)).transpose()?.unwrap_or(true);
             let k = a.p.first().cloned().ok_or_else(|| exc("TypeError", "move_to_end() missing key".into()))?;
-            if !d.borrow_mut().move_to_end(&k, last)? {
+            if !Dict::move_to_end_cell(d, &k, last)? {
                 return Err(exc_v("KeyError", k));
             }
             V::None
@@ -2472,19 +2514,42 @@ pub fn builtin_method(o: &V, name: &str, a: Args) -> R {
                     None => Err(stop_with(V::None)),
                 }
             }
-            // A dropped or closed generator just stops (finally blocks around a yield are refused at build).
-            "close" => {
-                if let It::Coro(c) = &*it.borrow() {
-                    c.borrow_mut().close();
+            // throw(exc) or throw(type[, value[, tb]]): raised at the yield it is suspended at.
+            "throw" => {
+                let c = match &*it.borrow() {
+                    It::Coro(c) => c.clone(),
+                    _ => return bad_method(o, name),
+                };
+                if a.p.is_empty() || a.p.len() > 3 || !a.k.is_empty() {
+                    return type_err(format!("throw expected at least 1 argument, got {}", a.p.len()));
                 }
-                Ok(V::None)
+                let e = match (&a.p[0], a.p.get(1)) {
+                    (V::Class(c), Some(v)) if !matches!(v, V::None) => match make_exc(v.clone()) {
+                        Ok(e) if isinstance(&e.0, &V::Class(c.clone()))? => e,
+                        _ => E(instantiate(c, Args::p(vec![v.clone()]))?),
+                    },
+                    (x, _) => make_exc(x.clone())?,
+                };
+                let r = c.borrow_mut().throw(e);
+                match r? {
+                    Some(v) => Ok(v),
+                    None => Err(stop_with(V::None)),
+                }
+            }
+            "close" => {
+                let c = match &*it.borrow() {
+                    It::Coro(c) => c.clone(),
+                    _ => return Ok(V::None),
+                };
+                let r = c.borrow_mut().close_py();
+                r
             }
             _ => bad_method(o, name),
         },
         V::View(v) => match name {
             "__len__" => Ok(V::Int(len(o)? as i64)),
             "__iter__" => iter_v(o),
-            "isdisjoint" => {
+            "isdisjoint" if v.1 == 0 || v.1 == 2 => {
                 let other = to_vec(&a1(&a, name)?)?;
                 for x in other {
                     if contains(o, &x)? {
@@ -2493,7 +2558,14 @@ pub fn builtin_method(o: &V, name: &str, a: Args) -> R {
                 }
                 Ok(V::Bool(true))
             }
-            "mapping" => Ok(v.0.clone()),
+            "mapping" if v.1 != 3 => {
+                let m = V::View(Rc::new((v.0.clone(), 3)));
+                call(&m, a)
+            }
+            "get" | "copy" if v.1 == 3 => call_method(&v.0, name, a),
+            "keys" if v.1 == 3 => Ok(V::View(Rc::new((v.0.clone(), 0)))),
+            "values" if v.1 == 3 => Ok(V::View(Rc::new((v.0.clone(), 1)))),
+            "items" if v.1 == 3 => Ok(V::View(Rc::new((v.0.clone(), 2)))),
             _ => bad_method(o, name),
         },
         V::Ext(x) => {

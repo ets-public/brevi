@@ -61,6 +61,7 @@ pub fn parse_program(src: &str) -> R<Vec<Item>> {
         k += 1;
         if !crate::pybridge::grew() || k >= 6 {
             crate::pybridge::lower(&mut items);
+            expand_tuple_stars(&mut items);
             return Ok(items);
         }
     }
@@ -1850,7 +1851,12 @@ impl Parser {
         if level == 2 && self.eat_kw("not") {
             return Ok(Expr::Unary("!", Box::new(self.binary(2)?)));
         }
+        let lpos = self.pos;
         let mut lhs = self.binary(level + 1)?;
+        // `(5,) + ...`: lhs is a one-item tuple written as one (kept as a one-item list, like `[5]`).
+        let lhs_tup1 = matches!(&lhs, Expr::List(xs) if xs.len() == 1) && self.pos >= lpos + 3
+            && self.toks[lpos].tok == Tok::Sym("(") && self.toks[self.pos - 1].tok == Tok::Sym(")") && self.toks[self.pos - 2].tok == Tok::Sym(",");
+        let mut first = true;
         // Python's `0 <= x < n` is `0 <= x and x < n`.
         let mut chain: Option<Expr> = None;
         loop {
@@ -1866,6 +1872,7 @@ impl Parser {
             };
             self.next();
             self.skip_newlines();
+            let was_first = std::mem::replace(&mut first, false);
             let rpos = self.pos;
             let rhs = self.binary(level + 1)?;
             // `"%s" % (x,)`: a one-item tuple (kept as a one-item list) gives the one value, as a tuple does.
@@ -1890,7 +1897,14 @@ impl Parser {
                 continue;
             }
             let empty = |e: &Expr| matches!(e, Expr::List(xs) if xs.is_empty()) || matches!(e, Expr::Map(m) if m.is_empty());
-            lhs = if op == ".." {
+            // `(5,) + tuple(ranks)`: both sides are written as tuples, so the value is a tuple (a JSON one: a
+            // list here would print as [5, ...] and sort below every tuple, as a poker score does).
+            let rhs_tuple_call = matches!(&rhs, Expr::Method(_, m, a, _) if m == "skip" && matches!(a.as_slice(), [Expr::Int(0)]))
+                && matches!(&self.toks[rpos].tok, Tok::Ident(n) if n == "tuple") && self.toks.get(rpos + 1).is_some_and(|t| t.tok == Tok::Sym("(")) && self.toks[self.pos - 1].tok == Tok::Sym(")");
+            let tup_join = op == "+" && was_first && lhs_tup1 && rhs_tuple_call && self.py;
+            lhs = if tup_join {
+                Expr::Call("ax_tup_json".into(), vec![(None, Expr::Binary("+", Box::new(lhs), Box::new(rhs)))], self.line())
+            } else if op == ".." {
                 Expr::Range(Box::new(lhs), Box::new(rhs))
             } else if (op == "==" || op == "!=") && (empty(&lhs) || empty(&rhs)) {
                 // `xs == []` and `m != {}` test for empty.
@@ -2296,6 +2310,17 @@ impl Parser {
                                 };
                                 if let Some(m) = m {
                                     e = r(args.remove(0), m, vec![e]);
+                                    continue;
+                                }
+                                // pat.match(s, pos), pat.search(s, pos): a tokenizer's loop.
+                                let at = match (name.as_str(), args.len()) {
+                                    ("match", 2) if self.py => Some("re_m_match_at"),
+                                    ("search", 2) if self.py => Some("re_m_find_at"),
+                                    _ => None,
+                                };
+                                if let Some(m) = at {
+                                    let pos = args.remove(1);
+                                    e = r(args.remove(0), m, vec![e, pos]);
                                     continue;
                                 }
                                 if name == "sub" && args.len() == 2 {
@@ -4536,6 +4561,142 @@ fn fix_opens(stmts: &mut [Stmt]) {
                 break;
             }
         }
+    }
+}
+
+// `f(*NOT_FOUND)` where NOT_FOUND is a tuple literal set once at the top level and never set, shadowed or
+// taken as a parameter anywhere else: the same call as `f(NOT_FOUND[0], NOT_FOUND[1])`, which the typed build
+// checks against f's parameters (a `*` argument of unknown length it cannot).
+fn expand_tuple_stars(items: &mut [Item]) {
+    // Functions whose every return (and the last statement is one) gives a tuple of one length.
+    let mut tuple_fns: HashMap<String, usize> = HashMap::new();
+    for it in items.iter() {
+        if let Item::Fn { name, script: false, body, .. } = it {
+            let Expr::Block(stmts, None) = body else { continue };
+            if !matches!(stmts.last(), Some(Stmt::Return { .. })) {
+                continue;
+            }
+            let mut lens: Vec<Option<usize>> = vec![];
+            let mut b = body.clone();
+            walk_mut(&mut b, &mut |e| {
+                if let Expr::Block(st, _) = e {
+                    for s in st.iter() {
+                        if let Stmt::Return { value, .. } = s {
+                            lens.push(match value {
+                                Some(Expr::Tuple(xs)) => Some(xs.len()),
+                                _ => None,
+                            });
+                        }
+                    }
+                }
+            });
+            if let Some(Some(n)) = lens.first() {
+                if lens.iter().all(|l| *l == Some(*n)) {
+                    tuple_fns.insert(name.clone(), *n);
+                }
+            }
+        }
+    }
+    // name -> (length, made a list: `(1, 2)` is read as one)
+    let mut consts: HashMap<String, (usize, bool)> = HashMap::new();
+    for it in items.iter() {
+        if let Item::Fn { script: true, body, .. } = it {
+            let mut b = body.clone();
+            let mut all: Vec<Stmt> = vec![];
+            walk_mut(&mut b, &mut |e| {
+                if let Expr::Block(st, _) = e {
+                    all.extend(st.iter().cloned());
+                }
+            });
+            for st in &all {
+                match st {
+                    Stmt::Let { name: Pat::Bind(n), value, .. } | Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } => match value {
+                        Expr::Tuple(xs) => {
+                            consts.insert(n.clone(), (xs.len(), false));
+                        }
+                        Expr::List(xs) if !xs.is_empty() => {
+                            consts.insert(n.clone(), (xs.len(), true));
+                        }
+                        Expr::Call(f, _, _) if tuple_fns.contains_key(f) => {
+                            consts.insert(n.clone(), (tuple_fns[f], false));
+                        }
+                        _ => {}
+                    },
+                    _ => {}
+                }
+            }
+        }
+    }
+    let text = format!("{items:?}");
+    // Every mention of the name, but for reads (`Ident`), is its one definition.
+    // A list is also never changed: every read is a `*` argument or an item read.
+    consts.retain(|n, (_, list)| {
+        let q = format!("{n:?}");
+        let all = text.matches(&q).count() - text.matches(&format!("Lit({q})")).count();
+        let sets = text.matches(&format!("Bind({q})")).count() + text.matches(&format!("target: Ident({q})")).count();
+        let reads = text.matches(&format!("Ident({q})")).count() + text.matches(&format!("Bind({q})")).count() - sets;
+        let fixed = !*list || text.matches(&format!("(Some(\"__star\"), Ident({q}))")).count() + text.matches(&format!("Index(Ident({q}), Int(")).count() == reads;
+        fixed && sets == 1 && all == reads + 1
+    });
+    for it in items.iter_mut() {
+        let (body, params, script) = match it {
+            Item::Fn { body, params, script, .. } => (body, params.iter().map(|p| p.name.clone()).collect::<Vec<_>>(), *script),
+            Item::Test { body, .. } => (body, vec![], false),
+            _ => continue,
+        };
+        // A function's own local set once, from a tuple or a call to one of tuple_fns, and not a parameter.
+        let mut consts = consts.clone();
+        if !script && !tuple_fns.is_empty() {
+            let text = format!("{body:?}");
+            let mut b = body.clone();
+            let mut found: Vec<(String, usize)> = vec![];
+            walk_mut(&mut b, &mut |e| {
+                if let Expr::Block(st, _) = e {
+                    for s in st.iter() {
+                        if let Stmt::Let { name: Pat::Bind(n), value, .. } | Stmt::Assign { target: Expr::Ident(n), op: "=", value, .. } = s {
+                            let len = match value {
+                                Expr::Tuple(xs) => Some(xs.len()),
+                                Expr::Call(f, _, _) => tuple_fns.get(f).copied(),
+                                _ => None,
+                            };
+                            if let Some(len) = len {
+                                found.push((n.clone(), len));
+                            }
+                        }
+                    }
+                }
+            });
+            for (n, len) in found {
+                let q = format!("{n:?}");
+                let sets = text.matches(&format!("Bind({q})")).count() + text.matches(&format!("target: Ident({q})")).count();
+                let reads = text.matches(&format!("Ident({q})")).count() + text.matches(&format!("Bind({q})")).count() - sets;
+                if sets == 1 && text.matches(&q).count() - text.matches(&format!("Lit({q})")).count() == reads + 1 && !params.contains(&n) {
+                    consts.insert(n, (len, false));
+                }
+            }
+        }
+        if consts.is_empty() {
+            continue;
+        }
+        walk_mut(body, &mut |e| {
+            if let Expr::Call(_, args, _) = e {
+                if !args.iter().any(|(k, a)| k.as_deref() == Some("__star") && matches!(a, Expr::Ident(n) if consts.contains_key(n))) {
+                    return;
+                }
+                let mut out = Vec::with_capacity(args.len());
+                for (k, a) in std::mem::take(args) {
+                    match (&k, &a) {
+                        (Some(s), Expr::Ident(n)) if s == "__star" && consts.contains_key(n) => {
+                            for i in 0..consts[n].0 {
+                                out.push((None, Expr::Index(Box::new(Expr::Ident(n.clone())), Box::new(Expr::Int(i as i64)))));
+                            }
+                        }
+                        _ => out.push((k, a)),
+                    }
+                }
+                *args = out;
+            }
+        });
     }
 }
 

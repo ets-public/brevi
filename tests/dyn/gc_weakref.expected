@@ -1,0 +1,6 @@
+True True 1 2
+callback
+True None
+True 4
+True True
+TE cannot create weak reference to 'int' object

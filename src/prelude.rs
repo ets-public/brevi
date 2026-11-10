@@ -1289,8 +1289,32 @@ impl AxIntBase for String {
         if digits.is_empty() || digits.starts_with('_') || digits.ends_with('_') || digits.contains("__") {
             return Err(bad());
         }
-        let v = i64::from_str_radix(&digits.replace('_', ""), b).map_err(|_| bad())?;
+        // base 10 takes any Unicode decimal digit (`int("१२३", 0)` is 123)
+        let digits: String = digits.chars().filter(|&c| c != '_').map(|c| if b == 10 { ax_uni_digit(c) } else { c }).collect();
+        // base 0 reads a decimal literal as Python source does: no leading zeros unless the value is 0
+        if base == 0 && b == 10 && digits.len() > 1 && digits.starts_with('0') && digits.bytes().any(|c| c != b'0') {
+            return Err(bad());
+        }
+        let v = i64::from_str_radix(&digits, b).map_err(|_| bad())?;
         Ok(if neg { -v } else { v })
+    }
+}
+/// A Unicode decimal digit (category Nd) as its ASCII digit; any other char unchanged.
+pub fn ax_uni_digit(c: char) -> char {
+    const ZEROS: &[u32] = &[
+        0x660, 0x6f0, 0x7c0, 0x966, 0x9e6, 0xa66, 0xae6, 0xb66, 0xbe6, 0xc66, 0xce6, 0xd66, 0xde6, 0xe50, 0xed0, 0xf20, 0x1040,
+        0x1090, 0x17e0, 0x1810, 0x1946, 0x19d0, 0x1a80, 0x1a90, 0x1b50, 0x1bb0, 0x1c40, 0x1c50, 0xa620, 0xa8d0, 0xa900, 0xa9d0,
+        0xa9f0, 0xaa50, 0xabf0, 0xff10, 0x104a0, 0x10d30, 0x11066, 0x110f0, 0x11136, 0x111d0, 0x112f0, 0x11450, 0x114d0, 0x11650,
+        0x116c0, 0x11730, 0x118e0, 0x11950, 0x11c50, 0x11d50, 0x11da0, 0x11f50, 0x16a60, 0x16ac0, 0x16b50, 0x1d7ce, 0x1d7d8, 0x1d7e2,
+        0x1d7ec, 0x1d7f6, 0x1e140, 0x1e2f0, 0x1e4f0, 0x1e950, 0x1fbf0,
+    ];
+    if c.is_ascii() {
+        return c;
+    }
+    let u = c as u32;
+    match ZEROS.iter().find(|&&z| u >= z && u < z + 10) {
+        Some(z) => char::from_digit(u - z, 10).unwrap(),
+        None => c,
     }
 }
 pub fn ax_approx(a: f64, b: f64) -> bool {
@@ -1911,7 +1935,9 @@ impl AxStr for String {
         self.repeat(n.max(0) as usize)
     }
     fn ax_int(&self) -> R<i64> {
-        ax_py_digits(self.trim()).parse::<i64>().map_err(|_| {
+        let t = self.trim();
+        let t: std::borrow::Cow<str> = if t.is_ascii() { ax_py_digits(t) } else { std::borrow::Cow::Owned(t.chars().map(ax_uni_digit).collect()) };
+        t.parse::<i64>().map_err(|_| {
             if ax_py_on() {
                 AxErr(format!("invalid literal for int() with base 10: {}", ax_py_repr(self)))
             } else {
@@ -3449,6 +3475,26 @@ impl Big {
         Ok(Big::make(neg, mag))
     }
 }
+fn big_from_radix(digits: &str, base: u32) -> Option<Big> {
+    if digits.is_empty() {
+        return None;
+    }
+    let mut mag = vec![0u32];
+    for c in digits.chars() {
+        let d = c.to_digit(base)?;
+        let mut carry = d as u64;
+        for w in mag.iter_mut() {
+            let x = *w as u64 * base as u64 + carry;
+            *w = (x % BIG_BASE) as u32;
+            carry = x / BIG_BASE;
+        }
+        while carry > 0 {
+            mag.push((carry % BIG_BASE) as u32);
+            carry /= BIG_BASE;
+        }
+    }
+    Some(Big::make(false, mag))
+}
 impl PartialOrd for Big {
     fn partial_cmp(&self, o: &Big) -> Option<std::cmp::Ordering> {
         use std::cmp::Ordering::*;
@@ -3647,11 +3693,54 @@ impl AxBigInt for Big {
 }
 pub trait AxStrBig {
     fn ax_big(&self) -> R<Big>;
+    fn ax_big_base(&self, base: i64) -> R<Big>;
 }
 impl AxStrBig for String {
     fn ax_big(&self) -> R<Big> {
-        Big::parse(self)
+        if ax_py_on() {
+            ax_big_base_impl(self, 10)
+        } else {
+            Big::parse(self)
+        }
     }
+    fn ax_big_base(&self, base: i64) -> R<Big> {
+        ax_big_base_impl(self, base)
+    }
+}
+
+// Python's int(s, base) read into a big integer, so any number of digits works. The checks match AxIntBase.
+fn ax_big_base_impl(s: &str, base: i64) -> R<Big> {
+    let bad = || AxErr(format!("invalid literal for int() with base {base}: {}", ax_py_repr(s)));
+    let t = s.trim();
+    let (neg, t) = match t.strip_prefix('-') {
+        Some(r) => (true, r),
+        None => (false, t.strip_prefix('+').unwrap_or(t)),
+    };
+    let low = t.to_ascii_lowercase();
+    let pre = |p: &str| low.starts_with(p);
+    let (b, digits) = match base {
+        0 if pre("0x") => (16, &t[2..]),
+        0 if pre("0o") => (8, &t[2..]),
+        0 if pre("0b") => (2, &t[2..]),
+        0 => (10, t),
+        16 if pre("0x") => (16, &t[2..]),
+        8 if pre("0o") => (8, &t[2..]),
+        2 if pre("0b") => (2, &t[2..]),
+        2..=36 => (base as u32, t),
+        _ => return Err(AxErr("int() base must be >= 2 and <= 36, or 0".into())),
+    };
+    let digits = digits.strip_prefix('_').filter(|_| digits.len() < t.len()).unwrap_or(digits);
+    if digits.is_empty() || digits.starts_with('_') || digits.ends_with('_') || digits.contains("__") {
+        return Err(bad());
+    }
+    // base 10 takes any Unicode decimal digit (`int("१२३", 0)` is 123)
+    let digits: String = digits.chars().filter(|&c| c != '_').map(|c| if b == 10 { ax_uni_digit(c) } else { c }).collect();
+    // base 0 reads a decimal literal as Python source does: no leading zeros unless the value is 0
+    if base == 0 && b == 10 && digits.len() > 1 && digits.starts_with('0') && digits.bytes().any(|c| c != b'0') {
+        return Err(bad());
+    }
+    let v = big_from_radix(&digits, b).ok_or_else(bad)?;
+    Ok(if neg { Big::make(true, v.mag) } else { v })
 }
 
 // ax_q(x)? works on both fallible results and plain values.
@@ -5997,6 +6086,29 @@ impl AxCalendar for i64 {
         y % 4 == 0 && (y % 100 != 0 || y % 400 == 0)
     }
 }
+// Python's float.is_integer() (and int's, always True since 3.12).
+pub trait AxIsInteger {
+    fn ax_is_integer(&self) -> bool;
+}
+impl AxIsInteger for f64 {
+    fn ax_is_integer(&self) -> bool {
+        self.is_finite() && self.fract() == 0.0
+    }
+}
+impl AxIsInteger for i64 {
+    fn ax_is_integer(&self) -> bool {
+        true
+    }
+}
+impl AxIsInteger for Json {
+    fn ax_is_integer(&self) -> bool {
+        match self {
+            Json::Num { v, .. } => v.ax_is_integer(),
+            Json::Bool { .. } => true,
+            _ => panic!("AttributeError: object has no attribute 'is_integer'"),
+        }
+    }
+}
 pub trait AxIsAscii {
     fn ax_is_ascii(&self) -> bool;
 }
@@ -6987,6 +7099,8 @@ impl AxRe for Json {
 pub trait AxRePy {
     fn ax_re_match(&self, p: impl AsRef<str>) -> Vec<String>;
     fn ax_re_m_match(&self, p: impl AsRef<str>) -> AxMatch;
+    fn ax_re_m_match_at(&self, p: impl AsRef<str>, pos: i64) -> AxMatch;
+    fn ax_re_m_find_at(&self, p: impl AsRef<str>, pos: i64) -> AxMatch;
     fn ax_re_findall(&self, p: impl AsRef<str>) -> Vec<String>;
 }
 impl AxRePy for String {
@@ -6997,6 +7111,18 @@ impl AxRePy for String {
     fn ax_re_m_match(&self, p: impl AsRef<str>) -> AxMatch {
         let cs: Vec<char> = self.chars().collect();
         ax_rx_search_at(p.as_ref(), &cs, 0, false, true).map_or_else(AxMatch::default, |(_, c)| ax_rx_match(&cs, &c))
+    }
+    // pat.match(s, pos) and pat.search(s, pos): from char pos (clamped to the text, as Python does) of the whole
+    // text, so spans count from its start and `\b` sees the char before pos.
+    fn ax_re_m_match_at(&self, p: impl AsRef<str>, pos: i64) -> AxMatch {
+        let cs: Vec<char> = self.chars().collect();
+        let from = pos.clamp(0, cs.len() as i64) as usize;
+        ax_rx_search_at(p.as_ref(), &cs, from, false, true).map_or_else(AxMatch::default, |(_, c)| ax_rx_match(&cs, &c))
+    }
+    fn ax_re_m_find_at(&self, p: impl AsRef<str>, pos: i64) -> AxMatch {
+        let cs: Vec<char> = self.chars().collect();
+        let from = pos.clamp(0, cs.len() as i64) as usize;
+        ax_rx_search_at(p.as_ref(), &cs, from, false, false).map_or_else(AxMatch::default, |(_, c)| ax_rx_match(&cs, &c))
     }
     fn ax_re_findall(&self, p: impl AsRef<str>) -> Vec<String> {
         let all = self.ax_re_all(p.as_ref().to_string());
@@ -7009,6 +7135,12 @@ impl AxRePy for Json {
     }
     fn ax_re_m_match(&self, p: impl AsRef<str>) -> AxMatch {
         match self { Json::Str { v } => v.ax_re_m_match(p), _ => panic!("TypeError: expected string or bytes-like object") }
+    }
+    fn ax_re_m_match_at(&self, p: impl AsRef<str>, pos: i64) -> AxMatch {
+        match self { Json::Str { v } => v.ax_re_m_match_at(p, pos), _ => panic!("TypeError: expected string or bytes-like object") }
+    }
+    fn ax_re_m_find_at(&self, p: impl AsRef<str>, pos: i64) -> AxMatch {
+        match self { Json::Str { v } => v.ax_re_m_find_at(p, pos), _ => panic!("TypeError: expected string or bytes-like object") }
     }
     fn ax_re_findall(&self, p: impl AsRef<str>) -> Vec<String> {
         match self { Json::Str { v } => v.ax_re_findall(p), _ => panic!("TypeError: expected string or bytes-like object") }

@@ -210,6 +210,9 @@ def main():
     jobs = [(label, pre + body) for name, split, b in secs[1:] for label, body in jobs_of(name, split, b)]
     os.environ.setdefault("BREVI_CACHE_MB", "6144")  # room for every test program: the cache never evicts mid-run
     os.environ["CHECK_SERVERS"] = "1"
+    # No background optimised builds (src/tier.rs): every test program would start one. The "tiered builds"
+    # check turns them on for itself.
+    os.environ.setdefault("BREVI_TIERED", "0")
     top = tempfile.mkdtemp(prefix="brevi-check-")
     procs = []
     try:

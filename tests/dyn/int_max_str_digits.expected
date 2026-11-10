@@ -1,0 +1,15 @@
+4300
+ValueError maxdigits must be 0 or larger than 640
+ValueError maxdigits must be 0 or larger than 640
+640
+640
+641
+640
+426
+ValueError Exceeds the limit (640 digits) for integer string conversion: value has 641 digits; use sys.set_int_max_str_digits() to increase the limit
+ValueError Exceeds the limit (640 digits) for integer string conversion: value has 641 digits; use sys.set_int_max_str_digits() to increase the limit
+825 375
+ValueError Exceeds the limit (640 digits) for integer string conversion: value has 641 digits; use sys.set_int_max_str_digits() to increase the limit
+ValueError Exceeds the limit (640 digits) for integer string conversion; use sys.set_int_max_str_digits() to increase the limit
+640
+5001 5000
