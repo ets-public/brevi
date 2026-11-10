@@ -1264,6 +1264,7 @@ fn builtin_class_attr_raw(c: &Rc<Class>, name: &str) -> Option<V> {
     // dict.fromkeys, str.maketrans, int.from_bytes ... and unbound methods (str.lower)
     match (c.name, name) {
         ("bytes", "fromhex") => Some(builtin("fromhex", bytes_fromhex)),
+        ("int", "from_bytes") => Some(builtin("from_bytes", |a: Args| int_from_bytes(&V::None, a))),
         // an instance of a plain class, its __init__ not run
         ("object", "__new__") => Some(builtin("__new__", |a: Args| match a.p.first() {
             Some(V::Class(c)) if matches!(c.base_bt(), BT::Object | BT::Other) && c.module != "typing" && !is_enum(c) => Ok(V::Obj(Obj::new(c.clone()))),
@@ -1410,7 +1411,7 @@ pub fn has_method(o: &V, name: &str) -> bool {
         V::Dict(_) => &["get", "setdefault", "pop", "popitem", "keys", "values", "items", "update", "copy", "clear", "most_common", "elements", "subtract", "total", "move_to_end", "fromkeys"],
         V::Set(_) | V::FSet(_) => &["add", "remove", "discard", "pop", "union", "intersection", "difference", "symmetric_difference", "issubset", "issuperset", "isdisjoint", "update", "intersection_update", "difference_update", "symmetric_difference_update", "copy", "clear"],
         V::Deque(_) => &["append", "appendleft", "pop", "popleft", "extend", "extendleft", "rotate", "clear", "copy", "count", "index", "remove", "reverse", "insert"],
-        V::Int(_) | V::Big(_) | V::Bool(_) => &["bit_length", "to_bytes", "conjugate", "bit_count", "as_integer_ratio", "is_integer"],
+        V::Int(_) | V::Big(_) | V::Bool(_) => &["bit_length", "to_bytes", "from_bytes", "conjugate", "bit_count", "as_integer_ratio", "is_integer"],
         V::Float(_) => &["is_integer", "as_integer_ratio", "hex", "conjugate"],
         V::Iter(_) => &["__next__", "__iter__", "send", "throw", "close"],
         V::Ext(_) => return true,
@@ -2556,6 +2557,154 @@ pub fn deque_method(d: &Rc<RefCell<Deq>>, o: &V, name: &str, a: Args) -> R {
         _ => return bad_method(o, name),
     })
 }
+// ---------- int.to_bytes / int.from_bytes ----------
+
+// The length argument of to_bytes, converted as CPython's PyLong_AsSsize_t does.
+fn to_bytes_len(v: &V) -> Result<i64, E> {
+    match v {
+        V::Int(i) => Ok(*i),
+        V::Bool(b) => Ok(*b as i64),
+        V::Big(_) => Err(exc("OverflowError", "Python int too large to convert to C ssize_t".into())),
+        V::Obj(o) if o.cls.lookup("__index__").is_some() => {
+            let f = o.cls.lookup("__index__").unwrap();
+            to_bytes_len(&call(&f, Args::p(vec![v.clone()]))?)
+        }
+        V::Obj(_) if matches!(inner_of(v), Some(V::Int(_) | V::Bool(_) | V::Big(_))) => to_bytes_len(&inner_of(v).unwrap()),
+        V::Ext(x) if is_np(v) => match x.method(v, "__index__", &mut Args::p(vec![])) {
+            Some(r) => to_bytes_len(&r?),
+            None => type_err(format!("'{}' object cannot be interpreted as an integer", tn(v))),
+        },
+        x => type_err(format!("'{}' object cannot be interpreted as an integer", tn(x))),
+    }
+}
+// True means little-endian, as _PyLong_ByteOrder parses.
+fn byteorder_arg(f: &str, v: &V) -> Result<bool, E> {
+    match v {
+        V::Str(x) => match x.s.as_str() {
+            "big" => Ok(false),
+            "little" => Ok(true),
+            _ => val_err("byteorder must be either 'little' or 'big'".into()),
+        },
+        x => type_err(format!("{f}() argument 'byteorder' must be str, not {}", tn(x))),
+    }
+}
+pub fn int_to_bytes(o: &V, mut a: Args) -> R {
+    let f = "to_bytes";
+    // to_bytes(length=1, byteorder='big', *, signed=False)
+    if a.p.len() + a.k.len() > 3 {
+        return type_err(format!("{f}() takes at most 3 arguments ({} given)", a.p.len() + a.k.len()));
+    }
+    if a.p.len() > 2 {
+        return type_err(format!("{f}() takes at most 2 positional arguments ({} given)", a.p.len()));
+    }
+    let length = match (a.p.get(0).cloned(), a.kw("length")) {
+        (Some(_), Some(_)) => return type_err(format!("argument for {f}() given by name ('length') and position (1)")),
+        (Some(p), None) => Some(p),
+        (None, k) => k,
+    };
+    let byteorder = match (a.p.get(1).cloned(), a.kw("byteorder")) {
+        (Some(_), Some(_)) => return type_err(format!("argument for {f}() given by name ('byteorder') and position (2)")),
+        (Some(p), None) => Some(p),
+        (None, k) => k,
+    };
+    let signed = match a.kw("signed") {
+        Some(x) => truth(&x)?,
+        None => false,
+    };
+    a.no_kw(f)?;
+    let n = to_bytes_len(&length.unwrap_or(V::Int(1)))?;
+    let little = byteorder_arg(f, &byteorder.unwrap_or(s("big")))?;
+    if n < 0 {
+        return val_err("length argument must be non-negative".into());
+    }
+    let n = n as usize;
+    let b = big_of(o).unwrap();
+    if !signed && b.neg {
+        return Err(exc("OverflowError", "can't convert negative int to unsigned".into()));
+    }
+    // The smallest byte count that holds the value (0 fits in 0 bytes only unsigned, or signed).
+    let (mag, neg) = if b.neg { (b.neg().sub(&Big::from_i64(1)), true) } else { (b.clone(), false) };
+    let min = if b.is_zero() {
+        0
+    } else if neg {
+        // -128 fits in one byte (0x80), -129 does not: the top magnitude bit doubles as the sign.
+        (mag.bits() + 8) / 8
+    } else if signed {
+        (b.bits() + 8) / 8
+    } else {
+        (b.bits() + 7) / 8
+    };
+    if n < min {
+        return Err(exc("OverflowError", "int too big to convert".into()));
+    }
+    let mut out = Vec::new();
+    out.try_reserve_exact(n).map_err(|_| exc0("MemoryError"))?;
+    out.resize(n, 0);
+    // Two's complement: for a negative x write |x|-1 and invert every byte.
+    for (i, byte) in out.iter_mut().enumerate() {
+        let j = if little { i } else { n - 1 - i };
+        let w = mag.mag.get(j / 4).copied().unwrap_or(0);
+        *byte = (w >> (8 * (j % 4))) as u8;
+        if neg {
+            *byte = !*byte;
+        }
+    }
+    Ok(bytesv(out))
+}
+pub fn int_from_bytes(o: &V, mut a: Args) -> R {
+    let f = "from_bytes";
+    // from_bytes(bytes, byteorder='big', *, signed=False)
+    if a.p.len() + a.k.len() > 3 {
+        return type_err(format!("{f}() takes at most 3 arguments ({} given)", a.p.len() + a.k.len()));
+    }
+    if a.p.len() > 2 {
+        return type_err(format!("{f}() takes at most 2 positional arguments ({} given)", a.p.len()));
+    }
+    let bytes_v = match (a.p.get(0).cloned(), a.kw("bytes")) {
+        (Some(_), Some(_)) => return type_err(format!("argument for {f}() given by name ('bytes') and position (1)")),
+        (Some(p), None) => Some(p),
+        (None, k) => k,
+    };
+    let Some(bytes_v) = bytes_v else {
+        return type_err(format!("{f}() missing required argument 'bytes' (pos 1)"));
+    };
+    let byteorder = match (a.p.get(1).cloned(), a.kw("byteorder")) {
+        (Some(_), Some(_)) => return type_err(format!("argument for {f}() given by name ('byteorder') and position (2)")),
+        (Some(p), None) => Some(p),
+        (None, k) => k,
+    };
+    let signed = match a.kw("signed") {
+        Some(x) => truth(&x)?,
+        None => false,
+    };
+    a.no_kw(f)?;
+    let little = byteorder_arg(f, &byteorder.unwrap_or(s("big")))?;
+    let b = bytes_of(&bytes_v).ok_or_else(|| exc("TypeError", format!("cannot convert '{}' object to bytes", tn(&bytes_v))))?;
+    let mut words = vec![0u32; (b.len() + 3) / 4];
+    if little {
+        for (i, &c) in b.iter().enumerate() {
+            words[i / 4] |= (c as u32) << (8 * (i % 4));
+        }
+    } else {
+        for (i, &c) in b.iter().enumerate() {
+            let j = b.len() - 1 - i;
+            words[j / 4] |= (c as u32) << (8 * (j % 4));
+        }
+    }
+    let mut x = Big { neg: false, mag: mtrim(words) };
+    if signed && !b.is_empty() {
+        let top = if little { b[b.len() - 1] } else { b[0] };
+        if top & 0x80 != 0 {
+            x = x.sub(&Big::from_i64(1).shl(8 * b.len()));
+        }
+    }
+    // from_bytes is a classmethod: on a bool it returns a bool, as CPython does.
+    if let V::Bool(_) = o {
+        return Ok(V::Bool(!x.is_zero()));
+    }
+    Ok(x.norm())
+}
+
 pub fn builtin_method(o: &V, name: &str, a: Args) -> R {
     match o {
         V::Str(x) => str_method(x, o, name, a),
@@ -2594,6 +2743,8 @@ pub fn builtin_method(o: &V, name: &str, a: Args) -> R {
         V::Int(_) | V::Big(_) | V::Bool(_) => match name {
             "bit_length" => Ok(V::Int(big_of(o).unwrap().bits() as i64)),
             "bit_count" => Ok(V::Int(big_of(o).unwrap().mag.iter().map(|w| w.count_ones() as i64).sum())),
+            "to_bytes" => int_to_bytes(o, a),
+            "from_bytes" => int_from_bytes(o, a),
             "conjugate" | "__int__" | "__index__" | "__trunc__" | "__floor__" | "__ceil__" => to_int(o),
             "is_integer" => Ok(V::Bool(true)),
             "as_integer_ratio" => Ok(tup(vec![to_int(o)?, V::Int(1)])),
