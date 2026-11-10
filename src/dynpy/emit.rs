@@ -1423,6 +1423,84 @@ impl Bridge {
     }
 }
 
+// The value-set key of a constant set display. CPython merges equal frozenset constants across
+// a module (_PyCode_ConstantKey + merge_consts_recursive), so displays with the same values all
+// share the first one's table. Types stay distinct, as in CPython: 1, 1.0 and True do not merge.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ConstKey {
+    Int(bool, Vec<u32>),
+    Float(u64),
+    Str(String),
+    NoneV,
+    Bool(bool),
+    Ellipsis,
+    Tuple(Vec<ConstKey>),
+}
+
+// An int literal's digits as a little-endian base-1e9 number, so 16, 0x10 and 0b10000 compare equal.
+fn int_key(t: &str) -> (bool, Vec<u32>) {
+    let mut s = t.replace('_', "");
+    let neg = s.starts_with('-');
+    if neg || s.starts_with('+') {
+        s = s[1..].to_string();
+    }
+    let base = if let Some(r) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+        s = r.to_string();
+        16
+    } else if let Some(r) = s.strip_prefix("0o").or_else(|| s.strip_prefix("0O")) {
+        s = r.to_string();
+        8
+    } else if let Some(r) = s.strip_prefix("0b").or_else(|| s.strip_prefix("0B")) {
+        s = r.to_string();
+        2
+    } else {
+        10
+    };
+    let mut mag: Vec<u32> = vec![0];
+    for c in s.chars() {
+        let mut carry = c.to_digit(16).unwrap_or(0) as u64;
+        for limb in mag.iter_mut() {
+            let v = *limb as u64 * base as u64 + carry;
+            *limb = (v % 1_000_000_000) as u32;
+            carry = v / 1_000_000_000;
+        }
+        if carry != 0 {
+            mag.push(carry as u32);
+        }
+    }
+    while mag.len() > 1 && mag.last() == Some(&0) {
+        mag.pop();
+    }
+    let zero = mag.len() == 1 && mag[0] == 0;
+    (neg && !zero, mag)
+}
+
+fn const_key(e: &Ex) -> ConstKey {
+    match e {
+        Ex::Int(t) => {
+            let (neg, mag) = int_key(t);
+            ConstKey::Int(neg, mag)
+        }
+        Ex::Float(f) => ConstKey::Float(f.to_bits()),
+        Ex::Str(s) => ConstKey::Str(s.clone()),
+        Ex::NoneV => ConstKey::NoneV,
+        Ex::True => ConstKey::Bool(true),
+        Ex::False => ConstKey::Bool(false),
+        Ex::Ellipsis => ConstKey::Ellipsis,
+        Ex::Unary("-", x) => match x.as_ref() {
+            Ex::Int(t) => {
+                let (neg, mag) = int_key(t);
+                let zero = mag.len() == 1 && mag[0] == 0;
+                ConstKey::Int(!neg && !zero, mag)
+            }
+            Ex::Float(f) => ConstKey::Float((-f).to_bits()),
+            _ => unreachable!(),
+        },
+        Ex::Tuple(xs) => ConstKey::Tuple(xs.iter().map(const_key).collect()),
+        _ => unreachable!(),
+    }
+}
+
 pub struct Em {
     // some module mentions __del__: statements run waiting finalizers (block)
     has_del: bool,
@@ -1457,6 +1535,8 @@ pub struct Em {
     bridge: Bridge,
     // what the program has CPython run, for the path report
     bridged_used: BTreeSet<String>,
+    // module + value set -> the first display's items in source order (CPython's constant merging)
+    set_lits: HashMap<(String, BTreeSet<ConstKey>), Vec<Ex>>,
 }
 
 impl Em {
@@ -1649,20 +1729,37 @@ impl Em {
                 }
             }
             Ex::Set(v) => {
-                let s = self.seq(v, line)?;
                 // CPython builds a literal of 3 or more constants as a frozenset constant copied into a new
-                // set, which can order the items differently from adding them one by one.
+                // set, which can order the items differently from adding them one by one; and equal constant
+                // sets anywhere in the module share the first one's frozenset (constant merging), so a display
+                // whose values repeat an earlier one uses that earlier display's source order.
                 fn konst(e: &Ex) -> bool {
                     match e {
-                        Ex::Int(_) | Ex::Float(_) | Ex::Str(_) | Ex::NoneV | Ex::True | Ex::False => true,
+                        Ex::Int(_) | Ex::Float(_) | Ex::Str(_) | Ex::NoneV | Ex::True | Ex::False | Ex::Ellipsis => true,
                         Ex::Unary("-", x) => matches!(x.as_ref(), Ex::Int(_) | Ex::Float(_)),
                         Ex::Tuple(xs) => xs.iter().all(konst),
                         _ => false,
                     }
                 }
-                let one = self.q(&format!("set_of_vec({s})"));
-                if v.len() >= 3 && v.iter().all(konst) {
-                    let fs = self.q(&format!("bi_frozenset(Args::p(vec![{one}]))"));
+                let folded = v.len() >= 3 && v.iter().all(konst);
+                let items = if folded {
+                    let key: BTreeSet<ConstKey> = v.iter().map(const_key).collect();
+                    let m = self.module.clone();
+                    let have = self.set_lits.get(&(m.clone(), key.clone())).cloned();
+                    match have {
+                        Some(x) => x,
+                        None => {
+                            self.set_lits.insert((m, key), v.clone());
+                            v.clone()
+                        }
+                    }
+                } else {
+                    v.clone()
+                };
+                let sq = self.seq(&items, line)?;
+                let one = self.q(&format!("set_of_vec({sq})"));
+                if folded {
+                    let fs = self.q(&format!("fset_rebuild({one})"));
                     self.q(&format!("bi_set(Args::p(vec![{fs}]))"))
                 } else {
                     one
@@ -3571,6 +3668,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         direct_ok: HashSet::new(),
         bridge,
         bridged_used: BTreeSet::new(),
+        set_lits: HashMap::new(),
     };
     // Brevi's own library copies first, each group named and numbered on its own, then the program's modules:
     // the copies' Rust (everything before LIB_END) is then the same for every program that imports them, so a
