@@ -1,0 +1,1 @@
+- Websites: brevi-lang.org and brevi.run are redesigned. A dark header, hero and footer around light or dark pages (with a switch in the header), the benchmark table with a bar per program, CPython's own test results as one bar per version, a Copy button on the install command, and the install command and GitHub link at the foot of every page. No numbers or claims changed.
