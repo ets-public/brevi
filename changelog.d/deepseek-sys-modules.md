@@ -1,1 +1,1 @@
-- `sys.modules` is one live dict for the whole program, and `import` registers each module in it, so `sys.modules['m'] is m` (written by DeepSeek, #PR).
+- `sys.modules` is one live dict for the whole program, and `import` registers each module in it, so `sys.modules['m'] is m` (written by DeepSeek, #313).
