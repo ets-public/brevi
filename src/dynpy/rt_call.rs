@@ -772,6 +772,13 @@ pub fn getattr(o: &V, name: &str) -> R {
         V::Func(f) => match name {
             "__name__" | "__qualname__" => Ok(s(f.name)),
             "__call__" => Ok(o.clone()),
+            "__code__" => {
+                let c = f.code.borrow().clone();
+                match c {
+                    Some(c) => Ok(c),
+                    None => Err(exc("AttributeError", format!("'{}' object has no attribute '__code__'", if f.kind.get() == 3 { "builtin_function_or_method" } else { "function" }))),
+                }
+            }
             // 0 function, 1 staticmethod, 2 classmethod (Brevi's pydantic reads it)
             "__bv_kind__" => Ok(V::Int(f.kind.get() as i64)),
             "__doc__" => Ok(f.attrs.borrow().iter().find(|(k, _)| *k == "__doc__").map_or(V::None, |(_, v)| v.clone())),
@@ -877,6 +884,10 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
             None => Err(exc("AttributeError", format!("'{}' object has no attribute '{}' and no __dict__ for setting new attributes", tn(o), name))),
         },
         V::Func(f) => {
+            if name == "__code__" {
+                *f.code.borrow_mut() = Some(v);
+                return Ok(());
+            }
             let mut a = f.attrs.borrow_mut();
             match a.iter_mut().find(|(k, _)| *k == name) {
                 Some(e) => e.1 = v,
