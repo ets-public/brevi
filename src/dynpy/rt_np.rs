@@ -1936,6 +1936,15 @@ fn np_blas() -> Blas {
 fn fma(a: f64, b: f64, c: f64) -> f64 {
     a.mul_add(b, c)
 }
+// float32 a * b + c rounded once, like the CPU's fmaf (numpy's float32 SIMD ufunc loops)
+#[inline(always)]
+pub fn np_fmaf(a: f32, b: f32, c: f32) -> f32 {
+    a.mul_add(b, c)
+}
+// numpy's float32 exp/tanh/log1p/sin/cos loops are reproduced for its AVX-512 (SkylakeX) dispatch only
+pub fn np_f32_simd() -> bool {
+    np_blas() == Blas::Skx
+}
 fn fma_cpu() -> bool {
     #[cfg(target_arch = "x86_64")]
     {

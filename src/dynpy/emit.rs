@@ -49,6 +49,18 @@ pub fn names_narrow(src: &str) -> bool {
     false
 }
 // The numpy functions native for float32 and int32 arrays (the runtime's np_narrow_ok has the same list).
+// float32 ufuncs whose numpy SIMD loops the runtime reproduces, for numpy's AVX-512 (SkylakeX) dispatch only
+// (rt_npfn.rs np_exp_f32 and the rest). On another CPU numpy runs other code, so the program goes to CPython.
+const NP_F32_SIMD: &[&str] = &["exp", "tanh", "log1p", "sin", "cos"];
+fn np_f32_simd_here() -> bool {
+    #[cfg(target_arch = "x86_64")]
+    {
+        use std::arch::is_x86_feature_detected as has;
+        return has!("avx512f") && has!("avx512dq") && has!("avx512cd") && has!("avx512bw") && has!("avx512vl");
+    }
+    #[allow(unreachable_code)]
+    false
+}
 const NP_NARROW_FUNCS: &[&str] = &[
     "pi", "e", "inf", "nan", "euler_gamma", "newaxis", "True_", "False_", "float64", "double", "int64", "int_", "intp", "bool_", "bool", "ndarray",
     "integer", "signedinteger", "floating", "number", "generic", "inexact", "float32", "single", "int32", "intc",
@@ -181,9 +193,9 @@ pub fn module_has(m: &str, n: &str) -> bool {
     let names: &[&str] = match m {
         "__future__" => return true,
         "typing" | "typing_extensions" | "collections.abc" => return super::typing::module_has(m, n),
-        "numpy" => return np_func_kw(n).is_some() && (!np_narrow() || NP_NARROW_FUNCS.contains(&n)),
+        "numpy" => return np_func_kw(n).is_some() && (!np_narrow() || NP_NARROW_FUNCS.contains(&n) || (NP_F32_SIMD.contains(&n) && np_f32_simd_here())),
         "numpy.random" => return np_rand_kw(n).is_some(),
-        "numpy.linalg" => return np_linalg_kw(n).is_some() && !np_narrow(),
+        "numpy.linalg" => return np_linalg_kw(n).is_some() && (!np_narrow() || n == "norm"),
         "sys" => &["exit", "setrecursionlimit", "getrecursionlimit", "getsizeof", "intern", "set_int_max_str_digits", "get_int_max_str_digits", "stdin", "stdout", "stderr", "argv", "maxsize", "platform", "byteorder", "version_info", "version", "modules", "path", "exception", "exc_info"],
         "math" => &["acos", "asin", "atan", "atan2", "ceil", "comb", "copysign", "cos", "cosh", "degrees", "dist", "exp", "fabs", "factorial", "floor", "fmod", "frexp", "fsum", "gcd", "hypot", "isclose", "isfinite", "isinf", "isnan", "isqrt", "lcm", "ldexp", "log", "log10", "log1p", "log2", "modf", "perm", "pow", "prod", "radians", "remainder", "sin", "sinh", "sqrt", "tan", "tanh", "trunc", "pi", "e", "tau", "inf", "nan"],
         "atexit" => &["register", "unregister", "_run_exitfuncs", "_clear", "_ncallbacks"],

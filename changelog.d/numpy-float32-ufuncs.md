@@ -1,0 +1,1 @@
+- Native numpy: `np.exp`, `np.tanh`, `np.sin`, `np.cos` and `np.log1p` of float32 arrays, and `np.linalg.norm` of a float32 array (default norm), now run in Brevi's own numpy with numpy's exact float32 results, on CPUs with AVX-512. Other CPUs keep running these programs in CPython. float32 `@` / `np.dot` still runs in CPython.

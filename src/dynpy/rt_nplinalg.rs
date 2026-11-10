@@ -629,6 +629,26 @@ fn np_dtype_v(d: NT) -> V {
 }
 fn np_norm(a: &Args) -> R {
     let x0 = npa(a, 0, "x").ok_or_else(|| exc("TypeError", "norm() missing required argument 'x' (pos 0)".into()))?;
+    // float32: numpy computes the default (Frobenius / 2) norm in float32: squares, its pairwise sum, sqrt.
+    let xa = np_as(&x0)?;
+    if xa.dt() == NT::F32 {
+        let ord = npa(a, 1, "ord").filter(|v| !matches!(v, V::None));
+        let axis = npa(a, 2, "axis").filter(|v| !matches!(v, V::None));
+        let ord_s = ord.as_ref().and_then(|v| if let V::Str(s) = v { Some(s.s.clone()) } else { None });
+        let ord_f = match (&ord, &ord_s) {
+            (Some(v), None) => Some(np_f_arg(v)?),
+            _ => None,
+        };
+        let nd = xa.ndim();
+        let fro = ord.is_none() || (matches!(ord_s.as_deref(), Some("f" | "fro")) && nd == 2) || (ord_f == Some(2.0) && nd == 1);
+        if axis.is_none() && fro {
+            let xv = np_arr(xa.clone());
+            let s = np_binop(&xv, &xv, "*").unwrap()?;
+            let t = np_meth(&s, "sum", vec![], vec![])?;
+            return np_call("sqrt", vec![t], vec![]);
+        }
+        return Err(np_unsup("np.linalg.norm of a float32 array (only the default Frobenius/2-norm)"));
+    }
     let mut x = np_float_arr(&x0)?;
     let ord = npa(a, 1, "ord").filter(|v| !matches!(v, V::None));
     let axis = npa(a, 2, "axis").filter(|v| !matches!(v, V::None));
