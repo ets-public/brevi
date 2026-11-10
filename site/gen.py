@@ -428,10 +428,36 @@ def head(title, desc, extra=""):
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/site.webmanifest">
-<meta name="theme-color" content="#1d5b4f">
+<meta name="theme-color" content="#0b100e">
 <link rel="preload" href="/plex-sans.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/style.css?v=__CSSV__">%s
 </head>""" % (html.escape(title), html.escape(desc, quote=True), extra)
+
+
+INSTALL = "curl -fsSL https://raw.githubusercontent.com/ets-public/brevi/main/install.sh | sh"
+
+# The theme the reader picked is applied before the first paint; without a pick the page follows the system.
+THEME_HEAD = """<script>try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}</script>
+"""
+
+# Every page: the light/dark button in the header and the Copy button on an install line.
+SITE_JS = """<script>
+(function(){var r=document.documentElement,b=document.querySelector('.theme');
+if(b)b.addEventListener('click',function(){var d=r.dataset.theme?r.dataset.theme==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+  r.dataset.theme=d?'light':'dark';try{localStorage.setItem('theme',r.dataset.theme)}catch(e){}});
+document.addEventListener('click',function(e){var c=e.target.closest('[data-copy]');if(!c||!navigator.clipboard)return;
+  navigator.clipboard.writeText(c.parentNode.querySelector('code').textContent).then(function(){c.textContent='Copied';setTimeout(function(){c.textContent='Copy'},1600)});});
+})();
+</script>"""
+
+THEME_BTN = ('<button class="theme" type="button" aria-label="Switch between light and dark">'
+             '<svg class="sun" aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>'
+             '<svg class="moon" aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg></button>')
+
+
+def install_line():
+    return ('<div class="install" aria-label="Install command"><span class="p">$</span><code>%s</code>'
+            '<button class="copy" type="button" data-copy>Copy</button></div>' % INSTALL)
 
 
 def header(active, site="org", public=False):
@@ -440,51 +466,64 @@ def header(active, site="org", public=False):
         ("docs", base + "/docs/", "Docs"),
         ("agents", base + "/docs/agents", "For agents"),
         ("benchmarks", base + "/docs/benchmarks", "Benchmarks"),
+        ("pricing", base + "/pricing", "Pricing"),
         ("run", "https://brevi.run" if site == "org" else "/", "brevi.run"),
     ]
-    # On a phone the least needed link is hidden (it is in the footer too), so the bar fits without scrolling.
-    opt = "run" if site == "org" else "benchmarks"
-    nav = "".join('<a href="%s"%s%s>%s</a>' % (u, ' class="opt"' if k == opt else "", ' aria-current="page"' if k == active else "", t) for k, u, t in links)
-    if public:
-        nav += '<a class="gh" href="%s" rel="noopener">%sGitHub</a>' % (GITHUB, GH_ICON)
+    # On a phone the least needed links are hidden (they are in the footer too), so the bar fits without scrolling.
+    opt = {"run", "pricing", "benchmarks"}
+    nav = "".join('<a href="%s"%s%s>%s</a>' % (u, ' class="opt"' if k in opt else "", ' aria-current="page"' if k == active else "", t) for k, u, t in links)
+    nav += '<a class="gh" href="%s" rel="noopener">%sGitHub</a>' % (GITHUB, GH_ICON)
     home = "/" if site == "org" else "https://brevi-lang.org/"
     name = "Brevi" if site == "org" else "brevi.run"
     tag = '<span class="ver">v__VERSION__</span>' if site == "org" else '<span class="ver">hosted, coming</span>'
     return """<a class="skip" href="#main">Skip to content</a>
-<header class="top">
+<header class="top ink">
   <div class="wrap bar">
     <a class="brand" href="%s">%s%s%s</a>
     <nav class="main-nav" aria-label="Main">%s</nav>
+    %s
   </div>
-</header>""" % ("/" if site == "run" else home, LOGO % (26, 26), name, tag, nav)
+</header>""" % ("/" if site == "run" else home, LOGO % (26, 26), name, tag, nav, THEME_BTN)
 
 
 def footer(site="org", public=False):
-    gh = '<a href="%s" rel="noopener">GitHub</a>' % GITHUB if public else ""
+    """The install one-liner and the GitHub link are on every page, here, above the footer links."""
+    gh = '<a href="%s" rel="noopener">GitHub</a>' % GITHUB
     base = "" if site == "org" else "https://brevi-lang.org"
-    return """<footer class="site">
+    return """<footer class="site ink">
+  <div class="wrap get">
+    <div>
+      <h2>Install Brevi</h2>
+      <p>One command on Linux and macOS. Windows binaries and other ways to install are in the <a href="%s/docs/install">install guide</a>. Free and open source under Apache-2.0.</p>
+    </div>
+    <div>
+      %s
+      <div class="actions"><a class="btn primary" href="%s/docs/install">Get started</a><a class="btn ghost gh" href="%s" rel="noopener">%sView on GitHub</a></div>
+    </div>
+  </div>
   <div class="wrap cols">
     <div class="about">
       <span class="brand small">%sBrevi</span>
       <p>A compiler that runs the Python AI agents write as native binaries. Apache-2.0.</p>
     </div>
     <div><h4>Docs</h4><a href="%s/docs/install">Install</a><a href="%s/docs/usage">Using Brevi</a><a href="%s/docs/agents">For agents</a><a href="%s/docs/architecture">Architecture</a></div>
-    <div><h4>Project</h4><a href="%s/docs/benchmarks">Benchmarks</a><a href="%s/docs/roadmap">Roadmap</a><a href="%s/docs/changelog">Changelog</a><a href="%s/docs/faq">FAQ</a><a href="%s/pricing">Pricing</a><a href="%s/docs/contributing">Contributing</a></div>
+    <div><h4>Project</h4><a href="%s/docs/benchmarks">Benchmarks</a><a href="%s/docs/showcases">Showcases</a><a href="%s/docs/roadmap">Roadmap</a><a href="%s/docs/changelog">Changelog</a><a href="%s/docs/faq">FAQ</a><a href="%s/pricing">Pricing</a><a href="%s/docs/contributing">Contributing</a></div>
     <div><h4>Elsewhere</h4>%s<a href="https://brevi.run">brevi.run</a><a href="%s/llms.txt">llms.txt</a><a href="mailto:support@brevi-lang.org">support@brevi-lang.org</a></div>
   </div>
-</footer>""" % (LOGO % (20, 20), base, base, base, base, base, base, base, base, base, base, gh, base)
+</footer>
+%s""" % (base, install_line(), base, GITHUB, GH_ICON, LOGO % (20, 20), base, base, base, base, base, base, base, base, base, base, base, gh, base, SITE_JS)
 
 
 def status_line(public):
-    if public:
-        return 'Public preview, v__VERSION__. Open source under Apache-2.0: <a href="%s" rel="noopener">source and releases on GitHub</a>.' % GITHUB
-    return "Preview, v__VERSION__. The compiler, written in Rust, opens under the Apache-2.0 license with the public release."
+    # Written the way Brevi writes its own messages: one line of JSON.
+    return ('{"<b>preview</b>":"v__VERSION__","<b>license</b>":"Apache-2.0","<b>source</b>":"<a href="%s" rel="noopener">github.com/ets-public/brevi</a>"}' % GITHUB)
 
 
 # ---------------------------------------------------------------- Build
 
 def fill(t, version, guide_tokens, public, cssv):
     t = blocks_for(t, public)
+    t = t.replace("</head>", THEME_HEAD + "</head>", 1)
     return (t.replace("__STATUS__", status_line(public)).replace("__FULLVERSION__", FULLVERSION or version).replace("__VERSION__", version)
              .replace("__GUIDE_TOKENS__", guide_tokens).replace("__CSSV__", cssv)
              .replace("__GITHUB__", GITHUB).replace("__GHICON__", GH_ICON))
@@ -525,9 +564,11 @@ def build(out, out_run, version, guide_tokens, public):
         nf = """%s
 <body>
 %s
-<main id="main" class="wrap" style="padding-block: 80px 96px;">
+<main id="main" class="wrap nf">
   <p class="eyebrow">404</p>
-  <h1 style="font: 500 2.2rem/1.2 var(--serif); margin: 0 0 12px;">There is no page here.</h1>
+  <h1>There is no page here</h1>
+  <div class="term"><div class="tbar"><span>$ brevi check this-page</span><span>1 line</span></div>
+<pre class="out wrapline">{"e":"not_found","msg":"no page at this address","fix":"try /docs/ or the home page"}</pre></div>
   <p class="lede">It may have moved when the site was reorganised. Try the <a href="https://brevi-lang.org/docs/">docs</a> or the <a href="/">home page</a>.</p>
 </main>
 %s

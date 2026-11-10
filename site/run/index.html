@@ -9,7 +9,7 @@
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/site.webmanifest">
-<meta name="theme-color" content="#1d5b4f">
+<meta name="theme-color" content="#0b100e">
 <link rel="preload" href="/plex-sans.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/style.css?v=__CSSV__">
 </head>
@@ -17,26 +17,29 @@
 __HEADER__
 
 <main id="main">
-  <div class="wrap hero">
-    <div>
-      <p class="eyebrow">Hosted service · coming</p>
-      <h1>Compile and run your agent's Python with nothing to install</h1>
-      <p class="lede">brevi.run will be the Brevi compiler as an API. An agent sends a Python or Brevi program with its input and tests, and gets back the output, the test results or the error lines. The agent's machine needs <strong>no Rust toolchain, no Python and no sandbox</strong>.</p>
-      <div class="actions">
-        <a class="btn primary" href="https://brevi-lang.org/pricing#hosted">Join the waitlist</a>
-        <a class="btn ghost" href="https://brevi-lang.org/docs/install">Use the compiler today</a>
-<!--public-->        <a class="btn ghost" href="__GITHUB__" rel="noopener">__GHICON__View on GitHub</a>
-<!--/public-->      </div>
-      <p class="status">Not open yet. The API below is a sketch and may change before launch. A playground in the browser is planned too.</p>
-    </div>
-    <div class="term" aria-label="Example request and response">
-      <div class="tbar"><span>POST /run</span><span>request</span></div>
+  <div class="hero-band ink">
+    <div class="wrap hero">
+      <div>
+        <p class="eyebrow">Hosted service, coming</p>
+        <h1>Compile and run your agent's Python with nothing to install</h1>
+        <p class="lede">brevi.run will be the Brevi compiler as an API. An agent sends a Python or Brevi program with its input and tests, and gets back the output, the test results or the error lines. The agent's machine needs <strong>no Rust toolchain, no Python and no sandbox</strong>.</p>
+        <div class="actions">
+          <a class="btn primary" href="https://brevi-lang.org/pricing#hosted">Join the waitlist</a>
+          <a class="btn ghost" href="__GITHUB__" rel="noopener">__GHICON__View on GitHub</a>
+          <a class="more" href="https://brevi-lang.org/docs/install">Use the compiler today →</a>
+        </div>
+        <p class="fine">Not open yet. The API here is a sketch and may change before launch. A playground in the browser is planned too.</p>
+        <p class="status jl">{"<b>status</b>":"not open yet","<b>api</b>":"sketch","<b>compiler</b>":"<a href="https://brevi-lang.org/docs/install">available now</a>"}</p>
+      </div>
+      <div class="term" aria-label="Example request and response">
+        <div class="tbar"><span>POST /run</span><span>request</span></div>
 <pre class="wrapline">{"files": {"main.py": "import sys\nprint(sum(map(int, sys.stdin.read().split())))"},
  "stdin": "3 4 5"}</pre>
-      <div class="tbar"><span>200 OK</span><span>response</span></div>
+        <div class="tbar"><span>200 OK</span><span>response</span></div>
 <pre class="wrapline">{"ok": true, "native": true, "stdout": "12\n", "ms": 4}</pre>
-      <div class="tbar"><span>POST /check</span><span>when something is wrong</span></div>
+        <div class="tbar"><span>POST /check</span><span>when something is wrong</span></div>
 <pre class="out wrapline">{"ok": false, "errors": [{"line": 2, "msg": "expected ')', found end of line", "fix": "insert ')'"}]}</pre>
+      </div>
     </div>
   </div>
 
@@ -55,12 +58,12 @@ __HEADER__
   </section>
 
   <section class="band">
-    <div class="wrap split" style="align-items: start;">
+    <div class="wrap split" style="align-items: start; gap: 56px;">
       <div class="band-head" style="margin: 0;">
         <h2>Until then, run Brevi yourself</h2>
         <p><!--public-->The compiler is open source under Apache-2.0 and runs on Linux, macOS and Windows.<!--/public--> <code>brevi mcp</code> gives any MCP client the same tools locally.</p>
       </div>
-      <div class="cards" style="grid-template-columns: minmax(0, 1fr);">
+      <div class="cards" style="grid-template-columns: minmax(0, 1fr); gap: 12px;">
         <a class="card" href="https://brevi-lang.org/docs/install"><h3>Install Brevi</h3><p>Release binaries, the install script, or build from source.</p></a>
         <a class="card" href="https://brevi-lang.org/docs/agents"><h3>Connect an agent</h3><p>MCP server, Agent Skill, Claude Code plugin and llms.txt.</p></a>
         <a class="card" href="https://brevi-lang.org/docs/roadmap"><h3>Roadmap</h3><p>What comes next, brevi.run included.</p></a>

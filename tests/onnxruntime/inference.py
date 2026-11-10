@@ -18,7 +18,7 @@ print(s.run(["probs"], {"x": x[:1]})[0].argmax())
 
 e = ort.InferenceSession(M + "encoder.onnx")
 p, a, sh = e.run(None, {"ids": np.array([[1, 2, 3], [4, 5, 6]])})
-print(p, a.round(4), sh)
+print(p.round(5), a.round(4), sh)  # float32 last digits move between onnxruntime releases
 
 t = ort.InferenceSession(M + "types.onnx")
 print([(i.name, i.type) for i in t.get_inputs()], [(o.name, o.type) for o in t.get_outputs()])

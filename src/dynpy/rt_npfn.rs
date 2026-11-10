@@ -218,7 +218,59 @@ fn np_sorted_k(a: &NdArr, axis: Option<usize>, arg: bool, stable: bool) -> R {
     let n = g.n;
     let ng = if n == 0 { 0 } else { g.vals.len() / n };
     let mut out = if arg { Buf::I(vec![0; g.vals.len()]) } else { Buf::zeros(g.vals.dt(), g.vals.len()) };
+    let mut idx0: Vec<usize> = Vec::with_capacity(n);
     for k in 0..ng {
+        // numpy's default kind (quicksort) has its own unstable order for equal values, which
+        // rt_npsort reproduces (x86-simd-sort on AVX-512/AVX2, numpy's introsort elsewhere).
+        if arg && !stable {
+            // x86-simd-sort hands arrays containing NaN to std::sort before the model below;
+            // the old NaN-last order is exactly std::sort's for distinct non-NaN values, and
+            // the repeated-value check below refuses the rest.
+            let nan = match &g.vals {
+                Buf::F(x) => x[k * n..k * n + n].iter().any(|f| f.is_nan()),
+                Buf::F32(x) => x[k * n..k * n + n].iter().any(|f| f.is_nan()),
+                _ => false,
+            };
+            if nan {
+                let idx = np_argsort_vals(&g.vals, k * n, n);
+                np_unstable_check(&g.vals, k * n, n, &idx, arg)?;
+                for (j, i) in idx.iter().enumerate() {
+                    out.set(k * n + j, Sc::I(*i as i64));
+                }
+                continue;
+            }
+            // With no repeated values every sort gives the same order: the plain sort is faster
+            // than the lane-by-lane model of numpy's SIMD sort, so only repeats take the model.
+            let idx = np_argsort_vals(&g.vals, k * n, n);
+            if np_unstable_check(&g.vals, k * n, n, &idx, arg).is_ok() {
+                for (j, i) in idx.iter().enumerate() {
+                    out.set(k * n + j, Sc::I(*i as i64));
+                }
+                continue;
+            }
+            idx0.clear();
+            idx0.extend(0..n);
+            let res = match &g.vals {
+                Buf::I(x) => Some(np_default_argsort_i64(&x[k * n..k * n + n], &mut idx0)),
+                Buf::I32(x) => Some(np_default_argsort_i32(&x[k * n..k * n + n], &mut idx0)),
+                Buf::F(x) => Some(np_default_argsort_f64(&x[k * n..k * n + n], &mut idx0)),
+                Buf::F32(x) => Some(np_default_argsort_f32(&x[k * n..k * n + n], &mut idx0)),
+                _ => None,
+            };
+            match res {
+                Some(true) => {
+                    for (j, i) in idx0.iter().enumerate() {
+                        out.set(k * n + j, Sc::I(*i as i64));
+                    }
+                    continue;
+                }
+                // numpy would fall back to std::sort here; its tie order is not modelled.
+                Some(false) => {
+                    return Err(np_unsup("argsort of repeated values without kind='stable' (numpy's std::sort fallback order)"));
+                }
+                None => {}
+            }
+        }
         let idx = np_argsort_vals(&g.vals, k * n, n);
         if !stable {
             np_unstable_check(&g.vals, k * n, n, &idx, arg)?;

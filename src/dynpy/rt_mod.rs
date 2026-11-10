@@ -665,6 +665,79 @@ impl Ext for CmpKey {
     }
 }
 
+// itertools.groupby, as CPython's: the groups share the parent's position, so advancing the parent ends the
+// current group, and no borrow is held across the key function or a user __eq__ (both may re-enter).
+struct GroupBy {
+    key: Option<V>,
+    tgt: Option<V>,
+    cur_key: Option<V>,
+    cur_val: Option<V>,
+    group: u64,
+}
+fn groupby_step(it: &Rc<RefCell<It>>, st: &Rc<RefCell<GroupBy>>) -> Result<bool, E> {
+    let Some(v) = iter_step(it)? else { return Ok(false) };
+    let f = st.borrow().key.clone();
+    let k = match f {
+        Some(f) => call(&f, Args::p(vec![v.clone()]))?,
+        None => v.clone(),
+    };
+    let mut s = st.borrow_mut();
+    s.cur_val = Some(v);
+    s.cur_key = Some(k);
+    Ok(true)
+}
+fn same_or_eq(a: &V, b: &V) -> Result<bool, E> {
+    Ok(same_obj(a, b) || eq(a, b)?)
+}
+fn groupby_iter(it: Rc<RefCell<It>>, key: Option<V>) -> V {
+    let st = Rc::new(RefCell::new(GroupBy { key, tgt: None, cur_key: None, cur_val: None, group: 0 }));
+    shared_iter(move || {
+        st.borrow_mut().group += 1;
+        loop {
+            let (tgt, cur) = {
+                let s = st.borrow();
+                (s.tgt.clone(), s.cur_key.clone())
+            };
+            match (tgt, cur) {
+                (_, None) => {}
+                (None, Some(_)) => break,
+                (Some(t), Some(c)) => {
+                    if !same_or_eq(&t, &c)? {
+                        break;
+                    }
+                }
+            }
+            if !groupby_step(&it, &st)? {
+                return Ok(None);
+            }
+        }
+        // a fresh group: any grouper made before, including by a re-entrant call, is now over
+        let (me, k) = {
+            let mut s = st.borrow_mut();
+            s.group += 1;
+            s.tgt = s.cur_key.clone();
+            (s.group, s.tgt.clone().unwrap())
+        };
+        let (it2, st2, tk) = (it.clone(), st.clone(), k.clone());
+        let grouper = shared_iter(move || {
+            if st2.borrow().group != me {
+                return Ok(None);
+            }
+            let empty = st2.borrow().cur_val.is_none();
+            if empty && !groupby_step(&it2, &st2)? {
+                return Ok(None);
+            }
+            let Some(c) = st2.borrow().cur_key.clone() else { return Ok(None) };
+            if !same_or_eq(&tk, &c)? {
+                return Ok(None);
+            }
+            let mut s = st2.borrow_mut();
+            s.cur_key = None;
+            Ok(s.cur_val.take())
+        });
+        Ok(Some(tup(vec![k, grouper])))
+    })
+}
 pub fn itertools_fn(name: &str, mut a: Args) -> R {
     Ok(match name {
         "permutations" => {
@@ -785,65 +858,76 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             }
             vec_iter(res.into_iter().map(tup).collect())
         }
+        // The iterator tools are lazy, as in CPython: they pull from their inputs one item at a time, so they work
+        // on infinite inputs, see items added after they were made, and run callbacks in CPython's order.
         "chain" => {
-            let mut out = vec![];
-            for x in &a.p {
-                out.extend(to_vec(x)?);
-            }
-            vec_iter(out)
+            let srcs = std::mem::take(&mut a.p);
+            let mut k = 0;
+            let mut cur: Option<It> = None;
+            gen_iter(move || loop {
+                if let Some(it) = &mut cur {
+                    if let Some(x) = it.next()? {
+                        return Ok(Some(x));
+                    }
+                    cur = None;
+                }
+                if k >= srcs.len() {
+                    return Ok(None);
+                }
+                k += 1;
+                cur = Some(iter(&srcs[k - 1])?);
+            })
         }
         "chain.from_iterable" => {
-            let mut out = vec![];
-            for x in to_vec(&a1(&a, "from_iterable")?)? {
-                out.extend(to_vec(&x)?);
-            }
-            vec_iter(out)
+            let mut outer = iter(&a1(&a, "from_iterable")?)?;
+            let mut cur: Option<It> = None;
+            let mut done = false;
+            gen_iter(move || loop {
+                if let Some(it) = &mut cur {
+                    if let Some(x) = it.next()? {
+                        return Ok(Some(x));
+                    }
+                    cur = None;
+                }
+                if done {
+                    return Ok(None);
+                }
+                match outer.next()? {
+                    Some(x) => cur = Some(iter(&x)?),
+                    None => {
+                        done = true;
+                        return Ok(None);
+                    }
+                }
+            })
         }
         "accumulate" => {
-            let init = a.kw("initial");
-            let f = a.p.get(1).cloned().or(a.kw("func"));
-            let xs = to_vec(&a.p[0])?;
-            let mut out = vec![];
-            let mut acc: Option<V> = init.filter(|x| !matches!(x, V::None));
-            if let Some(i) = &acc {
-                out.push(i.clone());
-            }
-            for x in xs {
-                acc = Some(match acc {
+            let init = a.kw("initial").filter(|x| !matches!(x, V::None));
+            let f = a.p.get(1).cloned().or(a.kw("func")).filter(|f| !matches!(f, V::None));
+            let mut it = iter(&a.p.first().cloned().or(a.kw("iterable")).ok_or_else(|| exc("TypeError", "accumulate() missing required argument 'iterable' (pos 1)".into()))?)?;
+            let mut acc: Option<V> = None;
+            let mut first = init;
+            gen_iter(move || {
+                if let Some(i) = first.take() {
+                    acc = Some(i.clone());
+                    return Ok(Some(i));
+                }
+                let Some(x) = it.next()? else { return Ok(None) };
+                let v = match acc.take() {
                     None => x,
                     Some(p) => match &f {
-                        Some(f) if !matches!(f, V::None) => call(f, Args::p(vec![p, x]))?,
-                        _ => add(&p, &x)?,
+                        Some(f) => call(f, Args::p(vec![p, x]))?,
+                        None => add(&p, &x)?,
                     },
-                });
-                out.push(acc.clone().unwrap());
-            }
-            vec_iter(out)
+                };
+                acc = Some(v.clone());
+                Ok(Some(v))
+            })
         }
         "groupby" => {
             let key = a.p.get(1).cloned().or(a.kw("key")).filter(|k| !matches!(k, V::None));
-            let xs = to_vec(&a.p[0])?;
-            let mut out: Vec<V> = vec![];
-            let mut cur: Option<(V, Vec<V>)> = None;
-            for x in xs {
-                let k = match &key {
-                    Some(f) => call(f, Args::p(vec![x.clone()]))?,
-                    None => x.clone(),
-                };
-                match &mut cur {
-                    Some((ck, g)) if eq(ck, &k)? => g.push(x),
-                    _ => {
-                        if let Some((ck, g)) = cur.take() {
-                            out.push(tup(vec![ck, vec_iter(g)]));
-                        }
-                        cur = Some((k, vec![x]));
-                    }
-                }
-            }
-            if let Some((ck, g)) = cur.take() {
-                out.push(tup(vec![ck, vec_iter(g)]));
-            }
-            vec_iter(out)
+            let it = shared_input(&a.p.first().cloned().or(a.kw("iterable")).ok_or_else(|| exc("TypeError", "groupby() missing required argument 'iterable'".into()))?)?;
+            groupby_iter(it, key)
         }
         "count" => {
             let mut n = a.p.first().cloned().unwrap_or(V::Int(0));
@@ -887,12 +971,37 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
         }
         "zip_longest" => {
             let fill = a.kw("fillvalue").unwrap_or(V::None);
-            let mut cols = vec![];
+            let mut its: Vec<Option<It>> = vec![];
             for x in &a.p {
-                cols.push(to_vec(x)?);
+                its.push(Some(iter(x)?));
             }
-            let n = cols.iter().map(|c| c.len()).max().unwrap_or(0);
-            vec_iter((0..n).map(|i| tup(cols.iter().map(|c| c.get(i).cloned().unwrap_or(fill.clone())).collect())).collect())
+            let mut active = its.len();
+            gen_iter(move || {
+                if active == 0 {
+                    return Ok(None);
+                }
+                let mut row = Vec::with_capacity(its.len());
+                for slot in its.iter_mut() {
+                    let got = match slot {
+                        Some(it) => it.next()?,
+                        None => None,
+                    };
+                    match got {
+                        Some(x) => row.push(x),
+                        None => {
+                            if slot.take().is_some() {
+                                active -= 1;
+                                if active == 0 {
+                                    its.clear();
+                                    return Ok(None);
+                                }
+                            }
+                            row.push(fill.clone());
+                        }
+                    }
+                }
+                Ok(Some(tup(row)))
+            })
         }
         "repeat" => {
             let x = a.p[0].clone();
@@ -902,71 +1011,118 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             }
         }
         "cycle" => {
-            let xs = to_vec(&a1(&a, name)?)?;
+            let mut it = Some(iter(&a1(&a, name)?)?);
+            let mut saved: Vec<V> = vec![];
             let mut i = 0;
             gen_iter(move || {
-                if xs.is_empty() {
+                if let Some(src) = &mut it {
+                    if let Some(x) = src.next()? {
+                        saved.push(x.clone());
+                        return Ok(Some(x));
+                    }
+                    it = None;
+                }
+                if saved.is_empty() {
                     return Ok(None);
                 }
-                let v = xs[i % xs.len()].clone();
+                let v = saved[i % saved.len()].clone();
                 i += 1;
                 Ok(Some(v))
             })
         }
         "starmap" => {
+            a.want(name, 2, 2)?;
             let f = a.p[0].clone();
-            let mut out = vec![];
-            for x in to_vec(&a.p[1])? {
-                out.push(call(&f, Args::p(to_vec(&x)?))?);
-            }
-            vec_iter(out)
+            let mut it = iter(&a.p[1])?;
+            gen_iter(move || match it.next()? {
+                Some(x) => Ok(Some(call(&f, Args::p(to_vec(&x)?))?)),
+                None => Ok(None),
+            })
         }
         "takewhile" | "dropwhile" => {
+            a.want(name, 2, 2)?;
             let f = a.p[0].clone();
-            let mut out = vec![];
-            let mut dropping = true;
-            for x in to_vec(&a.p[1])? {
-                let t = truth(&call(&f, Args::p(vec![x.clone()]))?)?;
-                if name == "takewhile" {
-                    if !t {
-                        break;
-                    }
-                    out.push(x);
-                } else {
-                    if dropping && t {
-                        continue;
-                    }
-                    dropping = false;
-                    out.push(x);
+            let mut it = iter(&a.p[1])?;
+            let take = name == "takewhile";
+            let mut flag = false;
+            gen_iter(move || loop {
+                if take && flag {
+                    return Ok(None);
                 }
-            }
-            vec_iter(out)
+                let Some(x) = it.next()? else { return Ok(None) };
+                if !take && flag {
+                    return Ok(Some(x));
+                }
+                let t = truth(&call(&f, Args::p(vec![x.clone()]))?)?;
+                if take {
+                    if t {
+                        return Ok(Some(x));
+                    }
+                    flag = true;
+                } else if !t {
+                    flag = true;
+                    return Ok(Some(x));
+                }
+            })
         }
         "pairwise" => {
-            let xs = to_vec(&a1(&a, name)?)?;
-            vec_iter(xs.windows(2).map(|w| tup(w.to_vec())).collect())
+            // CPython's order, which re-entrant inputs can observe: the first item, then each next one
+            let it = shared_input(&a1(&a, name)?)?;
+            let st: Rc<RefCell<(Option<V>, bool)>> = Rc::new(RefCell::new((None, false)));
+            shared_iter(move || {
+                if st.borrow().1 {
+                    return Ok(None);
+                }
+                let prev = st.borrow().0.clone();
+                let old = match prev {
+                    Some(o) => o,
+                    None => match iter_step(&it)? {
+                        Some(o) => {
+                            st.borrow_mut().0 = Some(o.clone());
+                            o
+                        }
+                        None => {
+                            st.borrow_mut().1 = true;
+                            return Ok(None);
+                        }
+                    },
+                };
+                match iter_step(&it)? {
+                    Some(x) => {
+                        st.borrow_mut().0 = Some(x.clone());
+                        Ok(Some(tup(vec![old, x])))
+                    }
+                    None => {
+                        *st.borrow_mut() = (None, true);
+                        Ok(None)
+                    }
+                }
+            })
         }
         "compress" => {
-            let xs = to_vec(&a.p[0])?;
-            let sel = to_vec(&a.p[1])?;
-            let mut out = vec![];
-            for (x, s0) in xs.into_iter().zip(sel) {
+            let data = a.p.first().cloned().or(a.kw("data")).ok_or_else(|| exc("TypeError", "compress() missing required argument 'data' (pos 1)".into()))?;
+            let sel = a.p.get(1).cloned().or(a.kw("selectors")).ok_or_else(|| exc("TypeError", "compress() missing required argument 'selectors' (pos 2)".into()))?;
+            let mut xs = iter(&data)?;
+            let mut ss = iter(&sel)?;
+            gen_iter(move || loop {
+                let Some(x) = xs.next()? else { return Ok(None) };
+                let Some(s0) = ss.next()? else { return Ok(None) };
                 if truth(&s0)? {
-                    out.push(x);
+                    return Ok(Some(x));
                 }
-            }
-            vec_iter(out)
+            })
         }
         "filterfalse" => {
+            a.want(name, 2, 2)?;
             let f = a.p[0].clone();
-            let mut out = vec![];
-            for x in to_vec(&a.p[1])? {
+            let mut it = iter(&a.p[1])?;
+            gen_iter(move || loop {
+                let Some(x) = it.next()? else { return Ok(None) };
                 let t = if matches!(f, V::None) { truth(&x)? } else { truth(&call(&f, Args::p(vec![x.clone()]))?)? };
                 if !t {
-                    out.push(x);
+                    return Ok(Some(x));
                 }
-            }
-            vec_iter(out)
+            })
         }
         _ => return Err(unsupported(&format!("itertools.{name}"))),
     })
@@ -2216,6 +2372,7 @@ pub fn ext_module_call(m: &str, n: &str, a: Args) -> R {
         "json" => json_fn(n, a),
         "enum" => enum_fn(n, a),
         "_brevi_mt" => brevi_mt_fn(n, a),
+        "_brevi_col" => brevi_col_fn(n, a),
         "_brevi_async" => brevi_async_fn(n, a),
         "_brevi_tok" => brevi_tok_fn(n, a),
         "_brevi_net" => brevi_net_fn(n, a),
@@ -2243,11 +2400,7 @@ pub fn ext_module_attr(m: &str, n: &str) -> Result<Option<V>, E> {
         return Ok(Some(v));
     }
     Ok(match (m, n) {
-        ("re", "IGNORECASE" | "I") => Some(V::Int(2)),
-        ("re", "MULTILINE" | "M") => Some(V::Int(8)),
-        ("re", "DOTALL" | "S") => Some(V::Int(16)),
-        ("re", "VERBOSE" | "X") => Some(V::Int(64)),
-        ("re", "ASCII" | "A") => Some(V::Int(256)),
+        ("re", _) if re_flag(n).is_some() => re_flag(n),
         ("re", "error") => Some(V::Class(exc_class("error"))),
         ("json" | "json.decoder", "JSONDecodeError") => Some(V::Class(exc_class("JSONDecodeError"))),
         ("json" | "json.decoder", "JSONDecoder") => Some(V::Class(json_decoder_class())),
@@ -2383,6 +2536,7 @@ pub fn run_main(f: fn() -> Result<(), E>) {
             }
         };
         atexit_run();
+        unsafe { fin_exit(&*std::ptr::addr_of!(GL)) };
         close_live_gens();
         out_flush();
         code
@@ -2404,16 +2558,51 @@ struct Timespec {
     sec: i64,
     nsec: i64,
 }
+#[cfg(not(windows))]
 extern "C" {
     fn clock_gettime(clk: i32, ts: *mut Timespec) -> i32;
 }
 // clock_gettime(CLOCK_MONOTONIC or CLOCK_PROCESS_CPUTIME_ID) in nanoseconds
 pub fn clock_ns(cpu: bool) -> i64 {
-    #[cfg(target_os = "macos")]
-    let clk = if cpu { 12 } else { 6 };
-    #[cfg(not(target_os = "macos"))]
-    let clk = if cpu { 2 } else { 1 };
-    let mut ts = Timespec { sec: 0, nsec: 0 };
-    unsafe { clock_gettime(clk, &mut ts) };
-    ts.sec * 1_000_000_000 + ts.nsec
+    #[cfg(windows)]
+    {
+        // Windows: QPC is monotonic; GetProcessTimes gives the process's CPU time (100 ns units).
+        #[repr(C)]
+        struct Ft {
+            lo: u32,
+            hi: u32,
+        }
+        #[repr(C)]
+        struct Pt {
+            creation: Ft,
+            exit: Ft,
+            kernel: Ft,
+            user: Ft,
+        }
+        extern "system" {
+            fn GetCurrentProcess() -> *mut core::ffi::c_void;
+            fn GetProcessTimes(h: *mut core::ffi::c_void, c: *mut Ft, e: *mut Ft, k: *mut Ft, u: *mut Ft) -> i32;
+        }
+        if cpu {
+            let mut p = Pt { creation: Ft { lo: 0, hi: 0 }, exit: Ft { lo: 0, hi: 0 }, kernel: Ft { lo: 0, hi: 0 }, user: Ft { lo: 0, hi: 0 } };
+            let ok = unsafe { GetProcessTimes(GetCurrentProcess(), &mut p.creation, &mut p.exit, &mut p.kernel, &mut p.user) };
+            if ok != 0 {
+                let t = |f: &Ft| ((f.hi as u64) << 32 | f.lo as u64) as i64;
+                return (t(&p.kernel) + t(&p.user)) * 100;
+            }
+            return 0;
+        }
+        static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+        return START.get_or_init(std::time::Instant::now).elapsed().as_nanos() as i64;
+    }
+    #[cfg(not(windows))]
+    {
+        #[cfg(target_os = "macos")]
+        let clk = if cpu { 12 } else { 6 };
+        #[cfg(not(target_os = "macos"))]
+        let clk = if cpu { 2 } else { 1 };
+        let mut ts = Timespec { sec: 0, nsec: 0 };
+        unsafe { clock_gettime(clk, &mut ts) };
+        ts.sec * 1_000_000_000 + ts.nsec
+    }
 }

@@ -1,0 +1,16 @@
+(1, 1) 5 3
+SyntaxError
+SyntaxError
+SyntaxError
+SyntaxError
+SyntaxError
+SyntaxError
+SyntaxError
+ok 0
+ok 0
+ok 1000.5
+1 0
+5
+{'a': 5, 'b': 2, 'c': 10}
+multi-line {x} 'same quotes' nested
+1

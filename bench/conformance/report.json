@@ -9,45 +9,45 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 230,
-"refused": 52,
+"matched": 250,
+"refused": 38,
 "wrong_output": 0,
-"wrong_exit": 12,
-"crash_or_timeout": 2,
+"wrong_exit": 8,
+"crash_or_timeout": 0,
 "not_extractable": 15,
 "unstable": 9,
 "excluded": 37,
 "total": 357,
 "scored": 311,
 "matched_through_cpython": 0,
-"matched_silent": 39,
-"coverage": 0.7395,
-"wrong": 12
+"matched_silent": 46,
+"coverage": 0.8039,
+"wrong": 8
 },
 "dyn": {
-"matched": 229,
-"refused": 53,
+"matched": 251,
+"refused": 37,
 "wrong_output": 0,
-"wrong_exit": 12,
-"crash_or_timeout": 2,
+"wrong_exit": 8,
+"crash_or_timeout": 0,
 "not_extractable": 15,
 "unstable": 9,
 "excluded": 37,
 "total": 357,
 "scored": 311,
 "matched_through_cpython": 0,
-"matched_silent": 38,
-"coverage": 0.7363,
-"wrong": 12
+"matched_silent": 47,
+"coverage": 0.8071,
+"wrong": 8
 }
 },
 "files": {
 "test_grammar": {
 "normal": {
-"matched": 41,
-"refused": 29,
+"matched": 47,
+"refused": 25,
 "wrong_output": 0,
-"wrong_exit": 2,
+"wrong_exit": 0,
 "crash_or_timeout": 0,
 "not_extractable": 7,
 "unstable": 0,
@@ -55,15 +55,15 @@
 "total": 79,
 "scored": 79,
 "matched_through_cpython": 0,
-"matched_silent": 24,
-"coverage": 0.519,
-"wrong": 2
+"matched_silent": 25,
+"coverage": 0.5949,
+"wrong": 0
 },
 "dyn": {
-"matched": 40,
-"refused": 30,
+"matched": 47,
+"refused": 25,
 "wrong_output": 0,
-"wrong_exit": 2,
+"wrong_exit": 0,
 "crash_or_timeout": 0,
 "not_extractable": 7,
 "unstable": 0,
@@ -71,15 +71,15 @@
 "total": 79,
 "scored": 79,
 "matched_through_cpython": 0,
-"matched_silent": 23,
-"coverage": 0.5063,
-"wrong": 2
+"matched_silent": 25,
+"coverage": 0.5949,
+"wrong": 0
 }
 },
 "test_scope": {
 "normal": {
-"matched": 24,
-"refused": 9,
+"matched": 27,
+"refused": 6,
 "wrong_output": 0,
 "wrong_exit": 2,
 "crash_or_timeout": 0,
@@ -89,13 +89,13 @@
 "total": 41,
 "scored": 38,
 "matched_through_cpython": 0,
-"matched_silent": 2,
-"coverage": 0.6316,
+"matched_silent": 3,
+"coverage": 0.7105,
 "wrong": 2
 },
 "dyn": {
-"matched": 24,
-"refused": 9,
+"matched": 28,
+"refused": 5,
 "wrong_output": 0,
 "wrong_exit": 2,
 "crash_or_timeout": 0,
@@ -105,8 +105,8 @@
 "total": 41,
 "scored": 38,
 "matched_through_cpython": 0,
-"matched_silent": 2,
-"coverage": 0.6316,
+"matched_silent": 4,
+"coverage": 0.7368,
 "wrong": 2
 }
 },
@@ -180,49 +180,49 @@
 },
 "test_dict": {
 "normal": {
-"matched": 80,
-"refused": 10,
+"matched": 91,
+"refused": 3,
 "wrong_output": 0,
-"wrong_exit": 6,
-"crash_or_timeout": 2,
+"wrong_exit": 4,
+"crash_or_timeout": 0,
 "not_extractable": 1,
 "unstable": 7,
 "excluded": 17,
 "total": 123,
 "scored": 99,
 "matched_through_cpython": 0,
-"matched_silent": 8,
-"coverage": 0.8081,
-"wrong": 6
+"matched_silent": 13,
+"coverage": 0.9192,
+"wrong": 4
 },
 "dyn": {
-"matched": 80,
-"refused": 10,
+"matched": 91,
+"refused": 3,
 "wrong_output": 0,
-"wrong_exit": 6,
-"crash_or_timeout": 2,
+"wrong_exit": 4,
+"crash_or_timeout": 0,
 "not_extractable": 1,
 "unstable": 7,
 "excluded": 17,
 "total": 123,
 "scored": 99,
 "matched_through_cpython": 0,
-"matched_silent": 8,
-"coverage": 0.8081,
-"wrong": 6
+"matched_silent": 13,
+"coverage": 0.9192,
+"wrong": 4
 }
 }
 },
 "paths": {
 "normal": {
-"dynamic": 217,
-"refused": 52,
+"dynamic": 231,
+"refused": 38,
 "typed": 25,
 "pybridge": 2
 },
 "dyn": {
-"dynamic": 243,
-"refused": 53
+"dynamic": 259,
+"refused": 37
 }
 },
 "tests": [
@@ -259,12 +259,12 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected an expression, found .."
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "eval() is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -293,12 +293,12 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown name 'SyntaxWarning'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "eval() is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -336,7 +336,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "except OverflowError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 15: eval() is not supported in dynamic builds)"
+"detail": "except OverflowError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 31: eval() is not supported in dynamic builds)"
 },
 "dyn": {
 "category": "refused",
@@ -445,14 +445,12 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'function' object has no attribute '__code__'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'function' object has no attribute '__code__'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -607,12 +605,12 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unterminated string"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "unterminated string literal"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -705,12 +703,12 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown function eval()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "eval() is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -905,8 +903,8 @@
 "path": "typed"
 },
 "dyn": {
-"category": "refused",
-"detail": "nonlocal 'y' is not supported here"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -985,14 +983,12 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: KeyError: 'time'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: KeyError: 'time'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1058,7 +1054,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "except ZeroDivisionError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 27: compile() is not supported in dynamic builds)"
+"detail": "except EOFError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 27: compile() is not supported in dynamic builds)"
 },
 "dyn": {
 "category": "refused",
@@ -1100,7 +1096,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "except ZeroDivisionError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 27: typing: .__annotations__ needs CPython's typing"
+"detail": "expected a name, found 1"
 },
 "dyn": {
 "category": "refused",
@@ -1399,12 +1395,12 @@
 "file": "test_scope",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found ("
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "eval() is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1445,8 +1441,8 @@
 "detail": "name 'nestedcell_get' is not defined"
 },
 "dyn": {
-"category": "refused",
-"detail": "__del__ is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1489,12 +1485,12 @@
 "file": "test_scope",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "__del__ runs when CPython frees the object, which the typed build does not track, and this file cannot be built over dynamic values (case.py line 28: __del__ is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "__del__ is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1537,12 +1533,12 @@
 "file": "test_scope",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found ("
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "locals() is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3273,14 +3269,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "crash_or_timeout",
-"path": "dynamic",
-"detail": "panic: RefCell already borrowed"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "crash_or_timeout",
-"path": "dynamic",
-"detail": "panic: RefCell already borrowed"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3303,12 +3297,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "__del__ runs when CPython frees the object, which the typed build does not track, and this file cannot be built over dynamic values (case.py line 10: __del__ is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "__del__ is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3317,12 +3311,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "__del__ runs when CPython frees the object, which the typed build does not track, and this file cannot be built over dynamic values (case.py line 10: __del__ is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "__del__ is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3331,12 +3325,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "__del__ runs when CPython frees the object, which the typed build does not track, and this file cannot be built over dynamic values (case.py line 10: __del__ is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "__del__ is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3359,14 +3353,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: brevi: a 'C' object cannot be passed to a Python library in a dynamic build"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: brevi: a 'C' object cannot be passed to a Python library in a dynamic build"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3429,14 +3421,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "crash_or_timeout",
-"path": "dynamic",
-"detail": "panic: RefCell already borrowed"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "crash_or_timeout",
-"path": "dynamic",
-"detail": "panic: RefCell already borrowed"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3555,12 +3545,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "__del__ runs when CPython frees the object, which the typed build does not track, and this file cannot be built over dynamic values (case.py line 8: __del__ is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "__del__ is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3569,14 +3559,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: unhashable type: 'C'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: unhashable type: 'C'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3909,12 +3897,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "__del__ runs when CPython frees the object, which the typed build does not track, and this file cannot be built over dynamic values (case.py line 7: __del__ is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "__del__ is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3965,12 +3953,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "__del__ runs when CPython frees the object, which the typed build does not track, and this file cannot be built over dynamic values (case.py line 11: __del__ is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "__del__ is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4227,12 +4215,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "__del__ runs when CPython frees the object, which the typed build does not track, and this file cannot be built over dynamic values (case.py line 10: __del__ is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "__del__ is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },

@@ -145,6 +145,12 @@ fn print_diag(d: &Diag) {
     explain(&d.msg, d.fix.as_deref().unwrap_or(""));
 }
 
+/// The CPython to run when a library program falls back, or when verify compares: `python` on Windows
+/// (there `python3` is often a Store alias), `python3` elsewhere.
+pub fn python_exe() -> String {
+    std::env::var("BREVI_PYTHON").unwrap_or_else(|_| if cfg!(windows) { "python".into() } else { "python3".into() })
+}
+
 fn main() {
     tm("start");
     if let Some(args) = shim::args() {
@@ -904,7 +910,7 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
         }
         Ok(o) => {
             let out = String::from_utf8_lossy(&o.stdout).to_string();
-            let python = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
+            let python = python_exe();
             // On a sure mistake the note already names the error, so CPython's traceback is cut to its last
             // line (`--traceback` or BREVI_TRACEBACK=1 shows all of it).
             let short = o.code == Some(3) && !TRACEBACK.load(std::sync::atomic::Ordering::Relaxed);
@@ -1469,10 +1475,21 @@ pub fn build_lock(lock: &Path, ready: &dyn Fn() -> bool) -> bool {
         };
         old || dead
     };
+    // The lock's folder may not exist yet (a fresh cache): without it every open fails and nothing ever takes the lock.
+    if let Some(dir) = lock.parent() {
+        std::fs::create_dir_all(dir).ok();
+    }
     while !ready() {
-        if let Ok(mut f) = std::fs::OpenOptions::new().write(true).create_new(true).open(lock) {
-            f.write_all(me.as_bytes()).ok();
-            return true;
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(lock) {
+            Ok(mut f) => {
+                f.write_all(me.as_bytes()).ok();
+                return true;
+            }
+            Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => {
+                // The lock can't be made at all (no folder, no write access): build without it rather than wait forever.
+                return true;
+            }
+            Err(_) => {}
         }
         if stale() {
             // Remove it and race for a new one, so only one waiter takes over.
@@ -2416,6 +2433,17 @@ pub fn python_style(src: &str) -> bool {
 #[cfg(test)]
 mod path_tests {
     use super::*;
+
+    #[test]
+    fn build_lock_makes_its_folder() {
+        // a fresh cache: the lock's folder does not exist yet, and the lock must still be taken (it used to wait forever)
+        let dir = std::env::temp_dir().join(format!("brevi-lock-test-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        let lock = dir.join("bin").join(".tmp-lib-x.lock");
+        assert!(build_lock(&lock, &|| false));
+        assert!(lock.exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     #[test]
     fn enclosing_def_names_the_function() {

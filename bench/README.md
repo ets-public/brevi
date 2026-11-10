@@ -199,7 +199,11 @@ python3 tests/conformance_test.py                              # the extractor's
 ```
 
 - **Source.** Tests come from one CPython tag (`TAG` in the tool), fetched once into `$BREVI_CACHE/conformance` (else `~/.cache/brevi/conformance`) and checked against pinned SHA-256 sums, so later runs need no network. Nothing of CPython's is vendored. The reference output comes from the matching interpreter only (`python3.13` at the same patch version, or `--python`); the tool stops if the versions differ.
-- **Scope.** `test_grammar`, `test_scope`, `test_int`, `test_list`, `test_dict`, with inherited tests (the same list unittest would run). To add a file, add it with its hash to `SOURCES` and `SCOPE`.
+- **Scope.** Two slices, each published as its own number with its own floor and known-wrong list:
+  - `core` (the default): `test_grammar`, `test_scope`, `test_int`, `test_list` and `test_dict`, with their inherited tests (the same list unittest would run).
+  - `stdlib` (`--slice stdlib`): the modules agents use most, `test_itertools`, `test_collections`, `test_re`, `test_textwrap`, `test_functools` and `test_string` (`test_heapq` and `test_bisect` load their module through `import_fresh_module`, which the extractor cannot follow yet). Its result is in [conformance/stdlib/report.md](conformance/stdlib/report.md), and its lists are `compat/conformance_stdlib_known_wrong.txt` and `compat/conformance_stdlib_floor.json`. It takes about as long as `core`, so CI checks it only in the daily run.
+
+  To add a file, add it with its hash to `SOURCES` and to its slice in `SLICES`.
 - **Extraction.** Each test method becomes a script holding what it needs: helpers, `setUp`, and base classes when it uses `self`. Assertions become prints: `assertEqual(a, b)` prints `repr(a)`, and `repr(b)` too unless `b` is a plain literal, `assertTrue(x)` prints `bool(x)`, `assertRaises` prints the exception's type, `assertRaisesRegex` also its message. `python3 tools/conformance.py --show ID` prints a script and how to reproduce it.
 - **Running.** Each script runs under CPython with two `PYTHONHASHSEED` values, then `brevi build` makes it twice: the normal path and `BREVI_DYN=1`. `brevi run` is never used, as it falls back to CPython. Scripts and programs run with a timeout, no network and writes only to their own folder (`sandbox-exec`, macOS), a memory limit (`ulimit -v` on Linux, a resident-memory watch everywhere), and imports limited to `ALLOWED_IMPORTS`.
 

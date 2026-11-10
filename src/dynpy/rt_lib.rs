@@ -11,6 +11,11 @@ thread_local! {
     pub static ARGV: RefCell<Vec<String>> = RefCell::new(vec![]);
 }
 pub fn out_write(t: &str) {
+    // CPython's text streams on Windows write CRLF; match them (every LF, as its TextIOWrapper does).
+    #[cfg(windows)]
+    let t = t.replace('\n', "\r\n");
+    #[cfg(windows)]
+    let t = t.as_str();
     OUT.with(|o| {
         let mut o = o.borrow_mut();
         if o.buf.len() + t.len() > 8192 {
@@ -39,6 +44,10 @@ pub fn out_flush() {
     });
 }
 pub fn err_write(t: &str) {
+    #[cfg(windows)]
+    let t = t.replace('\n', "\r\n");
+    #[cfg(windows)]
+    let t = t.as_str();
     std::io::stderr().write_all(t.as_bytes()).ok();
 }
 fn with_stdin<T>(f: impl FnOnce(&mut std::io::BufReader<std::io::Stdin>) -> T) -> T {
@@ -529,23 +538,31 @@ pub fn bi_enumerate(mut a: Args) -> R {
         })
     }))
 }
+// zip and map hold no borrow while they step their inputs, so a callback may re-enter them, as in CPython
 pub fn bi_zip(mut a: Args) -> R {
     let strict = a.kw("strict").map(|x| truth(&x).unwrap_or(false)).unwrap_or(false);
-    let mut its: Vec<It> = vec![];
+    let mut its: Vec<Rc<RefCell<It>>> = vec![];
     for x in &a.p {
-        its.push(iter(x)?);
+        its.push(shared_input(x)?);
     }
     if its.is_empty() {
         return Ok(vec_iter(vec![]));
     }
-    Ok(gen_iter(move || {
+    Ok(shared_iter(move || {
         let mut row = Vec::with_capacity(its.len());
-        for (i, it) in its.iter_mut().enumerate() {
-            match it.next()? {
+        for (i, it) in its.iter().enumerate() {
+            match iter_step(it)? {
                 Some(x) => row.push(x),
                 None => {
                     if strict && i > 0 {
                         return val_err(format!("zip() argument {} is shorter than argument 1", i + 1));
+                    }
+                    if strict {
+                        for (j, rest) in its.iter().enumerate().skip(1) {
+                            if iter_step(rest)?.is_some() {
+                                return val_err(format!("zip() argument {} is longer than argument 1", j + 1));
+                            }
+                        }
                     }
                     return Ok(None);
                 }
@@ -559,14 +576,14 @@ pub fn bi_map(a: Args) -> R {
         return type_err("map() must have at least two arguments.".into());
     }
     let f = a.p[0].clone();
-    let mut its: Vec<It> = vec![];
+    let mut its: Vec<Rc<RefCell<It>>> = vec![];
     for x in &a.p[1..] {
-        its.push(iter(x)?);
+        its.push(shared_input(x)?);
     }
-    Ok(gen_iter(move || {
+    Ok(shared_iter(move || {
         let mut args = Vec::with_capacity(its.len());
-        for it in its.iter_mut() {
-            match it.next()? {
+        for it in its.iter() {
+            match iter_step(it)? {
                 Some(x) => args.push(x),
                 None => return Ok(None),
             }
@@ -639,7 +656,7 @@ pub fn bi_next(a: Args) -> R {
                     Err(e) => return Err(e),
                 }
             }
-            None => it.borrow_mut().next()?,
+            None => iter_step(it)?,
         },
         V::Obj(o) => match o.cls.lookup("__next__") {
             Some(f) => match call(&f, Args::p(vec![a.p[0].clone()])) {
@@ -696,29 +713,44 @@ pub fn isinstance(x: &V, c: &V) -> Result<bool, E> {
 pub fn type_of(x: &V) -> Rc<Class> {
     match x {
         V::Obj(o) => o.cls.clone(),
-        V::Bool(_) => bclass("bool"),
-        V::Int(_) | V::Big(_) => bclass("int"),
-        V::Float(_) => bclass("float"),
-        V::Str(_) => bclass("str"),
-        V::List(_) => bclass("list"),
-        V::Tuple(_) => bclass("tuple"),
+        V::Bool(_) => tclass(0, "bool"),
+        V::Int(_) | V::Big(_) => tclass(1, "int"),
+        V::Float(_) => tclass(2, "float"),
+        V::Str(_) => tclass(3, "str"),
+        V::List(_) => tclass(4, "list"),
+        V::Tuple(_) => tclass(5, "tuple"),
         V::Dict(d) => match d.borrow().kind {
-            1 => bclass("defaultdict"),
-            2 => bclass("Counter"),
-            3 => bclass("OrderedDict"),
-            _ => bclass("dict"),
+            1 => tclass(6, "defaultdict"),
+            2 => tclass(7, "Counter"),
+            3 => tclass(8, "OrderedDict"),
+            _ => tclass(9, "dict"),
         },
-        V::Set(_) => bclass("set"),
-        V::FSet(_) => bclass("frozenset"),
-        V::None => bclass("NoneType"),
-        V::Class(_) => bclass("type"),
-        V::Func(_) | V::Bound(_) | V::BMeth(_) => bclass("function"),
-        V::Range(_) => bclass("range"),
-        V::Deque(_) => bclass("deque"),
-        V::View(x) if x.1 == 3 => bclass("mappingproxy"),
+        V::Set(_) => tclass(10, "set"),
+        V::FSet(_) => tclass(11, "frozenset"),
+        V::None => tclass(12, "NoneType"),
+        V::Class(_) => tclass(13, "type"),
+        V::Func(_) | V::Bound(_) | V::BMeth(_) => tclass(14, "function"),
+        V::Range(_) => tclass(15, "range"),
+        V::Deque(_) => tclass(16, "deque"),
+        V::View(x) if x.1 == 3 => tclass(17, "mappingproxy"),
         V::Ext(e) => ext_class(e.tname()),
-        _ => bclass("object"),
+        _ => tclass(18, "object"),
     }
+}
+thread_local! {
+    // type_of's builtin classes, filled on first use (init_builtin_classes empties it)
+    pub static TYPE_CACHE: RefCell<[Option<Rc<Class>>; 19]> = RefCell::new(Default::default());
+}
+#[inline]
+fn tclass(i: usize, n: &'static str) -> Rc<Class> {
+    TYPE_CACHE.with(|c| {
+        if let Some(k) = &c.borrow()[i] {
+            return k.clone();
+        }
+        let k = bclass(n);
+        c.borrow_mut()[i] = Some(k.clone());
+        k
+    })
 }
 thread_local! {
     pub static EXT_CLASSES: RefCell<HashMap<&'static str, Rc<Class>>> = RefCell::new(HashMap::new());
@@ -769,6 +801,14 @@ pub fn bi_hasattr(a: Args) -> R {
 pub fn bi_getattr(a: Args) -> R {
     a.want("getattr", 2, 3)?;
     let n = to_str(&a.p[1])?;
+    // getattr(f, "name", default) on a def without that attribute (jinja2's filters, pydantic's validators):
+    // the default, without making and catching an AttributeError. Dunder names keep the general path.
+    if a.p.len() == 3 && !n.starts_with("__") {
+        if let V::Func(f) = &a.p[0] {
+            let found = f.attrs.borrow().iter().find(|(k, _)| **k == *n).map(|(_, v)| v.clone());
+            return Ok(found.unwrap_or_else(|| a.p[2].clone()));
+        }
+    }
     match getattr(&a.p[0], &n) {
         Ok(v) => Ok(v),
         Err(E(e)) if is_exc(&e, "AttributeError") && a.p.len() == 3 => Ok(a.p[2].clone()),
@@ -802,10 +842,37 @@ pub fn bi_ord(a: Args) -> R {
 }
 pub fn bi_chr(a: Args) -> R {
     let a = enum_nums(a);
-    let i = idx_of(&a1(&a, "chr")?)?;
-    match u32::try_from(i).ok().and_then(char::from_u32) {
+    chr_of(&a1(&a, "chr")?)
+}
+// chr() takes the value `__index__` gives; a huge int is still just out of range, not an index error.
+fn chr_of(x: &V) -> R {
+    match x {
+        V::Big(b) => {
+            let n = b.mag.first().copied().unwrap_or(0);
+            if b.neg || b.mag.len() > 1 {
+                return val_err("chr() arg not in range(0x110000)".into());
+            }
+            chr_code(n as i64)
+        }
+        V::Obj(o) if o.cls.lookup("__index__").is_some() => {
+            chr_of(&call(&o.cls.lookup("__index__").unwrap(), Args::p(vec![x.clone()]))?)
+        }
+        // an int subclass (IntEnum)
+        V::Obj(_) if matches!(inner_of(x), Some(V::Int(_) | V::Bool(_) | V::Big(_))) => chr_of(&inner_of(x).unwrap()),
+        _ => {
+            chr_code(idx_of(x)?)
+        }
+    }
+}
+// chr() of an int that fits: out of range is CPython's ValueError; a lone surrogate (U+D800..U+DFFF) is a str in
+// CPython that a Rust string cannot hold, so it stops as unsupported instead of giving a different string.
+fn chr_code(i: i64) -> R {
+    if !(0..=0x10FFFF).contains(&i) {
+        return val_err("chr() arg not in range(0x110000)".into());
+    }
+    match char::from_u32(i as u32) {
         Some(c) => Ok(ch1(c)),
-        None => val_err("chr() arg not in range(0x110000)".into()),
+        None => Err(unsupported("chr() of a lone surrogate (U+D800..U+DFFF)")),
     }
 }
 fn radix(a: Args, f: &str, r: u32, p: &str) -> R {
@@ -900,6 +967,33 @@ pub fn bi_divmod(a: Args) -> R {
     let r = binop(&a.p[0], &a.p[1], "%")?;
     Ok(tup(vec![q, r]))
 }
+// pow(a, -1, m): the modular inverse of a modulo m, found by the extended Euclid algorithm (the coefficient
+// for a, with the same sign as m once reduced). None when no inverse exists (gcd(a, m) != 1).
+fn big_invmod(b: &Big, m: &Big) -> Option<Big> {
+    if m.mag.len() == 1 && m.mag[0] == 1 {
+        return Some(Big::from_i64(0));
+    }
+    let (mut old_r, mut r) = (b.divmod(m).1, m.clone());
+    let (mut old_s, mut s) = (Big::from_i64(1), Big::from_i64(0));
+    while !r.is_zero() {
+        let (q, rem) = old_r.divmod(&r);
+        let ns = old_s.sub(&q.mul(&s));
+        (old_r, r) = (r, rem);
+        (old_s, s) = (s, ns);
+    }
+    let neg = old_r.neg;
+    if neg {
+        old_r = old_r.neg();
+    }
+    if old_r.mag.len() != 1 || old_r.mag[0] != 1 {
+        return None;
+    }
+    if neg {
+        old_s = old_s.neg();
+    }
+    Some(old_s.divmod(m).1)
+}
+
 pub fn bi_pow(a: Args) -> R {
     let a = enum_nums(a);
     a.want("pow", 2, 3)?;
@@ -913,7 +1007,8 @@ pub fn bi_pow(a: Args) -> R {
             return val_err("pow() 3rd argument cannot be 0".into());
         }
         if e.neg {
-            return Err(unsupported("pow() with a negative exponent and a modulus"));
+            b = big_invmod(&b, &m).ok_or_else(|| exc("ValueError", "base is not invertible for the given modulus".into()))?;
+            e = e.neg();
         }
         let mut r = Big::from_i64(1).divmod(&m).1;
         b = b.divmod(&m).1;
@@ -1070,7 +1165,28 @@ pub fn builtin_fn(name: &str) -> Option<fn(Args) -> R> {
 pub fn builtin_type_name(name: &str) -> bool {
     matches!(name, "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "slice")
 }
+thread_local! {
+    // builtin classes found by builtin_value, by the address of the name asked for (a hit is checked against
+    // the class's own name, so a reused address cannot give a wrong class); emptied by init_builtin_classes
+    pub static BV_CACHE: RefCell<[(usize, Option<Rc<Class>>); 16]> = RefCell::new(Default::default());
+}
 pub fn builtin_value(name: &str) -> Option<V> {
+    let addr = name.as_ptr() as usize;
+    let slot = (addr >> 3 ^ addr >> 8 ^ name.len()) & 15;
+    let hit = BV_CACHE.with(|c| match &c.borrow()[slot] {
+        (a, Some(k)) if *a == addr && same_name(k.name, name) => Some(k.clone()),
+        _ => None,
+    });
+    if let Some(k) = hit {
+        return Some(V::Class(k));
+    }
+    if builtin_type_name(name) && name != "slice" && name != "bytes" {
+        let k = bclass(name);
+        if same_name(k.name, name) {
+            BV_CACHE.with(|c| c.borrow_mut()[slot] = (addr, Some(k.clone())));
+        }
+        return Some(V::Class(k));
+    }
     if name == "bytes" {
         return Some(V::Class(ext_class("bytes")));
     }
@@ -2009,7 +2125,11 @@ pub fn list_method(l: &Rc<RefCell<Vec<V>>>, o: &V, name: &str, mut a: Args) -> R
         }
         "copy" => list(l.borrow().clone()),
         "clear" => {
-            l.borrow_mut().clear();
+            // The items go last first, as CPython's list_clear frees them, and after the list is released.
+            let old = std::mem::take(&mut *l.borrow_mut());
+            for x in old.into_iter().rev() {
+                drop(x);
+            }
             V::None
         }
         "__len__" => V::Int(l.borrow().len() as i64),

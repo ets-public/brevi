@@ -8,6 +8,16 @@ use std::collections::{HashMap, HashSet};
 pub const PRELUDE: &str = concat!("#![allow(warnings)]\n", include_str!("alloc_rt.rs"), include_str!("fsscope.rs"), include_str!("prelude.rs"));
 
 const BUILTINS: &[&str] = &["__shared", "print", "read", "write", "args", "input", "stdin", "lines", "str", "fail", "json", "csv", "date", "abs", "min", "max", "heap", "none", "__global", "__try", "__err", "__err_raw", "__exc", "__exc_is", "__exc_obj", "__exc_get", "__default", "__zero", "__truediv", "__readline", "__try_read", "__eprint"];
+// The id in a call spelling a sentinel made by pysentinel.rs (`__sent0()`).
+fn sent_id(name: &str) -> Option<usize> {
+    name.strip_prefix("__sent").and_then(|s| s.parse().ok())
+}
+fn sentinel_call(e: &Expr) -> Option<usize> {
+    match e {
+        Expr::Call(name, args, _) if args.is_empty() => sent_id(name),
+        _ => None,
+    }
+}
 const FALLIBLE_BUILTINS: &[&str] = &["read", "write", "json", "date"];
 pub const METHODS: &[&str] = &[
     "abs", "add_days", "all", "any", "big", "day", "days", "dec", "digit", "or", "ceil", "chars", "contains", "count", "ends_with", "enumerate", "filter", "first",
@@ -410,10 +420,15 @@ fn wrap_calls(e: &mut Expr, f: &HashSet<String>) {
 // ---- Checked ZeroDivisionError / IndexError variants ----
 
 // Can this expression itself divide or index (lambda bodies count: a map/sort key runs inside the caller).
+// `x ** 2` or `x ** 0.5` can't raise ZeroDivisionError: only an exponent that may be negative makes `**` fallible,
+// so hot code like `x ** 2` keeps its plain, infallible power
+fn pow_can_zd(b: &Expr) -> bool {
+    !matches!(b, Expr::Int(k) if *k >= 0) && !matches!(b, Expr::Float(f) if *f >= 0.0)
+}
 fn can_zd(e: &Expr) -> bool {
     match e {
         Expr::Lambda(_, b) => can_zd(b),
-        Expr::Binary(op, a, b) => matches!(*op, "//" | "%") || can_zd(a) || can_zd(b),
+        Expr::Binary(op, a, b) => matches!(*op, "//" | "%") || (*op == "**" && pow_can_zd(b)) || can_zd(a) || can_zd(b),
         Expr::Call(n, args, _) => n == "__truediv" || args.iter().any(|(_, a)| can_zd(a)),
         Expr::Method(r, _, args, _) => can_zd(r) || args.iter().any(can_zd),
         Expr::Unary(_, a) | Expr::Field(a, _) | Expr::TupleField(a, _) | Expr::Try(a) => can_zd(a),
@@ -2082,7 +2097,11 @@ impl Emitter {
             Stmt::Expr { expr, .. } => format!("{};", self.stmt_expr(expr)),
             Stmt::Return { value, .. } => {
                 let mut v = value.as_ref().map(|v| self.expr(v)).unwrap_or_else(|| "()".into());
-                if self.json_ret && matches!(value, Some(Expr::Call(n, a, _)) if n == "none" && a.is_empty()) {
+                if self.json_ret && value.as_ref().is_some_and(|v| sentinel_call(v).is_some()) {
+                    // `return MISSING` from a function giving JSON values: the JSON sentinel itself.
+                    let id = sentinel_call(value.as_ref().unwrap()).unwrap();
+                    v = format!("Json::Tup {{ v: vec![Json::Str {{ v: ax_sent_str({id}) }}] }}");
+                } else if self.json_ret && matches!(value, Some(Expr::Call(n, a, _)) if n == "none" && a.is_empty()) {
                     // `return None` from a function giving JSON values: JSON null.
                     v = "Json::Null".into();
                 } else if self.json_ret && value.is_some() {
@@ -2305,6 +2324,13 @@ impl Emitter {
             Expr::Tuple(items) => format!("({})", items.iter().map(|i| self.expr(i)).collect::<Vec<_>>().join(", ")),
             Expr::Unary(op, a) if *op == "!" => format!("(!{})", self.cond(a)),
             Expr::Unary(op, a) => format!("({op}{})", self.expr(a)),
+            // `v is MISSING` / `v is not MISSING`: identity with the sentinel the name was made from.
+            Expr::Binary(op @ ("==" | "!="), a, b) if sentinel_call(a).is_some() || sentinel_call(b).is_some() => {
+                let (sent, other) = if sentinel_call(a).is_some() { (a, b) } else { (b, a) };
+                let id = sentinel_call(sent).unwrap();
+                let t = format!("AxSentVal::<{id}>::is(&{})", self.operand(other));
+                if *op == "==" { t } else { format!("!{t}") }
+            }
             // Python-style truth: an empty list, map or string, 0 and "" are false.
             Expr::Binary(op @ ("and" | "or"), a, b) => format!("({} {} {})", self.cond(a), if *op == "and" { "&&" } else { "||" }, self.cond(b)),
             // `x in ("a", "b")`: a tuple of like values is searched as a list.
@@ -2326,6 +2352,7 @@ impl Emitter {
             }
             Expr::Binary(op, a, b) => {
                 // Comparisons read their operands in place, without copying them.
+                let pow_zd = pow_can_zd(b);
                 let (a, b) = if ["==", "!=", "<", ">", "<=", ">=", "in"].contains(op) { (self.operand(a), self.operand(b)) } else { (self.expr(a), self.expr(b)) };
                 match *op {
                     "+" => format!("Plus::plus({a}, {b})"),
@@ -2340,6 +2367,11 @@ impl Emitter {
                     // Bitwise on ints, union and intersection on lists used as Python sets.
                     "|" => format!("AxBits::ax_bor({a}, {b})"),
                     "&" => format!("AxBits::ax_band({a}, {b})"),
+                    "**" if self.py_mode && pow_zd && !self.catch.is_empty() && self.catches("ZeroDivisionError") => {
+                        let lab = self.catch.last().unwrap().clone();
+                        format!("(match AxPowTry::ax_pow_try({a}, {b}) {{ Ok(v) => v, Err(e) => {{ {lab} = Some(e); break '{lab}; }} }})")
+                    }
+                    "**" if self.py_mode && pow_zd && self.ck_zd => format!("AxPowTry::ax_pow_try({a}, {b})?"),
                     "**" => format!("AxPow::ax_pow({a}, {b})"),
                     "in" => format!("AxIn::ax_in(&{b}, &{a})"),
                     "%" if self.py_mode && !self.catch.is_empty() && self.catches("ZeroDivisionError") => {
@@ -2424,11 +2456,12 @@ impl Emitter {
                     self.place(recv)
                 };
                 // A lambda inside the lambda that can fail (`[[int(x) for x in r] for r in rows]`) fails this one too.
-                let tries = TRY_METHODS.contains(&name.as_str()) && args.iter().any(|a| matches!(a, Expr::Lambda(_, b) if
-                    can_fail(b)
-                        || self.ck_zd && self.ck_can_zd(b)
-                        || self.ck_ie && self.ck_can_ie(b)
-                        || !self.catch.is_empty() && ((self.catches("ZeroDivisionError") && self.ck_can_zd(b)) || (self.catches("IndexError") && self.ck_can_ie(b)))));
+                let tries = (self.py_mode && name == "char" && !self.catch.is_empty() && self.catches("ValueError"))
+                    || (TRY_METHODS.contains(&name.as_str()) && args.iter().any(|a| matches!(a, Expr::Lambda(_, b) if
+                        can_fail(b)
+                            || self.ck_zd && self.ck_can_zd(b)
+                            || self.ck_ie && self.ck_can_ie(b)
+                            || !self.catch.is_empty() && ((self.catches("ZeroDivisionError") && self.ck_can_zd(b)) || (self.catches("IndexError") && self.ck_can_ie(b))))));
                 // Outside a function that can fail and outside try/except, a failure inside the lambda stops the
                 // program with its message, as an uncaught Python exception does (`(int(x) for x in parts)`).
                 let tries = tries && (self.fallible || !self.catch.is_empty());
@@ -2740,6 +2773,17 @@ impl Emitter {
         if !tried && self.call_is_fallible(&Expr::Call(name.into(), vec![], 0)) {
             self.diag(self.line, &format!("{name}() can fail but its error is not handled"), Some(format!("write {name}(...)? to pass the error up")));
         }
+        // `MISSING = object()` made a sentinel (`__sent0()`); its type is the slot it is put in.
+        if let Some(id) = sent_id(name) {
+            return format!("AxSentVal::<{id}>::make()");
+        }
+        // A sentinel put straight into a JSON slot (`return MISSING` from a function giving JSON values):
+        // make the JSON form directly, so Rust has no other type to choose from.
+        if (name == "ax_to_json" || name == "ax_tup_json") && args.len() == 1 {
+            if let Some(id) = sentinel_call(&args[0].1) {
+                return format!("Json::Tup {{ v: vec![Json::Str {{ v: ax_sent_str({id}) }}] }}");
+            }
+        }
         // A copy that is only wrong when the value is not shared: the Rust compiler checks the value's type,
         // and an error there reports the message carried (hex) in the comment.
         if name == "__shared" && (args.len() == 2 || args.len() == 3) {
@@ -2769,7 +2813,7 @@ impl Emitter {
             let sep = named("sep").map(|e| format!("Show::show(&{})", self.expr(&e))).unwrap_or_else(|| "String::from(\" \")".to_string());
             let end = named("end").map(|e| format!("Show::show(&{})", self.expr(&e))).unwrap_or_else(|| "\"\\n\"".to_string());
             let items: Vec<String> = args.iter().filter(|(n, _)| n.is_none()).map(|(_, a)| format!("Show::show(&{})", self.print_arg(a))).collect();
-            return format!("{{ use std::io::Write; let __s = [{}].join(&{sep}); print!(\"{{}}{{}}\", __s, {end}); let _ = std::io::stdout().flush(); }}", items.join(", "));
+            return format!("{{ let mut __s = [{}].join(&{sep}); __s.push_str(&{end}); ax_out(&__s); }}", items.join(", "));
         }
         let plain: Vec<String> = args.iter().map(|(_, a)| if name == "print" { self.print_arg(a) } else { self.expr(a) }).collect();
         match name {
@@ -2780,7 +2824,7 @@ impl Emitter {
             "print" | "read" | "write" | "args" | "input" | "stdin" | "lines" | "json" | "csv" | "date" | "abs" | "min" | "max" | "heap" => return format!("{name}({})", plain.join(", ")),
             "__readline" => return "ax_readline()".to_string(),
             "__one" => return format!("ax_one({})", plain.join(", ")),
-            "__eprint" => return format!("{{ use std::io::Write; let _ = std::io::stdout().flush(); eprint!(\"{{}}\", {}); }}", plain.join(", ")),
+            "__eprint" => return format!("ax_err(&format!(\"{{}}\", {}))", plain.join(", ")),
             "__try_read" => return format!("ax_try_read({}.to_string())", plain.join(", ")),
             "str" => return format!("({}).show()", plain.join(", ")),
             "none" => return "ax_none()".to_string(),

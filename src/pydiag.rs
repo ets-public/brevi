@@ -138,7 +138,8 @@ fn brevi_operator(l: &str) -> Option<(&'static str, &'static str)> {
         ("`=>` is Brevi, not Python", "write `lambda x: ...`, or `match` with `case` arms")
     } else if l.contains("~=") {
         ("`~=` is Brevi, not Python", "write `abs(a - b) < 1e-6`")
-    } else if (0..b.len()).any(|i| b[i] == b'!' && b.get(i + 1) != Some(&b'=')) {
+    } else if (0..b.len()).any(|i| b[i] == b'!' && b.get(i + 1) != Some(&b'=') && !(i > 0 && (b[i - 1].is_ascii_alphanumeric() || matches!(b[i - 1], b'_' | b')' | b']' | b'\'' | b'"')) && matches!(b.get(i + 1), Some(b'r' | b's' | b'a')) && matches!(b.get(i + 2), Some(b'}' | b':')))) {
+        // (an f-string conversion, `{x!r}`, is Python: the blanker can miss a field nested in same-quote strings)
         ("`!` is Brevi, not Python", "write `not`")
     } else {
         return None;
@@ -278,6 +279,10 @@ fn scan_calls(src: &str, dir: &std::path::Path, brevi: bool) -> Vec<Diag> {
                 j += 1;
             }
             let w = &l[start..j];
+            // Brevi's own sentinel spelling (src/pysentinel.rs), not a name the program wrote.
+            if w.starts_with("__sent") {
+                continue;
+            }
             // Brevi's `true` and `false` are plain names to Python.
             let bool_word = matches!(w, "true" | "false") && !(start > 0 && b[start - 1] == b'.');
             if !(bool_word || l[j..].trim_start().starts_with('(')) || KEYWORDS.contains(&w) || !seen.insert(format!("{}{w}", start > 0 && b[start - 1] == b'.')) {

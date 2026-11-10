@@ -15,7 +15,7 @@
 // - no name the sentinel may reach (one tested against it, set from an expression naming it, or a
 //   parameter defaulting to it) is tested for truth, where object() is true and None is false.
 // Lines keep their numbers, so errors name the same lines.
-use crate::dynpy::parse::{self, Arg, Ex, St, Stmt};
+use crate::dynpy::parse::{self, Arg, Ex, FPart, St, Stmt};
 use crate::typed_guard::{each_block, walk_ex, walk_st};
 use std::collections::HashSet;
 
@@ -23,13 +23,25 @@ pub fn rewrite(src: &str) -> String {
     let Ok(body) = parse::parse(src) else { return src.to_string() };
     let mut lines: Vec<String> = src.lines().map(String::from).collect();
     let mut changed = false;
+    let mut id = 0;
     for s in &body {
         let St::Assign(ts, Ex::Call(f, args)) = &s.st else { continue };
         let ([Ex::Name(n)], Ex::Name(o)) = (ts.as_slice(), f.as_ref()) else { continue };
-        if o != "object" || !args.is_empty() || !safe(&body, n) {
+        if o != "object" || !args.is_empty() {
             continue;
         }
-        let Some(new) = replace(&lines, s.line, n) else { continue };
+        let new = if safe(&body, n) {
+            replace(&lines, s.line, n)
+        } else if sent_safe(&body, n) {
+            let new = replace_sent(&lines, s.line, n, id);
+            if new.is_some() {
+                id += 1;
+            }
+            new
+        } else {
+            None
+        };
+        let Some(new) = new else { continue };
         lines = new;
         changed = true;
     }
@@ -245,6 +257,345 @@ fn safe(body: &[Stmt], n: &str) -> bool {
     !tested
 }
 
+// Can the typed build keep the sentinel itself (a value distinct from None and from every real value the slot
+// holds), instead of rewriting it to None? It can, when the sentinel is only read whole, compared with `is`/`==`
+// or tested for truth, and anything that would treat it as the slot's real type (a method call, indexing, len,
+// printing, ...) happens where an earlier `v is MISSING` test has already left, or inside a branch that checked
+// isinstance(v, ...) (the sentinel is an object, not any of those types).
+fn sent_safe(body: &[Stmt], n: &str) -> bool {
+    let mut ok = true;
+    let mut sets = 0;
+    let mut carriers: HashSet<String> = HashSet::new();
+    each_stmt(body, &mut |s| {
+        match &s.st {
+            St::Assign(ts, v) => {
+                for t in ts {
+                    if mentions(t, n) {
+                        sets += 1;
+                    }
+                    if let Ex::Name(m) = t {
+                        if m != n && mentions(v, n) {
+                            carriers.insert(m.clone());
+                        }
+                    }
+                }
+            }
+            St::AugAssign(t, _, _) | St::AnnAssign(t, _, _) | St::For(t, ..) if mentions(t, n) => ok = false,
+            St::Global(v) | St::Nonlocal(v) if v.iter().any(|x| x == n) => ok = false,
+            St::Def(d) => {
+                if d.name == n || d.params.pos.iter().chain(&d.params.kwonly).any(|p| p.0 == n) {
+                    ok = false;
+                }
+                for (p, dflt) in d.params.pos.iter().chain(&d.params.kwonly) {
+                    if dflt.as_ref().is_some_and(|x| mentions(x, n)) {
+                        carriers.insert(p.clone());
+                    }
+                }
+            }
+            St::Class(c) if c.name == n => ok = false,
+            St::Import(v) | St::ImportFrom(_, v) if v.iter().any(|(m, a)| a.as_deref().unwrap_or(m) == n) => ok = false,
+            _ => {}
+        }
+        if let St::Try(_, hs, _, _) = &s.st {
+            if hs.iter().any(|h| h.name.as_deref() == Some(n)) {
+                ok = false;
+            }
+        }
+        walk_st(&s.st, &mut |e| match e {
+            Ex::Cmp(l, ops) => {
+                if mentions(e, n) {
+                    match sentinel_test(e, n) {
+                        Some((x, op)) if matches!(op, "is" | "is not" | "==" | "!=") => {
+                            if let Ex::Name(m) = x {
+                                carriers.insert(m.clone());
+                            }
+                        }
+                        _ => ok = false,
+                    }
+                }
+                let _ = l;
+                let _ = ops;
+            }
+            Ex::Attr(b, _) | Ex::Index(b, _) if is_name(b, n) => ok = false,
+            Ex::Call(f, args) => {
+                if is_name(f, n) {
+                    ok = false;
+                }
+                let shows = matches!(f.as_ref(), Ex::Name(p) if matches!(p.as_str(), "print" | "str" | "repr" | "format" | "id" | "hash" | "type" | "isinstance" | "bool" | "len" | "list" | "iter"));
+                if shows && args.iter().any(|a| matches!(a, Arg::Pos(x) | Arg::Star(x) | Arg::Kw(_, x) if is_name(x, n))) {
+                    ok = false;
+                }
+            }
+            Ex::FStr(_) | Ex::Bin("%", ..) if mentions(e, n) => ok = false,
+            Ex::Lambda(p, _) if p.pos.iter().any(|x| x.0 == n || x.1.as_ref().is_some_and(|d| mentions(d, n))) => ok = false,
+            Ex::Walrus(m, _) if m == n => ok = false,
+            Ex::Comp(_, _, _, fors) if fors.iter().any(|c| mentions(&c.target, n)) => ok = false,
+            _ => {}
+        });
+    });
+    if !ok || sets != 1 {
+        return false;
+    }
+    block_ok(body, n, &carriers, &HashSet::new())
+}
+
+// A branch condition that, when true, leaves `name` not the sentinel: `v is not MISSING and ...`, or
+// isinstance(v, T) (the sentinel's kind is object, not any of the types).
+fn guard_true(e: &Ex, n: &str, out: &mut HashSet<String>) {
+    match e {
+        Ex::And(a, b) => {
+            guard_true(a, n, out);
+            guard_true(b, n, out);
+        }
+        _ => {
+            if let Some((Ex::Name(m), op)) = sentinel_test(e, n) {
+                if negated(op) {
+                    out.insert(m.clone());
+                }
+            }
+            if let Some(m) = isinstance_guard(e) {
+                out.insert(m);
+            }
+        }
+    }
+}
+
+// ... and, when false: `v is MISSING or ...` (each part must be false, so v is not the sentinel).
+fn guard_false(e: &Ex, n: &str, out: &mut HashSet<String>) {
+    match e {
+        Ex::Or(a, b) => {
+            guard_false(a, n, out);
+            guard_false(b, n, out);
+        }
+        _ => {
+            if let Some((Ex::Name(m), op)) = sentinel_test(e, n) {
+                if !negated(op) {
+                    out.insert(m.clone());
+                }
+            }
+        }
+    }
+}
+
+// `isinstance(v, (str, list))`: entering the true branch leaves v not the sentinel (the sentinel is an object).
+fn isinstance_guard(e: &Ex) -> Option<String> {
+    let Ex::Call(f, args) = e else { return None };
+    if !matches!(f.as_ref(), Ex::Name(p) if p == "isinstance") {
+        return None;
+    }
+    let [Arg::Pos(Ex::Name(m)), Arg::Pos(ts)] = args.as_slice() else { return None };
+    let no_object = match ts {
+        Ex::Tuple(xs) | Ex::List(xs) => xs.iter().all(|x| !is_name(x, "object")),
+        x => !is_name(x, "object"),
+    };
+    no_object.then(|| m.clone())
+}
+
+// The carrier name at the bottom of a place (`v[0].upper()` reads v), when it is one.
+fn root_carrier<'a>(e: &'a Ex, carriers: &HashSet<String>) -> Option<&'a str> {
+    match e {
+        Ex::Name(m) if carriers.contains(m) => Some(m),
+        Ex::Attr(b, _) | Ex::Index(b, _) => root_carrier(b, carriers),
+        _ => None,
+    }
+}
+
+fn carrier_shown(f: &Ex) -> bool {
+    match f {
+        Ex::Name(p) => matches!(p.as_str(), "print" | "str" | "repr" | "format" | "id" | "hash" | "type" | "bool" | "len" | "list" | "iter"),
+        Ex::Attr(r, m) => m == "dumps" && matches!(r.as_ref(), Ex::Name(j) if j == "json"),
+        _ => false,
+    }
+}
+
+// The expression, checked at a point where `g` names values already known not to be the sentinel.
+fn expr_ok(e: &Ex, n: &str, carriers: &HashSet<String>, g: &HashSet<String>) -> bool {
+    let bad = |x: &Ex| root_carrier(x, carriers).is_some_and(|m| !g.contains(m));
+    match e {
+        Ex::Attr(b, _) => !bad(b) && expr_ok(b, n, carriers, g),
+        Ex::Index(a, b) => !bad(a) && expr_ok(a, n, carriers, g) && expr_ok(b, n, carriers, g),
+        Ex::Call(f, args) => {
+            if matches!(f.as_ref(), Ex::Name(m) if carriers.contains(m) && !g.contains(m)) {
+                return false;
+            }
+            if carrier_shown(f) {
+                for a in args {
+                    let x = match a {
+                        Arg::Pos(x) | Arg::Star(x) | Arg::Kw(_, x) | Arg::KwStar(x) => x,
+                    };
+                    if bad(x) {
+                        return false;
+                    }
+                }
+            }
+            expr_ok(f, n, carriers, g)
+                && args.iter().all(|a| match a {
+                    Arg::Pos(x) | Arg::Star(x) | Arg::Kw(_, x) | Arg::KwStar(x) => expr_ok(x, n, carriers, g),
+                })
+        }
+        Ex::FStr(parts) => fstr_ok(parts, n, carriers, g),
+        Ex::Bin("%", a, b) => !bad(a) && !bad(b) && expr_ok(a, n, carriers, g) && expr_ok(b, n, carriers, g),
+        Ex::Bin(op @ ("==" | "!="), a, b) => expr_ok(a, n, carriers, g) && expr_ok(b, n, carriers, g),
+        Ex::Bin(_, a, b) => !bad(a) && !bad(b) && expr_ok(a, n, carriers, g) && expr_ok(b, n, carriers, g),
+        Ex::And(a, b) | Ex::Or(a, b) => expr_ok(a, n, carriers, g) && expr_ok(b, n, carriers, g),
+        Ex::Cmp(a, rest) => {
+            let plain = rest.iter().all(|(op, _)| matches!(*op, "is" | "is not" | "==" | "!="));
+            let mut sides = vec![a.as_ref()];
+            sides.extend(rest.iter().map(|(_, x)| x));
+            if !plain && sides.iter().any(|x| bad(x)) {
+                return false;
+            }
+            sides.iter().all(|x| expr_ok(x, n, carriers, g))
+        }
+        Ex::IfExp(c, a, b) => {
+            let mut gt = g.clone();
+            guard_true(c, n, &mut gt);
+            let mut gf = g.clone();
+            guard_false(c, n, &mut gf);
+            expr_ok(c, n, carriers, g) && expr_ok(a, n, carriers, &gt) && expr_ok(b, n, carriers, &gf)
+        }
+        Ex::Unary(op, x) if matches!(*op, "not" | "!") => expr_ok(x, n, carriers, g),
+        Ex::Unary(_, x) => !bad(x) && expr_ok(x, n, carriers, g),
+        Ex::Comp(_, elt, val, fors) => {
+            expr_ok(elt, n, carriers, g)
+                && val.as_ref().map_or(true, |x| expr_ok(x, n, carriers, g))
+                && fors.iter().all(|c| {
+                    expr_ok(&c.target, n, carriers, g) && !bad(&c.iter) && expr_ok(&c.iter, n, carriers, g) && c.ifs.iter().all(|x| expr_ok(x, n, carriers, g))
+                })
+        }
+        Ex::Star(x) | Ex::Walrus(_, x) | Ex::YieldFrom(x) | Ex::Await(x) => expr_ok(x, n, carriers, g),
+        Ex::Slice(a, b, c) => [a, b, c].into_iter().flatten().all(|x| expr_ok(x, n, carriers, g)),
+        _ => true,
+    }
+}
+
+fn fstr_ok(parts: &[FPart], n: &str, carriers: &HashSet<String>, g: &HashSet<String>) -> bool {
+    parts.iter().all(|p| match p {
+        FPart::Expr(x, _, spec, _) => root_carrier(x, carriers).map_or(true, |m| g.contains(m)) && expr_ok(x, n, carriers, g) && fstr_ok(spec, n, carriers, g),
+        _ => true,
+    })
+}
+
+fn stmt_ok(st: &St, n: &str, carriers: &HashSet<String>, g: &HashSet<String>) -> bool {
+    let e = |x: &Ex| expr_ok(x, n, carriers, g);
+    match st {
+        St::Expr(x) | St::Return(Some(x)) | St::Assert(x, _) => e(x),
+        St::Assign(ts, v) => ts.iter().all(e) && e(v),
+        St::AugAssign(t, _, v) => e(t) && e(v),
+        St::AnnAssign(t, v, _) => e(t) && v.as_ref().map_or(true, e),
+        St::For(t, it, _, _) => e(t) && e(it),
+        St::If(arms, _) => arms.iter().all(|(c, _)| e(c)),
+        St::While(c, _, _) => e(c),
+        St::Raise(Some(x), _) => e(x),
+        St::With(items, _) => items.iter().all(|(x, _)| e(x)),
+        St::Del(xs) => xs.iter().all(e),
+        _ => true,
+    }
+}
+
+fn names_in(e: &Ex, out: &mut HashSet<String>) {
+    walk_ex(e, &mut |x| {
+        if let Ex::Name(m) = x {
+            out.insert(m.clone());
+        }
+    });
+}
+
+// Statements in order; `g` names values known not to be the sentinel from earlier tests in this block.
+fn block_ok(stmts: &[Stmt], n: &str, carriers: &HashSet<String>, guarded: &HashSet<String>) -> bool {
+    let mut g = guarded.clone();
+    for s in stmts {
+        let pre = g.clone();
+        if !stmt_ok(&s.st, n, carriers, &pre) {
+            return false;
+        }
+        match &s.st {
+            St::If(arms, els) => {
+                for (c, b) in arms {
+                    let mut inner = pre.clone();
+                    guard_true(c, n, &mut inner);
+                    if !block_ok(b, n, carriers, &inner) {
+                        return false;
+                    }
+                }
+                if let Some(b) = els {
+                    let mut inner = pre.clone();
+                    for (c, _) in arms {
+                        guard_false(c, n, &mut inner);
+                    }
+                    if !block_ok(b, n, carriers, &inner) {
+                        return false;
+                    }
+                }
+            }
+            St::While(c, b, els) => {
+                let mut inner = pre.clone();
+                guard_true(c, n, &mut inner);
+                if !block_ok(b, n, carriers, &inner) || els.as_ref().is_some_and(|x| !block_ok(x, n, carriers, &pre)) {
+                    return false;
+                }
+            }
+            St::For(t, _, b, els) => {
+                let mut inner = pre.clone();
+                names_in(t, &mut inner);
+                if !block_ok(b, n, carriers, &inner) || els.as_ref().is_some_and(|x| !block_ok(x, n, carriers, &pre)) {
+                    return false;
+                }
+            }
+            St::Try(b, hs, els, fin) => {
+                if !block_ok(b, n, carriers, &pre) {
+                    return false;
+                }
+                for h in hs {
+                    let mut inner = pre.clone();
+                    if let Some(m) = &h.name {
+                        inner.remove(m);
+                    }
+                    if !block_ok(&h.body, n, carriers, &inner) {
+                        return false;
+                    }
+                }
+                if els.as_ref().is_some_and(|x| !block_ok(x, n, carriers, &pre)) || fin.as_ref().is_some_and(|x| !block_ok(x, n, carriers, &pre)) {
+                    return false;
+                }
+            }
+            St::With(_, b) => {
+                if !block_ok(b, n, carriers, &pre) {
+                    return false;
+                }
+            }
+            St::Def(d) => {
+                if !block_ok(&d.body, n, carriers, &HashSet::new()) {
+                    return false;
+                }
+            }
+            St::Class(c) => {
+                if !block_ok(&c.body, n, carriers, &HashSet::new()) {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+        let mut post = pre;
+        match &s.st {
+            St::Assign(ts, _) => ts.iter().for_each(|t| names_in(t, &mut post)),
+            St::AugAssign(t, _, _) | St::AnnAssign(t, _, _) => names_in(t, &mut post),
+            _ => {}
+        }
+        // `if v is MISSING or ...: return`: after the statement v is not the sentinel.
+        if let St::If(arms, None) = &s.st {
+            if let [(c, b)] = arms.as_slice() {
+                let leaves_block = matches!(b.last().map(|x| &x.st), Some(St::Return(_) | St::Raise(..) | St::Continue | St::Break));
+                if leaves_block {
+                    guard_false(c, n, &mut post);
+                }
+            }
+        }
+        g = post;
+    }
+    true
+}
+
 fn truth_tests(stmts: &[Stmt], n: &str, carriers: &HashSet<String>, guarded: &HashSet<String>, tested: &mut bool) {
     let mut g = guarded.clone();
     for s in stmts {
@@ -363,9 +714,9 @@ fn makes_none(body: &[Stmt], paired: &HashSet<*const Ex>) -> bool {
     found
 }
 
-// The lines with `n = object()` made `pass` and every other `n` in code made None (strings and comments
+// The lines with `n = object()` made `pass` and every other `n` in code made `repl` (strings and comments
 // are left as written; an f-string naming n was refused by safe()).
-fn replace(lines: &[String], def_line: usize, n: &str) -> Option<Vec<String>> {
+fn replace_with(lines: &[String], def_line: usize, n: &str, repl: &str) -> Option<Vec<String>> {
     let mut out = lines.to_vec();
     let d = out.get_mut(def_line.checked_sub(1)?)?;
     if d.trim() != format!("{n} = object()") && !d.trim().starts_with(&format!("{n} = object()  #")) && !d.trim().starts_with(&format!("{n} = object() #")) {
@@ -376,13 +727,21 @@ fn replace(lines: &[String], def_line: usize, n: &str) -> Option<Vec<String>> {
         if i + 1 == def_line || !l.contains(n) {
             continue;
         }
-        *l = swap_words(l, n)?;
+        *l = swap_words(l, n, repl)?;
     }
     Some(out)
 }
 
-// l with each code word n (outside strings and comments) made None.
-fn swap_words(l: &str, n: &str) -> Option<String> {
+fn replace(lines: &[String], def_line: usize, n: &str) -> Option<Vec<String>> {
+    replace_with(lines, def_line, n, "None")
+}
+
+fn replace_sent(lines: &[String], def_line: usize, n: &str, id: usize) -> Option<Vec<String>> {
+    replace_with(lines, def_line, n, &format!("__sent{id}()"))
+}
+
+// l with each code word n (outside strings and comments) made repl.
+fn swap_words(l: &str, n: &str, repl: &str) -> Option<String> {
     let b: Vec<char> = l.chars().collect();
     let word = |c: char| c.is_alphanumeric() || c == '_';
     let nc: Vec<char> = n.chars().collect();
@@ -415,7 +774,7 @@ fn swap_words(l: &str, n: &str) -> Option<String> {
             continue;
         }
         if b[i..].starts_with(&nc) && (i == 0 || !word(b[i - 1]) && b[i - 1] != '.') && b.get(i + nc.len()).map_or(true, |&c| !word(c)) {
-            out.push_str("None");
+            out.push_str(repl);
             i += nc.len();
             continue;
         }
@@ -431,6 +790,16 @@ mod tests {
     fn swapped(src: &str) -> bool {
         rewrite(src) != src
     }
+    // Rewritten to None (where the sentinel and None become one value); keeping it as its own `__sentN()` value is fine.
+    fn made_none(src: &str) -> bool {
+        let out = rewrite(src);
+        out != src && !out.contains("__sent")
+    }
+    #[test]
+    fn sentinel_kept_as_own_value() {
+        let out = rewrite("M = object()\nd = {}\nv = d.get('k', M)\nprint(v is None, v is M)\n");
+        assert!(out.contains("__sent0()") && out.contains("v is None"), "{out}");
+    }
     #[test]
     fn sentinel_made_none() {
         let src = "store = {}\nlog = []\nMISSING = object()\ndef setk(k, v):\n    log.append((k, store.get(k, MISSING)))\n    if v is MISSING:\n        store.pop(k, None)\n    else:\n        store[k] = v\nsetk('a', '1')\nfor k, old in log:\n    if old is MISSING:\n        print(k)\n";
@@ -442,19 +811,19 @@ mod tests {
     #[test]
     fn sentinel_kept_when_none_or_truth_could_tell() {
         // An unpaired None test: the value may be either.
-        assert!(!swapped("M = object()\nd = {}\nv = d.get('k', M)\nprint(v is None)\n"));
+        assert!(!made_none("M = object()\nd = {}\nv = d.get('k', M)\nprint(v is None)\n"));
         // Tested for truth: object() is true, None is false.
-        assert!(!swapped("M = object()\nd = {}\nv = d.get('k', M)\nif v:\n    print(1)\n"));
+        assert!(!made_none("M = object()\nd = {}\nv = d.get('k', M)\nif v:\n    print(1)\n"));
         // Shown.
-        assert!(!swapped("M = object()\nprint(M)\n"));
-        assert!(!swapped("M = object()\nprint(f'{M}')\n"));
+        assert!(!made_none("M = object()\nprint(M)\n"));
+        assert!(!made_none("M = object()\nprint(f'{M}')\n"));
         assert_eq!(rewrite("M = object()  # M marks none\nx = 'M'\nprint(x is M)\n"), "pass\nx = 'M'\nprint(x is None)\n");
         // None passed on as a value, told apart from the sentinel: rewriting would make the two one.
-        assert!(!swapped("M = object()\ndef get(d, k, default=M):\n    if k in d:\n        return d[k]\n    if default is M:\n        raise KeyError(k)\n    return default\nprint(get({}, 'a', None))\n"));
-        assert!(!swapped("M = object()\ndef f(x=M):\n    if x is M:\n        return 'unset'\n    return 'set'\nprint(f(None), f())\n"));
-        assert!(!swapped("M = object()\nd = {}\nv = d.get('k')\nprint(v is M)\n"));
-        assert!(!swapped("M = object()\ndef g():\n    pass\nv = g()\nprint(v is M)\n"));
+        assert!(!made_none("M = object()\ndef get(d, k, default=M):\n    if k in d:\n        return d[k]\n    if default is M:\n        raise KeyError(k)\n    return default\nprint(get({}, 'a', None))\n"));
+        assert!(!made_none("M = object()\ndef f(x=M):\n    if x is M:\n        return 'unset'\n    return 'set'\nprint(f(None), f())\n"));
+        assert!(!made_none("M = object()\nd = {}\nv = d.get('k')\nprint(v is M)\n"));
+        assert!(!made_none("M = object()\ndef g():\n    pass\nv = g()\nprint(v is M)\n"));
         // Set twice.
-        assert!(!swapped("M = object()\nM = object()\nprint(1 is M)\n"));
+        assert!(!made_none("M = object()\nM = object()\nprint(1 is M)\n"));
     }
 }

@@ -703,7 +703,34 @@ impl<T: Clone> AxTupleItems<T> for (T, T, T, T, T, T, T, T) {
     }
 }
 pub fn print<T: Show>(x: T) {
+    #[cfg(windows)]
+    {
+        let mut s = x.show();
+        s.push('\n');
+        ax_out(&s);
+    }
+    #[cfg(not(windows))]
     println!("{}", x.show());
+}
+// Text to stdout, then flushed. CPython's text streams on Windows write CRLF for every LF (even one already
+// after a CR), as its TextIOWrapper does; Brevi's output matches that there.
+pub fn ax_out(s: &str) {
+    use std::io::Write;
+    let mut o = std::io::stdout();
+    #[cfg(windows)]
+    let _ = o.write_all(s.replace('\n', "\r\n").as_bytes());
+    #[cfg(not(windows))]
+    let _ = o.write_all(s.as_bytes());
+    let _ = o.flush();
+}
+// Text to stderr (stdout flushed first, so the two stay in order), with CRLF on Windows as CPython writes it.
+pub fn ax_err(s: &str) {
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
+    #[cfg(windows)]
+    let _ = std::io::stderr().write_all(s.replace('\n', "\r\n").as_bytes());
+    #[cfg(not(windows))]
+    let _ = std::io::stderr().write_all(s.as_bytes());
 }
 // Python-style truth for conditions: false, 0, "", [] and {} are false.
 pub trait AxTruth {
@@ -1097,7 +1124,7 @@ fn ax_csv_line<T: Show>(w: &str, row: Vec<T>) -> String {
 }
 impl AxCsvW for String {
     fn ax_csv_writerow<T: Show>(&self, row: Vec<T>) {
-        print!("{}", ax_csv_line(self, row));
+        ax_out(&ax_csv_line(self, row));
     }
     fn ax_csv_writerows<T: Show>(&self, rows: Vec<Vec<T>>) {
         for r in rows {
@@ -3025,6 +3052,7 @@ fn ax_json_py(j: &Json, top: bool) -> String {
         Json::Num { v, .. } => ax_py_float(*v),
         Json::Str { v } if top => v.clone(),
         Json::Str { v } => ax_py_repr(v),
+        Json::Tup { .. } if ax_json_sent(j) => "<object object>".into(),
         Json::Tup { v } if v.len() == 1 => format!("({},)", ax_json_py(&v[0], false)),
         Json::Tup { v } => format!("({})", v.iter().map(|x| ax_json_py(x, false)).collect::<Vec<_>>().join(", ")),
         Json::Arr { v } => format!("[{}]", v.iter().map(|x| ax_json_py(x, false)).collect::<Vec<_>>().join(", ")),
@@ -3041,6 +3069,7 @@ impl Show for Json {
             Json::Bool { v } => v.to_string(),
             Json::Num { v, .. } => v.to_string(),
             Json::Str { v } => format!("{v:?}"),
+            Json::Tup { .. } if ax_json_sent(self) => "<object object>".into(),
             Json::Arr { v } | Json::Tup { v } => format!("[{}]", v.iter().map(|x| x.show()).collect::<Vec<_>>().join(",")),
             Json::Obj { v } => format!("{{{}}}", v.iter().map(|(k, x)| format!("{k:?}:{}", x.show())).collect::<Vec<_>>().join(",")),
         }
@@ -3299,6 +3328,7 @@ impl Json {
     }
     pub fn ax_len(&self) -> i64 {
         match self {
+            Json::Tup { .. } if ax_json_sent(self) => panic!("TypeError: object of type 'object' has no len()"),
             Json::Str { v } => v.chars().count() as i64,
             Json::Arr { v } | Json::Tup { v } => v.len() as i64,
             Json::Obj { v } => v.m.len() as i64,
@@ -3995,10 +4025,22 @@ impl AxCode for String {
 }
 pub trait AxChar {
     fn ax_char(&self) -> String;
+    // The same conversion where a Python try that catches ValueError can see the failure as an error value.
+    fn ax_try_char(&self) -> R<String>;
 }
 impl AxChar for i64 {
     fn ax_char(&self) -> String {
-        char::from_u32(*self as u32).map_or(String::new(), |c| c.to_string())
+        if *self < 0 || *self > 0x10FFFF {
+            panic!("ValueError: chr() arg not in range(0x110000)");
+        }
+        // A lone surrogate is a str in CPython that a Rust String cannot hold: stop rather than give "".
+        char::from_u32(*self as u32).map_or_else(|| panic!("chr() of a lone surrogate (U+D800..U+DFFF) is not supported"), |c| c.to_string())
+    }
+    fn ax_try_char(&self) -> R<String> {
+        if *self < 0 || *self > 0x10FFFF {
+            return Err(AxErr("chr() arg not in range(0x110000)".into()));
+        }
+        Ok(char::from_u32(*self as u32).map_or_else(|| panic!("chr() of a lone surrogate (U+D800..U+DFFF) is not supported"), |c| c.to_string()))
     }
 }
 // A function stored in a map: `ops = {"+": add}`, then `ops["+"](1, 2)` or `f = ops[k]; f(1, 2)`.
@@ -4059,6 +4101,47 @@ impl AxNone for bool {
     #[inline]
     fn ax_none() -> Self {
         false
+    }
+}
+// A second unset value, for `MISSING = object()` next to None in the same slot. The value's type keeps its
+// own None representation (`"\0None"` for a str, Json::Null for JSON), and the sentinel is a distinct value of
+// the same type, so `v is MISSING` and `v is None` stay apart. N numbers the sentinels of the program.
+pub struct AxSentVal<const N: usize>;
+impl<const N: usize> AxSentVal<N> {
+    pub fn make<T: AxSentBase<N>>() -> T {
+        T::ax_sent()
+    }
+    pub fn is<T: AxSentBase<N>>(v: &T) -> bool {
+        v.ax_is_sent()
+    }
+}
+pub trait AxSentBase<const N: usize>: Sized {
+    fn ax_sent() -> Self;
+    fn ax_is_sent(&self) -> bool;
+}
+pub fn ax_sent_str(n: usize) -> String {
+    format!("\u{0}sent{n}")
+}
+// A str slot's sentinel is a string no input the program reads makes by itself, like its None string.
+impl<const N: usize> AxSentBase<N> for String {
+    fn ax_sent() -> Self {
+        ax_sent_str(N)
+    }
+    fn ax_is_sent(&self) -> bool {
+        *self == ax_sent_str(N)
+    }
+}
+fn ax_json_sent(j: &Json) -> bool {
+    matches!(j, Json::Tup { v } if v.len() == 1 && matches!(&v[0], Json::Str { v } if v.starts_with("\u{0}sent")))
+}
+// A JSON slot's sentinel is a one-item internal tuple no json.loads value is (a Tup is only made from a
+// Python tuple), holding the sentinel's marker string.
+impl<const N: usize> AxSentBase<N> for Json {
+    fn ax_sent() -> Self {
+        Json::Tup { v: vec![Json::Str { v: ax_sent_str(N) }] }
+    }
+    fn ax_is_sent(&self) -> bool {
+        matches!(self, Json::Tup { v } if v.len() == 1 && matches!(&v[0], Json::Str { v } if *v == ax_sent_str(N)))
     }
 }
 impl<A: AxNone, B: AxNone> AxNone for (A, B) {
@@ -4418,13 +4501,13 @@ impl AxExit for i64 {
 }
 impl AxExit for String {
     fn ax_exit_with(&self) -> ! {
-        eprintln!("{self}");
+        ax_err(&format!("{self}\n"));
         std::process::exit(1)
     }
 }
 impl AxExit for &str {
     fn ax_exit_with(&self) -> ! {
-        eprintln!("{self}");
+        ax_err(&format!("{self}\n"));
         std::process::exit(1)
     }
 }
@@ -6178,6 +6261,47 @@ impl AxPow<f64> for i64 {
         ax_fpow(self as f64, b)
     }
 }
+// The same power, but a zero base to a negative power is a ZeroDivisionError a Python try can catch.
+pub trait AxPowTry<B = Self>: Sized {
+    type Out;
+    fn ax_pow_try(self, b: B) -> R<Self::Out>;
+}
+impl AxPowTry<i64> for i64 {
+    type Out = i64;
+    fn ax_pow_try(self, b: i64) -> R<i64> {
+        if self == 0 && b < 0 {
+            return Err(ax_zd_err("0.0 cannot be raised to a negative power"));
+        }
+        Ok(self.ax_pow(b))
+    }
+}
+impl AxPowTry<f64> for f64 {
+    type Out = f64;
+    fn ax_pow_try(self, b: f64) -> R<f64> {
+        if self == 0.0 && b < 0.0 {
+            return Err(ax_zd_err("0.0 cannot be raised to a negative power"));
+        }
+        Ok(ax_fpow(self, b))
+    }
+}
+impl AxPowTry<i64> for f64 {
+    type Out = f64;
+    fn ax_pow_try(self, b: i64) -> R<f64> {
+        if self == 0.0 && b < 0 {
+            return Err(ax_zd_err("0.0 cannot be raised to a negative power"));
+        }
+        Ok(ax_fpow(self, b as f64))
+    }
+}
+impl AxPowTry<f64> for i64 {
+    type Out = f64;
+    fn ax_pow_try(self, b: f64) -> R<f64> {
+        if self == 0 && b < 0.0 {
+            return Err(ax_zd_err("0.0 cannot be raised to a negative power"));
+        }
+        Ok(ax_fpow(self as f64, b))
+    }
+}
 // Python 3's `a / b`: always a float.
 pub trait AxTrueDiv<B> {
     fn ax_truediv(self, b: B) -> f64;
@@ -6388,7 +6512,12 @@ impl AxIsInstance for bool {
 }
 impl AxIsInstance for String {
     fn ax_kind(&self) -> &'static str {
-        "str"
+        // A sentinel held in a str slot is an object, not a string, to isinstance.
+        if self.starts_with("\u{0}sent") {
+            "object"
+        } else {
+            "str"
+        }
     }
 }
 impl AxIsInstance for Dec {
@@ -6419,7 +6548,7 @@ impl AxIsInstance for Json {
             Json::Bool { .. } => "bool",
             Json::Num { v, f } => if v.fract() == 0.0 && v.abs() < 1e15 && !(*f && ax_py_on()) { "int" } else { "float" },
             Json::Str { .. } => "str",
-            Json::Arr { .. } => "list", Json::Tup { .. } => "tuple",
+            Json::Arr { .. } => "list", Json::Tup { .. } if ax_json_sent(self) => "object", Json::Tup { .. } => "tuple",
             Json::Obj { .. } => "dict",
         }
     }
@@ -7029,6 +7158,37 @@ fn ax_rx_search_at(p: &str, s: &[char], from: usize, full: bool, anchored: bool)
         }
         return ax_rx_search_at(&lp, &low, from, full, anchored);
     }
+    // The matcher recurses about once per repetition of a group, so `(x)*` over a long text would overflow the
+    // main thread's stack: long texts are matched on a thread whose stack grows with the text, as CPython's
+    // matcher does not recurse at all.
+    if s.len() - from.min(s.len()) > 2000 && !AX_RX_BIG.with(|b| b.get()) && ax_rx_deep(&ax_rx(p).0) {
+        let stack = (s.len() + 1000).saturating_mul(4096).min(1 << 36);
+        return std::thread::scope(|sc| {
+            std::thread::Builder::new()
+                .stack_size(stack)
+                .spawn_scoped(sc, || {
+                    AX_RX_BIG.with(|b| b.set(true));
+                    ax_rx_search_at(p, s, from, full, anchored)
+                })
+                .map(|h| h.join().unwrap_or_else(|e| std::panic::resume_unwind(e)))
+                .unwrap_or_else(|_| ax_rx_search_at_here(p, s, from, full, anchored))
+        });
+    }
+    ax_rx_search_at_here(p, s, from, full, anchored)
+}
+// whether matching recurses once per repetition: a repeated node wider than one character
+fn ax_rx_deep(n: &AxRx) -> bool {
+    match n {
+        AxRx::Rep(inner, _, hi, _) => (*hi > 1 && ax_rx_one(inner, 'a').is_none()) || ax_rx_deep(inner),
+        AxRx::Cat(v) | AxRx::Alt(v) => v.iter().any(ax_rx_deep),
+        AxRx::Group(inner, _) => ax_rx_deep(inner),
+        _ => false,
+    }
+}
+thread_local! {
+    static AX_RX_BIG: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+fn ax_rx_search_at_here(p: &str, s: &[char], from: usize, full: bool, anchored: bool) -> Option<(usize, AxCaps)> {
     let rx = ax_rx(p);
     for st in from..=s.len() {
         let mut caps: AxCaps = vec![None; rx.1 + 1];

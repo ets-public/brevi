@@ -590,8 +590,28 @@ fn float_fast(a: &V, b: &V, op: &str) -> Option<V> {
         _ => None,
     }
 }
+// int OP int that cannot overflow or raise; op is a constant at almost every call site, so this folds away
+#[inline(always)]
+fn int_fast(a: &V, b: &V, op: &str) -> Option<V> {
+    let (V::Int(x), V::Int(y)) = (a, b) else {
+        return None;
+    };
+    let (x, y) = (*x, *y);
+    match op {
+        "+" => x.checked_add(y).map(V::Int),
+        "-" => x.checked_sub(y).map(V::Int),
+        "*" => x.checked_mul(y).map(V::Int),
+        // Python's floor modulo: the result takes the divisor's sign
+        "%" if y > 0 => Some(V::Int(x.rem_euclid(y))),
+        "//" if y > 0 => Some(V::Int(x.div_euclid(y))),
+        _ => None,
+    }
+}
 #[inline]
 pub fn binop(a: &V, b: &V, op: &str) -> R {
+    if let Some(r) = int_fast(a, b, op) {
+        return Ok(r);
+    }
     if let Some(r) = float_fast(a, b, op) {
         return Ok(r);
     }
@@ -672,6 +692,9 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
                         }
                     }
                 } else {
+                    if x == 0 {
+                        return Err(exc("ZeroDivisionError", "0.0 cannot be raised to a negative power".into()));
+                    }
                     return Ok(V::Float((x as f64).powf(y as f64)));
                 }
             }
@@ -709,6 +732,9 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
                 }
                 "**" => {
                     if q.neg {
+                        if p.is_zero() {
+                            return Err(exc("ZeroDivisionError", "0.0 cannot be raised to a negative power".into()));
+                        }
                         return Ok(V::Float(p.to_f64().powf(q.to_f64())));
                     }
                     let e = q.to_i64().ok_or_else(|| exc("OverflowError", "exponent too large".into()))?;
@@ -940,7 +966,7 @@ fn float_op(x: f64, y: f64, op: &str, a: &V, b: &V) -> R {
         }
         "**" => {
             if x == 0.0 && y < 0.0 {
-                return Err(exc("ZeroDivisionError", "zero to a negative power".into()));
+                return Err(exc("ZeroDivisionError", "0.0 cannot be raised to a negative power".into()));
             }
             if x < 0.0 && y.fract() != 0.0 {
                 return Err(unsupported("complex numbers"));
@@ -973,6 +999,9 @@ pub fn sub(a: &V, b: &V) -> R {
 // a OP= b: lists, sets, dicts and deques change in place; other values make a new value.
 #[inline]
 pub fn iop(a: &V, b: &V, op: &str) -> R {
+    if let Some(r) = int_fast(a, b, op) {
+        return Ok(r);
+    }
     if let Some(r) = float_fast(a, b, op) {
         return Ok(r);
     }
@@ -1697,6 +1726,11 @@ pub enum It {
     GenExp(Box<dyn FnMut() -> Result<Option<V>, E>>, bool),
     Coro(Rc<RefCell<Box<Coro>>>),
     Obj(V),
+    // another iterator object, stepped through iter_step so that re-entrant calls work
+    Ref(Rc<RefCell<It>>),
+    // an iterator whose state lives behind its own cells and holds no borrow while it calls user code, so
+    // it may be re-entered (from a key function or __eq__, say), as CPython's C iterators may
+    Shared(Rc<dyn Fn() -> Result<Option<V>, E>>),
     Done,
 }
 pub struct Iter {
@@ -1804,22 +1838,25 @@ impl It {
                 }
             }
             It::Coro(c) => coro_next(c, V::None),
-            It::Obj(o) => {
-                let f = match o {
-                    V::Obj(ob) => ob.cls.lookup("__next__"),
-                    _ => None,
-                };
-                match f {
-                    Some(f) => match call(&f, Args::p(vec![o.clone()])) {
-                        Ok(v) => Ok(Some(v)),
-                        Err(E(e)) if is_exc(&e, "StopIteration") => Ok(None),
-                        Err(e) => Err(e),
-                    },
-                    None => type_err(format!("'{}' object is not an iterator", tn(o))),
-                }
-            }
+            It::Obj(o) => obj_next(o),
+            It::Ref(r) => iter_step(r),
+            It::Shared(f) => f(),
             It::Done => Ok(None),
         }
+    }
+}
+fn obj_next(o: &V) -> Result<Option<V>, E> {
+    let f = match o {
+        V::Obj(ob) => ob.cls.lookup("__next__"),
+        _ => None,
+    };
+    match f {
+        Some(f) => match call(&f, Args::p(vec![o.clone()])) {
+            Ok(v) => Ok(Some(v)),
+            Err(E(e)) if is_exc(&e, "StopIteration") => Ok(None),
+            Err(e) => Err(e),
+        },
+        None => type_err(format!("'{}' object is not an iterator", tn(o))),
     }
 }
 pub fn is_exc(e: &V, name: &str) -> bool {
@@ -1855,14 +1892,14 @@ pub fn iter(v: &V) -> Result<It, E> {
         V::Set(s) => It::Vec(s.borrow().keys().into_iter()),
         V::FSet(s) => It::Vec(s.keys().into_iter()),
         V::Deque(d) => It::Vec(d.borrow().v.iter().cloned().collect::<Vec<_>>().into_iter()),
-        V::Iter(it) => {
-            let it = it.clone();
-            It::Gen(Box::new(move || it.borrow_mut().next()))
-        }
+        V::Iter(it) => It::Ref(it.clone()),
         V::Obj(o) => {
             if let Some(f) = o.cls.lookup("__iter__") {
                 let r = call(&f, Args::p(vec![v.clone()]))?;
-                if let V::Obj(_) = &r {
+                if let V::Obj(ro) = &r {
+                    if ro.cls.lookup("__next__").is_none() {
+                        return type_err(format!("iter() returned non-iterator of type '{}'", tn(&r)));
+                    }
                     return Ok(It::Obj(r));
                 }
                 return iter(&r);
@@ -1903,7 +1940,10 @@ pub fn iter_v(v: &V) -> R {
     if let V::Obj(o) = v {
         if let Some(f) = o.cls.lookup("__iter__") {
             let r = call(&f, Args::p(vec![v.clone()]))?;
-            if let V::Obj(_) = &r {
+            if let V::Obj(ro) = &r {
+                if ro.cls.lookup("__next__").is_none() {
+                    return type_err(format!("iter() returned non-iterator of type '{}'", tn(&r)));
+                }
                 return Ok(V::Iter(Rc::new(RefCell::new(It::Obj(r)))));
             }
             return iter_v(&r);
@@ -2002,4 +2042,42 @@ pub fn dict_items_of(v: &V) -> Result<Vec<(V, V)>, E> {
             Ok(out)
         }
     }
+}
+
+// One step of a shared iterator. An iterator whose own step calls back into it (a map function that calls next()
+// on the zip reading that map) cannot be stepped twice at once here: that raises ValueError, as CPython does for a
+// generator already executing, instead of a RefCell panic.
+pub fn iter_step(it: &Rc<RefCell<It>>) -> Result<Option<V>, E> {
+    let Ok(mut g) = it.try_borrow_mut() else {
+        return Err(exc("ValueError", "iterator already executing".into()));
+    };
+    // these hold no state of their own here: let go of the cell before running them, so they may re-enter
+    match &*g {
+        It::Shared(f) => {
+            let f = f.clone();
+            drop(g);
+            f()
+        }
+        It::Ref(r) => {
+            let r = r.clone();
+            drop(g);
+            iter_step(&r)
+        }
+        It::Obj(o) => {
+            let o = o.clone();
+            drop(g);
+            obj_next(&o)
+        }
+        _ => g.next(),
+    }
+}
+pub fn shared_iter(f: impl Fn() -> Result<Option<V>, E> + 'static) -> V {
+    V::Iter(Rc::new(RefCell::new(It::Shared(Rc::new(f)))))
+}
+// an input of a re-entrant iterator: its own cell, so stepping it borrows nothing shared
+pub fn shared_input(v: &V) -> Result<Rc<RefCell<It>>, E> {
+    Ok(match v {
+        V::Iter(it) => it.clone(),
+        _ => Rc::new(RefCell::new(iter(v)?)),
+    })
 }

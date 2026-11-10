@@ -1,0 +1,22 @@
+del a
+rebound
+del b
+deleted
+del 2
+del 1
+del 0
+cleared
+del loop0
+looped
+in f
+del local
+after f
+del t2
+del t1
+del o
+del child
+True
+end
+del a2
+del loop1
+at exit, still sees 0 a2

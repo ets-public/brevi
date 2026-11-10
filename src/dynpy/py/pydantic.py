@@ -1993,6 +1993,9 @@ def _copy_line(ln):
 
 
 def _run_field(cls, f, x, st, data):
+    if not f.chain:
+        # no field validators: just the type's validator (nothing would see the ValidationInfo)
+        return f.val.v(x, st)
     info = ValidationInfo(data, f.name, st.mode, st.context, cls.model_config)
 
     def layer(k, y):
@@ -2115,7 +2118,7 @@ def _validate_model(cls, data, st, inst):
 
 
 def _validate_model_inner(cls, s, data, st, inst):
-    info = ValidationInfo({}, None, st.mode, st.context, cls.model_config)
+    info = ValidationInfo({}, None, st.mode, st.context, cls.model_config) if (s.before or s.after) else None
     for fn, tc, np in s.before:
         data = _call_user(fn, tc, np, cls, data, info, data)
     if isinstance(data, cls) and inst is None:

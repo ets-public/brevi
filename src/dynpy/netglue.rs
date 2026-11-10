@@ -2,22 +2,29 @@
 // ---------- the network, for Brevi's requests and httpx (pasted into the program; see rt_net.rs) ----------
 // Sockets are the system's (connect, poll), names resolve with getaddrinfo, and TLS is the system's OpenSSL,
 // loaded when a program first makes an HTTPS connection, as CPython's ssl module uses it. Errors carry
-// CPython's messages ("[Errno 111] Connection refused", "timed out"). Under --sandbox the program reaches only
-// the hosts the caller granted (NET_ANY / NET_HOSTS, set by the compiler) and reads no environment variables.
+// CPython's messages ("[Errno 111] Connection refused" on Unix, "[WinError 10061] ..." on Windows; "timed out").
+// Under --sandbox the program reaches only the hosts the caller granted (NET_ANY / NET_HOSTS, set by the
+// compiler) and reads no environment variables.
+// Unix: file descriptors, connect/fcntl/poll/close and dlopen'd libssl. Windows: Winsock SOCKET handles
+// (ioctlsocket for non-blocking, select for a connecting socket, WSAPoll for readiness, closesocket) and the
+// OpenSSL DLLs (libssl-1_1.dll / libssl-3-x64.dll with libcrypto-1_1.dll / libcrypto-3-x64.dll, which
+// Python's DLLs folder holds; BREVI_SSL_LIB / BREVI_SSL_DIR name another copy). OpenSSL on Windows has no
+// path to the system certificate store, so verification falls back to a CA bundle (SSL_CERT_FILE,
+// REQUESTS_CA_BUNDLE or certifi next to a Python on PATH).
 #[allow(non_snake_case, non_camel_case_types, dead_code)]
 mod brevi_netglue {
     use super::*;
     use brevi_dyn::{NetErr, NetOps};
-    use std::ffi::{c_char, c_int, c_long, c_void, CStr, CString};
+    use std::ffi::{c_char, c_int, c_long, c_ulong, c_void, CStr, CString};
     use std::io::{Read, Write};
     use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
-    use std::os::fd::{AsRawFd, FromRawFd};
     use std::sync::Mutex;
     use std::collections::HashMap;
     use std::time::Duration;
 
     type P = *mut c_void;
 
+    #[cfg(unix)]
     extern "C" {
         fn socket(domain: c_int, ty: c_int, proto: c_int) -> c_int;
         fn connect(fd: c_int, addr: *const u8, len: u32) -> c_int;
@@ -30,13 +37,61 @@ mod brevi_netglue {
         fn dlopen(f: *const c_char, flag: c_int) -> P;
         fn dlsym(h: P, s: *const c_char) -> P;
     }
+    #[cfg(windows)]
+    unsafe extern "system" {
+        fn LoadLibraryA(f: *const c_char) -> P;
+        fn GetProcAddress(h: P, s: *const c_char) -> *mut c_void;
+    }
+    #[cfg(windows)]
+    #[link(name = "ws2_32")]
+    unsafe extern "system" {
+        fn WSAStartup(version: u16, data: *mut u8) -> c_int;
+        fn WSAGetLastError() -> c_int;
+        fn socket(af: c_int, ty: c_int, proto: c_int) -> usize;
+        fn connect(s: usize, name: *const u8, namelen: c_int) -> c_int;
+        fn ioctlsocket(s: usize, cmd: c_long, argp: *mut u32) -> c_int;
+        fn getsockopt(s: usize, level: c_int, name: c_int, val: *mut c_char, len: *mut c_int) -> c_int;
+        fn setsockopt(s: usize, level: c_int, name: c_int, val: *const c_char, len: c_int) -> c_int;
+        fn WSAPoll(fds: *mut PollFd, n: c_ulong, timeout: c_int) -> c_int;
+        fn closesocket(s: usize) -> c_int;
+        fn select(nfds: c_int, r: *mut FdSet, w: *mut FdSet, e: *mut FdSet, t: *const Timeval) -> c_int;
+    }
 
+    #[cfg(unix)]
+    use std::os::fd::{AsRawFd, FromRawFd};
+    #[cfg(windows)]
+    use std::os::windows::io::{AsRawSocket, FromRawSocket};
+
+    // poll's struct: fd, events, revents (winsock's WSAPOLLFD has the same fields with a SOCKET fd)
+    #[cfg(unix)]
     #[repr(C)]
     struct PollFd {
         fd: c_int,
         events: i16,
         revents: i16,
     }
+    #[cfg(windows)]
+    #[repr(C)]
+    struct PollFd {
+        fd: usize,
+        events: i16,
+        revents: i16,
+    }
+    #[cfg(windows)]
+    #[repr(C)]
+    struct FdSet {
+        count: u32,
+        fds: [usize; 64],
+    }
+    #[cfg(windows)]
+    #[repr(C)]
+    struct Timeval {
+        sec: c_long,
+        usec: c_long,
+    }
+    #[cfg(windows)]
+    #[repr(C, align(8))]
+    struct WsaData([u8; 512]);
 
     #[cfg(target_os = "linux")]
     mod k {
@@ -47,8 +102,9 @@ mod brevi_netglue {
         pub const EINPROGRESS: i32 = 115;
         pub const SOCK_CLOEXEC: i32 = 0o2000000;
         pub const SIN_LEN: bool = false;
+        pub const EINTR: i32 = 4;
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(all(unix, not(target_os = "linux")))]
     mod k {
         pub const AF_INET6: u16 = 30;
         pub const SOL_SOCKET: i32 = 0xffff;
@@ -57,6 +113,25 @@ mod brevi_netglue {
         pub const EINPROGRESS: i32 = 36;
         pub const SOCK_CLOEXEC: i32 = 0;
         pub const SIN_LEN: bool = true;
+        pub const EINTR: i32 = 4;
+    }
+    #[cfg(windows)]
+    mod k {
+        pub const AF_INET6: u16 = 23;
+        pub const SOL_SOCKET: i32 = 0xffff;
+        pub const SO_ERROR: i32 = 0x1007;
+        pub const SIN_LEN: bool = false;
+        pub const INVALID_SOCKET: usize = usize::MAX;
+        pub const FIONBIO: u32 = 0x8004_667e;
+        pub const WSAEWOULDBLOCK: i32 = 10035;
+        pub const WSAEINPROGRESS: i32 = 10036;
+        pub const WSAEINTR: i32 = 10004;
+        // winsock2.h's poll event masks: the program's events are poll's 1 = read, 4 = write
+        pub const POLLRD: i16 = 0x0300; // POLLRDNORM | POLLRDBAND
+        pub const POLLWR: i16 = 0x0010; // POLLWRNORM
+        pub const POLLERR: i16 = 0x0001;
+        pub const POLLHUP: i16 = 0x0002;
+        pub const POLLNVAL: i16 = 0x0004;
     }
     const IPPROTO_TCP: i32 = 6;
     const TCP_NODELAY: i32 = 1;
@@ -64,7 +139,7 @@ mod brevi_netglue {
     struct Conn {
         // None while a non-blocking connect is in progress
         s: Option<TcpStream>,
-        pending: i32,
+        pending: i64,
         addrs: Vec<SocketAddr>,
         // the error of the last address that failed, raised when none is left
         last_err: Option<(&'static str, String)>,
@@ -92,6 +167,16 @@ mod brevi_netglue {
         *n
     }
 
+    #[cfg(unix)]
+    fn last_errno() -> i32 {
+        std::io::Error::last_os_error().raw_os_error().unwrap_or(0)
+    }
+    #[cfg(windows)]
+    fn last_errno() -> i32 {
+        unsafe { WSAGetLastError() }
+    }
+
+    #[cfg(unix)]
     fn errno_err(code: i32) -> NetErr {
         let msg = unsafe { CStr::from_ptr(strerror(code)) }.to_string_lossy().to_string();
         let kind = match std::io::Error::from_raw_os_error(code).kind() {
@@ -103,6 +188,28 @@ mod brevi_netglue {
             _ => "OSError",
         };
         NetErr { kind, msg: format!("[Errno {code}] {msg}") }
+    }
+    #[cfg(windows)]
+    fn errno_err(code: i32) -> NetErr {
+        // CPython's Windows wording: [WinError N] and the system's text for the socket error
+        let (kind, text) = match code {
+            10061 => ("ConnectionRefusedError", "No connection could be made because the target machine actively refused it"),
+            10054 => ("ConnectionResetError", "An existing connection was forcibly closed by the remote host"),
+            10053 => ("ConnectionAbortedError", "An established connection was aborted by the software in your host machine"),
+            10060 => ("TimeoutError", "A connection attempt failed because the connected party did not properly respond after a period of time, or established connection failed because connected host has failed to respond"),
+            10058 => ("BrokenPipeError", "A request to send or receive data was disallowed because the socket had already been shut down in that direction with a previous shutdown call"),
+            10004 => ("InterruptedError", "A blocking operation was interrupted by a call to WSACancelBlockingCall"),
+            10065 => ("OSError", "No route to host"),
+            10051 => ("OSError", "Network is unreachable"),
+            10050 => ("OSError", "Network is down"),
+            10048 => ("OSError", "Only one usage of each socket address (protocol/network address/port) is normally permitted"),
+            10049 => ("OSError", "The requested address is not valid in its context"),
+            10057 => ("OSError", "A request to send or receive data was disallowed because the socket is not connected and (when sending on a datagram socket using a sendto call) no address was supplied"),
+            10038 => ("OSError", "An operation was attempted on something that is not a socket"),
+            _ => ("OSError", ""),
+        };
+        let msg = if text.is_empty() { std::io::Error::from_raw_os_error(code).to_string() } else { text.to_string() };
+        NetErr { kind, msg: format!("[WinError {code}] {msg}") }
     }
 
     fn io_err(e: std::io::Error, tls: bool) -> NetErr {
@@ -120,24 +227,33 @@ mod brevi_netglue {
     }
 
     // getaddrinfo's errors, as socket.gaierror words them
+    #[cfg(unix)]
+    fn gaierror(e: std::io::Error, _host: &str) -> NetErr {
+        let m = e.to_string();
+        let m = m.strip_prefix("failed to lookup address information: ").unwrap_or(&m).to_string();
+        let code = match m.as_str() {
+            "Name or service not known" | "nodename nor servname provided, or not known" => -2,
+            "Temporary failure in name resolution" => -3,
+            "Non-recoverable failure in name resolution" => -4,
+            "No address associated with hostname" => -5,
+            "Servname not supported for ai_socktype" => -8,
+            _ => -2,
+        };
+        let code = if cfg!(target_os = "linux") { code } else { 8 };
+        NetErr { kind: "socket.gaierror", msg: format!("[Errno {code}] {m}") }
+    }
+    #[cfg(windows)]
+    fn gaierror(e: std::io::Error, _host: &str) -> NetErr {
+        // getaddrinfo's WSA code (11001 WSAHOST_NOT_FOUND, 11002 WSATRY_AGAIN, ...), as CPython reports it
+        let code = e.raw_os_error().unwrap_or(11001);
+        NetErr { kind: "socket.gaierror", msg: format!("[Errno {code}] getaddrinfo failed") }
+    }
+
     fn resolve(host: &str, port: u16) -> Result<Vec<SocketAddr>, NetErr> {
         let h = host.trim_start_matches('[').trim_end_matches(']');
         match (h, port).to_socket_addrs() {
             Ok(a) => Ok(a.collect()),
-            Err(e) => {
-                let m = e.to_string();
-                let m = m.strip_prefix("failed to lookup address information: ").unwrap_or(&m).to_string();
-                let code = match m.as_str() {
-                    "Name or service not known" | "nodename nor servname provided, or not known" => -2,
-                    "Temporary failure in name resolution" => -3,
-                    "Non-recoverable failure in name resolution" => -4,
-                    "No address associated with hostname" => -5,
-                    "Servname not supported for ai_socktype" => -8,
-                    _ => -2,
-                };
-                let code = if cfg!(target_os = "linux") { code } else { 8 };
-                Err(NetErr { kind: "socket.gaierror", msg: format!("[Errno {code}] {m}") })
-            }
+            Err(e) => Err(gaierror(e, h)),
         }
     }
 
@@ -169,12 +285,22 @@ mod brevi_netglue {
         b
     }
 
+    #[cfg(windows)]
+    fn wsa_init() {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| unsafe {
+            let mut d = WsaData([0u8; 512]);
+            WSAStartup(0x0202, d.0.as_mut_ptr());
+        });
+    }
+
     // Starts a non-blocking connect: the socket, or the error.
-    fn start(a: &SocketAddr) -> Result<i32, NetErr> {
+    #[cfg(unix)]
+    fn start(a: &SocketAddr) -> Result<i64, NetErr> {
         let dom = if a.is_ipv4() { 2 } else { k::AF_INET6 as i32 };
         let fd = unsafe { socket(dom, 1 | k::SOCK_CLOEXEC, 0) };
         if fd < 0 {
-            return Err(errno_err(std::io::Error::last_os_error().raw_os_error().unwrap_or(0)));
+            return Err(errno_err(last_errno()));
         }
         unsafe {
             let fl = fcntl(fd, 3);
@@ -185,30 +311,99 @@ mod brevi_netglue {
         let sa = sockaddr(a);
         let r = unsafe { connect(fd, sa.as_ptr(), sa.len() as u32) };
         if r != 0 {
-            let e = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+            let e = last_errno();
             if e != k::EINPROGRESS {
                 unsafe { close(fd) };
                 return Err(errno_err(e));
             }
         }
-        Ok(fd)
+        Ok(fd as i64)
+    }
+    #[cfg(windows)]
+    fn start(a: &SocketAddr) -> Result<i64, NetErr> {
+        wsa_init();
+        let dom = if a.is_ipv4() { 2 } else { k::AF_INET6 as c_int };
+        let s = unsafe { socket(dom, 1, 0) };
+        if s == k::INVALID_SOCKET {
+            return Err(errno_err(last_errno()));
+        }
+        unsafe {
+            let mut nonblocking: u32 = 1;
+            ioctlsocket(s, k::FIONBIO as c_long, &mut nonblocking);
+            let one: c_int = 1;
+            setsockopt(s, IPPROTO_TCP, TCP_NODELAY, &one as *const c_int as *const c_char, 4);
+        }
+        let sa = sockaddr(a);
+        let r = unsafe { connect(s, sa.as_ptr(), sa.len() as c_int) };
+        if r != 0 {
+            let e = last_errno();
+            if e != k::WSAEWOULDBLOCK && e != k::WSAEINPROGRESS {
+                unsafe { closesocket(s) };
+                return Err(errno_err(e));
+            }
+        }
+        Ok(s as i64)
     }
 
-    fn so_error(fd: i32) -> i32 {
+    #[cfg(unix)]
+    fn close_sock(h: i64) {
+        unsafe { close(h as c_int) };
+    }
+    #[cfg(windows)]
+    fn close_sock(h: i64) {
+        unsafe { closesocket(h as usize) };
+    }
+
+    #[cfg(unix)]
+    fn to_stream(h: i64) -> TcpStream {
+        unsafe { TcpStream::from_raw_fd(h as c_int) }
+    }
+    #[cfg(windows)]
+    fn to_stream(h: i64) -> TcpStream {
+        unsafe { TcpStream::from_raw_socket(h as std::os::windows::io::RawSocket) }
+    }
+    #[cfg(unix)]
+    fn raw_of(s: &TcpStream) -> i64 {
+        s.as_raw_fd() as i64
+    }
+    #[cfg(windows)]
+    fn raw_of(s: &TcpStream) -> i64 {
+        s.as_raw_socket() as i64
+    }
+    // OpenSSL's SSL_set_fd takes an int (as CPython's _ssl passes its SOCKET)
+    #[cfg(unix)]
+    fn ssl_fd(s: &TcpStream) -> c_int {
+        s.as_raw_fd()
+    }
+    #[cfg(windows)]
+    fn ssl_fd(s: &TcpStream) -> c_int {
+        raw_of(s) as c_int
+    }
+
+    #[cfg(unix)]
+    fn so_error(fd: i64) -> i32 {
         let mut e: c_int = 0;
         let mut l: u32 = 4;
-        unsafe { getsockopt(fd, k::SOL_SOCKET, k::SO_ERROR, &mut e as *mut c_int as *mut c_void, &mut l) };
+        unsafe { getsockopt(fd as c_int, k::SOL_SOCKET, k::SO_ERROR, &mut e as *mut c_int as *mut c_void, &mut l) };
+        e
+    }
+    #[cfg(windows)]
+    fn so_error(h: i64) -> i32 {
+        let mut e: c_int = 0;
+        let mut l: c_int = 4;
+        unsafe { getsockopt(h as usize, k::SOL_SOCKET, k::SO_ERROR, &mut e as *mut c_int as *mut c_char, &mut l) };
         e
     }
 
-    fn wait_fd(fd: i32, events: i16, timeout: f64) -> Result<bool, NetErr> {
-        let mut p = PollFd { fd, events, revents: 0 };
+    #[cfg(unix)]
+    fn wait_fd(fd: i64, events: i16, timeout: f64) -> Result<bool, NetErr> {
+        let mut p = PollFd { fd: fd as c_int, events, revents: 0 };
         let ms = if timeout < 0.0 { -1 } else { (timeout * 1000.0).ceil() as c_int };
         loop {
             let r = unsafe { poll(&mut p, 1, ms) };
             if r < 0 {
-                let e = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
-                if e == 4 {
+                let e = last_errno();
+                if e == k::EINTR {
                     continue;
                 }
                 return Err(errno_err(e));
@@ -216,9 +411,41 @@ mod brevi_netglue {
             return Ok(r > 0);
         }
     }
+    // A connecting socket, with select rather than WSAPoll: WSAPoll before Windows 10 1809 did not report a
+    // failed connect. A failed connect shows in the write set or the exception set; the caller reads SO_ERROR.
+    #[cfg(windows)]
+    fn wait_fd(h: i64, events: i16, timeout: f64) -> Result<bool, NetErr> {
+        let mut read = FdSet { count: 0, fds: [0; 64] };
+        let mut write = FdSet { count: 0, fds: [0; 64] };
+        let mut fail = FdSet { count: 0, fds: [0; 64] };
+        if events & 1 != 0 {
+            read.fds[0] = h as usize;
+            read.count = 1;
+        }
+        if events & 4 != 0 {
+            write.fds[0] = h as usize;
+            write.count = 1;
+        }
+        fail.fds[0] = h as usize;
+        fail.count = 1;
+        let mut tv = Timeval { sec: 0, usec: 0 };
+        let tp: *const Timeval = if timeout < 0.0 {
+            std::ptr::null()
+        } else {
+            let us = (timeout * 1_000_000.0).ceil() as i64;
+            tv.sec = (us / 1_000_000) as c_long;
+            tv.usec = (us % 1_000_000) as c_long;
+            &tv as *const Timeval
+        };
+        let r = unsafe { select(0, &mut read, &mut write, &mut fail, tp) };
+        if r < 0 {
+            return Err(errno_err(last_errno()));
+        }
+        Ok(read.count > 0 || write.count > 0 || fail.count > 0)
+    }
 
-    fn finish(fd: i32, timeout: f64) -> Conn {
-        let s = unsafe { TcpStream::from_raw_fd(fd) };
+    fn finish(fd: i64, timeout: f64) -> Conn {
+        let s = to_stream(fd);
         s.set_nonblocking(false).ok();
         let mut c = Conn { s: Some(s), pending: -1, addrs: vec![], last_err: None, ssl: std::ptr::null_mut(), tls_done: false, blocking: true, timeout: -1.0 };
         set_timeout(&mut c, timeout);
@@ -252,13 +479,13 @@ mod brevi_netglue {
             match start(a) {
                 Ok(fd) => {
                     if !wait_fd(fd, 4, timeout)? {
-                        unsafe { close(fd) };
+                        close_sock(fd);
                         last = Some(timed_out(false, "connect"));
                         continue;
                     }
                     let e = so_error(fd);
                     if e != 0 {
-                        unsafe { close(fd) };
+                        close_sock(fd);
                         last = Some(errno_err(e));
                         continue;
                     }
@@ -307,13 +534,13 @@ mod brevi_netglue {
             }
             let e = so_error(c.pending);
             if e == 0 {
-                let s = unsafe { TcpStream::from_raw_fd(c.pending) };
+                let s = to_stream(c.pending);
                 s.set_nonblocking(true).ok();
                 c.s = Some(s);
                 c.pending = -1;
                 return Ok(true);
             }
-            unsafe { close(c.pending) };
+            close_sock(c.pending);
             c.pending = -1;
             let er = errno_err(e);
             c.last_err = Some((er.kind, er.msg));
@@ -356,12 +583,18 @@ mod brevi_netglue {
     static SSL: std::sync::OnceLock<Option<Ssl>> = std::sync::OnceLock::new();
 
     fn ssl() -> Result<&'static Ssl, NetErr> {
-        SSL.get_or_init(|| unsafe { load_ssl() }).as_ref().ok_or(NetErr {
-            kind: "ssl.SSLError",
-            msg: "brevi: HTTPS needs the system's OpenSSL (libssl.so.3 or libssl.so.1.1), which was not found".into(),
-        })
+        SSL.get_or_init(|| unsafe { load_ssl() }).as_ref().ok_or_else(ssl_missing)
     }
 
+    fn ssl_missing() -> NetErr {
+        #[cfg(unix)]
+        let msg = "brevi: HTTPS needs the system's OpenSSL (libssl.so.3 or libssl.so.1.1), which was not found".to_string();
+        #[cfg(windows)]
+        let msg = "brevi: HTTPS needs the OpenSSL DLLs (libssl-1_1.dll or libssl-3-x64.dll, with libcrypto-1_1.dll / libcrypto-3-x64.dll; Python's DLLs folder has them, or set BREVI_SSL_LIB / BREVI_SSL_DIR)".to_string();
+        NetErr { kind: "ssl.SSLError", msg }
+    }
+
+    #[cfg(unix)]
     unsafe fn load_ssl() -> Option<Ssl> {
         let names: &[&str] = if cfg!(target_os = "macos") {
             &["/opt/homebrew/opt/openssl@3/lib/libssl.3.dylib", "/usr/local/opt/openssl@3/lib/libssl.3.dylib", "/opt/local/lib/libssl.3.dylib"]
@@ -419,6 +652,111 @@ mod brevi_netglue {
         })
     }
 
+    // The libssl and libcrypto DLLs, crypto loaded first so libssl's import of it resolves. Only absolute
+    // paths are tried: BREVI_SSL_LIB (a libssl file), BREVI_SSL_DIR, and the Python DLL folder embedded at
+    // build time (BREVI_SSL_DIR const). No program-folder, CWD, PATH or bare-name candidate: a planted
+    // libssl must never run.
+    #[cfg(windows)]
+    unsafe fn ssl_handles() -> Option<(P, P)> {
+        let names = ["libssl-3-x64.dll", "libssl-3.dll", "libssl-1_1-x64.dll", "libssl-1_1.dll"];
+        let mut files: Vec<String> = vec![];
+        if !NET_SANDBOX {
+            if let Ok(p) = std::env::var("BREVI_SSL_LIB") {
+                files.push(p);
+            }
+            if let Ok(d) = std::env::var("BREVI_SSL_DIR") {
+                for n in names {
+                    files.push(format!("{d}\\{n}"));
+                }
+            }
+        }
+        if !BREVI_SSL_DIR.is_empty() {
+            for n in names {
+                files.push(format!("{}\\{n}", BREVI_SSL_DIR));
+            }
+        }
+        for f in &files {
+            let cf = f.replace("libssl", "libcrypto");
+            let Ok(cs) = CString::new(cf.as_str()) else { continue };
+            let Ok(ss) = CString::new(f.as_str()) else { continue };
+            let crypto = LoadLibraryA(cs.as_ptr());
+            if crypto.is_null() {
+                continue;
+            }
+            let lib = LoadLibraryA(ss.as_ptr());
+            if lib.is_null() {
+                continue;
+            }
+            return Some((lib, crypto));
+        }
+        None
+    }
+
+    #[cfg(windows)]
+    unsafe fn load_ssl() -> Option<Ssl> {
+        let (lib, crypto) = ssl_handles()?;
+        macro_rules! sym {
+            ($n:literal) => {{
+                let c = CString::new($n).unwrap();
+                let mut p = GetProcAddress(lib, c.as_ptr());
+                if p.is_null() {
+                    p = GetProcAddress(crypto, c.as_ptr());
+                }
+                if p.is_null() {
+                    return None;
+                }
+                std::mem::transmute(p)
+            }};
+        }
+        Some(Ssl {
+            TLS_client_method: sym!("TLS_client_method"),
+            SSL_CTX_new: sym!("SSL_CTX_new"),
+            SSL_CTX_free: sym!("SSL_CTX_free"),
+            SSL_CTX_set_verify: sym!("SSL_CTX_set_verify"),
+            SSL_CTX_set_default_verify_paths: sym!("SSL_CTX_set_default_verify_paths"),
+            SSL_CTX_load_verify_locations: sym!("SSL_CTX_load_verify_locations"),
+            SSL_CTX_ctrl: sym!("SSL_CTX_ctrl"),
+            SSL_CTX_set_alpn_protos: sym!("SSL_CTX_set_alpn_protos"),
+            SSL_new: sym!("SSL_new"),
+            SSL_free: sym!("SSL_free"),
+            SSL_set_fd: sym!("SSL_set_fd"),
+            SSL_ctrl: sym!("SSL_ctrl"),
+            SSL_set1_host: sym!("SSL_set1_host"),
+            SSL_get0_param: sym!("SSL_get0_param"),
+            X509_VERIFY_PARAM_set1_ip_asc: sym!("X509_VERIFY_PARAM_set1_ip_asc"),
+            SSL_connect: sym!("SSL_connect"),
+            SSL_read: sym!("SSL_read"),
+            SSL_write: sym!("SSL_write"),
+            SSL_get_error: sym!("SSL_get_error"),
+            SSL_shutdown: sym!("SSL_shutdown"),
+            SSL_get_verify_result: sym!("SSL_get_verify_result"),
+            X509_verify_cert_error_string: sym!("X509_verify_cert_error_string"),
+            ERR_get_error: sym!("ERR_get_error"),
+            ERR_clear_error: sym!("ERR_clear_error"),
+            ERR_reason_error_string: sym!("ERR_reason_error_string"),
+        })
+    }
+
+    // A CA bundle for verification on Windows: the environment overrides (outside the sandbox), then the
+    // certifi bundle next to the Python the program was built with (BREVI_CA_FILE). No PATH or fixed
+    // C:\PythonXXX search. None: verification uses OpenSSL's own default paths.
+    #[cfg(windows)]
+    fn ca_bundle() -> Option<String> {
+        if !NET_SANDBOX {
+            for v in ["SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"] {
+                if let Ok(p) = std::env::var(v) {
+                    if std::path::Path::new(&p).is_file() {
+                        return Some(p);
+                    }
+                }
+            }
+        }
+        if !BREVI_CA_FILE.is_empty() && std::path::Path::new(BREVI_CA_FILE).is_file() {
+            return Some(BREVI_CA_FILE.to_string());
+        }
+        None
+    }
+
     fn ssl_reason(s: &Ssl) -> String {
         let e = unsafe { (s.ERR_get_error)() };
         unsafe { (s.ERR_clear_error)() };
@@ -456,6 +794,14 @@ mod brevi_netglue {
                 (s.SSL_CTX_set_verify)(ctx, 1, std::ptr::null_mut());
                 if cafile.is_empty() && capath.is_empty() {
                     (s.SSL_CTX_set_default_verify_paths)(ctx);
+                    // Windows: OpenSSL's default paths hold no certificates; add a CA bundle when one is found
+                    #[cfg(windows)]
+                    {
+                        if let Some(b) = ca_bundle() {
+                            let f = CString::new(b).unwrap_or_default();
+                            (s.SSL_CTX_load_verify_locations)(ctx, f.as_ptr(), std::ptr::null());
+                        }
+                    }
                 } else {
                     let f = CString::new(cafile).unwrap_or_default();
                     let d = CString::new(capath).unwrap_or_default();
@@ -471,7 +817,7 @@ mod brevi_netglue {
             }
             let ssl = (s.SSL_new)(ctx);
             (s.SSL_CTX_free)(ctx);
-            let fd = c.s.as_ref().map_or(-1, |x| x.as_raw_fd());
+            let fd = c.s.as_ref().map_or(-1, ssl_fd);
             (s.SSL_set_fd)(ssl, fd);
             let name = CString::new(sni.trim_start_matches('[').trim_end_matches(']')).unwrap_or_default();
             let is_ip = sni.trim_start_matches('[').trim_end_matches(']').parse::<std::net::IpAddr>().is_ok();
@@ -544,7 +890,7 @@ mod brevi_netglue {
                         }
                         return Err(timed_out(true, "write"));
                     }
-                    let os = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+                    let os = last_errno();
                     if e == 5 && os != 0 {
                         return Err(errno_err(os));
                     }
@@ -583,9 +929,13 @@ mod brevi_netglue {
                             return Err(timed_out(true, "read"));
                         }
                         5 => {
-                            let os = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+                            let os = last_errno();
                             unsafe { (s.ERR_clear_error)() };
-                            if os != 0 && os != 11 && os != 35 {
+                            #[cfg(unix)]
+                            let again = os == 11 || os == 35;
+                            #[cfg(windows)]
+                            let again = os == 10035;
+                            if os != 0 && !again {
                                 return Err(errno_err(os));
                             }
                             return Ok(vec![]);
@@ -630,7 +980,7 @@ mod brevi_netglue {
     }
 
     fn op_fileno(id: i64) -> i64 {
-        with(id, |c| Ok(c.s.as_ref().map_or(c.pending as i64, |s| s.as_raw_fd() as i64))).unwrap_or(-1)
+        with(id, |c| Ok(c.s.as_ref().map_or(c.pending, raw_of))).unwrap_or(-1)
     }
 
     fn op_close(id: i64) {
@@ -648,24 +998,73 @@ mod brevi_netglue {
                 }
             }
             if c.pending >= 0 {
-                unsafe { close(c.pending) };
+                close_sock(c.pending);
             }
         }
     }
 
+    #[cfg(unix)]
     fn op_poll(fds: &[(i64, i64)], timeout: f64) -> Result<Vec<i64>, NetErr> {
         let mut p: Vec<PollFd> = fds.iter().map(|&(fd, ev)| PollFd { fd: fd as c_int, events: ev as i16, revents: 0 }).collect();
         let ms = if timeout < 0.0 { -1 } else { (timeout * 1000.0).ceil() as c_int };
         loop {
             let r = unsafe { poll(p.as_mut_ptr(), p.len() as u64, ms) };
             if r < 0 {
-                let e = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
-                if e == 4 {
+                let e = last_errno();
+                if e == k::EINTR {
                     continue;
                 }
                 return Err(errno_err(e));
             }
             return Ok(p.iter().map(|x| x.revents as i64).collect());
+        }
+    }
+    #[cfg(windows)]
+    fn op_poll(fds: &[(i64, i64)], timeout: f64) -> Result<Vec<i64>, NetErr> {
+        if fds.is_empty() {
+            return Ok(vec![]);
+        }
+        let mut p: Vec<PollFd> = fds
+            .iter()
+            .map(|&(fd, ev)| {
+                let mut events = 0i16;
+                if ev & 1 != 0 {
+                    events |= k::POLLRD;
+                }
+                if ev & 4 != 0 {
+                    events |= k::POLLWR;
+                }
+                PollFd { fd: fd as usize, events, revents: 0 }
+            })
+            .collect();
+        let ms = if timeout < 0.0 { -1 } else { (timeout * 1000.0).ceil().min(i32::MAX as f64) as c_int };
+        loop {
+            let r = unsafe { WSAPoll(p.as_mut_ptr(), p.len() as c_ulong, ms) };
+            if r < 0 {
+                let e = last_errno();
+                if e == k::WSAEINTR {
+                    continue;
+                }
+                return Err(errno_err(e));
+            }
+            return Ok(p
+                .iter()
+                .zip(fds)
+                .map(|(x, &(_, want))| {
+                    let mut ev = 0i64;
+                    if x.revents & k::POLLRD != 0 {
+                        ev |= 1;
+                    }
+                    if x.revents & k::POLLWR != 0 {
+                        ev |= 4;
+                    }
+                    // UNIX's poll reports a closed or failed socket readable: keep the waiter's own mask
+                    if x.revents & (k::POLLERR | k::POLLHUP | k::POLLNVAL) != 0 {
+                        ev |= want & (1 | 4);
+                    }
+                    ev
+                })
+                .collect());
         }
     }
 
