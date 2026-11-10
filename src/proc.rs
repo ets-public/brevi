@@ -124,7 +124,7 @@ impl Limits {
     // are seconds for cpu and time, MB for mem and file, and KB for output; sizes also take kb, mb or gb and
     // times s or ms. Refuses a limit this OS cannot enforce rather than run the program without it.
     pub fn parse(&mut self, spec: &str) -> Result<(), String> {
-        const HINT: &str = "--limit takes cpu=SECS, mem=MB, time=SECS, output=KB, file=MB, written=MB, net=MB, threads=N, fds=N, files=N, comma separated (cpu=2,mem=256,time=5)";
+        const HINT: &str = "--limit takes cpu=SECS, mem=MB, time=SECS, output=KB, file=MB, written=MB, net=MB, fds=N, files=N, comma separated (cpu=2,mem=256,time=5)";
         for part in spec.split([',', ' ']).map(str::trim).filter(|p| !p.is_empty()) {
             let Some((k, v)) = part.split_once('=') else { return Err(format!("{HINT}; '{part}' has no value")) };
             let (k, v) = (k.trim().to_ascii_lowercase(), v.trim().to_ascii_lowercase());
@@ -143,10 +143,12 @@ impl Limits {
                         self.time = Some(std::time::Duration::from_secs_f64(secs));
                     }
                 }
-                "threads" | "fds" | "files" => {
+                // Threads were counted from /proc between two reads, so a program could start many more in
+                // between: refused until it is counted where each thread starts.
+                "threads" => return Err("--limit threads is refused: it can only be read from the kernel's counts while the program runs, and a program can start many threads between two reads, so it would not hold; leave it out (mem and cpu bound what threads can use)".into()),
+                "fds" | "files" => {
                     let n = v.parse::<u64>().ok().filter(|n| *n > 0 && *n <= 1 << 40).ok_or_else(bad)?;
                     match k.as_str() {
-                        "threads" => self.threads = Some(n),
                         "fds" => self.fds = Some(n.max(4)),
                         _ => self.files = Some(n),
                     }
@@ -177,9 +179,6 @@ impl Limits {
         }
         if cfg!(windows) && self.fds.is_some() {
             return Err("--limit fds is not enforced on Windows yet; leave it out, or run on Linux or macOS".into());
-        }
-        if !cfg!(target_os = "linux") && self.threads.is_some() {
-            return Err("--limit threads is enforced on Linux only (it reads the kernel's count in /proc); leave it out, or run on Linux".into());
         }
         if cfg!(target_os = "macos") && self.mem.is_some() {
             return Err("--limit mem is not enforced on macOS (the kernel ignores an address-space limit); leave it out, or run on Linux".into());
@@ -798,25 +797,9 @@ mod tests {
         }
     }
 
-    // threads is read from /proc while the program runs.
-    #[cfg(target_os = "linux")]
     #[test]
-    fn holds_threads() {
-        if Command::new("python3").arg("-c").arg("1").status().map_or(true, |s| !s.success()) {
-            return;
-        }
-        let py = |code: &str| {
-            let mut c = Command::new("python3");
-            c.arg("-c").arg(code).stdout(std::process::Stdio::null());
-            c
-        };
-        let mut l = Limits::default();
-        l.parse("threads=4,time=20").unwrap();
-        let threads = "import threading, time\nfor _ in range(8): threading.Thread(target=time.sleep, args=(3,)).start()\n";
-        assert_eq!(run_with(&mut py(threads), &l).unwrap(), LIMIT_EXIT);
-        let mut few = Limits::default();
-        few.parse("threads=16,time=20").unwrap();
-        assert_eq!(run_with(&mut py("import threading; t = threading.Thread(target=print); t.start(); t.join()"), &few).unwrap(), 0);
+    fn refuses_threads() {
+        assert!(Limits::default().parse("threads=4").unwrap_err().contains("--limit threads is refused"));
     }
 
     #[test]
