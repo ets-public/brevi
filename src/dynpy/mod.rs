@@ -241,7 +241,7 @@ fn package_native(pkg: &Path, top: &str) -> bool {
         if p.extension().and_then(|x| x.to_str()) != Some("py") {
             continue;
         }
-        let Ok(src) = std::fs::read_to_string(&p) else { return false };
+        let Ok(src) = crate::read_src(&p) else { return false };
         for l in src.lines() {
             let t = l.trim_start();
             let names: Vec<&str> = if let Some(r) = t.strip_prefix("import ") {
@@ -475,7 +475,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     let given = SOURCE.lock().unwrap().as_ref().filter(|(f, _)| f == file).map(|(_, t)| t.clone());
     let src = match given {
         Some(t) => t,
-        None => std::fs::read_to_string(file).map_err(|e| (file.to_string(), 0, e.to_string()))?,
+        None => crate::read_src(file).map_err(|e| (file.to_string(), 0, e.to_string()))?,
     };
     let src = crate::modules::fill_file_name(&src, Path::new(file));
     // `allow` lines (checked in main.rs before this runs) are not Python.
@@ -573,7 +573,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
             }
             if p.exists() {
                 let ps = p.to_string_lossy().to_string();
-                let src = std::fs::read_to_string(&p).map_err(|e| (ps.clone(), 0, e.to_string()))?;
+                let src = crate::read_src(&p).map_err(|e| (ps.clone(), 0, e.to_string()))?;
                 let src = crate::modules::fill_file_name(&src, &p);
                 let src = crate::caps::split(&src).0;
                 let mut body = parse::parse(&src).map_err(|(l, m)| (ps.clone(), l, m))?;

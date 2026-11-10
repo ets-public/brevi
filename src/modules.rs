@@ -168,7 +168,7 @@ pub fn expand(main: &str, src: &str) -> Result<(String, Vec<Seg>), String> {
                 if seen.contains(&canon) {
                     continue;
                 }
-                let body = std::fs::read_to_string(&full).map_err(|e| {
+                let body = crate::read_src(&full).map_err(|e| {
                     let at = if name.is_empty() { String::new() } else { format!("\"file\":\"{}\",", crate::diag::esc(&name)) };
                     format!("{{{at}\"line\":{},\"msg\":\"cannot read {}: {}\"}}", i + 1, crate::diag::esc(p), crate::diag::esc(&e.to_string()))
                 })?;

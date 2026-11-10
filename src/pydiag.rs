@@ -564,7 +564,7 @@ fn no_such_method(m: &str, code: &str, dir: &std::path::Path, line_code: &str) -
         return false;
     }
     for p in py_files(dir) {
-        if std::fs::read_to_string(&p).is_ok_and(|t| !only_calls(&blank(&t))) {
+        if crate::read_src(&p).is_ok_and(|t| !only_calls(&blank(&t))) {
             return false;
         }
     }
