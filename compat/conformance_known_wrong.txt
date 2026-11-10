@@ -1,12 +1,8 @@
 # Known wrong results and crashes of tools/conformance.py: `test id` then normal or dyn. `--check` fails on a
 # line not here, and on a line here that is no longer wrong, so this list only shrinks. Remove a line when the
 # bug is fixed; add one only with `--write-baseline` after reading the result.
-test_dict.DictTest.test_clear_at_lookup dyn
-test_dict.DictTest.test_clear_at_lookup normal
 test_dict.DictTest.test_container_iterator dyn
 test_dict.DictTest.test_container_iterator normal
-test_dict.DictTest.test_dict_contain_use_after_free dyn
-test_dict.DictTest.test_dict_contain_use_after_free normal
 test_dict.DictTest.test_iterator_pickling dyn
 test_dict.DictTest.test_iterator_pickling normal
 test_dict.DictTest.test_reverseiterator_pickling dyn
