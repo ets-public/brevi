@@ -1973,14 +1973,128 @@ fn default_reads(body: &[Stmt]) -> Option<(usize, String)> {
         _ => None,
     };
     let is_dd = |v: &Ex| matches!(v, Ex::Call(f, _) if matches!(f.as_ref(), Ex::Name(n) if n == "defaultdict") || matches!(f.as_ref(), Ex::Attr(m, n) if n == "defaultdict" && matches!(m.as_ref(), Ex::Name(c) if c == "collections")));
-    let mut dds: HashSet<String> = HashSet::new();
+    // An immutable value a name may hold while the typed build copies it for each missing key: a scalar,
+    // or a tuple of them. Lists, sets and dicts are out: copying a mutable object per key differs from
+    // CPython, which puts the one object in (`defaultdict(lambda: base)` with base = [1]).
+    fn pure(e: &Ex) -> bool {
+        match e {
+            Ex::Int(_) | Ex::Float(_) | Ex::Str(_) | Ex::True | Ex::False | Ex::NoneV | Ex::Ellipsis => true,
+            Ex::Tuple(xs) => xs.iter().all(pure),
+            Ex::Call(f, args) => matches!(f.as_ref(), Ex::Name(n) if matches!(n.as_str(), "int" | "float" | "str" | "Decimal" | "Fraction" | "tuple")) && args.iter().all(|a| match a { Arg::Pos(e) => pure(e), _ => false }),
+            _ => false,
+        }
+    }
+    let mut consts: HashSet<String> = HashSet::new();
+    let mut bad: HashSet<String> = HashSet::new();
     sts(body, &mut |s| match &s.st {
-        St::Assign(ts, v) if is_dd(v) => ts.iter().filter_map(key).for_each(|k| {
-            dds.insert(k);
-        }),
+        St::Assign(ts, v) => {
+            let p = pure(v);
+            for t in ts {
+                if let Ex::Name(n) = t {
+                    if !p {
+                        bad.insert(n.clone());
+                    }
+                    if !bad.contains(n) && p {
+                        consts.insert(n.clone());
+                    } else {
+                        consts.remove(n);
+                    }
+                }
+            }
+        }
+        St::AugAssign(t, _, _) => {
+            if let Ex::Name(n) = t {
+                bad.insert(n.clone());
+            }
+        }
+        St::Del(ts) => {
+            for t in ts {
+                if let Ex::Name(n) = t {
+                    bad.insert(n.clone());
+                }
+            }
+        }
+        St::For(t, _, _, _) => {
+            if let Ex::Name(n) = t {
+                bad.insert(n.clone());
+            }
+        }
+        _ => {}
+    });
+    // What the typed build's `lax_def` can copy for each missing key: the parser's safe_default forms
+    // (literals and containers of them, built-in conversions), with a name only when it is a constant.
+    // Mutable containers are no longer copied: the parser stores a constructor that builds them afresh,
+    // so their parts must be literals (a name's object cannot be rebuilt by that constructor).
+    fn imm(e: &Ex, consts: &HashSet<String>) -> bool {
+        match e {
+            Ex::Name(n) => consts.contains(n),
+            Ex::Int(_) | Ex::Float(_) | Ex::Str(_) | Ex::True | Ex::False | Ex::NoneV | Ex::Ellipsis => true,
+            Ex::Tuple(xs) => xs.iter().all(|x| imm(x, consts)),
+            Ex::Call(f, args) => matches!(f.as_ref(), Ex::Name(n) if matches!(n.as_str(), "int" | "float" | "str" | "Decimal" | "Fraction" | "tuple")) && args.iter().all(|a| matches!(a, Arg::Pos(e) if imm(e, consts))),
+            _ => false,
+        }
+    }
+    fn lit(e: &Ex) -> bool {
+        match e {
+            Ex::Int(_) | Ex::Float(_) | Ex::Str(_) | Ex::True | Ex::False | Ex::NoneV | Ex::Ellipsis => true,
+            Ex::Tuple(xs) => xs.iter().all(lit),
+            Ex::Call(f, args) => matches!(f.as_ref(), Ex::Name(n) if matches!(n.as_str(), "int" | "float" | "str" | "Decimal" | "Fraction" | "tuple")) && args.iter().all(|a| matches!(a, Arg::Pos(e) if lit(e))),
+            _ => false,
+        }
+    }
+    fn fresh(e: &Ex) -> bool {
+        match e {
+            Ex::List(xs) | Ex::Set(xs) | Ex::Tuple(xs) => xs.iter().all(|x| lit(x) || fresh(x)),
+            Ex::Dict(items) => items.iter().all(|(k, v)| k.as_ref().map_or(true, |k| lit(k) || fresh(k)) && (lit(v) || fresh(v))),
+            Ex::Call(f, args) => matches!(f.as_ref(), Ex::Name(n) if matches!(n.as_str(), "list" | "dict" | "set" | "tuple")) && args.iter().all(|a| matches!(a, Arg::Pos(e) if lit(e) || fresh(e))),
+            _ => false,
+        }
+    }
+    fn safe_template(e: &Ex, consts: &HashSet<String>) -> bool {
+        imm(e, consts) || fresh(e)
+    }
+    // The typed build inserts the key for reads through these names; anything else still goes dynamic.
+    let mut dds: HashMap<String, bool> = HashMap::new();
+    let mut bad_at: Option<usize> = None;
+    sts(body, &mut |s| match &s.st {
+        St::Assign(ts, v) if is_dd(v) => {
+            let ok = match v {
+                Ex::Call(_, args) => match args.first() {
+                    None => true,
+                    Some(Arg::Pos(e)) => match e {
+                        Ex::Lambda(p, body) => p.pos.is_empty() && safe_template(body, &consts),
+                        e => matches!(e, Ex::Name(n) if matches!(n.as_str(), "int" | "float" | "str" | "list" | "set" | "dict" | "tuple" | "bool" | "Decimal" | "Fraction")),
+                    },
+                    Some(Arg::Kw(n, e)) if n == "lambda" => safe_template(e, &consts),
+                    _ => false,
+                },
+                _ => false,
+            };
+            if !ok {
+                bad_at.get_or_insert(s.line);
+            }
+            ts.iter().filter_map(key).for_each(|k| {
+                dds.insert(k, ok);
+            });
+        }
         St::AnnAssign(t, Some(v), _) if is_dd(v) => {
             if let Some(k) = key(t) {
-                dds.insert(k);
+                let ok = match v {
+                    Ex::Call(_, args) => match args.first() {
+                        None => true,
+                        Some(Arg::Pos(e)) => match e {
+                            Ex::Lambda(p, body) => p.pos.is_empty() && safe_template(body, &consts),
+                            e => matches!(e, Ex::Name(n) if matches!(n.as_str(), "int" | "float" | "str" | "list" | "set" | "dict" | "tuple" | "bool" | "Decimal" | "Fraction")),
+                        },
+                        Some(Arg::Kw(n, e)) if n == "lambda" => safe_template(e, &consts),
+                        _ => false,
+                    },
+                    _ => false,
+                };
+                if !ok {
+                    bad_at.get_or_insert(s.line);
+                }
+                dds.insert(k, ok);
             }
         }
         _ => {}
@@ -1988,26 +2102,32 @@ fn default_reads(body: &[Stmt]) -> Option<(usize, String)> {
     if dds.is_empty() {
         return None;
     }
+    // A factory the typed build cannot copy per missing key (a name that may hold a mutable object, a
+    // user function, ...): CPython puts one object in every missing key, so the typed build must not run.
+    if let Some(line) = bad_at {
+        return Some((line, "reading a missing key of a defaultdict puts the key in, which the typed build does not".into()));
+    }
     // Methods on d[k] that change it (and so go through the typed build's insert-on-miss path).
     const CHANGES: &[&str] = &["append", "extend", "add", "update", "insert", "appendleft", "discard", "remove", "pop", "popleft", "clear", "setdefault", "sort"];
     // A loop over a defaultdict's keys (`for k in d`, `sorted(d)`, `d.items()`): reading `d2[k]` with that k
     // finds the key (in d; also taken as found in another defaultdict filled by the same loop, `inn[mo]` and
     // `out[mo]`), so it puts nothing in.
-    fn over_keys(it: &Ex, dds: &HashSet<String>, key: &dyn Fn(&Ex) -> Option<String>) -> bool {
+    fn over_keys(it: &Ex, dds: &HashMap<String, bool>, key: &dyn Fn(&Ex) -> Option<String>) -> bool {
         match it {
             Ex::Call(f, a) => match (f.as_ref(), a.first()) {
-                (Ex::Attr(o, m), _) if matches!(m.as_str(), "keys" | "items") => key(o).is_some_and(|k| dds.contains(&k)),
+                (Ex::Attr(o, m), _) if matches!(m.as_str(), "keys" | "items") => key(o).is_some_and(|k| dds.contains_key(&k)),
                 (Ex::Name(n), Some(Arg::Pos(x))) if matches!(n.as_str(), "sorted" | "list" | "reversed") => over_keys(x, dds, key),
                 _ => false,
             },
-            x => key(x).is_some_and(|k| dds.contains(&k)),
+            x => key(x).is_some_and(|k| dds.contains_key(&k)),
         }
     }
     struct Scan<'a> {
-        dds: &'a HashSet<String>,
+        dds: &'a HashMap<String, bool>,
         key: &'a dyn Fn(&Ex) -> Option<String>,
         read_at: Option<usize>,
         seen: bool,
+        is_at: Option<usize>,
     }
     fn scan(body: &[Stmt], keys: &[String], sc: &mut Scan) {
         let mut keys = keys.to_vec();
@@ -2030,7 +2150,9 @@ fn default_reads(body: &[Stmt]) -> Option<(usize, String)> {
                 _ => {}
             }
             let (dds, key) = (sc.dds, sc.key);
-            let (mut read_at, mut seen) = (sc.read_at, sc.seen);
+            let (mut read_at, mut seen, mut is_at) = (sc.read_at, sc.seen, sc.is_at);
+            // `d[k] is d[m]` (and `is not`) compares object identity; the typed build's values have none.
+            let dd_index = |x: &Ex| matches!(x, Ex::Index(b, _) if matches!(b.as_ref(), Ex::Name(_)) && key(b).is_some_and(|k| dds.get(&k) == Some(&true)));
             // `max(d, key=lambda k: d[k])`: the lambda is given the keys.
             let mut lam: Vec<String> = vec![];
             walk_st(&s.st, &mut |e| {
@@ -2052,31 +2174,42 @@ fn default_reads(body: &[Stmt]) -> Option<(usize, String)> {
                                 safe.push(o.as_ref() as *const Ex);
                             }
                             // `d.get(k)`, `d.setdefault(...)`, `d.pop(k, ...)`: the dict itself is not looked at.
-                            if key(o).is_some_and(|k| dds.contains(&k)) && matches!(m.as_str(), "get" | "setdefault" | "pop") {
+                            if key(o).is_some_and(|k| dds.contains_key(&k)) && matches!(m.as_str(), "get" | "setdefault" | "pop") {
                                 inner.push(o.as_ref() as *const Ex);
                             }
                         }
                     }
-                    Ex::Index(b, i) if key(b).is_some_and(|k| dds.contains(&k)) => {
+                    Ex::Index(b, i) if key(b).is_some_and(|k| dds.contains_key(&k)) => {
                         inner.push(b.as_ref() as *const Ex);
                         let found = matches!(i.as_ref(), Ex::Name(k) if keys.contains(k) || lam.contains(k));
-                        if !safe.contains(&(e as *const Ex)) && !found {
+                        // A read through a known defaultdict name now inserts the key in the typed build.
+                        let handled = key(b).is_some_and(|k| dds.get(&k) == Some(&true)) && matches!(b.as_ref(), Ex::Name(_));
+                        if !safe.contains(&(e as *const Ex)) && !found && !handled {
                             read_at.get_or_insert(s.line);
                         }
                     }
                     // `self.d` reached through its Attr: the Name `self` under it is not the dict.
-                    Ex::Attr(o, _) if key(e).is_some_and(|k| dds.contains(&k)) => {
+                    Ex::Attr(o, _) if key(e).is_some_and(|k| dds.contains_key(&k)) => {
                         if !inner.contains(&(e as *const Ex)) {
                             seen = true;
                         }
                         inner.push(o.as_ref() as *const Ex);
                     }
-                    Ex::Name(n) if dds.contains(n) && !inner.contains(&(e as *const Ex)) && !safe.contains(&(e as *const Ex)) => seen = true,
+                    Ex::Cmp(a, ops) => {
+                        for (op, b) in ops {
+                            let fixed = matches!(*b, Ex::NoneV | Ex::True | Ex::False | Ex::Ellipsis);
+                            if matches!(*op, "is" | "is not") && !fixed && (dd_index(a) || dd_index(b)) {
+                                is_at.get_or_insert(s.line);
+                            }
+                        }
+                    }
+                    Ex::Name(n) if dds.contains_key(n) && !inner.contains(&(e as *const Ex)) && !safe.contains(&(e as *const Ex)) => seen = true,
                     _ => {}
                 }
             });
             sc.read_at = read_at;
             sc.seen = seen;
+            sc.is_at = is_at;
             match &s.st {
                 St::Def(d) => scan(&d.body, &[], sc),
                 St::Class(c) => scan(&c.body, &[], sc),
@@ -2102,9 +2235,12 @@ fn default_reads(body: &[Stmt]) -> Option<(usize, String)> {
             }
         }
     }
-    let mut sc = Scan { dds: &dds, key: &key, read_at: None, seen: false };
+    let mut sc = Scan { dds: &dds, key: &key, read_at: None, seen: false, is_at: None };
     scan(body, &[], &mut sc);
     let (read_at, seen) = (sc.read_at, sc.seen);
+    if let Some(line) = sc.is_at {
+        return Some((line, "comparing defaultdict entries with is needs object identity, which the typed build does not have".into()));
+    }
     match (read_at, seen) {
         (Some(line), true) => Some((line, "reading a missing key of a defaultdict puts the key in, which the typed build does not".into())),
         _ => None,
