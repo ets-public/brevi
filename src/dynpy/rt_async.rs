@@ -502,12 +502,12 @@ fn handle_new(cls: V, callback: V, args: V, loop_: V, context: V) -> Option<V> {
             if let V::Obj(t) = &b.0 {
                 if let Some(tc) = async_class(&ASYNC_TASK) {
                     if t.cls.is_sub(&tc) {
-                        let mk = if f.name == "_step" && async_func(&ASYNC_STEPF, &tc, "_step").is_some_and(|wf| Rc::ptr_eq(f, &wf)) {
+                        let mk = if f.name.get() == "_step" && async_func(&ASYNC_STEPF, &tc, "_step").is_some_and(|wf| Rc::ptr_eq(f, &wf)) {
                             match first_of(&args) {
                                 Some(e) => Some(("_brevi_step", tup(vec![b.0.clone(), e]))),
                                 None => Some(("_brevi_step", b.0.clone())),
                             }
-                        } else if f.name == "_wakeup" && async_func(&ASYNC_WAKEUP, &tc, "_wakeup").is_some_and(|wf| Rc::ptr_eq(f, &wf)) {
+                        } else if f.name.get() == "_wakeup" && async_func(&ASYNC_WAKEUP, &tc, "_wakeup").is_some_and(|wf| Rc::ptr_eq(f, &wf)) {
                             Some(("_brevi_wake", tup(vec![b.0.clone(), first_of(&args).unwrap_or(V::None)])))
                         } else {
                             None
