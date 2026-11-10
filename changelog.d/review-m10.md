@@ -1,0 +1,1 @@
+- `asyncio.as_completed` schedules its awaitables in the order given, so equal-time results come back in a stable order, as they do in CPython (review m10).
