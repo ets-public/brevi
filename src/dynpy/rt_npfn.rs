@@ -239,6 +239,15 @@ fn np_sorted_k(a: &NdArr, axis: Option<usize>, arg: bool, stable: bool) -> R {
                 }
                 continue;
             }
+            // With no repeated values every sort gives the same order: the plain sort is faster
+            // than the lane-by-lane model of numpy's SIMD sort, so only repeats take the model.
+            let idx = np_argsort_vals(&g.vals, k * n, n);
+            if np_unstable_check(&g.vals, k * n, n, &idx, arg).is_ok() {
+                for (j, i) in idx.iter().enumerate() {
+                    out.set(k * n + j, Sc::I(*i as i64));
+                }
+                continue;
+            }
             idx0.clear();
             idx0.extend(0..n);
             let res = match &g.vals {
