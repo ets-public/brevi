@@ -332,6 +332,12 @@ impl<'a> RP<'a> {
                             }
                             let name: String = self.c[s..self.i].iter().collect();
                             self.i += 1;
+                            if let Some(&(_, old)) = self.names.iter().find(|x| x.0 == name) {
+                                return re_err(format!(
+                                    "redefinition of group name '{name}' as group {}; was group {old} at position {s}",
+                                    self.ngroups + 1
+                                ));
+                            }
                             self.ngroups += 1;
                             let g = self.ngroups;
                             self.names.push((name, g));
