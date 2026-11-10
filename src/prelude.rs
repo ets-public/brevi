@@ -6965,6 +6965,11 @@ pub trait AxDelta {
 }
 impl AxDelta for i64 {
     fn ax_delta_days(&self) -> Date {
+        // Python's timedelta(days=n) accepts |n| <= 999999999; a Python file with more days runs again on
+        // the dynamic build (which raises the OverflowError), never prints a date past what CPython allows.
+        if AX_PY_FILE.load(std::sync::atomic::Ordering::Relaxed) && (*self > 999_999_999 || *self < -999_999_999) {
+            panic!("AX_DYN: timedelta days out of range");
+        }
         Date { days: *self }
     }
 }
