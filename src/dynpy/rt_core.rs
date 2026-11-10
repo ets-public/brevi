@@ -2877,6 +2877,8 @@ pub fn init_builtin_classes() {
         ("StopIteration", "Exception"),
         ("StopAsyncIteration", "Exception"),
         ("AssertionError", "Exception"),
+        ("SyntaxError", "Exception"),
+        ("IndentationError", "SyntaxError"),
         ("ImportError", "Exception"),
         ("ModuleNotFoundError", "ImportError"),
         ("OSError", "Exception"),
