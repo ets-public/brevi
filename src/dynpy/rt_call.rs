@@ -359,6 +359,19 @@ pub fn make_class_f(name: Sym, module: Sym, mut bases: Vec<V>, attrs: Vec<(Sym, 
     for (n, v) in attrs {
         c.set(n, v);
     }
+    // a __slots__ name that the class body also binds is refused, as CPython refuses it
+    if let Some(sv) = c.own("__slots__") {
+        let mut own_slots = vec![];
+        slot_names(&sv, &mut own_slots);
+        for n in own_slots {
+            if n == "__dict__" || n == "__weakref__" {
+                continue;
+            }
+            if c.attrs.borrow().iter().any(|(k, _)| *k == n) {
+                return Err(exc("ValueError", format!("'{n}' in __slots__ conflicts with class variable")));
+            }
+        }
+    }
     *c.fields.borrow_mut() = fields;
     // __set_name__ is not supported (rare)
     if is_enum(&c) {
@@ -677,6 +690,12 @@ pub fn object_setattr(me: &V, a: &[V]) -> R {
             return Ok(V::None);
         }
     }
+    if !o.cls.may_store(name) {
+        if o.cls.lookup(name).is_some() {
+            return Err(exc("AttributeError", format!("'{}' object attribute '{}' is read-only", o.cls.name, name)));
+        }
+        return Err(exc("AttributeError", format!("'{}' object has no attribute '{}' and no __dict__ for setting new attributes", o.cls.name, name)));
+    }
     o.set_res(name, a[1].clone())?;
     Ok(V::None)
 }
@@ -795,8 +814,9 @@ fn setattr_ic_slow(o: &V, name: Sym, v: V, ic: &std::sync::atomic::AtomicUsize) 
 pub fn getattr(o: &V, name: &str) -> R {
     match o {
         V::Obj(ob) => {
-            // a class attribute named __dict__ (a property) wins over the object's own dict, as in CPython
-            if name == "__dict__" && ob.cls.lookup(name).is_none() {
+            // a class attribute named __dict__ (a property) wins over the object's own dict, as in CPython;
+            // a class whose __slots__ leave no __dict__ has no instance dict to return
+            if name == "__dict__" && ob.cls.lookup(name).is_none() && ob.cls.has_dict() {
                 return ob.dict();
             }
             if let Some(v) = ob.get_attr(name)? {
@@ -998,6 +1018,12 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
                 let _ = slots;
                 return Err(exc("FrozenInstanceError", format!("cannot assign to field '{name}'")));
             }
+            if !ob.cls.may_store(name) {
+                if ob.cls.lookup(name).is_some() {
+                    return Err(exc("AttributeError", format!("'{}' object attribute '{}' is read-only", ob.cls.name, name)));
+                }
+                return Err(exc("AttributeError", format!("'{}' object has no attribute '{}' and no __dict__ for setting new attributes", ob.cls.name, name)));
+            }
             ob.set_res(name, v)?;
             Ok(())
         }
@@ -1030,6 +1056,12 @@ pub fn delattr(o: &V, name: &str) -> Result<(), E> {
             }
             if ob.del_attr(name)? {
                 Ok(())
+            } else if !ob.cls.has_dict() {
+                if ob.cls.lookup(name).is_some() {
+                    Err(exc("AttributeError", format!("'{}' object attribute '{}' is read-only", ob.cls.name, name)))
+                } else {
+                    Err(exc("AttributeError", format!("'{}' object has no attribute '{}' and no __dict__ for setting new attributes", ob.cls.name, name)))
+                }
             } else {
                 Err(exc("AttributeError", format!("'{}' object has no attribute '{}'", ob.cls.name, name)))
             }

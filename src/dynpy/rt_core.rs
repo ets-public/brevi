@@ -2138,6 +2138,13 @@ pub struct FSlot {
     key: (usize, usize),
     v: Option<V>,
 }
+// what __slots__ across the MRO allows instances of this class to store: nothing (None) when no class in
+// the MRO declares __slots__; otherwise whether instances have a __dict__, and every unshadowed slot name.
+#[derive(Clone, Default)]
+pub struct SlotSet {
+    pub dict: bool,
+    pub names: Vec<Sym>,
+}
 pub struct Class {
     pub name: Sym,
     pub module: Sym,
@@ -2152,9 +2159,10 @@ pub struct Class {
     // slot keeps the caller's address and the name's text as the key lcache holds (stable until lcache is
     // cleared, which happens only with the same epoch change that empties this cache); address 0 = empty.
     fcache: RefCell<(u64, [FSlot; 32])>,
-    // (epoch, whether the MRO has __setattr__ or __frozen__, the names that are properties somewhere in the MRO):
-    // `o.x = v` on an instance just stores when neither hook is there and x is not one of those names
-    set_info: RefCell<(u64, bool, Vec<Sym>)>,
+    // (epoch, whether the MRO has __setattr__ or __frozen__, the names that are properties somewhere in the MRO,
+    // the __slots__ of the MRO): `o.x = v` on an instance just stores when neither hook is there, x is not one of
+    // those property names, and x is storable (the class has a __dict__ or x is a slot)
+    set_info: RefCell<(u64, bool, Vec<Sym>, Option<SlotSet>)>,
     // (epoch, whether calling the class only makes an instance and runs __init__): see instantiate
     pub plain_new: Cell<(u64, bool)>,
     // (epoch, whether instances hash by identity: no __hash__ or __eq__ in the MRO, not an enum)
@@ -2188,7 +2196,7 @@ impl std::hash::Hasher for FnvH {
 }
 impl Class {
     pub fn new(name: Sym, module: Sym, bases: Vec<Rc<Class>>, bt: BT) -> Rc<Class> {
-        let c = Rc::new(Class { name, module, bases: bases.clone(), mro: RefCell::new(vec![]), attrs: RefCell::new(vec![]), bt, fields: RefCell::new(vec![]), lcache: RefCell::new((0, HashMap::default())), fcache: RefCell::new((0, Default::default())), set_info: RefCell::new((0, false, vec![])), plain_new: Cell::new((0, false)), plain_hash: Cell::new((0, false)) });
+        let c = Rc::new(Class { name, module, bases: bases.clone(), mro: RefCell::new(vec![]), attrs: RefCell::new(vec![]), bt, fields: RefCell::new(vec![]), lcache: RefCell::new((0, HashMap::default())), fcache: RefCell::new((0, Default::default())), set_info: RefCell::new((0, false, vec![], None)), plain_new: Cell::new((0, false)), plain_hash: Cell::new((0, false)) });
         // C3 linearization
         let mut seqs: Vec<Vec<Rc<Class>>> = bases.iter().map(|b| b.mro.borrow().clone()).collect();
         seqs.push(bases.clone());
@@ -2265,28 +2273,87 @@ impl Class {
         {
             let i = self.set_info.borrow();
             if i.0 == ep {
-                return !i.1 && !i.2.iter().any(|k| same_name(k, n));
+                return !i.1 && !i.2.iter().any(|k| same_name(k, n)) && match &i.3 {
+                    None => true,
+                    Some(sl) => sl.dict || sl.names.iter().any(|k| same_name(k, n)),
+                };
             }
         }
         let mut hook = false;
         let mut props: Vec<Sym> = vec![];
-        for c in self.mro.borrow().iter() {
+        // a class body without __slots__ leaves a __dict__; a base that left one (or is a builtin whose
+        // instances have one) passes it on, as CPython's layout does. Slot names accumulate from the MRO,
+        // except where a class variable earlier in the MRO shadows a base's slot of that name.
+        let mut has_dict = false;
+        let mut names: Vec<Sym> = vec![];
+        let mut shadow: Vec<Sym> = vec![];
+        for (i, c) in self.mro.borrow().iter().enumerate() {
+            let mut own: Vec<Sym> = vec![];
+            let mut own_slots = false;
             for (k, v) in c.attrs.borrow().iter() {
                 if *k == "__setattr__" || *k == "__frozen__" {
                     hook = true;
-                } else if matches!(v, V::Prop(_)) && !props.contains(k) {
-                    props.push(*k);
+                } else if *k == "__slots__" {
+                    own_slots = true;
+                    slot_names(v, &mut own);
+                } else {
+                    shadow.push(*k);
+                    if matches!(v, V::Prop(_)) && !props.contains(k) {
+                        props.push(*k);
+                    }
+                }
+            }
+            if own_slots {
+                if own.iter().any(|k| *k == "__dict__") {
+                    has_dict = true;
+                }
+            } else if i == 0 || c.bt == BT::Other {
+                has_dict = true;
+            } else if bt_has_dict(c.bt) {
+                has_dict = true;
+            }
+            for k in own {
+                if k != "__dict__" && k != "__weakref__" && !shadow.contains(&k) && !names.contains(&k) {
+                    names.push(k);
                 }
             }
         }
-        let b = !hook && !props.iter().any(|k| same_name(k, n));
-        *self.set_info.borrow_mut() = (ep, hook, props);
+        let slots = if has_dict && names.is_empty() { None } else { Some(SlotSet { dict: has_dict, names }) };
+        let b = !hook && !props.iter().any(|k| same_name(k, n)) && match &slots {
+            None => true,
+            Some(sl) => sl.dict || sl.names.iter().any(|k| same_name(k, n)),
+        };
+        *self.set_info.borrow_mut() = (ep, hook, props, slots);
         b
     }
     // a property of this name somewhere in the MRO (from the same per-epoch record as plain_set)
     pub fn is_prop(&self, n: &str) -> bool {
         let _ = self.plain_set(n);
         self.set_info.borrow().2.iter().any(|k| same_name(k, n))
+    }
+    // whether instances of this class may store this name at all: they have a __dict__, or the name is a
+    // slot somewhere in the MRO (the same per-epoch record as plain_set)
+    pub fn may_store(&self, n: &str) -> bool {
+        let _ = self.plain_set(n);
+        match &self.set_info.borrow().3 {
+            None => true,
+            Some(sl) => sl.dict || sl.names.iter().any(|k| same_name(k, n)),
+        }
+    }
+    // whether instances of this class have a __dict__ (a class in the MRO left one, or "__dict__" is listed
+    // in __slots__); from the same per-epoch record as plain_set
+    pub fn has_dict(&self) -> bool {
+        let _ = self.plain_set("");
+        self.set_info.borrow().3.as_ref().map_or(true, |sl| sl.dict)
+    }
+    // whether n is one of the __slots__ names somewhere in the MRO (the same per-epoch record as plain_set);
+    // a slot's value lives outside the instance's __dict__, as in CPython
+    pub fn is_slot(&self, n: &str) -> bool {
+        let _ = self.plain_set(n);
+        match &self.set_info.borrow().3 {
+            Some(sl) => sl.names.iter().any(|k| same_name(k, n)),
+            None => false,
+        }
     }
     // the result, and where lcache keeps the name's text (None when lcache is full)
     fn lookup_hashed(&self, n: &str, ep: u64) -> (Option<V>, Option<(usize, usize)>) {
@@ -2591,6 +2658,40 @@ pub fn same_name(a: &str, b: &str) -> bool {
     }
     x == y
 }
+// builtin classes whose instances carry a __dict__ (exceptions, classes, functions, and the two C dict
+// subclasses that keep one); the other builtins (int, list, dict, deque, ...) do not
+fn bt_has_dict(bt: BT) -> bool {
+    matches!(bt, BT::Exc | BT::Type | BT::Func | BT::Counter | BT::OrderedDict)
+}
+// the names one __slots__ value spells out: a string is one name; a tuple, list or dict adds its string items
+// (or keys). Non-string members are ignored (CPython would have refused the class; the layout is fixed anyway).
+fn slot_names(v: &V, out: &mut Vec<Sym>) {
+    match v {
+        V::Str(x) => out.push(sym(&x.s)),
+        V::Tuple(t) => {
+            for x in t.iter() {
+                if let V::Str(x) = x {
+                    out.push(sym(&x.s));
+                }
+            }
+        }
+        V::List(l) => {
+            for x in l.borrow().iter() {
+                if let V::Str(x) = x {
+                    out.push(sym(&x.s));
+                }
+            }
+        }
+        V::Dict(d) => {
+            for k in d.borrow().keys() {
+                if let V::Str(k) = &k {
+                    out.push(sym(&k.s));
+                }
+            }
+        }
+        _ => {}
+    }
+}
 // ---------- __del__ ----------
 // CPython calls __del__ when an object's last reference goes. Here an object whose class has __del__ is moved,
 // when its last reference goes, into a fresh object that waits in FIN_PENDING; the program runs the waiting
@@ -2750,6 +2851,11 @@ impl Obj {
     pub fn has_inner(&self) -> bool {
         self.inner.borrow().is_some()
     }
+    // values CPython keeps out of the instance __dict__: pydantic's bookkeeping, __slots__ members,
+    // and an exception's args
+    fn dict_free(&self, n: &str) -> bool {
+        n.starts_with("__pydantic_") || self.cls.is_slot(n) || n == "args" && self.cls.base_bt() == BT::Exc
+    }
     pub fn set_inner(&self, v: Option<V>) {
         *self.inner.borrow_mut() = v.map(Box::new);
     }
@@ -2795,6 +2901,14 @@ impl Obj {
         }
         let mut d = self.d.borrow_mut();
         if let Some(dd) = d.dict.clone() {
+            // a slot's value (and an exception's args) stay out of the managed dict, as in CPython
+            if self.cls.is_slot(n) || n == "args" && self.cls.base_bt() == BT::Exc {
+                match d.attrs.find(n) {
+                    Some(i) => *d.attrs.get_mut(i).unwrap().1 = v,
+                    None => d.attrs.push((n, v)),
+                }
+                return Ok(());
+            }
             drop(d);
             dd.borrow_mut().set(s(n), v)?;
             return Ok(());
@@ -2815,7 +2929,7 @@ impl Obj {
         let mut entries: Vec<(Sym, V)> = vec![];
         let mut keep = Attrs::new();
         for (k, v) in d.attrs.iter() {
-            if k.starts_with("__pydantic_") {
+            if self.dict_free(k) {
                 keep.push((*k, v.clone()));
             } else {
                 entries.push((*k, v.clone()));
@@ -2838,7 +2952,7 @@ impl Obj {
         let mut d = self.d.borrow_mut();
         let mut keep = Attrs::new();
         for (k, x) in d.attrs.iter() {
-            if k.starts_with("__pydantic_") {
+            if self.dict_free(k) {
                 keep.push((*k, x.clone()));
             }
         }
@@ -2848,11 +2962,14 @@ impl Obj {
     }
     pub fn del_attr(&self, n: &str) -> Result<bool, E> {
         if n == "__dict__" {
+            if !self.cls.has_dict() {
+                return Ok(false);
+            }
             // del o.__dict__ empties the managed dict (a fresh one, as in CPython); slots stay.
             let mut d = self.d.borrow_mut();
             let mut keep = Attrs::new();
             for (k, x) in d.attrs.iter() {
-                if k.starts_with("__pydantic_") {
+                if self.dict_free(k) {
                     keep.push((*k, x.clone()));
                 }
             }
@@ -2870,6 +2987,22 @@ impl Obj {
                 }
                 None => false,
             });
+        }
+        if n == "args" && self.cls.base_bt() == BT::Exc {
+            return Err(exc("TypeError", "args may not be deleted".into()));
+        }
+        if self.cls.is_slot(n) {
+            // deleting a set slot resets it; an unset one raises with the bare name, as CPython's
+            // member descriptor delete does
+            let mut d = self.d.borrow_mut();
+            let at = d.attrs.names().iter().position(|k| *k == n);
+            return match at {
+                Some(i) => {
+                    d.attrs.remove(i);
+                    Ok(true)
+                }
+                None => Err(exc("AttributeError", n.to_string())),
+            };
         }
         let dd = {
             let mut d = self.d.borrow_mut();

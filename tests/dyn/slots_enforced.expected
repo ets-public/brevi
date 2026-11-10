@@ -1,0 +1,43 @@
+assign 'S' object has no attribute 'b' and no __dict__ for setting new attributes
+setattr AttributeError 'S' object has no attribute 'b' and no __dict__ for setting new attributes
+object setattr 'S' object has no attribute 'b' and no __dict__ for setting new attributes
+object dict 'S' object has no attribute '__dict__' and no __dict__ for setting new attributes
+slot read 5
+unset S.a AttributeError 'S' object has no attribute 'a'
+unset W.only AttributeError 'W' object has no attribute 'only'
+T a b 1 2
+T.c AttributeError 'T' object has no attribute 'c' and no __dict__ for setting new attributes
+U anything 4
+E a 5
+E.other AttributeError 'E' object has no attribute 'other' and no __dict__ for setting new attributes
+D 7 8
+W only 9
+W other AttributeError 'W' object has no attribute 'other' and no __dict__ for setting new attributes
+L 1 2
+L z AttributeError 'L' object has no attribute 'z' and no __dict__ for setting new attributes
+K 4
+K q AttributeError 'K' object has no attribute 'q' and no __dict__ for setting new attributes
+CA class attr 99
+CA shadow ok None
+Hook a 20
+Hook z ok None
+Sup a 11
+Sup z ok None
+has dict False False True False True False
+S.__dict__ AttributeError 'S' object has no attribute '__dict__'
+U.__dict__ {}
+slots ('a',) ('b',)
+child True 2 ['z']
+exc True 1 ['other']
+Point slots ('x', 'y')
+Point dict ok False
+Point x 9
+Point z AttributeError 'Point' object has no attribute 'z' and no __dict__ for setting new attributes
+Point missing AttributeError 'Point' object has no attribute 'missing'
+WithMethod m AttributeError 'WithMethod' object attribute 'm' is read-only
+WithMethod call 1
+RO read ok 3
+RO k AttributeError 'RO' object attribute 'k' is read-only
+RO k after ok 3
+conflict ValueError 'a' in __slots__ conflicts with class variable
+vars slotted TypeError vars() argument must have __dict__ attribute
