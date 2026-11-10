@@ -644,6 +644,8 @@ for f in tests/limits/*.py; do
   exp="${f%.py}.expected"
   g=$(cat "${f%.py}.flags")
   case "$f" in */mem.py) [ "$(uname)" = Linux ] || continue ;; esac
+  # threads needs a pids cgroup Brevi can create (refused elsewhere, checked after this loop).
+  case "$f" in */threads.py) $BREVI run --limit threads=64 tests/limits/within.py >/dev/null 2>&1 || { echo "skip $f (no pids cgroup here)"; continue; } ;; esac
   out=$($BREVI run --sandbox $g "$f" 2>/tmp/brevi-limits-err; echo "exit $?"; tail -1 /tmp/brevi-limits-err)
   rm -f limits-*.out /tmp/brevi-limits-err
   if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
@@ -653,8 +655,14 @@ for f in tests/limits/*.py; do
     echo "ok   $f"
   fi
 done
+# --limit threads runs where a pids cgroup can be made and is refused (exit 2) everywhere else, never ignored.
+out=$($BREVI run --limit threads=64 tests/limits/within.py 2>&1 >/dev/null; echo "exit $?")
+case "$out" in
+  *"exit 0"|"--limit threads needs a cgroup with the kernel's pids controller"*"exit 2"|"--limit threads is enforced on Linux only"*"exit 2") echo "ok   threads limit held or refused" ;;
+  *) echo "FAIL threads limit neither held nor refused: $out"; fail=1 ;;
+esac
 out=$($BREVI run --limit cpu=x tests/limits/within.py 2>&1; echo "exit $?"; $BREVI build --limit cpu=1 tests/limits/within.py 2>&1; echo "exit $?")
-want='--limit takes cpu=SECS, mem=MB, time=SECS, output=KB, file=MB, written=MB, net=MB, fds=N, files=N, comma separated (cpu=2,mem=256,time=5); '"'cpu=x'"' is not a number above 0
+want='--limit takes cpu=SECS, mem=MB, time=SECS, output=KB, file=MB, written=MB, net=MB, threads=N, fds=N, files=N, comma separated (cpu=2,mem=256,time=5); '"'cpu=x'"' is not a number above 0
 exit 2
 --limit holds a program while it runs: use it with brevi run or brevi test (brevi verify takes it too)
 exit 2'

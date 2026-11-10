@@ -181,6 +181,14 @@ expect("limits cpu in cases", call("run", code=spin, limits={"cpu": 1}, cases=[{
 expect("limits pass", call("run", code="print(sum(range(10)))\n", limits={"cpu": 2, "time": 5, "output": 64}), "45", False)
 expect("limits pass in cases", call("run", limits={"cpu": 2, "time": 5}, cases=[{"stdin": "", "expect": "45\n"}]), "passed 1/1", False)
 expect("limits test", call("test", code="fn main():\n  print(1)\n\ntest \"spins\":\n  var n = 0\n  while true:\n    n = n + 1\n", limits={"time": 1}), '"on":"time"', True)
+# threads: held by the kernel where Brevi can make a pids cgroup, refused (not ignored) elsewhere.
+forks = "import subprocess\nsubprocess.run(['sh', '-c', 'for i in 1 2 3 4 5 6 7 8; do sleep 1 & done; wait'], check=True)\nprint('all started')\n"
+held = call("run", code=forks, allow=["native", "read"], limits={"threads": 4}, verify=False)
+if "needs a cgroup" in held[0] or "Linux only" in held[0]:
+    expect("limits threads refused", held, "threads", True)
+else:
+    expect("limits threads", held, '"on":"threads"', True)
+    expect("limits threads within", call("run", code=forks, allow=["native", "read"], limits={"threads": 64}, verify=False), "all started", False)
 expect("limits bad name", call("run", code="print(1)\n", limits={"cpus": 1}), "limits has \"cpus\"", True)
 expect("limits bad value", call("run", code="print(1)\n", limits={"cpu": -1}), "limits cpu must be a number above 0", True)
 expect("limits verify", call("verify", sandbox=False, code=spin, limits={"cpu": 1}), '"verify":"limit"', True)
