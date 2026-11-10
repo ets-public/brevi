@@ -27,8 +27,6 @@ test_dict.DictTest.test_valuesiterator_pickling dyn
 test_dict.DictTest.test_valuesiterator_pickling normal
 test_grammar.GrammarTests.test_async_await dyn
 test_grammar.GrammarTests.test_async_await normal
-test_grammar.GrammarTests.test_comprehension_specials dyn
-test_grammar.GrammarTests.test_comprehension_specials normal
 test_grammar.GrammarTests.test_selectors dyn
 test_grammar.GrammarTests.test_selectors normal
 test_int.IntTestCases.test_unicode normal
