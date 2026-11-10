@@ -395,6 +395,192 @@ fn siftup(h: &mut Vec<V>, mut pos: usize) -> Result<(), E> {
     h[pos] = item;
     siftdown(h, start, pos)
 }
+
+// heapq.merge: one live entry per input iterator, merged in the order of the values the
+// inputs produce. As in CPython the inputs are not sorted here; equal values keep the
+// input order, and reverse flips the value order but not that tie-break.
+struct MergeEntry {
+    v: V,
+    k: V,
+    ord: i64,
+    it: It,
+}
+fn merge_lt(a: &MergeEntry, b: &MergeEntry, rev: bool) -> Result<bool, E> {
+    // CPython's heap entries are [value, order*direction] tuples; tuple
+    // comparison moves on to the order only when the values are equal, so
+    // unordered values (NaN, say) compare as not-less rather than by order.
+    if eq(&a.k, &b.k)? {
+        return Ok(if rev { a.ord > b.ord } else { a.ord < b.ord });
+    }
+    lt(&a.k, &b.k)
+}
+fn take_merge_entry(h: &mut Vec<MergeEntry>, pos: usize) -> MergeEntry {
+    std::mem::replace(&mut h[pos], MergeEntry { v: V::None, k: V::None, ord: 0, it: It::Done })
+}
+// StopIteration is how iterators signal their end here as well.
+fn merge_next(it: &mut It) -> Result<Option<V>, E> {
+    match it.next() {
+        Ok(v) => Ok(v),
+        Err(E(e)) if is_exc(&e, "StopIteration") => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+fn merge_key(f: &V, v: &V) -> Result<Option<V>, E> {
+    match call(f, Args::p(vec![v.clone()])) {
+        Ok(k) => Ok(Some(k)),
+        // merge catches StopIteration from key() and treats that input as done.
+        Err(E(e)) if is_exc(&e, "StopIteration") => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+// heapq._siftdown and its max-heap variant: bubble newitem toward the root.
+fn m_siftdown(h: &mut Vec<MergeEntry>, start: usize, mut pos: usize, rev: bool) -> Result<(), E> {
+    let item = take_merge_entry(h, pos);
+    while pos > start {
+        let parent = (pos - 1) >> 1;
+        let up = if rev { merge_lt(&h[parent], &item, rev)? } else { merge_lt(&item, &h[parent], rev)? };
+        if up {
+            h[pos] = take_merge_entry(h, parent);
+            pos = parent;
+            continue;
+        }
+        break;
+    }
+    h[pos] = item;
+    Ok(())
+}
+// heapq._siftup and its max-heap variant: bubble the selected child up to a leaf.
+fn m_siftup(h: &mut Vec<MergeEntry>, mut pos: usize, rev: bool) -> Result<(), E> {
+    let end = h.len();
+    let start = pos;
+    let item = take_merge_entry(h, pos);
+    let mut child = 2 * pos + 1;
+    while child < end {
+        let right = child + 1;
+        if right < end {
+            let pick_right = if rev { !merge_lt(&h[right], &h[child], rev)? } else { !merge_lt(&h[child], &h[right], rev)? };
+            if pick_right {
+                child = right;
+            }
+        }
+        h[pos] = take_merge_entry(h, child);
+        pos = child;
+        child = 2 * pos + 1;
+    }
+    h[pos] = item;
+    m_siftdown(h, start, pos, rev)
+}
+struct MergeState {
+    inputs: Vec<V>,
+    heap: Vec<MergeEntry>,
+    started: bool,
+    hole: bool,
+    tail: bool,
+    revv: V,
+    rev: Option<bool>,
+}
+impl MergeState {
+    fn next(&mut self, key: Option<&V>) -> Result<Option<V>, E> {
+        if !self.started {
+            self.started = true;
+            let rev = match self.rev {
+                Some(r) => r,
+                None => {
+                    let r = truth(&self.revv)?;
+                    self.rev = Some(r);
+                    r
+                }
+            };
+            for (ord, x) in self.inputs.drain(..).enumerate() {
+                let mut it = iter(&x)?;
+                if let Some(v) = merge_next(&mut it)? {
+                    let k = match key {
+                        Some(f) => match merge_key(f, &v)? {
+                            Some(k) => k,
+                            None => continue,
+                        },
+                        None => v.clone(),
+                    };
+                    self.heap.push(MergeEntry { v, k, ord: ord as i64, it });
+                }
+            }
+            for i in (0..self.heap.len() / 2).rev() {
+                m_siftup(&mut self.heap, i, rev)?;
+            }
+        }
+        let rev = self.rev.unwrap();
+        loop {
+            if self.heap.is_empty() {
+                return Ok(None);
+            }
+            if self.hole {
+                // CPython's last-input fast path is `yield from next.__self__`, which
+                // iterates the iterator object again rather than calling its __next__
+                // directly, so rewrap an object iterator once the merge is down to it.
+                if self.heap.len() == 1 && !self.tail {
+                    self.tail = true;
+                    let rewrapped = match &self.heap[0].it {
+                        It::Obj(o) => Some(iter(o)?),
+                        _ => None,
+                    };
+                    if let Some(it) = rewrapped {
+                        self.heap[0].it = it;
+                    }
+                }
+                let nxt = { let e = &mut self.heap[0]; merge_next(&mut e.it)? };
+                match nxt {
+                    Some(v) => {
+                        // CPython stops applying key once one iterator is left and
+                        // streams the rest of it straight through.
+                        let kv = if self.heap.len() > 1 {
+                            match key {
+                                Some(f) => match merge_key(f, &v)? {
+                                    Some(k) => Some((v, k)),
+                                    None => None,
+                                },
+                                None => {
+                                    let k = v.clone();
+                                    Some((v, k))
+                                }
+                            }
+                        } else {
+                            Some((v, V::None))
+                        };
+                        match kv {
+                            Some((v, k)) => {
+                                self.heap[0].v = v;
+                                self.heap[0].k = k;
+                                self.hole = false;
+                                if self.heap.len() > 1 {
+                                    m_siftup(&mut self.heap, 0, rev)?;
+                                }
+                            }
+                            None => {
+                                self.heap.swap_remove(0);
+                                self.hole = false;
+                                if self.heap.len() > 1 {
+                                    m_siftup(&mut self.heap, 0, rev)?;
+                                }
+                                continue;
+                            }
+                        }
+                    }
+                    None => {
+                        self.heap.swap_remove(0);
+                        self.hole = false;
+                        if self.heap.len() > 1 {
+                            m_siftup(&mut self.heap, 0, rev)?;
+                        }
+                        continue;
+                    }
+                }
+            }
+            let out = std::mem::replace(&mut self.heap[0].v, V::None);
+            self.hole = true;
+            return Ok(Some(out));
+        }
+    }
+}
 pub fn heapq_fn(name: &str, mut a: Args) -> R {
     Ok(match name {
         "heappush" => {
@@ -462,14 +648,11 @@ pub fn heapq_fn(name: &str, mut a: Args) -> R {
             list(v)
         }
         "merge" => {
-            let key = a.kw("key");
-            let rev = a.kw("reverse").map(|r| truth(&r)).transpose()?.unwrap_or(false);
-            let mut v = vec![];
-            for x in &a.p {
-                v.extend(to_vec(x)?);
-            }
-            sort_values(&mut v, key.as_ref(), rev)?;
-            vec_iter(v)
+            let key = a.kw("key").filter(|k| !matches!(k, V::None));
+            let revv = a.kw("reverse").unwrap_or(V::None);
+            a.no_kw("merge")?;
+            let mut st = MergeState { inputs: std::mem::take(&mut a.p), heap: vec![], started: false, hole: false, tail: false, revv, rev: None };
+            genexp_iter(move || st.next(key.as_ref()))
         }
         _ => return Err(unsupported(&format!("heapq.{name}"))),
     })
