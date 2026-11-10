@@ -3013,6 +3013,7 @@ pub fn init_builtin_classes() {
     m.insert("FrozenInstanceError", Class::new("FrozenInstanceError", "dataclasses", vec![ae], BT::Exc));
     BUILTIN_CLASSES.with(|b| *b.borrow_mut() = m);
     TYPE_CACHE.with(|c| *c.borrow_mut() = Default::default());
+    BV_CACHE.with(|c| *c.borrow_mut() = Default::default());
 }
 
 // ---------- type names, truth ----------
