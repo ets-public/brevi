@@ -1947,7 +1947,7 @@ fn pattern_uses(body: &[Stmt]) -> Option<(usize, String)> {
             _ => None,
         };
         if let Some(w) = why {
-            hit = Some((line, format!("{w}, where the typed build has the pattern's string")));
+            hit = Some((line, format!("{w}, which the typed build keeps as a plain string")));
         }
     });
     hit
