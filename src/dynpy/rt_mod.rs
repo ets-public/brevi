@@ -2325,6 +2325,7 @@ pub fn run_main(f: fn() -> Result<(), E>) {
             }
         };
         atexit_run();
+        close_live_gens();
         out_flush();
         code
     });
