@@ -784,6 +784,14 @@ pub fn bi_hasattr(a: Args) -> R {
 pub fn bi_getattr(a: Args) -> R {
     a.want("getattr", 2, 3)?;
     let n = to_str(&a.p[1])?;
+    // getattr(f, "name", default) on a def without that attribute (jinja2's filters, pydantic's validators):
+    // the default, without making and catching an AttributeError. Dunder names keep the general path.
+    if a.p.len() == 3 && !n.starts_with("__") {
+        if let V::Func(f) = &a.p[0] {
+            let found = f.attrs.borrow().iter().find(|(k, _)| **k == *n).map(|(_, v)| v.clone());
+            return Ok(found.unwrap_or_else(|| a.p[2].clone()));
+        }
+    }
     match getattr(&a.p[0], &n) {
         Ok(v) => Ok(v),
         Err(E(e)) if is_exc(&e, "AttributeError") && a.p.len() == 3 => Ok(a.p[2].clone()),
