@@ -1388,6 +1388,9 @@ struct Func {
     // class whose method this is, and the first parameter's name (for super())
     class_expr: Option<String>,
     self_name: Option<String>,
+    // the qualname of this frame (without the module): "" for a module body, "C" for a class
+    // body, "outer.<locals>.f" for a def, so nested defs can build CPython's qualnames
+    qname: String,
     exc_vars: Vec<String>,
     is_module: bool,
     is_class: bool,
@@ -2279,7 +2282,12 @@ impl Em {
                 }
                 let a = self.args(args, line, None)?;
                 if let Some(fname) = builtin_fast(n) {
-                    return Ok(self.q(&format!("{fname}({a})")));
+                    // *args or **kwargs to a builtin: go through call(), where CPython's checks run
+                    // (duplicate keywords, keywords must be strings) before the builtin's own
+                    if args.iter().all(|x| matches!(x, Arg::Pos(_) | Arg::Kw(..))) {
+                        return Ok(self.q(&format!("{fname}({a})")));
+                    }
+                    return Ok(self.q(&format!("call(&builtin_value({}).unwrap(), {a})", lit(n))));
                 }
             }
             // direct call of a nested def held in a local of this frame
@@ -2407,7 +2415,7 @@ impl Em {
         // nested generator function (class context and self reach the lazy part too).
         let parent = self.fstack.last().unwrap();
         let (class_expr, self_name) = (parent.class_expr.clone(), parent.self_name.clone());
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, exc_vars: vec![], is_module: false, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: true, direct_defs: HashMap::new(), cells: format!("g{id}_"), order: vec![] };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, qname: String::new(), exc_vars: vec![], is_module: false, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: true, direct_defs: HashMap::new(), cells: format!("g{id}_"), order: vec![] };
         let mut tdecl = String::new();
         for n in &names {
             if inner_free.contains(n) {
@@ -3283,8 +3291,15 @@ impl Em {
         }
         // this function's frame
         let parent = self.fstack.last().unwrap();
+        let q = if parent.is_module {
+            name.to_string()
+        } else if parent.is_class {
+            format!("{}.{}", parent.qname, name)
+        } else {
+            format!("{}.<locals>.{}", parent.qname, name)
+        };
         let (class_expr, self_name) = if self.class_ctx.is_some() { (self.class_ctx.clone(), p.pos.first().map(|x| x.0.clone())) } else { (parent.class_expr.clone(), parent.self_name.clone()) };
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, exc_vars: vec![], is_module: false, is_class: false, enum_cnv: None, is_async, is_agen: is_async && is_gen, is_gen, direct_defs: HashMap::new(), cells: format!("k{id}_"), order: vec![] };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, qname: q.clone(), exc_vars: vec![], is_module: false, is_class: false, enum_cnv: None, is_async, is_agen: is_async && is_gen, is_gen, direct_defs: HashMap::new(), cells: format!("k{id}_"), order: vec![] };
         for (n, r) in &captures {
             fr.vars.insert(n.clone(), Var::Cell(r.clone()));
         }
@@ -3377,6 +3392,7 @@ impl Em {
             None => format!("d{id}_{}", rust_ident(name)),
         };
         let qname = lit(name);
+        let fq = lit(&if self.module == "builtins" { q.clone() } else { format!("{}.{}", self.module, q) });
         // co_flags, as CPython sets them: CO_OPTIMIZED | CO_NEWLOCALS, plus the function's kind and nesting.
         let mut code_flags: u32 = 0x1 | 0x2;
         if star {
@@ -3429,14 +3445,14 @@ impl Em {
                     write!(sets, "gs({slot}, {}); ", dflt_codes[k]).unwrap();
                 }
                 let dv: Vec<String> = (0..npos).map(|k| if k >= npos - nd { format!("gr({})", slots[k - (npos - nd)]) } else { "V::Unbound".into() }).collect();
-                let v = format!("with_code({{ {sets} func({qname}, move |a: Args| {{ let __d = [{}]; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}, {code})", dv.join(", "));
+                let v = format!("with_fq(with_code({{ {sets} func({qname}, move |a: Args| {{ let __d = [{}]; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}, {code}), {fq})", dv.join(", "));
                 if !is_async && !is_gen && (1..=4).contains(&nparams) {
                     return Ok(format!("with_fast({v}, FastFn::F{nparams}({fname}))"));
                 }
                 return Ok(v);
             }
             let _ = need_defaults;
-            let v = format!("with_code({{ let __d = vec![{}]; func({qname}, move |a: Args| {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}, {code})", dflt_all.join(", "));
+            let v = format!("with_fq(with_code({{ let __d = vec![{}]; func({qname}, move |a: Args| {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}, {code}), {fq})", dflt_all.join(", "));
             // methods (and defs not called directly): calls passing every parameter by position skip bind()
             if !is_async && !is_gen && !star && !kwstar && p.kwonly.is_empty() && (1..=4).contains(&nparams) {
                 return Ok(format!("with_fast({v}, FastFn::F{nparams}({fname}))"));
@@ -3458,7 +3474,7 @@ impl Em {
                     let cparams: String = dcaps.iter().map(|r| format!("{r}: Rc<RefCell<V>>, ")).collect();
                     write!(self.items, "fn {dfn}({cparams}{}) -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }}\n", pdecl.join(", ")).unwrap();
                     let cargs: String = dcaps.iter().map(|r| format!("{r}.clone(), ")).collect();
-                    return Ok(format!("with_code({{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {dfn}({cargs}{unpack}) }}) }}, {code})", dflt_all.join(", ")));
+                    return Ok(format!("with_fq(with_code({{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {dfn}({cargs}{unpack}) }}) }}, {code}), {fq})", dflt_all.join(", ")));
                 }
                 return Err(err(line, "internal: a nested function's captures changed"));
             }
@@ -3466,12 +3482,12 @@ impl Em {
         if is_gen || is_async {
             let mk = if is_async && is_gen { format!("make_agen(sym({qname}), ") } else if is_async { format!("make_acoro(sym({qname}), ") } else { "make_gen(".to_string() };
             return Ok(format!(
-                "with_code({{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{caps} Ok({mk}move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}) }}, {code})",
+                "with_fq(with_code({{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{caps} Ok({mk}move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}) }}, {code}), {fq})",
                 dflt_all.join(", ")
             ));
         }
         Ok(format!(
-            "with_code({{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let __depth = Depth::new()?; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{decls}{cells_init}\n{body_code}\nOk(V::None) }}) }}, {code})",
+            "with_fq(with_code({{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let __depth = Depth::new()?; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{decls}{cells_init}\n{body_code}\nOk(V::None) }}) }}, {code}), {fq})",
             dflt_all.join(", ")
         ))
     }
@@ -3494,7 +3510,14 @@ impl Em {
         // invisible to the methods
         let sc = scope_of(&c.body, &[]);
         let parent = self.fstack.last().unwrap();
-        let mut fr = Func { vars: HashMap::new(), frames: parent.frames.clone(), class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![] };
+        let cq = if parent.is_module {
+            c.name.clone()
+        } else if parent.is_class {
+            format!("{}.{}", parent.qname, c.name)
+        } else {
+            format!("{}.<locals>.{}", parent.qname, c.name)
+        };
+        let mut fr = Func { vars: HashMap::new(), frames: parent.frames.clone(), class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), qname: cq, exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![] };
         let ctx = format!("__auto_ctx{id}");
         let av = format!("__auto_last{id}");
         let mut decls = String::new();
@@ -3801,7 +3824,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         for m in group.iter().copied() {
             em.module = m.name.clone();
             IN_COPY.with(|c| c.set(OWN_COPIES.lock().unwrap().contains(&m.name)));
-            let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, exc_vars: vec![], is_module: true, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![] };
+            let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, qname: String::new(), exc_vars: vec![], is_module: true, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![] };
             for n in em.mod_names[&m.name].clone() {
                 let i = em.gslot(&m.name, &n);
                 fr.vars.insert(n.clone(), Var::Global(i));

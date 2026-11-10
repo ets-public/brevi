@@ -1082,6 +1082,7 @@ fn rewrap(x: &Rc<Func>, kind: u8) -> V {
     let g = func(x.name, move |a: Args| call(&inner, a));
     if let V::Func(gf) = &g {
         gf.kind.set(kind);
+        gf.fq.set(x.fq.get());
         // the wrapped function's attributes (__doc__, __bv_np__) read through, as through CPython's __func__
         *gf.attrs.borrow_mut() = x.attrs.borrow().clone();
     }
@@ -1246,6 +1247,20 @@ pub fn builtin_type_call(c: &Rc<Class>, a: &mut Args) -> Option<R> {
     })
 }
 pub fn builtin_class_attr(c: &Rc<Class>, name: &str) -> Option<V> {
+    let v = builtin_class_attr_raw(c, name)?;
+    if let V::Func(f) = &v {
+        if f.kind.get() == 3 {
+            let fq = if c.module == "builtins" {
+                format!("{}.{}", c.name, name)
+            } else {
+                format!("{}.{}.{}", c.module, c.name, name)
+            };
+            f.fq.set(sym(&fq));
+        }
+    }
+    Some(v)
+}
+fn builtin_class_attr_raw(c: &Rc<Class>, name: &str) -> Option<V> {
     // dict.fromkeys, str.maketrans, int.from_bytes ... and unbound methods (str.lower)
     match (c.name, name) {
         ("bytes", "fromhex") => Some(builtin("fromhex", bytes_fromhex)),
