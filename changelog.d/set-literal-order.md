@@ -1,0 +1,1 @@
+- Dynamic build: set displays of constants print in CPython's order: a display whose values repeat an earlier one in the module shares its order (CPython merges equal constants), and an add after a discard reuses the freed slot as CPython does.
