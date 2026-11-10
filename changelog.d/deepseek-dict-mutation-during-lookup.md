@@ -1,1 +1,1 @@
-- A key's `__eq__` or `__hash__` that changes the dict in the middle of a lookup, insert, `setdefault`, `pop` or `del` no longer crashes the dynamic build; after 200 restarts it raises RuntimeError (written by DeepSeek, #PR).
+- A key's `__eq__` or `__hash__` that changes the dict in the middle of a lookup, insert, `setdefault`, `pop` or `del` no longer crashes the dynamic build; after 200 restarts it raises RuntimeError (written by DeepSeek, #316).
