@@ -80,8 +80,12 @@ pub fn run(mut c: Command, file: &str, args: &[String], release: bool) -> std::i
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
     let mark = std::env::temp_dir().join(format!("brevi-i64-{}-{nanos}", std::process::id()));
     let _ = std::fs::remove_file(&mark);
-    c.env("BREVI_I64_REPLAY", &mark).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let merged = same_target();
+    c.env("BREVI_I64_REPLAY", &mark).stdin(Stdio::piped());
+    let one = outputs(&mut c, merged)?;
     let mut child = c.spawn()?;
+    // The Command holds the write end of a shared pipe: the reader sees the end only once it is gone.
+    drop(c);
     let feed = Arc::new(Mutex::new(Feed { to: child.stdin.take(), ..Default::default() }));
     {
         let feed = feed.clone();
@@ -103,7 +107,7 @@ pub fn run(mut c: Command, file: &str, args: &[String], release: bool) -> std::i
             }
         });
     }
-    let (status, out, err) = pass_on(&mut child, Vec::new(), Vec::new(), &Arc::new(AtomicBool::new(false)))?;
+    let (status, out, err) = pass_on(&mut child, one, Vec::new(), Vec::new(), &Arc::new(AtomicBool::new(false)))?;
     let Ok(what) = std::fs::read_to_string(&mark) else { return Ok(crate::proc::code(status)) };
     let _ = std::fs::remove_file(&mark);
     if out.over || err.over || feed.lock().unwrap_or_else(|e| e.into_inner()).kept.over {
@@ -123,8 +127,10 @@ pub fn run(mut c: Command, file: &str, args: &[String], release: bool) -> std::i
     }
     crate::say_path("dynamic", "", 0, None, &format!("the typed build stopped ({what}), so it ran again on the dynamic build"), &crate::dyn_py_field(), false);
     let mut d = crate::proc::script(&bin, file);
-    d.args(args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    d.args(args).stdin(Stdio::piped());
+    let one = outputs(&mut d, merged)?;
     let mut dchild = d.spawn()?;
+    drop(d);
     // The same stdin: what the first run was given, then the rest as it comes.
     {
         let mut f = feed.lock().unwrap_or_else(|e| e.into_inner());
@@ -147,7 +153,7 @@ pub fn run(mut c: Command, file: &str, args: &[String], release: bool) -> std::i
         let _ = rx.recv();
     }
     let differ = Arc::new(AtomicBool::new(false));
-    let (status, _, _) = pass_on(&mut dchild, out.buf, err.buf, &differ)?;
+    let (status, _, _) = pass_on(&mut dchild, one, out.buf, err.buf, &differ)?;
     if differ.load(Ordering::SeqCst) {
         return Ok(stop("the dynamic build's re-run of this program (after an int passed 64 bits on the typed build) did not write what the typed run had already written, so it was stopped. Run it with BREVI_DYN=1"));
     }
@@ -157,9 +163,38 @@ pub fn run(mut c: Command, file: &str, args: &[String], release: bool) -> std::i
 // Passes the child's stdout and stderr on as they come and keeps a copy; `skip_out`/`skip_err` are what an
 // earlier run already wrote: the child must write the same first, and it is not passed on again (`differ`
 // is set, and the child stopped, when it writes something else or less).
-fn pass_on(child: &mut Child, skip_out: Vec<u8>, skip_err: Vec<u8>, differ: &Arc<AtomicBool>) -> std::io::Result<(ExitStatus, Kept, Kept)> {
+// Whether this process's stdout and stderr are the same file or pipe (`2>&1`): the program then gets one pipe for
+// both, so what it writes to each stays in the order it wrote it.
+#[cfg(unix)]
+fn same_target() -> bool {
+    use std::os::unix::fs::MetadataExt;
+    use std::os::unix::io::FromRawFd;
+    let meta = |fd| {
+        let f = std::mem::ManuallyDrop::new(unsafe { std::fs::File::from_raw_fd(fd) });
+        f.metadata().ok().map(|m| (m.dev(), m.ino()))
+    };
+    matches!((meta(1), meta(2)), (Some(a), Some(b)) if a == b)
+}
+#[cfg(not(unix))]
+fn same_target() -> bool {
+    false
+}
+
+// The program's stdout and stderr: two pipes, or one shared by both (returned).
+fn outputs(c: &mut Command, merged: bool) -> std::io::Result<Option<std::io::PipeReader>> {
+    if !merged {
+        c.stdout(Stdio::piped()).stderr(Stdio::piped());
+        return Ok(None);
+    }
+    let (r, w) = std::io::pipe()?;
+    c.stdout(w.try_clone()?).stderr(w);
+    Ok(Some(r))
+}
+
+fn pass_on(child: &mut Child, one: Option<std::io::PipeReader>, skip_out: Vec<u8>, skip_err: Vec<u8>, differ: &Arc<AtomicBool>) -> std::io::Result<(ExitStatus, Kept, Kept)> {
     let pid = child.id();
     let streams: Vec<(Box<dyn Read + Send>, bool, Vec<u8>)> = [
+        one.map(|r| (Box::new(r) as Box<dyn Read + Send>, true, skip_out.clone())),
         child.stdout.take().map(|r| (Box::new(r) as Box<dyn Read + Send>, true, skip_out)),
         child.stderr.take().map(|r| (Box::new(r) as Box<dyn Read + Send>, false, skip_err)),
     ]
