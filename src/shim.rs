@@ -73,7 +73,7 @@ pub fn main(args: Vec<OsString>) -> ! {
     let Some(file) = file else { to_cpython(&None) };
     let src = match &inline {
         Some(c) => c.clone(),
-        None => match std::fs::read_to_string(&file) {
+        None => match crate::read_src(&file) {
             Ok(s) => s,
             // Let CPython say what is wrong with the file, in its own words.
             Err(_) => to_cpython(&Some(file)),

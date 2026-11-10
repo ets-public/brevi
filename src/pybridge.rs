@@ -829,7 +829,7 @@ pub fn member(recv: Expr, name: &str, args: Option<Vec<(Option<String>, Expr)>>,
 // Methods the parser itself makes (comprehensions, str(x), f-strings) are not the value's own.
 pub fn py_method(m: &str) -> bool {
     // Brevi's own method names are left to Brevi (a wrong one fails the build, loudly).
-    active() && !crate::emit::METHODS.contains(&m) && !matches!(m, "map" | "filter" | "flatten" | "str" | "len" | "int" | "float" | "fmt" | "spec" | "py_repr" | "__call" | "or" | "lax")
+    active() && !crate::emit::METHODS.contains(&m) && !matches!(m, "map" | "filter" | "flatten" | "str" | "len" | "int" | "float" | "fmt" | "spec" | "py_repr" | "__call" | "or" | "lax" | "lax_def" | "lax_mk")
 }
 
 // A method of Brevi's own name called on a library value known by its type (`z.max()`, `a.round(3)`, or

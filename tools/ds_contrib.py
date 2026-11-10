@@ -309,12 +309,18 @@ def chat(model, messages, tools, effort="max"):
             "Content-Type": "application/json", "Authorization": "Bearer " + os.environ["DEEPSEEK_API_KEY"]})
         try:
             with urllib.request.urlopen(req, timeout=900) as r:
-                return json.loads(r.read())
+                out = json.loads(r.read())
+            # the API now and then answers 200 with an empty or choice-less body: retry rather than crash
+            if isinstance(out, dict) and out.get("choices"):
+                return out
+            if attempt < 4:
+                time.sleep(2 ** attempt * 3); continue
+            raise RuntimeError(f"no reply from the model after 5 tries: {str(out)[:300]}")
         except urllib.error.HTTPError as e:
             if e.code in (429, 500, 502, 503) and attempt < 4:
                 time.sleep(2 ** attempt * 3); continue
             raise RuntimeError(f"HTTP {e.code}: {e.read()[:500]!r}")
-        except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.HTTPException):
+        except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.HTTPException, json.JSONDecodeError):
             if attempt < 4:
                 time.sleep(2 ** attempt * 3); continue
             raise

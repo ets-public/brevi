@@ -9,26 +9,26 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 207,
-"refused": 171,
-"wrong_output": 25,
-"wrong_exit": 46,
+"matched": 222,
+"refused": 172,
+"wrong_output": 12,
+"wrong_exit": 43,
 "crash_or_timeout": 1,
 "not_extractable": 104,
 "unstable": 22,
 "excluded": 29,
 "total": 605,
 "scored": 554,
-"matched_through_cpython": 8,
+"matched_through_cpython": 7,
 "matched_silent": 27,
-"coverage": 0.3592,
-"wrong": 71
+"coverage": 0.3881,
+"wrong": 55
 },
 "dyn": {
-"matched": 212,
+"matched": 217,
 "refused": 180,
-"wrong_output": 13,
-"wrong_exit": 44,
+"wrong_output": 10,
+"wrong_exit": 42,
 "crash_or_timeout": 1,
 "not_extractable": 104,
 "unstable": 22,
@@ -37,8 +37,8 @@
 "scored": 554,
 "matched_through_cpython": 0,
 "matched_silent": 27,
-"coverage": 0.3827,
-"wrong": 57
+"coverage": 0.3917,
+"wrong": 52
 }
 },
 "files": {
@@ -112,26 +112,26 @@
 },
 "test_re": {
 "normal": {
-"matched": 55,
-"refused": 45,
-"wrong_output": 16,
-"wrong_exit": 11,
+"matched": 70,
+"refused": 46,
+"wrong_output": 3,
+"wrong_exit": 8,
 "crash_or_timeout": 1,
 "not_extractable": 22,
 "unstable": 2,
 "excluded": 13,
 "total": 165,
 "scored": 150,
-"matched_through_cpython": 3,
+"matched_through_cpython": 2,
 "matched_silent": 2,
-"coverage": 0.3467,
-"wrong": 27
+"coverage": 0.4533,
+"wrong": 11
 },
 "dyn": {
-"matched": 65,
+"matched": 70,
 "refused": 48,
-"wrong_output": 4,
-"wrong_exit": 10,
+"wrong_output": 1,
+"wrong_exit": 8,
 "crash_or_timeout": 1,
 "not_extractable": 22,
 "unstable": 2,
@@ -140,8 +140,8 @@
 "scored": 150,
 "matched_through_cpython": 0,
 "matched_silent": 2,
-"coverage": 0.4333,
-"wrong": 14
+"coverage": 0.4667,
+"wrong": 9
 }
 },
 "test_textwrap": {
@@ -249,10 +249,10 @@
 },
 "paths": {
 "normal": {
-"dynamic": 238,
-"refused": 171,
-"typed": 32,
-"pybridge": 9
+"dynamic": 252,
+"refused": 172,
+"typed": 18,
+"pybridge": 8
 },
 "dyn": {
 "dynamic": 270,
@@ -3320,12 +3320,12 @@
 "normal": {
 "category": "wrong_exit",
 "path": "dynamic",
-"detail": "exit 1, expected 0: ValueError: chr() arg not in range(0x110000)"
+"detail": "exit 1, expected 0: NotImplementedError: brevi: chr() of a lone surrogate (U+D800..U+DFFF) is not supported in dynamic builds"
 },
 "dyn": {
 "category": "wrong_exit",
 "path": "dynamic",
-"detail": "exit 1, expected 0: ValueError: chr() arg not in range(0x110000)"
+"detail": "exit 1, expected 0: NotImplementedError: brevi: chr() of a lone surrogate (U+D800..U+DFFF) is not supported in dynamic builds"
 }
 }
 },
@@ -3404,9 +3404,8 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "typed",
-"detail": "line 1: expected \"['a']\", got '[]'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
 "category": "matched",
@@ -3438,9 +3437,8 @@
 "detail": "line 3: expected \"''\", got \"'xyy'\""
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 3: expected \"''\", got \"'xyy'\""
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3478,7 +3476,7 @@
 "modes": {
 "normal": {
 "category": "matched",
-"path": "typed"
+"path": "dynamic"
 },
 "dyn": {
 "category": "matched",
@@ -3548,9 +3546,8 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "typed",
-"detail": "line 1: expected \"'xx\\\\x08xx\\\\x08'\", got \"'xx'\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
 "category": "matched",
@@ -3621,14 +3618,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 7: expected 'None', got \"<re.Match object; span=(0, 1), match='\u2165'>\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 7: expected 'None', got \"<re.Match object; span=(0, 1), match='\u2165'>\""
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3709,9 +3704,8 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "typed",
-"detail": "line 1: expected \"['a', 'b', 'c']\", got \"['[.\u3002\uff0e\uff61]']\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
 "category": "matched",
@@ -3724,9 +3718,8 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "typed",
-"detail": "exit 1, expected 0: {\"e\":\"runtime\",\"line\":7,\"msg\":\"'NoneType' object has no attribute\"}"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
 "category": "matched",
@@ -3753,9 +3746,8 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "typed",
-"detail": "line 1: expected 'True', got 'False'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
 "category": "matched",
@@ -3853,7 +3845,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "unknown function type()"
+"detail": "a compiled pattern shown or passed to a builtin, where the typed build has the pattern's string, and this file cannot be built over dynamic values (case.py line 8: re.Pattern is not supported in dynam"
 },
 "dyn": {
 "category": "refused",
@@ -3929,7 +3921,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "expected ')', found \"(\u00a4))\""
+"detail": "a regex with an unbalanced parenthesis is not in the typed build"
 },
 "dyn": {
 "category": "refused",
@@ -3971,7 +3963,7 @@
 "modes": {
 "normal": {
 "category": "matched",
-"path": "typed"
+"path": "dynamic"
 },
 "dyn": {
 "category": "matched",
@@ -3984,9 +3976,8 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "typed",
-"detail": "line 1: expected \"['aa']\", got '[]'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
 "category": "matched",
@@ -3999,9 +3990,8 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "typed",
-"detail": "line 5: expected \"['a', 'a', '', '']\", got \"['aa', '', '']\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
 "category": "matched",
@@ -4084,14 +4074,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: IndexError: no such group"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: IndexError: no such group"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4320,14 +4308,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: 're.Match' object is not iterable"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: 're.Match' object is not iterable"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4450,8 +4436,8 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "matched",
-"path": "pybridge"
+"category": "refused",
+"detail": "a compiled pattern shown or passed to a builtin, where the typed build has the pattern's string, and this file cannot be built over dynamic values (case.py line 14: re._compile is not supported in dyn"
 },
 "dyn": {
 "category": "refused",
@@ -4464,14 +4450,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 10: expected \"('',)\", got \"('e',)\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 10: expected \"('',)\", got \"('e',)\""
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4807,7 +4791,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "unknown function type()"
+"detail": "a regex with this escape is not in the typed build"
 },
 "dyn": {
 "category": "refused",
@@ -4849,7 +4833,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "expected ')', found \"(?P<a1>x)(?P=a1)(?(a1)y)\""
+"detail": "a regex with this group syntax is not in the typed build"
 },
 "dyn": {
 "category": "refused",
@@ -4877,7 +4861,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "expected ')', found \"(?P<a1>x)\""
+"detail": "a regex with this group syntax is not in the typed build"
 },
 "dyn": {
 "category": "refused",
@@ -4891,7 +4875,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "expected ')', found \"(?P<a>x)\""
+"detail": "a regex with this group syntax is not in the typed build"
 },
 "dyn": {
 "category": "refused",
@@ -4948,9 +4932,8 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "typed",
-"detail": "line 3: expected \"['', 'a', '', '', 'bc', '']\", got \"['', 'a', ':', '', 'bc', '']\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
 "category": "matched",
@@ -5017,9 +5000,8 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "typed",
-"detail": "line 1: expected '\"re.compile(\\'(?i)pattern\\', re.IGNORECASE)\"', got '\"\\'(?i)pattern\\'\"'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
 "category": "matched",
@@ -5033,7 +5015,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "expected ')', found \"bytes pattern\""
+"detail": "a compiled pattern shown or passed to a builtin, where the typed build has the pattern's string, and this file cannot be built over dynamic values (case.py line 11: re.L is not supported in dynamic bu"
 },
 "dyn": {
 "category": "refused",
@@ -5046,9 +5028,8 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "typed",
-"detail": "line 1: expected 'True', got 'False'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
 "category": "matched",
@@ -5075,9 +5056,8 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "typed",
-"detail": "line 1: expected '\\'re.compile(\\\\\\'random \"double quoted\" pattern\\\\\\')\\'', got '\\'\\\\\\'random \"double quoted\" pattern\\\\\\'\\''"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
 "category": "matched",
@@ -5132,9 +5112,8 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "typed",
-"detail": "line 1: expected '\"re.compile(\\'random pattern\\')\"', got '\"\\'random pattern\\'\"'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
 "category": "matched",

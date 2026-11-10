@@ -2273,6 +2273,11 @@ impl Class {
         *self.set_info.borrow_mut() = (ep, hook, props);
         b
     }
+    // a property of this name somewhere in the MRO (from the same per-epoch record as plain_set)
+    pub fn is_prop(&self, n: &str) -> bool {
+        let _ = self.plain_set(n);
+        self.set_info.borrow().2.iter().any(|k| same_name(k, n))
+    }
     // the result, and where lcache keeps the name's text (None when lcache is full)
     fn lookup_hashed(&self, n: &str, ep: u64) -> (Option<V>, Option<(usize, usize)>) {
         {

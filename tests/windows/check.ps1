@@ -1,5 +1,5 @@
 # Windows platform checks: library bridge (typed and dynamic), output parity, and the
-# refusal of the resource limits Windows cannot enforce yet. Run from the repository root after `cargo build --release`.
+# resource limits (mem in a Job Object; cpu, file and fds refused). Run from the repository root after `cargo build --release`.
 $ErrorActionPreference = "Continue"
 
 $root = (Get-Location).Path
@@ -31,6 +31,15 @@ function Check-Run([string]$name) {
     Write-Host "PASS run $name"
 }
 
+function Check-Limit([string]$name, [string]$limit, [string]$on) {
+    $file = Join-Path $root "tests\windows\$name"
+    $raw = & $brevi run --limit $limit $file 2>&1
+    $code = $LASTEXITCODE
+    $out = ($raw | ForEach-Object { "$_" }) -join "`n"
+    if ($code -ne 124) { throw "limit $limit on $name exited $code`n$out" }
+    if ($out -notmatch ('"on":"' + $on + '"')) { throw "limit $limit on $name did not name $on`n$out" }
+    Write-Host "PASS limit $limit ($on)"
+}
 
 Check-Verify "plain.py"
 Check-Verify "print_end.py"
@@ -48,8 +57,16 @@ $explain = (& $brevi check (Join-Path $root "tests\windows\bridge_yaml_dynamic.p
 if ($explain -notmatch '"path":"dynamic"') { throw "dynamic bridge program did not take the dynamic path`n$explain" }
 Write-Host "PASS dynamic path"
 
-# Windows has no kernel limit Brevi sets for cpu, mem, file or fds yet, so each is refused, never half enforced
-foreach ($lim in @("cpu=1", "mem=64", "file=1", "fds=16")) {
+# mem is held by a Windows Job Object: the program (and anything it starts) stops at the limit with exit 124
+Check-Limit "limit_mem.py" "mem=64" "mem"
+Check-Limit "limit_mem_child.py" "mem=64" "mem"
+# under its limit a program runs as usual
+$raw = & $brevi run --limit mem=512 (Join-Path $root "tests\windows\plain.py") 2>&1
+$out = Clean-Output $raw
+if ($LASTEXITCODE -ne 0 -or $out -ne "45") { throw "plain.py under a mem limit exited $LASTEXITCODE`n$out" }
+Write-Host "PASS run under a mem limit"
+# cpu (Windows caps only user-mode time), file and fds have no full OS limit on Windows: refused, never half enforced
+foreach ($lim in @("cpu=1", "file=1", "fds=16")) {
     $raw = & $brevi run --limit $lim (Join-Path $root "tests\windows\plain.py") 2>&1
     $code = $LASTEXITCODE
     $out = ($raw | ForEach-Object { "$_" }) -join "`n"
