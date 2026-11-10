@@ -926,8 +926,9 @@ fn uses(body: &[Stmt], g: &G, out: &mut Vec<Hit>) {
         }
         // The typed build stops at these errors (a Rust panic) instead of raising them where an except can
         // catch them; only errors from failing calls (int("x"): ValueError) are caught there.
+        // ZeroDivisionError and IndexError are raised catchably inside a try that names them (emit.rs).
         if let St::Try(_, hs, _, _) = &s.st {
-            const UNCAUGHT: &[&str] = &["ZeroDivisionError", "ArithmeticError", "AssertionError", "EOFError", "IndexError", "KeyError", "LookupError", "OverflowError", "RecursionError"];
+            const UNCAUGHT: &[&str] = &["ArithmeticError", "AssertionError", "EOFError", "KeyError", "LookupError", "OverflowError", "RecursionError"];
             for h in hs {
                 let mut names = vec![];
                 if let Some(t) = &h.types {
@@ -1763,7 +1764,8 @@ mod tests {
     fn matches_errors_and_loops() {
         assert!(needs("import re\nprint(re.match('a', 'b'))\n"));
         assert!(!needs("import re\nm = re.match('a', 'ab')\nprint(m.group() if m else '')\n"));
-        assert!(needs("try:\n    x = [1][3]\nexcept IndexError:\n    pass\n"));
+        assert!(!needs("try:\n    x = [1][3]\nexcept IndexError:\n    pass\n"));
+        assert!(!needs("try:\n    x = 1 // 0\nexcept ZeroDivisionError:\n    pass\n"));
         assert!(!needs("try:\n    x = int('q')\nexcept ValueError:\n    pass\n"));
         assert!(needs("d = {1: 2}\nfor k in d:\n    d[k + 1] = 0\n"));
         assert!(needs("import copy\nb = copy.copy([[1]])\n"));

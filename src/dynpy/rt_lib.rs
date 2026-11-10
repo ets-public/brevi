@@ -2009,7 +2009,11 @@ pub fn list_method(l: &Rc<RefCell<Vec<V>>>, o: &V, name: &str, mut a: Args) -> R
         }
         "copy" => list(l.borrow().clone()),
         "clear" => {
-            l.borrow_mut().clear();
+            // The items go last first, as CPython's list_clear frees them, and after the list is released.
+            let old = std::mem::take(&mut *l.borrow_mut());
+            for x in old.into_iter().rev() {
+                drop(x);
+            }
             V::None
         }
         "__len__" => V::Int(l.borrow().len() as i64),

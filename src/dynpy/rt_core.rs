@@ -422,7 +422,16 @@ impl Drop for Tup {
 #[inline(never)]
 unsafe fn tup_free(h: *mut TupHdr) {
     let n = (*h).len;
-    std::ptr::drop_in_place(std::slice::from_raw_parts_mut((h as *mut u8).add(TUP_HDR) as *mut V, n));
+    let items = (h as *mut u8).add(TUP_HDR) as *mut V;
+    if DEL_ON.load(std::sync::atomic::Ordering::Relaxed) {
+        // last item first, as CPython frees a tuple's (the order its items' __del__ run in)
+        for i in (0..n).rev() {
+            std::ptr::drop_in_place(items.add(i));
+        }
+        std::alloc::dealloc(h as *mut u8, Tup::layout(n));
+        return;
+    }
+    std::ptr::drop_in_place(std::slice::from_raw_parts_mut(items, n));
     std::alloc::dealloc(h as *mut u8, Tup::layout(n));
 }
 pub fn int(i: i64) -> V {
@@ -2490,7 +2499,154 @@ pub fn same_name(a: &str, b: &str) -> bool {
     }
     x == y
 }
+// ---------- __del__ ----------
+// CPython calls __del__ when an object's last reference goes. Here an object whose class has __del__ is moved,
+// when its last reference goes, into a fresh object that waits in FIN_PENDING; the program runs the waiting
+// finalizers after each simple statement and at exit (fin_point), so a finalizer never runs while the runtime
+// holds a borrow of a list or dict (dict.clear() dropping a value whose __del__ changes the dict is safe). An
+// object is finalized once (PEP 442): one resurrected by its __del__ is not finalized again.
+// DEL_ON is set at start only by programs that mention __del__; every other program pays one static load per drop.
+pub static DEL_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+thread_local! {
+    static FIN_PENDING: RefCell<std::collections::VecDeque<V>> = RefCell::new(std::collections::VecDeque::new());
+    static FIN_DONE: RefCell<std::collections::HashSet<usize>> = RefCell::new(std::collections::HashSet::new());
+    static FIN_RUNNING: Cell<bool> = const { Cell::new(false) };
+    static FIN_STOPPED: Cell<bool> = const { Cell::new(false) };
+    // __main__'s global slots in the order the source first sets them (the order shutdown finalizes them in)
+    static FIN_ORDER: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+}
+pub fn set_del_on(order: Vec<usize>) {
+    FIN_ORDER.with(|o| *o.borrow_mut() = order);
+    DEL_ON.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+impl Drop for Obj {
+    fn drop(&mut self) {
+        if !DEL_ON.load(std::sync::atomic::Ordering::Relaxed) {
+            return;
+        }
+        let me = self as *const Obj as usize;
+        let Ok(done) = FIN_DONE.try_with(|d| d.try_borrow_mut().map(|mut d| d.remove(&me)).unwrap_or(true)) else { return };
+        if done || std::thread::panicking() || FIN_STOPPED.try_with(|s| s.get()).unwrap_or(true) {
+            return;
+        }
+        if CLASS_EPOCH.try_with(|_| ()).is_err() || self.cls.lookup("__del__").is_none() {
+            return;
+        }
+        let d = std::mem::replace(&mut self.d, RefCell::new(AStore::new()));
+        let inner = std::mem::replace(&mut self.inner, RefCell::new(None));
+        let n = Rc::new(Obj { cls: self.cls.clone(), d, inner });
+        let _ = FIN_DONE.try_with(|f| f.borrow_mut().insert(Rc::as_ptr(&n) as usize));
+        let _ = FIN_PENDING.try_with(|p| p.borrow_mut().push_back(V::Obj(n)));
+    }
+}
+// Runs the finalizers waiting since the last call (and any they cause). An error is reported, as CPython's
+// "Exception ignored in", and the program goes on.
+#[inline]
+pub fn fin_point() {
+    if DEL_ON.load(std::sync::atomic::Ordering::Relaxed) {
+        fin_run();
+    }
+}
+#[inline(never)]
+fn fin_run() {
+    if FIN_RUNNING.with(|r| r.replace(true)) {
+        return;
+    }
+    loop {
+        let Some(o) = FIN_PENDING.with(|p| p.borrow_mut().pop_front()) else { break };
+        if let V::Obj(ob) = &o {
+            if let Some(f) = ob.cls.lookup("__del__") {
+                if let Err(E(e)) = call(&f, Args::p(vec![o.clone()])) {
+                    err_write(&format!("Exception ignored in: {}\nTraceback (most recent call last):\n{}\n", repr(&f).unwrap_or_default(), exc_line(&e)));
+                }
+            }
+        }
+        drop(o);
+    }
+    FIN_RUNNING.with(|r| r.set(false));
+}
+// At exit: the waiting finalizers, then the module's globals let go in the order they were made (CPython clears
+// __main__'s names at shutdown), each one's finalizers run, and from then on objects just go.
+pub fn fin_exit(globals: &[V]) {
+    if !DEL_ON.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    fin_run();
+    let mut seen = std::collections::HashSet::new();
+    let mut order = FIN_ORDER.with(|o| o.borrow().clone());
+    let listed: std::collections::HashSet<usize> = order.iter().copied().collect();
+    order.extend((0..globals.len()).filter(|i| !listed.contains(i)));
+    for i in order {
+        if let Some(g) = globals.get(i).cloned() {
+            fin_walk(&g, &mut seen);
+            fin_run();
+        }
+    }
+    FIN_STOPPED.with(|s| s.set(true));
+}
+// What CPython's shutdown frees from one global: an object is finalized (its __del__ seeing every global still
+// set), then what it holds; list and tuple items last first, dict entries and attributes in order.
+fn fin_walk(v: &V, seen: &mut std::collections::HashSet<usize>) {
+    let key = match v {
+        V::Obj(o) => Rc::as_ptr(o) as usize,
+        V::List(l) => Rc::as_ptr(l) as *const u8 as usize,
+        V::Dict(d) => Rc::as_ptr(d) as *const u8 as usize,
+        V::Tuple(t) => t.0.as_ptr() as usize,
+        _ => return,
+    };
+    if !seen.insert(key) {
+        return;
+    }
+    match v {
+        V::Obj(o) => {
+            if let Some(f) = o.cls.lookup("__del__") {
+                let fresh = FIN_DONE.with(|d| d.borrow_mut().insert(key));
+                if fresh {
+                    if let Err(E(e)) = call(&f, Args::p(vec![v.clone()])) {
+                        err_write(&format!("Exception ignored in: {}\nTraceback (most recent call last):\n{}\n", repr(&f).unwrap_or_default(), exc_line(&e)));
+                    }
+                    fin_run();
+                }
+            }
+            let held: Vec<V> = o.attr_values();
+            for x in held {
+                fin_walk(&x, seen);
+            }
+        }
+        V::List(l) => {
+            let items: Vec<V> = l.borrow().clone();
+            for x in items.iter().rev() {
+                fin_walk(x, seen);
+            }
+        }
+        V::Tuple(t) => {
+            for x in t.iter().rev() {
+                fin_walk(x, seen);
+            }
+        }
+        V::Dict(d) => {
+            let items = d.borrow().items();
+            for (k, x) in items {
+                fin_walk(&k, seen);
+                fin_walk(&x, seen);
+            }
+        }
+        _ => {}
+    }
+}
 impl Obj {
+    // every attribute value, in insertion order (what the instance holds, for shutdown finalization)
+    pub fn attr_values(&self) -> Vec<V> {
+        let st = self.d.borrow();
+        let mut out: Vec<V> = st.attrs.iter().map(|(_, v)| v.clone()).collect();
+        if let Some(d) = &st.dict {
+            out.extend(d.borrow().items().into_iter().map(|(_, v)| v));
+        }
+        if let Some(b) = self.inner.borrow().as_ref() {
+            out.push((**b).clone());
+        }
+        out
+    }
     pub fn new(cls: Rc<Class>) -> Rc<Obj> {
         Rc::new(Obj { cls, d: RefCell::new(AStore::new()), inner: RefCell::new(None) })
     }
