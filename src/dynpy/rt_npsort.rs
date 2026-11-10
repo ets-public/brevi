@@ -800,15 +800,10 @@ fn x86_v4() -> bool {
     false
 }
 
-// numpy skips a CPU feature group named in NPY_DISABLE_CPU_FEATURES (space or comma separated), and so do we, so
-// the order still matches numpy's when that variable is set.
-fn np_disabled(group: &str) -> bool {
-    std::env::var("NPY_DISABLE_CPU_FEATURES").is_ok_and(|v| v.split([' ', ',', '\t']).any(|g| g.eq_ignore_ascii_case(group)))
-}
 fn np_path() -> NpPath {
-    if x86_v4() && !np_disabled("X86_V4") {
+    if x86_v4() {
         NpPath::Avx512
-    } else if x86_v3() && !np_disabled("X86_V3") {
+    } else if x86_v3() {
         NpPath::Avx2
     } else {
         NpPath::Intro
