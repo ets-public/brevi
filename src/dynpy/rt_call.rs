@@ -6,16 +6,69 @@ thread_local! {
     pub static DEPTH: Cell<usize> = Cell::new(0);
     pub static REC_LIMIT: Cell<usize> = Cell::new(1000);
 }
+// CPython merges a call's keywords (explicit and **) into one dict before it binds anything, and
+// the first key whose second occurrence arrives raises TypeError. A keyword list is almost always
+// tiny, so it is scanned in place; only a very large ** dict goes through a set.
+#[inline]
+fn kw_dup(k: &[(Sym, V)]) -> Option<Sym> {
+    if k.len() < 2 {
+        return None;
+    }
+    if k.len() <= 16 {
+        for j in 1..k.len() {
+            for i in 0..j {
+                if k[i].0 == k[j].0 {
+                    return Some(k[j].0);
+                }
+            }
+        }
+        return None;
+    }
+    let mut seen: std::collections::HashSet<Sym> = std::collections::HashSet::with_capacity(k.len());
+    for (n, _) in k {
+        if !seen.insert(*n) {
+            return Some(*n);
+        }
+    }
+    None
+}
+// CPython names a bound builtin method's owner in duplicate-keyword errors: `dict.update`,
+// `collections.Counter.update`. type_name() already has most of these; Counter is the one whose
+// repr CPython shortens, so its module is added back here (only on the error path).
+fn owner_name(v: &V) -> String {
+    if let V::Dict(d) = v {
+        if d.borrow().kind == 2 {
+            return "collections.Counter".into();
+        }
+    }
+    type_name(v)
+}
 pub fn call(f: &V, a: Args) -> R {
     match f {
-        V::Func(fun) => (fun.f)(a),
+        V::Func(fun) => {
+            if let Some(k) = kw_dup(&a.k) {
+                return type_err(format!("{}() got multiple values for keyword argument '{}'", fun.fq.get(), k));
+            }
+            (fun.f)(a)
+        }
         V::Bound(b) => {
             let mut a = a;
             prepend(&mut a.p, b.0.clone());
             call(&b.1, a)
         }
-        V::BMeth(b) => call_method(&b.0, b.1, a),
-        V::Class(c) => instantiate(c, a),
+        V::BMeth(b) => {
+            if let Some(k) = kw_dup(&a.k) {
+                return type_err(format!("{}.{}() got multiple values for keyword argument '{}'", owner_name(&b.0), b.1, k));
+            }
+            call_method(&b.0, b.1, a)
+        }
+        V::Class(c) => {
+            if let Some(k) = kw_dup(&a.k) {
+                let n = if c.module == "builtins" { c.name.to_string() } else { format!("{}.{}", c.module, c.name) };
+                return type_err(format!("{}() got multiple values for keyword argument '{}'", n, k));
+            }
+            instantiate(c, a)
+        }
         V::Obj(o) => match o.cls.lookup("__call__") {
             Some(m) => {
                 let mut a = a;
@@ -1094,6 +1147,11 @@ pub fn call_method(o: &V, name: &str, mut a: Args) -> R {
             let f = getattr(o, name)?;
             call(&f, a)
         }
-        _ => builtin_method(o, name, a),
+        _ => {
+            if let Some(k) = kw_dup(&a.k) {
+                return type_err(format!("{}.{}() got multiple values for keyword argument '{}'", owner_name(o), name, k));
+            }
+            builtin_method(o, name, a)
+        }
     }
 }

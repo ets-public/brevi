@@ -2032,6 +2032,9 @@ impl Args {
 pub type FnBox = Box<dyn Fn(Args) -> R>;
 pub struct Func {
     pub name: Sym,
+    // the name CPython prints in "got multiple values for keyword argument" errors: the
+    // qualified name with its module ("__main__.show", "dict", "collections.Counter")
+    pub fq: Cell<Sym>,
     pub f: FnBox,
     // 0 function, 1 staticmethod, 2 classmethod, 3 builtin
     pub kind: Cell<u8>,
@@ -2051,10 +2054,17 @@ pub enum FastFn {
     F4(fn(V, V, V, V) -> R),
 }
 pub fn func(name: Sym, f: impl Fn(Args) -> R + 'static) -> V {
-    V::Func(Rc::new(Func { name, f: Box::new(f), kind: Cell::new(0), attrs: RefCell::new(vec![]), code_flags: Cell::new(0), fast: Cell::new(FastFn::No) }))
+    V::Func(Rc::new(Func { name, fq: Cell::new(name), f: Box::new(f), kind: Cell::new(0), attrs: RefCell::new(vec![]), code_flags: Cell::new(0), fast: Cell::new(FastFn::No) }))
 }
 pub fn builtin(name: Sym, f: impl Fn(Args) -> R + 'static) -> V {
-    V::Func(Rc::new(Func { name, f: Box::new(f), kind: Cell::new(3), attrs: RefCell::new(vec![]), code_flags: Cell::new(0), fast: Cell::new(FastFn::No) }))
+    V::Func(Rc::new(Func { name, fq: Cell::new(name), f: Box::new(f), kind: Cell::new(3), attrs: RefCell::new(vec![]), code_flags: Cell::new(0), fast: Cell::new(FastFn::No) }))
+}
+// a def's function value, with the qualified name duplicate-keyword errors print
+pub fn with_fq(f: V, fq: Sym) -> V {
+    if let V::Func(x) = &f {
+        x.fq.set(fq);
+    }
+    f
 }
 // a def's function value, with its plain Rust function for calls that pass every parameter by position
 pub fn with_fast(f: V, fast: FastFn) -> V {

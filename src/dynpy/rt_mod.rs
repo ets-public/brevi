@@ -1615,6 +1615,9 @@ fn native_strs(v: &V, deep: bool) -> V {
     }
 }
 pub fn module_call(m: &str, n: &str, a: Args) -> R {
+    if let Some(k) = kw_dup(&a.k) {
+        return type_err(format!("{m}.{n}() got multiple values for keyword argument '{k}'"));
+    }
     let a = if matches!(m, "re" | "json" | "textwrap" | "string" | "os" | "os.path" | "unicodedata" | "hashlib" | "base64" | "difflib" | "fnmatch" | "shlex" | "html" | "urllib.parse")
         && (a.p.iter().any(|x| !matches!(x, V::Str(_) | V::Int(_) | V::Float(_))) || !a.k.is_empty())
     {
