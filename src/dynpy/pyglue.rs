@@ -920,10 +920,10 @@ unsafe fn pyd_write_back(args: &PydArgs) -> Result<(), E> {
                 *l.borrow_mut() = items;
             }
             (V::Dict(d), V::Dict(n)) => {
-                let mut d = d.borrow_mut();
-                d.clear();
-                for (k, x) in n.borrow().items() {
-                    d.set(k, x)?;
+                let items = n.borrow().items();
+                d.borrow_mut().clear();
+                for (k, x) in items {
+                    Dict::set_cell(d, k, x)?;
                 }
             }
             _ => {}
