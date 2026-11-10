@@ -786,6 +786,11 @@ pub fn getattr(o: &V, name: &str) -> R {
         V::Func(f) => match name {
             "__name__" | "__qualname__" => Ok(s(f.name)),
             "__call__" => Ok(o.clone()),
+            // an assigned __code__ is kept in attrs; otherwise one is made from the def's flags
+            "__code__" if f.attrs.borrow().iter().all(|(k, _)| *k != "__code__") => match f.code_flags.get() {
+                0 => Err(exc("AttributeError", format!("'{}' object has no attribute '__code__'", if f.kind.get() == 3 { "builtin_function_or_method" } else { "function" }))),
+                fl => Ok(mk_code(f.name, fl)),
+            },
             // 0 function, 1 staticmethod, 2 classmethod (Brevi's pydantic reads it)
             "__bv_kind__" => Ok(V::Int(f.kind.get() as i64)),
             "__doc__" => Ok(f.attrs.borrow().iter().find(|(k, _)| *k == "__doc__").map_or(V::None, |(_, v)| v.clone())),

@@ -1651,6 +1651,9 @@ pub struct Func {
     // 0 function, 1 staticmethod, 2 classmethod, 3 builtin
     pub kind: Cell<u8>,
     pub attrs: RefCell<Vec<(Sym, V)>>,
+    // co_flags of the def's code object (0: none, as for builtins); the object itself is made when
+    // __code__ is read, so creating a function allocates nothing extra
+    pub code_flags: Cell<u32>,
     // the plain Rust function behind a def that takes exactly n positional arguments, for calls with n of them
     pub fast: Cell<FastFn>,
 }
@@ -1663,10 +1666,10 @@ pub enum FastFn {
     F4(fn(V, V, V, V) -> R),
 }
 pub fn func(name: Sym, f: impl Fn(Args) -> R + 'static) -> V {
-    V::Func(Rc::new(Func { name, f: Box::new(f), kind: Cell::new(0), attrs: RefCell::new(vec![]), fast: Cell::new(FastFn::No) }))
+    V::Func(Rc::new(Func { name, f: Box::new(f), kind: Cell::new(0), attrs: RefCell::new(vec![]), code_flags: Cell::new(0), fast: Cell::new(FastFn::No) }))
 }
 pub fn builtin(name: Sym, f: impl Fn(Args) -> R + 'static) -> V {
-    V::Func(Rc::new(Func { name, f: Box::new(f), kind: Cell::new(3), attrs: RefCell::new(vec![]), fast: Cell::new(FastFn::No) }))
+    V::Func(Rc::new(Func { name, f: Box::new(f), kind: Cell::new(3), attrs: RefCell::new(vec![]), code_flags: Cell::new(0), fast: Cell::new(FastFn::No) }))
 }
 // a def's function value, with its plain Rust function for calls that pass every parameter by position
 pub fn with_fast(f: V, fast: FastFn) -> V {
@@ -1674,6 +1677,40 @@ pub fn with_fast(f: V, fast: FastFn) -> V {
         x.fast.set(fast);
     }
     f
+}
+// a def's function value, with its code object's flags
+pub fn with_code(f: V, flags: u32) -> V {
+    if let V::Func(x) = &f {
+        x.code_flags.set(flags);
+    }
+    f
+}
+
+// A code object for a def or lambda: the parts the Python library reads (co_name, co_flags).
+pub struct CodeObj {
+    pub name: Sym,
+    pub flags: u32,
+}
+pub fn mk_code(name: Sym, flags: u32) -> V {
+    V::Ext(ExtRc::new(CodeObj { name, flags }))
+}
+impl Ext for CodeObj {
+    fn tname(&self) -> &'static str {
+        "code"
+    }
+    fn repr(&self) -> String {
+        format!("<code object {} at {:#x}>", &*self.name, self as *const CodeObj as usize)
+    }
+    fn any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn attr(&self, _me: &V, n: &str) -> Option<R> {
+        Some(match n {
+            "co_name" => Ok(st(self.name.to_string())),
+            "co_flags" => Ok(V::Int(self.flags as i64)),
+            _ => Err(exc("AttributeError", format!("'code' object has no attribute '{n}'"))),
+        })
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]

@@ -3133,6 +3133,28 @@ impl Em {
             None => format!("d{id}_{}", rust_ident(name)),
         };
         let qname = lit(name);
+        // co_flags, as CPython sets them: CO_OPTIMIZED | CO_NEWLOCALS, plus the function's kind and nesting.
+        let mut code_flags: u32 = 0x1 | 0x2;
+        if star {
+            code_flags |= 0x4; // CO_VARARGS
+        }
+        if kwstar {
+            code_flags |= 0x8; // CO_VARKEYWORDS
+        }
+        if is_async && is_gen {
+            code_flags |= 0x200; // CO_ASYNC_GENERATOR
+        } else {
+            if is_gen {
+                code_flags |= 0x20; // CO_GENERATOR
+            }
+            if is_async {
+                code_flags |= 0x80; // CO_COROUTINE
+            }
+        }
+        if !(at_top || in_class_top) {
+            code_flags |= 0x10; // CO_NESTED
+        }
+        let code = code_flags.to_string();
         let sig = format!("Sig {{ name: {qname}, params: &[{names_lit}], npos: {npos}, star: {star}, kwstar: {kwstar} }}");
         let dflt_all: Vec<String> = dflt_codes.iter().chain(kwd.iter()).cloned().collect();
         let nparams = params.len();
@@ -3163,14 +3185,14 @@ impl Em {
                     write!(sets, "gs({slot}, {}); ", dflt_codes[k]).unwrap();
                 }
                 let dv: Vec<String> = (0..npos).map(|k| if k >= npos - nd { format!("gr({})", slots[k - (npos - nd)]) } else { "V::Unbound".into() }).collect();
-                let v = format!("{{ {sets} func({qname}, move |a: Args| {{ let __d = [{}]; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}", dv.join(", "));
+                let v = format!("with_code({{ {sets} func({qname}, move |a: Args| {{ let __d = [{}]; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}, {code})", dv.join(", "));
                 if !is_async && !is_gen && (1..=4).contains(&nparams) {
                     return Ok(format!("with_fast({v}, FastFn::F{nparams}({fname}))"));
                 }
                 return Ok(v);
             }
             let _ = need_defaults;
-            let v = format!("{{ let __d = vec![{}]; func({qname}, move |a: Args| {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}", dflt_all.join(", "));
+            let v = format!("with_code({{ let __d = vec![{}]; func({qname}, move |a: Args| {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}, {code})", dflt_all.join(", "));
             // methods (and defs not called directly): calls passing every parameter by position skip bind()
             if !is_async && !is_gen && !star && !kwstar && p.kwonly.is_empty() && (1..=4).contains(&nparams) {
                 return Ok(format!("with_fast({v}, FastFn::F{nparams}({fname}))"));
@@ -3192,7 +3214,7 @@ impl Em {
                     let cparams: String = dcaps.iter().map(|r| format!("{r}: Rc<RefCell<V>>, ")).collect();
                     write!(self.items, "fn {dfn}({cparams}{}) -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }}\n", pdecl.join(", ")).unwrap();
                     let cargs: String = dcaps.iter().map(|r| format!("{r}.clone(), ")).collect();
-                    return Ok(format!("{{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {dfn}({cargs}{unpack}) }}) }}", dflt_all.join(", ")));
+                    return Ok(format!("with_code({{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {dfn}({cargs}{unpack}) }}) }}, {code})", dflt_all.join(", ")));
                 }
                 return Err(err(line, "internal: a nested function's captures changed"));
             }
@@ -3200,12 +3222,12 @@ impl Em {
         if is_gen || is_async {
             let mk = if is_async && is_gen { format!("make_agen(sym({qname}), ") } else if is_async { format!("make_acoro(sym({qname}), ") } else { "make_gen(".to_string() };
             return Ok(format!(
-                "{{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{caps} Ok({mk}move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}) }}",
+                "with_code({{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{caps} Ok({mk}move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}) }}, {code})",
                 dflt_all.join(", ")
             ));
         }
         Ok(format!(
-            "{{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let __depth = Depth::new()?; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{decls}{cells_init}\n{body_code}\nOk(V::None) }}) }}",
+            "with_code({{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let __depth = Depth::new()?; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{decls}{cells_init}\n{body_code}\nOk(V::None) }}) }}, {code})",
             dflt_all.join(", ")
         ))
     }
