@@ -911,6 +911,12 @@ impl AxSum<AxPy> for Vec<AxPy> {
     }
 }
 impl Eq for AxPy {}
+// A library value as a map key or set item: a NaN (x != x) stops the typed run, as the prelude's own floats do.
+impl AxNaN for AxPy {
+    fn ax_has_nan(&self) -> bool {
+        ax_pyb_op("!=", self.clone(), self.clone()).map(|v| v.ax_truth()).unwrap_or(false)
+    }
+}
 impl Ord for AxPy {
     fn cmp(&self, o: &AxPy) -> std::cmp::Ordering {
         self.partial_cmp(o).unwrap_or(std::cmp::Ordering::Equal)
