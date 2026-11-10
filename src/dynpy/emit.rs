@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 type ER<T> = Result<T, (usize, String)>;
 
-pub const BUILTIN_MODULES: [&str; 47] = ["_brevi_srv", "_brevi_proc", "importlib.metadata", "zoneinfo", "tzlocal", "atexit", "_brevi_async", "_brevi_net", "_brevi_fs", "_brevi_st", "_brevi_ort", "_brevi_sqlite", "_brevi_duckdb", "_brevi_stdio", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading"];
+pub const BUILTIN_MODULES: [&str; 49] = ["_brevi_srv", "_brevi_proc", "importlib.metadata", "zoneinfo", "tzlocal", "atexit", "_brevi_async", "_brevi_net", "_brevi_fs", "_brevi_st", "_brevi_ort", "_brevi_sqlite", "_brevi_duckdb", "_brevi_stdio", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading", "gc", "weakref"];
 
 
 // ---------- numpy, natively (rt_np*.rs) ----------
@@ -232,9 +232,17 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "tzlocal" => &["get_localzone_name", "get_localzone"],
         "importlib.metadata" => &["version", "PackageNotFoundError"],
         "zoneinfo" => &["ZoneInfo", "ZoneInfoNotFoundError", "available_timezones", "TZPATH", "reset_tzpath"],
+        "gc" => &["collect"],
+        "weakref" => &["ref"],
         _ => return false,
     };
     names.contains(&n)
+}
+
+// gc and weakref have a couple of native names (module_has); their other names keep running in CPython,
+// as they did before those native implementations were added.
+fn hybrid_bridged(m: &str) -> bool {
+    matches!(m, "gc" | "weakref") && super::bridge_ok()
 }
 // Python builtins dynamic builds do not have: refused when the program is built.
 fn is_missing_builtin(n: &str) -> bool {
@@ -1471,6 +1479,10 @@ impl Em {
                         return self.user_mod_load(&m, n, line);
                     }
                     if !module_has(&m, n) {
+                        if hybrid_bridged(&m) {
+                            self.bridged_used.insert(m.clone());
+                            return Ok(self.q(&format!("pyd_from({}, {})", lit(&m), lit(n))));
+                        }
                         return Err(err(line, &format!("{m}.{n} is not supported in dynamic builds")));
                     }
                     return Ok(self.q(&format!("module_attr({}, {})", lit(&m), lit(n))));
@@ -1843,6 +1855,11 @@ impl Em {
                 }
                 let a = self.args(args, line, None)?;
                 if !module_has(&md, m) {
+                    if hybrid_bridged(&md) {
+                        self.bridged_used.insert(md.clone());
+                        let f = self.q(&format!("pyd_from({}, {})", lit(&md), lit(m)));
+                        return Ok(self.q(&format!("call(&{f}, {a})")));
+                    }
                     return Err(err(line, &format!("{md}.{m} is not supported in dynamic builds")));
                 }
                 if md == "numpy" || md == "numpy.random" || md == "numpy.linalg" {
@@ -2364,6 +2381,12 @@ impl Em {
                     }
                     let bind = a.clone().unwrap_or(n.clone());
                     if !user && !module_has(m, n) {
+                        if hybrid_bridged(m) {
+                            self.bridged_used.insert(m.to_string());
+                            let v = self.q(&format!("pyd_from({}, {})", lit(m), lit(n)));
+                            b.push_str(&self.store(&bind, &v));
+                            continue;
+                        }
                         return Err(err(line, &format!("{m}.{n} is not supported in dynamic builds")));
                     }
                     let sub = format!("{m}.{n}");

@@ -2069,6 +2069,9 @@ impl Obj {
     pub fn set_inner(&self, v: Option<V>) {
         *self.inner.borrow_mut() = v.map(Box::new);
     }
+    pub fn take_inner(&self) -> Option<Box<V>> {
+        self.inner.borrow_mut().take()
+    }
     pub fn get(&self, n: &str) -> Option<V> {
         let d = self.d.borrow();
         d.find(n).map(|i| d.get(i).unwrap().1.clone())
