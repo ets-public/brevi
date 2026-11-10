@@ -2002,10 +2002,17 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
 }
 // "{} {name} {0:>5}".format(...); `mapping` is str.format_map's mapping, resolved lazily with [key].
 pub fn str_format(t: &str, a: &Args, mapping: Option<&V>) -> Result<String, E> {
+    Ok(str_format_auto(t, a, mapping, Some(0), 2)?.0)
+}
+// `auto` mirrors CPython's auto_arg_index: None once a manual field was seen, Some(next) while
+// automatic numbering is in effect. It is threaded through nested format specs, which continue
+// the same numbering (and can switch modes), and updated state comes back to the outer string.
+// `depth` mirrors CPython's recursion budget: every field consumes one level for its spec, even
+// an empty one, so two nested specs are as deep as str.format allows.
+fn str_format_auto(t: &str, a: &Args, mapping: Option<&V>, mut auto: Option<usize>, depth: usize) -> Result<(String, Option<usize>), E> {
     let c: Vec<char> = t.chars().collect();
     let mut out = String::new();
     let mut i = 0;
-    let mut auto = 0usize;
     while i < c.len() {
         if c[i] == '{' {
             if i + 1 < c.len() && c[i + 1] == '{' {
@@ -2014,14 +2021,14 @@ pub fn str_format(t: &str, a: &Args, mapping: Option<&V>) -> Result<String, E> {
                 continue;
             }
             // find matching }
-            let mut depth = 1;
+            let mut bdepth = 1;
             let mut j = i + 1;
             while j < c.len() {
                 if c[j] == '{' {
-                    depth += 1;
+                    bdepth += 1;
                 } else if c[j] == '}' {
-                    depth -= 1;
-                    if depth == 0 {
+                    bdepth -= 1;
+                    if bdepth == 0 {
                         break;
                     }
                 }
@@ -2032,6 +2039,9 @@ pub fn str_format(t: &str, a: &Args, mapping: Option<&V>) -> Result<String, E> {
             }
             let field: String = c[i + 1..j].iter().collect();
             i = j + 1;
+            if depth == 0 {
+                return val_err("Max string recursion exceeded".into());
+            }
             let (head, spec) = match field.find(':') {
                 Some(p) => (field[..p].to_string(), field[p + 1..].to_string()),
                 None => (field.clone(), String::new()),
@@ -2040,8 +2050,6 @@ pub fn str_format(t: &str, a: &Args, mapping: Option<&V>) -> Result<String, E> {
                 Some(p) => (head[..p].to_string(), Some(head[p + 1..].to_string())),
                 None => (head, None),
             };
-            // nested fields in the spec
-            let spec = if spec.contains('{') { str_format(&spec, &Args { p: a.p.clone(), k: a.k.clone() }, mapping)? } else { spec };
             // first part: index or name, then .attr / [key]
             let name_end = head.find(|ch: char| ch == '.' || ch == '[').unwrap_or(head.len());
             let first = &head[..name_end];
@@ -2049,13 +2057,19 @@ pub fn str_format(t: &str, a: &Args, mapping: Option<&V>) -> Result<String, E> {
                 if mapping.is_some() {
                     return val_err("Format string contains positional fields".into());
                 }
-                let v = a.p.get(auto).cloned().ok_or_else(|| exc("IndexError", format!("Replacement index {auto} out of range for positional args tuple")))?;
-                auto += 1;
-                v
+                let k = auto.ok_or_else(|| exc("ValueError", "cannot switch from manual field specification to automatic field numbering".into()))?;
+                auto = Some(k + 1);
+                a.p.get(k).cloned().ok_or_else(|| exc("IndexError", format!("Replacement index {k} out of range for positional args tuple")))?
             } else if let Ok(k) = first.parse::<usize>() {
                 if mapping.is_some() {
                     return val_err("Format string contains positional fields".into());
                 }
+                if let Some(n) = auto {
+                    if n > 0 {
+                        return val_err("cannot switch from automatic field numbering to manual field specification".into());
+                    }
+                }
+                auto = None;
                 a.p.get(k).cloned().ok_or_else(|| exc("IndexError", format!("Replacement index {k} out of range for positional args tuple")))?
             } else if let Some(m) = mapping {
                 getitem(m, &s(first))?
@@ -2087,6 +2101,14 @@ pub fn str_format(t: &str, a: &Args, mapping: Option<&V>) -> Result<String, E> {
                 Some("a") => bi_ascii(Args::p(vec![v]))?,
                 _ => v,
             };
+            // nested fields in the spec continue the same auto numbering
+            let spec = if spec.contains('{') {
+                let (s, next) = str_format_auto(&spec, a, mapping, auto, depth - 1)?;
+                auto = next;
+                s
+            } else {
+                spec
+            };
             out.push_str(&format_spec(&v, &spec)?);
         } else if c[i] == '}' {
             if i + 1 < c.len() && c[i + 1] == '}' {
@@ -2100,7 +2122,7 @@ pub fn str_format(t: &str, a: &Args, mapping: Option<&V>) -> Result<String, E> {
             i += 1;
         }
     }
-    Ok(out)
+    Ok((out, auto))
 }
 // `xs.clear(None)`: CPython's TypeError for a method that takes no arguments.
 fn no_args(ty: &str, name: &str, a: &Args) -> Result<(), E> {

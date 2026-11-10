@@ -490,7 +490,7 @@ struct Spec {
     prec: Option<usize>,
     ty: Option<char>,
 }
-fn parse_spec(spec: &str) -> Result<Spec, E> {
+fn parse_spec(spec: &str, v: Option<&V>) -> Result<Spec, E> {
     let c: Vec<char> = spec.chars().collect();
     let mut i = 0;
     let mut sp = Spec { fill: ' ', align: None, sign: '-', alt: false, zero: false, width: 0, group: None, prec: None, ty: None };
@@ -544,7 +544,10 @@ fn parse_spec(spec: &str) -> Result<Spec, E> {
         i += 1;
     }
     if i < c.len() {
-        return val_err(format!("Invalid format specifier '{spec}'"));
+        return val_err(match v {
+            Some(v) => format!("Invalid format specifier '{spec}' for object of type '{}'", tn(v)),
+            None => format!("Invalid format specifier '{spec}'"),
+        });
     }
     Ok(sp)
 }
@@ -729,7 +732,7 @@ pub fn format_spec(v: &V, spec: &str) -> Result<String, E> {
     if spec.is_empty() {
         return to_str(v);
     }
-    let sp = parse_spec(spec)?;
+    let sp = parse_spec(spec, Some(v))?;
     match v {
         V::Str(x) => {
             if let Some(t) = sp.ty {

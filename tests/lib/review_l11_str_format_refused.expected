@@ -1,0 +1,9 @@
+A-B     abc
+'abc    '
+'    abc'
+'a     abc'
+'7'
+ValueError: Invalid format specifier '>abc' for object of type 'int'
+ValueError: cannot switch from manual field specification to automatic field numbering
+ValueError: cannot switch from automatic field numbering to manual field specification
+'abc    '
