@@ -2558,16 +2558,51 @@ struct Timespec {
     sec: i64,
     nsec: i64,
 }
+#[cfg(not(windows))]
 extern "C" {
     fn clock_gettime(clk: i32, ts: *mut Timespec) -> i32;
 }
 // clock_gettime(CLOCK_MONOTONIC or CLOCK_PROCESS_CPUTIME_ID) in nanoseconds
 pub fn clock_ns(cpu: bool) -> i64 {
-    #[cfg(target_os = "macos")]
-    let clk = if cpu { 12 } else { 6 };
-    #[cfg(not(target_os = "macos"))]
-    let clk = if cpu { 2 } else { 1 };
-    let mut ts = Timespec { sec: 0, nsec: 0 };
-    unsafe { clock_gettime(clk, &mut ts) };
-    ts.sec * 1_000_000_000 + ts.nsec
+    #[cfg(windows)]
+    {
+        // Windows: QPC is monotonic; GetProcessTimes gives the process's CPU time (100 ns units).
+        #[repr(C)]
+        struct Ft {
+            lo: u32,
+            hi: u32,
+        }
+        #[repr(C)]
+        struct Pt {
+            creation: Ft,
+            exit: Ft,
+            kernel: Ft,
+            user: Ft,
+        }
+        extern "system" {
+            fn GetCurrentProcess() -> *mut core::ffi::c_void;
+            fn GetProcessTimes(h: *mut core::ffi::c_void, c: *mut Ft, e: *mut Ft, k: *mut Ft, u: *mut Ft) -> i32;
+        }
+        if cpu {
+            let mut p = Pt { creation: Ft { lo: 0, hi: 0 }, exit: Ft { lo: 0, hi: 0 }, kernel: Ft { lo: 0, hi: 0 }, user: Ft { lo: 0, hi: 0 } };
+            let ok = unsafe { GetProcessTimes(GetCurrentProcess(), &mut p.creation, &mut p.exit, &mut p.kernel, &mut p.user) };
+            if ok != 0 {
+                let t = |f: &Ft| ((f.hi as u64) << 32 | f.lo as u64) as i64;
+                return (t(&p.kernel) + t(&p.user)) * 100;
+            }
+            return 0;
+        }
+        static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+        return START.get_or_init(std::time::Instant::now).elapsed().as_nanos() as i64;
+    }
+    #[cfg(not(windows))]
+    {
+        #[cfg(target_os = "macos")]
+        let clk = if cpu { 12 } else { 6 };
+        #[cfg(not(target_os = "macos"))]
+        let clk = if cpu { 2 } else { 1 };
+        let mut ts = Timespec { sec: 0, nsec: 0 };
+        unsafe { clock_gettime(clk, &mut ts) };
+        ts.sec * 1_000_000_000 + ts.nsec
+    }
 }

@@ -1,0 +1,52 @@
+# Windows platform checks: the CPython library bridge, output parity, generators/async,
+# Brevi's native requests/httpx, sqlite3, duckdb, onnxruntime and MCP, and the resource limits.
+# Runs on PRs that touch the compiler or these tests.
+name: windows
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "tests/windows/**"
+      - ".github/workflows/windows.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  platform:
+    # Draft PRs skip CI (AGENTS.md), and so does this job.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Python 3.13
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Python libraries for the checks
+        run: python -m pip install --quiet pyyaml requests
+
+      - name: Optional native-copy libraries (checks skip when absent)
+        continue-on-error: true
+        run: python -m pip install --quiet duckdb onnxruntime
+
+      - name: Build Brevi
+        run: cargo build --release
+
+      - name: Windows platform checks
+        run: pwsh -NoProfile -File tests/windows/check.ps1

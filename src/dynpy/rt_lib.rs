@@ -11,6 +11,11 @@ thread_local! {
     pub static ARGV: RefCell<Vec<String>> = RefCell::new(vec![]);
 }
 pub fn out_write(t: &str) {
+    // CPython's text streams on Windows write CRLF; match them (every LF, as its TextIOWrapper does).
+    #[cfg(windows)]
+    let t = t.replace('\n', "\r\n");
+    #[cfg(windows)]
+    let t = t.as_str();
     OUT.with(|o| {
         let mut o = o.borrow_mut();
         if o.buf.len() + t.len() > 8192 {
@@ -39,6 +44,10 @@ pub fn out_flush() {
     });
 }
 pub fn err_write(t: &str) {
+    #[cfg(windows)]
+    let t = t.replace('\n', "\r\n");
+    #[cfg(windows)]
+    let t = t.as_str();
     std::io::stderr().write_all(t.as_bytes()).ok();
 }
 fn with_stdin<T>(f: impl FnOnce(&mut std::io::BufReader<std::io::Stdin>) -> T) -> T {
@@ -833,10 +842,37 @@ pub fn bi_ord(a: Args) -> R {
 }
 pub fn bi_chr(a: Args) -> R {
     let a = enum_nums(a);
-    let i = idx_of(&a1(&a, "chr")?)?;
-    match u32::try_from(i).ok().and_then(char::from_u32) {
+    chr_of(&a1(&a, "chr")?)
+}
+// chr() takes the value `__index__` gives; a huge int is still just out of range, not an index error.
+fn chr_of(x: &V) -> R {
+    match x {
+        V::Big(b) => {
+            let n = b.mag.first().copied().unwrap_or(0);
+            if b.neg || b.mag.len() > 1 {
+                return val_err("chr() arg not in range(0x110000)".into());
+            }
+            chr_code(n as i64)
+        }
+        V::Obj(o) if o.cls.lookup("__index__").is_some() => {
+            chr_of(&call(&o.cls.lookup("__index__").unwrap(), Args::p(vec![x.clone()]))?)
+        }
+        // an int subclass (IntEnum)
+        V::Obj(_) if matches!(inner_of(x), Some(V::Int(_) | V::Bool(_) | V::Big(_))) => chr_of(&inner_of(x).unwrap()),
+        _ => {
+            chr_code(idx_of(x)?)
+        }
+    }
+}
+// chr() of an int that fits: out of range is CPython's ValueError; a lone surrogate (U+D800..U+DFFF) is a str in
+// CPython that a Rust string cannot hold, so it stops as unsupported instead of giving a different string.
+fn chr_code(i: i64) -> R {
+    if !(0..=0x10FFFF).contains(&i) {
+        return val_err("chr() arg not in range(0x110000)".into());
+    }
+    match char::from_u32(i as u32) {
         Some(c) => Ok(ch1(c)),
-        None => val_err("chr() arg not in range(0x110000)".into()),
+        None => Err(unsupported("chr() of a lone surrogate (U+D800..U+DFFF)")),
     }
 }
 fn radix(a: Args, f: &str, r: u32, p: &str) -> R {
@@ -931,6 +967,33 @@ pub fn bi_divmod(a: Args) -> R {
     let r = binop(&a.p[0], &a.p[1], "%")?;
     Ok(tup(vec![q, r]))
 }
+// pow(a, -1, m): the modular inverse of a modulo m, found by the extended Euclid algorithm (the coefficient
+// for a, with the same sign as m once reduced). None when no inverse exists (gcd(a, m) != 1).
+fn big_invmod(b: &Big, m: &Big) -> Option<Big> {
+    if m.mag.len() == 1 && m.mag[0] == 1 {
+        return Some(Big::from_i64(0));
+    }
+    let (mut old_r, mut r) = (b.divmod(m).1, m.clone());
+    let (mut old_s, mut s) = (Big::from_i64(1), Big::from_i64(0));
+    while !r.is_zero() {
+        let (q, rem) = old_r.divmod(&r);
+        let ns = old_s.sub(&q.mul(&s));
+        (old_r, r) = (r, rem);
+        (old_s, s) = (s, ns);
+    }
+    let neg = old_r.neg;
+    if neg {
+        old_r = old_r.neg();
+    }
+    if old_r.mag.len() != 1 || old_r.mag[0] != 1 {
+        return None;
+    }
+    if neg {
+        old_s = old_s.neg();
+    }
+    Some(old_s.divmod(m).1)
+}
+
 pub fn bi_pow(a: Args) -> R {
     let a = enum_nums(a);
     a.want("pow", 2, 3)?;
@@ -944,7 +1007,8 @@ pub fn bi_pow(a: Args) -> R {
             return val_err("pow() 3rd argument cannot be 0".into());
         }
         if e.neg {
-            return Err(unsupported("pow() with a negative exponent and a modulus"));
+            b = big_invmod(&b, &m).ok_or_else(|| exc("ValueError", "base is not invertible for the given modulus".into()))?;
+            e = e.neg();
         }
         let mut r = Big::from_i64(1).divmod(&m).1;
         b = b.divmod(&m).1;

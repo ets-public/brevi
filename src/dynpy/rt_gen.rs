@@ -64,8 +64,50 @@ unsafe fn coro_init_stack(top: *mut u8, arg: *mut Coro) -> *mut u8 {
     sp as *mut u8
 }
 
-pub const GEN_SUPPORTED: bool = cfg!(all(any(target_arch = "x86_64", target_arch = "aarch64"), not(windows)));
+pub const GEN_SUPPORTED: bool = cfg!(any(target_arch = "x86_64", target_arch = "aarch64"));
 
+// Windows has fibers, which own a stack and switch it for us (and update the TEB, so stack overflow and
+// unwind work). The Unix targets use the assembly above; this is the same idea through kernel32.
+#[cfg(windows)]
+mod fiber {
+    use super::*;
+    use std::ffi::c_void;
+    pub type H = *mut c_void;
+    unsafe extern "system" {
+        fn ConvertThreadToFiber(p: *mut c_void) -> H;
+        fn CreateFiber(size: usize, start: unsafe extern "system" fn(*mut c_void), p: *mut c_void) -> H;
+        fn DeleteFiber(f: H);
+        fn SwitchToFiber(f: H);
+        fn GetLastError() -> u32;
+    }
+    thread_local! {
+        pub static CUR: std::cell::Cell<H> = const { std::cell::Cell::new(std::ptr::null_mut()) };
+    }
+    // The thread's own fiber, created on the first generator or async task.
+    pub fn ensure() -> Result<(), E> {
+        if !CUR.with(|c| c.get().is_null()) {
+            return Ok(());
+        }
+        let f = unsafe { ConvertThreadToFiber(std::ptr::null_mut()) };
+        if f.is_null() {
+            // 1280 = ERROR_ALREADY_FIBER: a host already made this thread a fiber and we cannot get its handle.
+            return Err(exc("SystemError", "generators/async need a thread that is not already a fiber".into()));
+        }
+        CUR.with(|c| c.set(f));
+        Ok(())
+    }
+    pub unsafe fn create(size: usize, start: unsafe extern "system" fn(*mut c_void), p: *mut c_void) -> H {
+        CreateFiber(size, start, p)
+    }
+    pub unsafe fn delete(h: H) {
+        DeleteFiber(h)
+    }
+    pub unsafe fn switch(h: H) {
+        SwitchToFiber(h)
+    }
+}
+
+#[cfg(not(windows))]
 extern "C" {
     fn mmap(addr: *mut u8, len: usize, prot: i32, flags: i32, fd: i32, off: i64) -> *mut u8;
     fn munmap(addr: *mut u8, len: usize) -> i32;
@@ -82,6 +124,10 @@ pub struct Coro {
     stack: *mut u8,
     sp: *mut u8,
     caller_sp: *mut u8,
+    #[cfg(windows)]
+    fiber: *mut std::ffi::c_void,
+    #[cfg(windows)]
+    caller_fiber: *mut std::ffi::c_void,
     body: Option<Box<dyn FnOnce() -> R>>,
     // A value passed across a switch: yielded out, or sent in.
     xfer: Option<V>,
@@ -131,6 +177,7 @@ fn gen_unraisable(e: &V) {
     err_write(&format!("Exception ignored while closing generator:\nTraceback (most recent call last):\n{}\n", exc_line(e)));
 }
 
+#[cfg(not(windows))]
 extern "C" fn coro_main(c: *mut Coro) {
     unsafe {
         let body = (*c).body.take().unwrap();
@@ -145,9 +192,40 @@ extern "C" fn coro_main(c: *mut Coro) {
     }
 }
 
+#[cfg(windows)]
+unsafe extern "system" fn coro_fiber_proc(c: *mut std::ffi::c_void) {
+    let c = c as *mut Coro;
+    let body = (*c).body.take().unwrap();
+    let r = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)) {
+        Ok(r) => r,
+        Err(_) => Err(exc("SystemError", "a generator stopped with an internal error".into())),
+    };
+    (*c).result = Some(r);
+    let caller = (*c).caller_fiber;
+    fiber::CUR.with(|x| x.set(caller));
+    fiber::switch(caller);
+    std::process::abort();
+}
+
 impl Coro {
     fn new(body: Box<dyn FnOnce() -> R>) -> Box<Coro> {
-        Box::new(Coro { stack: std::ptr::null_mut(), sp: std::ptr::null_mut(), caller_sp: std::ptr::null_mut(), body: Some(body), xfer: None, thrown: None, result: None, started: false, running: false, depth: 0, depth_base: 0 })
+        Box::new(Coro {
+            stack: std::ptr::null_mut(),
+            sp: std::ptr::null_mut(),
+            caller_sp: std::ptr::null_mut(),
+            #[cfg(windows)]
+            fiber: std::ptr::null_mut(),
+            #[cfg(windows)]
+            caller_fiber: std::ptr::null_mut(),
+            body: Some(body),
+            xfer: None,
+            thrown: None,
+            result: None,
+            started: false,
+            running: false,
+            depth: 0,
+            depth_base: 0,
+        })
     }
     // Runs the generator to its next yield: Some(value), or None once it has returned.
     pub fn resume(&mut self, sent: V) -> Result<Option<V>, E> {
@@ -157,6 +235,9 @@ impl Coro {
         if self.running {
             return Err(exc("ValueError", "generator already executing".into()));
         }
+        #[cfg(windows)]
+        self.resume_fiber(sent)?;
+        #[cfg(not(windows))]
         unsafe {
             if !self.started {
                 let p = mmap(std::ptr::null_mut(), CORO_STACK, 3, MAP_ANON_FLAGS, -1, 0);
@@ -193,6 +274,35 @@ impl Coro {
                     Err(e) => Err(e),
                 }
             }
+        }
+    }
+    #[cfg(windows)]
+    fn resume_fiber(&mut self, sent: V) -> Result<(), E> {
+        unsafe {
+            if !self.started {
+                fiber::ensure()?;
+                let f = fiber::create(CORO_STACK, coro_fiber_proc, self as *mut Coro as *mut std::ffi::c_void);
+                if f.is_null() {
+                    return Err(exc("MemoryError", "no memory for a generator".into()));
+                }
+                self.fiber = f;
+                self.started = true;
+            }
+            self.xfer = Some(sent);
+            self.running = true;
+            self.depth_base = DEPTH.with(|d| d.get());
+            DEPTH.with(|d| d.set(self.depth_base + self.depth));
+            let caller = fiber::CUR.with(|c| c.get());
+            self.caller_fiber = caller;
+            fiber::CUR.with(|c| c.set(self.fiber));
+            CORO_NOW.with(|s| s.borrow_mut().push(self as *mut Coro));
+            fiber::switch(self.fiber);
+            CORO_NOW.with(|s| s.borrow_mut().pop());
+            fiber::CUR.with(|c| c.set(caller));
+            self.running = false;
+            self.depth = DEPTH.with(|d| d.get()).saturating_sub(self.depth_base);
+            DEPTH.with(|d| d.set(self.depth_base));
+            Ok(())
         }
     }
     // throw(e): raised at the yield the generator is suspended at; one not started yet ends with it unrun.
@@ -239,8 +349,16 @@ impl Coro {
     }
     fn free_stack(&mut self) {
         if !self.stack.is_null() {
-            unsafe { munmap(self.stack, CORO_STACK) };
+            #[cfg(not(windows))]
+            unsafe {
+                munmap(self.stack, CORO_STACK)
+            };
             self.stack = std::ptr::null_mut();
+        }
+        #[cfg(windows)]
+        if !self.fiber.is_null() {
+            unsafe { fiber::delete(self.fiber) };
+            self.fiber = std::ptr::null_mut();
         }
     }
 }
@@ -263,16 +381,36 @@ impl Drop for Coro {
 
 // `yield v` inside a generator body: hands v to next() and returns what send() passes back (None for next()).
 pub fn gen_yield(v: V) -> R {
-    let c = CORO_NOW.with(|s| s.borrow().last().copied());
-    let Some(c) = c else { return Err(exc("SystemError", "yield outside a generator".into())) };
-    unsafe {
-        (*c).xfer = Some(v);
-        brevi_ctx_switch(&mut (*c).sp, (*c).caller_sp);
-        if let Some(e) = (*c).thrown.take() {
-            (*c).xfer = None;
-            return Err(e);
+    #[cfg(windows)]
+    {
+        let c = CORO_NOW.with(|s| s.borrow().last().copied());
+        let Some(c) = c else { return Err(exc("SystemError", "yield outside a generator".into())) };
+        unsafe {
+            (*c).xfer = Some(v);
+            let caller = (*c).caller_fiber;
+            fiber::CUR.with(|x| x.set(caller));
+            fiber::switch(caller);
+            fiber::CUR.with(|x| x.set((*c).fiber));
+            if let Some(e) = (*c).thrown.take() {
+                (*c).xfer = None;
+                return Err(e);
+            }
+            Ok((*c).xfer.take().unwrap_or(V::None))
         }
-        Ok((*c).xfer.take().unwrap_or(V::None))
+    }
+    #[cfg(not(windows))]
+    {
+        let c = CORO_NOW.with(|s| s.borrow().last().copied());
+        let Some(c) = c else { return Err(exc("SystemError", "yield outside a generator".into())) };
+        unsafe {
+            (*c).xfer = Some(v);
+            brevi_ctx_switch(&mut (*c).sp, (*c).caller_sp);
+            if let Some(e) = (*c).thrown.take() {
+                (*c).xfer = None;
+                return Err(e);
+            }
+            Ok((*c).xfer.take().unwrap_or(V::None))
+        }
     }
 }
 

@@ -692,6 +692,9 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
                         }
                     }
                 } else {
+                    if x == 0 {
+                        return Err(exc("ZeroDivisionError", "0.0 cannot be raised to a negative power".into()));
+                    }
                     return Ok(V::Float((x as f64).powf(y as f64)));
                 }
             }
@@ -729,6 +732,9 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
                 }
                 "**" => {
                     if q.neg {
+                        if p.is_zero() {
+                            return Err(exc("ZeroDivisionError", "0.0 cannot be raised to a negative power".into()));
+                        }
                         return Ok(V::Float(p.to_f64().powf(q.to_f64())));
                     }
                     let e = q.to_i64().ok_or_else(|| exc("OverflowError", "exponent too large".into()))?;
@@ -960,7 +966,7 @@ fn float_op(x: f64, y: f64, op: &str, a: &V, b: &V) -> R {
         }
         "**" => {
             if x == 0.0 && y < 0.0 {
-                return Err(exc("ZeroDivisionError", "zero to a negative power".into()));
+                return Err(exc("ZeroDivisionError", "0.0 cannot be raised to a negative power".into()));
             }
             if x < 0.0 && y.fract() != 0.0 {
                 return Err(unsupported("complex numbers"));
