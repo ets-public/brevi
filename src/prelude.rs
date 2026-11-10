@@ -5868,6 +5868,16 @@ pub fn ax_exc_report(e: &String) -> String {
         chain.split(',').next().unwrap_or("error").to_string()
     }).unwrap_or_else(|| "error".to_string())
 }
+// An error that ends the program: the JSON line names the class it was raised as (`"type":"MyErr"`), as CPython's
+// last traceback line does; an error without a class (a failed call) has no type.
+pub fn ax_uncaught(e: &String) {
+    let at = ax_at(AX_LINE.load(std::sync::atomic::Ordering::Relaxed));
+    let ty = e.strip_prefix('\u{1}').and_then(|r| r.split_once('\u{1}')).and_then(|(chain, _)| {
+        let chain = chain.rsplit_once(';').map_or(chain, |(c, _)| c);
+        chain.split(',').next().filter(|c| !c.is_empty()).map(|c| format!(",\"type\":{c:?}"))
+    });
+    eprintln!("{{\"e\":\"runtime\",{at}{},\"msg\":{:?}}}", ty.unwrap_or_default(), ax_exc_report(e));
+}
 // `except A, B:` for this error: one of its classes is named (Exception catches every class); an error without
 // a class (a failed call) is caught by any built-in error name.
 pub fn ax_exc_is(e: &String, names: String, builtin: bool) -> bool {
