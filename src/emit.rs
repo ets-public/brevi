@@ -2445,11 +2445,12 @@ impl Emitter {
                     self.place(recv)
                 };
                 // A lambda inside the lambda that can fail (`[[int(x) for x in r] for r in rows]`) fails this one too.
-                let tries = TRY_METHODS.contains(&name.as_str()) && args.iter().any(|a| matches!(a, Expr::Lambda(_, b) if
-                    can_fail(b)
-                        || self.ck_zd && self.ck_can_zd(b)
-                        || self.ck_ie && self.ck_can_ie(b)
-                        || !self.catch.is_empty() && ((self.catches("ZeroDivisionError") && self.ck_can_zd(b)) || (self.catches("IndexError") && self.ck_can_ie(b)))));
+                let tries = (self.py_mode && name == "char" && !self.catch.is_empty() && self.catches("ValueError"))
+                    || (TRY_METHODS.contains(&name.as_str()) && args.iter().any(|a| matches!(a, Expr::Lambda(_, b) if
+                        can_fail(b)
+                            || self.ck_zd && self.ck_can_zd(b)
+                            || self.ck_ie && self.ck_can_ie(b)
+                            || !self.catch.is_empty() && ((self.catches("ZeroDivisionError") && self.ck_can_zd(b)) || (self.catches("IndexError") && self.ck_can_ie(b))))));
                 // Outside a function that can fail and outside try/except, a failure inside the lambda stops the
                 // program with its message, as an uncaught Python exception does (`(int(x) for x in parts)`).
                 let tries = tries && (self.fallible || !self.catch.is_empty());

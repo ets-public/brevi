@@ -833,10 +833,37 @@ pub fn bi_ord(a: Args) -> R {
 }
 pub fn bi_chr(a: Args) -> R {
     let a = enum_nums(a);
-    let i = idx_of(&a1(&a, "chr")?)?;
-    match u32::try_from(i).ok().and_then(char::from_u32) {
+    chr_of(&a1(&a, "chr")?)
+}
+// chr() takes the value `__index__` gives; a huge int is still just out of range, not an index error.
+fn chr_of(x: &V) -> R {
+    match x {
+        V::Big(b) => {
+            let n = b.mag.first().copied().unwrap_or(0);
+            if b.neg || b.mag.len() > 1 {
+                return val_err("chr() arg not in range(0x110000)".into());
+            }
+            chr_code(n as i64)
+        }
+        V::Obj(o) if o.cls.lookup("__index__").is_some() => {
+            chr_of(&call(&o.cls.lookup("__index__").unwrap(), Args::p(vec![x.clone()]))?)
+        }
+        // an int subclass (IntEnum)
+        V::Obj(_) if matches!(inner_of(x), Some(V::Int(_) | V::Bool(_) | V::Big(_))) => chr_of(&inner_of(x).unwrap()),
+        _ => {
+            chr_code(idx_of(x)?)
+        }
+    }
+}
+// chr() of an int that fits: out of range is CPython's ValueError; a lone surrogate (U+D800..U+DFFF) is a str in
+// CPython that a Rust string cannot hold, so it stops as unsupported instead of giving a different string.
+fn chr_code(i: i64) -> R {
+    if !(0..=0x10FFFF).contains(&i) {
+        return val_err("chr() arg not in range(0x110000)".into());
+    }
+    match char::from_u32(i as u32) {
         Some(c) => Ok(ch1(c)),
-        None => val_err("chr() arg not in range(0x110000)".into()),
+        None => Err(unsupported("chr() of a lone surrogate (U+D800..U+DFFF)")),
     }
 }
 fn radix(a: Args, f: &str, r: u32, p: &str) -> R {
