@@ -863,6 +863,20 @@ fn runtime_lib(cache: &Path, rustc_v: &str) -> Result<PathBuf, String> {
         return Ok(lib);
     }
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    // programs built side by side wait for one build of the runtime instead of each building it
+    let lock = dir.join(".lock");
+    let owned = crate::build_lock(&lock, &|| lib.exists());
+    let r = runtime_lib_build(&dir, &lib);
+    if owned {
+        std::fs::remove_file(&lock).ok();
+    }
+    r
+}
+
+fn runtime_lib_build(dir: &Path, lib: &Path) -> Result<PathBuf, String> {
+    if lib.exists() {
+        return Ok(lib.to_path_buf());
+    }
     let tmp = dir.join(format!("build-{}", std::process::id()));
     std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
     std::fs::write(tmp.join("rt.rs"), RUNTIME).map_err(|e| e.to_string())?;
@@ -877,10 +891,10 @@ fn runtime_lib(cache: &Path, rustc_v: &str) -> Result<PathBuf, String> {
         std::fs::remove_dir_all(&tmp).ok();
         return Err(format!("dynamic runtime did not build: {}", String::from_utf8_lossy(&o.stderr).lines().take(20).collect::<Vec<_>>().join("\n")));
     }
-    let moved = std::fs::rename(tmp.join("libbrevi_dyn.rlib"), &lib).is_ok();
+    let moved = std::fs::rename(tmp.join("libbrevi_dyn.rlib"), lib).is_ok();
     std::fs::remove_dir_all(&tmp).ok();
     if moved || lib.exists() {
-        Ok(lib)
+        Ok(lib.to_path_buf())
     } else {
         Err("dynamic runtime could not be saved".into())
     }
@@ -1026,6 +1040,10 @@ fn build(rust: &str, dir: &Path, out: &Path, opt: &str, cache: &Path, rustc_v: &
         let used = if cached.with_extension("plain").exists() { plain() } else { rust.to_string() };
         return Ok(used);
     }
+    // A build that isn't --release links Brevi's library copies from a library compiled once (split_build); when
+    // that can't be done the program is built whole, as before.
+    let mut used = rust.to_string();
+    if release || !use_cache || std::env::var("BREVI_DYN_SPLIT").is_ok_and(|v| v == "0") || !split_build(rust, dir, out, opt, &cdir, &lib) {
     let rs = dir.join("dyn_main.rs");
     let run = |src: &str| -> Result<std::process::Output, String> {
         std::fs::write(&rs, src).map_err(|e| e.to_string())?;
@@ -1039,7 +1057,6 @@ fn build(rust: &str, dir: &Path, out: &Path, opt: &str, cache: &Path, rustc_v: &
             .map_err(|e| e.to_string())
     };
     let o = run(rust)?;
-    let mut used = rust.to_string();
     if !o.status.success() {
         let err = String::from_utf8_lossy(&o.stderr).to_string();
         if rust.contains("ldr(&") && (err.contains("E0506") || err.contains("E0505") || err.contains("E0502") || err.contains("E0499")) {
@@ -1051,6 +1068,7 @@ fn build(rust: &str, dir: &Path, out: &Path, opt: &str, cache: &Path, rustc_v: &
         } else {
             return Err(err);
         }
+    }
     }
     if use_cache && std::fs::create_dir_all(&cdir).is_ok() {
         let tmp = cdir.join(format!("{key}.{}", std::process::id()));
@@ -1064,6 +1082,115 @@ fn build(rust: &str, dir: &Path, out: &Path, opt: &str, cache: &Path, rustc_v: &
         }
     }
     Ok(used)
+}
+
+// Builds `rust` (a program whose library copies come first, up to emit::LIB_END) in two parts: the copies as a
+// library, compiled once and kept in the binary cache (`bin`, under its size limit like the binaries), keyed by
+// their Rust, and the program's own part linked to it. The copies' Rust is the same for every program that
+// imports the same modules, so the 40 to 150 s of rustc they take is paid once instead of on every program. False
+// when the program has no copies or a part does not build: the caller then builds it whole.
+fn split_build(rust: &str, dir: &Path, out: &Path, opt: &str, cdir: &Path, dynrt: &Path) -> bool {
+    let Some(i) = rust.find(emit::LIB_END) else { return false };
+    // The copies' items are used from the program's crate, so they are made public.
+    let mut lib_src = String::with_capacity(i + i / 8);
+    for line in rust[..i].split_inclusive('\n') {
+        let public = [("fn ", "pub fn "), ("static ", "pub static "), ("#[allow(dead_code)] fn ", "#[allow(dead_code)] pub fn "), ("thread_local! { static ", "thread_local! { pub static ")]
+            .iter()
+            .find_map(|(from, to)| line.strip_prefix(from).map(|rest| (to, rest)));
+        match public {
+            Some((to, rest)) => {
+                lib_src.push_str(to);
+                lib_src.push_str(rest);
+            }
+            None => lib_src.push_str(line),
+        }
+    }
+    let user_src = format!("{HEADER}extern crate brevi_lib; use brevi_lib::*;\n{}", &rust[i + emit::LIB_END.len()..]);
+    let key = format!("{:016x}", fnv(&[&lib_src, opt, crate::rustc_version(), RUNTIME, "dynlib"]));
+    let rlib = cdir.join(format!("libbrevi_lib_{key}.rlib"));
+    let failed = cdir.join(format!("{key}.libfail"));
+    if failed.exists() {
+        return false;
+    }
+    let rustc = |src: &str, name: &str, kind: &[&str], o: &Path| -> Result<(), String> {
+        let rs = dir.join(format!("{name}.rs"));
+        std::fs::write(&rs, src).map_err(|e| e.to_string())?;
+        let r = crate::rustc_cmd()
+            .args(["--edition", "2021", "--crate-name", name, "-A", "warnings", "-C", opt, "-C", "overflow-checks=off", "-C", crate::codegen_units()])
+            .args(kind)
+            .arg("--extern")
+            .arg(format!("brevi_dyn={}", dynrt.display()))
+            .arg("-o")
+            .arg(o)
+            .arg(&rs)
+            .output()
+            .map_err(|e| e.to_string())?;
+        if r.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&r.stderr).to_string())
+        }
+    };
+    // Another build of the same copies under way (programs built side by side): wait for its library rather
+    // than compile the same copies again.
+    let lock = cdir.join(format!(".tmp-lib-{key}.lock"));
+    let owned = crate::build_lock(&lock, &|| rlib.exists() || failed.exists());
+    let unlock = || {
+        if owned {
+            std::fs::remove_file(&lock).ok();
+        }
+    };
+    if failed.exists() {
+        unlock();
+        return false;
+    }
+    if rlib.exists() {
+        unlock();
+        crate::touch(&rlib);
+    } else {
+        if std::fs::create_dir_all(cdir).is_err() {
+            unlock();
+            return false;
+        }
+        let tmp = cdir.join(format!(".tmp-lib-{key}-{}.rlib", std::process::id()));
+        let mut r = rustc(&lib_src, "brevi_lib", &["--crate-type", "rlib"], &tmp);
+        // as in compile: without borrow_loads's borrows
+        if matches!(&r, Err(e) if lib_src.contains("ldr(&") && ["E0506", "E0505", "E0502", "E0499"].iter().any(|c| e.contains(c))) {
+            r = rustc(&lib_src.replace("ldr(&", "&ld(&"), "brevi_lib", &["--crate-type", "rlib"], &tmp);
+        }
+        let moved = r.is_ok() && (std::fs::rename(&tmp, &rlib).is_ok() || rlib.exists());
+        match r {
+            Ok(()) => {
+                if !moved {
+                    std::fs::remove_file(&tmp).ok();
+                }
+            }
+            Err(e) => {
+                std::fs::remove_file(&tmp).ok();
+                // a mistake in the copies' Rust: remembered, so the next program goes straight to a whole build
+                if e.contains("error[E") {
+                    std::fs::write(&failed, e.lines().take(20).collect::<Vec<_>>().join("\n")).ok();
+                }
+                if std::env::var("BREVI_DYN_SPLIT_DEBUG").is_ok() {
+                    eprintln!("library copies did not build apart: {}", e.lines().take(20).collect::<Vec<_>>().join("\n"));
+                }
+                unlock();
+                return false;
+            }
+        }
+        unlock();
+        if !moved {
+            return false;
+        }
+    }
+    let ext = format!("brevi_lib={}", rlib.display());
+    let r = rustc(&user_src, "brevi_prog", &["-C", "strip=debuginfo", "--extern", &ext], out);
+    if let Err(e) = &r {
+        if std::env::var("BREVI_DYN_SPLIT_DEBUG").is_ok() {
+            eprintln!("program did not build apart from its copies: {}", e.lines().take(20).collect::<Vec<_>>().join("\n"));
+        }
+    }
+    r.is_ok()
 }
 
 // ------------------------------------------------------------------------------------------- library classes

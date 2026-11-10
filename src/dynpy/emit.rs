@@ -2998,6 +2998,8 @@ pub fn rust_ident(n: &str) -> String {
 // inline caches for attribute access (getattr_ic): the program declares IC0..IC{n-1}
 thread_local! {
     static IC_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    // the inline caches below this are the library copies' (emitted with them, see program)
+    static IC_LIB_END: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 fn new_ic() -> usize {
     IC_COUNT.with(|c| {
@@ -3008,11 +3010,12 @@ fn new_ic() -> usize {
 }
 pub fn ic_reset() {
     IC_COUNT.with(|c| c.set(0));
+    IC_LIB_END.with(|c| c.set(0));
 }
 pub fn ic_statics() -> String {
     let n = IC_COUNT.with(|c| c.get());
     let mut s = String::new();
-    for k in 0..n {
+    for k in IC_LIB_END.with(|c| c.get())..n {
         s.push_str(&format!("static IC{k}: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(usize::MAX);\n"));
     }
     s
@@ -3041,130 +3044,150 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         bridge,
         bridged_used: BTreeSet::new(),
     };
-    // module-level names, import aliases and directly callable defs
-    for m in mods {
-        let sc = scope_of(&m.body, &[]);
-        let mut names = sc.locals.clone();
-        // names declared global in functions
-        fn globals_in(body: &[Stmt], out: &mut BTreeSet<String>) {
-            for s in body {
-                match &s.st {
-                    St::Def(d) => {
-                        let sc = scope_of(&d.body, &[]);
-                        out.extend(sc.globals.iter().cloned());
-                        globals_in(&d.body, out);
-                    }
-                    St::Class(c) => globals_in(&c.body, out),
-                    St::If(arms, els) => {
-                        for (_, b) in arms {
-                            globals_in(b, out);
-                        }
-                        if let Some(b) = els {
-                            globals_in(b, out);
-                        }
-                    }
-                    St::For(_, _, b, e) | St::While(_, b, e) => {
-                        globals_in(b, out);
-                        if let Some(e) = e {
-                            globals_in(e, out);
-                        }
-                    }
-                    St::Try(b, hs, e, f) => {
-                        globals_in(b, out);
-                        for h in hs {
-                            globals_in(&h.body, out);
-                        }
-                        if let Some(e) = e {
-                            globals_in(e, out);
-                        }
-                        if let Some(f) = f {
-                            globals_in(f, out);
-                        }
-                    }
-                    St::With(_, b) => globals_in(b, out),
-                    _ => {}
-                }
-            }
-        }
-        globals_in(&m.body, &mut names);
-        // how often each name is bound at module level (top level statements only)
-        let mut binds: HashMap<String, usize> = HashMap::new();
-        let mut import_of: HashMap<String, String> = HashMap::new();
-        let mut def_names: HashSet<String> = HashSet::new();
-        fn count(body: &[Stmt], binds: &mut HashMap<String, usize>, import_of: &mut HashMap<String, String>, defs: &mut HashSet<String>, top: bool) {
-            for s in body {
-                let mut b = BTreeSet::new();
-                match &s.st {
-                    St::Import(v) => {
-                        for (m, a) in v {
-                            let bind = a.clone().unwrap_or_else(|| m.split('.').next().unwrap().to_string());
-                            let target = if a.is_some() { m.clone() } else { m.split('.').next().unwrap().to_string() };
-                            import_of.insert(bind.clone(), target);
-                            b.insert(bind);
-                        }
-                    }
-                    St::Def(d) => {
-                        if top && d.decorators.is_empty() {
-                            defs.insert(d.name.clone());
-                        }
-                        b.insert(d.name.clone());
-                    }
-                    _ => {
-                        let sc = scope_of(std::slice::from_ref(s), &[]);
-                        b = sc.locals;
-                    }
-                }
-                for n in b {
-                    *binds.entry(n).or_default() += 1;
-                }
-            }
-        }
-        count(&m.body, &mut binds, &mut import_of, &mut def_names, true);
-        // assignments to globals from inside functions also rebind
-        let mut fn_globals = BTreeSet::new();
-        globals_in(&m.body, &mut fn_globals);
-        for (n, t) in import_of {
-            if binds.get(&n) == Some(&1) && !fn_globals.contains(&n) && !(em.bridge.has(&t) && !builtin_mod(t.as_str()) && !em.user_modules.contains(&t)) {
-                em.mod_alias.insert((m.name.clone(), n), t);
-            }
-        }
-        for s in &m.body {
-            if let St::Def(d) = &s.st {
-                let n = &d.name;
-                let p = &d.params;
-                if def_names.contains(n) && binds.get(n) == Some(&1) && !fn_globals.contains(n) && p.star.is_none() && p.kwstar.is_none() && p.kwonly.is_empty() && !has_yield(&d.body) && !d.is_async {
-                    em.direct_ok.insert((m.name.clone(), n.clone()));
-                    let npos = p.pos.len();
-                    let nd = p.pos.iter().rev().take_while(|x| x.1.is_some()).count();
-                    let slots: Vec<usize> = (npos - nd..npos).map(|k| em.gslot(&m.name, &format!("<default {n} {k}>"))).collect();
-                    em.direct.insert((m.name.clone(), n.clone()), (format!("f_{}_{}", rust_ident(&m.name), rust_ident(n)), npos, slots));
-                }
-            }
-        }
-        for n in &names {
-            em.gslot(&m.name, n);
-        }
-        em.mod_names.insert(m.name.clone(), names);
-    }
-    // bodies
+    // Brevi's own library copies first, each group named and numbered on its own, then the program's modules:
+    // the copies' Rust (everything before LIB_END) is then the same for every program that imports them, so a
+    // build can compile it once into a cached library (dynpy::compile) instead of with every program.
+    let own = OWN_COPIES.lock().unwrap().clone();
+    let mut libs: Vec<&Module> = mods.iter().skip(1).filter(|m| own.contains(&m.name)).collect();
+    libs.sort_by(|a, b| a.name.cmp(&b.name));
+    let users: Vec<&Module> = mods.iter().filter(|m| !libs.iter().any(|l| l.name == m.name)).collect();
+    let mut lib_part = String::new();
     let mut inits = String::new();
-    for m in mods {
-        em.module = m.name.clone();
-        IN_COPY.with(|c| c.set(OWN_COPIES.lock().unwrap().contains(&m.name)));
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, exc_vars: vec![], is_module: true, is_class: false, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new() };
-        for n in em.mod_names[&m.name].clone() {
-            let i = em.gslot(&m.name, &n);
-            fr.vars.insert(n.clone(), Var::Global(i));
+    for (gi, group) in [libs.clone(), users].into_iter().enumerate() {
+    // module-level names, import aliases and directly callable defs
+        for m in group.iter().copied() {
+            let sc = scope_of(&m.body, &[]);
+            let mut names = sc.locals.clone();
+            // names declared global in functions
+            fn globals_in(body: &[Stmt], out: &mut BTreeSet<String>) {
+                for s in body {
+                    match &s.st {
+                        St::Def(d) => {
+                            let sc = scope_of(&d.body, &[]);
+                            out.extend(sc.globals.iter().cloned());
+                            globals_in(&d.body, out);
+                        }
+                        St::Class(c) => globals_in(&c.body, out),
+                        St::If(arms, els) => {
+                            for (_, b) in arms {
+                                globals_in(b, out);
+                            }
+                            if let Some(b) = els {
+                                globals_in(b, out);
+                            }
+                        }
+                        St::For(_, _, b, e) | St::While(_, b, e) => {
+                            globals_in(b, out);
+                            if let Some(e) = e {
+                                globals_in(e, out);
+                            }
+                        }
+                        St::Try(b, hs, e, f) => {
+                            globals_in(b, out);
+                            for h in hs {
+                                globals_in(&h.body, out);
+                            }
+                            if let Some(e) = e {
+                                globals_in(e, out);
+                            }
+                            if let Some(f) = f {
+                                globals_in(f, out);
+                            }
+                        }
+                        St::With(_, b) => globals_in(b, out),
+                        _ => {}
+                    }
+                }
+            }
+            globals_in(&m.body, &mut names);
+            // how often each name is bound at module level (top level statements only)
+            let mut binds: HashMap<String, usize> = HashMap::new();
+            let mut import_of: HashMap<String, String> = HashMap::new();
+            let mut def_names: HashSet<String> = HashSet::new();
+            fn count(body: &[Stmt], binds: &mut HashMap<String, usize>, import_of: &mut HashMap<String, String>, defs: &mut HashSet<String>, top: bool) {
+                for s in body {
+                    let mut b = BTreeSet::new();
+                    match &s.st {
+                        St::Import(v) => {
+                            for (m, a) in v {
+                                let bind = a.clone().unwrap_or_else(|| m.split('.').next().unwrap().to_string());
+                                let target = if a.is_some() { m.clone() } else { m.split('.').next().unwrap().to_string() };
+                                import_of.insert(bind.clone(), target);
+                                b.insert(bind);
+                            }
+                        }
+                        St::Def(d) => {
+                            if top && d.decorators.is_empty() {
+                                defs.insert(d.name.clone());
+                            }
+                            b.insert(d.name.clone());
+                        }
+                        _ => {
+                            let sc = scope_of(std::slice::from_ref(s), &[]);
+                            b = sc.locals;
+                        }
+                    }
+                    for n in b {
+                        *binds.entry(n).or_default() += 1;
+                    }
+                }
+            }
+            count(&m.body, &mut binds, &mut import_of, &mut def_names, true);
+            // assignments to globals from inside functions also rebind
+            let mut fn_globals = BTreeSet::new();
+            globals_in(&m.body, &mut fn_globals);
+            for (n, t) in import_of {
+                if binds.get(&n) == Some(&1) && !fn_globals.contains(&n) && !(em.bridge.has(&t) && !builtin_mod(t.as_str()) && !em.user_modules.contains(&t)) {
+                    em.mod_alias.insert((m.name.clone(), n), t);
+                }
+            }
+            for s in &m.body {
+                if let St::Def(d) = &s.st {
+                    let n = &d.name;
+                    let p = &d.params;
+                    if def_names.contains(n) && binds.get(n) == Some(&1) && !fn_globals.contains(n) && p.star.is_none() && p.kwstar.is_none() && p.kwonly.is_empty() && !has_yield(&d.body) && !d.is_async {
+                        em.direct_ok.insert((m.name.clone(), n.clone()));
+                        let npos = p.pos.len();
+                        let nd = p.pos.iter().rev().take_while(|x| x.1.is_some()).count();
+                        let slots: Vec<usize> = (npos - nd..npos).map(|k| em.gslot(&m.name, &format!("<default {n} {k}>"))).collect();
+                        em.direct.insert((m.name.clone(), n.clone()), (format!("f_{}_{}", rust_ident(&m.name), rust_ident(n)), npos, slots));
+                    }
+                }
+            }
+            for n in &names {
+                em.gslot(&m.name, n);
+            }
+            em.mod_names.insert(m.name.clone(), names);
         }
-        em.fstack.push(fr);
-        let name_slot = em.gslot(&m.name, "__name__");
-        let body = em.block(&m.body).map_err(|(l, e)| (m.name.clone(), l, e))?;
-        em.fstack.pop();
-        let ident = rust_ident(&m.name);
-        let nm = lit(&m.name);
-        write!(inits, "thread_local! {{ static DONE_{ident}: Cell<bool> = Cell::new(false); }}\nfn init_{ident}() -> Result<(), E> {{ if DONE_{ident}.with(|d| d.replace(true)) {{ return Ok(()); }} gs({name_slot}, s({nm}));\n{body}\nOk(()) }}\n").unwrap();
+    // bodies
+        for m in group.iter().copied() {
+            em.module = m.name.clone();
+            IN_COPY.with(|c| c.set(OWN_COPIES.lock().unwrap().contains(&m.name)));
+            let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, exc_vars: vec![], is_module: true, is_class: false, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new() };
+            for n in em.mod_names[&m.name].clone() {
+                let i = em.gslot(&m.name, &n);
+                fr.vars.insert(n.clone(), Var::Global(i));
+            }
+            em.fstack.push(fr);
+            let name_slot = em.gslot(&m.name, "__name__");
+            let body = em.block(&m.body).map_err(|(l, e)| (m.name.clone(), l, e))?;
+            em.fstack.pop();
+            let ident = rust_ident(&m.name);
+            let nm = lit(&m.name);
+            write!(inits, "thread_local! {{ static DONE_{ident}: Cell<bool> = Cell::new(false); }}\nfn init_{ident}() -> Result<(), E> {{ if DONE_{ident}.with(|d| d.replace(true)) {{ return Ok(()); }} gs({name_slot}, s({nm}));\n{body}\nOk(()) }}\n").unwrap();
+        }
+        if gi == 0 && !libs.is_empty() {
+            lib_part.push_str(&std::mem::take(&mut em.items));
+            lib_part.push_str(&std::mem::take(&mut inits));
+            for m in &libs {
+                lib_part.push_str(&gtab(&em, &m.name));
+            }
+            lib_part.push_str(&ic_statics());
+            IC_LIB_END.with(|c| c.set(IC_COUNT.with(|n| n.get())));
+            lib_part.push_str(LIB_END);
+        }
     }
-    let mut out = String::new();
+    let mut out = lib_part;
     out.push_str(&em.items);
     out.push_str(&inits);
     // user module attribute hook
@@ -3180,14 +3203,8 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     hook.push_str("_ => None } }\n");
     out.push_str(&hook);
     // name -> global slot, per module, for globals()
-    for m in mods {
-        let mut slots: Vec<(String, usize)> = em.globals.iter().filter(|((mm, n), _)| mm == &m.name && !n.starts_with('<')).map(|((_, n), i)| (n.clone(), *i)).collect();
-        slots.sort();
-        write!(out, "#[allow(dead_code)] fn gtab_{}(k: &str) -> Option<usize> {{ match k {{ ", rust_ident(&m.name)).unwrap();
-        for (n, i) in slots {
-            write!(out, "{} => Some({i}), ", lit(&n)).unwrap();
-        }
-        out.push_str("_ => None } }\n");
+    for m in mods.iter().filter(|m| !libs.iter().any(|l| l.name == m.name)) {
+        out.push_str(&gtab(&em, &m.name));
     }
     let consts: Vec<String> = em.consts.iter().map(|c| format!("s({})", lit(c))).collect();
     write!(
@@ -3199,6 +3216,21 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     .unwrap();
     let _ = &em.out;
     Ok((out, em.bridged_used.into_iter().collect()))
+}
+
+// The program's Rust up to this line is its library copies (see program).
+pub const LIB_END: &str = "\n//==BREVI_LIB_END==\n";
+
+// name -> global slot in module `m`, for globals()
+fn gtab(em: &Em, m: &str) -> String {
+    let mut slots: Vec<(String, usize)> = em.globals.iter().filter(|((mm, n), _)| mm == m && !n.starts_with('<')).map(|((_, n), i)| (n.clone(), *i)).collect();
+    slots.sort();
+    let mut out = format!("#[allow(dead_code)] fn gtab_{}(k: &str) -> Option<usize> {{ match k {{ ", rust_ident(m));
+    for (n, i) in slots {
+        write!(out, "{} => Some({i}), ", lit(&n)).unwrap();
+    }
+    out.push_str("_ => None } }\n");
+    out
 }
 
 // fields used by the code above
