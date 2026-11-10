@@ -503,7 +503,25 @@ pub fn alive(pid: u32) -> bool {
     unsafe {
         kill(pid as i32, 0) == 0 || std::io::Error::last_os_error().raw_os_error() != Some(3)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        // A process that has exited has no live handle: OpenProcess fails, or the handle is signalled.
+        const SYNCHRONIZE: u32 = 0x0010_0000;
+        const WAIT_TIMEOUT: u32 = 258;
+        unsafe extern "system" {
+            fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut core::ffi::c_void;
+            fn WaitForSingleObject(h: *mut core::ffi::c_void, ms: u32) -> u32;
+            fn CloseHandle(h: *mut core::ffi::c_void) -> i32;
+        }
+        let h = unsafe { OpenProcess(SYNCHRONIZE, 0, pid) };
+        if h.is_null() {
+            return false;
+        }
+        let r = unsafe { WaitForSingleObject(h, 0) };
+        unsafe { CloseHandle(h) };
+        r == WAIT_TIMEOUT
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = pid;
         true

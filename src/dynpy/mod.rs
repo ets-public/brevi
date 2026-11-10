@@ -27,7 +27,7 @@ pub fn bridged() -> Vec<String> {
 // Whether this build may hand libraries to CPython: not under the sandbox without allow native, and only with
 // a python3 that has libpython (asked once, only when a program imports such a library).
 fn bridge_ok() -> bool {
-    cfg!(unix) && !crate::pybridge::no_native() && !NO_BRIDGE.load(Ordering::Relaxed) && std::env::var("BREVI_DYN_BRIDGE").map_or(true, |v| v != "0") && crate::pybridge::python_ok().is_ok()
+    !crate::pybridge::no_native() && !NO_BRIDGE.load(Ordering::Relaxed) && std::env::var("BREVI_DYN_BRIDGE").map_or(true, |v| v != "0") && crate::pybridge::python_ok().is_ok()
 }
 
 pub const RUNTIME: &str = concat!(
@@ -427,12 +427,26 @@ fn to_rust_np2(file: &str) -> Result<String, (String, usize, String)> {
 // Where the duckdb Python package's library is (it holds DuckDB's C API) and CPython's library, which it needs
 // loaded first: asked of python3 when the program is built, without importing duckdb.
 fn duck_libs() -> (Vec<String>, String) {
-    const Q: &str = "import importlib.util, glob, os, sysconfig\ns = importlib.util.find_spec('duckdb')\nd = os.path.dirname(list(s.submodule_search_locations)[0]) if s and s.submodule_search_locations else ''\nlibs = sorted(glob.glob(os.path.join(d, '_duckdb*.so'))) if d else []\nlib = os.path.join(sysconfig.get_config_var('LIBDIR') or '', sysconfig.get_config_var('INSTSONAME') or sysconfig.get_config_var('LDLIBRARY') or '')\nprint('\\x01'.join([lib] + libs))";
-    let exe = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
+    const Q: &str = "import importlib.util, glob, os, sys, sysconfig\ns = importlib.util.find_spec('duckdb')\nd = os.path.dirname(list(s.submodule_search_locations)[0]) if s and s.submodule_search_locations else ''\nlibs = sorted(glob.glob(os.path.join(d, '_duckdb*.so')) + glob.glob(os.path.join(d, '*duckdb*.dll')) + glob.glob(os.path.join(d, '_duckdb*.pyd'))) if d else []\nlib = os.path.join(sys.base_prefix, 'python%d%d.dll' % sys.version_info[:2]) if os.name == 'nt' else os.path.join(sysconfig.get_config_var('LIBDIR') or '', sysconfig.get_config_var('INSTSONAME') or sysconfig.get_config_var('LDLIBRARY') or '')\nprint('\\x01'.join([lib] + libs))";
+    let exe = crate::python_exe();
     let out = std::process::Command::new(&exe).args(["-c", Q]).output().map(|o| String::from_utf8_lossy(&o.stdout).trim_end().to_string()).unwrap_or_default();
     let mut parts = out.split('\u{1}').map(String::from);
     let pre = parts.next().unwrap_or_default();
     (parts.filter(|x| !x.is_empty()).collect(), pre)
+}
+
+// The Python DLL folder that holds libssl/libcrypto, and certifi's CA bundle, embedded at build time so a
+// Windows program never loads (or trusts) a DLL or bundle from its own folder or PATH.
+fn python_ssl_dir() -> String {
+    const Q: &str = "import os, sys\nfor d in (os.path.join(sys.base_prefix, 'DLLs'), os.path.dirname(sys.executable)):\n    if os.path.isfile(os.path.join(d, 'libssl-1_1.dll')) or os.path.isfile(os.path.join(d, 'libssl-3-x64.dll')) or os.path.isfile(os.path.join(d, 'libssl-3.dll')):\n        print(d)\n        break";
+    let out = std::process::Command::new(crate::python_exe()).args(["-I", "-c", Q]).output();
+    out.map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default()
+}
+
+fn python_ca_file() -> String {
+    const Q: &str = "try:\n    import certifi\n    print(certifi.where())\nexcept Exception:\n    import ssl\n    p = ssl.get_default_verify_paths().cafile or ''\n    print(p if p and __import__('os').path.isfile(p) else '')";
+    let out = std::process::Command::new(crate::python_exe()).args(["-I", "-c", Q]).output();
+    out.map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default()
 }
 
 const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap, argparse, logging, asyncio, tiktoken, tokenizers, requests, httpx, pydantic, anthropic, openai, jinja2, polars, sqlite3, duckdb, safetensors or onnxruntime beyond Brevi's own copies runs in CPython";
@@ -440,8 +454,8 @@ const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap, argparse, loggin
 // The ONNX Runtime library inside the onnxruntime Python package (it has the C API), asked of python3 when the
 // program is built, without importing onnxruntime.
 fn ort_libs() -> Vec<String> {
-    const Q: &str = "import importlib.util, glob, os\ns = importlib.util.find_spec('onnxruntime')\nd = list(s.submodule_search_locations)[0] if s and s.submodule_search_locations else ''\nlibs = sorted(glob.glob(os.path.join(d, 'capi', 'libonnxruntime.so*')) + glob.glob(os.path.join(d, 'capi', 'libonnxruntime*.dylib'))) if d else []\nprint('\\x01'.join(libs))";
-    let exe = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
+    const Q: &str = "import importlib.util, glob, os\ns = importlib.util.find_spec('onnxruntime')\nd = list(s.submodule_search_locations)[0] if s and s.submodule_search_locations else ''\nlibs = sorted(glob.glob(os.path.join(d, 'capi', 'libonnxruntime.so*')) + glob.glob(os.path.join(d, 'capi', 'libonnxruntime*.dylib')) + glob.glob(os.path.join(d, 'capi', 'onnxruntime*.dll'))) if d else []\nprint('\\x01'.join(libs))";
+    let exe = crate::python_exe();
     let Ok(o) = std::process::Command::new(&exe).args(["-I", "-c", Q]).output() else { return vec![] };
     String::from_utf8_lossy(&o.stdout).trim().split('\x01').filter(|s| !s.is_empty()).map(|s| s.to_string()).collect()
 }
@@ -728,8 +742,8 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         rust = hf::embed(rust, b);
     }
     if net_used {
-        if !cfg!(unix) {
-            return Err((file.to_string(), 0, "Brevi's own requests and httpx run on Linux and macOS".into()));
+        if cfg!(windows) {
+            rust.push_str(&format!("\nconst BREVI_SSL_DIR: &str = {:?};\nconst BREVI_CA_FILE: &str = {:?};\n", python_ssl_dir(), python_ca_file()));
         }
         rust = rust.replacen("fn main() { ", "fn main() { NET.set(brevi_netglue::ops()).ok(); ", 1);
         rust.push_str(&net_glue());
@@ -747,9 +761,6 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     }
     // an HTTP server's sockets (Brevi's mcp, transport="streamable-http" or "sse"): only where the program may serve one
     if stdio_used && texts.iter().any(|(n, (_, t))| !own_mods.contains(n) && (t.contains("streamable") || t.contains("\"sse\"") || t.contains("'sse'") || t.contains("run_sse"))) {
-        if !cfg!(unix) {
-            return Err((file.to_string(), 0, "Brevi's own mcp runs on Linux and macOS".into()));
-        }
         rust = rust.replacen("fn main() { ", "fn main() { SRV.set(brevi_srvglue::ops()).ok(); ", 1);
         // under --sandbox a server listens only on a host the caller granted (--allow-net HOST, or --allow net)
         let (any, hosts) = crate::caps::net_hosts();
@@ -758,9 +769,6 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         rust.push_str(include_str!("srvglue.rs"));
     }
     if stdio_used {
-        if !cfg!(unix) {
-            return Err((file.to_string(), 0, "Brevi's own mcp runs on Linux and macOS".into()));
-        }
         rust = rust.replacen("fn main() { ", "fn main() { STDIO.set(brevi_stdioglue::ops()).ok(); ", 1);
         rust.push('\n');
         rust.push_str(include_str!("stdioglue.rs"));
@@ -782,25 +790,16 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         rust.push_str(include_str!("fsglue.rs"));
     }
     if sql_used {
-        if !cfg!(unix) {
-            return Err((file.to_string(), 0, "Brevi's own sqlite3 runs on Linux and macOS".into()));
-        }
         rust = rust.replacen("fn main() { ", "fn main() { SQL.set(brevi_sqlglue::ops()).ok(); ", 1);
         rust.push_str(include_str!("sqlglue.rs"));
     }
     if duck_used {
-        if !cfg!(unix) {
-            return Err((file.to_string(), 0, "Brevi's own duckdb runs on Linux and macOS".into()));
-        }
         let (libs, pre) = duck_libs();
         rust = rust.replacen("fn main() { ", "fn main() { DUCK.set(brevi_duckglue::ops()).ok(); ", 1);
         rust.push_str(&format!("\nconst DUCK_LIBS: &[&str] = &{libs:?};\nconst DUCK_PRELOAD: &str = {pre:?};\n"));
         rust.push_str(include_str!("duckglue.rs"));
     }
     if ort_used {
-        if !cfg!(unix) {
-            return Err((file.to_string(), 0, "Brevi's own onnxruntime runs on Linux and macOS".into()));
-        }
         rust = rust.replacen("fn main() { ", "fn main() { ORT.set(brevi_ortglue::ops()).ok(); ", 1);
         rust.push_str(&format!("\nconst ORT_LIBS: &[&str] = &{:?};\n", ort_libs()));
         rust.push_str(include_str!("ortglue.rs"));

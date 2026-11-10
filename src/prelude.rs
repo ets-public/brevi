@@ -703,7 +703,34 @@ impl<T: Clone> AxTupleItems<T> for (T, T, T, T, T, T, T, T) {
     }
 }
 pub fn print<T: Show>(x: T) {
+    #[cfg(windows)]
+    {
+        let mut s = x.show();
+        s.push('\n');
+        ax_out(&s);
+    }
+    #[cfg(not(windows))]
     println!("{}", x.show());
+}
+// Text to stdout, then flushed. CPython's text streams on Windows write CRLF for every LF (even one already
+// after a CR), as its TextIOWrapper does; Brevi's output matches that there.
+pub fn ax_out(s: &str) {
+    use std::io::Write;
+    let mut o = std::io::stdout();
+    #[cfg(windows)]
+    let _ = o.write_all(s.replace('\n', "\r\n").as_bytes());
+    #[cfg(not(windows))]
+    let _ = o.write_all(s.as_bytes());
+    let _ = o.flush();
+}
+// Text to stderr (stdout flushed first, so the two stay in order), with CRLF on Windows as CPython writes it.
+pub fn ax_err(s: &str) {
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
+    #[cfg(windows)]
+    let _ = std::io::stderr().write_all(s.replace('\n', "\r\n").as_bytes());
+    #[cfg(not(windows))]
+    let _ = std::io::stderr().write_all(s.as_bytes());
 }
 // Python-style truth for conditions: false, 0, "", [] and {} are false.
 pub trait AxTruth {
@@ -1097,7 +1124,7 @@ fn ax_csv_line<T: Show>(w: &str, row: Vec<T>) -> String {
 }
 impl AxCsvW for String {
     fn ax_csv_writerow<T: Show>(&self, row: Vec<T>) {
-        print!("{}", ax_csv_line(self, row));
+        ax_out(&ax_csv_line(self, row));
     }
     fn ax_csv_writerows<T: Show>(&self, rows: Vec<Vec<T>>) {
         for r in rows {
@@ -3998,10 +4025,22 @@ impl AxCode for String {
 }
 pub trait AxChar {
     fn ax_char(&self) -> String;
+    // The same conversion where a Python try that catches ValueError can see the failure as an error value.
+    fn ax_try_char(&self) -> R<String>;
 }
 impl AxChar for i64 {
     fn ax_char(&self) -> String {
-        char::from_u32(*self as u32).map_or(String::new(), |c| c.to_string())
+        if *self < 0 || *self > 0x10FFFF {
+            panic!("ValueError: chr() arg not in range(0x110000)");
+        }
+        // A lone surrogate is a str in CPython that a Rust String cannot hold: stop rather than give "".
+        char::from_u32(*self as u32).map_or_else(|| panic!("chr() of a lone surrogate (U+D800..U+DFFF) is not supported"), |c| c.to_string())
+    }
+    fn ax_try_char(&self) -> R<String> {
+        if *self < 0 || *self > 0x10FFFF {
+            return Err(AxErr("chr() arg not in range(0x110000)".into()));
+        }
+        Ok(char::from_u32(*self as u32).map_or_else(|| panic!("chr() of a lone surrogate (U+D800..U+DFFF) is not supported"), |c| c.to_string()))
     }
 }
 // A function stored in a map: `ops = {"+": add}`, then `ops["+"](1, 2)` or `f = ops[k]; f(1, 2)`.
@@ -4462,13 +4501,13 @@ impl AxExit for i64 {
 }
 impl AxExit for String {
     fn ax_exit_with(&self) -> ! {
-        eprintln!("{self}");
+        ax_err(&format!("{self}\n"));
         std::process::exit(1)
     }
 }
 impl AxExit for &str {
     fn ax_exit_with(&self) -> ! {
-        eprintln!("{self}");
+        ax_err(&format!("{self}\n"));
         std::process::exit(1)
     }
 }
@@ -6220,6 +6259,47 @@ impl AxPow<f64> for i64 {
     type Out = f64;
     fn ax_pow(self, b: f64) -> f64 {
         ax_fpow(self as f64, b)
+    }
+}
+// The same power, but a zero base to a negative power is a ZeroDivisionError a Python try can catch.
+pub trait AxPowTry<B = Self>: Sized {
+    type Out;
+    fn ax_pow_try(self, b: B) -> R<Self::Out>;
+}
+impl AxPowTry<i64> for i64 {
+    type Out = i64;
+    fn ax_pow_try(self, b: i64) -> R<i64> {
+        if self == 0 && b < 0 {
+            return Err(ax_zd_err("0.0 cannot be raised to a negative power"));
+        }
+        Ok(self.ax_pow(b))
+    }
+}
+impl AxPowTry<f64> for f64 {
+    type Out = f64;
+    fn ax_pow_try(self, b: f64) -> R<f64> {
+        if self == 0.0 && b < 0.0 {
+            return Err(ax_zd_err("0.0 cannot be raised to a negative power"));
+        }
+        Ok(ax_fpow(self, b))
+    }
+}
+impl AxPowTry<i64> for f64 {
+    type Out = f64;
+    fn ax_pow_try(self, b: i64) -> R<f64> {
+        if self == 0.0 && b < 0 {
+            return Err(ax_zd_err("0.0 cannot be raised to a negative power"));
+        }
+        Ok(ax_fpow(self, b as f64))
+    }
+}
+impl AxPowTry<f64> for i64 {
+    type Out = f64;
+    fn ax_pow_try(self, b: f64) -> R<f64> {
+        if self == 0 && b < 0.0 {
+            return Err(ax_zd_err("0.0 cannot be raised to a negative power"));
+        }
+        Ok(ax_fpow(self as f64, b))
     }
 }
 // Python 3's `a / b`: always a float.

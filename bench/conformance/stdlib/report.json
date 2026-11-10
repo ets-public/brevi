@@ -9,26 +9,26 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 202,
-"refused": 163,
-"wrong_output": 32,
-"wrong_exit": 52,
+"matched": 207,
+"refused": 171,
+"wrong_output": 25,
+"wrong_exit": 46,
 "crash_or_timeout": 1,
 "not_extractable": 104,
 "unstable": 22,
 "excluded": 29,
 "total": 605,
 "scored": 554,
-"matched_through_cpython": 9,
+"matched_through_cpython": 8,
 "matched_silent": 27,
-"coverage": 0.3484,
-"wrong": 84
+"coverage": 0.3592,
+"wrong": 71
 },
 "dyn": {
-"matched": 204,
-"refused": 173,
-"wrong_output": 22,
-"wrong_exit": 50,
+"matched": 212,
+"refused": 180,
+"wrong_output": 13,
+"wrong_exit": 44,
 "crash_or_timeout": 1,
 "not_extractable": 104,
 "unstable": 22,
@@ -37,8 +37,8 @@
 "scored": 554,
 "matched_through_cpython": 0,
 "matched_silent": 27,
-"coverage": 0.3682,
-"wrong": 72
+"coverage": 0.3827,
+"wrong": 57
 }
 },
 "files": {
@@ -112,26 +112,26 @@
 },
 "test_re": {
 "normal": {
-"matched": 50,
-"refused": 37,
-"wrong_output": 23,
-"wrong_exit": 17,
+"matched": 55,
+"refused": 45,
+"wrong_output": 16,
+"wrong_exit": 11,
 "crash_or_timeout": 1,
 "not_extractable": 22,
 "unstable": 2,
 "excluded": 13,
 "total": 165,
 "scored": 150,
-"matched_through_cpython": 4,
+"matched_through_cpython": 3,
 "matched_silent": 2,
-"coverage": 0.3067,
-"wrong": 40
+"coverage": 0.3467,
+"wrong": 27
 },
 "dyn": {
-"matched": 57,
-"refused": 41,
-"wrong_output": 13,
-"wrong_exit": 16,
+"matched": 65,
+"refused": 48,
+"wrong_output": 4,
+"wrong_exit": 10,
 "crash_or_timeout": 1,
 "not_extractable": 22,
 "unstable": 2,
@@ -140,8 +140,8 @@
 "scored": 150,
 "matched_through_cpython": 0,
 "matched_silent": 2,
-"coverage": 0.38,
-"wrong": 29
+"coverage": 0.4333,
+"wrong": 14
 }
 },
 "test_textwrap": {
@@ -249,14 +249,14 @@
 },
 "paths": {
 "normal": {
-"dynamic": 245,
-"refused": 163,
+"dynamic": 238,
+"refused": 171,
 "typed": 32,
-"pybridge": 10
+"pybridge": 9
 },
 "dyn": {
-"dynamic": 277,
-"refused": 173
+"dynamic": 270,
+"refused": 180
 }
 },
 "tests": [
@@ -3257,11 +3257,11 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "repr() of a re match shows a Match object or None, and this file cannot be built over dynamic values (case.py line 7: re.UNICODE is not supported in dynamic builds)"
+"detail": "repr() of a re match shows a Match object or None, and this file cannot be built over dynamic values (case.py line 22: re with a bytes pattern is not supported in dynamic builds)"
 },
 "dyn": {
 "category": "refused",
-"detail": "re.UNICODE is not supported in dynamic builds"
+"detail": "re with a bytes pattern is not supported in dynamic builds"
 }
 }
 },
@@ -3390,14 +3390,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 4: expected 'raises ValueError', got 'NO-RAISE'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 4: expected 'raises ValueError', got 'NO-RAISE'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3609,14 +3607,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'bytes' object has no attribute 'sub'"
+"category": "refused",
+"detail": "expected ')', found \"b\\1\""
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'bytes' object has no attribute 'sub'"
+"category": "refused",
+"detail": "re with a bytes pattern is not supported in dynamic builds"
 }
 }
 },
@@ -3699,12 +3695,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "matched",
-"path": "dynamic"
+"category": "refused",
+"detail": "expected ')', found \"bug_926075\""
 },
 "dyn": {
-"category": "matched",
-"path": "dynamic"
+"category": "refused",
+"detail": "re with a bytes pattern is not supported in dynamic builds"
 }
 }
 },
@@ -3772,14 +3768,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'bytes' object has no attribute 'match'"
+"category": "refused",
+"detail": "expected ')', found \".\""
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'bytes' object has no attribute 'match'"
+"category": "refused",
+"detail": "re with a bytes pattern is not supported in dynamic builds"
 }
 }
 },
@@ -3844,14 +3838,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: first argument must be string or compiled pattern"
+"category": "refused",
+"detail": "expected ')', found \"#x\na\""
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: first argument must be string or compiled pattern"
+"category": "refused",
+"detail": "re with a bytes pattern is not supported in dynamic builds"
 }
 }
 },
@@ -3922,14 +3914,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected 'True', got 'False'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected 'True', got 'False'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4043,7 +4033,7 @@
 },
 "dyn": {
 "category": "refused",
-"detail": "re.U is not supported in dynamic builds"
+"detail": "re.L is not supported in dynamic builds"
 }
 }
 },
@@ -4080,12 +4070,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown function type()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.U is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4138,14 +4128,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: first argument must be string or compiled pattern"
+"category": "refused",
+"detail": "expected ')', found \"abc\""
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: first argument must be string or compiled pattern"
+"category": "refused",
+"detail": "re with a bytes pattern is not supported in dynamic builds"
 }
 }
 },
@@ -4154,14 +4142,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: first argument must be string or compiled pattern"
+"category": "refused",
+"detail": "repr() of a re match shows a Match object or None, and this file cannot be built over dynamic values (case.py line 9: re with a bytes pattern is not supported in dynamic builds)"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: first argument must be string or compiled pattern"
+"category": "refused",
+"detail": "re with a bytes pattern is not supported in dynamic builds"
 }
 }
 },
@@ -4170,14 +4156,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: first argument must be string or compiled pattern"
+"category": "refused",
+"detail": "repr() of a re match shows a Match object or None, and this file cannot be built over dynamic values (case.py line 10: re with a bytes pattern is not supported in dynamic builds)"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: first argument must be string or compiled pattern"
+"category": "refused",
+"detail": "re with a bytes pattern is not supported in dynamic builds"
 }
 }
 },
@@ -4188,12 +4172,12 @@
 "normal": {
 "category": "wrong_exit",
 "path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: first argument must be string or compiled pattern"
+"detail": "exit 1, expected 0: NotImplementedError: brevi: re with a bytes pattern is not supported in dynamic builds"
 },
 "dyn": {
 "category": "wrong_exit",
 "path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: first argument must be string or compiled pattern"
+"detail": "exit 1, expected 0: NotImplementedError: brevi: re with a bytes pattern is not supported in dynamic builds"
 }
 }
 },
@@ -4218,12 +4202,12 @@
 "normal": {
 "category": "wrong_exit",
 "path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'bytes' object has no attribute 'findall'"
+"detail": "exit 1, expected 0: NotImplementedError: brevi: re with a bytes pattern is not supported in dynamic builds"
 },
 "dyn": {
 "category": "wrong_exit",
 "path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'bytes' object has no attribute 'findall'"
+"detail": "exit 1, expected 0: NotImplementedError: brevi: re with a bytes pattern is not supported in dynamic builds"
 }
 }
 },
@@ -4471,7 +4455,7 @@
 },
 "dyn": {
 "category": "refused",
-"detail": "re.UNICODE is not supported in dynamic builds"
+"detail": "re._compile is not supported in dynamic builds"
 }
 }
 },
@@ -4767,11 +4751,11 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "repr() of a re match shows a Match object or None, and this file cannot be built over dynamic values (case.py line 29: re.LOCALE is not supported in dynamic builds)"
+"detail": "repr() of a re match shows a Match object or None, and this file cannot be built over dynamic values (case.py line 23: re with a bytes pattern is not supported in dynamic builds)"
 },
 "dyn": {
 "category": "refused",
-"detail": "re.LOCALE is not supported in dynamic builds"
+"detail": "re with a bytes pattern is not supported in dynamic builds"
 }
 }
 },
@@ -4864,12 +4848,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "matched",
-"path": "dynamic"
+"category": "refused",
+"detail": "expected ')', found \"(?P<a1>x)(?P=a1)(?(a1)y)\""
 },
 "dyn": {
-"category": "matched",
-"path": "dynamic"
+"category": "refused",
+"detail": "re with a bytes pattern is not supported in dynamic builds"
 }
 }
 },
@@ -4892,14 +4876,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: first argument must be string or compiled pattern"
+"category": "refused",
+"detail": "expected ')', found \"(?P<a1>x)\""
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: first argument must be string or compiled pattern"
+"category": "refused",
+"detail": "re with a bytes pattern is not supported in dynamic builds"
 }
 }
 },
@@ -4953,11 +4935,11 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "re.findall with two or more groups gives tuples (or a pattern the typed build cannot see), and this file cannot be built over dynamic values (case.py line 13: re.LOCALE is not supported in dynamic bui"
+"detail": "re.findall with two or more groups gives tuples (or a pattern the typed build cannot see), and this file cannot be built over dynamic values (case.py line 11: re with a bytes pattern is not supported "
 },
 "dyn": {
 "category": "refused",
-"detail": "re.LOCALE is not supported in dynamic builds"
+"detail": "re with a bytes pattern is not supported in dynamic builds"
 }
 }
 },
@@ -5005,14 +4987,14 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_output",
+"category": "wrong_exit",
 "path": "dynamic",
-"detail": "line 1: expected '\"re.compile(b\\'bytes pattern\\')\"', got '\"b\\'bytes pattern\\'\"'"
+"detail": "exit 1, expected 0: NotImplementedError: brevi: re with a bytes pattern is not supported in dynamic builds"
 },
 "dyn": {
-"category": "wrong_output",
+"category": "wrong_exit",
 "path": "dynamic",
-"detail": "line 1: expected '\"re.compile(b\\'bytes pattern\\')\"', got '\"b\\'bytes pattern\\'\"'"
+"detail": "exit 1, expected 0: NotImplementedError: brevi: re with a bytes pattern is not supported in dynamic builds"
 }
 }
 },
@@ -5021,14 +5003,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected \"'re.IGNORECASE'\", got \"'2'\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected \"'re.IGNORECASE'\", got \"'2'\""
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -5042,9 +5022,8 @@
 "detail": "line 1: expected '\"re.compile(\\'(?i)pattern\\', re.IGNORECASE)\"', got '\"\\'(?i)pattern\\'\"'"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected '\"re.compile(\\'(?i)pattern\\', re.IGNORECASE)\"', got '\"re.compile(\\'(?i)pattern\\')\"'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -5072,9 +5051,8 @@
 "detail": "line 1: expected 'True', got 'False'"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected 'True', got 'False'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -5083,14 +5061,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected '\"re.compile(\\'random pattern\\', re.IGNORECASE|re.DOTALL|re.VERBOSE)\"', got '\"re.compile(\\'random pattern\\')\"'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected '\"re.compile(\\'random pattern\\', re.IGNORECASE|re.DOTALL|re.VERBOSE)\"', got '\"re.compile(\\'random pattern\\')\"'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -5114,14 +5090,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected '\"re.compile(\\'random pattern\\', re.IGNORECASE)\"', got '\"re.compile(\\'random pattern\\')\"'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected '\"re.compile(\\'random pattern\\', re.IGNORECASE)\"', got '\"re.compile(\\'random pattern\\')\"'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -5131,11 +5105,11 @@
 "modes": {
 "normal": {
 "category": "matched",
-"path": "pybridge"
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.U is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -5144,14 +5118,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected '\"re.compile(\\'random pattern\\', 0x123000)\"', got '\"re.compile(\\'random pattern\\')\"'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected '\"re.compile(\\'random pattern\\', 0x123000)\"', got '\"re.compile(\\'random pattern\\')\"'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },

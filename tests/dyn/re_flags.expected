@@ -1,0 +1,12 @@
+re.IGNORECASE re.ASCII re.IGNORECASE|re.DOTALL|re.VERBOSE re.IGNORECASE|re.DOTALL|0x100000
+re.ASCII|re.LOCALE|re.UNICODE|re.MULTILINE|re.DOTALL|re.VERBOSE|re.DEBUG|0x1 re.ASCII|re.LOCALE|re.UNICODE|re.MULTILINE|re.DEBUG|0xffe01
+re.NOFLAG True re.IGNORECASE|re.LOCALE 8 True True
+re.compile('random pattern') re.compile('p', re.IGNORECASE)
+re.compile('p', re.IGNORECASE|re.DOTALL|re.VERBOSE) re.compile('p', re.IGNORECASE|0x123000)
+re.compile('(?i)pattern', re.IGNORECASE) re.compile("it's") re.compile('both \'s\' and "d"')
+227 re.compile('Very long long lon , re.IGNORECASE)
+256 32 42
+['a', 'A', 'a'] ['b']
+{'first': 1, 'other': 2} {} ((0, 2), (0, 1), (1, 2)) ((0, 1), (0, 1), (-1, -1))
+TE 'mappingproxy' object does not support item assignment
+VE cannot process flags argument with a compiled pattern

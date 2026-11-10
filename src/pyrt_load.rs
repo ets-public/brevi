@@ -9,10 +9,35 @@
 mod ax_pyffi {
     use std::ffi::{c_char, c_int, c_long, c_void};
     pub type P = *mut c_void;
+    #[cfg(unix)]
     extern "C" {
-        pub fn dlopen(f: *const c_char, flag: c_int) -> P;
-        pub fn dlsym(h: P, s: *const c_char) -> P;
-        pub fn dlerror() -> *const c_char;
+        fn dlopen(f: *const c_char, flag: c_int) -> P;
+        fn dlsym(h: P, s: *const c_char) -> P;
+    }
+    #[cfg(windows)]
+    extern "system" {
+        fn LoadLibraryExW(f: *const u16, h: P, flags: u32) -> P;
+        fn GetProcAddress(h: P, s: *const c_char) -> Option<unsafe extern "system" fn() -> isize>;
+    }
+    // One way to load a shared library and look a symbol up, on Unix and on Windows.
+    #[cfg(unix)]
+    pub unsafe fn ax_open(f: *const c_char, flag: c_int) -> P {
+        dlopen(f, flag)
+    }
+    #[cfg(windows)]
+    pub unsafe fn ax_open(f: *const c_char, _flag: c_int) -> P {
+        // LOAD_WITH_ALTERED_SEARCH_PATH: the DLL's own folder is searched for its dependencies.
+        let s = std::ffi::CStr::from_ptr(f).to_string_lossy();
+        let w: Vec<u16> = s.encode_utf16().chain(std::iter::once(0)).collect();
+        LoadLibraryExW(w.as_ptr(), std::ptr::null_mut(), 0x8)
+    }
+    #[cfg(unix)]
+    pub unsafe fn ax_sym(h: P, s: *const c_char) -> P {
+        dlsym(h, s)
+    }
+    #[cfg(windows)]
+    pub unsafe fn ax_sym(h: P, s: *const c_char) -> P {
+        GetProcAddress(h, s).map_or(std::ptr::null_mut(), |f| f as *mut c_void as P)
     }
     pub struct Api {
         pub IncRef: unsafe extern "C" fn(P),
@@ -110,6 +135,10 @@ mod ax_pyffi {
 
 // libpython's path, PYTHONHOME and sys.path, found when the program was built (AX_PYB_CONF); asked of
 // python3 again if that library is gone.
+fn ax_default_python() -> String {
+    if cfg!(windows) { "python".into() } else { "python3".into() }
+}
+
 fn ax_pyb_conf() -> Result<(String, String, Vec<String>), String> {
     let parse = |s: &str| -> Option<(String, String, Vec<String>)> {
         let mut it = s.split('\u{1}');
@@ -124,7 +153,7 @@ fn ax_pyb_conf() -> Result<(String, String, Vec<String>), String> {
     if let Some(c) = parse(AX_PYB_CONF).filter(|c| std::path::Path::new(&c.0).is_file()) {
         return Ok(c);
     }
-    let exe = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
+    let exe = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| ax_default_python());
     let out = std::process::Command::new(&exe).args(["-c", AX_PYB_QUERY]).output().map_err(|e| format!("cannot start {exe}: {e}"))?;
     let s = String::from_utf8_lossy(&out.stdout).trim_end().to_string();
     parse(&s).filter(|c| !c.0.is_empty()).ok_or_else(|| format!("{exe} has no shared library (libpython) to load"))
@@ -133,6 +162,10 @@ fn ax_pyb_conf() -> Result<(String, String, Vec<String>), String> {
 // The CPython a standalone build carries (appended by pybundle.py): unpacked once into a cache folder
 // named by its hash, then loaded from there. None for a binary without one.
 fn ax_pyb_bundle() -> Result<Option<(String, String, Vec<String>)>, String> {
+    // A standalone bundle is built on Linux only for now; a Windows/macOS binary has none to find.
+    if !cfg!(unix) {
+        return Ok(None);
+    }
     use std::io::{Read, Seek, SeekFrom};
     // /proc may be missing (a bare container): argv[0] then names the program.
     let exe = std::env::current_exe().ok().filter(|p| p.is_file()).or_else(|| std::env::args_os().next().map(std::path::PathBuf::from)).unwrap_or_default();
@@ -188,7 +221,7 @@ fn ax_pyb_bundle() -> Result<Option<(String, String, Vec<String>)>, String> {
         let n = pre.len();
         pre.retain(|p| {
             let c = std::ffi::CString::new(p.as_str()).unwrap();
-            unsafe { ax_pyffi::dlopen(c.as_ptr(), 2 | 0x100) }.is_null()
+            unsafe { ax_pyffi::ax_open(c.as_ptr(), 2 | 0x100) }.is_null()
         });
         if pre.len() == n {
             break;
@@ -201,6 +234,7 @@ fn ax_pyb_bundle() -> Result<Option<(String, String, Vec<String>)>, String> {
 }
 
 fn ax_pyb_unpack(r: &mut impl std::io::Read, dir: &std::path::Path) -> std::io::Result<()> {
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     let bad = || std::io::Error::new(std::io::ErrorKind::InvalidData, "damaged bundle");
     let mut head = [0u8; 15];
@@ -228,7 +262,10 @@ fn ax_pyb_unpack(r: &mut impl std::io::Read, dir: &std::path::Path) -> std::io::
         let out = dir.join(&name);
         std::fs::create_dir_all(out.parent().unwrap())?;
         std::fs::write(&out, &data)?;
+        #[cfg(unix)]
         std::fs::set_permissions(&out, std::fs::Permissions::from_mode(mode))?;
+        #[cfg(not(unix))]
+        let _ = mode;
         // Source times kept, so Python's compiled-module cache (written on first import) stays valid.
         if mtime > 0 {
             if let Ok(fh) = std::fs::File::options().write(true).open(&out) {
@@ -570,13 +607,13 @@ fn ax_pyb_load() -> Result<ax_pyffi::Api, String> {
     let (lib, home, path) = ax_pyb_conf()?;
     let c = CString::new(lib.clone()).unwrap();
     // RTLD_NOW | RTLD_GLOBAL: extension modules (numpy's) find the interpreter's symbols.
-    let h = unsafe { ax_pyffi::dlopen(c.as_ptr(), 2 | 0x100) };
+    let h = unsafe { ax_pyffi::ax_open(c.as_ptr(), 2 | 0x100) };
     if h.is_null() {
         return Err(format!("cannot load {lib}"));
     }
     let sym = |n: &str| -> Result<ax_pyffi::P, String> {
         let c = CString::new(n).unwrap();
-        let p = unsafe { ax_pyffi::dlsym(h, c.as_ptr()) };
+        let p = unsafe { ax_pyffi::ax_sym(h, c.as_ptr()) };
         if p.is_null() { Err(format!("{lib} has no {n}")) } else { Ok(p) }
     };
     macro_rules! f {

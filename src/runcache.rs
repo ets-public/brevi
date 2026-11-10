@@ -213,7 +213,7 @@ fn key(args: &[String], file: &str, envs: &[(&str, &str)], me: &Path) -> Option<
     vars.sort();
     parts.extend(vars.into_iter().map(|(k, v)| format!("{k}={v}")));
     // The Python that library calls link against (an upgrade in place leaves PATH as it was).
-    let py = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
+    let py = crate::python_exe();
     let found = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).map(|d| d.join(&py)).find(|f| f.is_file())).flatten();
     if let Some(m) = found.and_then(|f| std::fs::canonicalize(f).ok()).and_then(|f| std::fs::metadata(&f).ok().map(|m| (f, m))) {
         parts.push(format!("{} {} {:?}", m.0.display(), m.1.len(), m.1.modified().ok()));

@@ -420,10 +420,15 @@ fn wrap_calls(e: &mut Expr, f: &HashSet<String>) {
 // ---- Checked ZeroDivisionError / IndexError variants ----
 
 // Can this expression itself divide or index (lambda bodies count: a map/sort key runs inside the caller).
+// `x ** 2` or `x ** 0.5` can't raise ZeroDivisionError: only an exponent that may be negative makes `**` fallible,
+// so hot code like `x ** 2` keeps its plain, infallible power
+fn pow_can_zd(b: &Expr) -> bool {
+    !matches!(b, Expr::Int(k) if *k >= 0) && !matches!(b, Expr::Float(f) if *f >= 0.0)
+}
 fn can_zd(e: &Expr) -> bool {
     match e {
         Expr::Lambda(_, b) => can_zd(b),
-        Expr::Binary(op, a, b) => matches!(*op, "//" | "%") || can_zd(a) || can_zd(b),
+        Expr::Binary(op, a, b) => matches!(*op, "//" | "%") || (*op == "**" && pow_can_zd(b)) || can_zd(a) || can_zd(b),
         Expr::Call(n, args, _) => n == "__truediv" || args.iter().any(|(_, a)| can_zd(a)),
         Expr::Method(r, _, args, _) => can_zd(r) || args.iter().any(can_zd),
         Expr::Unary(_, a) | Expr::Field(a, _) | Expr::TupleField(a, _) | Expr::Try(a) => can_zd(a),
@@ -2347,6 +2352,7 @@ impl Emitter {
             }
             Expr::Binary(op, a, b) => {
                 // Comparisons read their operands in place, without copying them.
+                let pow_zd = pow_can_zd(b);
                 let (a, b) = if ["==", "!=", "<", ">", "<=", ">=", "in"].contains(op) { (self.operand(a), self.operand(b)) } else { (self.expr(a), self.expr(b)) };
                 match *op {
                     "+" => format!("Plus::plus({a}, {b})"),
@@ -2361,6 +2367,11 @@ impl Emitter {
                     // Bitwise on ints, union and intersection on lists used as Python sets.
                     "|" => format!("AxBits::ax_bor({a}, {b})"),
                     "&" => format!("AxBits::ax_band({a}, {b})"),
+                    "**" if self.py_mode && pow_zd && !self.catch.is_empty() && self.catches("ZeroDivisionError") => {
+                        let lab = self.catch.last().unwrap().clone();
+                        format!("(match AxPowTry::ax_pow_try({a}, {b}) {{ Ok(v) => v, Err(e) => {{ {lab} = Some(e); break '{lab}; }} }})")
+                    }
+                    "**" if self.py_mode && pow_zd && self.ck_zd => format!("AxPowTry::ax_pow_try({a}, {b})?"),
                     "**" => format!("AxPow::ax_pow({a}, {b})"),
                     "in" => format!("AxIn::ax_in(&{b}, &{a})"),
                     "%" if self.py_mode && !self.catch.is_empty() && self.catches("ZeroDivisionError") => {
@@ -2445,11 +2456,12 @@ impl Emitter {
                     self.place(recv)
                 };
                 // A lambda inside the lambda that can fail (`[[int(x) for x in r] for r in rows]`) fails this one too.
-                let tries = TRY_METHODS.contains(&name.as_str()) && args.iter().any(|a| matches!(a, Expr::Lambda(_, b) if
-                    can_fail(b)
-                        || self.ck_zd && self.ck_can_zd(b)
-                        || self.ck_ie && self.ck_can_ie(b)
-                        || !self.catch.is_empty() && ((self.catches("ZeroDivisionError") && self.ck_can_zd(b)) || (self.catches("IndexError") && self.ck_can_ie(b)))));
+                let tries = (self.py_mode && name == "char" && !self.catch.is_empty() && self.catches("ValueError"))
+                    || (TRY_METHODS.contains(&name.as_str()) && args.iter().any(|a| matches!(a, Expr::Lambda(_, b) if
+                        can_fail(b)
+                            || self.ck_zd && self.ck_can_zd(b)
+                            || self.ck_ie && self.ck_can_ie(b)
+                            || !self.catch.is_empty() && ((self.catches("ZeroDivisionError") && self.ck_can_zd(b)) || (self.catches("IndexError") && self.ck_can_ie(b))))));
                 // Outside a function that can fail and outside try/except, a failure inside the lambda stops the
                 // program with its message, as an uncaught Python exception does (`(int(x) for x in parts)`).
                 let tries = tries && (self.fallible || !self.catch.is_empty());
@@ -2801,7 +2813,7 @@ impl Emitter {
             let sep = named("sep").map(|e| format!("Show::show(&{})", self.expr(&e))).unwrap_or_else(|| "String::from(\" \")".to_string());
             let end = named("end").map(|e| format!("Show::show(&{})", self.expr(&e))).unwrap_or_else(|| "\"\\n\"".to_string());
             let items: Vec<String> = args.iter().filter(|(n, _)| n.is_none()).map(|(_, a)| format!("Show::show(&{})", self.print_arg(a))).collect();
-            return format!("{{ use std::io::Write; let __s = [{}].join(&{sep}); print!(\"{{}}{{}}\", __s, {end}); let _ = std::io::stdout().flush(); }}", items.join(", "));
+            return format!("{{ let mut __s = [{}].join(&{sep}); __s.push_str(&{end}); ax_out(&__s); }}", items.join(", "));
         }
         let plain: Vec<String> = args.iter().map(|(_, a)| if name == "print" { self.print_arg(a) } else { self.expr(a) }).collect();
         match name {
@@ -2812,7 +2824,7 @@ impl Emitter {
             "print" | "read" | "write" | "args" | "input" | "stdin" | "lines" | "json" | "csv" | "date" | "abs" | "min" | "max" | "heap" => return format!("{name}({})", plain.join(", ")),
             "__readline" => return "ax_readline()".to_string(),
             "__one" => return format!("ax_one({})", plain.join(", ")),
-            "__eprint" => return format!("{{ use std::io::Write; let _ = std::io::stdout().flush(); eprint!(\"{{}}\", {}); }}", plain.join(", ")),
+            "__eprint" => return format!("ax_err(&format!(\"{{}}\", {}))", plain.join(", ")),
             "__try_read" => return format!("ax_try_read({}.to_string())", plain.join(", ")),
             "str" => return format!("({}).show()", plain.join(", ")),
             "none" => return "ax_none()".to_string(),
