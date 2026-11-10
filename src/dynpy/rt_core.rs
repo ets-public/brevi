@@ -1805,21 +1805,35 @@ impl PSet {
         let mask = self.mask();
         let mut perturb = h as u64;
         let mut i = (h as u64 as usize) & mask;
+        // CPython's set_add_entry remembers the first dummy slot seen on the probe path
+        // and inserts there, so an add after a discard keeps the deleted entry's place.
+        let mut free: Option<usize> = None;
         loop {
             let probes = if i + LINEAR_PROBES <= mask { LINEAR_PROBES } else { 0 };
             for j in 0..=probes {
                 match &self.t[i + j] {
                     Slot::Empty => {
-                        self.t[i + j] = Slot::Full(k, h);
-                        self.fill += 1;
+                        let (at, reuse) = match free.take() {
+                            Some(f) => (f, true),
+                            None => (i + j, false),
+                        };
+                        self.t[at] = Slot::Full(k, h);
+                        if !reuse {
+                            self.fill += 1;
+                        }
                         self.used += 1;
-                        if self.fill * 5 >= mask * 3 {
+                        if !reuse && self.fill * 5 >= mask * 3 {
                             self.resize(if self.used > 50000 { self.used * 2 } else { self.used * 4 });
                         }
                         return;
                     }
+                    Slot::Dummy => {
+                        if free.is_none() {
+                            free = Some(i + j);
+                        }
+                    }
                     Slot::Full(x, xh) if *xh == h && (same_obj(x, &k) || eq(x, &k).unwrap_or(false)) => return,
-                    _ => {}
+                    Slot::Full(..) => {}
                 }
             }
             perturb >>= 5;

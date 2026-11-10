@@ -167,6 +167,18 @@ pub fn set_of_vec(v: Vec<V>) -> R {
     }
     Ok(V::Set(Rc::new(RefCell::new(p))))
 }
+// CPython folds a set display of 3 or more constants into a frozenset, then rebuilds that
+// frozenset by inserting its keys in iteration order (merge_consts_recursive), and the
+// display copies that rebuilt table.  Reinserting in iteration order can lay the table out
+// differently from inserting in source order.
+pub fn fset_rebuild(v: V) -> R {
+    let keys = match &v {
+        V::Set(s) => s.borrow().keys(),
+        V::FSet(s) => s.keys(),
+        _ => return Err(exc("TypeError", "set display fold needs a set".into())),
+    };
+    Ok(V::FSet(Rc::new(PSet::from_iter(keys)?)))
+}
 pub fn make_exc(v: V) -> Result<E, E> {
     match &v {
         V::Class(c) => {

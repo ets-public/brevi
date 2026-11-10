@@ -2257,21 +2257,34 @@ pub fn set_method(o: &V, name: &str, a: Args) -> R {
                 "difference_update" => "-",
                 _ => "^",
             };
-            for x in others(&a)? {
-                match op {
-                    "|" => {
-                        for (k, h) in x.keys_h() {
-                            m.borrow_mut().add_h(k, h);
+            if op == "|" {
+                for x in &a.p {
+                    match x {
+                        // CPython's set_merge: one resize up front, then a table copy or
+                        // insertion with the other set's own hashes.
+                        V::Set(_) | V::FSet(_) => {
+                            let p = set_of(x).unwrap();
+                            m.borrow_mut().merge(&p);
+                        }
+                        _ => {
+                            for (k, h) in PSet::from_iter(to_vec(x)?)?.keys_h() {
+                                m.borrow_mut().add_h(k, h);
+                            }
                         }
                     }
-                    "-" => {
-                        for k in x.keys() {
-                            m.borrow_mut().discard(&k)?;
+                }
+            } else {
+                for x in others(&a)? {
+                    match op {
+                        "-" => {
+                            for k in x.keys() {
+                                m.borrow_mut().discard(&k)?;
+                            }
                         }
-                    }
-                    _ => {
-                        let r = set_op(&m.borrow(), &x, op)?;
-                        *m.borrow_mut() = r;
+                        _ => {
+                            let r = set_op(&m.borrow(), &x, op)?;
+                            *m.borrow_mut() = r;
+                        }
                     }
                 }
             }
