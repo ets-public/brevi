@@ -94,6 +94,107 @@ fn enum_text(v: &V, rep: bool) -> R {
 pub fn enum_members(c: &Rc<Class>) -> V {
     c.own("__bv_members__").unwrap_or_else(|| list(vec![]))
 }
+// Names in an Enum body that CPython does not make members: _sunder_ and __dunder__ names, and private
+// names (_Cls__x, as the class body sees `__x`). Any other name starting with `_` is a member.
+fn enum_not_member(cls: &str, n: &str) -> bool {
+    let b = n.as_bytes();
+    let sunder = b.len() > 2 && b[0] == b'_' && b[1] != b'_' && b[b.len() - 1] == b'_' && b[b.len() - 2] != b'_';
+    let dunder = b.len() > 4 && n.starts_with("__") && n.ends_with("__") && b[2] != b'_' && b[b.len() - 3] != b'_';
+    let private = n.strip_prefix('_').and_then(|r| r.strip_prefix(cls.trim_start_matches('_'))).map_or(false, |r| r.starts_with("__"));
+    sunder || dunder || private || n.starts_with("__")
+}
+// What the class being defined will be, from its bases (before make_class builds it): bit 1 Enum, bit 2 a
+// Flag subclass, bit 4 a StrEnum subclass. The class body uses this to give each auto() its value as soon as
+// the member is assigned, as CPython's _EnumDict does.
+pub fn enum_auto_ctx(bases: &[&V]) -> i64 {
+    let en = enum_base();
+    let mut ctx = 0;
+    for b in bases {
+        if let V::Class(c) = b {
+            if c.is_sub(&en) {
+                ctx |= 1;
+            }
+        }
+    }
+    if ctx == 0 {
+        return 0;
+    }
+    let k = enum_more();
+    for b in bases {
+        if let V::Class(c) = b {
+            if c.is_sub(&k[2]) {
+                ctx |= 2;
+            }
+            if c.is_sub(&k[1]) {
+                ctx |= 4;
+            }
+        }
+    }
+    ctx
+}
+// The value auto() gets in an Enum class body: 1, then the next value for Enum; the next power of two for
+// Flag; the lower-cased member name for StrEnum. `last` holds the values assigned so far, in order.
+fn auto_next(ctx: i64, name: &str, last: &[V]) -> R {
+    if ctx & 2 != 0 {
+        let mut best: Option<i64> = None;
+        for x in last {
+            match x {
+                V::Int(i) => best = Some(best.map_or(*i, |b| b.max(*i))),
+                V::Bool(b) => best = Some(best.map_or(*b as i64, |m| m.max(*b as i64))),
+                x => return type_err(format!("invalid flag value {}", repr(x)?)),
+            }
+        }
+        let b = best.unwrap_or(0);
+        let hb = 64 - (b.max(0) as u64).leading_zeros() as i64 - 1;
+        if hb >= 61 {
+            return Err(unsupported("Flag values past 2**62"));
+        }
+        return Ok(V::Int(1i64 << (hb + 1)));
+    }
+    if ctx & 4 != 0 {
+        return Ok(st(name.to_lowercase()));
+    }
+    let mut best: Option<V> = None;
+    for x in last {
+        match (&best, x) {
+            (_, V::Int(_) | V::Big(_) | V::Bool(_)) => {
+                if best.as_ref().map_or(Ok(true), |b| lt(b, x))? {
+                    best = Some(x.clone());
+                }
+            }
+            _ => return Err(unsupported("enum.auto() after a value that is not an int")),
+        }
+    }
+    match best {
+        Some(b) => add(&b, &V::Int(1)),
+        None => Ok(V::Int(1)),
+    }
+}
+// Every name store in the body of an Enum class goes through here: the members' values are kept in order,
+// and an auto() gets (and memoises, as CPython does) the value for its position.
+pub fn enum_auto_store(last: &mut Vec<V>, ctx: i64, name: &str, v: V) -> R {
+    if ctx == 0 || (name.starts_with('_') && enum_not_member("", name)) || matches!(&v, V::Unbound | V::Func(_) | V::Class(_) | V::Prop(_) | V::Bound(_) | V::BMeth(_)) {
+        return Ok(v);
+    }
+    let au = enum_classes().1;
+    match &v {
+        V::Obj(o) if Rc::ptr_eq(&o.cls, &au) => {
+            if let Some(x) = o.get("value") {
+                // the same auto() assigned again: CPython reuses the value it was given first
+                last.push(x.clone());
+                return Ok(x);
+            }
+            let x = auto_next(ctx, name, last)?;
+            o.set("value", x.clone());
+            last.push(x.clone());
+            Ok(x)
+        }
+        _ => {
+            last.push(v.clone());
+            Ok(v)
+        }
+    }
+}
 // Called by make_class for a subclass of Enum.
 pub fn enum_setup(c: &Rc<Class>) -> Result<(), E> {
     let au = enum_classes().1;
@@ -107,49 +208,13 @@ pub fn enum_setup(c: &Rc<Class>) -> Result<(), E> {
     let mut v2m: Vec<(V, V)> = vec![];
     let map = dict_new();
     for (n, v) in attrs {
-        if n.starts_with('_') || matches!(v, V::Func(_) | V::Class(_) | V::Prop(_) | V::Bound(_) | V::BMeth(_)) {
+        if (n.starts_with('_') && enum_not_member(c.name, n)) || matches!(v, V::Func(_) | V::Class(_) | V::Prop(_) | V::Bound(_) | V::BMeth(_)) {
             continue;
         }
         let val = match &v {
-            V::Obj(o) if Rc::ptr_eq(&o.cls, &au) && is_str_enum(c) => st(n.to_lowercase()),
-            V::Obj(o) if Rc::ptr_eq(&o.cls, &au) && is_flag(c) => {
-                // 1, then the next power of two above the largest value so far
-                let mut best: Option<i64> = None;
-                for x in &values {
-                    match x {
-                        V::Int(i) => best = Some(best.map_or(*i, |b| b.max(*i))),
-                        V::Bool(b) => best = Some(best.map_or(*b as i64, |m| m.max(*b as i64))),
-                        x => return type_err(format!("invalid flag value {}", repr(x)?)),
-                    }
-                }
-                match best {
-                    None => V::Int(1),
-                    Some(b) => {
-                        let hb = 64 - (b.max(0) as u64).leading_zeros() as i64 - 1;
-                        if hb >= 61 {
-                            return Err(unsupported("Flag values past 2**62"));
-                        }
-                        V::Int(1i64 << (hb + 1))
-                    }
-                }
-            }
-            V::Obj(o) if Rc::ptr_eq(&o.cls, &au) => {
-                let mut best: Option<V> = None;
-                for x in &values {
-                    match (&best, x) {
-                        (_, V::Int(_) | V::Big(_) | V::Bool(_)) => {
-                            if best.as_ref().map_or(Ok(true), |b| lt(b, x))? {
-                                best = Some(x.clone());
-                            }
-                        }
-                        _ => return Err(unsupported("enum.auto() after a value that is not an int")),
-                    }
-                }
-                match best {
-                    Some(b) => add(&b, &V::Int(1))?,
-                    None => V::Int(1),
-                }
-            }
+            V::Obj(o) if Rc::ptr_eq(&o.cls, &au) && is_str_enum(c) => auto_next(4, n, &values)?,
+            V::Obj(o) if Rc::ptr_eq(&o.cls, &au) && is_flag(c) => auto_next(2, n, &values)?,
+            V::Obj(o) if Rc::ptr_eq(&o.cls, &au) => auto_next(1, n, &values)?,
             _ => v.clone(),
         };
         // StrEnum values are str; IntEnum and IntFlag values are int(value)

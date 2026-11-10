@@ -1379,6 +1379,9 @@ struct Func {
     exc_vars: Vec<String>,
     is_module: bool,
     is_class: bool,
+    // class-body stores turn auto() into its value here (last-values vec, enum kind), when the class
+    // being defined is an Enum (None elsewhere)
+    enum_cnv: Option<(String, String)>,
     // an async def's body: await may be used
     is_async: bool,
     // an async def with yield: an async generator
@@ -1579,8 +1582,18 @@ impl Em {
         }
     }
     fn store(&mut self, name: &str, val: &str) -> String {
+        let cnv = match self.fstack.last() {
+            Some(fr) if fr.is_class => fr.enum_cnv.clone(),
+            _ => None,
+        };
         match self.lookup(name) {
-            Some(Var::Local(r)) => format!("{r} = {val};"),
+            Some(Var::Local(r)) => {
+                if let Some((av, ctx)) = cnv {
+                    format!("{r} = {};", self.q(&format!("enum_auto_store(&mut {av}, {ctx}, {}, {val})", lit(name))))
+                } else {
+                    format!("{r} = {val};")
+                }
+            }
             Some(Var::Cell(r)) => format!("cset(&{r}, {val});"),
             Some(Var::Global(i)) => format!("gs({i}, {val});"),
             None => {
@@ -2285,7 +2298,7 @@ impl Em {
         // nested generator function (class context and self reach the lazy part too).
         let parent = self.fstack.last().unwrap();
         let (class_expr, self_name) = (parent.class_expr.clone(), parent.self_name.clone());
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, exc_vars: vec![], is_module: false, is_class: false, is_async: false, is_agen: false, is_gen: true, direct_defs: HashMap::new(), cells: format!("g{id}_"), order: vec![] };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, exc_vars: vec![], is_module: false, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: true, direct_defs: HashMap::new(), cells: format!("g{id}_"), order: vec![] };
         let mut tdecl = String::new();
         for n in &names {
             if inner_free.contains(n) {
@@ -3162,7 +3175,7 @@ impl Em {
         // this function's frame
         let parent = self.fstack.last().unwrap();
         let (class_expr, self_name) = if self.class_ctx.is_some() { (self.class_ctx.clone(), p.pos.first().map(|x| x.0.clone())) } else { (parent.class_expr.clone(), parent.self_name.clone()) };
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, exc_vars: vec![], is_module: false, is_class: false, is_async, is_agen: is_async && is_gen, is_gen, direct_defs: HashMap::new(), cells: format!("k{id}_"), order: vec![] };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, exc_vars: vec![], is_module: false, is_class: false, enum_cnv: None, is_async, is_agen: is_async && is_gen, is_gen, direct_defs: HashMap::new(), cells: format!("k{id}_"), order: vec![] };
         for (n, r) in &captures {
             fr.vars.insert(n.clone(), Var::Cell(r.clone()));
         }
@@ -3359,17 +3372,31 @@ impl Em {
         for b in &c.bases {
             bases.push(self.ex(b, c.line)?);
         }
+        // Bases are evaluated before the class body, as CPython does; the body needs them to know
+        // whether it is defining an Enum (auto() turns into its value on assignment).
+        let mut base_decls = String::new();
+        let mut base_vars: Vec<String> = vec![];
+        for (k, b) in bases.iter().enumerate() {
+            let vn = format!("__base{id}_{k}");
+            write!(base_decls, "let {vn}: V = {b}; ").unwrap();
+            base_vars.push(vn);
+        }
         // the class body runs with its own namespace: class-level names are Rust locals here,
         // invisible to the methods
         let sc = scope_of(&c.body, &[]);
         let parent = self.fstack.last().unwrap();
-        let mut fr = Func { vars: HashMap::new(), frames: parent.frames.clone(), class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![] };
+        let mut fr = Func { vars: HashMap::new(), frames: parent.frames.clone(), class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![] };
+        let ctx = format!("__auto_ctx{id}");
+        let av = format!("__auto_last{id}");
         let mut decls = String::new();
+        write!(decls, "{base_decls}").unwrap();
+        write!(decls, "let {ctx}: i64 = enum_auto_ctx(&[{}]); let mut {av}: Vec<V> = vec![]; ", base_vars.iter().map(|v| format!("&{v}")).collect::<Vec<_>>().join(", ")).unwrap();
         for n in sc.locals.iter() {
             let r = format!("a{id}_{}", rust_ident(n));
             write!(decls, "let mut {r}: V = V::Unbound; ").unwrap();
             fr.vars.insert(n.clone(), Var::Local(r));
         }
+        fr.enum_cnv = Some((av, ctx));
         let mut fields = vec![];
         for s in &c.body {
             if let St::AnnAssign(Ex::Name(n), _, ann) = &s.st {
@@ -3432,7 +3459,7 @@ impl Em {
             let doc = docstring(&c.body).map_or("V::None".to_string(), |d| format!("s({})", lit(d)));
             write!(attrs, "__at.push((\"__doc__\", {doc})); ").unwrap();
         }
-        let mk = self.q(&format!("make_class_f({}, {}, vec![{}], __at, vec![{}])", lit(&c.name), lit(if self.module == "__main__" { "__main__" } else { &self.module }), bases.join(", "), fields.join(", ")));
+        let mk = self.q(&format!("make_class_f({}, {}, vec![{}], __at, vec![{}])", lit(&c.name), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", ")));
         let mut v = format!("{{ {decls}\n{body}\nlet mut __at: Vec<(Sym, V)> = vec![]; {attrs} let __c = {mk}; __c }}");
         for dec in c.decorators.iter().rev() {
             let dd = self.ex(dec, c.line)?;
@@ -3664,7 +3691,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         for m in group.iter().copied() {
             em.module = m.name.clone();
             IN_COPY.with(|c| c.set(OWN_COPIES.lock().unwrap().contains(&m.name)));
-            let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, exc_vars: vec![], is_module: true, is_class: false, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![] };
+            let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, exc_vars: vec![], is_module: true, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![] };
             for n in em.mod_names[&m.name].clone() {
                 let i = em.gslot(&m.name, &n);
                 fr.vars.insert(n.clone(), Var::Global(i));

@@ -1,0 +1,8 @@
+P.RW 3
+C.A C.B C.D C.AB C.AD ['A', 'B', 'D']
+E.A E.B E.A ['A', 'B']
+1 2 3 3
+a bb
+5 6 7
+F.X F.X ['X']
+unsupported operand type(s) for |: 'auto' and 'auto'
