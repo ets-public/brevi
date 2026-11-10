@@ -1,0 +1,1 @@
+- **Brevi's pydantic validates fields without validators faster.** A field with no `@field_validator` no longer builds a `ValidationInfo` and a closure per value, and a model without model validators skips its `ValidationInfo` too: validating many models runs about 23% fewer instructions.
