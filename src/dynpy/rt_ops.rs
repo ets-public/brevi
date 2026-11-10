@@ -106,14 +106,14 @@ pub fn eq(a: &V, b: &V) -> Result<bool, E> {
             if Rc::ptr_eq(x, y) {
                 return Ok(true);
             }
-            let (x, y) = (x.borrow(), y.borrow());
-            if x.n != y.n {
+            let n = x.borrow().n;
+            if y.borrow().n != n {
                 return Ok(false);
             }
-            let items = x.items();
+            let items = x.borrow().items();
             let mut ok = true;
             for (k, v) in items {
-                match y.get(&k)? {
+                match Dict::get_cell(y, &k)? {
                     Some(w) => {
                         if !eq(&v, &w)? {
                             ok = false;
@@ -727,7 +727,8 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
         }
         (V::Dict(x), V::Dict(y)) if op == "|" => {
             let mut d = x.borrow().copy();
-            for (k, v) in y.borrow().items() {
+            let items = y.borrow().items();
+            for (k, v) in items {
                 d.set(k, v)?;
             }
             return Ok(V::Dict(Rc::new(RefCell::new(d))));
@@ -735,7 +736,7 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
         (V::View(x), _) if x.1 == 3 && op == "|" => return binop(&x.0, b, op),
         (_, V::View(y)) if y.1 == 3 && op == "|" => return binop(a, &y.0, op),
         (V::Dict(x), V::Dict(y)) if (op == "+" || op == "-") && x.borrow().kind == 2 => {
-            return counter_op(&x.borrow(), &y.borrow(), op);
+            return counter_op(x, y, op);
         }
         (V::Deque(x), V::Deque(y)) if op == "+" => {
             let mut v = x.borrow().v.clone();
@@ -919,7 +920,7 @@ fn iop_slow(a: &V, b: &V, op: &str) -> R {
         (V::Dict(d), "|") => {
             let items = dict_items_of(b)?;
             for (k, v) in items {
-                d.borrow_mut().set(k, v)?;
+                Dict::set_cell(d, k, v)?;
             }
             return Ok(a.clone());
         }
@@ -949,19 +950,21 @@ fn iop_slow(a: &V, b: &V, op: &str) -> R {
     }
     binop(a, b, op)
 }
-fn counter_op(x: &Dict, y: &Dict, op: &str) -> R {
+fn counter_op(x: &Rc<RefCell<Dict>>, y: &Rc<RefCell<Dict>>, op: &str) -> R {
     let mut d = Dict::new();
     d.kind = 2;
-    for (k, v) in x.items() {
-        let w = y.get(&k)?.unwrap_or(V::Int(0));
+    let xs = x.borrow().items();
+    for (k, v) in xs {
+        let w = Dict::get_cell(y, &k)?.unwrap_or(V::Int(0));
         let r = binop(&v, &w, op)?;
         if rich(&r, &V::Int(0), ">")? {
             d.set(k, r)?;
         }
     }
     if op == "+" {
-        for (k, v) in y.items() {
-            if !x.contains(&k)? && rich(&v, &V::Int(0), ">")? {
+        let ys = y.borrow().items();
+        for (k, v) in ys {
+            if !Dict::contains_cell(x, &k)? && rich(&v, &V::Int(0), ">")? {
                 d.set(k, v)?;
             }
         }
@@ -1169,7 +1172,7 @@ pub fn contains(c: &V, x: &V) -> Result<bool, E> {
             }
             false
         }
-        V::Dict(d) => d.borrow().contains(x)?,
+        V::Dict(d) => Dict::contains_cell(d, x)?,
         V::Set(s) => s.borrow().contains(x)?,
         V::FSet(s) => s.contains(x)?,
         V::Range(r) => match x {
@@ -1184,7 +1187,7 @@ pub fn contains(c: &V, x: &V) -> Result<bool, E> {
             _ => to_vec(c)?.iter().any(|y| eq(y, x).unwrap_or(false)),
         },
         V::View(v) => match (&v.0, v.1) {
-            (V::Dict(d), 0 | 3) => d.borrow().contains(x)?,
+            (V::Dict(d), 0 | 3) => Dict::contains_cell(d, x)?,
             _ => to_vec(c)?.iter().any(|y| eq(y, x).unwrap_or(false)),
         },
         V::Deque(d) => {
@@ -1322,7 +1325,7 @@ pub fn getitem(c: &V, i: &V) -> R {
             return Ok(t[j].clone());
         }
         (V::Dict(d), _) => {
-            let got = d.borrow().get(i)?;
+            let got = Dict::get_cell(d, i)?;
             if let Some(v) = got {
                 return Ok(v);
             }
@@ -1335,7 +1338,7 @@ pub fn getitem(c: &V, i: &V) -> R {
             }
             if let Some(f) = dflt {
                 let v = call(&f, Args::p(vec![]))?;
-                d.borrow_mut().set(i.clone(), v.clone())?;
+                Dict::set_cell(d, i.clone(), v.clone())?;
                 return Ok(v);
             }
             return Err(exc_v("KeyError", i.clone()));
@@ -1405,7 +1408,7 @@ pub fn getitem(c: &V, i: &V) -> R {
             if let Some(inn) = inner_of(c) {
                 // A dict subclass with `__missing__`: a missing key calls it (`class D(dict)`).
                 if let (V::Dict(d), Some(f)) = (&inn, o.cls.lookup("__missing__")) {
-                    let got = d.borrow().get(i)?;
+                    let got = Dict::get_cell(d, i)?;
                     return match got {
                         Some(v) => Ok(v),
                         None => call(&f, Args::p(vec![c.clone(), i.clone()])),
@@ -1447,7 +1450,7 @@ pub fn setitem(c: &V, i: &V, v: V) -> Result<(), E> {
             l[j] = v;
             Ok(())
         }
-        (V::Dict(d), _) => d.borrow_mut().set(i.clone(), v),
+        (V::Dict(d), _) => Dict::set_cell(d, i.clone(), v),
         (V::List(l), V::Slice(sl)) => {
             let new = to_vec(&v)?;
             let n = l.borrow().len();
@@ -1511,7 +1514,7 @@ pub fn delitem(c: &V, i: &V) -> Result<(), E> {
             }
             Ok(())
         }
-        (V::Dict(d), _) => match d.borrow_mut().del(i)? {
+        (V::Dict(d), _) => match Dict::del_cell(d, i)? {
             Some(_) => Ok(()),
             None => Err(exc_v("KeyError", i.clone())),
         },
