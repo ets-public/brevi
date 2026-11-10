@@ -790,6 +790,16 @@ mod tests {
     fn swapped(src: &str) -> bool {
         rewrite(src) != src
     }
+    // Rewritten to None (where the sentinel and None become one value); keeping it as its own `__sentN()` value is fine.
+    fn made_none(src: &str) -> bool {
+        let out = rewrite(src);
+        out != src && !out.contains("__sent")
+    }
+    #[test]
+    fn sentinel_kept_as_own_value() {
+        let out = rewrite("M = object()\nd = {}\nv = d.get('k', M)\nprint(v is None, v is M)\n");
+        assert!(out.contains("__sent0()") && out.contains("v is None"), "{out}");
+    }
     #[test]
     fn sentinel_made_none() {
         let src = "store = {}\nlog = []\nMISSING = object()\ndef setk(k, v):\n    log.append((k, store.get(k, MISSING)))\n    if v is MISSING:\n        store.pop(k, None)\n    else:\n        store[k] = v\nsetk('a', '1')\nfor k, old in log:\n    if old is MISSING:\n        print(k)\n";
@@ -801,19 +811,19 @@ mod tests {
     #[test]
     fn sentinel_kept_when_none_or_truth_could_tell() {
         // An unpaired None test: the value may be either.
-        assert!(!swapped("M = object()\nd = {}\nv = d.get('k', M)\nprint(v is None)\n"));
+        assert!(!made_none("M = object()\nd = {}\nv = d.get('k', M)\nprint(v is None)\n"));
         // Tested for truth: object() is true, None is false.
-        assert!(!swapped("M = object()\nd = {}\nv = d.get('k', M)\nif v:\n    print(1)\n"));
+        assert!(!made_none("M = object()\nd = {}\nv = d.get('k', M)\nif v:\n    print(1)\n"));
         // Shown.
-        assert!(!swapped("M = object()\nprint(M)\n"));
-        assert!(!swapped("M = object()\nprint(f'{M}')\n"));
+        assert!(!made_none("M = object()\nprint(M)\n"));
+        assert!(!made_none("M = object()\nprint(f'{M}')\n"));
         assert_eq!(rewrite("M = object()  # M marks none\nx = 'M'\nprint(x is M)\n"), "pass\nx = 'M'\nprint(x is None)\n");
         // None passed on as a value, told apart from the sentinel: rewriting would make the two one.
-        assert!(!swapped("M = object()\ndef get(d, k, default=M):\n    if k in d:\n        return d[k]\n    if default is M:\n        raise KeyError(k)\n    return default\nprint(get({}, 'a', None))\n"));
-        assert!(!swapped("M = object()\ndef f(x=M):\n    if x is M:\n        return 'unset'\n    return 'set'\nprint(f(None), f())\n"));
-        assert!(!swapped("M = object()\nd = {}\nv = d.get('k')\nprint(v is M)\n"));
-        assert!(!swapped("M = object()\ndef g():\n    pass\nv = g()\nprint(v is M)\n"));
+        assert!(!made_none("M = object()\ndef get(d, k, default=M):\n    if k in d:\n        return d[k]\n    if default is M:\n        raise KeyError(k)\n    return default\nprint(get({}, 'a', None))\n"));
+        assert!(!made_none("M = object()\ndef f(x=M):\n    if x is M:\n        return 'unset'\n    return 'set'\nprint(f(None), f())\n"));
+        assert!(!made_none("M = object()\nd = {}\nv = d.get('k')\nprint(v is M)\n"));
+        assert!(!made_none("M = object()\ndef g():\n    pass\nv = g()\nprint(v is M)\n"));
         // Set twice.
-        assert!(!swapped("M = object()\nM = object()\nprint(1 is M)\n"));
+        assert!(!made_none("M = object()\nM = object()\nprint(1 is M)\n"));
     }
 }
