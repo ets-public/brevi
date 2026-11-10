@@ -1085,7 +1085,28 @@ pub fn builtin_fn(name: &str) -> Option<fn(Args) -> R> {
 pub fn builtin_type_name(name: &str) -> bool {
     matches!(name, "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "slice")
 }
+thread_local! {
+    // builtin classes found by builtin_value, by the address of the name asked for (a hit is checked against
+    // the class's own name, so a reused address cannot give a wrong class); emptied by init_builtin_classes
+    pub static BV_CACHE: RefCell<[(usize, Option<Rc<Class>>); 16]> = RefCell::new(Default::default());
+}
 pub fn builtin_value(name: &str) -> Option<V> {
+    let addr = name.as_ptr() as usize;
+    let slot = (addr >> 3 ^ addr >> 8 ^ name.len()) & 15;
+    let hit = BV_CACHE.with(|c| match &c.borrow()[slot] {
+        (a, Some(k)) if *a == addr && same_name(k.name, name) => Some(k.clone()),
+        _ => None,
+    });
+    if let Some(k) = hit {
+        return Some(V::Class(k));
+    }
+    if builtin_type_name(name) && name != "slice" && name != "bytes" {
+        let k = bclass(name);
+        if same_name(k.name, name) {
+            BV_CACHE.with(|c| c.borrow_mut()[slot] = (addr, Some(k.clone())));
+        }
+        return Some(V::Class(k));
+    }
     if name == "bytes" {
         return Some(V::Class(ext_class("bytes")));
     }
