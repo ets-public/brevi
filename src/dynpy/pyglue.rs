@@ -1305,7 +1305,13 @@ impl Ext for PyV {
                             (a.IncRef)(p.p);
                             p.p
                         }
-                        None => return Ok(false),
+                        None => match inner_of(x) {
+                            Some(inner) => match pyd_to(&inner) {
+                                Ok(p) => p,
+                                Err(_) => return Ok(false),
+                            },
+                            None => return Ok(false),
+                        },
                     },
                     _ => match pyd_to(x) {
                         Ok(p) => p,
@@ -1314,6 +1320,46 @@ impl Ext for PyV {
                 };
                 let r = (a.IsInstance)(xp, self.p);
                 (a.DecRef)(xp);
+                if r < 0 { Err(pyd_err()) } else { Ok(r == 1) }
+            })()
+        })
+    }
+    // `issubclass(sub, self)` for a Brevi class: builtin and collections classes have their CPython twins, and a
+    // user subclass of a builtin container stands for its builtin base (a user class cannot inherit a CPython ABC).
+    fn subclasscheck(&self, sub: &V) -> Option<Result<bool, E>> {
+        let _g = PydGil::take();
+        let a = pyd_api();
+        Some(unsafe {
+            (|| {
+                let collections_attr = |n: &str| -> Result<P, E> {
+                    let m = pyd_own((a.Import)(c"collections".as_ptr()))?;
+                    let c = CString::new(n).unwrap();
+                    let r = (a.GetAttr)(m, c.as_ptr());
+                    (a.DecRef)(m);
+                    pyd_own(r)
+                };
+                let sp = match sub {
+                    V::Class(k) if k.module == "builtins" => pyd_builtins_attr(k.name)?,
+                    V::Class(k) if k.module == "collections" => collections_attr(k.name)?,
+                    V::Class(k) => match k.base_bt() {
+                        BT::Bool => pyd_builtins_attr("bool")?,
+                        BT::Int => pyd_builtins_attr("int")?,
+                        BT::Float => pyd_builtins_attr("float")?,
+                        BT::Str => pyd_builtins_attr("str")?,
+                        BT::List => pyd_builtins_attr("list")?,
+                        BT::Tuple => pyd_builtins_attr("tuple")?,
+                        BT::Dict => pyd_builtins_attr("dict")?,
+                        BT::Set => pyd_builtins_attr("set")?,
+                        BT::DefaultDict => collections_attr("defaultdict")?,
+                        BT::Counter => collections_attr("Counter")?,
+                        BT::OrderedDict => collections_attr("OrderedDict")?,
+                        BT::Deque => collections_attr("deque")?,
+                        _ => return Ok(false),
+                    },
+                    _ => return Ok(false),
+                };
+                let r = (a.IsSubclass)(sp, self.p);
+                (a.DecRef)(sp);
                 if r < 0 { Err(pyd_err()) } else { Ok(r == 1) }
             })()
         })

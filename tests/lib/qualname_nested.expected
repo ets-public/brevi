@@ -1,0 +1,11 @@
+top top top
+X
+test_sm_qualnames.<locals>.T.s s
+test_sm_qualnames.<locals>.T.c c
+<bound method test_sm_qualnames.<locals>.T.c of <class '__main__.test_sm_qualnames.<locals>.T'>>
+test_arg_errors.<locals>.K.m() missing 1 required positional argument: 'a'
+test_arg_errors.<locals>.outer.<locals>.need() missing 1 required positional argument: 'a'
+test_gen_qualnames.<locals>.gen gen
+<generator object test_gen_qualnames.<locals>.gen
+test_gen_qualnames.<locals>.<genexpr> <genexpr>
+<generator object test_gen_qualnames.<locals>.<genexpr>

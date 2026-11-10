@@ -1583,6 +1583,18 @@ impl Em {
     fn f(&mut self) -> &mut Func {
         self.fstack.last_mut().unwrap()
     }
+    // CPython's __qualname__ for a def, lambda, class or genexpr named `name` defined in the current scope:
+    // `outer.<locals>.f` inside a function, `Outer.f` inside a class, plain `name` at module level.
+    fn qualname_of(&self, name: &str) -> String {
+        let parent = self.fstack.last().unwrap();
+        if parent.is_module {
+            name.to_string()
+        } else if parent.is_class {
+            format!("{}.{}", parent.qname, name)
+        } else {
+            format!("{}.<locals>.{}", parent.qname, name)
+        }
+    }
     // `expr?` or a jump to the innermost try block
     fn q(&self, code: &str) -> String {
         for fr in self.fstack.last().unwrap().frames.iter().rev() {
@@ -1899,7 +1911,9 @@ impl Em {
             }
             Ex::Lambda(p, body) => {
                 let ret = Stmt { line, st: St::Return(Some((**body).clone())) };
-                let f = self.closure("<lambda>", p, &[ret], line, false)?;
+                let qn = self.qualname_of("<lambda>");
+                let f = self.closure("<lambda>", &qn, p, &[ret], line, false)?;
+                let f = format!("with_qualname({f}, {})", lit(&qn));
                 if PYD_ON.load(std::sync::atomic::Ordering::Relaxed) { format!("with_np({f}, {})", if p.star.is_some() { 99 } else { p.pos.len() }) } else { f }
             }
             Ex::Comp(kind, elt, val, gens) => self.comp(*kind, elt, val.as_deref(), gens, line)?,
@@ -2414,8 +2428,10 @@ impl Em {
         // The genexp's own frame: targets are its locals, enclosing cells are captured. It behaves like a
         // nested generator function (class context and self reach the lazy part too).
         let parent = self.fstack.last().unwrap();
+        let gq = self.qualname_of("<genexpr>");
+        let gq_lit = lit(&gq);
         let (class_expr, self_name) = (parent.class_expr.clone(), parent.self_name.clone());
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, qname: String::new(), exc_vars: vec![], is_module: false, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: true, direct_defs: HashMap::new(), cells: format!("g{id}_"), order: vec![] };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, qname: gq, exc_vars: vec![], is_module: false, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: true, direct_defs: HashMap::new(), cells: format!("g{id}_"), order: vec![] };
         let mut tdecl = String::new();
         for n in &names {
             if inner_free.contains(n) {
@@ -2506,7 +2522,7 @@ impl Em {
             format!("let mut __it{id}_0a = {a0}; let mut __it{id}_0b = {b0}; ")
         };
         Ok(format!(
-            "{{ {head}{tdecl}{inner_decl}let mut __st{id}: u8 = 0; {caps}genexp_iter(move || loop {{ match __st{id} {{ {arms}_ => unreachable!() }} }}) }}"
+            "{{ {head}{tdecl}{inner_decl}let mut __st{id}: u8 = 0; {caps}genexp_iter(sym({gq_lit}), move || loop {{ match __st{id} {{ {arms}_ => unreachable!() }} }}) }}"
         ))
     }
     fn comp(&mut self, kind: char, elt: &Ex, val: Option<&Ex>, gens: &[CompFor], line: usize) -> ER<String> {
@@ -3254,9 +3270,11 @@ impl Em {
             return Err(err(d.line, "async functions are not supported in dynamic builds on this platform"));
         }
         self.next_async = d.is_async;
-        let v = self.closure(&d.name, &d.params, &d.body, d.line, true);
+        let qn = self.qualname_of(&d.name);
+        let v = self.closure(&d.name, &qn, &d.params, &d.body, d.line, true);
         self.next_async = false;
         let mut v = v?;
+        v = format!("with_qualname({v}, {})", lit(&qn));
         if let Some(doc) = docstring(&d.body) {
             v = format!("with_doc({v}, {})", lit(doc));
         }
@@ -3272,7 +3290,7 @@ impl Em {
     }
     // A function value. Module-level functions (and methods of module-level classes) become plain Rust
     // functions plus a wrapper; nested ones are closures capturing the cells they use.
-    fn closure(&mut self, name: &str, p: &Params, body: &[Stmt], line: usize, is_def: bool) -> ER<String> {
+    fn closure(&mut self, name: &str, qualname: &str, p: &Params, body: &[Stmt], line: usize, is_def: bool) -> ER<String> {
         let id = self.id();
         let is_async = std::mem::take(&mut self.next_async);
         let is_gen = has_yield(body);
@@ -3321,15 +3339,8 @@ impl Em {
         }
         // this function's frame
         let parent = self.fstack.last().unwrap();
-        let q = if parent.is_module {
-            name.to_string()
-        } else if parent.is_class {
-            format!("{}.{}", parent.qname, name)
-        } else {
-            format!("{}.<locals>.{}", parent.qname, name)
-        };
         let (class_expr, self_name) = if self.class_ctx.is_some() { (self.class_ctx.clone(), p.pos.first().map(|x| x.0.clone())) } else { (parent.class_expr.clone(), parent.self_name.clone()) };
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, qname: q.clone(), exc_vars: vec![], is_module: false, is_class: false, enum_cnv: None, is_async, is_agen: is_async && is_gen, is_gen, direct_defs: HashMap::new(), cells: format!("k{id}_"), order: vec![] };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, qname: qualname.to_string(), exc_vars: vec![], is_module: false, is_class: false, enum_cnv: None, is_async, is_agen: is_async && is_gen, is_gen, direct_defs: HashMap::new(), cells: format!("k{id}_"), order: vec![] };
         for (n, r) in &captures {
             fr.vars.insert(n.clone(), Var::Cell(r.clone()));
         }
@@ -3421,8 +3432,11 @@ impl Em {
             Some(p) => p.0.clone(),
             None => format!("d{id}_{}", rust_ident(name)),
         };
-        let qname = lit(name);
-        let fq = lit(&if self.module == "builtins" { q.clone() } else { format!("{}.{}", self.module, q) });
+        // the def's plain __name__ and CPython's dotted __qualname__ (Sig.name is the qualname, so argument
+        // errors say `K.m() ...` / `outer.<locals>.need() ...` as CPython does)
+        let name_lit = lit(name);
+        let qname = lit(qualname);
+        let fq = lit(&if self.module == "builtins" { qualname.to_string() } else { format!("{}.{}", self.module, qualname) });
         // co_flags, as CPython sets them: CO_OPTIMIZED | CO_NEWLOCALS, plus the function's kind and nesting.
         let mut code_flags: u32 = 0x1 | 0x2;
         if star {
@@ -3453,9 +3467,9 @@ impl Em {
             // a plain Rust function
             if is_async {
                 let mk = if is_gen { "make_agen" } else { "make_acoro" };
-                write!(self.items, "fn {fname}({}) -> R {{ Ok({mk}(sym({qname}), move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}\n", pdecl.join(", ")).unwrap();
+                write!(self.items, "fn {fname}({}) -> R {{ Ok({mk}(sym({name_lit}), move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}\n", pdecl.join(", ")).unwrap();
             } else if is_gen {
-                write!(self.items, "fn {fname}({}) -> R {{ Ok(make_gen(move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}\n", pdecl.join(", ")).unwrap();
+                write!(self.items, "fn {fname}({}) -> R {{ Ok(make_gen(sym({qname}), move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}\n", pdecl.join(", ")).unwrap();
             } else {
                 write!(self.items, "fn {fname}({}) -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }}\n", pdecl.join(", ")).unwrap();
             }
@@ -3475,14 +3489,14 @@ impl Em {
                     write!(sets, "gs({slot}, {}); ", dflt_codes[k]).unwrap();
                 }
                 let dv: Vec<String> = (0..npos).map(|k| if k >= npos - nd { format!("gr({})", slots[k - (npos - nd)]) } else { "V::Unbound".into() }).collect();
-                let v = format!("with_fq(with_code({{ {sets} func({qname}, move |a: Args| {{ let __d = [{}]; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}, {code}), {fq})", dv.join(", "));
+                let v = format!("with_fq(with_code({{ {sets} func({name_lit}, move |a: Args| {{ let __d = [{}]; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}, {code}), {fq})", dv.join(", "));
                 if !is_async && !is_gen && (1..=4).contains(&nparams) {
                     return Ok(format!("with_fast({v}, FastFn::F{nparams}({fname}))"));
                 }
                 return Ok(v);
             }
             let _ = need_defaults;
-            let v = format!("with_fq(with_code({{ let __d = vec![{}]; func({qname}, move |a: Args| {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}, {code}), {fq})", dflt_all.join(", "));
+            let v = format!("with_fq(with_code({{ let __d = vec![{}]; func({name_lit}, move |a: Args| {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}, {code}), {fq})", dflt_all.join(", "));
             // methods (and defs not called directly): calls passing every parameter by position skip bind()
             if !is_async && !is_gen && !star && !kwstar && p.kwonly.is_empty() && (1..=4).contains(&nparams) {
                 return Ok(format!("with_fast({v}, FastFn::F{nparams}({fname}))"));
@@ -3504,20 +3518,20 @@ impl Em {
                     let cparams: String = dcaps.iter().map(|r| format!("{r}: Rc<RefCell<V>>, ")).collect();
                     write!(self.items, "fn {dfn}({cparams}{}) -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }}\n", pdecl.join(", ")).unwrap();
                     let cargs: String = dcaps.iter().map(|r| format!("{r}.clone(), ")).collect();
-                    return Ok(format!("with_fq(with_code({{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {dfn}({cargs}{unpack}) }}) }}, {code}), {fq})", dflt_all.join(", ")));
+                    return Ok(format!("with_fq(with_code({{ let __d = vec![{}]; {caps} func({name_lit}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {dfn}({cargs}{unpack}) }}) }}, {code}), {fq})", dflt_all.join(", ")));
                 }
                 return Err(err(line, "internal: a nested function's captures changed"));
             }
         }
         if is_gen || is_async {
-            let mk = if is_async && is_gen { format!("make_agen(sym({qname}), ") } else if is_async { format!("make_acoro(sym({qname}), ") } else { "make_gen(".to_string() };
+            let mk = if is_async && is_gen { format!("make_agen(sym({name_lit}), ") } else if is_async { format!("make_acoro(sym({name_lit}), ") } else { format!("make_gen(sym({qname}), ") };
             return Ok(format!(
-                "with_fq(with_code({{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{caps} Ok({mk}move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}) }}, {code}), {fq})",
+                "with_fq(with_code({{ let __d = vec![{}]; {caps} func({name_lit}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{caps} Ok({mk}move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}) }}, {code}), {fq})",
                 dflt_all.join(", ")
             ));
         }
         Ok(format!(
-            "with_fq(with_code({{ let __d = vec![{}]; {caps} func({qname}, move |a: Args| -> R {{ let __depth = Depth::new()?; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{decls}{cells_init}\n{body_code}\nOk(V::None) }}) }}, {code}), {fq})",
+            "with_fq(with_code({{ let __d = vec![{}]; {caps} func({name_lit}, move |a: Args| -> R {{ let __depth = Depth::new()?; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{decls}{cells_init}\n{body_code}\nOk(V::None) }}) }}, {code}), {fq})",
             dflt_all.join(", ")
         ))
     }
@@ -3540,14 +3554,9 @@ impl Em {
         // invisible to the methods
         let sc = scope_of(&c.body, &[]);
         let parent = self.fstack.last().unwrap();
-        let cq = if parent.is_module {
-            c.name.clone()
-        } else if parent.is_class {
-            format!("{}.{}", parent.qname, c.name)
-        } else {
-            format!("{}.<locals>.{}", parent.qname, c.name)
-        };
-        let mut fr = Func { vars: HashMap::new(), frames: parent.frames.clone(), class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), qname: cq, exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![] };
+        // CPython's __qualname__: `Outer.Inner` inside a class, `f.<locals>.C` inside a function.
+        let qualname = self.qualname_of(&c.name);
+        let mut fr = Func { vars: HashMap::new(), frames: parent.frames.clone(), class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), qname: qualname.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![] };
         let ctx = format!("__auto_ctx{id}");
         let av = format!("__auto_last{id}");
         let mut decls = String::new();
@@ -3621,7 +3630,7 @@ impl Em {
             let doc = docstring(&c.body).map_or("V::None".to_string(), |d| format!("s({})", lit(d)));
             write!(attrs, "__at.push((\"__doc__\", {doc})); ").unwrap();
         }
-        let mk = self.q(&format!("make_class_f({}, {}, vec![{}], __at, vec![{}])", lit(&c.name), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", ")));
+        let mk = self.q(&format!("make_class_f({}, {}, {}, vec![{}], __at, vec![{}])", lit(&c.name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", ")));
         let mut v = format!("{{ {decls}\n{body}\nlet mut __at: Vec<(Sym, V)> = vec![]; {attrs} let __c = {mk}; __c }}");
         for dec in c.decorators.iter().rev() {
             let dd = self.ex(dec, c.line)?;

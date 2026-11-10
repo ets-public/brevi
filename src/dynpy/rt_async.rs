@@ -55,7 +55,7 @@ impl ACoro {
                         return Err(exc("TypeError", "can't send non-None value to a just-started coroutine".into()));
                     }
                     let ACState::Fresh(body) = std::mem::replace(&mut *st, ACState::Done) else { unreachable!() };
-                    let c = Rc::new(RefCell::new(Coro::new(body)));
+                    let c = Rc::new(RefCell::new(Coro::new(self.name, body)));
                     *st = ACState::Run(c.clone());
                     c
                 }
@@ -502,12 +502,12 @@ fn handle_new(cls: V, callback: V, args: V, loop_: V, context: V) -> Option<V> {
             if let V::Obj(t) = &b.0 {
                 if let Some(tc) = async_class(&ASYNC_TASK) {
                     if t.cls.is_sub(&tc) {
-                        let mk = if f.name == "_step" && async_func(&ASYNC_STEPF, &tc, "_step").is_some_and(|wf| Rc::ptr_eq(f, &wf)) {
+                        let mk = if f.name.get() == "_step" && async_func(&ASYNC_STEPF, &tc, "_step").is_some_and(|wf| Rc::ptr_eq(f, &wf)) {
                             match first_of(&args) {
                                 Some(e) => Some(("_brevi_step", tup(vec![b.0.clone(), e]))),
                                 None => Some(("_brevi_step", b.0.clone())),
                             }
-                        } else if f.name == "_wakeup" && async_func(&ASYNC_WAKEUP, &tc, "_wakeup").is_some_and(|wf| Rc::ptr_eq(f, &wf)) {
+                        } else if f.name.get() == "_wakeup" && async_func(&ASYNC_WAKEUP, &tc, "_wakeup").is_some_and(|wf| Rc::ptr_eq(f, &wf)) {
                             Some(("_brevi_wake", tup(vec![b.0.clone(), first_of(&args).unwrap_or(V::None)])))
                         } else {
                             None
@@ -1376,7 +1376,7 @@ pub struct AGen {
 }
 
 pub fn make_agen(name: Sym, body: impl FnOnce() -> R + 'static) -> V {
-    V::Ext(ExtRc::new(AGen { name, st: RefCell::new(AGState { coro: Rc::new(RefCell::new(Coro::new(Box::new(body)))), running: false, hooked: false, finalizer: V::None, closed: false }) }))
+    V::Ext(ExtRc::new(AGen { name, st: RefCell::new(AGState { coro: Rc::new(RefCell::new(Coro::new(name, Box::new(body)))), running: false, hooked: false, finalizer: V::None, closed: false }) }))
 }
 
 fn ag_of(x: &V) -> Option<&AGen> {

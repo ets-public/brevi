@@ -652,7 +652,7 @@ pub fn heapq_fn(name: &str, mut a: Args) -> R {
             let revv = a.kw("reverse").unwrap_or(V::None);
             a.no_kw("merge")?;
             let mut st = MergeState { inputs: std::mem::take(&mut a.p), heap: vec![], started: false, hole: false, tail: false, revv, rev: None };
-            genexp_iter(move || st.next(key.as_ref()))
+            genexp_iter("merge", move || st.next(key.as_ref()))
         }
         _ => return Err(unsupported(&format!("heapq.{name}"))),
     })
@@ -701,9 +701,10 @@ pub fn bisect_fn(name: &str, mut a: Args) -> R {
 
 fn lru_cache_wrap(f: V) -> V {
     let cache: Rc<RefCell<Dict>> = Rc::new(RefCell::new(Dict::new()));
-    let name = match &f {
-        V::Func(x) => x.name,
-        _ => "wrapper",
+    // CPython's update_wrapper copies __name__ and __qualname__ from the wrapped function.
+    let (name, qualname) = match &f {
+        V::Func(x) => (x.name.get(), x.qualname.get()),
+        _ => ("wrapper", "wrapper"),
     };
     let c2 = cache.clone();
     let w = func(name, move |a: Args| {
@@ -726,6 +727,32 @@ fn lru_cache_wrap(f: V) -> V {
             c3.borrow_mut().clear();
             Ok(V::None)
         })));
+    }
+    with_qualname(w, qualname)
+}
+// CPython's functools.update_wrapper: copy __qualname__ and every attribute in the wrapped function's
+// __dict__ (__doc__, __module__, __annotations__, user attributes), and set __wrapped__.
+fn update_wrapper(w: V, f: &V) -> V {
+    let wf = match &w {
+        V::Func(wf) => wf.clone(),
+        _ => return w,
+    };
+    let V::Func(x) = f else {
+        return w;
+    };
+    wf.name.set(x.name.get());
+    wf.qualname.set(x.qualname.get());
+    if !Rc::ptr_eq(&wf, x) {
+        let mut a = wf.attrs.borrow_mut();
+        for (k, v) in x.attrs.borrow().iter() {
+            match a.iter_mut().find(|(n, _)| *n == *k) {
+                Some(e) => e.1 = v.clone(),
+                None => a.push((*k, v.clone())),
+            }
+        }
+        if !a.iter().any(|(n, _)| *n == "__wrapped__") {
+            a.push(("__wrapped__", f.clone()));
+        }
     }
     w
 }
@@ -779,7 +806,14 @@ pub fn functools_fn(name: &str, mut a: Args) -> R {
                 call(&f, Args { p, k })
             })
         }
-        "wraps" => builtin("wraps", |a: Args| Ok(a1(&a, "wraps")?)),
+        "wraps" => {
+            let f = a1(&a, name)?;
+            // CPython's functools.wraps(f) is a decorator that applies update_wrapper to the wrapped def.
+            builtin("wraps", move |a: Args| {
+                let w = a1(&a, "wraps")?;
+                Ok(update_wrapper(w, &f))
+            })
+        }
         "total_ordering" => {
             let c = a1(&a, name)?;
             if let V::Class(k) = &c {
@@ -1991,7 +2025,10 @@ fn abc_class() -> Rc<Class> {
 pub fn namedtuple(mut a: Args) -> R {
     let defaults = a.kw("defaults");
     let _ = a.kw("rename");
-    let _ = a.kw("module");
+    let module = match a.kw("module") {
+        Some(m) => sym(&to_str(&m)?),
+        None => "__main__",
+    };
     a.no_kw("namedtuple")?;
     a.want("namedtuple", 2, 2)?;
     let name = sym(&to_str(&a.p[0])?);
@@ -2011,7 +2048,7 @@ pub fn namedtuple(mut a: Args) -> R {
         fdd.set(s(k), v.clone())?;
     }
     let fd = V::Dict(Rc::new(RefCell::new(fdd)));
-    let c = Class::new(name, "__main__", vec![bclass("tuple")], BT::Tuple);
+    let c = Class::new(name, module, vec![bclass("tuple")], BT::Tuple);
     *c.fields.borrow_mut() = fields.clone();
     let f2 = fields.clone();
     let cc = c.clone();
@@ -2575,7 +2612,12 @@ fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> Result<(), E> {
             for f in &fs {
                 parts.push(format!("{}={}", f, repr(&getattr(me, f)?)?));
             }
-            Ok(st(format!("{}({})", tn(me), parts.join(", "))))
+            // CPython's dataclass repr uses self.__class__.__qualname__
+            let qn = match me {
+                V::Obj(o) => o.cls.qualname.get().to_string(),
+                _ => tn(me),
+            };
+            Ok(st(format!("{qn}({})", parts.join(", "))))
         }));
     }
     let cmp = names(&real, "compare")?;
