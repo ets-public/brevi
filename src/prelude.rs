@@ -4006,13 +4006,14 @@ impl AxChar for i64 {
         if *self < 0 || *self > 0x10FFFF {
             panic!("ValueError: chr() arg not in range(0x110000)");
         }
-        char::from_u32(*self as u32).map_or(String::new(), |c| c.to_string())
+        // A lone surrogate is a str in CPython that a Rust String cannot hold: stop rather than give "".
+        char::from_u32(*self as u32).map_or_else(|| panic!("chr() of a lone surrogate (U+D800..U+DFFF) is not supported"), |c| c.to_string())
     }
     fn ax_try_char(&self) -> R<String> {
         if *self < 0 || *self > 0x10FFFF {
             return Err(AxErr("chr() arg not in range(0x110000)".into()));
         }
-        Ok(char::from_u32(*self as u32).map_or(String::new(), |c| c.to_string()))
+        Ok(char::from_u32(*self as u32).map_or_else(|| panic!("chr() of a lone surrogate (U+D800..U+DFFF) is not supported"), |c| c.to_string()))
     }
 }
 // A function stored in a map: `ops = {"+": add}`, then `ops["+"](1, 2)` or `f = ops[k]; f(1, 2)`.

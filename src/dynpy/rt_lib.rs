@@ -827,10 +827,7 @@ fn chr_of(x: &V) -> R {
             if b.neg || b.mag.len() > 1 {
                 return val_err("chr() arg not in range(0x110000)".into());
             }
-            match char::from_u32(n) {
-                Some(c) => Ok(ch1(c)),
-                None => val_err("chr() arg not in range(0x110000)".into()),
-            }
+            chr_code(n as i64)
         }
         V::Obj(o) if o.cls.lookup("__index__").is_some() => {
             chr_of(&call(&o.cls.lookup("__index__").unwrap(), Args::p(vec![x.clone()]))?)
@@ -838,12 +835,19 @@ fn chr_of(x: &V) -> R {
         // an int subclass (IntEnum)
         V::Obj(_) if matches!(inner_of(x), Some(V::Int(_) | V::Bool(_) | V::Big(_))) => chr_of(&inner_of(x).unwrap()),
         _ => {
-            let i = idx_of(x)?;
-            match u32::try_from(i).ok().and_then(char::from_u32) {
-                Some(c) => Ok(ch1(c)),
-                None => val_err("chr() arg not in range(0x110000)".into()),
-            }
+            chr_code(idx_of(x)?)
         }
+    }
+}
+// chr() of an int that fits: out of range is CPython's ValueError; a lone surrogate (U+D800..U+DFFF) is a str in
+// CPython that a Rust string cannot hold, so it stops as unsupported instead of giving a different string.
+fn chr_code(i: i64) -> R {
+    if !(0..=0x10FFFF).contains(&i) {
+        return val_err("chr() arg not in range(0x110000)".into());
+    }
+    match char::from_u32(i as u32) {
+        Some(c) => Ok(ch1(c)),
+        None => Err(unsupported("chr() of a lone surrogate (U+D800..U+DFFF)")),
     }
 }
 fn radix(a: Args, f: &str, r: u32, p: &str) -> R {
