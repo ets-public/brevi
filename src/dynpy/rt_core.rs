@@ -2042,6 +2042,13 @@ impl Args {
 }
 
 pub type FnBox = Box<dyn Fn(Args) -> R>;
+// Names a function keeps in slots (or Brevi's own cells/attrs), never in its user-facing __dict__.
+pub const FUNC_SLOT_ATTRS: &[&str] = &[
+    "__name__", "__qualname__", "__module__", "__doc__", "__annotations__", "__code__", "__defaults__",
+    "__kwdefaults__", "__type_params__", "__globals__", "__builtins__", "__bv_np__", "__bv_kind__", "__bv_repr__",
+    // lru_cache's methods live on the wrapper's class in CPython, not in its __dict__
+    "cache_clear", "cache_info",
+];
 pub struct Func {
     pub name: Cell<Sym>,
     // CPython's dotted __qualname__ (name itself for builtins and top-level defs)

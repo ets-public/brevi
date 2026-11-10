@@ -404,6 +404,23 @@ pub fn with_doc(f: V, doc: &str) -> V {
     }
     f
 }
+// A def's __module__, and its evaluated __annotations__ dict (empty when it has no annotations).
+pub fn with_module(f: V, m: &str) -> V {
+    if let V::Func(ff) = &f {
+        ff.attrs.borrow_mut().push(("__module__", s(m)));
+    }
+    f
+}
+pub fn with_anns(f: V, pairs: Vec<(Sym, V)>) -> V {
+    if let V::Func(ff) = &f {
+        let mut d = Dict::new();
+        for (k, v) in pairs {
+            d.set(s(k), v).ok();
+        }
+        ff.attrs.borrow_mut().push(("__annotations__", V::Dict(Rc::new(RefCell::new(d)))));
+    }
+    f
+}
 // a class of the program's own, of object or another such class: calling it makes an instance and runs __init__
 fn plain_new(c: &Rc<Class>) -> bool {
     let ep = CLASS_EPOCH.with(|e| e.get());
@@ -1063,14 +1080,42 @@ pub fn getattr(o: &V, name: &str) -> R {
             module_attr(m, name)
         }
         V::Func(f) => match name {
-            "__name__" => Ok(s(f.name.get())),
-            "__qualname__" => Ok(s(f.qualname.get())),
+            // assignments to __name__/__qualname__ live in attrs; the cells below are the def's originals
+            "__name__" | "__qualname__" => Ok(f.attrs
+                .borrow()
+                .iter()
+                .find(|(k, _)| *k == name)
+                .map_or_else(|| s(if name == "__name__" { f.name.get() } else { f.qualname.get() }), |(_, v)| v.clone())),
+            "__module__" => Ok(f.attrs
+                .borrow()
+                .iter()
+                .find(|(k, _)| *k == "__module__")
+                .map(|(_, v)| v.clone())
+                .unwrap_or_else(|| s(if f.kind.get() == 3 { "builtins" } else { "__main__" }))),
+            "__annotations__" => match f.attrs.borrow().iter().find(|(k, _)| *k == "__annotations__").map(|(_, v)| v.clone()) {
+                Some(v) => Ok(v),
+                None if f.kind.get() == 3 => Err(exc("AttributeError", format!("'{}' object has no attribute '__annotations__'", if f.kind.get() == 3 { "builtin_function_or_method" } else { "function" }))),
+                None => Ok(dict_new()),
+            },
+            "__type_params__" => match f.attrs.borrow().iter().find(|(k, _)| *k == "__type_params__").map(|(_, v)| v.clone()) {
+                Some(v) => Ok(v),
+                None if f.kind.get() == 3 => Err(exc("AttributeError", format!("'{}' object has no attribute '__type_params__'", if f.kind.get() == 3 { "builtin_function_or_method" } else { "function" }))),
+                None => Ok(tup(vec![])),
+            },
             "__call__" => Ok(o.clone()),
             // an assigned __code__ is kept in attrs; otherwise one is made from the def's flags
             "__code__" if f.attrs.borrow().iter().all(|(k, _)| *k != "__code__") => match f.code_flags.get() {
                 0 => Err(exc("AttributeError", format!("'{}' object has no attribute '__code__'", if f.kind.get() == 3 { "builtin_function_or_method" } else { "function" }))),
                 fl => Ok(mk_code(f.name.get(), fl)),
             },
+            // the dict of attributes assigned to the function; slot-backed names stay out, as in CPython
+            "__dict__" if f.kind.get() != 3 => {
+                let mut d = Dict::new();
+                for (k, v) in f.attrs.borrow().iter().filter(|(k, _)| !FUNC_SLOT_ATTRS.contains(k)) {
+                    d.set(s(k), v.clone()).ok();
+                }
+                Ok(V::Dict(Rc::new(RefCell::new(d))))
+            }
             // 0 function, 1 staticmethod, 2 classmethod (Brevi's pydantic reads it)
             "__bv_kind__" => Ok(V::Int(f.kind.get() as i64)),
             "__doc__" => Ok(f.attrs.borrow().iter().find(|(k, _)| *k == "__doc__").map_or(V::None, |(_, v)| v.clone())),
