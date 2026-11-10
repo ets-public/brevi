@@ -502,12 +502,18 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
     let me = V::Obj(o.clone());
     let bb = c2.base_bt();
     if bb == BT::Exc {
-        // builtin exception constructors take no keyword arguments (ExceptionGroup is handled above)
-        if !a.k.is_empty() && c2.lookup("__init__").map_or(true, |f| is_builtin_init(&f)) {
-            return type_err(format!("{}() takes no keyword arguments", c.name));
-        }
-        if c2.is_sub(&exc_class("OSError")) && c2.lookup("__init__").map_or(true, |f| is_builtin_init(&f)) {
-            ose_init(&o, &a.p);
+        let builtin_init = c2.lookup("__init__").map_or(true, |f| is_builtin_init(&f));
+        if builtin_init {
+            // CPython 3.13's builtin exception constructors take no keyword arguments, except
+            // ImportError/AttributeError/NameError, which take their C fields by keyword.
+            if !a.k.is_empty() {
+                exc_kw_init(c, &c2, &o, &mut a)?;
+            }
+            if c2.is_sub(&ose_class()) {
+                ose_init(&o, &a.p);
+            } else {
+                o.set("args", tup(a.p.clone()));
+            }
         } else {
             o.set("args", tup(a.p.clone()));
         }
@@ -541,6 +547,34 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
 }
 fn is_builtin_init(f: &V) -> bool {
     matches!(f, V::Func(x) if x.kind.get() == 3 && x.name.get() == "__init__")
+}
+// CPython 3.13's builtin exception constructors take no keyword arguments, except ImportError (name=,
+// path=), AttributeError (name=, obj=) and NameError (name=). Those fields are keyword-only C slots:
+// positional arguments all go to args, the fields default to None, and the error messages use the C
+// constructor's own name with CPython's keyword-count cap.
+fn exc_kw_init(c: &Rc<Class>, c2: &Rc<Class>, o: &Rc<Obj>, a: &Args) -> Result<(), E> {
+    let n = a.k.len();
+    let (base, max, k1, k2): (&str, usize, &str, Option<&str>) = if c2.is_sub(&exc_class("ImportError")) {
+        ("ImportError", 3, "name", Some("path"))
+    } else if c2.is_sub(&exc_class("AttributeError")) {
+        ("AttributeError", 2, "name", Some("obj"))
+    } else if c2.is_sub(&exc_class("NameError")) {
+        ("NameError", 1, "name", None)
+    } else {
+        return type_err(format!("{}() takes no keyword arguments", c.name));
+    };
+    if n > max {
+        let word = if max == 1 { "argument" } else { "arguments" };
+        return type_err(format!("{base}() takes at most {max} keyword {word} ({n} given)"));
+    }
+    for (k, v) in &a.k {
+        if *k == k1 || k2 == Some(*k) {
+            o.set(sym(k), v.clone());
+        } else {
+            return type_err(format!("{base}() got an unexpected keyword argument '{k}'"));
+        }
+    }
+    Ok(())
 }
 // The subclass a plain OSError(errno, ...) really is (OSError itself when the errno names no subclass).
 fn ose_factory(c: &Rc<Class>, p: &[V]) -> Rc<Class> {
@@ -639,10 +673,13 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
                 let me2 = me.clone();
                 return Ok(builtin("__init__", move |a: Args| {
                     if let V::Obj(o) = &me2 {
-                        if o.cls.is_sub(&exc_class("OSError")) {
+                        if !a.k.is_empty() {
+                            exc_kw_init(&o.cls, &o.cls, o, &a)?;
+                        }
+                        if o.cls.is_sub(&ose_class()) {
                             ose_init(o, &a.p);
                         } else {
-                            o.set("args", tup(a.p));
+                            o.set("args", tup(a.p.clone()));
                         }
                     }
                     Ok(V::None)
@@ -674,7 +711,7 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
                     if rep {
                         return Ok(st(format!("{}{}", o.cls.name, repr(&args)?)));
                     }
-                    if o.cls.is_sub(&exc_class("OSError")) {
+                    if o.cls.is_sub(&ose_class()) {
                         return Ok(st(ose_str(o, &args)?));
                     }
                     return Ok(st(match &args {
@@ -1004,7 +1041,19 @@ pub fn getattr(o: &V, name: &str) -> R {
                     });
                 }
                 // OSError's constructor-derived fields; once deleted the slot reads None, as in CPython.
-                "errno" | "strerror" | "filename" | "filename2" if ob.cls.base_bt() == BT::Exc && ob.cls.is_sub(&exc_class("OSError")) => {
+                "errno" | "strerror" | "filename" | "filename2" if ob.cls.base_bt() == BT::Exc && ob.cls.is_sub(&ose_class()) => {
+                    return Ok(ob.get(name).unwrap_or(V::None));
+                }
+                // ImportError.name/path, AttributeError.name/obj and NameError.name, likewise.
+                "path" if ob.cls.base_bt() == BT::Exc && ob.cls.is_sub(&exc_class("ImportError")) => {
+                    return Ok(ob.get(name).unwrap_or(V::None));
+                }
+                "name" if ob.cls.base_bt() == BT::Exc
+                    && (ob.cls.is_sub(&exc_class("ImportError")) || ob.cls.is_sub(&exc_class("AttributeError")) || ob.cls.is_sub(&exc_class("NameError"))) =>
+                {
+                    return Ok(ob.get(name).unwrap_or(V::None));
+                }
+                "obj" if ob.cls.base_bt() == BT::Exc && ob.cls.is_sub(&exc_class("AttributeError")) => {
                     return Ok(ob.get(name).unwrap_or(V::None));
                 }
                 _ => {}
@@ -1279,7 +1328,18 @@ pub fn delattr(o: &V, name: &str) -> Result<(), E> {
             // deleting an OSError field empties the slot (getattr then reads None), it does not raise
             if matches!(name, "errno" | "strerror" | "filename" | "filename2")
                 && ob.cls.base_bt() == BT::Exc
-                && ob.cls.is_sub(&exc_class("OSError"))
+                && ob.cls.is_sub(&ose_class())
+            {
+                ob.del_attr(name)?;
+                return Ok(());
+            }
+            if (matches!(name, "path") && ob.cls.is_sub(&exc_class("ImportError"))
+                || matches!(name, "obj") && ob.cls.is_sub(&exc_class("AttributeError"))
+                || matches!(name, "name")
+                    && (ob.cls.is_sub(&exc_class("ImportError"))
+                        || ob.cls.is_sub(&exc_class("AttributeError"))
+                        || ob.cls.is_sub(&exc_class("NameError"))))
+                && ob.cls.base_bt() == BT::Exc
             {
                 ob.del_attr(name)?;
                 return Ok(());

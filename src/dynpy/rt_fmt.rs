@@ -112,31 +112,35 @@ fn unguard() {
     });
 }
 // The subclass a plain OSError(errno, ...) stands for (PermissionError and so on); used by the constructor
-// factory, since in CPython 3.13 OSError(errno, strerror, ...) makes the subclass itself.
+// factory, since in CPython 3.13 OSError(errno, strerror, ...) makes the subclass itself. The tables follow
+// CPython's errnomodule.c on each target, with that platform's errno.h values.
 pub fn ose_errno_name(myerrno: i64) -> &'static str {
-    let again = if cfg!(target_os = "macos") { 35 } else { 11 };
-    let shutdown = if cfg!(target_os = "macos") { 58 } else { 108 };
-    let already = if cfg!(target_os = "macos") { 37 } else { 114 };
-    let progress = if cfg!(target_os = "macos") { 36 } else { 115 };
-    match myerrno {
-        1 | 13 => "PermissionError",
-        2 => "FileNotFoundError",
-        3 => "ProcessLookupError",
-        4 => "InterruptedError",
-        10 => "ChildProcessError",
-        17 => "FileExistsError",
-        20 => "NotADirectoryError",
-        21 => "IsADirectoryError",
-        32 => "BrokenPipeError",
-        103 => "ConnectionAbortedError",
-        104 => "ConnectionResetError",
-        110 => "TimeoutError",
-        111 => "ConnectionRefusedError",
-        _ if myerrno == again => "BlockingIOError",
-        _ if myerrno == shutdown => "BrokenPipeError",
-        _ if myerrno == already || myerrno == progress => "BlockingIOError",
-        _ => "OSError",
-    }
+    #[cfg(target_os = "macos")]
+    const TABLE: &[(i64, &str)] = &[
+        (1, "PermissionError"), (2, "FileNotFoundError"), (3, "ProcessLookupError"), (4, "InterruptedError"),
+        (10, "ChildProcessError"), (13, "PermissionError"), (17, "FileExistsError"), (20, "NotADirectoryError"),
+        (21, "IsADirectoryError"), (32, "BrokenPipeError"), (35, "BlockingIOError"), (36, "BlockingIOError"),
+        (37, "BlockingIOError"), (53, "ConnectionAbortedError"), (54, "ConnectionResetError"),
+        (58, "BrokenPipeError"), (60, "TimeoutError"), (61, "ConnectionRefusedError"),
+    ];
+    #[cfg(target_os = "windows")]
+    const TABLE: &[(i64, &str)] = &[
+        (1, "PermissionError"), (2, "FileNotFoundError"), (3, "ProcessLookupError"), (4, "InterruptedError"),
+        (10, "ChildProcessError"), (11, "BlockingIOError"), (13, "PermissionError"), (17, "FileExistsError"),
+        (20, "NotADirectoryError"), (21, "IsADirectoryError"), (32, "BrokenPipeError"), (103, "BlockingIOError"),
+        (106, "ConnectionAbortedError"), (107, "ConnectionRefusedError"), (108, "ConnectionResetError"),
+        (112, "BlockingIOError"), (138, "TimeoutError"), (140, "BlockingIOError"),
+    ];
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    const TABLE: &[(i64, &str)] = &[
+        (1, "PermissionError"), (2, "FileNotFoundError"), (3, "ProcessLookupError"), (4, "InterruptedError"),
+        (10, "ChildProcessError"), (11, "BlockingIOError"), (13, "PermissionError"), (17, "FileExistsError"),
+        (20, "NotADirectoryError"), (21, "IsADirectoryError"), (32, "BrokenPipeError"),
+        (103, "ConnectionAbortedError"), (104, "ConnectionResetError"), (108, "BrokenPipeError"),
+        (110, "TimeoutError"), (111, "ConnectionRefusedError"), (114, "BlockingIOError"),
+        (115, "BlockingIOError"),
+    ];
+    TABLE.iter().find(|(e, _)| *e == myerrno).map_or("OSError", |(_, n)| *n)
 }
 // OSError.__str__: the stored fields (filename first, as CPython), or BaseException's own fallback when
 // strerror (or errno) was never given or deleted.
@@ -481,7 +485,7 @@ pub fn to_str(v: &V) -> Result<String, E> {
             }
             if o.cls.base_bt() == BT::Exc {
                 let args = o.get("args").unwrap_or(tup(vec![]));
-                if o.cls.is_sub(&exc_class("OSError")) {
+                if o.cls.is_sub(&ose_class()) {
                     return ose_str(o, &args);
                 }
                 // UnicodeDecodeError(encoding, object, start, end, reason)

@@ -13,3 +13,44 @@ FileNotFoundError(2, 'no file') FileNotFoundError
 TypeError OSError() takes no keyword arguments
 (2, 'no file') 2 no file x.txt [Errno 2] no file: 'x.txt' MyErr(2, 'no file') MyErr
 {}
+1 PermissionError 1 True
+2 FileNotFoundError 2 True
+3 ProcessLookupError 3 True
+4 InterruptedError 4 True
+10 ChildProcessError 10 True
+11 BlockingIOError 11 True
+13 PermissionError 13 True
+16 OSError 16 True
+17 FileExistsError 17 True
+20 NotADirectoryError 20 True
+21 IsADirectoryError 21 True
+32 BrokenPipeError 32 True
+35 OSError 35 True
+103 ConnectionAbortedError 103 True
+104 ConnectionResetError 104 True
+108 BrokenPipeError 108 True
+110 TimeoutError 110 True
+111 ConnectionRefusedError 111 True
+114 BlockingIOError 114 True
+115 BlockingIOError 115 True
+5 OSError 5 True
+122 OSError 122 True
+('x',) foo p x ImportError('x') {}
+None None None None
+('x',) a o x AttributeError('x') {}
+None None
+('x',) n x NameError('x') {}
+None m q
+None True {}
+None True
+None True
+q None {}
+('x',) a b MyImp('x') MyImp
+u None
+ImportError() got an unexpected keyword argument 'extra'
+ImportError() takes at most 3 keyword arguments (4 given)
+AttributeError() takes at most 2 keyword arguments (3 given)
+NameError() takes at most 1 keyword argument (2 given)
+NameError() got an unexpected keyword argument 'foo'
+ValueError() takes no keyword arguments
+OSError() takes no keyword arguments
