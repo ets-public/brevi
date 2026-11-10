@@ -107,7 +107,7 @@ fn check_body(body: &[Stmt]) -> Option<(usize, String, Vec<String>)> {
     if let Some(line) = crate::dynpy::typing::typed_isinstance(body) {
         return Some((line, "isinstance with a typing name".into(), vec![]));
     }
-    if let Some((line, why)) = odd_decorator(body).or_else(|| json_kwargs(body)).or_else(|| findall_groups(body)).or_else(|| default_reads(body)) {
+    if let Some((line, why)) = odd_decorator(body).or_else(|| json_kwargs(body)).or_else(|| findall_groups(body)).or_else(|| pattern_uses(body)).or_else(|| default_reads(body)) {
         return Some((line, why, vec![]));
     }
     let mut hits = vec![];
@@ -1876,6 +1876,78 @@ fn findall_groups(body: &[Stmt]) -> Option<(usize, String)> {
         };
         if pat.as_deref().map_or(true, |p| re_groups(p) >= 2) {
             hit = Some((line, "re.findall with two or more groups gives tuples (or a pattern the typed build cannot see)".to_string()));
+        }
+    });
+    hit
+}
+
+// The typed build keeps a compiled pattern as its pattern string, and reads `p.match(s)`, `p.search(s)`,
+// `p.fullmatch(s)`, `p.findall(s)`, `p.finditer(s)` and `p.sub(r, s)` as the re functions. Any other use would
+// see the string: `p.split(s)` is str.split, repr(p) and print(p) show the string, `p.pattern` and `p.flags` are
+// not there. Those send the file to the dynamic build, whose patterns are re.Pattern objects.
+fn pattern_uses(body: &[Stmt]) -> Option<(usize, String)> {
+    fn all(body: &[Stmt], f: &mut dyn FnMut(usize, &Ex)) {
+        for s in body {
+            let line = s.line;
+            walk_st(&s.st, &mut |e| f(line, e));
+            match &s.st {
+                St::Def(d) => all(&d.body, f),
+                St::Class(c) => all(&c.body, f),
+                st => each_block(st, &mut |b| all(b, f)),
+            }
+        }
+    }
+    fn sets(body: &[Stmt], f: &mut dyn FnMut(&St)) {
+        for s in body {
+            f(&s.st);
+            match &s.st {
+                St::Def(d) => sets(&d.body, f),
+                St::Class(c) => sets(&c.body, f),
+                st => each_block(st, &mut |b| sets(b, f)),
+            }
+        }
+    }
+    let compiled = |e: &Ex| matches!(e, Ex::Call(f, _) if matches!(f.as_ref(), Ex::Attr(m, c) if c == "compile" && matches!(m.as_ref(), Ex::Name(r) if r == "re")));
+    // names (".attr" for attributes) set to re.compile(...) anywhere
+    let mut names: HashSet<String> = HashSet::new();
+    sets(body, &mut |st| {
+        if let St::Assign(ts, v) = st {
+            if compiled(v) {
+                for t in ts {
+                    match t {
+                        Ex::Name(n) => names.insert(n.clone()),
+                        Ex::Attr(_, n) => names.insert(format!(".{n}")),
+                        _ => false,
+                    };
+                }
+            }
+        }
+    });
+    let is_pat = |e: &Ex| {
+        compiled(e)
+            || match e {
+                Ex::Name(n) => names.contains(n),
+                Ex::Attr(_, n) => names.contains(&format!(".{n}")),
+                _ => false,
+            }
+    };
+    let mut hit = None;
+    all(body, &mut |line, e| {
+        if hit.is_some() {
+            return;
+        }
+        let why = match e {
+            Ex::Attr(on, m) if is_pat(on) && !matches!(m.as_str(), "match" | "fullmatch" | "search" | "findall" | "finditer" | "sub") => Some(format!("a compiled pattern's .{m}")),
+            Ex::Call(f, a) if matches!(f.as_ref(), Ex::Name(n) if matches!(n.as_str(), "repr" | "str" | "print" | "format" | "type" | "hash" | "id" | "len" | "list" | "tuple" | "isinstance"))
+                && a.iter().any(|a| matches!(a, Arg::Pos(x) if is_pat(x))) =>
+            {
+                Some("a compiled pattern shown or passed to a builtin".into())
+            }
+            Ex::FStr(parts) if parts.iter().any(|p| matches!(p, crate::dynpy::parse::FPart::Expr(x, ..) if is_pat(x))) => Some("a compiled pattern in an f-string".into()),
+            _ => None,
+        };
+        if let Some(w) = why {
+            hit = Some((line, format!("{w}, where the typed build has the pattern's string")));
         }
     });
     hit
