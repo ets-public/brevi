@@ -1559,7 +1559,7 @@ impl Emitter {
             Some(sig) if sig.fallible => {
                 let py = self.py_start();
                 out.push_str(&format!(
-                    "fn main() {{\n    ax_init(AX_FILES, AX_FS);\n{py}    if let Err(e) = ax_main() {{\n        eprintln!(\"{{{{\\\"e\\\":\\\"runtime\\\",{{}},\\\"msg\\\":{{:?}}}}}}\", ax_at(AX_LINE.load(std::sync::atomic::Ordering::Relaxed)), ax_exc_report(&e.0));\n        std::process::exit(1);\n    }}\n}}\n"
+                    "fn main() {{\n    ax_init(AX_FILES, AX_FS);\n{py}    if let Err(e) = ax_main() {{\n        ax_uncaught(&e.0);\n        std::process::exit(1);\n    }}\n}}\n"
                 ))
             }
             Some(_) => {}

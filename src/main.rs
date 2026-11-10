@@ -39,7 +39,7 @@ use std::path::{Path, PathBuf};
 use std::io::Write;
 use std::process::{exit, Command};
 
-const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--sandbox] [--allow read,write,net,native] [--allow-py MODULES] [--allow-net HOSTS] [--allow-read DIRS] [--allow-write DIRS] [--limit cpu=S,mem=MB,time=S,output=KB,file=MB,written=MB,net=MB,threads=N,fds=N,files=N] [--traceback] [--window] [--explain] [--standalone] [-o OUT] [-- ARGS...] | brevi run --verify FILE.py [--strict] [-- ARGS...] | brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [--limit SPEC] [-- ARGS...] | brevi report [--clear] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp [--http [HOST:]PORT --token TOKEN]";
+const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--sandbox] [--allow read,write,net,native] [--allow-py MODULES] [--allow-net HOSTS] [--allow-read DIRS] [--allow-write DIRS] [--limit cpu=S,mem=MB,time=S,output=KB,file=MB,written=MB,net=MB,threads=N,fds=N,files=N] [--traceback] [--window] [--explain] [--standalone] [-o OUT] [ARGS...] [-- ARGS...] | brevi run --verify FILE.py [--strict] [-- ARGS...] | brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [--limit SPEC] [-- ARGS...] | brevi report [--clear] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp [--http [HOST:]PORT --token TOKEN]";
 
 // The language guide, so `brevi guide` and `--explain` can serve parts of it.
 pub const GUIDE: &str = include_str!("../BREVI.md");
@@ -152,12 +152,85 @@ pub fn python_exe() -> String {
     std::env::var("BREVI_PYTHON").unwrap_or_else(|_| if cfg!(windows) { "python".into() } else { "python3".into() })
 }
 
+/// A program's source file, read as Python reads it: a UTF-8 byte order mark at the start is not part of the text.
+pub fn read_src(p: impl AsRef<Path>) -> std::io::Result<String> {
+    let s = std::fs::read_to_string(p)?;
+    Ok(match s.strip_prefix('\u{feff}') {
+        Some(t) => t.to_string(),
+        None => s,
+    })
+}
+
+// `brevi run` options that take a value in the next argument (or after `=`).
+const RUN_VALUE_FLAGS: [&str; 9] = ["--allow", "--allow-py", "--allow-net", "--allow-read", "--allow-write", "--limit", "-o", "--timeout", "--input"];
+const RUN_FLAGS: [&str; 13] = ["--release", "--fast", "--native", "--sandbox", "--traceback", "--window", "--explain", "--standalone", "--no-cache", "--verify", "--strict", "--once", "--mcp"];
+
+/// `brevi run FILE a b`, as `python3 FILE a b`: the first argument after FILE that is not a Brevi option starts the
+/// program's arguments, so a `--` is put before it. A dashed word after FILE that is no Brevi option is refused
+/// rather than guessed at (it may be a misspelt `--sandbox`); `--` passes it to the program.
+fn split_run_args(argv: &mut Vec<String>) -> Result<(), String> {
+    let value_flag = |a: &str| RUN_VALUE_FLAGS.contains(&a);
+    let mut i = 1;
+    // the file: the first word that is neither an option nor an option's value
+    while i < argv.len() && argv[i] != "--" {
+        if value_flag(&argv[i]) {
+            i += 2;
+        } else if argv[i].starts_with('-') && argv[i] != "-" {
+            i += 1;
+        } else {
+            break;
+        }
+    }
+    if i >= argv.len() || argv[i] == "--" {
+        return Ok(());
+    }
+    i += 1;
+    while i < argv.len() && argv[i] != "--" {
+        let a = argv[i].as_str();
+        if value_flag(a) {
+            i += 2;
+        } else if RUN_FLAGS.contains(&a) || RUN_VALUE_FLAGS.iter().any(|f| a.strip_prefix(f).is_some_and(|r| r.starts_with('='))) {
+            i += 1;
+        } else if a.starts_with('-') && a != "-" {
+            return Err(format!("brevi run has no option {a}: to pass it to the program, put it after -- (brevi run FILE -- {a})"));
+        } else {
+            argv.insert(i, "--".into());
+            return Ok(());
+        }
+    }
+    Ok(())
+}
+
+/// Commands that only print: a reader that stops early (`brevi report | head -1`) ends them quietly, as it
+/// ends `cat`, instead of a Rust panic on the closed pipe.
+fn quiet_on_closed_pipe() {
+    #[cfg(unix)]
+    {
+        unsafe extern "C" {
+            fn signal(sig: i32, handler: usize) -> usize;
+        }
+        // SIGPIPE is 13 on every Unix Brevi builds for; SIG_DFL is 0.
+        unsafe {
+            signal(13, 0);
+        }
+    }
+}
+
 fn main() {
     tm("start");
     if let Some(args) = shim::args() {
         shim::main(args);
     }
     let mut argv: Vec<String> = std::env::args().skip(1).collect();
+    if matches!(argv.first().map(|a| a.as_str()), Some("report" | "guide" | "--help" | "-h" | "help" | "--version" | "version")) {
+        quiet_on_closed_pipe();
+    }
+    if argv.first().map(|a| a.as_str()) == Some("run") {
+        if let Err(m) = split_run_args(&mut argv) {
+            eprintln!("{m}");
+            exit(2);
+        }
+    }
     if argv.first().map(|a| a.as_str()) == Some("mcp") {
         mcp::serve(&argv[1..]);
         return;
@@ -370,7 +443,7 @@ fn main() {
     let out_path = argv.iter().position(|a| a == "-o").and_then(|i| argv.get(i + 1)).map(PathBuf::from);
     let prog_args: Vec<String> = argv.iter().position(|a| a == "--").map(|i| argv[i + 1..].to_vec()).unwrap_or_default();
 
-    let src = match std::fs::read_to_string(&file) {
+    let src = match crate::read_src(&file) {
         Ok(s) => s,
         Err(e) => {
             println!("{{\"e\":\"io\",\"at\":\"{}\",\"msg\":\"{}\"}}", esc(&file), esc(&e.to_string()));
@@ -589,7 +662,7 @@ fn main() {
 // did not declare. Without `allow native`, also turns pybridge off for this run. Runs before every other path,
 // so a refusal is final. True when the program is held to its allow lines.
 fn hold_to_caps(file: &str, sandbox: bool) -> bool {
-    let Ok(src) = std::fs::read_to_string(file) else { return sandbox };
+    let Ok(src) = crate::read_src(file) else { return sandbox };
     let src = modules::fill_file_name(&src, Path::new(file));
     // A program whose `use` lines do not resolve is reported by the build; check what is there.
     let src = modules::expand(file, &src).map(|x| x.0).unwrap_or(src);
@@ -671,7 +744,7 @@ fn guard_refusal(cmd: &str, file: &str, argv: &[String], line: usize, why: &str,
         if cmd == "emit" {
             dyn_cmd(cmd, &file, &argv);
         }
-        let gsrc = std::fs::read_to_string(&gfile).unwrap_or_default();
+        let gsrc = crate::read_src(&gfile).unwrap_or_default();
         let gname = gfile.file_name().unwrap_or_default().to_string_lossy().to_string();
         let main_file = Path::new(&file).file_name().map(|n| n.to_string_lossy().to_string()) == Some(gname.clone());
         let gshown = if main_file { String::new() } else { gname.clone() };
@@ -698,7 +771,7 @@ fn guard_refusal(cmd: &str, file: &str, argv: &[String], line: usize, why: &str,
 
 // Stops on the mistakes in a Python file that `scan` (from pydiag) is sure of.
 fn refuse_sure(file: &str, scan: fn(&str, &Path) -> Vec<Diag>) {
-    let sure = std::fs::read_to_string(file).map(|t| scan(&t, Path::new(file).parent().unwrap_or(Path::new(".")))).unwrap_or_default();
+    let sure = crate::read_src(file).map(|t| scan(&t, Path::new(file).parent().unwrap_or(Path::new(".")))).unwrap_or_default();
     if !sure.is_empty() {
         sure.iter().for_each(print_diag);
         exit_sure();
@@ -707,10 +780,10 @@ fn refuse_sure(file: &str, scan: fn(&str, &Path) -> Vec<Diag>) {
 
 // Stops on the first file of a Python program, the main one or one it imports, that CPython could not compile.
 fn refuse_not_python(file: &str) {
-    let Ok(src) = std::fs::read_to_string(file) else { return };
+    let Ok(src) = crate::read_src(file) else { return };
     let segs = modules::expand(file, &src).map_or(vec![], |x| x.1);
     for s in segs.iter().skip(1).filter(|s| s.path.extension().is_some_and(|x| x == "py")) {
-        if let Some(mut d) = std::fs::read_to_string(&s.path).ok().and_then(|t| pydiag::not_python(&t)) {
+        if let Some(mut d) = crate::read_src(&s.path).ok().and_then(|t| pydiag::not_python(&t)) {
             d.line += s.start - 1;
             println!("{}", modules::relocate(&segs, &d.to_json()));
             exit_sure();
@@ -1072,7 +1145,7 @@ fn def_at_joined(src: &str, line: usize) -> Option<String> {
         return enclosing_def(src, line);
     }
     let seg = segs.iter().find(|s| s.file == f)?;
-    enclosing_def(&std::fs::read_to_string(&seg.path).ok()?, l)
+    enclosing_def(&crate::read_src(&seg.path).ok()?, l)
 }
 
 // The def (or class method, `Board.move`) a line is in; None at the top level.
@@ -1139,7 +1212,7 @@ fn say_cpython(file: &str, python: &str, out: &str, err: &str) {
     let line = first.as_ref().and_then(|j| j.get("line")).and_then(|v| v.num()).unwrap_or(0.0) as usize;
     let dir = Path::new(file).parent().unwrap_or(Path::new("."));
     let in_file = get("file");
-    let src = std::fs::read_to_string(if in_file.is_empty() { PathBuf::from(file) } else { dir.join(&in_file) }).unwrap_or_default();
+    let src = crate::read_src(if in_file.is_empty() { PathBuf::from(file) } else { dir.join(&in_file) }).unwrap_or_default();
     let mut extra = format!(",\"by\":\"{}\"", esc(python));
     if EXPLAIN.load(std::sync::atomic::Ordering::Relaxed) {
         if let Some(d) = err.lines().find_map(|l| l.strip_prefix("{\"dyn_blocked\":").and_then(|r| r.strip_suffix('}'))) {
@@ -1716,7 +1789,7 @@ fn guard_files(file: &str) -> (Option<(usize, String, PathBuf, Vec<String>)>, Op
             continue;
         }
         seen.push(f.clone());
-        let Ok(src) = std::fs::read_to_string(&f) else { continue };
+        let Ok(src) = crate::read_src(&f) else { continue };
         let src = if seen.len() == 1 { pysentinel::rewrite(&pygen::rewrite(&src)) } else { src };
         let shown = |why: String| if seen.len() == 1 { why } else { format!("{}: {why}", f.file_name().unwrap_or_default().to_string_lossy()) };
         // `allow` lines are not Python, and the guard reads what the typed build reads once they are gone.
@@ -2383,7 +2456,7 @@ fn bv_as_py(file: &str) -> bool {
     if !file.ends_with(".bv") || std::env::var("BREVI_BV_PY").is_ok_and(|v| v == "0") {
         return false;
     }
-    let Ok(text) = std::fs::read_to_string(file) else { return false };
+    let Ok(text) = crate::read_src(file) else { return false };
     let src = caps::split(&text).0;
     let dir = Path::new(file).parent().unwrap_or(Path::new("."));
     let foreign = src.lines().any(|l| {

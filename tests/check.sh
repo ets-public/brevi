@@ -740,6 +740,41 @@ in an empty root: $bare"
     echo "ok   $f"
   fi
 done
+#== cli
+# The command line, on both native builds: `brevi run FILE a b` hands `a b` to the program as python3 does (Brevi's
+# own options may still follow FILE), a dashed word after FILE that is no Brevi option is refused (it may be a
+# misspelt --sandbox) unless it follows --, a byte order mark may start a file, a `#` in an f-string's format spec
+# is no comment, and an uncaught error on the typed build names its class.
+for d in 0 1; do
+  for c in "a b|a b" "a --native b|a --native b" "a -- --x|a -- --x" "-- --x a|--x a" "--fast a b|a b" "a b -- c|a b -- c"; do
+    out=$(BREVI_DYN=$d $BREVI run tests/cli/argv.py --native ${c%%|*} 2>&1); want=$(python3 tests/cli/argv.py ${c#*|})
+    if [ "$out" = "$want" ]; then echo "ok   cli args ($d: ${c%%|*})"; else echo "FAIL cli args ($d: ${c%%|*})"; echo "want $want"; echo "got  $out"; fail=1; fi
+  done
+  out=$(BREVI_DYN=$d $BREVI run tests/cli/argv.py --native --sandbx 2>&1; echo "exit $?")
+  if printf '%s\n' "$out" | grep -q 'no option --sandbx' && printf '%s\n' "$out" | grep -qx 'exit 2'; then echo "ok   cli unknown option refused ($d)"; else echo "FAIL cli unknown option refused ($d)"; printf '%s\n' "$out"; fail=1; fi
+  for f in fstring_spec bom; do
+    out=$(BREVI_DYN=$d $BREVI run tests/cli/$f.py --native 2>&1); want=$(python3 tests/cli/$f.py 2>&1)
+    if [ "$out" = "$want" ]; then echo "ok   cli $f ($d)"; else echo "FAIL cli $f ($d)"; printf '%s\n' "$want" | diff - "$(printf '%s\n' "$out" > /tmp/brevi_cli_$$; echo /tmp/brevi_cli_$$)"; fail=1; fi
+  done
+done
+rm -f /tmp/brevi_cli_$$
+out=$(BREVI_DYN=0 $BREVI run tests/cli/raised.py --native 2>&1; echo "exit $?")
+want='before
+{"e":"runtime","line":4,"type":"MyErr","msg":"custom failure"}
+exit 1'
+if [ "$out" = "$want" ]; then echo "ok   cli uncaught error type"; else echo "FAIL cli uncaught error type"; printf '%s\n' "$out"; fail=1; fi
+# A value in an f-string that the typed build cannot read is refused there, never printed as text (it printed
+# `{  1[1] }` for `f"{ {1: 2}[1] }"`); the default run builds it over dynamic values.
+out=$(BREVI_DYN=0 $BREVI run tests/cli/fstring_brace_field.py --native 2>&1; echo "exit $?")
+if printf '%s\n' "$out" | grep -q 'f-string value the typed build cannot read' && printf '%s\n' "$out" | grep -qx 'exit 1'; then echo "ok   cli f-string field refused typed"; else echo "FAIL cli f-string field refused typed"; printf '%s\n' "$out"; fail=1; fi
+out=$($BREVI run tests/cli/fstring_brace_field.py --native 2>/dev/null)
+if [ "$out" = "$(python3 tests/cli/fstring_brace_field.py)" ]; then echo "ok   cli f-string field"; else echo "FAIL cli f-string field"; printf '%s\n' "$out"; fail=1; fi
+# A reader that stops early ends brevi report quietly (it panicked on the closed pipe).
+t=$(mktemp -d); i=0
+while [ $i -lt 400 ]; do mkdir -p "$t/differs/r$i"; printf '{"file":"x.py","on":"stdout"}\n' > "$t/differs/r$i/verdict.json"; i=$((i+1)); done
+BREVI_CACHE="$t" $BREVI report 2>"$t/err" | head -1 >/dev/null
+if [ ! -s "$t/err" ]; then echo "ok   cli report into a closed pipe"; else echo "FAIL cli report into a closed pipe"; cat "$t/err"; fail=1; fi
+rm -rf "$t"
 #== cache
 # The result cache: an unchanged program is replayed (path report line included), a changed module is built
 # again, and --no-cache always builds.
