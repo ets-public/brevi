@@ -749,13 +749,38 @@ fn groupby_iter(it: Rc<RefCell<It>>, key: Option<V>) -> V {
         Ok(Some(tup(vec![k, grouper])))
     })
 }
+// itertools sizes (r, repeat) are PyNumber_AsSsize_t in CPython: ints past 64 bits overflow.
+fn it_ssize(v: &V, neg_msg: &str) -> Result<i64, E> {
+    if matches!(v, V::Big(_)) || matches!(inner_of(v), Some(V::Big(_))) {
+        return Err(exc("OverflowError", "Python int too large to convert to C ssize_t".into()));
+    }
+    let i = idx_of(v)?;
+    if i < 0 {
+        return Err(exc("ValueError", neg_msg.into()));
+    }
+    Ok(i)
+}
+// islice converts each bound with PyLong_AsSsize_t and, as CPython, folds any conversion
+// failure (float, string, an int past 64 bits, ...) into the bound's range ValueError.
+fn islice_ssize(v: &V, none: i64) -> i64 {
+    if matches!(v, V::None) {
+        return none;
+    }
+    match idx_of(v) {
+        Ok(i) => i,
+        Err(_) => -1,
+    }
+}
+const ISLICE_STOP_MSG: &str = "Stop argument for islice() must be None or an integer: 0 <= x <= sys.maxsize.";
+const ISLICE_START_MSG: &str = "Indices for islice() must be None or an integer: 0 <= x <= sys.maxsize.";
+const ISLICE_STEP_MSG: &str = "Step for islice() must be a positive integer or None.";
 pub fn itertools_fn(name: &str, mut a: Args) -> R {
     Ok(match name {
         "permutations" => {
             let pool = to_vec(a.p.first().ok_or_else(|| exc("TypeError", "permutations() missing iterable".into()))?)?;
             let r = match a.p.get(1).cloned().or(a.kw("r")) {
                 Some(V::None) | None => pool.len(),
-                Some(x) => idx_of(&x)? as usize,
+                Some(x) => it_ssize(&x, "r must be non-negative")? as usize,
             };
             let n = pool.len();
             let mut out = vec![];
@@ -792,7 +817,7 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
         "combinations" | "combinations_with_replacement" => {
             a.want(name, 2, 2)?;
             let pool = to_vec(&a.p[0])?;
-            let r = idx_of(&a.p[1])? as usize;
+            let r = it_ssize(&a.p[1], "r must be non-negative")? as usize;
             let n = pool.len();
             let mut out = vec![];
             let rep = name != "combinations";
@@ -847,7 +872,7 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
         }
         "product" => {
             let rep = match a.kw("repeat") {
-                Some(x) => idx_of(&x)? as usize,
+                Some(x) => it_ssize(&x, "repeat argument cannot be negative")? as usize,
                 None => 1,
             };
             let mut pools = vec![];
@@ -950,16 +975,33 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             })
         }
         "islice" => {
-            let src = a.p.first().cloned().unwrap_or(V::None);
-            let (start, stop, step) = match a.p.len() {
-                2 => (0, a.p[1].clone(), 1),
-                3 => (idx_of(&a.p[1]).unwrap_or(0), a.p[2].clone(), 1),
-                _ => (idx_of(&a.p[1]).unwrap_or(0), a.p[2].clone(), idx_of(&a.p[3]).unwrap_or(1)),
-            };
-            let stop = match stop {
-                V::None => i64::MAX,
-                x => idx_of(&x)?,
-            };
+            if !a.k.is_empty() {
+                return Err(exc("TypeError", "islice() takes no keyword arguments".into()));
+            }
+            let n = a.p.len();
+            if n < 2 {
+                return Err(exc("TypeError", format!("islice expected at least 2 arguments, got {n}")));
+            }
+            if n > 4 {
+                return Err(exc("TypeError", format!("islice expected at most 4 arguments, got {n}")));
+            }
+            let src = a.p[0].clone();
+            // CPython converts and range-checks the bounds in order: stop, start, step.
+            let stop = islice_ssize(if n == 2 { &a.p[1] } else { &a.p[2] }, i64::MAX);
+            if stop < 0 {
+                // CPython's islice folds conversion failures into -1 (reported as the stop
+                // argument error) but reports other negative stop values with the indices error.
+                let msg = if stop == -1 { ISLICE_STOP_MSG } else { ISLICE_START_MSG };
+                return Err(exc("ValueError", msg.into()));
+            }
+            let start = if n == 2 { 0 } else { islice_ssize(&a.p[1], 0) };
+            if start < 0 {
+                return Err(exc("ValueError", ISLICE_START_MSG.into()));
+            }
+            let step = if n == 4 { islice_ssize(&a.p[3], 1) } else { 1 };
+            if step < 1 {
+                return Err(exc("ValueError", ISLICE_STEP_MSG.into()));
+            }
             let mut it = iter(&src)?;
             let mut i = 0i64;
             let mut next_i = start;
