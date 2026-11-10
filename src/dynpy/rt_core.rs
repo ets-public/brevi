@@ -2259,6 +2259,11 @@ impl Class {
         *self.set_info.borrow_mut() = (ep, hook, props);
         b
     }
+    // a property of this name somewhere in the MRO (from the same per-epoch record as plain_set)
+    pub fn is_prop(&self, n: &str) -> bool {
+        let _ = self.plain_set(n);
+        self.set_info.borrow().2.iter().any(|k| same_name(k, n))
+    }
     // the result, and where lcache keeps the name's text (None when lcache is full)
     fn lookup_hashed(&self, n: &str, ep: u64) -> (Option<V>, Option<(usize, usize)>) {
         {
@@ -2940,6 +2945,8 @@ pub fn init_builtin_classes() {
         ("StopIteration", "Exception"),
         ("StopAsyncIteration", "Exception"),
         ("AssertionError", "Exception"),
+        ("SyntaxError", "Exception"),
+        ("IndentationError", "SyntaxError"),
         ("ImportError", "Exception"),
         ("ModuleNotFoundError", "ImportError"),
         ("OSError", "Exception"),
@@ -2960,6 +2967,15 @@ pub fn init_builtin_classes() {
         ("Warning", "Exception"),
         ("UserWarning", "Warning"),
         ("DeprecationWarning", "Warning"),
+        ("SyntaxWarning", "Warning"),
+        ("RuntimeWarning", "Warning"),
+        ("FutureWarning", "Warning"),
+        ("PendingDeprecationWarning", "Warning"),
+        ("ImportWarning", "Warning"),
+        ("UnicodeWarning", "Warning"),
+        ("BytesWarning", "Warning"),
+        ("ResourceWarning", "Warning"),
+        ("EncodingWarning", "Warning"),
         ("JSONDecodeError", "ValueError"),
         ("InvalidOperation", "ArithmeticError"),
         ("DivisionByZero", "ZeroDivisionError"),
@@ -3002,6 +3018,7 @@ pub fn init_builtin_classes() {
     m.insert("FrozenInstanceError", Class::new("FrozenInstanceError", "dataclasses", vec![ae], BT::Exc));
     BUILTIN_CLASSES.with(|b| *b.borrow_mut() = m);
     TYPE_CACHE.with(|c| *c.borrow_mut() = Default::default());
+    BV_CACHE.with(|c| *c.borrow_mut() = Default::default());
 }
 
 // ---------- type names, truth ----------

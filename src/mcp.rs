@@ -420,7 +420,8 @@ fn spawn_capped(mut c: Command, stdin: &str, limit: Duration, out_cap: Option<u6
     c.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     crate::proc::own_group(&mut c);
     crate::proc::die_with_parent(&mut c);
-    let mut child = c.spawn().map_err(|e| format!("cannot start {}: {e}", c.get_program().to_string_lossy()))?;
+    let watch = WATCH.with(|w| w.take());
+    let (mut child, job) = crate::proc::spawn_limited(&mut c, &watch.unwrap_or_default(), true).map_err(|e| format!("cannot start {}: {e}", c.get_program().to_string_lossy()))?;
     CHILD.store(child.id(), Ordering::SeqCst);
     // A cancel that came between the check above and the store: stop now.
     if CANCELLED.load(Ordering::SeqCst) {
@@ -439,7 +440,6 @@ fn spawn_capped(mut c: Command, stdin: &str, limit: Duration, out_cap: Option<u6
     let mut timed_out = false;
     let mut over = false;
     let mut on = None;
-    let watch = WATCH.with(|w| w.take());
     let status = loop {
         match child.try_wait() {
             Ok(Some(s)) => break Some(s),
@@ -476,6 +476,9 @@ fn spawn_capped(mut c: Command, stdin: &str, limit: Duration, out_cap: Option<u6
         return Err("cancelled".into());
     }
     let over = over || out_cap.is_some_and(|c| seen.load(Ordering::SeqCst) > c);
+    // A Windows job that refused an allocation at the memory limit (proc::spawn_limited).
+    let on = on.or_else(|| watch.zip(status).and_then(|(l, s)| job.hit(&l, s)));
+    drop(job);
     Ok(Done { out, err, status, timed_out, over, on })
 }
 
@@ -851,7 +854,7 @@ fn verified(files: &mut Files, t: String, err: bool) -> (String, bool) {
 }
 
 fn python() -> String {
-    std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into())
+    crate::python_exe()
 }
 
 const CPYTHON_ONLY: &str = "{\"path\":\"cpython\",\"why\":\"Brevi gave a wrong answer on this program earlier in this session\",\"by\":\"python3\"}";

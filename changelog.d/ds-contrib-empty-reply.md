@@ -1,0 +1,1 @@
+- `tools/ds_contrib.py`: an empty or malformed reply from the DeepSeek API is retried instead of ending the run with a traceback.

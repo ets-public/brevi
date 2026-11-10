@@ -15,10 +15,58 @@ mod brevi_ortglue {
     type P = *mut c_void;
     type St = P;
 
+    // libonnxruntime is dlopen'd on Unix; on Windows the same library (onnxruntime.dll) is LoadLibraryA'd, and
+    // GetLastError names what a failed load wanted.
+    #[cfg(unix)]
     extern "C" {
         fn dlopen(f: *const c_char, flag: i32) -> P;
         fn dlsym(h: P, s: *const c_char) -> P;
         fn dlerror() -> *const c_char;
+    }
+    #[cfg(windows)]
+    unsafe extern "system" {
+        fn LoadLibraryA(f: *const c_char) -> P;
+        fn GetProcAddress(h: P, s: *const c_char) -> P;
+        fn GetLastError() -> u32;
+        fn FreeLibrary(h: P) -> i32;
+    }
+    #[cfg(unix)]
+    unsafe fn ax_dlopen(f: *const c_char, flag: i32) -> P {
+        dlopen(f, flag)
+    }
+    #[cfg(windows)]
+    unsafe fn ax_dlopen(f: *const c_char, _flag: i32) -> P {
+        LoadLibraryA(f)
+    }
+    #[cfg(unix)]
+    unsafe fn ax_freelib(_h: P) {}
+    #[cfg(windows)]
+    unsafe fn ax_freelib(h: P) {
+        FreeLibrary(h);
+    }
+    #[cfg(unix)]
+    unsafe fn ax_dlsym(h: P, s: *const c_char) -> P {
+        dlsym(h, s)
+    }
+    #[cfg(windows)]
+    unsafe fn ax_dlsym(h: P, s: *const c_char) -> P {
+        GetProcAddress(h, s)
+    }
+    #[cfg(unix)]
+    unsafe fn ax_dlerror() -> String {
+        let e = dlerror();
+        if e.is_null() {
+            String::new()
+        } else {
+            CStr::from_ptr(e).to_string_lossy().into_owned()
+        }
+    }
+    #[cfg(windows)]
+    unsafe fn ax_dlerror() -> String {
+        let c = GetLastError();
+        let m = std::io::Error::from_raw_os_error(c as i32).to_string();
+        let m = m.split(" (os error").next().unwrap_or_default().to_string();
+        format!("{m} (Win32 error {c})")
     }
 
     #[repr(C)]
@@ -56,6 +104,29 @@ mod brevi_ortglue {
         unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned()
     }
 
+    // ONNX Runtime's ORTCHAR_T: char on Unix, wchar_t (UTF-16) on Windows. Model paths, optimized-model paths and
+    // profiling prefixes reach the C API in that spelling; names, tags and config keys are char* everywhere.
+    #[cfg(not(windows))]
+    fn ortchars(s: &str) -> Option<CString> {
+        CString::new(s).ok()
+    }
+    #[cfg(windows)]
+    fn ortchars(s: &str) -> Option<Vec<u16>> {
+        if s.contains('\0') {
+            None
+        } else {
+            Some(s.encode_utf16().chain(std::iter::once(0)).collect())
+        }
+    }
+    #[cfg(not(windows))]
+    fn ortchars_ptr(c: &CString) -> *const c_char {
+        c.as_ptr()
+    }
+    #[cfg(windows)]
+    fn ortchars_ptr(c: &[u16]) -> *const c_char {
+        c.as_ptr() as *const c_char
+    }
+
     fn libs() -> Vec<String> {
         let mut v = vec![];
         if !FS_SANDBOX {
@@ -66,57 +137,67 @@ mod brevi_ortglue {
         for l in ORT_LIBS {
             v.push(l.to_string());
         }
+        #[cfg(unix)]
         for l in ["libonnxruntime.so", "libonnxruntime.so.1", "libonnxruntime.dylib"] {
             v.push(l.to_string());
         }
+        // Windows has no bare-name fallback: an onnxruntime.dll in the program's folder or CWD must not
+        // run. ORT_LIBS holds the absolute path from the onnxruntime package found at build time;
+        // BREVI_ORT_LIB is the explicit override.
         v
     }
 
     fn api() -> Result<&'static Api, String> {
         API.get_or_init(|| unsafe {
-            let mut h: P = std::ptr::null_mut();
             let mut why = String::new();
             for l in libs() {
                 let c = CString::new(l.clone()).unwrap();
-                h = dlopen(c.as_ptr(), 2);
-                if !h.is_null() {
-                    break;
+                let h = ax_dlopen(c.as_ptr(), 2);
+                if h.is_null() {
+                    why = ax_dlerror();
+                    continue;
                 }
-                why = cstr(dlerror());
+                let g = ax_dlsym(h, c"OrtGetApiBase".as_ptr());
+                if g.is_null() {
+                    // a DLL that is not ONNX Runtime's own (an old wheel's onnxruntime_providers_shared.dll):
+                    // unload it and keep looking
+                    ax_freelib(h);
+                    why = format!("{l} has no OrtGetApiBase");
+                    continue;
+                }
+                let get: unsafe extern "C" fn() -> *const ApiBase = std::mem::transmute(g);
+                let base = &*get();
+                let version = cstr((base.version)());
+                let minor: u32 = version.split('.').nth(1).and_then(|m| m.parse().ok()).unwrap_or(0);
+                if minor < 16 {
+                    // loaded, but too old to serve this program: keep looking for a newer library
+                    ax_freelib(h);
+                    why = format!("ONNX Runtime {version} is older than 1.16");
+                    continue;
+                }
+                let t = (base.get_api)(minor.min(29));
+                if t.is_null() {
+                    ax_freelib(h);
+                    why = format!("ONNX Runtime {version} gave no C API");
+                    continue;
+                }
+                let mut a = Api { t, version, minor, env: std::ptr::null_mut(), mem: std::ptr::null_mut(), alloc: std::ptr::null_mut() };
+                // CreateEnv(warning, "Default"): onnxruntime's Python binding logs at warning level too
+                let mut env: P = std::ptr::null_mut();
+                let st = f!(a, 3, unsafe extern "C" fn(i32, *const c_char, *mut P) -> St)(2, c"Default".as_ptr(), &mut env);
+                if let Err((_, m)) = check(&a, st) {
+                    return Err(m);
+                }
+                a.env = env;
+                let mut mem: P = std::ptr::null_mut();
+                check(&a, f!(a, 69, unsafe extern "C" fn(i32, i32, *mut P) -> St)(1, 0, &mut mem)).map_err(|e| e.1)?;
+                a.mem = mem;
+                let mut al: P = std::ptr::null_mut();
+                check(&a, f!(a, 78, unsafe extern "C" fn(*mut P) -> St)(&mut al)).map_err(|e| e.1)?;
+                a.alloc = al;
+                return Ok(a);
             }
-            if h.is_null() {
-                return Err(format!("brevi: Brevi's onnxruntime needs ONNX Runtime (the onnxruntime package, or libonnxruntime): {why}"));
-            }
-            let g = dlsym(h, c"OrtGetApiBase".as_ptr());
-            if g.is_null() {
-                return Err("brevi: the ONNX Runtime library has no OrtGetApiBase".into());
-            }
-            let get: unsafe extern "C" fn() -> *const ApiBase = std::mem::transmute(g);
-            let base = &*get();
-            let version = cstr((base.version)());
-            let minor: u32 = version.split('.').nth(1).and_then(|m| m.parse().ok()).unwrap_or(0);
-            if minor < 16 {
-                return Err(format!("brevi: Brevi's onnxruntime needs ONNX Runtime 1.16 or later, not {version}"));
-            }
-            let t = (base.get_api)(minor.min(29));
-            if t.is_null() {
-                return Err(format!("brevi: ONNX Runtime {version} gave no C API"));
-            }
-            let mut a = Api { t, version, minor, env: std::ptr::null_mut(), mem: std::ptr::null_mut(), alloc: std::ptr::null_mut() };
-            // CreateEnv(warning, "Default"): onnxruntime's Python binding logs at warning level too
-            let mut env: P = std::ptr::null_mut();
-            let st = f!(a, 3, unsafe extern "C" fn(i32, *const c_char, *mut P) -> St)(2, c"Default".as_ptr(), &mut env);
-            if let Err((_, m)) = check(&a, st) {
-                return Err(m);
-            }
-            a.env = env;
-            let mut mem: P = std::ptr::null_mut();
-            check(&a, f!(a, 69, unsafe extern "C" fn(i32, i32, *mut P) -> St)(1, 0, &mut mem)).map_err(|e| e.1)?;
-            a.mem = mem;
-            let mut al: P = std::ptr::null_mut();
-            check(&a, f!(a, 78, unsafe extern "C" fn(*mut P) -> St)(&mut al)).map_err(|e| e.1)?;
-            a.alloc = al;
-            Ok(a)
+            Err(format!("brevi: Brevi's onnxruntime needs ONNX Runtime (the onnxruntime package, or libonnxruntime): {why}"))
         })
         .as_ref()
         .map_err(|e| e.clone())
@@ -445,12 +526,12 @@ mod brevi_ortglue {
                 check(a, f!(a, if o.mem_pattern { 16 } else { 17 }, unsafe extern "C" fn(P) -> St)(so))?;
                 check(a, f!(a, if o.cpu_arena { 18 } else { 19 }, unsafe extern "C" fn(P) -> St)(so))?;
                 if !o.optimized_path.is_empty() {
-                    let c = CString::new(o.optimized_path.clone()).unwrap_or_default();
-                    check(a, f!(a, 11, unsafe extern "C" fn(P, *const c_char) -> St)(so, c.as_ptr()))?;
+                    let c = ortchars(&o.optimized_path).ok_or((2, "embedded null byte".to_string()))?;
+                    check(a, f!(a, 11, unsafe extern "C" fn(P, *const c_char) -> St)(so, ortchars_ptr(&c)))?;
                 }
                 if o.profiling {
-                    let c = CString::new(o.profile_prefix.clone()).unwrap_or_default();
-                    check(a, f!(a, 14, unsafe extern "C" fn(P, *const c_char) -> St)(so, c.as_ptr()))?;
+                    let c = ortchars(&o.profile_prefix).ok_or((2, "embedded null byte".to_string()))?;
+                    check(a, f!(a, 14, unsafe extern "C" fn(P, *const c_char) -> St)(so, ortchars_ptr(&c)))?;
                 }
                 if o.deterministic {
                     // SetDeterministicCompute (ORT 1.17)
@@ -465,8 +546,8 @@ mod brevi_ortglue {
                 let mut s: P = std::ptr::null_mut();
                 match src {
                     Ok(p) => {
-                        let c = CString::new(p).map_err(|_| (2, "embedded null byte".to_string()))?;
-                        check(a, f!(a, 7, unsafe extern "C" fn(P, *const c_char, P, *mut P) -> St)(a.env, c.as_ptr(), so, &mut s))?;
+                        let c = ortchars(&p).ok_or((2, "embedded null byte".to_string()))?;
+                        check(a, f!(a, 7, unsafe extern "C" fn(P, *const c_char, P, *mut P) -> St)(a.env, ortchars_ptr(&c), so, &mut s))?;
                     }
                     Err(b) => {
                         check(a, f!(a, 8, unsafe extern "C" fn(P, *const c_void, usize, P, *mut P) -> St)(a.env, b.as_ptr() as *const c_void, b.len(), so, &mut s))?;

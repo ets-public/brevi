@@ -1652,7 +1652,7 @@ mod tests {
             for l in src.lines().map(str::trim).filter(|l| !l.starts_with('#')) {
                 if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
                     let m = m.split_whitespace().next().unwrap();
-                    assert!(["polars", "math", "json", "re", "io", "_brevi_fs"].contains(&m), "{name} imports {m}");
+                    assert!(["polars", "math", "json", "re", "io", "_brevi_fs", "_brevi_col"].contains(&m), "{name} imports {m}");
                 }
                 for bad in ["open(", "__import__", "exec(", "eval(", "compile(", "socket", "subprocess", "Thread", "os.", "sys."] {
                     let own = l.match_indices(bad).any(|(i, _)| !l[..i].ends_with(|c: char| c.is_alphanumeric() || c == '_' || c == '.') && !l[..i].ends_with("def "));

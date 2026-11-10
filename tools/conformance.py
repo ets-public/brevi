@@ -26,7 +26,7 @@ Env: BREVI (default target/release/brevi), BREVI_CACHE (the cache is its conform
 ~/.cache/brevi/conformance).
 """
 import argparse, ast, collections, concurrent.futures as cf, hashlib, json, os, re, shlex, shutil, signal
-import subprocess, sys, tempfile, time, urllib.request, warnings
+import functools, importlib, subprocess, sys, tempfile, time, urllib.request, warnings
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -37,6 +37,13 @@ TAG = "v3.13.13"
 PYTHON_VERSION = "3.13.13"
 RAW = "https://raw.githubusercontent.com/python/cpython/" + TAG + "/Lib/"
 SCOPE = ["test_grammar", "test_scope", "test_int", "test_list", "test_dict"]
+# The second, separately published number: the stdlib modules agents use most (`--slice stdlib`), with its own
+# floor and known-wrong list so neither slice's ratchet hides the other's.
+SLICES = {
+    "core": (SCOPE, BASELINE, FLOOR),
+    "stdlib": (["test_itertools", "test_collections", "test_re", "test_textwrap", "test_functools", "test_string"],
+               ROOT / "compat" / "conformance_stdlib_known_wrong.txt", ROOT / "compat" / "conformance_stdlib_floor.json"),
+}
 # Module name -> (path under Lib/, SHA-256). The helpers are only read for the definitions tests use.
 SOURCES = {
     "test.support": ("test/support/__init__.py", "79347b3f68109a2a1315bba9c7769acc631908ade382ddeef473bfb72aa75ca9"),
@@ -49,6 +56,12 @@ SOURCES = {
     "test.test_int": ("test/test_int.py", "2d947888f306e945ebc12c6817691330528c0bc7a13330b942c9af97fe3075d8"),
     "test.test_list": ("test/test_list.py", "088eb797e98cbbf6374bd1e646e4d8c6cecfc4ca114873653336e661e7938887"),
     "test.test_dict": ("test/test_dict.py", "009c957818d2e4c13b5c1e5a2bf90c7122ad77ac17362f8ef3ec6b8f6bf61f06"),
+    "test.test_itertools": ("test/test_itertools.py", "b356e71312eaac265c7104c32176c5150ab06433754bcb25d6e0013f321ca1c9"),
+    "test.test_collections": ("test/test_collections.py", "d9db27a28044d2d0cd24a54299d87e0f5c171f46115b91087163726ccab14bfa"),
+    "test.test_re": ("test/test_re.py", "fe86c393ae0a94bd9b5e4577d08b99fc60d825e04f4440486562868fb3d3e620"),
+    "test.test_textwrap": ("test/test_textwrap.py", "1f16be769aa2aa32028b821bca3e90c3bdfabb37ffdbafa20db09ee627009214"),
+    "test.test_functools": ("test/test_functools.py", "ec00d729ddde2de6412237b3f8f4196bc0777ce9d0bf99fd69071fb44ce72fd5"),
+    "test.test_string": ("test/test_string.py", "defe67cc39c2a4737f1dad3a6c7877cb4eb96df6c331966214b77548f6b2c6a6"),
 }
 
 # A generated script may import only these: nothing that reaches files, processes or the network.
@@ -58,6 +71,13 @@ ALLOWED_IMPORTS = {
     "operator", "pickle", "random", "re", "string", "struct", "sys", "textwrap", "time", "types", "typing",
     "unicodedata", "warnings", "weakref",
 }
+@functools.lru_cache(None)
+def star_names(module):
+    """The names `from module import *` binds, for an allowed stdlib module."""
+    m = importlib.import_module(module)
+    return set(getattr(m, "__all__", None) or (n for n in vars(m) if not n.startswith("_")))
+
+
 FORBIDDEN_NAMES = {"open", "__import__", "breakpoint", "input"}
 # Tests of CPython itself, not of the language: left out of the total, each with its reason.
 EXCLUDED_DECORATORS = {
@@ -464,8 +484,9 @@ class Script:
             self.lines.add(f"import {kind[1]}" + (f" as {kind[2]}" if kind[2] else ""))
         else:
             for star in mod.stars:
-                if star == "sys" and hasattr(sys, name):
-                    self.lines.add(f"from sys import {name}")
+                if star in ALLOWED_IMPORTS and name in star_names(star):
+                    self.lines.add(f"from {star} import {name}")
+                    break
 
     def include(self, mod, node):
         key = (self.u.order.index(mod.name), node.lineno)
@@ -893,7 +914,8 @@ def show(cases, cid, cfg):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--files", default=",".join(SCOPE), help="comma-separated test files (default: %(default)s)")
+    ap.add_argument("--slice", choices=sorted(SLICES), default="core", help="which published slice: its files, floor and known-wrong list (default: core)")
+    ap.add_argument("--files", help="comma-separated test files (default: the slice's)")
     ap.add_argument("--filter", help="only test ids matching this regular expression")
     ap.add_argument("--jobs", type=int, default=min(4, os.cpu_count() or 1), help="parallel tests (default: at most 4)")
     ap.add_argument("--timeout", type=float, default=20, help="seconds per program run (default: %(default)s)")
@@ -902,9 +924,12 @@ def main():
     ap.add_argument("--python", help=f"the CPython {PYTHON_VERSION} to compare with (default: python3.13 on PATH)")
     ap.add_argument("--out", type=Path, help="folder for report.json and report.md (default: the cache)")
     ap.add_argument("--check", action="store_true", help="exit 1 on a wrong result not in the baseline")
-    ap.add_argument("--write-baseline", action="store_true", help=f"replace {BASELINE.relative_to(ROOT)} with this run's wrong results")
+    ap.add_argument("--write-baseline", action="store_true", help="replace the slice's known-wrong list and floor with this run's results")
     ap.add_argument("--show", metavar="ID", help="print one test's generated script and stop")
     cfg = ap.parse_args()
+    global BASELINE, FLOOR, SCOPE
+    SCOPE, BASELINE, FLOOR = SLICES[cfg.slice]
+    cfg.files = cfg.files or ",".join(SCOPE)
     names = cfg.files.split(",")
     unknown = [n for n in names if "test." + n not in SOURCES]
     if unknown:

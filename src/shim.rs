@@ -126,7 +126,8 @@ fn cpython() -> OsString {
     let me = std::env::current_exe().ok().and_then(|p| p.canonicalize().ok());
     let path = std::env::var_os("PATH").unwrap_or_default();
     let exe = |n: &str| if cfg!(windows) { format!("{n}.exe") } else { n.to_string() };
-    for name in ["python3", "python3.real", "python"] {
+    let names: [&str; 3] = if cfg!(windows) { ["python", "python3", "python3.real"] } else { ["python3", "python3.real", "python"] };
+    for name in names {
         for dir in std::env::split_paths(&path) {
             let p = dir.join(exe(name));
             if p.is_file() && p.canonicalize().ok() != me {

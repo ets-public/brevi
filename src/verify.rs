@@ -59,7 +59,7 @@ fn run_until(mut c: std::process::Command, stdin: &[u8], limit: Duration, sessio
     c.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     crate::proc::own_group(&mut c);
     let start = Instant::now();
-    let mut child = c.spawn().map_err(|e| format!("cannot start {}: {e}", c.get_program().to_string_lossy()))?;
+    let (mut child, job) = crate::proc::spawn_limited(&mut c, &lim, true).map_err(|e| format!("cannot start {}: {e}", c.get_program().to_string_lossy()))?;
     let si = child.stdin.take();
     let input = stdin.to_vec();
     let read = |r: Option<Box<dyn Read + Send>>| {
@@ -131,7 +131,7 @@ fn run_until(mut c: std::process::Command, stdin: &[u8], limit: Duration, sessio
     } else if lim.output.is_some_and(|o| (out.len() + err.len()) as u64 > o) {
         Some("output")
     } else {
-        status.and_then(|s| crate::proc::limit_hit(&lim, s, &tail))
+        status.and_then(|s| job.hit(&lim, s).or_else(|| crate::proc::limit_hit(&lim, s, &tail)))
     };
     let timed_out = timed_out && hit.is_none();
     Ok(Run { out, err, code: status.and_then(|s| exit_code(s)), ms, timed_out, hit })
@@ -364,7 +364,7 @@ pub fn main(argv: &[String]) -> ! {
         let l = l.trim_start();
         l.starts_with("from mcp") || l.starts_with("import mcp")
     });
-    let python = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
+    let python = crate::python_exe();
     let pyver = python_version(&python);
 
     // The native build, strict: no CPython fallback, so what runs below is Brevi's own code.
@@ -747,7 +747,7 @@ pub fn run_main(argv: &[String]) -> ! {
         run_usage("--verify compares a .py file with CPython; a .bv file has no CPython answer to compare with (use brevi test)");
     }
     let src = std::fs::read(&file).unwrap_or_else(|e| run_usage(&format!("cannot read {file}: {e}")));
-    let python = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
+    let python = crate::python_exe();
     let pyver = {
         let python = python.clone();
         std::thread::spawn(move || python_version_opt(&python))

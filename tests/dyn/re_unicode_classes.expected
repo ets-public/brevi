@@ -1,0 +1,92 @@
+'5' True True False False False True True False False True True
+True True False False False
+'٣' True True False False False True True False False True True
+False False True False True
+'߀' True True False False False True True False False True True
+False False True False True
+'Ⅵ' False True False True False True False True False False True
+False False True False True
+'½' False True False True False True False True False False True
+False False True False True
+'²' False True False True False True False True False False True
+False False True False True
+'१' True True False False False True True False False True True
+False False True False True
+'é' False True False True False True False True False False True
+False False True False True
+'ß' False True False True False True False True False False True
+False False True False True
+'_' False True False True False True False True False False True
+False True True False False
+' ' False False True True True False False True True True False
+False False True True True
+'\xa0' False False True True True False False True True True False
+False False True False True
+'\u2003' False False True True True False False True True True False
+False False True False True
+'\x1c' False False True True True False False True True True False
+False False True False True
+'\x0b' False False True True True False False True True True False
+False False True True True
+'-' False False False True True True False True True True True
+False False True False True
+'ा' False False False True True True False True True True True
+False False True False True
+['naïve', 'café', '٣٤', 'x_1'] a##Ⅵ ['na', 've', 'caf']
+'a' 'xay' ['a']
+'\xa0' 'x\xa0y' ['\xa0']
+'\xad' 'x\xady' ['\xad']
+'\u2003' 'x\u2003y' ['\u2003']
+'\u200b' 'x\u200by' ['\u200b']
+'\u0378' 'x\u0378y' ['\u0378']
+'\ue000' 'x\ue000y' ['\ue000']
+'😀' 'x😀y' ['😀']
+'\U000e0001' 'x\U000e0001y' ['\U000e0001']
+'̀' 'x̀y' ['̀']
+'é' 'xéy' ['é']
+'\x85' 'x\x85y' ['\x85']
+'\u2028' 'x\u2028y' ['\u2028']
+'\ufeff' 'x\ufeffy' ['\ufeff']
+'\U0010ffff' 'x\U0010ffffy' ['\U0010ffff']
+' ' 'x y' [' ']
+'~' 'x~y' ['~']
+'\x7f' 'x\x7fy' ['\x7f']
+'\xa0 é \u3000' {'k\u2003': '\xa0'}
+^((x|y)*)* ('xyy', ('', 'y'), (0, 3))
+[('', 'y')] -zy
+^((x|y)?)* ('xyy', ('', 'y'), (0, 3))
+[('', 'y')] -zy
+^((x|y)*)+ ('xyy', ('', 'y'), (0, 3))
+[('', 'y')] -zy
+^((x|y)*){1,187} ('xyy', ('', 'y'), (0, 3))
+[('', 'y')] -zy
+(a*)* ('', ('',), (0, 0))
+['', ''] -b-
+(a*)+ ('', ('',), (0, 0))
+['', ''] -b-
+(a|)*b ('aab', ('',), (0, 3))
+[''] -
+(?:a*)* ('aaa', (), (0, 3))
+['aaa', ''] --
+(a?)*?b ('aab', ('a',), (0, 3))
+['a'] -
+((a)|b)* ('ab', ('b', 'a'), (0, 2))
+[('b', 'a'), ('', '')] --
+(a*)*$ ('aa', ('',), (0, 2))
+['', ''] --
+(()|a)* ('', ('', ''), (0, 0))
+[('', ''), ('', ''), ('', ''), ('', ''), ('', '')] -----
+(a|())* ('aa', ('', ''), (0, 2))
+[('', ''), ('', '')] --
+(?:(a)|b)* ('ab', ('a',), (0, 2))
+['a', ''] --
+(x?)*y ('xxy', ('',), (0, 3))
+[''] -
+(a*?)* ('', ('',), (0, 0))
+['', '', '', '', ''] -----
+(\w*)*\. ('ab.', ('',), (0, 3))
+[''] -c
+(a+|b*)*c ('aabbc', ('',), (0, 5))
+[''] -
+(?:x|)+ ('xx', (), (0, 2))
+['xx', ''] --
