@@ -1,0 +1,15 @@
+TE f() takes 2 positional arguments but 3 positional arguments (and 1 keyword-only argument) were given
+TE f() takes 2 positional arguments but 3 positional arguments (and 2 keyword-only arguments) were given
+TE f() takes 2 positional arguments but 3 were given
+TE g() takes from 1 to 2 positional arguments but 3 positional arguments (and 1 keyword-only argument) were given
+TE g() takes from 1 to 2 positional arguments but 4 positional arguments (and 2 keyword-only arguments) were given
+TE f() got multiple values for argument 'b'
+TE h() missing 1 required positional argument: 'a'
+(1, 2, {'a': 1})
+TE q() got some positional-only arguments passed as keyword arguments: 'b'
+TE q() got some positional-only arguments passed as keyword arguments: 'a, b'
+TE q() takes from 2 to 3 positional arguments but 4 were given
+TE q() got some positional-only arguments passed as keyword arguments: 'a'
+(1, 2, 9)
+TE h() takes 2 positional arguments but 3 were given
+TE f() got an unexpected keyword argument 'x'
