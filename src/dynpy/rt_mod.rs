@@ -1229,7 +1229,21 @@ pub fn sys_fn(name: &str, a: Args) -> R {
             Ok(V::None)
         }
         "getrecursionlimit" => Ok(V::Int(REC_LIMIT.with(|l| l.get()) as i64)),
-        "set_int_max_str_digits" => Ok(V::None),
+        "set_int_max_str_digits" => {
+            let mut a = a;
+            let kw = a.kw("maxdigits");
+            let v = match (a.p.first(), kw) {
+                (Some(v), None) if a.p.len() == 1 && a.k.is_empty() => v.clone(),
+                (None, Some(v)) if a.k.is_empty() => v,
+                _ => return type_err("set_int_max_str_digits() takes exactly one argument (maxdigits)".into()),
+            };
+            set_int_max_digits(&v)?;
+            Ok(V::None)
+        }
+        "get_int_max_str_digits" => {
+            a.want(name, 0, 0)?;
+            Ok(V::Int(int_max_digits() as i64))
+        }
         "intern" => Ok(a1(&a, name)?),
         "getsizeof" => Ok(V::Int(64)),
         "exception" => {

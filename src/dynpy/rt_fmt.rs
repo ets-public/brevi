@@ -118,8 +118,9 @@ pub fn repr(v: &V) -> Result<String, E> {
         V::Int(i) => i.to_string(),
         V::Big(b) => {
             let s = b.to_string();
-            if s.len() > 4300 + b.neg as usize {
-                return val_err("Exceeds the limit (4300 digits) for integer string conversion; use sys.set_int_max_str_digits() to increase the limit".into());
+            let lim = int_max_digits();
+            if lim > 0 && s.len() > lim + b.neg as usize {
+                return val_err(format!("Exceeds the limit ({lim} digits) for integer string conversion; use sys.set_int_max_str_digits() to increase the limit"));
             }
             s
         }
@@ -960,6 +961,43 @@ pub fn parse_float(t: &str) -> Option<f64> {
     }?;
     Some(if neg { -r } else { r })
 }
+// sys.set_int_max_str_digits: how many decimal digits int(str) reads and str(int) writes (0: no limit).
+static INT_MAX_DIGITS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(4300);
+pub fn int_max_digits() -> usize {
+    INT_MAX_DIGITS.load(std::sync::atomic::Ordering::Relaxed)
+}
+pub fn set_int_max_digits(v: &V) -> Result<(), E> {
+    let n = idx_of(v)?;
+    if n != 0 && n < 640 {
+        return val_err("maxdigits must be 0 or larger than 640".into());
+    }
+    INT_MAX_DIGITS.store(n as usize, std::sync::atomic::Ordering::Relaxed);
+    Ok(())
+}
+// int(text, base) past the limit: CPython counts the digits (not the sign, spaces or underscores), and only
+// for a base that is not a power of two.
+pub fn int_text_limit(t: &str, base: u32, r: Option<V>) -> Result<Option<V>, E> {
+    let lim = int_max_digits();
+    if lim == 0 || !matches!(r, Some(V::Big(_))) {
+        return Ok(r);
+    }
+    let lower = t.trim().trim_start_matches(['+', '-']).to_ascii_lowercase();
+    let b = match base {
+        0 if lower.starts_with("0x") => 16,
+        0 if lower.starts_with("0o") => 8,
+        0 if lower.starts_with("0b") => 2,
+        0 => 10,
+        b => b,
+    };
+    if b.is_power_of_two() {
+        return Ok(r);
+    }
+    let n = lower.chars().filter(|c| *c != '_').count();
+    if n > lim {
+        return val_err(format!("Exceeds the limit ({lim} digits) for integer string conversion: value has {n} digits; use sys.set_int_max_str_digits() to increase the limit"));
+    }
+    Ok(r)
+}
 pub fn parse_int(t: &str, base: u32) -> Option<V> {
     let t = t.trim();
     let (neg, mut body) = match t.strip_prefix('-') {
@@ -1026,7 +1064,7 @@ pub fn to_int(v: &V) -> R {
                 Ok(Big::from_f64(t).norm())
             }
         }
-        V::Str(s) => parse_int(&s.s, 10).ok_or_else(|| exc("ValueError", format!("invalid literal for int() with base 10: {}", str_repr(&s.s)))),
+        V::Str(s) => int_text_limit(&s.s, 10, parse_int(&s.s, 10))?.ok_or_else(|| exc("ValueError", format!("invalid literal for int() with base 10: {}", str_repr(&s.s)))),
         V::Obj(o) => {
             if let Some(f) = o.cls.lookup("__int__") {
                 return match call(&f, Args::p(vec![v.clone()]))? {

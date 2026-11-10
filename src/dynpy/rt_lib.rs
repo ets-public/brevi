@@ -234,7 +234,7 @@ pub fn bi_int(mut a: Args) -> R {
             if b != 0 && !(2..=36).contains(&b) {
                 return val_err("int() base must be >= 2 and <= 36, or 0".into());
             }
-            parse_int(&x.s, b as u32).ok_or_else(|| exc("ValueError", format!("invalid literal for int() with base {}: {}", b, str_repr(&x.s))))
+            int_text_limit(&x.s, b as u32, parse_int(&x.s, b as u32))?.ok_or_else(|| exc("ValueError", format!("invalid literal for int() with base {}: {}", b, str_repr(&x.s))))
         }
         (Some(_), x) => type_err("int() can't convert non-string with explicit base".into()),
     }
