@@ -2035,6 +2035,43 @@ pub fn sys_modules_set(name: &str, v: &V) -> R {
     }
     Ok(V::None)
 }
+thread_local! {
+    static SYS_VERSION_INFO: RefCell<Option<Rc<Obj>>> = const { RefCell::new(None) };
+}
+// sys.version_info: CPython's tuple subclass, so it indexes, slices, compares and iterates as the 5-tuple,
+// while major/minor/micro/releaselevel/serial (and the class's n_fields) read as attributes.
+fn sys_version_info() -> V {
+    SYS_VERSION_INFO.with(|slot| {
+        if let Some(vi) = slot.borrow().as_ref() {
+            return V::Obj(vi.clone());
+        }
+        let c = Class::new("version_info", "sys", vec![bclass("tuple")], BT::Tuple);
+        c.set("n_fields", V::Int(5));
+        c.set("__match_args__", tup(vec![s("major"), s("minor"), s("micro"), s("releaselevel"), s("serial")]));
+        c.set("__hash__", func("__hash__", |a: Args| Ok(V::Int(py_hash(&inner_of(&a.p[0]).unwrap_or(V::None))?))));
+        let o = Obj::new(c.clone());
+        o.set(sym("major"), V::Int(3));
+        o.set(sym("minor"), V::Int(13));
+        o.set(sym("micro"), V::Int(0));
+        o.set(sym("releaselevel"), s("final"));
+        o.set(sym("serial"), V::Int(0));
+        o.set_inner(Some(tup(vec![V::Int(3), V::Int(13), V::Int(0), s("final"), V::Int(0)])));
+        let cc = c.clone();
+        c.set("__repr__", func("__repr__", move |a: Args| {
+            let me = a.p.first().cloned().unwrap_or(V::None);
+            let f = |n: &str| match &me {
+                V::Obj(o) => o.get(n).unwrap_or(V::None),
+                _ => V::None,
+            };
+            Ok(st(format!("{}.{}(major={}, minor={}, micro={}, releaselevel={}, serial={})",
+                cc.module, cc.name,
+                repr(&f("major"))?, repr(&f("minor"))?, repr(&f("micro"))?,
+                repr(&f("releaselevel"))?, repr(&f("serial"))?)))
+        }));
+        *slot.borrow_mut() = Some(o.clone());
+        V::Obj(o)
+    })
+}
 pub fn module_attr(m: &'static str, name: &str) -> R {
     let v = match (m, name) {
         ("sys", "stdin") => V::Module(&ModName("sys.stdin")),
@@ -2044,7 +2081,7 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         ("sys", "maxsize") => V::Int(i64::MAX),
         ("sys", "platform") => s("linux"),
         ("sys", "byteorder") => s("little"),
-        ("sys", "version_info") => tup(vec![V::Int(3), V::Int(13), V::Int(0)]),
+        ("sys", "version_info") => sys_version_info(),
         ("sys", "version") => s("3.13.0 (brevi)"),
         ("sys", "float_info") => return Err(unsupported("sys.float_info")),
         ("sys", "modules") => sys_modules(),
