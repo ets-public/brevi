@@ -8,7 +8,7 @@ links to the artifact it came from, with the date, the Brevi version and the har
 
 | Metric | Value | Version, date | Source |
 |---|---:|---|---|
-| Conformance | 58.2% (181 of 311); 77.5% (241 of 311) on main | v0.26.0, 9 Nov 2026; main, 10 Nov 2026 | `bench/conformance/report.md` |
+| Conformance | 58.2% (181 of 311); 78.5% (244 of 311) on main | v0.26.0, 9 Nov 2026; main, 10 Nov 2026 | `bench/conformance/report.md` |
 | Known-wrong results | 44 tests, 88 test-mode pairs | v0.26.0, 9 Nov 2026 | `compat/conformance_known_wrong.txt` |
 | Crash or timeout | 5 of 311 tests | v0.26.0, 9 Nov 2026 | `bench/conformance/report.md` |
 | `check --fast` p50 / p95 | 16.1 / 18.2 ms | v0.26.0, 9 Nov 2026 | `bench/latency-results/2026-11-09-v0.26.0.json` |

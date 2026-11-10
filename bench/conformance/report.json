@@ -9,11 +9,11 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 241,
+"matched": 244,
 "refused": 44,
 "wrong_output": 0,
-"wrong_exit": 9,
-"crash_or_timeout": 2,
+"wrong_exit": 8,
+"crash_or_timeout": 0,
 "not_extractable": 15,
 "unstable": 9,
 "excluded": 37,
@@ -21,15 +21,15 @@
 "scored": 311,
 "matched_through_cpython": 0,
 "matched_silent": 44,
-"coverage": 0.7749,
-"wrong": 9
+"coverage": 0.7846,
+"wrong": 8
 },
 "dyn": {
-"matched": 241,
+"matched": 244,
 "refused": 44,
 "wrong_output": 0,
-"wrong_exit": 9,
-"crash_or_timeout": 2,
+"wrong_exit": 8,
+"crash_or_timeout": 0,
 "not_extractable": 15,
 "unstable": 9,
 "excluded": 37,
@@ -37,8 +37,8 @@
 "scored": 311,
 "matched_through_cpython": 0,
 "matched_silent": 44,
-"coverage": 0.7749,
-"wrong": 9
+"coverage": 0.7846,
+"wrong": 8
 }
 },
 "files": {
@@ -180,11 +180,11 @@
 },
 "test_dict": {
 "normal": {
-"matched": 88,
+"matched": 91,
 "refused": 3,
 "wrong_output": 0,
-"wrong_exit": 5,
-"crash_or_timeout": 2,
+"wrong_exit": 4,
+"crash_or_timeout": 0,
 "not_extractable": 1,
 "unstable": 7,
 "excluded": 17,
@@ -192,15 +192,15 @@
 "scored": 99,
 "matched_through_cpython": 0,
 "matched_silent": 13,
-"coverage": 0.8889,
-"wrong": 5
+"coverage": 0.9192,
+"wrong": 4
 },
 "dyn": {
-"matched": 88,
+"matched": 91,
 "refused": 3,
 "wrong_output": 0,
-"wrong_exit": 5,
-"crash_or_timeout": 2,
+"wrong_exit": 4,
+"crash_or_timeout": 0,
 "not_extractable": 1,
 "unstable": 7,
 "excluded": 17,
@@ -208,8 +208,8 @@
 "scored": 99,
 "matched_through_cpython": 0,
 "matched_silent": 13,
-"coverage": 0.8889,
-"wrong": 5
+"coverage": 0.9192,
+"wrong": 4
 }
 }
 },
@@ -3269,14 +3269,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "crash_or_timeout",
-"path": "dynamic",
-"detail": "panic: RefCell already borrowed"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "crash_or_timeout",
-"path": "dynamic",
-"detail": "panic: RefCell already borrowed"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3355,14 +3353,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: brevi: a 'C' object cannot be passed to a Python library in a dynamic build"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: brevi: a 'C' object cannot be passed to a Python library in a dynamic build"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3425,14 +3421,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "crash_or_timeout",
-"path": "dynamic",
-"detail": "panic: RefCell already borrowed"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "crash_or_timeout",
-"path": "dynamic",
-"detail": "panic: RefCell already borrowed"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },

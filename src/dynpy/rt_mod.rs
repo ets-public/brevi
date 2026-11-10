@@ -519,11 +519,11 @@ fn lru_cache_wrap(f: V) -> V {
             key.push(v.clone());
         }
         let key = tup(key);
-        if let Some(v) = cache.borrow().get(&key)? {
+        if let Some(v) = Dict::get_cell(&cache, &key)? {
             return Ok(v);
         }
         let r = call(&f, a)?;
-        cache.borrow_mut().set(key, r.clone())?;
+        Dict::set_cell(&cache, key, r.clone())?;
         Ok(r)
     });
     if let V::Func(wf) = &w {
@@ -1066,7 +1066,7 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
             for (k, v) in items {
                 let k = deepcopy(&k, memo)?;
                 let v = deepcopy(&v, memo)?;
-                n.borrow_mut().set(k, v)?;
+                Dict::set_cell(&n, k, v)?;
             }
             V::Dict(n)
         }
@@ -1466,6 +1466,8 @@ pub fn module_call(m: &str, n: &str, a: Args) -> R {
         "typing" | "typing_extensions" => typing_call(n, a),
         "dataclasses" => dataclass_fn(n, a),
         "abc" => Ok(a.p.first().cloned().unwrap_or(V::None)),
+        "gc" => gc_fn(n, a),
+        "weakref" => weakref_fn(n, a),
         _ => ext_module_call(m, n, a),
     }
 }
