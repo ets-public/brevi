@@ -150,6 +150,10 @@ pub(crate) fn np_func_kw(n: &str) -> Option<&'static [&'static str]> {
 pub static NP_ATTR_ST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 // Brevi's own copies of libraries (jinja2, polars, ...): their `.partition()` or `.fields` is never numpy's.
 pub static OWN_COPIES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+// The copies emitted ahead of LIB_END into the cached library: the large ones only (dynpy::compile picks them).
+// Small copies (re-export shims such as mcp.types, contextlib) go with the program, so programs that import
+// different small pieces of one library still share the one build of its large modules.
+pub static LIB_COPIES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 thread_local! {
     static IN_COPY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
@@ -3472,7 +3476,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     // Brevi's own library copies first, each group named and numbered on its own, then the program's modules:
     // the copies' Rust (everything before LIB_END) is then the same for every program that imports them, so a
     // build can compile it once into a cached library (dynpy::compile) instead of with every program.
-    let own = OWN_COPIES.lock().unwrap().clone();
+    let own = LIB_COPIES.lock().unwrap().clone();
     let mut libs: Vec<&Module> = mods.iter().skip(1).filter(|m| own.contains(&m.name)).collect();
     libs.sort_by(|a, b| a.name.cmp(&b.name));
     let users: Vec<&Module> = mods.iter().filter(|m| !libs.iter().any(|l| l.name == m.name)).collect();
