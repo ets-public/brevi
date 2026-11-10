@@ -151,7 +151,8 @@ pub fn bind(sig: &Sig, dflt: &[V], mut a: Args) -> Result<Vec<V>, E> {
         }
     }
     let mut kw = Dict::new();
-    let mut bound_kw = false;
+    // keyword-only parameters given a value (CPython names their count in the too-many-positional error)
+    let mut kwonly_given = 0usize;
     for (k, v) in a.k.drain(..) {
         match sig.params.iter().position(|p| *p == k) {
             Some(i) if i < npo => {
@@ -162,7 +163,9 @@ pub fn bind(sig: &Sig, dflt: &[V], mut a: Args) -> Result<Vec<V>, E> {
                 if !matches!(out[i], V::Unbound) {
                     return type_err(format!("{}() got multiple values for argument '{}'", sig.name, k));
                 }
-                bound_kw = true;
+                if i >= npos {
+                    kwonly_given += 1;
+                }
                 out[i] = v;
             }
             None => {
@@ -181,8 +184,8 @@ pub fn bind(sig: &Sig, dflt: &[V], mut a: Args) -> Result<Vec<V>, E> {
         } else {
             format!("takes from {} to {} positional arguments", req, npos)
         };
-        if bound_kw && np > npos {
-            let k = np - npos;
+        if kwonly_given > 0 {
+            let k = kwonly_given;
             return type_err(format!("{}() {} but {} positional argument{} (and {} keyword-only argument{}) were given", sig.name, takes, given, if given == 1 { "" } else { "s" }, k, if k == 1 { "" } else { "s" }));
         }
         return type_err(if req == npos {
