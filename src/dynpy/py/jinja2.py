@@ -866,6 +866,9 @@ def get_lexer(environment):
 
 class Node:
     fields = ()
+    # the node compiled to a closure (see _compile_expr / _compile_stmt), made on its first render
+    _x = None
+    _s = None
 
     def __init__(self, *args, **kw):
         self.lineno = kw.get("lineno")
@@ -2009,6 +2012,17 @@ class _ChainMap:
                 seen[k] = True
         return list(seen.keys())
 
+    def to_dict(self):
+        # dict(self): the keys in keys() order, each with the value self[key] gives
+        d = {}
+        for m in reversed(self.maps):
+            if type(m) is dict:
+                d.update(m)
+            else:
+                for k in m.keys():
+                    d[k] = m[k]
+        return d
+
     def __iter__(self):
         return iter(self.keys())
 
@@ -2043,6 +2057,8 @@ def _todict(m):
         return {}
     if isinstance(m, dict):
         return dict(m)
+    if type(m) is _ChainMap:
+        return m.to_dict()
     d = {}
     for k in m.keys():
         d[k] = m[k]
@@ -2068,6 +2084,8 @@ def new_context(environment, template_name, blocks, vars=None, shared=False, glo
 
 
 class Context:
+    _gk = None
+
     def __init__(self, environment, parent, name, blocks, globals=None):
         self.parent = parent
         self.vars = {}
@@ -2075,10 +2093,19 @@ class Context:
         self.eval_ctx = EvalContext(self.environment, name)
         self.exported_vars = set()
         self.name = name
-        self.globals_keys = set() if globals is None else set(globals.keys())
+        self._globals = globals
         self.blocks = {}
         for k, v in blocks.items():
             self.blocks[k] = [v]
+
+    @property
+    def globals_keys(self):
+        # made when first asked for (only imports do), not for every render
+        gk = self._gk
+        if gk is None:
+            gk = set() if self._globals is None else set(self._globals.keys())
+            self._gk = gk
+        return gk
 
     def super(self, name, current):
         try:
@@ -2217,6 +2244,12 @@ class BlockReference:
 
 
 class LoopContext:
+    _length = None
+    _after = missing
+    _current = missing
+    _before = missing
+    _last_changed_value = missing
+
     def __init__(self, iterable, undefined, recurse=None, depth0=0):
         self._iterable = iterable
         self._iterator = iter(iterable)
@@ -2224,11 +2257,6 @@ class LoopContext:
         self._recurse = recurse
         self.depth0 = depth0
         self.index0 = -1
-        self._length = None
-        self._after = missing
-        self._current = missing
-        self._before = missing
-        self._last_changed_value = missing
 
     @property
     def length(self):
@@ -2416,13 +2444,17 @@ class _ContinueLoop(Exception):
 
 
 class _Frame:
+    # set on the few frames that differ (a frame is made per loop iteration, so it sets only what it must)
+    top = False
+    toplevel = False
+    block = None
+
     def __init__(self, r, parent=None, top=False):
         self.r = r
         self.parent = parent
-        self.top = top
+        if top:
+            self.top = True
         self.vars = {}
-        self.toplevel = False
-        self.block = None
         self.require_output_check = False if parent is None else parent.require_output_check
 
     def inner(self):
@@ -2471,6 +2503,8 @@ class _Render:
         self.env = template.environment
         self.ctx = ctx
         self.parent_template = None
+        # Environment.getattr's own dict rule may be inlined (a subclass, like the sandbox's, may differ)
+        self.plain_getattr = type(self.env).getattr is Environment.getattr
 
     @property
     def autoescape(self):
@@ -2486,9 +2520,18 @@ class _Render:
 
     def body(self, nodes, frame, buf):
         for node in nodes:
-            self.stmt(node, frame, buf)
+            c = node._s
+            if c is None:
+                c = _st(node)
+            c(self, frame, buf)
 
     def stmt(self, node, frame, buf):
+        c = node._s
+        if c is None:
+            c = _st(node)
+        c(self, frame, buf)
+
+    def _stmt(self, node, frame, buf):
         k = type(node)
         if k is Output:
             self.s_output(node, frame, buf)
@@ -2755,7 +2798,11 @@ class _Render:
                 return
             raise
         if node.with_context:
-            ctx = template.new_context(self.ctx.get_all(), True, frame.locals())
+            # Jinja passes an included template the frame's names, but not the enclosing loop
+            lv = frame.locals()
+            if "loop" in lv:
+                del lv["loop"]
+            ctx = template.new_context(self.ctx.get_all(), True, lv)
             for piece in template._render_root(ctx):
                 buf.append(piece)
         else:
@@ -2786,6 +2833,12 @@ class _Render:
     # expressions
 
     def ev(self, node, frame):
+        c = node._x
+        if c is None:
+            c = _ex(node)
+        return c(self, frame)
+
+    def _ev(self, node, frame):
         k = type(node)
         if k is Const:
             return node.value
@@ -2951,6 +3004,490 @@ class _Render:
         if pa == _PASS_ENVIRONMENT:
             return func(self.env, value, *args, **kwargs)
         return func(value, *args, **kwargs)
+
+
+# ---------- templates compiled to closures ----------
+# Each node is turned once into a closure: an expression into fn(r, frame) -> value, a statement into
+# fn(r, frame, buf). The closures do what _Render._ev / _Render._stmt do for that node, in the same order,
+# without dispatching on the node's type or reading its fields on every render. A node kind without a
+# closure of its own gets one that calls the interpreter, whose children are compiled in turn.
+
+
+def _ex(node):
+    c = node._x
+    if c is None:
+        c = _compile_expr(node)
+        node._x = c
+    return c
+
+
+def _st(node):
+    c = node._s
+    if c is None:
+        c = _compile_stmt(node)
+        node._s = c
+    return c
+
+
+def _body_fns(nodes):
+    return [_st(n) for n in nodes]
+
+
+def _uses_names(nodes, names):
+    # whether any node below reads one of the names, or could reach the frame's locals another way
+    todo = list(nodes)
+    while todo:
+        n = todo.pop()
+        k = type(n)
+        if k is Name:
+            if n.name in names:
+                return True
+            continue
+        if k is Include or k is Block or k is Import or k is FromImport or k is CallBlock or k is MacroNode:
+            return True
+        for c in n.iter_child_nodes():
+            todo.append(c)
+    return False
+
+
+def _has_jump(nodes):
+    todo = list(nodes)
+    while todo:
+        n = todo.pop()
+        if type(n) is Break or type(n) is Continue:
+            return True
+        for c in n.iter_child_nodes():
+            todo.append(c)
+    return False
+
+
+def _args_fn(node):
+    # node.args etc. as fn(r, f) -> (args, kwargs), as _Render.call_args
+    pos = [_ex(a) for a in node.args]
+    kws = [(kw.key, _ex(kw.value)) for kw in node.kwargs]
+    dyn_args = None if node.dyn_args is None else _ex(node.dyn_args)
+    dyn_kwargs = None if node.dyn_kwargs is None else _ex(node.dyn_kwargs)
+
+    def fn(r, f):
+        args = [c(r, f) for c in pos]
+        kwargs = {}
+        for key, c in kws:
+            kwargs[key] = c(r, f)
+        if dyn_args is not None:
+            for a in dyn_args(r, f):
+                args.append(a)
+        if dyn_kwargs is not None:
+            dk = dyn_kwargs(r, f)
+            for key in dk.keys():
+                if key in kwargs:
+                    raise TypeError("got multiple values for keyword argument " + repr(key))
+                kwargs[key] = dk[key]
+        return args, kwargs
+
+    return fn
+
+
+def _ft_fn(node, table, what):
+    # a Filter (table "filters") or Test (table "tests") node
+    name = node.name
+    cv = None if node.node is None else _ex(node.node)
+    simple = not node.kwargs and node.dyn_args is None and node.dyn_kwargs is None
+    pos = [_ex(a) for a in node.args]
+    n_pos = len(pos)
+    ca = None if simple else _args_fn(node)
+    is_filter = table == "filters"
+    memo = [None, None]
+
+    def fn(r, f):
+        env = r.env
+        func = env.filters.get(name) if is_filter else env.tests.get(name)
+        value = None if cv is None else cv(r, f)
+        if simple:
+            if n_pos == 0:
+                args = None
+            elif n_pos == 1:
+                args = [pos[0](r, f)]
+            else:
+                args = [c(r, f) for c in pos]
+            kwargs = None
+        else:
+            args, kwargs = ca(r, f)
+        if func is None:
+            raise TemplateRuntimeError("No " + what + " named " + repr(name) + " found.")
+        if memo[0] is func:
+            pa = memo[1]
+        else:
+            pa = _pass_arg(func)
+            memo[0] = func
+            memo[1] = pa
+        if pa is None:
+            if kwargs is None:
+                if args is None:
+                    return func(value)
+                if n_pos == 1:
+                    return func(value, args[0])
+                return func(value, *args)
+            return func(value, *args, **kwargs)
+        if args is None:
+            args = []
+        if kwargs is None:
+            kwargs = {}
+        if pa == _PASS_CONTEXT:
+            return func(r.ctx, value, *args, **kwargs)
+        if pa == _PASS_EVAL_CONTEXT:
+            return func(r.ctx.eval_ctx, value, *args, **kwargs)
+        if pa == _PASS_ENVIRONMENT:
+            return func(env, value, *args, **kwargs)
+        return func(value, *args, **kwargs)
+
+    return fn
+
+
+def _cmp_one(o, left, right):
+    if o == "eq":
+        return left == right
+    if o == "ne":
+        return left != right
+    if o == "lt":
+        return left < right
+    if o == "lteq":
+        return left <= right
+    if o == "gt":
+        return left > right
+    if o == "gteq":
+        return left >= right
+    if o == "in":
+        return left in right
+    return left not in right
+
+
+def _compile_expr(node):
+    k = type(node)
+    if k is Const:
+        value = node.value
+
+        def fn(r, f):
+            return value
+        return fn
+    if k is Name:
+        name = node.name
+
+        def fn(r, f):
+            g = f
+            while True:
+                vs = g.vars
+                if name in vs:
+                    v = vs[name]
+                    if v is missing:
+                        return r.env.undefined(name=name)
+                    return v
+                p = g.parent
+                if p is None:
+                    break
+                g = p
+            if name == "self":
+                return TemplateReference(r.ctx)
+            if name == "super" and g.block is not None:
+                v = r.ctx.super(g.block.name, g.block)
+            else:
+                v = r.ctx.resolve_or_missing(name)
+            if v is missing:
+                return r.env.undefined(name=name)
+            return v
+        return fn
+    if k is Getattr:
+        c0 = _ex(node.node)
+        attr = node.attr
+        plain = type(attr) is str and attr[:1] != "_" and attr not in _DICT_ATTRS
+
+        def fn(r, f):
+            obj = c0(r, f)
+            if plain and type(obj) is dict and r.plain_getattr:
+                if attr in obj:
+                    return obj[attr]
+            return r.env.getattr(obj, attr)
+        return fn
+    if k is Getitem:
+        c0 = _ex(node.node)
+        c1 = _ex(node.arg)
+        if type(node.arg) is Slice:
+            def fn(r, f):
+                obj = c0(r, f)
+                return obj[c1(r, f)]
+            return fn
+
+        def fn(r, f):
+            obj = c0(r, f)
+            return r.env.getitem(obj, c1(r, f))
+        return fn
+    if k is Filter:
+        return _ft_fn(node, "filters", "filter")
+    if k is Test:
+        return _ft_fn(node, "tests", "test")
+    if k is Call:
+        cf = _ex(node.node)
+        ca = _args_fn(node)
+
+        def fn(r, f):
+            func = cf(r, f)
+            args, kwargs = ca(r, f)
+            return r.ctx.call(func, *args, **kwargs)
+        return fn
+    if k is Concat:
+        cs = [_ex(n) for n in node.nodes]
+
+        def fn(r, f):
+            vals = [c(r, f) for c in cs]
+            if r.ctx.eval_ctx.autoescape:
+                return markup_join(vals)
+            return str_join(vals)
+        return fn
+    if k is CondExpr:
+        ct = _ex(node.test)
+        c1 = _ex(node.expr1)
+        if node.expr2 is None:
+            def fn(r, f):
+                if ct(r, f):
+                    return c1(r, f)
+                return Undefined("the inline if-expression on " + r.position(node) + " evaluated to false and no else section was defined.")
+            return fn
+        c2 = _ex(node.expr2)
+
+        def fn(r, f):
+            if ct(r, f):
+                return c1(r, f)
+            return c2(r, f)
+        return fn
+    if k is And:
+        cl = _ex(node.left)
+        cr = _ex(node.right)
+
+        def fn(r, f):
+            left = cl(r, f)
+            if not left:
+                return left
+            return cr(r, f)
+        return fn
+    if k is Or:
+        cl = _ex(node.left)
+        cr = _ex(node.right)
+
+        def fn(r, f):
+            left = cl(r, f)
+            if left:
+                return left
+            return cr(r, f)
+        return fn
+    if k is Not:
+        c0 = _ex(node.node)
+
+        def fn(r, f):
+            return not c0(r, f)
+        return fn
+    if k is Compare:
+        ce = _ex(node.expr)
+        ops = [(op.op, _ex(op.expr)) for op in node.ops]
+        if len(ops) == 1:
+            o, c1 = ops[0]
+            if o == "eq":
+                def fn(r, f):
+                    left = ce(r, f)
+                    return left == c1(r, f)
+                return fn
+            if o == "ne":
+                def fn(r, f):
+                    left = ce(r, f)
+                    return left != c1(r, f)
+                return fn
+
+            def fn(r, f):
+                left = ce(r, f)
+                return _cmp_one(o, left, c1(r, f))
+            return fn
+
+        def fn(r, f):
+            left = ce(r, f)
+            result = True
+            for o, c in ops:
+                right = c(r, f)
+                result = _cmp_one(o, left, right)
+                if not result:
+                    return result
+                left = right
+            return result
+        return fn
+    if k is Add:
+        cl = _ex(node.left)
+        cr = _ex(node.right)
+
+        def fn(r, f):
+            return cl(r, f) + cr(r, f)
+        return fn
+    if k is Sub:
+        cl = _ex(node.left)
+        cr = _ex(node.right)
+
+        def fn(r, f):
+            return cl(r, f) - cr(r, f)
+        return fn
+    if k is Mul:
+        cl = _ex(node.left)
+        cr = _ex(node.right)
+
+        def fn(r, f):
+            return cl(r, f) * cr(r, f)
+        return fn
+    if k is Mod:
+        cl = _ex(node.left)
+        cr = _ex(node.right)
+
+        def fn(r, f):
+            return cl(r, f) % cr(r, f)
+        return fn
+    if k is Tuple:
+        cs = [_ex(n) for n in node.items]
+
+        def fn(r, f):
+            return tuple([c(r, f) for c in cs])
+        return fn
+    if k is List:
+        cs = [_ex(n) for n in node.items]
+
+        def fn(r, f):
+            return [c(r, f) for c in cs]
+        return fn
+    if k is TemplateData:
+        data = node.data
+
+        def fn(r, f):
+            if r.ctx.eval_ctx.autoescape:
+                return Markup(data)
+            return data
+        return fn
+
+    def fn(r, f):
+        return r._ev(node, f)
+    return fn
+
+
+def _compile_stmt(node):
+    k = type(node)
+    if k is Output:
+        parts = []
+        for child in node.nodes:
+            if type(child) is TemplateData:
+                parts.append((True, child.data))
+            else:
+                parts.append((False, _ex(child)))
+
+        def fn(r, f, buf):
+            if f.require_output_check and r.parent_template is not None:
+                return
+            fin = r.env.finalize
+            for is_data, p in parts:
+                if is_data:
+                    buf.append(p)
+                    continue
+                v = p(r, f)
+                if fin is not None:
+                    pa = _pass_arg(fin)
+                    if pa == _PASS_CONTEXT:
+                        v = fin(r.ctx, v)
+                    elif pa == _PASS_EVAL_CONTEXT:
+                        v = fin(r.ctx.eval_ctx, v)
+                    elif pa == _PASS_ENVIRONMENT:
+                        v = fin(r.env, v)
+                    else:
+                        v = fin(v)
+                if r.ctx.eval_ctx.autoescape:
+                    buf.append(escape(v))
+                elif type(v) is str:
+                    buf.append(v)
+                else:
+                    buf.append(str(v))
+        return fn
+    if k is If:
+        branches = [(_ex(node.test), _body_fns(node.body))]
+        for elif_ in node.elif_:
+            branches.append((_ex(elif_.test), _body_fns(elif_.body)))
+        else_ = _body_fns(node.else_)
+
+        def fn(r, f, buf):
+            for ct, body in branches:
+                if ct(r, f):
+                    for c in body:
+                        c(r, f, buf)
+                    return
+            for c in else_:
+                c(r, f, buf)
+        return fn
+    if k is For and not node.recursive and node.test is None:
+        ci = _ex(node.iter)
+        body = _body_fns(node.body)
+        else_ = _body_fns(node.else_) if node.else_ else None
+        target = node.target
+        tname = target.name if type(target) is Name else None
+        jumps = _has_jump(node.body)
+        # Jinja itself makes no loop object for a loop whose body cannot see it
+        needs_loop = _uses_names(node.body, ("loop",))
+
+        def fn(r, f, buf):
+            iterable = ci(r, f)
+            if needs_loop:
+                loop = LoopContext(iterable, r.env.undefined, None, 0)
+                nxt = loop._next
+            else:
+                loop = None
+                it = iter(iterable)
+            ran = False
+            while True:
+                if loop is not None:
+                    item = nxt()
+                else:
+                    item = next(it, missing)
+                if item is missing:
+                    break
+                lf = _Frame(r, f)
+                if tname is not None:
+                    lf.vars[tname] = item
+                else:
+                    r.assign(target, item, lf)
+                if loop is not None:
+                    lf.vars["loop"] = loop
+                if jumps:
+                    try:
+                        for c in body:
+                            c(r, lf, buf)
+                    except _ContinueLoop:
+                        continue
+                    except _BreakLoop:
+                        break
+                else:
+                    for c in body:
+                        c(r, lf, buf)
+                ran = True
+            if else_ is not None and not ran:
+                ef = _Frame(r, f)
+                for c in else_:
+                    c(r, ef, buf)
+        return fn
+    if k is Assign and type(node.target) is Name:
+        cv = _ex(node.node)
+        name = node.target.name
+
+        def fn(r, f, buf):
+            f.store(name, cv(r, f))
+        return fn
+    if k is ExprStmt:
+        cv = _ex(node.node)
+
+        def fn(r, f, buf):
+            cv(r, f)
+        return fn
+
+    def fn(r, f, buf):
+        r._stmt(node, f, buf)
+    return fn
 
 
 def _find_undeclared(nodes, names):
