@@ -178,8 +178,8 @@ Reproduce one with `python3 tools/conformance.py --show ID`.
 - `test_collections.TestCounter.test_unary` (dyn, dynamic): wrong_exit: exit 1, expected 0: TypeError: bad operand type for unary +: 'Counter'
 - `test_collections.TestCounter.test_update` (normal, dynamic): wrong_exit: exit 1, expected 0: TypeError: unsupported operand type(s) for +: 'int' and 'NoneType'
 - `test_collections.TestCounter.test_update` (dyn, dynamic): wrong_exit: exit 1, expected 0: TypeError: unsupported operand type(s) for +: 'int' and 'NoneType'
-- `test_re.ReTests.test_bigcharset` (normal, dynamic): wrong_exit: exit 1, expected 0: ValueError: chr() arg not in range(0x110000)
-- `test_re.ReTests.test_bigcharset` (dyn, dynamic): wrong_exit: exit 1, expected 0: ValueError: chr() arg not in range(0x110000)
+- `test_re.ReTests.test_bigcharset` (normal, dynamic): wrong_exit: exit 1, expected 0: NotImplementedError: brevi: chr() of a lone surrogate (U+D800..U+DFFF) is not supported in dynamic builds
+- `test_re.ReTests.test_bigcharset` (dyn, dynamic): wrong_exit: exit 1, expected 0: NotImplementedError: brevi: chr() of a lone surrogate (U+D800..U+DFFF) is not supported in dynamic builds
 - `test_re.ReTests.test_bug_16688` (normal, typed): wrong_output: line 1: expected "['a']", got '[]'
 - `test_re.ReTests.test_bug_2537` (normal, typed): wrong_output: line 3: expected "''", got "'xyy'"
 - `test_re.ReTests.test_bug_449000` (normal, typed): wrong_output: line 1: expected "'abc\\ndef\\n'", got "'abc\\\\ndef\\\\n'"
