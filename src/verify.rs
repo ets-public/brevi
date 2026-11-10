@@ -59,7 +59,7 @@ fn run_until(mut c: std::process::Command, stdin: &[u8], limit: Duration, sessio
     c.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     crate::proc::own_group(&mut c);
     let start = Instant::now();
-    let mut child = c.spawn().map_err(|e| format!("cannot start {}: {e}", c.get_program().to_string_lossy()))?;
+    let (mut child, job) = crate::proc::spawn_limited(&mut c, &lim, true).map_err(|e| format!("cannot start {}: {e}", c.get_program().to_string_lossy()))?;
     let si = child.stdin.take();
     let input = stdin.to_vec();
     let read = |r: Option<Box<dyn Read + Send>>| {
@@ -131,7 +131,7 @@ fn run_until(mut c: std::process::Command, stdin: &[u8], limit: Duration, sessio
     } else if lim.output.is_some_and(|o| (out.len() + err.len()) as u64 > o) {
         Some("output")
     } else {
-        status.and_then(|s| crate::proc::limit_hit(&lim, s, &tail))
+        status.and_then(|s| job.hit(&lim, s).or_else(|| crate::proc::limit_hit(&lim, s, &tail)))
     };
     let timed_out = timed_out && hit.is_none();
     Ok(Run { out, err, code: status.and_then(|s| exit_code(s)), ms, timed_out, hit })

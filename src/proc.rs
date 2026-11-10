@@ -139,8 +139,10 @@ impl Limits {
                 _ => return Err(format!("{HINT}; there is no limit '{k}'")),
             }
         }
-        if cfg!(windows) && (self.cpu.is_some() || self.mem.is_some() || self.file.is_some()) {
-            return Err("--limit cpu, mem and file are not enforced on Windows yet (time and output are); leave them out, or run on Linux or macOS".into());
+        // Windows holds mem with a Job Object (spawn_limited). Its job CPU limit counts user-mode time only (a
+        // program could spend unlimited kernel time), and it has no per-file size limit: both are refused.
+        if cfg!(windows) && (self.cpu.is_some() || self.file.is_some()) {
+            return Err("--limit cpu and file are not enforced on Windows yet (mem, time and output are): Windows can hold neither all of a program's CPU time (user and kernel) nor one file's size; leave them out, or run on Linux or macOS".into());
         }
         if cfg!(windows) && self.fds.is_some() {
             return Err("--limit fds is not enforced on Windows yet; leave it out, or run on Linux or macOS".into());
@@ -273,6 +275,219 @@ unsafe extern "C" {
     fn setrlimit(resource: i32, rlim: *const [u64; 2]) -> i32;
 }
 
+// Starts a command under the limits that need the OS's help after the process exists. On Windows that is mem:
+// the program starts suspended, goes into a Job Object holding its committed memory
+// (JOB_OBJECT_LIMIT_JOB_MEMORY), and only then runs its first instruction, so it never runs unlimited; everything it starts is in the job too, and the job is closed (and
+// anything left in it killed) when the returned Job drops. If the job cannot be set up, the program is killed
+// before it runs and the error is returned. `group`: the command also asked for its own process group
+// (own_group), which this keeps. Elsewhere this is a plain spawn: apply() has set the kernel limits.
+pub fn spawn_limited(c: &mut Command, l: &Limits, group: bool) -> std::io::Result<(Child, Job)> {
+    #[cfg(windows)]
+    {
+        if l.mem.is_some() {
+            use std::os::windows::process::CommandExt;
+            const CREATE_SUSPENDED: u32 = 0x4;
+            const CREATE_NEW_PROCESS_GROUP: u32 = 0x200;
+            c.creation_flags(CREATE_SUSPENDED | if group { CREATE_NEW_PROCESS_GROUP } else { 0 });
+            let mut child = c.spawn()?;
+            return match unsafe { winjob::start(&child, l) } {
+                Ok(j) => Ok((child, j)),
+                Err(e) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    Err(e)
+                }
+            };
+        }
+    }
+    let _ = (l, group);
+    Ok((c.spawn()?, Job::default()))
+}
+
+// The Job Object a program runs in (Windows, with a mem limit); nothing elsewhere.
+#[derive(Default)]
+pub struct Job {
+    #[cfg(windows)]
+    h: Option<(winjob::H, winjob::H)>,
+}
+
+impl Job {
+    // The limit that stopped a program which ended with `status`: the job's own report that an allocation was
+    // refused at its memory limit, when the program then failed.
+    pub fn hit(&self, l: &Limits, status: ExitStatus) -> Option<&'static str> {
+        #[cfg(windows)]
+        if let Some((_, port)) = self.h {
+            let mem = unsafe { winjob::messages(port) };
+            if mem && l.mem.is_some() && !status.success() {
+                return Some("mem");
+            }
+        }
+        let _ = (l, status);
+        None
+    }
+}
+
+#[cfg(windows)]
+impl Drop for Job {
+    fn drop(&mut self) {
+        if let Some((job, port)) = self.h.take() {
+            unsafe {
+                winjob::CloseHandle(job);
+                winjob::CloseHandle(port);
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+#[allow(unsafe_op_in_unsafe_fn)]
+mod winjob {
+    use super::{Job, Limits};
+    use std::ffi::c_void;
+    use std::os::windows::io::AsRawHandle;
+    pub type H = *mut c_void;
+
+    #[repr(C)]
+    #[derive(Default)]
+    struct BasicLimit {
+        per_process_user_time: i64,
+        per_job_user_time: i64,
+        flags: u32,
+        min_working_set: usize,
+        max_working_set: usize,
+        active_processes: u32,
+        affinity: usize,
+        priority_class: u32,
+        scheduling_class: u32,
+    }
+    #[repr(C)]
+    #[derive(Default)]
+    struct ExtendedLimit {
+        basic: BasicLimit,
+        io: [u64; 6],
+        process_memory: usize,
+        job_memory: usize,
+        peak_process_memory: usize,
+        peak_job_memory: usize,
+    }
+    #[repr(C)]
+    struct Port {
+        key: *mut c_void,
+        port: H,
+    }
+    #[repr(C)]
+    struct ThreadEntry {
+        size: u32,
+        usage: u32,
+        thread_id: u32,
+        owner_pid: u32,
+        base_pri: i32,
+        delta_pri: i32,
+        flags: u32,
+    }
+
+    unsafe extern "system" {
+        fn CreateJobObjectW(sa: *mut c_void, name: *const u16) -> H;
+        fn SetInformationJobObject(job: H, class: i32, info: *const c_void, len: u32) -> i32;
+        fn AssignProcessToJobObject(job: H, process: H) -> i32;
+        fn CreateIoCompletionPort(file: H, existing: H, key: usize, threads: u32) -> H;
+        fn GetQueuedCompletionStatus(port: H, bytes: *mut u32, key: *mut usize, ov: *mut *mut c_void, ms: u32) -> i32;
+        fn CreateToolhelp32Snapshot(flags: u32, pid: u32) -> H;
+        fn Thread32First(snap: H, e: *mut ThreadEntry) -> i32;
+        fn Thread32Next(snap: H, e: *mut ThreadEntry) -> i32;
+        fn OpenThread(access: u32, inherit: i32, tid: u32) -> H;
+        fn ResumeThread(h: H) -> u32;
+        pub fn CloseHandle(h: H) -> i32;
+    }
+
+    const JOB_OBJECT_LIMIT_JOB_MEMORY: u32 = 0x200;
+    const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: u32 = 0x2000;
+    const EXTENDED_LIMIT_INFORMATION: i32 = 9;
+    const ASSOCIATE_COMPLETION_PORT: i32 = 7;
+    const MSG_PROCESS_MEMORY_LIMIT: u32 = 9;
+    const MSG_JOB_MEMORY_LIMIT: u32 = 10;
+    const INVALID: H = usize::MAX as H;
+
+    fn os_err(what: &str) -> std::io::Error {
+        let e = std::io::Error::last_os_error();
+        std::io::Error::new(e.kind(), format!("cannot hold the program to its --limit ({what}): {e}"))
+    }
+
+    // Job, limits and completion port first, then the suspended process into the job, then its threads resumed.
+    pub unsafe fn start(child: &std::process::Child, l: &Limits) -> std::io::Result<Job> {
+        let job = CreateJobObjectW(std::ptr::null_mut(), std::ptr::null());
+        if job.is_null() {
+            return Err(os_err("CreateJobObject"));
+        }
+        let port = CreateIoCompletionPort(INVALID, std::ptr::null_mut(), 0, 1);
+        if port.is_null() {
+            CloseHandle(job);
+            return Err(os_err("CreateIoCompletionPort"));
+        }
+        // from here the Job closes both handles when it drops, error or not
+        let j = Job { h: Some((job, port)) };
+        let mut x = ExtendedLimit::default();
+        x.basic.flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        if let Some(m) = l.mem {
+            x.basic.flags |= JOB_OBJECT_LIMIT_JOB_MEMORY;
+            x.job_memory = (m as usize).saturating_mul(1 << 20);
+        }
+        if SetInformationJobObject(job, EXTENDED_LIMIT_INFORMATION, &x as *const _ as *const c_void, std::mem::size_of::<ExtendedLimit>() as u32) == 0 {
+            return Err(os_err("SetInformationJobObject"));
+        }
+        let p = Port { key: job, port };
+        if SetInformationJobObject(job, ASSOCIATE_COMPLETION_PORT, &p as *const _ as *const c_void, std::mem::size_of::<Port>() as u32) == 0 {
+            return Err(os_err("job completion port"));
+        }
+        if AssignProcessToJobObject(job, child.as_raw_handle() as H) == 0 {
+            return Err(os_err("AssignProcessToJobObject"));
+        }
+        // A process created suspended has one thread, suspended once: resume it (and any other of its own).
+        let snap = CreateToolhelp32Snapshot(0x4 /* TH32CS_SNAPTHREAD */, 0);
+        if snap == INVALID {
+            return Err(os_err("CreateToolhelp32Snapshot"));
+        }
+        let pid = child.id();
+        let mut e = ThreadEntry { size: std::mem::size_of::<ThreadEntry>() as u32, usage: 0, thread_id: 0, owner_pid: 0, base_pri: 0, delta_pri: 0, flags: 0 };
+        let mut resumed = 0;
+        let mut more = Thread32First(snap, &mut e) != 0;
+        while more {
+            if e.owner_pid == pid {
+                let t = OpenThread(0x2 /* THREAD_SUSPEND_RESUME */, 0, e.thread_id);
+                if !t.is_null() {
+                    if ResumeThread(t) != u32::MAX {
+                        resumed += 1;
+                    }
+                    CloseHandle(t);
+                }
+            }
+            e.size = std::mem::size_of::<ThreadEntry>() as u32;
+            more = Thread32Next(snap, &mut e) != 0;
+        }
+        CloseHandle(snap);
+        if resumed == 0 {
+            return Err(os_err("ResumeThread"));
+        }
+        Ok(j)
+    }
+
+    // Whether the job reported an allocation refused at its memory limit.
+    pub unsafe fn messages(port: H) -> bool {
+        let mut mem = false;
+        loop {
+            let (mut msg, mut key, mut ov) = (0u32, 0usize, std::ptr::null_mut());
+            if GetQueuedCompletionStatus(port, &mut msg, &mut key, &mut ov, 0) == 0 {
+                break;
+            }
+            match msg {
+                MSG_JOB_MEMORY_LIMIT | MSG_PROCESS_MEMORY_LIMIT => mem = true,
+                _ => {}
+            }
+        }
+        mem
+    }
+}
+
 // Which limit stopped a program that ended with this status and stderr, if one did.
 pub fn limit_hit(l: &Limits, status: ExitStatus, err_tail: &str) -> Option<&'static str> {
     #[cfg(unix)]
@@ -336,7 +551,7 @@ pub fn run_with(c: &mut Command, l: &Limits) -> std::io::Result<i32> {
         c.stdout(std::process::Stdio::piped());
     }
     let start = std::time::Instant::now();
-    let mut child = c.spawn()?;
+    let (mut child, job) = spawn_limited(c, l, false)?;
     let written = Arc::new(AtomicU64::new(0));
     let cap = l.output.unwrap_or(u64::MAX);
     let streams: Vec<(Box<dyn Read + Send>, bool)> = [child.stdout.take().map(|r| (Box::new(r) as Box<dyn Read + Send>, true)), child.stderr.take().map(|r| (Box::new(r) as Box<dyn Read + Send>, false))].into_iter().flatten().collect();
@@ -407,7 +622,7 @@ pub fn run_with(c: &mut Command, l: &Limits) -> std::io::Result<i32> {
         stopped = Some("output");
     }
     let tail = String::from_utf8_lossy(&tail.lock().unwrap_or_else(|e| e.into_inner())).to_string();
-    if let Some(on) = stopped.or_else(|| limit_hit(l, status, &tail)) {
+    if let Some(on) = stopped.or_else(|| job.hit(l, status)).or_else(|| limit_hit(l, status, &tail)) {
         let _ = std::io::stdout().flush();
         eprintln!("{}", limit_line(l, on));
         return Ok(LIMIT_EXIT);
