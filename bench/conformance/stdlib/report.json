@@ -9,71 +9,71 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 130,
-"refused": 154,
+"matched": 200,
+"refused": 163,
 "wrong_output": 32,
-"wrong_exit": 49,
-"crash_or_timeout": 4,
-"not_extractable": 185,
+"wrong_exit": 52,
+"crash_or_timeout": 3,
+"not_extractable": 104,
 "unstable": 22,
 "excluded": 29,
 "total": 605,
 "scored": 554,
-"matched_through_cpython": 7,
-"matched_silent": 5,
-"coverage": 0.222,
-"wrong": 81
+"matched_through_cpython": 9,
+"matched_silent": 27,
+"coverage": 0.3448,
+"wrong": 84
 },
 "dyn": {
-"matched": 136,
-"refused": 162,
+"matched": 204,
+"refused": 173,
 "wrong_output": 22,
-"wrong_exit": 47,
-"crash_or_timeout": 2,
-"not_extractable": 185,
+"wrong_exit": 50,
+"crash_or_timeout": 1,
+"not_extractable": 104,
 "unstable": 22,
 "excluded": 29,
 "total": 605,
 "scored": 554,
 "matched_through_cpython": 0,
-"matched_silent": 5,
-"coverage": 0.2455,
-"wrong": 69
+"matched_silent": 27,
+"coverage": 0.3682,
+"wrong": 72
 }
 },
 "files": {
 "test_itertools": {
 "normal": {
-"matched": 6,
-"refused": 0,
+"matched": 76,
+"refused": 9,
 "wrong_output": 1,
-"wrong_exit": 1,
-"crash_or_timeout": 1,
-"not_extractable": 125,
+"wrong_exit": 4,
+"crash_or_timeout": 0,
+"not_extractable": 44,
 "unstable": 0,
 "excluded": 11,
 "total": 145,
 "scored": 134,
-"matched_through_cpython": 0,
-"matched_silent": 3,
-"coverage": 0.0448,
-"wrong": 2
+"matched_through_cpython": 2,
+"matched_silent": 25,
+"coverage": 0.5522,
+"wrong": 5
 },
 "dyn": {
-"matched": 6,
-"refused": 0,
+"matched": 74,
+"refused": 11,
 "wrong_output": 1,
-"wrong_exit": 1,
-"crash_or_timeout": 1,
-"not_extractable": 125,
+"wrong_exit": 4,
+"crash_or_timeout": 0,
+"not_extractable": 44,
 "unstable": 0,
 "excluded": 11,
 "total": 145,
 "scored": 134,
 "matched_through_cpython": 0,
-"matched_silent": 3,
-"coverage": 0.0448,
-"wrong": 2
+"matched_silent": 25,
+"coverage": 0.5522,
+"wrong": 5
 }
 },
 "test_collections": {
@@ -249,22 +249,30 @@
 },
 "paths": {
 "normal": {
-"dynamic": 176,
-"refused": 154,
-"typed": 31,
-"pybridge": 8
+"dynamic": 245,
+"refused": 163,
+"typed": 32,
+"pybridge": 10
 },
 "dyn": {
-"dynamic": 207,
-"refused": 162
+"dynamic": 277,
+"refused": 173
 }
 },
 "tests": [
 {
 "id": "test_itertools.TestBasicOps.test_StopIteration",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'chain' is not defined"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "unknown function zip()"
+},
+"dyn": {
+"category": "refused",
+"detail": "itertools.tee is not supported in dynamic builds"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_accumulate",
@@ -275,8 +283,16 @@
 {
 "id": "test_itertools.TestBasicOps.test_batched",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'batched' is not defined"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "repr() of a one-item tuple shows (x,), which the typed build keeps as a list, and this file cannot be built over dynamic values (case.py line 3: itertools.batched is not supported in dynamic builds)"
+},
+"dyn": {
+"category": "refused",
+"detail": "itertools.batched is not supported in dynamic builds"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_bug_7244",
@@ -287,14 +303,30 @@
 {
 "id": "test_itertools.TestBasicOps.test_chain",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'chain' is not defined. Did you mean: 'chain2'?"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_chain_from_iterable",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'chain' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_chain_reducible",
@@ -359,8 +391,16 @@
 {
 "id": "test_itertools.TestBasicOps.test_combinatorics",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'product' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_compress",
@@ -395,8 +435,16 @@
 {
 "id": "test_itertools.TestBasicOps.test_cycle",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'cycle' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_cycle_copy_pickle",
@@ -425,8 +473,18 @@
 {
 "id": "test_itertools.TestBasicOps.test_filter",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'count' is not defined. Did you mean: 'round'?"
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: TypeError: a class that defines __slots__ without defining __getstate__ cannot be pickled"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: TypeError: a class that defines __slots__ without defining __getstate__ cannot be pickled"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_filterfalse",
@@ -445,14 +503,12 @@
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: NameError: cannot access free variable 'g' where it is not associated with a value in enclosing scope"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: NameError: cannot access free variable 'g' where it is not associated with a value in enclosing scope"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -461,14 +517,12 @@
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected '1', got '4'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected '1', got '4'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -499,14 +553,30 @@
 {
 "id": "test_itertools.TestBasicOps.test_pairwise_reenter",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'pairwise' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_pairwise_reenter2",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'pairwise' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_pairwise_result_gc",
@@ -542,7 +612,7 @@
 "id": "test_itertools.TestBasicOps.test_product",
 "file": "test_itertools",
 "category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'product' is not defined"
+"detail": "generated script fails under CPython: NameError: name 'prod' is not defined"
 },
 {
 "id": "test_itertools.TestBasicOps.test_product_issue_25021",
@@ -583,8 +653,18 @@
 {
 "id": "test_itertools.TestBasicOps.test_repeat_with_negative_times",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'repeat' is not defined"
+"modes": {
+"normal": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected '\"repeat(\\'a\\', 0)\"', got \"'<iterator object>'\""
+},
+"dyn": {
+"category": "wrong_output",
+"path": "dynamic",
+"detail": "line 1: expected '\"repeat(\\'a\\', 0)\"', got \"'<iterator object>'\""
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_starmap",
@@ -619,26 +699,58 @@
 {
 "id": "test_itertools.TestBasicOps.test_tee_del_backward",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'tee' is not defined"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "del takes m[k] or xs[i]"
+},
+"dyn": {
+"category": "refused",
+"detail": "itertools.tee is not supported in dynamic builds"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_tee_reenter",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'tee' is not defined"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found I"
+},
+"dyn": {
+"category": "refused",
+"detail": "itertools.tee is not supported in dynamic builds"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_zip",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'count' is not defined. Did you mean: 'round'?"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_zip_longest_bad_iterable",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'zip_longest' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_zip_longest_pickling",
@@ -667,14 +779,30 @@
 {
 "id": "test_itertools.TestBasicOps.test_ziplongest",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'zip_longest' is not defined"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "repr() of tuple(...) shows a tuple, which the typed build keeps as a list, and this file cannot be built over dynamic values (case.py line 59: eval() is not supported in dynamic builds)"
+},
+"dyn": {
+"category": "refused",
+"detail": "eval() is not supported in dynamic builds"
+}
+}
 },
 {
 "id": "test_itertools.TestExamples.test_accumulate",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'accumulate' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestExamples.test_accumulate_reducible",
@@ -691,50 +819,114 @@
 {
 "id": "test_itertools.TestExamples.test_chain",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'chain' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestExamples.test_chain_from_iterable",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'chain' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestExamples.test_combinations",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'combinations' is not defined. Did you mean: 'test_combinations'?"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestExamples.test_combinations_with_replacement",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'combinations_with_replacement' is not defined. Did you mean: 'test_combinations_with_replacement'?"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestExamples.test_compress",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'compress' is not defined. Did you mean: 'complex'?"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestExamples.test_count",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'islice' is not defined. Did you mean: 'slice'?"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestExamples.test_cycle",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'islice' is not defined. Did you mean: 'slice'?"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestExamples.test_dropwhile",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'dropwhile' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestExamples.test_filter",
@@ -753,20 +945,44 @@
 {
 "id": "test_itertools.TestExamples.test_filterfalse",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'filterfalse' is not defined. Did you mean: 'test_filterfalse'?"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestExamples.test_groupby",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'groupby' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestExamples.test_islice",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'islice' is not defined. Did you mean: 'slice'?"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestExamples.test_map",
@@ -785,32 +1001,72 @@
 {
 "id": "test_itertools.TestExamples.test_permutations",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'permutations' is not defined. Did you mean: 'test_permutations'?"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestExamples.test_product",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'product' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestExamples.test_repeat",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'repeat' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestExamples.test_stapmap",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'starmap' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestExamples.test_takewhile",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'takewhile' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestExamples.test_zip",
@@ -829,86 +1085,200 @@
 {
 "id": "test_itertools.TestExamples.test_zip_longest",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'zip_longest' is not defined. Did you mean: 'test_zip_longest'?"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestPurePythonRoughEquivalents.test_batched_recipe",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'product' is not defined"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "the typed build runs a generator to the end at its first use, where CPython runs it step by step with its caller, and this file cannot be built over dynamic values (case.py line 3: itertools.batched i"
+},
+"dyn": {
+"category": "refused",
+"detail": "itertools.batched is not supported in dynamic builds"
+}
+}
 },
 {
 "id": "test_itertools.TestPurePythonRoughEquivalents.test_islice_recipe",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'count' is not defined. Did you mean: 'round'?"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestPurePythonRoughEquivalents.test_tee_recipe",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'repeat' is not defined"
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: StopIteration"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: StopIteration"
+}
+}
 },
 {
 "id": "test_itertools.TestGC.test_accumulate",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'accumulate' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestGC.test_batched",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'batched' is not defined"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "del takes m[k] or xs[i]"
+},
+"dyn": {
+"category": "refused",
+"detail": "itertools.batched is not supported in dynamic builds"
+}
+}
 },
 {
 "id": "test_itertools.TestGC.test_chain",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'chain' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestGC.test_chain_from_iterable",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'chain' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestGC.test_combinations",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'combinations' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestGC.test_combinations_with_replacement",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'combinations_with_replacement' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestGC.test_compress",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'compress' is not defined. Did you mean: 'complex'?"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestGC.test_count",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'count' is not defined. Did you mean: 'round'?"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestGC.test_cycle",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'cycle' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestGC.test_dropwhile",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'dropwhile' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestGC.test_filter",
@@ -927,26 +1297,60 @@
 {
 "id": "test_itertools.TestGC.test_filterfalse",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'filterfalse' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestGC.test_groupby",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'groupby' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestGC.test_islice",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'islice' is not defined. Did you mean: 'slice'?"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestGC.test_issue2246",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'groupby' is not defined"
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: AttributeError: 'function' object has no attribute '__dict__'"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: AttributeError: 'function' object has no attribute '__dict__'"
+}
+}
 },
 {
 "id": "test_itertools.TestGC.test_map",
@@ -965,38 +1369,86 @@
 {
 "id": "test_itertools.TestGC.test_pairwise",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'pairwise' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestGC.test_permutations",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'permutations' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestGC.test_product",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'product' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestGC.test_repeat",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'repeat' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestGC.test_starmap",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'starmap' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestGC.test_takewhile",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'takewhile' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestGC.test_zip",
@@ -1015,140 +1467,324 @@
 {
 "id": "test_itertools.TestGC.test_zip_longest",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'zip_longest' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestVariousIteratorArgs.test_accumulate",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'accumulate' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestVariousIteratorArgs.test_batched",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'batched' is not defined"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "the typed build runs a generator to the end at its first use, where CPython runs it step by step with its caller, and this file cannot be built over dynamic values (case.py line 3: itertools.batched i"
+},
+"dyn": {
+"category": "refused",
+"detail": "itertools.batched is not supported in dynamic builds"
+}
+}
 },
 {
 "id": "test_itertools.TestVariousIteratorArgs.test_chain",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'chain' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestVariousIteratorArgs.test_compress",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'compress' is not defined. Did you mean: 'complex'?"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestVariousIteratorArgs.test_cycle",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'islice' is not defined. Did you mean: 'slice'?"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestVariousIteratorArgs.test_dropwhile",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'dropwhile' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestVariousIteratorArgs.test_filter",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'chain' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestVariousIteratorArgs.test_filterfalse",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'filterfalse' is not defined. Did you mean: 'test_filterfalse'?"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestVariousIteratorArgs.test_groupby",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'groupby' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestVariousIteratorArgs.test_islice",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'islice' is not defined. Did you mean: 'slice'?"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestVariousIteratorArgs.test_map",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'chain' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestVariousIteratorArgs.test_pairwise",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'pairwise' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestVariousIteratorArgs.test_product",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'product' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestVariousIteratorArgs.test_starmap",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'starmap' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestVariousIteratorArgs.test_takewhile",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'takewhile' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestVariousIteratorArgs.test_tee",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'tee' is not defined"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "the typed build runs a generator to the end at its first use, where CPython runs it step by step with its caller, and this file cannot be built over dynamic values (case.py line 4: itertools.tee is no"
+},
+"dyn": {
+"category": "refused",
+"detail": "itertools.tee is not supported in dynamic builds"
+}
+}
 },
 {
 "id": "test_itertools.TestVariousIteratorArgs.test_zip",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'chain' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestVariousIteratorArgs.test_ziplongest",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'zip_longest' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.LengthTransparency.test_repeat",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'repeat' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "pybridge"
+},
+"dyn": {
+"category": "refused",
+"detail": "operator.length_hint is not supported in dynamic builds"
+}
+}
 },
 {
 "id": "test_itertools.LengthTransparency.test_repeat_with_negative_times",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'repeat' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "pybridge"
+},
+"dyn": {
+"category": "refused",
+"detail": "operator.length_hint is not supported in dynamic builds"
+}
+}
 },
 {
 "id": "test_itertools.RegressionTests.test_issue30347_1",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'groupby' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.RegressionTests.test_issue30347_2",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'groupby' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.RegressionTests.test_long_chain_of_empty_iterables",
@@ -1161,28 +1797,44 @@
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "crash_or_timeout",
-"path": "dynamic",
-"detail": "panic: RefCell already mutably borrowed"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "crash_or_timeout",
-"path": "dynamic",
-"detail": "panic: RefCell already mutably borrowed"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
 {
 "id": "test_itertools.RegressionTests.test_sf_950057",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'chain' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.SubclassWithKwargsTest.test_keywords_in_subclass",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'repeat' is not defined"
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: TypeError: bases must be types"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: TypeError: bases must be types"
+}
+}
 },
 {
 "id": "test_itertools.SizeofTest.test_combinations_sizeof",

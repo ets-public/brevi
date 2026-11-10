@@ -26,7 +26,7 @@ Env: BREVI (default target/release/brevi), BREVI_CACHE (the cache is its conform
 ~/.cache/brevi/conformance).
 """
 import argparse, ast, collections, concurrent.futures as cf, hashlib, json, os, re, shlex, shutil, signal
-import subprocess, sys, tempfile, time, urllib.request, warnings
+import functools, importlib, subprocess, sys, tempfile, time, urllib.request, warnings
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -71,6 +71,13 @@ ALLOWED_IMPORTS = {
     "operator", "pickle", "random", "re", "string", "struct", "sys", "textwrap", "time", "types", "typing",
     "unicodedata", "warnings", "weakref",
 }
+@functools.lru_cache(None)
+def star_names(module):
+    """The names `from module import *` binds, for an allowed stdlib module."""
+    m = importlib.import_module(module)
+    return set(getattr(m, "__all__", None) or (n for n in vars(m) if not n.startswith("_")))
+
+
 FORBIDDEN_NAMES = {"open", "__import__", "breakpoint", "input"}
 # Tests of CPython itself, not of the language: left out of the total, each with its reason.
 EXCLUDED_DECORATORS = {
@@ -477,8 +484,9 @@ class Script:
             self.lines.add(f"import {kind[1]}" + (f" as {kind[2]}" if kind[2] else ""))
         else:
             for star in mod.stars:
-                if star == "sys" and hasattr(sys, name):
-                    self.lines.add(f"from sys import {name}")
+                if star in ALLOWED_IMPORTS and name in star_names(star):
+                    self.lines.add(f"from {star} import {name}")
+                    break
 
     def include(self, mod, node):
         key = (self.u.order.index(mod.name), node.lineno)

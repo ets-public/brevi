@@ -529,23 +529,31 @@ pub fn bi_enumerate(mut a: Args) -> R {
         })
     }))
 }
+// zip and map hold no borrow while they step their inputs, so a callback may re-enter them, as in CPython
 pub fn bi_zip(mut a: Args) -> R {
     let strict = a.kw("strict").map(|x| truth(&x).unwrap_or(false)).unwrap_or(false);
-    let mut its: Vec<It> = vec![];
+    let mut its: Vec<Rc<RefCell<It>>> = vec![];
     for x in &a.p {
-        its.push(iter(x)?);
+        its.push(shared_input(x)?);
     }
     if its.is_empty() {
         return Ok(vec_iter(vec![]));
     }
-    Ok(gen_iter(move || {
+    Ok(shared_iter(move || {
         let mut row = Vec::with_capacity(its.len());
-        for (i, it) in its.iter_mut().enumerate() {
-            match it.next()? {
+        for (i, it) in its.iter().enumerate() {
+            match iter_step(it)? {
                 Some(x) => row.push(x),
                 None => {
                     if strict && i > 0 {
                         return val_err(format!("zip() argument {} is shorter than argument 1", i + 1));
+                    }
+                    if strict {
+                        for (j, rest) in its.iter().enumerate().skip(1) {
+                            if iter_step(rest)?.is_some() {
+                                return val_err(format!("zip() argument {} is longer than argument 1", j + 1));
+                            }
+                        }
                     }
                     return Ok(None);
                 }
@@ -559,14 +567,14 @@ pub fn bi_map(a: Args) -> R {
         return type_err("map() must have at least two arguments.".into());
     }
     let f = a.p[0].clone();
-    let mut its: Vec<It> = vec![];
+    let mut its: Vec<Rc<RefCell<It>>> = vec![];
     for x in &a.p[1..] {
-        its.push(iter(x)?);
+        its.push(shared_input(x)?);
     }
-    Ok(gen_iter(move || {
+    Ok(shared_iter(move || {
         let mut args = Vec::with_capacity(its.len());
-        for it in its.iter_mut() {
-            match it.next()? {
+        for it in its.iter() {
+            match iter_step(it)? {
                 Some(x) => args.push(x),
                 None => return Ok(None),
             }
@@ -639,7 +647,7 @@ pub fn bi_next(a: Args) -> R {
                     Err(e) => return Err(e),
                 }
             }
-            None => it.borrow_mut().next()?,
+            None => iter_step(it)?,
         },
         V::Obj(o) => match o.cls.lookup("__next__") {
             Some(f) => match call(&f, Args::p(vec![a.p[0].clone()])) {

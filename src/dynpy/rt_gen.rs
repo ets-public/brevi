@@ -306,8 +306,9 @@ pub fn coro_next(c: &Rc<RefCell<Box<Coro>>>, sent: V) -> Result<Option<V>, E> {
 }
 
 pub fn coro_of(it: &Rc<RefCell<It>>) -> Option<Rc<RefCell<Box<Coro>>>> {
-    match &*it.borrow() {
-        It::Coro(c) => Some(c.clone()),
+    // an iterator mid-step (borrowed by its own next) is not a generator here: iter_step reports the re-entry
+    match it.try_borrow().as_deref() {
+        Ok(It::Coro(c)) => Some(c.clone()),
         _ => None,
     }
 }
