@@ -52,16 +52,30 @@ case 2: differs from expect
   Rerun with sandbox false to get CPython's answer, or keep going: Brevi will use CPython for this file.
 ```
 
-and the file is marked CPython-only for the rest of the session. This needs CPython to run the case, which the
+and that same code (not every later program with the same file name) is marked CPython-only for the rest of the session. This needs CPython to run the case, which the
 sandbox cannot hold, so it happens only when `sandbox` is false, or on Linux where Landlock holds CPython to the
 same read and write grants (v0.26.0). Under the sandbox elsewhere, the reply says the case was not checked against
 CPython.
 
-### 3. MCP `run` without cases, `sandbox: false`
+### 3. MCP `run` without cases
 
 Defaults to `verify: true` with the same rules as `--verify` above, so an agent that never heard of `verify` still
-gets a checked answer. `verify: false` turns it off. Under the sandbox the default stays off (CPython can't be
-held there), and the tool description says so.
+gets a checked answer. `verify: false` turns it off. With `sandbox: false` (only on a `brevi mcp --trust-calls`
+server) the check is against CPython. Under the sandbox, which is the default, CPython can't be held, so the check
+is against Brevi's dynamic build (see 3a).
+
+### 3a. The sandboxed check, against the dynamic build
+
+From v0.27.0 the MCP `run` tool under the sandbox, and `brevi run --verify --sandbox [--allow ...]` on the CLI (which
+used to refuse `--sandbox`), compare the typed build's answer with Brevi's dynamic build (`BREVI_DYN=1`) instead of
+CPython. Both are built under the same grants and run under the same limits.
+
+- **Same** stdout and exit code: the last line is `{"verify":"identical","against":"dynamic",...}`.
+- **Different:** the answer given is the dynamic build's, with a line
+  `{"verify":"differs","against":"dynamic","on":"stdout","line":N,"typed":"...","dynamic":"..."}`.
+- **Not compared:** a program that does not take the typed build, reads the clock, unseeded random or the environment,
+  writes files or uses the network, or that the dynamic build cannot build or crashes on, gets
+  `{"verify":"refused","against":"dynamic","why":"..."}` and the program's own answer.
 
 ### 4. The certificate
 
@@ -84,7 +98,7 @@ Every `differs` is written to `$BREVI_CACHE/differs/` with the program, input an
 ## What it is not
 
 - Not a replacement for conformance: it checks one program on the inputs it was given.
-- Not a sandbox feature: it runs CPython, which the sandbox cannot hold outside Linux.
+- Not a sandbox feature: it runs CPython, which the sandbox cannot hold outside Linux. Under the sandbox the check is against the dynamic build, which is a weaker check than CPython (both builds are Brevi's).
 - Not free: the cost is one CPython run per verified run. On the release-test tasks CPython runs in 30 to 60 ms,
   which an agent does not notice; on heavy programs `--verify` should be used on the test inputs, not on every run.
 

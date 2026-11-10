@@ -274,10 +274,10 @@ fn main() {
             eprintln!("--limit holds a program while it runs: use it with brevi run or brevi test (brevi verify takes it too)");
             exit(2);
         }
-        // files and net are counted by Brevi's own file and network layers, which hold only a sandboxed
-        // program that runs no CPython or native code.
-        if (limits.files.is_some() || limits.net.is_some()) && (!sandbox || grant.iter().any(|g| g == "native" || g.starts_with("py:"))) {
-            eprintln!("--limit files and net are counted by Brevi's own file and network code, so they need --sandbox without --allow native or --allow-py (CPython and native code are not counted); leave them out, or drop those grants");
+        // files, net and written are counted by Brevi's own file and network layers, which hold only a
+        // sandboxed program that runs no CPython or native code.
+        if (limits.files.is_some() || limits.net.is_some() || limits.written.is_some()) && (!sandbox || grant.iter().any(|g| g == "native" || g.starts_with("py:"))) {
+            eprintln!("--limit files, net and written are counted by Brevi's own file and network code, so they need --sandbox without --allow native or --allow-py (CPython and native code are not counted); leave them out, or drop those grants");
             exit(2);
         }
         proc::LIMITS.set(limits).ok();

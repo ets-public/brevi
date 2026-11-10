@@ -1,0 +1,4 @@
+(1000, 499500)
+refused: unable to open database file
+exit 0
+{"path":"dynamic","line":1,"why":"sqlite3 not in the typed build"}

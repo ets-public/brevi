@@ -8,12 +8,14 @@ B = sys.argv[1] if len(sys.argv) > 1 else "target/release/brevi"
 n = 0
 p = None
 
-def start():
+def start(*flags):
     global p
     if p:
         p.stdin.close()
         p.wait()
-    p = subprocess.Popen([B, "mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    # These checks pass sandbox false and grants themselves, which only a server started with --trust-calls
+    # takes; the server's own policy (the default) is checked at the end.
+    p = subprocess.Popen([B, "mcp", "--trust-calls", *flags], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
 
 def rpc(method, params):
     global n
@@ -77,9 +79,15 @@ start()
 sq = "import sys\nn = int(sys.stdin.read())\nprint(sum(i * i for i in range(n)))\n"
 expect("run verifies by default", call("run", code=sq, sandbox=False, stdin="5"), '30\n{"verify":"identical","brevi_ms":', False)
 expect("run verify false", call("run", sandbox=False, stdin="5", verify=False), "30", False)
-if '"verify"' in call("run", sandbox=False, stdin="5", verify=False)[0] or '"verify"' in call("run", stdin="5")[0]:
+if '"verify"' in call("run", sandbox=False, stdin="5", verify=False)[0] or '"verify"' in call("run", stdin="5", verify=False)[0]:
     fails += 1
-    print("FAIL run: verify false and the sandbox must not verify")
+    print("FAIL run: verify false must not verify")
+# Under the sandbox (no CPython) the typed build is checked against Brevi's dynamic build instead.
+expect("run verifies under the sandbox", call("run", stdin="5"), '30\n{"verify":"identical","against":"dynamic"', False)
+c01 = "def smallest(xs):\n    xs.sort()\n    return xs[0]\ndata = [3, 1, 2]\nprint(smallest(data))\nprint(data)\n"
+expect("sandboxed run catches a typed-build bug", call("run", code=c01), '1\n[1, 2, 3]\n{"verify":"differs","against":"dynamic","on":"stdout","line":2,"typed":"[3, 1, 2]"', False)
+expect("sandboxed check names the dynamic build", call("run", code=c01), "the output above is from Brevi's dynamic build", False)
+expect("sandboxed check skips the dynamic path", call("run", code="def show(xs):\n    print(set(xs))\n\nshow([2, 'a'])\n"), '"verify":"refused","against":"dynamic"', False)
 expect("run verify refuses the clock", call("run", sandbox=False, code="import time\nprint(time.time() > 0)\n"), '{"verify":"refused","why":"reads the clock"}', False)
 expect("run verify refuses writes", call("run", sandbox=False, code="open('x.txt', 'w').write('x')\nprint(1)\n"), '"why":"writes files"', False)
 def start_with(**env):
@@ -87,13 +95,17 @@ def start_with(**env):
     if p:
         p.stdin.close()
         p.wait()
-    p = subprocess.Popen([B, "mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=dict(os.environ, **env))
+    p = subprocess.Popen([B, "mcp", "--trust-calls"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=dict(os.environ, **env))
 import os
 start_with(BREVI_PYTHON=os.path.abspath("tests/verify/fakepy.sh"))
 d = call("run", code=sq, sandbox=False, stdin="5")
 expect("run verify differs gives CPython's answer", d, '30\none more line\n{"verify":"differs","on":"stdout","line":2', False)
 expect("run verify differs says whose bug", d, "runs with CPython for the rest of the session", False)
 expect("run after differs uses CPython", call("run", sandbox=False, stdin="5"), '"path":"cpython","why":"Brevi gave a wrong answer', False)
+# Marked by its code, not its file name: new code in main.py is built again.
+if '"path":"cpython"' in call("run", code="print(6 * 7)\n", sandbox=False, verify=False)[0]:
+    fails += 1
+    print("FAIL new code after differs must not stick to CPython")
 start_with(BREVI_PYTHON=os.path.abspath("tests/verify/upperpy.sh"))
 expect("cases Brevi bug", call("run", code="print(input())\n", sandbox=False, cases=[{"stdin": "x\n", "expect": "X\n"}]), "this is a Brevi bug, not your code", True)
 expect("cases after Brevi bug use CPython", call("run", sandbox=False, cases=[{"stdin": "x\n", "expect": "X\n"}]), "passed 1/1", False)
@@ -222,7 +234,7 @@ def procs_in(d):
             pass
     return n
 
-q = raw_start()
+q = raw_start("--trust-calls")
 work = os.path.realpath(os.path.join(__import__("tempfile").gettempdir(), f"brevi-mcp-{q.pid}"))
 raw_send(q, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "t", "version": "1"}}})
 r = raw_recv(q)["result"]
@@ -272,14 +284,14 @@ raw_send(q, tool(6, "run", code="print(1)\n", timeout="abc"))
 want("mistyped argument", "whole number" in text_of(raw_recv(q)), "")
 raw_send(q, tool(7, "check", file="../escape.py", code="x = 1\n"))
 want("bad file name", "not allowed" in text_of(raw_recv(q)), "")
-raw_send(q, tool(8, "run", code="print('h\u00e9llo \U0001F600')\n", stdin=None))
+raw_send(q, tool(8, "run", code="print('h\u00e9llo \U0001F600')\n", stdin=None, verify=False))
 r = raw_recv(q)
 want("bad file name not kept; unicode both ways", text_of(r) == "h\u00e9llo \U0001F600\n" and not r["result"]["isError"], r)
 raw_send(q, tool(9, "edit", **{"from": "1", "to": 1, "text": "print('\\x41\\u00e9')"}))
-raw_send(q, tool(10, "run"))
+raw_send(q, tool(10, "run", verify=False))
 raw_recv(q)
 want("numbers as text; escapes", text_of(raw_recv(q)) == "A\u00e9\n", "")
-raw_send(q, tool(11, "run", code="for i in range(40000):\n    print('line', i)\n"))
+raw_send(q, tool(11, "run", code="for i in range(40000):\n    print('line', i)\n", verify=False))
 r = raw_recv(q)
 t = text_of(r)
 want("long output is cut, not stuck", not r["result"]["isError"] and "cut" in t and t.rstrip().endswith("line 39999") and len(t) < 30000, t[-200:])
@@ -298,7 +310,7 @@ raw_send(q, {"jsonrpc": "2.0", "id": 14, "method": "ping"})
 r = raw_recv(q)
 want("ping during a call", r["id"] == 14 and time.time() - t0 < 1, r)
 raw_send(q, {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 13}})
-raw_send(q, tool(15, "run", code="print(7)\n"))
+raw_send(q, tool(15, "run", code="print(7)\n", verify=False))
 r = raw_recv(q)
 want("cancelled call has no reply; next call works", r["id"] == 15 and text_of(r) == "7\n", r)
 want("nothing left running after a cancel", procs_in(work) == 0, procs_in(work))
@@ -324,6 +336,39 @@ if sys.platform.startswith("linux"):
     want("memory limit", "memory" in t or "signal" in t, t[-300:])
     q.stdin.close()
     q.wait(10)
+
+# The server's policy: the model writes the calls, so a plain `brevi mcp` keeps every program sandboxed and
+# lets a call grant nothing; the person who starts it sets the most a call may ask for.
+def policy(*flags):
+    global p
+    if p and p.poll() is None:
+        p.stdin.close()
+        p.wait()
+    p = subprocess.Popen([B, "mcp", *flags], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=dict(os.environ, SECRET_TEST_TOKEN="hunter2"))
+policy()
+expect("policy sandbox false refused", call("run", code="print(1)\n", sandbox=False), "sandbox false is refused", True)
+expect("policy verify refused", call("verify", code="print(1)\n", sandbox=False), "sandbox false is refused", True)
+expect("policy allow refused", call("run", code="print(1)\n", allow=["read"]), "read is more than this server allows (nothing", True)
+expect("policy allow_py refused", call("run", code="print(1)\n", allow_py=["os"]), "py:os is more than this server allows", True)
+expect("policy allow_net refused", call("run", code="print(1)\n", allow_net=["example.com"]), "net:example.com is more than this server allows", True)
+expect("policy sandboxed run works", call("run", code="print(6 * 7)\n"), "42", False)
+expect("policy code must be text", call("run", code=5), "code must be a string of program text", True)
+expect("policy patch must be text", call("patch", patch=5), "patch must be a string of program text", True)
+policy("--allow-read", "tests/sandbox")
+data = repr(os.path.abspath("tests/sandbox/data.txt"))
+expect("policy allow_read inside the server's folder", call("run", code="with open(" + data + ") as f:\n    print(len(f.read()) > 0)\n", allow_read=["tests/sandbox"]), "True", False)
+expect("policy allow_read outside the server's folder", call("run", code="print(1)\n", allow_read=["/etc"]), "is more than this server allows (read:", True)
+expect("policy allow read of every file refused", call("run", code="print(1)\n", allow=["read"]), "read is more than this server allows", True)
+expect("policy one folder per item", call("run", code="print(1)\n", allow_read=["tests/sandbox,/etc"]), "holds a comma: pass one folder or file per item", True)
+policy("--allow", "read,write", "--allow-py", "os")
+expect("policy server grants", call("run", code="import os\nprint(os.getpid() > 0)\n", allow_py=["os"]), "True", False)
+# Under the sandbox the program's environment holds none of the server's variables (keys, tokens).
+expect("policy env cleared", call("run", code="print('SECRET_TEST_TOKEN' in open('/proc/self/environ').read())\n", allow=["read"]) if sys.platform.startswith("linux") else ("False", False), "False", False)
+# --limit written is counted before each write, so one large write cannot pass it.
+expect("policy written limit", call("run", code="open('w.bin', 'w').write('x' * 3000000)\nprint('wrote')\n", allow=["write"], limits={"written": 1}), '"on":"written"', True)
+expect("policy written limit pass", call("run", code="open('w.bin', 'w').write('x' * 1000)\nprint('wrote')\n", allow=["write"], limits={"written": 1}), "wrote", False)
+p.stdin.close()
+p.wait()
 
 print("mcp: all ok" if not fails else f"mcp: {fails} failed")
 sys.exit(1 if fails else 0)

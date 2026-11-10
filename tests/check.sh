@@ -659,6 +659,15 @@ exit 2
 --limit holds a program while it runs: use it with brevi run or brevi test (brevi verify takes it too)
 exit 2'
 if [ "$out" = "$want" ]; then echo "ok   --limit usage errors"; else echo "FAIL --limit usage errors"; printf '%s\n' "$out"; fail=1; fi
+# written is counted by Brevi's own file layer: refused where code outside it could write (no sandbox, CPython).
+out=$($BREVI run --limit written=1 tests/limits/within.py 2>&1 >/dev/null; echo "exit $?"; $BREVI run --sandbox --allow-py json --limit written=1 tests/limits/within.py 2>&1 >/dev/null; echo "exit $?")
+case "$out" in
+  *"need --sandbox without --allow native or --allow-py"*"exit 2"*"need --sandbox without"*"exit 2") echo "ok   --limit written refused outside Brevi's file layer" ;;
+  *) echo "FAIL --limit written refused outside Brevi's file layer"; printf '%s\n' "$out"; fail=1 ;;
+esac
+# --sandbox: the program starts without the caller's environment (keys and tokens there stay out of reach).
+out=$(SECRET_TEST_TOKEN=hunter2 $BREVI run --sandbox --allow read tests/sandbox_env/environ.py 2>&1)
+if [ "$out" = "False" ] || [ "$(uname)" != Linux ]; then echo "ok   --sandbox clears the environment"; else echo "FAIL --sandbox clears the environment"; printf '%s\n' "$out"; fail=1; fi
 #== exit split
 # Exit status, which the loops above do not compare: a Python file must exit as python3 does on both native
 # paths, with its stdout written first. A .bv program stops with status 101 at a runtime error.
@@ -785,7 +794,7 @@ else echo "ok   brevi verify"; fi
 # brevi run --verify: the run checked against CPython (docs/VERIFY_BY_DEFAULT.md). Same: the native output and a
 # certificate on stderr; different: CPython's output and the first differing line, logged for brevi report.
 rv_cache=$(mktemp -d)
-rv() { echo "-- run --verify $*"; o=$(env BREVI_CACHE="$rv_cache" $BREVI run --verify "$@" 2>&1); c=$?; printf '%s\n' "$o" | grep -v '^{"path":' | sed -E 's/"(cpython_ms|brevi_ms|speedup)":[0-9.]+,?//g; s/"(brevi|cpython)":"[0-9]+\.[0-9]+\.[0-9]+",?//g; s/"path":"[a-z]+",?//g; s/"logged":"[^"]*",?//g; s/,}/}/; s/ [0-9]+ ms after/ N ms after/'; echo "exit $c"; }
+rv() { echo "-- run --verify $*"; o=$(env BREVI_CACHE="$rv_cache" $BREVI run --verify "$@" 2>&1); c=$?; printf '%s\n' "$o" | grep -v '^{"path":' | sed -E 's/"(cpython_ms|brevi_ms|typed_ms|dynamic_ms|speedup)":[0-9.]+,?//g; s/"(brevi|cpython)":"[0-9]+\.[0-9]+\.[0-9]+",?//g; s/"path":"[a-z]+",?//g; s/"logged":"[^"]*",?//g; s/,}/}/; s/ [0-9]+ ms after/ N ms after/'; echo "exit $c"; }
 rvout=$(printf '4\n' | rv tests/verify/sq.py
   printf '7\n' | rv tests/verify/sq.py
   rv tests/verify/argsum.py -- 3 4 </dev/null
@@ -796,6 +805,8 @@ rvout=$(printf '4\n' | rv tests/verify/sq.py
   printf '2\n' | BREVI_PYTHON=tests/verify/fakepy.sh rv --strict tests/verify/sq.py
   printf '2\n' | BREVI_PYTHON=tests/verify/slowpy.sh rv tests/verify/sq.py
   rv --sandbox tests/verify/sq.py </dev/null
+  rv --sandbox tests/verify/shared_sort.py </dev/null
+  rv --sandbox tests/verify/argsum.py -- 3 4 </dev/null
   rv tests/run/arm_map.bv </dev/null
   echo "-- report"; env BREVI_CACHE="$rv_cache" $BREVI report | grep -c '^--- issue body'
   env BREVI_CACHE="$rv_cache" $BREVI report --clear; env BREVI_CACHE="$rv_cache" $BREVI report | sed 's/(.*)/(...)/')

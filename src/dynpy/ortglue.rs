@@ -483,6 +483,10 @@ mod brevi_ortglue {
             if !FS_WRITE && !o.optimized_path.is_empty() {
                 return Err(refuse("write", "optimized_model_filepath"));
             }
+            // --limit written: ONNX Runtime writes these files itself, so their bytes would not be counted
+            if brevi_written_held() && (!o.optimized_path.is_empty() || o.profiling) {
+                return Err((-1, "brevi: --limit written: ONNX Runtime writes optimized_model_filepath and profiles itself, where Brevi cannot count the bytes; leave them out, or drop the limit".into()));
+            }
             if !o.optimized_path.is_empty() {
                 held(&o.optimized_path, true)?;
                 brevi_new_file(&o.optimized_path);

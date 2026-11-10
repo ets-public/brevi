@@ -143,6 +143,15 @@ mod brevi_sqlglue {
         if !name.is_null() && flags & OPEN_CREATE != 0 {
             brevi_new_file(&std::ffi::CStr::from_ptr(name).to_string_lossy());
         }
+        // --limit written: SQLite writes its files itself, where Brevi cannot count the bytes, so it writes none.
+        // The program's database opens read-only; journals and temporary files do not open (temp_store is
+        // memory, set when the database opens).
+        if brevi_written_held() && flags & OPEN_READWRITE != 0 {
+            if name.is_null() || flags & OPEN_MAIN_DB == 0 {
+                return SQLITE_CANTOPEN;
+            }
+            flags = (flags & !(OPEN_READWRITE | OPEN_CREATE)) | OPEN_READONLY;
+        }
         if !name.is_null() && flags & OPEN_DELETEONCLOSE == 0 {
             if !FS_READ || !in_scope(name, false) {
                 return SQLITE_CANTOPEN;
@@ -268,7 +277,7 @@ mod brevi_sqlglue {
             vfs_unregister: sym!("sqlite3_vfs_unregister"),
         };
         // also under --limit files=N, which the file layer counts
-        if FS_SANDBOX && (!(FS_READ && FS_WRITE && FS_READ_IN.is_none() && FS_WRITE_IN.is_none()) || std::env::var_os("BREVI_LIMIT_FILES").is_some()) {
+        if FS_SANDBOX && (!(FS_READ && FS_WRITE && FS_READ_IN.is_none() && FS_WRITE_IN.is_none()) || std::env::var_os("BREVI_LIMIT_FILES").is_some() || brevi_written_held()) {
             let real = (l.vfs_find)(std::ptr::null());
             if real.is_null() {
                 return Err("brevi: SQLite has no file layer".into());
@@ -319,6 +328,17 @@ mod brevi_sqlglue {
         };
         let mut db: P = std::ptr::null_mut();
         let rc = unsafe { (l().open_v2)(c.as_ptr(), &mut db, flags as c_int, std::ptr::null()) };
+        // --limit written: temporary tables and sorts stay in memory (the file layer opens no temporary file)
+        if rc == SQLITE_OK && brevi_written_held() {
+            unsafe {
+                let mut st: P = std::ptr::null_mut();
+                let sql = c"PRAGMA temp_store = MEMORY";
+                if (l().prepare_v2)(db, sql.as_ptr(), -1, &mut st, std::ptr::null_mut()) == SQLITE_OK {
+                    (l().step)(st);
+                    (l().finalize)(st);
+                }
+            }
+        }
         (rc as i64, db as usize as i64)
     }
     fn close(db: i64) -> i64 {
