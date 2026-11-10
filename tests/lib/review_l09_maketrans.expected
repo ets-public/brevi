@@ -1,0 +1,16 @@
+xyxy
+{97: 120, 98: 121, 99: None}
+{97: 120, 98: 121}
+{}
+{97: 'x', 99: None}
+{1: 2}
+{}
+TypeError maketrans expected at least 1 argument, got 0
+TypeError if you give only one argument to maketrans it must be a dict
+ValueError string keys in translate table must be of length 1
+ValueError the first two maketrans arguments must have equal length
+ValueError the first two maketrans arguments must have equal length
+TypeError maketrans() argument 2 must be str, not int
+TypeError maketrans() argument 3 must be str, not int
+TypeError maketrans expected at most 3 arguments, got 4
+TypeError str.maketrans() takes no keyword arguments

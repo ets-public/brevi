@@ -1277,6 +1277,8 @@ fn builtin_class_attr_raw(c: &Rc<Class>, name: &str) -> Option<V> {
     match (c.name, name) {
         ("bytes", "fromhex") => Some(builtin("fromhex", bytes_fromhex)),
         ("int", "from_bytes") => Some(builtin("from_bytes", |a: Args| int_from_bytes(&V::None, a))),
+        // str.maketrans is a static method: class calls do not bind their first argument as self
+        ("str", "maketrans") => Some(builtin("maketrans", |a: Args| str_maketrans(&a))),
         // an instance of a plain class, its __init__ not run
         ("object", "__new__") => Some(builtin("__new__", |a: Args| match a.p.first() {
             Some(V::Class(c)) if matches!(c.base_bt(), BT::Object | BT::Other) && c.module != "typing" && !is_enum(c) => Ok(V::Obj(Obj::new(c.clone()))),
@@ -1949,35 +1951,7 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             }
             st(out)
         }
-        "maketrans" => {
-            let mut d = Dict::new();
-            match a.p.len() {
-                1 => {
-                    for (k, v) in dict_items_of(&a.p[0])? {
-                        let k = match &k {
-                            V::Str(x) => V::Int(x.s.chars().next().unwrap_or('\0') as i64),
-                            x => x.clone(),
-                        };
-                        d.set(k, v)?;
-                    }
-                }
-                _ => {
-                    let (x, y) = (arg_str(&a.p[0], name)?, arg_str(&a.p[1], name)?);
-                    if x.nchars() != y.nchars() {
-                        return val_err("the first two maketrans arguments must have equal length".into());
-                    }
-                    for (p, q) in x.s.chars().zip(y.s.chars()) {
-                        d.set(V::Int(p as i64), V::Int(q as i64))?;
-                    }
-                    if let Some(z) = a.p.get(2) {
-                        for p in arg_str(z, name)?.s.chars() {
-                            d.set(V::Int(p as i64), V::None)?;
-                        }
-                    }
-                }
-            }
-            V::Dict(Rc::new(RefCell::new(d)))
-        }
+        "maketrans" => str_maketrans(&a)?,
         "encode" => {
             let mut a = a;
             let enc = a.kw("encoding").or_else(|| a.p.first().cloned());
@@ -1999,6 +1973,69 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
         "__format__" => fmt_v(o, &to_str(&a1(&a, name)?)?)?,
         _ => return bad_method(o, name),
     })
+}
+fn str_maketrans(a: &Args) -> R {
+    if !a.k.is_empty() {
+        return type_err("str.maketrans() takes no keyword arguments".into());
+    }
+    let as_str = |v: &V| match v {
+        V::Str(x) => Some(x.clone()),
+        V::Obj(o) => o.inner().and_then(|i| match i {
+            V::Str(x) => Some(x),
+            _ => None,
+        }),
+        _ => None,
+    };
+    let mut d = Dict::new();
+    match a.p.len() {
+        0 => type_err("maketrans expected at least 1 argument, got 0".into()),
+        1 => {
+            if !matches!(&a.p[0], V::Dict(_)) && !matches!(&a.p[0], V::Obj(o) if matches!(o.inner(), Some(V::Dict(_)))) {
+                return type_err("if you give only one argument to maketrans it must be a dict".into());
+            }
+            for (k, v) in dict_items_of(&a.p[0])? {
+                let k = match as_str(&k) {
+                    Some(x) => {
+                        let mut cs = x.s.chars();
+                        match cs.next() {
+                            Some(c) if cs.next().is_none() => V::Int(c as i64),
+                            _ => return val_err("string keys in translate table must be of length 1".into()),
+                        }
+                    }
+                    None => k.clone(),
+                };
+                d.set(k, v)?;
+            }
+            Ok(V::Dict(Rc::new(RefCell::new(d))))
+        }
+        2 | 3 => {
+            let x = match as_str(&a.p[0]) {
+                Some(x) => x,
+                None => return type_err("first maketrans argument must be a string if there is a second argument".into()),
+            };
+            let y = match as_str(&a.p[1]) {
+                Some(y) => y,
+                None => return type_err(format!("maketrans() argument 2 must be str, not {}", tn(&a.p[1]))),
+            };
+            if x.nchars() != y.nchars() {
+                return val_err("the first two maketrans arguments must have equal length".into());
+            }
+            for (p, q) in x.s.chars().zip(y.s.chars()) {
+                d.set(V::Int(p as i64), V::Int(q as i64))?;
+            }
+            if let Some(z) = a.p.get(2) {
+                let z = match as_str(z) {
+                    Some(z) => z,
+                    None => return type_err(format!("maketrans() argument 3 must be str, not {}", tn(z))),
+                };
+                for p in z.s.chars() {
+                    d.set(V::Int(p as i64), V::None)?;
+                }
+            }
+            Ok(V::Dict(Rc::new(RefCell::new(d))))
+        }
+        n => type_err(format!("maketrans expected at most 3 arguments, got {n}")),
+    }
 }
 // "{} {name} {0:>5}".format(...); `mapping` is str.format_map's mapping, resolved lazily with [key].
 pub fn str_format(t: &str, a: &Args, mapping: Option<&V>) -> Result<String, E> {
