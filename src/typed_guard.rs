@@ -464,8 +464,42 @@ fn is_tup(e: &Ex, g: &G) -> bool {
             b => is_tup(b, g),
         },
         Ex::IfExp(_, a, b) | Ex::Or(a, b) => is_tup(a, g) || is_tup(b, g),
+        // `(5,) + tuple(ranks)`, `(3, trip) + kickers`: joined onto a list kept for tuple(...), it is a list too.
+        Ex::Bin("+", a, b) => is_tup(a, g) || is_tup(b, g),
         _ => false,
     }
+}
+
+// A function that returns a real tuple on one path, `return (8, high)`, and on another one the typed build
+// keeps as a list, `return (5,) + tuple(ranks)`: one value then holds a tuple or a list, which print
+// differently and do not compare item by item, so sorting by it gives another order than CPython's.
+// Return values that are tuples of one length are looked at item by item (`return score, cat`).
+fn mixed_tuple_returns(d: &FuncDef, g: &G) -> bool {
+    fn rets(body: &[Stmt], out: &mut Vec<Ex>) {
+        for s in body {
+            match &s.st {
+                St::Return(Some(v)) => out.push(v.clone()),
+                St::Def(_) | St::Class(_) => {}
+                st => each_block(st, &mut |b| rets(b, out)),
+            }
+        }
+    }
+    fn mixed(vs: &[&Ex], g: &G) -> bool {
+        if let Some(Ex::Tuple(first)) = vs.first() {
+            let n = first.len();
+            if vs.iter().all(|v| matches!(v, Ex::Tuple(t) if t.len() == n)) {
+                return (0..n).any(|i| {
+                    let col: Vec<&Ex> = vs.iter().map(|v| if let Ex::Tuple(t) = v { &t[i] } else { unreachable!() }).collect();
+                    mixed(&col, g)
+                });
+            }
+        }
+        let listed = |v: &Ex| is_tup(v, g) || is_tup1(v, g) || matches!(v, Ex::Bin("+", a, b) if is_tup1(a, g) || is_tup1(b, g));
+        vs.iter().any(|v| matches!(v, Ex::Tuple(t) if t.len() >= 2) && !listed(v)) && vs.iter().any(|v| listed(v))
+    }
+    let mut vs = vec![];
+    rets(&d.body, &mut vs);
+    vs.len() >= 2 && mixed(&vs.iter().collect::<Vec<_>>(), g)
 }
 
 fn is_holder(e: &Ex, g: &G) -> bool {
@@ -915,6 +949,9 @@ fn uses(body: &[Stmt], g: &G, out: &mut Vec<Hit>) {
                 if let Some(n) = shared_growth(d) {
                     hit = Some(format!("`{n}` can grow past 64 bits and is shared with another function (a closure, nonlocal or global), where the typed build keeps it a 64-bit int"));
                 }
+            }
+            if hit.is_none() && mixed_tuple_returns(d, g) {
+                hit = Some(format!("{}() returns a tuple on one path and one built with + or tuple(...) on another, which the typed build keeps as a list", d.name));
             }
             if hit.is_none() && own_yield(&d.body) && !pure_gen(d, g) {
                 hit = Some("the typed build runs a generator to the end at its first use, where CPython runs it step by step with its caller".into());

@@ -201,7 +201,7 @@ pub fn eq(a: &V, b: &V) -> Result<bool, E> {
                 i += 1;
             }
         }
-        (V::Tuple(x), V::Tuple(y)) => Rc::ptr_eq(x, y) || seq_eq(x, y)?,
+        (V::Tuple(x), V::Tuple(y)) => Tup::ptr_eq(x, y) || seq_eq(x, y)?,
         (V::Dict(x), V::Dict(y)) => {
             if Rc::ptr_eq(x, y) {
                 return Ok(true);
@@ -300,7 +300,7 @@ pub fn is(a: &V, b: &V) -> bool {
         (V::Int(x), V::Int(y)) => x == y && (-5..=256).contains(x),
         (V::Str(x), V::Str(y)) => Rc::ptr_eq(x, y) || (x.s == y.s && x.s.len() <= 1),
         (V::List(x), V::List(y)) => Rc::ptr_eq(x, y),
-        (V::Tuple(x), V::Tuple(y)) => Rc::ptr_eq(x, y) || (x.is_empty() && y.is_empty()),
+        (V::Tuple(x), V::Tuple(y)) => Tup::ptr_eq(x, y) || (x.is_empty() && y.is_empty()),
         (V::Dict(x), V::Dict(y)) => Rc::ptr_eq(x, y),
         (V::Set(x), V::Set(y)) => Rc::ptr_eq(x, y),
         (V::FSet(x), V::FSet(y)) => Rc::ptr_eq(x, y),
@@ -309,7 +309,7 @@ pub fn is(a: &V, b: &V) -> bool {
         (V::Obj(x), V::Obj(y)) => Rc::ptr_eq(x, y),
         (V::Deque(x), V::Deque(y)) => Rc::ptr_eq(x, y),
         (V::Iter(x), V::Iter(y)) => Rc::ptr_eq(x, y),
-        (V::Ext(x), V::Ext(y)) => Rc::ptr_eq(x, y),
+        (V::Ext(x), V::Ext(y)) => ExtRc::ptr_eq(x, y),
         (V::Module(x), V::Module(y)) => x == y,
         (V::NotImpl, V::NotImpl) | (V::Ellipsis, V::Ellipsis) => true,
         _ => false,
@@ -503,7 +503,7 @@ fn obj_binop(a: &V, b: &V, op: &str) -> Option<R> {
     let (l, r) = odunder(op);
     if let V::Obj(o) = a {
         if let Some(f) = o.cls.lookup(l) {
-            match call(&f, Args::p(vec![a.clone(), b.clone()])) {
+            match call2(&f, a.clone(), b.clone()) {
                 Ok(V::NotImpl) => {}
                 x => return Some(x),
             }
@@ -511,7 +511,7 @@ fn obj_binop(a: &V, b: &V, op: &str) -> Option<R> {
     }
     if let V::Obj(o) = b {
         if let Some(f) = o.cls.lookup(r) {
-            match call(&f, Args::p(vec![b.clone(), a.clone()])) {
+            match call2(&f, b.clone(), a.clone()) {
                 Ok(V::NotImpl) => {}
                 x => return Some(x),
             }
@@ -1222,6 +1222,10 @@ pub fn len(v: &V) -> Result<usize, E> {
     })
 }
 pub fn contains(c: &V, x: &V) -> Result<bool, E> {
+    // `x in seen` for a set first: the special cases below are all for str containers
+    if let V::Set(s) = c {
+        return s.borrow().contains(x);
+    }
     // a library value standing for a str (numpy's np.str_) is that str here
     if let V::Ext(e) = x {
         if matches!(c, V::Str(_)) {
@@ -1640,7 +1644,7 @@ pub fn slice(a: V, b: V, c: V) -> V {
 
 pub enum It {
     List(Rc<RefCell<Vec<V>>>, usize),
-    Tuple(Rc<[V]>, usize),
+    Tuple(Tup, usize),
     Vec(std::vec::IntoIter<V>),
     Str(Rc<S>, usize),
     Range(i64, i64, i64),
@@ -1655,7 +1659,7 @@ pub struct Iter {
 }
 impl It {
     // lists and tuples first, inline in the loop that runs them; the rest through one match
-    #[inline]
+    #[inline(always)]
     pub fn next(&mut self) -> Result<Option<V>, E> {
         if let It::Tuple(t, i) = self {
             return Ok(t.get(*i).map(|x| {
@@ -1823,7 +1827,8 @@ pub fn iter(v: &V) -> Result<It, E> {
             }
             return type_err(format!("'{}' object is not iterable", tn(v)));
         }
-        V::Module("sys.stdin") => It::Gen(Box::new(|| Ok(read_line().map(st)))),
+        V::Module(&ModName("sys.stdin")) => It::Gen(Box::new(|| Ok(read_line().map(st)))),
+        V::Module(&ModName("sys.stdin.buffer")) => It::Gen(Box::new(|| Ok(read_line_bytes().map(bytesv)))),
         V::Ext(x) => match x.lazy_iter() {
             Some(r) => return r,
             None => match x.iter() {

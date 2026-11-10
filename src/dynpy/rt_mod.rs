@@ -564,7 +564,7 @@ pub fn functools_fn(name: &str, mut a: Args) -> R {
             let f = a1(&a, name)?;
             builtin("K", move |a: Args| {
                 let x = a1(&a, "K")?;
-                Ok(V::Ext(Rc::new(CmpKey { f: f.clone(), v: x })))
+                Ok(V::Ext(ExtRc::new(CmpKey { f: f.clone(), v: x })))
             })
         }
         "partial" => {
@@ -991,10 +991,10 @@ pub fn shallow_copy(x: &V) -> R {
             }
             let n = Obj::new(o.cls.clone());
             *n.d.borrow_mut() = o.d.borrow().clone();
-            *n.inner.borrow_mut() = match &*o.inner.borrow() {
-                Some(i) => Some(shallow_copy(i)?),
+            n.set_inner(match o.inner() {
+                Some(i) => Some(shallow_copy(&i)?),
                 None => None,
-            };
+            });
             V::Obj(n)
         }
         _ => x.clone(),
@@ -1006,7 +1006,7 @@ fn ptr_of(x: &V) -> Option<usize> {
         V::Dict(l) => Rc::as_ptr(l) as *const u8 as usize,
         V::Set(l) => Rc::as_ptr(l) as *const u8 as usize,
         V::Obj(l) => Rc::as_ptr(l) as *const u8 as usize,
-        V::Tuple(l) => Rc::as_ptr(l) as *const u8 as usize,
+        V::Tuple(l) => Tup::as_ptr(l) as *const u8 as usize,
         V::Deque(l) => Rc::as_ptr(l) as *const u8 as usize,
         _ => return None,
     })
@@ -1082,9 +1082,9 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
                 let c = deepcopy(&v, memo)?;
                 n.set(k, c);
             }
-            let inner = o.inner.borrow().clone();
+            let inner = o.inner();
             if let Some(i) = inner {
-                *n.inner.borrow_mut() = Some(deepcopy(&i, memo)?);
+                n.set_inner(Some(deepcopy(&i, memo)?));
             }
             V::Obj(n)
         }
@@ -1290,6 +1290,42 @@ pub fn stream_fn(stream: &str, name: &str, a: Args) -> R {
             Ok(V::None)
         }
         ("sys.stdout" | "sys.stderr", "isatty") => Ok(V::Bool(false)),
+        // The binary streams (sys.stdin.buffer.read().split(), sys.stdout.buffer.write(b"...")), a common
+        // fast-I/O idiom: the same stdin and stdout as the text streams, as bytes.
+        ("sys.stdin.buffer", "read") => match a.p.first() {
+            Some(V::Int(n)) if *n >= 0 => Ok(bytesv(read_n_bytes(*n as usize))),
+            _ => Ok(bytesv(read_all_bytes())),
+        },
+        ("sys.stdin.buffer", "readline") => Ok(bytesv(read_line_bytes().unwrap_or_default())),
+        ("sys.stdin.buffer", "readlines") => {
+            let mut v = vec![];
+            while let Some(l) = read_line_bytes() {
+                v.push(bytesv(l));
+            }
+            Ok(list(v))
+        }
+        ("sys.stdin.buffer", "__iter__") => Ok(gen_iter(|| Ok(read_line_bytes().map(bytesv)))),
+        ("sys.stdin.buffer", "fileno") => Ok(V::Int(0)),
+        ("sys.stdin.buffer" | "sys.stdout.buffer" | "sys.stderr.buffer", "isatty") => Ok(V::Bool(false)),
+        ("sys.stdout.buffer" | "sys.stderr.buffer", "write") => {
+            let x = a1(&a, "write")?;
+            let b = match bytes_of(&x) {
+                Some(b) => b,
+                None => return type_err(format!("a bytes-like object is required, not '{}'", tn(&x))),
+            };
+            if stream == "sys.stdout.buffer" {
+                out_write_bytes(&b);
+            } else {
+                out_flush();
+                std::io::Write::write_all(&mut std::io::stderr(), &b).ok();
+            }
+            Ok(V::Int(b.len() as i64))
+        }
+        ("sys.stdout.buffer", "flush") => {
+            out_flush();
+            Ok(V::None)
+        }
+        ("sys.stderr.buffer", "flush") => Ok(V::None),
         _ => Err(unsupported(&format!("{stream}.{name}"))),
     }
 }
@@ -1336,7 +1372,7 @@ pub fn module_call(m: &str, n: &str, a: Args) -> R {
         "copy" => copy_fn(n, a),
         "operator" => operator_fn(n, a),
         "sys" => sys_fn(n, a),
-        "sys.stdin" | "sys.stdout" | "sys.stderr" => stream_fn(m, n, a),
+        "sys.stdin" | "sys.stdout" | "sys.stderr" | "sys.stdin.buffer" | "sys.stdout.buffer" | "sys.stderr.buffer" => stream_fn(m, n, a),
         "collections" => match n {
             "defaultdict" => col_defaultdict(a),
             "Counter" => col_counter(a),
@@ -1383,9 +1419,9 @@ pub fn module_call(m: &str, n: &str, a: Args) -> R {
 }
 pub fn module_attr(m: &'static str, name: &str) -> R {
     let v = match (m, name) {
-        ("sys", "stdin") => V::Module("sys.stdin"),
-        ("sys", "stdout") => V::Module("sys.stdout"),
-        ("sys", "stderr") => V::Module("sys.stderr"),
+        ("sys", "stdin") => V::Module(&ModName("sys.stdin")),
+        ("sys", "stdout") => V::Module(&ModName("sys.stdout")),
+        ("sys", "stderr") => V::Module(&ModName("sys.stderr")),
         ("sys", "argv") => list(ARGV.with(|a| a.borrow().iter().map(|x| s(x)).collect())),
         ("sys", "maxsize") => V::Int(i64::MAX),
         ("sys", "platform") => s("linux"),
@@ -1396,7 +1432,9 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         ("sys", "modules") => dict_new(),
         // CPython puts the script's folder first; a built program has only itself, so its folder stands in
         ("sys", "path") => list(vec![s(&std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_string_lossy().into_owned())).unwrap_or_default())]),
-        ("sys.stdin", "buffer") | ("sys.stdout", "buffer") => return Err(unsupported("binary streams")),
+        ("sys.stdin", "buffer") => V::Module(&ModName("sys.stdin.buffer")),
+        ("sys.stdout", "buffer") => V::Module(&ModName("sys.stdout.buffer")),
+        ("sys.stderr", "buffer") => V::Module(&ModName("sys.stderr.buffer")),
         ("math", "pi") => V::Float(std::f64::consts::PI),
         ("math", "e") => V::Float(std::f64::consts::E),
         ("math", "tau") => V::Float(std::f64::consts::TAU),
@@ -1503,7 +1541,7 @@ pub fn namedtuple(mut a: Args) -> R {
         for (f, v) in f2.iter().zip(vals.iter()) {
             o.set(f, v.clone());
         }
-        *o.inner.borrow_mut() = Some(tup(vals));
+        o.set_inner(Some(tup(vals)));
         Ok(V::Obj(o))
     }));
     let f3 = fields.clone();
