@@ -1452,17 +1452,32 @@ extern "C" fn remove_own_build_dirs() {
 }
 
 // One build at a time of something built once into the cache (a runtime, a library of copies): true when this
-// process took `lock` and should build, false when `ready()` came true while another process built it. A lock
-// left behind by a build that died (over 20 minutes old) is taken over. The owner removes `lock` when done.
+// process took `lock` and should build, false when `ready()` came true while another process built it. The lock
+// names its owner (pid and boot id); a lock whose owner has died (killed, or the machine restarted) is taken over
+// at once, and any lock over 20 minutes old is too. The owner removes `lock` when done.
 pub fn build_lock(lock: &Path, ready: &dyn Fn() -> bool) -> bool {
-    let fresh = || std::fs::metadata(lock).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|d| d.as_secs() < 1200);
+    use std::io::Write;
+    let boot = || std::fs::read_to_string("/proc/sys/kernel/random/boot_id").unwrap_or_default().trim().to_string();
+    let me = format!("{} {}", std::process::id(), boot());
+    let stale = || {
+        let old = std::fs::metadata(lock).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|d| d.as_secs() >= 1200);
+        let owner = std::fs::read_to_string(lock).unwrap_or_default();
+        let mut it = owner.split_whitespace();
+        let dead = match (it.next().and_then(|p| p.parse::<u32>().ok()), it.next().unwrap_or("")) {
+            (Some(pid), b) => b != boot() || !proc::alive(pid),
+            _ => false, // being written, or a lock from an older brevi: only its age counts
+        };
+        old || dead
+    };
     while !ready() {
-        if std::fs::OpenOptions::new().write(true).create_new(true).open(lock).is_ok() {
+        if let Ok(mut f) = std::fs::OpenOptions::new().write(true).create_new(true).open(lock) {
+            f.write_all(me.as_bytes()).ok();
             return true;
         }
-        if !fresh() {
-            std::fs::write(lock, "").ok();
-            return true;
+        if stale() {
+            // Remove it and race for a new one, so only one waiter takes over.
+            std::fs::remove_file(lock).ok();
+            continue;
         }
         std::thread::sleep(std::time::Duration::from_millis(250));
     }
