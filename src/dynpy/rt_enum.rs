@@ -276,7 +276,7 @@ fn flag_iter(c: &Rc<Class>, value: i64) -> Result<Vec<V>, E> {
     while n != 0 {
         let b = n & n.wrapping_neg();
         out.push(match &v2m {
-            V::Dict(d) => d.borrow().get(&V::Int(b))?.unwrap_or(V::None),
+            V::Dict(d) => Dict::get_cell(d, &V::Int(b))?.unwrap_or(V::None),
             _ => V::None,
         });
         n ^= b;
@@ -312,7 +312,7 @@ fn flag_member(c: &Rc<Class>, value: i64) -> R {
         Some(V::Dict(d)) => d,
         _ => return val_err(format!("{value} is not a valid {}", c.name)),
     };
-    if let Some(m) = v2m.borrow().get(&V::Int(value))? {
+    if let Some(m) = Dict::get_cell(&v2m, &V::Int(value))? {
         return Ok(m);
     }
     let (fm, sm, all) = (cls_int(c, "_flag_mask_"), cls_int(c, "_singles_mask_"), cls_int(c, "_all_bits_"));
@@ -386,9 +386,9 @@ fn flag_member(c: &Rc<Class>, value: i64) -> R {
     o.set("_name_", name.clone());
     o.set("name", name);
     let m = V::Obj(o);
-    v2m.borrow_mut().set(V::Int(value), m.clone())?;
+    Dict::set_cell(&v2m, V::Int(value), m.clone())?;
     if let Some(n) = neg {
-        v2m.borrow_mut().set(V::Int(n), m.clone())?;
+        Dict::set_cell(&v2m, V::Int(n), m.clone())?;
     }
     Ok(m)
 }
@@ -507,7 +507,7 @@ pub fn enum_call(c: &Rc<Class>, a: Args) -> R {
 }
 pub fn enum_getitem(c: &Rc<Class>, k: &V) -> R {
     if let Some(V::Dict(d)) = c.own("__members__") {
-        if let Some(m) = d.borrow().get(k)? {
+        if let Some(m) = Dict::get_cell(&d, k)? {
             return Ok(m);
         }
     }
