@@ -76,6 +76,24 @@ for f in tests/typed/*.py; do
     echo "ok   $f"
   fi
 done
+#== replay split
+# An int past 64 bits on the typed build: `brevi run` runs the program again on the dynamic build (src/replay.rs),
+# with the same stdin, passing on only the output not written yet; stdout and the exit status must be python3's.
+# no_*.py may not run twice (they write a file): they stop with an error (their .expected is Brevi's own).
+for f in tests/replay/*.py; do
+  exp="${f%.py}.expected"
+  inp="${f%.py}.in"; [ -f "$inp" ] || inp=/dev/null
+  out=$(timeout 120 $BREVI run "$f" --native < "$inp" 2>/dev/null; echo "exit $?")
+  if [ "$1" = "--update" ]; then
+    case "$f" in */no_*) printf '%s\n' "$out" > "$exp" ;; *) (python3 "$f" < "$inp" 2>/dev/null; echo "exit $?") > "$exp" ;; esac
+    continue
+  fi
+  if [ "$out" != "$(cat "$exp")" ]; then
+    echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
+  else
+    echo "ok   $f"
+  fi
+done
 #== lib split
 # Standard-library programs must print what python3 prints, natively: whichever path the build takes
 # (typed or dynamic), never CPython (pybridge or the python3 fallback).

@@ -1191,6 +1191,36 @@ impl Emitter {
     }
 
     // The type of a simple initial value, for globals.
+    fn int_or_unknown(&self, e: &Expr) -> bool {
+        match self.infer_ty(e) {
+            None => true,
+            Some(Ty::Named(n)) => n == "int",
+            _ => false,
+        }
+    }
+    fn is_int(&self, e: &Expr) -> bool {
+        matches!(self.infer_ty(e), Some(Ty::Named(n)) if n == "int")
+    }
+    // Whether an int sum of products multiplies (None when it is not an int sum): `h * 31 + x` is Some(true).
+    // An int + - * has int (or bool) operands, so only the sums are checked.
+    fn wide_mul(&self, e: &Expr) -> Option<bool> {
+        match e {
+            Expr::Binary(op @ ("+" | "-" | "*"), a, b) if self.is_int(e) => Some(self.wide_mul(a)? | self.wide_mul(b)? | (*op == "*")),
+            Expr::Binary(..) => None,
+            _ => match self.infer_ty(e) {
+                None => Some(false),
+                Some(Ty::Named(n)) if n == "int" || n == "bool" => Some(false),
+                _ => None,
+            },
+        }
+    }
+    // That sum as 128-bit Rust: `((h) as i128 * (31i64) as i128 + (x) as i128)`.
+    fn wide_int(&mut self, e: &Expr) -> String {
+        match e {
+            Expr::Binary(op @ ("+" | "-" | "*"), a, b) => format!("({} {op} {})", self.wide_int(a), self.wide_int(b)),
+            _ => format!("(({}) as i128)", self.expr(e)),
+        }
+    }
     fn infer_ty(&self, e: &Expr) -> Option<Ty> {
         let named = |n: &str| Some(Ty::Named(n.into()));
         match e {
@@ -1604,13 +1634,16 @@ impl Emitter {
 
     // The start of main after ax_init. py_mode also covers .bv programs written in Python style; those keep
     // Rust's exit status, so AxPyExit is for real Python files only.
-    fn py_start(&self) -> &'static str {
+    // A Python file also says whether `brevi run` may re-run it on the dynamic build when an int outgrows 64 bits
+    // (I64_WHY, see ax_i64_mode in the prelude).
+    fn py_start(&self) -> String {
         if crate::PY_FILE.load(std::sync::atomic::Ordering::Relaxed) {
-            "    ax_py_mode();\n    ax_py_file();\n    let _exit = AxPyExit;\n"
+            let why = I64_WHY.get().map_or("it was built without its source checked", |w| w.as_str());
+            format!("    ax_py_mode();\n    ax_py_file();\n    ax_i64_mode({why:?});\n    let _exit = AxPyExit;\n")
         } else if self.py_mode {
-            "    ax_py_mode();\n"
+            "    ax_py_mode();\n".into()
         } else {
-            ""
+            String::new()
         }
     }
     fn begin_fn(&mut self, params: &[Param], fallible: bool) {
@@ -2521,6 +2554,15 @@ impl Emitter {
             }) => {
                 format!("AxSetSub::ax_set_sub({}, {})", self.expr(a), self.expr(b))
             }
+            // Python's shifts on ints never drop bits (see ax_shl in the prelude).
+            Expr::Binary(op @ ("<<" | ">>"), a, b) if self.py_mode && self.int_or_unknown(a) && self.int_or_unknown(b) => {
+                format!("{}({}, {})", if *op == "<<" { "ax_shl" } else { "ax_shr" }, self.expr(a), self.expr(b))
+            }
+            // `(h * 1000003 + ord(c)) % MOD`: the sum is worked out in 128 bits, so it cannot overflow before the %.
+            Expr::Binary("%", a, b) if self.py_mode && self.catch.is_empty() && !self.ck_zd && (self.int_or_unknown(b) || matches!(self.infer_ty(b), Some(Ty::Named(n)) if n == "float")) && self.wide_mul(a) == Some(true) => {
+                let w = self.wide_int(a);
+                format!("AxMod128::ax_mod128({w}, {})", self.expr(b))
+            }
             Expr::Binary(op, a, b) => {
                 // Comparisons read their operands in place, without copying them.
                 let pow_zd = pow_can_zd(b);
@@ -2581,6 +2623,11 @@ impl Emitter {
             Expr::Method(recv, name, args, _) if name == "__call" => {
                 let a: Vec<String> = args.iter().map(|x| self.expr(x)).collect();
                 format!("({})({})", self.expr(recv), a.join(", "))
+            }
+            // A float the compiler put into an int slot (`d.get(k, float('inf'))` on a dict of ints, line 0), not
+            // a call of int(): infinity stands for "larger than any int" there, as it always has.
+            Expr::Method(recv, name, args, 0) if name == "int" && args.is_empty() && (matches!(self.infer_ty(recv), None) || matches!(self.infer_ty(recv), Some(Ty::Named(n)) if ["int", "float", "f64", "str"].contains(&n.as_str()))) => {
+                format!("AxIntSlot::ax_int_slot(&{})", self.operand(recv))
             }
             Expr::Method(recv, name, args, line) if name == "str" && args.is_empty() => {
                 self.line = *line;
@@ -3281,6 +3328,8 @@ fn own_break(body: &Expr) -> bool {
 // tried when one fails.
 // Names whose sets the program walks in hash order, tagged `s:` or `h:` (see typed_guard::check_soft).
 pub static RAND_ORDER: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+// Why a run of this Python file cannot be repeated on the dynamic build ("" when it can): set by main.rs.
+pub static I64_WHY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 pub static FAST_SETS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
 #[derive(Clone, Copy, PartialEq)]
