@@ -138,7 +138,7 @@ fn brevi_operator(l: &str) -> Option<(&'static str, &'static str)> {
         ("`=>` is Brevi, not Python", "write `lambda x: ...`, or `match` with `case` arms")
     } else if l.contains("~=") {
         ("`~=` is Brevi, not Python", "write `abs(a - b) < 1e-6`")
-    } else if (0..b.len()).any(|i| b[i] == b'!' && b.get(i + 1) != Some(&b'=') && !(matches!(b.get(i + 1), Some(b'r' | b's' | b'a')) && matches!(b.get(i + 2), Some(b'}' | b':')))) {
+    } else if (0..b.len()).any(|i| b[i] == b'!' && b.get(i + 1) != Some(&b'=') && !(i > 0 && (b[i - 1].is_ascii_alphanumeric() || matches!(b[i - 1], b'_' | b')' | b']' | b'\'' | b'"')) && matches!(b.get(i + 1), Some(b'r' | b's' | b'a')) && matches!(b.get(i + 2), Some(b'}' | b':')))) {
         // (an f-string conversion, `{x!r}`, is Python: the blanker can miss a field nested in same-quote strings)
         ("`!` is Brevi, not Python", "write `not`")
     } else {
