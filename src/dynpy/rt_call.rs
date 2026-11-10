@@ -562,7 +562,7 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
         let me2 = me.clone();
         return Ok(builtin("__setattr__", move |a: Args| {
             if let (V::Obj(o), V::Str(n)) = (&me2, &a.p[0]) {
-                o.set(sym(&n.s), a.p[1].clone());
+                o.set_res(sym(&n.s), a.p[1].clone())?;
             }
             Ok(V::None)
         }));
@@ -599,8 +599,13 @@ fn bind_attr(v: V, me: &V, from_class_lookup: bool) -> V {
 pub fn getattr_ic(o: &V, name: Sym, ic: &std::sync::atomic::AtomicUsize) -> R {
     if let V::Obj(ob) = o {
         let d = ob.d.borrow();
+        // an instance with a live __dict__ always takes the general path (rare)
+        if d.dict.is_some() {
+            drop(d);
+            return getattr(o, name);
+        }
         // the same name's text can sit at another address in another part of the program
-        if let Some(v) = d.at_named(ic.load(std::sync::atomic::Ordering::Relaxed), name) {
+        if let Some(v) = d.attrs.at_named(ic.load(std::sync::atomic::Ordering::Relaxed), name) {
             return Ok(v.clone());
         }
     }
@@ -610,9 +615,13 @@ pub fn getattr_ic(o: &V, name: Sym, ic: &std::sync::atomic::AtomicUsize) -> R {
 fn getattr_ic_slow(o: &V, name: Sym, ic: &std::sync::atomic::AtomicUsize) -> R {
     if let V::Obj(ob) = o {
         let d = ob.d.borrow();
-        if let Some(i) = d.find(name) {
+        if d.dict.is_some() {
+            drop(d);
+            return getattr(o, name);
+        }
+        if let Some(i) = d.attrs.find(name) {
             ic.store(i, std::sync::atomic::Ordering::Relaxed);
-            return Ok(d.get(i).unwrap().1.clone());
+            return Ok(d.attrs.get(i).unwrap().1.clone());
         }
     }
     getattr(o, name)
@@ -623,14 +632,18 @@ pub fn setattr_ic(o: &V, name: Sym, v: V, ic: &std::sync::atomic::AtomicUsize) -
     if let V::Obj(ob) = o {
         if ob.cls.plain_set() {
             let mut d = ob.d.borrow_mut();
+            if d.dict.is_some() {
+                drop(d);
+                return setattr(o, name, v);
+            }
             let i = ic.load(std::sync::atomic::Ordering::Relaxed);
-            if let Some(e) = d.at_named_mut(i, name) {
+            if let Some(e) = d.attrs.at_named_mut(i, name) {
                 *e = v;
                 return Ok(());
             }
             // a new attribute (as in __init__): the layout already has a child for this name, so it is not set yet
-            if i == d.len() {
-                match d.push_known(name, v) {
+            if i == d.attrs.len() {
+                match d.attrs.push_known(name, v) {
                     Ok(()) => return Ok(()),
                     Err(v) => {
                         drop(d);
@@ -644,17 +657,25 @@ pub fn setattr_ic(o: &V, name: Sym, v: V, ic: &std::sync::atomic::AtomicUsize) -
 }
 #[inline(never)]
 fn setattr_ic_slow(o: &V, name: Sym, v: V, ic: &std::sync::atomic::AtomicUsize) -> Result<(), E> {
+    // __dict__ is never stored inline; this is the only slow path that could, and it is rare.
+    if name == "__dict__" {
+        return setattr(o, name, v);
+    }
     if let V::Obj(ob) = o {
         if ob.cls.plain_set() {
             let mut d = ob.d.borrow_mut();
-            let i = match d.find(name) {
+            if d.dict.is_some() {
+                drop(d);
+                return setattr(o, name, v);
+            }
+            let i = match d.attrs.find(name) {
                 Some(i) => {
-                    *d.get_mut(i).unwrap().1 = v;
+                    *d.attrs.get_mut(i).unwrap().1 = v;
                     i
                 }
                 None => {
-                    d.push((name, v));
-                    d.len() - 1
+                    d.attrs.push((name, v));
+                    d.attrs.len() - 1
                 }
             };
             ic.store(i, std::sync::atomic::Ordering::Relaxed);
@@ -666,7 +687,11 @@ fn setattr_ic_slow(o: &V, name: Sym, v: V, ic: &std::sync::atomic::AtomicUsize) 
 pub fn getattr(o: &V, name: &str) -> R {
     match o {
         V::Obj(ob) => {
-            if let Some(v) = ob.get(name) {
+            // a class attribute named __dict__ (a property) wins over the object's own dict, as in CPython
+            if name == "__dict__" && ob.cls.lookup(name).is_none() {
+                return ob.dict();
+            }
+            if let Some(v) = ob.get_attr(name)? {
                 return Ok(v);
             }
             if let Some(v) = ob.cls.lookup(name) {
@@ -682,17 +707,6 @@ pub fn getattr(o: &V, name: &str) -> R {
             }
             match name {
                 "__class__" => return Ok(V::Class(ob.cls.clone())),
-                "__dict__" => {
-                    let mut d = Dict::new();
-                    for (k, v) in ob.d.borrow().iter() {
-                        // pydantic keeps these in slots, not in __dict__
-                        if k.starts_with("__pydantic_") {
-                            continue;
-                        }
-                        d.set(s(k), v.clone())?;
-                    }
-                    return Ok(V::Dict(Rc::new(RefCell::new(d))));
-                }
                 "args" if ob.cls.base_bt() == BT::Exc => return Ok(tup(vec![])),
                 "__cause__" | "__context__" if ob.cls.base_bt() == BT::Exc => return Ok(V::None),
                 "__suppress_context__" if ob.cls.base_bt() == BT::Exc => return Ok(V::Bool(false)),
@@ -845,7 +859,7 @@ pub fn getattr(o: &V, name: &str) -> R {
 pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
     match o {
         V::Obj(ob) if ob.cls.plain_set() => {
-            ob.set(name, v);
+            ob.set_res(name, v)?;
             Ok(())
         }
         V::Obj(ob) => {
@@ -864,7 +878,7 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
                 let _ = slots;
                 return Err(exc("FrozenInstanceError", format!("cannot assign to field '{name}'")));
             }
-            ob.set(name, v);
+            ob.set_res(name, v)?;
             Ok(())
         }
         V::Class(c) => {
@@ -894,7 +908,7 @@ pub fn delattr(o: &V, name: &str) -> Result<(), E> {
                 call(&da, Args::p(vec![o.clone(), s(name)]))?;
                 return Ok(());
             }
-            if ob.del(name) {
+            if ob.del_attr(name)? {
                 Ok(())
             } else {
                 Err(exc("AttributeError", format!("'{}' object has no attribute '{}'", ob.cls.name, name)))
@@ -946,7 +960,7 @@ pub fn call_method(o: &V, name: &str, mut a: Args) -> R {
     }
     match o {
         V::Obj(ob) => {
-            if let Some(v) = ob.get(name) {
+            if let Some(v) = ob.get_attr(name)? {
                 return call(&v, a);
             }
             if let Some(v) = ob.cls.lookup(name) {
