@@ -897,10 +897,69 @@ fn is_mcp_decorator(d: &Ex) -> bool {
     false
 }
 
+// A lambda handed to the SDK (`add_tool(lambda ...)`, `X.from_function(lambda ...)`, `@x.tool()(lambda ...)`)
+// cannot carry a signature in place: it is bound to a name just before the statement, the name gets its
+// `__brevi_sig__`, and the call takes the name. The lambda is made in the same scope, so what it closes over is
+// the same; it is still a lambda (`__name__` "<lambda>", which the SDK refuses without name=, as CPython's does).
+fn lambda_hoist(e: &mut Ex, cv: &Conv, line: usize, n: &mut usize, out: &mut Vec<Stmt>) -> Result<(), (usize, String)> {
+    match e {
+        Ex::Call(f, args) => {
+            lambda_hoist(f, cv, line, n, out)?;
+            let hands = match f.as_ref() {
+                Ex::Attr(_, m) => m == "add_tool" || m == "from_function",
+                Ex::Call(..) => is_mcp_decorator(f),
+                _ => false,
+            };
+            for (k, a) in args.iter_mut().enumerate() {
+                let v = match a {
+                    Arg::Pos(v) | Arg::Star(v) | Arg::Kw(_, v) | Arg::KwStar(v) => v,
+                };
+                if hands && k == 0 {
+                    if let Ex::Lambda(ps, _) = v {
+                        let d = FuncDef { name: "<lambda>".into(), params: (**ps).clone(), body: vec![], decorators: vec![], line, is_async: false, ret: None };
+                        let sig = signature(&d, cv).map_err(|why| (line, format!("mcp: the signature of a lambda: {why}")))?;
+                        let name = format!("__brevi_mcp_lambda_{line}_{n}");
+                        *n += 1;
+                        let lam = std::mem::replace(v, Ex::Name(name.clone()));
+                        out.push(Stmt { line, st: St::Assign(vec![Ex::Name(name.clone())], lam) });
+                        out.push(Stmt { line, st: St::Assign(vec![Ex::Attr(Box::new(Ex::Name(name)), "__brevi_sig__".into())], sig) });
+                        continue;
+                    }
+                }
+                lambda_hoist(v, cv, line, n, out)?;
+            }
+            Ok(())
+        }
+        Ex::Attr(x, _) | Ex::Await(x) | Ex::Star(x) => lambda_hoist(x, cv, line, n, out),
+        Ex::Tuple(v) | Ex::List(v) => {
+            for x in v.iter_mut() {
+                lambda_hoist(x, cv, line, n, out)?;
+            }
+            Ok(())
+        }
+        // (not into lambdas, comprehensions or conditional parts: a name made before the statement would
+        // change when, or whether, the lambda is made)
+        _ => Ok(()),
+    }
+}
+
 fn sig_walk(body: &mut Vec<Stmt>, cv: &Conv, handed: &HashSet<String>) -> Result<(), (usize, String)> {
     let mut i = 0;
     while i < body.len() {
         let line = body[i].line;
+        let mut before: Vec<Stmt> = vec![];
+        let mut n = 0;
+        match &mut body[i].st {
+            St::Expr(e) | St::Assign(_, e) | St::Return(Some(e)) => lambda_hoist(e, cv, line, &mut n, &mut before)?,
+            _ => {}
+        }
+        if !before.is_empty() {
+            let k = before.len();
+            for (j, s) in before.into_iter().enumerate() {
+                body.insert(i + j, s);
+            }
+            i += k;
+        }
         let mut extra: Vec<Stmt> = vec![];
         match &mut body[i].st {
             St::Def(d) => {

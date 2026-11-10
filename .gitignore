@@ -9,3 +9,4 @@ runtime/*/Cargo.lock
 .cache/
 .gh/
 ci-linux.log
+bench/fuzz/found/

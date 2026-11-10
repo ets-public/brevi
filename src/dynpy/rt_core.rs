@@ -422,7 +422,16 @@ impl Drop for Tup {
 #[inline(never)]
 unsafe fn tup_free(h: *mut TupHdr) {
     let n = (*h).len;
-    std::ptr::drop_in_place(std::slice::from_raw_parts_mut((h as *mut u8).add(TUP_HDR) as *mut V, n));
+    let items = (h as *mut u8).add(TUP_HDR) as *mut V;
+    if DEL_ON.load(std::sync::atomic::Ordering::Relaxed) {
+        // last item first, as CPython frees a tuple's (the order its items' __del__ run in)
+        for i in (0..n).rev() {
+            std::ptr::drop_in_place(items.add(i));
+        }
+        std::alloc::dealloc(h as *mut u8, Tup::layout(n));
+        return;
+    }
+    std::ptr::drop_in_place(std::slice::from_raw_parts_mut(items, n));
     std::alloc::dealloc(h as *mut u8, Tup::layout(n));
 }
 pub fn int(i: i64) -> V {
@@ -2099,6 +2108,12 @@ pub enum BT {
     Other,
 }
 
+#[derive(Clone, Default)]
+pub struct FSlot {
+    addr: usize,
+    key: (usize, usize),
+    v: Option<V>,
+}
 pub struct Class {
     pub name: Sym,
     pub module: Sym,
@@ -2109,10 +2124,13 @@ pub struct Class {
     pub fields: RefCell<Vec<Sym>>,
     // lookup() results, valid while CLASS_EPOCH (bumped by every change to any class's attributes) is unchanged
     lcache: RefCell<(u64, HashMap<Box<str>, Option<V>, FnvBuild>)>,
-    // a few recent lookup() results, found by the name's address before hashing it (same epoch rule)
-    fcache: RefCell<(u64, [(usize, Option<(Box<str>, Option<V>)>); 16])>,
-    // (epoch, whether `o.x = v` on an instance just stores: no property, __setattr__ or __frozen__ in the MRO)
-    plain_set: Cell<(u64, bool)>,
+    // a few recent lookup() results, found by the name's address before hashing it (same epoch rule). Each
+    // slot keeps the caller's address and the name's text as the key lcache holds (stable until lcache is
+    // cleared, which happens only with the same epoch change that empties this cache); address 0 = empty.
+    fcache: RefCell<(u64, [FSlot; 32])>,
+    // (epoch, whether the MRO has __setattr__ or __frozen__, the names that are properties somewhere in the MRO):
+    // `o.x = v` on an instance just stores when neither hook is there and x is not one of those names
+    set_info: RefCell<(u64, bool, Vec<Sym>)>,
     // (epoch, whether calling the class only makes an instance and runs __init__): see instantiate
     pub plain_new: Cell<(u64, bool)>,
     // (epoch, whether instances hash by identity: no __hash__ or __eq__ in the MRO, not an enum)
@@ -2146,7 +2164,7 @@ impl std::hash::Hasher for FnvH {
 }
 impl Class {
     pub fn new(name: Sym, module: Sym, bases: Vec<Rc<Class>>, bt: BT) -> Rc<Class> {
-        let c = Rc::new(Class { name, module, bases: bases.clone(), mro: RefCell::new(vec![]), attrs: RefCell::new(vec![]), bt, fields: RefCell::new(vec![]), lcache: RefCell::new((0, HashMap::default())), fcache: RefCell::new((0, Default::default())), plain_set: Cell::new((0, false)), plain_new: Cell::new((0, false)), plain_hash: Cell::new((0, false)) });
+        let c = Rc::new(Class { name, module, bases: bases.clone(), mro: RefCell::new(vec![]), attrs: RefCell::new(vec![]), bt, fields: RefCell::new(vec![]), lcache: RefCell::new((0, HashMap::default())), fcache: RefCell::new((0, Default::default())), set_info: RefCell::new((0, false, vec![])), plain_new: Cell::new((0, false)), plain_hash: Cell::new((0, false)) });
         // C3 linearization
         let mut seqs: Vec<Vec<Rc<Class>>> = bases.iter().map(|b| b.mro.borrow().clone()).collect();
         seqs.push(bases.clone());
@@ -2184,52 +2202,83 @@ impl Class {
     pub fn lookup(&self, n: &str) -> Option<V> {
         let ep = CLASS_EPOCH.with(|e| e.get());
         let addr = n.as_ptr() as usize;
-        let slot = (addr >> 3 ^ n.len()) & 15;
+        // 16 sets of 2 slots: the newest result of a set in its first slot, the one before in its second
+        let set = ((addr >> 3 ^ addr >> 9 ^ n.len()) & 15) * 2;
         {
             let mut f = self.fcache.borrow_mut();
             if f.0 != ep {
                 f.0 = ep;
-                f.1 = Default::default();
-            } else if let (a, Some((k, v))) = &f.1[slot] {
-                if *a == addr && same_name(k, n) {
-                    return v.clone();
+                for e in f.1.iter_mut() {
+                    *e = FSlot::default();
+                }
+            } else {
+                for e in &f.1[set..set + 2] {
+                    if e.addr == addr && e.key.1 == n.len() {
+                        // SAFETY: key points at the text of a Box<str> key in lcache, which lives until lcache
+                        // is cleared, and that happens only when the epoch changes (emptying these slots first)
+                        let k = unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(e.key.0 as *const u8, e.key.1)) };
+                        if same_name(k, n) {
+                            return e.v.clone();
+                        }
+                    }
                 }
             }
         }
-        let r = self.lookup_hashed(n, ep);
-        let mut f = self.fcache.borrow_mut();
-        if f.0 == ep {
-            f.1[slot] = (addr, Some((n.into(), r.clone())));
+        let (r, key) = self.lookup_hashed(n, ep);
+        if let Some(key) = key {
+            let mut f = self.fcache.borrow_mut();
+            if f.0 == ep {
+                let old = std::mem::take(&mut f.1[set]);
+                f.1[set + 1] = old;
+                f.1[set] = FSlot { addr, key, v: r.clone() };
+            }
         }
         r
     }
     // `o.x = v` on an instance of this class only stores the value (nothing in the MRO intercepts it)
-    pub fn plain_set(&self) -> bool {
+    pub fn plain_set(&self, n: &str) -> bool {
         let ep = CLASS_EPOCH.with(|e| e.get());
-        let (e, b) = self.plain_set.get();
-        if e == ep {
-            return b;
+        {
+            let i = self.set_info.borrow();
+            if i.0 == ep {
+                return !i.1 && !i.2.iter().any(|k| same_name(k, n));
+            }
         }
-        let b = self.mro.borrow().iter().all(|c| c.attrs.borrow().iter().all(|(k, v)| !matches!(v, V::Prop(_)) && *k != "__setattr__" && *k != "__frozen__"));
-        self.plain_set.set((ep, b));
+        let mut hook = false;
+        let mut props: Vec<Sym> = vec![];
+        for c in self.mro.borrow().iter() {
+            for (k, v) in c.attrs.borrow().iter() {
+                if *k == "__setattr__" || *k == "__frozen__" {
+                    hook = true;
+                } else if matches!(v, V::Prop(_)) && !props.contains(k) {
+                    props.push(*k);
+                }
+            }
+        }
+        let b = !hook && !props.iter().any(|k| same_name(k, n));
+        *self.set_info.borrow_mut() = (ep, hook, props);
         b
     }
-    fn lookup_hashed(&self, n: &str, ep: u64) -> Option<V> {
+    // the result, and where lcache keeps the name's text (None when lcache is full)
+    fn lookup_hashed(&self, n: &str, ep: u64) -> (Option<V>, Option<(usize, usize)>) {
         {
             let mut c = self.lcache.borrow_mut();
             if c.0 != ep {
                 c.0 = ep;
                 c.1.clear();
-            } else if let Some(v) = c.1.get(n) {
-                return v.clone();
+            } else if let Some((k, v)) = c.1.get_key_value(n) {
+                return (v.clone(), Some((k.as_ptr() as usize, k.len())));
             }
         }
         let r = self.lookup_mro(n);
         let mut c = self.lcache.borrow_mut();
         if c.0 == ep && c.1.len() < 256 {
-            c.1.insert(n.into(), r.clone());
+            let k: Box<str> = n.into();
+            let key = (k.as_ptr() as usize, k.len());
+            c.1.insert(k, r.clone());
+            return (r, Some(key));
         }
-        r
+        (r, None)
     }
     fn lookup_mro(&self, n: &str) -> Option<V> {
         if let Some(v) = self.own(n) {
@@ -2299,13 +2348,23 @@ impl AStore {
 pub struct Shape {
     pub names: Vec<Sym>,
     next: RefCell<Vec<(Sym, Rc<Shape>)>>,
+    // one bit per name (name_bit): a name whose bit is clear is not here, without comparing any text
+    bloom: u64,
+}
+#[inline(always)]
+fn name_bit(n: &str) -> u64 {
+    let b = n.as_bytes();
+    match b.len() {
+        0 => 1,
+        l => 1u64 << ((l as u32 * 7 + b[0] as u32 * 3 + b[l - 1] as u32 * 5 + b[l / 2] as u32) & 63),
+    }
 }
 // shapes with this many names, or children, make new shapes of their own instead of sharing them (an object
 // used as a dictionary should not grow the tree without bound)
 const SHAPE_MAX_NAMES: usize = 64;
 const SHAPE_MAX_NEXT: usize = 16;
 thread_local! {
-    static SHAPE_ROOT: Rc<Shape> = Rc::new(Shape { names: Vec::new(), next: RefCell::new(Vec::new()) });
+    static SHAPE_ROOT: Rc<Shape> = Rc::new(Shape { names: Vec::new(), next: RefCell::new(Vec::new()), bloom: 0 });
 }
 impl Shape {
     pub fn root() -> Rc<Shape> {
@@ -2329,7 +2388,7 @@ impl Shape {
         let mut names = Vec::with_capacity(self.names.len() + 1);
         names.extend_from_slice(&self.names);
         names.push(n);
-        let s = Rc::new(Shape { names, next: RefCell::new(Vec::new()) });
+        let s = Rc::new(Shape { names, next: RefCell::new(Vec::new()), bloom: self.bloom | name_bit(n) });
         let mut next = self.next.borrow_mut();
         if self.names.len() < SHAPE_MAX_NAMES && next.len() < SHAPE_MAX_NEXT {
             next.push((n, s.clone()));
@@ -2438,6 +2497,9 @@ impl Attrs {
     // by address first, then by text
     #[inline]
     pub fn find(&self, n: &str) -> Option<usize> {
+        if self.shape.bloom & name_bit(n) == 0 {
+            return None;
+        }
         if let Some(i) = self.find_ptr(n) {
             return Some(i);
         }
@@ -2478,9 +2540,19 @@ pub fn same_name(a: &str, b: &str) -> bool {
     }
     // short names: compare in place rather than calling memcmp
     let (x, y) = (a.as_bytes(), b.as_bytes());
-    if x.len() <= 16 {
+    let l = x.len();
+    // two overlapping word reads cover lengths 4 to 16 (first and last 8 or 4 bytes)
+    if l >= 8 && l <= 16 {
+        let w = |s: &[u8], i: usize| u64::from_ne_bytes(s[i..i + 8].try_into().unwrap());
+        return w(x, 0) == w(y, 0) && w(x, l - 8) == w(y, l - 8);
+    }
+    if l >= 4 && l < 8 {
+        let w = |s: &[u8], i: usize| u32::from_ne_bytes(s[i..i + 4].try_into().unwrap());
+        return w(x, 0) == w(y, 0) && w(x, l - 4) == w(y, l - 4);
+    }
+    if l < 4 {
         let mut i = 0;
-        while i < x.len() {
+        while i < l {
             if x[i] != y[i] {
                 return false;
             }
@@ -2490,7 +2562,154 @@ pub fn same_name(a: &str, b: &str) -> bool {
     }
     x == y
 }
+// ---------- __del__ ----------
+// CPython calls __del__ when an object's last reference goes. Here an object whose class has __del__ is moved,
+// when its last reference goes, into a fresh object that waits in FIN_PENDING; the program runs the waiting
+// finalizers after each simple statement and at exit (fin_point), so a finalizer never runs while the runtime
+// holds a borrow of a list or dict (dict.clear() dropping a value whose __del__ changes the dict is safe). An
+// object is finalized once (PEP 442): one resurrected by its __del__ is not finalized again.
+// DEL_ON is set at start only by programs that mention __del__; every other program pays one static load per drop.
+pub static DEL_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+thread_local! {
+    static FIN_PENDING: RefCell<std::collections::VecDeque<V>> = RefCell::new(std::collections::VecDeque::new());
+    static FIN_DONE: RefCell<std::collections::HashSet<usize>> = RefCell::new(std::collections::HashSet::new());
+    static FIN_RUNNING: Cell<bool> = const { Cell::new(false) };
+    static FIN_STOPPED: Cell<bool> = const { Cell::new(false) };
+    // __main__'s global slots in the order the source first sets them (the order shutdown finalizes them in)
+    static FIN_ORDER: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+}
+pub fn set_del_on(order: Vec<usize>) {
+    FIN_ORDER.with(|o| *o.borrow_mut() = order);
+    DEL_ON.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+impl Drop for Obj {
+    fn drop(&mut self) {
+        if !DEL_ON.load(std::sync::atomic::Ordering::Relaxed) {
+            return;
+        }
+        let me = self as *const Obj as usize;
+        let Ok(done) = FIN_DONE.try_with(|d| d.try_borrow_mut().map(|mut d| d.remove(&me)).unwrap_or(true)) else { return };
+        if done || std::thread::panicking() || FIN_STOPPED.try_with(|s| s.get()).unwrap_or(true) {
+            return;
+        }
+        if CLASS_EPOCH.try_with(|_| ()).is_err() || self.cls.lookup("__del__").is_none() {
+            return;
+        }
+        let d = std::mem::replace(&mut self.d, RefCell::new(AStore::new()));
+        let inner = std::mem::replace(&mut self.inner, RefCell::new(None));
+        let n = Rc::new(Obj { cls: self.cls.clone(), d, inner });
+        let _ = FIN_DONE.try_with(|f| f.borrow_mut().insert(Rc::as_ptr(&n) as usize));
+        let _ = FIN_PENDING.try_with(|p| p.borrow_mut().push_back(V::Obj(n)));
+    }
+}
+// Runs the finalizers waiting since the last call (and any they cause). An error is reported, as CPython's
+// "Exception ignored in", and the program goes on.
+#[inline]
+pub fn fin_point() {
+    if DEL_ON.load(std::sync::atomic::Ordering::Relaxed) {
+        fin_run();
+    }
+}
+#[inline(never)]
+fn fin_run() {
+    if FIN_RUNNING.with(|r| r.replace(true)) {
+        return;
+    }
+    loop {
+        let Some(o) = FIN_PENDING.with(|p| p.borrow_mut().pop_front()) else { break };
+        if let V::Obj(ob) = &o {
+            if let Some(f) = ob.cls.lookup("__del__") {
+                if let Err(E(e)) = call(&f, Args::p(vec![o.clone()])) {
+                    err_write(&format!("Exception ignored in: {}\nTraceback (most recent call last):\n{}\n", repr(&f).unwrap_or_default(), exc_line(&e)));
+                }
+            }
+        }
+        drop(o);
+    }
+    FIN_RUNNING.with(|r| r.set(false));
+}
+// At exit: the waiting finalizers, then the module's globals let go in the order they were made (CPython clears
+// __main__'s names at shutdown), each one's finalizers run, and from then on objects just go.
+pub fn fin_exit(globals: &[V]) {
+    if !DEL_ON.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    fin_run();
+    let mut seen = std::collections::HashSet::new();
+    let mut order = FIN_ORDER.with(|o| o.borrow().clone());
+    let listed: std::collections::HashSet<usize> = order.iter().copied().collect();
+    order.extend((0..globals.len()).filter(|i| !listed.contains(i)));
+    for i in order {
+        if let Some(g) = globals.get(i).cloned() {
+            fin_walk(&g, &mut seen);
+            fin_run();
+        }
+    }
+    FIN_STOPPED.with(|s| s.set(true));
+}
+// What CPython's shutdown frees from one global: an object is finalized (its __del__ seeing every global still
+// set), then what it holds; list and tuple items last first, dict entries and attributes in order.
+fn fin_walk(v: &V, seen: &mut std::collections::HashSet<usize>) {
+    let key = match v {
+        V::Obj(o) => Rc::as_ptr(o) as usize,
+        V::List(l) => Rc::as_ptr(l) as *const u8 as usize,
+        V::Dict(d) => Rc::as_ptr(d) as *const u8 as usize,
+        V::Tuple(t) => t.0.as_ptr() as usize,
+        _ => return,
+    };
+    if !seen.insert(key) {
+        return;
+    }
+    match v {
+        V::Obj(o) => {
+            if let Some(f) = o.cls.lookup("__del__") {
+                let fresh = FIN_DONE.with(|d| d.borrow_mut().insert(key));
+                if fresh {
+                    if let Err(E(e)) = call(&f, Args::p(vec![v.clone()])) {
+                        err_write(&format!("Exception ignored in: {}\nTraceback (most recent call last):\n{}\n", repr(&f).unwrap_or_default(), exc_line(&e)));
+                    }
+                    fin_run();
+                }
+            }
+            let held: Vec<V> = o.attr_values();
+            for x in held {
+                fin_walk(&x, seen);
+            }
+        }
+        V::List(l) => {
+            let items: Vec<V> = l.borrow().clone();
+            for x in items.iter().rev() {
+                fin_walk(x, seen);
+            }
+        }
+        V::Tuple(t) => {
+            for x in t.iter().rev() {
+                fin_walk(x, seen);
+            }
+        }
+        V::Dict(d) => {
+            let items = d.borrow().items();
+            for (k, x) in items {
+                fin_walk(&k, seen);
+                fin_walk(&x, seen);
+            }
+        }
+        _ => {}
+    }
+}
 impl Obj {
+    // every attribute value, in insertion order (what the instance holds, for shutdown finalization)
+    pub fn attr_values(&self) -> Vec<V> {
+        let st = self.d.borrow();
+        let mut out: Vec<V> = st.attrs.iter().map(|(_, v)| v.clone()).collect();
+        if let Some(d) = &st.dict {
+            out.extend(d.borrow().items().into_iter().map(|(_, v)| v));
+        }
+        if let Some(b) = self.inner.borrow().as_ref() {
+            out.push((**b).clone());
+        }
+        out
+    }
     pub fn new(cls: Rc<Class>) -> Rc<Obj> {
         Rc::new(Obj { cls, d: RefCell::new(AStore::new()), inner: RefCell::new(None) })
     }
@@ -2646,8 +2865,8 @@ impl Obj {
 }
 
 thread_local! {
-    pub static SYMS: RefCell<HashMap<String, Sym>> = RefCell::new(HashMap::new());
-    pub static BUILTIN_CLASSES: RefCell<HashMap<&'static str, Rc<Class>>> = RefCell::new(HashMap::new());
+    pub static SYMS: RefCell<HashMap<String, Sym, FnvBuild>> = RefCell::new(HashMap::default());
+    pub static BUILTIN_CLASSES: RefCell<HashMap<&'static str, Rc<Class>, FnvBuild>> = RefCell::new(HashMap::default());
 }
 pub fn sym(n: &str) -> Sym {
     SYMS.with(|m| {
@@ -2667,7 +2886,7 @@ pub fn bclass(name: &str) -> Rc<Class> {
 
 pub fn init_builtin_classes() {
     let object = Class::new("object", "builtins", vec![], BT::Object);
-    let mut m: HashMap<&'static str, Rc<Class>> = HashMap::new();
+    let mut m: HashMap<&'static str, Rc<Class>, FnvBuild> = HashMap::default();
     m.insert("object", object.clone());
     for (n, bt) in [
         ("int", BT::Int),
@@ -2721,6 +2940,8 @@ pub fn init_builtin_classes() {
         ("StopIteration", "Exception"),
         ("StopAsyncIteration", "Exception"),
         ("AssertionError", "Exception"),
+        ("SyntaxError", "Exception"),
+        ("IndentationError", "SyntaxError"),
         ("ImportError", "Exception"),
         ("ModuleNotFoundError", "ImportError"),
         ("OSError", "Exception"),
@@ -2741,6 +2962,15 @@ pub fn init_builtin_classes() {
         ("Warning", "Exception"),
         ("UserWarning", "Warning"),
         ("DeprecationWarning", "Warning"),
+        ("SyntaxWarning", "Warning"),
+        ("RuntimeWarning", "Warning"),
+        ("FutureWarning", "Warning"),
+        ("PendingDeprecationWarning", "Warning"),
+        ("ImportWarning", "Warning"),
+        ("UnicodeWarning", "Warning"),
+        ("BytesWarning", "Warning"),
+        ("ResourceWarning", "Warning"),
+        ("EncodingWarning", "Warning"),
         ("JSONDecodeError", "ValueError"),
         ("InvalidOperation", "ArithmeticError"),
         ("DivisionByZero", "ZeroDivisionError"),
@@ -2782,6 +3012,8 @@ pub fn init_builtin_classes() {
     let ae = m["AttributeError"].clone();
     m.insert("FrozenInstanceError", Class::new("FrozenInstanceError", "dataclasses", vec![ae], BT::Exc));
     BUILTIN_CLASSES.with(|b| *b.borrow_mut() = m);
+    TYPE_CACHE.with(|c| *c.borrow_mut() = Default::default());
+    BV_CACHE.with(|c| *c.borrow_mut() = Default::default());
 }
 
 // ---------- type names, truth ----------

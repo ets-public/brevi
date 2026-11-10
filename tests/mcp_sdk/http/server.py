@@ -1,4 +1,5 @@
 # An MCP server on the official SDK served over HTTP: python3 server.py TRANSPORT [json_response=1] [stateless_http=1] PORT
+import asyncio
 import sys
 
 from mcp.server.mcpserver import Context, MCPServer
@@ -19,6 +20,17 @@ async def slow(n: int, ctx: Context) -> str:
         await ctx.report_progress(i + 1, n)
         await ctx.info("step %d" % (i + 1))
     return "done %d" % n
+
+
+@mcp.tool()
+async def touch(uri: str, ctx: Context) -> str:
+    """Publish change events: to subscriptions/listen streams, and resources/updated on the session."""
+    await ctx.notify_resource_updated(uri)
+    await ctx.notify_tools_changed()
+    if ctx.protocol_version != "2026-07-28":
+        await ctx.session.send_resource_updated(uri)
+    await asyncio.sleep(0.05)
+    return "touched " + uri
 
 
 kind = sys.argv[1] if len(sys.argv) > 1 else "streamable-http"

@@ -2216,6 +2216,7 @@ pub fn ext_module_call(m: &str, n: &str, a: Args) -> R {
         "json" => json_fn(n, a),
         "enum" => enum_fn(n, a),
         "_brevi_mt" => brevi_mt_fn(n, a),
+        "_brevi_col" => brevi_col_fn(n, a),
         "_brevi_async" => brevi_async_fn(n, a),
         "_brevi_tok" => brevi_tok_fn(n, a),
         "_brevi_net" => brevi_net_fn(n, a),
@@ -2383,6 +2384,7 @@ pub fn run_main(f: fn() -> Result<(), E>) {
             }
         };
         atexit_run();
+        unsafe { fin_exit(&*std::ptr::addr_of!(GL)) };
         close_live_gens();
         out_flush();
         code

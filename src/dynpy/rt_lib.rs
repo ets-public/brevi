@@ -705,29 +705,44 @@ pub fn isinstance(x: &V, c: &V) -> Result<bool, E> {
 pub fn type_of(x: &V) -> Rc<Class> {
     match x {
         V::Obj(o) => o.cls.clone(),
-        V::Bool(_) => bclass("bool"),
-        V::Int(_) | V::Big(_) => bclass("int"),
-        V::Float(_) => bclass("float"),
-        V::Str(_) => bclass("str"),
-        V::List(_) => bclass("list"),
-        V::Tuple(_) => bclass("tuple"),
+        V::Bool(_) => tclass(0, "bool"),
+        V::Int(_) | V::Big(_) => tclass(1, "int"),
+        V::Float(_) => tclass(2, "float"),
+        V::Str(_) => tclass(3, "str"),
+        V::List(_) => tclass(4, "list"),
+        V::Tuple(_) => tclass(5, "tuple"),
         V::Dict(d) => match d.borrow().kind {
-            1 => bclass("defaultdict"),
-            2 => bclass("Counter"),
-            3 => bclass("OrderedDict"),
-            _ => bclass("dict"),
+            1 => tclass(6, "defaultdict"),
+            2 => tclass(7, "Counter"),
+            3 => tclass(8, "OrderedDict"),
+            _ => tclass(9, "dict"),
         },
-        V::Set(_) => bclass("set"),
-        V::FSet(_) => bclass("frozenset"),
-        V::None => bclass("NoneType"),
-        V::Class(_) => bclass("type"),
-        V::Func(_) | V::Bound(_) | V::BMeth(_) => bclass("function"),
-        V::Range(_) => bclass("range"),
-        V::Deque(_) => bclass("deque"),
-        V::View(x) if x.1 == 3 => bclass("mappingproxy"),
+        V::Set(_) => tclass(10, "set"),
+        V::FSet(_) => tclass(11, "frozenset"),
+        V::None => tclass(12, "NoneType"),
+        V::Class(_) => tclass(13, "type"),
+        V::Func(_) | V::Bound(_) | V::BMeth(_) => tclass(14, "function"),
+        V::Range(_) => tclass(15, "range"),
+        V::Deque(_) => tclass(16, "deque"),
+        V::View(x) if x.1 == 3 => tclass(17, "mappingproxy"),
         V::Ext(e) => ext_class(e.tname()),
-        _ => bclass("object"),
+        _ => tclass(18, "object"),
     }
+}
+thread_local! {
+    // type_of's builtin classes, filled on first use (init_builtin_classes empties it)
+    pub static TYPE_CACHE: RefCell<[Option<Rc<Class>>; 19]> = RefCell::new(Default::default());
+}
+#[inline]
+fn tclass(i: usize, n: &'static str) -> Rc<Class> {
+    TYPE_CACHE.with(|c| {
+        if let Some(k) = &c.borrow()[i] {
+            return k.clone();
+        }
+        let k = bclass(n);
+        c.borrow_mut()[i] = Some(k.clone());
+        k
+    })
 }
 thread_local! {
     pub static EXT_CLASSES: RefCell<HashMap<&'static str, Rc<Class>>> = RefCell::new(HashMap::new());
@@ -778,6 +793,14 @@ pub fn bi_hasattr(a: Args) -> R {
 pub fn bi_getattr(a: Args) -> R {
     a.want("getattr", 2, 3)?;
     let n = to_str(&a.p[1])?;
+    // getattr(f, "name", default) on a def without that attribute (jinja2's filters, pydantic's validators):
+    // the default, without making and catching an AttributeError. Dunder names keep the general path.
+    if a.p.len() == 3 && !n.starts_with("__") {
+        if let V::Func(f) = &a.p[0] {
+            let found = f.attrs.borrow().iter().find(|(k, _)| **k == *n).map(|(_, v)| v.clone());
+            return Ok(found.unwrap_or_else(|| a.p[2].clone()));
+        }
+    }
     match getattr(&a.p[0], &n) {
         Ok(v) => Ok(v),
         Err(E(e)) if is_exc(&e, "AttributeError") && a.p.len() == 3 => Ok(a.p[2].clone()),
@@ -1079,7 +1102,28 @@ pub fn builtin_fn(name: &str) -> Option<fn(Args) -> R> {
 pub fn builtin_type_name(name: &str) -> bool {
     matches!(name, "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "slice")
 }
+thread_local! {
+    // builtin classes found by builtin_value, by the address of the name asked for (a hit is checked against
+    // the class's own name, so a reused address cannot give a wrong class); emptied by init_builtin_classes
+    pub static BV_CACHE: RefCell<[(usize, Option<Rc<Class>>); 16]> = RefCell::new(Default::default());
+}
 pub fn builtin_value(name: &str) -> Option<V> {
+    let addr = name.as_ptr() as usize;
+    let slot = (addr >> 3 ^ addr >> 8 ^ name.len()) & 15;
+    let hit = BV_CACHE.with(|c| match &c.borrow()[slot] {
+        (a, Some(k)) if *a == addr && same_name(k.name, name) => Some(k.clone()),
+        _ => None,
+    });
+    if let Some(k) = hit {
+        return Some(V::Class(k));
+    }
+    if builtin_type_name(name) && name != "slice" && name != "bytes" {
+        let k = bclass(name);
+        if same_name(k.name, name) {
+            BV_CACHE.with(|c| c.borrow_mut()[slot] = (addr, Some(k.clone())));
+        }
+        return Some(V::Class(k));
+    }
     if name == "bytes" {
         return Some(V::Class(ext_class("bytes")));
     }
@@ -2018,7 +2062,11 @@ pub fn list_method(l: &Rc<RefCell<Vec<V>>>, o: &V, name: &str, mut a: Args) -> R
         }
         "copy" => list(l.borrow().clone()),
         "clear" => {
-            l.borrow_mut().clear();
+            // The items go last first, as CPython's list_clear frees them, and after the list is released.
+            let old = std::mem::take(&mut *l.borrow_mut());
+            for x in old.into_iter().rev() {
+                drop(x);
+            }
             V::None
         }
         "__len__" => V::Int(l.borrow().len() as i64),

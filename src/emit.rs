@@ -8,6 +8,16 @@ use std::collections::{HashMap, HashSet};
 pub const PRELUDE: &str = concat!("#![allow(warnings)]\n", include_str!("alloc_rt.rs"), include_str!("fsscope.rs"), include_str!("prelude.rs"));
 
 const BUILTINS: &[&str] = &["__shared", "print", "read", "write", "args", "input", "stdin", "lines", "str", "fail", "json", "csv", "date", "abs", "min", "max", "heap", "none", "__global", "__try", "__err", "__err_raw", "__exc", "__exc_is", "__exc_obj", "__exc_get", "__default", "__zero", "__truediv", "__readline", "__try_read", "__eprint"];
+// The id in a call spelling a sentinel made by pysentinel.rs (`__sent0()`).
+fn sent_id(name: &str) -> Option<usize> {
+    name.strip_prefix("__sent").and_then(|s| s.parse().ok())
+}
+fn sentinel_call(e: &Expr) -> Option<usize> {
+    match e {
+        Expr::Call(name, args, _) if args.is_empty() => sent_id(name),
+        _ => None,
+    }
+}
 const FALLIBLE_BUILTINS: &[&str] = &["read", "write", "json", "date"];
 pub const METHODS: &[&str] = &[
     "abs", "add_days", "all", "any", "big", "day", "days", "dec", "digit", "or", "ceil", "chars", "contains", "count", "ends_with", "enumerate", "filter", "first",
@@ -71,10 +81,19 @@ pub struct Emitter {
     unit_fn: bool,
     // Inside a lambda that cannot return an error: a failing conversion stops the program.
     must: bool,
+    // Inside the checked variant of a function reachable from a try that catches the error: a division or an
+    // index here raises (returns Err) instead of panicking, so the try around the call can catch it.
+    ck_zd: bool,
+    ck_ie: bool,
+    // Functions whose checked variants are emitted.
+    ck_zd_fns: HashSet<String>,
+    ck_ie_fns: HashSet<String>,
     // Python mode (the program uses def, class or global): values print and dicts order as in Python.
     pub py_mode: bool,
     // Labels of the try blocks being emitted: a failure inside one jumps to its handler.
     catch: Vec<String>,
+    // The built-in exception classes each open catch's handler names; empty = `except:` (any error).
+    catch_names: Vec<Vec<String>>,
     try_n: usize,
     // Open loops: (label, how many try blocks were open at the loop, whether a break/continue used the label).
     loops: Vec<(String, usize, bool)>,
@@ -398,6 +417,208 @@ fn wrap_calls(e: &mut Expr, f: &HashSet<String>) {
     }
 }
 
+// ---- Checked ZeroDivisionError / IndexError variants ----
+
+// Can this expression itself divide or index (lambda bodies count: a map/sort key runs inside the caller).
+fn can_zd(e: &Expr) -> bool {
+    match e {
+        Expr::Lambda(_, b) => can_zd(b),
+        Expr::Binary(op, a, b) => matches!(*op, "//" | "%") || can_zd(a) || can_zd(b),
+        Expr::Call(n, args, _) => n == "__truediv" || args.iter().any(|(_, a)| can_zd(a)),
+        Expr::Method(r, _, args, _) => can_zd(r) || args.iter().any(can_zd),
+        Expr::Unary(_, a) | Expr::Field(a, _) | Expr::TupleField(a, _) | Expr::Try(a) => can_zd(a),
+        Expr::Index(a, b) | Expr::Range(a, b) | Expr::While(a, b) => can_zd(a) || can_zd(b),
+        Expr::For(_, it, b) => can_zd(it) || can_zd(b),
+        Expr::List(xs) | Expr::Tuple(xs) => xs.iter().any(can_zd),
+        Expr::Map(ps) => ps.iter().any(|(k, v)| can_zd(k) || can_zd(v)),
+        Expr::If(c, t, f) => can_zd(c) || can_zd(t) || f.as_deref().is_some_and(can_zd),
+        Expr::Match(s, arms) => can_zd(s) || arms.iter().any(|(_, b)| can_zd(b)),
+        Expr::Block(stmts, tail) => stmts.iter().any(|s| match s {
+            Stmt::Let { value, .. } => can_zd(value),
+            Stmt::Assign { target, value, .. } => can_zd(target) || can_zd(value),
+            Stmt::Expr { expr, .. } | Stmt::Return { value: Some(expr), .. } | Stmt::Assert { cond: expr, .. } => can_zd(expr),
+            _ => false,
+        }) || tail.as_deref().is_some_and(can_zd),
+        _ => false,
+    }
+}
+
+fn can_ie(e: &Expr) -> bool {
+    match e {
+        Expr::Lambda(_, b) => can_ie(b),
+        Expr::Index(..) => true,
+        Expr::Binary(_, a, b) | Expr::Range(a, b) | Expr::While(a, b) => can_ie(a) || can_ie(b),
+        Expr::Call(_, args, _) => args.iter().any(|(_, a)| can_ie(a)),
+        Expr::Method(r, _, args, _) => can_ie(r) || args.iter().any(can_ie),
+        Expr::Unary(_, a) | Expr::Field(a, _) | Expr::TupleField(a, _) | Expr::Try(a) => can_ie(a),
+        Expr::For(_, it, b) => can_ie(it) || can_ie(b),
+        Expr::List(xs) | Expr::Tuple(xs) => xs.iter().any(can_ie),
+        Expr::Map(ps) => ps.iter().any(|(k, v)| can_ie(k) || can_ie(v)),
+        Expr::If(c, t, f) => can_ie(c) || can_ie(t) || f.as_deref().is_some_and(can_ie),
+        Expr::Match(s, arms) => can_ie(s) || arms.iter().any(|(_, b)| can_ie(b)),
+        Expr::Block(stmts, tail) => stmts.iter().any(|s| match s {
+            Stmt::Let { value, .. } => can_ie(value),
+            Stmt::Assign { target, value, .. } => can_ie(target) || can_ie(value),
+            Stmt::Expr { expr, .. } | Stmt::Return { value: Some(expr), .. } | Stmt::Assert { cond: expr, .. } => can_ie(expr),
+            _ => false,
+        }) || tail.as_deref().is_some_and(can_ie),
+        _ => false,
+    }
+}
+
+// Every user function called in e (lambda bodies included: map/sort keys run inside the caller).
+fn calls_in(e: &Expr, fns: &HashSet<String>, out: &mut HashSet<String>) {
+    match e {
+        Expr::Lambda(_, b) => calls_in(b, fns, out),
+        Expr::Call(n, args, _) => {
+            if fns.contains(n.as_str()) {
+                out.insert(n.clone());
+            }
+            args.iter().for_each(|(_, a)| calls_in(a, fns, out));
+        }
+        Expr::Method(r, _, args, _) => {
+            calls_in(r, fns, out);
+            args.iter().for_each(|a| calls_in(a, fns, out));
+        }
+        Expr::Unary(_, a) | Expr::Field(a, _) | Expr::TupleField(a, _) | Expr::Try(a) => calls_in(a, fns, out),
+        Expr::Binary(_, a, b) | Expr::Index(a, b) | Expr::Range(a, b) | Expr::While(a, b) => {
+            calls_in(a, fns, out);
+            calls_in(b, fns, out);
+        }
+        Expr::For(_, it, b) => {
+            calls_in(it, fns, out);
+            calls_in(b, fns, out);
+        }
+        Expr::List(xs) | Expr::Tuple(xs) => xs.iter().for_each(|x| calls_in(x, fns, out)),
+        Expr::Map(ps) => ps.iter().for_each(|(k, v)| {
+            calls_in(k, fns, out);
+            calls_in(v, fns, out);
+        }),
+        Expr::If(c, t, f) => {
+            calls_in(c, fns, out);
+            calls_in(t, fns, out);
+            if let Some(f) = f {
+                calls_in(f, fns, out);
+            }
+        }
+        Expr::Match(s, arms) => {
+            calls_in(s, fns, out);
+            arms.iter().for_each(|(_, b)| calls_in(b, fns, out));
+        }
+        Expr::Block(stmts, tail) => {
+            for s in stmts {
+                match s {
+                    Stmt::Let { value, .. } => calls_in(value, fns, out),
+                    Stmt::Assign { target, value, .. } => {
+                        calls_in(target, fns, out);
+                        calls_in(value, fns, out);
+                    }
+                    Stmt::Expr { expr, .. } | Stmt::Return { value: Some(expr), .. } | Stmt::Assert { cond: expr, .. } => calls_in(expr, fns, out),
+                    _ => {}
+                }
+            }
+            if let Some(t) = tail {
+                calls_in(t, fns, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+// Which user functions must get a checked variant: every function that can raise ZeroDivisionError (or
+// IndexError) and is called, directly or through other functions, from a try whose handler catches that error.
+// Only those functions get the Result forms, so code outside such a try stays on the plain paths.
+fn checked_fns(items: &[Item]) -> (HashSet<String>, HashSet<String>) {
+    let fns: HashSet<String> = items.iter().filter_map(|i| match i {
+        Item::Fn { name, .. } => Some(name.clone()),
+        _ => None,
+    }).collect();
+    let mut own_zd = HashMap::new();
+    let mut own_ie = HashMap::new();
+    let mut callees: HashMap<String, HashSet<String>> = HashMap::new();
+    for it in items {
+        let Item::Fn { name, body, .. } = it else { continue };
+        if crate::ffi::foreign_body(body).is_some() {
+            continue;
+        }
+        own_zd.insert(name.clone(), can_zd(body));
+        own_ie.insert(name.clone(), can_ie(body));
+        let mut cs = HashSet::new();
+        calls_in(body, &fns, &mut cs);
+        callees.insert(name.clone(), cs);
+    }
+    // Transitive closure of "can raise": f can raise it itself, or f calls a function that can.
+    let mut reach_zd: HashSet<String> = own_zd.iter().filter(|(_, v)| **v).map(|(k, _)| k.clone()).collect();
+    let mut reach_ie: HashSet<String> = own_ie.iter().filter(|(_, v)| **v).map(|(k, _)| k.clone()).collect();
+    loop {
+        let mut changed = false;
+        for (f, cs) in &callees {
+            if !reach_zd.contains(f) && cs.iter().any(|g| reach_zd.contains(g)) {
+                reach_zd.insert(f.clone());
+                changed = true;
+            }
+            if !reach_ie.contains(f) && cs.iter().any(|g| reach_ie.contains(g)) {
+                reach_ie.insert(f.clone());
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    // The seeds: calls in a try body that can raise the error its handler catches.
+    let mut zd = HashSet::new();
+    let mut ie = HashSet::new();
+    for it in items {
+        let Item::Fn { body, .. } = it else { continue };
+        crate::infer::walk(body, &mut |e| {
+            if let Expr::If(c, t, Some(_)) = e {
+                if is_try(c) {
+                    let names = try_names(c);
+                    let catches_zd = names.is_empty() || names.iter().any(|n| caught_by(n, "ZeroDivisionError"));
+                    let catches_ie = names.is_empty() || names.iter().any(|n| caught_by(n, "IndexError"));
+                    if catches_zd || catches_ie {
+                        let mut cs = HashSet::new();
+                        calls_in(t, &fns, &mut cs);
+                        for g in cs {
+                            if catches_zd && reach_zd.contains(&g) {
+                                zd.insert(g.clone());
+                            }
+                            if catches_ie && reach_ie.contains(&g) {
+                                ie.insert(g.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+    // Every callee of a marked function that can raise the same error gets the variant too, so the error
+    // propagates through it instead of panicking inside it.
+    loop {
+        let mut changed = false;
+        for (f, cs) in &callees {
+            let fz = zd.contains(f);
+            let fi = ie.contains(f);
+            if !fz && !fi {
+                continue;
+            }
+            for g in cs {
+                if fz && reach_zd.contains(g) && zd.insert(g.clone()) {
+                    changed = true;
+                }
+                if fi && reach_ie.contains(g) && ie.insert(g.clone()) {
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    (zd, ie)
+}
+
 // The value in the first `n = value` statement of a body.
 fn first_assign<'a>(e: &'a Expr, n: &str) -> Option<&'a Expr> {
     match e {
@@ -658,6 +879,7 @@ pub fn assigns_to(e: &Expr, name: &str) -> bool {
 
 impl Emitter {
     pub fn new(items: &[Item], hints: bool) -> Emitter {
+        let (ck_zd_fns, ck_ie_fns) = if crate::infer::py_on() { checked_fns(items) } else { (HashSet::new(), HashSet::new()) };
         let mut e = Emitter {
             foreign: Default::default(),
             files: vec![],
@@ -673,8 +895,13 @@ impl Emitter {
             fallible: false,
             unit_fn: false,
             must: false,
+            ck_zd: false,
+            ck_ie: false,
+            ck_zd_fns,
+            ck_ie_fns,
             py_mode: false,
             catch: vec![],
+            catch_names: vec![],
             loops: vec![],
             try_n: 0,
             borrow_loops: false,
@@ -1225,6 +1452,9 @@ impl Emitter {
                         continue;
                     }
                     out.push_str(&self.function(name, params, ret, fallible, body, *line));
+                    if self.ck_zd_fns.contains(name) || self.ck_ie_fns.contains(name) {
+                        out.push_str(&self.function_checked(name, params, ret, body, *line));
+                    }
                 }
                 Item::Test { body, line, name } => {
                     test_n += 1;
@@ -1244,7 +1474,7 @@ impl Emitter {
             Some(sig) if sig.fallible => {
                 let py = self.py_start();
                 out.push_str(&format!(
-                    "fn main() {{\n    ax_init(AX_FILES, AX_FS);\n{py}    if let Err(e) = ax_main() {{\n        eprintln!(\"{{{{\\\"e\\\":\\\"runtime\\\",{{}},\\\"msg\\\":{{:?}}}}}}\", ax_at(AX_LINE.load(std::sync::atomic::Ordering::Relaxed)), ax_exc_msg(&e.0));\n        std::process::exit(1);\n    }}\n}}\n"
+                    "fn main() {{\n    ax_init(AX_FILES, AX_FS);\n{py}    if let Err(e) = ax_main() {{\n        eprintln!(\"{{{{\\\"e\\\":\\\"runtime\\\",{{}},\\\"msg\\\":{{:?}}}}}}\", ax_at(AX_LINE.load(std::sync::atomic::Ordering::Relaxed)), ax_exc_report(&e.0));\n        std::process::exit(1);\n    }}\n}}\n"
                 ))
             }
             Some(_) => {}
@@ -1309,7 +1539,22 @@ impl Emitter {
     }
 
     fn function(&mut self, name: &str, params: &[Param], ret: &Ty, fallible: bool, body: &Expr, line: usize) -> String {
+        self.function_impl(name, params, ret, fallible, body, line, None)
+    }
+
+    // The checked variant of a function: same body, but the marked errors return Err so the try around a caller
+    // can catch them (instead of a Rust panic inside the function).
+    fn function_checked(&mut self, name: &str, params: &[Param], ret: &Ty, body: &Expr, line: usize) -> String {
+        self.function_impl(name, params, ret, true, body, line, Some((self.ck_zd_fns.contains(name), self.ck_ie_fns.contains(name))))
+    }
+
+    fn function_impl(&mut self, name: &str, params: &[Param], ret: &Ty, fallible: bool, body: &Expr, line: usize, ck: Option<(bool, bool)>) -> String {
         self.begin_fn(params, fallible);
+        let saved_ck = (self.ck_zd, self.ck_ie);
+        if let Some((z, i)) = ck {
+            self.ck_zd = z;
+            self.ck_ie = i;
+        }
         self.nested = nested_lists(body);
         self.cur_body = format!("{body:?}");
         if self.py_mode && FAST_SETS.load(std::sync::atomic::Ordering::Relaxed) {
@@ -1359,13 +1604,15 @@ impl Emitter {
             .enumerate()
             .map(|(i, p)| if p.is_mut { format!("{}: &mut {}", p.name, rust_ty(&p.ty)) } else if set_at.contains(&i) { format!("mut {}: AxSet<{}", p.name, &rust_ty(&p.ty)[4..]) } else { format!("mut {}: {}", p.name, rust_ty(&p.ty)) })
             .collect();
-        let rname = if name == "main" && fallible { "ax_main" } else { name };
+        let rname = if ck.is_some() { self.ck_name(name) } else if name == "main" && fallible { "ax_main".to_string() } else { name.to_string() };
         let init = if name == "main" && !fallible { format!("ax_init(AX_FILES, AX_FS);\n{}", self.py_start()) } else { String::new() };
         if name == "main" && !params.is_empty() {
             self.diag(line, "main takes no parameters", Some("use args() to read command line arguments".into()));
         }
         let rret = if fallible { format!(" -> R<{}>", rust_ty(ret)) } else if matches!(ret, Ty::Unit) { String::new() } else { format!(" -> {}", rust_ty(ret)) };
         let b = self.body(body, ret, fallible);
+        self.ck_zd = saved_ck.0;
+        self.ck_ie = saved_ck.1;
         let marks: String = params.iter().filter_map(|p| self.rand_order_mark(&p.name)).map(|m| format!("{m}\n    ")).collect();
         let init = format!("{init}{marks}");
         let b = if init.is_empty() { b } else { b.replacen("{\n", &format!("{{\n    {init}"), 1) };
@@ -1547,6 +1794,11 @@ impl Emitter {
         }
     }
 
+    // Whether the try being emitted catches an error of this Python class.
+    fn catches(&self, name: &str) -> bool {
+        self.catch_names.last().map_or(false, |ns| ns.is_empty() || ns.iter().any(|n| caught_by(n, name)))
+    }
+
     // A `break`/`continue` inside a try block (a labeled block in Rust) names its loop.
     fn loop_label(&mut self) -> String {
         let depth = self.catch.len();
@@ -1575,8 +1827,11 @@ impl Emitter {
             Expr::If(c, t, Some(h)) if is_try(c) => {
                 self.try_n += 1;
                 let lab = format!("ax_try{}", self.try_n);
+                let names = try_names(c);
                 self.catch.push(lab.clone());
+                self.catch_names.push(names);
                 let body = self.block_d(t, true);
+                self.catch_names.pop();
                 self.catch.pop();
                 let handler = self.block_d(h, true);
                 format!("{{ let mut {lab}: Option<AxErr> = None; '{lab}: {body} if let Some(AxErr(ax_err)) = {lab} {{ let _ = &ax_err; {handler} }} }}")
@@ -1815,9 +2070,14 @@ impl Emitter {
                 };
                 match (target, *op) {
                     (Expr::Index(base, idx), "=") => {
-                        let b = self.place_mut(base);
-                        let i = self.expr(idx);
-                        format!("{{ let __v = {v}; {b}.ax_set({i}, __v); }}")
+                        if self.py_mode && ((!self.catch.is_empty() && self.catches("IndexError")) || self.ck_ie) {
+                            let p = self.place_mut(target);
+                            format!("{{ let __v = {v}; {p} = __v; }}")
+                        } else {
+                            let b = self.place_mut(base);
+                            let i = self.expr(idx);
+                            format!("{{ let __v = {v}; {b}.ax_set({i}, __v); }}")
+                        }
                     }
                     (_, "+=") => {
                         let p = self.place_mut(target);
@@ -1832,7 +2092,11 @@ impl Emitter {
             Stmt::Expr { expr, .. } => format!("{};", self.stmt_expr(expr)),
             Stmt::Return { value, .. } => {
                 let mut v = value.as_ref().map(|v| self.expr(v)).unwrap_or_else(|| "()".into());
-                if self.json_ret && matches!(value, Some(Expr::Call(n, a, _)) if n == "none" && a.is_empty()) {
+                if self.json_ret && value.as_ref().is_some_and(|v| sentinel_call(v).is_some()) {
+                    // `return MISSING` from a function giving JSON values: the JSON sentinel itself.
+                    let id = sentinel_call(value.as_ref().unwrap()).unwrap();
+                    v = format!("Json::Tup {{ v: vec![Json::Str {{ v: ax_sent_str({id}) }}] }}");
+                } else if self.json_ret && matches!(value, Some(Expr::Call(n, a, _)) if n == "none" && a.is_empty()) {
                     // `return None` from a function giving JSON values: JSON null.
                     v = "Json::Null".into();
                 } else if self.json_ret && value.is_some() {
@@ -1870,7 +2134,14 @@ impl Emitter {
                 let reads_base = root_name(b).map_or(true, |r| format!("{i:?}").contains(&format!("({r:?})")));
                 let b = self.place_mut(b);
                 let i = if reads_base { format!("&({})", self.expr(i)) } else { self.arg_ref(i) };
-                format!("(*{b}.ax_mut({i}))")
+                if self.py_mode && !self.catch.is_empty() && self.catches("IndexError") {
+                    let lab = self.catch.last().unwrap().clone();
+                    format!("(*match {b}.ax_try_mut({i}) {{ Ok(v) => v, Err(e) => {{ {lab} = Some(e); break '{lab}; }} }})")
+                } else if self.py_mode && self.ck_ie {
+                    format!("(*{b}.ax_try_mut({i})?)")
+                } else {
+                    format!("(*{b}.ax_mut({i}))")
+                }
             }
             other => {
                 self.diag(self.line, "this expression cannot be assigned to", Some("assign to a variable, field or index".into()));
@@ -1897,7 +2168,15 @@ impl Emitter {
             Expr::TupleField(b, i) => format!("{}.{i}", self.place(b)),
             Expr::Index(b, i) => {
                 let b = self.place(b);
-                format!("(*{b}.ax_ref({}))", self.arg_ref(i))
+                let i = self.arg_ref(i);
+                if self.py_mode && !self.catch.is_empty() && self.catches("IndexError") {
+                    let lab = self.catch.last().unwrap().clone();
+                    format!("(*match {b}.ax_try_ref({i}) {{ Ok(v) => v, Err(e) => {{ {lab} = Some(e); break '{lab}; }} }})")
+                } else if self.py_mode && self.ck_ie {
+                    format!("(*{b}.ax_try_ref({i})?)")
+                } else {
+                    format!("(*{b}.ax_ref({i}))")
+                }
             }
             other => format!("({})", self.expr(other)),
         }
@@ -2040,6 +2319,13 @@ impl Emitter {
             Expr::Tuple(items) => format!("({})", items.iter().map(|i| self.expr(i)).collect::<Vec<_>>().join(", ")),
             Expr::Unary(op, a) if *op == "!" => format!("(!{})", self.cond(a)),
             Expr::Unary(op, a) => format!("({op}{})", self.expr(a)),
+            // `v is MISSING` / `v is not MISSING`: identity with the sentinel the name was made from.
+            Expr::Binary(op @ ("==" | "!="), a, b) if sentinel_call(a).is_some() || sentinel_call(b).is_some() => {
+                let (sent, other) = if sentinel_call(a).is_some() { (a, b) } else { (b, a) };
+                let id = sentinel_call(sent).unwrap();
+                let t = format!("AxSentVal::<{id}>::is(&{})", self.operand(other));
+                if *op == "==" { t } else { format!("!{t}") }
+            }
             // Python-style truth: an empty list, map or string, 0 and "" are false.
             Expr::Binary(op @ ("and" | "or"), a, b) => format!("({} {} {})", self.cond(a), if *op == "and" { "&&" } else { "||" }, self.cond(b)),
             // `x in ("a", "b")`: a tuple of like values is searched as a list.
@@ -2066,12 +2352,22 @@ impl Emitter {
                     "+" => format!("Plus::plus({a}, {b})"),
                     "and" | "or" => unreachable!(),
                     "~=" => format!("ax_approx({a}, {b})"),
+                    "//" if self.py_mode && !self.catch.is_empty() && self.catches("ZeroDivisionError") => {
+                        let lab = self.catch.last().unwrap().clone();
+                        format!("(match ({a}).ax_floordiv_try({b}) {{ Ok(v) => v, Err(e) => {{ {lab} = Some(e); break '{lab}; }} }})")
+                    }
+                    "//" if self.py_mode && self.ck_zd => format!("({a}).ax_floordiv_try({b})?"),
                     "//" => format!("ax_floordiv({a}, {b})"),
                     // Bitwise on ints, union and intersection on lists used as Python sets.
                     "|" => format!("AxBits::ax_bor({a}, {b})"),
                     "&" => format!("AxBits::ax_band({a}, {b})"),
                     "**" => format!("AxPow::ax_pow({a}, {b})"),
                     "in" => format!("AxIn::ax_in(&{b}, &{a})"),
+                    "%" if self.py_mode && !self.catch.is_empty() && self.catches("ZeroDivisionError") => {
+                        let lab = self.catch.last().unwrap().clone();
+                        format!("(match ({a}).ax_pymod_try({b}) {{ Ok(v) => v, Err(e) => {{ {lab} = Some(e); break '{lab}; }} }})")
+                    }
+                    "%" if self.py_mode && self.ck_zd => format!("({a}).ax_pymod_try({b})?"),
                     "%" if self.py_mode => format!("AxPyMod::ax_pymod({a}, {b})"),
                     op => format!("({a} {op} {b})"),
                 }
@@ -2080,8 +2376,24 @@ impl Emitter {
             Expr::Call(name, args, _) if name == "ax_to_json" && matches!(args.as_slice(), [(_, Expr::Call(n, a, _))] if n == "none" && a.is_empty()) => "Json::Null".to_string(),
             Expr::Call(name, args, line) => {
                 self.line = *line;
-                let c = self.call(name, args, false);
-                if c.starts_with("(return") { c } else { format!("{{ ax_l({line}); {c} }}") }
+                // A call to a checked function inside a try that catches its error, or inside another checked
+                // function (where the error propagates with ?).
+                let ck_catch = self.py_mode
+                    && !self.catch.is_empty()
+                    && ((self.catches("ZeroDivisionError") && self.ck_zd_fns.contains(name)) || (self.catches("IndexError") && self.ck_ie_fns.contains(name)));
+                let ck_here = self.py_mode && (self.ck_zd || self.ck_ie) && (self.ck_zd_fns.contains(name) || self.ck_ie_fns.contains(name));
+                if ck_catch {
+                    let lab = self.catch.last().unwrap().clone();
+                    let brk = if lab.starts_with("ax_tryv") { " None" } else { "" };
+                    let c = self.ck_call(name, args);
+                    format!("{{ ax_l({line}); (match {c} {{ Ok(v) => v, Err(e) => {{ {lab} = Some(e); break '{lab}{brk}; }} }}) }}")
+                } else if ck_here {
+                    let c = self.ck_call(name, args);
+                    format!("{{ ax_l({line}); {c}? }}")
+                } else {
+                    let c = self.call(name, args, false);
+                    if c.starts_with("(return") { c } else { format!("{{ ax_l({line}); {c} }}") }
+                }
             }
             // `x.str()` is `str(x)`.
             Expr::Method(recv, name, args, _) if name == "__call" => {
@@ -2133,7 +2445,11 @@ impl Emitter {
                     self.place(recv)
                 };
                 // A lambda inside the lambda that can fail (`[[int(x) for x in r] for r in rows]`) fails this one too.
-                let tries = TRY_METHODS.contains(&name.as_str()) && args.iter().any(|a| matches!(a, Expr::Lambda(_, b) if can_fail(b)));
+                let tries = TRY_METHODS.contains(&name.as_str()) && args.iter().any(|a| matches!(a, Expr::Lambda(_, b) if
+                    can_fail(b)
+                        || self.ck_zd && self.ck_can_zd(b)
+                        || self.ck_ie && self.ck_can_ie(b)
+                        || !self.catch.is_empty() && ((self.catches("ZeroDivisionError") && self.ck_can_zd(b)) || (self.catches("IndexError") && self.ck_can_ie(b)))));
                 // Outside a function that can fail and outside try/except, a failure inside the lambda stops the
                 // program with its message, as an uncaught Python exception does (`(int(x) for x in parts)`).
                 let tries = tries && (self.fallible || !self.catch.is_empty());
@@ -2153,16 +2469,31 @@ impl Emitter {
                             let params = if unpack && ps.len() > 1 { format!("({})", ps.join(", ")) } else { ps.join(", ") };
                             let out = if !tries {
                                 let saved = std::mem::replace(&mut self.must, true);
+                                // A plain closure cannot return an error, so it keeps the unchecked forms.
+                                let (z, i) = (self.ck_zd, self.ck_ie);
+                                self.ck_zd = false;
+                                self.ck_ie = false;
                                 let b = self.expr(body);
+                                self.ck_zd = z;
+                                self.ck_ie = i;
                                 self.must = saved;
                                 format!("(|{params}| {b})")
                             } else {
                                 let saved = std::mem::replace(&mut self.fallible, true);
                                 let saved_must = std::mem::replace(&mut self.must, false);
                                 // Inside the lambda a failure is its Err value; the try around it is outside.
+                                let ck_catch_z = !self.catch.is_empty() && self.catches("ZeroDivisionError");
+                                let ck_catch_i = !self.catch.is_empty() && self.catches("IndexError");
                                 let saved_catch = std::mem::take(&mut self.catch);
+                                let saved_names = std::mem::take(&mut self.catch_names);
+                                let (z, i) = (self.ck_zd, self.ck_ie);
+                                self.ck_zd = self.ck_zd || ck_catch_z;
+                                self.ck_ie = self.ck_ie || ck_catch_i;
                                 let b = self.expr(body);
+                                self.ck_zd = z;
+                                self.ck_ie = i;
                                 self.catch = saved_catch;
+                                self.catch_names = saved_names;
                                 self.fallible = saved;
                                 self.must = saved_must;
                                 format!("(|{params}| -> R<_> {{ Ok({b}) }})")
@@ -2228,7 +2559,13 @@ impl Emitter {
                     self.locals.insert(p.clone());
                 }
                 let saved = std::mem::replace(&mut self.must, true);
+                // A plain closure cannot return an error, so it keeps the unchecked forms.
+                let (z, i) = (self.ck_zd, self.ck_ie);
+                self.ck_zd = false;
+                self.ck_ie = false;
                 let out = format!("(|{}| {})", params.join(", "), self.expr(body));
+                self.ck_zd = z;
+                self.ck_ie = i;
                 self.must = saved;
                 self.locals = outer;
                 out
@@ -2245,7 +2582,9 @@ impl Emitter {
                 let v = match inner.as_ref() {
                     Expr::Call(name, args, line) => {
                         self.line = *line;
-                        self.call(name, args, true)
+                        let ck = self.py_mode
+                            && ((self.catches("ZeroDivisionError") && self.ck_zd_fns.contains(name)) || (self.catches("IndexError") && self.ck_ie_fns.contains(name)));
+                        if ck { self.ck_call(name, args) } else { self.call(name, args, true) }
                     }
                     other => format!("ax_q({})", self.expr(other)),
                 };
@@ -2259,7 +2598,8 @@ impl Emitter {
                 match inner.as_ref() {
                     Expr::Call(name, args, line) => {
                         self.line = *line;
-                        format!("{}?", self.call(name, args, true))
+                        let ck = self.py_mode && (self.ck_zd || self.ck_ie) && (self.ck_zd_fns.contains(name) || self.ck_ie_fns.contains(name));
+                        if ck { format!("{}?", self.ck_call(name, args)) } else { format!("{}?", self.call(name, args, true)) }
                     }
                     // ax_q lets `?` follow conversions that cannot fail on numbers (`2.5.int()`).
                     other => format!("ax_q({})?", self.expr(other)),
@@ -2270,8 +2610,11 @@ impl Emitter {
             Expr::If(c, t, Some(h)) if is_try(c) => {
                 self.try_n += 1;
                 let lab = format!("ax_tryv{}", self.try_n);
+                let names = try_names(c);
                 self.catch.push(lab.clone());
+                self.catch_names.push(names);
                 let body = self.block(t);
+                self.catch_names.pop();
                 self.catch.pop();
                 let handler = self.block(h);
                 format!("{{ let mut {lab}: Option<AxErr> = None; match '{lab}: {{ Some({body}) }} {{ Some(v) => v, None => {{ let AxErr(ax_err) = {lab}.unwrap(); let _ = &ax_err; {handler} }} }} }}")
@@ -2418,6 +2761,17 @@ impl Emitter {
         if !tried && self.call_is_fallible(&Expr::Call(name.into(), vec![], 0)) {
             self.diag(self.line, &format!("{name}() can fail but its error is not handled"), Some(format!("write {name}(...)? to pass the error up")));
         }
+        // `MISSING = object()` made a sentinel (`__sent0()`); its type is the slot it is put in.
+        if let Some(id) = sent_id(name) {
+            return format!("AxSentVal::<{id}>::make()");
+        }
+        // A sentinel put straight into a JSON slot (`return MISSING` from a function giving JSON values):
+        // make the JSON form directly, so Rust has no other type to choose from.
+        if (name == "ax_to_json" || name == "ax_tup_json") && args.len() == 1 {
+            if let Some(id) = sentinel_call(&args[0].1) {
+                return format!("Json::Tup {{ v: vec![Json::Str {{ v: ax_sent_str({id}) }}] }}");
+            }
+        }
         // A copy that is only wrong when the value is not shared: the Rust compiler checks the value's type,
         // and an error there reports the message carried (hex) in the comment.
         if name == "__shared" && (args.len() == 2 || args.len() == 3) {
@@ -2472,6 +2826,17 @@ impl Emitter {
             "__default" => return "AxFresh::ax_fresh()".to_string(),
             // The value type's zero (0, "", [], {}), for a key put in by `m.setdefault(k, [])`.
             "__zero" => return "Default::default()".to_string(),
+            "__truediv" if self.py_mode && !self.catch.is_empty() && self.catches("ZeroDivisionError") => {
+                let lab = self.catch.last().unwrap().clone();
+                let a = plain.first().cloned().unwrap_or_default();
+                let b = plain.get(1).cloned().unwrap_or_default();
+                return format!("(match ({a}).ax_truediv_try({b}) {{ Ok(v) => v, Err(e) => {{ {lab} = Some(e); break '{lab}; }} }})");
+            }
+            "__truediv" if self.py_mode && self.ck_zd => {
+                let a = plain.first().cloned().unwrap_or_default();
+                let b = plain.get(1).cloned().unwrap_or_default();
+                return format!("({a}).ax_truediv_try({b})?");
+            }
             "__truediv" => return format!("AxTrueDiv::ax_truediv({})", plain.join(", ")),
             "fail" if !self.catch.is_empty() => {
                 let lab = self.catch.last().unwrap().clone();
@@ -2496,39 +2861,9 @@ impl Emitter {
             }
             return made;
         }
-        if let Some(sig) = self.fns.get(name) {
-            let params = sig.params.clone();
-            if params.len() != args.len() {
-                let sigtext = params.iter().map(|p| p.name.clone()).collect::<Vec<_>>().join(", ");
-                self.diag(self.line, &format!("{name}() takes {} arguments, got {}", params.len(), args.len()), Some(format!("call {name}({sigtext})")));
-            }
-            // Named arguments may come in any order.
-            let mut ordered = Vec::new();
-            for (i, p) in params.iter().enumerate() {
-                let found = args.iter().position(|(n, _)| n.as_deref() == Some(p.name.as_str())).or(if args.get(i).map_or(false, |(n, _)| n.is_none()) { Some(i) } else { None });
-                // A variable changed by the function but converted on the way in (`f(ax_to_json(xs))`): the
-                // function would change the converted copy and the caller would never see it.
-                if let Some(j) = found {
-                    if p.is_mut && matches!(&args[j].1, Expr::Call(f, a, _) if (f == "ax_to_json" || f == "ax_tup_json") && matches!(a.first().map(|x| &x.1), Some(Expr::Ident(_) | Expr::Move(_) | Expr::Field(..) | Expr::Index(..)))) {
-                        self.diag(self.line, &format!("{name}() changes `{}` but it holds a different type here", p.name), Some("give the variable one type".into()));
-                    }
-                }
-                match found {
-                    // A value that is not a variable (`f(0)`) is passed as a fresh copy the function may change.
-                    Some(j) if p.is_mut && !matches!(args[j].1, Expr::Ident(_) | Expr::Move(_) | Expr::Field(..) | Expr::Index(..) | Expr::TupleField(..)) => ordered.push(format!("&mut ({})", plain[j])),
-                    // A Python object is a shared handle: the function gets its own copy of the handle (changes reach
-                    // the same object), so the caller's place is not borrowed while the other arguments are read.
-                    // (Only `self`: other names passed by reference may be set to a new object, which the caller must see.)
-                    Some(j) if p.is_mut && p.name == "self_" && matches!(&p.ty, Ty::Named(n) if self.marked.contains(n)) => ordered.push(format!("&mut ({})", plain[j])),
-                    Some(j) if p.is_mut => ordered.push(format!("&mut {}", self.place_mut(&args[j].1))),
-                    Some(j) if self.set_params.get(name).is_some_and(|v| v.contains(&i)) && !matches!(&args[j].1, Expr::Ident(n) | Expr::Move(n) if self.hash_sets.contains(n)) => {
-                        ordered.push(format!("AxSet::from({})", plain[j]))
-                    }
-                    Some(j) => ordered.push(plain[j].clone()),
-                    None => {}
-                }
-            }
-            return format!("{name}({})", ordered.join(", "));
+        if self.fns.contains_key(name) {
+            let ordered = self.call_args(name, args, &plain);
+            return format!("{name}({ordered})");
         }
         // pybridge: calls into the Python runtime (pyrt.rs).
         if name.starts_with("ax_pyb") && crate::pybridge::active() {
@@ -2573,6 +2908,77 @@ impl Emitter {
             self.edit_last(format!("{name}("), format!("{c}("));
         }
         format!("{name}({})", plain.join(", "))
+    }
+
+    // The arguments of a call to a user function, in parameter order, as the function's signature wants them.
+    fn call_args(&mut self, name: &str, args: &[(Option<String>, Expr)], plain: &[String]) -> String {
+        let params = self.fns.get(name).map(|s| s.params.clone()).unwrap_or_default();
+        if params.len() != args.len() {
+            let sigtext = params.iter().map(|p| p.name.clone()).collect::<Vec<_>>().join(", ");
+            self.diag(self.line, &format!("{name}() takes {} arguments, got {}", params.len(), args.len()), Some(format!("call {name}({sigtext})")));
+        }
+        // Named arguments may come in any order.
+        let mut ordered = Vec::new();
+        for (i, p) in params.iter().enumerate() {
+            let found = args.iter().position(|(n, _)| n.as_deref() == Some(p.name.as_str())).or(if args.get(i).map_or(false, |(n, _)| n.is_none()) { Some(i) } else { None });
+            // A variable changed by the function but converted on the way in (`f(ax_to_json(xs))`): the
+            // function would change the converted copy and the caller would never see it.
+            if let Some(j) = found {
+                if p.is_mut && matches!(&args[j].1, Expr::Call(f, a, _) if (f == "ax_to_json" || f == "ax_tup_json") && matches!(a.first().map(|x| &x.1), Some(Expr::Ident(_) | Expr::Move(_) | Expr::Field(..) | Expr::Index(..)))) {
+                    self.diag(self.line, &format!("{name}() changes `{}` but it holds a different type here", p.name), Some("give the variable one type".into()));
+                }
+            }
+            match found {
+                // A value that is not a variable (`f(0)`) is passed as a fresh copy the function may change.
+                Some(j) if p.is_mut && !matches!(args[j].1, Expr::Ident(_) | Expr::Move(_) | Expr::Field(..) | Expr::Index(..) | Expr::TupleField(..)) => ordered.push(format!("&mut ({})", plain[j])),
+                // A Python object is a shared handle: the function gets its own copy of the handle (changes reach
+                // the same object), so the caller's place is not borrowed while the other arguments are read.
+                // (Only `self`: other names passed by reference may be set to a new object, which the caller must see.)
+                Some(j) if p.is_mut && p.name == "self_" && matches!(&p.ty, Ty::Named(n) if self.marked.contains(n)) => ordered.push(format!("&mut ({})", plain[j])),
+                Some(j) if p.is_mut => ordered.push(format!("&mut {}", self.place_mut(&args[j].1))),
+                Some(j) if self.set_params.get(name).is_some_and(|v| v.contains(&i)) && !matches!(&args[j].1, Expr::Ident(n) | Expr::Move(n) if self.hash_sets.contains(n)) => {
+                    ordered.push(format!("AxSet::from({})", plain[j]))
+                }
+                Some(j) => ordered.push(plain[j].clone()),
+                None => {}
+            }
+        }
+        ordered.join(", ")
+    }
+
+    // A call to `name`'s checked variant (which exists: `name` was marked).
+    fn ck_call(&mut self, name: &str, args: &[(Option<String>, Expr)]) -> String {
+        let plain: Vec<String> = args.iter().map(|(_, a)| self.expr(a)).collect();
+        let ck_name = self.ck_name(name);
+        format!("{ck_name}({})", self.call_args(name, args, &plain))
+    }
+
+    // The checked variant's name, which no program function can take.
+    fn ck_name(&self, name: &str) -> String {
+        let mut n = format!("{name}__ax_ck");
+        while self.fns.contains_key(&n) {
+            n.push('_');
+        }
+        n
+    }
+
+    // Whether a lambda's body can raise the error: an op of its own, or a call to a checked function.
+    fn ck_can_zd(&self, b: &Expr) -> bool {
+        if can_zd(b) {
+            return true;
+        }
+        let mut cs = HashSet::new();
+        calls_in(b, &self.ck_zd_fns, &mut cs);
+        !cs.is_empty()
+    }
+
+    fn ck_can_ie(&self, b: &Expr) -> bool {
+        if can_ie(b) {
+            return true;
+        }
+        let mut cs = HashSet::new();
+        calls_in(b, &self.ck_ie_fns, &mut cs);
+        !cs.is_empty()
     }
 
     // Each field takes, in order of preference: an argument named after it (`total: t`), a plain
@@ -2635,7 +3041,31 @@ fn slug(s: &str) -> String {
 
 // The condition of the if that a Python try statement becomes.
 fn is_try(c: &Expr) -> bool {
-    matches!(c, Expr::Call(n, a, _) if n == "__try" && a.is_empty())
+    matches!(c, Expr::Call(n, _, _) if n == "__try")
+}
+
+// The built-in exception classes a Python try's handlers name (one comma-separated string argument).
+fn try_names(c: &Expr) -> Vec<String> {
+    match c {
+        Expr::Call(n, args, _) if n == "__try" => args.iter().find_map(|(_, a)| match a {
+            Expr::Str(parts) => match parts.as_slice() {
+                [StrPart::Lit(s)] => Some(s.split(',').filter(|s| !s.is_empty()).map(String::from).collect()),
+                _ => None,
+            },
+            _ => None,
+        }),
+        _ => None,
+    }
+    .unwrap_or_default()
+}
+
+// Whether a handler naming `n` catches an error of Python class `name` (Exception and BaseException catch
+// everything, and an empty list is a bare `except:`).
+fn caught_by(n: &str, name: &str) -> bool {
+    n == name
+        || matches!(n, "Exception" | "BaseException")
+        || (n == "ArithmeticError" && name == "ZeroDivisionError")
+        || (n == "LookupError" && name == "IndexError")
 }
 
 // A `break` of this loop (not one of a loop inside it).

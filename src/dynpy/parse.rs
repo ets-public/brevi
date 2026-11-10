@@ -203,9 +203,50 @@ pub fn lex(src: &str) -> Result<Lexed, (usize, String)> {
             let mut k = if triple { j + 3 } else { j + 1 };
             let body_start = k;
             let raw = prefix.contains('r');
+            // An f-string's replacement fields may hold strings in the same quotes and, in a single-quoted f-string,
+            // newlines (PEP 701, Python 3.12): skip over them as nested literals.
+            let mut fdepth = 0usize;
             loop {
                 if k >= cs.len() {
                     return Err(err(start_line, "unterminated string literal"));
+                }
+                if prefix.contains('f') {
+                    if cs[k] == '{' {
+                        if fdepth == 0 && k + 1 < cs.len() && cs[k + 1] == '{' {
+                            k += 2;
+                            continue;
+                        }
+                        fdepth += 1;
+                        k += 1;
+                        continue;
+                    }
+                    if cs[k] == '}' && fdepth > 0 {
+                        fdepth -= 1;
+                        k += 1;
+                        continue;
+                    }
+                    if fdepth > 0 {
+                        if cs[k] == '\n' {
+                            line += 1;
+                            k += 1;
+                            continue;
+                        }
+                        if cs[k] == '[' || cs[k] == '(' {
+                            // brackets inside a field: a ':' or '!' in them is not a format spec, nothing to do here
+                        }
+                        if cs[k] == '\'' || cs[k] == '"' {
+                            k = skip_nested_str(&cs, k, &mut line).ok_or_else(|| err(start_line, "unterminated string literal"))?;
+                            continue;
+                        }
+                        if cs[k] == '#' {
+                            while k < cs.len() && cs[k] != '\n' {
+                                k += 1;
+                            }
+                            continue;
+                        }
+                        k += 1;
+                        continue;
+                    }
                 }
                 if cs[k] == '\\' {
                     if k + 1 < cs.len() && cs[k + 1] == '\n' {
@@ -1878,4 +1919,51 @@ fn jumps_out(b: &[Stmt]) -> bool {
         St::With(_, x) => jumps_out(x),
         _ => false,
     })
+}
+
+// The index just past a string literal starting at cs[k] (a quote) inside an f-string field, any prefix already
+// passed; nested f-strings are skipped the same way. None when it does not end.
+fn skip_nested_str(cs: &[char], k: usize, line: &mut usize) -> Option<usize> {
+    let mut p = k;
+    // a prefix right before the quote (f, rb, ...)
+    let mut b = k;
+    while b > 0 && b + 2 >= k && "rRbBfFuU".contains(cs[b - 1]) {
+        b -= 1;
+    }
+    let is_f = cs[b..k].iter().any(|c| *c == 'f' || *c == 'F');
+    let q = cs[p];
+    let triple = p + 2 < cs.len() && cs[p + 1] == q && cs[p + 2] == q;
+    p += if triple { 3 } else { 1 };
+    let mut depth = 0usize;
+    while p < cs.len() {
+        let c = cs[p];
+        if c == '\\' {
+            p += 2;
+            continue;
+        }
+        if c == '\n' {
+            *line += 1;
+        }
+        if is_f && c == '{' {
+            if depth == 0 && p + 1 < cs.len() && cs[p + 1] == '{' {
+                p += 2;
+                continue;
+            }
+            depth += 1;
+        } else if is_f && c == '}' && depth > 0 {
+            depth -= 1;
+        } else if is_f && depth > 0 && (c == '\'' || c == '"') {
+            p = skip_nested_str(cs, p, line)?;
+            continue;
+        } else if c == q && depth == 0 {
+            if !triple {
+                return Some(p + 1);
+            }
+            if p + 2 < cs.len() && cs[p + 1] == q && cs[p + 2] == q {
+                return Some(p + 3);
+            }
+        }
+        p += 1;
+    }
+    None
 }

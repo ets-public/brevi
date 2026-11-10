@@ -914,6 +914,26 @@ impl AxFloorDiv<i64> for Dec {
 pub fn ax_floordiv<T: AxFloorDiv<B>, B>(a: T, b: B) -> T {
     a.floordiv(b)
 }
+// The same division, but a zero divisor is a ZeroDivisionError a Python try can catch.
+pub trait AxFloorDivTry<B = Self>: Sized {
+    fn ax_floordiv_try(self, b: B) -> R<Self>;
+}
+impl AxFloorDivTry for i64 {
+    fn ax_floordiv_try(self, b: i64) -> R<i64> {
+        if b == 0 {
+            return Err(ax_zd_err("integer division or modulo by zero"));
+        }
+        Ok(self.floordiv(b))
+    }
+}
+impl AxFloorDivTry for f64 {
+    fn ax_floordiv_try(self, b: f64) -> R<f64> {
+        if b == 0.0 {
+            return Err(ax_zd_err("float floor division by zero"));
+        }
+        Ok(self.floordiv(b))
+    }
+}
 // a % b in Python mode takes the sign of b, as Python's does (-7 % 3 is 2); Brevi's own % keeps Rust's.
 pub trait AxPyMod<B = Self> {
     fn ax_pymod(self, b: B) -> Self;
@@ -958,6 +978,46 @@ impl AxPyMod for f64 {
             return 0.0f64.copysign(b);
         }
         if (r < 0.0) != (b < 0.0) { r + b } else { r }
+    }
+}
+// The same `%`, but a zero divisor is a ZeroDivisionError a Python try can catch.
+pub trait AxPyModTry<B = Self>: Sized {
+    fn ax_pymod_try(self, b: B) -> R<Self>;
+}
+impl AxPyModTry for i64 {
+    fn ax_pymod_try(self, b: i64) -> R<i64> {
+        if b == 0 {
+            return Err(ax_zd_err("integer modulo by zero"));
+        }
+        Ok(self.ax_pymod(b))
+    }
+}
+impl AxPyModTry for f64 {
+    fn ax_pymod_try(self, b: f64) -> R<f64> {
+        if b == 0.0 {
+            return Err(ax_zd_err("float modulo by zero"));
+        }
+        Ok(self.ax_pymod(b))
+    }
+}
+// A Python list mixed with numbers (its items are Json) divides the same way: a zero divisor is catchable.
+impl AxFloorDivTry for Json {
+    fn ax_floordiv_try(self, b: Json) -> R<Json> {
+        let f = ax_jf(&self) || ax_jf(&b);
+        if ax_jnum(&b) == 0.0 {
+            return Err(ax_zd_err(if f { "float floor division by zero" } else { "integer division or modulo by zero" }));
+        }
+        Ok(ax_jnk((ax_jnum(&self) / ax_jnum(&b)).floor(), f))
+    }
+}
+impl AxPyModTry for Json {
+    fn ax_pymod_try(self, b: Json) -> R<Json> {
+        let f = ax_jf(&self) || ax_jf(&b);
+        let (a, b) = (ax_jnum(&self), ax_jnum(&b));
+        if b == 0.0 {
+            return Err(ax_zd_err(if f { "float modulo by zero" } else { "integer modulo by zero" }));
+        }
+        Ok(if f { ax_jnk(a.ax_pymod(b), true) } else { ax_jnk(a - b * (a / b).floor(), false) })
     }
 }
 impl AxPyMod for Json {
@@ -1997,6 +2057,24 @@ fn ax_idx(i: i64, len: usize) -> usize {
     }
     j as usize
 }
+// Python's IndexError and ZeroDivisionError as catchable errors (a Rust panic is not one), with the class
+// chain `except A, B:` matching uses and the message CPython prints.
+#[inline]
+pub fn ax_idx_err(msg: &str) -> AxErr {
+    AxErr(ax_exc("IndexError,LookupError,Exception,BaseException".into(), msg.into()))
+}
+#[inline]
+pub fn ax_zd_err(msg: &str) -> AxErr {
+    AxErr(ax_exc("ZeroDivisionError,ArithmeticError,Exception,BaseException".into(), msg.into()))
+}
+#[inline]
+pub fn ax_checked_idx(i: i64, len: usize, msg: &str) -> R<usize> {
+    let j = if i < 0 { len as i64 + i } else { i };
+    if j < 0 || j as usize >= len {
+        return Err(ax_idx_err(msg));
+    }
+    Ok(j as usize)
+}
 
 pub trait AxList<T: Clone> {
     fn ax_len(&self) -> i64;
@@ -2843,6 +2921,110 @@ impl AxMut<i64, Json> for Json {
         }
     }
 }
+// The same reads and writes, but an index out of range is a Python IndexError a try can catch instead of a
+// Rust panic. Reads and writes that do not raise (map entries, JSON objects) keep their AxRef/AxMut behavior.
+pub trait AxRefTry<K, V> {
+    fn ax_try_ref(&self, k: &K) -> R<&V>;
+}
+pub trait AxMutTry<K, V> {
+    fn ax_try_mut(&mut self, k: &K) -> R<&mut V>;
+}
+impl<T> AxRefTry<i64, T> for Vec<T> {
+    fn ax_try_ref(&self, i: &i64) -> R<&T> {
+        let j = ax_checked_idx(*i, self.len(), "list index out of range")?;
+        Ok(&self[j])
+    }
+}
+impl<T> AxMutTry<i64, T> for Vec<T> {
+    fn ax_try_mut(&mut self, i: &i64) -> R<&mut T> {
+        let j = ax_checked_idx(*i, self.len(), "list assignment index out of range")?;
+        Ok(&mut self[j])
+    }
+}
+impl<T> AxRefTry<i64, T> for (T, T) {
+    fn ax_try_ref(&self, i: &i64) -> R<&T> {
+        let j = ax_checked_idx(*i, 2, "tuple index out of range")?;
+        Ok([&self.0, &self.1][j])
+    }
+}
+impl<T> AxRefTry<i64, T> for (T, T, T) {
+    fn ax_try_ref(&self, i: &i64) -> R<&T> {
+        let j = ax_checked_idx(*i, 3, "tuple index out of range")?;
+        Ok([&self.0, &self.1, &self.2][j])
+    }
+}
+impl<T> AxRefTry<i64, T> for (T, T, T, T) {
+    fn ax_try_ref(&self, i: &i64) -> R<&T> {
+        let j = ax_checked_idx(*i, 4, "tuple index out of range")?;
+        Ok([&self.0, &self.1, &self.2, &self.3][j])
+    }
+}
+impl<K: Hash + Eq + Ord + Show + 'static, V: Default + 'static> AxRefTry<K, V> for AxM<K, V> {
+    fn ax_try_ref(&self, k: &K) -> R<&V> {
+        Ok(self.ax_ref(k))
+    }
+}
+impl<K: Hash + Eq + Ord + Clone, V: Default> AxMutTry<K, V> for AxM<K, V> {
+    fn ax_try_mut(&mut self, k: &K) -> R<&mut V> {
+        Ok(self.ax_mut(k))
+    }
+}
+impl AxRefTry<i64, String> for String {
+    fn ax_try_ref(&self, i: &i64) -> R<&String> {
+        if ax_ascii(self) {
+            ax_checked_idx(*i, self.len(), "string index out of range")?;
+        } else {
+            ax_checked_idx(*i, self.chars().count(), "string index out of range")?;
+        }
+        Ok(self.ax_ref(i))
+    }
+}
+impl AxRefTry<String, Json> for Json {
+    fn ax_try_ref(&self, k: &String) -> R<&Json> {
+        Ok(self.ax_ref(k))
+    }
+}
+impl AxRefTry<i64, Json> for Json {
+    fn ax_try_ref(&self, i: &i64) -> R<&Json> {
+        match self {
+            Json::Arr { v } | Json::Tup { v } => {
+                let msg = if matches!(self, Json::Tup { .. }) { "tuple index out of range" } else { "list index out of range" };
+                let j = ax_checked_idx(*i, v.len(), msg)?;
+                Ok(&v[j])
+            }
+            Json::Str { v } => {
+                let j = ax_checked_idx(*i, v.chars().count(), "string index out of range")?;
+                Ok(ax_char_json(v.chars().nth(j).unwrap()))
+            }
+            _ => Ok(&AX_NULL),
+        }
+    }
+}
+impl AxRefTry<Json, Json> for Json {
+    fn ax_try_ref(&self, k: &Json) -> R<&Json> {
+        match k {
+            Json::Str { v } => Ok(self.ax_ref(v)),
+            Json::Num { v, .. } => self.ax_try_ref(&(*v as i64)),
+            _ => Ok(&AX_NULL),
+        }
+    }
+}
+impl AxMutTry<String, Json> for Json {
+    fn ax_try_mut(&mut self, k: &String) -> R<&mut Json> {
+        Ok(self.ax_mut(k))
+    }
+}
+impl AxMutTry<i64, Json> for Json {
+    fn ax_try_mut(&mut self, i: &i64) -> R<&mut Json> {
+        match self {
+            Json::Arr { v } => {
+                let j = ax_checked_idx(*i, v.len(), "list assignment index out of range")?;
+                Ok(&mut v[j])
+            }
+            _ => panic!("{} is not a list", self.show()),
+        }
+    }
+}
 impl Json {
     pub fn ax_push<T: AxToJson>(&mut self, x: T) {
         match self {
@@ -2860,6 +3042,7 @@ fn ax_json_py(j: &Json, top: bool) -> String {
         Json::Num { v, .. } => ax_py_float(*v),
         Json::Str { v } if top => v.clone(),
         Json::Str { v } => ax_py_repr(v),
+        Json::Tup { .. } if ax_json_sent(j) => "<object object>".into(),
         Json::Tup { v } if v.len() == 1 => format!("({},)", ax_json_py(&v[0], false)),
         Json::Tup { v } => format!("({})", v.iter().map(|x| ax_json_py(x, false)).collect::<Vec<_>>().join(", ")),
         Json::Arr { v } => format!("[{}]", v.iter().map(|x| ax_json_py(x, false)).collect::<Vec<_>>().join(", ")),
@@ -2876,6 +3059,7 @@ impl Show for Json {
             Json::Bool { v } => v.to_string(),
             Json::Num { v, .. } => v.to_string(),
             Json::Str { v } => format!("{v:?}"),
+            Json::Tup { .. } if ax_json_sent(self) => "<object object>".into(),
             Json::Arr { v } | Json::Tup { v } => format!("[{}]", v.iter().map(|x| x.show()).collect::<Vec<_>>().join(",")),
             Json::Obj { v } => format!("{{{}}}", v.iter().map(|(k, x)| format!("{k:?}:{}", x.show())).collect::<Vec<_>>().join(",")),
         }
@@ -3134,6 +3318,7 @@ impl Json {
     }
     pub fn ax_len(&self) -> i64 {
         match self {
+            Json::Tup { .. } if ax_json_sent(self) => panic!("TypeError: object of type 'object' has no len()"),
             Json::Str { v } => v.chars().count() as i64,
             Json::Arr { v } | Json::Tup { v } => v.len() as i64,
             Json::Obj { v } => v.m.len() as i64,
@@ -3894,6 +4079,47 @@ impl AxNone for bool {
     #[inline]
     fn ax_none() -> Self {
         false
+    }
+}
+// A second unset value, for `MISSING = object()` next to None in the same slot. The value's type keeps its
+// own None representation (`"\0None"` for a str, Json::Null for JSON), and the sentinel is a distinct value of
+// the same type, so `v is MISSING` and `v is None` stay apart. N numbers the sentinels of the program.
+pub struct AxSentVal<const N: usize>;
+impl<const N: usize> AxSentVal<N> {
+    pub fn make<T: AxSentBase<N>>() -> T {
+        T::ax_sent()
+    }
+    pub fn is<T: AxSentBase<N>>(v: &T) -> bool {
+        v.ax_is_sent()
+    }
+}
+pub trait AxSentBase<const N: usize>: Sized {
+    fn ax_sent() -> Self;
+    fn ax_is_sent(&self) -> bool;
+}
+pub fn ax_sent_str(n: usize) -> String {
+    format!("\u{0}sent{n}")
+}
+// A str slot's sentinel is a string no input the program reads makes by itself, like its None string.
+impl<const N: usize> AxSentBase<N> for String {
+    fn ax_sent() -> Self {
+        ax_sent_str(N)
+    }
+    fn ax_is_sent(&self) -> bool {
+        *self == ax_sent_str(N)
+    }
+}
+fn ax_json_sent(j: &Json) -> bool {
+    matches!(j, Json::Tup { v } if v.len() == 1 && matches!(&v[0], Json::Str { v } if v.starts_with("\u{0}sent")))
+}
+// A JSON slot's sentinel is a one-item internal tuple no json.loads value is (a Tup is only made from a
+// Python tuple), holding the sentinel's marker string.
+impl<const N: usize> AxSentBase<N> for Json {
+    fn ax_sent() -> Self {
+        Json::Tup { v: vec![Json::Str { v: ax_sent_str(N) }] }
+    }
+    fn ax_is_sent(&self) -> bool {
+        matches!(self, Json::Tup { v } if v.len() == 1 && matches!(&v[0], Json::Str { v } if *v == ax_sent_str(N)))
     }
 }
 impl<A: AxNone, B: AxNone> AxNone for (A, B) {
@@ -5517,6 +5743,18 @@ pub fn ax_exc_msg(e: &String) -> String {
         None => e.clone(),
     }
 }
+// The uncaught-error report: str(e) is the empty message of `raise ValueError`, but the report still names
+// the class it was raised as.
+pub fn ax_exc_report(e: &String) -> String {
+    let msg = ax_exc_msg(e);
+    if !msg.is_empty() {
+        return msg;
+    }
+    e.strip_prefix('\u{1}').and_then(|r| r.split_once('\u{1}')).map(|(chain, _)| {
+        let chain = chain.rsplit_once(';').map_or(chain, |(c, _)| c);
+        chain.split(',').next().unwrap_or("error").to_string()
+    }).unwrap_or_else(|| "error".to_string())
+}
 // `except A, B:` for this error: one of its classes is named (Exception catches every class); an error without
 // a class (a failed call) is caught by any built-in error name.
 pub fn ax_exc_is(e: &String, names: String, builtin: bool) -> bool {
@@ -6028,6 +6266,42 @@ impl AxTrueDiv<f64> for f64 {
         self / b
     }
 }
+// The same division, but a zero divisor is a ZeroDivisionError a Python try can catch.
+pub trait AxTrueDivTry<B> {
+    fn ax_truediv_try(self, b: B) -> R<f64>;
+}
+impl AxTrueDivTry<i64> for i64 {
+    fn ax_truediv_try(self, b: i64) -> R<f64> {
+        if b == 0 {
+            return Err(ax_zd_err("division by zero"));
+        }
+        Ok(self as f64 / b as f64)
+    }
+}
+impl AxTrueDivTry<f64> for i64 {
+    fn ax_truediv_try(self, b: f64) -> R<f64> {
+        if b == 0.0 {
+            return Err(ax_zd_err("float division by zero"));
+        }
+        Ok(self as f64 / b)
+    }
+}
+impl AxTrueDivTry<i64> for f64 {
+    fn ax_truediv_try(self, b: i64) -> R<f64> {
+        if b == 0 {
+            return Err(ax_zd_err("float division by zero"));
+        }
+        Ok(self / b as f64)
+    }
+}
+impl AxTrueDivTry<f64> for f64 {
+    fn ax_truediv_try(self, b: f64) -> R<f64> {
+        if b == 0.0 {
+            return Err(ax_zd_err("float division by zero"));
+        }
+        Ok(self / b)
+    }
+}
 // Python's s.update(xs) on a set() list, m.update(other) on a dict, c.update(xs) on a Counter.
 pub trait AxUpdate<O> {
     fn ax_update(&mut self, o: O);
@@ -6175,7 +6449,12 @@ impl AxIsInstance for bool {
 }
 impl AxIsInstance for String {
     fn ax_kind(&self) -> &'static str {
-        "str"
+        // A sentinel held in a str slot is an object, not a string, to isinstance.
+        if self.starts_with("\u{0}sent") {
+            "object"
+        } else {
+            "str"
+        }
     }
 }
 impl AxIsInstance for Dec {
@@ -6206,7 +6485,7 @@ impl AxIsInstance for Json {
             Json::Bool { .. } => "bool",
             Json::Num { v, f } => if v.fract() == 0.0 && v.abs() < 1e15 && !(*f && ax_py_on()) { "int" } else { "float" },
             Json::Str { .. } => "str",
-            Json::Arr { .. } => "list", Json::Tup { .. } => "tuple",
+            Json::Arr { .. } => "list", Json::Tup { .. } if ax_json_sent(self) => "object", Json::Tup { .. } => "tuple",
             Json::Obj { .. } => "dict",
         }
     }
@@ -6864,6 +7143,17 @@ impl AxMatch {
 impl AxRef<i64, String> for AxMatch {
     fn ax_ref(&self, n: &i64) -> &String {
         &self.groups[self.ax_group(*n)]
+    }
+}
+impl AxRefTry<i64, String> for AxMatch {
+    fn ax_try_ref(&self, n: &i64) -> R<&String> {
+        if self.groups.is_empty() {
+            ax_none_attr();
+        }
+        if *n < 0 || *n as usize >= self.groups.len() {
+            return Err(ax_idx_err("no such group"));
+        }
+        Ok(&self.groups[*n as usize])
     }
 }
 impl AxTruth for AxMatch {
