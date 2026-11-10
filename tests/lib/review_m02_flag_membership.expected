@@ -1,0 +1,9 @@
+True True True Perm.READ|WRITE
+True True True False True False
+True False True True False
+True
+Perm.READ|EXEC True
+False
+TypeError unsupported operand type(s) for 'in': 'int' and 'Perm'
+True True False
+True True False True True True
