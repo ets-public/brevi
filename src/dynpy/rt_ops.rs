@@ -58,8 +58,108 @@ fn view_pair(a: &V, b: &V) -> Result<Option<(V, V)>, E> {
     };
     Ok(Some((as_set(a)?, as_set(b)?)))
 }
+// The dict a dict_items view wraps (`kind` 2). Two dict_items views compare item by item in
+// CPython (`d1.items() <= d2.items()`), never by hashing the items the way set views do.
+fn items_view_dict(v: &V) -> Option<Rc<RefCell<Dict>>> {
+    if let V::View(x) = v {
+        if x.1 != 2 {
+            return None;
+        }
+        if let V::Dict(d) = &x.0 {
+            return Some(d.clone());
+        }
+        if let Some(i) = inner_of(&x.0) {
+            if let V::Dict(d) = i {
+                return Some(d);
+            }
+        }
+    }
+    None
+}
+// CPython's dict_items.__contains__: look the key up in the dict, then compare the stored value
+// with the given one, the stored value on the left; an identical value is a hit (no __eq__).
+fn items_view_contains(d: &Rc<RefCell<Dict>>, x: &V) -> Result<bool, E> {
+    // CPython accepts tuple subclasses here, which Brevi holds as an object around a tuple.
+    let x = match inner_of(x) {
+        Some(i) => i,
+        None => x.clone(),
+    };
+    let (k, v) = match &x {
+        V::Tuple(t) if t.len() == 2 => (t[0].clone(), t[1].clone()),
+        _ => return Ok(false),
+    };
+    // The borrow ends before __eq__ runs: a user __eq__ may change the dict.
+    let found = d.borrow().get(&k)?;
+    match found {
+        Some(w) => Ok(is(&w, &v) || eq(&w, &v)?),
+        None => Ok(false),
+    }
+}
+fn items_view_eq(a: &Rc<RefCell<Dict>>, b: &Rc<RefCell<Dict>>) -> Result<bool, E> {
+    if Rc::ptr_eq(a, b) {
+        return Ok(true);
+    }
+    let items = {
+        let a = a.borrow();
+        if a.n != b.borrow().n {
+            return Ok(false);
+        }
+        a.items()
+    };
+    for (k, v) in items {
+        if !items_view_contains(b, &tup(vec![k, v]))? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+fn items_view_subset(sub: &Rc<RefCell<Dict>>, sup: &Rc<RefCell<Dict>>) -> Result<bool, E> {
+    let items = sub.borrow().items();
+    for (k, v) in items {
+        if !items_view_contains(sup, &tup(vec![k, v]))? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+fn items_view_rich(a: &Rc<RefCell<Dict>>, b: &Rc<RefCell<Dict>>, op: &str) -> Result<bool, E> {
+    let (na, nb) = (a.borrow().n, b.borrow().n);
+    if Rc::ptr_eq(a, b) {
+        return Ok(matches!(op, "<=" | ">="));
+    }
+    Ok(match op {
+        "<" => {
+            if na >= nb {
+                return Ok(false);
+            }
+            items_view_subset(a, b)?
+        }
+        "<=" => {
+            if na > nb {
+                return Ok(false);
+            }
+            items_view_subset(a, b)?
+        }
+        ">" => {
+            if na <= nb {
+                return Ok(false);
+            }
+            items_view_subset(b, a)?
+        }
+        ">=" => {
+            if na < nb {
+                return Ok(false);
+            }
+            items_view_subset(b, a)?
+        }
+        _ => unreachable!(),
+    })
+}
 pub fn eq(a: &V, b: &V) -> Result<bool, E> {
     if matches!(a, V::View(_)) || matches!(b, V::View(_)) {
+        if let (Some(x), Some(y)) = (items_view_dict(a), items_view_dict(b)) {
+            return items_view_eq(&x, &y);
+        }
         if let Some((x, y)) = view_pair(a, b)? {
             return eq(&x, &y);
         }
@@ -314,6 +414,9 @@ pub fn rich(a: &V, b: &V, op: &str) -> Result<bool, E> {
         });
     }
     if matches!(a, V::View(_)) || matches!(b, V::View(_)) {
+        if let (Some(x), Some(y)) = (items_view_dict(a), items_view_dict(b)) {
+            return items_view_rich(&x, &y, op);
+        }
         if let Some((x, y)) = view_pair(a, b)? {
             return rich(&x, &y, op);
         }
@@ -1218,6 +1321,7 @@ pub fn contains(c: &V, x: &V) -> Result<bool, E> {
         },
         V::View(v) => match (&v.0, v.1) {
             (V::Dict(d), 0 | 3) => d.borrow().contains(x)?,
+            (V::Dict(d), 2) => return items_view_contains(d, x),
             _ => to_vec(c)?.iter().any(|y| eq(y, x).unwrap_or(false)),
         },
         V::Deque(d) => {
