@@ -44,13 +44,14 @@ finally:
 
 
 def where_printed(work, inp):
-    t = Path(tempfile.mkdtemp())
+    """Run in e2e's box, like everything the model wrote."""
+    t = e2e.box().mkdir("trace-")
     (t / "trace.py").write_text(TRACE)
-    env = dict(os.environ, TRACE_OUT=str(t / "rec"))
+    env = dict(e2e.modelbox.ENV_KEEP, PATH=e2e.modelbox.BOX_PATH, HOME=str(e2e.box().dir), TRACE_OUT=str(t / "rec"))
+    e2e.boxed_tests([{"cmd": [sys.executable, str(t / "trace.py"), "main.py"], "stdin": inp, "timeout": 10, "env": env}], work)
     try:
-        subprocess.run([sys.executable, str(t / "trace.py"), "main.py"], stdin=open(inp), capture_output=True, text=True, timeout=10, cwd=work, env=env)
         return (t / "rec").read_text().split("\n")
-    except (subprocess.TimeoutExpired, OSError):
+    except OSError:
         return []
 
 
@@ -66,8 +67,8 @@ def diff_feedback(task, work):
     first = None
     for t in tests:
         want = Path(t[:-3] + ".out").read_text().rstrip("\n").split("\n")
-        got = subprocess.run([sys.executable, "main.py"], stdin=open(t), capture_output=True, text=True, timeout=10, cwd=work)
-        out = (got.stdout + got.stderr).rstrip("\n").split("\n")
+        got = e2e.boxed_tests([{"cmd": [sys.executable, "main.py"], "stdin": t, "timeout": 10}], work)[0]
+        out = ("timeout after 10 s" if got["timeout"] else got["stdout"] + got["stderr"]).rstrip("\n").split("\n")
         if out == want:
             passed += 1
             continue
