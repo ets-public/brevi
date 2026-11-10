@@ -391,7 +391,7 @@ if [ "$1" != "--update" ]; then
   esac
 fi
 #== onnxruntime
-# onnxruntime programs must print what CPython's onnxruntime 1.29 prints, with Brevi's own onnxruntime over ONNX
+# onnxruntime programs must print what CPython's onnxruntime 1.31 prints (1.29 prints the same), with Brevi's own onnxruntime over ONNX
 # Runtime's C API (the onnxruntime package's library, or libonnxruntime): never CPython. Skipped without the
 # onnxruntime package (CI has none). tests/onnxruntime/models/make_models.py (needs onnx) wrote the models.
 if python3 -c "import onnxruntime" 2>/dev/null; then
