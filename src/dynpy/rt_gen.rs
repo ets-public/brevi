@@ -121,6 +121,8 @@ const MAP_ANON_FLAGS: i32 = 0x0002 | 0x1000;
 const MAP_ANON_FLAGS: i32 = 0x0002 | 0x0020 | 0x4000;
 
 pub struct Coro {
+    // CPython's dotted __qualname__ of the generator function (__name__ is its last component)
+    pub name: Sym,
     stack: *mut u8,
     sp: *mut u8,
     caller_sp: *mut u8,
@@ -139,6 +141,11 @@ pub struct Coro {
     // Python frames this generator has open while suspended (counted again when it resumes).
     depth: usize,
     depth_base: usize,
+    // its slot in CORO_LIVE (nulled when it ends, so removal does not scan the list)
+    live_idx: usize,
+    // the order it was started in: slots are reused, so close_live_gens sorts by this to close in creation
+    // order exactly as before slots were reused
+    live_seq: u64,
 }
 
 thread_local! {
@@ -146,13 +153,59 @@ thread_local! {
     // Generators started and not yet finished or dropped, oldest first: closed at exit, as CPython closes
     // the ones still alive when it shuts down.
     static CORO_LIVE: RefCell<Vec<*mut Coro>> = RefCell::new(Vec::new());
+    // Slots of CORO_LIVE nulled by a finished coroutine, reused by the next one to start. Without this the
+    // list would grow by one entry for every coroutine ever started (8 bytes each, never reclaimed), and a
+    // long-running process would leak without bound; with it the list stays at the high-water mark of
+    // coroutines alive at once. A slot is only freed by the coroutine it holds (guarded by a pointer check),
+    // so a slot can never be freed twice or freed while a live coroutine still occupies it.
+    static CORO_LIVE_FREE: RefCell<Vec<usize>> = RefCell::new(Vec::new());
+    // Start sequence numbers: only their order matters, to close suspended generators in creation order even
+    // though finished ones free their CORO_LIVE slot for a later generator.
+    static CORO_SEQ: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     static CORO_EXITING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    // Stacks of finished coroutines, kept for the next one: mmap + munmap of a fresh 16 MB stack (with its
+    // guard page) per short-lived coroutine is two syscalls plus page-table work, and asyncio's gather makes
+    // one coroutine per child. A few are enough: concurrent tasks reuse them as fast as they are freed.
+    static CORO_FREE: RefCell<Vec<*mut u8>> = RefCell::new(Vec::new());
+    // The __qualname__ of the generator whose body is running now: repr()/__qualname__ of a generator called
+    // from its own body cannot borrow its cells (they are held across the body), so read the name from here.
+    static CUR_GEN_NAME: std::cell::Cell<Option<Sym>> = const { std::cell::Cell::new(None) };
+}
+const CORO_POOL_MAX: usize = 128;
+#[cfg(not(windows))]
+fn stack_alloc() -> Option<*mut u8> {
+    if let Some(p) = CORO_FREE.with(|f| f.borrow_mut().pop()) {
+        return Some(p);
+    }
+    let p = unsafe { mmap(std::ptr::null_mut(), CORO_STACK, 3, MAP_ANON_FLAGS, -1, 0) };
+    if p.is_null() || p as isize == -1 {
+        return None;
+    }
+    unsafe { mprotect(p, CORO_GUARD, 0) };
+    Some(p)
+}
+#[cfg(not(windows))]
+fn stack_free(p: *mut u8) {
+    let kept = CORO_FREE.with(|f| {
+        let mut f = f.borrow_mut();
+        if f.len() < CORO_POOL_MAX {
+            f.push(p);
+            true
+        } else {
+            false
+        }
+    });
+    if !kept {
+        unsafe { munmap(p, CORO_STACK) };
+    }
 }
 fn live_remove(c: *mut Coro) {
     let _ = CORO_LIVE.try_with(|l| {
         if let Ok(mut l) = l.try_borrow_mut() {
-            if let Some(i) = l.iter().rposition(|x| *x == c) {
-                l.remove(i);
+            let i = unsafe { (*c).live_idx };
+            if l.get(i) == Some(&c) {
+                l[i] = std::ptr::null_mut();
+                CORO_LIVE_FREE.with(|f| f.borrow_mut().push(i));
             }
         }
     });
@@ -160,9 +213,18 @@ fn live_remove(c: *mut Coro) {
 // At exit, before the output is flushed: every generator still suspended gets GeneratorExit, so its finally
 // blocks and with exits run.
 pub fn close_live_gens() {
-    let live: Vec<*mut Coro> = CORO_LIVE.with(|l| l.borrow().clone());
-    for c in live {
-        let still = CORO_LIVE.with(|l| l.borrow().contains(&c));
+    let mut live: Vec<(*mut Coro, usize, u64)> = CORO_LIVE.with(|l| {
+        l.borrow()
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| !c.is_null())
+            .map(|(i, c)| (*c, i, unsafe { (**c).live_seq }))
+            .collect()
+    });
+    live.sort_unstable_by_key(|t| t.2);
+    for (c, i, _) in live {
+        // a finally block closed (and possibly dropped) this generator while an earlier one was shutting down
+        let still = CORO_LIVE.with(|l| l.borrow().get(i) == Some(&c));
         if still {
             unsafe {
                 if let Err(E(e)) = (*c).close_py() {
@@ -170,6 +232,10 @@ pub fn close_live_gens() {
                 }
             }
         }
+    }
+    #[cfg(not(windows))]
+    for p in CORO_FREE.with(|f| f.borrow_mut().drain(..).collect::<Vec<_>>()) {
+        unsafe { munmap(p, CORO_STACK) };
     }
     CORO_EXITING.with(|x| x.set(true));
 }
@@ -208,8 +274,9 @@ unsafe extern "system" fn coro_fiber_proc(c: *mut std::ffi::c_void) {
 }
 
 impl Coro {
-    fn new(body: Box<dyn FnOnce() -> R>) -> Box<Coro> {
+    fn new(name: Sym, body: Box<dyn FnOnce() -> R>) -> Box<Coro> {
         Box::new(Coro {
+            name,
             stack: std::ptr::null_mut(),
             sp: std::ptr::null_mut(),
             caller_sp: std::ptr::null_mut(),
@@ -225,6 +292,8 @@ impl Coro {
             running: false,
             depth: 0,
             depth_base: 0,
+            live_idx: 0,
+            live_seq: 0,
         })
     }
     // Runs the generator to its next yield: Some(value), or None once it has returned.
@@ -240,23 +309,39 @@ impl Coro {
         #[cfg(not(windows))]
         unsafe {
             if !self.started {
-                let p = mmap(std::ptr::null_mut(), CORO_STACK, 3, MAP_ANON_FLAGS, -1, 0);
-                if p.is_null() || p as isize == -1 {
-                    return Err(exc("MemoryError", "no memory for a generator".into()));
-                }
-                mprotect(p, CORO_GUARD, 0);
+                let p = match stack_alloc() {
+                    Some(p) => p,
+                    None => return Err(exc("MemoryError", "no memory for a generator".into())),
+                };
                 self.stack = p;
                 self.sp = coro_init_stack(p.add(CORO_STACK), self as *mut Coro);
                 self.started = true;
+                self.live_seq = CORO_SEQ.with(|s| {
+                    let n = s.get();
+                    s.set(n.wrapping_add(1));
+                    n
+                });
                 let me = self as *mut Coro;
-                CORO_LIVE.with(|l| l.borrow_mut().push(me));
+                CORO_LIVE.with(|l| {
+                    let mut l = l.borrow_mut();
+                    let i = CORO_LIVE_FREE.with(|f| f.borrow_mut().pop());
+                    if let Some(i) = i {
+                        l[i] = me;
+                        self.live_idx = i;
+                    } else {
+                        self.live_idx = l.len();
+                        l.push(me);
+                    }
+                });
             }
             self.xfer = Some(sent);
             self.running = true;
             self.depth_base = DEPTH.with(|d| d.get());
             DEPTH.with(|d| d.set(self.depth_base + self.depth));
             CORO_NOW.with(|s| s.borrow_mut().push(self as *mut Coro));
+            CUR_GEN_NAME.with(|n| n.set(Some(self.name)));
             brevi_ctx_switch(&mut self.caller_sp, self.sp);
+            CUR_GEN_NAME.with(|n| n.set(None));
             CORO_NOW.with(|s| s.borrow_mut().pop());
             self.running = false;
             self.depth = DEPTH.with(|d| d.get()).saturating_sub(self.depth_base);
@@ -350,9 +435,7 @@ impl Coro {
     fn free_stack(&mut self) {
         if !self.stack.is_null() {
             #[cfg(not(windows))]
-            unsafe {
-                munmap(self.stack, CORO_STACK)
-            };
+            stack_free(self.stack);
             self.stack = std::ptr::null_mut();
         }
         #[cfg(windows)]
@@ -429,8 +512,12 @@ pub fn gen_yield_from(it: &V) -> R {
 }
 
 // A generator object: the function body, started at the first next().
-pub fn make_gen(body: impl FnOnce() -> R + 'static) -> V {
-    V::Iter(Rc::new(RefCell::new(It::Coro(Rc::new(RefCell::new(Coro::new(Box::new(body))))))))
+pub fn make_gen(name: Sym, body: impl FnOnce() -> R + 'static) -> V {
+    V::Iter(Rc::new(RefCell::new(It::Coro(Rc::new(RefCell::new(Coro::new(name, Box::new(body))))))))
+}
+// The __qualname__ of the generator whose body is running now (None otherwise).
+pub fn running_gen_name() -> Option<Sym> {
+    CUR_GEN_NAME.with(|n| n.get())
 }
 
 pub fn coro_next(c: &Rc<RefCell<Box<Coro>>>, sent: V) -> Result<Option<V>, E> {

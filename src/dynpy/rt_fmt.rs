@@ -160,6 +160,9 @@ pub fn repr(v: &V) -> Result<String, E> {
             }
         }
         V::Dict(d) => {
+            if d.borrow().kind == 2 {
+                return counter_repr(d, "Counter");
+            }
             let p = Rc::as_ptr(d) as usize;
             if !guard(p) {
                 return Ok("{...}".into());
@@ -186,18 +189,8 @@ pub fn repr(v: &V) -> Result<String, E> {
                     None => "None".into(),
                 }, body),
                 2 => {
-                    // Counter repr: most common first
-                    let mut items = items.clone();
-                    sort_by_key_desc_count(&mut items)?;
-                    if items.is_empty() {
-                        "Counter()".into()
-                    } else {
-                        let mut ps = vec![];
-                        for (k, x) in &items {
-                            ps.push(format!("{}: {}", repr(k)?, repr(x)?));
-                        }
-                        format!("Counter({{{}}})", ps.join(", "))
-                    }
+                    // Counter repr goes through counter_repr above.
+                    unreachable!()
                 }
                 3 => {
                     if items.is_empty() {
@@ -227,9 +220,9 @@ pub fn repr(v: &V) -> Result<String, E> {
         }
         V::Func(f) => {
             if f.kind.get() == 3 {
-                format!("<built-in function {}>", f.name)
+                format!("<built-in function {}>", f.name.get())
             } else {
-                format!("<function {} at 0x{:x}>", f.name, Rc::as_ptr(f) as *const u8 as usize)
+                format!("<function {} at 0x{:x}>", f.qualname.get(), Rc::as_ptr(f) as *const u8 as usize)
             }
         }
         V::Class(c) => {
@@ -238,10 +231,19 @@ pub fn repr(v: &V) -> Result<String, E> {
             } else if c.module == "builtins" {
                 format!("<class '{}'>", c.name)
             } else {
-                format!("<class '{}.{}'>", c.module, c.name)
+                format!("<class '{}.{}'>", c.module, c.qualname.get())
             }
         }
         V::Obj(o) => {
+            // A builtin container subclass without its own __repr__ reprs as the subclass: a Counter subclass
+            // prints `MyCounter({...})`, not `Counter({...})`.
+            if o.cls.own("__repr__").is_none() {
+                if let Some(V::Dict(d)) = inner_of(v) {
+                    if d.borrow().kind == 2 {
+                        return counter_repr(&d, o.cls.name);
+                    }
+                }
+            }
             if let Some(f) = o.cls.lookup("__repr__") {
                 // bound as an attribute lookup would bind it: a @staticmethod __repr__ gets no self
                 let r = match &f {
@@ -262,19 +264,38 @@ pub fn repr(v: &V) -> Result<String, E> {
                 return Ok(format!("{}{}", o.cls.name, a));
             }
             if let Some(i) = inner_of(v) {
+                if let V::Dict(d) = &i {
+                    if d.borrow().kind == 2 {
+                        return counter_repr(d, o.cls.name);
+                    }
+                }
                 return repr(&i);
             }
-            format!("<{}.{} object at 0x{:x}>", o.cls.module, o.cls.name, Rc::as_ptr(o) as *const u8 as usize)
+            format!("<{}.{} object at 0x{:x}>", o.cls.module, o.cls.qualname.get(), Rc::as_ptr(o) as *const u8 as usize)
         }
         V::Bound(b) => {
             let fname = match &b.1 {
-                V::Func(f) => f.name,
+                V::Func(f) => f.qualname.get(),
                 _ => "?",
             };
             format!("<bound method {} of {}>", fname, repr(&b.0)?)
         }
         V::BMeth(b) => format!("<built-in method {} of {} object>", b.1, tn(&b.0)),
-        V::Iter(_) => "<iterator object>".into(),
+        V::Iter(x) => {
+            // a generator (or genexpr) reprs with its dotted __qualname__, as in CPython; the cells are held
+            // while the generator body runs, so read them only when free (the running generator's name is
+            // remembered elsewhere for that case)
+            let name = x.try_borrow().ok().and_then(|it| match &*it {
+                It::Coro(c) => c.try_borrow().ok().map(|c| c.name),
+                It::GenExp(_, n, _) => Some(*n),
+                _ => None,
+            })
+            .or_else(running_gen_name);
+            match name {
+                Some(n) => format!("<generator object {} at 0x{:x}>", n, Rc::as_ptr(x) as *const u8 as usize),
+                None => "<iterator object>".into(),
+            }
+        }
         V::Range(r) => {
             if r.2 == 1 {
                 format!("range({}, {})", r.0, r.1)
@@ -324,6 +345,34 @@ pub fn repr(v: &V) -> Result<String, E> {
         V::Unbound => "<unbound>".into(),
     })
 }
+// CPython's Counter repr: counts sorted highest first, ties in insertion order; non-sortable counts fall back
+// to insertion order. `name` is the class name (a Counter subclass reprs as the subclass).
+fn counter_repr(d: &Rc<RefCell<Dict>>, name: &str) -> Result<String, E> {
+    let p = Rc::as_ptr(d) as usize;
+    if !guard(p) {
+        return Ok("{...}".into());
+    }
+    let r = (|| -> Result<String, E> {
+        let items = d.borrow().items();
+        let mut sorted = items.clone();
+        let use_sorted = match sort_by_key_desc_count(&mut sorted) {
+            Ok(()) => true,
+            Err(e) if is_exc(&e.0, "TypeError") => false,
+            Err(e) => return Err(e),
+        };
+        let shown = if use_sorted { sorted } else { items };
+        if shown.is_empty() {
+            return Ok(format!("{name}()"));
+        }
+        let mut ps = vec![];
+        for (k, x) in &shown {
+            ps.push(format!("{}: {}", repr(k)?, repr(x)?));
+        }
+        Ok(format!("{name}({{{}}})", ps.join(", ")))
+    })();
+    unguard();
+    r
+}
 fn sort_by_key_desc_count(items: &mut Vec<(V, V)>) -> Result<(), E> {
     // stable sort by count, highest first (Counter.most_common order)
     let mut keyed: Vec<(V, (V, V))> = items.drain(..).map(|p| (p.1.clone(), p)).collect();
@@ -357,6 +406,16 @@ pub fn to_str(v: &V) -> Result<String, E> {
         V::Float(f) => float_repr(*f),
         V::Int(i) => i.to_string(),
         V::Obj(o) => {
+            // Counter subclasses str as their own name; an inherited dict __str__ would print `Counter(...)`.
+            // A subclass that defines __repr__ but not __str__ strs through its __repr__, as CPython's
+            // __str__ slot falls back to __repr__.
+            if o.cls.own("__str__").is_none() && o.cls.own("__repr__").is_none() {
+                if let Some(V::Dict(d)) = inner_of(v) {
+                    if d.borrow().kind == 2 {
+                        return counter_repr(&d, o.cls.name);
+                    }
+                }
+            }
             if let Some(f) = o.cls.lookup("__str__") {
                 return match call(&f, Args::p(vec![v.clone()]))? {
                     V::Str(s) => Ok(s.s.clone()),

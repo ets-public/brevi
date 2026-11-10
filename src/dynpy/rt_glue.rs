@@ -49,6 +49,15 @@ pub fn gr(i: usize) -> V {
 pub fn gs(i: usize, v: V) {
     *gref(i) = v;
 }
+/// `del x` on a global: builtins cannot be deleted, and an unbound slot is NameError.
+#[inline]
+pub fn gdel(i: usize, name: &str) -> Result<(), E> {
+    if matches!(gref(i), V::Unbound) {
+        return Err(exc("NameError", format!("name '{name}' is not defined")));
+    }
+    *gref(i) = V::Unbound;
+    Ok(())
+}
 #[inline]
 pub fn kc(i: usize) -> V {
     unsafe { (&*std::ptr::addr_of!(K))[i].clone() }

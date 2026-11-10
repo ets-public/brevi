@@ -652,7 +652,7 @@ pub fn heapq_fn(name: &str, mut a: Args) -> R {
             let revv = a.kw("reverse").unwrap_or(V::None);
             a.no_kw("merge")?;
             let mut st = MergeState { inputs: std::mem::take(&mut a.p), heap: vec![], started: false, hole: false, tail: false, revv, rev: None };
-            genexp_iter(move || st.next(key.as_ref()))
+            genexp_iter("merge", move || st.next(key.as_ref()))
         }
         _ => return Err(unsupported(&format!("heapq.{name}"))),
     })
@@ -701,9 +701,10 @@ pub fn bisect_fn(name: &str, mut a: Args) -> R {
 
 fn lru_cache_wrap(f: V) -> V {
     let cache: Rc<RefCell<Dict>> = Rc::new(RefCell::new(Dict::new()));
-    let name = match &f {
-        V::Func(x) => x.name,
-        _ => "wrapper",
+    // CPython's update_wrapper copies __name__ and __qualname__ from the wrapped function.
+    let (name, qualname) = match &f {
+        V::Func(x) => (x.name.get(), x.qualname.get()),
+        _ => ("wrapper", "wrapper"),
     };
     let c2 = cache.clone();
     let w = func(name, move |a: Args| {
@@ -726,6 +727,32 @@ fn lru_cache_wrap(f: V) -> V {
             c3.borrow_mut().clear();
             Ok(V::None)
         })));
+    }
+    with_qualname(w, qualname)
+}
+// CPython's functools.update_wrapper: copy __qualname__ and every attribute in the wrapped function's
+// __dict__ (__doc__, __module__, __annotations__, user attributes), and set __wrapped__.
+fn update_wrapper(w: V, f: &V) -> V {
+    let wf = match &w {
+        V::Func(wf) => wf.clone(),
+        _ => return w,
+    };
+    let V::Func(x) = f else {
+        return w;
+    };
+    wf.name.set(x.name.get());
+    wf.qualname.set(x.qualname.get());
+    if !Rc::ptr_eq(&wf, x) {
+        let mut a = wf.attrs.borrow_mut();
+        for (k, v) in x.attrs.borrow().iter() {
+            match a.iter_mut().find(|(n, _)| *n == *k) {
+                Some(e) => e.1 = v.clone(),
+                None => a.push((*k, v.clone())),
+            }
+        }
+        if !a.iter().any(|(n, _)| *n == "__wrapped__") {
+            a.push(("__wrapped__", f.clone()));
+        }
     }
     w
 }
@@ -779,7 +806,14 @@ pub fn functools_fn(name: &str, mut a: Args) -> R {
                 call(&f, Args { p, k })
             })
         }
-        "wraps" => builtin("wraps", |a: Args| Ok(a1(&a, "wraps")?)),
+        "wraps" => {
+            let f = a1(&a, name)?;
+            // CPython's functools.wraps(f) is a decorator that applies update_wrapper to the wrapped def.
+            builtin("wraps", move |a: Args| {
+                let w = a1(&a, "wraps")?;
+                Ok(update_wrapper(w, &f))
+            })
+        }
         "total_ordering" => {
             let c = a1(&a, name)?;
             if let V::Class(k) = &c {
@@ -834,6 +868,28 @@ impl Ext for CmpKey {
     fn any(&self) -> &dyn std::any::Any {
         self
     }
+    // the wrapped value, as CPython's KeyWrapper.obj
+    fn attr(&self, _me: &V, n: &str) -> Option<R> {
+        if n == "obj" {
+            return Some(Ok(self.v.clone()));
+        }
+        None
+    }
+    fn eq_rich(&self, _me: &V, o: &V, _right: bool) -> Option<Result<bool, E>> {
+        Some(match cmp_key_of(o) {
+            Some(k) => cmp_key_cmp(&self.f, &self.v, &k.v, "=="),
+            None => type_err("other argument must be K instance".into()),
+        })
+    }
+    fn rich(&self, _me: &V, op: &str, o: &V, _right: bool) -> Option<Result<bool, E>> {
+        match op {
+            "<" | ">" | "<=" | ">=" => Some(match cmp_key_of(o) {
+                Some(k) => cmp_key_cmp(&self.f, &self.v, &k.v, op),
+                None => type_err("other argument must be K instance".into()),
+            }),
+            _ => None,
+        }
+    }
     fn cmp(&self, o: &V) -> Option<std::cmp::Ordering> {
         if let V::Ext(x) = o {
             if let Some(k) = x.any().downcast_ref::<CmpKey>() {
@@ -856,6 +912,22 @@ impl Ext for CmpKey {
             }
         }
         None
+    }
+}
+fn cmp_key_of(o: &V) -> Option<&CmpKey> {
+    match o {
+        V::Ext(x) => x.any().downcast_ref::<CmpKey>(),
+        _ => None,
+    }
+}
+// CPython's KeyWrapper does `mycmp(self.obj, other.obj) OP 0` for OP in ==, <, >, <=, >=: the
+// comparison runs on whatever mycmp returned, so errors and odd result types come out as they do there.
+fn cmp_key_cmp(f: &V, x: &V, y: &V, op: &str) -> Result<bool, E> {
+    let r = call(f, Args::p(vec![x.clone(), y.clone()]))?;
+    if op == "==" {
+        eq(&r, &V::Int(0))
+    } else {
+        rich(&r, &V::Int(0), op)
     }
 }
 
@@ -1953,7 +2025,10 @@ fn abc_class() -> Rc<Class> {
 pub fn namedtuple(mut a: Args) -> R {
     let defaults = a.kw("defaults");
     let _ = a.kw("rename");
-    let _ = a.kw("module");
+    let module = match a.kw("module") {
+        Some(m) => sym(&to_str(&m)?),
+        None => "__main__",
+    };
     a.no_kw("namedtuple")?;
     a.want("namedtuple", 2, 2)?;
     let name = sym(&to_str(&a.p[0])?);
@@ -1973,7 +2048,7 @@ pub fn namedtuple(mut a: Args) -> R {
         fdd.set(s(k), v.clone())?;
     }
     let fd = V::Dict(Rc::new(RefCell::new(fdd)));
-    let c = Class::new(name, "__main__", vec![bclass("tuple")], BT::Tuple);
+    let c = Class::new(name, module, vec![bclass("tuple")], BT::Tuple);
     *c.fields.borrow_mut() = fields.clone();
     let f2 = fields.clone();
     let cc = c.clone();
@@ -2085,6 +2160,8 @@ struct DcOpts {
     unsafe_hash: bool,
     frozen: bool,
     kw_only: bool,
+    slots: bool,
+    weakref_slot: bool,
 }
 pub fn dataclass_fn(n: &str, mut a: Args) -> R {
     match n {
@@ -2098,10 +2175,10 @@ pub fn dataclass_fn(n: &str, mut a: Args) -> R {
                 unsafe_hash: flag("unsafe_hash", false)?,
                 frozen: flag("frozen", false)?,
                 kw_only: flag("kw_only", false)?,
+                slots: flag("slots", false)?,
+                weakref_slot: flag("weakref_slot", false)?,
             };
-            let _ = a.kw("slots");
             let _ = a.kw("match_args");
-            let _ = a.kw("weakref_slot");
             if !a.k.is_empty() {
                 return type_err(format!("dataclass() got an unexpected keyword argument '{}'", a.k[0].0));
             }
@@ -2399,6 +2476,39 @@ fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> Result<(), E> {
             None => fields.push((name, f)),
         }
     }
+    if o.slots {
+        // CPython's dataclasses._add_slots: the field names not already stored in a base's slot, plus
+        // __weakref__ when asked; the class's own field attributes leave its dict (their defaults still
+        // feed the generated __init__ through the Field objects)
+        if c.own("__slots__").is_some() {
+            return type_err(format!("{} already specifies __slots__", c.name));
+        }
+        let mro = c.mro.borrow().clone();
+        let mut inherited: Vec<Sym> = vec![];
+        for b in mro.iter().skip(1).filter(|b| b.bt != BT::Object) {
+            if let Some(sv) = b.own("__slots__") {
+                slot_names(&sv, &mut inherited);
+            }
+        }
+        let mut seen: Vec<Sym> = vec![];
+        let mut new_slots: Vec<V> = vec![];
+        for (n, f) in &fields {
+            if field_kind(f) != "_FIELD_INITVAR" && !inherited.contains(n) && !seen.contains(n) {
+                seen.push(*n);
+                new_slots.push(s(*n));
+            }
+        }
+        if o.weakref_slot && !inherited.iter().any(|k| *k == "__weakref__") {
+            new_slots.push(s("__weakref__"));
+        }
+        for (n, f) in &fields {
+            if field_kind(f) != "_FIELD_INITVAR" {
+                c.attrs.borrow_mut().retain(|(k, _)| *k != *n);
+            }
+        }
+        class_changed();
+        c.set("__slots__", tup(new_slots));
+    }
     let fd = dict_new();
     if let V::Dict(d) = &fd {
         for (n, f) in &fields {
@@ -2502,7 +2612,12 @@ fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> Result<(), E> {
             for f in &fs {
                 parts.push(format!("{}={}", f, repr(&getattr(me, f)?)?));
             }
-            Ok(st(format!("{}({})", tn(me), parts.join(", "))))
+            // CPython's dataclass repr uses self.__class__.__qualname__
+            let qn = match me {
+                V::Obj(o) => o.cls.qualname.get().to_string(),
+                _ => tn(me),
+            };
+            Ok(st(format!("{qn}({})", parts.join(", "))))
         }));
     }
     let cmp = names(&real, "compare")?;

@@ -1,0 +1,1 @@
+- `functools.cmp_to_key` keys compare equal when the cmp function returns 0, raise CPython's TypeError against non-keys, and expose `.obj`.

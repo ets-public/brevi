@@ -1,0 +1,16 @@
+Outer.Inner
+Inner
+<class '__main__.Outer.Inner'>
+Outer.method.<locals>.h
+h
+Outer.method.<locals>.D
+D
+<class '__main__.Outer.method.<locals>.D'>
+<lambda>
+top top
+outer.<locals>.inner
+inner
+outer.<locals>.Local
+Local
+outer.<locals>.<lambda>
+<class '__main__.outer.<locals>.Local'>

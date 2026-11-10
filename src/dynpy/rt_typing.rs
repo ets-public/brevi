@@ -59,8 +59,9 @@ pub fn typing_call(n: &str, mut a: Args) -> R {
 }
 
 // A class whose bases hold NamedTuple or TypedDict (make_class calls it first; None: an ordinary class,
-// with typing's Generic and Protocol taken out of its bases).
-pub fn typing_class(name: Sym, bases: &mut Vec<V>, attrs: &[(Sym, V)], fields: &[Sym]) -> Option<R> {
+// with typing's Generic and Protocol taken out of its bases). `qualname` is the class statement's dotted
+// __qualname__; `module` is where the class is defined.
+pub fn typing_class(name: Sym, qualname: Sym, module: Sym, bases: &mut Vec<V>, attrs: &[(Sym, V)], fields: &[Sym]) -> Option<R> {
     let (mut nt, mut td) = (false, false);
     bases.retain(|b| match b {
         V::Class(k) if k.module == "typing" => {
@@ -75,7 +76,7 @@ pub fn typing_class(name: Sym, bases: &mut Vec<V>, attrs: &[(Sym, V)], fields: &
         _ => true,
     });
     if td {
-        let c = Class::new(name, "__main__", vec![bclass("dict")], BT::Other);
+        let c = Class::with_qualname(name, qualname, module, vec![bclass("dict")], BT::Other);
         c.set("__bv_typeddict__", V::Bool(true));
         return Some(Ok(V::Class(c)));
     }
@@ -99,8 +100,11 @@ pub fn typing_class(name: Sym, bases: &mut Vec<V>, attrs: &[(Sym, V)], fields: &
         }
         let mut a = Args::p(vec![s(name), list(fields.iter().map(|f| s(f)).collect())]);
         a.k.push(("defaults", list(defaults)));
+        // as typing.NamedTuple does: the caller's module, and the class statement's __qualname__
+        a.k.push(("module", s(module)));
         let c = namedtuple(a)?;
         if let V::Class(k) = &c {
+            k.qualname.set(qualname);
             for (n, v) in attrs {
                 if matches!(*n, "_asdict" | "__slots__" | "__new__" | "_replace" | "__init__" | "_field_defaults" | "_fields" | "__getnewargs__" | "_source" | "_make") {
                     return Err(exc("AttributeError", format!("Cannot overwrite NamedTuple attribute {n}")));

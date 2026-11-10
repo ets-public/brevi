@@ -337,11 +337,12 @@ impl Drop for Depth {
 // ---------- classes ----------
 
 pub fn make_class(name: Sym, module: Sym, bases: Vec<V>, attrs: Vec<(Sym, V)>) -> R {
-    make_class_f(name, module, bases, attrs, vec![])
+    make_class_f(name, name, module, bases, attrs, vec![])
 }
-// As make_class, with the names the class body annotates (dataclass and NamedTuple fields).
-pub fn make_class_f(name: Sym, module: Sym, mut bases: Vec<V>, attrs: Vec<(Sym, V)>, fields: Vec<Sym>) -> R {
-    if let Some(r) = typing_class(name, &mut bases, &attrs, &fields) {
+// As make_class, with the names the class body annotates (dataclass and NamedTuple fields). `qualname` is
+// CPython's dotted __qualname__ (`outer.<locals>.Name` inside a function, `Outer.Inner` inside a class).
+pub fn make_class_f(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, attrs: Vec<(Sym, V)>, fields: Vec<Sym>) -> R {
+    if let Some(r) = typing_class(name, qualname, module, &mut bases, &attrs, &fields) {
         return r;
     }
     let mut bs = vec![];
@@ -355,9 +356,22 @@ pub fn make_class_f(name: Sym, module: Sym, mut bases: Vec<V>, attrs: Vec<(Sym, 
         bs.push(bclass("object"));
     }
     let bt = if bs.iter().any(|b| b.base_bt() == BT::Exc) { BT::Exc } else { BT::Other };
-    let c = Class::new(name, module, bs, bt);
+    let c = Class::with_qualname(name, qualname, module, bs, bt);
     for (n, v) in attrs {
         c.set(n, v);
+    }
+    // a __slots__ name that the class body also binds is refused, as CPython refuses it
+    if let Some(sv) = c.own("__slots__") {
+        let mut own_slots = vec![];
+        slot_names(&sv, &mut own_slots);
+        for n in own_slots {
+            if n == "__dict__" || n == "__weakref__" {
+                continue;
+            }
+            if c.attrs.borrow().iter().any(|(k, _)| *k == n) {
+                return Err(exc("ValueError", format!("'{n}' in __slots__ conflicts with class variable")));
+            }
+        }
     }
     *c.fields.borrow_mut() = fields;
     // __set_name__ is not supported (rare)
@@ -515,7 +529,7 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
     Ok(me)
 }
 fn is_builtin_init(f: &V) -> bool {
-    matches!(f, V::Func(x) if x.kind.get() == 3 && x.name == "__init__")
+    matches!(f, V::Func(x) if x.kind.get() == 3 && x.name.get() == "__init__")
 }
 fn builtin_of_bt(bt: BT) -> Rc<Class> {
     bclass(match bt {
@@ -620,7 +634,7 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
                 if let Some(i) = o.inner() {
                     return Ok(st(if rep { repr(&i)? } else { to_str(&i)? }));
                 }
-                return Ok(st(format!("<{}.{} object at 0x{:x}>", o.cls.module, o.cls.name, Rc::as_ptr(o) as *const u8 as usize)));
+                return Ok(st(format!("<{}.{} object at 0x{:x}>", o.cls.module, o.cls.qualname.get(), Rc::as_ptr(o) as *const u8 as usize)));
             }
             Ok(s(""))
         }));
@@ -676,6 +690,12 @@ pub fn object_setattr(me: &V, a: &[V]) -> R {
             call(&p.1, Args::p(vec![me.clone(), a[1].clone()]))?;
             return Ok(V::None);
         }
+    }
+    if !o.cls.may_store(name) {
+        if o.cls.lookup(name).is_some() {
+            return Err(exc("AttributeError", format!("'{}' object attribute '{}' is read-only", o.cls.name, name)));
+        }
+        return Err(exc("AttributeError", format!("'{}' object has no attribute '{}' and no __dict__ for setting new attributes", o.cls.name, name)));
     }
     o.set_res(name, a[1].clone())?;
     Ok(V::None)
@@ -795,8 +815,9 @@ fn setattr_ic_slow(o: &V, name: Sym, v: V, ic: &std::sync::atomic::AtomicUsize) 
 pub fn getattr(o: &V, name: &str) -> R {
     match o {
         V::Obj(ob) => {
-            // a class attribute named __dict__ (a property) wins over the object's own dict, as in CPython
-            if name == "__dict__" && ob.cls.lookup(name).is_none() {
+            // a class attribute named __dict__ (a property) wins over the object's own dict, as in CPython;
+            // a class whose __slots__ leave no __dict__ has no instance dict to return
+            if name == "__dict__" && ob.cls.lookup(name).is_none() && ob.cls.has_dict() {
                 return ob.dict();
             }
             if let Some(v) = ob.get_attr(name)? {
@@ -860,7 +881,11 @@ pub fn getattr(o: &V, name: &str) -> R {
             }
             match name {
                 // numpy's classes: float64, str_ (their module is numpy)
-                "__name__" | "__qualname__" => Ok(s(c.name.strip_prefix("numpy.").filter(|n| !n.contains('.')).unwrap_or(c.name))),
+                "__name__" => Ok(s(c.name.strip_prefix("numpy.").filter(|n| !n.contains('.')).unwrap_or(c.name))),
+                "__qualname__" => {
+                    let qn = c.qualname.get();
+                    Ok(s(qn.strip_prefix("numpy.").filter(|n| !n.contains('.')).unwrap_or(qn)))
+                },
                 "__module__" => Ok(s(c.module)),
                 "__mro__" => Ok(tup(c.mro.borrow().iter().map(|k| V::Class(k.clone())).collect())),
                 "__bases__" => Ok(tup(c.bases.iter().map(|k| V::Class(k.clone())).collect())),
@@ -899,12 +924,13 @@ pub fn getattr(o: &V, name: &str) -> R {
             module_attr(m, name)
         }
         V::Func(f) => match name {
-            "__name__" | "__qualname__" => Ok(s(f.name)),
+            "__name__" => Ok(s(f.name.get())),
+            "__qualname__" => Ok(s(f.qualname.get())),
             "__call__" => Ok(o.clone()),
             // an assigned __code__ is kept in attrs; otherwise one is made from the def's flags
             "__code__" if f.attrs.borrow().iter().all(|(k, _)| *k != "__code__") => match f.code_flags.get() {
                 0 => Err(exc("AttributeError", format!("'{}' object has no attribute '__code__'", if f.kind.get() == 3 { "builtin_function_or_method" } else { "function" }))),
-                fl => Ok(mk_code(f.name, fl)),
+                fl => Ok(mk_code(f.name.get(), fl)),
             },
             // 0 function, 1 staticmethod, 2 classmethod (Brevi's pydantic reads it)
             "__bv_kind__" => Ok(V::Int(f.kind.get() as i64)),
@@ -968,6 +994,22 @@ pub fn getattr(o: &V, name: &str) -> R {
         }
         V::Dict(d) if name == "default_factory" => Ok(d.borrow().dflt.clone().unwrap_or(V::None)),
         V::Deque(d) if name == "maxlen" => Ok(d.borrow().max.map_or(V::None, |m| V::Int(m as i64))),
+        V::Iter(it) if name == "__qualname__" || name == "__name__" => {
+            // only generators and genexprs carry these; the cells are held while the generator body runs,
+            // so read them only when free (the running generator's name is remembered elsewhere)
+            let qn = it.try_borrow().ok().and_then(|i| match &*i {
+                It::Coro(c) => c.try_borrow().ok().map(|c| c.name),
+                It::GenExp(_, n, _) => Some(*n),
+                _ => None,
+            })
+            .or_else(running_gen_name);
+            match qn {
+                Some(qn) if name == "__qualname__" => Ok(s(qn)),
+                // __name__ is the code object's co_name: the qualname's last component (genexprs: <genexpr>)
+                Some(qn) => Ok(s(qn.rsplit('.').next().unwrap_or(qn))),
+                None => Err(exc("AttributeError", format!("'{}' object has no attribute '{name}'", tn(o)))),
+            }
+        }
         _ => {
             if has_method(o, name) {
                 return Ok(V::BMeth(Rc::new((o.clone(), sym(name)))));
@@ -997,6 +1039,12 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
             if let Some(V::Tuple(slots)) = ob.cls.lookup("__frozen__") {
                 let _ = slots;
                 return Err(exc("FrozenInstanceError", format!("cannot assign to field '{name}'")));
+            }
+            if !ob.cls.may_store(name) {
+                if ob.cls.lookup(name).is_some() {
+                    return Err(exc("AttributeError", format!("'{}' object attribute '{}' is read-only", ob.cls.name, name)));
+                }
+                return Err(exc("AttributeError", format!("'{}' object has no attribute '{}' and no __dict__ for setting new attributes", ob.cls.name, name)));
             }
             ob.set_res(name, v)?;
             Ok(())
@@ -1030,6 +1078,12 @@ pub fn delattr(o: &V, name: &str) -> Result<(), E> {
             }
             if ob.del_attr(name)? {
                 Ok(())
+            } else if !ob.cls.has_dict() {
+                if ob.cls.lookup(name).is_some() {
+                    Err(exc("AttributeError", format!("'{}' object attribute '{}' is read-only", ob.cls.name, name)))
+                } else {
+                    Err(exc("AttributeError", format!("'{}' object has no attribute '{}' and no __dict__ for setting new attributes", ob.cls.name, name)))
+                }
             } else {
                 Err(exc("AttributeError", format!("'{}' object has no attribute '{}'", ob.cls.name, name)))
             }
@@ -1097,6 +1151,16 @@ pub fn call_method(o: &V, name: &str, mut a: Args) -> R {
                     V::Prop(p) => call(&call(&p.0, Args::p(vec![o.clone()]))?, a),
                     _ => call(&v, a),
                 };
+            }
+            // A dict subclass's copy() returns the subclass (a Counter's too). The class defines no copy of its
+            // own here; the wrapped builtin value is copied into a new instance of the same class.
+            if name == "copy" && ob.cls.own(name).is_none() {
+                if let Some(V::Dict(d)) = inner_of(o) {
+                    let inner = V::Dict(Rc::new(RefCell::new(d.borrow().copy())));
+                    let no = Obj::new(ob.cls.clone());
+                    no.set_inner(Some(inner));
+                    return Ok(V::Obj(no));
+                }
             }
             if let Some(inner) = inner_of(o) {
                 return call_method(&inner, name, a);

@@ -55,7 +55,7 @@ impl ACoro {
                         return Err(exc("TypeError", "can't send non-None value to a just-started coroutine".into()));
                     }
                     let ACState::Fresh(body) = std::mem::replace(&mut *st, ACState::Done) else { unreachable!() };
-                    let c = Rc::new(RefCell::new(Coro::new(body)));
+                    let c = Rc::new(RefCell::new(Coro::new(self.name, body)));
                     *st = ACState::Run(c.clone());
                     c
                 }
@@ -312,7 +312,774 @@ pub fn brevi_async_fn(n: &str, a: Args) -> R {
             Ok(V::Bool(is_acoro(&x) || class_has(&x, "__await__")))
         }
         "set_hooks" | "track" | "untrack" | "tracked" => ag_hook_fn(n, &a),
+        "set_task_hooks" => {
+            a.want("set_task_hooks", 9, 9)?;
+            let mut p = a.p.iter();
+            let (reg, unreg) = (p.next().unwrap().clone(), p.next().unwrap().clone());
+            ASYNC_UNREGISTER.with(|s| *s.borrow_mut() = Some(unreg));
+            ASYNC_REGISTER.with(|s| *s.borrow_mut() = Some(reg));
+            ASYNC_NEXTNAME.with(|s| *s.borrow_mut() = Some(p.next().unwrap().clone()));
+            let take_class = |v: &V| -> Option<Rc<Class>> { match v { V::Class(c) => Some(c.clone()), _ => None } };
+            let (hcls, lcls, fcls, tcls) = (take_class(p.next().unwrap()), take_class(p.next().unwrap()), take_class(p.next().unwrap()), take_class(p.next().unwrap()));
+            ASYNC_CANCELLED.with(|s| *s.borrow_mut() = take_class(p.next().unwrap()));
+            ASYNC_INVALID.with(|s| *s.borrow_mut() = take_class(p.next().unwrap()));
+            // The port's own methods, captured now (before any user code could replace them) so the native
+            // fast paths compare against the originals and an override falls back to the Python method.
+            let take_func = |c: &Option<Rc<Class>>, n: &str| -> Option<Rc<Func>> { c.as_ref().and_then(|c| match c.lookup(n) { Some(V::Func(f)) => Some(f), _ => None }) };
+            ASYNC_HANDLE.with(|s| *s.borrow_mut() = hcls.clone());
+            ASYNC_LOOP.with(|s| *s.borrow_mut() = lcls.clone());
+            ASYNC_FUTURE.with(|s| *s.borrow_mut() = fcls.clone());
+            ASYNC_TASK.with(|s| *s.borrow_mut() = tcls.clone());
+            ASYNC_CALLSOON.with(|s| *s.borrow_mut() = take_func(&lcls, "_call_soon"));
+            ASYNC_CREATETASK.with(|s| *s.borrow_mut() = take_func(&lcls, "create_task"));
+            ASYNC_STEPF.with(|s| *s.borrow_mut() = take_func(&tcls, "_step"));
+            ASYNC_WAKEUP.with(|s| *s.borrow_mut() = take_func(&tcls, "_wakeup"));
+            ASYNC_SCHEDCB.with(|s| *s.borrow_mut() = take_func(&fcls, "_schedule_callbacks"));
+            ASYNC_RUNF.with(|s| *s.borrow_mut() = take_func(&hcls, "_run"));
+            Ok(V::None)
+        }
+        "make_handle" => {
+            a.want("make_handle", 5, 5)?;
+            let cls = a.p[0].clone();
+            let Some(h) = handle_new(cls, a.p[1].clone(), a.p[2].clone(), a.p[3].clone(), a.p[4].clone()) else {
+                return Err(unsupported("_brevi_async.make_handle without asyncio"));
+            };
+            Ok(h)
+        }
+        "run_ready" => {
+            a.want("run_ready", 2, 2)?;
+            let loop_ = a.p[0].clone();
+            let n = match &a.p[1] {
+                V::Int(i) => *i as usize,
+                _ => return Err(exc("TypeError", "run_ready takes an int".into())),
+            };
+            run_ready(&loop_, n)
+        }
+        "task_step" => {
+            a.want("task_step", 1, 2)?;
+            let excv = match a.p.get(1).cloned() {
+                Some(e) if !matches!(&e, V::None) => Some(e),
+                _ => None,
+            };
+            task_step(&a.p[0], excv)
+        }
+        "task_wakeup" => {
+            a.want("task_wakeup", 2, 2)?;
+            task_wakeup(&a.p[0], &a.p[1])
+        }
+        "task_init" => {
+            a.want("task_init", 6, 6)?;
+            Ok(V::Bool(task_init(&a.p[0], &a.p[1], &a.p[2], &a.p[3], &a.p[4], &a.p[5])?))
+        }
+        "set_gather_class" => {
+            a.want("set_gather_class", 1, 1)?;
+            ASYNC_GATHER.with(|s| *s.borrow_mut() = match &a.p[0] { V::Class(c) => Some(c.clone()), _ => None });
+            Ok(V::None)
+        }
+        "gather" => {
+            a.want("gather", 6, 6)?;
+            native_gather(&a.p[0], &a.p[1], &a.p[2], &a.p[3], &a.p[4], &a.p[5])
+        }
+        "schedule_callbacks" => schedule_callbacks(&a1(&a, "schedule_callbacks")?),
+        "fut_set_result" => {
+            a.want("fut_set_result", 2, 2)?;
+            fut_set_result(&a.p[0], a.p[1].clone())
+        }
+        "fut_set_exception" => {
+            a.want("fut_set_exception", 2, 2)?;
+            fut_set_exception(&a.p[0], a.p[1].clone())
+        }
         _ => Err(unsupported(&format!("_brevi_async.{n}"))),
+    }
+}
+
+// ---------- native asyncio core (Task._step, the ready queue, Future scheduling) ----------
+// py/asyncio.py's Task._step, Handle._run and Future._schedule_callbacks are the hot path of every task
+// switch; these native forms do the same work without the V-level method dispatch and per-step allocations
+// of the Python port. The logic is CPython's, line for line; anything a subclass overrides still runs
+// through the Python method (the Func identity checks below).
+
+thread_local! {
+    static ASYNC_HANDLE: RefCell<Option<Rc<Class>>> = RefCell::new(None);
+    static ASYNC_TASK: RefCell<Option<Rc<Class>>> = RefCell::new(None);
+    static ASYNC_LOOP: RefCell<Option<Rc<Class>>> = RefCell::new(None);
+    static ASYNC_FUTURE: RefCell<Option<Rc<Class>>> = RefCell::new(None);
+    static ASYNC_CANCELLED: RefCell<Option<Rc<Class>>> = RefCell::new(None);
+    static ASYNC_INVALID: RefCell<Option<Rc<Class>>> = RefCell::new(None);
+    static ASYNC_CALLSOON: RefCell<Option<Rc<Func>>> = RefCell::new(None);
+    static ASYNC_CREATETASK: RefCell<Option<Rc<Func>>> = RefCell::new(None);
+    static ASYNC_STEPF: RefCell<Option<Rc<Func>>> = RefCell::new(None);
+    static ASYNC_WAKEUP: RefCell<Option<Rc<Func>>> = RefCell::new(None);
+    static ASYNC_SCHEDCB: RefCell<Option<Rc<Func>>> = RefCell::new(None);
+    static ASYNC_RUNF: RefCell<Option<Rc<Func>>> = RefCell::new(None);
+    static ASYNC_UNREGISTER: RefCell<Option<V>> = RefCell::new(None);
+    static ASYNC_REGISTER: RefCell<Option<V>> = RefCell::new(None);
+    static ASYNC_NEXTNAME: RefCell<Option<V>> = RefCell::new(None);
+    static ASYNC_GATHER: RefCell<Option<Rc<Class>>> = RefCell::new(None);
+}
+fn async_class(slot: &'static std::thread::LocalKey<RefCell<Option<Rc<Class>>>>) -> Option<Rc<Class>> {
+    slot.with(|s| s.borrow().clone())
+}
+fn async_func(slot: &'static std::thread::LocalKey<RefCell<Option<Rc<Func>>>>, cls: &Rc<Class>, name: &str) -> Option<Rc<Func>> {
+    slot.with(|s| {
+        let mut s = s.borrow_mut();
+        if s.is_none() {
+            *s = match cls.lookup(name) {
+                Some(V::Func(f)) => Some(f),
+                _ => None,
+            };
+        }
+        s.clone()
+    })
+}
+fn async_unregister() -> Option<V> {
+    ASYNC_UNREGISTER.with(|s| s.borrow().clone())
+}
+// an exception class py/asyncio.py defines (InvalidStateError): not in BUILTIN_CLASSES
+fn asyncio_exc(name: &str, msg: String) -> E {
+    let cls = match name {
+        "InvalidStateError" => async_class(&ASYNC_INVALID),
+        "CancelledError" => async_class(&ASYNC_CANCELLED),
+        _ => None,
+    };
+    match cls {
+        Some(c) => {
+            let o = Obj::new(c);
+            o.set("args", tup(vec![st(msg)]));
+            E(V::Obj(o))
+        }
+        None => exc("RuntimeError", msg),
+    }
+}
+fn is_cancelled(e: &V) -> bool {
+    match e {
+        V::Obj(o) => async_class(&ASYNC_CANCELLED).is_some_and(|c| o.cls.is_sub(&c)),
+        _ => false,
+    }
+}
+// the task's _state, which sits on Future's class until the future finishes
+fn future_pending(o: &Obj) -> bool {
+    match o.get("_state") {
+        Some(v) => matches!(&v, V::Str(s) if s.s == "PENDING"),
+        None => matches!(&o.cls.lookup("_state").unwrap_or(V::None), V::Str(s) if s.s == "PENDING"),
+    }
+}
+// o.name if the object (or its class) has it, None otherwise; getattr without the AttributeError
+fn opt_attr(x: &V, n: &str) -> V {
+    match x {
+        V::Obj(o) => match o.get(n) {
+            Some(v) => v,
+            None => o.cls.lookup(n).unwrap_or(V::None),
+        },
+        _ => getattr(x, n).ok().unwrap_or(V::None),
+    }
+}
+fn si_value(e: &V) -> V {
+    match e {
+        V::Obj(o) => o.get("value").unwrap_or(V::None),
+        _ => V::None,
+    }
+}
+fn first_of(args: &V) -> Option<V> {
+    match args {
+        V::Tuple(t) => t.first().cloned(),
+        _ => None,
+    }
+}
+
+// Handle(callback, args, loop, context), made natively: a ready-queue handle whose callback is a Task's
+// _step or _wakeup (not overridden) is marked so run_ready steps the task without method dispatch.
+fn handle_new(cls: V, callback: V, args: V, loop_: V, context: V) -> Option<V> {
+    let V::Class(c) = cls else { return None };
+    let o = Obj::new(c);
+    o.set("_context", context);
+    o.set("_loop", loop_);
+    o.set("_callback", callback.clone());
+    o.set("_args", args.clone());
+    o.set("_cancelled", V::Bool(false));
+    if let V::Bound(b) = &callback {
+        if let V::Func(f) = &b.1 {
+            if let V::Obj(t) = &b.0 {
+                if let Some(tc) = async_class(&ASYNC_TASK) {
+                    if t.cls.is_sub(&tc) {
+                        let mk = if f.name.get() == "_step" && async_func(&ASYNC_STEPF, &tc, "_step").is_some_and(|wf| Rc::ptr_eq(f, &wf)) {
+                            match first_of(&args) {
+                                Some(e) => Some(("_brevi_step", tup(vec![b.0.clone(), e]))),
+                                None => Some(("_brevi_step", b.0.clone())),
+                            }
+                        } else if f.name.get() == "_wakeup" && async_func(&ASYNC_WAKEUP, &tc, "_wakeup").is_some_and(|wf| Rc::ptr_eq(f, &wf)) {
+                            Some(("_brevi_wake", tup(vec![b.0.clone(), first_of(&args).unwrap_or(V::None)])))
+                        } else {
+                            None
+                        };
+                        if let Some((k, v)) = mk {
+                            o.set(k, v);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Some(V::Obj(o))
+}
+fn ready_push(loop_: &V, h: V) -> R {
+    let ready = getattr(loop_, "_ready")?;
+    if let V::Deque(d) = &ready {
+        let mut d = d.borrow_mut();
+        if d.max.is_none() {
+            d.v.push_back(h);
+            return Ok(V::None);
+        }
+    }
+    call_method(&ready, "append", Args::p(vec![h]))
+}
+fn ready_pop(loop_: &V) -> Option<V> {
+    let ready = getattr(loop_, "_ready").ok()?;
+    if let V::Deque(d) = &ready {
+        let mut d = d.borrow_mut();
+        if d.max.is_none() {
+            return d.v.pop_front();
+        }
+    }
+    call_method(&ready, "popleft", Args::p(vec![])).ok()
+}
+fn loop_plain_call_soon(loop_: &V) -> bool {
+    let V::Obj(o) = loop_ else { return false };
+    let Some(bel) = async_class(&ASYNC_LOOP) else { return false };
+    if !o.cls.is_sub(&bel) {
+        return false;
+    }
+    let Some(f) = async_func(&ASYNC_CALLSOON, &bel, "_call_soon") else { return false };
+    matches!(o.cls.lookup("_call_soon"), Some(V::Func(g)) if Rc::ptr_eq(&g, &f))
+}
+// loop._call_soon(cb, args, context): through the loop's own method when it is overridden, natively otherwise
+fn push_callback(loop_: &V, cb: V, args: V, context: V) -> R {
+    if loop_plain_call_soon(loop_) {
+        let Some(h) = async_class(&ASYNC_HANDLE).map(V::Class).and_then(|c| handle_new(c, cb, args, loop_.clone(), context)) else {
+            return Err(unsupported("_brevi_async without asyncio"));
+        };
+        return ready_push(loop_, h);
+    }
+    call_method(loop_, "_call_soon", Args::p(vec![cb, args, context]))
+}
+// Task.__step scheduled: _call_soon (result None) or call_soon (an error to throw in)
+fn push_step(loop_: &V, task: V, exc: Option<V>) -> R {
+    let cb = getattr(&task, "_step")?;
+    let args = match &exc {
+        Some(e) => tup(vec![e.clone()]),
+        None => tup(vec![]),
+    };
+    let context = opt_attr(&task, "_context");
+    if loop_plain_call_soon(loop_) {
+        let Some(h) = async_class(&ASYNC_HANDLE).map(V::Class).and_then(|c| handle_new(c, cb, args, loop_.clone(), context)) else {
+            return Err(unsupported("_brevi_async without asyncio"));
+        };
+        return ready_push(loop_, h);
+    }
+    match exc {
+        Some(e) => call_method(loop_, "call_soon", Args { p: vec![cb, e], k: vec![("context", context)] }),
+        None => call_method(loop_, "_call_soon", Args::p(vec![cb, args, context])),
+    }
+}
+fn run_handle_error(loop_: &V, handle: &V, e: &V) -> R {
+    // Handle._run: SystemExit and KeyboardInterrupt are re-raised, anything else goes to the loop's handler
+    if is_exc(e, "SystemExit") || is_exc(e, "KeyboardInterrupt") {
+        return Err(E(e.clone()));
+    }
+    let d = Rc::new(RefCell::new(Dict::new()));
+    d.borrow_mut().set(s("message"), s("Exception in callback"))?;
+    d.borrow_mut().set(s("exception"), e.clone())?;
+    d.borrow_mut().set(s("handle"), handle.clone())?;
+    call_method(loop_, "call_exception_handler", Args::p(vec![V::Dict(d)]))?;
+    Ok(V::None)
+}
+// The port's Handle._run, without the Python frame: callback(*args) with Handle._run's exception handling.
+// A subclass that overrides _run still runs through the Python method (the Func identity check).
+fn run_plain_handle(loop_: &V, handle: &V) -> R {
+    let V::Obj(h) = handle else { return call_method(handle, "_run", Args::p(vec![])) };
+    let Some(hl) = async_class(&ASYNC_HANDLE) else { return call_method(handle, "_run", Args::p(vec![])) };
+    if !h.cls.is_sub(&hl) {
+        return call_method(handle, "_run", Args::p(vec![]));
+    }
+    let Some(f) = async_func(&ASYNC_RUNF, &hl, "_run") else { return call_method(handle, "_run", Args::p(vec![])) };
+    if !matches!(h.cls.lookup("_run"), Some(V::Func(g)) if Rc::ptr_eq(&g, &f)) {
+        return call_method(handle, "_run", Args::p(vec![]));
+    }
+    let Some(cb) = h.get("_callback") else { return call_method(handle, "_run", Args::p(vec![])) };
+    let Some(args) = h.get("_args") else { return call_method(handle, "_run", Args::p(vec![])) };
+    let r = match args {
+        V::Tuple(t) if t.is_empty() => call0(&cb),
+        V::Tuple(t) if t.len() == 1 => call1(&cb, t[0].clone()),
+        V::Tuple(t) => call(&cb, Args::p(t.to_vec())),
+        _ => return call_method(handle, "_run", Args::p(vec![])),
+    };
+    match r {
+        Err(E(e)) => run_handle_error(loop_, handle, &e),
+        Ok(_) => Ok(V::None),
+    }
+}
+pub fn run_ready(loop_: &V, n: usize) -> R {
+    for _ in 0..n {
+        let Some(handle) = ready_pop(loop_) else { break };
+        if truth(&opt_attr(&handle, "_cancelled"))? {
+            continue;
+        }
+        if let V::Obj(h) = &handle {
+            if let Some(mark) = h.get("_brevi_step") {
+                let (task, exc) = match &mark {
+                    V::Tuple(t) => (t.first().cloned().unwrap_or(V::None), t.get(1).cloned()),
+                    _ => (mark.clone(), None),
+                };
+                if let Err(E(e)) = task_step(&task, exc) {
+                    run_handle_error(loop_, &handle, &e)?;
+                }
+                continue;
+            }
+            if let Some(mark) = h.get("_brevi_wake") {
+                let (task, fut) = match &mark {
+                    V::Tuple(t) => (t.first().cloned().unwrap_or(V::None), t.get(1).cloned().unwrap_or(V::None)),
+                    _ => (mark, V::None),
+                };
+                if let Err(E(e)) = task_wakeup(&task, &fut) {
+                    run_handle_error(loop_, &handle, &e)?;
+                }
+                continue;
+            }
+        }
+        run_plain_handle(loop_, &handle)?;
+    }
+    Ok(V::None)
+}
+
+// Future._schedule_callbacks: callbacks already run are removed first, each is _call_soon'd with (self,).
+pub fn schedule_callbacks(fut: &V) -> R {
+    let V::Obj(o) = fut else { return call_method(fut, "_schedule_callbacks", Args::p(vec![])) };
+    let Some(cbs) = o.get("_callbacks") else { return call_method(fut, "_schedule_callbacks", Args::p(vec![])) };
+    let V::List(l) = &cbs else { return call_method(fut, "_schedule_callbacks", Args::p(vec![])) };
+    let callbacks = {
+        let mut l = l.borrow_mut();
+        std::mem::take(&mut *l)
+    };
+    if callbacks.is_empty() {
+        return Ok(V::None);
+    }
+    let loop_ = opt_attr(fut, "_loop");
+    for x in callbacks {
+        let (cb, ctx) = match x {
+            V::Tuple(t) => (t.first().cloned().unwrap_or(V::None), t.get(1).cloned().unwrap_or(V::None)),
+            _ => (V::None, V::None),
+        };
+        push_callback(&loop_, cb, tup(vec![fut.clone()]), ctx)?;
+    }
+    Ok(V::None)
+}
+// self._schedule_callbacks(), the virtual call the Future methods make (a subclass may override it)
+fn sched_virtual(fut: &V) -> R {
+    if let V::Obj(o) = fut {
+        if let Some(fc) = async_class(&ASYNC_FUTURE) {
+            if o.cls.is_sub(&fc) {
+                if let Some(f) = async_func(&ASYNC_SCHEDCB, &fc, "_schedule_callbacks") {
+                    if matches!(o.cls.lookup("_schedule_callbacks"), Some(V::Func(g)) if Rc::ptr_eq(&g, &f)) {
+                        return schedule_callbacks(fut);
+                    }
+                }
+            }
+        }
+    }
+    call_method(fut, "_schedule_callbacks", Args::p(vec![]))
+}
+fn invalid_state(o: &Obj, fut: &V) -> E {
+    let state = o.get("_state").map(|s| to_str(&s).unwrap_or_default()).unwrap_or_default();
+    asyncio_exc("InvalidStateError", format!("{state}: {}", repr(fut).unwrap_or_default()))
+}
+pub fn fut_set_result(fut: &V, result: V) -> R {
+    let V::Obj(o) = fut else { return call_method(fut, "set_result", Args::p(vec![result])) };
+    if !future_pending(o) {
+        return Err(invalid_state(o, fut));
+    }
+    o.set("_result", result);
+    o.set("_state", s("FINISHED"));
+    sched_virtual(fut)
+}
+pub fn fut_set_exception(fut: &V, exception: V) -> R {
+    let V::Obj(o) = fut else { return call_method(fut, "set_exception", Args::p(vec![exception])) };
+    if !future_pending(o) {
+        return Err(invalid_state(o, fut));
+    }
+    let mut exception = exception;
+    if matches!(&exception, V::Class(_)) {
+        exception = call(&exception, Args::p(vec![]))?;
+    }
+    if is_exc(&exception, "StopIteration") {
+        exception = exc_v("RuntimeError", s("StopIteration interacts badly with generators and cannot be raised into a Future")).0;
+    }
+    o.set("_exception", exception);
+    o.set("_state", s("FINISHED"));
+    sched_virtual(fut)?;
+    o.set("_log_traceback", V::Bool(true));
+    Ok(V::None)
+}
+// Future.cancel(f, msg=...): what Future.cancel(self) does when the task step calls it on the class
+fn fut_cancel_body(fut: &V, msg: V) -> R {
+    let V::Obj(o) = fut else { return call_method(fut, "cancel", Args::p(vec![msg])) };
+    o.set("_log_traceback", V::Bool(false));
+    if !future_pending(o) {
+        return Ok(V::Bool(false));
+    }
+    o.set("_state", s("CANCELLED"));
+    o.set("_cancel_message", msg);
+    sched_virtual(fut)?;
+    Ok(V::Bool(true))
+}
+fn make_cancelled_error(task: &V) -> V {
+    if let V::Obj(o) = task {
+        if let Some(e) = o.get("_cancelled_exc") {
+            o.set("_cancelled_exc", V::None);
+            return e;
+        }
+    }
+    let cls = async_class(&ASYNC_CANCELLED);
+    match opt_attr(task, "_cancel_message") {
+        V::None => call(&V::Class(cls.unwrap_or_else(|| exc_class("BaseException"))), Args::p(vec![])).unwrap_or_else(|e| e.0),
+        m => call(&V::Class(cls.unwrap_or_else(|| exc_class("BaseException"))), Args::p(vec![m])).unwrap_or_else(|e| e.0),
+    }
+}
+fn unregister_task(task: &V) -> R {
+    let Some(f) = async_unregister() else { return Ok(V::None) };
+    call(&f, Args::p(vec![task.clone()]))?;
+    Ok(V::None)
+}
+// Task.__init__(coro, loop=..., name=..., context=...), natively when nothing the Python __init__ would do
+// differently is in play (a subclass, an explicit name, a closed plain loop, ...): the same attribute layout
+// and the same _call_soon/register calls, minus the Python method frame and its per-attribute setattr.
+fn task_init(me: &V, coro: &V, loop_: &V, name: &V, context: &V, eager: &V) -> Result<bool, E> {
+    let V::Obj(o) = me else { return Ok(false) };
+    let Some(tc) = async_class(&ASYNC_TASK) else { return Ok(false) };
+    if !Rc::ptr_eq(&o.cls, &tc) || !is_acoro(coro) {
+        return Ok(false);
+    }
+    if matches!(loop_, V::None) || !matches!(name, V::None) || truth(eager)? {
+        return Ok(false);
+    }
+    if loop_plain_call_soon(loop_) && truth(&opt_attr(loop_, "_closed"))? {
+        return Ok(false);
+    }
+    let Some(nf) = ASYNC_NEXTNAME.with(|s| s.borrow().clone()) else { return Ok(false) };
+    let name_v = call(&nf, Args::p(vec![]))?;
+    o.set("_loop", loop_.clone());
+    o.set("_callbacks", list(vec![]));
+    o.set("_name", name_v);
+    o.set("_num_cancels_requested", V::Int(0));
+    o.set("_must_cancel", V::Bool(false));
+    o.set("_fut_waiter", V::None);
+    o.set("_coro", coro.clone());
+    o.set("_context", context.clone());
+    push_callback(loop_, getattr(me, "_step")?, tup(vec![]), context.clone())?;
+    if let Some(r) = ASYNC_REGISTER.with(|s| s.borrow().clone()) {
+        call(&r, Args::p(vec![me.clone()]))?;
+    }
+    Ok(true)
+}
+// ---------- native gather ----------
+// asyncio.gather(*coros, ...) for the plain case: every argument a coroutine, return_exceptions falsy, and the
+// globals the Python gather uses still the port's own. The same tasks, the same outer _GatheringFuture and the
+// same _done_callback logic as the Python gather, natively. Anything else returns None so the Python gather runs.
+struct GatherState {
+    nfuts: usize,
+    nfinished: Cell<usize>,
+    outer: V,
+    children: V, // the list _GatheringFuture._children and the callback share, as in Python
+}
+fn fut_state_is(f: &V, want: &str) -> bool {
+    match f {
+        V::Obj(o) => {
+            let st = o.get("_state").unwrap_or_else(|| o.cls.lookup("_state").unwrap_or(V::None));
+            matches!(&st, V::Str(s) if s.s == want)
+        }
+        _ => false,
+    }
+}
+fn fut_cancelled(f: &V) -> bool {
+    fut_state_is(f, "CANCELLED")
+}
+fn fut_pending(f: &V) -> bool {
+    fut_state_is(f, "PENDING")
+}
+// Future.exception() on a plain finished future: clears _log_traceback, returns _exception
+fn fut_exception_value(f: &V) -> R {
+    match f {
+        V::Obj(o) => {
+            o.set("_log_traceback", V::Bool(false));
+            Ok(o.get("_exception").unwrap_or(V::None))
+        }
+        _ => call_method(f, "exception", Args::p(vec![])),
+    }
+}
+fn fut_result_value(f: &V) -> R {
+    match f {
+        V::Obj(o) => {
+            o.set("_log_traceback", V::Bool(false));
+            Ok(o.get("_result").unwrap_or(V::None))
+        }
+        _ => call_method(f, "result", Args::p(vec![])),
+    }
+}
+// gather's _done_callback with return_exceptions False, as the Python one is written
+fn gather_done(st: &GatherState, fut: &V) -> R {
+    st.nfinished.set(st.nfinished.get() + 1);
+    if !fut_pending(&st.outer) {
+        if !fut_cancelled(fut) {
+            fut_exception_value(fut)?;
+        }
+        return Ok(V::None);
+    }
+    if fut_cancelled(fut) {
+        let exc = make_cancelled_error(fut);
+        return fut_set_exception(&st.outer, exc);
+    }
+    let exc = fut_exception_value(fut)?;
+    if !matches!(exc, V::None) {
+        return fut_set_exception(&st.outer, exc);
+    }
+    if st.nfinished.get() == st.nfuts {
+        let children: Vec<V> = match &st.children {
+            V::List(l) => l.borrow().iter().cloned().collect(),
+            _ => vec![],
+        };
+        let mut results = Vec::with_capacity(children.len());
+        for f in &children {
+            if fut_cancelled(f) {
+                let m = match opt_attr(f, "_cancel_message") {
+                    V::None => s(""),
+                    m => m,
+                };
+                let Some(c) = async_class(&ASYNC_CANCELLED) else { return Err(unsupported("_brevi_async.gather without asyncio")) };
+                results.push(call(&V::Class(c), Args::p(vec![m]))?);
+            } else {
+                let e = fut_exception_value(f)?;
+                results.push(if matches!(e, V::None) { fut_result_value(f)? } else { e });
+            }
+        }
+        if truth(&opt_attr(&st.outer, "_cancel_requested"))? {
+            let exc = make_cancelled_error(fut);
+            fut_set_exception(&st.outer, exc)?;
+        } else {
+            fut_set_result(&st.outer, list(results))?;
+        }
+    }
+    Ok(V::None)
+}
+pub fn native_gather(args: &V, ret_exc: &V, task_cls: &V, cancelled_cls: &V, gather_cls: &V, getloop: &V) -> R {
+    let V::Tuple(t) = args else { return Ok(V::None) };
+    if t.is_empty() || truth(ret_exc)? || !t.iter().all(is_acoro) {
+        return Ok(V::None);
+    }
+    let Some(tc) = async_class(&ASYNC_TASK) else { return Ok(V::None) };
+    if !matches!(task_cls, V::Class(c) if Rc::ptr_eq(c, &tc)) {
+        return Ok(V::None);
+    }
+    let Some(cc) = async_class(&ASYNC_CANCELLED) else { return Ok(V::None) };
+    if !matches!(cancelled_cls, V::Class(c) if Rc::ptr_eq(c, &cc)) {
+        return Ok(V::None);
+    }
+    let Some(gc) = async_class(&ASYNC_GATHER) else { return Ok(V::None) };
+    if !matches!(gather_cls, V::Class(c) if Rc::ptr_eq(c, &gc)) {
+        return Ok(V::None);
+    }
+    let loop_ = call(getloop, Args::p(vec![]))?;
+    if !loop_plain_call_soon(&loop_) {
+        return Ok(V::None);
+    }
+    let Some(bel) = async_class(&ASYNC_LOOP) else { return Ok(V::None) };
+    let Some(cf) = async_func(&ASYNC_CREATETASK, &bel, "create_task") else { return Ok(V::None) };
+    if !matches!(bel.lookup("create_task"), Some(V::Func(g)) if Rc::ptr_eq(&g, &cf)) {
+        return Ok(V::None);
+    }
+    if !matches!(opt_attr(&loop_, "_task_factory"), V::None) {
+        return Ok(V::None);
+    }
+    if truth(&opt_attr(&loop_, "_closed"))? {
+        return Err(exc("RuntimeError", "Event loop is closed".into()));
+    }
+    // ensure_future for each coroutine, deduplicated as arg_to_fut's dict is (coroutines key by identity)
+    let mut children: Vec<V> = Vec::with_capacity(t.len());
+    let mut uniq: Vec<(usize, V)> = Vec::new();
+    let mut nfuts = 0usize;
+    for arg in t.iter() {
+        let key = match arg {
+            V::Ext(e) => ExtRc::as_ptr(e) as usize,
+            _ => return Ok(V::None),
+        };
+        let fut = match uniq.iter().find(|(k, _)| *k == key) {
+            Some((_, f)) => f.clone(),
+            None => {
+                let me = V::Obj(Obj::new(tc.clone()));
+                if !task_init(&me, arg, &loop_, &V::None, &V::None, &V::Bool(false))? {
+                    return Ok(V::None);
+                }
+                uniq.push((key, me.clone()));
+                nfuts += 1;
+                me
+            }
+        };
+        children.push(fut);
+    }
+    // outer = _GatheringFuture(children, loop=loop)
+    let children_v = list(children.clone());
+    let outer = V::Obj(Obj::new(gc));
+    if let V::Obj(o) = &outer {
+        o.set("_loop", loop_.clone());
+        o.set("_callbacks", list(vec![]));
+        o.set("_children", children_v.clone());
+        o.set("_cancel_requested", V::Bool(false));
+    }
+    for (_, f) in &uniq {
+        if let V::Obj(o) = f {
+            o.set("_log_destroy_pending", V::Bool(false));
+        }
+    }
+    let st = Rc::new(GatherState { nfuts, nfinished: Cell::new(0), outer: outer.clone(), children: children_v });
+    let cb = func("_brevi_gather_done", move |a: Args| {
+        let fut = a1(&a, "gather done")?;
+        gather_done(&st, &fut)
+    });
+    for (_, f) in &uniq {
+        match f {
+            V::Obj(o) => match o.get("_callbacks") {
+                Some(V::List(l)) => l.borrow_mut().push(tup(vec![cb.clone(), V::None])),
+                _ => return Ok(V::None),
+            },
+            _ => return Ok(V::None),
+        }
+    }
+    Ok(outer)
+}
+fn coro_send(coro: &V, sent: V) -> R {
+    if let V::Ext(x) = coro {
+        if let Some(c) = x.any().downcast_ref::<ACoro>() {
+            return c.step(sent, None);
+        }
+    }
+    call_method(coro, "send", Args::p(vec![sent]))
+}
+fn coro_throw(coro: &V, e: V) -> R {
+    let e = match &e {
+        V::Class(_) => match call(&e, Args::p(vec![])) {
+            Ok(v) => v,
+            Err(e) => return Err(e),
+        },
+        _ => e,
+    };
+    if let V::Ext(x) = coro {
+        if let Some(c) = x.any().downcast_ref::<ACoro>() {
+            return c.step(V::None, Some(E(e)));
+        }
+    }
+    call_method(coro, "throw", Args::p(vec![e]))
+}
+// Task._step(exc=None) and Task._step_run_and_handle_result, as CPython's tasks.py writes them.
+pub fn task_step(task: &V, excv: Option<V>) -> R {
+    let V::Obj(o) = task else { return call_method(task, "_step", Args::p(vec![excv.unwrap_or(V::None)])) };
+    if !future_pending(o) {
+        return Err(asyncio_exc("InvalidStateError", "_step(): already done".into()));
+    }
+    let mut excv = excv;
+    if truth(&opt_attr(task, "_must_cancel"))? {
+        if !matches!(&excv, Some(e) if is_cancelled(e)) {
+            excv = Some(make_cancelled_error(task));
+        }
+        o.set("_must_cancel", V::Bool(false));
+    }
+    o.set("_fut_waiter", V::None);
+    let loop_ = opt_attr(task, "_loop");
+    if !matches!(opt_attr(&loop_, "_current_task"), V::None) {
+        return Err(exc("RuntimeError", "Cannot enter into task while another task is being executed.".into()));
+    }
+    setattr(&loop_, "_current_task", task.clone())?;
+    let r = step_run(o, task, &loop_, excv);
+    let cur = opt_attr(&loop_, "_current_task");
+    if !is(&cur, task) {
+        return Err(exc("RuntimeError", "Leaving task does not match the current task.".into()));
+    }
+    setattr(&loop_, "_current_task", V::None)?;
+    r
+}
+fn step_run(o: &Obj, task: &V, loop_: &V, excv: Option<V>) -> R {
+    let coro = opt_attr(task, "_coro");
+    let result = match &excv {
+        None => coro_send(&coro, V::None),
+        Some(e) => coro_throw(&coro, e.clone()),
+    };
+    match result {
+        Err(E(e)) if is_exc(&e, "StopIteration") => {
+            let value = si_value(&e);
+            if truth(&opt_attr(task, "_must_cancel"))? {
+                o.set("_must_cancel", V::Bool(false));
+                fut_cancel_body(task, opt_attr(task, "_cancel_message"))?;
+            } else {
+                fut_set_result(task, value)?;
+            }
+            unregister_task(task)?;
+            Ok(V::None)
+        }
+        Err(E(e)) if is_cancelled(&e) => {
+            o.set("_cancelled_exc", e.clone());
+            fut_cancel_body(task, V::None)?;
+            unregister_task(task)?;
+            Ok(V::None)
+        }
+        Err(E(e)) if is_exc(&e, "KeyboardInterrupt") || is_exc(&e, "SystemExit") => {
+            fut_set_exception(task, e.clone())?;
+            unregister_task(task)?;
+            Err(E(e))
+        }
+        Err(E(e)) => {
+            fut_set_exception(task, e.clone())?;
+            unregister_task(task)?;
+            Ok(V::None)
+        }
+        Ok(result) => {
+            if matches!(&result, V::None) {
+                push_step(loop_, task.clone(), None)?;
+                return Ok(V::None);
+            }
+            let blocking = opt_attr(&result, "_asyncio_future_blocking");
+            if !matches!(&blocking, V::None) {
+                let rloop = call_method(&result, "get_loop", Args::p(vec![]))?;
+                if !is(&rloop, loop_) {
+                    push_step(loop_, task.clone(), Some(exc_v("RuntimeError", s("Task got Future attached to a different loop")).0))?;
+                } else if truth(&blocking)? {
+                    if is(&result, task) {
+                        push_step(loop_, task.clone(), Some(exc_v("RuntimeError", s("Task cannot await on itself")).0))?;
+                    } else {
+                        setattr(&result, "_asyncio_future_blocking", V::Bool(false))?;
+                        let cb = getattr(task, "_wakeup")?;
+                        let context = opt_attr(task, "_context");
+                        call_method(&result, "add_done_callback", Args { p: vec![cb], k: vec![("context", context)] })?;
+                        o.set("_fut_waiter", result.clone());
+                        if truth(&opt_attr(task, "_must_cancel"))? {
+                            let msg = opt_attr(task, "_cancel_message");
+                            let r = call_method(&result, "cancel", Args { p: vec![], k: vec![("msg", msg)] })?;
+                            if truth(&r)? {
+                                o.set("_must_cancel", V::Bool(false));
+                            }
+                        }
+                    }
+                } else {
+                    push_step(loop_, task.clone(), Some(exc_v("RuntimeError", s("yield was used instead of yield from in task")).0))?;
+                }
+            } else {
+                push_step(loop_, task.clone(), Some(exc_v("RuntimeError", st(format!("Task got bad yield: {}", repr(&result).unwrap_or_default()))).0))?;
+            }
+            Ok(V::None)
+        }
+    }
+}
+// Task._wakeup(future): future.result(), thrown in as the next step's exception
+pub fn task_wakeup(task: &V, fut: &V) -> R {
+    match call_method(fut, "result", Args::p(vec![])) {
+        Ok(_) => task_step(task, None),
+        Err(E(e)) => task_step(task, Some(e)),
     }
 }
 
@@ -609,7 +1376,7 @@ pub struct AGen {
 }
 
 pub fn make_agen(name: Sym, body: impl FnOnce() -> R + 'static) -> V {
-    V::Ext(ExtRc::new(AGen { name, st: RefCell::new(AGState { coro: Rc::new(RefCell::new(Coro::new(Box::new(body)))), running: false, hooked: false, finalizer: V::None, closed: false }) }))
+    V::Ext(ExtRc::new(AGen { name, st: RefCell::new(AGState { coro: Rc::new(RefCell::new(Coro::new(name, Box::new(body)))), running: false, hooked: false, finalizer: V::None, closed: false }) }))
 }
 
 fn ag_of(x: &V) -> Option<&AGen> {
