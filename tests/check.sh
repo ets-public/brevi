@@ -391,7 +391,7 @@ if [ "$1" != "--update" ]; then
   esac
 fi
 #== onnxruntime
-# onnxruntime programs must print what CPython's onnxruntime 1.29 prints, with Brevi's own onnxruntime over ONNX
+# onnxruntime programs must print what CPython's onnxruntime 1.31 prints (1.29 prints the same), with Brevi's own onnxruntime over ONNX
 # Runtime's C API (the onnxruntime package's library, or libonnxruntime): never CPython. Skipped without the
 # onnxruntime package (CI has none). tests/onnxruntime/models/make_models.py (needs onnx) wrote the models.
 if python3 -c "import onnxruntime" 2>/dev/null; then
@@ -547,7 +547,7 @@ else
     for k in streamable sse; do
       t=streamable-http; [ $k = sse ] && t=sse
       out=$(timeout 300 python3 $H/client.py $k 18873 -- /tmp/brevi_mcp_http $t 18873 2>&1 | tail -1)
-      case "$out" in "['http-demo', ['add', 'slow'], {'result': 42}, 'done 3', [(1.0, 3.0), (2.0, 3.0), (3.0, 3.0)]]") echo "ok   mcp http official client ($k)" ;;
+      case "$out" in "['http-demo', ['add', 'slow', 'touch'], {'result': 42}, 'done 3', [(1.0, 3.0), (2.0, 3.0), (3.0, 3.0)]]") echo "ok   mcp http official client ($k)" ;;
         *) echo "FAIL mcp http official client ($k)"; printf '%s\n' "$out"; fail=1 ;; esac
     done
   fi

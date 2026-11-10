@@ -1,0 +1,23 @@
+> {"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"t","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}
+< {"jsonrpc":"2.0","id":1,"result":{"cacheScope":"private","capabilities":{"tools":{"listChanged":true}},"resultType":"complete","supportedVersions":["2026-07-28"],"ttlMs":0,"_meta":{"io.modelcontextprotocol/serverInfo":{"name":"low-subs","version":"1"}}}}
+> {"jsonrpc":"2.0","id":"S","method":"subscriptions/listen","params":{"notifications":{"toolsListChanged":true,"resourcesListChanged":true,"resourceSubscriptions":["file:///a","file:///a"]},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"t","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}
+< {"jsonrpc":"2.0","method":"notifications/subscriptions/acknowledged","params":{"_meta":{"io.modelcontextprotocol/subscriptionId":"S"},"notifications":{"toolsListChanged":true,"resourcesListChanged":true,"resourceSubscriptions":["file:///a","file:///a"]}}}
+> {"jsonrpc":"2.0","id":2,"method":"subscriptions/listen","params":{"notifications":{"toolsListChanged":true},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"t","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}
+< {"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"Subscription limit reached"}}
+> {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"touch","arguments":{"uri":"file:///a"},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"t","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}
+< {"jsonrpc":"2.0","method":"notifications/resources/updated","params":{"_meta":{"io.modelcontextprotocol/subscriptionId":"S"},"uri":"file:///a"}}
+< {"jsonrpc":"2.0","method":"notifications/tools/list_changed","params":{"_meta":{"io.modelcontextprotocol/subscriptionId":"S"}}}
+< {"jsonrpc":"2.0","id":3,"result":{"content":[{"text":"watched=[] seen=['ResourceUpdated', 'ToolsListChanged']","type":"text"}],"isError":false,"resultType":"complete","_meta":{"io.modelcontextprotocol/serverInfo":{"name":"low-subs","version":"1"}}}}
+> {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"touch","arguments":{"uri":"file:///b"},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"t","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}
+< {"jsonrpc":"2.0","method":"notifications/tools/list_changed","params":{"_meta":{"io.modelcontextprotocol/subscriptionId":"S"}}}
+< {"jsonrpc":"2.0","id":4,"result":{"content":[{"text":"watched=[] seen=['ResourceUpdated', 'ToolsListChanged', 'ResourceUpdated', 'ToolsListChanged']","type":"text"}],"isError":false,"resultType":"complete","_meta":{"io.modelcontextprotocol/serverInfo":{"name":"low-subs","version":"1"}}}}
+> {"jsonrpc":"2.0","id":5,"method":"resources/subscribe","params":{"uri":"file:///a","_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"t","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}
+< {"jsonrpc":"2.0","id":5,"error":{"code":-32601,"message":"Method not found","data":"resources/subscribe"}}
+> {"jsonrpc":"2.0","id":6,"method":"subscriptions/listen","params":{"notifications":"no","_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"t","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}
+< {"jsonrpc":"2.0","id":6,"error":{"code":-32602,"message":"Invalid request parameters","data":""}}
+> {"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"stop","arguments":{},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"t","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}
+< {"jsonrpc":"2.0","method":"notifications/tools/list_changed","params":{"_meta":{"io.modelcontextprotocol/subscriptionId":"S"}}}
+< {"jsonrpc":"2.0","id":7,"result":{"content":[{"text":"seen=['ResourceUpdated', 'ToolsListChanged', 'ResourceUpdated', 'ToolsListChanged']","type":"text"}],"isError":false,"resultType":"complete","_meta":{"io.modelcontextprotocol/serverInfo":{"name":"low-subs","version":"1"}}}}
+< {"jsonrpc":"2.0","id":"S","error":{"code":-32000,"message":"Connection closed"}}
+< after run
+exit 0

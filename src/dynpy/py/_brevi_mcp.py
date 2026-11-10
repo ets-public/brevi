@@ -2340,6 +2340,7 @@ class Context:
         self._request_context = request_context
         self._mcp_server = mcp_server
         self._input_params = input_params
+        self._subscriptions = subscriptions
 
     def __class_getitem__(cls, item):
         return cls
@@ -2360,10 +2361,32 @@ class Context:
         return self._request_context
 
     def _nested(self):
-        return Context(request_context=self._request_context, mcp_server=self._mcp_server)
+        return Context(request_context=self._request_context, mcp_server=self._mcp_server, subscriptions=self._subscriptions)
 
     async def report_progress(self, progress, total=None, message=None):
         await self.request_context.session.report_progress(progress, total, message)
+
+    @property
+    def _bus(self):
+        if self._subscriptions is None:
+            raise ValueError("Context is not available outside of a request")
+        return self._subscriptions
+
+    async def notify_tools_changed(self):
+        """Publish a tools list-changed event to `subscriptions/listen` subscribers."""
+        await self._bus.publish(ToolsListChanged())
+
+    async def notify_prompts_changed(self):
+        """Publish a prompts list-changed event to `subscriptions/listen` subscribers."""
+        await self._bus.publish(PromptsListChanged())
+
+    async def notify_resources_changed(self):
+        """Publish a resources list-changed event to `subscriptions/listen` subscribers."""
+        await self._bus.publish(ResourcesListChanged())
+
+    async def notify_resource_updated(self, uri):
+        """Publish a resource-updated event for `uri` to `subscriptions/listen` subscribers (exact string match)."""
+        await self._bus.publish(ResourceUpdated(uri=str(uri)))
 
     async def read_resource(self, uri):
         assert self._mcp_server is not None, "Context is not available outside of a request"
@@ -3221,34 +3244,241 @@ class _LifespanWrap:
 SUBSCRIPTION_ID_META_KEY = "io.modelcontextprotocol/subscriptionId"
 
 
-class _ListenHandler:
-    # mcp.server.subscriptions.ListenHandler over the in-memory bus: one subscriptions/listen call is one stream,
-    # acknowledged first. Brevi's mcp has no way to publish events (notify_tools_changed and the rest send a
-    # program to CPython's mcp), so after the acknowledgement a stream stays open until the client ends it.
-    def __init__(self, max_subscriptions=1024):
-        self._max = max_subscriptions
-        self._open = 0
+# ---- change events (mcp.shared.subscriptions, mcp.server.subscriptions): what a server publishes for the
+# 2026-07-28 subscriptions/listen streams. Every event is a level trigger: "this changed, refetch if you care".
+
+
+class _ServerEvent:
+    __slots__ = ()
+    _fields = ()
+
+    def __eq__(self, other):
+        return type(other) is type(self) and all(getattr(self, f) == getattr(other, f) for f in self._fields)
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __hash__(self):
+        return hash((type(self).__name__,) + tuple(getattr(self, f) for f in self._fields))
+
+    def __repr__(self):
+        return "%s(%s)" % (type(self).__name__, ", ".join("%s=%r" % (f, getattr(self, f)) for f in self._fields))
+
+
+class ToolsListChanged(_ServerEvent):
+    """The server's tool list changed."""
+    __slots__ = ()
+
+
+class PromptsListChanged(_ServerEvent):
+    """The server's prompt list changed."""
+    __slots__ = ()
+
+
+class ResourcesListChanged(_ServerEvent):
+    """The server's resource list changed."""
+    __slots__ = ()
+
+
+class ResourceUpdated(_ServerEvent):
+    """The resource at `uri` changed and may need to be read again."""
+    __slots__ = ("uri",)
+    _fields = ("uri",)
+
+    def __init__(self, uri):
+        self.uri = uri
+
+
+ToolsListChanged.__module__ = PromptsListChanged.__module__ = ResourcesListChanged.__module__ = ResourceUpdated.__module__ = "mcp.shared.subscriptions"
+ServerEvent = _ServerEvent
+
+_LIST_CHANGED_EVENTS = {
+    "notifications/tools/list_changed": ToolsListChanged(),
+    "notifications/prompts/list_changed": PromptsListChanged(),
+    "notifications/resources/list_changed": ResourcesListChanged(),
+}
+LISTEN_STREAM_METHODS = frozenset(list(_LIST_CHANGED_EVENTS) + ["notifications/resources/updated"])
+
+
+def event_to_notification(event, meta):
+    # the stamped wire notification for an event (the server's direction)
+    if isinstance(event, ToolsListChanged):
+        return T.ToolListChangedNotification(params=T.NotificationParams(_meta=meta))
+    if isinstance(event, PromptsListChanged):
+        return T.PromptListChangedNotification(params=T.NotificationParams(_meta=meta))
+    if isinstance(event, ResourcesListChanged):
+        return T.ResourceListChangedNotification(params=T.NotificationParams(_meta=meta))
+    return T.ResourceUpdatedNotification(params=T.ResourceUpdatedNotificationParams(uri=event.uri, _meta=meta))
+
+
+def event_from_wire(method, params):
+    # the event a raw listen-stream frame announces, or None
+    ev = _LIST_CHANGED_EVENTS.get(method)
+    if ev is not None:
+        return ev
+    if method == "notifications/resources/updated":
+        uri = (params or {}).get("uri")
+        if isinstance(uri, str):
+            return ResourceUpdated(uri=uri)
+    return None
+
+
+def event_matches(honored, uris, event):
+    # whether an event is within a stream's honored filter (uris: its honored resource subscriptions as a set)
+    if isinstance(event, ToolsListChanged):
+        return honored.tools_list_changed is True
+    if isinstance(event, PromptsListChanged):
+        return honored.prompts_list_changed is True
+    if isinstance(event, ResourcesListChanged):
+        return honored.resources_list_changed is True
+    return event.uri in uris
+
+
+class SubscriptionBus:
+    # mcp.server.subscriptions.SubscriptionBus (a Protocol there): async publish(event), subscribe(listener) giving
+    # an idempotent unsubscribe callable. Any object with the two works as MCPServer(subscriptions=...).
+    async def publish(self, event):
+        ...
+
+    def subscribe(self, listener):
+        ...
+
+
+class InMemorySubscriptionBus:
+    """In-process `SubscriptionBus`: synchronous fan-out to listeners in subscription order."""
+
+    def __init__(self):
+        self._listeners = {}
+        self._next = 0
+
+    async def publish(self, event):
+        # a raising listener is logged and skipped; ends with a checkpoint so listen streams drain between events
+        for listener in list(self._listeners.values()):
+            try:
+                listener(event)
+            except Exception as e:
+                _log_exc(e, "subscription listener raised; continuing")
+        await asyncio.sleep(0)
+
+    def subscribe(self, listener):
+        token = self._next
+        self._next += 1
+        self._listeners[token] = listener
+        listeners = self._listeners
+
+        def unsubscribe():
+            listeners.pop(token, None)
+
+        return unsubscribe
+
+
+InMemorySubscriptionBus.__module__ = SubscriptionBus.__module__ = "mcp.server.subscriptions"
+
+
+def _safe_unsubscribe(unsubscribe):
+    try:
+        unsubscribe()
+    except Exception as e:
+        _log_exc(e, "bus unsubscribe raised; continuing stream cleanup")
+
+
+def _honored_subset(req):
+    return T.SubscriptionFilter(tools_list_changed=True if req.tools_list_changed else None,
+                                prompts_list_changed=True if req.prompts_list_changed else None,
+                                resources_list_changed=True if req.resources_list_changed else None,
+                                resource_subscriptions=list(req.resource_subscriptions) if req.resource_subscriptions else None)
+
+
+class _ListenStream:
+    # one listen stream's bounded event buffer (anyio's memory object stream with max_buffered_events)
+    def __init__(self, cap):
+        self.cap = cap
+        self.items = []
+        self.closed = False
+        self.wake = asyncio.Event()
+
+    def put(self, event):
+        # False when the buffer is full (the stream is then ended)
+        if self.closed:
+            return True
+        if len(self.items) >= self.cap:
+            return False
+        self.items.append(event)
+        self.wake.set()
+        return True
+
+    def close(self):
+        self.closed = True
+        self.wake.set()
+
+    async def get(self):
+        # the next event, or None once closed and drained
+        while not self.items:
+            if self.closed:
+                return None
+            self.wake.clear()
+            await self.wake.wait()
+        return self.items.pop(0)
+
+
+class ListenHandler:
+    """Serves `subscriptions/listen`: one call is one subscription stream.
+
+    Acknowledges the honored filter first, then forwards matching bus events onto the request's response stream
+    (each stamped with the listen request's id) until the client cancels it or `close` ends every stream.
+    """
+
+    def __init__(self, bus, *, max_subscriptions=1024, max_buffered_events=1024):
+        self._bus = bus
+        self._max_subscriptions = max_subscriptions
+        self._max_buffered_events = max_buffered_events
+        self._streams = []
 
     async def __call__(self, ctx, params):
         sid = ctx.request_id
         if sid is None:
             raise MCPError(INVALID_REQUEST, "subscriptions/listen requires a request id")
-        if self._open >= self._max:
+        if len(self._streams) >= self._max_subscriptions:
             raise MCPError(INTERNAL_ERROR, "Subscription limit reached")
-        req = params.notifications
-        honored = T.SubscriptionFilter(tools_list_changed=True if req.tools_list_changed else None,
-                                       prompts_list_changed=True if req.prompts_list_changed else None,
-                                       resources_list_changed=True if req.resources_list_changed else None,
-                                       resource_subscriptions=list(req.resource_subscriptions) if req.resource_subscriptions else None)
-        self._open += 1
+        honored = _honored_subset(params.notifications)
+        honored_uris = frozenset(honored.resource_subscriptions or ())
+        meta = {SUBSCRIPTION_ID_META_KEY: sid}
+        stream = _ListenStream(self._max_buffered_events)
+        streams = self._streams
+
+        def deliver(event):
+            if event_matches(honored, honored_uris, event) and not stream.put(event):
+                _log(30, "listen stream %r backlog full; ending the stream", sid)
+                if stream in streams:
+                    streams.remove(stream)
+                stream.close()
+
+        # subscribed before the ack goes out, so an event published meanwhile is buffered, not lost
+        unsubscribe = self._bus.subscribe(deliver)
+        streams.append(stream)
         try:
             await ctx.session.send_notification(
-                T.SubscriptionsAcknowledgedNotification(params=T.SubscriptionsAcknowledgedNotificationParams(notifications=honored, _meta={SUBSCRIPTION_ID_META_KEY: sid})),
+                T.SubscriptionsAcknowledgedNotification(params=T.SubscriptionsAcknowledgedNotificationParams(notifications=honored, _meta=meta)),
                 related_request_id=sid)
-            await asyncio.Event().wait()
+            while True:
+                event = await stream.get()
+                if event is None:
+                    break
+                await ctx.session.send_notification(event_to_notification(event, meta), related_request_id=sid)
         finally:
-            self._open -= 1
-        return T.SubscriptionsListenResult()
+            _safe_unsubscribe(unsubscribe)
+            if stream in streams:
+                streams.remove(stream)
+            stream.close()
+        return T.SubscriptionsListenResult(_meta=meta)
+
+    def close(self):
+        # graceful closure: each stream drains its buffer, then answers its listen request
+        for stream in list(self._streams):
+            stream.close()
+
+
+ListenHandler.__module__ = "mcp.server.subscriptions"
 
 
 _TRANSPORTS = ("stdio", "sse", "streamable-http")
@@ -3264,11 +3494,11 @@ class MCPServer:
                         ("request_state_security", request_state_security), ("cache_hints", cache_hints)):
             if v:
                 raise NotImplementedError("brevi: MCPServer(%s=...) is not in Brevi's mcp" % what)
-        if subscriptions not in (None, False):
-            raise NotImplementedError("brevi: MCPServer(subscriptions=...) is not in Brevi's mcp")
         if log_level not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
             raise _settings_error("log_level", log_level)
         self._resource_security = resource_security
+        # the subscriptions/listen fan-out seam: the in-memory bus unless the program gives its own
+        self._subscriptions = InMemorySubscriptionBus() if subscriptions is None or subscriptions is False else subscriptions
         self.settings = _Settings(debug=debug, log_level=log_level, warn_on_duplicate_resources=warn_on_duplicate_resources,
                                   warn_on_duplicate_tools=warn_on_duplicate_tools, warn_on_duplicate_prompts=warn_on_duplicate_prompts,
                                   dependencies=list(dependencies or []), lifespan=lifespan, auth=None)
@@ -3281,7 +3511,7 @@ class MCPServer:
                                        on_call_tool=self._handle_call_tool, on_list_resources=self._handle_list_resources,
                                        on_read_resource=self._handle_read_resource, on_list_resource_templates=self._handle_list_resource_templates,
                                        on_list_prompts=self._handle_list_prompts, on_get_prompt=self._handle_get_prompt,
-                                       on_subscriptions_listen=None if subscriptions is False else _ListenHandler(),
+                                       on_subscriptions_listen=None if subscriptions is False else ListenHandler(self._subscriptions),
                                        lifespan=_LifespanWrap(self, lifespan) if lifespan else None)
         self._lowlevel_server.middleware.extend(middleware or ())
         self._custom_starlette_routes = []
@@ -3347,7 +3577,7 @@ class MCPServer:
         return None if t is None else t.parameters
 
     async def _handle_call_tool(self, ctx, params):
-        context = Context(request_context=ctx, mcp_server=self, input_params=params)
+        context = Context(request_context=ctx, mcp_server=self, input_params=params, subscriptions=self._subscriptions)
         try:
             return await self.call_tool(params.name, params.arguments or {}, context)
         except MCPError:
@@ -3367,7 +3597,7 @@ class MCPServer:
         return T.ListResourcesResult(resources=await self.list_resources())
 
     async def _handle_read_resource(self, ctx, params):
-        context = Context(request_context=ctx, mcp_server=self, input_params=params)
+        context = Context(request_context=ctx, mcp_server=self, input_params=params, subscriptions=self._subscriptions)
         try:
             results = await self.read_resource(params.uri, context)
         except ResourceError as err:
@@ -3395,7 +3625,7 @@ class MCPServer:
         return T.ListPromptsResult(prompts=await self.list_prompts())
 
     async def _handle_get_prompt(self, ctx, params):
-        context = Context(request_context=ctx, mcp_server=self, input_params=params)
+        context = Context(request_context=ctx, mcp_server=self, input_params=params, subscriptions=self._subscriptions)
         return await self.get_prompt(params.name, params.arguments, context)
 
     async def list_tools(self):
@@ -3404,7 +3634,7 @@ class MCPServer:
 
     async def call_tool(self, name, arguments, context=None):
         if context is None:
-            context = Context(mcp_server=self)
+            context = Context(mcp_server=self, subscriptions=self._subscriptions)
         return await self._tool_manager.call_tool(name, arguments, context, convert_result=True)
 
     async def list_resources(self):
@@ -3417,7 +3647,7 @@ class MCPServer:
 
     async def read_resource(self, uri, context=None):
         if context is None:
-            context = Context(mcp_server=self)
+            context = Context(mcp_server=self, subscriptions=self._subscriptions)
         try:
             resource = await self._resource_manager.get_resource(uri, context)
             if isinstance(resource, T.InputRequiredResult):
@@ -3525,7 +3755,7 @@ class MCPServer:
 
     async def get_prompt(self, name, arguments=None, context=None):
         if context is None:
-            context = Context(mcp_server=self)
+            context = Context(mcp_server=self, subscriptions=self._subscriptions)
         try:
             prompt = self._prompt_manager.get_prompt(name)
             if not prompt:

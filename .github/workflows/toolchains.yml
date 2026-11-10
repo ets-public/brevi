@@ -253,6 +253,25 @@ jobs:
           name: fuzz-found
           path: fuzz-found/
 
+      - name: Fuzz for panics (generated programs; a panic, signal or compiler crash fails the run)
+        # Pull requests replay the saved corpus (bench/fuzz/corpus: once-failing cases that must stay fixed); the daily
+        # run also tries 60 fresh batches of 12 cases, seeded by the date so a failure reproduces. Wrong answers are
+        # listed in the summary, not failed on, until the known ones are fixed.
+        if: steps.seen.outputs.cache-hit != 'true' && steps.scope.outputs.compat == 'true' && matrix.rust == 'stable' && matrix.python == '3.x'
+        run: |
+          python3 tools/fuzz.py --replay bench/fuzz/corpus --jobs 4
+          if [ "${{ github.event_name }}" = schedule ]; then
+            python3 tools/fuzz.py --seed "$(date -u +%Y%m%d)" --batches 60 --jobs 4 --out fuzz-found | tee fuzz.log
+            { echo '## Fuzz'; echo '```'; tail -40 fuzz.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Keep what the fuzzer found
+        if: failure() && hashFiles('fuzz-found/*.py') != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-found
+          path: fuzz-found/
+
       - name: Early warnings in generated Rust (deprecations, future incompatibilities, newest edition)
         if: steps.seen.outputs.cache-hit != 'true' && matrix.rust == 'nightly'
         continue-on-error: true

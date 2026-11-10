@@ -590,8 +590,28 @@ fn float_fast(a: &V, b: &V, op: &str) -> Option<V> {
         _ => None,
     }
 }
+// int OP int that cannot overflow or raise; op is a constant at almost every call site, so this folds away
+#[inline(always)]
+fn int_fast(a: &V, b: &V, op: &str) -> Option<V> {
+    let (V::Int(x), V::Int(y)) = (a, b) else {
+        return None;
+    };
+    let (x, y) = (*x, *y);
+    match op {
+        "+" => x.checked_add(y).map(V::Int),
+        "-" => x.checked_sub(y).map(V::Int),
+        "*" => x.checked_mul(y).map(V::Int),
+        // Python's floor modulo: the result takes the divisor's sign
+        "%" if y > 0 => Some(V::Int(x.rem_euclid(y))),
+        "//" if y > 0 => Some(V::Int(x.div_euclid(y))),
+        _ => None,
+    }
+}
 #[inline]
 pub fn binop(a: &V, b: &V, op: &str) -> R {
+    if let Some(r) = int_fast(a, b, op) {
+        return Ok(r);
+    }
     if let Some(r) = float_fast(a, b, op) {
         return Ok(r);
     }
@@ -973,6 +993,9 @@ pub fn sub(a: &V, b: &V) -> R {
 // a OP= b: lists, sets, dicts and deques change in place; other values make a new value.
 #[inline]
 pub fn iop(a: &V, b: &V, op: &str) -> R {
+    if let Some(r) = int_fast(a, b, op) {
+        return Ok(r);
+    }
     if let Some(r) = float_fast(a, b, op) {
         return Ok(r);
     }

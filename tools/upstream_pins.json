@@ -57,7 +57,7 @@
       "stderr": false
     },
     "onnxruntime": {
-      "watch": {"onnxruntime": "1.29.0"},
+      "watch": {"onnxruntime": "1.31.1"},
       "tests": ["tests/onnxruntime/*.py"],
       "stderr": false
     },
