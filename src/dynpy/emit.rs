@@ -2249,9 +2249,18 @@ impl Em {
         }
         let mut captures: Vec<(String, String)> = vec![];
         for n in &free {
-            if let Some(Var::Cell(r)) = self.lookup(n) {
-                fr.vars.insert(n.clone(), Var::Cell(r.clone()));
-                captures.push((n.clone(), r));
+            match self.lookup(n) {
+                Some(Var::Cell(r)) => {
+                    fr.vars.insert(n.clone(), Var::Cell(r.clone()));
+                    captures.push((n.clone(), r));
+                }
+                // a plain local the closure cannot share, such as an enclosing comprehension's target
+                // (`[x for x in xs if any(f(x) for f in fs)]`): the genexp gets its value now
+                Some(Var::Local(r)) => {
+                    fr.vars.insert(n.clone(), Var::Local(r.clone()));
+                    captures.push((n.clone(), r));
+                }
+                _ => {}
             }
         }
         self.fstack.push(fr);
