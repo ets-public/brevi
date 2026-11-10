@@ -2940,6 +2940,8 @@ pub fn init_builtin_classes() {
         ("StopIteration", "Exception"),
         ("StopAsyncIteration", "Exception"),
         ("AssertionError", "Exception"),
+        ("SyntaxError", "Exception"),
+        ("IndentationError", "SyntaxError"),
         ("ImportError", "Exception"),
         ("ModuleNotFoundError", "ImportError"),
         ("OSError", "Exception"),
@@ -2960,6 +2962,15 @@ pub fn init_builtin_classes() {
         ("Warning", "Exception"),
         ("UserWarning", "Warning"),
         ("DeprecationWarning", "Warning"),
+        ("SyntaxWarning", "Warning"),
+        ("RuntimeWarning", "Warning"),
+        ("FutureWarning", "Warning"),
+        ("PendingDeprecationWarning", "Warning"),
+        ("ImportWarning", "Warning"),
+        ("UnicodeWarning", "Warning"),
+        ("BytesWarning", "Warning"),
+        ("ResourceWarning", "Warning"),
+        ("EncodingWarning", "Warning"),
         ("JSONDecodeError", "ValueError"),
         ("InvalidOperation", "ArithmeticError"),
         ("DivisionByZero", "ZeroDivisionError"),
@@ -3002,6 +3013,7 @@ pub fn init_builtin_classes() {
     m.insert("FrozenInstanceError", Class::new("FrozenInstanceError", "dataclasses", vec![ae], BT::Exc));
     BUILTIN_CLASSES.with(|b| *b.borrow_mut() = m);
     TYPE_CACHE.with(|c| *c.borrow_mut() = Default::default());
+    BV_CACHE.with(|c| *c.borrow_mut() = Default::default());
 }
 
 // ---------- type names, truth ----------

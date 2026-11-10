@@ -1,8 +1,10 @@
 {
- "date": "2026-11-08",
- "brevi": "brevi 0.25.0",
+ "date": "2026-11-10",
+ "brevi": "brevi 0.26.0",
  "python": "3.13.18",
  "machine": "Linux x86_64, 4 cores",
+ "commit": "69caf93",
+ "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz",
  "showcases": [
   {
    "name": "sqlite_mcp",
@@ -11,17 +13,16 @@
    "runs": 10,
    "same_output": true,
    "brevi": {
-    "first_s": 0.029041935500004,
-    "total_s": 0.03392958400002044
+    "first_s": 0.02746741649980322,
+    "total_s": 0.0331022169998505
    },
    "cpython": {
-    "first_s": 0.6138240745000303,
-    "total_s": 0.8154733459999761
+    "first_s": 0.7184825804999946,
+    "total_s": 0.8858774450002329
    },
-   "speedup": 21.1357839597139,
-   "binary_mb": 16.1,
-   "needs_python": false,
-   "build_s": 0.1
+   "speedup": 26.157632280602066,
+   "binary_mb": 18.0,
+   "needs_python": false
   },
   {
    "name": "time_mcp",
@@ -30,15 +31,15 @@
    "runs": 10,
    "same_output": true,
    "brevi": {
-    "first_s": 0.029379427000094438,
-    "total_s": 0.03813504500021736
+    "first_s": 0.035262043999864545,
+    "total_s": 0.0447524930000327
    },
    "cpython": {
-    "first_s": 0.6501477474994317,
-    "total_s": 0.8570850910000445
+    "first_s": 0.7303812689999631,
+    "total_s": 0.8888295990000188
    },
-   "speedup": 22.129354241569853,
-   "binary_mb": 17.5,
+   "speedup": 20.712958925545234,
+   "binary_mb": 19.2,
    "needs_python": false
   },
   {
@@ -48,15 +49,15 @@
    "runs": 10,
    "same_output": true,
    "brevi": {
-    "first_s": 0.02711585200040645,
-    "total_s": 0.02711585200040645
+    "first_s": 0.03280899900005352,
+    "total_s": 0.03280899900005352
    },
    "cpython": {
-    "first_s": 0.37055929249982,
-    "total_s": 0.37055929249982
+    "first_s": 0.3752102369999193,
+    "total_s": 0.3752102369999193
    },
-   "speedup": 13.665780905363606,
-   "binary_mb": 11.3,
+   "speedup": 11.43619886115109,
+   "binary_mb": 11.5,
    "needs_python": false
   },
   {
@@ -66,15 +67,15 @@
    "runs": 10,
    "same_output": true,
    "brevi": {
-    "first_s": 0.3213463034999222,
-    "total_s": 0.3213463034999222
+    "first_s": 0.3945514170000024,
+    "total_s": 0.3945514170000024
    },
    "cpython": {
-    "first_s": 0.7347387690001597,
-    "total_s": 0.7347387690001597
+    "first_s": 0.872359117500082,
+    "total_s": 0.872359117500082
    },
-   "speedup": 2.286439149907127,
-   "binary_mb": 11.3,
+   "speedup": 2.2110150411652856,
+   "binary_mb": 11.5,
    "needs_python": false
   },
   {
@@ -84,15 +85,15 @@
    "runs": 10,
    "same_output": true,
    "brevi": {
-    "first_s": 5.488129326500015,
-    "total_s": 5.488129326500015
+    "first_s": 4.144845576999842,
+    "total_s": 4.144845576999842
    },
    "cpython": {
-    "first_s": 30.251785284999983,
-    "total_s": 30.251785284999983
+    "first_s": 40.35698702800005,
+    "total_s": 40.35698702800005
    },
-   "speedup": 5.512221648809554,
-   "binary_mb": 6.2,
+   "speedup": 9.736668418226474,
+   "binary_mb": 6.5,
    "needs_python": false
   },
   {
@@ -102,17 +103,16 @@
    "runs": 3,
    "same_output": true,
    "brevi": {
-    "first_s": 93.27650171500136,
-    "total_s": 93.27650171500136
+    "first_s": 92.79579888700027,
+    "total_s": 92.79579888700027
    },
    "cpython": {
-    "first_s": 150.4702334249996,
-    "total_s": 150.4702334249996
+    "first_s": 117.4467247499997,
+    "total_s": 117.4467247499997
    },
-   "speedup": 1.6131633440193647,
-   "binary_mb": 6.8,
-   "needs_python": false,
-   "measured": "2026-11-09, Brevi main after 0.26.0 (object memory redesign)"
+   "speedup": 1.2656470029749674,
+   "binary_mb": 7.0,
+   "needs_python": false
   }
  ]
 }

@@ -1,0 +1,14 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":2,"method":"tools/list"}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"mul","arguments":{"a":3}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"mul","arguments":{"a":3,"b":5}}}
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"mul","arguments":{}}}
+{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"sq","arguments":{"x":"ab"}}}
+{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"sq","arguments":{"x":7}}}
+{"jsonrpc":"2.0","id":8,"method":"prompts/list"}
+{"jsonrpc":"2.0","id":9,"method":"prompts/get","params":{"name":"about","arguments":{"topic":"lambdas"}}}
+{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"grow","arguments":{"n":3}}}
+{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"rep3","arguments":{"s":"ab"}}}
+{"jsonrpc":"2.0","id":12,"method":"tools/list"}
+#close

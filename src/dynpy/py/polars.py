@@ -9,6 +9,7 @@ import math
 import json as _json
 import re as _re
 import io as _io
+import _brevi_col as _col
 
 __version__ = "2.1.0"
 
@@ -1285,6 +1286,9 @@ def _series_str(s):
 
 def _fsum(xs):
     # polars-compute float_sum: pairwise over blocks of 128 (16 lanes each), the remainder added first-to-last
+    r = _col.fsum(xs)
+    if r is not None:
+        return r
     n = _len(xs)
     rem = n % 128
     rest = 0.0
@@ -1426,7 +1430,14 @@ def _new(name, vals, dtype, lit=None):
     return s
 
 
+_INFER_D = {"bool": Boolean, "int": Int64, "float": Float64, "str": String}
+
+
 def _from_values(name, values, dtype=None, strict=True):
+    if dtype is None and type(values) is list:
+        r = _col.infer(values)
+        if r is not None:
+            return _new(name, r[1], _INFER_D[r[0]])
     if isinstance(values, Series):
         vals = list(values._v)
         src = values.dtype
@@ -3814,6 +3825,15 @@ def _binop(op, a, b):
             r = _fpow(float(x), float(y))
             out.append(_f32(r) if f32 else r)
         return _new(a.name, out, d, lit)
+    if op in ("+", "-", "*"):
+        if d._kind == "float" and d._bits == 64:
+            r = _col.farith(op, av, bv)
+        elif d._kind in ("int", "uint"):
+            r = _col.iarith(op, av, bv, d._bits, d._kind == "int")
+        else:
+            r = None
+        if r is not None:
+            return _new(a.name, r, d, lit)
     out = []
     if d._kind == "float":
         f32 = d._bits == 32
@@ -3909,6 +3929,9 @@ def _compare(op, a, b):
         if (ka == "str") != (kb == "str"):
             raise ComputeError("cannot compare string with numeric type (" + _short(db if ka == "str" else da) + ")")
         raise ComputeError("cannot compare " + _short(da) + " with " + _short(db))
+    r = _col.cmp(op, a._v, b._v)
+    if r is not None:
+        return r
     out = []
     missing = op in ("eqm", "nem")
     for x, y in zip(a._v, b._v):
@@ -4070,6 +4093,14 @@ def _over(e, f):
     return _new(_out_name(inner), out, dtype)
 
 
+def _take_vals(v, idx):
+    # [v[i] for i in idx]
+    r = _col.take(v, idx)
+    if r is None:
+        r = [v[i] for i in idx]
+    return r
+
+
 def _key_of(v):
     if isinstance(v, list):
         return ("l",) + tuple(_key_of(x) for x in v)
@@ -4087,6 +4118,10 @@ def _group_rows(keys, height):
     order = []
     if _len(keys) == 1:
         kv = keys[0]._v
+        if _len(kv) == height:
+            r = _col.group1(kv)
+            if r is not None:
+                return r
         for i in range(height):
             k = _key_of(kv[i])
             g = groups.get(k)
@@ -6066,7 +6101,9 @@ class DataFrame:
             mv = mv * self.height
         if _len(mv) != self.height:
             raise ShapeError("filter's length: " + str(_len(mv)) + " differs from that of the series: " + str(self.height))
-        idx = [i for i, k in enumerate(mv) if k is True]
+        idx = _col.mask(mv)
+        if idx is None:
+            idx = [i for i, k in enumerate(mv) if k is True]
         return self._take(idx)
 
     def remove(self, *predicates, **constraints):
@@ -6077,7 +6114,7 @@ class DataFrame:
         return self._take([i for i, k in enumerate(m) if k is not True])
 
     def _take(self, idx):
-        return DataFrame._of([_new(c.name, [c._v[i] for i in idx], c.dtype) for c in self._cols])
+        return DataFrame._of([_new(c.name, _take_vals(c._v, idx), c.dtype) for c in self._cols])
 
     def head(self, n=5):
         if n < 0:
@@ -7038,7 +7075,7 @@ def _fast_agg(e, f, groups):
     out = []
     dtype = None
     for g in groups:
-        r = fn(_new(s.name, [v[i] for i in g], s.dtype), None, *x._a[2])
+        r = fn(_new(s.name, _take_vals(v, g), s.dtype), None, *x._a[2])
         out.append(r._v[0])
         dtype = r.dtype
     if dtype is None:

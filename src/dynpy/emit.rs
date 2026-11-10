@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 type ER<T> = Result<T, (usize, String)>;
 
-pub const BUILTIN_MODULES: [&str; 49] = ["_brevi_srv", "_brevi_proc", "importlib.metadata", "zoneinfo", "tzlocal", "atexit", "_brevi_async", "_brevi_net", "_brevi_fs", "_brevi_st", "_brevi_ort", "_brevi_sqlite", "_brevi_duckdb", "_brevi_stdio", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading", "gc", "weakref"];
+pub const BUILTIN_MODULES: [&str; 50] = ["_brevi_col", "_brevi_srv", "_brevi_proc", "importlib.metadata", "zoneinfo", "tzlocal", "atexit", "_brevi_async", "_brevi_net", "_brevi_fs", "_brevi_st", "_brevi_ort", "_brevi_sqlite", "_brevi_duckdb", "_brevi_stdio", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading", "gc", "weakref"];
 
 
 // ---------- numpy, natively (rt_np*.rs) ----------
@@ -150,6 +150,10 @@ pub(crate) fn np_func_kw(n: &str) -> Option<&'static [&'static str]> {
 pub static NP_ATTR_ST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 // Brevi's own copies of libraries (jinja2, polars, ...): their `.partition()` or `.fields` is never numpy's.
 pub static OWN_COPIES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+// The copies emitted ahead of LIB_END into the cached library: the large ones only (dynpy::compile picks them).
+// Small copies (re-export shims such as mcp.types, contextlib) go with the program, so programs that import
+// different small pieces of one library still share the one build of its large modules.
+pub static LIB_COPIES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 thread_local! {
     static IN_COPY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
@@ -216,6 +220,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
             "n_added", "set_truncation", "truncation", "set_padding", "padding", "add_tokens", "set_encode_special", "encode_special",
             "added_tokens", "lacks",
         ],
+        "_brevi_col" => &["fsum", "cmp", "farith", "iarith", "take", "mask", "group1", "infer"],
         "_brevi_mt" => &["new", "seed", "next", "random", "bits", "below", "shuffle"],
         "collections" => &["defaultdict", "Counter", "OrderedDict", "deque", "namedtuple"],
         "dataclasses" => &["asdict", "astuple", "dataclass", "field", "fields", "replace", "is_dataclass", "MISSING", "KW_ONLY", "InitVar", "Field", "FrozenInstanceError"],
@@ -258,7 +263,7 @@ fn is_builtin_name(n: &str) -> bool {
 fn is_exc_name(n: &str) -> bool {
     matches!(
         n,
-        "BaseException" | "Exception" | "SystemExit" | "KeyboardInterrupt" | "GeneratorExit" | "ArithmeticError" | "ZeroDivisionError" | "OverflowError" | "FloatingPointError" | "LookupError" | "KeyError" | "IndexError" | "ValueError" | "UnicodeError" | "UnicodeDecodeError" | "UnicodeEncodeError" | "TypeError" | "AttributeError" | "NameError" | "UnboundLocalError" | "RuntimeError" | "RecursionError" | "NotImplementedError" | "StopIteration" | "StopAsyncIteration" | "TimeoutError" | "ConnectionError" | "ConnectionRefusedError" | "ConnectionResetError" | "ConnectionAbortedError" | "BrokenPipeError" | "BaseExceptionGroup" | "ExceptionGroup" | "AssertionError" | "ImportError" | "ModuleNotFoundError" | "OSError" | "IOError" | "EnvironmentError" | "FileNotFoundError" | "PermissionError" | "IsADirectoryError" | "NotADirectoryError" | "FileExistsError" | "EOFError" | "MemoryError" | "BufferError" | "Warning" | "UserWarning" | "DeprecationWarning"
+        "BaseException" | "Exception" | "SystemExit" | "KeyboardInterrupt" | "GeneratorExit" | "ArithmeticError" | "ZeroDivisionError" | "OverflowError" | "FloatingPointError" | "LookupError" | "KeyError" | "IndexError" | "ValueError" | "UnicodeError" | "UnicodeDecodeError" | "UnicodeEncodeError" | "TypeError" | "AttributeError" | "NameError" | "UnboundLocalError" | "RuntimeError" | "RecursionError" | "NotImplementedError" | "StopIteration" | "StopAsyncIteration" | "TimeoutError" | "ConnectionError" | "ConnectionRefusedError" | "ConnectionResetError" | "ConnectionAbortedError" | "BrokenPipeError" | "BaseExceptionGroup" | "ExceptionGroup" | "AssertionError" | "SyntaxError" | "IndentationError" | "ImportError" | "ModuleNotFoundError" | "OSError" | "IOError" | "EnvironmentError" | "FileNotFoundError" | "PermissionError" | "IsADirectoryError" | "NotADirectoryError" | "FileExistsError" | "EOFError" | "MemoryError" | "BufferError" | "Warning" | "UserWarning" | "DeprecationWarning" | "SyntaxWarning" | "RuntimeWarning" | "FutureWarning" | "PendingDeprecationWarning" | "ImportWarning" | "UnicodeWarning" | "BytesWarning" | "ResourceWarning" | "EncodingWarning"
     )
 }
 
@@ -1013,6 +1018,8 @@ fn free_of_def(params: &[String], body: &[Stmt]) -> BTreeSet<String> {
     for n in nested_free(body) {
         used.insert(n);
     }
+    // a name declared nonlocal is free here even when this body never reads or sets it
+    used.extend(sc.nonlocals.iter().cloned());
     used.into_iter().filter(|n| !sc.locals.contains(n) || sc.nonlocals.contains(n)).filter(|n| !sc.globals.contains(n)).collect()
 }
 // free names of the defs and classes directly nested in body
@@ -1378,6 +1385,9 @@ struct Func {
     is_agen: bool,
     // prefix of the names of the cells this function owns ("k{id}_"); empty for module and class bodies
     cells: String,
+    // a function's names in CPython's locals() order: parameters and locals by first appearance, then cell and
+    // free variables by name
+    order: Vec<String>,
     // a def with yield: a generator
     is_gen: bool,
     // nested defs held in plain locals of this frame that calls here reach directly (see Em::nested_direct)
@@ -1980,6 +1990,56 @@ impl Em {
         format!("gtab_{}", rust_ident(&self.module))
     }
     fn call(&mut self, f: &Ex, args: &[Arg], line: usize) -> ER<String> {
+        // eval("literal text"): parsed when the program is built and run in place. Refused when a name in it
+        // would resolve differently (CPython's eval sees this frame's locals and the globals, not enclosing cells).
+        if let [Arg::Pos(Ex::Str(text))] = args {
+            if matches!(f, Ex::Name(n) if n == "eval") && self.lookup("eval").is_none() {
+                let src = text.trim_start_matches([' ', '\t']);
+                match eval_numbers(src) {
+                    Some(true) => {}
+                    Some(false) => return Err(err(line, "eval() of a complex literal is not supported in dynamic builds")),
+                    None => return Ok(self.q("Err::<V, E>(exc(\"SyntaxError\", \"invalid syntax\".to_string()))")),
+                }
+                let parsed = super::parse::parse(src).ok().and_then(|v| match v.as_slice() {
+                    [one] => match &one.st {
+                        St::Expr(e) => Some(e.clone()),
+                        _ => None,
+                    },
+                    _ => None,
+                });
+                let Some(e) = parsed else {
+                    return Ok(self.q("Err::<V, E>(exc(\"SyntaxError\", \"invalid syntax\".to_string()))"));
+                };
+                let mut names = BTreeSet::new();
+                names_read_ex(&e, &mut names);
+                let fr = self.fstack.last().unwrap();
+                let module_vars = &self.fstack[0].vars;
+                let ok = names.iter().all(|n| fr.vars.contains_key(n) || module_vars.contains_key(n) || is_builtin_name(n));
+                let has_lambda = format!("{e:?}").contains("Lambda");
+                if ok && !has_lambda {
+                    return self.ex(&e, line);
+                }
+                return Err(err(line, "eval() of names this frame does not hold is not supported in dynamic builds"));
+            }
+        }
+        // locals() in a function: a snapshot dict of its bound names, in CPython's order
+        if args.is_empty() && matches!(f, Ex::Name(n) if n == "locals") && self.lookup("locals").is_none() {
+            let fr = self.fstack.last().unwrap();
+            if !fr.is_module && !fr.is_class && !fr.is_gen && !fr.order.is_empty() || (!fr.is_module && !fr.is_class && !fr.is_gen && fr.vars.is_empty()) {
+                let mut b = String::from("{ let mut __d = Dict::new(); ");
+                for n in fr.order.clone() {
+                    let get = match self.lookup(&n) {
+                        Some(Var::Local(r)) => format!("{r}.clone()"),
+                        Some(Var::Cell(r)) => format!("{r}.borrow().clone()"),
+                        _ => continue,
+                    };
+                    let set = self.q(&format!("__d.set(s({}), __v)", lit(&n)));
+                    write!(b, "{{ let __v = {get}; if !matches!(__v, V::Unbound) {{ {set}; }} }} ").unwrap();
+                }
+                b.push_str("V::Dict(Rc::new(RefCell::new(__d))) }");
+                return Ok(b);
+            }
+        }
         // globals().get(k) / globals().get(k, d)
         if let Ex::Attr(o, m) = f {
             if m == "get" && self.is_globals(o) && (1..=2).contains(&args.len()) && args.iter().all(|a| matches!(a, Arg::Pos(_))) {
@@ -2221,7 +2281,7 @@ impl Em {
         // nested generator function (class context and self reach the lazy part too).
         let parent = self.fstack.last().unwrap();
         let (class_expr, self_name) = (parent.class_expr.clone(), parent.self_name.clone());
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, exc_vars: vec![], is_module: false, is_class: false, is_async: false, is_agen: false, is_gen: true, direct_defs: HashMap::new(), cells: format!("g{id}_") };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, exc_vars: vec![], is_module: false, is_class: false, is_async: false, is_agen: false, is_gen: true, direct_defs: HashMap::new(), cells: format!("g{id}_"), order: vec![] };
         let mut tdecl = String::new();
         for n in &names {
             if inner_free.contains(n) {
@@ -3097,9 +3157,20 @@ impl Em {
         // this function's frame
         let parent = self.fstack.last().unwrap();
         let (class_expr, self_name) = if self.class_ctx.is_some() { (self.class_ctx.clone(), p.pos.first().map(|x| x.0.clone())) } else { (parent.class_expr.clone(), parent.self_name.clone()) };
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, exc_vars: vec![], is_module: false, is_class: false, is_async, is_agen: is_async && is_gen, is_gen, direct_defs: HashMap::new(), cells: format!("k{id}_") };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, exc_vars: vec![], is_module: false, is_class: false, is_async, is_agen: is_async && is_gen, is_gen, direct_defs: HashMap::new(), cells: format!("k{id}_"), order: vec![] };
         for (n, r) in &captures {
             fr.vars.insert(n.clone(), Var::Cell(r.clone()));
+        }
+        {
+            let text = format!("{body:?}");
+            let at = |n: &String| text.find(&format!("{n:?}")).unwrap_or(usize::MAX);
+            let mut local: Vec<&String> = sc.locals.iter().filter(|n| !params.contains(n) && !inner_free.contains(*n)).collect();
+            local.sort_by_key(|n| (at(n), (*n).clone()));
+            let mut cellv: Vec<&String> = sc.locals.iter().filter(|n| !params.contains(n) && inner_free.contains(*n)).collect();
+            cellv.sort();
+            let mut freev: Vec<&String> = captures.iter().map(|(n, _)| n).filter(|n| !sc.locals.contains(*n)).collect();
+            freev.sort();
+            fr.order = params.iter().cloned().chain(local.into_iter().cloned()).chain(cellv.into_iter().cloned()).chain(freev.into_iter().cloned()).collect();
         }
         let mut decls = String::new();
         let mut cells_init = String::new();
@@ -3287,7 +3358,7 @@ impl Em {
         // invisible to the methods
         let sc = scope_of(&c.body, &[]);
         let parent = self.fstack.last().unwrap();
-        let mut fr = Func { vars: HashMap::new(), frames: parent.frames.clone(), class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new() };
+        let mut fr = Func { vars: HashMap::new(), frames: parent.frames.clone(), class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![] };
         let mut decls = String::new();
         for n in sc.locals.iter() {
             let r = format!("a{id}_{}", rust_ident(n));
@@ -3472,7 +3543,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     // Brevi's own library copies first, each group named and numbered on its own, then the program's modules:
     // the copies' Rust (everything before LIB_END) is then the same for every program that imports them, so a
     // build can compile it once into a cached library (dynpy::compile) instead of with every program.
-    let own = OWN_COPIES.lock().unwrap().clone();
+    let own = LIB_COPIES.lock().unwrap().clone();
     let mut libs: Vec<&Module> = mods.iter().skip(1).filter(|m| own.contains(&m.name)).collect();
     libs.sort_by(|a, b| a.name.cmp(&b.name));
     let users: Vec<&Module> = mods.iter().filter(|m| !libs.iter().any(|l| l.name == m.name)).collect();
@@ -3588,7 +3659,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         for m in group.iter().copied() {
             em.module = m.name.clone();
             IN_COPY.with(|c| c.set(OWN_COPIES.lock().unwrap().contains(&m.name)));
-            let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, exc_vars: vec![], is_module: true, is_class: false, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new() };
+            let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, exc_vars: vec![], is_module: true, is_class: false, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![] };
             for n in em.mod_names[&m.name].clone() {
                 let i = em.gslot(&m.name, &n);
                 fr.vars.insert(n.clone(), Var::Global(i));
@@ -3682,4 +3753,106 @@ fn gtab(em: &Em, m: &str) -> String {
 impl Em {
     #[allow(dead_code)]
     fn _unused(&self) {}
+}
+
+// The number literals of eval() text, checked by Python's own token rules (the dynamic parser is lenient about
+// them): None when one is invalid, Some(false) when one is imaginary, else Some(true).
+fn eval_numbers(src: &str) -> Option<bool> {
+    let c: Vec<char> = src.chars().collect();
+    let idc = |x: char| x.is_alphanumeric() || x == '_';
+    let digits = |j: &mut usize, ok: &dyn Fn(char) -> bool| -> bool {
+        // d(_?d)*: false when there is no digit; stops before a '_' not followed by a digit
+        if *j >= c.len() || !ok(c[*j]) {
+            return false;
+        }
+        *j += 1;
+        loop {
+            if *j < c.len() && ok(c[*j]) {
+                *j += 1;
+            } else if *j + 1 < c.len() && c[*j] == '_' && ok(c[*j + 1]) {
+                *j += 2;
+            } else {
+                return true;
+            }
+        }
+    };
+    let mut plain = true;
+    let mut i = 0;
+    while i < c.len() {
+        let ch = c[i];
+        if ch == '\'' || ch == '"' {
+            let mut j = i + 1;
+            while j < c.len() && c[j] != ch {
+                j += if c[j] == '\\' { 2 } else { 1 };
+            }
+            i = j + 1;
+            continue;
+        }
+        let starts = ch.is_ascii_digit() || (ch == '.' && i + 1 < c.len() && c[i + 1].is_ascii_digit());
+        if !starts || (i > 0 && idc(c[i - 1])) {
+            i += 1;
+            continue;
+        }
+        let mut j = i;
+        if ch == '0' && i + 1 < c.len() && "xXoObB".contains(c[i + 1]) {
+            j += 2;
+            let r = c[i + 1].to_ascii_lowercase();
+            let ok: &dyn Fn(char) -> bool = match r {
+                'x' => &|x: char| x.is_ascii_hexdigit(),
+                'o' => &|x: char| ('0'..='7').contains(&x),
+                _ => &|x: char| x == '0' || x == '1',
+            };
+            if j < c.len() && c[j] == '_' {
+                j += 1;
+            }
+            if !digits(&mut j, ok) {
+                return None;
+            }
+        } else {
+            let dec = |x: char| x.is_ascii_digit();
+            let int_start = j;
+            let had_int = digits(&mut j, &dec);
+            let int_end = j;
+            let mut is_float = false;
+            if j < c.len() && c[j] == '.' {
+                is_float = true;
+                j += 1;
+                let mut k = j;
+                if digits(&mut k, &dec) {
+                    j = k;
+                }
+            }
+            if (had_int || is_float) && j < c.len() && (c[j] == 'e' || c[j] == 'E') {
+                let mut k = j + 1;
+                if k < c.len() && (c[k] == '+' || c[k] == '-') {
+                    k += 1;
+                }
+                if digits(&mut k, &dec) {
+                    j = k;
+                    is_float = true;
+                }
+            }
+            if j < c.len() && (c[j] == 'j' || c[j] == 'J') {
+                j += 1;
+                plain = false;
+            } else if !is_float {
+                let t: String = c[int_start..int_end].iter().filter(|x| **x != '_').collect();
+                if t.len() > 1 && t.starts_with('0') && t.chars().any(|x| x != '0') {
+                    return None;
+                }
+            }
+        }
+        if j < c.len() && idc(c[j]) {
+            let mut k = j;
+            while k < c.len() && idc(c[k]) {
+                k += 1;
+            }
+            let w: String = c[j..k].iter().collect();
+            if !matches!(w.as_str(), "and" | "else" | "for" | "if" | "in" | "is" | "not" | "or") {
+                return None;
+            }
+        }
+        i = j;
+    }
+    Some(plain)
 }

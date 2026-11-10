@@ -116,7 +116,7 @@ expect_path("path typed check", path_of("check", code="print(sum(range(4)))\n"),
 expect_path("path typed run", path_of("run"), "typed", "6")
 expect_path("path dynamic", path_of("run", code="def show(xs):\n    print(set(xs))\n\nshow([2, 'a'])\n"), "dynamic", None, "show")
 expect_path("path dynamic check", path_of("check"), "dynamic", "OK\n", "show")
-expect_path("path cpython", path_of("run", code="def g():\n    return eval('1 + 2')\n\nprint(g())\n", sandbox=False), "cpython", "3", "g")
+expect_path("path cpython", path_of("run", code="def g():\n    exec('print(1 + 2)')\n\ng()\n", sandbox=False), "cpython", "3", "g")
 expect_path("path pybridge", path_of("run", code="import colorsys\nprint(colorsys.rgb_to_hsv(1.0, 0.0, 0.0)[0])\n", sandbox=False), "pybridge", "0.0")
 expect_path("path cases", path_of("run", code="print(input())\n", cases=[{"stdin": "x\n", "expect": "x\n"}]), "typed", "passed 1/1")
 r = rpc("tools/call", {"name": "check", "arguments": {"code": "print(totl)\n"}})
