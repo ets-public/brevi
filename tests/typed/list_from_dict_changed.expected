@@ -1,0 +1,5 @@
+done x1
+partial x2 2
+{'tea': [['x2', 2]], 'coffee': [['x3', 1]]}
+done x2
+{'tea': [], 'coffee': [['x3', 1]]}

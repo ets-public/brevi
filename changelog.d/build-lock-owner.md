@@ -1,0 +1,1 @@
+- **A build killed halfway no longer holds up later builds for 20 minutes.** The lock that makes concurrent builds of the same runtime or library copy wait for one build now names its owner, so a lock left by a process that was killed, or by a machine that restarted, is taken over at once instead of after 20 minutes.

@@ -46,5 +46,72 @@
     "cost_ratio": 1.013
    }
   }
+ },
+ {
+  "date": "2026-11-09",
+  "version": "v0.26.0",
+  "runs": [
+   "w1109a",
+   "w1109b"
+  ],
+  "models": {
+   "Sonnet 5.5": {
+    "pyb": {
+     "tasks": 48,
+     "passed": 48,
+     "usd_per_run": 0.7462,
+     "secs_per_task": 25.2,
+     "run_ms": 1508.0,
+     "native": 47
+    },
+    "python": {
+     "tasks": 48,
+     "passed": 48,
+     "usd_per_run": 0.6978,
+     "secs_per_task": 15.5,
+     "run_ms": 4559.9
+    },
+    "speedup": 3.02,
+    "cost_ratio": 1.069
+   },
+   "Haiku 5.5": {
+    "pyb": {
+     "tasks": 48,
+     "passed": 48,
+     "usd_per_run": 0.0843,
+     "secs_per_task": 25.2,
+     "run_ms": 561.4,
+     "native": 48
+    },
+    "python": {
+     "tasks": 48,
+     "passed": 48,
+     "usd_per_run": 0.0835,
+     "secs_per_task": 23.2,
+     "run_ms": 4491.4
+    },
+    "speedup": 8.0,
+    "cost_ratio": 1.01
+   },
+   "DeepSeek V4.1 Flash": {
+    "pyb": {
+     "tasks": 48,
+     "passed": 47,
+     "usd_per_run": 0.3767,
+     "secs_per_task": 88.8,
+     "run_ms": 762.9,
+     "native": 45
+    },
+    "python": {
+     "tasks": 48,
+     "passed": 47,
+     "usd_per_run": 0.314,
+     "secs_per_task": 67.6,
+     "run_ms": 4529.0
+    },
+    "speedup": 5.94,
+    "cost_ratio": 1.2
+   }
+  }
  }
 ]

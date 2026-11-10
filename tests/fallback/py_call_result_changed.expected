@@ -1,0 +1,3 @@
+{"path":"dynamic","line":8,"why":"get_bucket(...) gives a copy of the list or dict it returns, so changing it here does not change the original (Brevi values are copies, not shared)"}
+{'a': [1, 2]}
+native exit 0

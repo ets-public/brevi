@@ -1,0 +1,3 @@
+{"path":"dynamic","why":"the typed build's Rust did not compile (the trait bound `i64: AxShared` is not satisfied)"}
+{'k': [1, 2]} {'k': [1, 2]} [1, 2]
+native exit 0
