@@ -142,11 +142,29 @@ def safe_path(p):
     return q
 
 
+# Everything the model runs (its try_python code, the programs it builds, the check) gets an environment without
+# credentials, and any secret value that still turns up in output is masked before it reaches the transcript,
+# which is sent to the model's API and committed as the session log. An env dump in a run once leaked a key.
+SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASSW|CREDENTIAL|AUTH|COOKIE", re.I)
+SECRET_VALUES = sorted({v for k, v in os.environ.items() if SECRET_NAME.search(k) and len(v) >= 12}, key=len, reverse=True)
+
+
+def child_env(extra=None):
+    env = {k: v for k, v in os.environ.items() if not SECRET_NAME.search(k)}
+    env.update(extra or {})
+    return env
+
+
+def redact(text):
+    for v in SECRET_VALUES:
+        text = text.replace(v, "<redacted>")
+    return text
+
+
 def sh(cmd, timeout=900, env=None, cwd=ROOT):
     try:
-        r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout,
-                           env={**os.environ, **(env or {})})
-        return r.returncode, r.stdout, r.stderr
+        r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=child_env(env))
+        return r.returncode, redact(r.stdout), redact(r.stderr)
     except subprocess.TimeoutExpired:
         return -1, "", f"timed out after {timeout}s"
 
@@ -425,6 +443,7 @@ def main():
                     out = run_tool(name, args, task) if args is not None else "error: arguments were not valid JSON"
                 except Exception as e:
                     out = f"error: {e}"
+            out = redact(out)
             short = json.dumps(args)[:120] if args else ""
             print(f"[ds] step {step} ${spent:.3f} {name} {short}", flush=True)
             note(event="tool", name=name, args=args, result=out[:4000])
