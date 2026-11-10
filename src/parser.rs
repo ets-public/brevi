@@ -2826,7 +2826,7 @@ impl Parser {
                             let d = d.clone();
                             return Ok(if empty_literal(&d) { lax_map(line) } else if immutable_default(&d) { lax_map_def(line, d) } else if fresh_default(&d) { lax_map_mk(line, d) } else { Expr::Call(name.clone(), vec![(Some("lambda".into()), d)], line) });
                         }
-                        if n.is_none() && matches!(d, Expr::Ident(n) if matches!(n.as_str(), "int" | "float" | "str" | "list" | "set" | "dict" | "tuple" | "bool" | "Decimal" | "Fraction")) {
+                        if n.is_none() && type_factory(d) {
                             return Ok(lax_map(line));
                         }
                     }
@@ -3724,7 +3724,7 @@ fn python_call(name: &str, args: &mut Vec<(Option<String>, Expr)>, line: usize) 
         }
         ("dict", 0) => Expr::Map(vec![]),
         // defaultdict(int), defaultdict(list), defaultdict(Decimal): missing keys read as the type's zero.
-        ("defaultdict", 1) if matches!(&args[0].1, Expr::Ident(n) if matches!(n.as_str(), "int" | "float" | "str" | "list" | "set" | "dict" | "tuple" | "bool" | "Decimal" | "Fraction")) => lax_map(line),
+        ("defaultdict", 1) if type_factory(&args[0].1) => lax_map(line),
         ("Counter", 0) => lax_map(line),
         ("set", 1) => m(args.remove(0).1, "unique", vec![]),
         // dict(m) copies a map; maps are values in Brevi already.
@@ -3869,6 +3869,15 @@ fn fill_format(parts: &[StrPart], args: Vec<Expr>, percent: bool, line: usize) -
 }
 
 // defaultdict(...) and Counter(): an empty map whose missing keys read as zero.
+// defaultdict(int), defaultdict(list), defaultdict(Decimal): a built-in type as the factory. int, float and str
+// passed as values reach here as the conversion lambda `v_.int()` the parser makes for them.
+fn type_factory(e: &Expr) -> bool {
+    match e {
+        Expr::Ident(n) => matches!(n.as_str(), "int" | "float" | "str" | "list" | "set" | "dict" | "tuple" | "bool" | "Decimal" | "Fraction"),
+        Expr::Lambda(ps, b) if ps.len() == 1 => matches!(b.as_ref(), Expr::Method(r, m, a, _) if a.is_empty() && matches!(m.as_str(), "int" | "float" | "str") && matches!(r.as_ref(), Expr::Ident(v) if *v == ps[0])),
+        _ => false,
+    }
+}
 fn lax_map(line: usize) -> Expr {
     Expr::Method(Box::new(Expr::Map(vec![])), "lax".into(), vec![], line)
 }
