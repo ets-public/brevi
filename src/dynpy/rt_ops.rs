@@ -1720,6 +1720,11 @@ pub enum It {
     GenExp(Box<dyn FnMut() -> Result<Option<V>, E>>, bool),
     Coro(Rc<RefCell<Box<Coro>>>),
     Obj(V),
+    // another iterator object, stepped through iter_step so that re-entrant calls work
+    Ref(Rc<RefCell<It>>),
+    // an iterator whose state lives behind its own cells and holds no borrow while it calls user code, so
+    // it may be re-entered (from a key function or __eq__, say), as CPython's C iterators may
+    Shared(Rc<dyn Fn() -> Result<Option<V>, E>>),
     Done,
 }
 pub struct Iter {
@@ -1827,22 +1832,25 @@ impl It {
                 }
             }
             It::Coro(c) => coro_next(c, V::None),
-            It::Obj(o) => {
-                let f = match o {
-                    V::Obj(ob) => ob.cls.lookup("__next__"),
-                    _ => None,
-                };
-                match f {
-                    Some(f) => match call(&f, Args::p(vec![o.clone()])) {
-                        Ok(v) => Ok(Some(v)),
-                        Err(E(e)) if is_exc(&e, "StopIteration") => Ok(None),
-                        Err(e) => Err(e),
-                    },
-                    None => type_err(format!("'{}' object is not an iterator", tn(o))),
-                }
-            }
+            It::Obj(o) => obj_next(o),
+            It::Ref(r) => iter_step(r),
+            It::Shared(f) => f(),
             It::Done => Ok(None),
         }
+    }
+}
+fn obj_next(o: &V) -> Result<Option<V>, E> {
+    let f = match o {
+        V::Obj(ob) => ob.cls.lookup("__next__"),
+        _ => None,
+    };
+    match f {
+        Some(f) => match call(&f, Args::p(vec![o.clone()])) {
+            Ok(v) => Ok(Some(v)),
+            Err(E(e)) if is_exc(&e, "StopIteration") => Ok(None),
+            Err(e) => Err(e),
+        },
+        None => type_err(format!("'{}' object is not an iterator", tn(o))),
     }
 }
 pub fn is_exc(e: &V, name: &str) -> bool {
@@ -1878,14 +1886,14 @@ pub fn iter(v: &V) -> Result<It, E> {
         V::Set(s) => It::Vec(s.borrow().keys().into_iter()),
         V::FSet(s) => It::Vec(s.keys().into_iter()),
         V::Deque(d) => It::Vec(d.borrow().v.iter().cloned().collect::<Vec<_>>().into_iter()),
-        V::Iter(it) => {
-            let it = it.clone();
-            It::Gen(Box::new(move || it.borrow_mut().next()))
-        }
+        V::Iter(it) => It::Ref(it.clone()),
         V::Obj(o) => {
             if let Some(f) = o.cls.lookup("__iter__") {
                 let r = call(&f, Args::p(vec![v.clone()]))?;
-                if let V::Obj(_) = &r {
+                if let V::Obj(ro) = &r {
+                    if ro.cls.lookup("__next__").is_none() {
+                        return type_err(format!("iter() returned non-iterator of type '{}'", tn(&r)));
+                    }
                     return Ok(It::Obj(r));
                 }
                 return iter(&r);
@@ -1926,7 +1934,10 @@ pub fn iter_v(v: &V) -> R {
     if let V::Obj(o) = v {
         if let Some(f) = o.cls.lookup("__iter__") {
             let r = call(&f, Args::p(vec![v.clone()]))?;
-            if let V::Obj(_) = &r {
+            if let V::Obj(ro) = &r {
+                if ro.cls.lookup("__next__").is_none() {
+                    return type_err(format!("iter() returned non-iterator of type '{}'", tn(&r)));
+                }
                 return Ok(V::Iter(Rc::new(RefCell::new(It::Obj(r)))));
             }
             return iter_v(&r);
@@ -2025,4 +2036,42 @@ pub fn dict_items_of(v: &V) -> Result<Vec<(V, V)>, E> {
             Ok(out)
         }
     }
+}
+
+// One step of a shared iterator. An iterator whose own step calls back into it (a map function that calls next()
+// on the zip reading that map) cannot be stepped twice at once here: that raises ValueError, as CPython does for a
+// generator already executing, instead of a RefCell panic.
+pub fn iter_step(it: &Rc<RefCell<It>>) -> Result<Option<V>, E> {
+    let Ok(mut g) = it.try_borrow_mut() else {
+        return Err(exc("ValueError", "iterator already executing".into()));
+    };
+    // these hold no state of their own here: let go of the cell before running them, so they may re-enter
+    match &*g {
+        It::Shared(f) => {
+            let f = f.clone();
+            drop(g);
+            f()
+        }
+        It::Ref(r) => {
+            let r = r.clone();
+            drop(g);
+            iter_step(&r)
+        }
+        It::Obj(o) => {
+            let o = o.clone();
+            drop(g);
+            obj_next(&o)
+        }
+        _ => g.next(),
+    }
+}
+pub fn shared_iter(f: impl Fn() -> Result<Option<V>, E> + 'static) -> V {
+    V::Iter(Rc::new(RefCell::new(It::Shared(Rc::new(f)))))
+}
+// an input of a re-entrant iterator: its own cell, so stepping it borrows nothing shared
+pub fn shared_input(v: &V) -> Result<Rc<RefCell<It>>, E> {
+    Ok(match v {
+        V::Iter(it) => it.clone(),
+        _ => Rc::new(RefCell::new(iter(v)?)),
+    })
 }

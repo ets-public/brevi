@@ -7078,6 +7078,37 @@ fn ax_rx_search_at(p: &str, s: &[char], from: usize, full: bool, anchored: bool)
         }
         return ax_rx_search_at(&lp, &low, from, full, anchored);
     }
+    // The matcher recurses about once per repetition of a group, so `(x)*` over a long text would overflow the
+    // main thread's stack: long texts are matched on a thread whose stack grows with the text, as CPython's
+    // matcher does not recurse at all.
+    if s.len() - from.min(s.len()) > 2000 && !AX_RX_BIG.with(|b| b.get()) && ax_rx_deep(&ax_rx(p).0) {
+        let stack = (s.len() + 1000).saturating_mul(4096).min(1 << 36);
+        return std::thread::scope(|sc| {
+            std::thread::Builder::new()
+                .stack_size(stack)
+                .spawn_scoped(sc, || {
+                    AX_RX_BIG.with(|b| b.set(true));
+                    ax_rx_search_at(p, s, from, full, anchored)
+                })
+                .map(|h| h.join().unwrap_or_else(|e| std::panic::resume_unwind(e)))
+                .unwrap_or_else(|_| ax_rx_search_at_here(p, s, from, full, anchored))
+        });
+    }
+    ax_rx_search_at_here(p, s, from, full, anchored)
+}
+// whether matching recurses once per repetition: a repeated node wider than one character
+fn ax_rx_deep(n: &AxRx) -> bool {
+    match n {
+        AxRx::Rep(inner, _, hi, _) => (*hi > 1 && ax_rx_one(inner, 'a').is_none()) || ax_rx_deep(inner),
+        AxRx::Cat(v) | AxRx::Alt(v) => v.iter().any(ax_rx_deep),
+        AxRx::Group(inner, _) => ax_rx_deep(inner),
+        _ => false,
+    }
+}
+thread_local! {
+    static AX_RX_BIG: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+fn ax_rx_search_at_here(p: &str, s: &[char], from: usize, full: bool, anchored: bool) -> Option<(usize, AxCaps)> {
     let rx = ax_rx(p);
     for st in from..=s.len() {
         let mut caps: AxCaps = vec![None; rx.1 + 1];
