@@ -1,0 +1,21 @@
+ValueError Stop argument for islice() must be None or an integer: 0 <= x <= sys.maxsize.
+ValueError Indices for islice() must be None or an integer: 0 <= x <= sys.maxsize.
+ValueError Stop argument for islice() must be None or an integer: 0 <= x <= sys.maxsize.
+ValueError Stop argument for islice() must be None or an integer: 0 <= x <= sys.maxsize.
+ValueError Indices for islice() must be None or an integer: 0 <= x <= sys.maxsize.
+ValueError Step for islice() must be a positive integer or None.
+[1, 4, 7]
+[0, 1, 2, 3]
+ValueError Indices for islice() must be None or an integer: 0 <= x <= sys.maxsize.
+ValueError Step for islice() must be a positive integer or None.
+TypeError islice() takes no keyword arguments
+TypeError islice expected at least 2 arguments, got 1
+ValueError r must be non-negative
+ValueError r must be non-negative
+ValueError repeat argument cannot be negative
+OverflowError Python int too large to convert to C ssize_t
+[]
+[()]
+[('a', 'a', 'a'), ('a', 'a', 'b'), ('a', 'b', 'b'), ('b', 'b', 'b')]
+[('a', 'b', 'c'), ('a', 'c', 'b'), ('b', 'a', 'c'), ('b', 'c', 'a'), ('c', 'a', 'b'), ('c', 'b', 'a')]
+[1]
