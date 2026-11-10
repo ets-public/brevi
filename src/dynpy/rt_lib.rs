@@ -1146,7 +1146,10 @@ pub fn builtin_class_attr(c: &Rc<Class>, name: &str) -> Option<V> {
             };
             match o {
                 V::Obj(ob) => {
-                    if let Some(v) = ob.get(&n.s) {
+                    if n.s == "__dict__" && ob.cls.lookup(&n.s).is_none() {
+                        return ob.dict();
+                    }
+                    if let Some(v) = ob.get_attr(&n.s)? {
                         return Ok(v);
                     }
                     if ob.cls.lookup(&n.s).is_some() || n.s == "__class__" || n.s == "__dict__" {
