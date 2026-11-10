@@ -1279,6 +1279,10 @@ impl AxIntBase for String {
         }
         // base 10 takes any Unicode decimal digit (`int("१२३", 0)` is 123)
         let digits: String = digits.chars().filter(|&c| c != '_').map(|c| if b == 10 { ax_uni_digit(c) } else { c }).collect();
+        // base 0 reads a decimal literal as Python source does: no leading zeros unless the value is 0
+        if base == 0 && b == 10 && digits.len() > 1 && digits.starts_with('0') && digits.bytes().any(|c| c != b'0') {
+            return Err(bad());
+        }
         let v = i64::from_str_radix(&digits, b).map_err(|_| bad())?;
         Ok(if neg { -v } else { v })
     }
@@ -3459,6 +3463,26 @@ impl Big {
         Ok(Big::make(neg, mag))
     }
 }
+fn big_from_radix(digits: &str, base: u32) -> Option<Big> {
+    if digits.is_empty() {
+        return None;
+    }
+    let mut mag = vec![0u32];
+    for c in digits.chars() {
+        let d = c.to_digit(base)?;
+        let mut carry = d as u64;
+        for w in mag.iter_mut() {
+            let x = *w as u64 * base as u64 + carry;
+            *w = (x % BIG_BASE) as u32;
+            carry = x / BIG_BASE;
+        }
+        while carry > 0 {
+            mag.push((carry % BIG_BASE) as u32);
+            carry /= BIG_BASE;
+        }
+    }
+    Some(Big::make(false, mag))
+}
 impl PartialOrd for Big {
     fn partial_cmp(&self, o: &Big) -> Option<std::cmp::Ordering> {
         use std::cmp::Ordering::*;
@@ -3657,11 +3681,54 @@ impl AxBigInt for Big {
 }
 pub trait AxStrBig {
     fn ax_big(&self) -> R<Big>;
+    fn ax_big_base(&self, base: i64) -> R<Big>;
 }
 impl AxStrBig for String {
     fn ax_big(&self) -> R<Big> {
-        Big::parse(self)
+        if ax_py_on() {
+            ax_big_base_impl(self, 10)
+        } else {
+            Big::parse(self)
+        }
     }
+    fn ax_big_base(&self, base: i64) -> R<Big> {
+        ax_big_base_impl(self, base)
+    }
+}
+
+// Python's int(s, base) read into a big integer, so any number of digits works. The checks match AxIntBase.
+fn ax_big_base_impl(s: &str, base: i64) -> R<Big> {
+    let bad = || AxErr(format!("invalid literal for int() with base {base}: {}", ax_py_repr(s)));
+    let t = s.trim();
+    let (neg, t) = match t.strip_prefix('-') {
+        Some(r) => (true, r),
+        None => (false, t.strip_prefix('+').unwrap_or(t)),
+    };
+    let low = t.to_ascii_lowercase();
+    let pre = |p: &str| low.starts_with(p);
+    let (b, digits) = match base {
+        0 if pre("0x") => (16, &t[2..]),
+        0 if pre("0o") => (8, &t[2..]),
+        0 if pre("0b") => (2, &t[2..]),
+        0 => (10, t),
+        16 if pre("0x") => (16, &t[2..]),
+        8 if pre("0o") => (8, &t[2..]),
+        2 if pre("0b") => (2, &t[2..]),
+        2..=36 => (base as u32, t),
+        _ => return Err(AxErr("int() base must be >= 2 and <= 36, or 0".into())),
+    };
+    let digits = digits.strip_prefix('_').filter(|_| digits.len() < t.len()).unwrap_or(digits);
+    if digits.is_empty() || digits.starts_with('_') || digits.ends_with('_') || digits.contains("__") {
+        return Err(bad());
+    }
+    // base 10 takes any Unicode decimal digit (`int("१२३", 0)` is 123)
+    let digits: String = digits.chars().filter(|&c| c != '_').map(|c| if b == 10 { ax_uni_digit(c) } else { c }).collect();
+    // base 0 reads a decimal literal as Python source does: no leading zeros unless the value is 0
+    if base == 0 && b == 10 && digits.len() > 1 && digits.starts_with('0') && digits.bytes().any(|c| c != b'0') {
+        return Err(bad());
+    }
+    let v = big_from_radix(&digits, b).ok_or_else(bad)?;
+    Ok(if neg { Big::make(true, v.mag) } else { v })
 }
 
 // ax_q(x)? works on both fallible results and plain values.

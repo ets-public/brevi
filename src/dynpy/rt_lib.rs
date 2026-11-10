@@ -715,6 +715,7 @@ pub fn type_of(x: &V) -> Rc<Class> {
         V::Func(_) | V::Bound(_) | V::BMeth(_) => bclass("function"),
         V::Range(_) => bclass("range"),
         V::Deque(_) => bclass("deque"),
+        V::View(x) if x.1 == 3 => bclass("mappingproxy"),
         V::Ext(e) => ext_class(e.tname()),
         _ => bclass("object"),
     }
@@ -1146,7 +1147,10 @@ pub fn builtin_class_attr(c: &Rc<Class>, name: &str) -> Option<V> {
             };
             match o {
                 V::Obj(ob) => {
-                    if let Some(v) = ob.get(&n.s) {
+                    if n.s == "__dict__" && ob.cls.lookup(&n.s).is_none() {
+                        return ob.dict();
+                    }
+                    if let Some(v) = ob.get_attr(&n.s)? {
                         return Ok(v);
                     }
                     if ob.cls.lookup(&n.s).is_some() || n.s == "__class__" || n.s == "__dict__" {
@@ -2536,7 +2540,7 @@ pub fn builtin_method(o: &V, name: &str, a: Args) -> R {
         V::View(v) => match name {
             "__len__" => Ok(V::Int(len(o)? as i64)),
             "__iter__" => iter_v(o),
-            "isdisjoint" => {
+            "isdisjoint" if v.1 == 0 || v.1 == 2 => {
                 let other = to_vec(&a1(&a, name)?)?;
                 for x in other {
                     if contains(o, &x)? {
@@ -2545,7 +2549,14 @@ pub fn builtin_method(o: &V, name: &str, a: Args) -> R {
                 }
                 Ok(V::Bool(true))
             }
-            "mapping" => Ok(v.0.clone()),
+            "mapping" if v.1 != 3 => {
+                let m = V::View(Rc::new((v.0.clone(), 3)));
+                call(&m, a)
+            }
+            "get" | "copy" if v.1 == 3 => call_method(&v.0, name, a),
+            "keys" if v.1 == 3 => Ok(V::View(Rc::new((v.0.clone(), 0)))),
+            "values" if v.1 == 3 => Ok(V::View(Rc::new((v.0.clone(), 1)))),
+            "items" if v.1 == 3 => Ok(V::View(Rc::new((v.0.clone(), 2)))),
             _ => bad_method(o, name),
         },
         V::Ext(x) => {

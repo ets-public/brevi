@@ -292,6 +292,28 @@ pub fn repr(v: &V) -> Result<String, E> {
         }
         V::Module(m) => format!("<module '{}'>", m),
         V::View(x) => {
+            // kind 3 is a mappingproxy: the dict's own repr in `mappingproxy({...})`.
+            if x.1 == 3 {
+                if let V::Dict(d) = &x.0 {
+                    let p = Rc::as_ptr(d) as usize;
+                    if !guard(p) {
+                        return Ok("mappingproxy({...})".into());
+                    }
+                    let mut parts = vec![];
+                    // Copy the items out first: a user __repr__ may change the dict.
+                    let items = d.borrow().items();
+                    let r = (|| -> Result<(), E> {
+                        for (k, v) in items {
+                            parts.push(format!("{}: {}", repr(&k)?, repr(&v)?));
+                        }
+                        Ok(())
+                    })();
+                    unguard();
+                    r?;
+                    return Ok(format!("mappingproxy({{{}}})", parts.join(", ")));
+                }
+                return Ok("mappingproxy({})".into());
+            }
             let name = ["dict_keys", "dict_values", "dict_items"][x.1 as usize];
             format!("{}([{}])", name, join_repr(&to_vec(v)?)?)
         }
@@ -380,6 +402,7 @@ pub fn to_str(v: &V) -> Result<String, E> {
             }
             repr(v)?
         }
+        V::View(x) if x.1 == 3 => repr(&x.0)?,
         V::Ext(x) => x.str_(),
         _ => repr(v)?,
     })

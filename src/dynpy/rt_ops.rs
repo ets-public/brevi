@@ -45,8 +45,8 @@ fn cmp_int_float(i: &V, f: f64) -> Option<std::cmp::Ordering> {
 
 // `d.keys()` / `d.items()` beside a set or another such view: compared as sets, as in CPython.
 fn view_pair(a: &V, b: &V) -> Result<Option<(V, V)>, E> {
-    let setlike = |v: &V| matches!(v, V::Set(_) | V::FSet(_)) || matches!(v, V::View(x) if x.1 != 1);
-    let is_view = |v: &V| matches!(v, V::View(x) if x.1 != 1);
+    let setlike = |v: &V| matches!(v, V::Set(_) | V::FSet(_)) || matches!(v, V::View(x) if x.1 == 0 || x.1 == 2);
+    let is_view = |v: &V| matches!(v, V::View(x) if x.1 == 0 || x.1 == 2);
     if !(setlike(a) && setlike(b) && (is_view(a) || is_view(b))) {
         return Ok(None);
     }
@@ -128,6 +128,9 @@ pub fn eq(a: &V, b: &V) -> Result<bool, E> {
             }
             ok
         }
+        (V::View(x), V::View(y)) if x.1 == 3 && y.1 == 3 => eq(&x.0, &y.0)?,
+        (V::View(x), V::Dict(_)) if x.1 == 3 => eq(&x.0, b)?,
+        (V::Dict(_), V::View(y)) if y.1 == 3 => eq(a, &y.0)?,
         (V::Set(_) | V::FSet(_), V::Set(_) | V::FSet(_)) => {
             let (x, y) = (set_of(a).unwrap(), set_of(b).unwrap());
             x.used == y.used && x.keys().iter().all(|k| y.contains(k).unwrap_or(false))
@@ -712,7 +715,40 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
             let r = set_op(&set_of(a).unwrap(), &set_of(b).unwrap(), op)?;
             return Ok(if matches!(a, V::FSet(_)) { V::FSet(Rc::new(r)) } else { V::Set(Rc::new(RefCell::new(r))) });
         }
-        (V::View(x), _) | (_, V::View(x)) if x.1 != 1 && matches!(op, "|" | "&" | "-" | "^") => {
+        // CPython's dictviews_or: build the left side into an empty set, then
+        // update it with the right side. The left side is built by iterating
+        // (a set's table is copied, a plain dict's keys reuse its stored
+        // hashes); the right side is merged table-wise only when it is a real
+        // set, with the same fast path for a plain dict. Materialising a view
+        // into a table first and bulk-merging it gives the wrong iteration
+        // order, e.g. {1:1, 2:2}.items() | {1:1, 2:2, 3:3}.items().
+        (V::View(x), _) | (_, V::View(x)) if (x.1 == 0 || x.1 == 2) && op == "|" => {
+            let mut r = match a {
+                V::Set(_) | V::FSet(_) => set_of(a).unwrap().copy(),
+                V::View(v) if v.1 == 0 => match &v.0 {
+                    V::Dict(d) if d.borrow().kind == 0 => {
+                        let ks = d.borrow().keys_h();
+                        PSet::from_dict(ks)
+                    }
+                    _ => PSet::from_iter(to_vec(a)?)?,
+                },
+                _ => PSet::from_iter(to_vec(a)?)?,
+            };
+            match b {
+                V::Set(_) | V::FSet(_) => r.merge(&set_of(b).unwrap()),
+                V::Dict(d) if d.borrow().kind == 0 => {
+                    let ks = d.borrow().keys_h();
+                    r.update_dict(ks)
+                }
+                _ => {
+                    for k in to_vec(b)? {
+                        r.add(k)?;
+                    }
+                }
+            }
+            return Ok(V::Set(Rc::new(RefCell::new(r))));
+        }
+        (V::View(x), _) | (_, V::View(x)) if (x.1 == 0 || x.1 == 2) && matches!(op, "&" | "-" | "^") => {
             let to_set = |v: &V| -> Result<PSet, E> {
                 match v {
                     V::Set(_) | V::FSet(_) => Ok(set_of(v).unwrap()),
@@ -729,6 +765,8 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
             }
             return Ok(V::Dict(Rc::new(RefCell::new(d))));
         }
+        (V::View(x), _) if x.1 == 3 && op == "|" => return binop(&x.0, b, op),
+        (_, V::View(y)) if y.1 == 3 && op == "|" => return binop(a, &y.0, op),
         (V::Dict(x), V::Dict(y)) if (op == "+" || op == "-") && x.borrow().kind == 2 => {
             return counter_op(&x.borrow(), &y.borrow(), op);
         }
@@ -1179,7 +1217,7 @@ pub fn contains(c: &V, x: &V) -> Result<bool, E> {
             _ => to_vec(c)?.iter().any(|y| eq(y, x).unwrap_or(false)),
         },
         V::View(v) => match (&v.0, v.1) {
-            (V::Dict(d), 0) => d.borrow().contains(x)?,
+            (V::Dict(d), 0 | 3) => d.borrow().contains(x)?,
             _ => to_vec(c)?.iter().any(|y| eq(y, x).unwrap_or(false)),
         },
         V::Deque(d) => {
@@ -1392,6 +1430,7 @@ pub fn getitem(c: &V, i: &V) -> R {
             let j = norm_idx(idx_of(i)?, d.v.len(), "deque")?;
             return Ok(d.v[j].clone());
         }
+        (V::View(x), _) if x.1 == 3 => return getitem(&x.0, i),
         (V::Obj(o), _) => {
             if let Some(f) = o.cls.lookup("__getitem__") {
                 return call(&f, Args::p(vec![c.clone(), i.clone()]));
@@ -1546,6 +1585,9 @@ pub enum It {
     Range(i64, i64, i64),
     Dict(Rc<RefCell<Dict>>, usize, u8, u64, usize),
     Gen(Box<dyn FnMut() -> Result<Option<V>, E>>),
+    // A generator expression: like Gen, but an error escapes to the caller once and then the iterator is
+    // exhausted, as in CPython.
+    GenExp(Box<dyn FnMut() -> Result<Option<V>, E>>, bool),
     Coro(Rc<RefCell<Box<Coro>>>),
     Obj(V),
     Done,
@@ -1633,7 +1675,7 @@ impl It {
                         }
                         *ver += 1;
                         return Ok(Some(match kind {
-                            0 => k.clone(),
+                            0 | 3 => k.clone(),
                             1 => v.clone(),
                             _ => tup(vec![k.clone(), v.clone()]),
                         }));
@@ -1642,6 +1684,18 @@ impl It {
                 Ok(None)
             }
             It::Gen(f) => f(),
+            It::GenExp(f, done) => {
+                if *done {
+                    return Ok(None);
+                }
+                match f() {
+                    Ok(v) => Ok(v),
+                    Err(e) => {
+                        *done = true;
+                        Err(e)
+                    }
+                }
+            }
             It::Coro(c) => coro_next(c, V::None),
             It::Obj(o) => {
                 let f = match o {
@@ -1767,6 +1821,9 @@ pub fn to_vec(v: &V) -> Result<Vec<V>, E> {
 pub fn gen_iter(f: impl FnMut() -> Result<Option<V>, E> + 'static) -> V {
     V::Iter(Rc::new(RefCell::new(It::Gen(Box::new(f)))))
 }
+pub fn genexp_iter(f: impl FnMut() -> Result<Option<V>, E> + 'static) -> V {
+    V::Iter(Rc::new(RefCell::new(It::GenExp(Box::new(f), false))))
+}
 pub fn vec_iter(v: Vec<V>) -> V {
     V::Iter(Rc::new(RefCell::new(It::Vec(v.into_iter()))))
 }
@@ -1814,6 +1871,7 @@ pub fn dict_items_of(v: &V) -> Result<Vec<(V, V)>, E> {
     }
     match v {
         V::Dict(d) => Ok(d.borrow().items()),
+        V::View(x) if x.1 == 3 => dict_items_of(&x.0),
         V::Obj(o) if o.cls.lookup("keys").is_some() => {
             let ks = to_vec(&call_method(v, "keys", Args::p(vec![]))?)?;
             let mut out = vec![];

@@ -990,7 +990,24 @@ pub fn shallow_copy(x: &V) -> R {
                 return call(&f, Args::p(vec![x.clone()]));
             }
             let n = Obj::new(o.cls.clone());
-            *n.d.borrow_mut() = o.d.borrow().clone();
+            let (attrs, dict) = {
+                let d = o.d.borrow();
+                (d.attrs.clone(), d.dict.clone())
+            };
+            *n.d.borrow_mut() = AStore { attrs, dict: None };
+            if let Some(dd) = dict {
+                let (kind, dflt, items) = {
+                    let src = dd.borrow();
+                    (src.kind, src.dflt.clone(), src.items())
+                };
+                let mut nd = Dict::new();
+                nd.kind = kind;
+                nd.dflt = dflt;
+                for (k, v) in items {
+                    nd.set(k, v)?;
+                }
+                n.set_dict(V::Dict(Rc::new(RefCell::new(nd))))?;
+            }
             n.set_inner(match o.inner() {
                 Some(i) => Some(shallow_copy(&i)?),
                 None => None,
@@ -1077,10 +1094,31 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
             }
             let n = Obj::new(o.cls.clone());
             memo.push((p.unwrap(), V::Obj(n.clone())));
-            let attrs = o.d.borrow().clone();
-            for (k, v) in attrs {
-                let c = deepcopy(&v, memo)?;
-                n.set(k, c);
+            let (attrs, dict) = {
+                let d = o.d.borrow();
+                (d.attrs.clone(), d.dict.clone())
+            };
+            if let Some(dd) = dict {
+                let (kind, dflt, items) = {
+                    let src = dd.borrow();
+                    (src.kind, src.dflt.clone(), src.items())
+                };
+                let mut nd = Dict::new();
+                nd.kind = kind;
+                nd.dflt = dflt;
+                for (k, v) in items {
+                    let k = deepcopy(&k, memo)?;
+                    let v = deepcopy(&v, memo)?;
+                    nd.set(k, v)?;
+                }
+                for (k, v) in attrs.into_iter() {
+                    n.set_res(k, deepcopy(&v, memo)?)?;
+                }
+                n.set_dict(V::Dict(Rc::new(RefCell::new(nd))))?;
+            } else {
+                for (k, v) in attrs.into_iter() {
+                    n.set_res(k, deepcopy(&v, memo)?)?;
+                }
             }
             let inner = o.inner();
             if let Some(i) = inner {

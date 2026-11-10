@@ -331,25 +331,30 @@ fn idents(dbg: &str) -> HashSet<String> {
 const ARITH: &[&str] = &["+", "-", "*", "//", "%"];
 const CMP: &[&str] = &["==", "!=", "<", ">", "<=", ">="];
 
-// int(x) on something that reads as text: parts[0], s.strip(), input().
+// int(x) / int(x, base) on something that reads as text: a literal, parts[0], s.strip(), input().
 fn from_text(e: &Expr) -> bool {
     match e {
-        Expr::Method(r, m, a, _) if m == "int" && a.is_empty() => match r.as_ref() {
-            Expr::Index(..) => true,
-            Expr::Method(_, t, _, _) => t.starts_with("trim") || t == "lower" || t == "upper",
-            Expr::Call(f, _, _) if BIGF.with(|b| b.borrow().contains(f)) => true,
-            Expr::Call(f, a, _) => f == "input" && a.len() <= 1,
-            Expr::Ident(n) | Expr::Move(n) => TEXT.with(|t| t.borrow().contains(n)),
-            _ => false,
-        },
+        Expr::Method(r, m, a, _) if (m == "int" && a.is_empty()) || (m == "int_base" && a.len() == 1) => text_arg(r),
         _ => false,
     }
 }
 
-// A value that reads as text: parts[0], input(), s.strip(), as from_text takes them inside int(...).
+// A value int(...) reads as text: a literal, parts[0], input(), s.strip().
+fn text_arg(e: &Expr) -> bool {
+    match e {
+        Expr::Str(_) | Expr::Index(..) => true,
+        Expr::Method(_, t, _, _) => t.starts_with("trim") || t == "lower" || t == "upper",
+        Expr::Call(f, _, _) if BIGF.with(|b| b.borrow().contains(f)) => true,
+        Expr::Call(f, a, _) => f == "input" && a.len() <= 1,
+        Expr::Ident(n) | Expr::Move(n) => TEXT.with(|t| t.borrow().contains(n)),
+        _ => false,
+    }
+}
+
+// A value that reads as text: a literal, parts[0], input(), s.strip(), as text_arg takes them inside int(...).
 fn text_value(e: &Expr) -> bool {
     match e {
-        Expr::Index(..) => true,
+        Expr::Str(_) | Expr::Index(..) => true,
         Expr::Method(_, t, _, _) => t.starts_with("trim") || t == "lower" || t == "upper",
         Expr::Call(f, a, _) => f == "input" && a.len() <= 1,
         _ => false,
@@ -701,7 +706,7 @@ fn conv(e: &mut Expr, c: &HashSet<String>) {
         }
         e if from_text(e) => {
             if let Expr::Method(_, m, _, _) = e {
-                *m = "big".into();
+                *m = if m == "int_base" { "big_base" } else { "big" }.into();
             }
         }
         Expr::Binary(_, a, b) => {
@@ -780,6 +785,7 @@ fn rewrite(e: &mut Expr, c: &HashSet<String>, _in: bool) {
             rewrite(v, c, false);
         }),
         Expr::Call(_, args, _) => args.iter_mut().for_each(|(_, a)| rewrite(a, c, false)),
+        Expr::Method(r, m, args, _) if m == "py_repr" && args.is_empty() => printed(r, c),
         Expr::Method(r, _, args, _) => {
             rewrite(r, c, false);
             args.iter_mut().for_each(|a| rewrite(a, c, false));
@@ -816,9 +822,10 @@ fn tuple_pat(ts: &[Expr]) -> Pat {
     Pat::Tuple(ts.iter().map(|t| if let Expr::Ident(n) = t { Pat::Bind(n.clone()) } else { Pat::Wild }).collect())
 }
 
-// print(int(p[0]) + int(p[1])): sums of int(text) printed straight away are big too.
+// print(int(p[0]) + int(p[1])): sums of int(text) printed straight away are big too, as is a lone
+// int(text) (print(int(s))), including inside repr() (print(repr(int(s, 0)))).
 fn printed(e: &mut Expr, c: &HashSet<String>) {
-    if matches!(e, Expr::Method(r, m, a, _) if m == "int" && a.is_empty() && big_call(r)) || matches!(e, Expr::Binary(op, ..) if ARITH.contains(op)) && bigable(e, c) && mentions(e, c) {
+    if from_text(e) || matches!(e, Expr::Binary(op, ..) if ARITH.contains(op)) && bigable(e, c) && mentions(e, c) {
         conv(e, c);
     } else {
         rewrite(e, c, false);
