@@ -1,0 +1,8 @@
+['B'] A (<class '__main__.A'>,)
+['B', 'C']
+['D']
+[]
+[<class '__main__.B'>, <class '__main__.C'>]
+(<class 'object'>,) (<class '__main__.A'>,)
+['B', 'C', 'E']
+A.__subclasses__() takes no arguments (1 given)
