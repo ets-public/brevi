@@ -94,6 +94,8 @@ jobs:
     env:
       # Room for every test program and old solution, so the cache doesn't evict mid-run.
       BREVI_CACHE_MB: "6144"
+      # No background optimised builds (src/tier.rs) for the test programs; the tiered-builds check turns them on.
+      BREVI_TIERED: "0"
     steps:
       - uses: actions/checkout@v7
         with:
@@ -201,6 +203,10 @@ jobs:
       - name: Package manifests match Cargo.toml
         if: steps.seen.outputs.cache-hit != 'true'
         run: python3 tools/version_sync.py
+
+      - name: Changelog fragments are CHANGELOG lines
+        if: steps.seen.outputs.cache-hit != 'true'
+        run: python3 tools/changelog.py --check
 
       - name: Grammar accepts every test program, and the GBNF copy is current
         if: steps.seen.outputs.cache-hit != 'true' && steps.scope.outputs.grammar == 'true'

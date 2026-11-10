@@ -117,7 +117,7 @@ Installed for the check: {installed}.
 - [ ] Update Brevi's copy so each changed test prints what the new release prints (`sh tests/check.sh` must pass)
 - [ ] With the new version installed, regenerate the expected files: `sh tests/check.sh --update`, then review `git diff tests/`
 - [ ] Bump the versions in `tools/upstream_pins.json` and in the comment above this group in `tests/check.sh`
-- [ ] Note the new supported version in CHANGELOG (Unreleased) and LIBRARIES.md
+- [ ] Note the new supported version in a changelog.d/ fragment and LIBRARIES.md
 """
     uw.open_issue(f"Parity: {label}", body)
 
