@@ -1,0 +1,21 @@
+b'\x04\x01' 1025 8 2
+b'\x01\x04' b'\xff' b'\x01\x00'
+b'' b'' b'\x01'
+b'\x01\x00\x00\x00\x00\x00' b'\x00\x00\x00\x00\x00\x00\x00\x00\x01' b'\xf0\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+b'\xff\xff' b'\x80' b'\x00\x80'
+-1 1 0 24930
+18446744073709551616
+24930 b'\x00\x05'
+True True
+OverflowError: int too big to convert
+OverflowError: can't convert negative int to unsigned
+OverflowError: int too big to convert
+ValueError: length argument must be non-negative
+ValueError: byteorder must be either 'little' or 'big'
+TypeError: to_bytes() argument 'byteorder' must be str, not int
+TypeError: 'float' object cannot be interpreted as an integer
+OverflowError: Python int too large to convert to C ssize_t
+TypeError: cannot convert 'int' object to bytes
+ValueError: byteorder must be either 'little' or 'big'
+TypeError: from_bytes() missing required argument 'bytes' (pos 1)
+TypeError: from_bytes() takes at most 2 positional arguments (3 given)
