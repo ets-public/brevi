@@ -1,0 +1,12 @@
+(3, 13)
+True
+3
+13 final 0
+5 3 13 final 0 0
+3 ('final', 0)
+5 ('major', 'minor', 'micro', 'releaselevel', 'serial')
+True False True
+True True True True True False False False
+True True
+True
+True True
