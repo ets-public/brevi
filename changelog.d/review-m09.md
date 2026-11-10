@@ -1,0 +1,1 @@
+- Dynamic build: changing the size of a set while iterating over it raises `RuntimeError: Set changed size during iteration`, as in CPython (iteration over a set no longer copies it first).
