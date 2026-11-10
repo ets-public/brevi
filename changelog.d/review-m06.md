@@ -1,0 +1,1 @@
+- A regular expression that defines the same named group twice (`(?P<x>a)(?P<x>b)`) raises `re.error` with CPython's message and position.
