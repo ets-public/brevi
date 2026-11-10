@@ -455,7 +455,7 @@ impl Cx<'_> {
             if let Some((n, value, line)) = decl {
                 // `j.get(k, {})` on a JSON value is a JSON value, not an empty dict to type later.
                 let jget = py_on() && matches!(value, Expr::Method(r, m, a, _) if m == "get_or" && a.len() == 2 && self.ty(r, env) == Json);
-                if let Some(base) = empty_kind(value).filter(|_| !jget).or_else(|| self.part_kind(value, env)) {
+                if let Some(base) = empty_kind(value).filter(|_| !jget).or_else(|| self.part_kind(value, env)).or_else(|| self.lax_kind(value, env)) {
                     let mut t = base.clone();
                     let was_lit = std::mem::replace(&mut self.list_lit, matches!(value, Expr::List(_)).then(|| n.clone()));
                     {
@@ -626,7 +626,18 @@ impl Cx<'_> {
                                 *acc = Map(Box::new(kt), Box::new(vt));
                                 continue;
                             }
-                            *acc = merge(acc.clone(), self.slot(acc, kt, vt));
+                            let t = self.slot(acc, kt.clone(), vt);
+                            // Python: ints and floats set under one map's keys stay the kinds CPython keeps
+                            // them in (`dist = defaultdict(lambda: INF)` then `dist[v] = nd`): dynamic values.
+                            if py_on() {
+                                if let (Map(ok, ov), Map(_, nv)) = (acc.clone(), t.clone()) {
+                                    if (ov.as_ref() == &F64 && nv.as_ref() == &Int) || (ov.as_ref() == &Int && nv.as_ref() == &F64) {
+                                        *acc = Map(Box::new(merge((*ok).clone(), kt)), Box::new(Json));
+                                        continue;
+                                    }
+                                }
+                            }
+                            *acc = merge(acc.clone(), t);
                         }
                         (Expr::Index(b, k), _) => {
                             // `m[a][b] = v`
@@ -1281,6 +1292,8 @@ impl Cx<'_> {
             "tally" => Map(Box::new(elem(&r)), Box::new(Int)),
             "tally_words" => Map(Box::new(Str), Box::new(Int)),
             "lax" => r,
+            "lax_def" => Map(Box::new(Hole), Box::new(a(0))),
+            "lax_mk" => Map(Box::new(Hole), Box::new(lam(0, &Hole))),
             "to_dict" => match &r {
                 // `dict(v)` / `v.copy()` on a dict (also one with tuple keys), a dict record or a dynamic value: a copy of it.
                 Map(..) | Named(_) | Json => r,
@@ -1746,6 +1759,30 @@ impl Cx<'_> {
         }
         let t = self.ty(value, env);
         (!known(&t) && some_known(&t)).then_some(t)
+    }
+
+    // Python: `dist = defaultdict(lambda: INF)`: a defaultdict whose missing key starts at the default,
+    // but whose entries may take another value type later (`dist[v] = nd` puts ints next to the float
+    // default). It is looked at like an empty map, so the entry type comes from the lines after it.
+    fn lax_kind(&mut self, value: &Expr, env: &Env) -> Option<T> {
+        if !py_on() {
+            return None;
+        }
+        if let Expr::Method(r, m, a, _) = value {
+            if m == "lax_def" && a.len() == 1 && matches!(r.as_ref(), Expr::Map(ps) if ps.is_empty()) {
+                let d = self.ty(&a[0], env);
+                return known(&d).then_some(Map(Box::new(Hole), Box::new(d)));
+            }
+            if m == "lax_mk" && a.len() == 1 && matches!(r.as_ref(), Expr::Map(ps) if ps.is_empty()) {
+                if let Expr::Lambda(ps, body) = &a[0] {
+                    if ps.is_empty() {
+                        let d = self.ty(body, env);
+                        return known(&d).then_some(Map(Box::new(Hole), Box::new(d)));
+                    }
+                }
+            }
+        }
+        None
     }
 
     fn flat_env(&mut self, e: &Expr, env: &mut Env) {
@@ -3300,6 +3337,31 @@ impl Ck<'_, '_> {
                 }
                 Stmt::Assign { target, op, value, line } => {
                     self.line = *line;
+                    // `dist = defaultdict(lambda: INF)` whose entries also take ints holds JSON values:
+                    // the default goes in as JSON too, so a missing key reads the same INF.
+                    if self.py && *op == "=" {
+                        if let Expr::Ident(n) = &*target {
+                            let t = self.empties.get(&(n.clone(), *line)).cloned().unwrap_or_else(|| self.cx.ty(target, env));
+                            if matches!(&t, Map(_, v) if v.as_ref() == &Json) {
+                                if let Expr::Method(r, m, a, _) = &mut *value {
+                                    if m == "lax_def" && a.len() == 1 && matches!(r.as_ref(), Expr::Map(ps) if ps.is_empty()) {
+                                        let d = &mut a[0];
+                                        if self.cx.ty(d, env) != Json && !matches!(&*d, Expr::Call(f, _, _) if f == "ax_to_json" || f == "ax_tup_json") {
+                                            let v = std::mem::replace(d, Expr::Int(0));
+                                            *d = Expr::Call("ax_to_json".into(), vec![(None, v)], *line);
+                                        }
+                                    } else if m == "lax_mk" && a.len() == 1 && matches!(r.as_ref(), Expr::Map(ps) if ps.is_empty()) {
+                                        if let Expr::Lambda(ps, body) = &mut a[0] {
+                                            if ps.is_empty() && self.cx.ty(body.as_ref(), env) != Json && !matches!(body.as_ref(), Expr::Call(f, _, _) if f == "ax_to_json" || f == "ax_tup_json") {
+                                                let v = std::mem::replace(body.as_mut(), Expr::Int(0));
+                                                *body = Box::new(Expr::Call("ax_to_json".into(), vec![(None, v)], *line));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     self.expr(value, env);
                     if let Expr::Ident(n) = &*target {
                         self.note_none(n, value);
@@ -3605,7 +3667,9 @@ impl Ck<'_, '_> {
                     }
                 }
                 // `self.total(name) * 100 // self.max` with max a JSON value: checked to be an int when it runs.
-                Expr::Binary(op @ ("+" | "-" | "*" | "//" | "%" | "<" | "<=" | ">" | ">="), a, b) if {
+                // (Comparisons are not converted: the prelude compares an int with a JSON number directly,
+                // which keeps `nd < dist[v]` true when dist[v] is float("inf").)
+                Expr::Binary(op @ ("+" | "-" | "*" | "//" | "%"), a, b) if {
                     let (ta, tb) = (self.cx.ty(a, env), self.cx.ty(b, env));
                     (ta == Int && tb == Json) || (ta == Json && tb == Int)
                 } => {
@@ -3878,6 +3942,17 @@ impl Ck<'_, '_> {
                 self.expr(a, &mut env.clone());
                 if let Some(b) = b {
                     self.expr(b, &mut env.clone());
+                    // Python: `int(ms) if c else float(ms)` keeps the int kind when it is taken, and one
+                    // name can have only one Rust type, so the two kinds share a JSON value.
+                    if self.py {
+                        let (ta, tb) = (self.cx.ty(a, env), self.cx.ty(b, env));
+                        if matches!((&ta, &tb), (Int, F64) | (F64, Int)) {
+                            for x in [a, b] {
+                                let v = std::mem::replace(x.as_mut(), Expr::Int(0));
+                                **x = Expr::Call("ax_to_json".into(), vec![(None, v)], 0);
+                            }
+                        }
+                    }
                 }
             }
             Expr::Match(s, arms) => {

@@ -28,7 +28,7 @@ impl Hasher for AxHasher {
         h ^ (h >> 29) ^ (h >> 47)
     }
 }
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct AxM<K, V> {
     m: HashMap<K, V, BuildHasherDefault<AxHasher>>,
     // Keys in insertion order, kept for JSON objects, which list keys as written, and in Python mode,
@@ -36,10 +36,19 @@ pub struct AxM<K, V> {
     ord: Option<Vec<K>>,
     // A Python defaultdict or Counter: a missing key reads as the value type's zero instead of raising KeyError.
     lax: bool,
+    // The immutable value `defaultdict(lambda: ...)` starts a missing key with, when it is not the type's zero.
+    def: Option<Box<V>>,
+    // A mutable default: run this for each missing key, as Python evaluates the lambda's body again.
+    mk: Option<std::sync::Arc<dyn Fn() -> V + Send + Sync>>,
+}
+impl<K: std::fmt::Debug, V: std::fmt::Debug> std::fmt::Debug for AxM<K, V> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.debug_struct("AxM").field("m", &self.m).field("ord", &self.ord).field("lax", &self.lax).field("def", &self.def).finish_non_exhaustive()
+    }
 }
 impl<K, V> Default for AxM<K, V> {
     fn default() -> Self {
-        AxM { m: HashMap::default(), ord: if ax_py_on() { Some(Vec::new()) } else { None }, lax: false }
+        AxM { m: HashMap::default(), ord: if ax_py_on() { Some(Vec::new()) } else { None }, lax: false, def: None, mk: None }
     }
 }
 impl<K: Hash + Eq + Ord, V> AxM<K, V> {
@@ -47,7 +56,7 @@ impl<K: Hash + Eq + Ord, V> AxM<K, V> {
         AxM::default()
     }
     pub fn ordered() -> Self {
-        AxM { m: HashMap::default(), ord: Some(Vec::new()), lax: false }
+        AxM { m: HashMap::default(), ord: Some(Vec::new()), lax: false, def: None, mk: None }
     }
     pub fn from<const N: usize>(xs: [(K, V); N]) -> Self
     where
@@ -66,6 +75,29 @@ impl<K: Hash + Eq + Ord, V> AxM<K, V> {
     pub fn ax_lax(mut self) -> Self {
         self.lax = true;
         self
+    }
+    // defaultdict(lambda: ...) with an immutable default: each missing key starts at a copy of it.
+    pub fn ax_lax_def(mut self, d: V) -> Self {
+        self.lax = true;
+        self.def = Some(Box::new(d));
+        self
+    }
+    // defaultdict(lambda: ...) whose default is mutable: f builds a fresh value for each missing key,
+    // the way Python evaluates the lambda's body again.
+    pub fn ax_lax_mk(mut self, f: impl Fn() -> V + Send + Sync + 'static) -> Self {
+        self.lax = true;
+        self.mk = Some(std::sync::Arc::new(f));
+        self
+    }
+    // The value a missing key of a defaultdict starts at.
+    fn ax_missing(&self) -> V
+    where
+        V: Clone + Default,
+    {
+        if let Some(mk) = &self.mk {
+            return mk();
+        }
+        self.def.as_ref().map_or_else(Default::default, |d| (**d).clone())
     }
     pub fn is_empty(&self) -> bool {
         self.m.is_empty()
@@ -1881,6 +1913,20 @@ impl AxSpec for bool {
         ax_spec_pad(self.show(), &spec, false)
     }
 }
+impl AxSpec for Json {
+    fn ax_spec(&self, spec: String) -> String {
+        if ax_py_on() {
+            return match self {
+                Json::Num { .. } if !ax_jf(self) => ax_pf_int(ax_jnum(self) as i64, &spec),
+                Json::Num { .. } => ax_pf_float(ax_jnum(self), &spec, false),
+                Json::Str { v } => ax_pf_str(v, &spec),
+                Json::Bool { v } => ax_pf_int(*v as i64, &spec),
+                other => panic!("TypeError: unsupported format string passed to {}", other.ax_kind()),
+            };
+        }
+        ax_spec_num(ax_jnum(self), (!ax_jf(self)).then_some(ax_jnum(self) as i64), &spec)
+    }
+}
 
 pub trait AxNum {
     fn ax_fmt(&self, decimals: i64) -> String;
@@ -2440,6 +2486,12 @@ pub trait AxIndexMut<K, V> {
 pub trait AxRef<K, V> {
     fn ax_ref(&self, k: &K) -> &V;
 }
+// Reading a defaultdict's missing key puts it in: the caller gets the value it would get from CPython.
+pub trait AxReadMiss<K, V> {
+    fn ax_read_miss(&mut self, k: &K) -> V;
+    // The entry itself, so changes to the value it gives reach the dict (`a, b = d[k]` then `a.push(x)`).
+    fn ax_read_miss_ref(&mut self, k: &K) -> &mut V;
+}
 pub trait AxMut<K, V> {
     fn ax_mut(&mut self, k: &K) -> &mut V;
 }
@@ -2493,14 +2545,37 @@ fn ax_zero<V: Default + 'static>() -> &'static V {
         v.downcast_ref::<V>().unwrap()
     })
 }
-impl<K: Hash + Eq + Ord + Clone, V: Default> AxMut<K, V> for AxM<K, V> {
+impl<K: Hash + Eq + Ord + Clone, V: Clone + Default> AxMut<K, V> for AxM<K, V> {
     fn ax_mut(&mut self, k: &K) -> &mut V {
         // Updating a missing key starts it at the default (0, "", [] ...); the key is copied only then.
         if let Some(v) = self.get_mut(k) {
             // Safe: the borrow ends here on this path (a known limit of Rust's borrow checker).
             return unsafe { &mut *(v as *mut V) };
         }
-        self.entry(k.clone()).or_default()
+        let v = self.ax_missing();
+        self.insert(k.clone(), v);
+        let v = self.get_mut(k).unwrap();
+        unsafe { &mut *(v as *mut V) }
+    }
+}
+impl<K: Hash + Eq + Ord + Clone, V: Clone + Default> AxReadMiss<K, V> for AxM<K, V> {
+    fn ax_read_miss(&mut self, k: &K) -> V {
+        if let Some(v) = self.get_mut(k) {
+            return v.clone();
+        }
+        let v = self.ax_missing();
+        self.insert(k.clone(), v.clone());
+        v
+    }
+    fn ax_read_miss_ref(&mut self, k: &K) -> &mut V {
+        if let Some(v) = self.get_mut(k) {
+            // Safe: the borrow ends here on this path (a known limit of Rust's borrow checker).
+            return unsafe { &mut *(v as *mut V) };
+        }
+        let v = self.ax_missing();
+        self.insert(k.clone(), v);
+        let v = self.get_mut(k).unwrap();
+        unsafe { &mut *(v as *mut V) }
     }
 }
 // Is s all ASCII (so its i-th character is its i-th byte)? A long text is scanned once: the answer is kept
@@ -2634,10 +2709,11 @@ impl<K: Hash + Eq + Ord + Clone + Show + 'static, V: Clone> AxIndex<K, V> for Ax
         self.insert(k, v);
     }
 }
-impl<K: Hash + Eq + Ord + Clone, V: Default> AxIndexMut<K, V> for AxM<K, V> {
+impl<K: Hash + Eq + Ord + Clone, V: Clone + Default> AxIndexMut<K, V> for AxM<K, V> {
     fn ax_at_mut(&mut self, k: K) -> &mut V {
         // Updating a missing key starts it at the default (0, "", [] ...).
-        self.entry(k).or_default()
+        let v = self.ax_missing();
+        self.entry(k).or_insert(v)
     }
 }
 impl AxIndex<i64, String> for String {
@@ -2989,7 +3065,7 @@ impl<K: Hash + Eq + Ord + Show + 'static, V: Default + 'static> AxRefTry<K, V> f
         Ok(self.ax_ref(k))
     }
 }
-impl<K: Hash + Eq + Ord + Clone, V: Default> AxMutTry<K, V> for AxM<K, V> {
+impl<K: Hash + Eq + Ord + Clone, V: Clone + Default> AxMutTry<K, V> for AxM<K, V> {
     fn ax_try_mut(&mut self, k: &K) -> R<&mut V> {
         Ok(self.ax_mut(k))
     }
@@ -6378,6 +6454,19 @@ impl AxTrueDivTry<f64> for f64 {
             return Err(ax_zd_err("float division by zero"));
         }
         Ok(self / b)
+    }
+}
+impl AxTrueDiv<i64> for Json {
+    fn ax_truediv(self, b: i64) -> f64 {
+        if b == 0 {
+            panic!("division by zero");
+        }
+        ax_jnum(&self) / b as f64
+    }
+}
+impl AxTrueDiv<f64> for Json {
+    fn ax_truediv(self, b: f64) -> f64 {
+        ax_jnum(&self) / b
     }
 }
 // Python's s.update(xs) on a set() list, m.update(other) on a dict, c.update(xs) on a Counter.
