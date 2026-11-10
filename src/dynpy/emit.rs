@@ -3190,7 +3190,7 @@ impl Em {
         if !(at_top || in_class_top) {
             code_flags |= 0x10; // CO_NESTED
         }
-        let code = format!("mk_code({qname}, {code_flags})");
+        let code = code_flags.to_string();
         let sig = format!("Sig {{ name: {qname}, params: &[{names_lit}], npos: {npos}, star: {star}, kwstar: {kwstar} }}");
         let dflt_all: Vec<String> = dflt_codes.iter().chain(kwd.iter()).cloned().collect();
         let nparams = params.len();
