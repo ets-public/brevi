@@ -915,6 +915,33 @@ pub fn bi_divmod(a: Args) -> R {
     let r = binop(&a.p[0], &a.p[1], "%")?;
     Ok(tup(vec![q, r]))
 }
+// pow(a, -1, m): the modular inverse of a modulo m, found by the extended Euclid algorithm (the coefficient
+// for a, with the same sign as m once reduced). None when no inverse exists (gcd(a, m) != 1).
+fn big_invmod(b: &Big, m: &Big) -> Option<Big> {
+    if m.mag.len() == 1 && m.mag[0] == 1 {
+        return Some(Big::from_i64(0));
+    }
+    let (mut old_r, mut r) = (b.divmod(m).1, m.clone());
+    let (mut old_s, mut s) = (Big::from_i64(1), Big::from_i64(0));
+    while !r.is_zero() {
+        let (q, rem) = old_r.divmod(&r);
+        let ns = old_s.sub(&q.mul(&s));
+        (old_r, r) = (r, rem);
+        (old_s, s) = (s, ns);
+    }
+    let neg = old_r.neg;
+    if neg {
+        old_r = old_r.neg();
+    }
+    if old_r.mag.len() != 1 || old_r.mag[0] != 1 {
+        return None;
+    }
+    if neg {
+        old_s = old_s.neg();
+    }
+    Some(old_s.divmod(m).1)
+}
+
 pub fn bi_pow(a: Args) -> R {
     let a = enum_nums(a);
     a.want("pow", 2, 3)?;
@@ -928,7 +955,8 @@ pub fn bi_pow(a: Args) -> R {
             return val_err("pow() 3rd argument cannot be 0".into());
         }
         if e.neg {
-            return Err(unsupported("pow() with a negative exponent and a modulus"));
+            b = big_invmod(&b, &m).ok_or_else(|| exc("ValueError", "base is not invertible for the given modulus".into()))?;
+            e = e.neg();
         }
         let mut r = Big::from_i64(1).divmod(&m).1;
         b = b.divmod(&m).1;

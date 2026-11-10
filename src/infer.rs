@@ -3959,6 +3959,11 @@ impl Ck<'_, '_> {
                         (F64, Int) if *op != "**" => float(b),
                         _ => {}
                     }
+                    // int ** int with an exponent that may be negative is a float in Python (or raises
+                    // ZeroDivisionError when the base is 0), which the typed build keeps as an int.
+                    if *op == "**" && self.py && x == Int && y == Int && !matches!(b.as_ref(), Expr::Int(k) if *k >= 0) {
+                        self.err("int ** int with an exponent that can be negative gives a float in Python, which the typed build keeps as an int".into(), "make the base a float, or use a literal exponent".into());
+                    }
                 }
                 if ["+", "-", "*", "/", "//", "%"].contains(op) {
                     let (x, y) = (self.cx.ty(a, env), self.cx.ty(b, env));

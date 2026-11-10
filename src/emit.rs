@@ -423,7 +423,7 @@ fn wrap_calls(e: &mut Expr, f: &HashSet<String>) {
 fn can_zd(e: &Expr) -> bool {
     match e {
         Expr::Lambda(_, b) => can_zd(b),
-        Expr::Binary(op, a, b) => matches!(*op, "//" | "%") || can_zd(a) || can_zd(b),
+        Expr::Binary(op, a, b) => matches!(*op, "//" | "%" | "**") || can_zd(a) || can_zd(b),
         Expr::Call(n, args, _) => n == "__truediv" || args.iter().any(|(_, a)| can_zd(a)),
         Expr::Method(r, _, args, _) => can_zd(r) || args.iter().any(can_zd),
         Expr::Unary(_, a) | Expr::Field(a, _) | Expr::TupleField(a, _) | Expr::Try(a) => can_zd(a),
@@ -2361,6 +2361,11 @@ impl Emitter {
                     // Bitwise on ints, union and intersection on lists used as Python sets.
                     "|" => format!("AxBits::ax_bor({a}, {b})"),
                     "&" => format!("AxBits::ax_band({a}, {b})"),
+                    "**" if self.py_mode && !self.catch.is_empty() && self.catches("ZeroDivisionError") => {
+                        let lab = self.catch.last().unwrap().clone();
+                        format!("(match AxPowTry::ax_pow_try({a}, {b}) {{ Ok(v) => v, Err(e) => {{ {lab} = Some(e); break '{lab}; }} }})")
+                    }
+                    "**" if self.py_mode && self.ck_zd => format!("AxPowTry::ax_pow_try({a}, {b})?"),
                     "**" => format!("AxPow::ax_pow({a}, {b})"),
                     "in" => format!("AxIn::ax_in(&{b}, &{a})"),
                     "%" if self.py_mode && !self.catch.is_empty() && self.catches("ZeroDivisionError") => {
