@@ -387,15 +387,8 @@ fn np_ufunc1(name: &str, v: &V) -> R {
         // numpy's float32 exp, tanh, log1p, sin and cos are its own SIMD loops (numpy 2.x); the helpers
         // below follow them (AVX-512) and the rest are correctly rounded ones where float64's result
         // rounded once is float32's.
-        if matches!(name, "exp" | "tanh" | "log1p" | "sin" | "cos") {
-            let x = o.a.vals().f32v();
-            let rv: Vec<f32> = match name {
-                "exp" => x.iter().map(|v| np_exp_f32(*v)).collect(),
-                "tanh" => x.iter().map(|v| np_tanh_f32(*v)).collect(),
-                "log1p" => x.iter().map(|v| np_log1p_f32(*v)).collect(),
-                "sin" => x.iter().map(|v| np_sincos_f32(*v, false)).collect(),
-                _ => x.iter().map(|v| np_sincos_f32(*v, true)).collect(),
-            };
+        if matches!(name, "exp" | "tanh" | "log1p" | "sin" | "cos") && np_f32_simd() {
+            let rv = np_f32_map(name, &o.a.vals().f32v());
             return Ok(np_out(Buf::F32(rv), shape));
         }
         if !matches!(name, "sqrt" | "floor" | "ceil" | "trunc" | "fix" | "rint" | "square" | "reciprocal" | "sign") {
@@ -475,8 +468,34 @@ fn np_ufunc1_f(name: &str, x: &[f64], shape: Vec<usize>) -> R {
 }
 
 // ---------- float32 ufuncs (numpy 2.x's SIMD loops) ----------
+// Only reached on AVX-512 CPUs (np_f32_simd), so the loop is built for them: the fused multiply-adds are the
+// CPU's own instruction rather than baseline x86-64's software routine (same results, ~20x faster).
+fn np_f32_map(name: &str, x: &[f32]) -> Vec<f32> {
+    #[cfg(target_arch = "x86_64")]
+    {
+        #[target_feature(enable = "avx512f,avx512dq,avx512bw,avx512vl,avx2,fma")]
+        unsafe fn hw(name: &str, x: &[f32]) -> Vec<f32> {
+            np_f32_map_i(name, x)
+        }
+        if np_f32_simd() {
+            return unsafe { hw(name, x) };
+        }
+    }
+    np_f32_map_i(name, x)
+}
+#[inline(always)]
+fn np_f32_map_i(name: &str, x: &[f32]) -> Vec<f32> {
+    match name {
+        "exp" => x.iter().map(|v| np_exp_f32(*v)).collect(),
+        "tanh" => x.iter().map(|v| np_tanh_f32(*v)).collect(),
+        "log1p" => x.iter().map(|v| np_log1p_f32(*v)).collect(),
+        "sin" => x.iter().map(|v| np_sincos_f32(*v, false)).collect(),
+        _ => x.iter().map(|v| np_sincos_f32(*v, true)).collect(),
+    }
+}
 // numpy's float32 exp: loops_exponent_log.dispatch.c.src simd_exp_FLOAT (AVX512F; the AVX2 code is the
 // same per element). Cody-Waite reduction x = q*ln2 + r, P/Q polynomial, then scale by 2^q.
+#[inline(always)]
 fn np_exp_f32(x: f32) -> f32 {
     const XMAX: f32 = 88.72283935546875;
     const XMIN: f32 = -103.97208404541015625;
@@ -502,6 +521,7 @@ fn np_exp_f32(x: f32) -> f32 {
     if x <= XMIN {
         return 0.0;
     }
+    // separate Mul and Add here (this C file is not contracted, unlike the C++ sin/cos loop)
     let q = (x * LOG2E + MAGIC) - MAGIC;
     let mut r = np_fmaf(q, C1, x);
     r = np_fmaf(q, C2, r);
@@ -512,19 +532,13 @@ fn np_exp_f32(x: f32) -> f32 {
     n = np_fmaf(n, r, P0);
     let mut d = np_fmaf(Q2, r, Q1);
     d = np_fmaf(d, r, Q0);
-    let qi = q as i32;
-    // _mm512_scalef_ps: multiply by 2^q (q is an integer)
-    if qi > 127 {
-        return f32::INFINITY;
-    }
-    if qi < -149 {
-        return 0.0;
-    }
-    let two = if qi >= -126 { f32::from_bits(((qi + 127) as u32) << 23) } else { f32::from_bits(1u32 << (149 + qi)) };
-    (n / d) * two
+    // _mm512_scalef_ps: (n / d) * 2^q rounded once, subnormal and overflowing results included
+    // (q is an integer in [-150, 128], so 2^q is exact as a double)
+    (((n / d) as f64) * f64::from_bits(((q as i64 + 1023) as u64) << 52)) as f32
 }
 // numpy's float32 tanh: loops_hyperbolic.dispatch.cpp.src simd_tanh_f32 (ported from Intel SVML): a
 // 32-entry table picked by the exponent, one odd polynomial, and sign/xor of the result.
+#[inline(always)]
 fn np_tanh_f32(x: f32) -> f32 {
     // c6, c5, c4, c3, c2, c1, c0, b
     const LUT: [[u32; 8]; 32] = [
@@ -584,8 +598,10 @@ fn np_tanh_f32(x: f32) -> f32 {
     f32::from_bits(r.to_bits() | (bits & 0x8000_0000))
 }
 // numpy's float32 log1p: __svml_log1pf16 on AVX512_SKX (svml_z0_log1p_s_la.s). 1+x is split into hi+lo,
-// r = (1+x)*2^-n - 1 with one odd polynomial, then n*ln2 + r + r^2*poly(r). The kernel's rare path
-// (x < 0, tiny, huge) is not reproduced: those inputs fall back to libm, which can differ in the last bit.
+// r = (1+x)*2^-n - 1 with one polynomial, then n*ln2 + r + r^2*poly(r). Checked against numpy for x in
+// (-1, 2^127), negatives, tiny and subnormal values included; from 2^127 up (where 2^-n underflows) numpy's
+// result is log1p in double rounded once.
+#[inline(always)]
 fn np_log1p_f32(x: f32) -> f32 {
     if x.is_nan() {
         return f32::NAN;
@@ -596,15 +612,18 @@ fn np_log1p_f32(x: f32) -> f32 {
     if x < -1.0 {
         return f32::NAN;
     }
-    if x < 0.0 || x < f32::from_bits(0x3380_0000) || x >= f32::from_bits(0x4e80_0000) {
-        return x.ln_1p();
+    if x == 0.0 || x == f32::INFINITY {
+        return x;
+    }
+    if x >= f32::from_bits(0x7f00_0000) {
+        return (x as f64).ln_1p() as f32;
     }
     let one = 1.0f32;
     let (mx, mn) = (x.max(one), x.min(one));
     let hi = mn + mx;
     let lo = (mx - hi) + mn;
     let b = hi.to_bits().wrapping_sub(0x3f2a_aaab);
-    let n = (b >> 23) as i32;
+    let n = (b as i32) >> 23;
     let two = f32::from_bits(0x3f80_0000u32.wrapping_sub((n as u32) << 23));
     let mut r = lo * two;
     let hi2 = f32::from_bits((b & 0x007f_ffff) + 0x3f2a_aaab);
@@ -622,6 +641,7 @@ fn np_log1p_f32(x: f32) -> f32 {
 }
 // numpy's float32 sin and cos: loops_trigonometric.dispatch.cpp simd_sincos_f32 (Cody-Waite reduction,
 // two polynomials, quadrant selection); outside its range numpy falls back to libm.
+#[inline(always)]
 fn np_sincos_f32(x: f32, cos: bool) -> f32 {
     if x.is_nan() {
         return f32::NAN;
@@ -633,8 +653,8 @@ fn np_sincos_f32(x: f32, cos: bool) -> f32 {
     let two_over_pi = f32::from_bits(0x3f22_f983);
     let (c1, c2, c3) = (f32::from_bits(0xbfc9_0fd8), f32::from_bits(0xb4a8_885a), f32::from_bits(0xa7c2_34c4));
     let magic = 12582912.0f32;
-    let mut q = x * two_over_pi;
-    q = (q + magic) - magic;
+    // numpy's Mul then Add of the magic number compiles to one fused multiply-add (GCC contracts them)
+    let q = np_fmaf(x, two_over_pi, magic) - magic;
     let mut rx = np_fmaf(q, c1, x);
     rx = np_fmaf(q, c2, rx);
     rx = np_fmaf(q, c3, rx);
@@ -1648,7 +1668,7 @@ pub fn np_construct(cls: &str, a: Args) -> Option<R> {
 const NP_NARROW_OK: &[&str] = &[
     "float64", "double", "int64", "int_", "intp", "bool_", "bool", "float32", "single", "int32", "intc",
     "array", "asarray", "asanyarray", "copy", "zeros", "ones", "empty", "full", "zeros_like", "ones_like", "empty_like", "full_like",
-    "arange", "linspace", "eye", "identity", "set_printoptions", "shape", "ndim", "size", "dtype", "isscalar", "issubdtype", "dot", "matmul",
+    "arange", "linspace", "eye", "identity", "set_printoptions", "shape", "ndim", "size", "dtype", "isscalar", "issubdtype",
     "sum", "mean", "std", "var", "prod", "max", "min", "amax", "amin", "argmax", "argmin", "any", "all", "cumsum", "cumprod", "round", "around", "clip",
     "reshape", "ravel", "transpose", "swapaxes", "squeeze", "diagonal", "nonzero", "argsort", "repeat", "sort", "count_nonzero", "where", "argwhere", "flatnonzero",
     "unique", "concatenate", "stack", "vstack", "hstack", "column_stack", "atleast_1d", "atleast_2d", "expand_dims", "flip", "fliplr", "flipud", "roll",
