@@ -16,7 +16,6 @@ permissions:
   contents: write
   pull-requests: write
   issues: write
-  id-token: write
   actions: write
 
 jobs:
@@ -40,13 +39,13 @@ jobs:
         env:
           KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: '[ -n "$KEY" ] && echo "ok=true" >> "$GITHUB_OUTPUT" || echo "No ANTHROPIC_API_KEY secret; skipping."'
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         if: steps.key.outputs.ok == 'true'
         with: { fetch-depth: 0 }
       - name: Install Rust
         if: steps.key.outputs.ok == 'true'
         run: rustup toolchain install stable beta nightly --profile minimal --no-self-update
-      - uses: anthropics/claude-code-action@v1
+      - uses: anthropics/claude-code-action@4fa93a88de49bbef68b10eb15aabedf28ca0e1ed # v1
         if: steps.key.outputs.ok == 'true'
         env:
           # So `gh` inside Claude's session can read issues, comment and open PRs.
@@ -55,8 +54,9 @@ jobs:
           BASH_DEFAULT_TIMEOUT_MS: "1500000"
           BASH_MAX_TIMEOUT_MS: "2400000"
         with:
-          # Full transcript in the job log, so a run that ends without a PR can be diagnosed.
-          show_full_output: true
+          # No full transcript in the job log: the repository is public, so its logs are too, and a transcript
+          # can hold whatever a command printed. A run that ends without a PR says why on the issue instead.
+          show_full_output: false
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           github_token: ${{ github.token }}
           prompt: |

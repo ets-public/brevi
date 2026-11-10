@@ -56,7 +56,11 @@ jobs:
       next_python: ${{ steps.py.outputs.next }}
       matrix: ${{ steps.m.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Workflows open no way in for untrusted code (pinned actions, no secrets on PRs, no script injection)
+        run: python3 tools/workflow_guard.py
+      - name: No credentials in tracked files
+        run: python3 tools/secret_scan.py
       - name: No built programs or large files in git
         run: python3 tools/no_binaries.py
       - id: py
@@ -72,11 +76,13 @@ jobs:
         name: Pick toolchains
         # Saves Actions minutes: PRs and manual runs test Rust stable only, the daily run adds the
         # next Python, and Monday's run (or a manual run with full) adds Rust beta and nightly.
+        env:
+          FULL: ${{ inputs.full }}
         run: |
           stable='{"rust":"stable","python":"3.x"}'
           next='{"rust":"stable","python":"next"}'
           weekly='{"rust":"beta","python":"3.x"},{"rust":"nightly","python":"3.x"}'
-          if [ "${{ github.event_name }}" = schedule ] && [ "$(date -u +%u)" = 1 ] || [ "${{ inputs.full }}" = true ]; then
+          if [ "${{ github.event_name }}" = schedule ] && [ "$(date -u +%u)" = 1 ] || [ "$FULL" = true ]; then
             m="[$stable,$next,$weekly]"
           elif [ "${{ github.event_name }}" = schedule ]; then
             m="[$stable,$next]"
@@ -100,7 +106,7 @@ jobs:
       # No background optimised builds (src/tier.rs) for the test programs; the tiered-builds check turns them on.
       BREVI_TIERED: "0"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # A PR checks out a merge commit; its first parent is the base, so depth 2 is enough to diff.
           fetch-depth: 2
@@ -110,7 +116,7 @@ jobs:
           rustup toolchain install ${{ matrix.rust }} --profile minimal --no-self-update
           rustup default ${{ matrix.rust }}
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         id: python
         continue-on-error: ${{ matrix.python == 'next' }}
         with:
@@ -130,7 +136,7 @@ jobs:
       - name: Already tested?
         id: seen
         if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.force)
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: /tmp/fp
           key: ${{ steps.fp.outputs.key }}
@@ -142,7 +148,7 @@ jobs:
         # programs whose generated Rust it changes (language tests ~4.5 min cold, ~40 s warm). The replay
         # cache (runs/) is never saved, so whole runs are always redone by the PR's own compiler.
         if: github.event_name == 'pull_request' && matrix.rust == 'stable'
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/brevi
           key: brevi-build-${{ steps.fp.outputs.rustc_hash }}-${{ github.run_id }}
@@ -251,7 +257,7 @@ jobs:
 
       - name: Keep what the fuzzer found
         if: failure() && hashFiles('fuzz-found/*.py') != ''
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: fuzz-found
           path: fuzz-found/
@@ -270,7 +276,7 @@ jobs:
 
       - name: Keep what the fuzzer found
         if: failure() && hashFiles('fuzz-found/*.py') != ''
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: fuzz-found
           path: fuzz-found/
@@ -302,14 +308,14 @@ jobs:
         if: >
           success() && steps.seen.outputs.cache-hit != 'true' && matrix.rust == 'stable' && matrix.python == '3.x' &&
           github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/brevi
           key: brevi-build-${{ steps.fp.outputs.rustc_hash }}-${{ github.run_id }}
 
       - name: Remember this toolchain passed
         if: success() && steps.seen.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: /tmp/fp
           key: ${{ steps.fp.outputs.key }}
