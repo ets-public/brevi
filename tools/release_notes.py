@@ -3,7 +3,9 @@ usage: python3 tools/release_notes.py v0.18.0"""
 import os, re, sys
 
 tag = sys.argv[1]
-text = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "CHANGELOG.md")).read()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import changelog
+text = changelog.changelog()  # CHANGELOG.md with any changelog.d/ fragments in its Unreleased section
 # A section starts at "## v0.18.0 (date)" and runs to the next "## ".
 m = re.search(r"^## " + re.escape(tag) + r"\b[^\n]*\n(.*?)(?=^## |\Z)", text, re.S | re.M)
 body = m.group(1).strip() if m else "See CHANGELOG.md."

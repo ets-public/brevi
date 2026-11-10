@@ -493,6 +493,10 @@ def fill(t, version, guide_tokens, public, cssv):
 def page_source(src, public):
     if src.startswith("repo:"):
         text = open(os.path.join(R, src[5:])).read()
+        if src == "repo:CHANGELOG.md":  # Unreleased includes the changelog.d/ fragments
+            sys.path.insert(0, os.path.join(R, "tools"))
+            import changelog
+            text = changelog.changelog()
     else:
         text = open(os.path.join(S, "docs", src)).read()
     return blocks_for(text, public).replace("__GITHUB__", GITHUB)

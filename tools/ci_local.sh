@@ -35,6 +35,7 @@ step "Python SDK and brevi-python"; BREVI=./target/release/brevi python3 tests/s
 BREVI=./target/release/brevi node tests/sdk_node_test.mjs
 step "Guide budget"; python3 tools/guide_budget.py
 step "Package versions"; python3 tools/version_sync.py
+step "Changelog fragments"; python3 tools/changelog.py --check
 if [ $grammar = 1 ]; then
   step "Grammar"; python3 -c "import lark" 2>/dev/null || python3 -m pip install --quiet -r tools/requirements-ci.txt
   python3 tools/lark_to_gbnf.py --check; python3 tools/grammar_check.py tests/run/*.bv

@@ -202,6 +202,10 @@ jobs:
         if: steps.seen.outputs.cache-hit != 'true'
         run: python3 tools/version_sync.py
 
+      - name: Changelog fragments are CHANGELOG lines
+        if: steps.seen.outputs.cache-hit != 'true'
+        run: python3 tools/changelog.py --check
+
       - name: Grammar accepts every test program, and the GBNF copy is current
         if: steps.seen.outputs.cache-hit != 'true' && steps.scope.outputs.grammar == 'true'
         run: |
