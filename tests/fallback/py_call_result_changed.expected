@@ -1,3 +1,3 @@
-{"path":"dynamic","line":8,"why":"get_bucket(...) gives a copy of the list or dict it returns, so changing it here does not change the original (Brevi values are copies, not shared)"}
+{"path":"dynamic","line":8,"why":"a copy of `mem` is changed (append) while `mem` is still used; Python changes `mem` itself, so the typed build would differ from CPython"}
 {'a': [1, 2]}
 native exit 0

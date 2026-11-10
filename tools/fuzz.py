@@ -1,7 +1,7 @@
 """Fuzz Brevi's builds for panics, signals and wrong answers, with generated plain Python.
 
 A seeded generator writes small programs in the style agents write (ints, floats, strings, lists, dicts, sets,
-tuples, functions, classes, loops, comprehensions, slicing, try/except around operations that raise). Each program
+tuples, functions, classes, loops, aliased lists/dicts (1 case in 4), comprehensions, slicing, try/except around operations that raise). Each program
 is a batch of independent cases, `def case_N(): ...`, each called under its own try/except so one raising case does
 not hide the others. Every batch runs under CPython first (a batch CPython rejects or times out on is discarded),
 then goes through `brevi build` twice, the normal path and BREVI_DYN=1, and each binary runs. `brevi run` is never
@@ -19,9 +19,13 @@ A refused build ("cannot build this") is fine: refusing is the right answer for 
 
     python3 tools/fuzz.py                       # 20 batches of 12 cases from seed 1
     python3 tools/fuzz.py --batches 200 --seed 7 --jobs 4
+    python3 tools/fuzz.py --alias-only --cases 1  # only aliasing cases, one build each (see below)
     python3 tools/fuzz.py --show 7:3            # print batch 3 of seed 7 (the program, not run)
     python3 tools/fuzz.py --replay bench/fuzz/corpus   # rerun saved cases (CI runs the corpus on every PR)
     python3 tools/fuzz.py --fail-on panic,signal,build # exit 1 only on these (default: panic,signal,build)
+
+--alias-only: when Brevi detects two names sharing a list it falls the WHOLE program back to the dynamic path, so in a
+batch of 12 one detected case hides the typed build for the other 11. Use --cases 1 to find the cases it misses.
 
 The corpus (bench/fuzz/corpus/) holds cases that once failed and were fixed: each must now match CPython, so a
 fixed panic cannot come back. Env: BREVI (default target/release/brevi), PYTHON (default python3).
@@ -409,10 +413,135 @@ class Gen:
             body = extra + body
         return body or ["    " * ind + "pass"]
 
+# ---- aliasing cases: two names for one list/dict (Python shares the object; a value-copy build must not copy)
+
+def _ints(r, lo=3, hi=6):
+    return "[" + ", ".join(str(r.randint(-9, 30)) for _ in range(r.randint(lo, hi))) + "]"
+
+
+def _mutations(r, m, helper):
+    """Statements (no indent) that mutate the int list named m in place; never raise, never empty it unless clearing."""
+    k = r.randint(0, 11)
+    if k == 0: return [f"{m}.append({r.randint(-5, 99)})"]
+    if k == 1: return [f"{m}.extend([{r.randint(0, 9)}, {r.randint(0, 9)}])"]
+    if k == 2: return [f"{m}.sort()"]
+    if k == 3: return [f"{m}.reverse()"]
+    if k == 4: return [f"{m}.pop()"]
+    if k == 5: return [f"{m}.clear()"]
+    if k == 6: return [f"{m}[0] = {r.randint(100, 199)}"]
+    if k == 7: return [f"del {m}[0]"]
+    if k == 8: return [f"{m} += [{r.randint(0, 9)}]"]
+    if k == 9: return [f"{helper}({m})"]
+    if k == 10: return [f"{m}.insert(1, {r.randint(0, 9)})"]
+    return [f"{m}[-1] += {r.randint(1, 9)}", f"{m}.sort(reverse=True)"]
+
+
+def _show(r, names):
+    """A print of every name, in a varied way (the list itself, len, sum, a slice)."""
+    out = []
+    for n in names:
+        k = r.randint(0, 3)
+        out.append([f"print({n})", f"print(len({n}), sum({n}))", f"print({n}, len({n}))", f"print({n}[:2], sum({n}))"][k])
+    return out
+
+
+def gen_alias_case(rng, i):
+    """One aliasing case body (list of lines, indent 1): make a second reference to a list, mutate through one name,
+    print both. Some creators copy on purpose (slice, list(), .copy()): those are the non-sharing controls."""
+    r = rng
+    PRE = []  # module-level lines before the def (a class nested in a function sends the whole program down the dynamic path)
+    L = ["    a = " + _ints(r)]
+    helper = r.choice(["bump", "mutate", "shuffle_in_place"])
+    hk = r.randint(0, 3)
+    L += [f"    def {helper}(xs):",
+          [f"        xs.append({r.randint(1, 9)})", "        xs.sort()", "        xs.reverse()", "        xs[0] = -1"][hk]]
+    sc = r.choice(["generic"] * 6 + ["smallest", "rows", "store", "nested", "cls", "iter", "dictlist", "tuple", "retparam", "dict"])
+    if sc == "generic":
+        kind = r.choice(["assign", "pass", "append", "dictval", "tuple", "field", "loop", "retparam", "retfield",
+                         "slice", "list", "copy", "plus"])
+        if kind == "assign": L += ["    b = a"]
+        elif kind == "pass":
+            L += ["    def keep(xs, store):", "        store.append(xs)", "    store = []", "    keep(a, store)", "    b = store[0]"]
+        elif kind == "append": L += ["    holder = [[9]]", "    holder.append(a)", "    b = holder[-1]"]
+        elif kind == "dictval": L += ["    d = {'k': a}", "    b = d['k']"]
+        elif kind == "tuple": L += ["    t = (a, 1)", "    b = t[0]"]
+        elif kind in ("field", "retfield"):
+            L += [f"    bx = Box{i}(a)"]
+            PRE += [f"class Box{i}:", "    def __init__(self, items):", "        self.items = items",
+                    "    def get(self):", "        return self.items", ""]
+            L += ["    b = bx.items" if kind == "field" else "    b = bx.get()"]
+        elif kind == "loop": L += ["    for b in [a]:", "        pass"]
+        elif kind == "retparam": L += ["    def ident(xs):", "        return xs", "    b = ident(a)"]
+        elif kind == "slice": L += ["    b = a[:]"]
+        elif kind == "list": L += ["    b = list(a)"]
+        elif kind == "copy": L += ["    b = a.copy()"]
+        else: L += ["    b = a + []"]
+        for _ in range(r.randint(1, 2)):
+            L += ["    " + s for s in _mutations(r, r.choice(["a", "b"]), helper)]
+        L += ["    " + s for s in _show(r, ["a", "b"])]
+        if r.random() < 0.3:
+            L += [f"    print(a is b, a == b)"]
+    elif sc == "smallest":
+        L += ["    def smallest(xs):", "        xs.sort()", "        return xs[0]",
+              "    print(smallest(a))", "    print(a)"]
+    elif sc == "rows":
+        L += ["    rows = []", "    row = [0, 0]", f"    for k in range({r.randint(2, 4)}):", "        row[0] = k"]
+        if r.random() < 0.5:
+            L += ["        rows.append(row)"]
+        else:
+            L += ["        rows.append(row[:])"]
+        L += ["    print(rows)", "    print(len(rows), sum(x[0] for x in rows))"]
+    elif sc == "store":
+        L += ["    def keep(xs, store):", "        store.append(xs)", "    store = []", "    keep(a, store)"]
+        L += ["    " + s for s in _mutations(r, "a", helper)]
+        L += ["    print(store)", "    print(a)", "    print(len(store[0]))"]
+    elif sc == "nested":
+        L += ["    a = [[1, 2], [3]]", "    b = [a[0], a[1]]" if r.random() < 0.7 else "    b = [x[:] for x in a]",
+              f"    b[0].append({r.randint(5, 9)})", "    b[1].extend([7, 8])", "    print(a)", "    print(b)"]
+    elif sc == "cls":
+        PRE += [f"class Bag{i}:", "    def __init__(self, items):", "        self.items = items",
+                "    def order(self):", "        self.items.sort()", "        return len(self.items)",
+                "    def add(self, x):", "        self.items.append(x)", ""]
+        L += [f"    bag = Bag{i}(a)", "    print(bag.order())", "    bag.add(0)" if r.random() < 0.5 else "    pass",
+              "    print(a)", "    print(bag.items)"]
+    elif sc == "iter":
+        k = r.randint(0, 2)
+        if k == 0:
+            L += ["    for n in a:", "        a.clear()", "    print(a)"]
+        elif k == 1:
+            L += ["    out = []", "    for n in a:", "        out.append(n)", "        if n >= 0:", "            a.append(0)", "            break",
+                  "    print(out, a)"]
+        else:
+            L += ["    for i, x in enumerate(a):", "        if x >= 0:", "            del a[i]", "            break", "    print(a, len(a))"]
+    elif sc == "dictlist":
+        L += ["    d = {'x': a, 'y': [5, 1, 3]}", "    v = d['x']", f"    v.append({r.randint(0, 9)})",
+              "    for k, w in d.items():", "        w.sort()", "    print(sorted(d.items()))", "    print(a)"]
+    elif sc == "tuple":
+        L += ["    t = (a, len(a))"]
+        L += ["    " + s for s in _mutations(r, "t[0]", helper)]
+        L += ["    print(t)", "    print(a)"]
+    elif sc == "retparam":
+        L += ["    def first_or(xs):", "        return xs", "    c = first_or(a)", "    d = first_or(c)"]
+        L += ["    " + s for s in _mutations(r, r.choice(["c", "d"]), helper)]
+        L += ["    print(a, c, d)", "    print(len(a), sum(d))"]
+    else:  # dict aliasing
+        L = ["    a = {1: 'one', 2: 'two'}", "    b = a" if r.random() < 0.7 else "    b = dict(a)"]
+        m = r.choice(["a", "b"])
+        L += r.choice([[f"    {m}[3] = 'three'"], [f"    {m}.pop(1)"], [f"    {m}.update({{9: 'nine'}})"], [f"    {m}.clear()"],
+                       [f"    del {m}[2]"], [f"    {m}.setdefault(7, 'seven')"]])
+        L += ["    print(sorted(a.items()))", "    print(sorted(b.items()), len(a), len(b))"]
+    return PRE, L
+
+
+ALIAS_ONLY = False
+
 
 def case_source(seed, batch, i):
     """One case: a function whose body is generated from (seed, batch, i) alone, so a case reproduces by itself."""
     g = Gen(random.Random(f"{seed}:{batch}:{i}"))
+    if ALIAS_ONLY or g.r.random() < 0.25:
+        pre, body = gen_alias_case(g.r, i)
+        return "\n".join(pre + [f"def case_{i}():"] + body)
     body = g.stmts(1, g.r.randint(3, 9))
     if not any(l.lstrip().startswith("print") for l in body):
         body.append(f"    print({', '.join(sorted(g.vars)) or '0'})")
@@ -424,8 +553,11 @@ def program(cases):
     out = ["# generated by tools/fuzz.py", ""]
     for _, src in cases:
         out += [src, ""]
+    # type(ex) is "unknown function type()" to Brevi and sends the whole program down the dynamic path, where lists are
+    # shared objects. --alias-only prints a bare 'raised' so the typed build (the one that copies) is what gets tested.
+    raised = "print('raised')" if ALIAS_ONLY else "print('raised', type(ex).__name__)"
     for i, _ in cases:
-        out += [f"print('-- case {i}')", "try:", f"    case_{i}()", "except Exception as ex:", "    print('raised', type(ex).__name__)"]
+        out += [f"print('-- case {i}')", "try:", f"    case_{i}()", "except Exception as ex:", f"    {raised}"]
     return "\n".join(out) + "\n"
 
 
@@ -597,10 +729,13 @@ def main():
     ap.add_argument("--fail-on", default="panic,signal,build")
     ap.add_argument("--show", help="SEED:BATCH, print that batch's program")
     ap.add_argument("--replay", help="a folder of saved cases: each must match CPython on both builds")
+    ap.add_argument("--alias-only", action="store_true", help="generate only aliasing cases (two names, one list/dict)")
     ap.add_argument("--json", help="write a summary here")
     ap.add_argument("--reduce", help="a saved failing case: print the smallest program that still fails the same way")
     a = ap.parse_args()
     fail_on = set(a.fail_on.split(","))
+    global ALIAS_ONLY
+    ALIAS_ONLY = a.alias_only
     if a.show:
         s, b = a.show.split(":")
         print(program([(i, case_source(int(s), int(b), i)) for i in range(a.cases)]), end="")

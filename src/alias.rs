@@ -36,6 +36,32 @@ thread_local! {
     static CHANGES_PARAM: std::cell::RefCell<HashSet<(String, usize)>> = std::cell::RefCell::new(HashSet::new());
 }
 
+// The sharing proof's handle checks (share_guard::Required::marks): after the statement at each line, a
+// marker that rustc accepts only when the name's value (depth 0) or its items (depth 1) are handles.
+pub fn share_marks(items: &mut [Item]) -> Vec<Diag> {
+    let mut errs = vec![];
+    for (line, var, depth) in crate::share_guard::required().marks {
+        let msg = format!("{var} shares a list with another name, which the typed build would copy");
+        let fix = "the dynamic build keeps Python's sharing".to_string();
+        let hex: String = format!("{msg}\u{1}{fix}").bytes().map(|b| format!("{b:02x}")).collect();
+        let kind = if depth == 0 { Expr::Bool(true) } else { Expr::Int(3) };
+        let margs = vec![(None, Expr::Ident(var.clone())), (None, Expr::Str(vec![StrPart::Lit(hex)])), (None, kind)];
+        let mark = Stmt::Expr { expr: Expr::Call("__shared".into(), margs, line), line };
+        let placed = items.iter_mut().any(|it| match it {
+            Item::Fn { body, .. } | Item::Test { body, .. } => place_mark(body, line, &var, &mark),
+            _ => false,
+        });
+        if !placed {
+            err_d(&mut errs, line, msg);
+        }
+    }
+    errs
+}
+
+fn err_d(errs: &mut Vec<Diag>, line: usize, msg: String) {
+    errs.push(Diag::new("check", line, 1, &msg));
+}
+
 pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
     // A Python loop body's last call (`for k, v in d.items(): v.pop(0)`) is a statement, whose value nothing
     // uses: made one, so the write-back after it is put in as after any other change.

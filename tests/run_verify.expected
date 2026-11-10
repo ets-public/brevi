@@ -56,7 +56,7 @@ exit 0
 -- run --verify --sandbox tests/verify/shared_sort.py
 1
 [1, 2, 3]
-{"verify":"differs","against":"dynamic","on":"stdout","line":2,"typed":"[3, 1, 2]","dynamic":"[1, 2, 3]","msg":"a wrong answer from Brevi's typed build: the output above is the dynamic build's, which follows Python's rules for lists and numbers"}
+{"verify":"identical","against":"dynamic"}
 exit 0
 -- run --verify --sandbox tests/verify/argsum.py -- 3 4
 sum 7

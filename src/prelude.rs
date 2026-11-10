@@ -525,6 +525,11 @@ pub fn ax_shared<T: AxShared>(_: &T) {}
 pub trait AxWhole {}
 impl<T> AxWhole for AxRow<T> {}
 pub fn ax_shared_whole<T: AxWhole>(_: &T) {}
+// Items that are handles (see share_guard): a list or dict of objects, records or rows.
+pub trait AxItemsWhole {}
+impl<T: AxWhole> AxItemsWhole for Vec<T> {}
+impl<K, V: AxWhole> AxItemsWhole for AxM<K, V> {}
+pub fn ax_items_whole<T: AxItemsWhole>(_: &T) {}
 // A value `x += v` sets anew (a number, text, an object) rather than changing in place, as a list does.
 pub trait AxAug {}
 impl<T> AxAug for AxRow<T> {}
