@@ -1,5 +1,2 @@
-### Changed
-- Brevi's jinja2 now compiles each template into closures on its first render instead of walking the template's tree on every render, makes no loop object for a `{% for %}` whose body never uses `loop`, and copies the globals into each render's context in one pass. A chat template with tools renders about 2x faster (2.2x CPython's time, down from 4.8x).
-
-### Fixed
-- In Brevi's jinja2, a template included inside a `{% for %}` loop could see the loop's `loop` variable; in Jinja it cannot.
+- **Brevi's jinja2 compiles templates to closures.** Each template node is turned into a closure on its first render instead of being walked by an interpreter on every render; a `{% for %}` whose body never uses `loop` makes no loop object (as Jinja does), and each render copies the globals into its context in one pass. A ChatML chat template with tools went from 2.8 s to 1.35 s for 20,000 renders (CPython with real jinja2: 0.60 s; was about 4.8x slower, now about 2.2x). New test `tests/jinja2/compiled.py` checks loops, includes, macros, filters, tests, finalize, autoescape and blocks against jinja2 3.1.6.
+- **Fixed: in Brevi's jinja2 a template included inside a `{% for %}` could read the loop's `loop` variable;** in Jinja it cannot.
