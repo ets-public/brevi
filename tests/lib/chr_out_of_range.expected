@@ -1,0 +1,14 @@
+'A'
+'\U0010ffff'
+ValueError chr() arg not in range(0x110000)
+ValueError chr() arg not in range(0x110000)
+ValueError chr() arg not in range(0x110000)
+ValueError chr() arg not in range(0x110000)
+ValueError chr() arg not in range(0x110000)
+ValueError chr() arg not in range(0x110000)
+ValueError chr() arg not in range(0x110000)
+ValueError chr() arg not in range(0x110000)
+ValueError chr() arg not in range(0x110000)
+ValueError chr() arg not in range(0x110000)
+VE chr() arg not in range(0x110000)
+caught ValueError
