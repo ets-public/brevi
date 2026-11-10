@@ -1774,7 +1774,9 @@ mod tests {
         assert!(!needs("a = [1]\nb = [2]\nbook = a if len(a) else b\nprint(len(book))\n"));
         assert!(!needs("import re\nm = re.match('(a)(b)?', 'a')\nprint(m.group(2) is None)\n"));
         assert!(needs("import re\nm = re.match('(a)(b)?', 'a')\nprint(m.groups())\n"));
-        assert!(!needs("d = {1: 2}\nfor k in d:\n    d[k] = 0\nxs = [1]\nfor x in xs:\n    xs[0] = 2\n"));
+        assert!(!needs("d = {1: 2}\nfor k in d:\n    d[k] = 0\n"));
+        // an item set on the list being walked may change an item the loop has not reached (the sharing proof)
+        assert!(needs("xs = [1]\nfor x in xs:\n    xs[0] = 2\n"));
     }
 }
 

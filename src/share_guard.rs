@@ -127,7 +127,8 @@ struct Prog<'a> {
     modules: HashSet<String>,                  // imported module names
     fromimp: HashMap<String, (String, String)>, // `from m import n as a`: a -> (m's first part, n)
     module_names: HashSet<String>,             // module-level names
-    bound_other: HashSet<String>,              // module-level names some statement other than an import binds
+    bound_other: HashSet<String>,
+    dicts: HashSet<String>, // see dict_only              // module-level names some statement other than an import binds
     fn_globals: HashSet<String>,               // module-level names some function mentions
     // kinds
     kl: HashMap<(usize, String), K>, // (function, name) -> shape; function usize::MAX is the module
@@ -151,6 +152,7 @@ pub fn check(body: &[Stmt]) -> Option<(usize, String)> {
         fromimp: HashMap::new(),
         module_names: HashSet::new(),
         bound_other: HashSet::new(),
+        dicts: HashSet::new(),
         fn_globals: HashSet::new(),
         kl: HashMap::new(),
         kf: HashMap::new(),
@@ -159,6 +161,7 @@ pub fn check(body: &[Stmt]) -> Option<(usize, String)> {
         sums: vec![],
     };
     collect(body, None, None, &mut p);
+    p.dicts = dict_only(body);
     let rebound = rebound_globals(body, &p);
     kinds(body, &mut p);
     p.sums = vec![Sum::default(); p.fns.len()];
@@ -417,6 +420,77 @@ fn param_names(ps: &Params) -> (Vec<String>, usize, Option<String>, Option<Strin
         v.push(k.clone());
     }
     (v, npos, ps.star.clone(), ps.kwstar.clone())
+}
+
+// Names bound only to dicts anywhere in the file (`d = {}`, `d = dict(...)`, `d = {k: v for ...}`): a loop over one
+// walks its keys, and setting the current key (`d[k] = v`) leaves the keys as they are.
+fn dict_only(body: &[Stmt]) -> HashSet<String> {
+    fn is_dict(v: &Ex) -> bool {
+        match v {
+            Ex::Dict(_) => true,
+            Ex::Comp(c, ..) => *c == 'd',
+            Ex::Call(f, _) => matches!(f.as_ref(), Ex::Name(n) if matches!(n.as_str(), "dict" | "defaultdict" | "Counter" | "OrderedDict")),
+            _ => false,
+        }
+    }
+    fn walk(b: &[Stmt], yes: &mut HashSet<String>, no: &mut HashSet<String>) {
+        for st in b {
+            match &st.st {
+                St::Assign(_, v) | St::AnnAssign(_, Some(v), _) => {
+                    let ts: Vec<&Ex> = match &st.st {
+                        St::Assign(ts, _) => ts.iter().collect(),
+                        St::AnnAssign(t, _, _) => vec![t],
+                        _ => vec![],
+                    };
+                    for t in ts {
+                        match t {
+                            Ex::Name(n) if is_dict(v) => {
+                                yes.insert(n.clone());
+                            }
+                            t => target_names(t, no),
+                        }
+                    }
+                }
+                St::Def(d) => {
+                    for (n, _) in d.params.pos.iter().chain(d.params.kwonly.iter()) {
+                        no.insert(n.clone());
+                    }
+                    no.extend(d.params.star.clone());
+                    no.extend(d.params.kwstar.clone());
+                    no.insert(d.name.clone());
+                    walk(&d.body, yes, no);
+                }
+                St::Class(c) => {
+                    no.insert(c.name.clone());
+                    walk(&c.body, yes, no);
+                }
+                St::Expr(_) | St::Return(_) | St::Raise(..) | St::Assert(..) | St::Pass | St::Break | St::Continue | St::Global(_) | St::Nonlocal(_) | St::Del(_) => {}
+                _ => {
+                    let mut g = HashSet::new();
+                    assigned(std::slice::from_ref(st), no, &mut g);
+                    for c in child_blocks(st) {
+                        walk(c, yes, no);
+                    }
+                }
+            }
+        }
+    }
+    let (mut yes, mut no) = (HashSet::new(), HashSet::new());
+    walk(body, &mut yes, &mut no);
+    each_expr_block(body, &mut |e| {
+        walk_ex(e, &mut |x| match x {
+            Ex::Walrus(n, _) => {
+                no.insert(n.clone());
+            }
+            Ex::Comp(_, _, _, fors) => fors.iter().for_each(|c| target_names(&c.target, &mut no)),
+            Ex::Lambda(ps, _) => ps.pos.iter().chain(ps.kwonly.iter()).for_each(|(n, _)| {
+                no.insert(n.clone());
+            }),
+            _ => {}
+        })
+    });
+    yes.retain(|n| !no.contains(n));
+    yes
 }
 
 fn child_blocks(s: &Stmt) -> Vec<&[Stmt]> {
@@ -2581,10 +2655,10 @@ impl<'p, 'a> Cx<'p, 'a> {
                     _ => vec![],
                 };
                 let pl = self.place_of(it);
-                // `for x in xs` over a list: the key form only applies to dicts; a list item set by value is
-                // the item's own value only when the loop variable is that index, which it is not here
-                let _ = keys;
-                let keys = vec![];
+                // The key form only holds for a dict: on a list `xs[x] = v` sets the item at the value x,
+                // which may be one the loop has not reached
+                let is_dict = matches!(it, Ex::Name(n) if self.p.dicts.contains(n));
+                let keys = if is_dict { keys } else { vec![] };
                 (pl, srcs.clone(), keys)
             }
         };
