@@ -1,0 +1,11 @@
+ok 1
+err boom-2
+ok 3
+err boom-5
+ok 6
+ok 4
+[7]
+task 9
+task 8
+plain 11
+plain 10
