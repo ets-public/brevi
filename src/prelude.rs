@@ -6234,6 +6234,47 @@ impl AxPow<f64> for i64 {
         ax_fpow(self as f64, b)
     }
 }
+// The same power, but a zero base to a negative power is a ZeroDivisionError a Python try can catch.
+pub trait AxPowTry<B = Self>: Sized {
+    type Out;
+    fn ax_pow_try(self, b: B) -> R<Self::Out>;
+}
+impl AxPowTry<i64> for i64 {
+    type Out = i64;
+    fn ax_pow_try(self, b: i64) -> R<i64> {
+        if self == 0 && b < 0 {
+            return Err(ax_zd_err("0.0 cannot be raised to a negative power"));
+        }
+        Ok(self.ax_pow(b))
+    }
+}
+impl AxPowTry<f64> for f64 {
+    type Out = f64;
+    fn ax_pow_try(self, b: f64) -> R<f64> {
+        if self == 0.0 && b < 0.0 {
+            return Err(ax_zd_err("0.0 cannot be raised to a negative power"));
+        }
+        Ok(ax_fpow(self, b))
+    }
+}
+impl AxPowTry<i64> for f64 {
+    type Out = f64;
+    fn ax_pow_try(self, b: i64) -> R<f64> {
+        if self == 0.0 && b < 0 {
+            return Err(ax_zd_err("0.0 cannot be raised to a negative power"));
+        }
+        Ok(ax_fpow(self, b as f64))
+    }
+}
+impl AxPowTry<f64> for i64 {
+    type Out = f64;
+    fn ax_pow_try(self, b: f64) -> R<f64> {
+        if self == 0 && b < 0.0 {
+            return Err(ax_zd_err("0.0 cannot be raised to a negative power"));
+        }
+        Ok(ax_fpow(self as f64, b))
+    }
+}
 // Python 3's `a / b`: always a float.
 pub trait AxTrueDiv<B> {
     fn ax_truediv(self, b: B) -> f64;
