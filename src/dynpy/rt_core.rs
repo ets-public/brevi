@@ -1317,6 +1317,8 @@ impl Dict {
     }
     pub fn compact(&mut self) {
         let ents: Vec<Option<(V, V)>> = std::mem::take(&mut self.ents).into_iter().filter(|e| e.is_some()).collect();
+        // entry positions move, so a lookup in flight must restart
+        self.ver += 1;
         let idx = Rc::make_mut(&mut self.idx);
         idx.clear();
         for (i, e) in ents.iter().enumerate() {
@@ -1375,9 +1377,11 @@ impl Dict {
 // Lookups on a dict held behind a RefCell. The index itself is an Rc snapshot, so the RefCell borrow is
 // released before a key __eq__ / __hash__ can run user code; `ver` detects a structural mutation done by
 // that code and restarts, as CPython's dict lookup does.
+const DICT_LOOKUP_RESTARTS: usize = 1000;
 pub fn dict_get(d: &Rc<RefCell<Dict>>, k: &V) -> Result<Option<V>, E> {
     let key = K { h: py_hash(k)?, v: k.clone() };
-    loop {
+    // A user __eq__ that changes the dict on every call would otherwise restart forever.
+    for _ in 0..DICT_LOOKUP_RESTARTS {
         let (idx, ver) = {
             let b = d.borrow();
             (Rc::clone(&b.idx), b.ver)
@@ -1389,11 +1393,13 @@ pub fn dict_get(d: &Rc<RefCell<Dict>>, k: &V) -> Result<Option<V>, E> {
             return Ok(i.map(|i| b.ents[i].as_ref().unwrap().1.clone()));
         }
     }
+    Err(exc("RuntimeError", "dictionary changed size during lookup".into()))
 }
 
 pub fn dict_contains(d: &Rc<RefCell<Dict>>, k: &V) -> Result<bool, E> {
     let key = K { h: py_hash(k)?, v: k.clone() };
-    loop {
+    // A user __eq__ that changes the dict on every call would otherwise restart forever.
+    for _ in 0..DICT_LOOKUP_RESTARTS {
         let (idx, ver) = {
             let b = d.borrow();
             (Rc::clone(&b.idx), b.ver)
@@ -1405,6 +1411,7 @@ pub fn dict_contains(d: &Rc<RefCell<Dict>>, k: &V) -> Result<bool, E> {
             return Ok(r);
         }
     }
+    Err(exc("RuntimeError", "dictionary changed size during lookup".into()))
 }
 
 // ---------- set (CPython's table layout, so iteration order matches for numbers and tuples) ----------
