@@ -897,6 +897,21 @@ fn group_int(v: &V) -> Option<i64> {
 fn group_is_int(v: &V) -> bool {
     matches!(v, V::Int(_) | V::Bool(_) | V::Big(_)) || matches!(v, V::Obj(_)) && inner_of(v).is_some_and(|i| group_is_int(&i))
 }
+// pattern.scanner(...): a stateful scanner whose match/search calls advance from the
+// previous match's end (skipping an empty match once, as finditer does). CPython consumes
+// the rest of the string when a call finds no match.
+struct RScan {
+    s: Rc<Vec<char>>,
+    sv: V,
+    orig_pos: usize,
+    pos: usize,
+    endpos: usize,
+    no_empty: Option<usize>,
+}
+pub struct RScanner {
+    prog: Rc<Prog>,
+    st: RefCell<RScan>,
+}
 impl RMatch {
     fn group_idx(&self, g: &V) -> Result<usize, E> {
         let n = match g {
@@ -1044,6 +1059,56 @@ impl Ext for RMatch {
         })();
         let _ = me;
         Some(r)
+    }
+}
+impl Ext for RScanner {
+    fn tname(&self) -> &'static str {
+        "_sre.SRE_Scanner"
+    }
+    fn repr(&self) -> String {
+        format!("<_sre.SRE_Scanner object at {:#x}>", self as *const RScanner as usize)
+    }
+    fn any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn hash(&self) -> Option<i64> {
+        Some((self as *const RScanner as usize >> 4) as i64)
+    }
+    fn eq(&self, o: &V) -> Option<bool> {
+        Some(matches!(o, V::Ext(e) if std::ptr::eq(e.any() as *const dyn std::any::Any as *const u8, self as *const RScanner as *const u8)))
+    }
+    fn attr(&self, _me: &V, n: &str) -> Option<R> {
+        Some(match n {
+            "pattern" => Ok(V::Ext(ExtRc::new(RPat { prog: self.prog.clone() }))),
+            _ => return None,
+        })
+    }
+    fn method(&self, _me: &V, n: &str, a: &mut Args) -> Option<R> {
+        let anchored = match n {
+            "match" => true,
+            "search" => false,
+            _ => return None,
+        };
+        if !a.p.is_empty() || !a.k.is_empty() {
+            return Some(type_err(format!("{n}() takes no arguments")));
+        }
+        let (s, sv, start, endpos, orig_pos, no_empty) = {
+            let st = self.st.borrow();
+            (st.s.clone(), st.sv.clone(), st.pos, st.endpos, st.orig_pos, st.no_empty)
+        };
+        Some(match re_exec(&self.prog, &s, start, endpos, anchored, false, no_empty) {
+            Some(caps) => {
+                let v = mk_match(&self.prog, &s, &sv, caps.clone(), orig_pos, endpos);
+                let mut st = self.st.borrow_mut();
+                st.pos = caps[1];
+                st.no_empty = if caps[0] == caps[1] { Some(caps[1]) } else { None };
+                Ok(v)
+            }
+            None => {
+                self.st.borrow_mut().pos = endpos;
+                Ok(V::None)
+            }
+        })
     }
 }
 impl Ext for RPat {
@@ -1212,6 +1277,14 @@ fn expand_template(t: &str, m: &RMatch) -> Result<String, E> {
 }
 fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
     match n {
+        "scanner" => {
+            let sv = a.kw("string").or_else(|| a.p.first().cloned()).ok_or_else(|| exc("TypeError", "scanner() missing required argument 'string' (pos 1)".into()))?;
+            let (sc, sv) = re_str(&sv)?;
+            let len = sc.len();
+            let pos = opt_pos(a, 1, "pos", len)?.unwrap_or(0);
+            let endpos = opt_pos(a, 2, "endpos", len)?.unwrap_or(len);
+            Ok(V::Ext(ExtRc::new(RScanner { prog: prog.clone(), st: RefCell::new(RScan { s: sc, sv, orig_pos: pos, pos, endpos, no_empty: None }) })))
+        }
         "match" | "fullmatch" | "search" => {
             let sv = a.kw("string").or_else(|| a.p.first().cloned()).ok_or_else(|| exc("TypeError", format!("{n}() missing required argument 'string' (pos 1)")))?;
             let (sc, sv) = re_str(&sv)?;
