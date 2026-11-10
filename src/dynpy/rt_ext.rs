@@ -392,7 +392,7 @@ impl Dec {
         }
     }
     fn fmt(&self, spec: &str) -> Result<String, E> {
-        let sp = parse_spec(spec)?;
+        let sp = parse_spec(spec, None)?;
         let mut d = self.clone();
         let mode = DROUND.with(|r| r.get());
         let body = match sp.ty {
