@@ -339,8 +339,19 @@ fn from_text(e: &Expr) -> bool {
             Expr::Method(_, t, _, _) => t.starts_with("trim") || t == "lower" || t == "upper",
             Expr::Call(f, _, _) if BIGF.with(|b| b.borrow().contains(f)) => true,
             Expr::Call(f, a, _) => f == "input" && a.len() <= 1,
+            Expr::Ident(n) | Expr::Move(n) => TEXT.with(|t| t.borrow().contains(n)),
             _ => false,
         },
+        _ => false,
+    }
+}
+
+// A value that reads as text: parts[0], input(), s.strip(), as from_text takes them inside int(...).
+fn text_value(e: &Expr) -> bool {
+    match e {
+        Expr::Index(..) => true,
+        Expr::Method(_, t, _, _) => t.starts_with("trim") || t == "lower" || t == "upper",
+        Expr::Call(f, a, _) => f == "input" && a.len() <= 1,
         _ => false,
     }
 }
@@ -348,6 +359,8 @@ fn from_text(e: &Expr) -> bool {
 // Names that only ever hold small ints (a `for i in range(...)` loop's name): fine next to a big integer.
 thread_local! {
     static SMALL: std::cell::RefCell<HashSet<String>> = std::cell::RefCell::new(HashSet::new());
+    // Locals only ever set to text (`a, b = parts[0], parts[1]`, `s = input()`), so int(a) reads text too.
+    static TEXT: std::cell::RefCell<HashSet<String>> = std::cell::RefCell::new(HashSet::new());
     // Top-level names only ever set to one int literal (`MOD = 10 ** 9 + 7`).
     static CONSTS: std::cell::RefCell<HashSet<String>> = std::cell::RefCell::new(HashSet::new());
     // The parameters of a function being made to return a big integer (ints, made big where they meet one).
@@ -636,6 +649,8 @@ fn promote_names(body: &Expr, params: &HashSet<String>, ret_params: &HashSet<Str
     // cannot be big, until nothing changes.
     let mut seed = Scan { c: &HashSet::new(), bad: HashSet::new(), defs: HashMap::new() };
     seed.expr(body, false);
+    let text: HashSet<String> = seed.defs.iter().filter(|(n, vs)| !params.contains(*n) && !vs.is_empty() && vs.iter().all(text_value)).map(|(n, _)| n.clone()).collect();
+    TEXT.with(|t| *t.borrow_mut() = text);
     // Every local is a candidate at first; the fixed point keeps those whose every value and use can
     // be big, and then only the ones whose values come (through other kept names) from int(text).
     let mut c: HashSet<String> = seed.defs.keys().filter(|n| !params.contains(*n)).cloned().collect();

@@ -1,0 +1,80 @@
+# Installs Brevi on a GitHub Actions runner: the release binary (checked against the release's SHA256SUMS),
+# brevi-python beside it, and the Rust toolchain Brevi builds with if the runner lacks it. Brevi's build
+# cache is kept between runs, keyed on the Brevi version.
+#
+#   - uses: ets-public/brevi/setup@v0.27.0
+#     with:
+#       version: 0.27.0     # default: the release this action is from when pinned to a tag, else the latest
+#   - run: brevi run main.py
+name: Set up Brevi
+description: Install the Brevi compiler (AI-written Python built natively and sandboxed) and its Rust toolchain
+author: ets-public
+branding:
+  icon: zap
+  color: orange
+inputs:
+  version:
+    description: "Brevi version to install, e.g. 0.27.0 (default: the tag this action is used at, else the latest release)"
+    default: ""
+  cache:
+    description: "Keep Brevi's build cache between runs (true or false)"
+    default: "true"
+outputs:
+  version:
+    description: The Brevi version installed
+    value: ${{ steps.install.outputs.version }}
+  path:
+    description: The brevi executable
+    value: ${{ steps.install.outputs.path }}
+runs:
+  using: composite
+  steps:
+    - id: install
+      shell: bash
+      env:
+        WANT: ${{ inputs.version }}
+        ACTION_REF: ${{ github.action_ref }}
+      run: |
+        set -euo pipefail
+        case "$RUNNER_OS-$RUNNER_ARCH" in
+          Linux-X64) target=x86_64-unknown-linux-gnu; ext=tar.gz ;;
+          Linux-ARM64) target=aarch64-unknown-linux-gnu; ext=tar.gz ;;
+          macOS-ARM64) target=aarch64-apple-darwin; ext=tar.gz ;;
+          macOS-X64) target=x86_64-apple-darwin; ext=tar.gz ;;
+          Windows-X64) target=x86_64-pc-windows-msvc; ext=zip ;;
+          *) echo "::error::no prebuilt brevi for $RUNNER_OS $RUNNER_ARCH"; exit 1 ;;
+        esac
+        v="${WANT#v}"
+        # Pinned to a release tag (setup@v0.27.0): install that release.
+        if [ -z "$v" ] && [[ "$ACTION_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then v="${ACTION_REF#v}"; fi
+        if [ -n "$v" ]; then base="https://github.com/ets-public/brevi/releases/download/v$v"
+        else base="https://github.com/ets-public/brevi/releases/latest/download"; fi
+        dir="$RUNNER_TOOL_CACHE/brevi/${v:-latest}"
+        mkdir -p "$dir" && cd "$dir"
+        curl -fsSL --retry 3 -o "brevi-$target.$ext" "$base/brevi-$target.$ext"
+        curl -fsSL --retry 3 -o SHA256SUMS "$base/SHA256SUMS"
+        want=$(awk -v f="brevi-$target.$ext" '$2 == f || $2 == "*" f { print $1; exit }' SHA256SUMS)
+        if command -v sha256sum >/dev/null; then got=$(sha256sum "brevi-$target.$ext" | cut -d' ' -f1)
+        else got=$(shasum -a 256 "brevi-$target.$ext" | cut -d' ' -f1); fi
+        [ -n "$want" ] && [ "$got" = "$want" ] || { echo "::error::checksum mismatch for brevi-$target.$ext"; exit 1; }
+        if [ "$ext" = zip ]; then unzip -oq "brevi-$target.zip"; else tar xzf "brevi-$target.tar.gz"; fi
+        bin="$dir/brevi-$target"
+        if [ "$RUNNER_OS" != Windows ]; then ln -sf brevi "$bin/brevi-python"; fi
+        echo "$bin" >> "$GITHUB_PATH"
+        exe="$bin/brevi"; [ "$RUNNER_OS" = Windows ] && exe="$bin/brevi.exe"
+        version=$("$exe" --version | awk '{print $2}')
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "path=$exe" >> "$GITHUB_OUTPUT"
+        echo "BREVI_CACHE=$RUNNER_TEMP/brevi-cache" >> "$GITHUB_ENV"
+        # GitHub's images ship rustup; install the minimal toolchain only where rustc is missing.
+        if ! command -v rustc >/dev/null; then
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+        fi
+        echo "installed brevi $version"
+    - if: ${{ inputs.cache == 'true' }}
+      uses: actions/cache@v6
+      with:
+        path: ${{ runner.temp }}/brevi-cache
+        key: brevi-${{ steps.install.outputs.version }}-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+        restore-keys: brevi-${{ steps.install.outputs.version }}-${{ runner.os }}-${{ runner.arch }}-

@@ -1680,6 +1680,7 @@ pub fn iter(v: &V) -> Result<It, E> {
             return type_err(format!("'{}' object is not iterable", tn(v)));
         }
         V::Module(&ModName("sys.stdin")) => It::Gen(Box::new(|| Ok(read_line().map(st)))),
+        V::Module(&ModName("sys.stdin.buffer")) => It::Gen(Box::new(|| Ok(read_line_bytes().map(bytesv)))),
         V::Ext(x) => match x.lazy_iter() {
             Some(r) => return r,
             None => match x.iter() {
