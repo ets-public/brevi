@@ -48,6 +48,17 @@ step "Agent platform templates"; python3 templates/test.py >/dev/null
 if [ $compat = 1 ]; then
   step "Every solution that ever passed still passes ($kinds)"; python3 tools/compat.py check --kinds $kinds
 fi
+# CPython's own tests, when the compiler could have changed (as in toolchains.yml)
+if [ $compat = 1 ] || [ "$mode" = --full ]; then
+  step "CPython conformance ratchet (CPython 3.13.13 via uv; ~10 min)"
+  if command -v uv >/dev/null 2>&1 && uv python install 3.13.13 --quiet 2>/dev/null; then
+    python3 tools/conformance.py --check --python "$(uv python find 3.13.13)" --out /tmp/brevi-conformance
+  else
+    echo "skipped: uv not installed (https://docs.astral.sh/uv/), so no CPython 3.13.13 to compare with"
+  fi
+else
+  echo "(CPython conformance ratchet skipped: nothing here can change it)"
+fi
 [ $compat = 1 ] || echo "(old-solutions rebuild skipped: nothing here can change it)"
 [ $grammar = 1 ] || echo "(grammar check skipped: nothing here can change it)"
 printf '\nAll checks passed.  (%s)\n' "$(date +%H:%M:%S)"

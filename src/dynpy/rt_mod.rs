@@ -1430,7 +1430,8 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         ("sys", "version") => s("3.13.0 (brevi)"),
         ("sys", "float_info") => return Err(unsupported("sys.float_info")),
         ("sys", "modules") => dict_new(),
-        ("sys", "path") => list(vec![]),
+        // CPython puts the script's folder first; a built program has only itself, so its folder stands in
+        ("sys", "path") => list(vec![s(&std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_string_lossy().into_owned())).unwrap_or_default())]),
         ("sys.stdin", "buffer") => V::Module(&ModName("sys.stdin.buffer")),
         ("sys.stdout", "buffer") => V::Module(&ModName("sys.stdout.buffer")),
         ("sys.stderr", "buffer") => V::Module(&ModName("sys.stderr.buffer")),

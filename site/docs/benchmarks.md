@@ -57,7 +57,14 @@ With one extra line in the prompt telling the model its code is compiled and to 
 | Sonnet | $0.222 | $0.128 | **0.58x** |
 | Haiku | $0.0221 | $0.0117 | **0.53x** |
 
-Every task passed on both sides, every Brevi program built natively, and no check failed because of Brevi. The saving is the model not hand-optimising: output tokens fell by about half for Sonnet and a quarter for Haiku. **This is not yet a fair test of Brevi:** only the Brevi side got the extra line, and CPython has not been run with the same line, so part or all of the saving may come from the prompt. The line also said "10 to 50 times faster", which overstated the measured speed-up; it now gives the measured range. A run with a CPython-plus-line control is next. On the ordinary release-suite tasks the same line made no clear difference (runs v1a, v1b: Sonnet 1.07x, Haiku 1.00x, bar still met).
+Every task passed on both sides, every Brevi program built natively, and no check failed because of Brevi. The saving is the model not hand-optimising: output tokens fell by about half for Sonnet and a quarter for Haiku. **This is not yet a fair test of Brevi:** only the Brevi side got the extra line, and CPython has not been run with the same line, so part or all of the saving may come from the prompt. The line also said "10 to 50 times faster", which overstated the measured speed-up; it now gives the measured range. That control has now been run (`e2e.py --lang pyh`: the Python prompt with the same line, checked with CPython), two runs per model on 9 November 2026 against the same Brevi build:
+
+| Runs sp3a, sp3b (9 Nov 2026) | CPython, same plain-solution line | Brevi, plain-solution line | Ratio |
+| --- | --- | --- | --- |
+| Sonnet | $0.159 | $0.073 | **0.46x** |
+| Haiku | $0.0154 | $0.0052 | **0.34x** |
+
+With the same line on both sides the saving is Brevi's, not the prompt's: told to write the plain solution, the model does, and on CPython that solution runs over the 10-second limit, so it spends 10 to 12 checks per run (and 2 to 3 times the output tokens) making the code fast; Haiku gave up on one task in one run. On Brevi the plain solution passed first time in 15 of 16 cases (all 16 built natively, 15 on the typed build). Four tasks and two runs per model is a small sample: the per-run costs were $0.170 and $0.149 against $0.072 and $0.074 for Sonnet, $0.0126 and $0.0182 against $0.0052 and $0.0052 for Haiku. The logs are `sp3a-*` and `sp3b-*` in [bench/logs/e2e](repo:bench/logs/e2e). On the ordinary release-suite tasks the same line made no clear difference (runs v1a, v1b: Sonnet 1.07x, Haiku 1.00x, bar still met).
 
 ## Brevi, Codon and Nuitka
 

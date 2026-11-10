@@ -96,7 +96,11 @@ Release suite `rel` with the shadow check, runs `u1a` and `u1b` (3 Nov, branch a
 
 Runs `u2a` and `u2b` after those fixes (PR #140, both languages and models): the bar is met. Sonnet pyb costs 0.970x Python (95% range 0.93x to 1.01x) and Haiku 1.007x (0.96x to 1.05x). Every task passed on both sides, and native builds were 44/48 and 46/48. No check failed because of Brevi (`bug` 0 in all four pyb runs). The remaining CPython fallbacks are csv_join and json_query.
 
-From PR #141 the pyb prompt has one more line than the Python prompt, the line Brevi's skill, MCP server and llms.txt now give agents: "Your program is compiled to native code, which runs plain loops over ints and lists 10 to 50 times faster than CPython. Write the plain, direct solution; do not hand-optimise it for speed." (`--no-hint` drops it.) With it, on that branch:
+From PR #141 the pyb prompt has one more line than the Python prompt, the line Brevi's skill, MCP server and llms.txt now give agents: "Your program is compiled to native code, which runs plain loops over ints and lists 10 to 50 times faster than CPython. Write the plain, direct solution; do not hand-optimise it for speed." (`--no-hint` drops it; the line now quotes the measured range, 1.7x to 39.5x, median 8.5x.) The outside review of 9 Nov 2026 pointed out that only the pyb side got the line, so the saving below may come from the prompt rather than from Brevi. `--lang pyh` is the control for that: the Python prompt with the same line, checked with CPython. A fair heavy-task comparison is `pyb` against `pyh`, not against `python`.
+
+- **Speed set with the control** (runs `sp3a`, `sp3b`, 9 Nov 2026, main at #282, two runs per model): Sonnet pyb $0.0729 per run against pyh $0.1594 (0.46x); Haiku pyb $0.0052 against pyh $0.0154 (0.34x). Every pyb program passed and built natively (15 of 16 on the typed build), 15 of 16 on the first check. With the same line, CPython's side wrote the plain solution too, ran over the 10 s limit, and spent 10 to 12 checks per run making it fast; Haiku failed knapsack once. So the saving below survives the control, and it is the speed, not the line.
+
+With the line, on that branch (3 Nov 2026, CPython told nothing):
 
 - **Speed set** (runs `sp2a`, `sp2b`): every task passed on both sides, all pyb programs built natively, and no check failed because of Brevi. Sonnet pyb cost $0.128 against Python's $0.222 (0.58x). Haiku pyb cost $0.0117 against $0.0221 (0.53x). Python, told nothing, still hand-optimises, and that costs it twice the output.
 - **Release suite** (runs `v1a`, `v1b`): the bar is met. Every task passed. Sonnet came in at 1.074x (95% range 1.03x to 1.12x) and Haiku at 0.997x (0.95x to 1.04x). Native builds were 45/48 and 47/48, and no check failed because of Brevi. Sonnet's pyb runs cost $0.74 against $0.68 in `u2a`/`u2b` without the line. The research thread's single run with the line had $0.722 against $0.727. So the line shows no clear effect on ordinary tasks, and four runs (`u2` + `v1`) average about 1.02x for Sonnet.
@@ -186,7 +190,7 @@ Four change requests to an existing 120-line program (`edit/base/shop.{py,ax,rs}
 
 ## CPython conformance
 
-`tools/conformance.py` measures how much of Python Brevi handles with a source outside this repository: CPython's own test suite. The latest committed result is [conformance/report.md](conformance/report.md). It is not in CI, because Actions minutes are limited; run it by hand, for example before a release:
+`tools/conformance.py` measures how much of Python Brevi handles with a source outside this repository: CPython's own test suite. The latest committed result is [conformance/report.md](conformance/report.md). It runs in CI as a ratchet on every pull request that touches the compiler (`.github/workflows/toolchains.yml`, one toolchain, about 10 minutes): `--check` fails on a wrong result or crash not in `compat/conformance_known_wrong.txt`, on a line there that is no longer wrong (so the list only shrinks), and when fewer tests match than `compat/conformance_floor.json` allows (so the score only rises). `--write-baseline` resets both after a run whose results have been read. To run it by hand, for example before a release:
 
 ```
 cargo build --release

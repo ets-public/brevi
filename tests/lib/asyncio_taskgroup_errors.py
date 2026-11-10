@@ -1,7 +1,7 @@
 import asyncio
 
 async def ok(n):
-    await asyncio.sleep(0.01 * n)
+    await asyncio.sleep(0.3 * n)
     print("ok", n)
     return n
 

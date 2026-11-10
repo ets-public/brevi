@@ -1141,7 +1141,7 @@ pub fn py_hash(v: &V) -> Result<i64, E> {
                 o.cls.plain_hash.set((ep, b));
                 b
             }
-        } => ptr_hash(Rc::as_ptr(o) as usize),
+        } && o.inner.borrow().is_none() => ptr_hash(Rc::as_ptr(o) as usize),
         V::Obj(o) => {
             let mixin = if is_enum(&o.cls) { o.inner() } else { None };
             if let Some(i) = mixin {
@@ -1158,6 +1158,9 @@ pub fn py_hash(v: &V) -> Result<i64, E> {
                 }
             } else if o.cls.lookup("__eq__").is_some() {
                 return type_err(format!("unhashable type: '{}'", o.cls.name));
+            } else if let Some(i) = o.inner.borrow().clone() {
+                // a subclass of str, int or tuple hashes as its value, so it finds the same dict slot
+                py_hash(&i)?
             } else {
                 ptr_hash(Rc::as_ptr(o) as usize)
             }
@@ -1188,10 +1191,29 @@ impl Hash for K {
 }
 impl PartialEq for K {
     fn eq(&self, o: &K) -> bool {
-        self.h == o.h && eq(&self.v, &o.v).unwrap_or(false)
+        // The hash map's own comparison cannot return an error, so one a user __eq__ raises waits in KEY_ERR
+        // until the dict operation reads it (key_err) and raises it, as CPython would.
+        self.h == o.h
+            && (same_obj(&self.v, &o.v)
+                || match eq(&self.v, &o.v) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        KEY_ERR.with(|c| c.set(Some(e)));
+                        false
+                    }
+                })
     }
 }
 impl Eq for K {}
+thread_local! {
+    static KEY_ERR: Cell<Option<E>> = const { Cell::new(None) };
+}
+fn key_err() -> Result<(), E> {
+    match KEY_ERR.with(|c| c.take()) {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
+}
 
 #[derive(Default)]
 pub struct IdH(u64);
@@ -1230,27 +1252,57 @@ impl Dict {
     }
     pub fn get(&self, k: &V) -> Result<Option<V>, E> {
         let key = K { h: py_hash(k)?, v: k.clone() };
-        Ok(self.idx.get(&key).map(|&i| self.ents[i].as_ref().unwrap().1.clone()))
+        let r = self.idx.get(&key).map(|&i| self.ents[i].as_ref().unwrap().1.clone());
+        key_err()?;
+        Ok(r)
     }
     pub fn contains(&self, k: &V) -> Result<bool, E> {
         let key = K { h: py_hash(k)?, v: k.clone() };
-        Ok(self.idx.contains_key(&key))
+        let r = self.idx.contains_key(&key);
+        key_err()?;
+        Ok(r)
     }
     pub fn set(&mut self, k: V, v: V) -> Result<(), E> {
+        // one probe, so a user __eq__ runs once per insert, as CPython's does
         let key = K { h: py_hash(&k)?, v: k.clone() };
-        if let Some(&i) = self.idx.get(&key) {
-            self.ents[i].as_mut().unwrap().1 = v;
-        } else {
-            self.ents.push(Some((k, v)));
-            self.idx.insert(key, self.ents.len() - 1);
-            self.n += 1;
-            self.ver += 1;
+        match self.idx.entry(key) {
+            std::collections::hash_map::Entry::Occupied(e) => {
+                key_err()?;
+                self.ents[*e.get()].as_mut().unwrap().1 = v;
+            }
+            std::collections::hash_map::Entry::Vacant(e) => {
+                key_err()?;
+                self.ents.push(Some((k, v)));
+                e.insert(self.ents.len() - 1);
+                self.n += 1;
+                self.ver += 1;
+            }
         }
         Ok(())
     }
+    // `d.setdefault(k, v)`: one hash and one lookup, as CPython (a test counts the __hash__ and __eq__ calls)
+    pub fn set_default(&mut self, k: V, v: V) -> Result<V, E> {
+        let key = K { h: py_hash(&k)?, v: k.clone() };
+        match self.idx.entry(key) {
+            std::collections::hash_map::Entry::Occupied(e) => {
+                key_err()?;
+                Ok(self.ents[*e.get()].as_ref().unwrap().1.clone())
+            }
+            std::collections::hash_map::Entry::Vacant(e) => {
+                key_err()?;
+                self.ents.push(Some((k, v.clone())));
+                e.insert(self.ents.len() - 1);
+                self.n += 1;
+                self.ver += 1;
+                Ok(v)
+            }
+        }
+    }
     pub fn del(&mut self, k: &V) -> Result<Option<V>, E> {
         let key = K { h: py_hash(k)?, v: k.clone() };
-        match self.idx.remove(&key) {
+        let removed = self.idx.remove(&key);
+        key_err()?;
+        match removed {
             Some(i) => {
                 let (_, v) = self.ents[i].take().unwrap();
                 self.n -= 1;

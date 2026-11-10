@@ -9,11 +9,27 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 181,
+"matched": 209,
 "refused": 66,
-"wrong_output": 18,
-"wrong_exit": 26,
-"crash_or_timeout": 5,
+"wrong_output": 4,
+"wrong_exit": 15,
+"crash_or_timeout": 2,
+"not_extractable": 15,
+"unstable": 9,
+"excluded": 37,
+"total": 357,
+"scored": 311,
+"matched_through_cpython": 0,
+"matched_silent": 35,
+"coverage": 0.672,
+"wrong": 19
+},
+"dyn": {
+"matched": 209,
+"refused": 67,
+"wrong_output": 4,
+"wrong_exit": 14,
+"crash_or_timeout": 2,
 "not_extractable": 15,
 "unstable": 9,
 "excluded": 37,
@@ -21,33 +37,33 @@
 "scored": 311,
 "matched_through_cpython": 0,
 "matched_silent": 34,
-"coverage": 0.582,
-"wrong": 44
-},
-"dyn": {
-"matched": 180,
-"refused": 67,
-"wrong_output": 18,
-"wrong_exit": 26,
-"crash_or_timeout": 5,
-"not_extractable": 15,
-"unstable": 9,
-"excluded": 37,
-"total": 357,
-"scored": 311,
-"matched_through_cpython": 0,
-"matched_silent": 33,
-"coverage": 0.5788,
-"wrong": 44
+"coverage": 0.672,
+"wrong": 18
 }
 },
 "files": {
 "test_grammar": {
 "normal": {
-"matched": 38,
+"matched": 40,
 "refused": 29,
 "wrong_output": 1,
-"wrong_exit": 4,
+"wrong_exit": 2,
+"crash_or_timeout": 0,
+"not_extractable": 7,
+"unstable": 0,
+"excluded": 0,
+"total": 79,
+"scored": 79,
+"matched_through_cpython": 0,
+"matched_silent": 24,
+"coverage": 0.5063,
+"wrong": 3
+},
+"dyn": {
+"matched": 39,
+"refused": 30,
+"wrong_output": 1,
+"wrong_exit": 2,
 "crash_or_timeout": 0,
 "not_extractable": 7,
 "unstable": 0,
@@ -56,32 +72,16 @@
 "scored": 79,
 "matched_through_cpython": 0,
 "matched_silent": 23,
-"coverage": 0.481,
-"wrong": 5
-},
-"dyn": {
-"matched": 37,
-"refused": 30,
-"wrong_output": 1,
-"wrong_exit": 4,
-"crash_or_timeout": 0,
-"not_extractable": 7,
-"unstable": 0,
-"excluded": 0,
-"total": 79,
-"scored": 79,
-"matched_through_cpython": 0,
-"matched_silent": 22,
-"coverage": 0.4684,
-"wrong": 5
+"coverage": 0.4937,
+"wrong": 3
 }
 },
 "test_scope": {
 "normal": {
-"matched": 22,
+"matched": 24,
 "refused": 9,
 "wrong_output": 0,
-"wrong_exit": 4,
+"wrong_exit": 2,
 "crash_or_timeout": 0,
 "not_extractable": 3,
 "unstable": 0,
@@ -90,14 +90,14 @@
 "scored": 38,
 "matched_through_cpython": 0,
 "matched_silent": 2,
-"coverage": 0.5789,
-"wrong": 4
+"coverage": 0.6316,
+"wrong": 2
 },
 "dyn": {
-"matched": 22,
+"matched": 24,
 "refused": 9,
 "wrong_output": 0,
-"wrong_exit": 4,
+"wrong_exit": 2,
 "crash_or_timeout": 0,
 "not_extractable": 3,
 "unstable": 0,
@@ -106,15 +106,15 @@
 "scored": 38,
 "matched_through_cpython": 0,
 "matched_silent": 2,
-"coverage": 0.5789,
-"wrong": 4
+"coverage": 0.6316,
+"wrong": 2
 }
 },
 "test_int": {
 "normal": {
-"matched": 7,
+"matched": 11,
 "refused": 18,
-"wrong_output": 4,
+"wrong_output": 0,
 "wrong_exit": 1,
 "crash_or_timeout": 0,
 "not_extractable": 2,
@@ -124,14 +124,14 @@
 "scored": 32,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.2188,
-"wrong": 5
+"coverage": 0.3438,
+"wrong": 1
 },
 "dyn": {
-"matched": 7,
+"matched": 12,
 "refused": 18,
-"wrong_output": 4,
-"wrong_exit": 1,
+"wrong_output": 0,
+"wrong_exit": 0,
 "crash_or_timeout": 0,
 "not_extractable": 2,
 "unstable": 0,
@@ -140,17 +140,17 @@
 "scored": 32,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.2188,
-"wrong": 5
+"coverage": 0.375,
+"wrong": 0
 }
 },
 "test_list": {
 "normal": {
-"matched": 47,
+"matched": 59,
 "refused": 0,
-"wrong_output": 4,
-"wrong_exit": 7,
-"crash_or_timeout": 3,
+"wrong_output": 0,
+"wrong_exit": 2,
+"crash_or_timeout": 0,
 "not_extractable": 2,
 "unstable": 2,
 "excluded": 2,
@@ -158,15 +158,15 @@
 "scored": 63,
 "matched_through_cpython": 0,
 "matched_silent": 1,
-"coverage": 0.746,
-"wrong": 11
+"coverage": 0.9365,
+"wrong": 2
 },
 "dyn": {
-"matched": 47,
+"matched": 59,
 "refused": 0,
-"wrong_output": 4,
-"wrong_exit": 7,
-"crash_or_timeout": 3,
+"wrong_output": 0,
+"wrong_exit": 2,
+"crash_or_timeout": 0,
 "not_extractable": 2,
 "unstable": 2,
 "excluded": 2,
@@ -174,16 +174,16 @@
 "scored": 63,
 "matched_through_cpython": 0,
 "matched_silent": 1,
-"coverage": 0.746,
-"wrong": 11
+"coverage": 0.9365,
+"wrong": 2
 }
 },
 "test_dict": {
 "normal": {
-"matched": 67,
+"matched": 75,
 "refused": 10,
-"wrong_output": 9,
-"wrong_exit": 10,
+"wrong_output": 3,
+"wrong_exit": 8,
 "crash_or_timeout": 2,
 "not_extractable": 1,
 "unstable": 7,
@@ -192,14 +192,14 @@
 "scored": 99,
 "matched_through_cpython": 0,
 "matched_silent": 8,
-"coverage": 0.6768,
-"wrong": 19
+"coverage": 0.7576,
+"wrong": 11
 },
 "dyn": {
-"matched": 67,
+"matched": 75,
 "refused": 10,
-"wrong_output": 9,
-"wrong_exit": 10,
+"wrong_output": 3,
+"wrong_exit": 8,
 "crash_or_timeout": 2,
 "not_extractable": 1,
 "unstable": 7,
@@ -208,8 +208,8 @@
 "scored": 99,
 "matched_through_cpython": 0,
 "matched_silent": 8,
-"coverage": 0.6768,
-"wrong": 19
+"coverage": 0.7576,
+"wrong": 11
 }
 }
 },
@@ -573,14 +573,12 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'function' object has no attribute '__call__'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'function' object has no attribute '__call__'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -877,14 +875,12 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'int' object has no attribute 'other'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'int' object has no attribute 'other'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -993,12 +989,12 @@
 "normal": {
 "category": "wrong_exit",
 "path": "dynamic",
-"detail": "exit 1, expected 0: IndexError: list index out of range"
+"detail": "exit 1, expected 0: KeyError: 'time'"
 },
 "dyn": {
 "category": "wrong_exit",
 "path": "dynamic",
-"detail": "exit 1, expected 0: IndexError: list index out of range"
+"detail": "exit 1, expected 0: KeyError: 'time'"
 }
 }
 },
@@ -1759,14 +1755,12 @@
 "file": "test_scope",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: NameError: cannot access free variable 'y' where it is not associated with a value in enclosing scope"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: NameError: cannot access free variable 'y' where it is not associated with a value in enclosing scope"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1775,14 +1769,12 @@
 "file": "test_scope",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: NameError: cannot access free variable 'y' where it is not associated with a value in enclosing scope"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: NameError: cannot access free variable 'y' where it is not associated with a value in enclosing scope"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1825,14 +1817,12 @@
 "file": "test_int",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 269: expected 'raises TypeError', got 'NO-RAISE'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 269: expected 'raises TypeError', got 'NO-RAISE'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1917,14 +1907,12 @@
 "file": "test_int",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 2: expected '7', got '42'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 2: expected '7', got '42'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1933,14 +1921,12 @@
 "file": "test_int",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 4: expected 'raises TypeError', got 'NO-RAISE'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 4: expected 'raises TypeError', got 'NO-RAISE'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1983,14 +1969,12 @@
 "file": "test_int",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 4: expected 'raises TypeError', got 'NO-RAISE'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 4: expected 'raises TypeError', got 'NO-RAISE'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2066,9 +2050,8 @@
 "detail": "exit 1, expected 0: {\"e\":\"runtime\",\"line\":6,\"msg\":\"invalid literal for int() with base 10: '\u0967\u0968\u0969\u096a\u096b\u096c\u096d\u096e\u096f\u09661234567890'\"}"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: ValueError: invalid literal for int() with base 10: '\u0967\u0968\u0969\u096a\u096b\u096c\u096d\u096e\u096f\u09661234567890'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2601,14 +2584,12 @@
 "file": "test_list",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected 'True', got 'False'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected 'True', got 'False'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2617,14 +2598,12 @@
 "file": "test_list",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected '[]', got '[9]'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected '[]', got '[9]'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2709,14 +2688,12 @@
 "file": "test_list",
 "modes": {
 "normal": {
-"category": "crash_or_timeout",
-"path": "dynamic",
-"detail": "panic: index out of bounds: the len is 5 but the index is 9223372036854775810"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "crash_or_timeout",
-"path": "dynamic",
-"detail": "panic: index out of bounds: the len is 5 but the index is 9223372036854775810"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2773,14 +2750,12 @@
 "file": "test_list",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'list' object has no attribute '__init__'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'list' object has no attribute '__init__'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2819,14 +2794,12 @@
 "file": "test_list",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected 'raises TypeError list() takes no keyword arguments', got \"raises TypeError list() got an unexpected keyword argument 'sequence'\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected 'raises TypeError list() takes no keyword arguments', got \"raises TypeError list() got an unexpected keyword argument 'sequence'\""
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2835,14 +2808,12 @@
 "file": "test_list",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'super' object has no attribute '__new__'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'super' object has no attribute '__new__'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2879,14 +2850,12 @@
 "file": "test_list",
 "modes": {
 "normal": {
-"category": "crash_or_timeout",
-"path": "dynamic",
-"detail": "panic: capacity overflow"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "crash_or_timeout",
-"path": "dynamic",
-"detail": "panic: capacity overflow"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2947,6 +2916,20 @@
 }
 },
 {
+"id": "test_list.ListTest.test_overflow",
+"file": "test_list",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
 "id": "test_list.ListTest.test_pickle",
 "file": "test_list",
 "modes": {
@@ -2965,14 +2948,12 @@
 "file": "test_list",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: IndexError: pop from empty list"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: IndexError: pop from empty list"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3041,14 +3022,12 @@
 "file": "test_list",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: __repr__() takes 0 positional arguments but 1 was given"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: __repr__() takes 0 positional arguments but 1 was given"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3199,14 +3178,12 @@
 "file": "test_list",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: ValueError: attempt to assign sequence of size 1 to extended slice of size 3"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: ValueError: attempt to assign sequence of size 1 to extended slice of size 3"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3229,14 +3206,12 @@
 "file": "test_list",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected '[]', got '[4]'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected '[]', got '[4]'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3571,14 +3546,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 5: expected 'raises Exc', got 'NO-RAISE'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 5: expected 'raises Exc', got 'NO-RAISE'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3705,14 +3678,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: KeyError: 'msg'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: KeyError: 'msg'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3825,14 +3796,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected 'raises RuntimeError', got 'NO-RAISE'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected 'raises RuntimeError', got 'NO-RAISE'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3841,14 +3810,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'dict' object has no attribute '__or__'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'dict' object has no attribute '__or__'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3857,14 +3824,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected 'False', got 'True'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected 'False', got 'True'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4173,14 +4138,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 2: expected '1', got '2'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 2: expected '1', got '2'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4189,14 +4152,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 3: expected '1', got '2'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 3: expected '1', got '2'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4363,14 +4324,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected \"{'a': 'a', 'b': 'b'}\", got \"{'a': 'a', 'a': 'a', 'b': 'b'}\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected \"{'a': 'a', 'b': 'b'}\", got \"{'a': 'a', 'a': 'a', 'b': 'b'}\""
+"category": "matched",
+"path": "dynamic"
 }
 }
 },

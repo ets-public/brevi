@@ -7,8 +7,11 @@ twice (the normal path, and BREVI_DYN=1 for the forced dynamic path). The built 
 same stdout and exit with the same code. `brevi run` is never used: it falls back to CPython.
 
   python3 tools/conformance.py                     measure, write report.json and report.md
-  python3 tools/conformance.py --check             also exit 1 on a wrong result not in the baseline
-  python3 tools/conformance.py --write-baseline    make the baseline the wrong results of this run
+  python3 tools/conformance.py --check             the ratchet: exit 1 on a wrong result or crash not in the baseline, on a
+                                                   baseline line that is no longer wrong (remove it), or on fewer matches
+                                                   than compat/conformance_floor.json allows (CI runs this; see below)
+  python3 tools/conformance.py --write-baseline    make the baseline the wrong results and crashes of this run, and the
+                                                   floor this run's match counts
   python3 tools/conformance.py --show ID           print one test's generated script and how to reproduce it
 
 Categories: matched, refused, wrong_output, wrong_exit, crash_or_timeout, not_extractable, unstable, and
@@ -28,6 +31,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE = ROOT / "compat" / "conformance_known_wrong.txt"
+FLOOR = ROOT / "compat" / "conformance_floor.json"  # the match counts a run may not fall below
+BAD = ("wrong_output", "wrong_exit", "crash_or_timeout")  # built, but did not do what CPython does
 TAG = "v3.13.13"
 PYTHON_VERSION = "3.13.13"
 RAW = "https://raw.githubusercontent.com/python/cpython/" + TAG + "/Lib/"
@@ -771,9 +776,12 @@ def tally(results, mode):
             "coverage": round(native / total, 4) if total else 0, "wrong": counts["wrong_output"] + counts["wrong_exit"]}
 
 
-def wrong_ids(results):
-    return sorted(f"{r['id']} {mode}" for r in results if "modes" in r for mode in r["modes"]
-                  if r["modes"][mode]["category"] in ("wrong_output", "wrong_exit"))
+def bad_ids(results):
+    return sorted(f"{r['id']} {mode}" for r in results if "modes" in r for mode in r["modes"] if r["modes"][mode]["category"] in BAD)
+
+
+def read_floor():
+    return json.loads(FLOOR.read_text()) if FLOOR.exists() else {}
 
 
 def read_baseline():
@@ -939,21 +947,35 @@ def main():
     (cache / "private_signals.json").write_text(json.dumps(private, indent=1) + "\n")
     n = rep["totals"]["normal"]
     print(f"coverage {n['coverage'] * 100:.1f}%, wrong {n['wrong']} ({n['wrong_output']} output, {n['wrong_exit']} exit); report in {out}")
-    wrong = set(wrong_ids(results))
+    bad = set(bad_ids(results))
+    matched = {m: rep["totals"][m]["matched"] for m in ("normal", "dyn")}
     if cfg.write_baseline:
-        BASELINE.write_text("# Known wrong results of tools/conformance.py: `test id` then normal or dyn. `--check` fails only on a line not here.\n"
-                            "# Remove a line when the bug is fixed; add one only with `--write-baseline` after reading the result.\n"
-                            + "".join(w + "\n" for w in sorted(wrong)))
+        BASELINE.write_text("# Known wrong results and crashes of tools/conformance.py: `test id` then normal or dyn. `--check` fails on a\n"
+                            "# line not here, and on a line here that is no longer wrong, so this list only shrinks. Remove a line when the\n"
+                            "# bug is fixed; add one only with `--write-baseline` after reading the result.\n"
+                            + "".join(w + "\n" for w in sorted(bad)))
+        FLOOR.write_text(json.dumps({"matched": matched, "note": "tools/conformance.py --check fails below these; --write-baseline raises them"}, indent=1) + "\n")
     if cfg.check:
-        known = read_baseline()
+        # The ratchet: the score only goes up, and the list of known-wrong results only shrinks.
+        known, floor, failed = read_baseline(), read_floor().get("matched", {}), False
         ran = {r["id"] for r in results}  # --filter and --files say nothing about the tests they leave out
-        new, gone = sorted(wrong - known), sorted(k for k in known - wrong if k.split()[0] in ran)
-        if gone:
-            print(f"{len(gone)} baseline lines no longer wrong (remove them): " + ", ".join(gone[:10]))
+        new, gone = sorted(bad - known), sorted(k for k in known - bad if k.split()[0] in ran)
         if new:
-            print(f"{len(new)} NEW wrong results:\n  " + "\n  ".join(new))
+            print(f"{len(new)} NEW wrong results or crashes (fix them, or read each and add it with --write-baseline):\n  " + "\n  ".join(new))
+            failed = True
+        if gone:
+            print(f"{len(gone)} baseline lines are no longer wrong; remove them from {BASELINE.relative_to(ROOT)}:\n  " + "\n  ".join(gone))
+            failed = True
+        if not cfg.filter and cfg.files == ",".join(SCOPE):
+            for m, n in matched.items():
+                if m in floor and n < floor[m]:
+                    print(f"{m} build: {n} tests match, below the floor of {floor[m]}; find the regression (or lower the floor on purpose)")
+                    failed = True
+                elif m in floor and n > floor[m]:
+                    print(f"{m} build: {n} tests match, above the floor of {floor[m]}; raise it with --write-baseline")
+        if failed:
             sys.exit(1)
-        print(f"no new wrong results ({len(wrong)} known)")
+        print(f"ratchet holds: no new wrong results ({len(bad)} known), matches {matched}")
 
 
 if __name__ == "__main__":

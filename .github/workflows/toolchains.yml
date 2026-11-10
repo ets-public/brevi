@@ -219,6 +219,16 @@ jobs:
         if: steps.seen.outputs.cache-hit != 'true' && steps.scope.outputs.compat == 'true'
         run: python3 tools/compat.py check --kinds ${{ steps.scope.outputs.kinds }} --report compat-report.md
 
+      - name: CPython conformance ratchet (CPython's own tests; the score may not drop, the known-wrong list only shrinks)
+        # Only when the compiler could have changed, on one toolchain: the run takes about 10 minutes. The pinned
+        # test files come from python/cpython at the tag in tools/conformance.py and are checked against their hashes.
+        if: steps.seen.outputs.cache-hit != 'true' && steps.scope.outputs.compat == 'true' && matrix.rust == 'stable' && matrix.python == '3.x'
+        run: |
+          python3 -m pip install --quiet uv
+          uv python install 3.13.13 --quiet
+          python3 tools/conformance.py --check --python "$(uv python find 3.13.13)" --out conformance-report
+          cat conformance-report/report.md >> "$GITHUB_STEP_SUMMARY"
+
       - name: Early warnings in generated Rust (deprecations, future incompatibilities, newest edition)
         if: steps.seen.outputs.cache-hit != 'true' && matrix.rust == 'nightly'
         continue-on-error: true
