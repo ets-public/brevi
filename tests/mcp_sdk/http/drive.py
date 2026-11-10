@@ -90,11 +90,16 @@ def dechunk(s, buf, first_only):
 
 class Stream:
     # an open SSE response: events one at a time
-    def __init__(self, path, headers):
+    def __init__(self, path, headers, body=None):
         self.s = socket.create_connection(("127.0.0.1", port), timeout=20)
         h = {"host": "127.0.0.1:%d" % port}
         h.update(headers)
-        self.s.sendall(("GET %s HTTP/1.1\r\n" % path + "".join("%s: %s\r\n" % kv for kv in h.items()) + "\r\n").encode())
+        data = b""
+        if body is not None:
+            data = json.dumps(body).encode()
+            h["content-type"] = "application/json"
+            h["content-length"] = str(len(data))
+        self.s.sendall(("%s %s HTTP/1.1\r\n" % ("GET" if body is None else "POST", path) + "".join("%s: %s\r\n" % kv for kv in h.items()) + "\r\n").encode() + data)
         buf = b""
         while b"\r\n\r\n" not in buf:
             buf += self.s.recv(65536)
@@ -234,6 +239,13 @@ try:
         show("trailing slash", req("POST", "/mcp/", {"jsonrpc": "2.0", "id": 9, "method": "ping"}, a2))
         show("too large", req("POST", "/mcp", raw=b" " * (4 * 1024 * 1024 + 1), headers=dict(a2, **{"content-type": "application/json"})))
         if cases == "streamable":
+            # resources/updated on the session goes to the standalone GET stream
+            st = Stream("/mcp", dict(a2, accept="text/event-stream"))
+            time.sleep(0.3)
+            show("call touch (GET stream open)", req("POST", "/mcp", call(30, "touch", {"uri": "note://a"}), a2))
+            out.append("| GET stream: " + norm(st.event().strip().replace("\n", " / ")))
+            st.close()
+            time.sleep(0.5)
             show("GET stream", req_get_head(a2))
             show("GET second stream", hold_and_second(a2))
         show("GET no sse", req("GET", "/mcp", None, dict(a2, accept="application/json")))
@@ -248,6 +260,21 @@ try:
         mh2 = dict(mh, **{"mcp-method": "tools/call", "mcp-name": "add"})
         show("modern call", req("POST", "/mcp", {"jsonrpc": "2.0", "id": 11, "method": "tools/call", "params": {"_meta": env, "name": "add", "arguments": {"a": 1, "b": 2}}}, mh2))
         show("modern slow", req("POST", "/mcp", {"jsonrpc": "2.0", "id": 12, "method": "tools/call", "params": {"_meta": dict(env, progressToken=3), "name": "slow", "arguments": {"n": 2}}}, dict(mh2, **{"mcp-name": "slow"})))
+        # a subscriptions/listen stream: the ack, then the events a tool publishes, each stamped with the listen id
+        lh = dict(mh, **{"mcp-method": "subscriptions/listen", "accept": ACC})
+        flt = {"toolsListChanged": True, "resourceSubscriptions": ["note://a"]}
+        st = Stream("/mcp", lh, {"jsonrpc": "2.0", "id": "L1", "method": "subscriptions/listen", "params": {"_meta": env, "notifications": flt}})
+        out.append("== modern listen")
+        out.append("status %d" % st.status)
+        out.append("| " + norm(st.event().strip().replace("\n", " / ")))
+        show("modern touch a", req("POST", "/mcp", {"jsonrpc": "2.0", "id": 31, "method": "tools/call", "params": {"_meta": env, "name": "touch", "arguments": {"uri": "note://a"}}}, dict(mh2, **{"mcp-name": "touch"})))
+        out.append("| " + norm(st.event().strip().replace("\n", " / ")))
+        out.append("| " + norm(st.event().strip().replace("\n", " / ")))
+        show("modern touch b", req("POST", "/mcp", {"jsonrpc": "2.0", "id": 32, "method": "tools/call", "params": {"_meta": env, "name": "touch", "arguments": {"uri": "note://b"}}}, dict(mh2, **{"mcp-name": "touch"})))
+        out.append("| " + norm(st.event().strip().replace("\n", " / ")))
+        st.close()
+        time.sleep(0.5)
+        show("modern listen json only", req("POST", "/mcp", {"jsonrpc": "2.0", "id": "L2", "method": "subscriptions/listen", "params": {"_meta": env, "notifications": flt}}, dict(lh, accept="application/json")))
         show("modern name mismatch", req("POST", "/mcp", {"jsonrpc": "2.0", "id": 13, "method": "tools/call", "params": {"_meta": env, "name": "add", "arguments": {"a": 1, "b": 2}}}, dict(mh2, **{"mcp-name": "slow"})))
         show("modern method mismatch", req("POST", "/mcp", {"jsonrpc": "2.0", "id": 14, "method": "tools/list", "params": {"_meta": env}}, mh))
         show("modern no meta", req("POST", "/mcp", {"jsonrpc": "2.0", "id": 15, "method": "tools/list"}, dict(mh, **{"mcp-method": "tools/list"})))
@@ -275,6 +302,9 @@ try:
         out.append("| " + norm(next_event().strip().replace("\n", " / ")))
         show("slow POST", req("POST", path, call(3, "slow", {"n": 1}, {"progressToken": 9}), {}))
         for _ in range(3):
+            out.append("| " + norm(next_event().strip().replace("\n", " / ")))
+        show("touch POST", req("POST", path, call(5, "touch", {"uri": "note://a"}), {}))
+        for _ in range(2):
             out.append("| " + norm(next_event().strip().replace("\n", " / ")))
         show("no session_id", req("POST", "/messages/", {"jsonrpc": "2.0", "id": 4, "method": "ping"}, {}))
         show("bad session_id", req("POST", "/messages/?session_id=zz", {"jsonrpc": "2.0", "id": 4, "method": "ping"}, {}))

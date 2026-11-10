@@ -257,7 +257,8 @@ M._srv_wait = _srv_wait
 for name in ("mcp", "mcp.types", "mcp_types", "mcp.server", "mcp.server.mcpserver", "mcp.server.lowlevel", "mcp.server.stdio",
              "mcp.shared", "mcp.shared.exceptions", "mcp.server.mcpserver.exceptions", "mcp.server.mcpserver.prompts",
              "mcp.server.mcpserver.prompts.base", "mcp.server.mcpserver.utilities", "mcp.server.mcpserver.utilities.types",
-             "mcp.server.mcpserver.resources", "mcp.server.mcpserver.tools", "mcp.server.transport_security"):
+             "mcp.server.mcpserver.resources", "mcp.server.mcpserver.tools", "mcp.server.transport_security", "mcp.server.subscriptions",
+             "mcp.shared.subscriptions"):
     m = types.ModuleType(name)
     m.__dict__.update({k: v for k, v in vars(M).items() if not k.startswith("__")})
     m.__dict__.update({k: v for k, v in vars(M.T).items() if not k.startswith("__") and name in ("mcp.types", "mcp_types", "mcp")})

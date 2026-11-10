@@ -1469,10 +1469,20 @@ pub fn build_lock(lock: &Path, ready: &dyn Fn() -> bool) -> bool {
         };
         old || dead
     };
+    // A fresh cache has no folder yet: without it create_new fails with NotFound, and no lock ever appears to
+    // wait for (a first build waited forever).
+    if let Some(dir) = lock.parent() {
+        std::fs::create_dir_all(dir).ok();
+    }
     while !ready() {
-        if let Ok(mut f) = std::fs::OpenOptions::new().write(true).create_new(true).open(lock) {
-            f.write_all(me.as_bytes()).ok();
-            return true;
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(lock) {
+            Ok(mut f) => {
+                f.write_all(me.as_bytes()).ok();
+                return true;
+            }
+            // Only an existing lock is waited on; any other failure (no folder, no permission) builds unlocked.
+            Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => return true,
+            Err(_) => {}
         }
         if stale() {
             // Remove it and race for a new one, so only one waiter takes over.
@@ -2440,5 +2450,19 @@ mod path_tests {
         assert_eq!(rustc_first_error(&format!("{{\"level\":\"warning\",\"message\":\"unused\"}}\n{j}")), "the typed build's Rust did not compile (mismatched types)");
         assert_eq!(rustc_first_error("error[E0308]: mismatched types\n"), "the typed build's Rust did not compile (mismatched types)");
         assert_eq!(rustc_first_error(""), "the typed build's Rust did not compile");
+    }
+}
+
+#[cfg(test)]
+mod build_lock_tests {
+    // A first build into a cache folder that does not exist yet takes the lock at once (it used to wait forever).
+    #[test]
+    fn missing_folder_takes_the_lock() {
+        let dir = std::env::temp_dir().join(format!("brevi-lock-test-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        let lock = dir.join("bin").join(".tmp-lib-x.lock");
+        assert!(super::build_lock(&lock, &|| false));
+        assert!(lock.exists());
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -408,15 +408,15 @@ const OPENAI_LACKS: &[&str] = &[
 ];
 // What Brevi's mcp lacks (src/dynpy/py/_brevi_mcp.py): server-to-client requests (sampling, elicitation, roots),
 // the Starlette apps (sse_app, streamable_http_app, custom routes; run(transport="streamable-http" / "sse") is in
-// it), resumability (event_store), auth, extensions, the subscription bus (MCPServer(subscriptions=False) is in
-// it), request state, and the client.
+// it), resumability (event_store), auth, extensions, request state, and the client. Change events are in it:
+// ctx.notify_* over the subscription bus (MCPServer(subscriptions=...), mcp.server.subscriptions) to
+// subscriptions/listen streams, and resources/subscribe handlers with session.send_resource_updated.
 // A program using any of them is run by CPython's mcp.
 const MCP_LACKS: &[&str] = &[
     ".elicit(", ".elicit_url(", ".elicit_form(", ".create_message(", ".list_roots(", ".send_ping(", ".send_request(", ".send_raw_request(",
-    "notify_tools_changed", "notify_prompts_changed", "notify_resources_changed", "notify_resource_updated", "subscriptions=",
     "streamable_http_app", "sse_app", "event_store", "custom_route", "session_manager", "auth=",
     "auth_server_provider", "token_verifier", "extensions=", "request_state", "cache_hints", "input_responses", "InputRequiredResult",
-    "on_subscriptions_listen", "on_subscribe_resource", "on_unsubscribe_resource", "raise_exceptions", "ClientSession", "stdio_client",
+    "raise_exceptions", "ClientSession", "stdio_client",
     "anyio", "Image(path", "Audio(path", "Image(\"", "Image('", "Audio(\"", "Audio('", "Image(p", "Audio(p",
 ];
 // What src/dynpy/py/jinja2.py has, and what sends a program to CPython's jinja2 instead: async rendering, the
@@ -598,6 +598,8 @@ fn path_module(m: &str) -> Option<&'static str> {
         "mcp.server.stdio" => Some("mcp.server.stdio"),
         "mcp.server.transport_security" => Some("mcp.server.transport_security"),
         "mcp.shared.exceptions" => Some("mcp.shared.exceptions"),
+        "mcp.shared.subscriptions" => Some("mcp.shared.subscriptions"),
+        "mcp.server.subscriptions" => Some("mcp.server.subscriptions"),
         "mcp.server.mcpserver.exceptions" => Some("mcp.server.mcpserver.exceptions"),
         "mcp.server.mcpserver.prompts" => Some("mcp.server.mcpserver.prompts"),
         "mcp.server.mcpserver.prompts.base" => Some("mcp.server.mcpserver.prompts.base"),
@@ -663,6 +665,8 @@ fn pure_attr(module: &str, attr: &str) -> bool {
         "mcp.server.stdio" => defines(include_str!("dynpy/py/mcp_server_stdio.py"), attr),
         "mcp.server.transport_security" => defines(include_str!("dynpy/py/mcp_server_transport_security.py"), attr),
         "mcp.shared.exceptions" => defines(include_str!("dynpy/py/mcp_shared_exceptions.py"), attr),
+        "mcp.shared.subscriptions" => defines(include_str!("dynpy/py/mcp_shared_subscriptions.py"), attr),
+        "mcp.server.subscriptions" => defines(include_str!("dynpy/py/mcp_server_subscriptions.py"), attr),
         "mcp.server.mcpserver.exceptions" => defines(include_str!("dynpy/py/mcp_server_mcpserver_exceptions.py"), attr),
         "mcp.server.mcpserver.prompts" => defines(include_str!("dynpy/py/mcp_server_mcpserver_prompts.py"), attr),
         "mcp.server.mcpserver.prompts.base" => defines(include_str!("dynpy/py/mcp_server_mcpserver_prompts_base.py"), attr),
@@ -887,7 +891,7 @@ pub fn path_uses(src: &str) -> Option<Vec<(usize, String)>> {
     for (m, lacks) in [("requests", REQUESTS_LACKS), ("httpx", HTTPX_LACKS), ("pydantic", PYDANTIC_LACKS), ("anthropic", ANTHROPIC_LACKS), ("openai", OPENAI_LACKS), ("mcp", MCP_LACKS), ("jinja2", JINJA2_LACKS), ("polars", POLARS_LACKS), ("sqlite3", SQLITE3_LACKS), ("duckdb", DUCKDB_LACKS), ("safetensors", SAFETENSORS_LACKS), ("onnxruntime", ONNXRUNTIME_LACKS), ("logging", LOGGING_LACKS)] {
         if uses(m) {
             for (n, l) in &lines {
-                if let Some(x) = lacks.iter().find(|x| lack_hit(l, x) && !(**x == "subscriptions=" && l.contains("subscriptions=False"))) {
+                if let Some(x) = lacks.iter().find(|x| lack_hit(l, x)) {
                     bad.push((*n, format!("{m} {}", x.trim_matches(|c| c == '.' || c == '(' || c == '='))));
                 }
             }

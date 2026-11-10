@@ -18,6 +18,11 @@ status 202
 | event: message / data: {"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":9,"progress":1,"total":1}}
 | event: message / data: {"jsonrpc":"2.0","method":"notifications/message","params":{"level":"info","data":"step 1"}}
 | event: message / data: {"jsonrpc":"2.0","id":3,"result":{"content":[{"text":"done 1","type":"text"}],"isError":false,"structuredContent":{"result":"done 1"}}}
+== touch POST
+status 202
+| Accepted
+| event: message / data: {"jsonrpc":"2.0","method":"notifications/resources/updated","params":{"uri":"note://a"}}
+| event: message / data: {"jsonrpc":"2.0","id":5,"result":{"content":[{"text":"touched note://a","type":"text"}],"isError":false,"structuredContent":{"result":"touched note://a"}}}
 == no session_id
 status 400
 | session_id is required
