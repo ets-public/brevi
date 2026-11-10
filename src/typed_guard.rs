@@ -464,8 +464,22 @@ fn is_tup(e: &Ex, g: &G) -> bool {
             b => is_tup(b, g),
         },
         Ex::IfExp(_, a, b) | Ex::Or(a, b) => is_tup(a, g) || is_tup(b, g),
-        // `(5,) + tuple(ranks)`, `(3, trip) + kickers`: joined onto a list kept for tuple(...), it is a list too.
+        // `(5,) + tuple(ranks)` written so is a real (JSON) tuple in the typed build; `tuple(a) + b` and the
+        // like, joined onto a list kept for tuple(...), are lists too.
+        Ex::Bin("+", _, _) if tuple_join(e, g) => false,
         Ex::Bin("+", a, b) => is_tup(a, g) || is_tup(b, g),
+        _ => false,
+    }
+}
+
+// A tuple written out joined with a tuple(...) value, which the typed build makes a JSON tuple:
+// `(x,) + tuple(xs)` as written (parser.rs, `tup_join`), and `(3, trip) + kickers` with kickers a
+// tuple(...) of like items (infer.rs). (Other item types do not build typed, so they never print wrong.)
+fn tuple_join(e: &Ex, g: &G) -> bool {
+    let Ex::Bin("+", a, b) = e else { return false };
+    match a.as_ref() {
+        Ex::Tuple(v) if v.len() == 1 => matches!(b.as_ref(), Ex::Call(f, args) if matches!(f.as_ref(), Ex::Name(n) if n == "tuple") && args.len() == 1),
+        Ex::Tuple(v) if v.len() >= 2 => is_tup(b, g),
         _ => false,
     }
 }
@@ -494,8 +508,9 @@ fn mixed_tuple_returns(d: &FuncDef, g: &G) -> bool {
                 });
             }
         }
-        let listed = |v: &Ex| is_tup(v, g) || is_tup1(v, g) || matches!(v, Ex::Bin("+", a, b) if is_tup1(a, g) || is_tup1(b, g));
-        vs.iter().any(|v| matches!(v, Ex::Tuple(t) if t.len() >= 2) && !listed(v)) && vs.iter().any(|v| listed(v))
+        let listed = |v: &Ex| !tuple_join(v, g) && (is_tup(v, g) || is_tup1(v, g) || matches!(v, Ex::Bin("+", a, b) if is_tup1(a, g) || is_tup1(b, g)));
+        let real = |v: &Ex| tuple_join(v, g) || matches!(v, Ex::Tuple(t) if t.len() >= 2) && !listed(v);
+        vs.iter().any(|v| real(v)) && vs.iter().any(|v| listed(v))
     }
     let mut vs = vec![];
     rets(&d.body, &mut vs);
