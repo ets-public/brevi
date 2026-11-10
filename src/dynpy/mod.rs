@@ -299,6 +299,8 @@ fn sandbox_module(m: &str) -> Option<&'static str> {
         "mcp.server.stdio" => include_str!("py/mcp_server_stdio.py"),
         "mcp.server.transport_security" => include_str!("py/mcp_server_transport_security.py"),
         "mcp.shared.exceptions" => include_str!("py/mcp_shared_exceptions.py"),
+        "mcp.shared.subscriptions" => include_str!("py/mcp_shared_subscriptions.py"),
+        "mcp.server.subscriptions" => include_str!("py/mcp_server_subscriptions.py"),
         "mcp.server.mcpserver.exceptions" => include_str!("py/mcp_server_mcpserver_exceptions.py"),
         "mcp.server.mcpserver.prompts" => include_str!("py/mcp_server_mcpserver_prompts.py"),
         "mcp.server.mcpserver.prompts.base" => include_str!("py/mcp_server_mcpserver_prompts_base.py"),

@@ -696,29 +696,44 @@ pub fn isinstance(x: &V, c: &V) -> Result<bool, E> {
 pub fn type_of(x: &V) -> Rc<Class> {
     match x {
         V::Obj(o) => o.cls.clone(),
-        V::Bool(_) => bclass("bool"),
-        V::Int(_) | V::Big(_) => bclass("int"),
-        V::Float(_) => bclass("float"),
-        V::Str(_) => bclass("str"),
-        V::List(_) => bclass("list"),
-        V::Tuple(_) => bclass("tuple"),
+        V::Bool(_) => tclass(0, "bool"),
+        V::Int(_) | V::Big(_) => tclass(1, "int"),
+        V::Float(_) => tclass(2, "float"),
+        V::Str(_) => tclass(3, "str"),
+        V::List(_) => tclass(4, "list"),
+        V::Tuple(_) => tclass(5, "tuple"),
         V::Dict(d) => match d.borrow().kind {
-            1 => bclass("defaultdict"),
-            2 => bclass("Counter"),
-            3 => bclass("OrderedDict"),
-            _ => bclass("dict"),
+            1 => tclass(6, "defaultdict"),
+            2 => tclass(7, "Counter"),
+            3 => tclass(8, "OrderedDict"),
+            _ => tclass(9, "dict"),
         },
-        V::Set(_) => bclass("set"),
-        V::FSet(_) => bclass("frozenset"),
-        V::None => bclass("NoneType"),
-        V::Class(_) => bclass("type"),
-        V::Func(_) | V::Bound(_) | V::BMeth(_) => bclass("function"),
-        V::Range(_) => bclass("range"),
-        V::Deque(_) => bclass("deque"),
-        V::View(x) if x.1 == 3 => bclass("mappingproxy"),
+        V::Set(_) => tclass(10, "set"),
+        V::FSet(_) => tclass(11, "frozenset"),
+        V::None => tclass(12, "NoneType"),
+        V::Class(_) => tclass(13, "type"),
+        V::Func(_) | V::Bound(_) | V::BMeth(_) => tclass(14, "function"),
+        V::Range(_) => tclass(15, "range"),
+        V::Deque(_) => tclass(16, "deque"),
+        V::View(x) if x.1 == 3 => tclass(17, "mappingproxy"),
         V::Ext(e) => ext_class(e.tname()),
-        _ => bclass("object"),
+        _ => tclass(18, "object"),
     }
+}
+thread_local! {
+    // type_of's builtin classes, filled on first use (init_builtin_classes empties it)
+    pub static TYPE_CACHE: RefCell<[Option<Rc<Class>>; 19]> = RefCell::new(Default::default());
+}
+#[inline]
+fn tclass(i: usize, n: &'static str) -> Rc<Class> {
+    TYPE_CACHE.with(|c| {
+        if let Some(k) = &c.borrow()[i] {
+            return k.clone();
+        }
+        let k = bclass(n);
+        c.borrow_mut()[i] = Some(k.clone());
+        k
+    })
 }
 thread_local! {
     pub static EXT_CLASSES: RefCell<HashMap<&'static str, Rc<Class>>> = RefCell::new(HashMap::new());

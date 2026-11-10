@@ -13,7 +13,7 @@ status 200
 content-type: text/event-stream
 mcp-session-id: <sid>
 | event: message
-| data: {"jsonrpc":"2.0","id":2,"result":{"tools":[{"description":"Add two numbers.","inputSchema":{"properties":{"a":{"title":"A","type":"integer"},"b":{"title":"B","type":"integer"}},"required":["a","b"],"type":"object","title":"addArguments"},"name":"add","outputSchema":{"properties":{"result":{"title":"Result","type":"integer"}},"required":["result"],"type":"object","title":"addOutput"}},{"description":"Report progress.","inputSchema":{"properties":{"n":{"title":"N","type":"integer"}},"required":["n"],"type":"object","title":"slowArguments"},"name":"slow","outputSchema":{"properties":{"result":{"title":"Result","type":"string"}},"required":["result"],"type":"object","title":"slowOutput"}}]}}
+| data: {"jsonrpc":"2.0","id":2,"result":{"tools":[{"description":"Add two numbers.","inputSchema":{"properties":{"a":{"title":"A","type":"integer"},"b":{"title":"B","type":"integer"}},"required":["a","b"],"type":"object","title":"addArguments"},"name":"add","outputSchema":{"properties":{"result":{"title":"Result","type":"integer"}},"required":["result"],"type":"object","title":"addOutput"}},{"description":"Report progress.","inputSchema":{"properties":{"n":{"title":"N","type":"integer"}},"required":["n"],"type":"object","title":"slowArguments"},"name":"slow","outputSchema":{"properties":{"result":{"title":"Result","type":"string"}},"required":["result"],"type":"object","title":"slowOutput"}},{"description":"Publish change events: to subscriptions/listen streams, and resources/updated on the session.","inputSchema":{"properties":{"uri":{"title":"Uri","type":"string"}},"required":["uri"],"type":"object","title":"touchArguments"},"name":"touch","outputSchema":{"properties":{"result":{"title":"Result","type":"string"}},"required":["result"],"type":"object","title":"touchOutput"}}]}}
 == call add
 status 200
 content-type: text/event-stream
@@ -111,6 +111,13 @@ location: http://127.0.0.1:<port>/mcp
 == too large
 status 413
 | Request body too large
+== call touch (GET stream open)
+status 200
+content-type: text/event-stream
+mcp-session-id: <sid>
+| event: message
+| data: {"jsonrpc":"2.0","id":30,"result":{"content":[{"text":"touched note://a","type":"text"}],"isError":false,"structuredContent":{"result":"touched note://a"}}}
+| GET stream: event: message / data: {"jsonrpc":"2.0","method":"notifications/resources/updated","params":{"uri":"note://a"}}
 == GET stream
 status 200
 == GET second stream
@@ -145,6 +152,22 @@ content-type: text/event-stream
 | data: {"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":3,"progress":2,"total":2}}
 | event: message
 | data: {"jsonrpc":"2.0","id":12,"result":{"content":[{"text":"done 2","type":"text"}],"isError":false,"resultType":"complete","structuredContent":{"result":"done 2"},"_meta":{"io.modelcontextprotocol/serverInfo":{"name":"http-demo","version":""}}}}
+== modern listen
+status 200
+| event: message / data: {"jsonrpc":"2.0","method":"notifications/subscriptions/acknowledged","params":{"_meta":{"io.modelcontextprotocol/subscriptionId":"L1"},"notifications":{"toolsListChanged":true,"resourceSubscriptions":["note://a"]}}}
+== modern touch a
+status 200
+content-type: application/json
+| {"jsonrpc":"2.0","id":31,"result":{"content":[{"text":"touched note://a","type":"text"}],"isError":false,"resultType":"complete","structuredContent":{"result":"touched note://a"},"_meta":{"io.modelcontextprotocol/serverInfo":{"name":"http-demo","version":""}}}}
+| event: message / data: {"jsonrpc":"2.0","method":"notifications/resources/updated","params":{"_meta":{"io.modelcontextprotocol/subscriptionId":"L1"},"uri":"note://a"}}
+| event: message / data: {"jsonrpc":"2.0","method":"notifications/tools/list_changed","params":{"_meta":{"io.modelcontextprotocol/subscriptionId":"L1"}}}
+== modern touch b
+status 200
+content-type: application/json
+| {"jsonrpc":"2.0","id":32,"result":{"content":[{"text":"touched note://b","type":"text"}],"isError":false,"resultType":"complete","structuredContent":{"result":"touched note://b"},"_meta":{"io.modelcontextprotocol/serverInfo":{"name":"http-demo","version":""}}}}
+| event: message / data: {"jsonrpc":"2.0","method":"notifications/tools/list_changed","params":{"_meta":{"io.modelcontextprotocol/subscriptionId":"L1"}}}
+== modern listen json only
+status 406
 == modern name mismatch
 status 400
 content-type: application/json
