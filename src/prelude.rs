@@ -3023,7 +3023,7 @@ impl<K: Hash + Eq + Ord + Show + 'static, V: Default + 'static> AxRefTry<K, V> f
         Ok(self.ax_ref(k))
     }
 }
-impl<K: Hash + Eq + Ord + Clone, V: Default> AxMutTry<K, V> for AxM<K, V> {
+impl<K: Hash + Eq + Ord + Clone, V: Clone + Default> AxMutTry<K, V> for AxM<K, V> {
     fn ax_try_mut(&mut self, k: &K) -> R<&mut V> {
         Ok(self.ax_mut(k))
     }
