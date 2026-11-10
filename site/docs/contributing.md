@@ -9,7 +9,7 @@ Brevi is open source under the Apache License 2.0. Bug reports, failing programs
 git clone __GITHUB__
 cd brevi
 cargo build --release
-tests/check.sh            # sample programs and error cases against their expected output
+python3 tests/check_parallel.py   # tests/check.sh (sample programs and error cases) in parallel
 sh tools/ci_local.sh      # the same checks a pull request runs, locally
 ```
 
@@ -50,7 +50,7 @@ Please report security problems privately, as described in the repository's `SEC
 
 - Keep each change focused, with a test in `tests/` that fails before it and passes after.
 - Run `sh tools/ci_local.sh` before opening the pull request.
-- Add a line under "Unreleased" in `CHANGELOG.md` describing the change in plain words. Merged changes ship in the next weekly release (Mondays), after the release test passes.
+- Add a file in `changelog.d/` (for example `changelog.d/my-change.md`) with one `- ` line describing the change in plain words, rather than editing `CHANGELOG.md`, so PRs don't conflict on it. Merged changes ship in the next weekly release (Mondays), after the release test passes.
 
 ## License
 

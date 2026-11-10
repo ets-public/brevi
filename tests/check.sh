@@ -1,9 +1,10 @@
 #!/bin/sh
 # Runs every program in tests/run and every error case in tests/errors,
-# every .py file in tests/fallback, every .py file in tests/typed (built typed), and every .py file in tests/dyn (built over dynamic values), comparing output with the .expected file next to it; tests/exit also compares exit statuses. Run from the repo root.
+# every .py file in tests/fallback, every .py file in tests/typed (built typed), and every .py file in tests/dyn (built over dynamic values), comparing output (fed NAME.in on stdin when there is one) with the .expected file next to it; tests/exit also compares exit statuses. Run from the repo root.
 # Pass --update to rewrite the expected files.
 BREVI=${BREVI:-./target/debug/brevi}
 fail=0
+#== run split
 # tests/run and tests/errors check what the typed build makes of each file, Python-style ones included: a .bv
 # file in plain Python is kept off the .py path here (BREVI_BV_PY=0, BREVI_BV_DYN=0; tests/bv_py checks that path).
 for f in tests/run/*.bv tests/errors/*.bv; do
@@ -21,6 +22,7 @@ for f in tests/run/*.bv tests/errors/*.bv; do
   fi
 done
 unset BREVI_BV_PY BREVI_BV_DYN
+#== errors_py split
 # Python mistakes CPython would also stop on: check reports them (exit 1) instead of building the file over
 # dynamic values, and run says so in its note when it runs the file with python3, then shows only the error
 # line of CPython's traceback (error lines left out: they change between Python versions). py_valid.py and py_unreached.py are controls (a caught TypeError, a
@@ -35,6 +37,7 @@ for f in tests/errors/*.py; do
     echo "ok   $f"
   fi
 done
+#== fallback split
 # brevi run on a .py file: runs with python3 when Brevi cannot build it (with a note), unless --native.
 for f in tests/fallback/*.py; do
   exp="${f%.py}.expected"
@@ -46,6 +49,7 @@ for f in tests/fallback/*.py; do
     echo "ok   $f"
   fi
 done
+#== path split
 # Which path a Python file took ({"path":...} on stderr): check, run (stderr only) and run --explain.
 # Files starting with _ are modules the tests import.
 for f in tests/path/py_*.py; do
@@ -58,23 +62,26 @@ for f in tests/path/py_*.py; do
     echo "ok   $f"
   fi
 done
+#== typed split
 # Python programs built typed (BREVI_DYN=0 --native) must print what python3 prints, in time: the set
 # tests take minutes if `in` scans a list instead of using AxSet's hash index.
 for f in tests/typed/*.py; do
   exp="${f%.py}.expected"
-  out=$(BREVI_DYN=0 timeout 60 $BREVI run "$f" --native 2>&1)
-  if [ "$1" = "--update" ]; then python3 "$f" > "$exp" 2>&1; continue; fi
+  inp="${f%.py}.in"; [ -f "$inp" ] || inp=/dev/null
+  out=$(BREVI_DYN=0 timeout 60 $BREVI run "$f" --native < "$inp" 2>&1)
+  if [ "$1" = "--update" ]; then python3 "$f" < "$inp" > "$exp" 2>&1; continue; fi
   if [ "$out" != "$(cat "$exp")" ]; then
     echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
   else
     echo "ok   $f"
   fi
 done
+#== lib split
 # Standard-library programs must print what python3 prints, natively: whichever path the build takes
 # (typed or dynamic), never CPython (pybridge or the python3 fallback).
 for f in tests/lib/*.py; do
   exp="${f%.py}.expected"
-  out=$(BREVI_PATH=1 timeout 120 $BREVI run "$f" --native 2>/tmp/brevi_lib_err)
+  out=$(BREVI_PATH=1 timeout 600 $BREVI run "$f" --native 2>/tmp/brevi_lib_err)
   if [ "$1" = "--update" ]; then python3 "$f" > "$exp" 2>&1; continue; fi
   if grep -q '"path":"\(pybridge\|cpython\)"' /tmp/brevi_lib_err; then
     echo "FAIL $f (ran in CPython)"; cat /tmp/brevi_lib_err; fail=1
@@ -84,18 +91,20 @@ for f in tests/lib/*.py; do
     echo "ok   $f"
   fi
 done
+#== logging split
 # Brevi's logging writes to stderr what CPython's writes, natively, but for traceback frames (Brevi writes an
 # exception as it writes an uncaught one: the header and the last line).
 for f in tests/logging/*.py; do
   exp="${f%.py}.expected"
   if [ "$1" = "--update" ]; then python3 "$f" 2>&1 | grep -v '^  \|^Call stack:' > "$exp"; continue; fi
-  out=$(BREVI_PATH=1 timeout 120 $BREVI run "$f" --native 2>&1 | grep -v '^{"path"')
+  out=$(BREVI_PATH=1 timeout 600 $BREVI run "$f" --native 2>&1 | grep -v '^{"path"')
   if [ "$out" != "$(cat "$exp")" ]; then
     echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
   else
     echo "ok   $f"
   fi
 done
+#== bv_libs split
 # Brevi files (.bv) that import libraries: Brevi's own copies run them, on the dynamic build's engine (engine.rs),
 # never CPython. The .expected files match what the same programs print with CPython's libraries
 # (BREVI_ENGINE=0, where python3 has them).
@@ -103,7 +112,7 @@ done
 # refuses it, never python3.
 for f in tests/bv_libs/*.bv tests/bv_py/*.bv; do
   exp="${f%.bv}.expected"
-  out=$(cd "$(dirname "$f")" && BREVI_PATH=1 timeout 120 ../../$BREVI run "$(basename "$f")" 2>/tmp/brevi_bv_err)
+  out=$(cd "$(dirname "$f")" && BREVI_PATH=1 timeout 600 ../../$BREVI run "$(basename "$f")" 2>/tmp/brevi_bv_err)
   if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
   if grep -q '"path":"\(pybridge\|cpython\)"' /tmp/brevi_bv_err; then
     echo "FAIL $f (ran in CPython)"; cat /tmp/brevi_bv_err; fail=1
@@ -113,16 +122,18 @@ for f in tests/bv_libs/*.bv tests/bv_py/*.bv; do
     echo "ok   $f"
   fi
 done
+#== bv_libs_sandbox split
 # The same Brevi files under --sandbox with no grant: Brevi's own libraries hold to the sandbox, so they run
 # natively there too (never CPython, which a sandbox without a grant refuses).
 for f in tests/bv_libs/*.bv; do
-  out=$(cd "$(dirname "$f")" && BREVI_PATH=1 timeout 120 ../../$BREVI run --sandbox "$(basename "$f")" 2>/tmp/brevi_bv_err)
+  out=$(cd "$(dirname "$f")" && BREVI_PATH=1 timeout 600 ../../$BREVI run --sandbox "$(basename "$f")" 2>/tmp/brevi_bv_err)
   if grep -q '"path":"\(pybridge\|cpython\)"' /tmp/brevi_bv_err || [ "$out" != "$(cat "${f%.bv}.expected")" ]; then
     echo "FAIL $f (--sandbox)"; cat /tmp/brevi_bv_err; fail=1
   else
     echo "ok   $f (--sandbox)"
   fi
 done
+#== numpy split
 # numpy programs must print what CPython's numpy prints, byte for byte, with Brevi's own numpy: never CPython.
 # The .expected files come from real numpy (numpy 2.5.4, see tools/upstream_pins.json; CI has none): `--update` needs it installed.
 # A test that prints full precision can differ between numpy's AVX-512 and AVX2 kernels: it keeps the AVX2 output
@@ -137,7 +148,7 @@ for f in tests/numpy/*.py; do
     continue
   fi
   [ "$np_avx512" = 0 ] && [ -f "${f%.py}.avx2.expected" ] && exp="${f%.py}.avx2.expected"
-  out=$(BREVI_PATH=1 timeout 120 $BREVI run "$f" --native 2>/tmp/brevi_np_err)
+  out=$(BREVI_PATH=1 timeout 600 $BREVI run "$f" --native 2>/tmp/brevi_np_err)
   if ! grep -q '"path":"dynamic"' /tmp/brevi_np_err; then
     echo "FAIL $f (not built with Brevi's numpy)"; cat /tmp/brevi_np_err; fail=1
   elif [ "$out" != "$(cat "$exp")" ]; then
@@ -146,6 +157,7 @@ for f in tests/numpy/*.py; do
     echo "ok   $f"
   fi
 done
+#== tiktoken split
 # tiktoken programs must print what CPython's tiktoken prints, with Brevi's own tiktoken: never CPython. The
 # .expected files come from tiktoken 0.14 (CI has none): `--update` needs it installed. Building one gets OpenAI's
 # vocabularies once, into tiktoken's cache, as tiktoken itself does.
@@ -164,6 +176,7 @@ for f in tests/tiktoken/*.py; do
     echo "ok   $f"
   fi
 done
+#== tokenizers split
 # tokenizers programs must print what CPython's tokenizers prints, with Brevi's own tokenizers: never CPython.
 # The .expected files come from tokenizers 0.23.3 (CI has none): `--update` needs it installed. Building one
 # gets each Hub tokenizer.json once (from huggingface_hub's cache when it has it, else into Brevi's cache).
@@ -194,6 +207,7 @@ if [ "$1" != "--update" ]; then
     *) echo "FAIL sandbox tokenizers (from_file held to the granted folders)"; printf '%s\n' "$out"; fail=1 ;;
   esac
 fi
+#== pydantic split
 # pydantic programs must print what CPython's pydantic prints, with Brevi's own pydantic: never CPython. The
 # .expected files come from pydantic 2.13.5 / pydantic-core 2.46.5 (CI has none): `--update` needs it installed.
 for f in tests/pydantic/*.py; do
@@ -218,6 +232,7 @@ if [ "$1" != "--update" ]; then
     *) echo "FAIL sandbox pydantic (what the copy lacks is refused)"; printf '%s\n' "$out"; fail=1 ;;
   esac
 fi
+#== jinja2 split
 # jinja2 programs must print what CPython's jinja2 prints, with Brevi's own jinja2 and markupsafe: never CPython.
 # The .expected files come from jinja2 3.1.6 / markupsafe 3.0.3 (CI has none): `--update` needs them installed.
 for f in tests/jinja2/*.py; do
@@ -242,6 +257,7 @@ if [ "$1" != "--update" ]; then
     *) echo "FAIL sandbox jinja2 (what the copy lacks is refused)"; printf '%s\n' "$out"; fail=1 ;;
   esac
 fi
+#== polars split
 # polars programs must print what CPython's polars prints (stdout), with Brevi's own polars: never CPython.
 # The .expected files come from polars 2.1.0 (CI has none): `--update` needs it installed.
 for f in tests/polars/*.py; do
@@ -273,6 +289,7 @@ if [ "$1" != "--update" ]; then
   out=$($BREVI run --sandbox --allow-read tests/sandbox/scoped/in,tests/sandbox/scoped/out --allow-write tests/sandbox/scoped/out tests/polars/sandbox/scoped.py 2>/dev/null)
   if [ "$out" = "$(cat tests/polars/sandbox/scoped.expected)" ]; then echo "ok   sandbox polars (held to the granted folders)"; else echo "FAIL sandbox polars (held to the granted folders)"; printf '%s\n' "$out"; fail=1; fi
 fi
+#== sqlite3 split
 # sqlite3 programs must print what CPython's sqlite3 prints (stdout), with Brevi's own sqlite3 over the system's
 # SQLite: never CPython. `--update` writes the .expected files with python3.
 for f in tests/sqlite3/*.py; do
@@ -310,6 +327,7 @@ if [ "$1" != "--update" ]; then
     echo "FAIL sandbox sqlite3 (held to the granted folders)"; printf '%s\n' "$out"; fail=1
   fi
 fi
+#== duckdb
 # duckdb programs must print what CPython's duckdb 2.0.0 prints (stdout), with Brevi's own duckdb over DuckDB's
 # engine (libduckdb, or the duckdb package's library): never CPython. Skipped without the duckdb package (CI has
 # none). `--update` writes the .expected files with python3.
@@ -347,6 +365,7 @@ if python3 -c "import duckdb" 2>/dev/null; then
 else
   echo "skip tests/duckdb (no duckdb package)"
 fi
+#== safetensors split
 # safetensors programs must print what CPython's safetensors 0.8 (numpy framework) prints, with Brevi's own
 # safetensors over its native numpy: never CPython. Brevi needs no package; `--update` needs safetensors and numpy.
 for f in tests/safetensors/*.py; do
@@ -371,6 +390,7 @@ if [ "$1" != "--update" ]; then
     *) echo "FAIL sandbox safetensors (files need allow read, write)"; printf '%s\n' "$out"; fail=1 ;;
   esac
 fi
+#== onnxruntime
 # onnxruntime programs must print what CPython's onnxruntime 1.29 prints, with Brevi's own onnxruntime over ONNX
 # Runtime's C API (the onnxruntime package's library, or libonnxruntime): never CPython. Skipped without the
 # onnxruntime package (CI has none). tests/onnxruntime/models/make_models.py (needs onnx) wrote the models.
@@ -407,12 +427,16 @@ if python3 -c "import onnxruntime" 2>/dev/null; then
 else
   echo "skip tests/onnxruntime (no onnxruntime package)"
 fi
+#== http split
 # requests and httpx programs must print what CPython's requests 2.34 and httpx 0.28 print, with Brevi's own copies
 # over native sockets and TLS: never CPython. They talk to tests/http/server.py (HTTP on 18080, HTTPS on 18081)
 # and pass verify= themselves, so a CA bundle in the environment changes nothing. `--update` needs both libraries.
-python3 tests/http/server.py 18080 > /tmp/brevi_http_srv 2>&1 &
-srv=$!
-for i in 1 2 3 4 5 6 7 8 9 10; do grep -q ready /tmp/brevi_http_srv 2>/dev/null && break; sleep 0.5; done
+# tests/check_parallel.py starts this server once for all its jobs (CHECK_SERVERS=1).
+if [ -z "$CHECK_SERVERS" ]; then
+  python3 tests/http/server.py 18080 > /tmp/brevi_http_srv 2>&1 &
+  srv=$!
+  for i in 1 2 3 4 5 6 7 8 9 10; do grep -q ready /tmp/brevi_http_srv 2>/dev/null && break; sleep 0.5; done
+fi
 for f in tests/http/requests_*.py tests/http/httpx_*.py; do
   exp="${f%.py}.expected"
   if [ "$1" = "--update" ]; then
@@ -442,12 +466,16 @@ if [ "$1" != "--update" ]; then
   esac
 fi
 kill $srv 2>/dev/null
+#== llm split
 # anthropic and openai programs must print what CPython's anthropic 2.6 and openai 3.46 print (models, streams,
 # tool calls, errors, retries), with Brevi's own copies over its httpx: never CPython. They talk to the mock API in
 # tests/llm/server.py on 18090. `--update` needs both SDKs (and tools/gen_llm_types.py rewrites the types).
-python3 tests/llm/server.py 18090 > /tmp/brevi_llm_srv 2>&1 &
-srv=$!
-for i in 1 2 3 4 5 6 7 8 9 10; do grep -q listening /tmp/brevi_llm_srv 2>/dev/null && break; sleep 0.5; done
+# tests/check_parallel.py starts this server once for all its jobs (CHECK_SERVERS=1).
+if [ -z "$CHECK_SERVERS" ]; then
+  python3 tests/llm/server.py 18090 > /tmp/brevi_llm_srv 2>&1 &
+  srv=$!
+  for i in 1 2 3 4 5 6 7 8 9 10; do grep -q listening /tmp/brevi_llm_srv 2>/dev/null && break; sleep 0.5; done
+fi
 for f in tests/llm/anthropic_*.py tests/llm/openai_*.py; do
   exp="${f%.py}.expected"
   if [ "$1" = "--update" ]; then
@@ -471,6 +499,7 @@ if [ "$1" != "--update" ]; then
   if [ "$out" = "$(cat tests/llm/openai_async.expected)" ]; then echo "ok   sandbox llm (--allow-net 127.0.0.1)"; else echo "FAIL sandbox llm (--allow-net 127.0.0.1)"; printf '%s\n' "$out" | diff tests/llm/openai_async.expected -; fail=1; fi
 fi
 kill $srv 2>/dev/null
+#== mcp_sdk split
 # MCP servers on the official mcp SDK (MCPServer, the low-level Server, stdio) must answer what CPython's mcp 2.3.0
 # answers, built with Brevi's own copy: never CPython. tests/mcp_sdk/drive.py plays each NAME.CASE.jsonl to the
 # server in lockstep; the .expected transcripts are CPython's, stderr left out. `--update` needs mcp installed.
@@ -495,6 +524,7 @@ for f in tests/mcp_sdk/*.py; do
   done
   rm -f /tmp/brevi_mcp_$n
 done
+#== mcp_http
 # The same over HTTP (MCPServer.run(transport="streamable-http" / "sse")): tests/mcp_sdk/http/drive.py sends raw
 # requests and prints status, headers and bodies; the .expected transcripts are CPython's (mcp 2.3.0 on uvicorn).
 # Then the official client (streamable HTTP and SSE) against the build, where python3 has mcp.
@@ -545,17 +575,20 @@ if [ "$1" != "--update" ]; then
   case "$out" in *"needs allow native"*) echo "ok   sandbox mcp (what the copy lacks is refused)" ;;
     *) echo "FAIL sandbox mcp (what the copy lacks is refused)"; printf '%s\n' "$out"; fail=1 ;; esac
 fi
+#== dyn split
 # Python programs built over dynamic values (BREVI_DYN=1 skips the typed build) must print what python3 prints.
 for f in tests/dyn/*.py; do
   exp="${f%.py}.expected"
-  out=$(BREVI_DYN=1 $BREVI run "$f" 2>&1)
-  if [ "$1" = "--update" ]; then python3 "$f" > "$exp" 2>&1; continue; fi
+  inp="${f%.py}.in"; [ -f "$inp" ] || inp=/dev/null
+  out=$(BREVI_DYN=1 $BREVI run "$f" < "$inp" 2>&1)
+  if [ "$1" = "--update" ]; then python3 "$f" < "$inp" > "$exp" 2>&1; continue; fi
   if [ "$out" != "$(cat "$exp")" ]; then
     echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
   else
     echo "ok   $f"
   fi
 done
+#== bridge split
 # Python libraries the dynamic build lacks (tests/bridge/brlib stands in for a third-party one) run in CPython
 # inside a dynamic build: output must match python3, the path line must name them, and nothing may run fully
 # in CPython. Each runs by default and with BREVI_DYN=1.
@@ -564,7 +597,7 @@ for f in tests/bridge/*.py; do
   if [ "$1" = "--update" ]; then (cd tests/bridge && python3 "$(basename "$f")") > "$exp" 2>&1; continue; fi
   for mode in default dyn; do
     if [ $mode = dyn ]; then dv=1; else dv=; fi
-    out=$(cd tests/bridge && BREVI_DYN=$dv BREVI_PATH=1 timeout 120 ../../$BREVI run "$(basename "$f")" 2>/tmp/brevi_bridge_err)
+    out=$(cd tests/bridge && BREVI_DYN=$dv BREVI_PATH=1 timeout 600 ../../$BREVI run "$(basename "$f")" 2>/tmp/brevi_bridge_err)
     if grep -q '"path":"cpython"' /tmp/brevi_bridge_err || ! grep -q '"py":\[' /tmp/brevi_bridge_err; then
       echo "FAIL $f ($mode: not bridged)"; cat /tmp/brevi_bridge_err; fail=1
     elif [ "$out" != "$(cat "$exp")" ]; then
@@ -589,6 +622,7 @@ if [ "$out" != "Mio 🖤" ]; then
 else
   echo "ok   $f"
 fi
+#== sandbox split
 # brevi run --sandbox on a .py file: a capability refusal is final on every path (the default run, dynamic
 # builds, typed --native), and nothing falls back to python3 or reaches CPython through a library.
 # A .flags file next to a test holds what the caller grants (--allow read): the file's own allow lines grant nothing.
@@ -603,6 +637,7 @@ for f in tests/sandbox/*.py; do
     echo "ok   $f"
   fi
 done
+#== limits
 # --limit: the caller's resource limits. Each test's .flags holds them; the program's stdout, its exit status
 # (124 when a limit stopped it) and the last stderr line, which names the limit, are compared.
 for f in tests/limits/*.py; do
@@ -624,6 +659,7 @@ exit 2
 --limit holds a program while it runs: use it with brevi run or brevi test (brevi verify takes it too)
 exit 2'
 if [ "$out" = "$want" ]; then echo "ok   --limit usage errors"; else echo "FAIL --limit usage errors"; printf '%s\n' "$out"; fail=1; fi
+#== exit split
 # Exit status, which the loops above do not compare: a Python file must exit as python3 does on both native
 # paths, with its stdout written first. A .bv program stops with status 101 at a runtime error.
 for f in tests/exit/*.py; do
@@ -646,6 +682,7 @@ for f in tests/exit/*.bv; do
     echo "ok   $f"
   fi
 done
+#== bridge_sandbox
 # A Python library under --sandbox: refused unless the caller names it with --allow-py (a `# allow native` line in
 # the file grants nothing), and with it the program runs as it does unsandboxed.
 B=$(cd "$(dirname "$BREVI")" && pwd)/$(basename "$BREVI")
@@ -663,6 +700,7 @@ t=$(mktemp -d); cp -r tests/bridge/brlib tests/bridge/lib_values.py "$t"; sed -i
 out=$(cd "$t" && $B run --sandbox lib_values.py 2>&1; echo "exit $?")
 if printf '%s\n' "$out" | grep -q 'grants nothing under --sandbox' && printf '%s\n' "$out" | grep -qx 'exit 1'; then echo "ok   sandbox ignores # allow native"; else echo "FAIL sandbox ignores # allow native"; printf '%s\n' "$out"; fail=1; fi
 rm -rf "$t"
+#== standalone split
 # brevi build --standalone: a program calling Python libraries carries its own CPython. Run without python3 on
 # PATH and, where user namespaces allow it, in an empty root holding only the C library.
 for f in tests/standalone/*.py; do
@@ -685,6 +723,7 @@ in an empty root: $bare"
     echo "ok   $f"
   fi
 done
+#== cache
 # The result cache: an unchanged program is replayed (path report line included), a changed module is built
 # again, and --no-cache always builds.
 t=$(mktemp -d)
@@ -707,6 +746,26 @@ if [ -n "$(ls -A "$t2/cache/runs" 2>/dev/null)" ] || printf '%s\n' "$t2out" | gr
   echo "FAIL result cache keeps a machine failure"; printf '%s\n' "$t2out"; ls -A "$t2/cache/runs"; fail=1
 else echo "ok   result cache keeps no machine failure"; fi
 rm -rf "$t2"
+# Tiered builds (src/tier.rs): run after an edit builds at opt-level 0 and builds opt-level 1 in the background;
+# the next run of the unchanged file gets the opt-level 1 binary. build, --release and BREVI_TIERED=0 never tier.
+t3=$(mktemp -d)
+printf 'print(sum(i * i for i in range(10)))\n' > "$t3/main.py"
+tr() { c=$1; shift; env BREVI_CACHE="$t3/cache" BREVI_TIME=1 $TENV $BREVI "$c" "$t3/main.py" "$@" 2>&1 | sed 's/^time .* ms  tiered:/tiered:/' | grep -v '^time '; }
+t3out=$(tr run --native; i=0; while ls -a "$t3/cache/bin" | grep -q '^\.tmp-tier-' && [ $i -lt 600 ]; do sleep 0.1; i=$((i+1)); done
+  tr run --native
+  printf 'print(sum(i * i for i in range(11)))\n' > "$t3/main.py"
+  tr build -o "$t3/out"; tr run --release; TENV=BREVI_TIERED=0 tr run; tr run --no-cache)
+t3exp='tiered: building at opt-level 0, opt-level 1 in the background
+285
+tiered: the opt-level 1 binary took the quick one'"'"'s place
+tiered: building at opt-level 0, opt-level 1 in the background
+285
+385
+385
+385'
+if [ "$t3out" != "$t3exp" ]; then echo "FAIL tiered builds"; printf '%s\n' "$t3out" | diff - "$(printf '%s\n' "$t3exp" > "$t3/exp"; echo "$t3/exp")"; fail=1
+else echo "ok   tiered builds"; fi
+rm -rf "$t3"
 # brevi verify: the native build against CPython on the same inputs. The certificate's timings, versions and
 # path are left out (they change from machine to machine); the verdicts, cases and hashes must match.
 v() { echo "-- $*"; o=$($BREVI verify "$@" 2>&1); c=$?; printf '%s\n' "$o" | sed -E 's/"(cpython_ms|brevi_ms|speedup)":[0-9.]+,?//g; s/"(brevi|python)":"[0-9.]+",?//g; s/"path":"[a-z]+",?//g; s/on two runs \(line [0-9]+: [^)]*\)/on two runs (line 1: ...)/; s/,}/}/'; echo "exit $c"; }
@@ -749,4 +808,28 @@ exp=tests/cache.expected
 if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"
 elif [ "$out" != "$(cat "$exp")" ]; then echo "FAIL result cache"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
 else echo "ok   result cache"; fi
+# The same file built by several brevi processes at once (MCP sessions, parallel verify runs): each builds in its
+# own folder, so none overwrites the generated Rust or the binary another is about to run. Before, they shared
+# one folder per file and one could fail its build and fall back to CPython. --native makes such a clash an error.
+# One typed file and one built over dynamic values. No folder is left behind once they have all exited.
+t3=$(mktemp -d)
+# (a tag that changes every run, so the binary cache has no build of them yet and all six run rustc at once)
+tag=$(( $$ * 1000 + $(date +%s) % 1000 ))
+printf 'total = %s\nfor i in range(1000):\n    total += i * i\nprint(total)\n' "$tag" > "$t3/typed.py"
+printf 'def f(x):\n    return x if isinstance(x, int) else len(x)\nprint(sum(f(v) for v in [%s, "ab", 3, [4, 5]]))\n' "$tag" > "$t3/dyn.py"
+for f in typed dyn; do
+  for i in 1 2 3 4 5 6; do ($BREVI run --native "$t3/$f.py" > "$t3/$f.$i.out" 2> "$t3/$f.$i.err"; echo "exit $?" >> "$t3/$f.$i.out") & done
+done
+wait
+t3bad=""
+for i in 1 2 3 4 5 6; do
+  [ "$(cat "$t3/typed.$i.out")" = "$(printf '%s\nexit 0' $((tag + 332833500)))" ] || t3bad="$t3bad typed.$i"
+  [ "$(cat "$t3/dyn.$i.out")" = "$(printf '%s\nexit 0' $((tag + 7)))" ] || t3bad="$t3bad dyn.$i"
+done
+left=$(find "${TMPDIR:-/tmp}" -maxdepth 2 -path '*/brevi-*/p*' -newer "$t3/typed.py" 2>/dev/null | wc -l)
+[ "$left" = 0 ] || t3bad="$t3bad (left $left build folders)"
+if [ -n "$t3bad" ]; then
+  echo "FAIL the same file built at once:$t3bad"; for o in "$t3"/*.out "$t3"/*.err; do echo "== $o"; cat "$o"; done; fail=1
+else echo "ok   the same file built at once"; fi
+rm -rf "$t3"
 exit $fail

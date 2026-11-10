@@ -3599,6 +3599,23 @@ impl AxToBig for Big {
         self.clone()
     }
 }
+// int(x) of a float next to big integers: truncated toward zero, as Python's int() does.
+impl AxToBig for f64 {
+    fn ax_big(&self) -> Big {
+        if self.is_nan() {
+            panic!("ValueError: cannot convert float NaN to integer");
+        }
+        if self.is_infinite() {
+            panic!("OverflowError: cannot convert float infinity to integer");
+        }
+        let t = self.trunc();
+        if t.abs() < 9.0e18 {
+            Big::from_i64(t as i64)
+        } else {
+            Big::parse(&format!("{t:.0}")).unwrap_or_else(|_| Big::from_i64(0))
+        }
+    }
+}
 // int(b) where an int is needed: the value of a function that returns a big integer, used as an index or count.
 pub trait AxBigInt {
     fn ax_int(&self) -> R<i64>;
