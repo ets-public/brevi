@@ -94,6 +94,15 @@ fn enum_text(v: &V, rep: bool) -> R {
 pub fn enum_members(c: &Rc<Class>) -> V {
     c.own("__bv_members__").unwrap_or_else(|| list(vec![]))
 }
+// Names in an Enum body that CPython does not make members: _sunder_ and __dunder__ names, and private
+// names (_Cls__x, as the class body sees `__x`). Any other name starting with `_` is a member.
+fn enum_not_member(cls: &str, n: &str) -> bool {
+    let b = n.as_bytes();
+    let sunder = b.len() > 2 && b[0] == b'_' && b[1] != b'_' && b[b.len() - 1] == b'_' && b[b.len() - 2] != b'_';
+    let dunder = b.len() > 4 && n.starts_with("__") && n.ends_with("__") && b[2] != b'_' && b[b.len() - 3] != b'_';
+    let private = n.strip_prefix('_').and_then(|r| r.strip_prefix(cls.trim_start_matches('_'))).map_or(false, |r| r.starts_with("__"));
+    sunder || dunder || private || n.starts_with("__")
+}
 // What the class being defined will be, from its bases (before make_class builds it): bit 1 Enum, bit 2 a
 // Flag subclass, bit 4 a StrEnum subclass. The class body uses this to give each auto() its value as soon as
 // the member is assigned, as CPython's _EnumDict does.
@@ -164,7 +173,7 @@ fn auto_next(ctx: i64, name: &str, last: &[V]) -> R {
 // Every name store in the body of an Enum class goes through here: the members' values are kept in order,
 // and an auto() gets (and memoises, as CPython does) the value for its position.
 pub fn enum_auto_store(last: &mut Vec<V>, ctx: i64, name: &str, v: V) -> R {
-    if ctx == 0 || name.starts_with('_') || matches!(&v, V::Unbound | V::Func(_) | V::Class(_) | V::Prop(_) | V::Bound(_) | V::BMeth(_)) {
+    if ctx == 0 || (name.starts_with('_') && enum_not_member("", name)) || matches!(&v, V::Unbound | V::Func(_) | V::Class(_) | V::Prop(_) | V::Bound(_) | V::BMeth(_)) {
         return Ok(v);
     }
     let au = enum_classes().1;
@@ -199,7 +208,7 @@ pub fn enum_setup(c: &Rc<Class>) -> Result<(), E> {
     let mut v2m: Vec<(V, V)> = vec![];
     let map = dict_new();
     for (n, v) in attrs {
-        if n.starts_with('_') || matches!(v, V::Func(_) | V::Class(_) | V::Prop(_) | V::Bound(_) | V::BMeth(_)) {
+        if (n.starts_with('_') && enum_not_member(c.name, n)) || matches!(v, V::Func(_) | V::Class(_) | V::Prop(_) | V::Bound(_) | V::BMeth(_)) {
             continue;
         }
         let val = match &v {
