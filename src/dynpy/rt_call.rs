@@ -774,6 +774,13 @@ pub fn getattr(o: &V, name: &str) -> R {
                         None => V::None,
                     });
                 }
+                // StopIteration.value: the first constructor argument, or None for no arguments.
+                "value" if ob.cls.base_bt() == BT::Exc && is_exc(o, "StopIteration") => {
+                    return Ok(match ob.get("args") {
+                        Some(V::Tuple(t)) if !t.is_empty() => t[0].clone(),
+                        _ => V::None,
+                    });
+                }
                 _ => {}
             }
             if let Some(ga) = ob.cls.lookup("__getattr__") {
