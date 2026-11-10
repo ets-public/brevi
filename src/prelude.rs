@@ -983,6 +983,26 @@ impl AxPyModTry for f64 {
         Ok(self.ax_pymod(b))
     }
 }
+// A Python list mixed with numbers (its items are Json) divides the same way: a zero divisor is catchable.
+impl AxFloorDivTry for Json {
+    fn ax_floordiv_try(self, b: Json) -> R<Json> {
+        let f = ax_jf(&self) || ax_jf(&b);
+        if ax_jnum(&b) == 0.0 {
+            return Err(ax_zd_err(if f { "float floor division by zero" } else { "integer division or modulo by zero" }));
+        }
+        Ok(ax_jnk((ax_jnum(&self) / ax_jnum(&b)).floor(), f))
+    }
+}
+impl AxPyModTry for Json {
+    fn ax_pymod_try(self, b: Json) -> R<Json> {
+        let f = ax_jf(&self) || ax_jf(&b);
+        let (a, b) = (ax_jnum(&self), ax_jnum(&b));
+        if b == 0.0 {
+            return Err(ax_zd_err(if f { "float modulo by zero" } else { "integer modulo by zero" }));
+        }
+        Ok(if f { ax_jnk(a.ax_pymod(b), true) } else { ax_jnk(a - b * (a / b).floor(), false) })
+    }
+}
 impl AxPyMod for Json {
     fn ax_pymod(self, b: Json) -> Json {
         self % b
@@ -5661,6 +5681,18 @@ pub fn ax_exc_msg(e: &String) -> String {
         Some((_, m)) => m.to_string(),
         None => e.clone(),
     }
+}
+// The uncaught-error report: str(e) is the empty message of `raise ValueError`, but the report still names
+// the class it was raised as.
+pub fn ax_exc_report(e: &String) -> String {
+    let msg = ax_exc_msg(e);
+    if !msg.is_empty() {
+        return msg;
+    }
+    e.strip_prefix('\u{1}').and_then(|r| r.split_once('\u{1}')).map(|(chain, _)| {
+        let chain = chain.rsplit_once(';').map_or(chain, |(c, _)| c);
+        chain.split(',').next().unwrap_or("error").to_string()
+    }).unwrap_or_else(|| "error".to_string())
 }
 // `except A, B:` for this error: one of its classes is named (Exception catches every class); an error without
 // a class (a failed call) is caught by any built-in error name.
