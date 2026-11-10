@@ -1546,6 +1546,9 @@ pub enum It {
     Range(i64, i64, i64),
     Dict(Rc<RefCell<Dict>>, usize, u8, u64, usize),
     Gen(Box<dyn FnMut() -> Result<Option<V>, E>>),
+    // A generator expression: like Gen, but an error escapes to the caller once and then the iterator is
+    // exhausted, as in CPython.
+    GenExp(Box<dyn FnMut() -> Result<Option<V>, E>>, bool),
     Coro(Rc<RefCell<Box<Coro>>>),
     Obj(V),
     Done,
@@ -1642,6 +1645,18 @@ impl It {
                 Ok(None)
             }
             It::Gen(f) => f(),
+            It::GenExp(f, done) => {
+                if *done {
+                    return Ok(None);
+                }
+                match f() {
+                    Ok(v) => Ok(v),
+                    Err(e) => {
+                        *done = true;
+                        Err(e)
+                    }
+                }
+            }
             It::Coro(c) => coro_next(c, V::None),
             It::Obj(o) => {
                 let f = match o {
@@ -1766,6 +1781,9 @@ pub fn to_vec(v: &V) -> Result<Vec<V>, E> {
 }
 pub fn gen_iter(f: impl FnMut() -> Result<Option<V>, E> + 'static) -> V {
     V::Iter(Rc::new(RefCell::new(It::Gen(Box::new(f)))))
+}
+pub fn genexp_iter(f: impl FnMut() -> Result<Option<V>, E> + 'static) -> V {
+    V::Iter(Rc::new(RefCell::new(It::GenExp(Box::new(f), false))))
 }
 pub fn vec_iter(v: Vec<V>) -> V {
     V::Iter(Rc::new(RefCell::new(It::Vec(v.into_iter()))))
