@@ -3025,6 +3025,7 @@ fn ax_json_py(j: &Json, top: bool) -> String {
         Json::Num { v, .. } => ax_py_float(*v),
         Json::Str { v } if top => v.clone(),
         Json::Str { v } => ax_py_repr(v),
+        Json::Tup { .. } if ax_json_sent(j) => "<object object>".into(),
         Json::Tup { v } if v.len() == 1 => format!("({},)", ax_json_py(&v[0], false)),
         Json::Tup { v } => format!("({})", v.iter().map(|x| ax_json_py(x, false)).collect::<Vec<_>>().join(", ")),
         Json::Arr { v } => format!("[{}]", v.iter().map(|x| ax_json_py(x, false)).collect::<Vec<_>>().join(", ")),
@@ -3041,6 +3042,7 @@ impl Show for Json {
             Json::Bool { v } => v.to_string(),
             Json::Num { v, .. } => v.to_string(),
             Json::Str { v } => format!("{v:?}"),
+            Json::Tup { .. } if ax_json_sent(self) => "<object object>".into(),
             Json::Arr { v } | Json::Tup { v } => format!("[{}]", v.iter().map(|x| x.show()).collect::<Vec<_>>().join(",")),
             Json::Obj { v } => format!("{{{}}}", v.iter().map(|(k, x)| format!("{k:?}:{}", x.show())).collect::<Vec<_>>().join(",")),
         }
@@ -3299,6 +3301,7 @@ impl Json {
     }
     pub fn ax_len(&self) -> i64 {
         match self {
+            Json::Tup { .. } if ax_json_sent(self) => panic!("TypeError: object of type 'object' has no len()"),
             Json::Str { v } => v.chars().count() as i64,
             Json::Arr { v } | Json::Tup { v } => v.len() as i64,
             Json::Obj { v } => v.m.len() as i64,
@@ -4059,6 +4062,47 @@ impl AxNone for bool {
     #[inline]
     fn ax_none() -> Self {
         false
+    }
+}
+// A second unset value, for `MISSING = object()` next to None in the same slot. The value's type keeps its
+// own None representation (`"\0None"` for a str, Json::Null for JSON), and the sentinel is a distinct value of
+// the same type, so `v is MISSING` and `v is None` stay apart. N numbers the sentinels of the program.
+pub struct AxSentVal<const N: usize>;
+impl<const N: usize> AxSentVal<N> {
+    pub fn make<T: AxSentBase<N>>() -> T {
+        T::ax_sent()
+    }
+    pub fn is<T: AxSentBase<N>>(v: &T) -> bool {
+        v.ax_is_sent()
+    }
+}
+pub trait AxSentBase<const N: usize>: Sized {
+    fn ax_sent() -> Self;
+    fn ax_is_sent(&self) -> bool;
+}
+pub fn ax_sent_str(n: usize) -> String {
+    format!("\u{0}sent{n}")
+}
+// A str slot's sentinel is a string no input the program reads makes by itself, like its None string.
+impl<const N: usize> AxSentBase<N> for String {
+    fn ax_sent() -> Self {
+        ax_sent_str(N)
+    }
+    fn ax_is_sent(&self) -> bool {
+        *self == ax_sent_str(N)
+    }
+}
+fn ax_json_sent(j: &Json) -> bool {
+    matches!(j, Json::Tup { v } if v.len() == 1 && matches!(&v[0], Json::Str { v } if v.starts_with("\u{0}sent")))
+}
+// A JSON slot's sentinel is a one-item internal tuple no json.loads value is (a Tup is only made from a
+// Python tuple), holding the sentinel's marker string.
+impl<const N: usize> AxSentBase<N> for Json {
+    fn ax_sent() -> Self {
+        Json::Tup { v: vec![Json::Str { v: ax_sent_str(N) }] }
+    }
+    fn ax_is_sent(&self) -> bool {
+        matches!(self, Json::Tup { v } if v.len() == 1 && matches!(&v[0], Json::Str { v } if *v == ax_sent_str(N)))
     }
 }
 impl<A: AxNone, B: AxNone> AxNone for (A, B) {
@@ -6388,7 +6432,12 @@ impl AxIsInstance for bool {
 }
 impl AxIsInstance for String {
     fn ax_kind(&self) -> &'static str {
-        "str"
+        // A sentinel held in a str slot is an object, not a string, to isinstance.
+        if self.starts_with("\u{0}sent") {
+            "object"
+        } else {
+            "str"
+        }
     }
 }
 impl AxIsInstance for Dec {
@@ -6419,7 +6468,7 @@ impl AxIsInstance for Json {
             Json::Bool { .. } => "bool",
             Json::Num { v, f } => if v.fract() == 0.0 && v.abs() < 1e15 && !(*f && ax_py_on()) { "int" } else { "float" },
             Json::Str { .. } => "str",
-            Json::Arr { .. } => "list", Json::Tup { .. } => "tuple",
+            Json::Arr { .. } => "list", Json::Tup { .. } if ax_json_sent(self) => "object", Json::Tup { .. } => "tuple",
             Json::Obj { .. } => "dict",
         }
     }

@@ -278,6 +278,10 @@ fn scan_calls(src: &str, dir: &std::path::Path, brevi: bool) -> Vec<Diag> {
                 j += 1;
             }
             let w = &l[start..j];
+            // Brevi's own sentinel spelling (src/pysentinel.rs), not a name the program wrote.
+            if w.starts_with("__sent") {
+                continue;
+            }
             // Brevi's `true` and `false` are plain names to Python.
             let bool_word = matches!(w, "true" | "false") && !(start > 0 && b[start - 1] == b'.');
             if !(bool_word || l[j..].trim_start().starts_with('(')) || KEYWORDS.contains(&w) || !seen.insert(format!("{}{w}", start > 0 && b[start - 1] == b'.')) {

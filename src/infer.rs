@@ -701,7 +701,10 @@ impl Cx<'_> {
                             let mut later = env.clone();
                             later.insert(m.clone(), mt.clone());
                             let was = self.entry_look;
-                            self.entry_look = mt == Hole && matches!(acc, Map(..) | Hole);
+                            // A list of empty items (`txns = [{}]`, `log = txns[-1]`) is the same: what the
+                            // copy is indexed or filled with shows its item type.
+                            let list_hole = matches!(acc, List(e) if **e == Hole);
+                            self.entry_look = mt == Hole && (matches!(acc, Map(..) | Hole) || list_hole);
                             self.look(m, &stmts[i + 1..], tail, &mut later, &mut mt);
                             if let Some(tl) = tail {
                                 self.look_expr(m, tl, &mut later, &mut mt);

@@ -8,6 +8,16 @@ use std::collections::{HashMap, HashSet};
 pub const PRELUDE: &str = concat!("#![allow(warnings)]\n", include_str!("alloc_rt.rs"), include_str!("fsscope.rs"), include_str!("prelude.rs"));
 
 const BUILTINS: &[&str] = &["__shared", "print", "read", "write", "args", "input", "stdin", "lines", "str", "fail", "json", "csv", "date", "abs", "min", "max", "heap", "none", "__global", "__try", "__err", "__err_raw", "__exc", "__exc_is", "__exc_obj", "__exc_get", "__default", "__zero", "__truediv", "__readline", "__try_read", "__eprint"];
+// The id in a call spelling a sentinel made by pysentinel.rs (`__sent0()`).
+fn sent_id(name: &str) -> Option<usize> {
+    name.strip_prefix("__sent").and_then(|s| s.parse().ok())
+}
+fn sentinel_call(e: &Expr) -> Option<usize> {
+    match e {
+        Expr::Call(name, args, _) if args.is_empty() => sent_id(name),
+        _ => None,
+    }
+}
 const FALLIBLE_BUILTINS: &[&str] = &["read", "write", "json", "date"];
 pub const METHODS: &[&str] = &[
     "abs", "add_days", "all", "any", "big", "day", "days", "dec", "digit", "or", "ceil", "chars", "contains", "count", "ends_with", "enumerate", "filter", "first",
@@ -2082,7 +2092,11 @@ impl Emitter {
             Stmt::Expr { expr, .. } => format!("{};", self.stmt_expr(expr)),
             Stmt::Return { value, .. } => {
                 let mut v = value.as_ref().map(|v| self.expr(v)).unwrap_or_else(|| "()".into());
-                if self.json_ret && matches!(value, Some(Expr::Call(n, a, _)) if n == "none" && a.is_empty()) {
+                if self.json_ret && value.as_ref().is_some_and(|v| sentinel_call(v).is_some()) {
+                    // `return MISSING` from a function giving JSON values: the JSON sentinel itself.
+                    let id = sentinel_call(value.as_ref().unwrap()).unwrap();
+                    v = format!("Json::Tup {{ v: vec![Json::Str {{ v: ax_sent_str({id}) }}] }}");
+                } else if self.json_ret && matches!(value, Some(Expr::Call(n, a, _)) if n == "none" && a.is_empty()) {
                     // `return None` from a function giving JSON values: JSON null.
                     v = "Json::Null".into();
                 } else if self.json_ret && value.is_some() {
@@ -2305,6 +2319,13 @@ impl Emitter {
             Expr::Tuple(items) => format!("({})", items.iter().map(|i| self.expr(i)).collect::<Vec<_>>().join(", ")),
             Expr::Unary(op, a) if *op == "!" => format!("(!{})", self.cond(a)),
             Expr::Unary(op, a) => format!("({op}{})", self.expr(a)),
+            // `v is MISSING` / `v is not MISSING`: identity with the sentinel the name was made from.
+            Expr::Binary(op @ ("==" | "!="), a, b) if sentinel_call(a).is_some() || sentinel_call(b).is_some() => {
+                let (sent, other) = if sentinel_call(a).is_some() { (a, b) } else { (b, a) };
+                let id = sentinel_call(sent).unwrap();
+                let t = format!("AxSentVal::<{id}>::is(&{})", self.operand(other));
+                if *op == "==" { t } else { format!("!{t}") }
+            }
             // Python-style truth: an empty list, map or string, 0 and "" are false.
             Expr::Binary(op @ ("and" | "or"), a, b) => format!("({} {} {})", self.cond(a), if *op == "and" { "&&" } else { "||" }, self.cond(b)),
             // `x in ("a", "b")`: a tuple of like values is searched as a list.
@@ -2739,6 +2760,17 @@ impl Emitter {
     fn call(&mut self, name: &str, args: &[(Option<String>, Expr)], tried: bool) -> String {
         if !tried && self.call_is_fallible(&Expr::Call(name.into(), vec![], 0)) {
             self.diag(self.line, &format!("{name}() can fail but its error is not handled"), Some(format!("write {name}(...)? to pass the error up")));
+        }
+        // `MISSING = object()` made a sentinel (`__sent0()`); its type is the slot it is put in.
+        if let Some(id) = sent_id(name) {
+            return format!("AxSentVal::<{id}>::make()");
+        }
+        // A sentinel put straight into a JSON slot (`return MISSING` from a function giving JSON values):
+        // make the JSON form directly, so Rust has no other type to choose from.
+        if (name == "ax_to_json" || name == "ax_tup_json") && args.len() == 1 {
+            if let Some(id) = sentinel_call(&args[0].1) {
+                return format!("Json::Tup {{ v: vec![Json::Str {{ v: ax_sent_str({id}) }}] }}");
+            }
         }
         // A copy that is only wrong when the value is not shared: the Rust compiler checks the value's type,
         // and an error there reports the message carried (hex) in the comment.
