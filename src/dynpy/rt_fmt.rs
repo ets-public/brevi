@@ -992,11 +992,13 @@ pub fn parse_int(t: &str, base: u32) -> Option<V> {
     }
     let digits: String = body.chars().filter(|&c| c != '_').collect();
     if !digits.chars().all(|c| c.is_digit(base)) {
-        // allow non-ascii digits for base 10
-        if base == 10 {
-            if let Some(d) = digits.chars().map(|c| uni_decimal(c).map(|x| std::char::from_digit(x, 10).unwrap())).collect::<Option<String>>() {
-                return parse_int(&format!("{}{}", if neg { "-" } else { "" }, d), 10);
-            }
+        // Unicode decimal digits read as their values in any base (`int("१२३", 16)` is 0x123).
+        let mapped: String = digits.chars().map(|c| match uni_decimal(c) {
+            Some(x) => std::char::from_digit(x, 10).unwrap(),
+            None => c,
+        }).collect();
+        if mapped != digits {
+            return parse_int(&format!("{}{}", if neg { "-" } else { "" }, mapped), base);
         }
         return None;
     }

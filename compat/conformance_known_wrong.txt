@@ -33,7 +33,6 @@ test_grammar.GrammarTests.test_comprehension_specials dyn
 test_grammar.GrammarTests.test_comprehension_specials normal
 test_grammar.GrammarTests.test_selectors dyn
 test_grammar.GrammarTests.test_selectors normal
-test_int.IntTestCases.test_unicode normal
 test_list.ListTest.test_iterator_pickle dyn
 test_list.ListTest.test_iterator_pickle normal
 test_list.ListTest.test_reversed_pickle dyn

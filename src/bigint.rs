@@ -331,16 +331,18 @@ fn idents(dbg: &str) -> HashSet<String> {
 const ARITH: &[&str] = &["+", "-", "*", "//", "%"];
 const CMP: &[&str] = &["==", "!=", "<", ">", "<=", ">="];
 
-// int(x) on something that reads as text: parts[0], s.strip(), input().
+// int(x) / int(x, base) on something that reads as text: a string literal, parts[0], s.strip(), input().
 fn from_text(e: &Expr) -> bool {
+    let text = |r: &Expr| match r {
+        Expr::Index(..) => true,
+        Expr::Str(_) => true,
+        Expr::Method(_, t, _, _) => t.starts_with("trim") || t == "lower" || t == "upper",
+        Expr::Call(f, _, _) if BIGF.with(|b| b.borrow().contains(f)) => true,
+        Expr::Call(f, a, _) => f == "input" && a.len() <= 1,
+        _ => false,
+    };
     match e {
-        Expr::Method(r, m, a, _) if m == "int" && a.is_empty() => match r.as_ref() {
-            Expr::Index(..) => true,
-            Expr::Method(_, t, _, _) => t.starts_with("trim") || t == "lower" || t == "upper",
-            Expr::Call(f, _, _) if BIGF.with(|b| b.borrow().contains(f)) => true,
-            Expr::Call(f, a, _) => f == "input" && a.len() <= 1,
-            _ => false,
-        },
+        Expr::Method(r, m, a, _) if m == "int" && a.is_empty() || m == "int_base" && a.len() == 1 => text(r),
         _ => false,
     }
 }
@@ -580,6 +582,7 @@ impl Scan<'_> {
                 self.expr(v, false);
             }),
             Expr::Call(_, args, _) => args.iter().for_each(|(_, a)| self.expr(a, false)),
+            Expr::Method(r, m, args, _) if args.is_empty() && m == "py_repr" => self.expr(r, ok),
             Expr::Method(r, _, args, _) => {
                 self.expr(r, false);
                 args.iter().for_each(|a| self.expr(a, false));
@@ -686,7 +689,7 @@ fn conv(e: &mut Expr, c: &HashSet<String>) {
         }
         e if from_text(e) => {
             if let Expr::Method(_, m, _, _) = e {
-                *m = "big".into();
+                *m = if m == "int_base" { "big_base" } else { "big" }.into();
             }
         }
         Expr::Binary(_, a, b) => {
@@ -765,6 +768,7 @@ fn rewrite(e: &mut Expr, c: &HashSet<String>, _in: bool) {
             rewrite(v, c, false);
         }),
         Expr::Call(_, args, _) => args.iter_mut().for_each(|(_, a)| rewrite(a, c, false)),
+        Expr::Method(r, m, args, _) if args.is_empty() && m == "py_repr" => printed(r, c),
         Expr::Method(r, _, args, _) => {
             rewrite(r, c, false);
             args.iter_mut().for_each(|a| rewrite(a, c, false));
@@ -803,7 +807,13 @@ fn tuple_pat(ts: &[Expr]) -> Pat {
 
 // print(int(p[0]) + int(p[1])): sums of int(text) printed straight away are big too.
 fn printed(e: &mut Expr, c: &HashSet<String>) {
-    if matches!(e, Expr::Method(r, m, a, _) if m == "int" && a.is_empty() && big_call(r)) || matches!(e, Expr::Binary(op, ..) if ARITH.contains(op)) && bigable(e, c) && mentions(e, c) {
+    // repr(x) shows x itself; int(text) inside it is still printed.
+    if let Expr::Method(r, m, a, _) = e {
+        if a.is_empty() && m == "py_repr" {
+            return printed(r, c);
+        }
+    }
+    if bigable(e, c) && mentions(e, c) {
         conv(e, c);
     } else {
         rewrite(e, c, false);

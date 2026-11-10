@@ -1198,7 +1198,7 @@ impl Cx<'_> {
             "m_isnan" | "m_isinf" | "m_isfinite" => Bool,
             m if m.starts_with("m_") => F64,
             "dec" | "quantize" | "frac" | "frac_div" => Dec,
-            "big" => Big,
+            "big" | "big_base" => Big,
             "char" | "fmt" | "spec" | "py_repr" | "py_dumps" | "trim" | "trim_of" | "trim_end" | "trim_end_of" | "trim_start" | "trim_start_of" | "lower" | "upper" | "replace" | "re_sub" | "text" | "zfill" | "title" | "center" | "center_with" | "capitalize" | "ljust" | "rjust" | "ljust_with" | "rjust_with" => Str,
             "list" => List(Box::new(Json)),
             "repeat" | "slice" | "slice_step" | "rev" if matches!(r, Str) => Str,

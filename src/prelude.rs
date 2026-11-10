@@ -1252,34 +1252,58 @@ pub fn ax_show_set<T: Show + 'static>(xs: &Vec<T>) -> String {
 pub trait AxIntBase {
     fn ax_int_base(&self, base: i64) -> R<i64>;
 }
+// The shared reading of int(s, base): the sign, the real base and the clean digits. Unicode decimal
+// digits read as their values in any base (`int("१२३", 0)` is 123); base 0 rejects a decimal that
+// starts with 0.
+fn ax_int_parts(s: &str, base: i64) -> R<(bool, u32, String)> {
+    let bad = || AxErr(format!("invalid literal for int() with base {base}: {}", ax_py_repr(s)));
+    let t = s.trim();
+    let (neg, t) = match t.strip_prefix('-') {
+        Some(r) => (true, r),
+        None => (false, t.strip_prefix('+').unwrap_or(t)),
+    };
+    let low = t.to_ascii_lowercase();
+    let pre = |p: &str| low.starts_with(p);
+    let (b, digits) = match base {
+        0 if pre("0x") => (16, &t[2..]),
+        0 if pre("0o") => (8, &t[2..]),
+        0 if pre("0b") => (2, &t[2..]),
+        0 => (10, t),
+        16 if pre("0x") => (16, &t[2..]),
+        8 if pre("0o") => (8, &t[2..]),
+        2 if pre("0b") => (2, &t[2..]),
+        2..=36 => (base as u32, t),
+        _ => return Err(AxErr("int() base must be >= 2 and <= 36, or 0".into())),
+    };
+    let digits = digits.strip_prefix('_').filter(|_| digits.len() < t.len()).unwrap_or(digits);
+    if digits.is_empty() || digits.starts_with('_') || digits.ends_with('_') || digits.contains("__") {
+        return Err(bad());
+    }
+    if base == 0 && b == 10 && digits.len() > 1 && digits.starts_with('0') && digits.chars().any(|c| c != '0' && c != '_') {
+        return Err(bad());
+    }
+    let digits: String = digits.chars().filter(|&c| c != '_').map(|c| ax_uni_digit(c)).collect();
+    if !digits.chars().all(|c| c.is_digit(b)) {
+        return Err(bad());
+    }
+    Ok((neg, b, digits))
+}
 impl AxIntBase for String {
     fn ax_int_base(&self, base: i64) -> R<i64> {
         let bad = || AxErr(format!("invalid literal for int() with base {base}: {}", ax_py_repr(self)));
-        let t = self.trim();
-        let (neg, t) = match t.strip_prefix('-') {
-            Some(r) => (true, r),
-            None => (false, t.strip_prefix('+').unwrap_or(t)),
-        };
-        let low = t.to_ascii_lowercase();
-        let pre = |p: &str| low.starts_with(p);
-        let (b, digits) = match base {
-            0 if pre("0x") => (16, &t[2..]),
-            0 if pre("0o") => (8, &t[2..]),
-            0 if pre("0b") => (2, &t[2..]),
-            0 => (10, t),
-            16 if pre("0x") => (16, &t[2..]),
-            8 if pre("0o") => (8, &t[2..]),
-            2 if pre("0b") => (2, &t[2..]),
-            2..=36 => (base as u32, t),
-            _ => return Err(AxErr("int() base must be >= 2 and <= 36, or 0".into())),
-        };
-        let digits = digits.strip_prefix('_').filter(|_| digits.len() < t.len()).unwrap_or(digits);
-        if digits.is_empty() || digits.starts_with('_') || digits.ends_with('_') || digits.contains("__") {
-            return Err(bad());
-        }
-        // base 10 takes any Unicode decimal digit (`int("१२३", 0)` is 123)
-        let digits: String = digits.chars().filter(|&c| c != '_').map(|c| if b == 10 { ax_uni_digit(c) } else { c }).collect();
+        let (neg, b, digits) = ax_int_parts(self, base)?;
         let v = i64::from_str_radix(&digits, b).map_err(|_| bad())?;
+        Ok(if neg { -v } else { v })
+    }
+}
+// The big-integer reading of int(s, base), for when the value may outgrow 64 bits.
+pub trait AxBigBase {
+    fn ax_big_base(&self, base: i64) -> R<Big>;
+}
+impl AxBigBase for String {
+    fn ax_big_base(&self, base: i64) -> R<Big> {
+        let (neg, b, digits) = ax_int_parts(self, base)?;
+        let v = Big::from_digits(&digits, b);
         Ok(if neg { -v } else { v })
     }
 }
@@ -3445,18 +3469,42 @@ impl Big {
             Some(r) => (true, r),
             None => (false, t.strip_prefix('+').unwrap_or(t)),
         };
+        // Python's int(s) reads Unicode decimal digits and drops underscores between digits.
+        let digits: String = digits.chars().map(ax_uni_digit).collect();
+        let digits = ax_py_digits(&digits);
         if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_digit()) {
             return Err(AxErr(format!("not an int: {s:?}")));
         }
-        let bytes = digits.as_bytes();
-        let mut mag = Vec::new();
-        let mut end = bytes.len();
-        while end > 0 {
-            let start = end.saturating_sub(9);
-            mag.push(std::str::from_utf8(&bytes[start..end]).unwrap().parse::<u32>().unwrap());
-            end = start;
+        let v = Big::from_digits(&digits, 10);
+        Ok(if neg { -v } else { v })
+    }
+    // digits: clean ASCII digits in radix (2..=36), with the sign already taken off.
+    pub fn from_digits(digits: &str, radix: u32) -> Big {
+        if radix == 10 {
+            let bytes = digits.as_bytes();
+            let mut mag = Vec::new();
+            let mut end = bytes.len();
+            while end > 0 {
+                let start = end.saturating_sub(9);
+                mag.push(std::str::from_utf8(&bytes[start..end]).unwrap().parse::<u32>().unwrap());
+                end = start;
+            }
+            return Big::make(false, mag);
         }
-        Ok(Big::make(neg, mag))
+        let mut mag: Vec<u32> = Vec::new();
+        for c in digits.chars() {
+            let mut carry = c.to_digit(radix).unwrap_or(0) as u64;
+            for w in mag.iter_mut() {
+                let x = *w as u64 * radix as u64 + carry;
+                *w = (x % BIG_BASE) as u32;
+                carry = x / BIG_BASE;
+            }
+            while carry > 0 {
+                mag.push((carry % BIG_BASE) as u32);
+                carry /= BIG_BASE;
+            }
+        }
+        Big::make(false, mag)
     }
 }
 impl PartialOrd for Big {
@@ -3643,7 +3691,14 @@ pub trait AxStrBig {
 }
 impl AxStrBig for String {
     fn ax_big(&self) -> R<Big> {
-        Big::parse(self)
+        match ax_int_parts(self, 10) {
+            Ok((neg, _, digits)) => {
+                let v = Big::from_digits(&digits, 10);
+                Ok(if neg { -v } else { v })
+            }
+            Err(e) if ax_py_on() => Err(e),
+            Err(_) => Err(AxErr(format!("not an int: {self:?}"))),
+        }
     }
 }
 
