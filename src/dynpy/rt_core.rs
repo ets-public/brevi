@@ -2160,6 +2160,9 @@ impl Obj {
     }
     // o.name for the runtime's own bookkeeping (exception args, enum values, ...), where those objects never
     // hold a managed dict.
+    pub fn take_inner(&self) -> Option<Box<V>> {
+        self.inner.borrow_mut().take()
+    }
     pub fn get(&self, n: &str) -> Option<V> {
         self.get_attr(n).ok().flatten()
     }
