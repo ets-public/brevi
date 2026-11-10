@@ -1313,7 +1313,7 @@ pub fn np_method(x: &NdArr, me: &V, n: &str, a: &mut Args) -> R {
             return Err(np_store_err(d, &format!(".{n}()")));
         }
     }
-    if (x.dt().narrow() || np_narrow_args(a)) && !NP_NARROW_METHODS.contains(&n) && n != "astype" {
+    if (x.dt().narrow() || np_narrow_args(a)) && !NP_NARROW_METHODS.contains(&n) && n != "astype" && !(n == "dot" && np_f32_simd()) {
         return Err(np_unsup(&format!(".{n}() of a {} array", x.dt().name())));
     }
     if (x.dt().is_u() || a.p.iter().any(np_is_str)) && !NP_STR_METHODS.contains(&n) {
@@ -1794,7 +1794,7 @@ pub fn np_module_call(m: &str, n: &str, mut a: Args) -> R {
         let d = a.p.iter().chain(a.k.iter().map(|(_, v)| v)).find_map(np_store_dt).unwrap();
         return Err(np_store_err(d, &format!("{}{n}()", if m == "numpy" { "np.".to_string() } else { format!("{m}.") })));
     }
-    if (m != "numpy" || !NP_NARROW_OK.contains(&n)) && !(m == "numpy.linalg" && n == "norm") {
+    if (m != "numpy" || !NP_NARROW_OK.contains(&n)) && !(m == "numpy.linalg" && n == "norm") && !(m == "numpy" && matches!(n, "dot" | "matmul") && np_f32_simd()) {
         if np_narrow_args(&a) {
             return Err(np_unsup(&format!("{}{n}() of float32 or int32 values", if m == "numpy" { "np.".to_string() } else { format!("{m}.") })));
         }

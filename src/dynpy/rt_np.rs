@@ -2072,6 +2072,785 @@ fn np_ddot(x: &[f64], y: &[f64], unit: bool) -> f64 {
     }
     d
 }
+// ---------- float32 dot / gemv / gemm: OpenBLAS's SkylakeX kernels (the ones numpy 2.5.x picks on
+// AVX-512), bit for bit. sdot.c + sdot_microk_skylakex-2.c for dot; sgemv_t_4.c / sgemv_n_4.c with
+// their haswell microkernels and skylakex small kernels for matrix-vector; sgemm's direct kernel
+// (sgemm_direct_skylakex.c), small kernels (sgemm_small_kernel_*_skylakex.c) and the 16x4 kernel
+// (sgemm_kernel_16x4_skylakex_3.c) through level3.c / level3_thread.c. These run only when the CPU is
+// AVX-512 (np_f32_simd), matching the numpy ufunc gate. -------------
+fn f32_ncpu() -> usize {
+    std::thread::available_parallelism().map_or(1, |v| v.get()).min(64)
+}
+// numpy's float32 dot of two vectors (FLOAT_dot, one cblas_sdot call; the 2048 chunk is unreachable
+// with ILP64 ints). This is sdot.c's strided and unit paths with sdot_microk_skylakex-2.c's kernel.
+fn sdot32_1(x: &[f32], y: &[f32], unit: bool) -> f32 {
+    let n = x.len();
+    if !unit {
+        // inc != 1: the second product is rounded, then fused into the first product's FMA, and the
+        // pair is added to a double accumulator
+        let mut d = 0.0f64;
+        let n1 = n & !1;
+        let mut i = 0;
+        while i < n1 {
+            d += np_fmaf(x[i], y[i], x[i + 1] * y[i + 1]) as f64;
+            i += 2;
+        }
+        if i < n {
+            d += (y[i] * x[i]) as f64;
+        }
+        return d as f32;
+    }
+    let n1 = n & !31;
+    let mut mydot = 0.0f32;
+    if n1 > 0 {
+        // 64-blocks in four 16-lane FMA accumulators, folded into four 8-lane ones, then 32-blocks
+        let n64 = n1 & !63;
+        let mut a = [[0.0f32; 16]; 4];
+        let mut i = 0;
+        while i < n64 {
+            for j in 0..4 {
+                for l in 0..16 {
+                    a[j][l] = np_fmaf(x[i + 16 * j + l], y[i + 16 * j + l], a[j][l]);
+                }
+            }
+            i += 64;
+        }
+        let mut b = [[0.0f32; 8]; 4];
+        for j in 0..4 {
+            for l in 0..8 {
+                b[j][l] = a[j][l] + a[j][l + 8];
+            }
+        }
+        while i < n1 {
+            for j in 0..4 {
+                for l in 0..8 {
+                    b[j][l] = np_fmaf(x[i + 8 * j + l], y[i + 8 * j + l], b[j][l]);
+                }
+            }
+            i += 32;
+        }
+        // accum_0 = ((accum_0 + accum_1) + accum_2) + accum_3, then halves and two hadds
+        let mut c = [0.0f32; 8];
+        for l in 0..8 {
+            c[l] = ((b[0][l] + b[1][l]) + b[2][l]) + b[3][l];
+        }
+        let mut h = [0.0f32; 4];
+        for l in 0..4 {
+            h[l] = c[l] + c[l + 4];
+        }
+        mydot = (h[0] + h[1]) + (h[2] + h[3]);
+    }
+    // the tail is accumulated in double, then the float kernel result added and the sum rounded once
+    let mut d = 0.0f64;
+    for i in n1..n {
+        d += (y[i] * x[i]) as f64;
+    }
+    d += mydot as f64;
+    d as f32
+}
+// sgemv_t's kind-4 kernel (sgemv_t_microk_haswell-4.c): one row's dot over a k-block of `ml` values,
+// in eight FMA lanes of k mod 8 (the first 4 and next 8 when the block length has those bits), folded
+// (l + l+4) and hadd'd twice.
+fn sgemv_t_k4(a: &[f32], x: &[f32], off: usize, ml: usize) -> f32 {
+    let mut l = [0.0f32; 8];
+    let pre4 = if ml & 4 != 0 { 4 } else { 0 };
+    let pre8 = if ml & 8 != 0 { 8 } else { 0 };
+    if pre4 != 0 {
+        for t in 0..4 {
+            l[t] = np_fmaf(a[off + t], x[off + t], l[t]);
+        }
+    }
+    if pre8 != 0 {
+        for t in 0..8 {
+            l[t] = np_fmaf(a[off + pre4 + t], x[off + pre4 + t], l[t]);
+        }
+    }
+    let mut i = off + pre4 + pre8;
+    while i < off + ml {
+        for t in 0..8 {
+            l[t] = np_fmaf(a[i + t], x[i + t], l[t]);
+        }
+        for t in 0..8 {
+            l[t] = np_fmaf(a[i + 8 + t], x[i + 8 + t], l[t]);
+        }
+        i += 16;
+    }
+    let s0 = l[0] + l[4];
+    let s1 = l[1] + l[5];
+    let s2 = l[2] + l[6];
+    let s3 = l[3] + l[7];
+    (s0 + s1) + (s2 + s3)
+}
+// sgemv_t's 4x2 kernel: four mul+add lanes per row (the products round before each add), hadd'd twice
+fn sgemv_t_k2(a: &[f32], x: &[f32], off: usize, ml: usize) -> f32 {
+    let mut l = [0.0f32; 4];
+    let pre4 = if ml & 4 != 0 { 4 } else { 0 };
+    if pre4 != 0 {
+        for t in 0..4 {
+            l[t] += a[off + t] * x[off + t];
+        }
+    }
+    let mut i = off + pre4;
+    while i < off + ml {
+        for t in 0..4 {
+            l[t] += a[i + t] * x[i + t];
+        }
+        for t in 0..4 {
+            l[t] += a[i + 4 + t] * x[i + 4 + t];
+        }
+        i += 8;
+    }
+    (l[0] + l[1]) + (l[2] + l[3])
+}
+// sgemv_t's 4x1 kernel: two 4-lane mul+add accumulators (k mod 8), folded and hadd'd twice
+fn sgemv_t_k1(a: &[f32], x: &[f32], off: usize, ml: usize) -> f32 {
+    let mut l0 = [0.0f32; 4];
+    let mut l1 = [0.0f32; 4];
+    let pre4 = if ml & 4 != 0 { 4 } else { 0 };
+    if pre4 != 0 {
+        for t in 0..4 {
+            l0[t] += a[off + t] * x[off + t];
+        }
+    }
+    let mut i = off + pre4;
+    while i < off + ml {
+        for t in 0..4 {
+            l0[t] += a[i + t] * x[i + t];
+        }
+        for t in 0..4 {
+            l1[t] += a[i + 4 + t] * x[i + 4 + t];
+        }
+        i += 8;
+    }
+    let s0 = l1[0] + l0[0];
+    let s1 = l1[1] + l0[1];
+    let s2 = l1[2] + l0[2];
+    let s3 = l1[3] + l0[3];
+    (s0 + s1) + (s2 + s3)
+}
+// one row of sgemv_t (a is that row, x the vector): k split into 4096-blocks and the last partial
+// block (the driver's NB loop), each block's kernel result added into y; then the 1..3 tail (the
+// driver's m3 scalar paths, which the compiled binary fuses into one FMA with the add into y).
+fn sgemv_t_row32(a: &[f32], x: &[f32], kind: usize) -> f32 {
+    let k = a.len();
+    let m3 = k & 3;
+    let m2 = (k & 4095) - m3;
+    let mut left = (k & !3) as isize;
+    let mut nb = 4096usize;
+    let mut y = 0.0f32;
+    let mut off = 0;
+    while nb == 4096 {
+        left -= nb as isize;
+        if left < 0 {
+            if m2 == 0 {
+                break;
+            }
+            nb = m2;
+        }
+        y += match kind {
+            2 => sgemv_t_k2(a, x, off, nb),
+            1 => sgemv_t_k1(a, x, off, nb),
+            _ => sgemv_t_k4(a, x, off, nb),
+        };
+        off += nb;
+    }
+    let kk = k - m3;
+    match m3 {
+        1 => np_fmaf(a[kk], x[kk], y),
+        2 => y + np_fmaf(a[kk], x[kk], a[kk + 1] * x[kk + 1]),
+        3 => y + np_fmaf(a[kk + 2], x[kk + 2], np_fmaf(a[kk], x[kk], a[kk + 1] * x[kk + 1])),
+        _ => y,
+    }
+}
+// the products of one small-kernel row, and a left fold over them ((p0+p1)+p2)+...
+fn small_prod(a: &[f32], k: usize, r: usize, x: &[f32]) -> Vec<f32> {
+    (0..k).map(|c| a[r * k + c] * x[c]).collect()
+}
+fn small_fold(p: &[f32]) -> f32 {
+    let mut s = 0.0f32;
+    for &v in p {
+        s += v;
+    }
+    s
+}
+// the small kernel's fma chain fma(x[k-1], a[k-1], ... fma(x[1], a[1], a[0]*x[0]))
+fn small_chain(a: &[f32], k: usize, r: usize, x: &[f32]) -> f32 {
+    let mut s = a[r * k] * x[0];
+    for c in 1..k {
+        s = np_fmaf(x[c], a[r * k + c], s);
+    }
+    s
+}
+// sgemv_t's SkylakeX small kernel (lda == m <= 8 and n <= 16384, sgemv_t_microk_skylakex_template.c).
+// Rows come in 16/8/4/2-blocks with the forms below; the last odd row is the kernel's 1-row tail.
+// Products round first (alpha is folded into x, so a*x*alpha with alpha=1 is a*x).
+fn sgemv_t_small32(a: &[f32], m: usize, k: usize, x: &[f32]) -> Vec<f32> {
+    let mut y = vec![0.0f32; m];
+    let p = |r: usize| small_prod(a, k, r, x);
+    match k {
+        1 => {
+            for r in 0..m {
+                y[r] = a[r] * x[0];
+            }
+        }
+        2 => {
+            let n16 = m & !15;
+            for r in 0..n16 {
+                y[r] = np_fmaf(x[1], a[r * 2 + 1], a[r * 2] * x[0]);
+            }
+            for r in n16..m {
+                y[r] = a[r * 2 + 1] * x[1] + a[r * 2] * x[0];
+            }
+        }
+        3 => {
+            for r in 0..m {
+                y[r] = small_chain(a, 3, r, x);
+            }
+        }
+        4 => {
+            let n2 = m & !1;
+            for r in 0..n2 {
+                let p = p(r);
+                y[r] = (p[0] + p[1]) + (p[2] + p[3]);
+            }
+            if m & 1 != 0 {
+                y[m - 1] = small_fold(&p(m - 1));
+            }
+        }
+        5 => {
+            let n4 = m & !3;
+            for r in 0..n4 {
+                y[r] = small_chain(a, 5, r, x);
+            }
+            for r in n4..m {
+                y[r] = small_fold(&p(r));
+            }
+        }
+        6 => {
+            let n8 = m & !7;
+            for r in 0..n8 {
+                y[r] = small_chain(a, 6, r, x);
+            }
+            let n4 = m & !3;
+            for r in n8..n4 {
+                let p = p(r);
+                y[r] = (p[0] + (p[1] + p[2])) + (p[3] + (p[4] + p[5]));
+            }
+            for r in n4..m {
+                y[r] = small_fold(&p(r));
+            }
+        }
+        7 => {
+            let n8 = m & !7;
+            for r in 0..n8 {
+                y[r] = small_chain(a, 7, r, x);
+            }
+            let n4 = m & !3;
+            for r in n8..n4 {
+                let p = p(r);
+                y[r] = ((p[0] + p[1]) + p[6]) + ((p[2] + p[3]) + (p[4] + p[5]));
+            }
+            for r in n4..m {
+                y[r] = small_fold(&p(r));
+            }
+        }
+        _ => {
+            // 8-row groups and 4-row groups sum the eight products ((p0+p1)+(p2+p3))+((p4+p5)+(p6+p7));
+            // the 2-row tail pairs (p0+p1)+(p4+p5) with (p2+p3)+(p6+p7); the last odd row is the t_8
+            // 1-row tail ((p0+p4)+(p1+p5))+(p2+p6))+(p3+p7).
+            let n4 = m & !3;
+            let n2 = m & !1;
+            for r in 0..n4 {
+                let p = p(r);
+                y[r] = ((p[0] + p[1]) + (p[2] + p[3])) + ((p[4] + p[5]) + (p[6] + p[7]));
+            }
+            for r in n4..n2 {
+                let p = p(r);
+                y[r] = ((p[0] + p[1]) + (p[4] + p[5])) + ((p[2] + p[3]) + (p[6] + p[7]));
+            }
+            if m & 1 != 0 {
+                let r = m - 1;
+                let p = p(r);
+                y[r] = (((p[0] + p[4]) + (p[1] + p[5])) + (p[2] + p[6])) + (p[3] + p[7]);
+            }
+        }
+    }
+    y
+}
+// matrix @ vector for a C-ordered matrix (sgemv_t). From 115200 * 4 values OpenBLAS splits the rows
+// across its threads (gemv_thread.c); each chunk reruns the driver, so only the last 1-3 rows of each
+// chunk take the kind-2/kind-1 kernels and the x-block sums do not depend on the split.
+fn np_sgemv_t(a: &[f32], m: usize, k: usize, x: &[f32]) -> Vec<f32> {
+    let mut y = vec![0.0f32; m];
+    let nt = if m * k < 460800 { 1 } else { f32_ncpu() };
+    let chunks = if nt > 1 { np_gemv_split(m, nt) } else { vec![(0, m)] };
+    for (r0, len) in chunks {
+        let full = len / 4 * 4;
+        for j in 0..len {
+            let kind = if j < full {
+                4
+            } else if len % 4 >= 2 && j < full + 2 {
+                2
+            } else {
+                1
+            };
+            y[r0 + j] = sgemv_t_row32(&a[(r0 + j) * k..(r0 + j + 1) * k], x, kind);
+        }
+    }
+    y
+}
+// one 8-column group of sgemv_n's 4x8 kernel over rows r0..r0+nb of the column-major matrix: the
+// first (nb&4)+(nb&8) rows take the even/odd two-chain form, the rest one FMA chain over all eight
+// columns; the group is added into y (alpha is 1).
+fn sgemv_n_g8(a: &[f32], m: usize, r0: usize, nb: usize, c0: usize, x: &[f32], y: &mut [f32]) {
+    let lim = (nb & 4) + (nb & 8);
+    for r in 0..nb {
+        let t = if r < lim {
+            let e = np_fmaf(a[r0 + r + (c0 + 6) * m], x[c0 + 6], np_fmaf(a[r0 + r + (c0 + 4) * m], x[c0 + 4], np_fmaf(a[r0 + r + (c0 + 2) * m], x[c0 + 2], a[r0 + r + c0 * m] * x[c0])));
+            let o = np_fmaf(a[r0 + r + (c0 + 7) * m], x[c0 + 7], np_fmaf(a[r0 + r + (c0 + 5) * m], x[c0 + 5], np_fmaf(a[r0 + r + (c0 + 3) * m], x[c0 + 3], a[r0 + r + (c0 + 1) * m] * x[c0 + 1])));
+            e + o
+        } else {
+            let mut t = a[r0 + r + c0 * m] * x[c0];
+            for c in 1..8 {
+                t = np_fmaf(a[r0 + r + (c0 + c) * m], x[c0 + c], t);
+            }
+            t
+        };
+        y[r] += t;
+    }
+}
+// one 4-column group of sgemv_n's 4x4 kernel, same phase split as the 4x8 kernel
+fn sgemv_n_g4(a: &[f32], m: usize, r0: usize, nb: usize, c0: usize, x: &[f32], y: &mut [f32]) {
+    let lim = (nb & 4) + (nb & 8);
+    for r in 0..nb {
+        let t = if r < lim {
+            let e = np_fmaf(a[r0 + r + (c0 + 2) * m], x[c0 + 2], a[r0 + r + c0 * m] * x[c0]);
+            let o = np_fmaf(a[r0 + r + (c0 + 3) * m], x[c0 + 3], a[r0 + r + (c0 + 1) * m] * x[c0 + 1]);
+            e + o
+        } else {
+            let mut t = a[r0 + r + c0 * m] * x[c0];
+            for c in 1..4 {
+                t = np_fmaf(a[r0 + r + (c0 + c) * m], x[c0 + c], t);
+            }
+            t
+        };
+        y[r] += t;
+    }
+}
+// the n_64 kernel's 2-column group (n2 & 2): pair = fma(a1,x1,a0*x0), added into y
+fn sgemv_n_g2(a: &[f32], m: usize, r0: usize, nb: usize, c0: usize, x: &[f32], y: &mut [f32]) {
+    for r in 0..nb {
+        y[r] += np_fmaf(a[r0 + r + (c0 + 1) * m], x[c0 + 1], a[r0 + r + c0 * m] * x[c0]);
+    }
+}
+// the n_64 kernel's 1-column group (n2 & 1): a rounded product added into y
+fn sgemv_n_g1(a: &[f32], m: usize, r0: usize, nb: usize, c0: usize, x: &[f32], y: &mut [f32]) {
+    for r in 0..nb {
+        y[r] += a[r0 + r + c0 * m] * x[c0];
+    }
+}
+// one call of sgemv_n (kernel/x86_64/sgemv_n_4.c on SkylakeX) over rows r0..r0+rn and columns
+// c0..c0+cn of the column-major m x k matrix a (lda m); x holds the vector's values. y starts at 0.
+fn np_sgemv_n_part(a: &[f32], m: usize, r0: usize, rn: usize, c0: usize, cn: usize, x: &[f32], unit: bool) -> Vec<f32> {
+    let mut y = vec![0.0f32; rn];
+    if rn == 0 || cn == 0 {
+        return y;
+    }
+    // sgemv_kernel_n_128 (the SkylakeX small kernel): one FMA chain per row over all the columns
+    if rn <= 16384 && cn <= 48 && cn != 4 {
+        for r in 0..rn {
+            let mut s = a[r0 + r + c0 * m] * x[c0];
+            for c in 1..cn {
+                s = np_fmaf(a[r0 + r + (c0 + c) * m], x[c0 + c], s);
+            }
+            y[r] = s;
+        }
+        return y;
+    }
+    let (n1, n2) = if unit { (cn >> 3, cn & 7) } else { (cn >> 2, cn & 3) };
+    let m3 = rn & 3;
+    let m2 = (rn & 4095) - m3;
+    let mut m1 = (rn & !3) as isize;
+    let mut nb = 4096usize;
+    let mut row = 0usize;
+    // the driver's NB blocks: 4096 rows, then the partial block, then the m3 scalar tail rows
+    while nb == 4096 {
+        m1 -= nb as isize;
+        if m1 < 0 {
+            if m2 == 0 {
+                break;
+            }
+            nb = m2;
+        }
+        if unit {
+            let mut cp = c0;
+            for _ in 0..n1 {
+                sgemv_n_g8(a, m, r0 + row, nb, cp, x, &mut y[row..row + nb]);
+                cp += 8;
+            }
+            if n2 & 4 != 0 {
+                sgemv_n_g4(a, m, r0 + row, nb, cp, x, &mut y[row..row + nb]);
+                cp += 4;
+            }
+            if n2 & 2 != 0 {
+                sgemv_n_g2(a, m, r0 + row, nb, cp, x, &mut y[row..row + nb]);
+                cp += 2;
+            }
+            if n2 & 1 != 0 {
+                sgemv_n_g1(a, m, r0 + row, nb, cp, x, &mut y[row..row + nb]);
+            }
+        } else {
+            // inc_x != 1: the driver buffers x and runs 4-column groups plus single columns
+            let mut cp = c0;
+            for _ in 0..n1 {
+                sgemv_n_g4(a, m, r0 + row, nb, cp, x, &mut y[row..row + nb]);
+                cp += 4;
+            }
+            for _ in 0..n2 {
+                for r in 0..nb {
+                    y[row + r] += a[r0 + row + r + cp * m] * x[cp];
+                }
+                cp += 1;
+            }
+        }
+        row += nb;
+    }
+    // the 1..3 tail rows the driver's m3 scalar paths (the lda==m special forms for m <= 3)
+    let mut tail = |t: &mut [f32; 3], rr: usize| {
+        let pair = (m == 2 || m == 3) && unit;
+        for r in 0..m3 {
+            let (mut c, mut s) = (0, 0.0f32);
+            if pair {
+                while c + 4 <= cn {
+                    for h in [c, c + 2] {
+                        s += np_fmaf(a[r0 + rr + r + (c0 + h) * m], x[c0 + h], a[r0 + rr + r + (c0 + h + 1) * m] * x[c0 + h + 1]);
+                    }
+                    c += 4;
+                }
+            }
+            while c < cn {
+                s = np_fmaf(a[r0 + rr + r + (c0 + c) * m], x[c0 + c], s);
+                c += 1;
+            }
+            t[r] = s;
+        }
+    };
+    let mut t = [0.0f32; 3];
+    match m3 {
+        3 => {
+            tail(&mut t, row);
+            y[row] += t[0];
+            y[row + 1] += t[1];
+            y[row + 2] += t[2];
+        }
+        2 => {
+            tail(&mut t, row);
+            y[row] += t[0];
+            y[row + 1] += t[1];
+        }
+        1 => {
+            tail(&mut t, row);
+            y[row] += t[0];
+        }
+        _ => {}
+    }
+    y
+}
+// vector @ matrix (sgemv_n): a is the C-ordered matrix viewed as column-major (m rows, k columns),
+// x the vector. From 115200 * 4 values OpenBLAS splits the work across its threads (gemv_thread.c):
+// rows first (each chunk reruns the driver, which only changes which rows a kernel phase gets), or
+// the dot for few rows, whose parts are added back in thread order.
+fn np_sgemv_n(a: &[f32], m: usize, k: usize, x: &[f32], unit: bool) -> Vec<f32> {
+    let nt = if m * k < 460800 { 1 } else { f32_ncpu() };
+    if nt == 1 {
+        return np_sgemv_n_part(a, m, 0, m, 0, k, x, unit);
+    }
+    let rows = np_gemv_split(m, nt);
+    if rows.len() < nt && m * k > 9216 && m * nt <= 1024 {
+        let mut y = vec![0.0f32; m];
+        for (c0, cn) in np_gemv_split(k, nt) {
+            let p = np_sgemv_n_part(a, m, 0, m, c0, cn, x, unit);
+            for r in 0..m {
+                y[r] += p[r];
+            }
+        }
+        return y;
+    }
+    let mut y = vec![0.0f32; m];
+    let mut off = 0;
+    for (r0, rn) in rows {
+        let p = np_sgemv_n_part(a, m, r0, rn, 0, k, x, unit);
+        y[off..off + rn].copy_from_slice(&p);
+        off += rn;
+    }
+    y
+}
+// whether level3_thread actually threads an mm x nn (column-major) sgemm on nth threads
+// (SWITCH_RATIO and the grid of level3_thread.c for single precision)
+fn sgemm_threaded(mm: usize, nn: usize, nth: usize) -> bool {
+    if nth <= 1 {
+        return false;
+    }
+    let sr = 16usize;
+    let (mut nm, mut nnt) = (1usize, 1usize);
+    if mm >= 2 * sr {
+        nm = nth;
+        while mm < nm * sr {
+            nm /= 2;
+        }
+    }
+    if nn >= sr * nm {
+        nnt = nn.div_ceil(sr * nm);
+        if nm * nnt > nth {
+            nnt = nth / nm;
+        }
+        let (mut cost, mut div) = (0usize, 0usize);
+        let mut i = 1;
+        while i * i <= nm {
+            if nm % i == 0 {
+                let j = nm / i;
+                let (ci, cj) = (nn * j + mm * nnt * i, nn * i + mm * nnt * j);
+                if cost == 0 || ci < cost {
+                    cost = ci;
+                    div = i;
+                }
+                if cj < cost {
+                    cost = cj;
+                    div = j;
+                }
+            }
+            i += 1;
+        }
+        if div > 1 {
+            nm /= div;
+            nnt *= div;
+        }
+    }
+    nm * nnt > 1
+}
+// the regular sgemm: k split into blocks of SGEMM_DEFAULT_Q (448; the last partial block's size is
+// the same in level3.c and level3_thread.c), and each element of a block is one FMA chain over the
+// block, added into C per block (the 16x4 SkylakeX kernel keeps one lane per element). Threads split
+// rows and columns only, so the sums do not depend on the thread grid.
+fn np_sgemm(xv: &[f32], yv: &[f32], m: usize, k: usize, n: usize, xf: bool, yf: bool) -> Vec<f32> {
+    let q = 448usize;
+    let mut out = vec![0.0f32; m * n];
+    let b = |r: usize, c: usize, t: usize| if yf && !xf { yv[c * k + t] } else { yv[t * n + c] };
+    let mnk = m as f64 * n as f64 * k as f64;
+    let ncpu = f32_ncpu() as f64;
+    let nthreads = if mnk <= 262144.0 {
+        1
+    } else if mnk / ncpu < 262144.0 {
+        (mnk / 262144.0) as usize
+    } else {
+        ncpu as usize
+    };
+    let threaded = sgemm_threaded(n, m, nthreads);
+    let mut ls = 0;
+    while ls < k {
+        let mut ml = k - ls;
+        if ml >= 2 * q {
+            ml = q;
+        } else if ml > q {
+            ml = if threaded { ml.div_ceil(2) } else { (ml / 2).div_ceil(16) * 16 };
+        }
+        for r in 0..m {
+            for c in 0..n {
+                let mut s = 0.0f32;
+                for t in ls..ls + ml {
+                    s = np_fmaf(xv[r * k + t], b(r, c, t), s);
+                }
+                out[r * n + c] += s;
+            }
+        }
+        ls += ml;
+    }
+    out
+}
+// numpy dot / matmul of two float32 arrays (1-d or 2-d): the float32 branch of np_dot2.
+pub fn np_dot2_f32(x: &NdArr, y: &NdArr, matmul: bool) -> R {
+    if !np_f32_simd() {
+        return Err(np_unsup("float32 dot/matmul (OpenBLAS sgemm, AVX-512 only)"));
+    }
+    let d = np_promote(x.dt(), y.dt());
+    if d != NT::F32 {
+        return Err(np_unsup("float32 dot/matmul on other types"));
+    }
+    let (m, k) = if x.ndim() == 1 { (1, x.shape[0]) } else { (x.shape[0], x.shape[1]) };
+    let (k2, n) = if y.ndim() == 1 { (y.shape[0], 1) } else { (y.shape[0], y.shape[1]) };
+    if k != k2 {
+        if matmul {
+            return val_err(format!("matmul: Input operand 1 has a mismatch in its core dimension 0, with gufunc signature (n?,k),(k,m?)->(n?,m?) (size {k2} is different from {k})"));
+        }
+        return val_err(format!("shapes {} and {} not aligned: {} (dim {}) != {} (dim 0)", np_shape_repr(&x.shape), np_shape_repr(&y.shape), k, x.ndim() - 1, k2));
+    }
+    let mut shape = vec![];
+    if x.ndim() == 2 {
+        shape.push(m);
+    }
+    if y.ndim() == 2 {
+        shape.push(n);
+    }
+    let out = if x.ndim() == 1 && y.ndim() == 1 {
+        let (xv, yv) = (x.vals().f32v(), y.vals().f32v());
+        let unit = x.st.first().is_none_or(|s| *s == 1) && y.st.first().is_none_or(|s| *s == 1);
+        Buf::F32(vec![sdot32_1(&xv, &yv, unit)])
+    } else {
+        let (xv, yv) = (x.vals().f32v(), y.vals().f32v());
+        let bl2 = |a: &NdArr| {
+            let ok = |s0: isize, s1: isize, d1: usize| s1 == 1 && s0 >= d1 as isize;
+            a.ndim() != 2 || ok(a.st[0], a.st[1], a.shape[1]) || ok(a.st[1], a.st[0], a.shape[0]) || a.shape.contains(&1)
+        };
+        let bl1 = |a: &NdArr| a.ndim() != 1 || a.st[0] >= 1 || a.shape[0] <= 1;
+        let blas = !matmul || (bl2(x) && bl2(y) && bl1(x) && bl1(y));
+        let ford = |a: &NdArr| a.ndim() == 2 && a.shape[0] > 1 && a.shape[1] > 1 && a.st[0] == 1;
+        let vunit = |a: &NdArr| a.st.first().is_none_or(|s| *s == 1);
+        let xvec = x.ndim() == 1 || m == 1;
+        let yvec = y.ndim() == 1 || n == 1;
+        let xunit = if x.ndim() == 1 { vunit(x) } else { k <= 1 || x.st[1] == 1 };
+        let yunit = if y.ndim() == 1 { vunit(y) } else { k <= 1 || y.st[0] == 1 };
+        // sgemv_t's small kernel for 6 or 7 columns has 4-row tail blocks whose exact reduction order in the
+        // shipped OpenBLAS binary is not pinned down, so those shapes run in CPython rather than risk the last bit.
+        if blas && !xvec && yvec && k > 0 && !ford(x) && x.st[0] == k as isize && x.st[1] == 1 && (k == 6 || k == 7) && m <= 16384 {
+            return Err(np_unsup("float32 matrix @ vector with 6 or 7 columns"));
+        }
+        if blas && !xvec && yvec && k > 0 {
+            // matrix @ vector
+            Buf::F32(if ford(x) {
+                let mut cm = vec![0.0f32; m * k];
+                for i in 0..m {
+                    for t in 0..k {
+                        cm[i + t * m] = xv[i * k + t];
+                    }
+                }
+                np_sgemv_n(&cm, m, k, &yv, yunit)
+            } else if x.st[0] == k as isize && x.st[1] == 1 && k <= 8 && m <= 16384 {
+                sgemv_t_small32(&xv, m, k, &yv)
+            } else {
+                np_sgemv_t(&xv, m, k, &yv)
+            })
+        } else if blas && xvec && !yvec && k > 0 {
+            // vector @ matrix: y is k x n, column-major n x k when C-ordered
+            Buf::F32(if ford(y) {
+                let mut rm = vec![0.0f32; n * k];
+                for t in 0..k {
+                    for j in 0..n {
+                        rm[j * k + t] = yv[t * n + j];
+                    }
+                }
+                np_sgemv_t(&rm, n, k, &xv)
+            } else {
+                np_sgemv_n(&yv, n, k, &xv, xunit)
+            })
+        } else if xvec && yvec && blas && k > 0 {
+            let mut o = vec![0.0f32; m * n];
+            let mut col = vec![0.0f32; k];
+            for j in 0..n {
+                for t in 0..k {
+                    col[t] = yv[t * n + j];
+                }
+                for i in 0..m {
+                    o[i * n + j] = sdot32_1(&xv[i * k..(i + 1) * k], &col, xunit && yunit);
+                }
+            }
+            Buf::F32(o)
+        } else if x.ndim() == 2 && y.ndim() == 2 && m > 1 && n > 1 && k > 0 {
+            let tr = |a: &NdArr| {
+                if !matmul {
+                    a.st[0] == 1 && a.st[1] == a.shape[0] as isize
+                } else if bl2(a) {
+                    !(a.st[1] == 1 && a.st[0] >= a.shape[1] as isize)
+                } else {
+                    a.st[0].abs() < a.st[1].abs()
+                }
+            };
+            let (xf, yf) = (tr(x), tr(y));
+            let mnk = m as f64 * n as f64 * k as f64;
+            if mnk <= 1e6 && !(yf && !xf && (m * n > 1200 || k < 32)) {
+                Buf::F32(np_sgemm_small(&xv, &yv, m, k, n, xf, yf))
+            } else {
+                Buf::F32(np_sgemm(&xv, &yv, m, k, n, xf, yf))
+            }
+        } else {
+            let mut o = vec![0.0f32; m * n];
+            let mut col = vec![0.0f32; k];
+            for j in 0..n {
+                for t in 0..k {
+                    col[t] = yv[t * n + j];
+                }
+                for i in 0..m {
+                    let mut acc = 0.0f32;
+                    for t in 0..k {
+                        acc += xv[i * k + t] * col[t];
+                    }
+                    o[i * n + j] = acc;
+                }
+            }
+            Buf::F32(o)
+        }
+    };
+    Ok(np_out(out, shape))
+}
+// sgemm's small kernels (sgemm_small_kernel_*_skylakex.c). The kernel sees the column-major product:
+// its M is numpy's column count n and its N numpy's row count m. Per element one FMA chain over k for
+// M-chunks of 16 and more, and for the last 1..8 columns with k >= 32 a 16-lane dot whose lanes hold
+// k mod 16, reduced either in REDUCE_4's tree (rows in a 4-group, or columns in a 4-group for the
+// 2-row and 1-row loops) or in gcc's _mm512_reduce_add_ps tree. xf/yf are the transposed flags of
+// numpy's operands, mapped to the kernel's transa/transb.
+fn np_sgemm_small(xv: &[f32], yv: &[f32], m: usize, k: usize, n: usize, xf: bool, yf: bool) -> Vec<f32> {
+    // xv/yv hold the operands' logical values, so the transposes are absorbed: the first operand is
+    // always read xv[r*k+t]; the second is yv[t*n+c], except TN (only the second transposed) reads
+    // yv[c*k+t]. TT is the same reads as NN. The kernel sees the column-major product: its M is
+    // numpy's column count n, its N numpy's row count m.
+    let b = |r: usize, c: usize, t: usize| if yf && !xf { yv[c * k + t] } else { yv[t * n + c] };
+    let av = |c: usize, t: usize| if yf { yv[c * k + t] } else { yv[t * n + c] };
+    let m16 = n & !15;
+    let mm = n - m16;
+    let m4 = n & !3;
+    let n4 = m & !3;
+    let mut out = vec![0.0f32; m * n];
+    for r in 0..m {
+        for c in 0..n {
+            let s = if xf || c < m16 || mm > 8 || k < 32 {
+                let mut acc = 0.0f32;
+                for t in 0..k {
+                    acc = np_fmaf(xv[r * k + t], b(r, c, t), acc);
+                }
+                acc
+            } else {
+                let k16 = k & !15;
+                let rem = k - k16;
+                let mut lane = [0.0f32; 16];
+                let mut t = 0;
+                while t < k16 {
+                    for l in 0..16 {
+                        lane[l] = np_fmaf(av(c, t + l), xv[r * k + t + l], lane[l]);
+                    }
+                    t += 16;
+                }
+                if rem > 0 {
+                    for l in 0..rem {
+                        lane[l] = np_fmaf(av(c, k16 + l), xv[r * k + k16 + l], lane[l]);
+                    }
+                }
+                let red4 = c < m4 || r < n4;
+                if red4 {
+                    let g = |q: usize| (lane[4 * q] + lane[4 * q + 1]) + (lane[4 * q + 2] + lane[4 * q + 3]);
+                    (g(0) + g(1)) + (g(2) + g(3))
+                } else {
+                    // gcc's _mm512_reduce_add_ps: e0..e3 from (W+W+8)+(W+4+W+12), then (e0+e2)+(e1+e3)
+                    let p0 = (lane[0] + lane[8]) + (lane[4] + lane[12]);
+                    let p1 = (lane[1] + lane[9]) + (lane[5] + lane[13]);
+                    let p2 = (lane[2] + lane[10]) + (lane[6] + lane[14]);
+                    let p3 = (lane[3] + lane[11]) + (lane[7] + lane[15]);
+                    (p0 + p2) + (p1 + p3)
+                }
+            };
+            out[r * n + c] = s;
+        }
+    }
+    out
+}
 // one element of a float matrix product: the k-loop as one fused multiply-add chain (OpenBLAS's gemm
 // kernels); for a matrix times a vector, gemv's four lanes
 fn dot_f(x: &[f64], y: &[f64]) -> f64 {
@@ -2842,7 +3621,7 @@ pub fn np_dot2(x: &NdArr, y: &NdArr, matmul: bool) -> R {
     }
     let d = np_promote(x.dt(), y.dt());
     if d == NT::F32 {
-        return Err(np_unsup("float32 dot/matmul (OpenBLAS sgemm)"));
+        return np_dot2_f32(x, y, matmul);
     }
     let (m, k) = if x.ndim() == 1 { (1, x.shape[0]) } else { (x.shape[0], x.shape[1]) };
     let (k2, n) = if y.ndim() == 1 { (y.shape[0], 1) } else { (y.shape[0], y.shape[1]) };

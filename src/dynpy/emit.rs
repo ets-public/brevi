@@ -176,7 +176,7 @@ fn np_attr_check(n: &str, kws: &[&str], line: usize) -> ER<()> {
     if n == "metadata" && NP_ATTR_ST.load(std::sync::atomic::Ordering::Relaxed) {
         return Ok(());
     }
-    if np_narrow() && matches!(n, "dot" | "trace") {
+    if np_narrow() && matches!(n, "dot" | "trace") && !(n == "dot" && np_f32_simd_here()) {
         return Err(err(line, &format!("numpy: .{n} of float32 arrays is not in Brevi's native numpy")));
     }
     match NP_ATTR_OK.iter().find(|(a, _)| *a == n) {
@@ -193,7 +193,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
     let names: &[&str] = match m {
         "__future__" => return true,
         "typing" | "typing_extensions" | "collections.abc" => return super::typing::module_has(m, n),
-        "numpy" => return np_func_kw(n).is_some() && (!np_narrow() || NP_NARROW_FUNCS.contains(&n) || (NP_F32_SIMD.contains(&n) && np_f32_simd_here())),
+        "numpy" => return np_func_kw(n).is_some() && (!np_narrow() || NP_NARROW_FUNCS.contains(&n) || (NP_F32_SIMD.contains(&n) && np_f32_simd_here()) || (matches!(n, "dot" | "matmul") && np_f32_simd_here())),
         "numpy.random" => return np_rand_kw(n).is_some(),
         "numpy.linalg" => return np_linalg_kw(n).is_some() && (!np_narrow() || n == "norm"),
         "sys" => &["exit", "setrecursionlimit", "getrecursionlimit", "getsizeof", "intern", "set_int_max_str_digits", "get_int_max_str_digits", "stdin", "stdout", "stderr", "argv", "maxsize", "platform", "byteorder", "version_info", "version", "modules", "path", "exception", "exc_info"],
@@ -1854,7 +1854,7 @@ impl Em {
             }
             Ex::Call(f, args) => self.call(f, args, line)?,
             Ex::Bin(op, a, b) => {
-                if *op == "@" && np_on() && np_narrow() {
+                if *op == "@" && np_on() && np_narrow() && !np_f32_simd_here() {
                     return Err(err(line, "numpy: @ with float32 arrays (OpenBLAS sgemm) is not in Brevi's native numpy"));
                 }
                 let aa = self.ex(a, line)?;
@@ -2783,7 +2783,7 @@ impl Em {
                 None => String::new(),
             },
             St::AugAssign(t, op, v) => {
-                if *op == "@" && np_on() && np_narrow() {
+                if *op == "@" && np_on() && np_narrow() && !np_f32_simd_here() {
                     return Err(err(line, "numpy: @= with float32 arrays (OpenBLAS sgemm) is not in Brevi's native numpy"));
                 }
                 let vv = self.ex(v, line)?;
