@@ -377,15 +377,13 @@ class BaseEventLoop:
             raise RuntimeError('Event loop is closed')
         if not callable(callback):
             raise TypeError('a callable object was expected by call_soon(), got ' + repr(callback))
-        handle = Handle(callback, args, self, context)
-        self._ready.append(handle)
-        return handle
+        return self._call_soon(callback, args, context)
 
     # call_soon(callback, *args) from this module's own code (callback known to be callable)
     def _call_soon(self, callback, args, context):
         if self._closed:
             raise RuntimeError('Event loop is closed')
-        handle = Handle(callback, args, self, context)
+        handle = _brevi_async.make_handle(Handle, callback, args, self, context)
         self._ready.append(handle)
         return handle
 
@@ -480,11 +478,7 @@ class BaseEventLoop:
             self._ready.append(handle)
 
         ntodo = len(self._ready)
-        for i in range(ntodo):
-            handle = self._ready.popleft()
-            if handle._cancelled:
-                continue
-            handle._run()
+        _brevi_async.run_ready(self, ntodo)
 
 
 def _brevi_fd_ready(fut, ev):
@@ -547,13 +541,7 @@ class Future:
         return True
 
     def _schedule_callbacks(self):
-        callbacks = self._callbacks[:]
-        if not callbacks:
-            return
-        self._callbacks[:] = []
-        loop = self._loop
-        for callback, ctx in callbacks:
-            loop._call_soon(callback, (self,), ctx)
+        _brevi_async.schedule_callbacks(self)
 
     def cancelled(self):
         return self._state == _CANCELLED
@@ -593,26 +581,10 @@ class Future:
         return removed_count
 
     def set_result(self, result):
-        if self._state != _PENDING:
-            raise InvalidStateError(self._state + ': ' + repr(self))
-        self._result = result
-        self._state = _FINISHED
-        self._schedule_callbacks()
+        _brevi_async.fut_set_result(self, result)
 
     def set_exception(self, exception):
-        if self._state != _PENDING:
-            raise InvalidStateError(self._state + ': ' + repr(self))
-        if isinstance(exception, type):
-            exception = exception()
-        if isinstance(exception, StopIteration):
-            new_exc = RuntimeError("StopIteration interacts badly with "
-                                   "generators and cannot be raised into a "
-                                   "Future")
-            exception = new_exc
-        self._exception = exception
-        self._state = _FINISHED
-        self._schedule_callbacks()
-        self._log_traceback = True
+        _brevi_async.fut_set_exception(self, exception)
 
     def __await__(self):
         if not self.done():
@@ -690,6 +662,10 @@ class Task(Future):
     _log_destroy_pending = True
 
     def __init__(self, coro, *, loop=None, name=None, context=None, eager_start=False):
+        if not _brevi_async.task_init(self, coro, loop, name, context, eager_start):
+            self._init_py(coro, loop, name, context, eager_start)
+
+    def _init_py(self, coro, loop, name, context, eager_start):
         super().__init__(loop=loop)
         if not iscoroutine(coro):
             self._log_destroy_pending = False
@@ -752,94 +728,13 @@ class Task(Future):
         return self._num_cancels_requested
 
     def _step(self, exc=None):
-        if self._state != _PENDING:
-            raise InvalidStateError('_step(): already done')
-        if self._must_cancel:
-            if not isinstance(exc, CancelledError):
-                exc = self._make_cancelled_error()
-            self._must_cancel = False
-        self._fut_waiter = None
-        loop = self._loop
-        if loop._current_task is not None:
-            raise RuntimeError("Cannot enter into task while another task is being executed.")
-        loop._current_task = self
-        try:
-            self._step_run_and_handle_result(exc)
-        finally:
-            if loop._current_task is not self:
-                raise RuntimeError("Leaving task does not match the current task.")
-            loop._current_task = None
-
-    def _step_run_and_handle_result(self, exc):
-        coro = self._coro
-        try:
-            if exc is None:
-                result = coro.send(None)
-            else:
-                result = coro.throw(exc)
-        except StopIteration as e:
-            if self._must_cancel:
-                self._must_cancel = False
-                Future.cancel(self, msg=self._cancel_message)
-            else:
-                Future.set_result(self, e.value)
-            _unregister_task(self)
-        except CancelledError as e:
-            self._cancelled_exc = e
-            Future.cancel(self)
-            _unregister_task(self)
-        except (KeyboardInterrupt, SystemExit) as e:
-            Future.set_exception(self, e)
-            _unregister_task(self)
-            raise
-        except BaseException as e:
-            Future.set_exception(self, e)
-            _unregister_task(self)
-        else:
-            if result is None:
-                # sleep(0)
-                self._loop._call_soon(self._step, (), self._context)
-                return
-            blocking = getattr(result, '_asyncio_future_blocking', None)
-            if blocking is not None:
-                if _get_loop(result) is not self._loop:
-                    new_exc = RuntimeError('Task got Future attached to a different loop')
-                    self._loop.call_soon(self._step, new_exc, context=self._context)
-                elif blocking:
-                    if result is self:
-                        new_exc = RuntimeError('Task cannot await on itself')
-                        self._loop.call_soon(self._step, new_exc, context=self._context)
-                    else:
-                        result._asyncio_future_blocking = False
-                        tr = type(result)
-                        if tr is Future or tr is Task or tr is _GatheringFuture:
-                            # add_done_callback, inlined
-                            if result._state != _PENDING:
-                                self._loop._call_soon(self._wakeup, (result,), self._context)
-                            else:
-                                result._callbacks.append((self._wakeup, self._context))
-                        else:
-                            result.add_done_callback(self._wakeup, context=self._context)
-                        self._fut_waiter = result
-                        if self._must_cancel:
-                            if self._fut_waiter.cancel(msg=self._cancel_message):
-                                self._must_cancel = False
-                else:
-                    new_exc = RuntimeError('yield was used instead of yield from in task')
-                    self._loop.call_soon(self._step, new_exc, context=self._context)
-            elif result is None:
-                self._loop.call_soon(self._step, context=self._context)
-            else:
-                new_exc = RuntimeError('Task got bad yield: ' + repr(result))
-                self._loop.call_soon(self._step, new_exc, context=self._context)
+        _brevi_async.task_step(self, exc)
 
     def _wakeup(self, future):
-        try:
-            future.result()
-        except BaseException as exc:
-            self._step(exc)
-        else:
-            self._step()
+        _brevi_async.task_wakeup(self, future)
+
+
+_brevi_async.set_task_hooks(_register_task, _unregister_task, _next_task_name, Handle, BaseEventLoop, Future, Task, CancelledError, InvalidStateError)
 
 
 def create_task(coro, *, name=None, context=None):
@@ -912,7 +807,13 @@ class _GatheringFuture(Future):
         return ret
 
 
+_brevi_async.set_gather_class(_GatheringFuture)
+
+
 def gather(*coros_or_futures, return_exceptions=False):
+    g = _brevi_async.gather(coros_or_futures, return_exceptions, Task, CancelledError, _GatheringFuture, get_event_loop)
+    if g is not None:
+        return g
     if not coros_or_futures:
         loop = get_event_loop()
         outer = loop.create_future()

@@ -213,7 +213,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "hashlib" => &["new", "md5", "sha1", "sha224", "sha256", "sha384", "sha512"],
         "base64" => &["b64encode", "b64decode", "standard_b64encode", "standard_b64decode", "urlsafe_b64encode", "urlsafe_b64decode", "encodebytes", "decodebytes", "b16encode", "b16decode"],
         "binascii" => &["Error", "hexlify", "unhexlify", "b2a_hex", "a2b_hex"],
-        "_brevi_async" => &["suspend", "iscoroutine", "isawaitable", "isasyncgen", "set_hooks", "track", "untrack", "tracked"],
+        "_brevi_async" => &["suspend", "iscoroutine", "isawaitable", "isasyncgen", "set_hooks", "track", "untrack", "tracked", "set_task_hooks", "set_gather_class", "gather", "make_handle", "run_ready", "task_step", "task_wakeup", "task_init", "schedule_callbacks", "fut_set_result", "fut_set_exception"],
         "_brevi_stdio" => &["claim", "release", "read", "write", "poll"],
         "_brevi_proc" => &["spawn", "read", "write", "close", "wait", "signal", "poll"],
         "_brevi_srv" => &["listen", "accept", "read", "write", "close", "poll", "random"],
