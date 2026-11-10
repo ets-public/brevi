@@ -3,12 +3,16 @@
 
   python3 tools/ds_contrib.py TEST_ID [--model deepseek-v4-pro] [--budget 1.50] [--steps 60]
   python3 tools/ds_contrib.py --list            the wrong results still in the baseline
+  python3 tools/ds_contrib.py --task TASK.md --id NAME --check "CMD ARGS" [--protect PATH]...
+                                                any other task: TASK.md is the brief, CMD is how the harness
+                                                tells done from not done (exit 0 = done)
 
 The model works in this checkout through a few tools: read, search and edit files under the repository (never
-.git or outside it), rebuild the compiler, rerun the one conformance test, and build a small Python snippet with
-Brevi next to CPython. It cannot run arbitrary shell commands, push, or touch the network. When it calls
-`finish`, the harness reruns the test itself and, if the change helps, commits it on a branch with DeepSeek as the
-author. Nothing is pushed: a human (or Claude) reviews the branch, runs the wider tests, and opens the PR.
+.git or outside it), rebuild the compiler, rerun the one conformance test (in task mode: the task's check
+command), see which build path Brevi takes for a file, and build a small Python snippet with Brevi next to
+CPython. It cannot run arbitrary shell commands, push, or touch the network. When it calls
+`finish`, the harness reruns the test (or check) itself and, if the change helps, commits it on a branch with
+DeepSeek as the author. Nothing is pushed: a human (or Claude) reviews the branch, runs the wider tests, and opens the PR.
 
 Spend is counted from the API's own usage numbers at the prices below and the run stops at --budget.
 Every request, reply and tool result is logged as JSON lines to --log (default bench/logs/ds_contrib/ID.jsonl)
@@ -49,6 +53,30 @@ Rules:
   edit: a first edit by about your 20th call is a good pace. Do not re-read files you have already seen.
 - When done, call `finish` with a short summary: the root cause, the fix, and what you tested."""
 
+TASK_SYSTEM = """You are contributing a change to Brevi, a compiler written in Rust that takes plain Python and emits a
+native binary through rustc. The repository is the current working directory. Read docs/ARCHITECTURE.md first if you
+need the layout: parse -> type inference -> typed build (src/ codegen, fast, fixed types) or dynamic build (src/dynpy,
+a runtime of dynamic values) -> rustc. A build that cannot be made correct must refuse (or fall back to the dynamic
+build) rather than give a wrong answer: a program that prints something CPython would not print is the worst outcome.
+
+The task is below. The harness judges it with a check command you can run with `run_check`; it reruns that command
+itself after you finish, so make the check pass by fixing the real cause, in general, not by special-casing the
+inputs the check uses.
+
+Rules:
+- Keep the change small and focused on this one task. Match the surrounding code style. No new dependencies.
+- After editing Rust, call `build`, then `run_check`. Use `brevi_path` to see which path a file takes and why, and
+  `try_python` to test small variations next to CPython, including cases near your change, so nearby behaviour
+  does not break. Any program that now takes the typed build must print exactly what CPython prints.
+- Never hold a RefCell borrow (`d.borrow()`, `.borrow_mut()`) across anything that can run user code: `eq`, `hash`,
+  `repr`, `call`, comparisons. Copy what you need out first.
+- Do not edit the check command's own files, the test harness, or expected outputs.
+- If you cannot find a correct change, say so in `finish` with ok=false and what you learned. A wrong change is
+  worse than none.
+- You have a limited number of tool calls (the harness tells you when few are left). Read what you need, then
+  edit: a first edit by about your 20th call is a good pace. Do not re-read files you have already seen.
+- When done, call `finish` with a short summary: the cause, the change, and what you tested."""
+
 TOOLS = [
     ("read_file", "Read a text file under the repository, with line numbers.",
      {"path": "string", "start": "integer (1-based, optional)", "end": "integer (optional)"}, ["path"]),
@@ -62,6 +90,9 @@ TOOLS = [
     ("build", "Rebuild the compiler (cargo build --release). Returns errors, or ok.", {}, []),
     ("check_test", "Rerun the failing conformance test against the current build, for the normal and the forced "
      "dynamic build. Returns each category and the first difference from CPython.", {}, []),
+    ("run_check", "Task mode only: run the task's check command and show its exit code and output (exit 0 = done).", {}, []),
+    ("brevi_path", "Build a Python file under the repository with the current Brevi and show the path it took "
+     "(typed, dynamic, pybridge, python) and why: the one JSON line BREVI_PATH=1 prints.", {"path": "string"}, ["path"]),
     ("try_python", "Run a Python snippet under CPython 3.13 and as a Brevi native build (normal and forced dynamic), "
      "and show stdout, stderr and exit code of each.", {"code": "string"}, ["code"]),
     ("git_diff", "Show your changes so far (git diff).", {}, []),
@@ -70,9 +101,15 @@ TOOLS = [
 ]
 
 
-def tool_schemas():
+PROTECT = set()  # task mode: extra files the model must not edit (the check's own files)
+TASK_ONLY, TEST_ONLY = {"run_check"}, {"check_test"}
+
+
+def tool_schemas(task_mode=False):
     out = []
     for name, desc, props, req in TOOLS:
+        if name in (TEST_ONLY if task_mode else TASK_ONLY):
+            continue
         p = {}
         for k, v in props.items():
             t = v.split()[0]
@@ -95,6 +132,8 @@ def safe_path(p):
         raise ValueError("that folder is off limits")
     if q == (ROOT / "tools" / "conformance.py").resolve() or q == BASELINE.resolve() or q == Path(__file__).resolve():
         raise ValueError("this file is part of the test harness and must not be edited")
+    if q in PROTECT:
+        raise ValueError("this file is part of the task's check and must not be edited")
     return q
 
 
@@ -140,6 +179,31 @@ class Task:
     def script(self):
         code, so, se = sh([sys.executable, "tools/conformance.py", "--files", self.file, "--python", self.python, "--show", self.id], timeout=300)
         return so if code == 0 else se
+
+
+class CheckTask:
+    """Task mode: the brief comes from a file and `done` is the exit code of a command the harness runs."""
+    def __init__(self, name, brief, check, python):
+        self.id, self.brief, self.check, self.python = name, brief, check, python
+
+    def run_check(self):
+        c, so, se = sh(self.check, timeout=3600)
+        return c, f"exit {c}\n" + clip(so + se, 8000)
+
+    def results(self):
+        c, text = self.run_check()
+        return {"check": "matched" if c == 0 else f"exit {c}"}, text
+
+
+def brevi_path(path):
+    d = Path(tempfile.mkdtemp(prefix="dsc-path-"))
+    brevi = str(ROOT / "target" / "release" / "brevi")
+    c, so, se = sh([brevi, "build", str(safe_path(path)), "-o", str(d / "prog")], timeout=600, env={"BREVI_PATH": "1"})
+    lines = [l for l in (so + se).splitlines() if l.strip()]
+    paths = [l for l in lines if l.startswith('{"path"')]
+    if c != 0:
+        return f"build failed (exit {c}):\n" + clip("\n".join(lines), 4000)
+    return "\n".join(paths) or "typed (no path line: the typed build ran)"
 
 
 def try_python(code, python):
@@ -196,6 +260,10 @@ def run_tool(name, a, task):
         return "build failed:\n" + clip("\n".join(errs) or se, 8000)
     if name == "check_test":
         return task.results()[1]
+    if name == "run_check":
+        return task.run_check()[1]
+    if name == "brevi_path":
+        return brevi_path(a["path"])
     if name == "try_python":
         return try_python(a["code"], task.python)
     if name == "git_diff":
@@ -245,14 +313,25 @@ def main():
     ap.add_argument("--branch", help="commit a successful fix on this new branch (default: no commit)")
     ap.add_argument("--log", type=Path)
     ap.add_argument("--note", help="review feedback on an earlier attempt, added to the task (text, or @file)")
+    ap.add_argument("--task", type=Path, help="task mode: the brief, a text or markdown file")
+    ap.add_argument("--id", help="task mode: a short name for the task (log file and commit message)")
+    ap.add_argument("--check", help="task mode: the command (one string, split like a shell) whose exit 0 means done")
+    ap.add_argument("--protect", action="append", default=[], help="task mode: a file the model must not edit (repeat)")
     a = ap.parse_args()
     if a.list:
         print("\n".join(baseline_ids())); return 0
-    if not a.test_id:
-        ap.error("give a test id (see --list)")
+    task_mode = a.task is not None
+    if task_mode:
+        if not (a.id and a.check):
+            ap.error("--task needs --id and --check")
+        PROTECT.update((ROOT / p).resolve() for p in a.protect)
+        PROTECT.add(a.task.resolve())
+        a.test_id = a.id
+    elif not a.test_id:
+        ap.error("give a test id (see --list), or --task")
     if sh(["git", "status", "--porcelain", "--untracked-files=no"])[1].strip():
         sys.exit("the working tree has changes: start from a clean checkout")
-    task = Task(a.test_id, a.python)
+    task = CheckTask(a.id, a.task.read_text(), shlex.split(a.check), a.python) if task_mode else Task(a.test_id, a.python)
     log_path = a.log or ROOT / "bench" / "logs" / "ds_contrib" / (a.test_id + ".jsonl")
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log = log_path.open("w")
@@ -264,15 +343,19 @@ def main():
     if run_tool("build", {}, task) != "ok":  # a binary left by another checkout state would give a wrong "before"
         sys.exit("the checkout does not build")
     before, before_text = task.results()
-    script = task.script()
-    note(event="start", test=a.test_id, model=a.model, before=before)
-    prompt = (f"Failing test: {a.test_id}\n\nCurrent result:\n{before_text}\n\nThe generated script and how to reproduce it:\n"
-              f"```python\n{clip(script, 12000)}\n```\nFind and fix the root cause.")
+    note(event="start", test=a.test_id, model=a.model, before=before, mode="task" if task_mode else "conformance")
+    if task_mode:
+        prompt = (f"Task {a.id}:\n\n{task.brief}\n\nCheck command (run by the harness, and by you with run_check): "
+                  f"{a.check}\nIts result now:\n{before_text}")
+    else:
+        script = task.script()
+        prompt = (f"Failing test: {a.test_id}\n\nCurrent result:\n{before_text}\n\nThe generated script and how to reproduce it:\n"
+                  f"```python\n{clip(script, 12000)}\n```\nFind and fix the root cause.")
     if a.note:
         note_text = Path(a.note[1:]).read_text() if a.note.startswith("@") else a.note
         prompt += "\n\nA reviewer rejected an earlier fix for this test. Their notes, which your fix must respect:\n" + note_text
-    messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}]
-    tools = tool_schemas()
+    messages = [{"role": "system", "content": TASK_SYSTEM if task_mode else SYSTEM}, {"role": "user", "content": prompt}]
+    tools = tool_schemas(task_mode)
     spent, finished = 0.0, None
     for step in range(a.steps):
         if spent >= a.budget:
@@ -312,26 +395,30 @@ def main():
             messages.append({"role": "tool", "tool_call_id": tc["id"], "content": out})
         left = a.steps - step - 1
         if left in (20, 8, 3) and not finished:
-            messages.append({"role": "user", "content": f"Note: {left} model calls left. Finish your edit, build, check_test, then call finish."})
+            messages.append({"role": "user", "content": f"Note: {left} model calls left. Finish your edit, build, "
+                             f"{'run_check' if task_mode else 'check_test'}, then call finish."})
         if finished:
             break
     print(f"[ds] done after ${spent:.3f}; rebuilding and checking", flush=True)
     diff = sh(["git", "diff"])[1]
     built = run_tool("build", {}, task) == "ok" if diff else True
     after, after_text = task.results() if built else ({}, "build failed")
-    fixed = [b for b in ("normal", "dyn") if before.get(b) != "matched" and after.get(b) == "matched"]
-    broke = [b for b in ("normal", "dyn") if before.get(b) == "matched" and after.get(b) != "matched"]
+    builds = ("check",) if task_mode else ("normal", "dyn")
+    fixed = [b for b in builds if before.get(b) != "matched" and after.get(b) == "matched"]
+    broke = [b for b in builds if before.get(b) == "matched" and after.get(b) != "matched"]
     result = {"test": a.test_id, "model": a.model, "spent": round(spent, 4), "claimed_ok": bool(finished and finished.get("ok")),
               "summary": (finished or {}).get("summary"), "before": before, "after": after, "fixed": fixed, "broke": broke,
               "changed_files": sh(["git", "diff", "--name-only"])[1].split()}
     note(event="result", **result)
     print(json.dumps(result, indent=2))
     if a.branch and diff and fixed and not broke and built:
-        lines = [l for l in BASELINE.read_text().splitlines() if not any(l == f"{a.test_id} {b}" for b in fixed)]
-        BASELINE.write_text("\n".join(lines) + "\n")
+        if not task_mode:
+            lines = [l for l in BASELINE.read_text().splitlines() if not any(l == f"{a.test_id} {b}" for b in fixed)]
+            BASELINE.write_text("\n".join(lines) + "\n")
         sh(["git", "checkout", "-b", a.branch])
         sh(["git", "add", "-A", "src", "tests", "compat", "docs"])
-        msg = (f"conformance: fix {a.test_id}\n\n{(finished or {}).get('summary') or ''}\n\n"
+        head = f"task: {a.id}" if task_mode else f"conformance: fix {a.test_id}"
+        msg = (f"{head}\n\n{(finished or {}).get('summary') or ''}\n\n"
                f"Written by DeepSeek ({a.model}) through tools/ds_contrib.py; API cost ${spent:.2f}.")
         sh(["git", "-c", "user.name=DeepSeek (via ds_contrib)", "-c", "user.email=noreply@deepseek.com", "commit", "-q", "-m", msg])
         print(f"[ds] committed on {a.branch}", flush=True)
