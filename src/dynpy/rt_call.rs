@@ -719,11 +719,81 @@ fn bind_attr(v: V, me: &V, from_class_lookup: bool) -> V {
 
 // ---------- attributes ----------
 
-// o.name at one place in the program: the index the name had in the last instance seen there (an inline
-// cache). A hit is the same instance attribute getattr would find first; anything else takes getattr.
+// An inline cache for a namedtuple field read: the low bit tags the value, the next NTF_IDX_BITS bits are
+// the field's index in the wrapped tuple, and the rest are the CLASS_EPOCH when it was filled. A change to
+// any class's dict (P.x = property(...)) bumps the epoch, so the next hit misses and getattr honours the new
+// descriptor. Only the lower 64 - NTF_IDX_BITS - 1 epoch bits are kept: the epoch never decreases, so a hit
+// is still only possible on the exact epoch that filled it, and after 2^(64 - NTF_IDX_BITS - 1) class
+// changes the tag stops hitting (reads stay correct, just take the general path).
+const NTF_IDX_BITS: u32 = 24;
+const NTF_IDX_MASK: usize = (1 << NTF_IDX_BITS) - 1;
 #[inline]
+fn ntf_ic(i: usize, ep: u64) -> usize {
+    ((ep as usize) << (NTF_IDX_BITS + 1)) | (i << 1) | 1
+}
+// the value behind a namedtuple field descriptor, without Args and no call
+#[inline]
+fn ntf_get(o: &V, ob: &Obj, idx: i64) -> R {
+    let inner = ob.inner.borrow();
+    if let Some(b) = inner.as_ref() {
+        match getitem(&**b, &V::Int(idx)) {
+            Ok(v) => Ok(v),
+            // a subclass built a shorter tuple: obj[index] raised IndexError
+            Err(E(e)) if is_exc(&e, "IndexError") => Err(exc("AttributeError", format!("Cannot access member at index {idx}"))),
+            Err(e) => Err(e),
+        }
+    } else {
+        drop(inner);
+        Err(exc("TypeError", format!("'{}' object is not subscriptable", tn(o))))
+    }
+}
+// A cached namedtuple field, when it is still the value getattr would find first; None means "general path".
+#[inline]
+fn ntf_ic_hit(o: &V, name: Sym, w: usize) -> Option<R> {
+    let i = (w >> 1) & NTF_IDX_MASK;
+    let ob = match o {
+        V::Obj(ob) => ob,
+        _ => return None,
+    };
+    // a class changed since this was cached: getattr must see the new class attribute
+    if w >> (NTF_IDX_BITS + 1) != CLASS_EPOCH.with(|e| e.get()) as usize {
+        return None;
+    }
+    // getattr reads an instance attribute before the class descriptor, so one here (only possible after
+    // object.__setattr__ bypassed the field) must keep the general path
+    let d = ob.d.borrow();
+    if d.dict.is_some() || d.attrs.find(name).is_some() {
+        return None;
+    }
+    drop(d);
+    // fields sit only on the namedtuple class itself, so an instance of a subclass (whose own class has no
+    // fields) and a different type flowing through this site both miss and take the general path
+    let fields = ob.cls.fields.borrow();
+    if fields.get(i).is_some_and(|f| same_name(f, name)) {
+        drop(fields);
+        let inner = ob.inner.borrow();
+        if let Some(b) = inner.as_ref() {
+            if let V::Tuple(t) = &**b {
+                if let Some(v) = t.get(i) {
+                    return Some(Ok(v.clone()));
+                }
+            }
+        }
+    }
+    None
+}
+// o.name at one place in the program: the index the name had in the last instance seen there (an inline
+// cache). A hit is the same instance attribute getattr would find first; anything else takes getattr. A
+// tagged value is a namedtuple field (see ntf_ic); a miss on it takes the general path below.
 #[inline]
 pub fn getattr_ic(o: &V, name: Sym, ic: &std::sync::atomic::AtomicUsize) -> R {
+    let w = ic.load(std::sync::atomic::Ordering::Relaxed);
+    if w & 1 != 0 {
+        if let Some(r) = ntf_ic_hit(o, name, w) {
+            return r;
+        }
+        // a stale or foreign tag: fall through, where the tagged index misses the instance attributes
+    }
     if let V::Obj(ob) = o {
         let d = ob.d.borrow();
         // an instance with a live __dict__ always takes the general path (rare)
@@ -732,7 +802,7 @@ pub fn getattr_ic(o: &V, name: Sym, ic: &std::sync::atomic::AtomicUsize) -> R {
             return getattr(o, name);
         }
         // the same name's text can sit at another address in another part of the program
-        if let Some(v) = d.attrs.at_named(ic.load(std::sync::atomic::Ordering::Relaxed), name) {
+        if let Some(v) = d.attrs.at_named(w, name) {
             return Ok(v.clone());
         }
     }
@@ -750,6 +820,23 @@ fn getattr_ic_slow(o: &V, name: Sym, ic: &std::sync::atomic::AtomicUsize) -> R {
             ic.store(i, std::sync::atomic::Ordering::Relaxed);
             return Ok(d.attrs.get(i).unwrap().1.clone());
         }
+        drop(d);
+        // a namedtuple field: remember its index here. lookup checks that the descriptor is still V::NTF
+        // (P.x = property(...) replaced it), and a subclass instance has no fields of its own.
+        let fields = ob.cls.fields.borrow();
+        if let Some(i) = fields.iter().position(|f| same_name(f, name)) {
+            drop(fields);
+            if i <= NTF_IDX_MASK {
+                if let Some(V::NTF(n)) = ob.cls.lookup(name) {
+                    let idx = *n as usize;
+                    if idx == i {
+                        ic.store(ntf_ic(i, CLASS_EPOCH.with(|e| e.get())), std::sync::atomic::Ordering::Relaxed);
+                        return ntf_get(o, ob, idx as i64);
+                    }
+                }
+            }
+            return getattr(o, name);
+        }
     }
     getattr(o, name)
 }
@@ -764,17 +851,20 @@ pub fn setattr_ic(o: &V, name: Sym, v: V, ic: &std::sync::atomic::AtomicUsize) -
                 return setattr(o, name, v);
             }
             let i = ic.load(std::sync::atomic::Ordering::Relaxed);
-            if let Some(e) = d.attrs.at_named_mut(i, name) {
-                *e = v;
-                return Ok(());
-            }
-            // a new attribute (as in __init__): the layout already has a child for this name, so it is not set yet
-            if i == d.attrs.len() {
-                match d.attrs.push_known(name, v) {
-                    Ok(()) => return Ok(()),
-                    Err(v) => {
-                        drop(d);
-                        return setattr_ic_slow(o, name, v, ic);
+            // a tagged namedtuple-field cache is not an instance-attribute index
+            if i & 1 == 0 {
+                if let Some(e) = d.attrs.at_named_mut(i, name) {
+                    *e = v;
+                    return Ok(());
+                }
+                // a new attribute (as in __init__): the layout already has a child for this name, so it is not set yet
+                if i == d.attrs.len() {
+                    match d.attrs.push_known(name, v) {
+                        Ok(()) => return Ok(()),
+                        Err(v) => {
+                            drop(d);
+                            return setattr_ic_slow(o, name, v, ic);
+                        }
                     }
                 }
             }
@@ -830,6 +920,8 @@ pub fn getattr(o: &V, name: &str) -> R {
                         _ => V::Bound(Rc::new((o.clone(), v.clone()))),
                     }),
                     V::Prop(p) => call(&p.0, Args::p(vec![o.clone()])),
+                    // a namedtuple field descriptor: index the wrapped tuple directly, no Args and no call
+                    V::NTF(i) => ntf_get(o, ob, **i),
                     _ => Ok(v),
                 };
             }
@@ -901,9 +993,13 @@ pub fn getattr(o: &V, name: &str) -> R {
                     Ok(V::View(Rc::new((V::Dict(Rc::new(RefCell::new(d))), 3))))
                 }
                 _ => {
-                    if c.module == "builtins" || c.module == "collections" {
-                        if let Some(v) = builtin_class_attr(c, name) {
-                            return Ok(v);
+                    // methods of a builtin base (tuple's __getitem__ on a namedtuple class, list's
+                    // append on a list subclass) live on the builtin class in CPython, not on the subclass
+                    for k in std::iter::once(c.clone()).chain(c.mro.borrow().iter().cloned().skip(1)) {
+                        if k.module == "builtins" || k.module == "collections" {
+                            if let Some(v) = builtin_class_attr(&k, name) {
+                                return Ok(v);
+                            }
                         }
                     }
                     Err(exc("AttributeError", format!("type object '{}' has no attribute '{}'", c.name, name)))
@@ -1003,12 +1099,16 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
             Ok(())
         }
         V::Obj(ob) => {
-            if let Some(V::Prop(p)) = ob.cls.lookup(name) {
-                if matches!(p.1, V::None) {
-                    return Err(exc("AttributeError", format!("property '{}' of '{}' object has no setter", name, ob.cls.name)));
+            match ob.cls.lookup(name) {
+                Some(V::NTF(_)) => return Err(exc("AttributeError", "can't set attribute".into())),
+                Some(V::Prop(p)) => {
+                    if matches!(p.1, V::None) {
+                        return Err(exc("AttributeError", format!("property '{}' of '{}' object has no setter", name, ob.cls.name)));
+                    }
+                    call(&p.1, Args::p(vec![o.clone(), v]))?;
+                    return Ok(());
                 }
-                call(&p.1, Args::p(vec![o.clone(), v]))?;
-                return Ok(());
+                _ => {}
             }
             if let Some(sa) = ob.cls.lookup("__setattr__") {
                 call(&sa, Args::p(vec![o.clone(), s(name), v]))?;
@@ -1127,6 +1227,11 @@ pub fn call_method(o: &V, name: &str, mut a: Args) -> R {
                         _ => call_self(&v, o.clone(), a),
                     },
                     V::Prop(p) => call(&call(&p.0, Args::p(vec![o.clone()]))?, a),
+                    V::NTF(_) => {
+                        // p.x(args): the field's value is called (CPython evaluates the attribute, then calls it)
+                        let f = getattr(o, name)?;
+                        call(&f, a)
+                    }
                     _ => call(&v, a),
                 };
             }

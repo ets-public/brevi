@@ -226,6 +226,9 @@ pub fn repr(v: &V) -> Result<String, E> {
             }
         }
         V::Func(f) => {
+            if let Some(V::Str(r)) = f.attrs.borrow().iter().find(|(k, _)| *k == "__bv_repr__").map(|(_, v)| v.clone()) {
+                return Ok(r.s.clone());
+            }
             if f.kind.get() == 3 {
                 format!("<built-in function {}>", f.name)
             } else {
@@ -318,6 +321,7 @@ pub fn repr(v: &V) -> Result<String, E> {
             format!("{}([{}])", name, join_repr(&to_vec(v)?)?)
         }
         V::Prop(_) => "<property object>".into(),
+        V::NTF(i) => format!("_tuplegetter({}, 'Alias for field number {}')", **i, **i),
         V::Ext(x) => x.repr(),
         V::NotImpl => "NotImplemented".into(),
         V::Ellipsis => "Ellipsis".into(),
