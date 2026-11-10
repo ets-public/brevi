@@ -420,10 +420,15 @@ fn wrap_calls(e: &mut Expr, f: &HashSet<String>) {
 // ---- Checked ZeroDivisionError / IndexError variants ----
 
 // Can this expression itself divide or index (lambda bodies count: a map/sort key runs inside the caller).
+// `x ** 2` or `x ** 0.5` can't raise ZeroDivisionError: only an exponent that may be negative makes `**` fallible,
+// so hot code like `x ** 2` keeps its plain, infallible power
+fn pow_can_zd(b: &Expr) -> bool {
+    !matches!(b, Expr::Int(k) if *k >= 0) && !matches!(b, Expr::Float(f) if *f >= 0.0)
+}
 fn can_zd(e: &Expr) -> bool {
     match e {
         Expr::Lambda(_, b) => can_zd(b),
-        Expr::Binary(op, a, b) => matches!(*op, "//" | "%" | "**") || can_zd(a) || can_zd(b),
+        Expr::Binary(op, a, b) => matches!(*op, "//" | "%") || (*op == "**" && pow_can_zd(b)) || can_zd(a) || can_zd(b),
         Expr::Call(n, args, _) => n == "__truediv" || args.iter().any(|(_, a)| can_zd(a)),
         Expr::Method(r, _, args, _) => can_zd(r) || args.iter().any(can_zd),
         Expr::Unary(_, a) | Expr::Field(a, _) | Expr::TupleField(a, _) | Expr::Try(a) => can_zd(a),
@@ -2347,6 +2352,7 @@ impl Emitter {
             }
             Expr::Binary(op, a, b) => {
                 // Comparisons read their operands in place, without copying them.
+                let pow_zd = pow_can_zd(b);
                 let (a, b) = if ["==", "!=", "<", ">", "<=", ">=", "in"].contains(op) { (self.operand(a), self.operand(b)) } else { (self.expr(a), self.expr(b)) };
                 match *op {
                     "+" => format!("Plus::plus({a}, {b})"),
@@ -2361,11 +2367,11 @@ impl Emitter {
                     // Bitwise on ints, union and intersection on lists used as Python sets.
                     "|" => format!("AxBits::ax_bor({a}, {b})"),
                     "&" => format!("AxBits::ax_band({a}, {b})"),
-                    "**" if self.py_mode && !self.catch.is_empty() && self.catches("ZeroDivisionError") => {
+                    "**" if self.py_mode && pow_zd && !self.catch.is_empty() && self.catches("ZeroDivisionError") => {
                         let lab = self.catch.last().unwrap().clone();
                         format!("(match AxPowTry::ax_pow_try({a}, {b}) {{ Ok(v) => v, Err(e) => {{ {lab} = Some(e); break '{lab}; }} }})")
                     }
-                    "**" if self.py_mode && self.ck_zd => format!("AxPowTry::ax_pow_try({a}, {b})?"),
+                    "**" if self.py_mode && pow_zd && self.ck_zd => format!("AxPowTry::ax_pow_try({a}, {b})?"),
                     "**" => format!("AxPow::ax_pow({a}, {b})"),
                     "in" => format!("AxIn::ax_in(&{b}, &{a})"),
                     "%" if self.py_mode && !self.catch.is_empty() && self.catches("ZeroDivisionError") => {
