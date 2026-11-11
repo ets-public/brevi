@@ -230,6 +230,11 @@ mod brevi_duckglue {
                 break;
             }
             if !pre_ok {
+                // DuckDB's library is a CPython extension: on Windows it may import python3.dll or the C++
+                // runtime from CPython's folder, which is where its pinned python3XX.dll was found.
+                if let Some(d) = std::path::Path::new(DUCK_PRELOAD.0).parent() {
+                    brevi_libpin::add_dir(&d.to_string_lossy());
+                }
                 // RTLD_NOW | RTLD_GLOBAL: CPython's symbols, for the duckdb package's library (loaded once)
                 match brevi_libpin::open(DUCK_PRELOAD.0, DUCK_PRELOAD.1, 2 | 0x100) {
                     Ok(_) => pre_ok = true,

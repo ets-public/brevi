@@ -10,9 +10,9 @@
 //     made read-only before the check), which is loaded and then removed.
 //   - Windows: the file is opened with write and delete sharing denied, and so is every folder on its resolved
 //     path, so while it is checked and loaded no one can write, rename or replace it or any folder above it.
-//     It is loaded by that resolved path with LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32:
-//     its own dependencies come from its own folder or System32, never the program's folder, the working
-//     folder or PATH.
+//     It is loaded by that resolved path with LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | USER_DIRS | SYSTEM32: its own
+//     dependencies come from its own folder, System32 or a folder the build found (CPython's, add_dir), never
+//     the program's folder, the working folder or PATH.
 // Also compiled into the compiler (dynpy/mod.rs), which uses sha256 to take the pins.
 #[allow(dead_code, non_snake_case)]
 mod brevi_libpin {
@@ -240,10 +240,31 @@ mod brevi_libpin {
         s.encode_utf16().chain(std::iter::once(0)).collect()
     }
 
-    // LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32: a library's dependencies come from its
+    // LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32 (and USER_DIRS, below): a library's dependencies come from its
     // own folder or System32 only. Every Windows load of an engine library uses it (the path must be absolute).
+    // LOAD_LIBRARY_SEARCH_USER_DIRS (0x400) adds the folders given to add_dir: CPython's own folder, for an
+    // extension module (DuckDB's) that imports python3.dll or the C++ runtime that ships next to python.exe.
     #[cfg(windows)]
-    pub const SEARCH: u32 = 0x100 | 0x800;
+    pub const SEARCH: u32 = 0x100 | 0x400 | 0x800;
+
+    #[cfg(windows)]
+    unsafe extern "system" {
+        fn AddDllDirectory(dir: *const u16) -> P;
+    }
+
+    // Lets the libraries this program loads find their dependencies in `dir` (an absolute folder the build
+    // found, never the program's or working folder).
+    #[cfg(windows)]
+    pub unsafe fn add_dir(dir: &str) {
+        unsafe {
+            if std::path::Path::new(dir).is_absolute() {
+                AddDllDirectory(wide(dir).as_ptr());
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    pub unsafe fn add_dir(_dir: &str) {}
 
     // A library named by the caller (BREVI_*_LIB outside the sandbox): not pinned, but still loaded only by an
     // absolute path, with the safe search for its dependencies.
