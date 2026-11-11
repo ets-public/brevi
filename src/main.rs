@@ -41,7 +41,7 @@ use std::path::{Path, PathBuf};
 use std::io::Write;
 use std::process::{exit, Command};
 
-const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--sandbox] [--allow read,write,net,native] [--allow-py MODULES] [--allow-net HOSTS] [--allow-read DIRS] [--allow-write DIRS] [--limit cpu=S,mem=MB,time=S,output=KB,file=MB,written=MB,net=MB,threads=N,fds=N,files=N] [--traceback] [--window] [--explain] [--standalone] [-o OUT] [ARGS...] [-- ARGS...] | brevi run --verify FILE.py [--strict] [-- ARGS...] | brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [--limit SPEC] [-- ARGS...] | brevi report [--clear] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp [--http [HOST:]PORT --token TOKEN]";
+const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--strict] [--sandbox] [--allow read,write,net,native] [--allow-py MODULES] [--allow-net HOSTS] [--allow-read DIRS] [--allow-write DIRS] [--limit cpu=S,mem=MB,time=S,output=KB,file=MB,written=MB,net=MB,threads=N,fds=N,files=N] [--traceback] [--window] [--explain] [--standalone] [-o OUT] [ARGS...] [-- ARGS...] | brevi run --verify FILE.py [--strict] [-- ARGS...] | brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [--limit SPEC] [-- ARGS...] | brevi report [--clear] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp [--http [HOST:]PORT --token TOKEN]";
 
 // The language guide, so `brevi guide` and `--explain` can serve parts of it.
 pub const GUIDE: &str = include_str!("../BREVI.md");
@@ -233,6 +233,16 @@ fn main() {
             exit(2);
         }
     }
+    // --strict is BREVI_STRICT=1 for this process and every brevi process it starts (builds through the result
+    // cache, whose key holds every BREVI_* variable, verify's builds, replays), so one switch holds them all.
+    if matches!(argv.first().map(|a| a.as_str()), Some("build" | "run" | "check" | "emit" | "test" | "fix" | "verify")) {
+        let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
+        if let Some(i) = argv[..dash].iter().position(|a| a == "--strict") {
+            argv.remove(i);
+            // SAFETY: no other thread has started yet (the rustc probe below starts the first one).
+            unsafe { std::env::set_var("BREVI_STRICT", "1") };
+        }
+    }
     if argv.first().map(|a| a.as_str()) == Some("mcp") {
         mcp::serve(&argv[1..]);
         return;
@@ -374,7 +384,8 @@ fn main() {
     }
     let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
     let native = argv[..dash].iter().position(|a| a == "--native").map(|i| argv.remove(i)).is_some()
-        || std::env::var("BREVI_NATIVE").map_or(false, |v| !v.is_empty() && v != "0");
+        || std::env::var("BREVI_NATIVE").map_or(false, |v| !v.is_empty() && v != "0")
+        || strict();
     let (cmd, file) = match (argv.first(), argv.get(1)) {
         (Some(c), Some(f)) => (c.as_str(), f.clone()),
         _ => {
@@ -568,7 +579,7 @@ fn main() {
     };
     // Typed only with CPython running some of Brevi's own modules' functions (math.gcd, itertools.product):
     // the dynamic build has them natively, so it goes first (no libpython at run time, fine under --sandbox).
-    if dyn_ok && !forced_dyn() && pybridge::active() && (pybridge::stdlib_only() || pybridge::numpy_only() || pybridge::own_package_only(Path::new(&file).parent().unwrap_or(Path::new(".")))) {
+    if dyn_ok && !forced_dyn() && !strict() && pybridge::active() && (pybridge::stdlib_only() || pybridge::numpy_only() || pybridge::own_package_only(Path::new(&file).parent().unwrap_or(Path::new(".")))) {
         let why = format!("{} not in the typed build", pybridge::uses().join(", "));
         // Without CPython: one that needs it anyway is better built typed.
         dynpy::NO_BRIDGE.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -696,6 +707,15 @@ fn hold_to_caps(file: &str, sandbox: bool) -> bool {
 type Why = (String, usize, Option<String>, String, String, bool);
 
 fn dyn_fallback(cmd: &str, file: &str, argv: &[String], why: Why) -> bool {
+    // Under --strict, only a file the dynamic build would take is a fallback refused; one it refuses too gets
+    // the typed build's own errors, as without --strict.
+    if strict() && std::env::var("BREVI_DYN").map_or(true, |v| v != "0") {
+        if let Err((f, line, msg)) = dynpy::to_rust(file) {
+            *DYN_BLOCKED.lock().unwrap() = Some((f, line, msg));
+            return false;
+        }
+        strict_refusal("dynamic", &why);
+    }
     if std::env::var("BREVI_DYN").map_or(false, |v| v == "0") {
         return false;
     }
@@ -1077,7 +1097,7 @@ fn say_path(path: &str, file: &str, line: usize, func: Option<String>, why: &str
     let shown = match std::env::var("BREVI_PATH").ok().as_deref() {
         Some("0") => false,
         Some("1") => true,
-        _ => EXPLAIN.load(std::sync::atomic::Ordering::Relaxed) || (path != "typed" && PY_FILE.load(std::sync::atomic::Ordering::Relaxed) && !forced_dyn()),
+        _ => EXPLAIN.load(std::sync::atomic::Ordering::Relaxed) || strict() || (path != "typed" && PY_FILE.load(std::sync::atomic::Ordering::Relaxed) && !forced_dyn()),
     };
     if !shown {
         return;
@@ -1107,6 +1127,42 @@ fn dyn_py_field() -> String {
         return String::new();
     }
     format!(",\"py\":[{}]", b.iter().map(|u| format!("\"{}\"", esc(u))).collect::<Vec<_>>().join(","))
+}
+
+/// `--strict` or BREVI_STRICT=1: no fallback of any kind. Only the typed build may answer (pybridge is the typed
+/// build, with the libraries it imports in CPython, and says so); a file the typed build refuses, or one the
+/// guard says it would answer differently from CPython, is refused instead of built over dynamic values or run
+/// with python3, and a typed run that outgrows 64-bit ints stops instead of running again on the dynamic build.
+/// Every build also prints its path line, typed too (BREVI_PATH=0 still silences a success).
+pub fn strict() -> bool {
+    std::env::var("BREVI_STRICT").is_ok_and(|v| !v.is_empty() && v != "0")
+}
+
+// What --strict prints in place of a fallback: the path the build would have taken, where and why, as one
+// error line on stdout (like every build error), then stops with exit code 1.
+fn strict_refusal(to: &str, why: &Why) -> ! {
+    let (wfile, line, func, why, extra, relocate) = why;
+    let mut s = format!("{{\"e\":\"strict\",\"path\":\"{to}\"");
+    if !wfile.is_empty() {
+        s.push_str(&format!(",\"file\":\"{}\"", esc(wfile)));
+    }
+    if *line > 0 {
+        s.push_str(&format!(",\"line\":{line}"));
+    }
+    if let Some(f) = func {
+        s.push_str(&format!(",\"fn\":\"{}\"", esc(f)));
+    }
+    let what = if to == "cpython" { "run with python3" } else { "built over dynamic values" };
+    s.push_str(&format!(",\"msg\":\"--strict allows no fallback, and the typed build refused this file ({}), so it would have been {what}\"", esc(why)));
+    let fix = match func {
+        Some(f) => format!("rewrite {f} so the typed build takes it (brevi check --explain lists every typed error), or drop --strict"),
+        None => "change the program so the typed build takes it (brevi check --explain lists every typed error), or drop --strict".into(),
+    };
+    s.push_str(&format!(",\"fix\":\"{}\"", esc(&fix)));
+    s.push_str(extra);
+    s.push('}');
+    println!("{}", if *relocate { at(&s) } else { s });
+    exit(1);
 }
 
 fn forced_dyn() -> bool {

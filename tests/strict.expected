@@ -1,0 +1,34 @@
+-- run typed
+{"path":"typed"}
+45
+exit 0
+-- run guard
+{"e":"strict","path":"dynamic","line":3,"fn":"show","msg":"--strict allows no fallback, and the typed build refused this file (print() of a set shows CPython's hash order, so the typed build would differ from CPython), so it would have been built over dynamic values","fix":"rewrite show so the typed build takes it (brevi check --explain lists every typed error), or drop --strict"}
+exit 1
+-- run cpython_only
+{"line":2,"msg":"unknown function exec()"}
+exit 1
+-- run pybridge
+{"path":"pybridge","why":"colorsys run in CPython","py":["colorsys"]}
+0.0 2
+exit 0
+-- run big_power
+{"path":"typed"}
+{"e":"runtime","line":5,"msg":"the typed build stopped: a big int used where the typed build needs a 64-bit int, which its 64-bit numbers cannot hold exactly; --strict allows no re-run on the dynamic build (drop --strict, or build it with BREVI_DYN=1)"}
+exit 1
+-- check guard
+{"e":"strict","path":"dynamic","line":3,"fn":"show","msg":"--strict allows no fallback, and the typed build refused this file (print() of a set shows CPython's hash order, so the typed build would differ from CPython), so it would have been built over dynamic values","fix":"rewrite show so the typed build takes it (brevi check --explain lists every typed error), or drop --strict"}
+exit 1
+-- verify guard
+{"e":"strict","path":"dynamic","line":3,"fn":"show","msg":"--strict allows no fallback, and the typed build refused this file (print() of a set shows CPython's hash order, so the typed build would differ from CPython), so it would have been built over dynamic values","fix":"rewrite show so the typed build takes it (brevi check --explain lists every typed error), or drop --strict"}
+{"verify":"not built","msg":"Brevi could not build this file natively, so nothing was compared"}
+exit 1
+-- shim -m
+brevi-python: BREVI_STRICT=1 allows no fallback, and this would run CPython (-m json.tool); unset BREVI_STRICT to let it
+exit 1
+-- shim guard
+{"e":"strict","path":"dynamic","line":3,"fn":"show","msg":"--strict allows no fallback, and the typed build refused this file (print() of a set shows CPython's hash order, so the typed build would differ from CPython), so it would have been built over dynamic values","fix":"rewrite show so the typed build takes it (brevi check --explain lists every typed error), or drop --strict"}
+exit 1
+-- shim typed
+45
+exit 0

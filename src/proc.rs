@@ -116,6 +116,22 @@ pub fn limits() -> Limits {
 // The exit code of a program stopped by one of its limits (as timeout(1) uses for its time limit).
 pub const LIMIT_EXIT: i32 = 124;
 
+// Where each --limit is enforced (the others are refused by `parse` below). tools/limits_check.py keeps the MCP
+// schema (src/mcp.rs) and the docs in step with this table; written, net and files also need --sandbox.
+#[allow(dead_code)] // read by tools/limits_check.py and the test below
+pub const LIMIT_PLATFORMS: [(&str, &[&str]); 10] = [
+    ("cpu", &["linux", "macos"]),
+    ("mem", &["linux", "windows"]),
+    ("time", &["linux", "macos", "windows"]),
+    ("output", &["linux", "macos", "windows"]),
+    ("file", &["linux", "macos"]),
+    ("written", &["linux", "macos", "windows"]),
+    ("net", &["linux", "macos", "windows"]),
+    ("threads", &["linux"]),
+    ("fds", &["linux", "macos"]),
+    ("files", &["linux", "macos", "windows"]),
+];
+
 impl Limits {
     pub fn is_empty(&self) -> bool {
         *self == Limits::default()
@@ -804,6 +820,18 @@ mod tests {
             let mut m = Limits::default();
             m.parse("mem=1gb").unwrap();
             assert_eq!(m.mem, Some(1024));
+        }
+    }
+
+    #[test]
+    fn limit_platforms_match_parse() {
+        let os = std::env::consts::OS;
+        for (name, oses) in LIMIT_PLATFORMS {
+            if name == "threads" && os == "linux" && crate::cgroup::available().is_err() {
+                continue; // refused here for want of a cgroup, whatever the table says
+            }
+            let got = Limits::default().parse(&format!("{name}=1"));
+            assert_eq!(got.is_ok(), oses.contains(&os), "--limit {name} on {os}: {got:?}");
         }
     }
 

@@ -36,6 +36,7 @@ A file can import its sibling `.py` files and packages as usual (`import util`, 
 | --- | --- | --- |
 | `--release` | run, build | Optimise fully (rustc opt-level 3, the runtime inlined into the program). Builds take a few seconds longer; programs often run up to twice as fast as with the default build. Use it for a binary you keep. |
 | `--native` | run | Never fall back to CPython: print Brevi's errors instead. `BREVI_NATIVE=1` does the same. |
+| `--strict` | run, build, check, verify | From the next release: no fallback of any kind, for CI and production jobs (see [Strict builds](#strict-builds)). `BREVI_STRICT=1` does the same. |
 | `--standalone` | build | For Python files that import libraries: pack CPython, the standard library and the imported packages into the binary, so it runs on a Linux machine with no Python. Linux only. |
 | `--sandbox` | run, check, test | Refuse file access, native code and Python libraries unless the caller grants them (see [Sandbox](#sandbox)). |
 | `--allow read,write,net,native` | run, check, test | Under the sandbox, grant these capabilities (implies `--sandbox`). |
@@ -91,6 +92,19 @@ NameError: name 'totl' is not defined (main.py line 3)
 Pass `--traceback` (or set `BREVI_TRACEBACK=1`) to see the whole traceback. Other fallbacks show CPython's output as it is. A sandboxed program never falls back.
 
 Use `brevi run --native`, `brevi build` or `brevi check` when you need to know a file builds natively: they never fall back, and print the errors instead.
+
+### Strict builds
+
+From the next release, `--strict` (or `BREVI_STRICT=1`, which reaches every `brevi` and `brevi-python` a job starts) fails closed on any fallback, so a CI or production job can require the typed fast path:
+
+- Only the typed build may answer. A `pybridge` build is the typed build with the libraries it imports in CPython, and passes (its path line names them).
+- A file the typed build refuses, or one it would answer differently from CPython (the guard), is refused with one error line on stdout instead of being built over dynamic values: `{"e":"strict","path":"dynamic","line":3,"fn":"show","msg":"--strict allows no fallback, ...","fix":"rewrite show so the typed build takes it ..."}`, exit code 1. A file the dynamic build refuses too gets the typed build's own errors, as `--native` does.
+- Nothing runs with `python3`: `--strict` implies `--native`, and `brevi-python` under `BREVI_STRICT=1` refuses to hand anything to CPython (`-m`, the REPL, or a script it would pass on).
+- A typed run whose int outgrows 64 bits stops with an error instead of running again on the dynamic build.
+- Every build prints its path line, `{"path":"typed"}` too (`BREVI_PATH=0` still silences it).
+- With `brevi run --verify`, `--strict` also prints neither run's output and exits 1 on a wrong answer, as before.
+
+`BREVI_DYN=1` (an explicit dynamic build) is not a fallback and is not refused. Which constructs take which path, per platform: [docs/SUPPORT_MATRIX.md](https://github.com/ets-public/brevi/blob/main/docs/SUPPORT_MATRIX.md).
 
 ## Verify against CPython
 
@@ -247,12 +261,12 @@ The sandbox decides what a program may touch; `--limit` decides how much it may 
 | `mem` | MB | address space on Linux; committed memory of the program and everything it starts on Windows | the kernel (`RLIMIT_AS`); on Windows a Job Object, from v0.27.0; not on macOS |
 | `time` | seconds | wall-clock time, waiting included | `brevi`, which stops the program |
 | `output` | KB | stdout and stderr together | `brevi`, which passes output on and stops the program at the limit |
-| `file` | MB | the size of any one file the program writes | the kernel (`RLIMIT_FSIZE`) |
+| `file` | MB | the size of any one file the program writes | the kernel (`RLIMIT_FSIZE`); refused on Windows |
 | `written` | MB | bytes written to files in all (stdout and stderr are `output`, network bytes are `net`; from v0.27.0, on every OS) | Brevi's own file code in the program, which counts before each write; `--sandbox` without `--allow-py` or `native` only |
 | `files` | count | files the program creates | Brevi's own file code in the program; `--sandbox` without `--allow-py` or `native` only |
 | `net` | MB | bytes sent and received over the network | Brevi's own network code in the program; `--sandbox` without `--allow-py` or `native` only |
 | `threads` | count | threads at once, the program's and those of every process it starts, Linux only | the kernel: the program runs in a cgroup of its own whose `pids.max` is the limit, so the thread or process past it is never created; refused where Brevi cannot make that cgroup (from v0.27.0) |
-| `fds` | count | files and sockets open at once | the kernel (`RLIMIT_NOFILE`): an open past it fails with `OSError: Too many open files`, it does not stop the program |
+| `fds` | count | files and sockets open at once | the kernel (`RLIMIT_NOFILE`): an open past it fails with `OSError: Too many open files`, it does not stop the program; refused on Windows |
 
 Plain numbers use those units; `mem=1gb`, `output=512kb`, `time=1.5` and `time=500ms` work too. Join limits with commas:
 
