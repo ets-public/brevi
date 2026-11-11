@@ -1551,6 +1551,11 @@ fn json_err<T>(msg: &str, s: &[char], pos: usize) -> Result<T, E> {
 fn s_(x: &str) -> V {
     s(x)
 }
+// CPython's json module turns every NaN it reads into one shared NaN object.
+fn json_nan() -> f64 {
+    static N: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
+    *N.get_or_init(nan_obj)
+}
 impl<'a> JP<'a> {
     fn ws(&mut self) {
         while self.i < self.s.len() && matches!(self.s[self.i], ' ' | '\t' | '\n' | '\r') {
@@ -1657,7 +1662,7 @@ impl<'a> JP<'a> {
             }
             'N' if self.lit("NaN") => {
                 self.i += 3;
-                self.constant("NaN", f64::NAN)
+                self.constant("NaN", json_nan())
             }
             'I' if self.lit("Infinity") => {
                 self.i += 8;

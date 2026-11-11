@@ -225,7 +225,7 @@ pub fn eq(a: &V, b: &V) -> Result<bool, E> {
             for (k, v) in items {
                 match Dict::get_cell(y, &k)? {
                     Some(w) => {
-                        if !eq(&v, &w)? {
+                        if !(is(&v, &w) || eq(&v, &w)?) {
                             ok = false;
                             break;
                         }
@@ -320,6 +320,15 @@ pub fn is(a: &V, b: &V) -> bool {
         (V::None, V::None) => true,
         (V::Bool(x), V::Bool(y)) => x == y,
         (V::Int(x), V::Int(y)) => x == y && (-5..=256).contains(x),
+        // NaN identity comes from its payload; other floats compare by their bits (an unboxed float
+        // cannot tell two equal values apart, so `x is x` holds and `1.5 is 1.5` is true, as on main).
+        (V::Float(x), V::Float(y)) => {
+            if x.is_nan() || y.is_nan() {
+                same_nan(*x, *y)
+            } else {
+                x.to_bits() == y.to_bits()
+            }
+        }
         (V::Str(x), V::Str(y)) => Rc::ptr_eq(x, y) || (x.s == y.s && x.s.len() <= 1),
         (V::List(x), V::List(y)) => Rc::ptr_eq(x, y),
         (V::Tuple(x), V::Tuple(y)) => Tup::ptr_eq(x, y) || (x.is_empty() && y.is_empty()),
@@ -655,10 +664,10 @@ fn float_fast(a: &V, b: &V, op: &str) -> Option<V> {
         _ => return None,
     };
     match op {
-        "+" => Some(V::Float(x + y)),
-        "-" => Some(V::Float(x - y)),
-        "*" => Some(V::Float(x * y)),
-        "/" if y != 0.0 => Some(V::Float(x / y)),
+        "+" => Some(V::Float(fresh_float(x + y))),
+        "-" => Some(V::Float(fresh_float(x - y))),
+        "*" => Some(V::Float(fresh_float(x * y))),
+        "/" if y != 0.0 => Some(V::Float(fresh_float(x / y))),
         _ => None,
     }
 }
@@ -1014,7 +1023,7 @@ fn big_truediv(p: &Big, q: &Big) -> Result<f64, E> {
     Ok(r)
 }
 fn float_op(x: f64, y: f64, op: &str, a: &V, b: &V) -> R {
-    Ok(V::Float(match op {
+    Ok(match op {
         "+" => x + y,
         "-" => x - y,
         "*" => x * y,
@@ -1050,7 +1059,7 @@ fn float_op(x: f64, y: f64, op: &str, a: &V, b: &V) -> R {
             r
         }
         _ => return Err(op_err(op, a, b)),
-    }))
+    }).map(|r| V::Float(fresh_float(r)))
 }
 pub fn add(a: &V, b: &V) -> R {
     if let (V::Int(x), V::Int(y)) = (a, b) {
@@ -1296,7 +1305,10 @@ pub fn neg(a: &V) -> R {
         }),
         V::Bool(b) => Ok(V::Int(-(*b as i64))),
         V::Big(b) => Ok(b.neg().norm()),
-        V::Float(f) => Ok(V::Float(-f)),
+        V::Float(f) => {
+            let r = -*f;
+            Ok(V::Float(fresh_float(r)))
+        }
         V::Dict(d) if d.borrow().kind == 2 => counter_unary(d, true),
         V::Obj(o) => match o.cls.lookup("__neg__") {
             Some(f) => call(&f, Args::p(vec![a.clone()])),
@@ -1451,11 +1463,13 @@ pub fn contains(c: &V, x: &V) -> Result<bool, E> {
         V::View(v) => match (&v.0, v.1) {
             (V::Dict(d), 0 | 3) => Dict::contains_cell(d, x)?,
             (V::Dict(d), 2) => return items_view_contains(d, x),
-            _ => to_vec(c)?.iter().any(|y| eq(y, x).unwrap_or(false)),
+            // CPython's dict_values.__contains__ compares with the identity shortcut: an identical
+            // value (a NaN object, say) is a hit before __eq__ runs.
+            _ => to_vec(c)?.iter().any(|y| is(y, x) || eq(y, x).unwrap_or(false)),
         },
         V::Deque(d) => {
             let v: Vec<V> = d.borrow().v.iter().cloned().collect();
-            v.iter().any(|y| eq(y, x).unwrap_or(false))
+            v.iter().any(|y| is(y, x) || eq(y, x).unwrap_or(false))
         }
         V::Obj(o) => {
             if let Some(f) = o.cls.lookup("__contains__") {
@@ -1465,7 +1479,7 @@ pub fn contains(c: &V, x: &V) -> Result<bool, E> {
                 return contains(&i, x);
             }
             for y in to_vec(c)? {
-                if eq(&y, x)? {
+                if is(&y, x) || eq(&y, x)? {
                     return Ok(true);
                 }
             }
@@ -1474,7 +1488,7 @@ pub fn contains(c: &V, x: &V) -> Result<bool, E> {
         V::Iter(_) => {
             let mut it = iter(c)?;
             while let Some(y) = it.next()? {
-                if eq(&y, x)? {
+                if is(&y, x) || eq(&y, x)? {
                     return Ok(true);
                 }
             }

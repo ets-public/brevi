@@ -23,6 +23,9 @@ import re
 names|=set(dir(re.match('a','a'))); names|=set(dir(re.compile('a')))
 def g(): yield 1
 names|=set(dir(g()))
+# functools.lru_cache / cache wrappers (cache_info, cache_clear, cache_parameters)
+import functools as _ft
+names|=set(dir(_ft.lru_cache(lambda: 0)))
 names={n for n in names if not n.startswith('_')}
 import os
 D = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'src', 'pynames')

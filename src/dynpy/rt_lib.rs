@@ -368,7 +368,7 @@ pub fn bi_abs(a: Args) -> R {
         }),
         V::Bool(b) => Ok(V::Int(*b as i64)),
         V::Big(b) => Ok(Big { neg: false, mag: b.mag.clone() }.norm()),
-        V::Float(f) => Ok(V::Float(f.abs())),
+        V::Float(f) => Ok(V::Float(fresh_float(f.abs()))),
         V::Obj(o) => match o.cls.lookup("__abs__") {
             Some(f) => call(&f, Args::p(vec![x.clone()])),
             None => type_err(format!("bad operand type for abs(): '{}'", tn(&x))),
@@ -487,7 +487,7 @@ pub fn bi_sum(mut a: Args) -> R {
         if c != 0.0 && c.is_finite() {
             f += c;
         }
-        return Ok(V::Float(f));
+        return Ok(V::Float(fresh_float(f)));
     }
     for x in xs {
         acc = add(&acc, &x)?;
@@ -809,7 +809,7 @@ pub fn bi_getattr(a: Args) -> R {
     // the default, without making and catching an AttributeError. Dunder names keep the general path.
     if a.p.len() == 3 && !n.starts_with("__") {
         if let V::Func(f) = &a.p[0] {
-            let found = f.attrs.borrow().iter().find(|(k, _)| **k == *n).map(|(_, v)| v.clone());
+            let found = func_user_attr(f, &n)?;
             return Ok(found.unwrap_or_else(|| a.p[2].clone()));
         }
     }
@@ -947,11 +947,12 @@ pub fn bi_round(a: Args) -> R {
         (V::Float(f), Some(n)) => {
             let n = idx_of(&n)?;
             if !f.is_finite() {
-                return Ok(x.clone());
+                // round(nan, n) is a new NaN object in CPython, not the one passed in.
+                return Ok(V::Float(fresh_float(*f)));
             }
             if n >= 0 {
                 if n > 300 {
-                    return Ok(x.clone());
+                    return Ok(V::Float(*f));
                 }
                 let t = format!("{:.*}", n as usize, f);
                 Ok(V::Float(t.parse::<f64>().unwrap()))
@@ -2944,7 +2945,7 @@ pub fn builtin_method(o: &V, name: &str, a: Args) -> R {
             "__str__" | "__repr__" => str_v(o),
             "__format__" => fmt_v(o, &to_str(&a1(&a, name)?)?),
             "__neg__" => neg(o),
-            "__abs__" => Ok(V::Float(f.abs())),
+            "__abs__" => Ok(V::Float(fresh_float(f.abs()))),
             "__bool__" => Ok(V::Bool(*f != 0.0)),
             _ => bad_method(o, name),
         },

@@ -467,6 +467,22 @@ pub fn set_new() -> V {
 pub fn exc_class(name: &str) -> Rc<Class> {
     BUILTIN_CLASSES.with(|b| b.borrow().get(name).cloned()).unwrap_or_else(|| panic!("no exception class {name}"))
 }
+thread_local! {
+    // The OSError class, for the hot per-exception checks in instantiate/str/__dict__; filled on first
+    // use and emptied by init_builtin_classes, like the type cache.
+    static OSE_CLASS: RefCell<Option<Rc<Class>>> = RefCell::new(None);
+}
+#[inline]
+pub fn ose_class() -> Rc<Class> {
+    OSE_CLASS.with(|c| {
+        if let Some(k) = &*c.borrow() {
+            return k.clone();
+        }
+        let k = exc_class("OSError");
+        *c.borrow_mut() = Some(k.clone());
+        k
+    })
+}
 pub fn exc(name: &str, msg: String) -> E {
     let c = exc_class(name);
     let o = Obj::new(c);
@@ -1061,6 +1077,34 @@ pub fn hash_float(f: f64) -> i64 {
         h = -2;
     }
     h
+}
+// A fresh NaN value: CPython's float("nan") is a new float object each call, and `x in [x]` (or
+// `[x] == [x]`, a dict key, a set member) is true only for that same object. The runtime's floats are
+// plain f64 values, so each NaN object carries its own quiet-NaN payload as its identity; `is` and
+// `same_obj` compare those bits, while `==` still treats NaN as unequal.
+static NAN_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+const NAN_PAYLOAD: u64 = (1u64 << 51) - 1;
+pub fn nan_obj() -> f64 {
+    let id = NAN_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    f64::from_bits(0x7ff8_0000_0000_0000 | (id & NAN_PAYLOAD))
+}
+// The result of a float computation. CPython makes a new float object for every computed value
+// (nan + 1, inf - inf, abs(nan), math.fabs(nan), ...), so a NaN result gets a fresh payload rather than
+// propagating an operand's payload; a NaN only passed through (an assignment, unary +, float(x),
+// max/min) keeps its bits and stays the same object. The branch is never taken for non-NaN results.
+#[inline]
+pub fn fresh_float(r: f64) -> f64 {
+    if r.is_nan() {
+        nan_obj().copysign(r)
+    } else {
+        r
+    }
+}
+// Two NaNs are the same object only when both carry one of nan_obj's payloads. A NaN the floating-point
+// hardware made outside the runtime's float ops (a numpy cast, for example) has no such identity, so it
+// keeps the value-only behaviour.
+pub fn same_nan(x: f64, y: f64) -> bool {
+    x.is_nan() && y.is_nan() && x.to_bits() == y.to_bits() && (x.to_bits() & NAN_PAYLOAD) != 0
 }
 fn frexp(f: f64) -> (f64, i32) {
     if f == 0.0 {
@@ -1783,6 +1827,7 @@ pub fn same_obj(a: &V, b: &V) -> bool {
     match (a, b) {
         (V::Obj(x), V::Obj(y)) => Rc::ptr_eq(x, y),
         (V::Class(x), V::Class(y)) => Rc::ptr_eq(x, y),
+        (V::Float(x), V::Float(y)) => same_nan(*x, *y),
         _ => false,
     }
 }
@@ -2042,6 +2087,14 @@ impl Args {
 }
 
 pub type FnBox = Box<dyn Fn(Args) -> R>;
+// Names a function keeps in slots (or Brevi's own cells/attrs), never in its user-facing __dict__.
+pub const FUNC_SLOT_ATTRS: &[&str] = &[
+    "__name__", "__qualname__", "__module__", "__doc__", "__annotations__", "__code__", "__defaults__",
+    "__kwdefaults__", "__type_params__", "__globals__", "__builtins__", "__bv_np__", "__bv_kind__", "__bv_repr__",
+    "__bv_dict__",
+    // lru_cache's methods live on the wrapper's class in CPython, not in its __dict__
+    "cache_clear", "cache_info",
+];
 pub struct Func {
     pub name: Cell<Sym>,
     // CPython's dotted __qualname__ (name itself for builtins and top-level defs)
@@ -2887,6 +2940,27 @@ impl Obj {
     fn dict_free(&self, n: &str) -> bool {
         n.starts_with("__pydantic_") || self.cls.is_slot(n) || n == "args" && self.cls.base_bt() == BT::Exc
     }
+    // Exception fields CPython stores in C slots rather than the instance __dict__: args, OSError's
+    // errno/strerror/filename/filename2, ImportError's name/path, AttributeError's name/obj and
+    // NameError's name. Like args, they stay in the object's own storage through setattr and vars().
+    fn exc_slot(&self, n: &str) -> bool {
+        if self.cls.base_bt() != BT::Exc {
+            return false;
+        }
+        if n == "args" {
+            return true;
+        }
+        if self.cls.is_sub(&ose_class()) && matches!(n, "errno" | "strerror" | "filename" | "filename2") {
+            return true;
+        }
+        if self.cls.is_sub(&exc_class("ImportError")) && matches!(n, "name" | "path") {
+            return true;
+        }
+        if self.cls.is_sub(&exc_class("AttributeError")) && matches!(n, "name" | "obj") {
+            return true;
+        }
+        self.cls.is_sub(&exc_class("NameError")) && n == "name"
+    }
     pub fn set_inner(&self, v: Option<V>) {
         *self.inner.borrow_mut() = v.map(Box::new);
     }
@@ -2932,8 +3006,8 @@ impl Obj {
         }
         let mut d = self.d.borrow_mut();
         if let Some(dd) = d.dict.clone() {
-            // a slot's value (and an exception's args) stay out of the managed dict, as in CPython
-            if self.cls.is_slot(n) || n == "args" && self.cls.base_bt() == BT::Exc {
+            // a slot's value (and an exception's args and C fields) stay out of the managed dict, as in CPython
+            if self.cls.is_slot(n) || self.exc_slot(n) {
                 match d.attrs.find(n) {
                     Some(i) => *d.attrs.get_mut(i).unwrap().1 = v,
                     None => d.attrs.push((n, v)),
@@ -2959,8 +3033,10 @@ impl Obj {
         }
         let mut entries: Vec<(Sym, V)> = vec![];
         let mut keep = Attrs::new();
+        // Exception `args` (and OSError's errno/strerror/filename/filename2, ImportError's name/path,
+        // AttributeError's name/obj, NameError's name) are C slots in CPython: they never show in __dict__.
         for (k, v) in d.attrs.iter() {
-            if self.dict_free(k) {
+            if self.dict_free(k) || self.exc_slot(k) {
                 keep.push((*k, v.clone()));
             } else {
                 entries.push((*k, v.clone()));
@@ -2983,7 +3059,7 @@ impl Obj {
         let mut d = self.d.borrow_mut();
         let mut keep = Attrs::new();
         for (k, x) in d.attrs.iter() {
-            if self.dict_free(k) {
+            if self.dict_free(k) || self.exc_slot(k) {
                 keep.push((*k, x.clone()));
             }
         }
@@ -3021,6 +3097,18 @@ impl Obj {
         }
         if n == "args" && self.cls.base_bt() == BT::Exc {
             return Err(exc("TypeError", "args may not be deleted".into()));
+        }
+        // Deleting an exception's C field empties it (a later read gives None), it does not raise.
+        if self.exc_slot(n) {
+            let mut d = self.d.borrow_mut();
+            let at = d.attrs.names().iter().position(|k| *k == n);
+            return Ok(match at {
+                Some(i) => {
+                    d.attrs.remove(i);
+                    true
+                }
+                None => false,
+            });
         }
         if self.cls.is_slot(n) {
             // deleting a set slot resets it; an unset one raises with the bare name, as CPython's
@@ -3138,6 +3226,10 @@ pub fn init_builtin_classes() {
         ("ImportError", "Exception"),
         ("ModuleNotFoundError", "ImportError"),
         ("OSError", "Exception"),
+        ("InterruptedError", "OSError"),
+        ("BlockingIOError", "OSError"),
+        ("ChildProcessError", "OSError"),
+        ("ProcessLookupError", "OSError"),
         ("FileNotFoundError", "OSError"),
         ("PermissionError", "OSError"),
         ("IsADirectoryError", "OSError"),
@@ -3205,6 +3297,7 @@ pub fn init_builtin_classes() {
     let ae = m["AttributeError"].clone();
     m.insert("FrozenInstanceError", Class::new("FrozenInstanceError", "dataclasses", vec![ae], BT::Exc));
     BUILTIN_CLASSES.with(|b| *b.borrow_mut() = m);
+    OSE_CLASS.with(|c| *c.borrow_mut() = None);
     TYPE_CACHE.with(|c| *c.borrow_mut() = Default::default());
     BV_CACHE.with(|c| *c.borrow_mut() = Default::default());
 }

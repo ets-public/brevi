@@ -404,6 +404,45 @@ pub fn with_doc(f: V, doc: &str) -> V {
     }
     f
 }
+// A def's __module__ when it isn't __main__ (the default getattr gives).
+pub fn with_module(f: V, m: &str) -> V {
+    if let V::Func(ff) = &f {
+        ff.attrs.borrow_mut().push(("__module__", s(m)));
+    }
+    f
+}
+// A def's user attributes live in its attrs until its __dict__ is read; from then on that dict holds them, so
+// writes through `f.__dict__` and through `f.x = ...` are the same.
+fn func_dict(f: &Rc<Func>) -> Option<Rc<RefCell<Dict>>> {
+    match f.attrs.borrow().iter().find(|(k, _)| *k == "__bv_dict__") {
+        Some((_, V::Dict(d))) => Some(d.clone()),
+        _ => None,
+    }
+}
+fn func_dict_make(f: &Rc<Func>) -> Result<Rc<RefCell<Dict>>, E> {
+    if let Some(d) = func_dict(f) {
+        return Ok(d);
+    }
+    let mut d = Dict::new();
+    let mut a = f.attrs.borrow_mut();
+    for (k, v) in a.iter().filter(|(k, _)| !FUNC_SLOT_ATTRS.contains(k)) {
+        d.set(s(k), v.clone())?;
+    }
+    a.retain(|(k, _)| FUNC_SLOT_ATTRS.contains(k));
+    let d = Rc::new(RefCell::new(d));
+    a.push(("__bv_dict__", V::Dict(d.clone())));
+    Ok(d)
+}
+// A user attribute of a def (None when it has none).
+pub fn func_user_attr(f: &Rc<Func>, name: &str) -> Result<Option<V>, E> {
+    if let Some(v) = f.attrs.borrow().iter().find(|(k, _)| *k == name).map(|(_, v)| v.clone()) {
+        return Ok(Some(v));
+    }
+    match func_dict(f) {
+        Some(d) => Dict::get_cell(&d, &s(name)),
+        None => Ok(None),
+    }
+}
 // a class of the program's own, of object or another such class: calling it makes an instance and runs __init__
 fn plain_new(c: &Rc<Class>) -> bool {
     let ep = CLASS_EPOCH.with(|e| e.get());
@@ -495,11 +534,28 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
         }
         return Ok(g);
     }
-    let o = Obj::new(c.clone());
+    // CPython 3.13's OSError is a factory: OSError(errno, strerror, ...) makes the subclass the errno names
+    // (PermissionError and so on), so the fields below belong to that subclass.
+    let c2 = if c.module == "builtins" && c.name == "OSError" { ose_factory(c, &a.p) } else { c.clone() };
+    let o = Obj::new(c2.clone());
     let me = V::Obj(o.clone());
-    let bb = c.base_bt();
+    let bb = c2.base_bt();
     if bb == BT::Exc {
-        o.set("args", tup(a.p.clone()));
+        let builtin_init = c2.lookup("__init__").map_or(true, |f| is_builtin_init(&f));
+        if builtin_init {
+            // CPython 3.13's builtin exception constructors take no keyword arguments, except
+            // ImportError/AttributeError/NameError, which take their C fields by keyword.
+            if !a.k.is_empty() {
+                exc_kw_init(c, &c2, &o, &mut a)?;
+            }
+            if c2.is_sub(&ose_class()) {
+                ose_init(&o, &a.p);
+            } else {
+                o.set("args", tup(a.p.clone()));
+            }
+        } else {
+            o.set("args", tup(a.p.clone()));
+        }
     } else if bb != BT::Object && bb != BT::Other {
         // subclass of a builtin container: the instance wraps a builtin value
         let mut a0 = Args { p: vec![], k: vec![] };
@@ -531,6 +587,69 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
 fn is_builtin_init(f: &V) -> bool {
     matches!(f, V::Func(x) if x.kind.get() == 3 && x.name.get() == "__init__")
 }
+// CPython 3.13's builtin exception constructors take no keyword arguments, except ImportError (name=,
+// path=), AttributeError (name=, obj=) and NameError (name=). Those fields are keyword-only C slots:
+// positional arguments all go to args, the fields default to None, and the error messages use the C
+// constructor's own name with CPython's keyword-count cap.
+fn exc_kw_init(c: &Rc<Class>, c2: &Rc<Class>, o: &Rc<Obj>, a: &Args) -> Result<(), E> {
+    let n = a.k.len();
+    let (base, max, k1, k2): (&str, usize, &str, Option<&str>) = if c2.is_sub(&exc_class("ImportError")) {
+        ("ImportError", 3, "name", Some("path"))
+    } else if c2.is_sub(&exc_class("AttributeError")) {
+        ("AttributeError", 2, "name", Some("obj"))
+    } else if c2.is_sub(&exc_class("NameError")) {
+        ("NameError", 1, "name", None)
+    } else {
+        return type_err(format!("{}() takes no keyword arguments", c.name));
+    };
+    if n > max {
+        let word = if max == 1 { "argument" } else { "arguments" };
+        return type_err(format!("{base}() takes at most {max} keyword {word} ({n} given)"));
+    }
+    for (k, v) in &a.k {
+        if *k == k1 || k2 == Some(*k) {
+            o.set(sym(k), v.clone());
+        } else {
+            return type_err(format!("{base}() got an unexpected keyword argument '{k}'"));
+        }
+    }
+    Ok(())
+}
+// The subclass a plain OSError(errno, ...) really is (OSError itself when the errno names no subclass).
+fn ose_factory(c: &Rc<Class>, p: &[V]) -> Rc<Class> {
+    if (2..=5).contains(&p.len()) {
+        let myerrno = match &p[0] {
+            V::Int(i) => *i,
+            V::Bool(b) => *b as i64,
+            _ => -1,
+        };
+        let name = ose_errno_name(myerrno);
+        if name != "OSError" {
+            return exc_class(name);
+        }
+    }
+    c.clone()
+}
+// OSError(errno, strerror, filename, winerror=None, filename2=None), as CPython 3.13 lays it out: the first
+// two arguments are also the args attribute unless a filename is given (it then lives only in the field, so
+// args is (errno, strerror)).
+fn ose_init(o: &Rc<Obj>, p: &[V]) {
+    let n = p.len();
+    let mut stored = p.to_vec();
+    if n >= 2 && n <= 5 {
+        o.set(sym("errno"), p[0].clone());
+        o.set(sym("strerror"), p[1].clone());
+        if n >= 3 && !matches!(p[2], V::None) {
+            o.set(sym("filename"), p[2].clone());
+            if n >= 5 && !matches!(p[4], V::None) {
+                o.set(sym("filename2"), p[4].clone());
+            }
+            stored = p[..2].to_vec();
+        }
+    }
+    o.set("args", tup(stored));
+}
+
 fn builtin_of_bt(bt: BT) -> Rc<Class> {
     bclass(match bt {
         BT::List => "list",
@@ -593,7 +712,14 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
                 let me2 = me.clone();
                 return Ok(builtin("__init__", move |a: Args| {
                     if let V::Obj(o) = &me2 {
-                        o.set("args", tup(a.p));
+                        if !a.k.is_empty() {
+                            exc_kw_init(&o.cls, &o.cls, o, &a)?;
+                        }
+                        if o.cls.is_sub(&ose_class()) {
+                            ose_init(o, &a.p);
+                        } else {
+                            o.set("args", tup(a.p.clone()));
+                        }
                     }
                     Ok(V::None)
                 }));
@@ -623,6 +749,9 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
                     let args = o.get("args").unwrap_or(tup(vec![]));
                     if rep {
                         return Ok(st(format!("{}{}", o.cls.name, repr(&args)?)));
+                    }
+                    if o.cls.is_sub(&ose_class()) {
+                        return Ok(st(ose_str(o, &args)?));
                     }
                     return Ok(st(match &args {
                         V::Tuple(t) if t.len() == 1 => to_str(&t[0])?,
@@ -950,6 +1079,22 @@ pub fn getattr(o: &V, name: &str) -> R {
                         _ => V::None,
                     });
                 }
+                // OSError's constructor-derived fields; once deleted the slot reads None, as in CPython.
+                "errno" | "strerror" | "filename" | "filename2" if ob.cls.base_bt() == BT::Exc && ob.cls.is_sub(&ose_class()) => {
+                    return Ok(ob.get(name).unwrap_or(V::None));
+                }
+                // ImportError.name/path, AttributeError.name/obj and NameError.name, likewise.
+                "path" if ob.cls.base_bt() == BT::Exc && ob.cls.is_sub(&exc_class("ImportError")) => {
+                    return Ok(ob.get(name).unwrap_or(V::None));
+                }
+                "name" if ob.cls.base_bt() == BT::Exc
+                    && (ob.cls.is_sub(&exc_class("ImportError")) || ob.cls.is_sub(&exc_class("AttributeError")) || ob.cls.is_sub(&exc_class("NameError"))) =>
+                {
+                    return Ok(ob.get(name).unwrap_or(V::None));
+                }
+                "obj" if ob.cls.base_bt() == BT::Exc && ob.cls.is_sub(&exc_class("AttributeError")) => {
+                    return Ok(ob.get(name).unwrap_or(V::None));
+                }
                 _ => {}
             }
             if let Some(ga) = ob.cls.lookup("__getattr__") {
@@ -1065,17 +1210,37 @@ pub fn getattr(o: &V, name: &str) -> R {
         V::Func(f) => match name {
             "__name__" => Ok(s(f.name.get())),
             "__qualname__" => Ok(s(f.qualname.get())),
+            "__module__" => Ok(f.attrs
+                .borrow()
+                .iter()
+                .find(|(k, _)| *k == "__module__")
+                .map(|(_, v)| v.clone())
+                .unwrap_or_else(|| s(if f.kind.get() == 3 { "builtins" } else { "__main__" }))),
+            // Brevi doesn't evaluate annotations (the typing pass refuses a written `.__annotations__` when the
+            // program is built); one assigned to the def reads back, any other read is refused
+            "__annotations__" => match f.attrs.borrow().iter().find(|(k, _)| *k == "__annotations__").map(|(_, v)| v.clone()) {
+                Some(v) => Ok(v),
+                None if f.kind.get() == 3 => Err(exc("AttributeError", "'builtin_function_or_method' object has no attribute '__annotations__'".to_string())),
+                None => Err(unsupported("a def's __annotations__")),
+            },
+            "__type_params__" => match f.attrs.borrow().iter().find(|(k, _)| *k == "__type_params__").map(|(_, v)| v.clone()) {
+                Some(v) => Ok(v),
+                None if f.kind.get() == 3 => Err(exc("AttributeError", format!("'{}' object has no attribute '__type_params__'", if f.kind.get() == 3 { "builtin_function_or_method" } else { "function" }))),
+                None => Ok(tup(vec![])),
+            },
             "__call__" => Ok(o.clone()),
             // an assigned __code__ is kept in attrs; otherwise one is made from the def's flags
             "__code__" if f.attrs.borrow().iter().all(|(k, _)| *k != "__code__") => match f.code_flags.get() {
                 0 => Err(exc("AttributeError", format!("'{}' object has no attribute '__code__'", if f.kind.get() == 3 { "builtin_function_or_method" } else { "function" }))),
                 fl => Ok(mk_code(f.name.get(), fl)),
             },
+            // the dict of attributes assigned to the function; slot-backed names stay out, as in CPython
+            "__dict__" if f.kind.get() != 3 => Ok(V::Dict(func_dict_make(f)?)),
             // 0 function, 1 staticmethod, 2 classmethod (Brevi's pydantic reads it)
             "__bv_kind__" => Ok(V::Int(f.kind.get() as i64)),
             "__doc__" => Ok(f.attrs.borrow().iter().find(|(k, _)| *k == "__doc__").map_or(V::None, |(_, v)| v.clone())),
             _ => {
-                if let Some(v) = f.attrs.borrow().iter().find(|(k, _)| *k == name).map(|(_, v)| v.clone()) {
+                if let Some(v) = func_user_attr(f, name)? {
                     return Ok(v);
                 }
                 Err(exc("AttributeError", format!("'function' object has no attribute '{name}'")))
@@ -1202,6 +1367,19 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
             None => Err(exc("AttributeError", format!("'{}' object has no attribute '{}' and no __dict__ for setting new attributes", tn(o), name))),
         },
         V::Func(f) => {
+            // a def's name cells are what its repr and errors show, so assignments go there, as in CPython
+            if name == "__name__" || name == "__qualname__" {
+                let V::Str(t) = &v else {
+                    return type_err(format!("{name} must be set to a string object"));
+                };
+                if name == "__name__" { f.name.set(sym(&t.s)) } else { f.qualname.set(sym(&t.s)) }
+                return Ok(());
+            }
+            if !FUNC_SLOT_ATTRS.contains(&name) {
+                if let Some(d) = func_dict(f) {
+                    return Dict::set_cell(&d, s(name), v);
+                }
+            }
             let mut a = f.attrs.borrow_mut();
             match a.iter_mut().find(|(k, _)| *k == name) {
                 Some(e) => e.1 = v,
@@ -1217,6 +1395,25 @@ pub fn delattr(o: &V, name: &str) -> Result<(), E> {
         V::Obj(ob) => {
             if let Some(da) = ob.cls.lookup("__delattr__") {
                 call(&da, Args::p(vec![o.clone(), s(name)]))?;
+                return Ok(());
+            }
+            // deleting an OSError field empties the slot (getattr then reads None), it does not raise
+            if matches!(name, "errno" | "strerror" | "filename" | "filename2")
+                && ob.cls.base_bt() == BT::Exc
+                && ob.cls.is_sub(&ose_class())
+            {
+                ob.del_attr(name)?;
+                return Ok(());
+            }
+            if (matches!(name, "path") && ob.cls.is_sub(&exc_class("ImportError"))
+                || matches!(name, "obj") && ob.cls.is_sub(&exc_class("AttributeError"))
+                || matches!(name, "name")
+                    && (ob.cls.is_sub(&exc_class("ImportError"))
+                        || ob.cls.is_sub(&exc_class("AttributeError"))
+                        || ob.cls.is_sub(&exc_class("NameError"))))
+                && ob.cls.base_bt() == BT::Exc
+            {
+                ob.del_attr(name)?;
                 return Ok(());
             }
             if ob.del_attr(name)? {

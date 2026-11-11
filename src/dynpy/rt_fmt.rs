@@ -111,6 +111,63 @@ fn unguard() {
         d.borrow_mut().pop();
     });
 }
+// The subclass a plain OSError(errno, ...) stands for (PermissionError and so on); used by the constructor
+// factory, since in CPython 3.13 OSError(errno, strerror, ...) makes the subclass itself. The tables follow
+// CPython's errnomodule.c on each target, with that platform's errno.h values.
+pub fn ose_errno_name(myerrno: i64) -> &'static str {
+    #[cfg(target_os = "macos")]
+    const TABLE: &[(i64, &str)] = &[
+        (1, "PermissionError"), (2, "FileNotFoundError"), (3, "ProcessLookupError"), (4, "InterruptedError"),
+        (10, "ChildProcessError"), (13, "PermissionError"), (17, "FileExistsError"), (20, "NotADirectoryError"),
+        (21, "IsADirectoryError"), (32, "BrokenPipeError"), (35, "BlockingIOError"), (36, "BlockingIOError"),
+        (37, "BlockingIOError"), (53, "ConnectionAbortedError"), (54, "ConnectionResetError"),
+        (58, "BrokenPipeError"), (60, "TimeoutError"), (61, "ConnectionRefusedError"),
+    ];
+    #[cfg(target_os = "windows")]
+    const TABLE: &[(i64, &str)] = &[
+        (1, "PermissionError"), (2, "FileNotFoundError"), (3, "ProcessLookupError"), (4, "InterruptedError"),
+        (10, "ChildProcessError"), (11, "BlockingIOError"), (13, "PermissionError"), (17, "FileExistsError"),
+        (20, "NotADirectoryError"), (21, "IsADirectoryError"), (32, "BrokenPipeError"), (103, "BlockingIOError"),
+        (106, "ConnectionAbortedError"), (107, "ConnectionRefusedError"), (108, "ConnectionResetError"),
+        (112, "BlockingIOError"), (138, "TimeoutError"), (140, "BlockingIOError"),
+    ];
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    const TABLE: &[(i64, &str)] = &[
+        (1, "PermissionError"), (2, "FileNotFoundError"), (3, "ProcessLookupError"), (4, "InterruptedError"),
+        (10, "ChildProcessError"), (11, "BlockingIOError"), (13, "PermissionError"), (17, "FileExistsError"),
+        (20, "NotADirectoryError"), (21, "IsADirectoryError"), (32, "BrokenPipeError"),
+        (103, "ConnectionAbortedError"), (104, "ConnectionResetError"), (108, "BrokenPipeError"),
+        (110, "TimeoutError"), (111, "ConnectionRefusedError"), (114, "BlockingIOError"),
+        (115, "BlockingIOError"),
+    ];
+    TABLE.iter().find(|(e, _)| *e == myerrno).map_or("OSError", |(_, n)| *n)
+}
+// OSError.__str__: the stored fields (filename first, as CPython), or BaseException's own fallback when
+// strerror (or errno) was never given or deleted.
+pub fn ose_str(o: &Rc<Obj>, args: &V) -> Result<String, E> {
+    let errno = o.get("errno");
+    let errno_v = errno.clone().unwrap_or(V::None);
+    let strerror = o.get("strerror");
+    let filename = o.get("filename");
+    let filename2 = o.get("filename2");
+    if let Some(f) = filename {
+        let mut s = format!("[Errno {}] {}: {}", to_str(&errno_v)?, to_str(strerror.as_ref().unwrap_or(&V::None))?, repr(&f)?);
+        if let Some(f2) = filename2 {
+            s.push_str(&format!(" -> {}", repr(&f2)?));
+        }
+        return Ok(s);
+    }
+    if errno.is_some() {
+        if let Some(se) = strerror {
+            return Ok(format!("[Errno {}] {}", to_str(&errno_v)?, to_str(&se)?));
+        }
+    }
+    Ok(match args {
+        V::Tuple(t) if t.is_empty() => String::new(),
+        V::Tuple(t) if t.len() == 1 => to_str(&t[0])?,
+        _ => repr(args)?,
+    })
+}
 pub fn repr(v: &V) -> Result<String, E> {
     Ok(match v {
         V::None => "None".into(),
@@ -428,6 +485,9 @@ pub fn to_str(v: &V) -> Result<String, E> {
             }
             if o.cls.base_bt() == BT::Exc {
                 let args = o.get("args").unwrap_or(tup(vec![]));
+                if o.cls.is_sub(&ose_class()) {
+                    return ose_str(o, &args);
+                }
                 // UnicodeDecodeError(encoding, object, start, end, reason)
                 if let V::Tuple(t) = &args {
                     if t.len() == 5 && o.cls.is_sub(&exc_class("UnicodeDecodeError")) {
@@ -1036,7 +1096,7 @@ pub fn parse_float(t: &str) -> Option<f64> {
     let neg = l.starts_with('-');
     let r = match body {
         "inf" | "infinity" => Some(f64::INFINITY),
-        "nan" => Some(f64::NAN),
+        "nan" => Some(nan_obj()),
         _ => {
             if body.is_empty() || !body.chars().all(|c| c.is_ascii_digit() || matches!(c, '.' | 'e' | '+' | '-' | '_')) || body.starts_with('_') || body.ends_with('_') || body.contains("__") {
                 return None;

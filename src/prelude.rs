@@ -2789,11 +2789,13 @@ pub trait AxGetEmpty<K, V> {
     fn ax_get_or_emap(&self, k: &K) -> V;
     fn ax_get_or_elist(&self, k: &K) -> V;
 }
-impl<K: Hash + Eq + Ord + Clone, V: Clone + Default> AxGetEmpty<K, V> for AxM<K, V> {
+impl<K: Hash + Eq + Ord + Clone + AxNaN, V: Clone + Default> AxGetEmpty<K, V> for AxM<K, V> {
     fn ax_get_or_emap(&self, k: &K) -> V {
+        ax_nan_stop(k);
         self.get(k).cloned().unwrap_or_default()
     }
     fn ax_get_or_elist(&self, k: &K) -> V {
+        ax_nan_stop(k);
         self.get(k).cloned().unwrap_or_default()
     }
 }
@@ -2828,7 +2830,7 @@ pub trait AxMap<K, V> {
     fn ax_values(&self) -> Vec<V>;
     fn ax_pairs(&self) -> Vec<(K, V)>;
 }
-impl<K: Hash + Eq + Ord + Clone, V: Clone> AxMap<K, V> for AxM<K, V> {
+impl<K: Hash + Eq + Ord + Clone + AxNaN, V: Clone> AxMap<K, V> for AxM<K, V> {
     fn ax_len(&self) -> i64 {
         self.len() as i64
     }
@@ -2836,15 +2838,20 @@ impl<K: Hash + Eq + Ord + Clone, V: Clone> AxMap<K, V> for AxM<K, V> {
         self.is_empty()
     }
     fn ax_has(&self, k: &K) -> bool {
+        ax_nan_stop(k);
         self.contains_key(k)
     }
     fn ax_get_or<Q: AxKeyOf<K> + ?Sized>(&self, k: &Q, d: V) -> V {
         match k.ax_key_of() {
-            Some(k) => self.get(&*k).cloned().unwrap_or(d),
+            Some(k) => {
+                ax_nan_stop(&*k);
+                self.get(&*k).cloned().unwrap_or(d)
+            }
             None => d,
         }
     }
     fn ax_remove(&mut self, k: K) {
+        ax_nan_stop(&k);
         self.remove(&k);
     }
     fn ax_keys(&self) -> Vec<K> {
@@ -2905,8 +2912,9 @@ impl<T> AxMut<i64, T> for Vec<T> {
         &mut self[j]
     }
 }
-impl<K: Hash + Eq + Ord + Show + 'static, V: Default + 'static> AxRef<K, V> for AxM<K, V> {
+impl<K: Hash + Eq + Ord + Show + AxNaN + 'static, V: Default + 'static> AxRef<K, V> for AxM<K, V> {
     fn ax_ref(&self, k: &K) -> &V {
+        ax_nan_stop(k);
         // A missing key reads as the type's zero value (0, "", [] ...), like Python's defaultdict.
         match self.get(k) {
             Some(v) => v,
@@ -2928,8 +2936,9 @@ fn ax_zero<V: Default + 'static>() -> &'static V {
         v.downcast_ref::<V>().unwrap()
     })
 }
-impl<K: Hash + Eq + Ord + Clone, V: Clone + Default> AxMut<K, V> for AxM<K, V> {
+impl<K: Hash + Eq + Ord + Clone + AxNaN, V: Clone + Default> AxMut<K, V> for AxM<K, V> {
     fn ax_mut(&mut self, k: &K) -> &mut V {
+        ax_nan_stop(k);
         // Updating a missing key starts it at the default (0, "", [] ...); the key is copied only then.
         if let Some(v) = self.get_mut(k) {
             // Safe: the borrow ends here on this path (a known limit of Rust's borrow checker).
@@ -2941,8 +2950,9 @@ impl<K: Hash + Eq + Ord + Clone, V: Clone + Default> AxMut<K, V> for AxM<K, V> {
         unsafe { &mut *(v as *mut V) }
     }
 }
-impl<K: Hash + Eq + Ord + Clone, V: Clone + Default> AxReadMiss<K, V> for AxM<K, V> {
+impl<K: Hash + Eq + Ord + Clone + AxNaN, V: Clone + Default> AxReadMiss<K, V> for AxM<K, V> {
     fn ax_read_miss(&mut self, k: &K) -> V {
+        ax_nan_stop(k);
         if let Some(v) = self.get_mut(k) {
             return v.clone();
         }
@@ -2951,6 +2961,7 @@ impl<K: Hash + Eq + Ord + Clone, V: Clone + Default> AxReadMiss<K, V> for AxM<K,
         v
     }
     fn ax_read_miss_ref(&mut self, k: &K) -> &mut V {
+        ax_nan_stop(k);
         if let Some(v) = self.get_mut(k) {
             // Safe: the borrow ends here on this path (a known limit of Rust's borrow checker).
             return unsafe { &mut *(v as *mut V) };
@@ -3081,19 +3092,22 @@ impl<T: Clone> AxIndexMut<i64, T> for Vec<T> {
         &mut self[j]
     }
 }
-impl<K: Hash + Eq + Ord + Clone + Show + 'static, V: Clone> AxIndex<K, V> for AxM<K, V> {
+impl<K: Hash + Eq + Ord + Clone + Show + AxNaN + 'static, V: Clone> AxIndex<K, V> for AxM<K, V> {
     fn ax_at(&self, k: K) -> V {
+        ax_nan_stop(&k);
         match self.get(&k) {
             Some(v) => v.clone(),
             None => panic!("key {} not in map", show_item(&k)),
         }
     }
     fn ax_set(&mut self, k: K, v: V) {
+        ax_nan_stop(&k);
         self.insert(k, v);
     }
 }
-impl<K: Hash + Eq + Ord + Clone, V: Clone + Default> AxIndexMut<K, V> for AxM<K, V> {
+impl<K: Hash + Eq + Ord + Clone + AxNaN, V: Clone + Default> AxIndexMut<K, V> for AxM<K, V> {
     fn ax_at_mut(&mut self, k: K) -> &mut V {
+        ax_nan_stop(&k);
         // Updating a missing key starts it at the default (0, "", [] ...).
         let v = self.ax_missing();
         self.entry(k).or_insert(v)
@@ -3443,12 +3457,12 @@ impl<T> AxRefTry<i64, T> for (T, T, T, T) {
         Ok([&self.0, &self.1, &self.2, &self.3][j])
     }
 }
-impl<K: Hash + Eq + Ord + Show + 'static, V: Default + 'static> AxRefTry<K, V> for AxM<K, V> {
+impl<K: Hash + Eq + Ord + Show + AxNaN + 'static, V: Default + 'static> AxRefTry<K, V> for AxM<K, V> {
     fn ax_try_ref(&self, k: &K) -> R<&V> {
         Ok(self.ax_ref(k))
     }
 }
-impl<K: Hash + Eq + Ord + Clone, V: Clone + Default> AxMutTry<K, V> for AxM<K, V> {
+impl<K: Hash + Eq + Ord + Clone + AxNaN, V: Clone + Default> AxMutTry<K, V> for AxM<K, V> {
     fn ax_try_mut(&mut self, k: &K) -> R<&mut V> {
         Ok(self.ax_mut(k))
     }
@@ -4734,8 +4748,9 @@ impl<T> AxPopAt<i64, T> for Vec<T> {
         self.remove(j)
     }
 }
-impl<K: Hash + Eq + Ord + Clone + Show + 'static, V> AxPopAt<K, V> for AxM<K, V> {
+impl<K: Hash + Eq + Ord + Clone + Show + AxNaN + 'static, V> AxPopAt<K, V> for AxM<K, V> {
     fn ax_pop_at(&mut self, k: K) -> V {
+        ax_nan_stop(&k);
         match self.remove(&k) {
             Some(v) => v,
             None => panic!("KeyError: {}", show_item(&k)),
@@ -5687,7 +5702,7 @@ pub struct AxSet<T> {
     n: std::cell::UnsafeCell<Option<HashMap<T, u32, BuildHasherDefault<AxHasher>>>>,
 }
 const AX_SET_SCAN: usize = 12;
-impl<T: Hash + Eq + Clone> AxSet<T> {
+impl<T: Hash + Eq + Clone + AxNaN> AxSet<T> {
     fn ax_ix(&self) -> &HashMap<T, u32, BuildHasherDefault<AxHasher>> {
         // Only this type touches the cell, and no reference into it outlives a call.
         let n = unsafe { &mut *self.n.get() };
@@ -5712,12 +5727,14 @@ impl<T: Hash + Eq + Clone> AxSet<T> {
         }
     }
     pub fn ax_contains(&self, x: &T) -> bool {
+        ax_nan_stop(x);
         if self.v.len() <= AX_SET_SCAN && unsafe { (*self.n.get()).is_none() } {
             return self.v.iter().any(|y| y == x);
         }
         self.ax_ix().contains_key(x)
     }
     pub fn ax_push(&mut self, x: T) {
+        ax_nan_stop(&x);
         if let Some(m) = self.n.get_mut().as_mut() {
             *m.entry(x.clone()).or_insert(0) += 1;
         }
@@ -5790,12 +5807,13 @@ impl<'a, T> IntoIterator for &'a AxSet<T> {
         self.v.iter()
     }
 }
-impl<T: Hash + Eq + Clone> AxIn<T> for AxSet<T> {
+impl<T: Hash + Eq + Clone + AxNaN> AxIn<T> for AxSet<T> {
     fn ax_in(&self, x: &T) -> bool {
+        ax_nan_stop(x);
         self.ax_contains(x)
     }
 }
-impl<T: Hash + Eq + Clone> Plus<Vec<T>> for AxSet<T> {
+impl<T: Hash + Eq + Clone + AxNaN> Plus<Vec<T>> for AxSet<T> {
     type Out = AxSet<T>;
     fn plus(mut self, o: Vec<T>) -> AxSet<T> {
         for x in o {
@@ -6024,14 +6042,118 @@ impl<T> Plus<Vec<T>> for AxQueue<T> {
         self
     }
 }
+// ---- NaN identity (typed build) ----
+// CPython's list, tuple, dict and set equality, membership, index, count and remove compare with `is`
+// before `==`; dict and set lookups do too. The typed build's unboxed f64 has no identity, so an operation
+// whose value may be NaN (or hold one) stops the run with "AX_DYN: NaN identity" instead of guessing, and
+// brevi re-runs the program on the dynamic build, whose NaN objects carry their identity in their payload.
+// Values without NaN keep the plain fast paths: the checks below are emitted only where the type may hold a
+// float, and the trait methods on non-float types are empty after inlining.
+pub trait AxNaN {
+    fn ax_has_nan(&self) -> bool;
+}
+impl AxNaN for f64 {
+    #[inline]
+    fn ax_has_nan(&self) -> bool {
+        self.is_nan()
+    }
+}
+impl AxNaN for Json {
+    fn ax_has_nan(&self) -> bool {
+        match self {
+            Json::Num { v, .. } => v.is_nan(),
+            Json::Arr { v } | Json::Tup { v } => v.iter().any(|x| x.ax_has_nan()),
+            Json::Obj { v } => v.values().any(|x| x.ax_has_nan()),
+            _ => false,
+        }
+    }
+}
+impl<T: AxNaN> AxNaN for Vec<T> {
+    #[inline]
+    fn ax_has_nan(&self) -> bool {
+        self.iter().any(|x| x.ax_has_nan())
+    }
+}
+impl<T: AxNaN> AxNaN for AxSet<T> {
+    #[inline]
+    fn ax_has_nan(&self) -> bool {
+        self.v.iter().any(|x| x.ax_has_nan())
+    }
+}
+impl<T: AxNaN> AxNaN for AxQueue<T> {
+    #[inline]
+    fn ax_has_nan(&self) -> bool {
+        self.0.iter().any(|x| x.ax_has_nan())
+    }
+}
+impl<K: Hash + Eq + Ord + AxNaN, V: AxNaN> AxNaN for AxM<K, V> {
+    #[inline]
+    fn ax_has_nan(&self) -> bool {
+        self.iter().any(|(k, v)| k.ax_has_nan() || v.ax_has_nan())
+    }
+}
+impl<T: AxNaN + 'static> AxNaN for AxRow<T> {
+    fn ax_has_nan(&self) -> bool {
+        !self.0.is_null() && (**self).ax_has_nan()
+    }
+}
+macro_rules! ax_nan_false {
+    ($($t:ty),*) => {
+        $(impl AxNaN for $t {
+            #[inline]
+            fn ax_has_nan(&self) -> bool {
+                false
+            }
+        })*
+    };
+}
+ax_nan_false!(i64, i32, u64, u32, usize, isize, i128, u128, bool, char, String, &str, Dec, Big, Date);
+macro_rules! ax_nan_tup {
+    ($($n:ident),+) => {
+        impl<$($n: AxNaN),+> AxNaN for ($($n,)+) {
+            #[inline]
+            fn ax_has_nan(&self) -> bool {
+                let ($($n,)+) = self;
+                false $(|| $n.ax_has_nan())+
+            }
+        }
+    };
+}
+ax_nan_tup!(A);
+ax_nan_tup!(A, B);
+ax_nan_tup!(A, B, C);
+ax_nan_tup!(A, B, C, D);
+ax_nan_tup!(A, B, C, D, E);
+ax_nan_tup!(A, B, C, D, E, F);
+ax_nan_tup!(A, B, C, D, E, F, G);
+ax_nan_tup!(A, B, C, D, E, F, G, H);
+#[cold]
+fn ax_nan_fail() -> ! {
+    panic!("AX_DYN: NaN identity")
+}
+// Stop if x is or holds a NaN, before an operation CPython would answer with identity (`is`).
+#[inline]
+pub fn ax_nan_stop<T: AxNaN>(x: &T) {
+    if x.ax_has_nan() {
+        ax_nan_fail()
+    }
+}
+// Python's == on lists, tuples, dicts and sets: NaN identity, or a stop of the run (see above).
+#[inline]
+pub fn ax_eq<T: AxNaN + PartialEq>(a: &T, b: &T) -> bool {
+    ax_nan_stop(a);
+    ax_nan_stop(b);
+    a == b
+}
 // ---- end of prelude ----
 
 // `x in xs`: a map key, a list item, or a substring.
 pub trait AxIn<X> {
     fn ax_in(&self, x: &X) -> bool;
 }
-impl<K: Hash + Eq + Ord + Clone, V: Clone> AxIn<K> for AxM<K, V> {
+impl<K: Hash + Eq + Ord + Clone + AxNaN, V: Clone> AxIn<K> for AxM<K, V> {
     fn ax_in(&self, x: &K) -> bool {
+        ax_nan_stop(x);
         self.contains_key(x)
     }
 }
@@ -6612,7 +6734,7 @@ pub trait AxMapSeq<K> {
     fn ax_any(&self, f: impl FnMut(K) -> bool) -> bool;
     fn ax_all(&self, f: impl FnMut(K) -> bool) -> bool;
 }
-impl<K: Hash + Eq + Ord + Clone, V: Clone> AxMapSeq<K> for AxM<K, V> {
+impl<K: Hash + Eq + Ord + Clone + AxNaN, V: Clone> AxMapSeq<K> for AxM<K, V> {
     fn ax_map<U>(&self, f: impl Fn(K) -> U) -> Vec<U> {
         self.ax_keys().into_iter().map(f).collect()
     }
@@ -7304,8 +7426,9 @@ impl AxNone for Dec {
 pub trait AxPopOr<K, V> {
     fn ax_pop_or(&mut self, k: K, d: V) -> V;
 }
-impl<K: Hash + Eq + Ord, V> AxPopOr<K, V> for AxM<K, V> {
+impl<K: Hash + Eq + Ord + AxNaN, V> AxPopOr<K, V> for AxM<K, V> {
     fn ax_pop_or(&mut self, k: K, d: V) -> V {
+        ax_nan_stop(&k);
         self.remove(&k).unwrap_or(d)
     }
 }

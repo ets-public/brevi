@@ -1548,11 +1548,16 @@ fn np_dot(a: &V, b: &V) -> R {
 }
 
 pub fn np_module_attr(m: &str, n: &str) -> Option<V> {
+    // numpy.nan is one object for the whole run, like math.nan.
+    fn np_nan() -> f64 {
+        static N: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
+        *N.get_or_init(nan_obj)
+    }
     Some(match (m, n) {
         ("numpy", "pi") => V::Float(std::f64::consts::PI),
         ("numpy", "e") => V::Float(std::f64::consts::E),
         ("numpy", "inf") => V::Float(f64::INFINITY),
-        ("numpy", "nan") => V::Float(f64::NAN),
+        ("numpy", "nan") => V::Float(np_nan()),
         ("numpy", "euler_gamma") => V::Float(0.5772156649015329),
         ("numpy", "newaxis") => V::None,
         ("numpy", "random") => V::Module(&ModName("numpy.random")),
