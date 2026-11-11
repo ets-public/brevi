@@ -185,6 +185,10 @@ fn walk_imports(body: &[parse::Stmt], out: &mut Vec<String>) {
             St::Import(v) => {
                 for (m, a) in v {
                     out.push(if a.is_some() { m.clone() } else { m.split('.').next().unwrap().to_string() });
+                    // `import collections.abc` loads collections.abc too: Brevi's ABCs, not its typing forms
+                    if a.is_none() && m == "collections.abc" {
+                        out.push(m.clone());
+                    }
                 }
             }
             St::ImportFrom(m, _) => out.push(m.clone()),
@@ -289,6 +293,7 @@ fn os_nt(src: &str) -> String {
 fn sandbox_module(m: &str) -> Option<&'static str> {
     Some(match m {
         "random" => include_str!("py/random.py"),
+        "collections.abc" => include_str!("py/collections_abc.py"),
         "os" => os_py(),
         "posixpath" => include_str!("py/posixpath.py"),
         "ntpath" => include_str!("py/ntpath.py"),
@@ -434,29 +439,15 @@ pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
     r
 }
 
-const ABC_BRIDGE: &str = "collections.abc used as a value runs CPython's ABCs";
-
 // The native `string` module has only the constants; a program using anything else from it (Template,
 // Formatter, capwords) is built again with CPython's string.py compiled in.
 fn to_rust_np(file: &str) -> Result<String, (String, usize, String)> {
     emit::STRING_NATIVE.store(true, Ordering::Relaxed);
-    let r = to_rust_np_abc(file);
+    let r = to_rust_np2(file);
     if matches!(&r, Err((_, _, m)) if m.starts_with("string.") && m.ends_with(" is not supported in dynamic builds")) {
         emit::STRING_NATIVE.store(false, Ordering::Relaxed);
-        let r = to_rust_np_abc(file);
-        emit::STRING_NATIVE.store(true, Ordering::Relaxed);
-        return r;
-    }
-    r
-}
-
-fn to_rust_np_abc(file: &str) -> Result<String, (String, usize, String)> {
-    emit::ABC_NATIVE.store(true, Ordering::Relaxed);
-    let r = to_rust_np2(file);
-    if matches!(&r, Err((_, 0, m)) if m == ABC_BRIDGE) {
-        emit::ABC_NATIVE.store(false, Ordering::Relaxed);
         let r = to_rust_np2(file);
-        emit::ABC_NATIVE.store(true, Ordering::Relaxed);
+        emit::STRING_NATIVE.store(true, Ordering::Relaxed);
         return r;
     }
     r
@@ -581,6 +572,10 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
                 imps.push(format!("{m}.{n}"));
             }
         }
+        // CPython's collections imports collections.abc and binds it as collections.abc
+        if imps.iter().any(|m| m == "collections") && !imps.iter().any(|m| m == "collections.abc") && texts.get(&mods[k].name).is_some_and(|t| t.1.contains(".abc")) {
+            imps.push("collections.abc".into());
+        }
         // the builtin open(): Brevi's, in _brevi_open (emit.rs loads it when the program uses no CPython library)
         if texts.get(&mods[k].name).is_some_and(|t| uses_open(&t.1)) {
             imps.push("_brevi_open".into());
@@ -667,10 +662,6 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         let user: Vec<(&str, &[parse::Stmt])> = mods.iter().filter(|m| !own_mods.contains(&m.name)).map(|m| (m.name.as_str(), m.body.as_slice())).collect();
         typing::OWN_PYDANTIC.store(own_mods.contains("pydantic"), Ordering::Relaxed);
         if let Err((m, l, why)) = typing::check(&user) {
-            // collections.abc as a value (isinstance(x, Mapping)): CPython's, through the bridge
-            if emit::ABC_NATIVE.load(Ordering::Relaxed) && typing::uses_abc(&user) && bridge_ok() && crate::pybridge::py_allowed("collections") {
-                return Err((file.to_string(), 0, ABC_BRIDGE.into()));
-            }
             let f = texts.get(&m).map_or(file.to_string(), |t| t.0.clone());
             return Err((f, l, why));
         }

@@ -2144,7 +2144,7 @@ pub type FnBox = Box<dyn Fn(Args) -> R>;
 pub const FUNC_SLOT_ATTRS: &[&str] = &[
     "__name__", "__qualname__", "__module__", "__doc__", "__annotations__", "__code__", "__defaults__",
     "__kwdefaults__", "__type_params__", "__closure__", "__globals__", "__builtins__", "__bv_np__", "__bv_kind__", "__bv_repr__",
-    "__bv_dict__", "__bv_wrapped__", "__bv_partial__", "__brevi_sd_ann__", "__func__", "__bv_mod__",
+    "__bv_dict__", "__bv_wrapped__", "__bv_partial__", "__brevi_sd_ann__", "__func__", "__bv_mod__", "__bv_nobind__",
     // lru_cache's methods live on the wrapper's class in CPython, not in its __dict__
     "cache_clear", "cache_info",
 ];
@@ -2309,7 +2309,18 @@ pub struct Class {
     pub plain_new: Cell<(u64, bool)>,
     // (epoch, whether instances hash by identity: no __hash__ or __eq__ in the MRO, not an enum)
     pub plain_hash: Cell<(u64, bool)>,
+    // collections.abc: the class (or a subclass of one) follows ABCMeta's isinstance/issubclass rules
+    pub abc: Cell<bool>,
+    // ABCMeta's virtual subclasses, in registration order (strong: class objects outlive the program)
+    pub abc_registry: RefCell<Vec<Rc<Class>>>,
+    // ABCMeta's positive and negative caches; the negative cache is dropped when the global token moves on
+    pub abc_cache: RefCell<Vec<Rc<Class>>>,
+    pub abc_neg_cache: RefCell<Vec<Rc<Class>>>,
+    pub abc_neg_ver: Cell<u64>,
 }
+
+// ABCMeta._abc_invalidation_counter: every register() on any ABC moves it, clearing negative caches.
+pub static ABC_TOKEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 thread_local! {
     pub static CLASS_EPOCH: Cell<u64> = const { Cell::new(1) };
@@ -2341,7 +2352,7 @@ impl Class {
         Self::with_qualname(name, name, module, bases, bt)
     }
     pub fn with_qualname(name: Sym, qualname: Sym, module: Sym, bases: Vec<Rc<Class>>, bt: BT) -> Rc<Class> {
-        let c = Rc::new(Class { name, qualname: Cell::new(qualname), module, bases: bases.clone(), mro: RefCell::new(vec![]), subs: RefCell::new(vec![]), attrs: RefCell::new(vec![]), bt, fields: RefCell::new(vec![]), lcache: RefCell::new((0, HashMap::default())), fcache: RefCell::new((0, Default::default())), set_info: RefCell::new((0, false, vec![], None)), plain_new: Cell::new((0, false)), plain_hash: Cell::new((0, false)) });
+        let c = Rc::new(Class { name, qualname: Cell::new(qualname), module, bases: bases.clone(), mro: RefCell::new(vec![]), subs: RefCell::new(vec![]), attrs: RefCell::new(vec![]), bt, fields: RefCell::new(vec![]), lcache: RefCell::new((0, HashMap::default())), fcache: RefCell::new((0, Default::default())), set_info: RefCell::new((0, false, vec![], None)), plain_new: Cell::new((0, false)), plain_hash: Cell::new((0, false)), abc: Cell::new(false), abc_registry: RefCell::new(vec![]), abc_cache: RefCell::new(vec![]), abc_neg_cache: RefCell::new(vec![]), abc_neg_ver: Cell::new(0) });
         // C3 linearization
         let mut seqs: Vec<Vec<Rc<Class>>> = bases.iter().map(|b| b.mro.borrow().clone()).collect();
         seqs.push(bases.clone());
@@ -3013,7 +3024,7 @@ impl Obj {
     // values CPython keeps out of the instance __dict__: pydantic's bookkeeping, __slots__ members,
     // and an exception's args
     fn dict_free(&self, n: &str) -> bool {
-        n.starts_with("__pydantic_") || self.cls.is_slot(n) || n == "args" && self.cls.base_bt() == BT::Exc
+        n.starts_with("__pydantic_") || n.starts_with("__bv_slot_") || self.cls.is_slot(n) || n == "args" && self.cls.base_bt() == BT::Exc
     }
     // Exception fields CPython stores in C slots rather than the instance __dict__: args, OSError's
     // errno/strerror/filename/filename2, ImportError's name/path, AttributeError's name/obj and
@@ -3070,8 +3081,9 @@ impl Obj {
         if n == "__dict__" {
             return self.set_dict(v);
         }
-        // pydantic keeps these in slots, not in __dict__ (see the Obj comment)
-        if n.starts_with("__pydantic_") {
+        // pydantic keeps these in slots, not in __dict__ (see the Obj comment); so do Brevi's own C-slot
+        // stand-ins (__bv_slot_*, functools.partial's func/args/keywords)
+        if n.starts_with("__pydantic_") || n.starts_with("__bv_slot_") {
             let mut d = self.d.borrow_mut();
             match d.attrs.find(n) {
                 Some(i) => *d.attrs.get_mut(i).unwrap().1 = v,
@@ -3127,6 +3139,24 @@ impl Obj {
         Ok(V::Dict(dd))
     }
     // o.__dict__ = v: the given dict replaces the instance's attributes (CPython drops the old dict).
+    // whether the instance __dict__ was never made: no attribute set and __dict__ never read (CPython's
+    // dict pointer is still NULL)
+    pub fn dict_unset(&self) -> bool {
+        let d = self.d.borrow();
+        d.dict.is_none() && d.attrs.iter().all(|(k, _)| self.dict_free(k) || self.exc_slot(k))
+    }
+    // the instance __dict__ dropped (CPython's dict pointer back to NULL); slots stay
+    pub fn clear_dict(&self) {
+        let mut d = self.d.borrow_mut();
+        let mut keep = Attrs::new();
+        for (k, x) in d.attrs.iter() {
+            if self.dict_free(k) || self.exc_slot(k) {
+                keep.push((*k, x.clone()));
+            }
+        }
+        d.attrs = keep;
+        d.dict = None;
+    }
     pub fn set_dict(&self, v: V) -> Result<(), E> {
         let V::Dict(dd) = v else {
             return Err(exc("TypeError", format!("__dict__ must be set to a dictionary, not a '{}'", type_name(&v))));
@@ -3159,7 +3189,7 @@ impl Obj {
             d.dict = Some(Rc::new(RefCell::new(Dict::new())));
             return Ok(true);
         }
-        if n.starts_with("__pydantic_") {
+        if n.starts_with("__pydantic_") || n.starts_with("__bv_slot_") {
             let mut d = self.d.borrow_mut();
             let at = d.attrs.names().iter().position(|k| *k == n);
             return Ok(match at {

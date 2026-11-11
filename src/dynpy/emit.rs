@@ -75,13 +75,11 @@ const NP_NARROW_FUNCS: &[&str] = &[
     "equal", "not_equal", "less", "less_equal", "greater", "greater_equal", "logical_and", "logical_or", "logical_xor",
     "bitwise_and", "bitwise_or", "bitwise_xor", "left_shift", "right_shift", "random",
 ];
-// collections.abc as Brevi's typing forms (off when the program needs CPython's ABCs: the bridge runs them).
-pub static ABC_NATIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 // false: `string` is CPython's Lib/string.py compiled in (py/string.py), for Template and Formatter; true (the
 // default): the native module, constants only, which builds and starts much faster
 pub static STRING_NATIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 pub fn builtin_mod(m: &str) -> bool {
-    (BUILTIN_MODULES.contains(&m) && (m != "string" || STRING_NATIVE.load(std::sync::atomic::Ordering::Relaxed))) || m == "typing_extensions" || (m == "collections.abc" && ABC_NATIVE.load(std::sync::atomic::Ordering::Relaxed)) || (matches!(m, "numpy" | "numpy.random" | "numpy.linalg") && np_native())
+    (BUILTIN_MODULES.contains(&m) && (m != "string" || STRING_NATIVE.load(std::sync::atomic::Ordering::Relaxed))) || m == "typing_extensions" || (matches!(m, "numpy" | "numpy.random" | "numpy.linalg") && np_native())
 }
 // The numpy functions and attributes the native numpy has, with the keyword arguments each takes.
 const NP_FUNCS: &[(&str, &[&str])] = &[
@@ -195,7 +193,7 @@ fn np_attr_check(n: &str, kws: &[&str], line: usize) -> ER<()> {
 pub fn module_has(m: &str, n: &str) -> bool {
     let names: &[&str] = match m {
         "__future__" => return true,
-        "typing" | "typing_extensions" | "collections.abc" => return super::typing::module_has(m, n),
+        "typing" | "typing_extensions" => return super::typing::module_has(m, n),
         "numpy" => return np_func_kw(n).is_some() && (!np_narrow() || NP_NARROW_FUNCS.contains(&n) || (NP_F32_SIMD.contains(&n) && np_f32_simd_here()) || (matches!(n, "dot" | "matmul") && np_f32_simd_here())),
         "numpy.random" => return np_rand_kw(n).is_some(),
         "numpy.linalg" => return np_linalg_kw(n).is_some() && (!np_narrow() || n == "norm"),
@@ -204,13 +202,13 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "atexit" => &["register", "unregister", "_run_exitfuncs", "_clear", "_ncallbacks"],
         "heapq" => &["heapify", "heappop", "heappush", "heappushpop", "heapreplace", "merge", "nlargest", "nsmallest"],
         "bisect" => &["bisect", "bisect_left", "bisect_right", "insort", "insort_left", "insort_right"],
-        "functools" => &["RLock", "WRAPPER_ASSIGNMENTS", "WRAPPER_UPDATES", "cache", "cached_property", "cmp_to_key", "lru_cache", "partial", "partialmethod", "reduce", "singledispatch", "singledispatchmethod", "total_ordering", "update_wrapper", "wraps"],
+        "functools" => &["RLock", "WRAPPER_ASSIGNMENTS", "WRAPPER_UPDATES", "_CacheInfo", "cache", "cached_property", "cmp_to_key", "lru_cache", "partial", "partialmethod", "reduce", "singledispatch", "singledispatchmethod", "total_ordering", "update_wrapper", "wraps"],
         "itertools" => &["accumulate", "batched", "chain", "combinations", "combinations_with_replacement", "compress", "count", "cycle", "dropwhile", "filterfalse", "groupby", "islice", "pairwise", "permutations", "product", "repeat", "starmap", "takewhile", "tee", "zip_longest"],
         "copy" => &["copy", "deepcopy"],
-        "operator" => &["add", "and_", "attrgetter", "contains", "eq", "floordiv", "ge", "getitem", "gt", "index", "itemgetter", "le", "lshift", "lt", "methodcaller", "mod", "mul", "ne", "neg", "not_", "or_", "pow", "rshift", "sub", "truediv", "truth", "xor"],
+        "operator" => &["add", "and_", "attrgetter", "contains", "eq", "floordiv", "ge", "getitem", "gt", "index", "itemgetter", "le", "lshift", "lt", "methodcaller", "mod", "mul", "ne", "neg", "not_", "or_", "pow", "rshift", "sub", "truediv", "truth", "xor", "__lt__", "__le__", "__gt__", "__ge__", "__eq__", "__ne__", "__and__", "__or__", "__xor__", "__sub__"],
         "string" => &["ascii_lowercase", "ascii_uppercase", "ascii_letters", "digits", "hexdigits", "octdigits", "punctuation", "whitespace", "printable"],
         "time" => &["time", "perf_counter", "monotonic", "process_time", "sleep", "time_ns", "perf_counter_ns", "monotonic_ns", "process_time_ns", "gmtime", "strftime"],
-        "abc" => &["ABC", "abstractmethod"],
+        "abc" => &["ABC", "abstractmethod", "_abc_register", "_check_methods"],
         "enum" => &["Enum", "IntEnum", "StrEnum", "Flag", "IntFlag", "auto", "unique"],
         "_brevi_term" => &["columns"],
         "hashlib" => &["new", "md5", "sha1", "sha224", "sha256", "sha384", "sha512"],
@@ -238,9 +236,9 @@ pub fn module_has(m: &str, n: &str) -> bool {
         ],
         "_brevi_col" => &["fsum", "cmp", "farith", "iarith", "take", "mask", "group1", "infer"],
         "_brevi_mt" => &["new", "seed", "next", "random", "bits", "below", "shuffle"],
-        "collections" => &["defaultdict", "Counter", "OrderedDict", "deque", "namedtuple"],
+        "collections" => &["defaultdict", "Counter", "OrderedDict", "deque", "namedtuple", "abc"],
         "dataclasses" => &["asdict", "astuple", "dataclass", "field", "fields", "replace", "is_dataclass", "MISSING", "KW_ONLY", "InitVar", "Field", "FrozenInstanceError"],
-        "re" => &["compile", "escape", "findall", "finditer", "fullmatch", "match", "purge", "search", "split", "sub", "subn", "IGNORECASE", "I", "LOCALE", "L", "MULTILINE", "M", "DOTALL", "S", "VERBOSE", "X", "ASCII", "A", "NOFLAG", "UNICODE", "U", "DEBUG", "RegexFlag", "error", "PatternError"],
+        "re" => &["compile", "escape", "findall", "finditer", "fullmatch", "match", "purge", "search", "split", "sub", "subn", "IGNORECASE", "I", "LOCALE", "L", "MULTILINE", "M", "DOTALL", "S", "VERBOSE", "X", "ASCII", "A", "NOFLAG", "UNICODE", "U", "DEBUG", "RegexFlag", "error", "PatternError", "Pattern", "Match"],
         "re._constants" => &["MAXGROUPS", "MAXREPEAT"],
         "json" => &["dump", "dumps", "load", "loads", "JSONDecodeError", "JSONDecoder", "JSONEncoder"],
         "json.decoder" => &["scanstring", "JSONDecoder", "JSONDecodeError"],
@@ -1694,6 +1692,14 @@ pub struct Em {
     uses_re: bool,
     // (module, name) bound by `from re import name`: calls of it say where they are, as `re.name(...)` does
     re_names: HashSet<(String, String)>,
+    // the program uses the warnings module: every statement says where it is, so a warning names its line
+    track_warn: bool,
+    // module -> the lines whose logical line runs over more than one line (None: the module did not lex)
+    multi: HashMap<String, Option<HashSet<usize>>>,
+    // the WMod statics written so far
+    wmods: HashSet<String>,
+    // (module, name) bound by `import warnings`
+    warn_names: HashSet<(String, String)>,
     // module + value set -> the first display's items in source order (CPython's constant merging)
     set_lits: HashMap<(String, BTreeSet<ConstKey>), Vec<Ex>>,
 }
@@ -2090,6 +2096,10 @@ impl Em {
             Ex::Star(_) => return Err(err(line, "starred expression here is not supported")),
             Ex::Attr(o, n) => {
                 if let Some(m) = self.static_module(o) {
+                    if m == "collections" && n == "abc" && self.user_modules.iter().any(|u| u == "collections.abc") {
+                        let init = self.q(&format!("init_{}()", rust_ident("collections.abc")));
+                        return Ok(self.q(&format!("{{ {init}; Ok::<V, E>(V::Module(&ModName(\"collections.abc\"))) }}")));
+                    }
                     if self.user_modules.contains(&m) {
                         return self.user_mod_load(&m, n, line);
                     }
@@ -2330,11 +2340,74 @@ impl Em {
     // the module name `x` refers to, when x is bound only by `import m`
     // A call of a re function, told its line first: the warnings CPython's re issues name the caller's line.
     // `call` is the call's Rust text over `__ra`, the evaluated arguments.
-    fn re_call(&self, call: &str, args: &str, line: usize) -> String {
-        let (file, src) = self.bridge.srcs.get(&self.module).cloned().unwrap_or_default();
-        let text = src.lines().nth(line.wrapping_sub(1)).unwrap_or("");
-        let module = if self.module.is_empty() { "__main__" } else { self.module.as_str() };
-        format!("{{ let __ra = {args}; re_site({line}, {}, {}, {}); let __rr = {call}; re_site_clear(); __rr }}", lit(&file), lit(module), lit(text))
+    fn re_call(&mut self, call: &str, args: &str, line: usize) -> String {
+        // a statement over several lines: which of them the call is on is not known, so no line is named
+        // (the module is still known: line 0 says so, and a warning the filters turn into an error is exact there)
+        let site = match self.wmod() {
+            Some(m) if !self.multi_line(line) => format!("re_site({line}, &{m});"),
+            Some(m) => format!("re_site(0, &{m});"),
+            None => "re_site_clear();".to_string(),
+        };
+        format!("{{ let __ra = {args}; let __ws = re_site_get(); {site} let __rr = {call}; re_site_put(__ws); __rr }}")
+    }
+    // The static naming this module of the program for warnings (None for Brevi's own library copies).
+    fn wmod(&mut self) -> Option<String> {
+        let (file, src) = self.bridge.srcs.get(&self.module).cloned()?;
+        let name = format!("WM_{}", rust_ident(if self.module.is_empty() { "__main__" } else { &self.module }));
+        if self.wmods.insert(name.clone()) {
+            let module = if self.module.is_empty() { "__main__".to_string() } else { self.module.clone() };
+            write!(self.items, "static {name}: WMod = WMod {{ file: {}, module: {}, src: {} }};\n", lit(&file), lit(&module), lit(&src)).unwrap();
+        }
+        Some(name)
+    }
+    // Whether a call in the logical line starting at `line` of this module may start on a later line than it.
+    // CPython names the line a call starts on; the dynamic build knows a statement's first line only, so
+    // a statement over several lines is known only when every call in it opens on its first line.
+    fn multi_line(&mut self, line: usize) -> bool {
+        use super::parse::Tok;
+        if !self.multi.contains_key(&self.module) {
+            let set = self.bridge.srcs.get(&self.module).and_then(|(_, src)| super::parse::lex(src).ok()).map(|lx| {
+                let mut set = HashSet::new();
+                let mut start: Option<usize> = None;
+                let mut prev: Option<&Tok> = None;
+                for (tk, l) in &lx.toks {
+                    match tk {
+                        Tok::Indent | Tok::Dedent | Tok::Eof => {}
+                        Tok::Newline => {
+                            start = None;
+                        }
+                        _ => {
+                            let s = *start.get_or_insert(*l);
+                            // a `(` after a name, `)`, `]`, `}` or a string may be a call
+                            let call = matches!(tk, Tok::Op("(")) && matches!(prev, Some(Tok::Name(_) | Tok::Op(")") | Tok::Op("]") | Tok::Op("}") | Tok::Str(..) | Tok::FStr(..) | Tok::Bytes(_)));
+                            if *l != s && (call || matches!(tk, Tok::Op("@"))) {
+                                set.insert(s);
+                            }
+                        }
+                    }
+                    prev = Some(tk);
+                }
+                set
+            });
+            self.multi.insert(self.module.clone(), set);
+        }
+        match self.multi.get(&self.module) {
+            Some(Some(set)) => set.contains(&line),
+            _ => true,
+        }
+    }
+    // The statement that says where the program is (`line` of this module), for a program using warnings;
+    // `known` false where the line is not known (a decorated def, an elif condition).
+    fn wsite(&mut self, line: usize, known: bool) -> String {
+        if !self.track_warn {
+            return String::new();
+        }
+        let known = known && line != 0 && !self.multi_line(line);
+        // Brevi's own library copies have no lines of CPython's to name; line 0 is this module at a line not known
+        match self.wmod() {
+            Some(m) => format!("re_site({}, &{m});", if known { line } else { 0 }),
+            None => "re_site_clear();".into(),
+        }
     }
     fn static_module(&self, e: &Ex) -> Option<String> {
         if let Ex::Name(n) = e {
@@ -2423,13 +2496,29 @@ impl Em {
                 return Err(err(line, "warnings.catch_warnings(record=True) is not supported in dynamic builds"));
             }
         }
+        // warnings.warn(..., stacklevel=2) in the program names a caller's line, which the dynamic build does
+        // not keep: CPython runs it (a stacklevel it only learns at run time is refused there, see pyglue)
+        if self.track_warn {
+            if let Ex::Attr(o, m) = f {
+                if m == "warn" && matches!(o.as_ref(), Ex::Name(n) if self.warn_names.contains(&(self.module.clone(), n.clone())) && matches!(self.lookup(n), Some(Var::Global(_)))) {
+                    let lvl = args.iter().find_map(|a| match a { Arg::Kw(k, v) if k == "stacklevel" => Some(v), _ => None })
+                        .or_else(|| args.iter().filter(|a| matches!(a, Arg::Pos(_))).nth(2).and_then(|a| if let Arg::Pos(v) = a { Some(v) } else { None }));
+                    if let Some(v) = lvl {
+                        if !matches!(v, Ex::Int(n) if n.parse::<i64>().is_ok_and(|n| n <= 1)) {
+                            return Err(err(line, "warnings.warn with a stacklevel above 1 is not supported in dynamic builds"));
+                        }
+                    }
+                }
+            }
+        }
         // `from re import sub` then `sub(...)`: told its line, as re.sub(...) is
         if let Ex::Name(n) = f {
             if self.re_names.contains(&(self.module.clone(), n.clone())) && matches!(self.lookup(n), Some(Var::Global(_))) {
                 self.uses_re = true;
                 let fv = self.ex(f, line)?;
                 let a = self.args(args, line, None)?;
-                return Ok(self.q(&self.re_call(&format!("call(&{fv}, __ra)"), &a, line)));
+                let rc = self.re_call(&format!("call(&{fv}, __ra)"), &a, line);
+                return Ok(self.q(&rc));
             }
         }
         // CPython's inspect cannot read a dynamic build's function objects (their code and annotations are
@@ -2574,13 +2663,6 @@ impl Em {
                 if md == "re" {
                     self.uses_re = true;
                 }
-                // \N{NAME} is not in Brevi's regex engine, so CPython runs the program rather than answering wrong
-                if md == "re"
-                    && matches!(m.as_str(), "compile" | "match" | "fullmatch" | "search" | "findall" | "finditer" | "split" | "sub" | "subn")
-                    && args.first().is_some_and(|a| matches!(a, Arg::Pos(Ex::Str(s)) | Arg::Kw(_, Ex::Str(s)) if s.contains("\\N{")))
-                {
-                    return Err(err(line, "re with a \\N{...} pattern is not supported in dynamic builds"));
-                }
                 let a = self.args(args, line, None)?;
                 if !module_has(&md, m) {
                     if hybrid_bridged(&md) {
@@ -2608,7 +2690,8 @@ impl Em {
                     }
                 }
                 if md == "re" {
-                    return Ok(self.q(&self.re_call(&format!("module_call(\"re\", {}, __ra)", lit(m)), &a, line)));
+                    let rc = self.re_call(&format!("module_call(\"re\", {}, __ra)", lit(m)), &a, line);
+                    return Ok(self.q(&rc));
                 }
                 return Ok(self.q(&format!("module_call({}, {}, {a})", lit(&md), lit(m))));
             }
@@ -2863,11 +2946,18 @@ impl Em {
         // `async for` clauses and `await`s: the comprehension runs in place in the async function (CPython inlines
         // it too). A generator expression with them is an async generator, which Brevi builds eagerly: refused.
         let mut awaits = gens.iter().any(|g| g.is_async);
+        let mut walrus = false;
         visit_ex(&Ex::Comp(kind, Box::new(elt.clone()), val.map(|v| Box::new(v.clone())), gens.to_vec()), &mut |x| {
             if matches!(x, Ex::Await(_)) {
                 awaits = true;
             }
+            if matches!(x, Ex::Walrus(..)) {
+                walrus = true;
+            }
         });
+        if walrus && self.fstack.last().unwrap().is_class {
+            return Err(err(line, "assignment expression within a comprehension cannot be used in a class body"));
+        }
         if awaits {
             if kind == 'g' {
                 return Err(err(line, "asynchronous generator expressions are not supported in dynamic builds"));
@@ -2892,8 +2982,40 @@ impl Em {
             _ => None,
         };
         let first_iter = if first_zip.is_some() { String::new() } else { self.ex(&gens[0].iter, line)? };
+        // In a class body the rest of the comprehension does not see the class's names (CPython resolves them
+        // past the class scope, to enclosing functions, globals and builtins), and its own variables are plain
+        // locals: never class namespace stores, nor Enum auto() stores (whose `&mut` borrow the enclosing
+        // class-level store already holds).
+        let class_saved = if self.f().is_class {
+            let fr = self.f();
+            Some((std::mem::take(&mut fr.vars), fr.enum_cnv.take(), fr.ns.take()))
+        } else {
+            None
+        };
+        let res = self.comp_rest(kind, elt, val, gens, line, id, &names, first_zip, first_iter);
+        if let Some((vars, cnv, ns)) = class_saved {
+            let fr = self.f();
+            fr.vars = vars;
+            fr.enum_cnv = cnv;
+            fr.ns = ns;
+            return res;
+        }
+        for (n, v) in saved {
+            match v {
+                Some(v) => {
+                    self.f().vars.insert(n, v);
+                }
+                None => {
+                    self.f().vars.remove(&n);
+                }
+            }
+        }
+        res
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn comp_rest(&mut self, kind: char, elt: &Ex, val: Option<&Ex>, gens: &[CompFor], line: usize, id: usize, names: &BTreeSet<String>, first_zip: Option<(String, String)>, first_iter: String) -> ER<String> {
         let mut decl = String::new();
-        for n in &names {
+        for n in names {
             let r = format!("c{id}_{}", rust_ident(n));
             write!(decl, "let mut {r}: V = V::Unbound; ").unwrap();
             self.f().vars.insert(n.clone(), Var::Local(r));
@@ -2967,16 +3089,6 @@ impl Em {
             's' => b.push_str("V::Set(Rc::new(RefCell::new(__out))) }"),
             _ => b.push_str("V::Dict(Rc::new(RefCell::new(__out))) }"),
         }
-        for (n, v) in saved {
-            match v {
-                Some(v) => {
-                    self.f().vars.insert(n, v);
-                }
-                None => {
-                    self.f().vars.remove(&n);
-                }
-            }
-        }
         Ok(b)
     }
 
@@ -3040,6 +3152,8 @@ impl Em {
             b.push_str("fin_point();\n");
         }
         for s in body {
+            let w = self.stmt_site(s);
+            b.push_str(&w);
             b.push_str(&self.stmt(s)?);
             // A program with __del__ runs the finalizers its statement made waiting (rt_core's fin_point).
             if self.has_del && matches!(s.st, St::Expr(_) | St::Assign(..) | St::AugAssign(..) | St::Del(_)) {
@@ -3048,6 +3162,18 @@ impl Em {
             b.push('\n');
         }
         Ok(b)
+    }
+    // Where statement `s` is, said before it runs (a program using warnings).
+    fn stmt_site(&mut self, s: &Stmt) -> String {
+        if !self.track_warn {
+            return String::new();
+        }
+        let known = match &s.st {
+            St::Def(d) => d.decorators.is_empty(),
+            St::Class(c) => c.decorators.is_empty(),
+            _ => true,
+        };
+        self.wsite(s.line, known)
     }
     fn loop_label(&self) -> Option<String> {
         for fr in self.fstack.last().unwrap().frames.iter().rev() {
@@ -3271,9 +3397,16 @@ impl Em {
                     let top = m.split('.').next().unwrap().to_string();
                     let bind = a.clone().unwrap_or(top.clone());
                     let target = if a.is_some() { m.clone() } else { top.clone() };
+                    if target == "warnings" {
+                        self.warn_names.insert((self.module.clone(), bind.clone()));
+                    }
                     let id = self.id();
                     // `import a.b` binds `a` but CPython registers `a.b` in sys.modules too
                     if target != *m && (self.user_modules.contains(m) || builtin_mod(m.as_str()) || m == "os.path") {
+                        if m == "collections.abc" && self.user_modules.contains(m) {
+                            let init = self.q(&format!("init_{}()", rust_ident(m)));
+                            write!(b, "{init}; ").unwrap();
+                        }
                         let reg = self.q(&format!("sys_modules_set({}, &V::Module(&ModName({})))", lit(m), lit(m)));
                         write!(b, "{reg}; ").unwrap();
                     }
@@ -3329,6 +3462,9 @@ impl Em {
                 }
                 for (n, a) in names {
                     if n == "*" {
+                        if m == "collections.abc" {
+                            return Err(err(line, "from collections.abc import * is not supported in dynamic builds"));
+                        }
                         if user {
                             let all: Vec<String> = self.mod_names.get(m).cloned().unwrap_or_default().into_iter().filter(|x| !x.starts_with('_')).collect();
                             for x in all {
@@ -3340,6 +3476,14 @@ impl Em {
                         return Err(err(line, "from ... import * is not supported for library modules"));
                     }
                     let bind = a.clone().unwrap_or(n.clone());
+                    if m == "collections" && n == "abc" && self.user_modules.iter().any(|u| u == "collections.abc") {
+                        let sub = "collections.abc";
+                        let init = self.q(&format!("init_{}()", rust_ident(sub)));
+                        let reg = self.q(&format!("sys_modules_set({}, &V::Module(&ModName({})))", lit(sub), lit(sub)));
+                        write!(b, "{reg}; {init}; ").unwrap();
+                        b.push_str(&self.store(&bind, &format!("V::Module(&ModName({}))", lit(sub))));
+                        continue;
+                    }
                     if m == "re" {
                         self.re_names.insert((self.module.clone(), bind.clone()));
                     }
@@ -3370,7 +3514,12 @@ impl Em {
             St::If(arms, els) => {
                 let mut b = String::new();
                 for (k, (c, body)) in arms.iter().enumerate() {
-                    let cc = self.cond(c, line)?;
+                    let mut cc = self.cond(c, line)?;
+                    if k > 0 && self.track_warn {
+                        // an elif's own line is not kept
+                        let ws = self.wsite(0, false);
+                        cc = format!("{{ {ws} {cc} }}");
+                    }
                     let bb = self.block(body)?;
                     if k > 0 {
                         b.push_str(" else ");
@@ -3386,7 +3535,12 @@ impl Em {
             St::While(c, body, els) => {
                 let id = self.id();
                 let lbl = format!("'l{id}");
-                let cc = self.cond(c, line)?;
+                let mut cc = self.cond(c, line)?;
+                if self.track_warn {
+                    // the condition runs again after the body, at the while's line
+                    let w = self.wsite(line, true);
+                    cc = format!("{{ {w} {cc} }}");
+                }
                 self.f().frames.push(Frame::Loop(lbl.clone()));
                 let bb = self.block(body)?;
                 self.f().frames.pop();
@@ -3469,7 +3623,8 @@ impl Em {
         if !fast {
             let itv = self.ex(it, line)?;
             let iv = self.q(&format!("iter(&{itv})"));
-            let nx = self.q(&format!("__it{id}.next()"));
+            let w = self.wsite(line, true);
+            let nx = self.q(&format!("{{ {w} __it{id}.next() }}"));
             head = format!("let mut __it{id} = {iv}; {lbl}: while let Some(__x{id}) = {nx} {{ ");
         }
         if asg.is_empty() {
@@ -3590,8 +3745,10 @@ impl Em {
         self.f().frames.push(Frame::Fin(lbl.clone()));
         let bb = self.block(body)?;
         self.f().frames.pop();
-        let exit_ok = self.q(&format!("call_method(&__m{id}, \"__exit__\", Args::p(vec![V::None, V::None, V::None]))"));
-        let exit_err = self.q(&format!("call_method(&__m{id}, \"__exit__\", Args::p(vec![V::Class(type_of(&__ev)?), __ev.clone(), V::None]))"));
+        // __exit__ runs at the with's line
+        let w = self.wsite(line, true);
+        let exit_ok = self.q(&format!("{{ {w} call_method(&__m{id}, \"__exit__\", Args::p(vec![V::None, V::None, V::None])) }}"));
+        let exit_err = self.q(&format!("{{ {w} call_method(&__m{id}, \"__exit__\", Args::p(vec![V::Class(type_of(&__ev)?), __ev.clone(), V::None])) }}"));
         let sup = self.q("truth(&__sx)");
         let after = self.flow_dispatch(id, line)?;
         Ok(format!(
@@ -4007,7 +4164,7 @@ impl Em {
         let mut body = String::new();
         let mut res = Ok(());
         for s in &c.body {
-            let mut code = String::new();
+            let mut code = self.stmt_site(s);
             if let (true, St::AnnAssign(t, v, ann)) = (setup, &s.st) {
                 let line = s.line;
                 // CPython evaluates the value first, then the annotation, then stores both.
@@ -4066,6 +4223,8 @@ impl Em {
         self.fstack.pop();
         self.class_ctx = saved;
         res?;
+        // the class is made at the class statement's line
+        let w = self.wsite(c.line, c.decorators.is_empty());
         let mut v = if dict_mode {
             // the namespace dict holds the class attributes in the order the body bound them; the doc is
             // added only now, as __build_class__ adds it after the body
@@ -4077,7 +4236,7 @@ impl Em {
             }
             let items = self.q(&format!("dict_sym_items(&{ns_var})"));
             let mk = self.q(&format!("make_class_f({}, {}, {}, vec![{}], {items}, vec![{}])", lit(&c.name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", ")));
-            format!("{{ {decls}\n{body}\n{attrs} let __c = {mk}; __c }}")
+            format!("{{ {decls}\n{body}\n{attrs} {w} let __c = {mk}; __c }}")
         } else {
             // class attributes in the order the body first binds them, as CPython's class namespace keeps them
             // (Enum members and vars() follow it)
@@ -4121,7 +4280,7 @@ impl Em {
                 write!(attrs, "__at.push((\"__doc__\", {doc})); ").unwrap();
             }
             let mk = self.q(&format!("make_class_f({}, {}, {}, vec![{}], __at, vec![{}])", lit(&c.name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", ")));
-            format!("{{ {decls}\n{body}\nlet mut __at: Vec<(Sym, V)> = vec![]; {attrs} let __c = {mk}; __c }}")
+            format!("{{ {decls}\n{body}\nlet mut __at: Vec<(Sym, V)> = vec![]; {attrs} {w} let __c = {mk}; __c }}")
         };
         for dec in c.decorators.iter().rev() {
             let dd = self.ex(dec, c.line)?;
@@ -4214,6 +4373,12 @@ pub fn ic_statics() -> String {
     s
 }
 pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>), (String, usize, String)> {
+    // the program (not Brevi's library copies) uses the warnings module
+    // (or functools.partial, whose __get__ warns at the line that reads it from an instance)
+    let track_warn = mods.iter().any(|m| {
+        let b = format!("{:?}", m.body);
+        bridge.srcs.contains_key(&m.name) && (b.contains("\"warnings\"") || b.contains("\"functools\"") && b.contains("\"partial\""))
+    });
     let has_del = mods.iter().any(|m| format!("{:?}", m.body).contains("\"__del__\""));
     let has_closure = mods.iter().any(|m| format!("{:?}", m.body).contains("__closure__"));
     let mut em = Em {
@@ -4244,6 +4409,10 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         bridged_used: BTreeSet::new(),
         uses_re: false,
         re_names: HashSet::new(),
+        track_warn,
+        multi: HashMap::new(),
+        wmods: HashSet::new(),
+        warn_names: HashSet::new(),
         set_lits: HashMap::new(),
     };
     // Brevi's own library copies first, each group named and numbered on its own, then the program's modules:
@@ -4416,6 +4585,8 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         out.push_str(&gtab(&em, &m.name));
     }
     let consts: Vec<String> = em.consts.iter().map(|c| format!("s({})", lit(c))).collect();
+    // re's \N{NAME}: the name table goes into programs whose source may hold such a pattern
+    let uname = em.uses_re && em.bridge.srcs.values().any(|(_, t)| t.contains("\\N{"));
     // At exit CPython finalizes __main__'s globals in the order they were first set; the slots are in name order,
     // so the order is the names' first appearance in the module's source.
     let del_on = if em.has_del {
@@ -4437,15 +4608,24 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     };
     write!(
         out,
-        "fn __run() -> Result<(), E> {{ unsafe {{ GL = vec![V::Unbound; {}]; K = vec![{}]; }} USER_MOD.with(|u| u.set(Some(user_mod))); MAIN_GTAB.with(|u| u.set(Some(gtab___main__))); {}{} let r = init___main__(); fin_point(); r }}\nfn main() {{ run_main(__run); }}\n",
+        "fn __run() -> Result<(), E> {{ unsafe {{ GL = vec![V::Unbound; {}]; K = vec![{}]; }} USER_MOD.with(|u| u.set(Some(user_mod))); MAIN_GTAB.with(|u| u.set(Some(gtab___main__))); {}{}{} let r = init___main__(); fin_point(); r }}\nfn main() {{ run_main(__run); }}\n",
         em.nglobals.max(1),
         consts.join(", "),
         del_on,
         // the program uses CPython's warnings module: the warnings the runtime issues go through it
-        if em.bridged_used.contains("warnings") { " set_warn_bridge(pyd_warn_at);" } else { "" }
+        if em.bridged_used.contains("warnings") { " set_warn_bridge(pyd_warn_at); pyd_warn_install()?;" } else { "" },
+        if uname { " set_name_lookup(__uname);" } else { "" }
     )
     .unwrap();
+    if uname {
+        out.push_str(include_str!("uname_glue.rs"));
+        out.push_str("const UNAMES: &str = r###\"");
+        out.push_str(include_str!("../pynames/unicode_names.txt"));
+        out.push_str("\"###;\n");
+    }
     let _ = &em.out;
+    // a program using warnings: each function puts its caller's line back when it returns (or raises)
+    let out = if em.track_warn { out.replace("let __depth = Depth::new()?;", "let __depth = Depth::new()?; let __wg = warn_guard();") } else { out };
     // CPython's re matches any buffer (array.array, mmap, ctypes arrays) as bytes, and slices the object
     // itself for groups; Brevi's re takes str and bytes only. weakref would be handed Brevi's Pattern and
     // Match values, which a bridged library cannot hold. CPython runs such a program.

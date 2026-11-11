@@ -38,10 +38,34 @@ pub struct Required {
     pub globals: BTreeMap<String, usize>,
 }
 
-pub static REQUIRED: std::sync::Mutex<Option<Required>> = std::sync::Mutex::new(None);
+// By file: each file of a program is proved on its own (main.rs guard_files), at its own line numbers.
+static REQUIRED: std::sync::Mutex<Vec<(std::path::PathBuf, Required)>> = std::sync::Mutex::new(vec![]);
 
+// What the proof requires, at the lines of the joined source the typed build reads (modules.rs puts each
+// module after the main file): a requirement of a file that is not part of it is dropped with that file.
 pub fn required() -> Required {
-    REQUIRED.lock().unwrap().clone().unwrap_or_default()
+    let mut out = Required::default();
+    for (path, r) in REQUIRED.lock().unwrap().iter() {
+        let Some(off) = crate::seg_offset(path) else { continue };
+        out.muts.extend(r.muts.iter().cloned());
+        out.iters.extend(r.iters.iter().map(|(l, n)| (l + off, n.clone())));
+        out.marks.extend(r.marks.iter().map(|(l, n, d)| (l + off, n.clone(), *d)));
+        out.globals.extend(r.globals.iter().map(|(n, l)| (n.clone(), l + off)));
+    }
+    out
+}
+
+fn add_required(path: &std::path::Path, r: Required) {
+    let mut g = REQUIRED.lock().unwrap();
+    match g.iter_mut().find(|(p, _)| p == path) {
+        Some((_, have)) => {
+            have.muts.extend(r.muts);
+            have.iters.extend(r.iters);
+            have.marks.extend(r.marks);
+            have.globals.extend(r.globals);
+        }
+        None => g.push((path.to_path_buf(), r)),
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
@@ -142,8 +166,241 @@ struct Prog<'a> {
 
 const MODULE: usize = usize::MAX;
 
+// The folder and module name of the file being checked (set by main.rs guard_files), so `from util import f`
+// of a sibling file can be followed instead of taken as an unknown call (see inline_imports).
+static CONTEXT: std::sync::Mutex<Option<std::path::PathBuf>> = std::sync::Mutex::new(None);
+
+// Each file's text and its parse, so the files of one program are parsed once (guard_files reads each one,
+// and the proof of a file reads the modules it imports).
+static PARSES: std::sync::Mutex<Vec<(std::path::PathBuf, String, Result<Vec<Stmt>, (usize, String)>)>> = std::sync::Mutex::new(vec![]);
+
+pub fn parsed(path: &std::path::Path, src: &str) -> Result<Vec<Stmt>, (usize, String)> {
+    let mut g = PARSES.lock().unwrap();
+    if let Some((_, _, r)) = g.iter().find(|(p, t, _)| p == path && t == src) {
+        return r.clone();
+    }
+    let r = crate::dynpy::parse::parse(src);
+    g.push((path.to_path_buf(), src.to_string(), r.clone()));
+    r
+}
+
+// Modules whose whole body a passing proof of an importing file took in (see check).
+static COVERED: std::sync::Mutex<BTreeSet<std::path::PathBuf>> = std::sync::Mutex::new(BTreeSet::new());
+
+pub fn set_context(file: &std::path::Path) {
+    *CONTEXT.lock().unwrap() = Some(file.to_path_buf());
+}
+
+// Lines of statements taken from the k-th followed module are k * SHIFT + their own line, so a conflict found
+// in them is reported at the import that brought them in, and what the proof requires of them (borrows, loops,
+// marks) is kept at their own lines, as the module's own check keeps them.
+const SHIFT: usize = 10_000_000;
+
 // Why the file needs the dynamic build (with the line), and the borrows to check when it does not.
 pub fn check(body: &[Stmt]) -> Option<(usize, String)> {
+    let file = CONTEXT.lock().unwrap().clone().unwrap_or_default();
+    // Every statement of this module was already proved, joined into a file that imports it.
+    if !file.as_os_str().is_empty() && COVERED.lock().unwrap().contains(&file) {
+        return None;
+    }
+    let dir = file.parent().map(|d| d.to_path_buf()).unwrap_or_default();
+    let stem = file.file_stem().unwrap_or_default().to_string_lossy().to_string();
+    let inlined = if file.as_os_str().is_empty() { None } else { inline_imports(body, &dir, &stem) };
+    let (merged, imports) = inlined.unwrap_or_else(|| (body.to_vec(), vec![]));
+    let req = match check_body(&merged) {
+        Ok(r) => r,
+        Err((line, why)) => {
+            return Some(match line / SHIFT {
+                0 => (line, why),
+                k => {
+                    let (at, m) = &imports[k - 1];
+                    (*at, format!("{why} (in {m}.py line {})", line % SHIFT))
+                }
+            })
+        }
+    };
+    // Each requirement goes to the file its line is in.
+    let mut parts: Vec<Required> = vec![Required::default(); imports.len() + 1];
+    for (l, n) in req.iters {
+        parts[l / SHIFT].iters.insert((l % SHIFT, n));
+    }
+    for (l, n, d) in req.marks {
+        parts[l / SHIFT].marks.insert((l % SHIFT, n, d));
+    }
+    for (n, l) in req.globals {
+        parts[l / SHIFT].globals.insert(n, l % SHIFT);
+    }
+    parts[0].muts = req.muts;
+    for (k, r) in parts.into_iter().enumerate() {
+        let path = if k == 0 { file.clone() } else { dir.join(format!("{}.py", imports[k - 1].1)) };
+        if k > 0 {
+            COVERED.lock().unwrap().insert(path.clone());
+        }
+        add_required(&path, r);
+    }
+    None
+}
+
+// Module-scope names a file binds, and how: `import x` and `from m import n` bind the same object in every
+// file, so two files may both bind them.
+fn bound_names(body: &[Stmt]) -> (HashSet<String>, HashMap<String, String>) {
+    let mut all = HashSet::new();
+    let mut g = HashSet::new();
+    assigned(body, &mut all, &mut g);
+    all.extend(g);
+    let mut how = HashMap::new();
+    for s in body {
+        match &s.st {
+            St::Import(v) => v.iter().filter(|(_, a)| a.is_none()).for_each(|(m, _)| {
+                let root = m.split('.').next().unwrap_or(m).to_string();
+                how.insert(root.clone(), format!("import {root}"));
+            }),
+            St::ImportFrom(m, v) if !m.starts_with('.') => v.iter().filter(|(_, a)| a.is_none()).for_each(|(n, _)| {
+                how.insert(n.clone(), format!("from {m} import {n}"));
+            }),
+            _ => {}
+        }
+    }
+    (all, how)
+}
+
+// Names a file may read from module scope or builtins: everything it mentions at module level, and in each
+// function what is not its own local (a nested function's locals count as free here, which only refuses more).
+fn free_names(body: &[Stmt]) -> HashSet<String> {
+    fn walk(b: &[Stmt], out: &mut HashSet<String>) {
+        for s in b {
+            match &s.st {
+                St::Def(d) => {
+                    let mut used = HashSet::new();
+                    mentioned_stmt(s, &mut used);
+                    let (params, ..) = param_names(&d.params);
+                    let mut locals: HashSet<String> = params.into_iter().collect();
+                    let mut globals = HashSet::new();
+                    assigned(&d.body, &mut locals, &mut globals);
+                    for g in &globals {
+                        locals.remove(g);
+                    }
+                    out.extend(used.into_iter().filter(|n| !locals.contains(n)));
+                }
+                St::Class(c) => {
+                    c.bases.iter().chain(c.decorators.iter()).for_each(|x| mentioned(x, out));
+                    walk(&c.body, out);
+                }
+                _ => {
+                    mentioned_stmt(s, out);
+                }
+            }
+        }
+    }
+    let mut out = HashSet::new();
+    walk(body, &mut out);
+    out
+}
+
+fn shift_lines(b: &mut [Stmt], by: usize) {
+    for s in b {
+        s.line += by;
+        match &mut s.st {
+            St::Def(d) => {
+                d.line += by;
+                shift_lines(&mut d.body, by);
+            }
+            St::Class(c) => {
+                c.line += by;
+                shift_lines(&mut c.body, by);
+            }
+            St::If(arms, els) => {
+                arms.iter_mut().for_each(|(_, b)| shift_lines(b, by));
+                if let Some(e) = els {
+                    shift_lines(e, by);
+                }
+            }
+            St::While(_, b, e) | St::For(_, _, b, e) => {
+                shift_lines(b, by);
+                if let Some(e) = e {
+                    shift_lines(e, by);
+                }
+            }
+            St::Try(b, hs, e, fin) => {
+                shift_lines(b, by);
+                for h in hs.iter_mut() {
+                    h.line += by;
+                    shift_lines(&mut h.body, by);
+                }
+                for x in [e, fin].into_iter().flatten() {
+                    shift_lines(x, by);
+                }
+            }
+            St::With(_, b) => shift_lines(b, by),
+            _ => {}
+        }
+    }
+}
+
+// The program with each module-level `from util import f, g` of a sibling file replaced by util.py's own
+// statements, so the proof follows f and g as it follows the file's own functions instead of taking them as
+// unknown calls that may change what they are given. Followed only when that is exact: every name imported
+// is a function util.py defines once at module level, the import has no `as`, and no name one file binds at
+// module level is one the other may read or bind (shared `import x` and `from m import n` lines aside), so the
+// joined namespace means what the two files' own namespaces mean. Anything else stays an unknown call, which
+// refuses. Also returns, for each followed module, the import's line and the module's name.
+fn inline_imports(body: &[Stmt], dir: &std::path::Path, stem: &str) -> Option<(Vec<Stmt>, Vec<(usize, String)>)> {
+    let mut out: Vec<Stmt> = body.to_vec();
+    let mut imports: Vec<(usize, String)> = vec![];
+    let mut done: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut i = 0;
+    while i < out.len() {
+        let St::ImportFrom(m, names) = &out[i].st else {
+            i += 1;
+            continue;
+        };
+        let (m, names) = (m.clone(), names.clone());
+        let plain = !m.is_empty() && m.chars().all(|c| c.is_alphanumeric() || c == '_') && m != stem;
+        let wanted: HashSet<String> = names.iter().map(|(n, _)| n.clone()).collect();
+        if !plain || names.iter().any(|(n, a)| a.as_ref().is_some_and(|a| a != n)) {
+            i += 1;
+            continue;
+        }
+        // Already followed earlier in the program: its functions are bound, the same objects.
+        if let Some(defs) = done.get(&m) {
+            if wanted.is_subset(defs) {
+                out[i].st = St::Pass;
+            }
+            i += 1;
+            continue;
+        }
+        let path = dir.join(format!("{m}.py"));
+        // As guard_files reads it (without `allow` lines), so the parse is shared.
+        let Some(mut mbody) = crate::read_src(&path).ok().and_then(|src| parsed(&path, &crate::caps::split(&src).0).ok()) else {
+            i += 1;
+            continue;
+        };
+        let defs: HashSet<String> = mbody.iter().filter_map(|s| if let St::Def(d) = &s.st { Some(d.name.clone()) } else { None }).collect();
+        let once = |n: &String| mbody.iter().filter(|s| matches!(&s.st, St::Def(d) if &d.name == n)).count() == 1;
+        let (mb, mhow) = bound_names(&mbody);
+        let mf = free_names(&mbody);
+        let mut rest = out.clone();
+        rest.remove(i);
+        let (pb, phow) = bound_names(&rest);
+        let pf = free_names(&rest);
+        let same = |n: &String| mhow.get(n).is_some_and(|h| phow.get(n) == Some(h));
+        let clash = mb.iter().any(|n| !wanted.contains(n) && (pf.contains(n) || pb.contains(n)) && !same(n))
+            || pb.iter().any(|n| !wanted.contains(n) && mf.contains(n) && !same(n))
+            || wanted.iter().any(|n| pb.contains(n));
+        if !wanted.iter().all(|n| defs.contains(n) && once(n)) || clash || imports.len() >= 16 {
+            i += 1;
+            continue;
+        }
+        imports.push((out[i].line, m.clone()));
+        shift_lines(&mut mbody, imports.len() * SHIFT);
+        done.insert(m, defs);
+        // The module's own imports are looked at next, in place.
+        out.splice(i..i + 1, mbody);
+    }
+    (!imports.is_empty()).then_some((out, imports))
+}
+
+fn check_body(body: &[Stmt]) -> Result<Required, (usize, String)> {
     let mut p = Prog {
         fns: vec![],
         top: HashMap::new(),
@@ -238,16 +495,11 @@ pub fn check(body: &[Stmt]) -> Option<(usize, String)> {
             keep(Some((1, format!("{n} shares a list with another name and is changed by a function passed on as a value"))), &mut first);
         }
     }
-    if first.is_some() {
-        return first;
+    if let Some(c) = first {
+        return Err(c);
     }
-    let mut g = REQUIRED.lock().unwrap();
-    let r = g.get_or_insert_with(Required::default);
-    r.muts.extend(req.muts);
-    r.iters.extend(req.iters);
-    r.marks.extend(req.marks);
-    r.globals.extend(rebound);
-    None
+    req.globals.extend(rebound);
+    Ok(req)
 }
 
 // ---------------------------------------------------------------- program tables
@@ -1610,6 +1862,9 @@ impl<'p, 'a> KCx<'p, 'a> {
                         (K::T(x), K::T(y)) => K::T(x.iter().chain(y.iter()).cloned().collect()).capped(),
                         _ => ka.join(&kb),
                     },
+                    // `[0] * n`: n is an int (see eval)
+                    "*" if !self.p.methods.contains_key("__mul__") && !self.p.methods.contains_key("__rmul__") && matches!(a.as_ref(), Ex::List(_) | Ex::Tuple(_) | Ex::Comp('l', ..)) => ka,
+                    "*" if !self.p.methods.contains_key("__mul__") && !self.p.methods.contains_key("__rmul__") && matches!(b.as_ref(), Ex::List(_) | Ex::Tuple(_) | Ex::Comp('l', ..)) => kb,
                     "*" | "|" | "&" | "-" | "^" => match (&ka, &kb) {
                         (K::T(_), _) | (_, K::T(_)) => K::list(ka.elem().join(&kb.elem())),
                         _ => ka.join(&kb),
@@ -2990,12 +3245,27 @@ impl<'p, 'a> Cx<'p, 'a> {
             }
             Ex::Star(x) => self.eval(x),
             Ex::Bin(op, a, b) => {
-                let (sa, sb) = (self.eval(a), self.eval(b));
+                let (mut sa, mut sb) = (self.eval(a), self.eval(b));
+                // `[0] * n`, `n * [0]`: a list display repeated, so the other side is an int (anything else
+                // is a TypeError) unless the program defines its own __mul__ or __rmul__; its value holds
+                // nothing of n's.
+                let display = |x: &Ex| matches!(x, Ex::List(_) | Ex::Tuple(_) | Ex::Comp('l', ..));
+                let own_mul = self.p.methods.contains_key("__mul__") || self.p.methods.contains_key("__rmul__");
+                let (mut ka, mut kb) = (self.ex_kind(a), self.ex_kind(b));
+                if *op == "*" && !own_mul {
+                    if display(a) {
+                        sb.clear();
+                        kb = 0;
+                    } else if display(b) {
+                        sa.clear();
+                        ka = 0;
+                    }
+                }
                 if matches!(*op, "+" | "*" | "|") {
                     let mut v = shallow(&sa);
                     v.extend(shallow(&sb));
                     // `[row] * n`, `[[0] * m] * n`: the items are one list, many times
-                    if *op == "*" && (self.ex_kind(a) >= 2 || self.ex_kind(b) >= 2) {
+                    if *op == "*" && (ka >= 2 || kb >= 2) {
                         v.push((Pl::Ext, 0, 1));
                     }
                     v

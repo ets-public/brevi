@@ -42,6 +42,12 @@ pub fn check_soft(src: &str) -> Result<Option<(usize, String, Vec<String>)>, (us
     Ok(check_body(&crate::dynpy::parse::parse(src)?))
 }
 
+// check_soft on the file at `path` holding `src`, parsed once for this and the sharing proof's reading of
+// the files that import it (share_guard::parsed).
+pub fn check_soft_at(path: &std::path::Path, src: &str) -> Result<Option<(usize, String, Vec<String>)>, (usize, String)> {
+    Ok(check_body(&crate::share_guard::parsed(path, src)?))
+}
+
 // json.dumps(x, ...): the typed build writes indent, separators (a pair), sort_keys and ensure_ascii; any other
 // keyword (allow_nan, default, cls, ...) it would leave out.
 fn json_kwargs(body: &[Stmt]) -> Option<(usize, String)> {
@@ -76,6 +82,24 @@ fn json_kwargs(body: &[Stmt]) -> Option<(usize, String)> {
     });
     hit
 }
+// pickle.dump(s) in a file that makes iterators with iter() or reversed(): the typed build keeps iter(xs) as xs
+// itself (a list), so the iterator would be saved as a list and come back as one, where CPython saves the
+// iterator (`iter([rest])`, `reversed(list)` at its position).
+fn pickled_iterators(body: &[Stmt]) -> Option<(usize, String)> {
+    let (mut dumps, mut iters) = (None, false);
+    crate::dynpy::typing::walk_all(body, &mut |e, line| {
+        if let Ex::Call(f, _) = e {
+            match f.as_ref() {
+                Ex::Attr(m, n) if matches!(n.as_str(), "dump" | "dumps") && matches!(m.as_ref(), Ex::Name(p) if p == "pickle") => {
+                    dumps = dumps.or(Some(line));
+                }
+                Ex::Name(n) if n == "iter" || n == "reversed" => iters = true,
+                _ => {}
+            }
+        }
+    });
+    dumps.filter(|_| iters).map(|line| (line, "pickle of a program that makes iterators: the typed build keeps iter() as the list itself".into()))
+}
 fn check_body(body: &[Stmt]) -> Option<(usize, String, Vec<String>)> {
     let mut g = G::default();
     collect_params(body, &mut g);
@@ -107,7 +131,7 @@ fn check_body(body: &[Stmt]) -> Option<(usize, String, Vec<String>)> {
     if let Some(line) = crate::dynpy::typing::typed_isinstance(body) {
         return Some((line, "isinstance with a typing name".into(), vec![]));
     }
-    if let Some((line, why)) = odd_decorator(body).or_else(|| json_kwargs(body)).or_else(|| findall_groups(body)).or_else(|| pattern_uses(body)).or_else(|| default_reads(body)).or_else(|| crate::share_guard::check(body)) {
+    if let Some((line, why)) = odd_decorator(body).or_else(|| json_kwargs(body)).or_else(|| pickled_iterators(body)).or_else(|| findall_groups(body)).or_else(|| pattern_uses(body)).or_else(|| default_reads(body)).or_else(|| crate::share_guard::check(body)) {
         return Some((line, why, vec![]));
     }
     let mut hits = vec![];

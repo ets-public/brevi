@@ -1,0 +1,1 @@
+- `brevi check --fast` on a multi-file program is faster again (the latency fixture about 21 to 18 ms here): each file is parsed once for the guard and the sharing proof, and a module whose every statement was already proved inside the file that imports it is not proved a second time.

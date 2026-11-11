@@ -1,0 +1,7 @@
+True False True
+True True True
+<class 're.Pattern'> <class 're.Match'> Pattern re
+TE first argument must be string or compiled pattern
+TE cannot create 're.Pattern' instances
+True False
+True True

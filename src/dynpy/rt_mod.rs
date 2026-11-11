@@ -798,7 +798,7 @@ fn lru_cache_wrap(f: V, maxsize: V, typed: bool) -> R {
         let h4 = hits.clone();
         let m4 = misses.clone();
         let ms4 = maxsize.clone();
-        let info = namedtuple_runtime_type(Args { p: vec![s("CacheInfo"), tup(vec![s("hits"), s("misses"), s("maxsize"), s("currsize")])], k: vec![("module", s("functools"))] })?;
+        let info = cache_info_class()?;
         wf.attrs.borrow_mut().push(("cache_info", builtin("cache_info", move |_a: Args| {
             call(&info, Args::p(vec![V::Int(h4.get()), V::Int(m4.get()), ms4.clone(), V::Int(c4.borrow().n as i64)]))
         })));
@@ -813,6 +813,18 @@ fn lru_cache_wrap(f: V, maxsize: V, typed: bool) -> R {
     let w = with_qualname(w, qualname);
     let w = update_wrapper(w, f, wraps_assigned(), wraps_updated())?;
     Ok(w)
+}
+// functools._CacheInfo: one namedtuple class for every cache's cache_info(), as CPython's module has.
+fn cache_info_class() -> R {
+    thread_local! {
+        static CI: RefCell<Option<V>> = const { RefCell::new(None) };
+    }
+    if let Some(c) = CI.with(|c| c.borrow().clone()) {
+        return Ok(c);
+    }
+    let c = namedtuple_runtime_type(Args { p: vec![s("CacheInfo"), tup(vec![s("hits"), s("misses"), s("maxsize"), s("currsize")])], k: vec![("module", s("functools"))] })?;
+    CI.with(|x| *x.borrow_mut() = Some(c.clone()));
+    Ok(c)
 }
 // functools.wraps' defaults, shared with update_wrapper (CPython 3.13's WRAPPER_ASSIGNMENTS/UPDATES).
 fn wraps_assigned() -> V {
@@ -886,6 +898,8 @@ struct SDState {
     registry: Rc<RefCell<Dict>>,
     // keyed by the class's address; each entry holds its class, so the address stays that class's while cached
     cache: RefCell<std::collections::HashMap<usize, (V, Option<V>)>>,
+    // the ABC cache token the cache was filled under
+    token: Cell<u64>,
 }
 fn sd_registry_view(st: &Rc<SDState>) -> V {
     V::View(Rc::new((V::Dict(st.registry.clone()), 3)))
@@ -978,8 +992,7 @@ fn sd_register_ann(st: &Rc<SDState>, f: V) -> R {
 fn sd_register_type(st: &Rc<SDState>, cls: &V, func: V) -> R {
     match cls {
         V::Class(k) if k.module == "typing" => {
-            // collections.abc as Brevi's typing forms is not a set of real ABCs here; dispatch over its MRO
-            // would not do what CPython's virtual subclass registration does.
+            // typing's forms are not classes CPython's singledispatch can dispatch on
             return Err(unsupported(&format!("singledispatch on this ABC ({})", k.name)));
         }
         V::Class(_) => {}
@@ -1007,18 +1020,135 @@ fn sd_register(st: Rc<SDState>, mut a: Args) -> R {
     }
     sd_register_ann(&st, first)
 }
-fn sd_find_impl(cls: &V, reg: &Rc<RefCell<Dict>>) -> Result<Option<V>, E> {
-    let V::Class(c) = cls else { return Ok(None) };
-    let mro = c.mro.borrow().clone();
-    let items = reg.borrow().items();
-    for t in mro {
-        for (k, v) in &items {
-            if is(k, &V::Class(t.clone())) {
-                return Ok(Some(v.clone()));
+// functools' _find_impl, _compose_mro, _c3_mro and _c3_merge (CPython 3.13), over Brevi's classes: the MRO
+// with the registered ABCs inserted where their functionality is introduced, then the first registered type
+// in it, with CPython's "Ambiguous dispatch" error.
+fn sd_issub(c: &Rc<Class>, t: &Rc<Class>) -> Result<bool, E> {
+    if t.abc.get() {
+        abc_subclasscheck(t, c)
+    } else {
+        Ok(c.is_sub(t))
+    }
+}
+fn sd_has(v: &[Rc<Class>], c: &Rc<Class>) -> bool {
+    v.iter().any(|x| Rc::ptr_eq(x, c))
+}
+fn sd_c3_merge(mut seqs: Vec<Vec<Rc<Class>>>) -> Result<Vec<Rc<Class>>, E> {
+    let mut out = vec![];
+    loop {
+        seqs.retain(|s| !s.is_empty());
+        if seqs.is_empty() {
+            return Ok(out);
+        }
+        let mut cand = None;
+        for s1 in &seqs {
+            let c = &s1[0];
+            if !seqs.iter().any(|s2| sd_has(&s2[1..], c)) {
+                cand = Some(c.clone());
+                break;
+            }
+        }
+        let Some(c) = cand else { return Err(exc("RuntimeError", "Inconsistent hierarchy".into())) };
+        out.push(c.clone());
+        for s in seqs.iter_mut() {
+            if Rc::ptr_eq(&s[0], &c) {
+                s.remove(0);
             }
         }
     }
-    Ok(None)
+}
+fn sd_c3_mro(cls: &Rc<Class>, abcs: &mut Vec<Rc<Class>>) -> Result<Vec<Rc<Class>>, E> {
+    let bases = &cls.bases;
+    let mut boundary = 0;
+    for (i, b) in bases.iter().enumerate().rev() {
+        if b.lookup("__abstractmethods__").is_some() {
+            boundary = i + 1;
+            break;
+        }
+    }
+    let explicit: Vec<Rc<Class>> = bases[..boundary].to_vec();
+    let other: Vec<Rc<Class>> = bases[boundary..].to_vec();
+    let mut abstract_bases = vec![];
+    for b in abcs.clone() {
+        if sd_issub(cls, &b)? {
+            let mut any = false;
+            for x in bases {
+                if sd_issub(x, &b)? {
+                    any = true;
+                    break;
+                }
+            }
+            if !any {
+                abstract_bases.push(b);
+            }
+        }
+    }
+    abcs.retain(|x| !sd_has(&abstract_bases, x));
+    let mut seqs = vec![vec![cls.clone()]];
+    for group in [&explicit, &abstract_bases, &other] {
+        for b in group.iter() {
+            seqs.push(sd_c3_mro(b, abcs)?);
+        }
+    }
+    seqs.push(explicit);
+    seqs.push(abstract_bases);
+    seqs.push(other);
+    sd_c3_merge(seqs)
+}
+fn sd_compose_mro(cls: &Rc<Class>, types: Vec<Rc<Class>>) -> Result<Vec<Rc<Class>>, E> {
+    let bases = cls.mro.borrow().clone();
+    let mut rel = vec![];
+    for t in types {
+        if !sd_has(&bases, &t) && sd_issub(cls, &t)? {
+            rel.push(t);
+        }
+    }
+    let types: Vec<Rc<Class>> = rel.iter().filter(|t| !rel.iter().any(|o| !Rc::ptr_eq(o, t) && sd_has(&o.mro.borrow(), t))).cloned().collect();
+    let mut mro: Vec<Rc<Class>> = vec![];
+    for t in &types {
+        let mut found: Vec<Vec<Rc<Class>>> = vec![];
+        let subs: Vec<Rc<Class>> = t.subs.borrow().iter().filter_map(|w| w.upgrade()).collect();
+        for sub in subs {
+            if !sd_has(&bases, &sub) && sd_issub(cls, &sub)? {
+                found.push(sub.mro.borrow().iter().filter(|s| sd_has(&types, s)).cloned().collect());
+            }
+        }
+        if found.is_empty() {
+            mro.push(t.clone());
+            continue;
+        }
+        // sorted by length, longest first; a stable sort keeps CPython's order among equals
+        found.sort_by(|a, b| b.len().cmp(&a.len()));
+        for sub in found {
+            for s in sub {
+                if !sd_has(&mro, &s) {
+                    mro.push(s);
+                }
+            }
+        }
+    }
+    sd_c3_mro(cls, &mut mro)
+}
+fn sd_find_impl(cls: &V, reg: &Rc<RefCell<Dict>>) -> Result<Option<V>, E> {
+    let V::Class(c) = cls else { return Ok(None) };
+    let items = reg.borrow().items();
+    let keys: Vec<Rc<Class>> = items.iter().filter_map(|(k, _)| if let V::Class(k) = k { Some(k.clone()) } else { None }).collect();
+    let mro = sd_compose_mro(c, keys)?;
+    let cmro = c.mro.borrow().clone();
+    let get = |t: &Rc<Class>| items.iter().find(|(k, _)| matches!(k, V::Class(x) if Rc::ptr_eq(x, t))).map(|(_, v)| v.clone());
+    let mut found: Option<Rc<Class>> = None;
+    for t in &mro {
+        if let Some(m) = &found {
+            if get(t).is_some() && !sd_has(&cmro, t) && !sd_has(&cmro, m) && !sd_issub(m, t)? {
+                return Err(exc("RuntimeError", format!("Ambiguous dispatch: {} or {}", repr(&V::Class(m.clone()))?, repr(&V::Class(t.clone()))?)));
+            }
+            break;
+        }
+        if get(t).is_some() {
+            found = Some(t.clone());
+        }
+    }
+    Ok(found.and_then(|m| get(&m)))
 }
 fn sd_key(cls: &V) -> usize {
     match cls {
@@ -1027,6 +1157,12 @@ fn sd_key(cls: &V) -> usize {
     }
 }
 fn sd_dispatch_impl(st: &Rc<SDState>, cls: &V) -> R {
+    // CPython drops the dispatch cache when abc.get_cache_token() moves (a register() on any ABC)
+    let token = ABC_TOKEN.load(std::sync::atomic::Ordering::Relaxed);
+    if st.token.get() != token {
+        st.token.set(token);
+        st.cache.borrow_mut().clear();
+    }
     {
         if let Some((_, v)) = st.cache.borrow().get(&sd_key(cls)) {
             return Ok(v.clone().unwrap_or(V::None));
@@ -1078,7 +1214,7 @@ fn sd_make_wrapper(st: &Rc<SDState>, f: V) -> R {
     update_wrapper(w, f, wraps_assigned(), wraps_updated())
 }
 fn singledispatch_impl(f: V) -> R {
-    let st = Rc::new(SDState { registry: Rc::new(RefCell::new(Dict::new())), cache: RefCell::new(std::collections::HashMap::new()) });
+    let st = Rc::new(SDState { registry: Rc::new(RefCell::new(Dict::new())), cache: RefCell::new(std::collections::HashMap::new()), token: Cell::new(u64::MAX) });
     sd_make_wrapper(&st, f)
 }
 fn sd_is_abstract(v: &V) -> bool {
@@ -1182,7 +1318,7 @@ fn singledispatchmethod_impl(f: V) -> R {
         let r = repr(&f).unwrap_or_else(|_| "<object>".into());
         return type_err(format!("{r} is not callable or a descriptor"));
     }
-    let st = Rc::new(SDState { registry: Rc::new(RefCell::new(Dict::new())), cache: RefCell::new(std::collections::HashMap::new()) });
+    let st = Rc::new(SDState { registry: Rc::new(RefCell::new(Dict::new())), cache: RefCell::new(std::collections::HashMap::new()), token: Cell::new(u64::MAX) });
     let dispatcher = sd_make_wrapper(&st, f.clone())?;
     Ok(V::Ext(ExtRc::new(SDMethod { st, dispatcher, func: f })))
 }
@@ -1191,6 +1327,7 @@ pub fn functools_fn(name: &str, mut a: Args) -> R {
     Ok(match name {
         "cached_property" => return call(&V::Class(cached_property_class()), a),
         "partialmethod" => return call(&V::Class(partialmethod_class()), a),
+        "_CacheInfo" => return call(&cache_info_class()?, a),
         // CPython's functools.RLock is _thread.RLock
         "RLock" => return threading_fn("RLock", a),
         "lru_cache" | "cache" => {
@@ -1221,35 +1358,28 @@ pub fn functools_fn(name: &str, mut a: Args) -> R {
             acc
         }
         "cmp_to_key" => {
-            let f = a1(&a, name)?;
+            // cmp_to_key(mycmp) and K(obj) take their one argument by position or by name, as in CPython
+            fn one(mut a: Args, f: &str, n: &str) -> R {
+                // CPython's argument clinic: the count first, then the name
+                let total = a.p.len() + a.k.len();
+                if total > 1 {
+                    return type_err(format!("{f}() takes at most 1 argument ({total} given)"));
+                }
+                if let Some(v) = a.p.pop() {
+                    return Ok(v);
+                }
+                match a.kw(n) {
+                    Some(v) => Ok(v),
+                    None => type_err(format!("{f}() missing required argument '{n}' (pos 1)")),
+                }
+            }
+            let f = one(a, name, "mycmp")?;
             builtin("K", move |a: Args| {
-                let x = a1(&a, "K")?;
+                let x = one(a, "K", "obj")?;
                 Ok(V::Ext(ExtRc::new(CmpKey { f: f.clone(), v: x })))
             })
         }
-        "partial" => {
-            if a.p.is_empty() {
-                return type_err("partial needs a function".into());
-            }
-            let f = a.p.remove(0);
-            let pre = a.p.clone();
-            let kw = a.k.clone();
-            let p = func("partial", move |b: Args| {
-                let mut p = pre.clone();
-                p.extend(b.p);
-                let mut k = kw.clone();
-                for (n, v) in b.k {
-                    k.retain(|(m, _)| *m != n);
-                    k.push((n, v));
-                }
-                call(&f, Args { p, k })
-            });
-            // functools.partial is a callable, not a descriptor; the marker also tells isinstance checks
-            if let V::Func(pf) = &p {
-                pf.attrs.borrow_mut().push(("__bv_partial__", V::Bool(true)));
-            }
-            p
-        }
+        "partial" => return call(&V::Class(partial_class()), a),
         "update_wrapper" => {
             if a.p.is_empty() {
                 return type_err("update_wrapper() missing 2 required positional arguments: 'wrapper' and 'wrapped'".into());
@@ -1416,7 +1546,7 @@ impl Ext for CmpKey {
         "functools.KeyWrapper"
     }
     fn repr(&self) -> String {
-        "<functools.KeyWrapper object>".into()
+        format!("<functools.KeyWrapper object at 0x{:x}>", self as *const Self as usize)
     }
     fn any(&self) -> &dyn std::any::Any {
         self
@@ -2458,25 +2588,25 @@ pub fn operator_fn(name: &str, a: Args) -> R {
         _ => {
             let op = match name {
                 "add" | "__add__" => "+",
-                "sub" => "-",
-                "mul" => "*",
-                "truediv" => "/",
-                "floordiv" => "//",
-                "mod" => "%",
-                "pow" => "**",
-                "and_" => "&",
-                "or_" => "|",
-                "xor" => "^",
-                "lshift" => "<<",
-                "rshift" => ">>",
-                "lt" | "le" | "gt" | "ge" | "eq" | "ne" => {
+                "sub" | "__sub__" => "-",
+                "mul" | "__mul__" => "*",
+                "truediv" | "__truediv__" => "/",
+                "floordiv" | "__floordiv__" => "//",
+                "mod" | "__mod__" => "%",
+                "pow" | "__pow__" => "**",
+                "and_" | "__and__" => "&",
+                "or_" | "__or__" => "|",
+                "xor" | "__xor__" => "^",
+                "lshift" | "__lshift__" => "<<",
+                "rshift" | "__rshift__" => ">>",
+                "lt" | "__lt__" | "le" | "__le__" | "gt" | "__gt__" | "ge" | "__ge__" | "eq" | "__eq__" | "ne" | "__ne__" => {
                     a.want(name, 2, 2)?;
                     let o = match name {
-                        "lt" => "<",
-                        "le" => "<=",
-                        "gt" => ">",
-                        "ge" => ">=",
-                        "eq" => "==",
+                        "lt" | "__lt__" => "<",
+                        "le" | "__le__" => "<=",
+                        "gt" | "__gt__" => ">",
+                        "ge" | "__ge__" => ">=",
+                        "eq" | "__eq__" => "==",
                         _ => "!=",
                     };
                     // as `a < b`: an object's __lt__ result is the value (polars, numpy)
@@ -2678,6 +2808,7 @@ fn modfn(m: &'static str, n: &str) -> V {
     // marked as a module's function, so it never reads as the builtins function of its name (math.pow.__doc__)
     if let V::Func(f) = &v {
         f.attrs.borrow_mut().push(("__bv_mod__", s(m)));
+        f.attrs.borrow_mut().push(("__bv_nobind__", V::Bool(true)));
     }
     MODFNS.with(|c| {
         c.borrow_mut().insert((m, n), v.clone());
@@ -2769,7 +2900,20 @@ pub fn module_call(m: &str, n: &str, a: Args) -> R {
         },
         "typing" | "typing_extensions" => typing_call(n, a),
         "dataclasses" => dataclass_fn(n, a),
-        "abc" => Ok(a.p.first().cloned().unwrap_or(V::None)),
+        "abc" => match n {
+            "abstractmethod" => {
+                let v = a.p.first().cloned().unwrap_or(V::None);
+                if let V::Func(f) = &v {
+                    if !f.attrs.borrow().iter().any(|(k, _)| *k == "__isabstractmethod__") {
+                        f.attrs.borrow_mut().push(("__isabstractmethod__", V::Bool(true)));
+                    }
+                }
+                Ok(v)
+            }
+            "_check_methods" => abc_check_methods(a),
+            "_abc_register" => abc_register(a),
+            _ => Ok(a.p.first().cloned().unwrap_or(V::None)),
+        },
         "gc" => gc_fn(n, a),
         "weakref" => weakref_fn(n, a),
         _ => ext_module_call(m, n, a),
@@ -2886,6 +3030,7 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         ("math", "inf") => V::Float(f64::INFINITY),
         ("math", "nan") => V::Float(math_nan()),
         ("collections", "defaultdict" | "Counter" | "OrderedDict" | "deque") => V::Class(bclass(name)),
+        ("collections", "abc") => V::Module(&ModName("collections.abc")),
         ("string", "ascii_lowercase") => s("abcdefghijklmnopqrstuvwxyz"),
         ("string", "ascii_uppercase") => s("ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
         ("string", "ascii_letters") => s("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"),
@@ -2911,8 +3056,10 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         ("re._constants", "MAXGROUPS") => V::Int(0x3FFF_FFFF),
         ("functools", "cached_property") => V::Class(cached_property_class()),
         ("functools", "partialmethod") => V::Class(partialmethod_class()),
+        ("functools", "partial") => V::Class(partial_class()),
         // CPython's functools imports RLock from _thread, so it is an attribute of the module
         ("functools", "RLock") => return module_attr("threading", "RLock"),
+        ("functools", "_CacheInfo") => cache_info_class()?,
         ("functools", "WRAPPER_ASSIGNMENTS") => wraps_assigned(),
         ("functools", "WRAPPER_UPDATES") => wraps_updated(),
         _ => {
@@ -3008,7 +3155,229 @@ thread_local! {
     static PARTIALMETHOD: RefCell<Option<Rc<Class>>> = const { RefCell::new(None) };
 }
 fn is_partial_v(v: &V) -> bool {
-    matches!(v, V::Func(f) if f.attrs.borrow().iter().any(|(k, _)| *k == "__bv_partial__"))
+    matches!(v, V::Obj(o) if o.cls.is_sub(&partial_class()))
+}
+thread_local! {
+    static PARTIAL: RefCell<Option<Rc<Class>>> = const { RefCell::new(None) };
+    static PARTIAL_REPR: RefCell<Vec<usize>> = const { RefCell::new(vec![]) };
+}
+// A partial object's C fields (fn, args, kw), kept out of its __dict__; None for an object no
+// partial.__new__ made (object.__new__(partial) in CPython refuses to make one).
+fn pstate(o: &Obj) -> Result<(V, V, V), E> {
+    match (o.get("__bv_slot_func"), o.get("__bv_slot_args"), o.get("__bv_slot_keywords")) {
+        (Some(f), Some(a), Some(k)) => Ok((f, a, k)),
+        _ => Err(unsupported("a functools.partial object not made by partial.__new__")),
+    }
+}
+fn pstate_of(v: &V, what: &str) -> Result<(Rc<Obj>, V, V, V), E> {
+    if let V::Obj(o) = v {
+        if o.cls.is_sub(&partial_class()) {
+            let (f, a, k) = pstate(o)?;
+            return Ok((o.clone(), f, a, k));
+        }
+    }
+    type_err(format!("descriptor '{what}' for 'functools.partial' objects doesn't apply to a '{}' object", tn(v)))
+}
+fn dict_v(v: &V) -> bool {
+    matches!(v, V::Dict(_)) || matches!(v, V::Obj(o) if matches!(o.inner(), Some(V::Dict(_))))
+}
+fn tuple_v(v: &V) -> bool {
+    matches!(v, V::Tuple(_)) || matches!(v, V::Obj(o) if matches!(o.inner(), Some(V::Tuple(_))))
+}
+// CPython's member_descriptor for one of partial's C fields: read-only, and it wins over the instance dict.
+fn partial_member(name: &'static str) -> V {
+    let c = Class::new("member_descriptor", "builtins", vec![bclass("object")], BT::Other);
+    let slot = sym(&format!("__bv_slot_{name}"));
+    c.set("__get__", func(sym("__get__"), move |a: Args| {
+        if a.p.len() < 2 || a.p.len() > 3 {
+            return type_err(format!("expected 1 or 2 arguments, got {}", a.p.len().saturating_sub(1)));
+        }
+        if matches!(a.p[1], V::None) && a.p.len() == 3 {
+            return Ok(a.p[0].clone());
+        }
+        let (o, ..) = pstate_of(&a.p[1], name)?;
+        o.get(slot).ok_or_else(|| exc("AttributeError", name.to_string()))
+    }));
+    c.set("__set__", func(sym("__set__"), |_a: Args| Err(exc("AttributeError", "readonly attribute".into()))));
+    c.set("__delete__", func(sym("__delete__"), |_a: Args| Err(exc("AttributeError", "readonly attribute".into()))));
+    c.set("__repr__", func(sym("__repr__"), move |_a: Args| Ok(st(format!("<member '{name}' of 'functools.partial' objects>")))));
+    let d = Obj::new(c);
+    d.set(sym("__name__"), s(name));
+    d.set(sym("__qualname__"), st(format!("partial.{name}")));
+    V::Obj(d)
+}
+// functools.partial, as CPython 3.13's C type: func/args/keywords are read-only C fields, a partial of a
+// partial whose __dict__ was never made is flattened, and a program class may subclass it.
+fn partial_class() -> Rc<Class> {
+    PARTIAL.with(|slot| {
+        if let Some(c) = slot.borrow().as_ref() {
+            return c.clone();
+        }
+        let c = Class::new("partial", "functools", vec![bclass("object")], BT::Other);
+        *slot.borrow_mut() = Some(c.clone());
+        // its fields are data descriptors (see setattr)
+        USER_DATA_DESC.store(true, std::sync::atomic::Ordering::Relaxed);
+        let cw = Rc::downgrade(&c);
+        c.set("__new__", func(sym("__new__"), move |a: Args| {
+            let base = cw.upgrade().unwrap();
+            let cls = match a.p.first() {
+                Some(V::Class(k)) => k.clone(),
+                Some(x) => return type_err(format!("partial.__new__(X): X is not a type object ({})", tn(x))),
+                None => return type_err("partial.__new__(): not enough arguments".into()),
+            };
+            if !cls.is_sub(&base) {
+                return type_err(format!("partial.__new__({0}): {0} is not a subtype of partial", cls.name));
+            }
+            if a.p.len() < 2 {
+                return type_err("type 'partial' takes at least one argument".into());
+            }
+            let mut f = a.p[1].clone();
+            let mut args = vec![];
+            let kw = Rc::new(RefCell::new(Dict::new()));
+            if let V::Obj(o) = &f {
+                if o.cls.is_sub(&base) && o.dict_unset() {
+                    let (ff, pa, pk) = pstate(o)?;
+                    args = to_vec(&pa)?;
+                    for (k, v) in dict_items_of(&pk)? {
+                        Dict::set_cell(&kw, k, v)?;
+                    }
+                    f = ff;
+                }
+            }
+            if !truth(&bi_callable(Args::p(vec![f.clone()]))?)? {
+                return type_err("the first argument must be callable".into());
+            }
+            args.extend(a.p[2..].iter().cloned());
+            for (n, v) in &a.k {
+                Dict::set_cell(&kw, s(n), v.clone())?;
+            }
+            let o = Obj::new(cls);
+            o.set(sym("__bv_slot_func"), f);
+            o.set(sym("__bv_slot_args"), tup(args));
+            o.set(sym("__bv_slot_keywords"), V::Dict(kw));
+            Ok(V::Obj(o))
+        }));
+        c.set("__call__", func(sym("__call__"), |mut a: Args| {
+            if a.p.is_empty() {
+                return type_err("descriptor '__call__' of 'functools.partial' object needs an argument".into());
+            }
+            let me = a.p.remove(0);
+            let (_, f, pa, pk) = pstate_of(&me, "__call__")?;
+            let mut p = to_vec(&pa)?;
+            p.append(&mut a.p);
+            let mut k = kw_syms(&pk)?;
+            if k.is_empty() {
+                k = a.k;
+            } else {
+                for (n, v) in a.k {
+                    match k.iter_mut().find(|(m, _)| *m == n) {
+                        Some(e) => e.1 = v,
+                        None => k.push((n, v)),
+                    }
+                }
+            }
+            call(&f, Args { p, k })
+        }));
+        c.set("__repr__", func(sym("__repr__"), |a: Args| {
+            let me = a.p.first().cloned().unwrap_or(V::None);
+            let (o, f, pa, pk) = pstate_of(&me, "__repr__")?;
+            let id = Rc::as_ptr(&o) as usize;
+            if PARTIAL_REPR.with(|r| r.borrow().contains(&id)) {
+                return Ok(s("..."));
+            }
+            PARTIAL_REPR.with(|r| r.borrow_mut().push(id));
+            let r = (|| {
+                // what the object holds when repr starts: a repr that changes it (__setstate__) changes nothing here
+                let args = to_vec(&pa)?;
+                let kws = dict_items_of(&pk)?;
+                let mut parts = vec![repr(&f)?];
+                for x in &args {
+                    parts.push(repr(x)?);
+                }
+                for (k, v) in &kws {
+                    parts.push(format!("{}={}", to_str(k)?, repr(v)?));
+                }
+                let cls = V::Class(o.cls.clone());
+                let module = to_str(&getattr(&cls, "__module__")?)?;
+                let qualname = to_str(&getattr(&cls, "__qualname__")?)?;
+                Ok(st(format!("{module}.{qualname}({})", parts.join(", "))))
+            })();
+            PARTIAL_REPR.with(|r| r.borrow_mut().retain(|x| *x != id));
+            r
+        }));
+        c.set("__reduce__", func(sym("__reduce__"), |a: Args| {
+            let me = a.p.first().cloned().unwrap_or(V::None);
+            let (o, f, pa, pk) = pstate_of(&me, "__reduce__")?;
+            let d = if o.dict_unset() { V::None } else { getattr(&me, "__dict__")? };
+            Ok(tup(vec![V::Class(o.cls.clone()), tup(vec![f.clone()]), tup(vec![f, pa, pk, d])]))
+        }));
+        c.set("__setstate__", func(sym("__setstate__"), |a: Args| {
+            if a.p.len() != 2 || !a.k.is_empty() {
+                return type_err(format!("partial.__setstate__() takes exactly one argument ({} given)", a.p.len().saturating_sub(1)));
+            }
+            let (o, ..) = pstate_of(&a.p[0], "__setstate__")?;
+            let state = &a.p[1];
+            if !tuple_v(state) {
+                return type_err("argument to __setstate__ must be a tuple".into());
+            }
+            let st4 = to_vec(state)?;
+            if st4.len() != 4 {
+                return type_err(format!("expected 4 items in state, got {}", st4.len()));
+            }
+            let (f, fa, kw, d) = (&st4[0], &st4[1], &st4[2], &st4[3]);
+            if !truth(&bi_callable(Args::p(vec![f.clone()]))?)? || !tuple_v(fa) || !(matches!(kw, V::None) || dict_v(kw)) || !(matches!(d, V::None) || dict_v(d)) {
+                return type_err("invalid partial state".into());
+            }
+            let fa = if matches!(fa, V::Tuple(_)) { fa.clone() } else { tup(to_vec(fa)?) };
+            let kw = match kw {
+                V::None => V::Dict(Rc::new(RefCell::new(Dict::new()))),
+                V::Dict(_) => kw.clone(),
+                _ => {
+                    let nd = Rc::new(RefCell::new(Dict::new()));
+                    for (k, v) in dict_items_of(kw)? {
+                        Dict::set_cell(&nd, k, v)?;
+                    }
+                    V::Dict(nd)
+                }
+            };
+            o.set(sym("__bv_slot_func"), f.clone());
+            o.set(sym("__bv_slot_args"), fa);
+            o.set(sym("__bv_slot_keywords"), kw);
+            match d {
+                V::None => o.clear_dict(),
+                _ => o.set_dict(d.clone())?,
+            }
+            Ok(V::None)
+        }));
+        // partial(...) as a class attribute: CPython 3.13 warns that it will bind in a later version, and does not
+        c.set("__get__", func(sym("__get__"), |a: Args| {
+            if a.p.len() < 2 || a.p.len() > 3 {
+                return type_err(format!("expected 1 or 2 arguments, got {}", a.p.len().saturating_sub(1)));
+            }
+            if !matches!(a.p[1], V::None) {
+                re_warn("FutureWarning", "functools.partial will be a method descriptor in future Python versions; wrap it in staticmethod() if you want to preserve the old behavior".into())?;
+            }
+            Ok(a.p[0].clone())
+        }));
+        let cg = func(sym("__class_getitem__"), |a: Args| {
+            if a.p.len() != 2 || !a.k.is_empty() {
+                return type_err(format!("partial.__class_getitem__() takes exactly one argument ({} given)", a.p.len().saturating_sub(1)));
+            }
+            let V::Class(k) = &a.p[0] else { return type_err("__class_getitem__ needs a class".into()) };
+            Ok(class_alias(k, &a.p[1]))
+        });
+        if let V::Func(f) = &cg {
+            f.kind.set(2);
+        }
+        c.set("__class_getitem__", cg);
+        c.set("__bv_galias__", V::Bool(true));
+        c.set("__bv_nodeldict__", V::Bool(true));
+        c.set("__doc__", s("Create a new function with partial application of the given arguments\nand keywords."));
+        for n in ["func", "args", "keywords"] {
+            c.set(n, partial_member(n));
+        }
+        c
+    })
 }
 fn kw_syms(v: &V) -> Result<Vec<(Sym, V)>, E> {
     let mut out = vec![];

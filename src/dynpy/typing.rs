@@ -10,9 +10,14 @@
 use super::parse::{Arg, ClassDef, Ex, FPart, Params, St, Stmt};
 use std::collections::{HashMap, HashSet};
 
-// The typing modules: their names are typing forms.
+// The typing modules: their names are typing forms. collections.abc is a real module in dynamic builds.
 pub fn typing_mod(m: &str) -> bool {
-    matches!(m, "typing" | "typing_extensions") || (m == "collections.abc" && super::emit::ABC_NATIVE.load(std::sync::atomic::Ordering::Relaxed))
+    matches!(m, "typing" | "typing_extensions")
+}
+// As typing_mod, with collections.abc treated as a typing module: only the typed build's isinstance guard
+// still looks at programs that way (it must refuse them before the typed build tests against object).
+fn typing_mod_for_guard(m: &str, abc_forms: bool) -> bool {
+    matches!(m, "typing" | "typing_extensions") || (abc_forms && m == "collections.abc")
 }
 
 // Names of typing and typing_extensions the runtime has (anything else is refused when imported).
@@ -123,7 +128,7 @@ pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
     for _ in 0..2 {
         for (m, body) in mods {
             let mut nm = names.get(*m).cloned().unwrap_or_default();
-            collect(body, &mut nm, &names, true);
+            collect(body, &mut nm, &names, true, false);
             names.insert(m.to_string(), nm);
         }
     }
@@ -209,7 +214,7 @@ pub fn walk_all(body: &[Stmt], f: &mut dyn FnMut(&Ex, usize)) {
 // would test against object).
 pub fn typed_isinstance(body: &[Stmt]) -> Option<usize> {
     let mut nm = Names::default();
-    collect(body, &mut nm, &HashMap::new(), true);
+    collect(body, &mut nm, &HashMap::new(), true, true);
     let mut found = None;
     fn walk(body: &[Stmt], nm: &Names, found: &mut Option<usize>) {
         for s in body {
@@ -362,14 +367,15 @@ fn on_class(x: &Ex, nm: &Names) -> bool {
     }
 }
 
-fn collect(body: &[Stmt], nm: &mut Names, all: &HashMap<String, Names>, top: bool) {
+fn collect(body: &[Stmt], nm: &mut Names, all: &HashMap<String, Names>, top: bool, abc_forms: bool) {
+    let typing = |m: &str| typing_mod_for_guard(m, abc_forms);
     for s in body {
         match &s.st {
             St::Import(v) => {
                 for (m, a) in v {
-                    if typing_mod(m) && a.is_some() {
+                    if typing(m) && a.is_some() {
                         nm.mods.insert(a.clone().unwrap(), m.clone());
-                    } else if typing_mod(m) {
+                    } else if typing(m) {
                         nm.mods.insert(m.split('.').next().unwrap().to_string(), if m == "collections.abc" { "collections".into() } else { m.clone() });
                     }
                 }
@@ -377,7 +383,7 @@ fn collect(body: &[Stmt], nm: &mut Names, all: &HashMap<String, Names>, top: boo
             St::ImportFrom(m, v) => {
                 for (n, a) in v {
                     let bind = a.clone().unwrap_or_else(|| n.clone());
-                    if typing_mod(m) {
+                    if typing(m) {
                         nm.forms.insert(bind, (m.clone(), n.clone()));
                     } else if m == "collections" && n == "abc" {
                         nm.mods.insert(bind, "collections.abc".into());
@@ -429,7 +435,7 @@ fn collect(body: &[Stmt], nm: &mut Names, all: &HashMap<String, Names>, top: boo
         // `if TYPE_CHECKING:` imports, aliases in an `if` or `try`
         match &s.st {
             St::Def(_) | St::Class(_) => {}
-            st => blocks(st, &mut |b| collect(b, nm, all, top)),
+            st => blocks(st, &mut |b| collect(b, nm, all, top, abc_forms)),
         }
     }
 }

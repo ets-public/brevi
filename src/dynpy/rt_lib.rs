@@ -532,6 +532,10 @@ pub fn bi_reversed(a: Args) -> R {
         },
         _ => ItKind::Reversed,
     };
+    if let V::List(l) = &x {
+        let n = l.borrow().len();
+        return Ok(new_iter(It::RevList(l.clone(), n), IterClass::Kind(kind)));
+    }
     if matches!(x, V::Dict(_) | V::List(_) | V::Tuple(_) | V::Str(_) | V::Deque(_) | V::View(_)) || inner_of(&x).is_some() {
         let mut v = to_vec(&x)?;
         v.reverse();
@@ -720,6 +724,9 @@ pub fn isinstance(x: &V, c: &V) -> Result<bool, E> {
             if k.name == "object" && k.module == "builtins" {
                 return Ok(true);
             }
+            if k.abc.get() {
+                return abc_instancecheck(k, x);
+            }
             if let V::Obj(o) = x {
                 return Ok(o.cls.is_sub(k) || (k.name == "object" && k.module == "builtins"));
             }
@@ -744,6 +751,196 @@ pub fn isinstance(x: &V, c: &V) -> Result<bool, E> {
         _ => type_err("isinstance() arg 2 must be a type, a tuple of types, or a union".into()),
     }
 }
+fn abc_has(v: &[Rc<Class>], c: &Rc<Class>) -> bool {
+    v.iter().any(|x| Rc::ptr_eq(x, c))
+}
+// ABCMeta.__subclasscheck__ (the C _abc_subclasscheck): cache, __subclasshook__, direct subclass,
+// registered classes, then subclasses, recursively.
+pub fn abc_subclasscheck(cls: &Rc<Class>, sub: &Rc<Class>) -> Result<bool, E> {
+    if abc_has(&cls.abc_cache.borrow(), sub) {
+        return Ok(true);
+    }
+    let token = ABC_TOKEN.load(std::sync::atomic::Ordering::Relaxed);
+    if cls.abc_neg_ver.get() < token {
+        cls.abc_neg_cache.borrow_mut().clear();
+        cls.abc_neg_ver.set(token);
+    } else if abc_has(&cls.abc_neg_cache.borrow(), sub) {
+        return Ok(false);
+    }
+    let hook = match getattr(&V::Class(cls.clone()), "__subclasshook__") {
+        Ok(h) => Some(h),
+        Err(E(e)) if is_exc(&e, "AttributeError") => None,
+        Err(e) => return Err(e),
+    };
+    if let Some(h) = hook {
+        let r = call(&h, Args::p(vec![V::Class(sub.clone())]))?;
+        if !matches!(r, V::NotImpl) {
+            let ok = truth(&r)?;
+            let mut cache = if ok { cls.abc_cache.borrow_mut() } else { cls.abc_neg_cache.borrow_mut() };
+            if !abc_has(&cache, sub) {
+                cache.push(sub.clone());
+            }
+            drop(cache);
+            return Ok(ok);
+        }
+    }
+    if sub.is_sub(cls) {
+        if !abc_has(&cls.abc_cache.borrow(), sub) {
+            cls.abc_cache.borrow_mut().push(sub.clone());
+        }
+        return Ok(true);
+    }
+    let registered = cls.abc_registry.borrow().clone();
+    for r in registered {
+        let ok = if r.abc.get() { abc_subclasscheck(&r, sub)? } else { sub.is_sub(&r) };
+        if ok {
+            if !abc_has(&cls.abc_cache.borrow(), sub) {
+                cls.abc_cache.borrow_mut().push(sub.clone());
+            }
+            return Ok(true);
+        }
+    }
+    let subs: Vec<Rc<Class>> = cls.subs.borrow().iter().filter_map(|w| w.upgrade()).collect();
+    for s in subs {
+        let ok = if s.abc.get() { abc_subclasscheck(&s, sub)? } else { sub.is_sub(&s) };
+        if ok {
+            if !abc_has(&cls.abc_cache.borrow(), sub) {
+                cls.abc_cache.borrow_mut().push(sub.clone());
+            }
+            return Ok(true);
+        }
+    }
+    if !abc_has(&cls.abc_neg_cache.borrow(), sub) {
+        cls.abc_neg_cache.borrow_mut().push(sub.clone());
+    }
+    Ok(false)
+}
+// ABCMeta.__instancecheck__ (the C _abc_instancecheck).
+fn abc_instancecheck(cls: &Rc<Class>, x: &V) -> Result<bool, E> {
+    // an iterator whose CPython class Brevi cannot name is still an iterator (not a generator: those are named)
+    let subtype = match type_of(x) {
+        Ok(t) => t,
+        Err(_) if matches!(x, V::Iter(_)) => ext_class("iterator"),
+        Err(e) => return Err(e),
+    };
+    let subclass = match x {
+        V::Obj(o) => o.cls.clone(),
+        _ => subtype.clone(),
+    };
+    if abc_has(&cls.abc_cache.borrow(), &subclass) {
+        return Ok(true);
+    }
+    if Rc::ptr_eq(&subclass, &subtype) {
+        let token = ABC_TOKEN.load(std::sync::atomic::Ordering::Relaxed);
+        if cls.abc_neg_ver.get() == token && abc_has(&cls.abc_neg_cache.borrow(), &subclass) {
+            return Ok(false);
+        }
+        return abc_subclasscheck(cls, &subclass);
+    }
+    Ok(abc_subclasscheck(cls, &subclass)? || abc_subclasscheck(cls, &subtype)?)
+}
+// _check_methods in _collections_abc.py scans the MRO's __dict__s. Brevi's builtin classes have no complete
+// __dict__, so this table says, for each builtin type, which of the names collections.abc's __subclasshook__s
+// ask about its __dict__ chain has (CPython 3.13; None values, as list.__hash__, count as absent). Some(None):
+// a builtin type this table does not know, which _check_methods refuses rather than guess about.
+const ABC_HOOK_NAMES: &[&str] = &["__hash__", "__await__", "__aiter__", "__anext__", "__iter__", "__next__", "__reversed__", "__len__", "__contains__", "__call__", "__buffer__", "send", "throw", "close", "asend", "athrow", "aclose"];
+fn builtin_hook_methods(c: &Rc<Class>) -> Option<Option<&'static [&'static str]>> {
+    const SCALAR: &[&str] = &["__hash__"];
+    const CALLABLE: &[&str] = &["__hash__", "__call__"];
+    const ITER: &[&str] = &["__hash__", "__iter__", "__next__"];
+    if c.module == "builtins" || c.module == "collections" {
+        return Some(Some(match c.name {
+            "NoneType" | "bool" | "int" | "float" | "complex" | "object" | "slice" | "ellipsis" | "NotImplementedType" | "cell" => SCALAR,
+            "str" => &["__hash__", "__iter__", "__len__", "__contains__"],
+            "bytes" => &["__hash__", "__iter__", "__len__", "__contains__", "__buffer__"],
+            "list" | "dict" | "defaultdict" | "Counter" | "OrderedDict" | "deque" | "dict_keys" | "dict_items" => &["__iter__", "__reversed__", "__len__", "__contains__"],
+            "tuple" | "frozenset" => &["__hash__", "__iter__", "__len__", "__contains__"],
+            "set" => &["__iter__", "__len__", "__contains__"],
+            "range" => &["__hash__", "__iter__", "__reversed__", "__len__", "__contains__"],
+            "dict_values" => &["__hash__", "__iter__", "__reversed__", "__len__"],
+            "type" | "function" | "builtin_function_or_method" | "method" => CALLABLE,
+            "generator" => &["__hash__", "__iter__", "__next__", "send", "throw", "close"],
+            "coroutine" => &["__hash__", "__await__", "send", "throw", "close"],
+            "async_generator" => &["__hash__", "__aiter__", "__anext__", "asend", "athrow", "aclose"],
+            "iterator" => ITER,
+            // library types Brevi names by their dotted CPython name: plain hashable values
+            "datetime.date" | "datetime.datetime" | "datetime.time" | "datetime.timedelta" | "datetime.timezone" | "decimal.Decimal" | "fractions.Fraction" | "zoneinfo.ZoneInfo" | "re.Pattern" | "re.Match" => SCALAR,
+            // cmp_to_key's K objects: callable, with __hash__ = None
+            "functools.KeyWrapper" => &["__call__"],
+            _ if c.name.ends_with("iterator") => ITER,
+            _ => return Some(None),
+        }));
+    }
+    if c.module == "itertools" {
+        return Some(Some(ITER));
+    }
+    None
+}
+fn class_has_method(c: &Rc<Class>, name: &str) -> Result<bool, E> {
+    for k in c.mro.borrow().iter() {
+        match builtin_hook_methods(k) {
+            // the table already folds in what the builtin type inherits
+            Some(Some(names)) => {
+                if ABC_HOOK_NAMES.contains(&name) {
+                    return Ok(names.contains(&name));
+                }
+                return Err(exc("NotImplementedError", format!("brevi: collections.abc cannot check '{name}' on {} in dynamic builds", k.name)));
+            }
+            Some(None) => return Err(exc("NotImplementedError", format!("brevi: collections.abc checks of {} objects are not supported in dynamic builds", k.name))),
+            None => {
+                if let Some(v) = k.own(name) {
+                    return Ok(!matches!(v, V::None));
+                }
+            }
+        }
+    }
+    Ok(false)
+}
+pub fn abc_check_methods(a: Args) -> R {
+    let Some(V::Class(c)) = a.p.first() else {
+        return type_err("_check_methods() arg 1 must be a class".into());
+    };
+    for x in a.p.iter().skip(1) {
+        let name = to_str(x)?;
+        if !class_has_method(c, &name)? {
+            return Ok(V::NotImpl);
+        }
+    }
+    Ok(V::Bool(true))
+}
+// ABCMeta.register: weak-set semantics without weak refs (the registered classes are program globals).
+pub fn abc_register(a: Args) -> R {
+    a.want("_abc_register", 2, 2)?;
+    let (V::Class(c), V::Class(s)) = (&a.p[0], &a.p[1]) else {
+        return type_err("Can only register classes".into());
+    };
+    if s.is_sub(c) {
+        return Ok(a.p[1].clone());
+    }
+    if c.is_sub(s) {
+        return Err(exc("RuntimeError", "Refusing to create an inheritance cycle".into()));
+    }
+    if !abc_has(&c.abc_registry.borrow(), s) {
+        c.abc_registry.borrow_mut().push(s.clone());
+    }
+    ABC_TOKEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    Ok(a.p[1].clone())
+}
+fn abc_meta_class() -> Rc<Class> {
+    thread_local! {
+        static META: RefCell<Option<Rc<Class>>> = const { RefCell::new(None) };
+    }
+    META.with(|m| {
+        if let Some(c) = m.borrow().as_ref() {
+            if c.bases.first().is_some_and(|b| Rc::ptr_eq(b, &tclass(13, "type"))) {
+                return c.clone();
+            }
+        }
+        let c = Class::new("ABCMeta", "abc", vec![tclass(13, "type")], BT::Other);
+        *m.borrow_mut() = Some(c.clone());
+        c
+    })
+}
 pub fn type_of(x: &V) -> Result<Rc<Class>, E> {
     Ok(match x {
         V::Obj(o) => o.cls.clone(),
@@ -763,11 +960,24 @@ pub fn type_of(x: &V) -> Result<Rc<Class>, E> {
         V::Set(_) => tclass(10, "set"),
         V::FSet(_) => tclass(11, "frozenset"),
         V::None => tclass(12, "NoneType"),
+        // a collections.abc class (or a subclass of one) is made by abc.ABCMeta, a subclass of type
+        V::Class(k) if k.abc.get() => abc_meta_class(),
         V::Class(_) => tclass(13, "type"),
-        V::Func(_) | V::Bound(_) | V::BMeth(_) => tclass(14, "function"),
+        V::Func(f) if f.kind.get() == 3 => ext_class("builtin_function_or_method"),
+        V::BMeth(_) => ext_class("builtin_function_or_method"),
+        V::Bound(_) => ext_class("method"),
+        V::Func(_) => tclass(14, "function"),
         V::Range(_) => tclass(15, "range"),
         V::Deque(_) => tclass(16, "deque"),
         V::View(x) if x.1 == 3 => tclass(17, "mappingproxy"),
+        V::View(x) => ext_class(match x.1 {
+            0 => "dict_keys",
+            1 => "dict_values",
+            _ => "dict_items",
+        }),
+        V::Slice(_) => ext_class("slice"),
+        V::Ellipsis => ext_class("ellipsis"),
+        V::NotImpl => ext_class("NotImplementedType"),
         V::Ext(e) => ext_class(e.tname()),
         V::Iter(it) => return iter_type_of(it),
         V::NTF(_) => ext_class("collections._tuplegetter"),
@@ -905,7 +1115,13 @@ pub fn bi_issubclass(a: Args) -> R {
     };
     let check = |k: &V| -> Result<bool, E> {
         match k {
-            V::Class(k) => Ok(sub.is_sub(k)),
+            V::Class(k) => {
+                if k.abc.get() {
+                    abc_subclasscheck(k, &sub)
+                } else {
+                    Ok(sub.is_sub(k))
+                }
+            }
             V::Ext(e) => match e.subclasscheck(&V::Class(sub.clone())) {
                 Some(r) => r,
                 None => type_err("issubclass() arg 2 must be a class, a tuple of classes, or a union".into()),
@@ -1352,7 +1568,11 @@ pub fn builtin_value(name: &str) -> Option<V> {
     }
     if let Some(f) = builtin_fn(name) {
         let n: Sym = sym(name);
-        return Some(builtin(n, f));
+        let v = builtin(n, f);
+        if let V::Func(x) = &v {
+            x.attrs.borrow_mut().push(("__bv_nobind__", V::Bool(true)));
+        }
+        return Some(v);
     }
     match name {
         "None" => Some(V::None),

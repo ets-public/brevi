@@ -1737,6 +1737,14 @@ struct GAlias {
     origin: Rc<Class>,
     args: Vec<V>,
 }
+// cls[item] for a class whose __class_getitem__ is types.GenericAlias
+pub fn class_alias(k: &Rc<Class>, i: &V) -> V {
+    let args = match i {
+        V::Tuple(t) => t.to_vec(),
+        other => vec![other.clone()],
+    };
+    V::Ext(ExtRc::new(GAlias { origin: k.clone(), args }))
+}
 fn alias_arg_repr(v: &V) -> String {
     match v {
         V::Class(k) if k.module == "builtins" => k.name.to_string(),
@@ -1884,7 +1892,7 @@ pub fn getitem(c: &V, i: &V) -> R {
             return type_err(format!("'{}' object is not subscriptable", tn(c)));
         }
         (V::Class(k), _) if is_enum(k) => return enum_getitem(k, i),
-        (V::Class(k), _) if k.lookup("__bv_namedtuple__").is_some() => {
+        (V::Class(k), _) if k.lookup("__bv_namedtuple__").is_some() || k.lookup("__bv_galias__").is_some() => {
             let args = match i {
                 V::Tuple(t) => t.to_vec(),
                 other => vec![other.clone()],
@@ -1892,6 +1900,23 @@ pub fn getitem(c: &V, i: &V) -> R {
             return Ok(V::Ext(ExtRc::new(GAlias { origin: k.clone(), args })));
         }
         (V::Class(k), _) if k.module == "builtins" && matches!(k.name, "list" | "dict" | "set" | "frozenset" | "tuple") => {
+            let args = match i {
+                V::Tuple(t) => t.to_vec(),
+                other => vec![other.clone()],
+            };
+            return Ok(V::Ext(ExtRc::new(GAlias { origin: k.clone(), args })));
+        }
+        // collections.abc.Mapping[str, int] (or a subclass of an ABC): a types.GenericAlias, as
+        // __class_getitem__ = classmethod(GenericAlias) makes it. Callable's alias flattens its arguments
+        // (_CallableGenericAlias), which this one does not do, so Callable[...] is refused.
+        (V::Class(k), _) if k.abc.get() => {
+            if k.lookup("__class_getitem__").is_some() {
+                let f = getattr(c, "__class_getitem__")?;
+                return call(&f, Args::p(vec![i.clone()]));
+            }
+            if k.mro.borrow().iter().any(|b| b.module == "collections.abc" && b.name == "Callable") {
+                return Err(exc("NotImplementedError", "brevi: collections.abc.Callable[...] is not supported in dynamic builds".into()));
+            }
             let args = match i {
                 V::Tuple(t) => t.to_vec(),
                 other => vec![other.clone()],
@@ -2091,6 +2116,9 @@ pub enum ItKind {
 
 pub enum It {
     List(Rc<RefCell<Vec<V>>>, usize),
+    // reversed() of a list: live like CPython's list_reverseiterator (it sees later writes, and stops early
+    // if the list shrinks); the number is the next index plus one, so 0 means exhausted
+    RevList(Rc<RefCell<Vec<V>>>, usize),
     Tuple(Tup, usize),
     Vec(std::vec::IntoIter<V>),
     // itertools.repeat: the element and the calls left (None = forever), so repr() shows CPython's
@@ -2160,6 +2188,16 @@ impl It {
     #[inline(never)]
     fn next_slow(&mut self) -> Result<Option<V>, E> {
         match self {
+            It::RevList(l, i) => {
+                let got = if *i > 0 { l.borrow().get(*i - 1).cloned() } else { None };
+                if got.is_some() {
+                    *i -= 1;
+                    Ok(got)
+                } else {
+                    *self = It::Done;
+                    Ok(None)
+                }
+            }
             It::List(l, i) => {
                 let got = l.borrow().get(*i).cloned();
                 if got.is_some() {

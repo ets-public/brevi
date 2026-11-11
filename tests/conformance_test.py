@@ -107,6 +107,18 @@ class Inlining(unittest.TestCase):
         with self.assertRaises(c.Excluded):
             u.extract("test_x", "TPy", "test_a")
 
+    def test_every_member_of_a_fresh_module_block_is_picked(self):
+        head = ("import unittest\nfrom test.support import import_helper\n"
+                "c_json = import_helper.import_fresh_module('json', fresh=['_json'])\n"
+                "class Base:\n    def test_a(self):\n        self.assertEqual(self.module.dumps(self.v), '2')\n"
+                "class TC(Base, unittest.TestCase):\n    if c_json:\n        module = c_json\n        v = 2\n")
+        self.assertEqual(run(universe("", head=head).extract("test_x", "TC", "test_a")).stdout, "'2'\n")
+
+    def test_self_in_a_nested_methods_decorator_is_the_tests_self(self):
+        s = cut("    k = 3\n    def test_a(self):\n        class X:\n            @self.deco\n            def f(self):\n                return 1\n"
+                "        self.assertEqual(X().f(), 3)\n    def deco(self, f):\n        return lambda s: self.k\n")
+        self.assertEqual(run(s).stdout, "3\n")
+
     def test_a_fresh_module_copy_is_the_module(self):
         s = cut("    def test_a(self):\n        self.assertEqual(py_json.dumps([1]), '[1]')\n",
                 head="import unittest\nfrom test.support import import_helper\n"
@@ -160,6 +172,29 @@ class Classify(unittest.TestCase):
         self.assertEqual(c.classify(self.want, built, panic), ("crash_or_timeout", "panic: RefCell already borrowed"))
         self.assertEqual(c.classify(self.want, (False, "no", False), None), ("refused", "no"))
         self.assertEqual(c.classify(self.want, (False, "panic", True), None)[0], "crash_or_timeout")
+
+    def test_a_string_run_as_code_is_by_design_and_left_out_of_coverage(self):
+        refused = lambda d: {"category": "refused", "path": None, "detail": d, "silent": False}
+        ok = {"category": "matched", "path": "dynamic", "detail": "", "silent": False}
+        ex = {"id": "t.A.ex", "modes": {"normal": refused("unknown function exec()"), "dyn": refused("exec() is not supported in dynamic builds")}}
+        lit = {"id": "t.A.lit", "modes": {"normal": refused("x"), "dyn": refused("eval() of a complex literal is not supported in dynamic builds")}}
+        good = {"id": "t.A.ok", "modes": {"normal": ok, "dyn": ok}}
+        self.assertTrue(c.by_design_refusal(ex))
+        self.assertFalse(c.by_design_refusal(lit))
+        self.assertFalse(c.by_design_refusal(good))
+        for x in ex["modes"].values():
+            x["category"] = "by_design"
+        t = c.tally([ex, lit, good], "normal")
+        self.assertEqual((t["by_design"], t["scored"], t["coverage"]), (1, 2, 0.5))
+
+    def test_object_addresses_are_blanked_but_the_rest_of_the_repr_is_compared(self):
+        want = c.masked(c.Run(0, b"<function f at 0x7f1a2b3c>\n", b"", ""))
+        same = c.masked(c.Run(0, b"<function f at 0x55e0d1>\n", b"", ""))
+        other = c.masked(c.Run(0, b"<builtin f at 0x55e0d1>\n", b"", ""))
+        built = (True, "", False)
+        self.assertEqual(c.classify(want, built, same)[0], "matched")
+        self.assertEqual(c.classify(want, built, other)[0], "wrong_output")
+        self.assertEqual(c.masked(c.Run(0, b"0x7f1a2b3c\n", b"", "")).out, b"0x7f1a2b3c\n")
 
 
 if __name__ == "__main__":

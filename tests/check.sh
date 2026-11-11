@@ -67,6 +67,22 @@ if [ "$1" != "--update" ]; then
   esac
   rm -rf "$cw_dir"
 fi
+# A warning whose line the dynamic build does not know is refused, never placed wrong: stacklevel above 1 when
+# it builds, a call opening on a later line of its statement when it runs.
+if [ "$1" != "--update" ]; then
+  wr_dir=$(mktemp -d)
+  out=$(BREVI_DYN=1 $BREVI build tests/warnings/stacklevel.py -o "$wr_dir/prog" 2>&1)
+  case "$out" in
+    *'warnings.warn with a stacklevel above 1 is not supported in dynamic builds'*) echo "ok   dynamic build refuses warnings.warn(stacklevel=2)" ;;
+    *) echo "FAIL dynamic build refuses warnings.warn(stacklevel=2)"; printf '%s\n' "$out" | tail -3; fail=1 ;;
+  esac
+  out=$(BREVI_DYN=1 $BREVI build tests/warnings/later_line.py -o "$wr_dir/prog" 2>&1 && "$wr_dir/prog" 2>&1)
+  case "$out" in
+    *'a warning at a line of the program the dynamic build does not know is not supported in dynamic builds'*) echo "ok   a warning on a later line of its statement is refused" ;;
+    *) echo "FAIL a warning on a later line of its statement is refused"; printf '%s\n' "$out" | tail -3; fail=1 ;;
+  esac
+  rm -rf "$wr_dir"
+fi
 #== path split
 # Which path a Python file took ({"path":...} on stderr): check, run (stderr only) and run --explain.
 # Files starting with _ are modules the tests import.
@@ -272,7 +288,7 @@ if [ "$1" != "--update" ]; then
 fi
 #== pydantic split
 # pydantic programs must print what CPython's pydantic prints, with Brevi's own pydantic: never CPython. The
-# .expected files come from pydantic 2.13.5 / pydantic-core 2.46.5 (CI has none): `--update` needs it installed.
+# .expected files come from pydantic 2.14.3 / pydantic-core 2.50.4 (CI has none): `--update` needs it installed.
 for f in tests/pydantic/*.py; do
   exp="${f%.py}.expected"
   if [ "$1" = "--update" ]; then
@@ -530,7 +546,7 @@ if [ "$1" != "--update" ]; then
 fi
 kill $srv 2>/dev/null
 #== llm split
-# anthropic and openai programs must print what CPython's anthropic 2.6 and openai 3.46 print (models, streams,
+# anthropic and openai programs must print what CPython's anthropic 2.6 and openai 3.49 print (models, streams,
 # tool calls, errors, retries), with Brevi's own copies over its httpx: never CPython. They talk to the mock API in
 # tests/llm/server.py on 18090. `--update` needs both SDKs (and tools/gen_llm_types.py rewrites the types).
 # tests/check_parallel.py starts this server once for all its jobs (CHECK_SERVERS=1).
