@@ -41,7 +41,3 @@ test_re.ReTests.test_look_behind_overflow dyn issue=#399 owner=ets-public expire
 test_re.ReTests.test_look_behind_overflow normal issue=#399 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_weakref dyn issue=#399 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_weakref normal issue=#399 owner=ets-public expires=2026-12-11
-test_textwrap.WrapTestCase.test_fix_sentence_endings dyn issue=#400 owner=ets-public expires=2026-12-11
-test_textwrap.WrapTestCase.test_fix_sentence_endings normal issue=#400 owner=ets-public expires=2026-12-11
-test_textwrap.WrapTestCase.test_whitespace dyn issue=#400 owner=ets-public expires=2026-12-11
-test_textwrap.WrapTestCase.test_whitespace normal issue=#400 owner=ets-public expires=2026-12-11
