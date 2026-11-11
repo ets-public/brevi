@@ -1058,12 +1058,8 @@ pub fn getattr(o: &V, name: &str) -> R {
             if let Some(v) = ob.get_attr(name)? {
                 return Ok(v);
             }
-            // annotations come from the instance's own class only (CPython's type.__getattribute__);
-            // a base's are not inherited. Builtin types keep their old path (object raises AttributeError,
-            // where the typing pass's refusal never leads a program class here).
-            if name == "__annotations__" && ob.cls.module != "builtins" {
-                return Ok(ob.cls.annotations());
-            }
+            // (An instance's __annotations__ is an ordinary lookup through its class's MRO, so a base's dict is
+            // found and a class with none raises AttributeError, as in CPython; only the class itself is special.)
             if let Some(v) = ob.cls.lookup(name) {
                 return match &v {
                     V::Func(f) => Ok(match f.kind.get() {

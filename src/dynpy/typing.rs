@@ -62,6 +62,7 @@ struct Names {
     ntuples: HashSet<String>,   // NamedTuple classes (their __annotations__ is not kept)
     classes: HashSet<String>,   // every class of the module, nested ones included
     lazy: bool,                 // `from __future__ import annotations`: annotations are strings, not kept
+    odd_ann: bool,              // a class annotation the runtime may not evaluate (`int | None`, `list[int]`)
 }
 
 type Er = (usize, String);
@@ -124,6 +125,7 @@ pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
         let nm = names.get_mut(*m).unwrap();
         class_names(body, &mut nm.classes);
         nm.lazy = future_annotations(body);
+        nm.odd_ann = odd_class_annotation(body, false);
     }
     for (m, body) in mods {
         let nm = &names[*m];
@@ -272,6 +274,29 @@ fn class_names(body: &[Stmt], out: &mut HashSet<String>) {
         }
         blocks(&s.st, &mut |b| class_names(b, out));
     }
+}
+
+// Whether a class body (at any depth) has an annotation other than a name, a dotted name or a string: once the
+// program reads __annotations__, class annotations are evaluated as the class body runs (dynpy/emit.rs), and
+// the runtime has no `int | None` or `list[int]` type objects, so such a program is refused, not run to a
+// TypeError that CPython would not raise.
+fn odd_class_annotation(body: &[Stmt], in_class: bool) -> bool {
+    fn plain(e: &Ex) -> bool {
+        match e {
+            Ex::Name(_) | Ex::Str(_) | Ex::NoneV => true,
+            Ex::Attr(o, _) => plain(o),
+            _ => false,
+        }
+    }
+    body.iter().any(|s| match &s.st {
+        St::AnnAssign(_, _, ann) if in_class => !plain(ann),
+        St::Class(c) => odd_class_annotation(&c.body, true),
+        st => {
+            let mut odd = false;
+            blocks(st, &mut |b| odd |= odd_class_annotation(b, in_class));
+            odd
+        }
+    })
 }
 
 fn future_annotations(body: &[Stmt]) -> bool {
@@ -564,6 +589,9 @@ fn expr(e: &Ex, ok: bool, line: usize, nm: &Names) -> Result<(), Er> {
                 let own_pyd = OWN_PYDANTIC.load(std::sync::atomic::Ordering::Relaxed);
                 if nm.lazy || own_pyd || !on_class(o, nm) {
                     return Err(err(line, ".__annotations__"));
+                }
+                if nm.odd_ann {
+                    return Err(err(line, ".__annotations__ of a class annotated with a type expression (such as int | None or list[int])"));
                 }
             }
             // `Movie.__annotations__`, `T.__name__`

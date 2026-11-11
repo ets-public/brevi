@@ -390,6 +390,17 @@ fn visit_ex(e: &Ex, f: &mut dyn FnMut(&Ex)) {
     }
 }
 // Visit every expression of the statements, nested defs, classes and lambda bodies included.
+// Whether the module names __annotations__ anywhere (an attribute or a name).
+fn mentions_annotations(body: &[Stmt]) -> bool {
+    let mut found = false;
+    visit_any(body, &mut |e| {
+        if matches!(e, Ex::Attr(_, n) | Ex::Name(n) if n == "__annotations__") {
+            found = true;
+        }
+    });
+    found
+}
+
 pub fn visit_any(body: &[Stmt], f: &mut dyn FnMut(&Ex)) {
     fn lam(e: &Ex, f: &mut dyn FnMut(&Ex)) {
         visit_ex(e, &mut |x| {
@@ -1572,6 +1583,10 @@ pub struct Em {
     class_ctx: Option<String>,
     // the module being built has `from __future__ import annotations` (annotations stay strings, unevaluated)
     lazy: bool,
+    // the program reads __annotations__ somewhere, so class bodies keep theirs (evaluated as CPython does);
+    // otherwise annotations are dropped unevaluated as before, since an annotation the runtime cannot
+    // evaluate (`int | None`, a forward name) must not stop a program that never looks at it
+    keep_ann: bool,
     // the def being built is an async def (read by closure)
     next_async: bool,
     direct_ok: HashSet<(String, String)>,
@@ -3725,7 +3740,7 @@ impl Em {
         // and a class with no annotations has no __annotations__ of its own until one is read, which
         // getattr in rt_call lazily makes.)
         let mut sc = scope_of(&c.body, &[]);
-        let setup = !self.lazy && c.body.iter().any(|s| matches!(s.st, St::AnnAssign(..)));
+        let setup = !self.lazy && self.keep_ann && c.body.iter().any(|s| matches!(s.st, St::AnnAssign(..)));
         if setup {
             sc.locals.insert("__annotations__".into());
         }
@@ -3762,7 +3777,7 @@ impl Em {
         let mut res = Ok(());
         for s in &c.body {
             let mut code = String::new();
-            if let St::AnnAssign(t, v, ann) = &s.st {
+            if let (true, St::AnnAssign(t, v, ann)) = (setup, &s.st) {
                 let line = s.line;
                 // CPython evaluates the value first, then the annotation, then stores both.
                 let mut have_val = None;
@@ -3977,6 +3992,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         mod_names: HashMap::new(),
         class_ctx: None,
         lazy: false,
+        keep_ann: false,
         next_async: false,
         direct_ok: HashSet::new(),
         bridge,
@@ -3992,7 +4008,13 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     let users: Vec<&Module> = mods.iter().filter(|m| !libs.iter().any(|l| l.name == m.name)).collect();
     let mut lib_part = String::new();
     let mut inits = String::new();
+    // Only the program's own modules decide (Brevi's copies never keep class annotations: their Rust must not
+    // depend on the program), and never with Brevi's pydantic, which gives classes descriptor annotations (pyd.rs).
+    let copies = OWN_COPIES.lock().unwrap().clone();
+    let users_read_ann = !PYD_ON.load(std::sync::atomic::Ordering::Relaxed)
+        && users.iter().any(|m| !copies.contains(&m.name) && mentions_annotations(&m.body));
     for (gi, group) in [libs.clone(), users].into_iter().enumerate() {
+        em.keep_ann = gi == 1 && users_read_ann;
     // module-level names, import aliases and directly callable defs
         for m in group.iter().copied() {
             let sc = scope_of(&m.body, &[]);
