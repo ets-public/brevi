@@ -59,6 +59,9 @@ struct Names {
     generic: HashSet<String>,   // classes with Generic[...] or Protocol[...] among their bases (or a generic parent)
     protocols: HashSet<String>, // classes with Protocol among their bases
     tdicts: HashSet<String>,    // TypedDict classes
+    ntuples: HashSet<String>,   // NamedTuple classes (their __annotations__ is not kept)
+    classes: HashSet<String>,   // every class of the module, nested ones included
+    lazy: bool,                 // `from __future__ import annotations`: annotations are strings, not kept
 }
 
 type Er = (usize, String);
@@ -116,6 +119,11 @@ pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
             collect(body, &mut nm, &names, true);
             names.insert(m.to_string(), nm);
         }
+    }
+    for (m, body) in mods {
+        let nm = names.get_mut(*m).unwrap();
+        class_names(body, &mut nm.classes);
+        nm.lazy = future_annotations(body);
     }
     for (m, body) in mods {
         let nm = &names[*m];
@@ -255,6 +263,30 @@ fn blocks(st: &St, f: &mut dyn FnMut(&[Stmt])) {
     }
 }
 
+// Every class a module defines, at any depth (a class's __annotations__ is kept by the runtime; nothing
+// else's is, so only reads on a class name are allowed below).
+fn class_names(body: &[Stmt], out: &mut HashSet<String>) {
+    for s in body {
+        if let St::Class(c) = &s.st {
+            out.insert(c.name.clone());
+        }
+        blocks(&s.st, &mut |b| class_names(b, out));
+    }
+}
+
+fn future_annotations(body: &[Stmt]) -> bool {
+    body.iter().any(|s| matches!(&s.st, St::ImportFrom(m, v) if m == "__future__" && v.iter().any(|(n, _)| n == "annotations")))
+}
+
+// `o.__annotations__` is kept when o is a class of the program, or an instance of one (`C().__annotations__`).
+fn on_class(x: &Ex, nm: &Names) -> bool {
+    match x {
+        Ex::Name(n) => nm.classes.contains(n) && !nm.tdicts.contains(n) && !nm.ntuples.contains(n),
+        Ex::Call(f, _) => on_class(f, nm),
+        _ => false,
+    }
+}
+
 fn collect(body: &[Stmt], nm: &mut Names, all: &HashMap<String, Names>, top: bool) {
     for s in body {
         match &s.st {
@@ -308,6 +340,9 @@ fn collect(body: &[Stmt], nm: &mut Names, all: &HashMap<String, Names>, top: boo
                     }
                     if nm.is_form(head, "Protocol") {
                         nm.protocols.insert(c.name.clone());
+                    }
+                    if nm.is_form(head, "NamedTuple") {
+                        nm.ntuples.insert(c.name.clone());
                     }
                     if (matches!(b, Ex::Index(..)) && (nm.is_form(head, "Generic") || nm.is_form(head, "Protocol"))) || nm.generic_class(b) {
                         nm.generic.insert(c.name.clone());
@@ -521,9 +556,15 @@ fn expr(e: &Ex, ok: bool, line: usize, nm: &Names) -> Result<(), Er> {
                 }
                 return Ok(());
             }
-            // annotations are not kept
+            // Class annotations are kept (dynpy/emit.rs); anything else's are not, and neither are a
+            // NamedTuple's, a TypedDict's, nor any under `from __future__ import annotations`. An instance
+            // `C().__annotations__` reads its class's own, so a call of a class is allowed too. Brevi's own
+            // pydantic replaces every class's __annotations__ with descriptors, so its programs stay refused.
             if a == "__annotations__" {
-                return Err(err(line, ".__annotations__"));
+                let own_pyd = OWN_PYDANTIC.load(std::sync::atomic::Ordering::Relaxed);
+                if nm.lazy || own_pyd || !on_class(o, nm) {
+                    return Err(err(line, ".__annotations__"));
+                }
             }
             // `Movie.__annotations__`, `T.__name__`
             if nm.typing_expr(o) {

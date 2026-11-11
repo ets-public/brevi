@@ -1058,6 +1058,12 @@ pub fn getattr(o: &V, name: &str) -> R {
             if let Some(v) = ob.get_attr(name)? {
                 return Ok(v);
             }
+            // annotations come from the instance's own class only (CPython's type.__getattribute__);
+            // a base's are not inherited. Builtin types keep their old path (object raises AttributeError,
+            // where the typing pass's refusal never leads a program class here).
+            if name == "__annotations__" && ob.cls.module != "builtins" {
+                return Ok(ob.cls.annotations());
+            }
             if let Some(v) = ob.cls.lookup(name) {
                 return match &v {
                     V::Func(f) => Ok(match f.kind.get() {
@@ -1128,6 +1134,11 @@ pub fn getattr(o: &V, name: &str) -> R {
             Err(exc("AttributeError", format!("'{}' object has no attribute '{}'", ob.cls.name, name)))
         }
         V::Class(c) => {
+            // annotations are the class's own only, never a base's (CPython's type.__getattribute__).
+            // Builtin types keep their old path (object raises AttributeError).
+            if name == "__annotations__" && c.module != "builtins" {
+                return Ok(c.annotations());
+            }
             if let Some(v) = c.lookup(name) {
                 return Ok(match &v {
                     V::Func(f) if f.kind.get() == 2 => V::Bound(Rc::new((o.clone(), v.clone()))),
