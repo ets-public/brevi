@@ -14,7 +14,7 @@ Each showcase is an ordinary Python program, run two ways: built with `brevi bui
 | [micrograd](#micrograd) (Karpathy's, unchanged) | An MLP trained for 30 steps | **4.1 s** | 40.4 s | **9.7x** | yes | 6.5 MB | no |
 | [microgpt](#microgpt) (Karpathy's, unchanged) | A GPT trained for 1000 steps, then 20 names sampled | **93 s** | 117 s | **1.3x** | yes | 7.0 MB | no |
 
-Measured 10 November 2026 with Brevi 0.26.0 from `main` (commit 69caf93, which includes changes from the next release) on Linux x86_64 with 4 cores (Intel Xeon at 2.10 GHz). The machine differs from the one the earlier numbers came from, so CPython's own times moved too: micrograd took CPython 40 s here against 30 s there, and microgpt 117 s against 150 s. The data is [bench/showcase/results.json](repo:bench/showcase/results.json).
+Measured 10 November 2026 with Brevi 0.26.0 from `main` (commit 69caf93, which includes changes from v0.27.0) on Linux x86_64 with 4 cores (Intel Xeon at 2.10 GHz). The machine differs from the one the earlier numbers came from, so CPython's own times moved too: micrograd took CPython 40 s here against 30 s there, and microgpt 117 s against 150 s. The data is [bench/showcase/results.json](repo:bench/showcase/results.json).
 
 <!-- showcases:end -->
 
@@ -70,7 +70,7 @@ brevi build micrograd_train.py --release -o train
 
 ## microgpt
 
-[microgpt](https://gist.github.com/karpathy/8627fe009c40f57531cb18360106ce95) is Andrej Karpathy's GPT in one file of pure, dependency-free Python: a scalar autograd engine with one `Value` object per number, a GPT with attention and an MLP block, Adam, and sampling. It trains for 1000 steps on 32,000 names and then makes up 20 new ones. Every training step builds a new graph of thousands of small objects and walks it backwards, which is the worst case for a compiler that keeps Python's objects. Brevi builds the file as published, with no edits, into a 7.0 MB binary that runs the whole thing in 93 s, where CPython takes 117 s, and prints the same losses and the same names. This row comes from the next release, which changes how a built program keeps its objects in memory: blocks from pages of one size, attribute names shared between instances, and values two words wide.
+[microgpt](https://gist.github.com/karpathy/8627fe009c40f57531cb18360106ce95) is Andrej Karpathy's GPT in one file of pure, dependency-free Python: a scalar autograd engine with one `Value` object per number, a GPT with attention and an MLP block, Adam, and sampling. It trains for 1000 steps on 32,000 names and then makes up 20 new ones. Every training step builds a new graph of thousands of small objects and walks it backwards, which is the worst case for a compiler that keeps Python's objects. Brevi builds the file as published, with no edits, into a 7.0 MB binary that runs the whole thing in 93 s, where CPython takes 117 s, and prints the same losses and the same names. This row comes from v0.27.0, which changes how a built program keeps its objects in memory: blocks from pages of one size, attribute names shared between instances, and values two words wide.
 
 ```bash
 curl -sO https://gist.githubusercontent.com/karpathy/8627fe009c40f57531cb18360106ce95/raw/microgpt.py

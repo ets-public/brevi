@@ -11,7 +11,7 @@ Measured on v0.26.0, 9 November 2026. Latency is from one machine (4-core Xeon @
 
 | | Now | In 90 days | In 12 months |
 |---|---:|---:|---:|
-| [CPython conformance](https://github.com/ets-public/brevi/blob/main/bench/conformance/report.md) (tests that print exactly what CPython prints from a native build) | 58.2% (181 of 311) | 70% | 90% |
+| [CPython conformance](https://github.com/ets-public/brevi/blob/main/bench/conformance/report.md) (tests that print exactly what CPython prints from a native build) | 80.4% (250 of 311) at v0.27.0 | 70% | 90% |
 | [Known wrong results](https://github.com/ets-public/brevi/blob/main/compat/conformance_known_wrong.txt) (built, but answered differently from CPython) | 44 tests | 25 or fewer | 0 |
 | [`brevi check --fast`](https://github.com/ets-public/brevi/blob/main/docs/LATENCY.md) after an edit, median | 16 ms | 20 ms or less | 10 ms |
 | [`brevi check`](https://github.com/ets-public/brevi/blob/main/docs/LATENCY.md) after an edit, median | 94 ms | 50 ms | 30 ms |
@@ -27,18 +27,18 @@ The north star is the share of real agent-written programs that build natively, 
 ## Now (the next 30 days)
 
 - **Tell the truth everywhere.** One source for every public number, no absolute claims, measured speed ranges, and the conformance score first in the numbers table.
-- **Conformance in CI.** The CPython conformance run becomes a release gate that fails on any new wrong result, with a public dashboard and the known-wrong list burned down in public, one fix at a time. On `main` for v0.27.0: `tools/conformance.py --check` fails CI on any new wrong result, and conformance is up from 58.2% to 80.4% (250 of 311).
-- **Fuzzing.** Generated programs run natively and under CPython and compared; a crash is a top-priority bug, and a signal is treated as a security bug until it is understood. On `main` for v0.27.0: `tools/fuzz.py` writes seeded random agent-style Python, including shared-list cases, and compares the builds with CPython.
-- **Verify by default.** `brevi verify` (v0.26.0) checks a program against CPython on your inputs and prints a certificate. Next, `brevi run --verify` and the MCP `run` tool check every run where it is safe and cheap, and answer with CPython's output if the two ever differ. [Design](https://github.com/ets-public/brevi/blob/main/docs/VERIFY_BY_DEFAULT.md). On `main` for v0.27.0: `brevi run --verify` and the MCP `run` tool do this.
+- **Conformance in CI.** The CPython conformance run becomes a release gate that fails on any new wrong result, with a public dashboard and the known-wrong list burned down in public, one fix at a time. Shipped in v0.27.0: `tools/conformance.py --check` fails CI on any new wrong result, and conformance is up from 58.2% to 80.4% (250 of 311).
+- **Fuzzing.** Generated programs run natively and under CPython and compared; a crash is a top-priority bug, and a signal is treated as a security bug until it is understood. Shipped in v0.27.0: `tools/fuzz.py` writes seeded random agent-style Python, including shared-list cases, and compares the builds with CPython.
+- **Verify by default.** `brevi verify` (v0.26.0) checks a program against CPython on your inputs and prints a certificate. Next, `brevi run --verify` and the MCP `run` tool check every run where it is safe and cheap, and answer with CPython's output if the two ever differ. [Design](https://github.com/ets-public/brevi/blob/main/docs/VERIFY_BY_DEFAULT.md). Shipped in v0.27.0: `brevi run --verify` and the MCP `run` tool do this.
 - **Measure the loop.** `bench/latency.py` times every command an agent runs after an edit, and the release test now records how often the first check builds natively and what it costs to reach a passing answer with Brevi's errors shown to the model.
 - **A private alpha.** Ten harness authors and agent-platform teams running Brevi weekly, with opt-in metrics only. Brevi sends no telemetry by default.
 
 ## Next (to the private alpha gate)
 
-- **Faster builds after an edit.** Build at low optimisation for the edit loop and optimise in the background, and keep `rustc`'s incremental state for `brevi check`; a warm daemon after that. [Spike results](https://github.com/ets-public/brevi/blob/main/docs/LATENCY.md). On `main` for v0.27.0: runs after an edit build at opt-level 0 with opt-level 1 in the background, and library copies are compiled once and shared.
-- **An SDK.** `brevi.run(code, stdin=..., limits=...)` for Python, then Node, over the MCP server, so a harness never shells out. Sandboxed by default; only the caller grants anything. [Design](https://github.com/ets-public/brevi/blob/main/docs/SDK_AND_IMAGES.md). On `main` for v0.27.0: `import brevi` (Python) and `import { run } from "brevi"` (Node).
-- **A `python3` drop-in.** `brevi-python` behaves like `python3`, builds natively when it can and is CPython otherwise. On `main` for v0.27.0.
-- **Published base images.** One image with Brevi preinstalled for [E2B, Daytona, Modal, Cloudflare and Docker](/docs/agents#agent-platforms-e2b-daytona-modal-cloudflare), published with each release, so the [templates](/docs/agents#agent-platforms-e2b-daytona-modal-cloudflare) need no build. On `main` for v0.27.0: `ghcr.io/ets-public/brevi-sandbox`.
+- **Faster builds after an edit.** Build at low optimisation for the edit loop and optimise in the background, and keep `rustc`'s incremental state for `brevi check`; a warm daemon after that. [Spike results](https://github.com/ets-public/brevi/blob/main/docs/LATENCY.md). Shipped in v0.27.0: runs after an edit build at opt-level 0 with opt-level 1 in the background, and library copies are compiled once and shared.
+- **An SDK.** `brevi.run(code, stdin=..., limits=...)` for Python, then Node, over the MCP server, so a harness never shells out. Sandboxed by default; only the caller grants anything. [Design](https://github.com/ets-public/brevi/blob/main/docs/SDK_AND_IMAGES.md). Shipped in v0.27.0: `import brevi` (Python) and `import { run } from "brevi"` (Node).
+- **A `python3` drop-in.** `brevi-python` behaves like `python3`, builds natively when it can and is CPython otherwise. Shipped in v0.27.0.
+- **Published base images.** One image with Brevi preinstalled for [E2B, Daytona, Modal, Cloudflare and Docker](/docs/agents#agent-platforms-e2b-daytona-modal-cloudflare), published with each release, so the [templates](/docs/agents#agent-platforms-e2b-daytona-modal-cloudflare) need no build. Shipped in v0.27.0: `ghcr.io/ets-public/brevi-sandbox`.
 - **More programs on the fast path.** A published list of why programs leave the typed build, worked down from the top, then typed builds per function or module so one changing variable does not slow the whole file.
 - **Other model families.** The release test on at least one OpenAI, one Google and one open-weight model, not Claude alone. DeepSeek runs in the release test from v0.27.0 (report only).
 - **A real-task benchmark.** A public agent-task suite run with and without Brevi: success, time, tokens and dollars per task, with the raw logs and a script to reproduce it.
@@ -46,7 +46,7 @@ The north star is the share of real agent-written programs that build natively, 
 ## Later (to 1.0)
 
 - **brevi.run, hosted.** A closed beta of the compiler as a sandboxed API for agents, only once the platform's VM or microVM isolation and an outside security review are in place.
-- **Windows parity.** From the next release, library programs, generators and `async` build on Windows (CPython bridge and Win32 fibers); `--standalone` on Windows and macOS is next.
+- **Windows parity.** From v0.27.0, library programs, generators and `async` build on Windows (CPython bridge and Win32 fibers); `--standalone` on Windows and macOS is next.
 - **1.0** when conformance reaches 90% with no known wrong results, the typed path covers 90% of agent programs, `brevi check` answers in 30 ms, an outside security review is done, and three harnesses ship Brevi. Until then Brevi stays 0.x.
 
 ## Paused until 1.0
@@ -59,7 +59,7 @@ The north star is the share of real agent-written programs that build natively, 
 
 Each item is in the [changelog](/docs/changelog) with its release.
 
-- **On `main`, for v0.27.0:** `brevi run --verify`; the Python and Node SDKs, `brevi-python` and the published sandbox image; tiered builds after an edit; conformance 58.2% to 80.4% with a CI ratchet and a fuzzer; `eval()` of literal text, `__del__`, `weakref` and lazy itertools on the dynamic build; Windows library calls, generators, async, `--limit mem` and native requests, httpx, sqlite3, duckdb, onnxruntime and MCP servers; sandbox and MCP fixes from the 10 November review.
+- **In v0.27.0:** `brevi run --verify`; the Python and Node SDKs, `brevi-python` and the published sandbox image; tiered builds after an edit; conformance 58.2% to 80.4% with a CI ratchet and a fuzzer; `eval()` of literal text, `__del__`, `weakref` and lazy itertools on the dynamic build; Windows library calls, generators, async, `--limit mem` and native requests, httpx, sqlite3, duckdb, onnxruntime and MCP servers; sandbox and MCP fixes from the 10 November review.
 - **v0.26.0:** `brevi verify`; resource limits (`--limit`); folder and host grants (`--allow-read`, `--allow-write`, `--allow-net`); Landlock holding CPython under the sandbox on Linux; agent platform templates and the [weekly benchmark](/docs/benchmarks#weekly-agent-code-benchmark); native async; native tiktoken, pydantic, jinja2, polars, sqlite3, duckdb, safetensors, onnxruntime, httpx and the Anthropic and OpenAI SDKs; `.bv` files using the same native libraries; MCP over HTTP.
 - **v0.25.0 and earlier:** the sandbox on every build path, caller-only grants, native numpy, the dynamic build for programs the typed build refuses, and `pip install brevi`, `npx brevi`, `cargo install brevi` and the MCP registry.
 

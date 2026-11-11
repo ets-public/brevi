@@ -1,7 +1,0 @@
-- **More Python builds natively in dynamic builds:**
-  - `eval()` of literal text is parsed when the program is built. Invalid number tokens raise SyntaxError by CPython's own rules (`09`, `1__0`, `0x`, `1e`, and `1Else` but not `1else`). The build is refused when a name in the text would resolve differently than in CPython.
-  - `locals()` in a function returns a snapshot in CPython's order: parameters and locals first, then free variables.
-  - f-string fields can hold strings in the same quotes and can span lines (PEP 701, Python 3.12).
-  - `nonlocal x, y` works when the function never uses `y`.
-  - `SyntaxError`, `IndentationError`, `SyntaxWarning` and the other warning classes exist as names.
-- **CPython conformance 78.5% -> 80.4%** (250 of 311 on the normal build, 251 on the forced dynamic build; 38 refused, 8 wrong, no crashes). `compat/conformance_floor.json` is raised to 250/251.

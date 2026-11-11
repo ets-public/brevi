@@ -1,6 +1,0 @@
-- `brevi run file.py a b` passes `a b` to the program, as `python3 file.py a b` does; before, arguments were dropped unless they followed `--`. Brevi's own options may still follow the file, and a dashed word after the file that is no Brevi option (a misspelt `--sandbox`, say) is refused with exit 2 instead of being ignored; put it after `--` to pass it to the program.
-- A `#` in an f-string's format spec (`f"{255:#x}"`, `f"{n:#010b}"`) is no longer read as a comment, so these files build instead of being refused with "unterminated string literal".
-- An f-string value the typed build cannot read (`f"{ {1: 2}[1] }"`) is refused there and built over dynamic values, instead of being printed as literal text.
-- A file that starts with a UTF-8 byte order mark builds, as CPython reads it.
-- An uncaught exception on the typed build names its class: `{"e":"runtime","line":3,"type":"MyErr","msg":"custom failure"}`.
-- `brevi report`, `brevi guide`, `--help` and `--version` end quietly when the reader closes the pipe (`brevi report | head -1`) instead of panicking with exit 101.

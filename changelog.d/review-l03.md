@@ -1,1 +1,0 @@
-- csv.DictReader keeps a fieldnames list it was given as-is, the `unix` dialect quotes every field as CPython's does, and a dialect given as a class or object is refused rather than read with the default settings (Fable review l03). Written by DeepSeek, reviewed by Claude.

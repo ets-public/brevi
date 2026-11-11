@@ -1,1 +1,0 @@
-- Enum and Flag members can combine `auto()` members in the class body (`RW = R | W`), and Enum members whose names start with one underscore (`_a`) are members, as in CPython.

@@ -1,2 +1,0 @@
-- **Brevi's pydantic validates fields without validators faster.** A field with no `@field_validator` no longer builds a `ValidationInfo` and a closure per value, and a model without model validators skips its `ValidationInfo` too: validating many models runs about 23% fewer instructions.
-- **`getattr(f, "name", default)` on a function without that attribute** returns the default without raising and catching an AttributeError inside the dynamic build (jinja2 asks this of every filter it calls).

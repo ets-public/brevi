@@ -1,8 +1,8 @@
 {
-"brevi": "brevi 0.26.0",
+"brevi": "brevi 0.27.0",
 "python": "3.13.13",
 "tag": "v3.13.13",
-"date": "2026-11-10",
+"date": "2026-11-11",
 "platform": "linux",
 "sandboxed": false,
 "timeout_s": 20,
@@ -1124,7 +1124,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "except KeyError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 16: exec() is not supported in dynamic builds)"
+"detail": "`nonlocal nonloc_ns` sets a list or dict of the enclosing function, and this file cannot be built over dynamic values (case.py line 16: exec() is not supported in dynamic builds)"
 },
 "dyn": {
 "category": "refused",
@@ -1164,7 +1164,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "expected end of line, found CNS2"
+"detail": "`nonlocal nonloc_ns` sets a list or dict of the enclosing function, and this file cannot be built over dynamic values (case.py line 27: exec() is not supported in dynamic builds)"
 },
 "dyn": {
 "category": "refused",
@@ -1178,7 +1178,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "unknown function exec()"
+"detail": "`ns` and a value kept elsewhere name the same list in Python, and `ns` is changed (by a function the proof does not follow) while a value kept elsewhere is still used; the typed build would change onl"
 },
 "dyn": {
 "category": "refused",
@@ -1382,7 +1382,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "unknown function eval()"
+"detail": "`.__code__` and a value kept elsewhere name the same list in Python, and `.__code__` is changed (by a function the proof does not follow) while a value kept elsewhere is still used; the typed build wo"
 },
 "dyn": {
 "category": "refused",
@@ -4089,7 +4089,7 @@
 "normal": {
 "category": "wrong_exit",
 "path": "pybridge",
-"detail": "exit 1, expected 0: {\"e\":\"runtime\",\"line\":16,\"msg\":\"'list' object is not an iterator\"}"
+"detail": "exit 1, expected 0: {\"e\":\"runtime\",\"line\":16,\"type\":\"TypeError\",\"msg\":\"'list' object is not an iterator\"}"
 },
 "dyn": {
 "category": "wrong_exit",
@@ -4331,7 +4331,7 @@
 "normal": {
 "category": "wrong_exit",
 "path": "pybridge",
-"detail": "exit 1, expected 0: {\"e\":\"runtime\",\"line\":16,\"msg\":\"'list' object is not an iterator\"}"
+"detail": "exit 1, expected 0: {\"e\":\"runtime\",\"line\":16,\"type\":\"TypeError\",\"msg\":\"'list' object is not an iterator\"}"
 },
 "dyn": {
 "category": "wrong_exit",

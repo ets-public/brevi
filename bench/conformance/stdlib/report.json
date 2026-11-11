@@ -1,18 +1,18 @@
 {
-"brevi": "brevi 0.26.0",
+"brevi": "brevi 0.27.0",
 "python": "3.13.13",
 "tag": "v3.13.13",
-"date": "2026-11-10",
+"date": "2026-11-11",
 "platform": "linux",
 "sandboxed": false,
 "timeout_s": 20,
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 226,
-"refused": 172,
-"wrong_output": 10,
-"wrong_exit": 41,
+"matched": 257,
+"refused": 170,
+"wrong_output": 3,
+"wrong_exit": 19,
 "crash_or_timeout": 1,
 "not_extractable": 104,
 "unstable": 22,
@@ -20,15 +20,15 @@
 "total": 605,
 "scored": 554,
 "matched_through_cpython": 7,
-"matched_silent": 27,
-"coverage": 0.3953,
-"wrong": 51
+"matched_silent": 28,
+"coverage": 0.4513,
+"wrong": 22
 },
 "dyn": {
-"matched": 220,
-"refused": 180,
-"wrong_output": 9,
-"wrong_exit": 40,
+"matched": 251,
+"refused": 178,
+"wrong_output": 2,
+"wrong_exit": 18,
 "crash_or_timeout": 1,
 "not_extractable": 104,
 "unstable": 22,
@@ -36,18 +36,18 @@
 "total": 605,
 "scored": 554,
 "matched_through_cpython": 0,
-"matched_silent": 27,
-"coverage": 0.3971,
-"wrong": 49
+"matched_silent": 28,
+"coverage": 0.4531,
+"wrong": 20
 }
 },
 "files": {
 "test_itertools": {
 "normal": {
-"matched": 76,
+"matched": 77,
 "refused": 9,
 "wrong_output": 1,
-"wrong_exit": 4,
+"wrong_exit": 3,
 "crash_or_timeout": 0,
 "not_extractable": 44,
 "unstable": 0,
@@ -55,15 +55,15 @@
 "total": 145,
 "scored": 134,
 "matched_through_cpython": 2,
-"matched_silent": 25,
-"coverage": 0.5522,
-"wrong": 5
+"matched_silent": 26,
+"coverage": 0.5597,
+"wrong": 4
 },
 "dyn": {
-"matched": 74,
+"matched": 75,
 "refused": 11,
 "wrong_output": 1,
-"wrong_exit": 4,
+"wrong_exit": 3,
 "crash_or_timeout": 0,
 "not_extractable": 44,
 "unstable": 0,
@@ -71,17 +71,17 @@
 "total": 145,
 "scored": 134,
 "matched_through_cpython": 0,
-"matched_silent": 25,
-"coverage": 0.5522,
-"wrong": 5
+"matched_silent": 26,
+"coverage": 0.5597,
+"wrong": 4
 }
 },
 "test_collections": {
 "normal": {
-"matched": 9,
+"matched": 32,
 "refused": 40,
-"wrong_output": 7,
-"wrong_exit": 24,
+"wrong_output": 1,
+"wrong_exit": 7,
 "crash_or_timeout": 0,
 "not_extractable": 4,
 "unstable": 13,
@@ -90,14 +90,14 @@
 "scored": 84,
 "matched_through_cpython": 2,
 "matched_silent": 0,
-"coverage": 0.0833,
-"wrong": 31
+"coverage": 0.3571,
+"wrong": 8
 },
 "dyn": {
-"matched": 7,
+"matched": 30,
 "refused": 43,
-"wrong_output": 7,
-"wrong_exit": 23,
+"wrong_output": 1,
+"wrong_exit": 6,
 "crash_or_timeout": 0,
 "not_extractable": 4,
 "unstable": 13,
@@ -106,8 +106,8 @@
 "scored": 84,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.0833,
-"wrong": 30
+"coverage": 0.3571,
+"wrong": 7
 }
 },
 "test_re": {
@@ -180,10 +180,10 @@
 },
 "test_functools": {
 "normal": {
-"matched": 3,
-"refused": 52,
-"wrong_output": 1,
-"wrong_exit": 5,
+"matched": 10,
+"refused": 50,
+"wrong_output": 0,
+"wrong_exit": 1,
 "crash_or_timeout": 0,
 "not_extractable": 21,
 "unstable": 7,
@@ -192,14 +192,14 @@
 "scored": 82,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.0366,
-"wrong": 6
+"coverage": 0.122,
+"wrong": 1
 },
 "dyn": {
-"matched": 3,
-"refused": 52,
-"wrong_output": 1,
-"wrong_exit": 5,
+"matched": 10,
+"refused": 50,
+"wrong_output": 0,
+"wrong_exit": 1,
 "crash_or_timeout": 0,
 "not_extractable": 21,
 "unstable": 7,
@@ -208,8 +208,8 @@
 "scored": 82,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.0366,
-"wrong": 6
+"coverage": 0.122,
+"wrong": 1
 }
 },
 "test_string": {
@@ -249,14 +249,14 @@
 },
 "paths": {
 "normal": {
-"dynamic": 252,
-"refused": 172,
+"dynamic": 254,
+"refused": 170,
 "typed": 18,
 "pybridge": 8
 },
 "dyn": {
-"dynamic": 270,
-"refused": 180
+"dynamic": 272,
+"refused": 178
 }
 },
 "tests": [
@@ -1341,14 +1341,12 @@
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'function' object has no attribute '__dict__'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'function' object has no attribute '__dict__'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1694,7 +1692,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "the typed build runs a generator to the end at its first use, where CPython runs it step by step with its caller, and this file cannot be built over dynamic values (case.py line 4: itertools.tee is no"
+"detail": "`s` and a value kept elsewhere name the same list in Python, and `s` is changed (by a function the proof does not follow) while a value kept elsewhere is still used; the typed build would change only "
 },
 "dyn": {
 "category": "refused",
@@ -2049,7 +2047,7 @@
 "normal": {
 "category": "wrong_exit",
 "path": "pybridge",
-"detail": "exit 1, expected 0: {\"e\":\"runtime\",\"line\":17,\"msg\":\"'ChainMap' object has no attribute 'join'\"}"
+"detail": "exit 1, expected 0: {\"e\":\"runtime\",\"line\":17,\"type\":\"AttributeError\",\"msg\":\"'ChainMap' object has no attribute 'join'\"}"
 },
 "dyn": {
 "category": "refused",
@@ -2104,14 +2102,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: 'NoneType' object is not iterable"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: 'NoneType' object is not iterable"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2120,14 +2116,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: type object 'Point' has no attribute '__slots__'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: type object 'Point' has no attribute '__slots__'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2180,14 +2174,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 2: expected \"('abc', '_1')\", got \"('abc', 'def')\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 2: expected \"('abc', '_1')\", got \"('abc', 'def')\""
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2202,14 +2194,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: type object 'Point' has no attribute '__match_args__'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: type object 'Point' has no attribute '__match_args__'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2220,12 +2210,12 @@
 "normal": {
 "category": "wrong_output",
 "path": "dynamic",
-"detail": "line 1: expected \"<module 'collections' from '/root/.local/share/uv/python/cpython-3.13.13-linux-x86_64-gnu/lib/python3.13/collections/__i\", got \"'__main__'\""
+"detail": "line 1: expected \"<module 'collections' from '/root/.local/share/uv/python/cpython-3.13.13-linux-x86_64-gnu/lib/python3.13/collections/__i\", got \"<module 'collections'>\""
 },
 "dyn": {
 "category": "wrong_output",
 "path": "dynamic",
-"detail": "line 1: expected \"<module 'collections' from '/root/.local/share/uv/python/cpython-3.13.13-linux-x86_64-gnu/lib/python3.13/collections/__i\", got \"'__main__'\""
+"detail": "line 1: expected \"<module 'collections' from '/root/.local/share/uv/python/cpython-3.13.13-linux-x86_64-gnu/lib/python3.13/collections/__i\", got \"<module 'collections'>\""
 }
 }
 },
@@ -2240,14 +2230,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected \"('efg', '_1')\", got \"('efg', 'g%hi')\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected \"('efg', '_1')\", got \"('efg', 'g%hi')\""
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2256,14 +2244,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 3: expected \"{'w': 5}\", got \"{'x': 3, 'y': 4, 'w': 5}\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 3: expected \"{'w': 5}\", got \"{'x': 3, 'y': 4, 'w': 5}\""
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2272,14 +2258,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'function' object has no attribute '__globals__'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'function' object has no attribute '__globals__'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2288,14 +2272,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: type object 'Group' has no attribute '__origin__'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: type object 'Group' has no attribute '__origin__'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2318,14 +2300,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: brevi: a 'TestNT' object cannot be passed to a Python library in a dynamic build"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: brevi: a 'TestNT' object cannot be passed to a Python library in a dynamic build"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2334,14 +2314,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'Point' object has no attribute 'x'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'Point' object has no attribute 'x'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2350,14 +2328,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 2: expected \"'B(x=1)'\", got \"'A(x=1)'\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 2: expected \"'B(x=1)'\", got \"'A(x=1)'\""
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2396,12 +2372,12 @@
 "normal": {
 "category": "wrong_exit",
 "path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: issubclass() arg 2 must be a class, a tuple of classes, or a union"
+"detail": "exit 1, expected 0: AttributeError: module 'builtins' has no attribute 'NoneType'"
 },
 "dyn": {
 "category": "wrong_exit",
 "path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: issubclass() arg 2 must be a class, a tuple of classes, or a union"
+"detail": "exit 1, expected 0: AttributeError: module 'builtins' has no attribute 'NoneType'"
 }
 }
 },
@@ -2412,12 +2388,12 @@
 "normal": {
 "category": "wrong_exit",
 "path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: issubclass() arg 2 must be a class, a tuple of classes, or a union"
+"detail": "exit 1, expected 0: AttributeError: module 'builtins' has no attribute 'NoneType'"
 },
 "dyn": {
 "category": "wrong_exit",
 "path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: issubclass() arg 2 must be a class, a tuple of classes, or a union"
+"detail": "exit 1, expected 0: AttributeError: module 'builtins' has no attribute 'NoneType'"
 }
 }
 },
@@ -2598,12 +2574,12 @@
 "normal": {
 "category": "wrong_exit",
 "path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: issubclass() arg 2 must be a class, a tuple of classes, or a union"
+"detail": "exit 1, expected 0: TypeError: Can only register classes"
 },
 "dyn": {
 "category": "wrong_exit",
 "path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: issubclass() arg 2 must be a class, a tuple of classes, or a union"
+"detail": "exit 1, expected 0: TypeError: Can only register classes"
 }
 }
 },
@@ -2648,12 +2624,12 @@
 "normal": {
 "category": "wrong_exit",
 "path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: issubclass() arg 2 must be a class, a tuple of classes, or a union"
+"detail": "exit 1, expected 0: TypeError: bases must be types"
 },
 "dyn": {
 "category": "wrong_exit",
 "path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: issubclass() arg 2 must be a class, a tuple of classes, or a union"
+"detail": "exit 1, expected 0: TypeError: bases must be types"
 }
 }
 },
@@ -2698,12 +2674,12 @@
 "normal": {
 "category": "wrong_exit",
 "path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: issubclass() arg 2 must be a class, a tuple of classes, or a union"
+"detail": "exit 1, expected 0: TypeError: bases must be types"
 },
 "dyn": {
 "category": "wrong_exit",
 "path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: issubclass() arg 2 must be a class, a tuple of classes, or a union"
+"detail": "exit 1, expected 0: TypeError: bases must be types"
 }
 }
 },
@@ -2872,14 +2848,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: issubclass() arg 2 must be a class, a tuple of classes, or a union"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: issubclass() arg 2 must be a class, a tuple of classes, or a union"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2894,14 +2868,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected \"MyCounter({'a': 3, 't': 3, 's': 2, 'r': 2, 'l': 1, 'i': 1, 'b': 1, 'f': 1})\", got \"Counter({'a': 3, 't': 3, 's': 2, 'r': 2, 'l': 1, 'i': 1, 'b': 1, 'f': 1})\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected \"MyCounter({'a': 3, 't': 3, 's': 2, 'r': 2, 'l': 1, 'i': 1, 'b': 1, 'f': 1})\", got \"Counter({'a': 3, 't': 3, 's': 2, 'r': 2, 'l': 1, 'i': 1, 'b': 1, 'f': 1})\""
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2938,14 +2910,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: '>=' not supported between instances of 'Counter' and 'Counter'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: '>=' not supported between instances of 'Counter' and 'Counter'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2954,14 +2924,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: '>' not supported between instances of 'Counter' and 'Counter'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: '>' not supported between instances of 'Counter' and 'Counter'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2984,14 +2952,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: unsupported operand type(s) for +: 'int' and 'NoneType'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: unsupported operand type(s) for +: 'int' and 'NoneType'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3020,14 +2986,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: '<=' not supported between instances of 'Counter' and 'Counter'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: '<=' not supported between instances of 'Counter' and 'Counter'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3036,14 +3000,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: '<' not supported between instances of 'Counter' and 'Counter'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: '<' not supported between instances of 'Counter' and 'Counter'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3064,14 +3026,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: bad operand type for unary +: 'Counter'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: bad operand type for unary +: 'Counter'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3080,14 +3040,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: unsupported operand type(s) for +: 'int' and 'NoneType'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: unsupported operand type(s) for +: 'int' and 'NoneType'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3096,14 +3054,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 12: expected 'raises TypeError', got 'NO-RAISE'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 12: expected 'raises TypeError', got 'NO-RAISE'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3126,14 +3082,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: bad operand type for unary +: 'Counter'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: bad operand type for unary +: 'Counter'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3142,14 +3096,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: unsupported operand type(s) for +: 'int' and 'NoneType'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: unsupported operand type(s) for +: 'int' and 'NoneType'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6271,12 +6223,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "del takes m[k] or xs[i]"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.update_wrapper is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6353,12 +6305,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "del takes m[k] or xs[i]"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.update_wrapper is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6415,14 +6367,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected 'raises ValueError', got 'NO-RAISE'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected 'raises ValueError', got 'NO-RAISE'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6431,14 +6381,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'ImplementsLessThanEqualTo' object has no attribute '__lt__'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'ImplementsLessThanEqualTo' object has no attribute '__lt__'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6477,14 +6425,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: '<' not supported between instances of 'A' and 'A'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: '<' not supported between instances of 'A' and 'A'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6493,14 +6439,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: '<=' not supported between instances of 'A' and 'A'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: '<=' not supported between instances of 'A' and 'A'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6509,14 +6453,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: '<' not supported between instances of 'A' and 'A'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: '<' not supported between instances of 'A' and 'A'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6676,7 +6618,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "expected end of line, found D"
+"detail": "`haystack` and `.Mapping` name the same list in Python, and `haystack` is changed (by a function the proof does not follow) while `.Mapping` is still used; the typed build would change only a copy, an"
 },
 "dyn": {
 "category": "refused",
@@ -7396,7 +7338,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "expected end of line, found MyPattern"
+"detail": "`d` and a value kept elsewhere name the same list in Python, and `d` is changed (by a function the proof does not follow) while a value kept elsewhere is still used; the typed build would change only "
 },
 "dyn": {
 "category": "refused",
@@ -7444,7 +7386,7 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "expected end of line, found MyPattern"
+"detail": "`m` and a value kept elsewhere name the same list in Python, and `m` is changed (by a function the proof does not follow) while a value kept elsewhere is still used; the typed build would change only "
 },
 "dyn": {
 "category": "refused",

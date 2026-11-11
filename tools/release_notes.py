@@ -30,6 +30,17 @@ if os.path.exists(report):
               f"(Brevi {who.group(1)}, {who.group(3)}; [report](https://github.com/ets-public/brevi/blob/{tag}/bench/conformance/report.md)). "
               "Check your own program the same way with `brevi verify`.")
         print()
+# The second published number: the stdlib modules agents use most (tools/conformance.py --slice stdlib).
+report = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "bench", "conformance", "stdlib", "report.md")
+if os.path.exists(report):
+    r = open(report).read()
+    cov = re.search(r"\*\*Coverage ([\d.]+%)\*\* \((\d+) of (\d+) tests", r)
+    wrong = re.search(r"\*\*Wrong: (\d+)\*\*", r)
+    if cov and wrong:
+        print(f"**Standard library:** {cov.group(2)} of {cov.group(3)} tests from CPython's tests of the modules agents use most "
+              f"(itertools, collections, re, textwrap, functools, string; {cov.group(1)}) match, and {wrong.group(1)} give a different answer "
+              f"([report](https://github.com/ets-public/brevi/blob/{tag}/bench/conformance/stdlib/report.md)).")
+        print()
 print("Prebuilt brevi compiler for Linux, macOS and Windows. brevi still needs rustc on the PATH to build programs. "
       "On Linux and macOS, `sh install.sh` installs rustc if it is missing and picks the right download; on Windows, "
       "install Rust with rustup and unzip the .zip. Details: https://brevi-lang.org/docs/install")

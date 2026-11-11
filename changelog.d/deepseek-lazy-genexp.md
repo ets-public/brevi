@@ -1,1 +1,0 @@
-- Generator expressions are lazy in dynamic builds: only the outermost iterable runs where the expression is written, so `any()`/`all()` stop early and later changes to the names it reads are seen, as in CPython; `sum(x*x for x in ...)` is also about 10% faster (written by DeepSeek, #314).

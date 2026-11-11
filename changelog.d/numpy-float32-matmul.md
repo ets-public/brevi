@@ -1,1 +1,0 @@
-- **Native numpy float32 `@`, `dot` and `matmul`** match numpy bit for bit on AVX-512 CPUs, by reproducing OpenBLAS 0.3.34's SkylakeX kernels (sdot, sgemm, sgemv_t/sgemv_n and the small sgemv_t kernel). Matrix @ vector with 6 or 7 columns, and every float32 product off AVX-512, still runs in CPython.

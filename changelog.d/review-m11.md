@@ -1,1 +1,0 @@
-- `heapq.merge` is lazy and merges exactly as CPython does (it no longer sorts its inputs, and works on infinite iterators).

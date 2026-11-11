@@ -1426,6 +1426,19 @@ pub fn delattr(o: &V, name: &str) -> Result<(), E> {
         }
         V::Class(c) if c.del(name) => Ok(()),
         V::Class(c) => Err(exc("AttributeError", format!("type object '{}' has no attribute '{}'", c.name, name))),
+        // a def's user attribute: from its __dict__ once that has been made, else from its attrs (as setattr stores it)
+        V::Func(f) if !FUNC_SLOT_ATTRS.contains(&name) => {
+            let gone = match func_dict(f) {
+                Some(d) => Dict::del_cell(&d, &s(name))?.is_some(),
+                None => {
+                    let mut a = f.attrs.borrow_mut();
+                    let n = a.len();
+                    a.retain(|(k, _)| *k != name);
+                    a.len() != n
+                }
+            };
+            if gone { Ok(()) } else { Err(exc("AttributeError", format!("'function' object has no attribute '{}'", name))) }
+        }
         _ => Err(exc("AttributeError", format!("'{}' object has no attribute '{}'", tn(o), name))),
     }
 }

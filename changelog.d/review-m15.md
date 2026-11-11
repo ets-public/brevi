@@ -1,1 +1,0 @@
-- `timedelta` raises CPython's OverflowError past 999999999 days and sums its components exactly, big ints included; the typed build re-runs on the dynamic build instead of printing a date CPython would refuse (review m15).

@@ -1,7 +1,7 @@
 """Tests for bench/deepseek.py: the message mapping, and a whole e2e.solve run against a fake DeepSeek server
 (no network, no key). Run: python3 bench/test_deepseek.py
 """
-import http.server, json, os, sys, tempfile, threading, unittest
+import http.server, json, os, shutil, sys, tempfile, threading, unittest
 from pathlib import Path
 
 B = Path(__file__).resolve().parent
@@ -86,7 +86,12 @@ class DeepSeekTest(unittest.TestCase):
             reply(calls=[("edit_file", {"path": "main.py", "old": '"Fiz"', "new": '"Fizz"'}), ("check", {})], hit=1200, miss=200, out=80),
             reply("PASS, done.", reasoning=None, finish="stop", hit=1400, miss=50, out=10),
         ]
-        work = Path(tempfile.mkdtemp()) / "t1-deepseek-python" / "fizzbuzz"
+        # e2e.py runs every check in tools/modelbox.py's box, which sees bench/work but not the caller's /tmp
+        (e2e.B / "work").mkdir(exist_ok=True)
+        tmp = Path(tempfile.mkdtemp(prefix="test-deepseek-", dir=e2e.B / "work"))
+        tmp.chmod(0o755)  # mkdtemp makes it 0700, and the box runs the check as nobody
+        self.addCleanup(shutil.rmtree, tmp, True)
+        work = tmp / "t1-deepseek-python" / "fizzbuzz"
         r = e2e.solve(self.client, "deepseek-flash", "python", "fizzbuzz", work, "medium")
         self.assertTrue(r["pass"])
         self.assertEqual((r["checks"], r["calls"], r["stop"]), (2, 3, "end_turn"))

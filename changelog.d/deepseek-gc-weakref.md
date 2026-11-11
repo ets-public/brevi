@@ -1,1 +1,0 @@
-- `weakref.ref` (with callbacks) and `gc.collect()` are native in dynamic builds: `gc.collect()` breaks reference cycles that nothing outside them can reach, starting from the program's weak references; the rest of `gc` and `weakref` still runs in CPython where the bridge is allowed (written by DeepSeek, #319).

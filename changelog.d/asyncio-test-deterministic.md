@@ -1,1 +1,0 @@
-- **A timing-dependent asyncio test is now deterministic.** `tests/lib/asyncio_agen_errors.py` used a 3 ms timeout against a generator that slept 2 ms per item, so a slow CI machine could print a different line. Its timeout checks now run against a generator that stalls after its first item.

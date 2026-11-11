@@ -1,6 +1,6 @@
 {
   "name": "brevi",
-  "version": "0.26.0",
+  "version": "0.27.0",
   "description": "Compiles the plain Python AI agents write into fast native binaries via Rust, with one-line JSON errors and an MCP server.",
   "keywords": [
     "python",

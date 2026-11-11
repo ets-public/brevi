@@ -1,1 +1,0 @@
-- Instances have a live `__dict__` in dynamic builds: writes through `o.__dict__` or `vars(o)` change the attributes, `o.__dict__ = {...}` replaces them, and non-string keys are kept, as in CPython (written by DeepSeek, #315).

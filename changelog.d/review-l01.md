@@ -1,1 +1,0 @@
-- The dynamic build runs `int.to_bytes` and `int.from_bytes` natively, with CPython's defaults, signed two's complement, `__index__` lengths and error messages.

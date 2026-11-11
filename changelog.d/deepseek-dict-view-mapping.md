@@ -1,1 +1,0 @@
-- **`d.keys().mapping` and friends.** Dict views now have `.mapping`, a live read-only `mappingproxy` of their dict, and `Class.__dict__` is a mappingproxy too, as in CPython (fixes CPython conformance test `test_dict.test_views_mapping`; written by DeepSeek V4 Pro through `tools/ds_contrib.py`, reviewed by Claude).

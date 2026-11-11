@@ -1,1 +1,0 @@
-- The dynamic build's `collections.namedtuple` matches CPython: `defaults`, `rename`, `_make`, `_replace`, `_asdict`, `_fields`, `_field_defaults`, subclasses, and the constructor's argument errors (`P.__new__() missing 2 required positional arguments: 'x' and 'y'`). Field reads stay as fast as before.

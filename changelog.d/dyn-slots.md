@@ -1,1 +1,0 @@
-- The dynamic build enforces `__slots__` as CPython does: assigning a name that is not a slot raises `AttributeError` when the class has no `__dict__`, inheritance and `"__dict__"` in slots keep a `__dict__` where CPython has one, `vars()` and the read-only and class-variable conflict errors match, and `@dataclass(slots=True)` is enforced too.
