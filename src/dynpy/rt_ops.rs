@@ -270,6 +270,17 @@ pub fn eq(a: &V, b: &V) -> Result<bool, E> {
             seq_eq(&x, &y)?
         }
         (V::Obj(_), _) | (_, V::Obj(_)) => {
+            let first = reflected_first(a, b);
+            if first {
+                if let V::Obj(o) = b {
+                    if let Some(f) = o.cls.lookup("__eq__") {
+                        let r = call(&f, Args::p(vec![b.clone(), a.clone()]))?;
+                        if !matches!(r, V::NotImpl) {
+                            return truth(&r);
+                        }
+                    }
+                }
+            }
             if let V::Obj(o) = a {
                 if let Some(f) = o.cls.lookup("__eq__") {
                     let r = call(&f, Args::p(vec![a.clone(), b.clone()]))?;
@@ -282,9 +293,12 @@ pub fn eq(a: &V, b: &V) -> Result<bool, E> {
             }
             if let V::Obj(o) = b {
                 if let Some(f) = o.cls.lookup("__eq__") {
-                    let r = call(&f, Args::p(vec![b.clone(), a.clone()]))?;
-                    if !matches!(r, V::NotImpl) {
-                        return truth(&r);
+                    // already tried first when b's class is a strict subclass of a's
+                    if !first {
+                        let r = call(&f, Args::p(vec![b.clone(), a.clone()]))?;
+                        if !matches!(r, V::NotImpl) {
+                            return truth(&r);
+                        }
                     }
                 } else if let Some(i) = inner_of(b) {
                     return eq(a, &i);
@@ -323,10 +337,61 @@ fn seq_eq(x: &[V], y: &[V]) -> Result<bool, E> {
     }
     Ok(true)
 }
+// CPython's do_richcompare: when the right operand's class is a strict subclass of the left operand's,
+// the right operand's reflected comparison runs first (and is not tried again after the left one).
+pub fn reflected_first(a: &V, b: &V) -> bool {
+    match (a, b) {
+        (V::Obj(x), V::Obj(y)) => !Rc::ptr_eq(&x.cls, &y.cls) && y.cls.is_sub(&x.cls),
+        _ => false,
+    }
+}
+// One side of `x != y` for an object, as CPython's slot does it: x's own __ne__, else object.__ne__, which
+// inverts x's __eq__. None for NotImplemented (or no __eq__ either, object's own answering NotImplemented
+// unless x is y).
+fn ne_side(x: &V, y: &V) -> Result<Option<bool>, E> {
+    let V::Obj(o) = x else { return Ok(None) };
+    if let Some(f) = o.cls.lookup("__ne__") {
+        let r = call(&f, Args::p(vec![x.clone(), y.clone()]))?;
+        return Ok(if matches!(r, V::NotImpl) { None } else { Some(truth(&r)?) });
+    }
+    if let Some(f) = o.cls.lookup("__eq__") {
+        let r = call(&f, Args::p(vec![x.clone(), y.clone()]))?;
+        return Ok(if matches!(r, V::NotImpl) { None } else { Some(!truth(&r)?) });
+    }
+    Ok(if is(x, y) { Some(false) } else { None })
+}
+// `a != b` when an operand is an object and neither wraps a builtin value: CPython's order (the right
+// operand first when its class is a strict subclass), then identity. None leaves it to the general path.
+pub fn obj_ne(a: &V, b: &V) -> Result<Option<bool>, E> {
+    if !(matches!(a, V::Obj(_)) || matches!(b, V::Obj(_))) || inner_of(a).is_some() || inner_of(b).is_some() {
+        return Ok(None);
+    }
+    let first = reflected_first(a, b);
+    if first {
+        if let Some(r) = ne_side(b, a)? {
+            return Ok(Some(r));
+        }
+    }
+    if let Some(r) = ne_side(a, b)? {
+        return Ok(Some(r));
+    }
+    if !first {
+        if let Some(r) = ne_side(b, a)? {
+            return Ok(Some(r));
+        }
+    }
+    Ok(Some(!is(a, b)))
+}
 pub fn ne(a: &V, b: &V) -> Result<bool, E> {
+    if let Some(r) = obj_ne(a, b)? {
+        return Ok(r);
+    }
     if let V::Obj(o) = a {
         if let Some(f) = o.cls.lookup("__ne__") {
-            return truth(&call(&f, Args::p(vec![a.clone(), b.clone()]))?);
+            let r = call(&f, Args::p(vec![a.clone(), b.clone()]))?;
+            if !matches!(r, V::NotImpl) {
+                return truth(&r);
+            }
         }
     }
     Ok(!eq(a, b)?)
@@ -365,7 +430,7 @@ pub fn is(a: &V, b: &V) -> bool {
     }
 }
 
-fn cmp_err(op: &str, a: &V, b: &V) -> E {
+pub fn cmp_err(op: &str, a: &V, b: &V) -> E {
     exc("TypeError", format!("'{op}' not supported between instances of '{}' and '{}'", tn(a), tn(b)))
 }
 // Ordering of two values for <, <=, >, >= (None when unordered, like NaN).
@@ -543,6 +608,17 @@ pub fn rich(a: &V, b: &V, op: &str) -> Result<bool, E> {
         }
     }
     if matches!(a, V::Obj(_)) || matches!(b, V::Obj(_)) {
+        let first = reflected_first(a, b);
+        if first {
+            if let V::Obj(o) = b {
+                if let Some(f) = o.cls.lookup(dunder(swap_op(op))) {
+                    let r = call(&f, Args::p(vec![b.clone(), a.clone()]))?;
+                    if !matches!(r, V::NotImpl) {
+                        return truth(&r);
+                    }
+                }
+            }
+        }
         if let V::Obj(o) = a {
             if let Some(f) = o.cls.lookup(dunder(op)) {
                 let r = call(&f, Args::p(vec![a.clone(), b.clone()]))?;
@@ -551,7 +627,7 @@ pub fn rich(a: &V, b: &V, op: &str) -> Result<bool, E> {
                 }
             }
         }
-        if let V::Obj(o) = b {
+        if let (V::Obj(o), false) = (b, first) {
             if let Some(f) = o.cls.lookup(dunder(swap_op(op))) {
                 let r = call(&f, Args::p(vec![b.clone(), a.clone()]))?;
                 if !matches!(r, V::NotImpl) {
@@ -618,6 +694,29 @@ fn odunder(op: &str) -> (&'static str, &'static str) {
 }
 fn obj_binop(a: &V, b: &V, op: &str) -> Option<R> {
     let (l, r) = odunder(op);
+    // CPython's order (binary_op1 and SLOT1BINFULL): the reflected method of the right operand runs first
+    // when its class is a strict subclass of the left operand's class and gives that method a different
+    // value (its own or an intermediate class's); it is then not tried a second time. Two operands of the
+    // same class never try the reflected method.
+    let mut right_done = false;
+    let same = match (a, b) {
+        (V::Obj(x), V::Obj(y)) => {
+            let same = Rc::ptr_eq(&x.cls, &y.cls);
+            if !same && y.cls.is_sub(&x.cls) {
+                if let Some(f) = y.cls.lookup(r) {
+                    if x.cls.lookup(r).is_none_or(|g| !is(&f, &g)) {
+                        right_done = true;
+                        match call2(&f, b.clone(), a.clone()) {
+                            Ok(V::NotImpl) => {}
+                            x => return Some(x),
+                        }
+                    }
+                }
+            }
+            same
+        }
+        _ => false,
+    };
     if let V::Obj(o) = a {
         if let Some(f) = o.cls.lookup(l) {
             match call2(&f, a.clone(), b.clone()) {
@@ -626,7 +725,7 @@ fn obj_binop(a: &V, b: &V, op: &str) -> Option<R> {
             }
         }
     }
-    if let V::Obj(o) = b {
+    if let (V::Obj(o), false, false) = (b, same, right_done) {
         if let Some(f) = o.cls.lookup(r) {
             match call2(&f, b.clone(), a.clone()) {
                 Ok(V::NotImpl) => {}
