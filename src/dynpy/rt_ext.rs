@@ -2939,7 +2939,7 @@ impl Ext for Lock {
         }))
     }
 }
-fn threading_fn(n: &str, mut a: Args) -> R {
+pub fn threading_fn(n: &str, mut a: Args) -> R {
     match n {
         "stack_size" => Ok(V::Int(0)),
         "Thread" => {

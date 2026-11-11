@@ -1,0 +1,1 @@
+- Dynamic builds have `functools.cached_property` (CPython's semantics: cached in the instance's `__dict__` under the name from `__set_name__`, subclassable, CPython's errors for a missing `__dict__`, a reused property and a missing `__set_name__`) and `functools.RLock`. test_functools: 10 more TestCachedProperty tests match.

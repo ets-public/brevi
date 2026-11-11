@@ -2434,7 +2434,7 @@ impl Class {
                     slot_names(v, &mut own);
                 } else {
                     shadow.push(*k);
-                    if matches!(v, V::Prop(_) | V::NTF(_)) && !props.contains(k) {
+                    if (matches!(v, V::Prop(_) | V::NTF(_)) || is_data_desc(v)) && !props.contains(k) {
                         props.push(*k);
                     }
                 }
