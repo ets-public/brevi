@@ -15,7 +15,7 @@ mod brevi_ortglue {
     type P = *mut c_void;
     type St = P;
 
-    // libonnxruntime is dlopen'd on Unix; on Windows the same library (onnxruntime.dll) is LoadLibraryA'd, and
+    // libonnxruntime is dlopen'd on Unix; on Windows the same library (onnxruntime.dll) is loaded by absolute path (libpin.rs), and
     // GetLastError names what a failed load wanted.
     #[cfg(unix)]
     extern "C" {
@@ -25,7 +25,7 @@ mod brevi_ortglue {
     }
     #[cfg(windows)]
     unsafe extern "system" {
-        fn LoadLibraryA(f: *const c_char) -> P;
+        fn LoadLibraryExA(f: *const c_char, file: P, flags: u32) -> P;
         fn GetProcAddress(h: P, s: *const c_char) -> P;
         fn GetLastError() -> u32;
         fn FreeLibrary(h: P) -> i32;
@@ -36,7 +36,12 @@ mod brevi_ortglue {
     }
     #[cfg(windows)]
     unsafe fn ax_dlopen(f: *const c_char, _flag: i32) -> P {
-        LoadLibraryA(f)
+        // absolute paths only, dependencies from the library's folder or System32 (see libpin.rs)
+        if std::path::Path::new(CStr::from_ptr(f).to_string_lossy().as_ref()).is_absolute() {
+            LoadLibraryExA(f, std::ptr::null_mut(), 0x100 | 0x800)
+        } else {
+            std::ptr::null_mut()
+        }
     }
     #[cfg(unix)]
     unsafe fn ax_freelib(_h: P) {}
@@ -127,36 +132,46 @@ mod brevi_ortglue {
         c.as_ptr() as *const c_char
     }
 
-    fn libs() -> Vec<String> {
+    // BREVI_ORT_LIB (outside the sandbox; the caller's choice, not pinned), the onnxruntime package's library
+    // found at build time (pinned by SHA-256, libpin.rs), then on Unix a system library by name. Windows has no
+    // bare-name fallback: an onnxruntime.dll in the program's folder or CWD must not run.
+    fn libs() -> Vec<(String, Option<&'static str>)> {
         let mut v = vec![];
         if !FS_SANDBOX {
             if let Ok(p) = std::env::var("BREVI_ORT_LIB") {
-                v.push(p);
+                v.push((p, None));
             }
         }
-        for l in ORT_LIBS {
-            v.push(l.to_string());
+        for (l, sum) in ORT_LIBS {
+            v.push((l.to_string(), Some(*sum)));
         }
         #[cfg(unix)]
         for l in ["libonnxruntime.so", "libonnxruntime.so.1", "libonnxruntime.dylib"] {
-            v.push(l.to_string());
+            v.push((l.to_string(), None));
         }
-        // Windows has no bare-name fallback: an onnxruntime.dll in the program's folder or CWD must not
-        // run. ORT_LIBS holds the absolute path from the onnxruntime package found at build time;
-        // BREVI_ORT_LIB is the explicit override.
         v
     }
 
     fn api() -> Result<&'static Api, String> {
         API.get_or_init(|| unsafe {
             let mut why = String::new();
-            for l in libs() {
-                let c = CString::new(l.clone()).unwrap();
-                let h = ax_dlopen(c.as_ptr(), 2);
-                if h.is_null() {
-                    why = ax_dlerror();
-                    continue;
-                }
+            for (l, sum) in libs() {
+                let got = match sum {
+                    Some(sum) => brevi_libpin::open(&l, sum, 2),
+                    None if cfg!(windows) => brevi_libpin::open_unpinned(&l),
+                    None => {
+                        let c = CString::new(l.clone()).unwrap();
+                        let h = ax_dlopen(c.as_ptr(), 2);
+                        if h.is_null() { Err(ax_dlerror()) } else { Ok(h) }
+                    }
+                };
+                let h = match got {
+                    Ok(h) => h,
+                    Err(e) => {
+                        why = e;
+                        continue;
+                    }
+                };
                 let g = ax_dlsym(h, c"OrtGetApiBase".as_ptr());
                 if g.is_null() {
                     // a DLL that is not ONNX Runtime's own (an old wheel's onnxruntime_providers_shared.dll):

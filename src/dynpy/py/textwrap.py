@@ -73,10 +73,16 @@ def _chunks(t, hyphens):
     return out
 
 
+def _sentence_end(chunk):
+    # Equivalent of CPython's _sentence_end_re: [a-z][.!?]["']?\Z
+    n = len(chunk)
+    if n >= 2 and "a" <= chunk[-2] <= "z" and chunk[-1] in ".!?":
+        return True
+    return n >= 3 and "a" <= chunk[-3] <= "z" and chunk[-2] in ".!?" and chunk[-1] in "\"'"
+
+
 class TextWrapper:
     def __init__(self, width=70, initial_indent="", subsequent_indent="", expand_tabs=True, replace_whitespace=True, fix_sentence_endings=False, break_long_words=True, drop_whitespace=True, break_on_hyphens=True, tabsize=8, max_lines=None, placeholder=" [...]"):
-        if fix_sentence_endings:
-            raise NotImplementedError("brevi: textwrap fix_sentence_endings is not supported in native builds")
         self.width = width
         self.initial_indent = initial_indent
         self.subsequent_indent = subsequent_indent
@@ -102,6 +108,15 @@ class TextWrapper:
 
     def _split(self, text):
         return [c for c in _chunks(text, self.break_on_hyphens) if c]
+
+    def _fix_sentence_endings(self, chunks):
+        i = 0
+        while i < len(chunks) - 1:
+            if chunks[i + 1] == " " and _sentence_end(chunks[i]):
+                chunks[i + 1] = "  "
+                i += 2
+            else:
+                i += 1
 
     def _handle_long_word(self, chunks, cur_line, cur_len, width):
         if width < 1:
@@ -179,7 +194,10 @@ class TextWrapper:
         return lines
 
     def wrap(self, text):
-        return self._wrap_chunks(self._split(self._munge_whitespace(text)))
+        chunks = self._split(self._munge_whitespace(text))
+        if self.fix_sentence_endings:
+            self._fix_sentence_endings(chunks)
+        return self._wrap_chunks(chunks)
 
     def fill(self, text):
         return "\n".join(self.wrap(text))

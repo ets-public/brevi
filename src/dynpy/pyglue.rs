@@ -27,10 +27,11 @@ const PYD_HELPERS: &str = r#"
 import builtins as _b, operator as _o, types as _t, sys as _s
 _d = _t.ModuleType('_brevi_dyn')
 class _BrIt:
-    __slots__ = ('f',)
-    def __init__(s, f): s.f = f
+    __slots__ = ('f', 'r')
+    def __init__(s, f, r): s.f = f; s.r = r
     def __iter__(s): return s
     def __next__(s): return s.f()
+    def __reduce__(s): return s.r()
 def _pyclass(mod, imports, src, name, file):
     m = _s.modules.get(mod) if mod == '__main__' else _d.mods.get(mod)
     if m is None:
@@ -101,7 +102,8 @@ fn pyd_api() -> &'static ax_pyffi::Api {
         Ok(a) => a,
         Err(e) => {
             out_flush();
-            eprintln!("{{\"e\":\"runtime\",\"msg\":{e:?},\"fix\":\"run the program with python3, or install a Python that has its shared library (libpython)\"}}");
+            let fix = if e.starts_with("brevi: --sandbox:") { "change what the message names, or run without --sandbox" } else { "run the program with python3, or install a Python that has its shared library (libpython)" };
+            eprintln!("{{\"e\":\"runtime\",\"msg\":{e:?},\"fix\":{fix:?}}}");
             std::process::exit(1)
         }
     }
@@ -636,6 +638,68 @@ unsafe fn pyd_namedtuple(v: &V) -> Result<P, E> {
     r
 }
 
+// What pickle should save for an iterator of the program. CPython's own iterators over lists, tuples, strings,
+// ranges, dicts and sets serialize as the source they have left (`iter` of the rest of the list, tuple, ...),
+// so the program's iterator does the same. The callback runs at pickle time, so it sees the iterator's position
+// then, not when the value was handed to the library.
+enum ItPlan {
+    // CPython's exact form for list, tuple and str iterators: `(iter, (whole,), index)`, then __setstate__(index).
+    At(V, usize),
+    Seq(Vec<V>),
+    Range(i64, i64, i64),
+    Dict(Rc<RefCell<Dict>>, usize, u8, u64, usize),
+    Set(Rc<RefCell<PSet>>, usize, i64),
+}
+fn iter_reduce(v: &V) -> R {
+    let V::Iter(cell) = v else {
+        return Err(exc("TypeError", format!("cannot pickle '{}' object", tn(v))));
+    };
+    let plan = {
+        let Ok(it) = cell.try_borrow() else {
+            return Err(exc("ValueError", "iterator already executing".into()));
+        };
+        match &*it {
+            It::List(l, i) => ItPlan::At(V::List(l.clone()), *i),
+            It::Tuple(t, i) => ItPlan::At(tup(t.to_vec()), *i),
+            // It::Vec holds the rest of reversed(), map(), zip() and others: CPython pickles each of those its own
+            // way (`reversed`, `map(f, it)`, ...), so it is refused rather than saved as a plain list iterator.
+            // the iterator keeps a byte offset; CPython's index counts characters
+            It::Str(s, i) => ItPlan::At(st(s.s.clone()), s.s[..*i].chars().count()),
+            It::Range(a, b, st) => ItPlan::Range(*a, *b, *st),
+            It::Dict(d, i, kind, ver, n0) => ItPlan::Dict(d.clone(), *i, *kind, *ver, *n0),
+            It::Set(s, i, n0) => ItPlan::Set(s.clone(), *i, *n0),
+            It::Done => ItPlan::Seq(vec![]),
+            It::Coro(_) | It::GenExp(..) => {
+                return Err(exc("TypeError", "cannot pickle 'generator' object".into()))
+            }
+            _ => return Err(exc("TypeError", format!("cannot pickle '{}' object", tn(v)))),
+        }
+    };
+    let f = pyd_builtin("iter")?;
+    let base = match plan {
+        ItPlan::At(whole, i) => return Ok(tup(vec![f, tup(vec![whole]), V::Int(i as i64)])),
+        ItPlan::Seq(xs) => V::List(Rc::new(RefCell::new(xs))),
+        ItPlan::Range(a, b, st) => V::Range(Rc::new((a, b, st))),
+        ItPlan::Dict(d, i, kind, ver, n0) => {
+            let mut sim = It::Dict(d, i, kind, ver, n0);
+            let mut out = vec![];
+            while let Some(x) = sim.next()? {
+                out.push(x);
+            }
+            V::List(Rc::new(RefCell::new(out)))
+        }
+        ItPlan::Set(s, i, n0) => {
+            let mut sim = It::Set(s, i, n0);
+            let mut out = vec![];
+            while let Some(x) = sim.next()? {
+                out.push(x);
+            }
+            V::List(Rc::new(RefCell::new(out)))
+        }
+    };
+    Ok(tup(vec![f, tup(vec![base])]))
+}
+
 // The program's value `v` as a new Python object.
 unsafe fn pyd_to(v: &V) -> Result<P, E> {
     let a = pyd_api();
@@ -854,12 +918,16 @@ unsafe fn pyd_to(v: &V) -> Result<P, E> {
         V::Class(c) if c.module == "builtins" && (c.bt == BT::Exc || c.is_sub(&exc_class("BaseException"))) => pyd_builtins_attr(c.name)?,
         V::Obj(o) if o.cls.lookup("__bv_namedtuple__").is_some() => pyd_namedtuple(v)?,
         V::Iter(_) => {
-            let me = v.clone();
-            let next = func(sym("__next__"), move |_a: Args| bi_next(Args::p(vec![me.clone()])));
+            let next_me = v.clone();
+            let red_me = v.clone();
+            let next = func(sym("__next__"), move |_a: Args| bi_next(Args::p(vec![next_me.clone()])));
+            let red = func(sym("__reduce__"), move |_a: Args| iter_reduce(&red_me));
             let f = pyd_callable(&next)?;
-            let r = pyd_mod_call("_brevi_dyn", "it", &[f]);
+            let r = pyd_callable(&red)?;
+            let o = pyd_mod_call("_brevi_dyn", "it", &[f, r]);
             (a.DecRef)(f);
-            r?
+            (a.DecRef)(r);
+            o?
         }
         V::Func(_) | V::Bound(_) | V::BMeth(_) | V::Class(_) => pyd_callable(v)?,
         V::Obj(o) if o.cls.lookup("__call__").is_some() => pyd_callable(v)?,
@@ -1278,6 +1346,24 @@ impl Ext for PyV {
                 pyd_wrap(x, false).map(Some)
             }
         }))))
+    }
+    fn next_item(&self) -> Option<R> {
+        // `next(x)` has CPython's answer even when the library value is not an iterator (a list, a module, ...),
+        // so run Python's own next rather than the bridge's iter().
+        let _g = PydGil::take();
+        let a = pyd_api();
+        Some(unsafe {
+            let f = match pyd_builtins_attr("next") {
+                Ok(f) => f,
+                Err(e) => return Some(Err(e)),
+            };
+            let r = pyd_call_raw(f, &[self.p]);
+            (a.DecRef)(f);
+            match r {
+                Ok(p) => pyd_wrap(p, false),
+                Err(e) => Err(e),
+            }
+        })
     }
     fn fmt(&self, spec: &str) -> Option<R> {
         let _g = PydGil::take();

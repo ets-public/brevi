@@ -724,7 +724,7 @@ fn log_differs(files: &[(String, String)], stdin: &[u8], args: &[String], p: &Ru
 pub fn run_main(argv: &[String]) -> ! {
     let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
     let prog_args: Vec<String> = argv.get(dash + 1..).unwrap_or(&[]).to_vec();
-    let (mut file, mut strict, mut release) = (None, false, false);
+    let (mut file, mut strict, mut release) = (None, crate::strict(), false);
     let mut limit = Duration::from_secs(60);
     let mut lims = crate::proc::Limits::default();
     // passed on to a plain `brevi run` when nothing is verified

@@ -54,15 +54,15 @@ match CPython on their own tests, and do so on the first check. Fast, correct an
 |---|---:|---:|---:|---|
 | ANER (real agent code) | not measured | 60% | 90% | opt-in alpha traffic sample |
 | Conformance (CPython 3.13.13 slice) | 80.4% (250/311) at v0.27.0 | ≥70% | ≥90% | `tools/conformance.py` |
-| Known-wrong allowlist | 44 tests, 88 test-mode pairs | ≤25 tests | 0 | `compat/conformance_known_wrong.txt` |
-| Crash or timeout (conformance) | 5 of 311 tests | 0 on fuzz corpus | 0 on fuzz corpus | fuzz harness (WS1) |
-| `brevi check --fast` p50 / p95 | 16 / 18 ms | ≤20 ms p50 | ≤10 ms p50 | `bench/latency.py` |
-| `brevi check` p50 / p95 | 94 / 114 ms | ≤50 / ≤150 ms | ≤30 / ≤80 ms | `bench/latency.py` |
-| Build after an edit, p50 | 0.87 s typed, 1.5 s dynamic | ≤500 ms | ≤300 ms | `bench/latency.py` |
+| Known-wrong allowlist | 8 tests, 16 test-mode pairs at v0.27.0 (44 and 88 at v0.26.0) | ≤25 tests | 0 | `compat/conformance_known_wrong.txt` |
+| Crash or timeout (conformance) | 0 of 311 tests at v0.27.0 | 0 on fuzz corpus | 0 on fuzz corpus | fuzz harness (WS1) |
+| `brevi check --fast` p50 / p95 | 160 / 174 ms at v0.27.0, a regression: the fixture now builds dynamic (false refusal, being fixed; 16 / 18 ms at v0.26.0) | ≤20 ms p50 | ≤10 ms p50 | `bench/latency.py` |
+| `brevi check` p50 / p95 | 160 / 209 ms at v0.27.0, same cause (94 / 114 ms at v0.26.0) | ≤50 / ≤150 ms | ≤30 / ≤80 ms | `bench/latency.py` |
+| Build after an edit, p50 | 1.18 s at v0.27.0 (fixture now dynamic); `brevi run` after an edit 0.43 s with tiered builds; 0.87 s typed, 1.5 s dynamic at v0.26.0 | ≤500 ms | ≤300 ms | `bench/latency.py` |
 | Typed-path rate (agent corpus) | 567/813 (70%, v0.25.0) | 80% | 90% | `bench/typed_corpus.py` |
 | First-attempt native build | 24/24 (Haiku and Sonnet, one run, errors shown) | 80% | 90% | `bench/e2e.py` (`n1`), alpha traffic |
 | Tokens-to-green vs CPython, errors shown | 1.04x Haiku, 1.03x Sonnet (one run) | ≤1.10x | ≤1.00x | `bench/e2e.py --show-errors` |
-| Install to first run, no Rust | not possible | ≤60 s (container or hosted) | same | timed install test |
+| Install to first run, no Rust | possible with the `ghcr.io/ets-public/brevi-sandbox` image from v0.27.0; not yet timed | ≤60 s (container or hosted) | same | timed install test |
 | Harness integrations | 0 | 1 | 3 | third-party repos |
 | Weekly native builds (adoption) | about 0 | 100 (alpha) | 10k | opt-in counts |
 

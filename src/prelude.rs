@@ -349,6 +349,7 @@ fn ax_i64_stop(what: &str) -> String {
             format!("the typed build stopped: {what}, and the dynamic build could not be started")
         }
         Some(_) => format!("the typed build stopped: {what}, which its 64-bit numbers cannot hold exactly; Brevi cannot re-run this program on the dynamic build because {why}. Run it with BREVI_DYN=1 for Python's exact values"),
+        None if std::env::var("BREVI_STRICT").is_ok_and(|v| !v.is_empty() && v != "0") => format!("the typed build stopped: {what}, which its 64-bit numbers cannot hold exactly; --strict allows no re-run on the dynamic build (drop --strict, or build it with BREVI_DYN=1)"),
         None => format!("the typed build stopped: {what}, which its 64-bit numbers cannot hold exactly; `brevi run` re-runs such a program on the dynamic build, or build it with BREVI_DYN=1"),
     }
 }
@@ -7845,7 +7846,17 @@ fn ax_rx_rep(n: &AxRx, lo: usize, hi: usize, lazy: bool, count: usize, s: &[char
     if lazy && count >= lo && k(i, caps) {
         return true;
     }
-    if count < hi && ax_rx_m(n, s, i, caps, &mut |j, caps: &mut AxCaps| (j != i || count < lo) && ax_rx_rep(n, lo, hi, lazy, count + 1, s, j, caps, k)) {
+    if count < hi
+        && ax_rx_m(n, s, i, caps, &mut |j, caps: &mut AxCaps| {
+            if j == i && count >= lo {
+                // A zero-width iteration cannot loop on itself (CPython's zero-width protection): keep the
+                // captures it set and try the tail, instead of discarding them as the old `j != i` guard did.
+                k(j, caps)
+            } else {
+                ax_rx_rep(n, lo, hi, lazy, count + 1, s, j, caps, k)
+            }
+        })
+    {
         return true;
     }
     !lazy && count >= lo && k(i, caps)
