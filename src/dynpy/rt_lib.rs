@@ -826,6 +826,8 @@ pub fn it_class(k: ItKind) -> Result<Rc<Class>, E> {
         ItKind::ItPermutations => ("itertools", "permutations"),
         ItKind::ItCombinations => ("itertools", "combinations"),
         ItKind::ItCombinationsWithReplacement => ("itertools", "combinations_with_replacement"),
+        ItKind::ItTee => ("itertools", "_tee"),
+        ItKind::ItBatched => ("itertools", "batched"),
         ItKind::Unknown => return Err(iter_type_unsupported()),
     };
     ITER_CLASSES.with(|c| {

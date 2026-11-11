@@ -1974,6 +1974,8 @@ pub enum ItKind {
     ItPermutations,
     ItCombinations,
     ItCombinationsWithReplacement,
+    ItTee,
+    ItBatched,
     Unknown,
 }
 

@@ -1597,16 +1597,49 @@ fn it_index_result(r: &V) -> Result<i64, E> {
     }
 }
 
-// itertools.tee: the tee iterators share a TeeData holding the source and every value fetched so far, and each
-// keeps its own position in it. A re-entrant next() on any tee of one group raises RuntimeError, as CPython does.
-struct TeeData {
+// itertools.tee: the tee iterators of one group share a TeeData holding the source and the values fetched
+// but not yet read by every live member (CPython frees a link once all tees are past it), and each keeps its
+// own absolute position. A re-entrant next() on any tee of a group raises RuntimeError, as CPython does.
+pub struct TeeData {
     it: Rc<RefCell<It>>,
-    vals: RefCell<Vec<V>>,
+    // vals[0] is the value at absolute position `base`
+    vals: RefCell<std::collections::VecDeque<V>>,
+    base: Cell<usize>,
+    members: RefCell<Vec<std::rc::Weak<TeePos>>>,
     active: Cell<bool>,
 }
-struct TeePos {
+pub struct TeePos {
     data: Rc<TeeData>,
     pos: Cell<usize>,
+}
+impl Drop for TeePos {
+    fn drop(&mut self) {
+        // a deleted tee no longer holds values back (test_tee_del_backward)
+        tee_trim(&self.data);
+    }
+}
+fn tee_trim(d: &TeeData) {
+    let lowest = {
+        let mut m = d.members.borrow_mut();
+        m.retain(|w| w.strong_count() > 0);
+        m.iter().filter_map(|w| w.upgrade()).map(|p| p.pos.get()).min()
+    };
+    let Some(lowest) = lowest else { return };
+    let mut freed = vec![];
+    {
+        let mut vals = d.vals.borrow_mut();
+        while d.base.get() < lowest && !vals.is_empty() {
+            freed.push(vals.pop_front().unwrap());
+            d.base.set(d.base.get() + 1);
+        }
+    }
+    // values are dropped after the borrow ends: a __del__ may run
+    drop(freed);
+}
+fn tee_member(data: &Rc<TeeData>, pos: usize) -> V {
+    let p = Rc::new(TeePos { data: data.clone(), pos: Cell::new(pos) });
+    data.members.borrow_mut().push(Rc::downgrade(&p));
+    new_iter(It::Tee(p), IterClass::Kind(ItKind::ItTee))
 }
 fn tee_step(p: &Rc<TeePos>) -> Result<Option<V>, E> {
     if p.data.active.get() {
@@ -1619,43 +1652,37 @@ fn tee_step(p: &Rc<TeePos>) -> Result<Option<V>, E> {
 }
 fn tee_step_inner(p: &Rc<TeePos>) -> Result<Option<V>, E> {
     let i = p.pos.get();
-    {
-        let vals = p.data.vals.borrow();
-        if i < vals.len() {
-            let v = vals[i].clone();
-            drop(vals);
-            p.pos.set(i + 1);
-            return Ok(Some(v));
-        }
-    }
-    match iter_step(&p.data.it)? {
-        Some(v) => {
-            p.data.vals.borrow_mut().push(v.clone());
-            p.pos.set(i + 1);
-            Ok(Some(v))
-        }
-        None => Ok(None),
-    }
+    let d = &p.data;
+    let got = {
+        let vals = d.vals.borrow();
+        vals.get(i - d.base.get()).cloned()
+    };
+    let v = match got {
+        Some(v) => v,
+        None => match iter_step(&d.it)? {
+            Some(v) => {
+                d.vals.borrow_mut().push_back(v.clone());
+                v
+            }
+            None => return Ok(None),
+        },
+    };
+    p.pos.set(i + 1);
+    tee_trim(d);
+    Ok(Some(v))
 }
 fn tee_pos_of(v: &V) -> Option<(Rc<TeeData>, usize)> {
     let V::Iter(cell) = v else { return None };
-    let Ok(it) = cell.try_borrow() else { return None };
+    let Ok(it) = cell.it.try_borrow() else { return None };
     match &*it {
         It::Tee(p) => Some((p.data.clone(), p.pos.get())),
         _ => None,
     }
 }
-// copy.copy/deepcopy of a tee iterator make a new tee at the same position, sharing the group, as CPython does.
+// copy.copy/deepcopy of a tee iterator make a new tee of the group at the same position, as CPython's
+// tee.__copy__ does.
 fn tee_copy_iter(v: &V) -> Option<V> {
-    let V::Iter(cell) = v else { return None };
-    let Ok(it) = cell.try_borrow() else { return None };
-    match &*it {
-        It::Tee(p) => {
-            let np = Rc::new(TeePos { data: p.data.clone(), pos: Cell::new(p.pos.get()) });
-            Some(V::Iter(Rc::new(RefCell::new(It::Tee(np)))))
-        }
-        _ => None,
-    }
+    tee_pos_of(v).map(|(d, pos)| tee_member(&d, pos))
 }
 pub fn itertools_fn(name: &str, mut a: Args) -> R {
     Ok(match name {
@@ -2072,20 +2099,30 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             if n < 0 {
                 return Err(exc("ValueError", "n must be >= 0".into()));
             }
+            // CPython: it = iter(iterable); when `it` has __copy__, the result is `it` itself followed by
+            // n - 1 copies of it; otherwise a new group over `it`.
+            let it = iter_v(&a.p[0])?;
             if n == 0 {
                 return Ok(tup(vec![]));
             }
-            // Teeing a tee shares the original group and starts at the source's position, as CPython does.
-            let (data, pos) = match tee_pos_of(&a.p[0]) {
-                Some((data, pos)) => (data, pos),
-                None => {
-                    let it = shared_input(&a.p[0])?;
-                    (Rc::new(TeeData { it, vals: RefCell::new(vec![]), active: Cell::new(false) }), 0)
+            let mut out = vec![it.clone()];
+            if let Some((data, pos)) = tee_pos_of(&it) {
+                // CPython 3.13 makes every member new for a tee input (gh-123884), at its position
+                out = (0..n).map(|_| tee_member(&data, pos)).collect();
+            } else if let Some(copy) = match &it {
+                V::Obj(o) if o.cls.lookup("__copy__").is_some() => Some(getattr(&it, "__copy__")?),
+                _ => None,
+            } {
+                for _ in 1..n {
+                    out.push(call(&copy, Args::p(vec![]))?);
                 }
-            };
-            let mut out = vec![];
-            for _ in 0..n {
-                out.push(V::Iter(Rc::new(RefCell::new(It::Tee(Rc::new(TeePos { data: data.clone(), pos: Cell::new(pos) }))))));
+            } else {
+                let src = shared_input(&it)?;
+                let data = Rc::new(TeeData { it: src, vals: RefCell::new(Default::default()), base: Cell::new(0), members: RefCell::new(vec![]), active: Cell::new(false) });
+                out.clear();
+                for _ in 0..n {
+                    out.push(tee_member(&data, 0));
+                }
             }
             tup(out)
         }
@@ -2129,7 +2166,7 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             }
             let it = shared_input(&iterable)?;
             let dead = Rc::new(RefCell::new(false));
-            shared_iter(move || {
+            shared_iter(ItKind::ItBatched, move || {
                 if *dead.borrow() {
                     return Ok(None);
                 }
