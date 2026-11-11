@@ -2281,6 +2281,14 @@ impl Em {
         format!("gtab_{}", rust_ident(&self.module))
     }
     fn call(&mut self, f: &Ex, args: &[Arg], line: usize) -> ER<String> {
+        // warnings.catch_warnings(record=True) is bridged: its list of recorded warnings is copied into a native
+        // list when the block starts, so the warnings CPython appends later never show (len(ws) stays 0).
+        // CPython runs the program until bridged lists stay live.
+        if matches!(f, Ex::Name(n) if n == "catch_warnings") || matches!(f, Ex::Attr(_, n) if n == "catch_warnings") {
+            if args.iter().any(|a| matches!(a, Arg::KwStar(_)) || matches!(a, Arg::Kw(k, v) if k == "record" && !matches!(v, Ex::False))) {
+                return Err(err(line, "warnings.catch_warnings(record=True) is not supported in dynamic builds"));
+            }
+        }
         // CPython's inspect cannot read a dynamic build's function objects (their code and annotations are
         // not built), so Signature.from_callable on one would raise where CPython prints a signature.
         if matches!(f, Ex::Attr(o, m) if m == "from_callable" && matches!(o.as_ref(), Ex::Name(n) if n == "Signature")) {

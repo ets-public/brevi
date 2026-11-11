@@ -7,8 +7,6 @@ test_dict.DictTest.test_reverseiterator_pickling normal issue=#396 owner=ets-pub
 test_dict.DictTest.test_reversevaluesiterator_pickling dyn issue=#396 owner=ets-public expires=2026-12-11
 test_dict.DictTest.test_reversevaluesiterator_pickling normal issue=#396 owner=ets-public expires=2026-12-11
 test_dict.DictTest.test_valuesiterator_pickling normal issue=#396 owner=ets-public expires=2026-12-11
-test_int.IntTestCases.test_int_returns_int_subclass dyn issue=#418 owner=ets-public expires=2026-12-11
-test_int.IntTestCases.test_int_returns_int_subclass normal issue=#418 owner=ets-public expires=2026-12-11
 test_list.ListTest.test_iterator_pickle dyn issue=#396 owner=ets-public expires=2026-12-11
 test_list.ListTest.test_iterator_pickle normal issue=#396 owner=ets-public expires=2026-12-11
 test_list.ListTest.test_reversed_pickle dyn issue=#396 owner=ets-public expires=2026-12-11

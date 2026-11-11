@@ -1,0 +1,1 @@
+- **`warnings.catch_warnings(record=True)` runs on CPython** rather than in a dynamic build. Its bridged list of recorded warnings was copied when the block started, so it stayed empty: a silent wrong answer (#438).
