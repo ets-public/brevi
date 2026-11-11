@@ -466,6 +466,14 @@ fn plain_new(c: &Rc<Class>) -> bool {
     b
 }
 pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
+    // the classes of Brevi's own iterators: only itertools._tee can be called here; for the others a plain
+    // object would be silently wrong
+    if c.module != "__main__" && is_iter_class(c) {
+        if c.module == "itertools" && c.name == "_tee" {
+            return tee_new(a);
+        }
+        return Err(exc("NotImplementedError", format!("brevi: calling the {}.{} class is not supported in dynamic builds", c.module, c.name)));
+    }
     if plain_new(c) {
         let me = V::Obj(Obj::new(c.clone()));
         match c.lookup("__init__") {

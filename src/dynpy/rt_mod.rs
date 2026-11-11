@@ -1602,8 +1602,10 @@ fn it_index_result(r: &V) -> Result<i64, E> {
 // own absolute position. A re-entrant next() on any tee of a group raises RuntimeError, as CPython does.
 pub struct TeeData {
     it: Rc<RefCell<It>>,
-    // vals[0] is the value at absolute position `base`
-    vals: RefCell<std::collections::VecDeque<V>>,
+    // the buffered values in blocks of TEE_BLOCK (as CPython's teedataobject links blocks of 57): vals[0][0] is
+    // the value at absolute position `base`. Blocks keep a long buffer from ever being copied to grow it, and
+    // a block is freed once every member is past it.
+    vals: RefCell<std::collections::VecDeque<Vec<V>>>,
     base: Cell<usize>,
     members: RefCell<Vec<std::rc::Weak<TeePos>>>,
     active: Cell<bool>,
@@ -1618,6 +1620,7 @@ impl Drop for TeePos {
         tee_trim(&self.data);
     }
 }
+const TEE_BLOCK: usize = 64;
 fn tee_trim(d: &TeeData) {
     let lowest = {
         let mut m = d.members.borrow_mut();
@@ -1625,16 +1628,35 @@ fn tee_trim(d: &TeeData) {
         m.iter().filter_map(|w| w.upgrade()).map(|p| p.pos.get()).min()
     };
     let Some(lowest) = lowest else { return };
+    if lowest < d.base.get() + TEE_BLOCK {
+        return;
+    }
     let mut freed = vec![];
     {
         let mut vals = d.vals.borrow_mut();
-        while d.base.get() < lowest && !vals.is_empty() {
+        while d.base.get() + TEE_BLOCK <= lowest && vals.front().is_some_and(|b| b.len() == TEE_BLOCK) {
             freed.push(vals.pop_front().unwrap());
-            d.base.set(d.base.get() + 1);
+            d.base.set(d.base.get() + TEE_BLOCK);
         }
     }
     // values are dropped after the borrow ends: a __del__ may run
     drop(freed);
+}
+// itertools._tee(iterable), CPython's tee_new: a copy of a tee, else a lone member over iter(iterable)
+pub fn tee_new(a: Args) -> R {
+    if !a.k.is_empty() {
+        return type_err("_tee() takes no keyword arguments".into());
+    }
+    if a.p.len() != 1 {
+        return type_err(format!("_tee expected 1 argument, got {}", a.p.len()));
+    }
+    let it = iter_v(&a.p[0])?;
+    if let Some((data, pos)) = tee_pos_of(&it) {
+        return Ok(tee_member(&data, pos));
+    }
+    let src = shared_input(&it)?;
+    let data = Rc::new(TeeData { it: src, vals: RefCell::new(Default::default()), base: Cell::new(0), members: RefCell::new(vec![]), active: Cell::new(false) });
+    Ok(tee_member(&data, 0))
 }
 fn tee_member(data: &Rc<TeeData>, pos: usize) -> V {
     let p = Rc::new(TeePos { data: data.clone(), pos: Cell::new(pos) });
@@ -1655,20 +1677,32 @@ fn tee_step_inner(p: &Rc<TeePos>) -> Result<Option<V>, E> {
     let d = &p.data;
     let got = {
         let vals = d.vals.borrow();
-        vals.get(i - d.base.get()).cloned()
+        let k = i - d.base.get();
+        vals.get(k / TEE_BLOCK).and_then(|b| b.get(k % TEE_BLOCK)).cloned()
     };
     let v = match got {
         Some(v) => v,
         None => match iter_step(&d.it)? {
             Some(v) => {
-                d.vals.borrow_mut().push_back(v.clone());
+                let mut vals = d.vals.borrow_mut();
+                match vals.back_mut() {
+                    Some(b) if b.len() < TEE_BLOCK => b.push(v.clone()),
+                    _ => {
+                        let mut b = Vec::with_capacity(TEE_BLOCK);
+                        b.push(v.clone());
+                        vals.push_back(b);
+                    }
+                }
                 v
             }
             None => return Ok(None),
         },
     };
     p.pos.set(i + 1);
-    tee_trim(d);
+    // a block can be freed only once the last member reaches its end, a multiple of TEE_BLOCK
+    if (i + 1) % TEE_BLOCK == 0 {
+        tee_trim(d);
+    }
     Ok(Some(v))
 }
 fn tee_pos_of(v: &V) -> Option<(Rc<TeeData>, usize)> {

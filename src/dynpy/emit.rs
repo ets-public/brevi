@@ -260,10 +260,11 @@ pub fn module_has(m: &str, n: &str) -> bool {
     names.contains(&n)
 }
 
-// gc and weakref have a couple of native names (module_has); their other names keep running in CPython,
-// as they did before those native implementations were added.
+// gc has a native name (module_has); its other names keep running in CPython, as they did before the
+// native one was added. weakref's do not: CPython's proxy, WeakValueDictionary, finalize, ... would hold the
+// short-lived Python stand-in of a program value, not the value, so they are refused.
 fn hybrid_bridged(m: &str) -> bool {
-    matches!(m, "gc" | "weakref") && super::bridge_ok()
+    m == "gc" && super::bridge_ok()
 }
 // Python builtins dynamic builds do not have: refused when the program is built.
 fn is_missing_builtin(n: &str) -> bool {

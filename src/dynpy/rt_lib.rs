@@ -876,7 +876,7 @@ thread_local! {
     pub static EXT_ITER_CLASSES: RefCell<HashMap<(Sym, Sym), Rc<Class>>> = RefCell::new(HashMap::new());
 }
 // A class type() gives for an iterator (one of ITER_CLASSES, or a bridged value's iterator type).
-fn is_iter_class(k: &Rc<Class>) -> bool {
+pub fn is_iter_class(k: &Rc<Class>) -> bool {
     ITER_CLASSES.with(|c| c.borrow().iter().flatten().any(|x| Rc::ptr_eq(x, k)))
         || EXT_ITER_CLASSES.with(|m| m.borrow().values().any(|x| Rc::ptr_eq(x, k)))
 }

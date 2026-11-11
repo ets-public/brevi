@@ -36,3 +36,16 @@ try:
     it, it2 = itertools.tee(gen())
     next(it)
 except RuntimeError as e: print('RE', e)
+
+# itertools._tee called directly: a copy of a tee, or a lone member over iter(x)
+t1, t2 = itertools.tee("abc")
+tnew = type(t1)
+for args in [(), (10,), (1, 2)]:
+    try:
+        tnew(*args)
+    except TypeError as e:
+        print('TypeError', e)
+t3 = tnew(t1)
+print(list(t1), list(t2), list(t3))
+t4 = tnew([1, 2, 3])
+print(type(t4).__name__, list(t4))
