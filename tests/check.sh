@@ -4,6 +4,14 @@
 # Pass --update to rewrite the expected files.
 BREVI=${BREVI:-./target/debug/brevi}
 fail=0
+# has MODULES: python3 can import them (the sections for Brevi's copies of duckdb, onnxruntime and the mcp client
+# need the real package's engine or client). With CHECK_REQUIRE_LIBS=1 (releases and the daily run, which install
+# tests/requirements-native.txt) a missing one is a failure, never a skip.
+has() {
+  python3 -c "import $1" 2>/dev/null && return 0
+  if [ "$CHECK_REQUIRE_LIBS" = 1 ]; then echo "FAIL python3 cannot import $1 (CHECK_REQUIRE_LIBS=1; pip install -r tests/requirements-native.txt)"; fail=1; fi
+  return 1
+}
 #== run split
 # tests/run and tests/errors check what the typed build makes of each file, Python-style ones included: a .bv
 # file in plain Python is kept off the .py path here (BREVI_BV_PY=0, BREVI_BV_DYN=0; tests/bv_py checks that path).
@@ -353,9 +361,9 @@ if [ "$1" != "--update" ]; then
 fi
 #== duckdb
 # duckdb programs must print what CPython's duckdb 2.0.0 prints (stdout), with Brevi's own duckdb over DuckDB's
-# engine (libduckdb, or the duckdb package's library): never CPython. Skipped without the duckdb package (CI has
-# none). `--update` writes the .expected files with python3.
-if python3 -c "import duckdb" 2>/dev/null; then
+# engine (libduckdb, or the duckdb package's library): never CPython. Skipped without the duckdb package (PR CI has
+# none; releases and the daily run install it and fail without it). `--update` writes the .expected files with python3.
+if has duckdb; then
   for f in tests/duckdb/*.py; do
     exp="${f%.py}.expected"
     if [ "$1" = "--update" ]; then
@@ -417,8 +425,8 @@ fi
 #== onnxruntime
 # onnxruntime programs must print what CPython's onnxruntime 1.31 prints (1.29 prints the same), with Brevi's own onnxruntime over ONNX
 # Runtime's C API (the onnxruntime package's library, or libonnxruntime): never CPython. Skipped without the
-# onnxruntime package (CI has none). tests/onnxruntime/models/make_models.py (needs onnx) wrote the models.
-if python3 -c "import onnxruntime" 2>/dev/null; then
+# onnxruntime package (PR CI has none; releases and the daily run install it and fail without it). tests/onnxruntime/models/make_models.py (needs onnx) wrote the models.
+if has onnxruntime; then
   for f in tests/onnxruntime/*.py; do
     exp="${f%.py}.expected"
     if [ "$1" = "--update" ]; then
@@ -567,7 +575,7 @@ else
     out=$(timeout 300 python3 $H/drive.py $c 18872 -- /tmp/brevi_mcp_http ${m#* } 18872)
     if [ "$out" != "$(cat $H/$c.expected)" ]; then echo "FAIL mcp http ($c)"; printf '%s\n' "$out" | diff $H/$c.expected - | head -20; fail=1; else echo "ok   mcp http ($c)"; fi
   done
-  if python3 -c "import mcp.client.streamable_http, mcp.client.sse" 2>/dev/null; then
+  if has "mcp.client.streamable_http, mcp.client.sse"; then
     for k in streamable sse; do
       t=streamable-http; [ $k = sse ] && t=sse
       out=$(timeout 300 python3 $H/client.py $k 18873 -- /tmp/brevi_mcp_http $t 18873 2>&1 | tail -1)
@@ -578,7 +586,7 @@ else
   rm -f /tmp/brevi_mcp_http
 fi
 # brevi verify plays a server's .jsonl session in lockstep and certifies it (only where CPython has mcp installed).
-if [ "$1" != "--update" ] && python3 -c "import mcp" 2>/dev/null; then
+if [ "$1" != "--update" ] && has mcp; then
   for c in basics.lead lowlevel.calls rich.calls; do
     o=$($BREVI verify tests/mcp_sdk/${c%%.*}.py --input tests/mcp_sdk/$c.jsonl 2>&1 | tail -1)
     case "$o" in '{"verify":"identical"'*) echo "ok   brevi verify tests/mcp_sdk/$c.jsonl" ;; *) echo "FAIL brevi verify tests/mcp_sdk/$c.jsonl"; printf '%s\n' "$o"; fail=1 ;; esac
