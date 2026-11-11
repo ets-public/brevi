@@ -2294,7 +2294,28 @@ struct CsvDialect {
     lineterm: String,
     quoting: i64,
 }
-fn csv_dialect(a: &mut Args) -> Result<CsvDialect, E> {
+fn csv_dialect(a: &mut Args, dialect: V) -> Result<CsvDialect, E> {
+    // The three dialects CPython's csv module always has, by name; any other name is refused rather than
+    // silently read with the default dialect.
+    let mut delim = ',';
+    let mut quote = '"';
+    let mut lineterm = "\r\n".to_string();
+    let mut quoting_d = 0;
+    match dialect {
+        V::None => {}
+        V::Str(x) => match x.s.as_str() {
+            "excel" => {}
+            "excel-tab" => delim = '\t',
+            // csv.unix_dialect: '\n' line ends and every field quoted
+            "unix" => {
+                lineterm = "\n".into();
+                quoting_d = 1;
+            }
+            _ => return Err(exc("Error", "unknown dialect".into())),
+        },
+        // a Dialect class or instance (csv.excel_tab, a subclass): refused rather than read with the defaults
+        _ => return Err(unsupported("a csv dialect given as a class or object")),
+    }
     let ch = |v: Option<V>, d: char| -> Result<char, E> {
         match v {
             None => Ok(d),
@@ -2302,29 +2323,28 @@ fn csv_dialect(a: &mut Args) -> Result<CsvDialect, E> {
             Some(_) => type_err("\"delimiter\" must be a 1-character string".into()),
         }
     };
-    let delim = ch(a.kw("delimiter"), ',')?;
-    let quote = ch(a.kw("quotechar"), '"')?;
+    let delim = ch(a.kw("delimiter"), delim)?;
+    let quote = ch(a.kw("quotechar"), quote)?;
     let skipinit = match a.kw("skipinitialspace") {
         Some(v) => truth(&v)?,
         None => false,
     };
     let lineterm = match a.kw("lineterminator") {
         Some(v) => to_str(&v)?,
-        None => "\r\n".into(),
+        None => lineterm,
     };
     let quoting = match a.kw("quoting") {
         Some(V::Int(q)) => q,
-        _ => 0,
+        _ => quoting_d,
     };
-    a.kw("dialect");
     a.kw("strict");
     a.kw("doublequote");
     a.kw("escapechar");
     Ok(CsvDialect { delim, quote, skipinit, lineterm, quoting })
 }
-// One record from the line iterator, or None at the end.
-fn csv_record(it: &mut It, d: &CsvDialect) -> Result<Option<Vec<String>>, E> {
-    let Some(first) = it.next()? else { return Ok(None) };
+// One record from the line source (its next-line closure), or None at the end.
+fn csv_record(next: &mut dyn FnMut() -> Result<Option<V>, E>, d: &CsvDialect) -> Result<Option<Vec<String>>, E> {
+    let Some(first) = next()? else { return Ok(None) };
     let mut line = to_str(&first)?;
     let mut fields = vec![];
     let mut cur = String::new();
@@ -2368,9 +2388,9 @@ fn csv_record(it: &mut It, d: &CsvDialect) -> Result<Option<Vec<String>>, E> {
             i += 1;
         }
         if in_q {
-            match it.next()? {
-                Some(next) => {
-                    line = to_str(&next)?;
+            match next()? {
+                Some(next_line) => {
+                    line = to_str(&next_line)?;
                     continue;
                 }
                 None => return Err(exc("Error", "unexpected end of data".into())),
@@ -2474,61 +2494,226 @@ impl Ext for CsvWriter {
         })
     }
 }
+// The reader a DictReader reads its rows from: the same csv.reader value CPython keeps as .reader. line_num
+// counts physical source lines read, as CPython's reader does, so a record whose quoted field spans lines
+// counts every line (the source iterator is shared so it can be stepped re-entrantly).
+struct CsvReaderSt {
+    it: Rc<RefCell<It>>,
+    d: CsvDialect,
+    ln: Cell<usize>,
+    dobj: V, // the _csv.Dialect object the .dialect attribute gives
+}
+pub struct CsvReader(Rc<CsvReaderSt>);
+impl CsvReader {
+    fn next_row(&self) -> Result<Option<Vec<V>>, E> {
+        let state = &self.0;
+        let row = {
+            let mut next = || {
+                let n = iter_step(&state.it)?;
+                if n.is_some() {
+                    state.ln.set(state.ln.get() + 1);
+                }
+                Ok(n)
+            };
+            csv_record(&mut next, &state.d)?
+        };
+        Ok(row.map(|f| f.into_iter().map(st).collect()))
+    }
+}
+impl Ext for CsvReader {
+    fn tname(&self) -> &'static str {
+        "_csv.reader"
+    }
+    fn repr(&self) -> String {
+        "<_csv.reader object>".into()
+    }
+    fn any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn attr(&self, _me: &V, n: &str) -> Option<R> {
+        match n {
+            "line_num" => Some(Ok(V::Int(self.0.ln.get() as i64))),
+            "dialect" => Some(Ok(self.0.dobj.clone())),
+            _ => None,
+        }
+    }
+    fn lazy_iter(&self) -> Option<Result<It, E>> {
+        let st = self.0.clone();
+        Some(Ok(It::Gen(Box::new(move || Ok(CsvReader(Rc::clone(&st)).next_row()?.map(list))))))
+    }
+    fn next_item(&self) -> Option<R> {
+        Some(self.next_row().and_then(|r| match r {
+            Some(row) => Ok(list(row)),
+            None => Err(exc0("StopIteration")),
+        }))
+    }
+}
+// The dialect object CPython's reader gives as .dialect: a _csv.Dialect with the same fields a named or
+// fmtparams-built dialect has.
+thread_local! {
+    static CSVDL: RefCell<Option<Rc<Class>>> = RefCell::new(None);
+}
+fn csv_dialect_obj(d: &CsvDialect) -> V {
+    CSVDL.with(|j| {
+        let mut j = j.borrow_mut();
+        let c = j.get_or_insert_with(|| Class::new("Dialect", "_csv", vec![bclass("object")], BT::Other));
+        let o = Obj::new(c.clone());
+        o.set("delimiter", st(d.delim.to_string()));
+        o.set("quotechar", st(d.quote.to_string()));
+        o.set("doublequote", V::Bool(true));
+        o.set("skipinitialspace", V::Bool(d.skipinit));
+        o.set("lineterminator", st(d.lineterm.clone()));
+        o.set("quoting", V::Int(d.quoting));
+        o.set("escapechar", V::None);
+        o.set("strict", V::Bool(false));
+        V::Obj(o)
+    })
+}
+fn csv_reader_next(v: &V) -> Result<Option<Vec<V>>, E> {
+    match v {
+        V::Ext(x) if x.any().downcast_ref::<CsvReader>().is_some() => x.any().downcast_ref::<CsvReader>().unwrap().next_row(),
+        _ => type_err(format!("{} is not a csv reader", tn(v))),
+    }
+}
+// CPython's DictReader.__init__ turns a fieldnames value that is its own iterator (iter(v) is v) into a
+// list, as a generator would be; other iterables (strings, lists) are kept as given.
+fn csv_fieldnames_arg(v: V) -> Result<V, E> {
+    if matches!(&v, V::None) {
+        return Ok(v);
+    }
+    if matches!(&v, V::Iter(_)) {
+        return Ok(list(to_vec(&v)?));
+    }
+    let it = iter_v(&v)?;
+    if let V::Iter(cell) = &it {
+        if let Ok(b) = cell.try_borrow() {
+            if let It::Obj(inner) = &*b {
+                if is(inner, &v) {
+                    return Ok(list(to_vec(&v)?));
+                }
+            }
+        }
+    }
+    Ok(v)
+}
+thread_local! {
+    static CSVDR: RefCell<Option<Rc<Class>>> = RefCell::new(None);
+}
+// csv.DictReader: CPython's class over csv.reader. fieldnames is a property whose first read consumes the
+// header row; __next__ does the same on its first call, skips blank rows, and fills short or long rows from
+// restval / restkey.
+pub fn csv_dictreader_class() -> Rc<Class> {
+    CSVDR.with(|j| {
+        let mut j = j.borrow_mut();
+        if j.is_none() {
+            let c = Class::new("DictReader", "csv", vec![bclass("object")], BT::Other);
+            c.set("__iter__", builtin("csv.DictReader.__iter__", |a: Args| Ok(a.p.first().cloned().unwrap_or(V::None))));
+            c.set("__init__", builtin("csv.DictReader.__init__", |mut a: Args| {
+                let me = a.p.first().cloned().unwrap_or(V::None);
+                if a.p.len() < 2 && !a.k.iter().any(|(n, _)| *n == "f") {
+                    return type_err("DictReader.__init__() missing 1 required positional argument: 'f'".into());
+                }
+                let src = a.p.get(1).cloned().or_else(|| a.kw("f")).unwrap_or(V::None);
+                let fieldnames = csv_fieldnames_arg(a.kw("fieldnames").or_else(|| a.p.get(2).cloned()).unwrap_or(V::None))?;
+                let restkey = a.kw("restkey").or_else(|| a.p.get(3).cloned()).unwrap_or(V::None);
+                let restval = a.kw("restval").or_else(|| a.p.get(4).cloned()).unwrap_or(V::None);
+                let dialect = a.kw("dialect").or_else(|| a.p.get(5).cloned()).unwrap_or_else(|| s("excel"));
+                let d = csv_dialect(&mut a, dialect.clone())?;
+                let sit = shared_input(&src)?;
+                let dobj = csv_dialect_obj(&d);
+                let rd = V::Ext(ExtRc::new(CsvReader(Rc::new(CsvReaderSt { it: sit, d, ln: Cell::new(0), dobj }))));
+                if let V::Obj(o) = &me {
+                    o.set("_fieldnames", fieldnames);
+                    o.set("restkey", restkey);
+                    o.set("restval", restval);
+                    o.set("reader", rd);
+                    o.set("dialect", dialect);
+                    o.set("line_num", V::Int(0));
+                }
+                Ok(V::None)
+            }));
+            c.set("fieldnames", V::Prop(Rc::new((
+                builtin("csv.DictReader.fieldnames", |a: Args| {
+                    let me = a.p.first().cloned().unwrap_or(V::None);
+                    let V::Obj(o) = &me else { return type_err("csv.DictReader.fieldnames on a non-reader".into()) };
+                    let mut names = o.get("_fieldnames").unwrap_or(V::None);
+                    if matches!(names, V::None) {
+                        let rd = o.get("reader").unwrap_or(V::None);
+                        if let Some(row) = csv_reader_next(&rd)? {
+                            names = list(row);
+                            o.set("_fieldnames", names.clone());
+                        }
+                    }
+                    let rd = o.get("reader").unwrap_or(V::None);
+                    o.set("line_num", getattr(&rd, "line_num")?);
+                    Ok(names)
+                }),
+                builtin("csv.DictReader.fieldnames", |a: Args| {
+                    let me = a.p.first().cloned().unwrap_or(V::None);
+                    let V::Obj(o) = &me else { return type_err("csv.DictReader.fieldnames on a non-reader".into()) };
+                    o.set("_fieldnames", a.p.get(1).cloned().unwrap_or(V::None));
+                    Ok(V::None)
+                }),
+            ))));
+            c.set("__next__", builtin("csv.DictReader.__next__", |a: Args| {
+                let me = a.p.first().cloned().unwrap_or(V::None);
+                let V::Obj(o) = &me else { return type_err("csv.DictReader.__next__ on a non-reader".into()) };
+                let rd = o.get("reader").unwrap_or(V::None);
+                if matches!(o.get("line_num"), Some(V::Int(0))) {
+                    // CPython reads the header here as a side effect of the fieldnames property.
+                    getattr(&me, "fieldnames")?;
+                }
+                let mut row = match csv_reader_next(&rd)? {
+                    Some(r) => r,
+                    None => return Err(exc0("StopIteration")),
+                };
+                // CPython's DictReader.__next__ refreshes line_num after that first reader call (blank rows
+                // skipped below do not move it until the next row).
+                o.set("line_num", getattr(&rd, "line_num")?);
+                while row.is_empty() {
+                    match csv_reader_next(&rd)? {
+                        Some(r) => row = r,
+                        None => return Err(exc0("StopIteration")),
+                    }
+                }
+                let ns = to_vec(&getattr(&me, "fieldnames")?)?;
+                let restkey = o.get("restkey").unwrap_or(V::None);
+                let restval = o.get("restval").unwrap_or(V::None);
+                let mut out = Dict::new();
+                for (k, v) in ns.iter().zip(row.iter()) {
+                    out.set(k.clone(), v.clone())?;
+                }
+                if ns.len() < row.len() {
+                    out.set(restkey, list(row[ns.len()..].to_vec()))?;
+                } else if ns.len() > row.len() {
+                    for k in &ns[row.len()..] {
+                        out.set(k.clone(), restval.clone())?;
+                    }
+                }
+                Ok(V::Dict(Rc::new(RefCell::new(out))))
+            }));
+            *j = Some(c);
+        }
+        j.clone().unwrap()
+    })
+}
 fn csv_fn(n: &str, mut a: Args) -> R {
     match n {
         "reader" => {
             let src = a.p.first().cloned().unwrap_or(V::None);
-            let d = csv_dialect(&mut a)?;
-            let mut it = iter(&src)?;
-            Ok(gen_iter(move || Ok(csv_record(&mut it, &d)?.map(|f| list(f.into_iter().map(st).collect())))))
-        }
-        "DictReader" => {
-            let src = a.p.first().cloned().unwrap_or(V::None);
-            let fieldnames = a.kw("fieldnames").or_else(|| a.p.get(1).cloned());
-            let restkey = a.kw("restkey").unwrap_or(V::None);
-            let restval = a.kw("restval").unwrap_or(V::None);
-            let d = csv_dialect(&mut a)?;
-            let mut it = iter(&src)?;
-            let mut names: Option<Vec<V>> = match fieldnames {
-                Some(f) if !matches!(f, V::None) => Some(to_vec(&f)?),
-                _ => None,
-            };
-            Ok(gen_iter(move || {
-                if names.is_none() {
-                    loop {
-                        match csv_record(&mut it, &d)? {
-                            None => return Ok(None),
-                            Some(r) if r.is_empty() => continue,
-                            Some(r) => {
-                                names = Some(r.into_iter().map(st).collect());
-                                break;
-                            }
-                        }
-                    }
-                }
-                let ns = names.as_ref().unwrap();
-                loop {
-                    let Some(row) = csv_record(&mut it, &d)? else { return Ok(None) };
-                    if row.is_empty() {
-                        continue;
-                    }
-                    let mut out = Dict::new();
-                    for (k, nm) in ns.iter().enumerate() {
-                        out.set(nm.clone(), row.get(k).map(|x| s(x)).unwrap_or(restval.clone()))?;
-                    }
-                    if row.len() > ns.len() {
-                        out.set(restkey.clone(), list(row[ns.len()..].iter().map(|x| s(x)).collect()))?;
-                    }
-                    return Ok(Some(V::Dict(Rc::new(RefCell::new(out)))));
-                }
-            }))
+            let dialect = a.kw("dialect").or_else(|| a.p.get(1).cloned()).unwrap_or_else(|| s("excel"));
+            let d = csv_dialect(&mut a, dialect)?;
+            let sit = shared_input(&src)?;
+            let dobj = csv_dialect_obj(&d);
+            Ok(V::Ext(ExtRc::new(CsvReader(Rc::new(CsvReaderSt { it: sit, d, ln: Cell::new(0), dobj })))))
         }
         "writer" | "DictWriter" => {
             let f = a.p.first().cloned().unwrap_or(V::None);
             let fields = if n == "DictWriter" { Some(to_vec(&a.kw("fieldnames").or_else(|| a.p.get(1).cloned()).unwrap_or(V::None))?) } else { None };
             a.kw("extrasaction");
             a.kw("restval");
-            let d = csv_dialect(&mut a)?;
+            let dialect = a.kw("dialect").or_else(|| a.p.get(if n == "DictWriter" { 2 } else { 1 }).cloned()).unwrap_or_else(|| s("excel"));
+            let d = csv_dialect(&mut a, dialect)?;
             Ok(V::Ext(ExtRc::new(CsvWriter { f, d, fields })))
         }
         _ => Err(unsupported(&format!("csv.{n}"))),
@@ -2871,6 +3056,7 @@ pub fn ext_module_attr2(m: &str, n: &str) -> Option<V> {
         ("csv", "QUOTE_NONNUMERIC") => V::Int(2),
         ("csv", "QUOTE_NONE") => V::Int(3),
         ("csv", "Error") => V::Class(exc_class("Error")),
+        ("csv", "DictReader") => V::Class(csv_dictreader_class()),
         ("statistics", "StatisticsError") => V::Class(exc_class("StatisticsError")),
         ("zoneinfo", n) => return zoneinfo_attr(n),
         ("importlib.metadata", "PackageNotFoundError") => V::Class(exc_class("PackageNotFoundError")),
