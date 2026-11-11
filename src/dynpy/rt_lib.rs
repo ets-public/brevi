@@ -559,35 +559,61 @@ pub fn bi_enumerate(mut a: Args) -> R {
 // zip and map hold no borrow while they step their inputs, so a callback may re-enter them, as in CPython
 pub fn bi_zip(mut a: Args) -> R {
     let strict = a.kw("strict").map(|x| truth(&x).unwrap_or(false)).unwrap_or(false);
-    let mut its: Vec<Rc<RefCell<It>>> = vec![];
+    let mut its: Vec<V> = vec![];
     for x in &a.p {
-        its.push(shared_input(x)?);
+        its.push(iter_v(x)?);
     }
-    if its.is_empty() {
-        return Ok(vec_iter(ItKind::Zip, vec![]));
-    }
-    Ok(shared_iter(ItKind::Zip, move || {
-        let mut row = Vec::with_capacity(its.len());
-        for (i, it) in its.iter().enumerate() {
-            match iter_step(it)? {
-                Some(x) => row.push(x),
-                None => {
-                    if strict && i > 0 {
-                        return val_err(format!("zip() argument {} is shorter than argument 1", i + 1));
-                    }
-                    if strict {
-                        for (j, rest) in its.iter().enumerate().skip(1) {
-                            if iter_step(rest)?.is_some() {
-                                return val_err(format!("zip() argument {} is longer than argument 1", j + 1));
-                            }
+    Ok(zip_red_mk(tup(vec![tup(its), V::Bool(strict)])))
+}
+fn zip_red_mk(state: V) -> V {
+    red_iter(ItKind::Zip, state, zip_red_step, zip_red_mk, zip_red_reduce, Some(zip_red_set))
+}
+fn zip_red_step(st: &Rc<RefCell<V>>) -> Result<Option<V>, E> {
+    let (its, strict) = {
+        let s = st.borrow();
+        let V::Tuple(t) = &*s else { return Ok(None) };
+        let V::Tuple(its) = &t[0] else { return Ok(None) };
+        (its.to_vec(), !matches!(t[1], V::Bool(false)))
+    };
+    let mut row = Vec::with_capacity(its.len());
+    for (i, it) in its.iter().enumerate() {
+        match step_value(it)? {
+            Some(x) => row.push(x),
+            None => {
+                if strict && i > 0 {
+                    return val_err(format!("zip() argument {} is shorter than argument 1", i + 1));
+                }
+                if strict {
+                    for (j, rest) in its.iter().enumerate().skip(1) {
+                        if step_value(rest)?.is_some() {
+                            return val_err(format!("zip() argument {} is longer than argument 1", j + 1));
                         }
                     }
-                    return Ok(None);
                 }
+                return Ok(None);
             }
         }
-        Ok(Some(tup(row)))
-    }))
+    }
+    Ok(Some(tup(row)))
+}
+fn zip_red_reduce(state: &V) -> V {
+    let z = builtin(sym("zip"), bi_zip);
+    let V::Tuple(t) = state else { return tup(vec![z, tup(vec![])]) };
+    if matches!(t[1], V::Bool(true)) {
+        tup(vec![z, t[0].clone(), V::Bool(true)])
+    } else {
+        tup(vec![z, t[0].clone()])
+    }
+}
+fn zip_red_set(st: &Rc<RefCell<V>>, arg: V) -> Result<(), E> {
+    let strict = truth(&arg).unwrap_or(false);
+    let its = {
+        let s = st.borrow();
+        let V::Tuple(t) = &*s else { return Ok(()) };
+        t[0].clone()
+    };
+    *st.borrow_mut() = tup(vec![its, V::Bool(strict)]);
+    Ok(())
 }
 fn map_red_mk(state: V) -> V {
     red_iter(ItKind::Map, state, map_red_step, map_red_mk, map_red_reduce, None)

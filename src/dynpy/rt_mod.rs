@@ -1471,76 +1471,178 @@ fn cmp_key_cmp(f: &V, x: &V, y: &V, op: &str) -> Result<bool, E> {
 
 // itertools.groupby, as CPython's: the groups share the parent's position, so advancing the parent ends the
 // current group, and no borrow is held across the key function or a user __eq__ (both may re-enter).
-struct GroupBy {
-    key: Option<V>,
-    tgt: Option<V>,
-    cur_key: Option<V>,
-    cur_val: Option<V>,
-    group: u64,
-}
-fn groupby_step(it: &Rc<RefCell<It>>, st: &Rc<RefCell<GroupBy>>) -> Result<bool, E> {
-    let Some(v) = iter_step(it)? else { return Ok(false) };
-    let f = st.borrow().key.clone();
-    let k = match f {
-        Some(f) => call(&f, Args::p(vec![v.clone()]))?,
-        None => v.clone(),
-    };
-    let mut s = st.borrow_mut();
-    s.cur_val = Some(v);
-    s.cur_key = Some(k);
-    Ok(true)
-}
+// State: (key, it, tgt, cur_key, cur_val, c_tgt, c_curkey, group). c_tgt/c_curkey mirror CPython's reduce state
+// (its tgtkey and currkey fields): when a grouper has peeked the next group's first item, c_tgt is that group's
+// key and c_curkey the current group's; reduce shows (c_tgt, cur_val, c_curkey), and no state while cur_val is
+// None, exactly as CPython's groupby_reduce.
 fn same_or_eq(a: &V, b: &V) -> Result<bool, E> {
     Ok(same_obj(a, b) || eq(a, b)?)
 }
-fn groupby_iter(it: Rc<RefCell<It>>, key: Option<V>) -> V {
-    let st = Rc::new(RefCell::new(GroupBy { key, tgt: None, cur_key: None, cur_val: None, group: 0 }));
-    shared_iter(ItKind::ItGroupby, move || {
-        st.borrow_mut().group += 1;
-        loop {
-            let (tgt, cur) = {
-                let s = st.borrow();
-                (s.tgt.clone(), s.cur_key.clone())
-            };
-            match (tgt, cur) {
-                (_, None) => {}
-                (None, Some(_)) => break,
-                (Some(t), Some(c)) => {
-                    if !same_or_eq(&t, &c)? {
-                        break;
-                    }
+fn groupby_pull(key: &V, it: &V) -> Result<Option<(V, V)>, E> {
+    let Some(v) = step_value(it)? else { return Ok(None) };
+    let k = if matches!(key, V::None) { v.clone() } else { call(key, Args::p(vec![v.clone()]))? };
+    Ok(Some((v, k)))
+}
+fn groupby_red_mk(state: V) -> V {
+    red_iter(ItKind::ItGroupby, state, groupby_red_step, groupby_red_mk, groupby_red_reduce, Some(groupby_red_set))
+}
+fn groupby_red_step(st: &Rc<RefCell<V>>) -> Result<Option<V>, E> {
+    let (key, it, tgt, mut cur_key, mut cur_val, _, _, group) = {
+        let s = st.borrow();
+        let V::Tuple(t) = &*s else { return Ok(None) };
+        let V::Int(g) = t[7] else { return Ok(None) };
+        (t[0].clone(), t[1].clone(), t[2].clone(), t[3].clone(), t[4].clone(), t[5].clone(), t[6].clone(), g)
+    };
+    let mut gid = group + 1;
+    loop {
+        match (tgt.clone(), cur_key.clone()) {
+            (_, V::None) => {}
+            (V::None, _) => break,
+            (t, c) => {
+                if !same_or_eq(&t, &c)? {
+                    break;
                 }
             }
-            if !groupby_step(&it, &st)? {
-                return Ok(None);
-            }
         }
-        // a fresh group: any grouper made before, including by a re-entrant call, is now over
-        let (me, k) = {
-            let mut s = st.borrow_mut();
-            s.group += 1;
-            s.tgt = s.cur_key.clone();
-            (s.group, s.tgt.clone().unwrap())
-        };
-        let (it2, st2, tk) = (it.clone(), st.clone(), k.clone());
-        let grouper = shared_iter(ItKind::ItGrouper, move || {
-            if st2.borrow().group != me {
-                return Ok(None);
+        match groupby_pull(&key, &it)? {
+            Some((v, k)) => {
+                cur_key = k;
+                cur_val = v;
             }
-            let empty = st2.borrow().cur_val.is_none();
-            if empty && !groupby_step(&it2, &st2)? {
-                return Ok(None);
+            None => return Ok(None),
+        }
+    }
+    gid += 1;
+    let tk = cur_key.clone();
+    *st.borrow_mut() = tup(vec![key, it, tk.clone(), cur_key, cur_val, tk.clone(), tk.clone(), V::Int(gid)]);
+    let grouper = grouper_red_mk(st.clone(), tk.clone(), gid);
+    Ok(Some(tup(vec![tk, grouper])))
+}
+fn groupby_red_reduce(state: &V) -> V {
+    let gb = modfn("itertools", "groupby");
+    let V::Tuple(t) = state else { return tup(vec![gb, tup(vec![])]) };
+    let args = tup(vec![t[1].clone(), t[0].clone()]);
+    if matches!(t[4], V::None) {
+        tup(vec![gb, args])
+    } else {
+        tup(vec![gb, args, tup(vec![t[5].clone(), t[4].clone(), t[6].clone()])])
+    }
+}
+fn groupby_red_set(st: &Rc<RefCell<V>>, arg: V) -> Result<(), E> {
+    let V::Tuple(t) = arg else {
+        return Err(exc("TypeError", "state is not a tuple".into()));
+    };
+    if t.len() != 3 {
+        return Err(exc("TypeError", format!("function takes exactly 3 arguments ({} given)", t.len())));
+    }
+    let (key, it, group) = {
+        let s = st.borrow();
+        let V::Tuple(cur) = &*s else { return Ok(()) };
+        let V::Int(g) = cur[7] else { return Ok(()) };
+        (cur[0].clone(), cur[1].clone(), g)
+    };
+    *st.borrow_mut() = tup(vec![key, it, t[0].clone(), t[2].clone(), t[1].clone(), t[0].clone(), t[2].clone(), V::Int(group)]);
+    Ok(())
+}
+
+// A grouper shares its parent's state cell (a V::Cell); its own state is (parent, tgtkey, me). Stepping it
+// advances the parent's source until the key changes, and its __reduce__ rebuilds the parent from that state,
+// as CPython's _grouper.__reduce__ returns (itertools._grouper, (parent, tgtkey)).
+fn grouper_red_mk(parent: Rc<RefCell<V>>, tk: V, me: i64) -> V {
+    red_iter(ItKind::ItGrouper, tup(vec![V::Cell(parent), tk, V::Int(me)]), grouper_red_step, grouper_red_rebuild, grouper_red_reduce, None)
+}
+fn grouper_red_rebuild(state: V) -> V {
+    let V::Tuple(t) = state else { return grouper_red_mk(Rc::new(RefCell::new(tup(vec![V::None; 8]))), V::None, 0) };
+    match (&t[0], &t[2]) {
+        (V::Cell(parent), V::Int(me)) => grouper_red_mk(parent.clone(), t[1].clone(), *me),
+        _ => grouper_red_mk(Rc::new(RefCell::new(tup(vec![V::None; 8]))), V::None, 0),
+    }
+}
+fn grouper_red_step(st: &Rc<RefCell<V>>) -> Result<Option<V>, E> {
+    let (parent, tk, me) = {
+        let s = st.borrow();
+        let V::Tuple(t) = &*s else { return Ok(None) };
+        let V::Cell(c) = &t[0] else { return Ok(None) };
+        let V::Int(me) = t[2] else { return Ok(None) };
+        (c.clone(), t[1].clone(), me)
+    };
+    let (key, it, group, cur_key, cur_val) = {
+        let s = parent.borrow();
+        let V::Tuple(t) = &*s else { return Ok(None) };
+        let V::Int(g) = t[7] else { return Ok(None) };
+        (t[0].clone(), t[1].clone(), g, t[3].clone(), t[4].clone())
+    };
+    if group != me {
+        return Ok(None);
+    }
+    let (v, k) = match cur_val {
+        V::None => match groupby_pull(&key, &it)? {
+            Some((v, k)) => {
+                gb_parent_set(&parent, Some(k.clone()), Some(v.clone()), None, None)?;
+                (v, k)
             }
-            let Some(c) = st2.borrow().cur_key.clone() else { return Ok(None) };
-            if !same_or_eq(&tk, &c)? {
-                return Ok(None);
-            }
-            let mut s = st2.borrow_mut();
-            s.cur_key = None;
-            Ok(s.cur_val.take())
-        });
-        Ok(Some(tup(vec![k, grouper])))
-    })
+            None => return Ok(None),
+        },
+        v => (v, cur_key),
+    };
+    if !matches!(k, V::None) {
+        if !same_or_eq(&tk, &k)? {
+            // peeked the next group's first item: CPython's reduce state advances to it
+            let old_tgt = {
+                let s = parent.borrow();
+                let V::Tuple(t) = &*s else { return Ok(None) };
+                t[2].clone()
+            };
+            gb_parent_set(&parent, None, None, Some(k), Some(old_tgt))?;
+            return Ok(None);
+        }
+    }
+    gb_parent_set(&parent, Some(V::None), Some(V::None), None, None)?;
+    Ok(Some(v))
+}
+
+// Set a grouper's parent state fields 3..=6 (cur_key, cur_val, c_tgt, c_curkey), keeping the rest.
+fn gb_parent_set(parent: &Rc<RefCell<V>>, f3: Option<V>, f4: Option<V>, f5: Option<V>, f6: Option<V>) -> Result<(), E> {
+    let cur = parent.borrow().clone();
+    let V::Tuple(t) = cur else { return Ok(()) };
+    *parent.borrow_mut() = tup(vec![
+        t[0].clone(),
+        t[1].clone(),
+        t[2].clone(),
+        f3.unwrap_or_else(|| t[3].clone()),
+        f4.unwrap_or_else(|| t[4].clone()),
+        f5.unwrap_or_else(|| t[5].clone()),
+        f6.unwrap_or_else(|| t[6].clone()),
+        t[7].clone(),
+    ]);
+    Ok(())
+}
+fn grouper_red_reduce(state: &V) -> V {
+    let gr = modfn("itertools", "_grouper");
+    let V::Tuple(t) = state else { return tup(vec![gr, tup(vec![])]) };
+    let V::Cell(parent) = &t[0] else { return tup(vec![gr, tup(vec![])]) };
+    let parent_v = groupby_red_mk(parent.borrow().clone());
+    tup(vec![gr, tup(vec![parent_v, t[1].clone()])])
+}
+
+// count: state is (current, step); __reduce__ is (count, (current, step)) as CPython's.
+fn count_red_mk(state: V) -> V {
+    red_iter(ItKind::ItCount, state, count_red_step, count_red_mk, count_red_reduce, None)
+}
+fn count_red_step(st: &Rc<RefCell<V>>) -> Result<Option<V>, E> {
+    let (n, step) = {
+        let s = st.borrow();
+        let V::Tuple(t) = &*s else { return Ok(None) };
+        (t[0].clone(), t[1].clone())
+    };
+    let next = add(&n, &step)?;
+    *st.borrow_mut() = tup(vec![next.clone(), step]);
+    Ok(Some(n))
+}
+fn count_red_reduce(state: &V) -> V {
+    let cnt = modfn("itertools", "count");
+    let V::Tuple(t) = state else { return tup(vec![cnt, tup(vec![])]) };
+    tup(vec![cnt, tup(vec![t[0].clone(), t[1].clone()])])
 }
 // itertools sizes (r, repeat) are PyNumber_AsSsize_t in CPython: ints past 64 bits overflow.
 fn it_ssize(v: &V, neg_msg: &str) -> Result<i64, E> {
@@ -1904,7 +2006,7 @@ fn cycle_red_step(st: &Rc<RefCell<V>>) -> Result<Option<V>, E> {
         let V::Tuple(t) = &*s else { return Ok(None) };
         let V::List(sv) = &t[1] else { return Ok(None) };
         let V::Int(idx) = t[3] else { return Ok(None) };
-        (if matches!(t[0], V::None) { None } else { Some(t[0].clone()) }, sv.clone(), !matches!(t[2], V::Int(0)), idx)
+        (if matches!(t[0], V::None) { None } else { Some(t[0].clone()) }, sv.clone(), !matches!(t[2], V::Bool(false)), idx)
     };
     if let Some(src) = src {
         if let Some(x) = step_value(&src)? {
@@ -1914,7 +2016,7 @@ fn cycle_red_step(st: &Rc<RefCell<V>>) -> Result<Option<V>, E> {
             return Ok(Some(x));
         }
         let n = saved.borrow().len() as i64;
-        *st.borrow_mut() = tup(vec![V::None, V::List(saved.clone()), V::Int(1), V::Int(if n == 0 { 0 } else { idx % n })]);
+        *st.borrow_mut() = tup(vec![V::None, V::List(saved.clone()), V::Bool(true), V::Int(if n == 0 { 0 } else { idx % n })]);
         // fall through to cycle over the saved items
     }
     let n = saved.borrow().len();
@@ -1923,13 +2025,13 @@ fn cycle_red_step(st: &Rc<RefCell<V>>) -> Result<Option<V>, E> {
     }
     let i = idx.rem_euclid(n as i64) as usize;
     let x = saved.borrow()[i].clone();
-    *st.borrow_mut() = tup(vec![V::None, V::List(saved.clone()), V::Int(1), V::Int(((i + 1) % n) as i64)]);
+    *st.borrow_mut() = tup(vec![V::None, V::List(saved.clone()), V::Bool(true), V::Int(((i + 1) % n) as i64)]);
     Ok(Some(x))
 }
 fn cycle_red_reduce(state: &V) -> V {
-    let V::Tuple(t) = state else { return tup(vec![modfn("itertools", "cycle"), tup(vec![]), tup(vec![V::None, V::Int(0)])]) };
-    let V::List(sv) = &t[1] else { return tup(vec![modfn("itertools", "cycle"), tup(vec![]), tup(vec![V::None, V::Int(0)])]) };
-    let V::Int(idx) = t[3] else { return tup(vec![modfn("itertools", "cycle"), tup(vec![]), tup(vec![V::None, V::Int(0)])]) };
+    let V::Tuple(t) = state else { return tup(vec![modfn("itertools", "cycle"), tup(vec![]), tup(vec![V::None, V::Bool(false)])]) };
+    let V::List(sv) = &t[1] else { return tup(vec![modfn("itertools", "cycle"), tup(vec![]), tup(vec![V::None, V::Bool(false)])]) };
+    let V::Int(idx) = t[3] else { return tup(vec![modfn("itertools", "cycle"), tup(vec![]), tup(vec![V::None, V::Bool(false)])]) };
     let src = if matches!(t[0], V::None) { list_iter_at(sv, idx as usize) } else { t[0].clone() };
     tup(vec![modfn("itertools", "cycle"), tup(vec![src]), tup(vec![V::List(sv.clone()), t[2].clone()])])
 }
@@ -1949,7 +2051,7 @@ fn cycle_red_set(st: &Rc<RefCell<V>>, arg: V) -> Result<(), E> {
         let V::Tuple(cur) = &*s else { return Ok(()) };
         cur[0].clone()
     };
-    *st.borrow_mut() = tup(vec![src, V::List(sv.clone()), V::Int(if fp == 0 { 0 } else { 1 }), V::Int(0)]);
+    *st.borrow_mut() = tup(vec![src, V::List(sv.clone()), V::Bool(fp != 0), V::Int(0)]);
     Ok(())
 }
 
@@ -2202,10 +2304,11 @@ fn permutations_red_step(st: &Rc<RefCell<V>>) -> Result<Option<V>, E> {
     if stopped || r > pool.len() as i64 {
         return Ok(None);
     }
-    let out = || -> Vec<V> { idx[..r as usize].iter().map(|k| pool[usize_of(k, pool.len())].clone()).collect() };
+    let mkout = |idx: &[V], pool: &[V], r: usize| -> Vec<V> { idx[..r].iter().map(|k| pool[usize_of(k, pool.len())].clone()).collect() };
     if !started {
+        let out = mkout(&idx, &pool, r as usize);
         *st.borrow_mut() = tup(vec![V::Tuple(vt(pool)), V::Int(r), V::Tuple(vt(idx.clone())), V::Tuple(vt(cyc)), V::Int(1), V::Int(0)]);
-        return Ok(Some(tup(out())));
+        return Ok(Some(tup(out)));
     }
     let n = pool.len();
     if n == 0 {
@@ -2229,7 +2332,7 @@ fn permutations_red_step(st: &Rc<RefCell<V>>) -> Result<Option<V>, E> {
         } else {
             let j = idx_of(&cyc[i]).unwrap_or(0) as usize;
             idx.swap(i, n - j);
-            let out = out();
+            let out = mkout(&idx, &pool, r as usize);
             *st.borrow_mut() = tup(vec![V::Tuple(vt(pool)), V::Int(r), V::Tuple(vt(idx)), V::Tuple(vt(cyc)), V::Int(1), V::Int(0)]);
             return Ok(Some(tup(out)));
         }
@@ -2294,18 +2397,24 @@ fn product_red_step(st: &Rc<RefCell<V>>) -> Result<Option<V>, E> {
         let V::Tuple(idx) = &t[1] else { return Ok(None) };
         (pools.to_vec(), idx.to_vec(), !matches!(t[2], V::Int(0)), !matches!(t[3], V::Int(0)))
     };
-    if stopped || pools.is_empty() {
+    if stopped {
         return Ok(None);
     }
-    let mkout = || -> Vec<V> {
+    if pools.is_empty() {
+        // no pools: one empty tuple, as CPython's product()
+        *st.borrow_mut() = tup(vec![V::Tuple(vt(pools)), V::Tuple(vt(idx)), V::Int(1), V::Int(1)]);
+        return Ok(Some(tup(vec![])));
+    }
+    let mkout = |pools: &[V], idx: &[V]| -> Vec<V> {
         pools.iter().enumerate().map(|(i, p)| {
             let V::Tuple(p) = p else { return V::None };
             p[usize_of(&idx.get(i).cloned().unwrap_or(V::Int(0)), p.len())].clone()
         }).collect()
     };
     if !started {
+        let out = mkout(&pools, &idx);
         *st.borrow_mut() = tup(vec![V::Tuple(vt(pools)), V::Tuple(vt(idx)), V::Int(1), V::Int(0)]);
-        return Ok(Some(tup(mkout())));
+        return Ok(Some(tup(out)));
     }
     let mut i = pools.len();
     loop {
@@ -2317,10 +2426,10 @@ fn product_red_step(st: &Rc<RefCell<V>>) -> Result<Option<V>, E> {
         i -= 1;
         let V::Tuple(p) = &pools[i] else { return Ok(None) };
         idx[i] = V::Int(idx_of(&idx[i]).unwrap_or(0) + 1);
-        if idx_of(&idx[i]).unwrap_or(0) == p.len() as i64 {
+        if idx_of(&idx[i]).unwrap_or(0) >= p.len() as i64 {
             idx[i] = V::Int(0);
         } else {
-            let out = mkout();
+            let out = mkout(&pools, &idx);
             *st.borrow_mut() = tup(vec![V::Tuple(vt(pools)), V::Tuple(vt(idx)), V::Int(1), V::Int(0)]);
             return Ok(Some(tup(out)));
         }
@@ -2328,12 +2437,10 @@ fn product_red_step(st: &Rc<RefCell<V>>) -> Result<Option<V>, E> {
 }
 fn product_red_reduce(state: &V) -> V {
     let V::Tuple(t) = state else { return tup(vec![modfn("itertools", "product"), tup(vec![])]) };
-    if matches!(t[3], V::Int(1)) {
-        tup(vec![modfn("itertools", "product"), tup(vec![tup(vec![])])])
-    } else if matches!(t[2], V::Int(0)) {
-        tup(vec![modfn("itertools", "product"), tup(vec![t[0].clone()])])
+    if matches!(t[2], V::Int(0)) {
+        tup(vec![modfn("itertools", "product"), t[0].clone()])
     } else {
-        tup(vec![modfn("itertools", "product"), tup(vec![t[0].clone()]), t[1].clone()])
+        tup(vec![modfn("itertools", "product"), t[0].clone(), t[1].clone()])
     }
 }
 fn product_red_set(st: &Rc<RefCell<V>>, arg: V) -> Result<(), E> {
@@ -2438,17 +2545,13 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
         }
         "groupby" => {
             let key = a.p.get(1).cloned().or(a.kw("key")).filter(|k| !matches!(k, V::None));
-            let it = shared_input(&a.p.first().cloned().or(a.kw("iterable")).ok_or_else(|| exc("TypeError", "groupby() missing required argument 'iterable'".into()))?)?;
-            groupby_iter(it, key)
+            let it = iter_v(&a.p.first().cloned().or(a.kw("iterable")).ok_or_else(|| exc("TypeError", "groupby() missing required argument 'iterable'".into()))?)?;
+            groupby_red_mk(tup(vec![key.unwrap_or(V::None), it, V::None, V::None, V::None, V::None, V::None, V::Int(0)]))
         }
         "count" => {
-            let mut n = a.p.first().cloned().unwrap_or(V::Int(0));
+            let n = a.p.first().cloned().unwrap_or(V::Int(0));
             let st0 = a.p.get(1).cloned().unwrap_or(V::Int(1));
-            gen_iter(ItKind::ItCount, move || {
-                let v = n.clone();
-                n = add(&n, &st0)?;
-                Ok(Some(v))
-            })
+            count_red_mk(tup(vec![n, st0]))
         }
         "islice" => {
             if !a.k.is_empty() {
@@ -2499,7 +2602,7 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
         }
         "cycle" => {
             let src = iter_v(&a1(&a, name)?)?;
-            cycle_red_mk(tup(vec![src, list(vec![]), V::Int(0), V::Int(0)]))
+            cycle_red_mk(tup(vec![src, list(vec![]), V::Bool(false), V::Int(0)]))
         }
         "starmap" => {
             a.want(name, 2, 2)?;

@@ -27,11 +27,20 @@ const PYD_HELPERS: &str = r#"
 import builtins as _b, operator as _o, types as _t, sys as _s
 _d = _t.ModuleType('_brevi_dyn')
 class _BrIt:
-    __slots__ = ('f', 'r')
-    def __init__(s, f, r): s.f = f; s.r = r
+    __slots__ = ('f', 'r', 's')
+    def __init__(s, f, r, st): s.f = f; s.r = r; s.s = st
     def __iter__(s): return s
     def __next__(s): return s.f()
     def __reduce__(s): return s.r()
+    def __setstate__(s, st): return s.s(st)
+def _mkfn(name, cap):
+    capname = name + '_cap'
+    setattr(_d, capname, cap)
+    src = 'def ' + name + '(*args, **kwargs):\n    return ' + capname + '(*args, **kwargs)\n'
+    exec(compile(src, 'brevi', 'exec'), _d.__dict__)
+    fn = _d.__dict__[name]
+    fn.__module__ = '_brevi_dyn'
+    return fn
 def _pyclass(mod, imports, src, name, file):
     m = _s.modules.get(mod) if mod == '__main__' else _d.mods.get(mod)
     if m is None:
@@ -70,6 +79,7 @@ def _nt(cls, name, fields, values):
         _d.nts[cls] = c
     return c(*values)
 _d.it = _BrIt
+_d._mkfn = _mkfn
 _d.pyclass = _pyclass
 _d._nt = _nt
 _d.atexit = _atexit
@@ -681,6 +691,13 @@ fn iter_reduce(v: &V) -> R {
     let V::Iter(cell) = v else {
         return Err(exc("TypeError", format!("cannot pickle '{}' object", tn(v))));
     };
+    // The itertools and builtin iterator kinds whose state CPython pickles (chain, cycle, filter, map, ...):
+    // their reduce tuple goes to CPython whole, with the callable replaced by CPython's own so pickle can
+    // name it, and a function of the program replaced by a real Python function that calls back into it.
+    if let Some(r) = red_of(cell) {
+        let state = r.state.borrow().clone();
+        return pyd_reduce_vals((r.reduce)(&state));
+    }
     let plan = {
         let Ok(it) = cell.it.try_borrow() else {
             return Err(exc("ValueError", "iterator already executing".into()));
@@ -725,6 +742,92 @@ fn iter_reduce(v: &V) -> R {
         }
     };
     Ok(tup(vec![f, tup(vec![base])]))
+}
+
+// The first element of every tuple in a reduce result is its callable; the rest may hold more callables (map's
+// func, accumulate's func). Each becomes something CPython's pickle can name again.
+fn pyd_reduce_vals(t: V) -> Result<V, E> {
+    Ok(match t {
+        V::Tuple(ts) => {
+            let mut out = Vec::with_capacity(ts.len());
+            for (i, x) in ts.iter().enumerate() {
+                out.push(if i == 0 { pyd_pickle_fn(x)? } else { pyd_reduce_vals(x.clone())? });
+            }
+            tup(out)
+        }
+        V::Func(_) => pyd_pickle_fn(&t)?,
+        _ => t,
+    })
+}
+
+// `v` as a value pickle can save: a builtin of the program as CPython's own function of the same name
+// (itertools.chain, filter, operator.pow, ...), a def or lambda as a real Python function in _brevi_dyn whose
+// body calls the def back, and anything else as itself.
+fn pyd_pickle_fn(v: &V) -> Result<V, E> {
+    Ok(match v {
+        V::Func(f) if f.kind.get() == 3 => {
+            let name = f.name.get();
+            let module = match name {
+                "filter" | "map" | "zip" => "builtins",
+                "add" | "sub" | "mul" | "truediv" | "floordiv" | "mod" | "pow" | "eq" | "ne" | "lt" | "le"
+                | "gt" | "ge" | "concat" | "contains" | "itemgetter" | "attrgetter" | "methodcaller"
+                | "getitem" | "setitem" | "delitem" | "iadd" | "isub" | "imul" | "and_" | "or_" | "xor"
+                | "not_" | "truth" | "pos" | "neg" | "invert" | "lshift" | "rshift" | "matmul" | "imatmul"
+                | "is_" | "is_not" | "indexOf" | "countOf" | "length_hint" => "operator",
+                "chain" | "count" | "cycle" | "repeat" | "islice" | "accumulate" | "zip_longest" | "starmap"
+                | "takewhile" | "dropwhile" | "compress" | "filterfalse" | "groupby" | "_grouper" | "product"
+                | "permutations" | "combinations" | "combinations_with_replacement" => "itertools",
+                _ => return Ok(v.clone()),
+            };
+            let a = pyd_api();
+            match unsafe { pyd_mod_attr(module, name) } {
+                Ok(p) => pyv(p, false),
+                Err(_) => {
+                    unsafe { (a.ErrClear)() };
+                    v.clone()
+                }
+            }
+        }
+        V::Func(_) => pyd_fn_standin(v)?,
+        _ => v.clone(),
+    })
+}
+
+thread_local! {
+    // A def of the program -> its stand-in Python function in _brevi_dyn, one per def so pickle finds it back.
+    static FN_STANDINS: RefCell<std::collections::HashMap<usize, V>> = RefCell::new(std::collections::HashMap::new());
+}
+
+fn pyd_fn_standin(v: &V) -> Result<V, E> {
+    let V::Func(f) = v else { return Ok(v.clone()) };
+    let key = Rc::as_ptr(f) as usize;
+    if let Some(s) = FN_STANDINS.with(|m| m.borrow().get(&key).cloned()) {
+        return Ok(s);
+    }
+    let a = pyd_api();
+    let cap = unsafe { pyd_callable(v)? };
+    let name = format!("_f_{key:x}");
+    let np = unsafe { pyd_str_obj(&name) };
+    let r = unsafe { pyd_mod_call("_brevi_dyn", "_mkfn", &[np, cap]) };
+    unsafe {
+        (a.DecRef)(np);
+        (a.DecRef)(cap);
+    }
+    let p = r?;
+    let s = pyv(p, false);
+    FN_STANDINS.with(|m| m.borrow_mut().insert(key, s.clone()));
+    Ok(s)
+}
+
+// module.name as a Python object (borrowed from the module; a new reference is returned).
+unsafe fn pyd_mod_attr(module: &str, name: &str) -> Result<P, E> {
+    let a = pyd_api();
+    let m = CString::new(module).unwrap();
+    let m = pyd_own((a.Import)(m.as_ptr()))?;
+    let n = CString::new(name).unwrap();
+    let r = (a.GetAttr)(m, n.as_ptr());
+    (a.DecRef)(m);
+    pyd_own(r)
 }
 
 // The program's value `v` as a new Python object.
@@ -944,16 +1047,36 @@ unsafe fn pyd_to(v: &V) -> Result<P, E> {
         }
         V::Class(c) if c.module == "builtins" && (c.bt == BT::Exc || c.is_sub(&exc_class("BaseException"))) => pyd_builtins_attr(c.name)?,
         V::Obj(o) if o.cls.lookup("__bv_namedtuple__").is_some() => pyd_namedtuple(v)?,
-        V::Iter(_) => {
+        V::Iter(cell) => {
             let next_me = v.clone();
             let red_me = v.clone();
             let next = func(sym("__next__"), move |_a: Args| bi_next(Args::p(vec![next_me.clone()])));
             let red = func(sym("__reduce__"), move |_a: Args| iter_reduce(&red_me));
+            let redc = red_of(cell);
+            let set = match redc.as_ref().and_then(|r| r.set) {
+                Some(setfn) => {
+                    let r = redc.clone().unwrap();
+                    let f = func(sym("__setstate__"), move |a: Args| {
+                        setfn(&r.state, a1(&a, "__setstate__")?)?;
+                        Ok(V::None)
+                    });
+                    let p = pyd_callable(&f)?;
+                    Some(p)
+                }
+                None => None,
+            };
             let f = pyd_callable(&next)?;
             let r = pyd_callable(&red)?;
-            let o = pyd_mod_call("_brevi_dyn", "it", &[f, r]);
+            let none = {
+                let a = pyd_api();
+                (a.IncRef)(a.None);
+                a.None
+            };
+            let s = set.unwrap_or(none);
+            let o = pyd_mod_call("_brevi_dyn", "it", &[f, r, s]);
             (a.DecRef)(f);
             (a.DecRef)(r);
+            (a.DecRef)(s);
             o?
         }
         V::Func(_) | V::Bound(_) | V::BMeth(_) | V::Class(_) => pyd_callable(v)?,
