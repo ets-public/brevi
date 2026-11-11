@@ -1,0 +1,1 @@
+- `tools/modelbox.py`: a folder passed into the box through a symlink (such as `/mnt/project-files`) can be reached by that path inside, not only by the resolved one, so checks that name `/mnt/project-files/...` run in the box again.

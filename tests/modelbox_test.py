@@ -61,6 +61,15 @@ c, so, se = box.run(["sh", "-c", "echo $0", os.environ["MODELBOX_TEST_TOKEN"]])
 expect("secret value redacted from output", "mbx-" not in so and "<redacted>" in so)
 box.close()
 
+# A folder passed in through a symlink is reachable by the caller's own spelling (the link is made again inside).
+link = Path("/tmp") / f"modelbox-link-{os.getpid()}"
+link.symlink_to(ROOT / "tests")
+lbox = modelbox.Box(ROOT, ro=[link])
+c, so, se = lbox.run(["ls", str(link / "modelbox_test.py")])
+expect("symlinked folder reachable by its own path", c == 0)
+lbox.close()
+link.unlink()
+
 # A box that leaks is refused: one with a readable file holding a secret value, and one that keeps /run.
 leak = ROOT / "target" / "modelbox-leak.txt"
 leak.parent.mkdir(exist_ok=True)

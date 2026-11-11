@@ -94,6 +94,17 @@ class Box:
             chown_tree(d)
         os.chmod(self.dir, 0o700)
         self.ro = [Path(x).resolve() for x in ro if x and Path(x).is_dir()]
+        # Folders are bound in at their resolved paths; a symlink on the way to one (such as /mnt/project-files ->
+        # /mnt/attach/project-files) is made again inside, so the caller's own spelling of the path still works.
+        self.links = {}
+        for x in [root, *rw, *ro]:
+            if not x:
+                continue
+            cur = Path("/")
+            for part in Path(os.path.abspath(x)).parts[1:]:
+                cur = cur / part
+                if cur.is_symlink():
+                    self.links[str(cur)] = os.readlink(cur)
         self.stage.mkdir(mode=0o700, exist_ok=True)
         self.checked = False
 
@@ -134,6 +145,9 @@ class Box:
             lines.append(f"mkdir -p {q(p)} && mount --bind {q(s)}/b{i} {q(p)}" + (f" && mount -o remount,bind,ro {q(p)}" if mode == "ro" else ""))
         lines.append(f"umount -l {q(s)}")
         lines.append("mount -t tmpfs -o mode=755 tmpfs /run")
+        for link, target in sorted(self.links.items()):
+            if any(link == m or link.startswith(m + "/") for m in MASKED):  # outside the masked folders it is still there
+                lines.append(f"[ -e {q(link)} ] || [ -L {q(link)} ] || {{ mkdir -p {q(os.path.dirname(link))} && ln -s {q(target)} {q(link)}; }}")
         lines.append(f'exec setpriv --reuid={NOBODY} --regid={NOBODY} --clear-groups --no-new-privs --inh-caps=-all --bounding-set=-all -- "$@"')
         return "\n".join(lines)
 
