@@ -1,7 +1,7 @@
 # A warning names the program's line, as CPython's does: warnings.warn in a function, after a call returns,
 # in a generator across yields, in a lambda, in a function a library calls back, a library's warning whose
 # stacklevel points at the program, a loop's line again, and the default filters' once-per-line.
-import ast
+import glob
 import os
 import timeit
 import warnings
@@ -52,7 +52,7 @@ with warnings.catch_warnings():
     next(g)
     lam()
     timeit.timeit(cb, number=1)
-    ast.Num
+    glob.glob0(".", "no-such-file")
     k = 0
     while k < 2:
         k += 1
