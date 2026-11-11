@@ -1,0 +1,16 @@
+repeat('a', 3) a repeat('a', 2)
+['a', 'a'] repeat('a', 0)
+repeat(1, 0) []
+repeat([1, 2], 2) [[1, 2], [1, 2]]
+repeat(None) [None, None, None] repeat(None)
+[(0, 0), (1, 0), (2, 0), (3, 0)]
+100000
+'Alias for field number 0' 'Alias for field number 1' _tuplegetter(0, 'Alias for field number 0')
+'docstring for Point.x' _tuplegetter(0, 'docstring for Point.x')
+'Alias for field number 0'
+None _tuplegetter(1, <NULL>)
+_tuplegetter(1, None)
+_tuplegetter 1 2
+AttributeError 'collections._tuplegetter' object has no attribute 'foo'
+AttributeError 'collections._tuplegetter' object has no attribute 'foo' and no __dict__ for setting new attributes
+collections _tuplegetter

@@ -1,0 +1,57 @@
+(?>a*){2} True
+(?>a{,2}?){2}x False
+a** E multiple repeat at position 2
+a*(?#c)* E multiple repeat at position 7
+a*+* E multiple repeat at position 3
+(a*)*b True
+a{2}{3} E multiple repeat at position 4
+(a(b)\2) False
+(a(b)\1) E cannot refer to an open group at position 5
+(?a)(?u) ValueError ASCII and UNICODE flags are incompatible
+(?u) ValueError ASCII and UNICODE flags are incompatible
+(?a) ValueError ASCII and UNICODE flags are incompatible
+x ValueError ASCII and UNICODE flags are incompatible
+(?i)(?L) PatternError bad inline flags: cannot use 'L' flag with a str pattern at position 7
+2 None
+1
+1
+1 o
+2
+1
+2
+[] [''] ['é'] None
+['a', '\n', 'b'] ['\nb'] ['x', 'x'] ['x', 'x'] ['x']
+['a', '\n', 'b'] ['a', 'b'] ['x']
+(?#a\)b)c True ['c']
+(?P<a\>b>x) E bad character in group name 'a\\>b' at position 4
+(?P<a\> E missing >, unterminated name at position 4
+(x)(?P=a\) E missing ), unterminated name at position 7
+(?#a\\)b True ['b']
+(?(a\)b)x) E bad character in group name 'a\\)b' at position 3
+(?#a\ E bad escape (end of pattern) at position 4
+\g<a\>b> PatternError bad character in group name 'a\\>b' at position 3
+\g<1\> PatternError missing >, unterminated name at position 3
+\g<1>\\ ab\c
+[é-Zc] bad character range é-Z at position 1
+[\101-\t] bad character range \1-\t at position 3
+[_-\-] bad character range _-\- at position 1
+[z-a] bad character range z-a at position 1
+[\d-z] bad character range \d-z at position 1
+[a-\w] bad character range a-\w at position 1
+[\x41-\x20] bad character range \x-\x at position 5
+x[\U0001F600-a] bad character range \U-a at position 10
+0 []
+boom at position 1 boom 1 pat 1 2
+boom boom None None None
+'k' ['k', 'K', '\u212a'] ['k', 'K']
+'\xdf' ['\xdf', '\u1e9e'] ['\xdf']
+'i' ['I', 'i', '\u0130', '\u0131'] ['I', 'i']
+'s' ['S', 's', '\u017f'] ['S', 's']
+'\u03c3' ['\u03a3', '\u03c3', '\u03c2'] ['\u03c3']
+'[a-z]+' ['K\u212a\u0130\u0131\u017f'] ['K']
+'(.)\\1' ['k'] []
+a(?<=a*) E look-behind requires fixed-width pattern None
+(a)(?<=\1b*) E look-behind requires fixed-width pattern None
+(?<=ab|c)x E look-behind requires fixed-width pattern None
+(?<=(a)\1)x E cannot refer to group defined in the same lookbehind subpattern at position 9 9
+['x']  False True

@@ -3,10 +3,6 @@
 # and on a line without a tracking issue, an owner and an expiry date, or past its expiry. `--write-baseline`
 # keeps the metadata of lines already here and writes new ones with `?`, which --check refuses until filled in.
 test_collections.TestChainMap.test_order_preservation normal issue=#400 owner=ets-public expires=2026-12-11
-test_collections.TestNamedTuple.test_field_doc dyn issue=#400 owner=ets-public expires=2026-12-11
-test_collections.TestNamedTuple.test_field_doc normal issue=#400 owner=ets-public expires=2026-12-11
-test_collections.TestNamedTuple.test_module_parameter dyn issue=#400 owner=ets-public expires=2026-12-11
-test_collections.TestNamedTuple.test_module_parameter normal issue=#400 owner=ets-public expires=2026-12-11
 test_functools.TestTotalOrdering.test_pickle dyn issue=#396 owner=ets-public expires=2026-12-11
 test_functools.TestTotalOrdering.test_pickle normal issue=#396 owner=ets-public expires=2026-12-11
 test_itertools.SubclassWithKwargsTest.test_keywords_in_subclass dyn issue=#398 owner=ets-public expires=2026-12-11
@@ -45,8 +41,6 @@ test_itertools.TestBasicOps.test_product_issue_25021 dyn issue=#396 owner=ets-pu
 test_itertools.TestBasicOps.test_product_issue_25021 normal issue=#396 owner=ets-public expires=2026-12-11
 test_itertools.TestBasicOps.test_product_pickling dyn issue=#396 owner=ets-public expires=2026-12-11
 test_itertools.TestBasicOps.test_product_pickling normal issue=#396 owner=ets-public expires=2026-12-11
-test_itertools.TestBasicOps.test_repeat_with_negative_times dyn issue=#400 owner=ets-public expires=2026-12-11
-test_itertools.TestBasicOps.test_repeat_with_negative_times normal issue=#400 owner=ets-public expires=2026-12-11
 test_itertools.TestBasicOps.test_starmap dyn issue=#396 owner=ets-public expires=2026-12-11
 test_itertools.TestBasicOps.test_starmap normal issue=#396 owner=ets-public expires=2026-12-11
 test_itertools.TestBasicOps.test_takewhile dyn issue=#396 owner=ets-public expires=2026-12-11
@@ -55,8 +49,6 @@ test_itertools.TestBasicOps.test_zip_longest_pickling dyn issue=#396 owner=ets-p
 test_itertools.TestBasicOps.test_zip_longest_pickling normal issue=#396 owner=ets-public expires=2026-12-11
 test_itertools.TestExamples.test_accumulate_reducible dyn issue=#396 owner=ets-public expires=2026-12-11
 test_itertools.TestExamples.test_accumulate_reducible normal issue=#396 owner=ets-public expires=2026-12-11
-test_itertools.TestPurePythonRoughEquivalents.test_tee_recipe dyn issue=#400 owner=ets-public expires=2026-12-11
-test_itertools.TestPurePythonRoughEquivalents.test_tee_recipe normal issue=#400 owner=ets-public expires=2026-12-11
 test_re.PatternReprTests.test_bytes dyn issue=#399 owner=ets-public expires=2026-12-11
 test_re.PatternReprTests.test_bytes normal issue=#399 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_bigcharset dyn issue=#399 owner=ets-public expires=2026-12-11
@@ -77,13 +69,9 @@ test_re.ReTests.test_qualified_re_split dyn issue=#418 owner=ets-public expires=
 test_re.ReTests.test_qualified_re_split normal issue=#418 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_qualified_re_sub dyn issue=#418 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_qualified_re_sub normal issue=#418 owner=ets-public expires=2026-12-11
-test_re.ReTests.test_re_escape dyn issue=#419 owner=ets-public expires=2026-12-11
-test_re.ReTests.test_re_escape normal issue=#419 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_re_escape_bytes dyn issue=#419 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_re_escape_bytes normal issue=#419 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_re_escape_non_ascii_bytes dyn issue=#419 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_re_escape_non_ascii_bytes normal issue=#419 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_re_subn dyn issue=#418 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_re_subn normal issue=#418 owner=ets-public expires=2026-12-11
-test_re.ReTests.test_weakref dyn issue=#399 owner=ets-public expires=2026-12-11
-test_re.ReTests.test_weakref normal issue=#399 owner=ets-public expires=2026-12-11

@@ -200,6 +200,18 @@ def parse(src):
         return ast.parse(src)
 
 
+def fresh_module(node):
+    """(name, module) for `name = import_helper.import_fresh_module('module', ...)`, else None."""
+    if not (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)):
+        return None
+    v = node.value
+    if (isinstance(v, ast.Call) and isinstance(v.func, ast.Attribute) and v.func.attr == "import_fresh_module"
+            and isinstance(v.func.value, ast.Name) and v.func.value.id == "import_helper"
+            and v.args and isinstance(v.args[0], ast.Constant) and isinstance(v.args[0].value, str)):
+        return node.targets[0].id, v.args[0].value
+    return None
+
+
 class Mod:
     """One fetched source file: its top-level definitions, and the edits that rewrite its assertions.
 
@@ -227,6 +239,11 @@ class Mod:
                     self.stars.append(node.module)
                 else:
                     self.imports[a.asname or a.name] = ("from", node.module, a.name)
+        elif fresh := fresh_module(node):
+            # `py_functools = import_helper.import_fresh_module('functools', blocked=['_functools'])`: CPython's tests
+            # run some classes against both its C and its pure-Python copy of a module. Brevi has one copy, so each
+            # variant is the module itself, compared with what the reference CPython prints for its default copy.
+            self.imports[fresh[0]] = ("import", fresh[1], fresh[0])
         elif not (isinstance(node, ast.If) and "__name__" in ast.dump(node.test)):
             for sub in ast.walk(node):
                 if isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Store):
@@ -394,6 +411,11 @@ def caught_lines(exc, with_message):
     return [f"except {exc} as _e:", f"    print('raises', {shown})", "else:", f"    print('{NO_RAISE}')"]
 
 
+def is_module_name(m, node):
+    """Whether node is a name the test file binds with a plain `import`."""
+    return isinstance(node, ast.Name) and m.imports.get(node.id, ("",))[0] == "import"
+
+
 def rewrite_assertion(m, stmt, name, call):
     """The lines that replace `self.<name>(...)`, or None to leave it for the final check."""
     if any(k.arg not in ("msg", None) for k in call.keywords) and not name.startswith("assertRaises"):
@@ -402,6 +424,9 @@ def rewrite_assertion(m, stmt, name, call):
     if any(isinstance(a, ast.Starred) for a in args[:2]):
         return None
     t = [m.expr(a) for a in args]
+    if name in SAME_AS_EQUAL and len(t) >= 2 and any(is_module_name(m, a) for a in args[:2]):
+        # a module's repr names the file it was loaded from, which differs between machines: compare instead
+        return [f"print(({t[0]}) == ({t[1]}))"]
     if name in SAME_AS_EQUAL and len(t) >= 2:
         b = args[1]
         plain = isinstance(b, ast.Constant) and t[1] == repr(b.value)

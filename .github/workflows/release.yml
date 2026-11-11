@@ -5,7 +5,8 @@
 # Publishing uses trusted publishing (OIDC): no tokens are stored in the repo. Each registry trusts
 # this file by name (release.yml), so renaming it breaks publishing. See packaging/README.md.
 # A release ships only what it tested: the full Linux suite (toolchains.yml with release: true: unit, language and
-# MCP tests, every old solution, both CPython conformance slices, the fuzz corpus) runs on the commit being released,
+# MCP tests, every old solution, both CPython conformance slices held to their release gates (core 90%, stdlib
+# 80%, no known-wrong result), the fuzz corpus) runs on the commit being released,
 # Windows runs tests/windows/check.ps1 on the brevi.exe unpacked from the zip it ships, every archive is unpacked and
 # run (tools/archive_check.py), and SHA256SUMS is checked against the files as published. Nothing is released or
 # published unless every platform built and passed. dry_run does all of that and stops before the release.

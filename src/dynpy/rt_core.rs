@@ -12,6 +12,13 @@ use std::rc::{Rc, Weak};
 pub type R = Result<V, E>;
 pub type Sym = &'static str;
 
+// A namedtuple field descriptor (_tuplegetter in CPython): its field's index in the wrapped tuple, and the
+// __doc__ attribute CPython lets code read, assign and delete on each descriptor independently.
+pub struct Ntf {
+    pub idx: i64,
+    pub doc: RefCell<V>,
+}
+
 // The tag in a whole word: values move as three aligned words (a one-byte tag moved bytes 1..24 unaligned,
 // which stalls the CPU when the next load reads them back).
 #[repr(u64)]
@@ -46,7 +53,7 @@ pub enum V {
     Prop(Rc<(V, V)>),
     // a namedtuple field: a read-only descriptor holding the field's index in the wrapped tuple (the Rc
     // gives each descriptor its own identity, so `P.x is P.x` stays true, as in CPython)
-    NTF(Rc<i64>),
+    NTF(Rc<Ntf>),
     Ext(ExtRc),
     NotImpl,
     Ellipsis,
@@ -1250,6 +1257,8 @@ pub fn py_hash(v: &V) -> Result<i64, E> {
         }
         V::Class(c) => (Rc::as_ptr(c) as usize >> 4) as i64,
         V::Func(f) => (Rc::as_ptr(f) as usize >> 4) as i64,
+        // iterators and generators hash by identity, as in CPython
+        V::Iter(x) => (Rc::as_ptr(x) as *const u8 as usize >> 4) as i64,
         // a cell object has no __hash__, exactly as in CPython (it only compares by identity)
         V::Cell(_) => return type_err("unhashable type: 'cell'".into()),
         V::Ext(x) => match x.hash() {
@@ -3302,7 +3311,7 @@ pub fn init_builtin_classes() {
         ("JSONDecodeError", "ValueError"),
         ("InvalidOperation", "ArithmeticError"),
         ("DivisionByZero", "ZeroDivisionError"),
-        ("error", "Exception"),
+        ("PatternError", "Exception"),
         ("StatisticsError", "ValueError"),
         ("ZoneInfoNotFoundError", "KeyError"),
         ("PackageNotFoundError", "ModuleNotFoundError"),
@@ -3313,7 +3322,7 @@ pub fn init_builtin_classes() {
         let module = match *n {
             "JSONDecodeError" => "json.decoder",
             "InvalidOperation" | "DivisionByZero" => "decimal",
-            "error" => "re",
+            "PatternError" => "re",
             "StatisticsError" => "statistics",
             "ZoneInfoNotFoundError" => "zoneinfo._common",
             "PackageNotFoundError" => "importlib.metadata",

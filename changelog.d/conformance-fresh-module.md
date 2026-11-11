@@ -1,0 +1,1 @@
+- **Conformance: functools's pure-Python copies are scored.** `import_helper.import_fresh_module('functools', ...)` in CPython's tests now becomes `import functools as ...` in the extracted script, so the 11 `cached_property` tests are built and scored instead of failing to extract.

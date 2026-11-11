@@ -539,6 +539,14 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
             }
         }
     }
+    // the classes of Brevi's own iterators: only itertools._tee can be called here; for the others a plain
+    // object would be silently wrong
+    if c.module != "__main__" && is_iter_class(c) {
+        if c.module == "itertools" && c.name == "_tee" {
+            return tee_new(a);
+        }
+        return Err(exc("NotImplementedError", format!("brevi: calling the {}.{} class is not supported in dynamic builds", c.module, c.name)));
+    }
     if plain_new(c) {
         let me = V::Obj(Obj::new(c.clone()));
         match c.lookup("__init__") {
@@ -1039,7 +1047,7 @@ fn getattr_ic_slow(o: &V, name: Sym, ic: &std::sync::atomic::AtomicUsize) -> R {
             drop(fields);
             if i <= NTF_IDX_MASK {
                 if let Some(V::NTF(n)) = ob.cls.lookup(name) {
-                    let idx = *n as usize;
+                    let idx = n.idx as usize;
                     if idx == i {
                         ic.store(ntf_ic(i, CLASS_EPOCH.with(|e| e.get())), std::sync::atomic::Ordering::Relaxed);
                         return ntf_get(o, ob, idx as i64);
@@ -1140,7 +1148,7 @@ pub fn getattr(o: &V, name: &str) -> R {
                     }),
                     V::Prop(p) => call(&p.0, Args::p(vec![o.clone()])),
                     // a namedtuple field descriptor: index the wrapped tuple directly, no Args and no call
-                    V::NTF(i) => ntf_get(o, ob, **i),
+                    V::NTF(n) => ntf_get(o, ob, n.idx),
                     _ => {
                         if let V::Ext(x) = &v {
                             if let Some(r) = x.descriptor(&v, o, &V::Class(ob.cls.clone())) {
@@ -1450,6 +1458,13 @@ pub fn getattr(o: &V, name: &str) -> R {
                 })))
             }))
         }
+        // a namedtuple field descriptor: the one attribute it carries is its own __doc__, as in CPython
+        V::NTF(n) if name == "__doc__" => {
+            let d = n.doc.borrow().clone();
+            // after `del P.x.__doc__` the descriptor's getter reads None, as CPython's does
+            Ok(match d { V::Unbound => V::None, d => d })
+        }
+        V::NTF(_) => Err(exc("AttributeError", format!("'collections._tuplegetter' object has no attribute '{}'", name))),
         V::View(v) if name == "mapping" && v.1 != 3 => match &v.0 {
             V::Dict(_) => Ok(V::View(Rc::new((v.0.clone(), 3)))),
             _ => Err(exc("AttributeError", format!("'{}' object has no attribute 'mapping'", tn(o)))),
@@ -1522,6 +1537,12 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
             c.set(name, v);
             Ok(())
         }
+        // each namedtuple field descriptor keeps its own __doc__; nothing else may be set, as in CPython
+        V::NTF(n) if name == "__doc__" => {
+            *n.doc.borrow_mut() = v;
+            Ok(())
+        }
+        V::NTF(_) => Err(exc("AttributeError", format!("'collections._tuplegetter' object has no attribute '{}' and no __dict__ for setting new attributes", name))),
         V::Module(&ModName("decimal.context")) => decimal_context_set(name, &v),
         V::Ext(x) => match x.set_attr(o, name, v) {
             Some(r) => r,
@@ -1593,6 +1614,13 @@ pub fn delattr(o: &V, name: &str) -> Result<(), E> {
                 Err(exc("AttributeError", format!("'{}' object has no attribute '{}'", ob.cls.name, name)))
             }
         }
+        // deleting a namedtuple field descriptor's __doc__ resets it to None, as in CPython
+        V::NTF(n) if name == "__doc__" => {
+            // Unbound keeps a deleted doc apart from an explicitly set None (repr shows <NULL>)
+            *n.doc.borrow_mut() = V::Unbound;
+            Ok(())
+        }
+        V::NTF(_) => Err(exc("AttributeError", format!("'collections._tuplegetter' object has no attribute '{}'", name))),
         V::Class(c) if c.del(name) => Ok(()),
         V::Class(c) => Err(exc("AttributeError", format!("type object '{}' has no attribute '{}'", c.name, name))),
         // a def's user attribute: from its __dict__ once that has been made, else from its attrs (as setattr stores it)

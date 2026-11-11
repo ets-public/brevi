@@ -1691,6 +1691,157 @@ fn islice_ssize(v: &V, none: i64) -> i64 {
 const ISLICE_STOP_MSG: &str = "Stop argument for islice() must be None or an integer: 0 <= x <= sys.maxsize.";
 const ISLICE_START_MSG: &str = "Indices for islice() must be None or an integer: 0 <= x <= sys.maxsize.";
 const ISLICE_STEP_MSG: &str = "Step for islice() must be a positive integer or None.";
+
+// PyNumber_AsSsize_t, as itertools.tee and itertools.batched convert their n argument.
+fn it_ssize_arg(v: &V) -> Result<i64, E> {
+    let x = match v {
+        V::Int(i) => *i,
+        V::Bool(b) => *b as i64,
+        V::Big(_) => return Err(exc("OverflowError", "Python int too large to convert to C ssize_t".into())),
+        V::Obj(o) => {
+            if let Some(f) = o.cls.lookup("__index__") {
+                return it_index_result(&call(&f, Args::p(vec![v.clone()]))?);
+            }
+            if matches!(inner_of(v), Some(V::Int(_) | V::Bool(_) | V::Big(_))) {
+                return it_ssize_arg(&inner_of(v).unwrap());
+            }
+            return Err(exc("TypeError", format!("'{}' object cannot be interpreted as an integer", tn(v))));
+        }
+        _ => return Err(exc("TypeError", format!("'{}' object cannot be interpreted as an integer", tn(v)))),
+    };
+    Ok(x)
+}
+fn it_index_result(r: &V) -> Result<i64, E> {
+    match r {
+        V::Int(i) => Ok(*i),
+        V::Bool(b) => Ok(*b as i64),
+        V::Big(_) => Err(exc("OverflowError", "Python int too large to convert to C ssize_t".into())),
+        V::Obj(_) if matches!(inner_of(r), Some(V::Int(_) | V::Bool(_) | V::Big(_))) => it_index_result(&inner_of(r).unwrap()),
+        x => Err(exc("TypeError", format!("__index__ returned non-int (type {})", tn(x)))),
+    }
+}
+
+// itertools.tee: the tee iterators of one group share a TeeData holding the source and the values fetched
+// but not yet read by every live member (CPython frees a link once all tees are past it), and each keeps its
+// own absolute position. A re-entrant next() on any tee of a group raises RuntimeError, as CPython does.
+pub struct TeeData {
+    it: Rc<RefCell<It>>,
+    // the buffered values in blocks of TEE_BLOCK (as CPython's teedataobject links blocks of 57): vals[0][0] is
+    // the value at absolute position `base`. Blocks keep a long buffer from ever being copied to grow it, and
+    // a block is freed once every member is past it.
+    vals: RefCell<std::collections::VecDeque<Vec<V>>>,
+    base: Cell<usize>,
+    members: RefCell<Vec<std::rc::Weak<TeePos>>>,
+    active: Cell<bool>,
+}
+pub struct TeePos {
+    data: Rc<TeeData>,
+    pos: Cell<usize>,
+}
+impl Drop for TeePos {
+    fn drop(&mut self) {
+        // a deleted tee no longer holds values back (test_tee_del_backward)
+        tee_trim(&self.data);
+    }
+}
+const TEE_BLOCK: usize = 64;
+fn tee_trim(d: &TeeData) {
+    let lowest = {
+        let mut m = d.members.borrow_mut();
+        m.retain(|w| w.strong_count() > 0);
+        m.iter().filter_map(|w| w.upgrade()).map(|p| p.pos.get()).min()
+    };
+    let Some(lowest) = lowest else { return };
+    if lowest < d.base.get() + TEE_BLOCK {
+        return;
+    }
+    let mut freed = vec![];
+    {
+        let mut vals = d.vals.borrow_mut();
+        while d.base.get() + TEE_BLOCK <= lowest && vals.front().is_some_and(|b| b.len() == TEE_BLOCK) {
+            freed.push(vals.pop_front().unwrap());
+            d.base.set(d.base.get() + TEE_BLOCK);
+        }
+    }
+    // values are dropped after the borrow ends: a __del__ may run
+    drop(freed);
+}
+// itertools._tee(iterable), CPython's tee_new: a copy of a tee, else a lone member over iter(iterable)
+pub fn tee_new(a: Args) -> R {
+    if !a.k.is_empty() {
+        return type_err("_tee() takes no keyword arguments".into());
+    }
+    if a.p.len() != 1 {
+        return type_err(format!("_tee expected 1 argument, got {}", a.p.len()));
+    }
+    let it = iter_v(&a.p[0])?;
+    if let Some((data, pos)) = tee_pos_of(&it) {
+        return Ok(tee_member(&data, pos));
+    }
+    let src = shared_input(&it)?;
+    let data = Rc::new(TeeData { it: src, vals: RefCell::new(Default::default()), base: Cell::new(0), members: RefCell::new(vec![]), active: Cell::new(false) });
+    Ok(tee_member(&data, 0))
+}
+fn tee_member(data: &Rc<TeeData>, pos: usize) -> V {
+    let p = Rc::new(TeePos { data: data.clone(), pos: Cell::new(pos) });
+    data.members.borrow_mut().push(Rc::downgrade(&p));
+    new_iter(It::Tee(p), IterClass::Kind(ItKind::ItTee))
+}
+fn tee_step(p: &Rc<TeePos>) -> Result<Option<V>, E> {
+    if p.data.active.get() {
+        return Err(exc("RuntimeError", "cannot re-enter the tee iterator".into()));
+    }
+    p.data.active.set(true);
+    let r = tee_step_inner(p);
+    p.data.active.set(false);
+    r
+}
+fn tee_step_inner(p: &Rc<TeePos>) -> Result<Option<V>, E> {
+    let i = p.pos.get();
+    let d = &p.data;
+    let got = {
+        let vals = d.vals.borrow();
+        let k = i - d.base.get();
+        vals.get(k / TEE_BLOCK).and_then(|b| b.get(k % TEE_BLOCK)).cloned()
+    };
+    let v = match got {
+        Some(v) => v,
+        None => match iter_step(&d.it)? {
+            Some(v) => {
+                let mut vals = d.vals.borrow_mut();
+                match vals.back_mut() {
+                    Some(b) if b.len() < TEE_BLOCK => b.push(v.clone()),
+                    _ => {
+                        let mut b = Vec::with_capacity(TEE_BLOCK);
+                        b.push(v.clone());
+                        vals.push_back(b);
+                    }
+                }
+                v
+            }
+            None => return Ok(None),
+        },
+    };
+    p.pos.set(i + 1);
+    // a block can be freed only once the last member reaches its end, a multiple of TEE_BLOCK
+    if (i + 1) % TEE_BLOCK == 0 {
+        tee_trim(d);
+    }
+    Ok(Some(v))
+}
+fn tee_pos_of(v: &V) -> Option<(Rc<TeeData>, usize)> {
+    let V::Iter(cell) = v else { return None };
+    let Ok(it) = cell.it.try_borrow() else { return None };
+    match &*it {
+        It::Tee(p) => Some((p.data.clone(), p.pos.get())),
+        _ => None,
+    }
+}
+// copy.copy/deepcopy of a tee iterator make a new tee of the group at the same position, as CPython's
+// tee.__copy__ does.
+fn tee_copy_iter(v: &V) -> Option<V> {
+    tee_pos_of(v).map(|(d, pos)| tee_member(&d, pos))
+}
 pub fn itertools_fn(name: &str, mut a: Args) -> R {
     Ok(match name {
         "permutations" => {
@@ -1976,8 +2127,8 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
         "repeat" => {
             let x = a.p[0].clone();
             match a.p.get(1).cloned().or(a.kw("times")) {
-                Some(n) => vec_iter(ItKind::ItRepeat, vec![x; idx_of(&n)?.max(0) as usize]),
-                None => gen_iter(ItKind::ItRepeat, move || Ok(Some(x.clone()))),
+                Some(n) => new_iter(It::Repeat(x, Some(idx_of(&n)?.max(0))), IterClass::Kind(ItKind::ItRepeat)),
+                None => new_iter(It::Repeat(x, None), IterClass::Kind(ItKind::ItRepeat)),
             }
         }
         "cycle" => {
@@ -2094,6 +2245,113 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
                 }
             })
         }
+        "tee" => {
+            if !a.k.is_empty() {
+                return Err(exc("TypeError", "itertools.tee() takes no keyword arguments".into()));
+            }
+            a.want("tee", 1, 2)?;
+            let n = match a.p.get(1) {
+                Some(x) => it_ssize_arg(x)?,
+                None => 2,
+            };
+            if n < 0 {
+                return Err(exc("ValueError", "n must be >= 0".into()));
+            }
+            // CPython: it = iter(iterable); when `it` has __copy__, the result is `it` itself followed by
+            // n - 1 copies of it; otherwise a new group over `it`.
+            let it = iter_v(&a.p[0])?;
+            if n == 0 {
+                return Ok(tup(vec![]));
+            }
+            let mut out = vec![it.clone()];
+            if let Some((data, pos)) = tee_pos_of(&it) {
+                // CPython 3.13 makes every member new for a tee input (gh-123884), at its position
+                out = (0..n).map(|_| tee_member(&data, pos)).collect();
+            } else if let Some(copy) = match &it {
+                V::Obj(o) if o.cls.lookup("__copy__").is_some() => Some(getattr(&it, "__copy__")?),
+                _ => None,
+            } {
+                for _ in 1..n {
+                    out.push(call(&copy, Args::p(vec![]))?);
+                }
+            } else {
+                let src = shared_input(&it)?;
+                let data = Rc::new(TeeData { it: src, vals: RefCell::new(Default::default()), base: Cell::new(0), members: RefCell::new(vec![]), active: Cell::new(false) });
+                out.clear();
+                for _ in 0..n {
+                    out.push(tee_member(&data, 0));
+                }
+            }
+            tup(out)
+        }
+        "batched" => {
+            // CPython's Argument Clinic checks these in this order before converting anything.
+            if a.p.len() > 2 {
+                return type_err(format!("batched() takes exactly 2 positional arguments ({} given)", a.p.len()));
+            }
+            if a.p.len() + a.k.len() > 3 {
+                return type_err(format!("batched() takes at most 3 arguments ({} given)", a.p.len() + a.k.len()));
+            }
+            if a.p.len() >= 1 && a.k.iter().any(|(n, _)| *n == "iterable") {
+                return type_err("argument for batched() given by name ('iterable') and position (1)".into());
+            }
+            if a.p.len() >= 2 && a.k.iter().any(|(n, _)| *n == "n") {
+                return type_err("argument for batched() given by name ('n') and position (2)".into());
+            }
+            for (n, _) in &a.k {
+                if *n != "iterable" && *n != "n" && *n != "strict" {
+                    return type_err(format!("batched() got an unexpected keyword argument '{n}'"));
+                }
+            }
+            let iterable = match a.p.first().cloned() {
+                Some(v) => v,
+                None => match a.kw("iterable") {
+                    Some(v) => v,
+                    None => return type_err("batched() missing required argument 'iterable' (pos 1)".into()),
+                },
+            };
+            let nv = match a.p.get(1).cloned() {
+                Some(v) => v,
+                None => match a.kw("n") {
+                    Some(v) => v,
+                    None => return type_err("batched() missing required argument 'n' (pos 2)".into()),
+                },
+            };
+            let n = it_ssize_arg(&nv)?;
+            let strict = truth(&a.kw("strict").unwrap_or(V::Bool(false)))?;
+            if n <= 0 {
+                return Err(exc("ValueError", "n must be at least one".into()));
+            }
+            let it = shared_input(&iterable)?;
+            let dead = Rc::new(RefCell::new(false));
+            shared_iter(ItKind::ItBatched, move || {
+                if *dead.borrow() {
+                    return Ok(None);
+                }
+                let mut row = vec![];
+                for i in 0..n {
+                    match iter_step(&it)? {
+                        Some(x) => row.push(x),
+                        None => {
+                            if i == 0 {
+                                *dead.borrow_mut() = true;
+                                let old = std::mem::replace(&mut *it.borrow_mut(), It::Done);
+                                drop(old);
+                                return Ok(None);
+                            }
+                            if strict {
+                                *dead.borrow_mut() = true;
+                                let old = std::mem::replace(&mut *it.borrow_mut(), It::Done);
+                                drop(old);
+                                return Err(exc("ValueError", "batched(): incomplete batch".into()));
+                            }
+                            return Ok(Some(tup(row)));
+                        }
+                    }
+                }
+                Ok(Some(tup(row)))
+            })
+        }
         _ => return Err(unsupported(&format!("itertools.{name}"))),
     })
 }
@@ -2140,6 +2398,10 @@ pub fn shallow_copy(x: &V) -> R {
             });
             V::Obj(n)
         }
+        V::Iter(_) => match tee_copy_iter(x) {
+            Some(v) => v,
+            None => x.clone(),
+        },
         _ => x.clone(),
     })
 }
@@ -2252,6 +2514,10 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
             }
             V::Obj(n)
         }
+        V::Iter(_) => match tee_copy_iter(x) {
+            Some(v) => v,
+            None => x.clone(),
+        },
         _ => x.clone(),
     })
 }
@@ -2728,6 +2994,8 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         }
         ("dataclasses", "MISSING" | "KW_ONLY" | "InitVar" | "Field" | "FrozenInstanceError") => dataclass_attr(name).unwrap(),
         ("abc", "ABC") => V::Class(abc_class()),
+        ("re._constants", "MAXREPEAT") => V::Int(0xFFFF_FFFE),
+        ("re._constants", "MAXGROUPS") => V::Int(0x3FFF_FFFF),
         _ => {
             if let Some(v) = ext_module_attr(m, name)? {
                 return Ok(v);
@@ -2930,7 +3198,7 @@ fn namedtuple_with(mut a: Args, check_name: bool) -> R {
     // each field is a read-only descriptor holding its index in the wrapped tuple (V::NTF): getattr reads
     // the tuple directly for it, with no Args allocation and no call (see getattr in rt_call.rs).
     for (i, f) in fields.iter().enumerate() {
-        c.set(*f, V::NTF(Rc::new(i as i64)));
+        c.set(*f, V::NTF(Rc::new(Ntf { idx: i as i64, doc: RefCell::new(st(format!("Alias for field number {i}"))) })));
     }
 
     let frepr = fields.clone();
@@ -3597,6 +3865,7 @@ pub fn ext_module_call(m: &str, n: &str, a: Args) -> R {
         return ext_module_call2(m, n, a).unwrap();
     }
     match m {
+        "re" if matches!(n, "error" | "PatternError") => re_error_new(a),
         "re" => re_fn(n, a),
         "json" | "json.decoder" if n == "JSONDecoder" => call(&V::Class(json_decoder_class()), a),
         "json" | "json.encoder" if n == "JSONEncoder" => call(&V::Class(json_encoder_class()), a),
@@ -3636,7 +3905,7 @@ pub fn ext_module_attr(m: &str, n: &str) -> Result<Option<V>, E> {
         ("_brevi_sqlite", "cursor_next") => Some(cursor_next_func()),
         ("_brevi_sqlite", "cursor_fetchone") => Some(cursor_fetchone_func()),
         ("_brevi_sqlite", "conn_execute") => Some(conn_execute_func()),
-        ("re", "error") => Some(V::Class(exc_class("error"))),
+        ("re", "error" | "PatternError") => Some(V::Class(exc_class("PatternError"))),
         ("json" | "json.decoder", "JSONDecodeError") => Some(V::Class(exc_class("JSONDecodeError"))),
         ("json" | "json.decoder", "JSONDecoder") => Some(V::Class(json_decoder_class())),
         ("json" | "json.encoder", "JSONEncoder") => Some(V::Class(json_encoder_class())),
