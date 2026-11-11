@@ -1882,7 +1882,7 @@ fn obj_cmp(a: &V, b: &V, op: &str) -> Option<R> {
         _ => ("__ge__", "__le__"),
     };
     if op == "!=" {
-        return obj_ne(a, b).transpose().map(|r| r.map(V::Bool));
+        return obj_ne(a, b).transpose();
     }
     // the right operand first when its class is a strict subclass of the left operand's (do_richcompare)
     let order = if reflected_first(a, b) { [(b, a, r), (a, b, l)] } else { [(a, b, l), (b, a, r)] };

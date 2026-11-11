@@ -345,24 +345,24 @@ pub fn reflected_first(a: &V, b: &V) -> bool {
         _ => false,
     }
 }
-// One side of `x != y` for an object, as CPython's slot does it: x's own __ne__, else object.__ne__, which
-// inverts x's __eq__. None for NotImplemented (or no __eq__ either, object's own answering NotImplemented
-// unless x is y).
-fn ne_side(x: &V, y: &V) -> Result<Option<bool>, E> {
+// One side of `x != y` for an object, as CPython's slot does it: x's own __ne__ (its value, whatever it is:
+// a polars expression, say), else object.__ne__, which inverts the truth of x's __eq__. None for
+// NotImplemented (or no __eq__ either: object's own answers NotImplemented unless x is y).
+fn ne_side(x: &V, y: &V) -> Result<Option<V>, E> {
     let V::Obj(o) = x else { return Ok(None) };
     if let Some(f) = o.cls.lookup("__ne__") {
         let r = call(&f, Args::p(vec![x.clone(), y.clone()]))?;
-        return Ok(if matches!(r, V::NotImpl) { None } else { Some(truth(&r)?) });
+        return Ok(if matches!(r, V::NotImpl) { None } else { Some(r) });
     }
     if let Some(f) = o.cls.lookup("__eq__") {
         let r = call(&f, Args::p(vec![x.clone(), y.clone()]))?;
-        return Ok(if matches!(r, V::NotImpl) { None } else { Some(!truth(&r)?) });
+        return Ok(if matches!(r, V::NotImpl) { None } else { Some(V::Bool(!truth(&r)?)) });
     }
-    Ok(if is(x, y) { Some(false) } else { None })
+    Ok(if is(x, y) { Some(V::Bool(false)) } else { None })
 }
-// `a != b` when an operand is an object and neither wraps a builtin value: CPython's order (the right
-// operand first when its class is a strict subclass), then identity. None leaves it to the general path.
-pub fn obj_ne(a: &V, b: &V) -> Result<Option<bool>, E> {
+// `a != b` as a value when an operand is an object and neither wraps a builtin value: CPython's order (the
+// right operand first when its class is a strict subclass), then identity. None leaves it to the general path.
+pub fn obj_ne(a: &V, b: &V) -> Result<Option<V>, E> {
     if !(matches!(a, V::Obj(_)) || matches!(b, V::Obj(_))) || inner_of(a).is_some() || inner_of(b).is_some() {
         return Ok(None);
     }
@@ -380,11 +380,11 @@ pub fn obj_ne(a: &V, b: &V) -> Result<Option<bool>, E> {
             return Ok(Some(r));
         }
     }
-    Ok(Some(!is(a, b)))
+    Ok(Some(V::Bool(!is(a, b))))
 }
 pub fn ne(a: &V, b: &V) -> Result<bool, E> {
     if let Some(r) = obj_ne(a, b)? {
-        return Ok(r);
+        return truth(&r);
     }
     if let V::Obj(o) = a {
         if let Some(f) = o.cls.lookup("__ne__") {
