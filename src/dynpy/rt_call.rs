@@ -372,7 +372,25 @@ pub fn make_class_f(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, at
         }
     }
     *c.fields.borrow_mut() = fields;
-    // __set_name__ is not supported (rare)
+    // a class of the program that defines __set__ or __delete__ makes its instances data descriptors, which
+    // attribute reads must then ask before an instance's own attributes (see getattr)
+    if c.attrs.borrow().iter().any(|(k, _)| *k == "__set__" || *k == "__delete__") {
+        USER_DATA_DESC.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+    // type.__new__ calls __set_name__(cls, name) on each attribute whose type defines it, in definition order;
+    // an error propagates as it is (CPython 3.12+)
+    let hooks: Vec<(Sym, V, V)> = c
+        .attrs
+        .borrow()
+        .iter()
+        .filter_map(|(k, v)| match v {
+            V::Obj(d) => d.cls.lookup("__set_name__").map(|f| (*k, v.clone(), f)),
+            _ => None,
+        })
+        .collect();
+    for (k, v, f) in hooks {
+        call(&f, Args::p(vec![v, V::Class(c.clone()), s(k)]))?;
+    }
     if is_enum(&c) {
         enum_setup(&c)?;
     }
@@ -951,6 +969,11 @@ pub fn getattr_ic(o: &V, name: Sym, ic: &std::sync::atomic::AtomicUsize) -> R {
         }
         // the same name's text can sit at another address in another part of the program
         if let Some(v) = d.attrs.at_named(w, name) {
+            // a data descriptor of the program wins over the instance attribute (see getattr)
+            if USER_DATA_DESC.load(std::sync::atomic::Ordering::Relaxed) && ob.cls.lookup(name).is_some_and(|x| is_data_desc(&x)) {
+                drop(d);
+                return getattr(o, name);
+            }
             return Ok(v.clone());
         }
     }
@@ -965,6 +988,10 @@ fn getattr_ic_slow(o: &V, name: Sym, ic: &std::sync::atomic::AtomicUsize) -> R {
             return getattr(o, name);
         }
         if let Some(i) = d.attrs.find(name) {
+            if USER_DATA_DESC.load(std::sync::atomic::Ordering::Relaxed) && ob.cls.lookup(name).is_some_and(|x| is_data_desc(&x)) {
+                drop(d);
+                return getattr(o, name);
+            }
             ic.store(i, std::sync::atomic::Ordering::Relaxed);
             return Ok(d.attrs.get(i).unwrap().1.clone());
         }
@@ -1057,6 +1084,25 @@ fn dotted_type_name(c: &Class) -> Option<(&'static str, &'static str)> {
     }
     c.name.rsplit_once('.')
 }
+// Set once the program makes a class with __set__ or __delete__ (a data descriptor type), so attribute reads
+// of programs without one never look at the class first.
+pub static USER_DATA_DESC: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+// an instance of a program class that defines __set__ or __delete__
+pub fn is_data_desc(v: &V) -> bool {
+    match v {
+        V::Obj(d) => d.cls.lookup("__set__").is_some() || d.cls.lookup("__delete__").is_some(),
+        _ => false,
+    }
+}
+// descriptor.__get__(obj, cls), or the descriptor itself when its type has no __get__ (a data descriptor
+// with only __set__ reads as itself from the class, and from an instance without the attribute)
+pub fn desc_get(d: &V, obj: &V, cls: &V) -> R {
+    let V::Obj(dd) = d else { return Ok(d.clone()) };
+    match dd.cls.lookup("__get__") {
+        Some(f) => call(&f, Args::p(vec![d.clone(), obj.clone(), cls.clone()])),
+        None => Ok(d.clone()),
+    }
+}
 pub fn getattr(o: &V, name: &str) -> R {
     match o {
         V::Obj(ob) => {
@@ -1065,11 +1111,22 @@ pub fn getattr(o: &V, name: &str) -> R {
             if name == "__dict__" && ob.cls.lookup(name).is_none() && ob.cls.has_dict() {
                 return ob.dict();
             }
+            // a data descriptor of the program (its class defines __set__ or __delete__) wins over the
+            // instance's own attribute, as in CPython
+            if USER_DATA_DESC.load(std::sync::atomic::Ordering::Relaxed) {
+                if let Some(d) = ob.cls.lookup(name) {
+                    if is_data_desc(&d) {
+                        return desc_get(&d, o, &V::Class(ob.cls.clone()));
+                    }
+                }
+            }
             if let Some(v) = ob.get_attr(name)? {
                 return Ok(v);
             }
             if let Some(v) = ob.cls.lookup(name) {
                 return match &v {
+                    // a non-data descriptor of the program (its class defines __get__)
+                    V::Obj(d) if d.cls.lookup("__get__").is_some() => desc_get(&v, o, &V::Class(ob.cls.clone())),
                     V::Func(f) => Ok(match f.kind.get() {
                         1 => v.clone(),
                         2 => V::Bound(Rc::new((V::Class(ob.cls.clone()), v.clone()))),
@@ -1141,6 +1198,8 @@ pub fn getattr(o: &V, name: &str) -> R {
             if let Some(v) = c.lookup(name) {
                 return Ok(match &v {
                     V::Func(f) if f.kind.get() == 2 => V::Bound(Rc::new((o.clone(), v.clone()))),
+                    // a descriptor of the program read from the class: __get__(None, cls)
+                    V::Obj(d) if d.cls.lookup("__get__").is_some() => return desc_get(&v, &V::None, o),
                     _ => {
                         if let V::Ext(x) = &v {
                             if let Some(r) = x.descriptor(&v, &V::None, o) {
@@ -1418,6 +1477,14 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
                     call(&p.1, Args::p(vec![o.clone(), v]))?;
                     return Ok(());
                 }
+                // a data descriptor of the program: __set__(obj, value); one with only __delete__ cannot be set
+                Some(d @ V::Obj(_)) if is_data_desc(&d) => {
+                    let V::Obj(dd) = &d else { unreachable!() };
+                    return match dd.cls.lookup("__set__") {
+                        Some(f) => call(&f, Args::p(vec![d.clone(), o.clone(), v])).map(|_| ()),
+                        None => Err(exc("AttributeError", "__set__".into())),
+                    };
+                }
                 _ => {}
             }
             if let Some(sa) = ob.cls.lookup("__setattr__") {
@@ -1438,6 +1505,9 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
             Ok(())
         }
         V::Class(c) => {
+            if name == "__set__" || name == "__delete__" {
+                USER_DATA_DESC.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
             c.set(name, v);
             Ok(())
         }
@@ -1505,6 +1575,18 @@ pub fn delattr(o: &V, name: &str) -> Result<(), E> {
             {
                 ob.del_attr(name)?;
                 return Ok(());
+            }
+            // a data descriptor of the program: __delete__(obj); one with only __set__ cannot be deleted
+            if USER_DATA_DESC.load(std::sync::atomic::Ordering::Relaxed) {
+                if let Some(d @ V::Obj(_)) = ob.cls.lookup(name) {
+                    if is_data_desc(&d) {
+                        let V::Obj(dd) = &d else { unreachable!() };
+                        return match dd.cls.lookup("__delete__") {
+                            Some(f) => call(&f, Args::p(vec![d.clone(), o.clone()])).map(|_| ()),
+                            None => Err(exc("AttributeError", "__delete__".into())),
+                        };
+                    }
+                }
             }
             if ob.del_attr(name)? {
                 Ok(())

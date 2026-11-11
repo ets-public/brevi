@@ -1,0 +1,28 @@
+set_name C x
+get C C
+0
+set 4
+get C C
+40
+get NoneType C
+D
+get C C
+40 nd 1
+get C C
+40 nd 1
+get C C
+40 nd 1
+own
+get C C
+40
+del
+get C C
+0
+only set
+W
+AE __delete__
+1 1 doc __main__ True {'cost': 1}
+No '__dict__' attribute on 'S' instance to cache 'cost' property.
+Cannot assign the same cached_property to two different names ('a' and 'b').
+1
+1
