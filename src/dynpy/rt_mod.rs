@@ -3461,6 +3461,7 @@ pub fn ext_module_call(m: &str, n: &str, a: Args) -> R {
         return ext_module_call2(m, n, a).unwrap();
     }
     match m {
+        "re" if matches!(n, "error" | "PatternError") => re_error_new(a),
         "re" => re_fn(n, a),
         "json" | "json.decoder" if n == "JSONDecoder" => call(&V::Class(json_decoder_class()), a),
         "json" | "json.encoder" if n == "JSONEncoder" => call(&V::Class(json_encoder_class()), a),
