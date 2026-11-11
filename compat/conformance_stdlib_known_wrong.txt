@@ -69,14 +69,10 @@ test_re.PatternReprTests.test_bytes dyn issue=#399 owner=ets-public expires=2026
 test_re.PatternReprTests.test_bytes normal issue=#399 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_bigcharset dyn issue=#399 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_bigcharset normal issue=#399 owner=ets-public expires=2026-12-11
-test_re.ReTests.test_bug_764548 dyn issue=#399 owner=ets-public expires=2026-12-11
-test_re.ReTests.test_bug_764548 normal issue=#399 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_ignore_spaces dyn issue=#399 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_ignore_spaces normal issue=#399 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_issue17998 dyn issue=#399 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_issue17998 normal issue=#399 owner=ets-public expires=2026-12-11
-test_re.ReTests.test_look_behind_overflow dyn issue=#399 owner=ets-public expires=2026-12-11
-test_re.ReTests.test_look_behind_overflow normal issue=#399 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_misuse_flags dyn issue=#418 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_misuse_flags normal issue=#418 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_possible_set_operations dyn issue=#418 owner=ets-public expires=2026-12-11

@@ -1152,33 +1152,34 @@ impl RClass {
 // (min, max) width of a node list as CPython's getwidth() computes it, plus false when some look-behind inside
 // is not fixed-width. gw holds the widths of the groups closed so far, for backreferences.
 type Wd = (usize, usize);
-fn alts_width(alts: &[Vec<RNode>], gw: &mut Vec<Option<Wd>>) -> (Wd, bool) {
-    let (mut lo, mut hi, mut ok) = (usize::MAX, 0usize, true);
+type WErr = Option<&'static str>;
+fn alts_width(alts: &[Vec<RNode>], gw: &mut Vec<Option<Wd>>) -> (Wd, WErr) {
+    let (mut lo, mut hi, mut ok) = (usize::MAX, 0usize, None);
     for a in alts {
         let (w, k) = seq_width(a, gw);
         lo = lo.min(w.0);
         hi = hi.max(w.1);
-        ok &= k;
+        ok = ok.or(k);
     }
     if alts.is_empty() {
         lo = 0;
     }
     ((lo, hi), ok)
 }
-fn seq_width(v: &[RNode], gw: &mut Vec<Option<Wd>>) -> (Wd, bool) {
-    let (mut lo, mut hi, mut ok) = (0usize, 0usize, true);
+fn seq_width(v: &[RNode], gw: &mut Vec<Option<Wd>>) -> (Wd, WErr) {
+    let (mut lo, mut hi, mut ok) = (0usize, 0usize, None);
     for n in v {
         let (w, k) = node_width(n, gw);
         lo = lo.saturating_add(w.0);
         hi = hi.saturating_add(w.1);
-        ok &= k;
+        ok = ok.or(k);
     }
     ((lo, hi), ok)
 }
-fn node_width(n: &RNode, gw: &mut Vec<Option<Wd>>) -> (Wd, bool) {
+fn node_width(n: &RNode, gw: &mut Vec<Option<Wd>>) -> (Wd, WErr) {
     match n {
-        RNode::Char(_) | RNode::Any(_) | RNode::Class(_) => ((1, 1), true),
-        RNode::Bol(_) | RNode::Eol(_) | RNode::StrStart | RNode::StrEnd | RNode::WordB(..) => ((0, 0), true),
+        RNode::Char(_) | RNode::Any(_) | RNode::Class(_) => ((1, 1), None),
+        RNode::Bol(_) | RNode::Eol(_) | RNode::StrStart | RNode::StrEnd | RNode::WordB(..) => ((0, 0), None),
         RNode::Group(a, g) => {
             let r = alts_width(a, gw);
             if let Some(g) = g {
@@ -1188,11 +1189,21 @@ fn node_width(n: &RNode, gw: &mut Vec<Option<Wd>>) -> (Wd, bool) {
         }
         RNode::Atomic(a) => alts_width(a, gw),
         RNode::Look(a, behind, _, width) => {
-            let (w, ok) = alts_width(a, gw);
+            let (w, inner) = alts_width(a, gw);
             width.set(w.0);
-            ((0, 0), ok && (!behind || w.0 == w.1))
+            // CPython's compiler checks this look-behind before compiling (and checking) the ones inside it
+            let own = if !*behind {
+                None
+            } else if w.0 > 0xFFFF_FFFF {
+                Some("looks too much behind")
+            } else if w.0 != w.1 {
+                Some("look-behind requires fixed-width pattern")
+            } else {
+                None
+            };
+            ((0, 0), own.or(inner))
         }
-        RNode::Backref(g, _) => (gw.get(*g).copied().flatten().unwrap_or((0, usize::MAX)), true),
+        RNode::Backref(g, _) => (gw.get(*g).copied().flatten().unwrap_or((0, usize::MAX)), None),
         RNode::Repeat(x, min, max, _) => {
             let ((i, j), ok) = node_width(x, gw);
             let hi = if *max == usize::MAX && j > 0 { usize::MAX } else { j.saturating_mul(*max) };
@@ -1201,7 +1212,7 @@ fn node_width(n: &RNode, gw: &mut Vec<Option<Wd>>) -> (Wd, bool) {
         RNode::Cond(_, yes, no) => {
             let ((i, j), k1) = seq_width(yes, gw);
             let ((l, h), k2) = seq_width(no, gw);
-            ((i.min(l), j.max(h)), k1 && k2)
+            ((i.min(l), j.max(h)), k1.or(k2))
         }
     }
 }
@@ -1254,9 +1265,8 @@ fn re_compile2(src: &str, flags: i64, pat: Option<V>) -> Result<Rc<Prog>, E> {
     }
     // CPython's compiler: a look-behind must have a fixed width (raised without a position)
     let mut gw = vec![None; p.ngroups + 1];
-    if !alts_width(&alts, &mut gw).1 {
+    if let Some(msg) = alts_width(&alts, &mut gw).1 {
         let e = Obj::new(exc_class("PatternError"));
-        let msg = "look-behind requires fixed-width pattern";
         e.set("msg", st(msg.to_string()));
         for k in ["pattern", "pos", "lineno", "colno"] {
             e.set(k, V::None);
@@ -1852,6 +1862,11 @@ fn re_str(v: &V) -> Result<(Rc<Vec<char>>, V), E> {
             Ok((c, v.clone()))
         }
         V::Ext(e) if matches!(e.native(), Some(Ok(V::Str(_)))) => re_str(&e.native().unwrap()?),
+        // a str subclass: its characters, and the object itself as match.string
+        V::Obj(o) if matches!(o.inner().as_ref(), Some(V::Str(_))) => {
+            let inner = o.inner().as_ref().unwrap().clone();
+            Ok((re_str(&inner)?.0, v.clone()))
+        }
         _ => type_err(format!("expected string or bytes-like object, got '{}'", tn(v))),
     }
 }
@@ -2179,6 +2194,10 @@ fn pat_of(v: &V, flags: i64) -> Result<Rc<Prog>, E> {
                 None => type_err("first argument must be string or compiled pattern".into()),
             },
         },
+        V::Obj(o) if matches!(o.inner().as_ref(), Some(V::Str(_))) => {
+            let inner = o.inner().as_ref().unwrap().clone();
+            pat_of(&inner, flags)
+        }
         _ => type_err("first argument must be string or compiled pattern".into()),
     }
 }
