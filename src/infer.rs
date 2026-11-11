@@ -828,7 +828,7 @@ impl Cx<'_> {
                 if Self::is_n(recv, n) {
                     let ev = match (m.as_str(), &*acc) {
                         // Methods only text has.
-                        ("split" | "words" | "lines" | "lower" | "upper" | "trim" | "starts_with" | "ends_with" | "replace" | "is_digit" | "is_alpha" | "ints" | "partition" | "find" | "chars", Hole) if self.param_look => Str,
+                        ("split" | "words" | "lines" | "lower" | "casefold" | "upper" | "trim" | "starts_with" | "ends_with" | "replace" | "is_digit" | "is_alpha" | "ints" | "partition" | "find" | "chars", Hole) if self.param_look => Str,
                         ("has", Hole) if self.param_look => Map(Box::new(a0), Box::new(Hole)),
                         // Python lists that hold ints and strings (`t.append(int(s[i:j]))`, `t.append(c)`): JSON items.
                         ("push", List(x)) if scalar(x) && scalar(&a0) && clash(x, &a0) => {
@@ -1210,7 +1210,7 @@ impl Cx<'_> {
             m if m.starts_with("m_") => F64,
             "dec" | "quantize" | "frac" | "frac_div" => Dec,
             "big" | "big_base" => Big,
-            "char" | "fmt" | "spec" | "py_repr" | "py_dumps" | "trim" | "trim_of" | "trim_end" | "trim_end_of" | "trim_start" | "trim_start_of" | "lower" | "upper" | "replace" | "re_sub" | "text" | "zfill" | "title" | "center" | "center_with" | "capitalize" | "ljust" | "rjust" | "ljust_with" | "rjust_with" => Str,
+            "char" | "fmt" | "spec" | "py_repr" | "py_dumps" | "trim" | "trim_of" | "trim_end" | "trim_end_of" | "trim_start" | "trim_start_of" | "lower" | "casefold" | "upper" | "replace" | "re_sub" | "text" | "zfill" | "title" | "center" | "center_with" | "capitalize" | "ljust" | "rjust" | "ljust_with" | "rjust_with" => Str,
             "list" => List(Box::new(Json)),
             "repeat" | "slice" | "slice_step" | "rev" if matches!(r, Str) => Str,
             "join" => Str,

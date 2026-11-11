@@ -1,0 +1,1 @@
+- `str.casefold()`, `str.isdigit()`, `str.isdecimal()` and `str.isnumeric()` now follow CPython's Unicode tables exactly (full case folding such as `"ß".casefold() == "ss"`, superscript and non-Latin digits, `"一".isnumeric()`), in the typed and dynamic builds; `tools/gen_unicode.py` regenerates the tables (Fable review m07). Written by DeepSeek, reviewed by Claude.

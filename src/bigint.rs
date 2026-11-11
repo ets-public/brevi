@@ -343,7 +343,7 @@ fn from_text(e: &Expr) -> bool {
 fn text_arg(e: &Expr) -> bool {
     match e {
         Expr::Str(_) | Expr::Index(..) => true,
-        Expr::Method(_, t, _, _) => t.starts_with("trim") || t == "lower" || t == "upper",
+        Expr::Method(_, t, _, _) => t.starts_with("trim") || t == "lower" || t == "casefold" || t == "upper",
         Expr::Call(f, _, _) if BIGF.with(|b| b.borrow().contains(f)) => true,
         Expr::Call(f, a, _) => f == "input" && a.len() <= 1,
         Expr::Ident(n) | Expr::Move(n) => TEXT.with(|t| t.borrow().contains(n)),
@@ -355,7 +355,7 @@ fn text_arg(e: &Expr) -> bool {
 fn text_value(e: &Expr) -> bool {
     match e {
         Expr::Str(_) | Expr::Index(..) => true,
-        Expr::Method(_, t, _, _) => t.starts_with("trim") || t == "lower" || t == "upper",
+        Expr::Method(_, t, _, _) => t.starts_with("trim") || t == "lower" || t == "casefold" || t == "upper",
         Expr::Call(f, a, _) => f == "input" && a.len() <= 1,
         _ => false,
     }
