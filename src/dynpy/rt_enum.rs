@@ -726,8 +726,7 @@ pub fn re_flag(n: &str) -> Option<V> {
     if n == "RegexFlag" {
         return Some(V::Class(re_flag_class()));
     }
-    // re.LOCALE is for bytes patterns, which Brevi's re does not match: a program using it is refused
-    if n == "LOCALE" || n == "L" || !RE_FLAGS.iter().any(|(a, b, _)| *a == n || *b == n) {
+    if !RE_FLAGS.iter().any(|(a, b, _)| *a == n || *b == n) {
         return None;
     }
     re_flag_class().lookup(n)

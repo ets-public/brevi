@@ -240,7 +240,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "_brevi_mt" => &["new", "seed", "next", "random", "bits", "below", "shuffle"],
         "collections" => &["defaultdict", "Counter", "OrderedDict", "deque", "namedtuple"],
         "dataclasses" => &["asdict", "astuple", "dataclass", "field", "fields", "replace", "is_dataclass", "MISSING", "KW_ONLY", "InitVar", "Field", "FrozenInstanceError"],
-        "re" => &["compile", "escape", "findall", "finditer", "fullmatch", "match", "purge", "search", "split", "sub", "subn", "IGNORECASE", "I", "MULTILINE", "M", "DOTALL", "S", "VERBOSE", "X", "ASCII", "A", "NOFLAG", "UNICODE", "U", "DEBUG", "RegexFlag", "error", "PatternError"],
+        "re" => &["compile", "escape", "findall", "finditer", "fullmatch", "match", "purge", "search", "split", "sub", "subn", "IGNORECASE", "I", "LOCALE", "L", "MULTILINE", "M", "DOTALL", "S", "VERBOSE", "X", "ASCII", "A", "NOFLAG", "UNICODE", "U", "DEBUG", "RegexFlag", "error", "PatternError"],
         "re._constants" => &["MAXGROUPS", "MAXREPEAT"],
         "json" => &["dump", "dumps", "load", "loads", "JSONDecodeError", "JSONDecoder", "JSONEncoder"],
         "json.decoder" => &["scanstring", "JSONDecoder", "JSONDecodeError"],
@@ -1595,6 +1595,8 @@ pub struct Em {
     bridge: Bridge,
     // what the program has CPython run, for the path report
     bridged_used: BTreeSet<String>,
+    // the program calls the re module (see the buffer check at the end of emit)
+    uses_re: bool,
     // module + value set -> the first display's items in source order (CPython's constant merging)
     set_lits: HashMap<(String, BTreeSet<ConstKey>), Vec<Ex>>,
 }
@@ -2397,9 +2399,8 @@ impl Em {
                 if md == "time" && m == "strftime" && args.len() < 2 {
                     return Err(err(line, "time.strftime without a time tuple (local time) is not supported in dynamic builds"));
                 }
-                // a bytes pattern: Brevi's re matches str only, so CPython runs the program
-                if md == "re" && matches!(args.first(), Some(Arg::Pos(Ex::Call(f, _))) if matches!(f.as_ref(), Ex::Name(n) if n == "__bytes_lit")) {
-                    return Err(err(line, "re with a bytes pattern is not supported in dynamic builds"));
+                if md == "re" {
+                    self.uses_re = true;
                 }
                 // \N{NAME} is not in Brevi's regex engine, so CPython runs the program rather than answering wrong
                 if md == "re"
@@ -4006,6 +4007,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         direct_ok: HashSet::new(),
         bridge,
         bridged_used: BTreeSet::new(),
+        uses_re: false,
         set_lits: HashMap::new(),
     };
     // Brevi's own library copies first, each group named and numbered on its own, then the program's modules:
@@ -4206,6 +4208,14 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     )
     .unwrap();
     let _ = &em.out;
+    // CPython's re matches any buffer (array.array, mmap, ctypes arrays) as bytes, and slices the object
+    // itself for groups; Brevi's re takes str and bytes only. weakref would be handed Brevi's Pattern and
+    // Match values, which a bridged library cannot hold. CPython runs such a program.
+    if em.uses_re {
+        if let Some(m) = em.bridged_used.iter().find(|m| matches!(m.as_str(), "array" | "mmap" | "ctypes" | "weakref")) {
+            return Err((mods[0].name.clone(), 1, format!("re together with {m} is not supported in dynamic builds")));
+        }
+    }
     Ok((out, em.bridged_used.into_iter().collect()))
 }
 
