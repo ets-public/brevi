@@ -2630,7 +2630,7 @@ impl Em {
         b.push_str(&close);
         match kind {
             'l' => b.push_str("list(__out) }"),
-            'g' => b.push_str("vec_iter(__out) }"),
+            'g' => b.push_str("vec_iter(ItKind::Generator, __out) }"),
             's' => b.push_str("V::Set(Rc::new(RefCell::new(__out))) }"),
             _ => b.push_str("V::Dict(Rc::new(RefCell::new(__out))) }"),
         }
@@ -3251,7 +3251,7 @@ impl Em {
         let bb = self.block(body)?;
         self.f().frames.pop();
         let exit_ok = self.q(&format!("call_method(&__m{id}, \"__exit__\", Args::p(vec![V::None, V::None, V::None]))"));
-        let exit_err = self.q(&format!("call_method(&__m{id}, \"__exit__\", Args::p(vec![V::Class(type_of(&__ev)), __ev.clone(), V::None]))"));
+        let exit_err = self.q(&format!("call_method(&__m{id}, \"__exit__\", Args::p(vec![V::Class(type_of(&__ev)?), __ev.clone(), V::None]))"));
         let sup = self.q("truth(&__sx)");
         let after = self.flow_dispatch(id, line)?;
         Ok(format!(

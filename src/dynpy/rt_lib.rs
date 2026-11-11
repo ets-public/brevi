@@ -178,7 +178,7 @@ pub fn bi_input(a: Args) -> R {
     }
 }
 pub fn stdin_lines() -> V {
-    gen_iter(|| Ok(read_line().map(st)))
+    gen_iter(ItKind::Unknown, || Ok(read_line().map(st)))
 }
 
 // ---------- builtin functions ----------
@@ -512,12 +512,30 @@ pub fn bi_reversed(a: Args) -> R {
     if let V::Range(r) = &x {
         let n = range_len(&x) as i64;
         let last = r.0 + (n - 1) * r.2;
-        return Ok(V::Iter(Rc::new(RefCell::new(It::Range(last, r.0 - r.2, -r.2)))));
+        return Ok(new_iter(It::Range(last, r.0 - r.2, -r.2), IterClass::Kind(ItKind::RangeIter)));
     }
+    // list, dict and dict views have their own reverse iterators; every other reversible sequence gets
+    // the generic `reversed` object, as in CPython.
+    let kind = match &x {
+        V::List(_) => ItKind::ListReverseIter,
+        V::Dict(_) => ItKind::DictReverseKeys,
+        V::View(v) => match v.1 {
+            0 | 3 => ItKind::DictReverseKeys,
+            1 => ItKind::DictReverseValues,
+            2 => ItKind::DictReverseItems,
+            _ => ItKind::Reversed,
+        },
+        V::Obj(_) => match inner_of(&x) {
+            Some(V::List(_)) => ItKind::ListReverseIter,
+            Some(V::Dict(_)) => ItKind::DictReverseKeys,
+            _ => ItKind::Reversed,
+        },
+        _ => ItKind::Reversed,
+    };
     if matches!(x, V::Dict(_) | V::List(_) | V::Tuple(_) | V::Str(_) | V::Deque(_) | V::View(_)) || inner_of(&x).is_some() {
         let mut v = to_vec(&x)?;
         v.reverse();
-        return Ok(vec_iter(v));
+        return Ok(vec_iter(kind, v));
     }
     type_err(format!("'{}' object is not reversible", tn(&x)))
 }
@@ -528,7 +546,7 @@ pub fn bi_enumerate(mut a: Args) -> R {
         None => 0,
     };
     let mut it = iter(a.p.first().ok_or_else(|| exc("TypeError", "enumerate() missing required argument 'iterable'".into()))?)?;
-    Ok(gen_iter(move || {
+    Ok(gen_iter(ItKind::Enumerate, move || {
         Ok(match it.next()? {
             Some(x) => {
                 k += 1;
@@ -546,9 +564,9 @@ pub fn bi_zip(mut a: Args) -> R {
         its.push(shared_input(x)?);
     }
     if its.is_empty() {
-        return Ok(vec_iter(vec![]));
+        return Ok(vec_iter(ItKind::Zip, vec![]));
     }
-    Ok(shared_iter(move || {
+    Ok(shared_iter(ItKind::Zip, move || {
         let mut row = Vec::with_capacity(its.len());
         for (i, it) in its.iter().enumerate() {
             match iter_step(it)? {
@@ -580,7 +598,7 @@ pub fn bi_map(a: Args) -> R {
     for x in &a.p[1..] {
         its.push(shared_input(x)?);
     }
-    Ok(shared_iter(move || {
+    Ok(shared_iter(ItKind::Map, move || {
         let mut args = Vec::with_capacity(its.len());
         for it in its.iter() {
             match iter_step(it)? {
@@ -595,7 +613,7 @@ pub fn bi_filter(a: Args) -> R {
     a.want("filter", 2, 2)?;
     let f = a.p[0].clone();
     let mut it = iter(&a.p[1])?;
-    Ok(gen_iter(move || loop {
+    Ok(gen_iter(ItKind::Filter, move || loop {
         match it.next()? {
             Some(x) => {
                 let keep = if matches!(f, V::None) { truth(&x)? } else { truth(&call(&f, Args::p(vec![x.clone()]))?)? };
@@ -629,7 +647,7 @@ pub fn bi_iter(a: Args) -> R {
     if a.p.len() == 2 {
         let f = a.p[0].clone();
         let sentinel = a.p[1].clone();
-        return Ok(gen_iter(move || {
+        return Ok(gen_iter(ItKind::CallableIterator, move || {
             let v = call(&f, Args::p(vec![]))?;
             if eq(&v, &sentinel)? {
                 Ok(None)
@@ -643,7 +661,7 @@ pub fn bi_iter(a: Args) -> R {
 pub fn bi_next(a: Args) -> R {
     a.want("next", 1, 2)?;
     let r = match &a.p[0] {
-        V::Iter(it) => match coro_of(it) {
+        V::Iter(it) => match coro_of(&it.it) {
             // A generator's return value travels on the StopIteration that next() raises.
             Some(c) => {
                 let r = c.borrow_mut().resume(V::None);
@@ -656,7 +674,7 @@ pub fn bi_next(a: Args) -> R {
                     Err(e) => return Err(e),
                 }
             }
-            None => iter_step(it)?,
+            None => iter_step(&it.it)?,
         },
         V::Obj(o) => match o.cls.lookup("__next__") {
             Some(f) => match call(&f, Args::p(vec![a.p[0].clone()])) {
@@ -699,6 +717,9 @@ pub fn isinstance(x: &V, c: &V) -> Result<bool, E> {
             Ok(false)
         }
         V::Class(k) => {
+            if k.name == "object" && k.module == "builtins" {
+                return Ok(true);
+            }
             if let V::Obj(o) = x {
                 return Ok(o.cls.is_sub(k) || (k.name == "object" && k.module == "builtins"));
             }
@@ -707,7 +728,7 @@ pub fn isinstance(x: &V, c: &V) -> Result<bool, E> {
                     return Ok(b);
                 }
             }
-            Ok(type_of(x).is_sub(k))
+            Ok(type_of(x)?.is_sub(k))
         }
         V::Ext(e) => match e.instancecheck(x) {
             Some(r) => r,
@@ -718,8 +739,8 @@ pub fn isinstance(x: &V, c: &V) -> Result<bool, E> {
         _ => type_err("isinstance() arg 2 must be a type, a tuple of types, or a union".into()),
     }
 }
-pub fn type_of(x: &V) -> Rc<Class> {
-    match x {
+pub fn type_of(x: &V) -> Result<Rc<Class>, E> {
+    Ok(match x {
         V::Obj(o) => o.cls.clone(),
         V::Bool(_) => tclass(0, "bool"),
         V::Int(_) | V::Big(_) => tclass(1, "int"),
@@ -742,12 +763,80 @@ pub fn type_of(x: &V) -> Rc<Class> {
         V::Deque(_) => tclass(16, "deque"),
         V::View(x) if x.1 == 3 => tclass(17, "mappingproxy"),
         V::Ext(e) => ext_class(e.tname()),
+        V::Iter(it) => return iter_type_of(it),
         _ => tclass(18, "object"),
+    })
+}
+fn iter_type_unsupported() -> E {
+    exc("NotImplementedError", "brevi: type() of this iterator is not supported".into())
+}
+fn iter_type_of(it: &Rc<IterCell>) -> Result<Rc<Class>, E> {
+    match &it.kind {
+        IterClass::Class(c) => Ok(c.clone()),
+        IterClass::Kind(k) => it_class(*k),
     }
+}
+pub fn it_class(k: ItKind) -> Result<Rc<Class>, E> {
+    let (module, name) = match k {
+        ItKind::ListIter => ("builtins", "list_iterator"),
+        ItKind::TupleIter => ("builtins", "tuple_iterator"),
+        ItKind::StrAsciiIter => ("builtins", "str_ascii_iterator"),
+        ItKind::StrIter => ("builtins", "str_iterator"),
+        ItKind::RangeIter => ("builtins", "range_iterator"),
+        ItKind::DictKeys => ("builtins", "dict_keyiterator"),
+        ItKind::DictValues => ("builtins", "dict_valueiterator"),
+        ItKind::DictItems => ("builtins", "dict_itemiterator"),
+        ItKind::SetIter => ("builtins", "set_iterator"),
+        ItKind::ListReverseIter => ("builtins", "list_reverseiterator"),
+        ItKind::Reversed => ("builtins", "reversed"),
+        ItKind::DictReverseKeys => ("builtins", "dict_reversekeyiterator"),
+        ItKind::DictReverseValues => ("builtins", "dict_reversevalueiterator"),
+        ItKind::DictReverseItems => ("builtins", "dict_reverseitemiterator"),
+        ItKind::Map => ("builtins", "map"),
+        ItKind::Filter => ("builtins", "filter"),
+        ItKind::Zip => ("builtins", "zip"),
+        ItKind::Enumerate => ("builtins", "enumerate"),
+        ItKind::Generator => ("builtins", "generator"),
+        ItKind::CallableIterator => ("builtins", "callable_iterator"),
+        ItKind::BytesIter => ("builtins", "bytes_iterator"),
+        ItKind::DequeIter => ("collections", "_deque_iterator"),
+        ItKind::Iterator => ("builtins", "iterator"),
+        ItKind::ItCount => ("itertools", "count"),
+        ItKind::ItChain => ("itertools", "chain"),
+        ItKind::ItIslice => ("itertools", "islice"),
+        ItKind::ItRepeat => ("itertools", "repeat"),
+        ItKind::ItCycle => ("itertools", "cycle"),
+        ItKind::ItAccumulate => ("itertools", "accumulate"),
+        ItKind::ItZipLongest => ("itertools", "zip_longest"),
+        ItKind::ItStarmap => ("itertools", "starmap"),
+        ItKind::ItTakewhile => ("itertools", "takewhile"),
+        ItKind::ItDropwhile => ("itertools", "dropwhile"),
+        ItKind::ItPairwise => ("itertools", "pairwise"),
+        ItKind::ItCompress => ("itertools", "compress"),
+        ItKind::ItFilterfalse => ("itertools", "filterfalse"),
+        ItKind::ItGroupby => ("itertools", "groupby"),
+        ItKind::ItGrouper => ("itertools", "_grouper"),
+        ItKind::ItProduct => ("itertools", "product"),
+        ItKind::ItPermutations => ("itertools", "permutations"),
+        ItKind::ItCombinations => ("itertools", "combinations"),
+        ItKind::ItCombinationsWithReplacement => ("itertools", "combinations_with_replacement"),
+        ItKind::Unknown => return Err(iter_type_unsupported()),
+    };
+    ITER_CLASSES.with(|c| {
+        let i = k as u8 as usize;
+        if let Some(k) = &c.borrow()[i] {
+            return Ok(k.clone());
+        }
+        let k = Class::new(name, module, vec![bclass("object")], BT::Other);
+        c.borrow_mut()[i] = Some(k.clone());
+        Ok(k)
+    })
 }
 thread_local! {
     // type_of's builtin classes, filled on first use (init_builtin_classes empties it)
     pub static TYPE_CACHE: RefCell<[Option<Rc<Class>>; 19]> = RefCell::new(Default::default());
+    // the classes of the iterator kinds (init_builtin_classes empties this too)
+    pub static ITER_CLASSES: RefCell<[Option<Rc<Class>>; ItKind::Unknown as usize + 1]> = RefCell::new(std::array::from_fn(|_| None));
 }
 #[inline]
 fn tclass(i: usize, n: &'static str) -> Rc<Class> {
@@ -769,6 +858,18 @@ pub fn ext_class(n: &'static str) -> Rc<Class> {
         m.entry(n).or_insert_with(|| Class::new(n, "builtins", vec![bclass("object")], BT::Other)).clone()
     })
 }
+// Classes of iterator types a bridged CPython value reports (list_iterator for a proxy list, say).
+// Keyed by module and name so `type(a) is type(b)` shares one class per CPython type.
+thread_local! {
+    pub static EXT_ITER_CLASSES: RefCell<HashMap<(Sym, Sym), Rc<Class>>> = RefCell::new(HashMap::new());
+}
+pub fn ext_class_mod(module: &str, name: &str) -> Rc<Class> {
+    EXT_ITER_CLASSES.with(|m| {
+        let key = (sym(module), sym(name));
+        let mut m = m.borrow_mut();
+        m.entry(key).or_insert_with(|| Class::new(key.1, key.0, vec![bclass("object")], BT::Other)).clone()
+    })
+}
 pub fn bi_type(a: Args) -> R {
     if a.p.len() == 3 {
         let name = sym(&to_str(&a.p[0])?);
@@ -776,7 +877,7 @@ pub fn bi_type(a: Args) -> R {
         let attrs: Vec<(Sym, V)> = dict_items_of(&a.p[2])?.into_iter().map(|(k, v)| (sym(&to_str(&k).unwrap_or_default()), v)).collect();
         return make_class(name, "__main__", bases, attrs);
     }
-    Ok(V::Class(type_of(&a1(&a, "type")?)))
+    Ok(V::Class(type_of(&a1(&a, "type")?)?))
 }
 pub fn bi_issubclass(a: Args) -> R {
     a.want("issubclass", 2, 2)?;
@@ -2441,7 +2542,7 @@ pub fn dict_method(d: &Rc<RefCell<Dict>>, o: &V, name: &str, mut a: Args) -> R {
                     out.push(k.clone());
                 }
             }
-            vec_iter(out)
+            vec_iter(ItKind::ItChain, out)
         }
         "total" => {
             let mut t = V::Int(0);
@@ -2963,7 +3064,7 @@ pub fn builtin_method(o: &V, name: &str, a: Args) -> R {
             "__next__" => bi_next(Args::p(vec![o.clone()])),
             "__iter__" => Ok(o.clone()),
             "send" => {
-                let c = match &*it.borrow() {
+                let c = match &*it.it.borrow() {
                     It::Coro(c) => c.clone(),
                     _ => return bad_method(o, name),
                 };
@@ -2975,7 +3076,7 @@ pub fn builtin_method(o: &V, name: &str, a: Args) -> R {
             }
             // throw(exc) or throw(type[, value[, tb]]): raised at the yield it is suspended at.
             "throw" => {
-                let c = match &*it.borrow() {
+                let c = match &*it.it.borrow() {
                     It::Coro(c) => c.clone(),
                     _ => return bad_method(o, name),
                 };
@@ -2996,7 +3097,7 @@ pub fn builtin_method(o: &V, name: &str, a: Args) -> R {
                 }
             }
             "close" => {
-                let c = match &*it.borrow() {
+                let c = match &*it.it.borrow() {
                     It::Coro(c) => c.clone(),
                     _ => return Ok(V::None),
                 };

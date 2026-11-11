@@ -345,7 +345,7 @@ pub fn repr(v: &V) -> Result<String, E> {
             // a generator (or genexpr) reprs with its dotted __qualname__, as in CPython; the cells are held
             // while the generator body runs, so read them only when free (the running generator's name is
             // remembered elsewhere for that case)
-            let name = x.try_borrow().ok().and_then(|it| match &*it {
+            let name = x.it.try_borrow().ok().and_then(|it| match &*it {
                 It::Coro(c) => c.try_borrow().ok().map(|c| c.name),
                 It::GenExp(_, n, _) => Some(*n),
                 _ => None,

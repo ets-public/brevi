@@ -744,7 +744,11 @@ fn lru_cache_wrap(f: V, maxsize: V, typed: bool) -> R {
         }
         let mut parts = vec![tup(a.p.clone()), tup(kw)];
         if typed {
-            parts.push(tup(a.p.iter().chain(a.k.iter().map(|(_, v)| v)).map(|x| V::Class(type_of(x))).collect()));
+            let mut types = vec![];
+            for x in a.p.iter().chain(a.k.iter().map(|(_, v)| v)) {
+                types.push(V::Class(type_of(x)?));
+            }
+            parts.push(tup(types));
         }
         let key = tup(parts);
         if bound != Some(0) {
@@ -1178,7 +1182,7 @@ fn same_or_eq(a: &V, b: &V) -> Result<bool, E> {
 }
 fn groupby_iter(it: Rc<RefCell<It>>, key: Option<V>) -> V {
     let st = Rc::new(RefCell::new(GroupBy { key, tgt: None, cur_key: None, cur_val: None, group: 0 }));
-    shared_iter(move || {
+    shared_iter(ItKind::ItGroupby, move || {
         st.borrow_mut().group += 1;
         loop {
             let (tgt, cur) = {
@@ -1206,7 +1210,7 @@ fn groupby_iter(it: Rc<RefCell<It>>, key: Option<V>) -> V {
             (s.group, s.tgt.clone().unwrap())
         };
         let (it2, st2, tk) = (it.clone(), st.clone(), k.clone());
-        let grouper = shared_iter(move || {
+        let grouper = shared_iter(ItKind::ItGrouper, move || {
             if st2.borrow().group != me {
                 return Ok(None);
             }
@@ -1288,7 +1292,7 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
                     }
                 }
             }
-            vec_iter(out)
+            vec_iter(ItKind::ItPermutations, out)
         }
         "combinations" | "combinations_with_replacement" => {
             a.want(name, 2, 2)?;
@@ -1344,7 +1348,7 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
                     out.push(tup(idx.iter().map(|&i| pool[i].clone()).collect()));
                 }
             }
-            vec_iter(out)
+            vec_iter(if rep { ItKind::ItCombinationsWithReplacement } else { ItKind::ItCombinations }, out)
         }
         "product" => {
             let rep = match a.kw("repeat") {
@@ -1368,7 +1372,7 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
                 }
                 res = nr;
             }
-            vec_iter(res.into_iter().map(tup).collect())
+            vec_iter(ItKind::ItProduct, res.into_iter().map(tup).collect())
         }
         // The iterator tools are lazy, as in CPython: they pull from their inputs one item at a time, so they work
         // on infinite inputs, see items added after they were made, and run callbacks in CPython's order.
@@ -1376,7 +1380,7 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             let srcs = std::mem::take(&mut a.p);
             let mut k = 0;
             let mut cur: Option<It> = None;
-            gen_iter(move || loop {
+            gen_iter(ItKind::ItChain, move || loop {
                 if let Some(it) = &mut cur {
                     if let Some(x) = it.next()? {
                         return Ok(Some(x));
@@ -1394,7 +1398,7 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             let mut outer = iter(&a1(&a, "from_iterable")?)?;
             let mut cur: Option<It> = None;
             let mut done = false;
-            gen_iter(move || loop {
+            gen_iter(ItKind::ItChain, move || loop {
                 if let Some(it) = &mut cur {
                     if let Some(x) = it.next()? {
                         return Ok(Some(x));
@@ -1419,7 +1423,7 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             let mut it = iter(&a.p.first().cloned().or(a.kw("iterable")).ok_or_else(|| exc("TypeError", "accumulate() missing required argument 'iterable' (pos 1)".into()))?)?;
             let mut acc: Option<V> = None;
             let mut first = init;
-            gen_iter(move || {
+            gen_iter(ItKind::ItAccumulate, move || {
                 if let Some(i) = first.take() {
                     acc = Some(i.clone());
                     return Ok(Some(i));
@@ -1444,7 +1448,7 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
         "count" => {
             let mut n = a.p.first().cloned().unwrap_or(V::Int(0));
             let st0 = a.p.get(1).cloned().unwrap_or(V::Int(1));
-            gen_iter(move || {
+            gen_iter(ItKind::ItCount, move || {
                 let v = n.clone();
                 n = add(&n, &st0)?;
                 Ok(Some(v))
@@ -1481,7 +1485,7 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             let mut it = iter(&src)?;
             let mut i = 0i64;
             let mut next_i = start;
-            gen_iter(move || loop {
+            gen_iter(ItKind::ItIslice, move || loop {
                 if i >= stop || next_i >= stop {
                     return Ok(None);
                 }
@@ -1505,7 +1509,7 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
                 its.push(Some(iter(x)?));
             }
             let mut active = its.len();
-            gen_iter(move || {
+            gen_iter(ItKind::ItZipLongest, move || {
                 if active == 0 {
                     return Ok(None);
                 }
@@ -1535,15 +1539,15 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
         "repeat" => {
             let x = a.p[0].clone();
             match a.p.get(1).cloned().or(a.kw("times")) {
-                Some(n) => vec_iter(vec![x; idx_of(&n)?.max(0) as usize]),
-                None => gen_iter(move || Ok(Some(x.clone()))),
+                Some(n) => vec_iter(ItKind::ItRepeat, vec![x; idx_of(&n)?.max(0) as usize]),
+                None => gen_iter(ItKind::ItRepeat, move || Ok(Some(x.clone()))),
             }
         }
         "cycle" => {
             let mut it = Some(iter(&a1(&a, name)?)?);
             let mut saved: Vec<V> = vec![];
             let mut i = 0;
-            gen_iter(move || {
+            gen_iter(ItKind::ItCycle, move || {
                 if let Some(src) = &mut it {
                     if let Some(x) = src.next()? {
                         saved.push(x.clone());
@@ -1563,7 +1567,7 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             a.want(name, 2, 2)?;
             let f = a.p[0].clone();
             let mut it = iter(&a.p[1])?;
-            gen_iter(move || match it.next()? {
+            gen_iter(ItKind::ItStarmap, move || match it.next()? {
                 Some(x) => Ok(Some(call(&f, Args::p(to_vec(&x)?))?)),
                 None => Ok(None),
             })
@@ -1574,7 +1578,7 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             let mut it = iter(&a.p[1])?;
             let take = name == "takewhile";
             let mut flag = false;
-            gen_iter(move || loop {
+            gen_iter(if take { ItKind::ItTakewhile } else { ItKind::ItDropwhile }, move || loop {
                 if take && flag {
                     return Ok(None);
                 }
@@ -1598,7 +1602,7 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             // CPython's order, which re-entrant inputs can observe: the first item, then each next one
             let it = shared_input(&a1(&a, name)?)?;
             let st: Rc<RefCell<(Option<V>, bool)>> = Rc::new(RefCell::new((None, false)));
-            shared_iter(move || {
+            shared_iter(ItKind::ItPairwise, move || {
                 if st.borrow().1 {
                     return Ok(None);
                 }
@@ -1633,7 +1637,7 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             let sel = a.p.get(1).cloned().or(a.kw("selectors")).ok_or_else(|| exc("TypeError", "compress() missing required argument 'selectors' (pos 2)".into()))?;
             let mut xs = iter(&data)?;
             let mut ss = iter(&sel)?;
-            gen_iter(move || loop {
+            gen_iter(ItKind::ItCompress, move || loop {
                 let Some(x) = xs.next()? else { return Ok(None) };
                 let Some(s0) = ss.next()? else { return Ok(None) };
                 if truth(&s0)? {
@@ -1645,7 +1649,7 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             a.want(name, 2, 2)?;
             let f = a.p[0].clone();
             let mut it = iter(&a.p[1])?;
-            gen_iter(move || loop {
+            gen_iter(ItKind::ItFilterfalse, move || loop {
                 let Some(x) = it.next()? else { return Ok(None) };
                 let t = if matches!(f, V::None) { truth(&x)? } else { truth(&call(&f, Args::p(vec![x.clone()]))?)? };
                 if !t {
@@ -1976,7 +1980,7 @@ pub fn sys_fn(name: &str, a: Args) -> R {
         "exc_info" => {
             a.want(name, 0, 0)?;
             Ok(match cur_exc() {
-                Some(e) => tup(vec![V::Class(type_of(&e)), e, V::None]),
+                Some(e) => tup(vec![V::Class(type_of(&e)?), e, V::None]),
                 None => tup(vec![V::None, V::None, V::None]),
             })
         }
@@ -2041,7 +2045,7 @@ pub fn stream_fn(stream: &str, name: &str, a: Args) -> R {
             }
             Ok(list(v))
         }
-        ("sys.stdin.buffer", "__iter__") => Ok(gen_iter(|| Ok(read_line_bytes().map(bytesv)))),
+        ("sys.stdin.buffer", "__iter__") => Ok(gen_iter(ItKind::Unknown, || Ok(read_line_bytes().map(bytesv)))),
         ("sys.stdin.buffer", "fileno") => Ok(V::Int(0)),
         ("sys.stdin.buffer" | "sys.stdout.buffer" | "sys.stderr.buffer", "isatty") => Ok(V::Bool(false)),
         ("sys.stdout.buffer" | "sys.stderr.buffer", "write") => {
@@ -2881,7 +2885,7 @@ fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> Result<(), E> {
                 _ => false,
             };
             if unhashable {
-                return val_err(format!("mutable default {} for field {name} is not allowed: use default_factory", repr(&V::Class(type_of(&d)))?));
+                return val_err(format!("mutable default {} for field {name} is not allowed: use default_factory", repr(&V::Class(type_of(&d)?))?));
             }
         }
         // a field(...) in the class body leaves its default (or nothing) as the class attribute

@@ -1891,6 +1891,59 @@ pub fn slice(a: V, b: V, c: V) -> V {
 
 // ---------- iteration ----------
 
+// The Python class of an iterator value. `It`'s variants do not all map one-to-one onto CPython's
+// iterator types (several builtins produce the same It::Vec / It::Gen / It::Shared shape), so the
+// constructor that makes an exposed V::Iter records the kind next to the cell. Obj resolves to the
+// wrapped iterator's own class; Unknown means Brevi cannot say which class CPython would report, and
+// type() of such an iterator raises instead of guessing.
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ItKind {
+    ListIter,
+    TupleIter,
+    StrAsciiIter,
+    StrIter,
+    RangeIter,
+    DictKeys,
+    DictValues,
+    DictItems,
+    SetIter,
+    ListReverseIter,
+    Reversed,
+    DictReverseKeys,
+    DictReverseValues,
+    DictReverseItems,
+    Map,
+    Filter,
+    Zip,
+    Enumerate,
+    Generator,
+    CallableIterator,
+    BytesIter,
+    DequeIter,
+    Iterator,
+    ItCount,
+    ItChain,
+    ItIslice,
+    ItRepeat,
+    ItCycle,
+    ItAccumulate,
+    ItZipLongest,
+    ItStarmap,
+    ItTakewhile,
+    ItDropwhile,
+    ItPairwise,
+    ItCompress,
+    ItFilterfalse,
+    ItGroupby,
+    ItGrouper,
+    ItProduct,
+    ItPermutations,
+    ItCombinations,
+    ItCombinationsWithReplacement,
+    Unknown,
+}
+
 pub enum It {
     List(Rc<RefCell<Vec<V>>>, usize),
     Tuple(Tup, usize),
@@ -1914,6 +1967,22 @@ pub enum It {
 }
 pub struct Iter {
     pub it: It,
+}
+// The Python class of an exposed iterator: one of the static kinds above, or a class resolved when the
+// iterator was made (a user iterator's own class, or the type CPython gives iter() of a bridged value).
+pub enum IterClass {
+    Kind(ItKind),
+    Class(Rc<Class>),
+}
+// A V::Iter holds the cell behind an IterCell whose class survives whatever state changes It goes
+// through (exhaustion, GC clearing), so type() keeps reporting the class it was created with. The
+// inner Rc is shared with It::Ref and re-entrant builtins (zip, map), which need a cell of their own.
+pub struct IterCell {
+    pub kind: IterClass,
+    pub it: Rc<RefCell<It>>,
+}
+pub fn new_iter(it: It, kind: IterClass) -> V {
+    V::Iter(Rc::new(IterCell { kind, it: Rc::new(RefCell::new(it)) }))
 }
 impl It {
     // lists and tuples first, inline in the loop that runs them; the rest through one match
@@ -2090,7 +2159,7 @@ pub fn iter(v: &V) -> Result<It, E> {
         }
         V::FSet(s) => It::Vec(s.keys().into_iter()),
         V::Deque(d) => It::Vec(d.borrow().v.iter().cloned().collect::<Vec<_>>().into_iter()),
-        V::Iter(it) => It::Ref(it.clone()),
+        V::Iter(it) => It::Ref(it.it.clone()),
         V::Obj(o) => {
             if let Some(f) = o.cls.lookup("__iter__") {
                 let r = call(&f, Args::p(vec![v.clone()]))?;
@@ -2131,6 +2200,50 @@ pub fn iter(v: &V) -> Result<It, E> {
         _ => return type_err(format!("'{}' object is not iterable", tn(v))),
     })
 }
+// The iterator class an iter(v) would report when wrapped for exposure. Only the It shapes that several
+// builtins share (Vec, Gen) need the source value; the rest map one-to-one from `v` and match what
+// iter(v) actually built (a list subclass iterates through its inner list, so it is a list_iterator).
+fn iter_kind(v: &V) -> ItKind {
+    match v {
+        V::List(_) => ItKind::ListIter,
+        V::Tuple(_) => ItKind::TupleIter,
+        V::Str(s) => if s.ascii { ItKind::StrAsciiIter } else { ItKind::StrIter },
+        V::Range(_) => ItKind::RangeIter,
+        V::Dict(_) => ItKind::DictKeys,
+        // view kinds 0, 1, 2, 3: keys, values, items, mappingproxy (which iterates keys too)
+        V::View(x) => match x.1 {
+            0 | 3 => ItKind::DictKeys,
+            1 => ItKind::DictValues,
+            _ => ItKind::DictItems,
+        },
+        V::Set(_) | V::FSet(_) => ItKind::SetIter,
+        V::Deque(_) => ItKind::DequeIter,
+        V::Class(c) if is_enum(c) => ItKind::Generator,
+        V::Obj(_) => match inner_of(v) {
+            // iter() of a str subclass goes through its __iter__, which CPython gives str_iterator
+            // even for ASCII strings (the ascii fast path only applies to str itself).
+            Some(V::Str(_)) => ItKind::StrIter,
+            Some(i) => iter_kind(&i),
+            // a sequence reached through __getitem__: CPython's plain `iterator`
+            None => ItKind::Iterator,
+        },
+        _ => ItKind::Unknown,
+    }
+}
+fn iter_class_of(v: &V) -> IterClass {
+    if let V::Ext(e) = v {
+        if !is_bytes_v(v) {
+            // a bridged value (PyV) can ask CPython for the type of its iterator; other Ext iterators
+            // stay Unknown and type() of them raises rather than printing a wrong class.
+            if let Some(c) = e.iter_class(v) {
+                return IterClass::Class(c);
+            }
+            return IterClass::Kind(ItKind::Unknown);
+        }
+        return IterClass::Kind(ItKind::BytesIter);
+    }
+    IterClass::Kind(iter_kind(v))
+}
 pub fn iter_v(v: &V) -> R {
     if let V::Iter(_) = v {
         return Ok(v.clone());
@@ -2142,12 +2255,13 @@ pub fn iter_v(v: &V) -> R {
                 if ro.cls.lookup("__next__").is_none() {
                     return type_err(format!("iter() returned non-iterator of type '{}'", tn(&r)));
                 }
-                return Ok(V::Iter(Rc::new(RefCell::new(It::Obj(r)))));
+                let cls = ro.cls.clone();
+                return Ok(new_iter(It::Obj(r), IterClass::Class(cls)));
             }
             return iter_v(&r);
         }
     }
-    Ok(V::Iter(Rc::new(RefCell::new(iter(v)?))))
+    Ok(new_iter(iter(v)?, iter_class_of(v)))
 }
 pub fn to_vec(v: &V) -> Result<Vec<V>, E> {
     Ok(match v {
@@ -2163,14 +2277,14 @@ pub fn to_vec(v: &V) -> Result<Vec<V>, E> {
         }
     })
 }
-pub fn gen_iter(f: impl FnMut() -> Result<Option<V>, E> + 'static) -> V {
-    V::Iter(Rc::new(RefCell::new(It::Gen(Box::new(f)))))
+pub fn gen_iter(kind: ItKind, f: impl FnMut() -> Result<Option<V>, E> + 'static) -> V {
+    new_iter(It::Gen(Box::new(f)), IterClass::Kind(kind))
 }
 pub fn genexp_iter(name: Sym, f: impl FnMut() -> Result<Option<V>, E> + 'static) -> V {
-    V::Iter(Rc::new(RefCell::new(It::GenExp(Box::new(f), name, false))))
+    new_iter(It::GenExp(Box::new(f), name, false), IterClass::Kind(ItKind::Generator))
 }
-pub fn vec_iter(v: Vec<V>) -> V {
-    V::Iter(Rc::new(RefCell::new(It::Vec(v.into_iter()))))
+pub fn vec_iter(kind: ItKind, v: Vec<V>) -> V {
+    new_iter(It::Vec(v.into_iter()), IterClass::Kind(kind))
 }
 // a, b = x
 pub fn unpack(v: &V, n: usize) -> Result<Vec<V>, E> {
@@ -2269,13 +2383,13 @@ pub fn iter_step(it: &Rc<RefCell<It>>) -> Result<Option<V>, E> {
         _ => g.next(),
     }
 }
-pub fn shared_iter(f: impl Fn() -> Result<Option<V>, E> + 'static) -> V {
-    V::Iter(Rc::new(RefCell::new(It::Shared(Rc::new(f)))))
+pub fn shared_iter(kind: ItKind, f: impl Fn() -> Result<Option<V>, E> + 'static) -> V {
+    new_iter(It::Shared(Rc::new(f)), IterClass::Kind(kind))
 }
 // an input of a re-entrant iterator: its own cell, so stepping it borrows nothing shared
 pub fn shared_input(v: &V) -> Result<Rc<RefCell<It>>, E> {
     Ok(match v {
-        V::Iter(it) => it.clone(),
+        V::Iter(it) => it.it.clone(),
         _ => Rc::new(RefCell::new(iter(v)?)),
     })
 }
