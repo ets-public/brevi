@@ -585,6 +585,25 @@ fn odunder(op: &str) -> (&'static str, &'static str) {
 }
 fn obj_binop(a: &V, b: &V, op: &str) -> Option<R> {
     let (l, r) = odunder(op);
+    // When the right operand's class is a strict subclass of the left operand's class and overrides the
+    // reflected method, Python tries that reflected method first (`ChainMap() | SubclassRor()` calls
+    // SubclassRor.__ror__, not ChainMap.__or__).
+    let right_first = match (a, b) {
+        (V::Obj(x), V::Obj(y)) => {
+            !std::rc::Rc::ptr_eq(&x.cls, &y.cls) && y.cls.is_sub(&x.cls) && y.cls.own(r).is_some()
+        }
+        _ => false,
+    };
+    if right_first {
+        if let V::Obj(o) = b {
+            if let Some(f) = o.cls.lookup(r) {
+                match call2(&f, b.clone(), a.clone()) {
+                    Ok(V::NotImpl) => {}
+                    x => return Some(x),
+                }
+            }
+        }
+    }
     if let V::Obj(o) = a {
         if let Some(f) = o.cls.lookup(l) {
             match call2(&f, a.clone(), b.clone()) {

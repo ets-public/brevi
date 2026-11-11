@@ -2133,6 +2133,10 @@ pub fn module_call(m: &str, n: &str, a: Args) -> R {
             "deque" => col_deque(a),
             "OrderedDict" => instantiate(&bclass("OrderedDict"), a),
             "namedtuple" => namedtuple(a),
+            name if ["ChainMap", "UserDict", "UserList", "UserString"].contains(&name) => {
+                let f = module_attr("collections", name)?;
+                call(&f, a)
+            }
             _ => Err(unsupported(&format!("collections.{n}"))),
         },
         "string" => Err(unsupported(&format!("string.{n}"))),
@@ -2252,6 +2256,17 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         ("math", "inf") => V::Float(f64::INFINITY),
         ("math", "nan") => V::Float(math_nan()),
         ("collections", "defaultdict" | "Counter" | "OrderedDict" | "deque") => V::Class(bclass(name)),
+        // ChainMap, UserDict, UserList and UserString live in the program's copy of CPython's
+        // collections/__init__.py (src/dynpy/py/_collections_user.py), so the generated user-module hook
+        // holds them; without it (the program never imported them) the build already refused.
+        ("collections", name) if ["ChainMap", "UserDict", "UserList", "UserString"].contains(&name) => {
+            if let Some(f) = USER_MOD.with(|u| u.get()) {
+                if let Some(v) = f("_collections_user", name) {
+                    return v;
+                }
+            }
+            return Err(unsupported(&format!("collections.{name}")));
+        }
         ("string", "ascii_lowercase") => s("abcdefghijklmnopqrstuvwxyz"),
         ("string", "ascii_uppercase") => s("ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
         ("string", "ascii_letters") => s("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"),

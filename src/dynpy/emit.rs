@@ -7,6 +7,13 @@ type ER<T> = Result<T, (usize, String)>;
 
 pub const BUILTIN_MODULES: [&str; 50] = ["_brevi_col", "_brevi_srv", "_brevi_proc", "importlib.metadata", "zoneinfo", "tzlocal", "atexit", "_brevi_async", "_brevi_net", "_brevi_fs", "_brevi_st", "_brevi_ort", "_brevi_sqlite", "_brevi_duckdb", "_brevi_stdio", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading", "gc", "weakref"];
 
+// The collections names built from CPython's Lib/collections/__init__.py (src/dynpy/py/_collections_user.py),
+// loaded through the generated user-module hook when `collections.X` is read in the dynamic build.
+pub const USER_COLLECTIONS: [&str; 4] = ["ChainMap", "UserDict", "UserList", "UserString"];
+pub fn user_collections_name(n: &str) -> bool {
+    USER_COLLECTIONS.contains(&n)
+}
+
 
 // ---------- numpy, natively (rt_np*.rs) ----------
 // Set while a build uses Brevi's own numpy (on until a refusal names numpy; then CPython's numpy is used).
@@ -235,7 +242,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         ],
         "_brevi_col" => &["fsum", "cmp", "farith", "iarith", "take", "mask", "group1", "infer"],
         "_brevi_mt" => &["new", "seed", "next", "random", "bits", "below", "shuffle"],
-        "collections" => &["defaultdict", "Counter", "OrderedDict", "deque", "namedtuple"],
+        "collections" => &["defaultdict", "Counter", "OrderedDict", "deque", "namedtuple", "ChainMap", "UserDict", "UserList", "UserString"],
         "dataclasses" => &["asdict", "astuple", "dataclass", "field", "fields", "replace", "is_dataclass", "MISSING", "KW_ONLY", "InitVar", "Field", "FrozenInstanceError"],
         "re" => &["compile", "escape", "findall", "finditer", "fullmatch", "match", "purge", "search", "split", "sub", "subn", "IGNORECASE", "I", "MULTILINE", "M", "DOTALL", "S", "VERBOSE", "X", "ASCII", "A", "NOFLAG", "UNICODE", "U", "DEBUG", "RegexFlag", "error"],
         "json" => &["dump", "dumps", "load", "loads", "JSONDecodeError", "JSONDecoder", "JSONEncoder"],
@@ -3897,7 +3904,13 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     // user module attribute hook
     let mut hook = String::from("fn user_mod(m: &str, n: &str) -> Option<R> { match m { ");
     for m in mods.iter().skip(1) {
-        write!(hook, "{} => {{ match n {{ ", lit(&m.name)).unwrap();
+        write!(hook, "{} => {{ ", lit(&m.name)).unwrap();
+        // `_collections_user` has no import of its own: `collections.UserDict` reaches it through the
+        // module hook in rt_mod.rs, which may run before any import, so the hook runs its init itself.
+        if m.name == "_collections_user" {
+            write!(hook, "if let Err(e) = init_{}() {{ return Some(Err(e)); }} ", rust_ident(&m.name)).unwrap();
+        }
+        write!(hook, "match n {{ ").unwrap();
         for nm in em.mod_names[&m.name].clone() {
             let i = em.gslot(&m.name, &nm);
             write!(hook, "{} => Some(gl({i}, {})), ", lit(&nm), lit(&nm)).unwrap();

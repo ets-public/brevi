@@ -506,6 +506,9 @@ pub fn bi_reversed(a: Args) -> R {
     let x = a1(&a, "reversed")?;
     if let V::Obj(o) = &x {
         if let Some(f) = o.cls.lookup("__reversed__") {
+            if matches!(f, V::None) {
+                return type_err(format!("'{}' object is not reversible", tn(&x)));
+            }
             return call(&f, Args::p(vec![x.clone()]));
         }
     }

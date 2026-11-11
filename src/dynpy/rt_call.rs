@@ -1115,6 +1115,14 @@ pub fn getattr(o: &V, name: &str) -> R {
                     return Ok(v);
                 }
             }
+            // `cls.__new__(cls)` on a plain class: object.__new__, as CPython's object provides it. The
+            // class's own lookup has no entry (plain_new and instantiate run it directly), so only an
+            // explicit read gets this unbound descriptor.
+            if name == "__new__" && c.lookup(name).is_none() && c.module != "typing" && !is_enum(c) && matches!(c.base_bt(), BT::Object | BT::Other) {
+                if let Some(v) = builtin_class_attr_raw(&bclass("object"), name) {
+                    return Ok(v);
+                }
+            }
             match name {
                 // numpy's classes: float64, str_ (their module is numpy)
                 "__name__" => Ok(s(c.name.strip_prefix("numpy.").filter(|n| !n.contains('.')).unwrap_or(c.name))),

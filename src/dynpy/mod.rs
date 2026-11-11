@@ -222,6 +222,76 @@ fn walk_imports(body: &[parse::Stmt], out: &mut Vec<String>) {
     }
 }
 
+// The names `import collections` (and `import collections as c`) bind in this module, for the check below.
+fn collections_aliases(body: &[parse::Stmt], out: &mut HashSet<String>) {
+    use parse::St;
+    for s in body {
+        match &s.st {
+            St::Import(v) => {
+                for (m, a) in v {
+                    if m.split('.').next() == Some("collections") {
+                        out.insert(a.clone().unwrap_or_else(|| "collections".into()));
+                    }
+                }
+            }
+            St::Def(d) => collections_aliases(&d.body, out),
+            St::Class(c) => collections_aliases(&c.body, out),
+            St::If(arms, els) => {
+                for (_, b) in arms {
+                    collections_aliases(b, out);
+                }
+                if let Some(b) = els {
+                    collections_aliases(b, out);
+                }
+            }
+            St::For(_, _, b, e) | St::While(_, b, e) => {
+                collections_aliases(b, out);
+                if let Some(b) = e {
+                    collections_aliases(b, out);
+                }
+            }
+            St::Try(b, hs, e, f) => {
+                collections_aliases(b, out);
+                for h in hs {
+                    collections_aliases(&h.body, out);
+                }
+                if let Some(b) = e {
+                    collections_aliases(b, out);
+                }
+                if let Some(b) = f {
+                    collections_aliases(b, out);
+                }
+            }
+            St::With(_, b) => collections_aliases(b, out),
+            _ => {}
+        }
+    }
+}
+
+// `collections.ChainMap` (and the other user classes) as a plain attribute of `import collections`
+// or of an alias of it.
+fn uses_user_collections(body: &[parse::Stmt]) -> bool {
+    let mut aliases = HashSet::new();
+    aliases.insert("collections".into());
+    collections_aliases(body, &mut aliases);
+    let mut hit = false;
+    emit::visit_any(body, &mut |x| {
+        if hit {
+            return;
+        }
+        if let parse::Ex::Attr(o, n) = x {
+            if emit::user_collections_name(n) {
+                if let parse::Ex::Name(base) = &**o {
+                    if aliases.contains(base) {
+                        hit = true;
+                    }
+                }
+            }
+        }
+    });
+    hit
+}
+
 // Python modules that CPython would run (pybridge), written in plain Python and built with the program instead
 // when the sandbox turns CPython off (no `allow native`). Each holds only what needs no file, process, network
 // or environment access: os is os.path and its constants, pathlib is PurePath. caps.rs refuses any other use
@@ -314,6 +384,7 @@ fn sandbox_module(m: &str) -> Option<&'static str> {
         "_brevi_mcp_models" => include_str!("py/_brevi_mcp_models.py"),
         "_brevi_mcp_types" => include_str!("py/_brevi_mcp_types.py"),
         "contextlib" => include_str!("py/contextlib.py"),
+        "_collections_user" => include_str!("py/_collections_user.py"),
         "_brevi_open" => include_str!("py/_brevi_open.py"),
         "jinja2" => include_str!("py/jinja2.py"),
         "jinja2.ext" => include_str!("py/jinja2_ext.py"),
@@ -509,11 +580,18 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         // a module of a package of the program's, named in `from pkg import sub`
         let mut fr = vec![];
         from_names(&mods[k].body, &mut fr);
-        for (m, n) in fr {
+        for (m, n) in &fr {
             let d = dir.join(m.replace('.', "/"));
             if d.join("__init__.py").is_file() && (d.join(format!("{n}.py")).is_file() || d.join(&n).join("__init__.py").is_file()) {
                 imps.push(format!("{m}.{n}"));
             }
+        }
+        // ChainMap, UserDict, UserList and UserString come from CPython's collections/__init__.py, built
+        // from this copy; `import collections` plus `collections.X` needs it too.
+        if !mods.iter().any(|x| x.name == "_collections_user")
+            && (fr.iter().any(|(m, n)| m == "collections" && emit::user_collections_name(n)) || uses_user_collections(&mods[k].body))
+        {
+            imps.push("_collections_user".into());
         }
         // the builtin open(): Brevi's, in _brevi_open (emit.rs loads it when the program uses no CPython library)
         if texts.get(&mods[k].name).is_some_and(|t| uses_open(&t.1)) {

@@ -261,6 +261,12 @@ pub fn learn(diags: &[crate::diag::Diag], src: &str) -> bool {
         }
         eprintln!("pybridge learn: {new:?}");
     }
+    // ChainMap, UserDict, UserList and UserString are the dynamic build's own classes now; the typed build
+    // falls back to the dynamic build for them instead of running CPython's collections.
+    let new: Vec<(String, String)> = new
+        .into_iter()
+        .filter(|(m, n)| !(m == "collections" && crate::dynpy::emit::user_collections_name(n)))
+        .collect();
     let (new, blocked): (Vec<_>, Vec<_>) = new.into_iter().partition(|(m, _)| py_allowed(m));
     if !blocked.is_empty() {
         BLOCKED.with(|b| b.borrow_mut().extend(blocked));
