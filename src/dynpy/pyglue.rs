@@ -77,6 +77,25 @@ _d.contains = lambda a, b: b in a
 _d.op = lambda n, a, b: getattr(_o, n)(a, b)
 _d.un = lambda n, a: getattr(_o, n)(a)
 _d.mro = lambda t: [(c.__name__, c.__module__) for c in t.__mro__]
+# Pickling a function or class of the program: by reference, as CPython pickles a def or class (its
+# __module__ and __qualname__, looked up again when loaded), checked to be the same object when dumped.
+# The pickle names _brevi_dyn._glob, which resolves the name in the program, so it loads in this program.
+def _glob(m, q):
+    return _d._lookup(m, q)
+_glob.__module__ = '_brevi_dyn'
+_d._glob = _glob
+def _bf_reduce(f):
+    r = _d._ref(f)
+    if r is None:
+        return f.__reduce__()
+    if r[0] == 1:
+        import pickle
+        raise pickle.PicklingError(r[1])
+    if r[0] == 2:
+        raise AttributeError(r[1])
+    return (_glob, (r[1], r[2]))
+import copyreg as _cr
+_cr.dispatch_table[type(len)] = _bf_reduce
 _s.modules['_brevi_dyn'] = _d
 "#;
 
@@ -93,6 +112,9 @@ fn pyd_api() -> &'static ax_pyffi::Api {
         let ok = unsafe { (a.RunSimple)(c.as_ptr()) } == 0;
         unsafe { (a.GilRelease)(g) };
         if !ok {
+            return Err("Python did not start".into());
+        }
+        if unsafe { !pyd_register(&a) } {
             return Err("Python did not start".into());
         }
         unsafe { atexit(pyd_at_exit) };
@@ -534,16 +556,115 @@ unsafe extern "C" fn pyd_cap_free(c: P) {
 
 // A Python callable that calls `v`, a function, class or callable object of the program.
 unsafe fn pyd_callable(v: &V) -> Result<P, E> {
-    let a = pyd_api();
+    pyd_callable_in(pyd_api(), v)
+}
+unsafe fn pyd_callable_in(a: &ax_pyffi::Api, v: &V) -> Result<P, E> {
     let b = Box::into_raw(Box::new(v.clone()));
     let cap = (a.CapsuleNew)(b as ax_pyffi::P, PYD_CAP.as_ptr(), Some(pyd_cap_free));
     if cap.is_null() {
         drop(Box::from_raw(b));
-        return Err(pyd_err());
+        (a.ErrClear)();
+        return Err(exc("RuntimeError", "brevi: could not make a Python callable".into()));
     }
     let f = (a.CFunctionNew)(std::ptr::addr_of_mut!(PYD_DEF) as *mut ax_pyffi::MethodDef, cap, std::ptr::null_mut());
     (a.DecRef)(cap);
-    pyd_own(f)
+    if f.is_null() {
+        (a.ErrClear)();
+        return Err(exc("RuntimeError", "brevi: could not make a Python callable".into()));
+    }
+    Ok(f)
+}
+
+// _brevi_dyn._ref and _lookup (see _bf_reduce in PYD_HELPERS), set while Python starts, before pyd_api() is ready.
+unsafe fn pyd_register(a: &ax_pyffi::Api) -> bool {
+    let g = (a.GilEnsure)();
+    let m = (a.Import)(c"_brevi_dyn".as_ptr());
+    let mut ok = !m.is_null();
+    for (n, f) in [(c"_ref", func(sym("_ref"), pickle_ref)), (c"_lookup", func(sym("_lookup"), pickle_lookup_fn))] {
+        if !ok {
+            break;
+        }
+        match pyd_callable_in(a, &f) {
+            Ok(p) => {
+                ok = (a.SetAttr)(m, n.as_ptr(), p) == 0;
+                (a.DecRef)(p);
+            }
+            Err(_) => ok = false,
+        }
+    }
+    if !m.is_null() {
+        (a.DecRef)(m);
+    }
+    if !ok {
+        (a.ErrClear)();
+    }
+    (a.GilRelease)(g);
+    ok
+}
+
+// What pickle saves for a function or class of the program: None for any other callable (CPython's own
+// builtins pickle as usual), (0, module, qualname) when that name finds this very object again, else the
+// error CPython raises: (1, msg) a PicklingError, (2, msg) an AttributeError (a def local to a function).
+fn pickle_ref(a: Args) -> R {
+    let v = a.p.first().cloned().unwrap_or(V::None);
+    match &v {
+        V::Func(f) if f.kind.get() != 3 => {}
+        V::Class(_) => {}
+        V::Func(_) => return Err(unsupported("pickling a builtin function")),
+        V::Bound(_) | V::BMeth(_) => return Err(unsupported("pickling a bound method")),
+        _ => return Ok(V::None),
+    }
+    let text = |x: R| -> Result<Option<String>, E> {
+        Ok(match x? {
+            V::Str(t) => Some(t.s.to_string()),
+            _ => None,
+        })
+    };
+    let (Some(m), Some(q)) = (text(getattr(&v, "__module__"))?, text(getattr(&v, "__qualname__"))?) else {
+        return Ok(tup(vec![V::Int(1), st(format!("Can't pickle {}: no __module__ or __qualname__", repr(&v)?))]));
+    };
+    if q.split('.').any(|p| p == "<locals>") {
+        return Ok(tup(vec![V::Int(2), st(format!("Can't get local object '{q}'"))]));
+    }
+    match pickle_lookup(&m, &q) {
+        Ok(found) if is(&found, &v) => Ok(tup(vec![V::Int(0), st(m), st(q)])),
+        Ok(_) => Ok(tup(vec![V::Int(1), st(format!("Can't pickle {}: it's not the same object as {m}.{q}", repr(&v)?))])),
+        Err(_) => Ok(tup(vec![V::Int(1), st(format!("Can't pickle {}: it's not found as {m}.{q}", repr(&v)?))])),
+    }
+}
+fn pickle_lookup_fn(a: Args) -> R {
+    let t = |i: usize| match a.p.get(i) {
+        Some(V::Str(x)) => Ok(x.s.to_string()),
+        _ => type_err("_glob() takes a module name and a qualified name".into()),
+    };
+    pickle_lookup(&t(0)?, &t(1)?)
+}
+// `module.qualname` of the program, as pickle finds a def or class again: the first name from the module's
+// globals (__main__, an imported module of the program, or functools' total_ordering helpers), the rest as
+// attributes.
+fn pickle_lookup(m: &str, q: &str) -> R {
+    let missing = || exc("AttributeError", format!("Can't get attribute '{q}' on <module '{m}'>"));
+    if q.split('.').any(|p| p == "<locals>") {
+        return Err(exc("AttributeError", format!("Can't get local attribute '{q}' on <module '{m}'>")));
+    }
+    let mut parts = q.split('.');
+    let first = parts.next().unwrap_or("");
+    let mut v = match m {
+        "__main__" => match MAIN_GTAB.with(|g| g.get()) {
+            Some(tab) => glob_item(tab, &st(first.to_string())).map_err(|_| missing())?,
+            None => return Err(missing()),
+        },
+        "functools" => total_ordering_helper_named(first).ok_or_else(missing)?,
+        "builtins" => builtin_value(first).ok_or_else(missing)?,
+        _ => match USER_MOD.with(|u| u.get()).and_then(|f| f(m, first)) {
+            Some(r) => r.map_err(|_| missing())?,
+            None => return Err(missing()),
+        },
+    };
+    for p in parts {
+        v = getattr(&v, p).map_err(|_| missing())?;
+    }
+    Ok(v)
 }
 
 unsafe extern "C" fn pyd_tramp(me: P, args: P, kw: P) -> P {
