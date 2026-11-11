@@ -1,3 +1,3 @@
-{"path":"cpython","line":8,"why":"Brevi could not build it: copy.copy() shares the items it copies, and this file cannot be built over dynamic values (catch_warnings_record_itertools.py line 6: warnings.catch_warnings(record=True) in a program that pickles or copies itertools iterators is not supported in dynamic builds)","by":"python3"}
-2 1 DeprecationWarning
-native exit 1
+{"path":"pybridge","why":"itertools.islice, pickle, warnings run in CPython","py":["itertools.islice","pickle","warnings"]}
+1 UserWarning [1, 2]
+native exit 0

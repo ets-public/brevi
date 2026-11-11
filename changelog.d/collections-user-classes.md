@@ -1,0 +1,1 @@
+- Dynamic build: `collections.ChainMap`, `UserDict`, `UserList` and `UserString` are CPython's own classes on the native `collections.abc` ABCs (a program that names one builds them; the typed build sends such a file to the dynamic build). `x.__class__` of a generator or other builtin value is its type, not a bound method.
