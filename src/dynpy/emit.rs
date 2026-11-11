@@ -4349,7 +4349,11 @@ pub fn ic_statics() -> String {
 }
 pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>), (String, usize, String)> {
     // the program (not Brevi's library copies) uses the warnings module
-    let track_warn = mods.iter().any(|m| bridge.srcs.contains_key(&m.name) && format!("{:?}", m.body).contains("\"warnings\""));
+    // (or functools.partial, whose __get__ warns at the line that reads it from an instance)
+    let track_warn = mods.iter().any(|m| {
+        let b = format!("{:?}", m.body);
+        bridge.srcs.contains_key(&m.name) && (b.contains("\"warnings\"") || b.contains("\"functools\"") && b.contains("\"partial\""))
+    });
     let has_del = mods.iter().any(|m| format!("{:?}", m.body).contains("\"__del__\""));
     let has_closure = mods.iter().any(|m| format!("{:?}", m.body).contains("__closure__"));
     let mut em = Em {
