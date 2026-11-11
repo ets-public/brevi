@@ -486,6 +486,24 @@ pub fn dict_new() -> V {
 pub fn set_new() -> V {
     V::Set(Rc::new(RefCell::new(PSet::new())))
 }
+// A class body run with its namespace as a dict (it calls locals() in its own scope) reads a name
+// through the dict first, as CPython's LOAD_FROM_DICT_OR_DEREF and LOAD_NAME do.
+pub fn class_ns_get(ns: &V, name: &str) -> Result<Option<V>, E> {
+    match ns {
+        V::Dict(d) => Dict::get_cell(d, &s(name)),
+        _ => unreachable!(),
+    }
+}
+// `del name` in such a class body is DELETE_NAME: only the namespace dict is seen, and a missing
+// key is NameError (never a free-variable or unbound-local error).
+pub fn class_ns_del(ns: &V, name: &str) -> Result<(), E> {
+    let V::Dict(d) = ns else { unreachable!() };
+    if !Dict::contains_cell(d, &s(name))? {
+        return Err(exc("NameError", format!("name '{name}' is not defined")));
+    }
+    Dict::del_cell(d, &s(name))?;
+    Ok(())
+}
 
 // ---------- exceptions ----------
 
