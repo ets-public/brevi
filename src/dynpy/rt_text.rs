@@ -30,6 +30,8 @@ pub struct RClass {
 }
 const FOLD_UNI: u8 = 1;
 const FOLD_ASCII: u8 = 2;
+// bytes under LOCALE|IGNORECASE: sets match when the lower or upper case of a byte is in them (C locale)
+const FOLD_LOC: u8 = 3;
 #[derive(Clone, Debug)]
 enum CItem {
     Ch(char),
@@ -638,7 +640,12 @@ impl<'a> RP<'a> {
         }
         let ascii = self.bytes || (self.flags & F_A != 0 && self.flags & 32 == 0);
         let mut fold = 0;
-        if self.flags & F_I != 0 {
+        // bytes with LOCALE|IGNORECASE: CPython compiles the set unfolded (IN_LOC_IGNORE) and tests the
+        // lowercase and uppercase of each character against it, negation included. A one-literal set is
+        // a (NOT_)LITERAL at parse time, which ASCII folding matches exactly.
+        if self.flags & F_I != 0 && self.bytes && self.flags & F_L != 0 && !(items.len() == 1 && matches!(items[0], CItem::Ch(_))) {
+            fold = FOLD_LOC;
+        } else if self.flags & F_I != 0 {
             (items, fold) = fold_set(items, self.fold_mode());
         }
         Ok(RNode::Class(Rc::new(RClass { items, neg, ascii, fold })))
@@ -923,7 +930,12 @@ impl<'a> RP<'a> {
                         self.close(gstart)?;
                         Ok(Some(RNode::Look(Rc::new(a), true, n == '!', Cell::new(0))))
                     }
-                    _ => self.err(&format!("unknown extension ?<{}", self.token_at(self.i)), qpos),
+                    _ => {
+                let t = self.token_at(self.i);
+                // CPython has consumed this token (and so read any trailing backslash) before it reports
+                self.i += t.chars().count();
+                self.err(&format!("unknown extension ?<{t}"), qpos)
+            }
                 }
             }
             'P' => self.python_ext(gstart, qpos),
@@ -944,7 +956,12 @@ impl<'a> RP<'a> {
             }
             '(' => self.conditional(gstart),
             'i' | 'm' | 's' | 'x' | 'a' | 'u' | 'L' | '-' => self.flags_group(gstart, k),
-            _ => self.err(&format!("unknown extension ?{}", self.token_at(self.i)), qpos),
+            _ => {
+                let t = self.token_at(self.i);
+                // CPython has consumed this token (and so read any trailing backslash) before it reports
+                self.i += t.chars().count();
+                self.err(&format!("unknown extension ?{t}"), qpos)
+            }
         }
     }
 }
@@ -1147,7 +1164,23 @@ fn range_ui(a: char, b: char, c: char) -> bool {
 impl RClass {
     #[inline]
     fn matches(&self, c: char, ascii: bool) -> bool {
-        let c = if self.fold == 0 { c } else { fold_slow(c, self.fold) };
+        let c = if self.fold == 0 {
+            c
+        } else if self.fold == FOLD_LOC {
+            return self.loc_ignore(c, ascii);
+        } else {
+            fold_slow(c, self.fold)
+        };
+        self.raw(c, ascii)
+    }
+    #[cold]
+    #[inline(never)]
+    fn loc_ignore(&self, c: char, ascii: bool) -> bool {
+        let (lo, up) = (c.to_ascii_lowercase(), c.to_ascii_uppercase());
+        self.raw(lo, ascii) || (up != lo && self.raw(up, ascii))
+    }
+    #[inline]
+    fn raw(&self, c: char, ascii: bool) -> bool {
         let mut hit = false;
         for it in &self.items {
             if match it {
@@ -2042,13 +2075,22 @@ enum TPiece {
 }
 fn apply_template(ps: &[TPiece], m: &RMatch) -> String {
     let mut out = String::new();
+    apply_caps(ps, &m.s, &m.caps, &mut out);
+    out
+}
+// Appends a parsed template's text for one match (its capture slots over subject s) to out.
+fn apply_caps(ps: &[TPiece], s: &[char], caps: &[usize], out: &mut String) {
     for p in ps {
         match p {
-            TPiece::Lit(s) => out.push_str(s),
-            TPiece::Group(g) => out.extend(m.text(*g).unwrap_or(&[])),
+            TPiece::Lit(t) => out.push_str(t),
+            TPiece::Group(g) => {
+                let (a, b) = (caps[2 * g], caps[2 * g + 1]);
+                if a != UNSET {
+                    out.extend(s[a..b].iter());
+                }
+            }
         }
     }
-    out
 }
 fn compile_template(t: &str, prog: &Prog, pat: Option<&V>) -> Result<Vec<TPiece>, E> {
     let c: Vec<char> = t.chars().collect();
@@ -2259,7 +2301,8 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
             };
             let (sc, sv) = re_subject(&sv, prog.bytes)?;
             let ms = all_matches(prog, &sc, 0, sc.len(), count);
-            let mut out: Vec<char> = vec![];
+            // bytes results are built as Latin-1 chars and converted once at the end
+            let mut out = String::new();
             let mut last = 0;
             let nsub = ms.len();
             for c in ms {
@@ -2271,10 +2314,10 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
                         type_err(format!("sequence item 0: expected str instance, {} found", tn(&repl)))
                     };
                 }
-                let m = RMatch { prog: prog.clone(), s: sc.clone(), sv: sv.clone(), caps: c.clone(), pos: 0, endpos: sc.len() };
                 match &pieces {
-                    Some(ps) => out.extend(apply_template(ps, &m).chars()),
+                    Some(ps) => apply_caps(ps, &sc, &c, &mut out),
                     None => {
+                        let m = RMatch { prog: prog.clone(), s: sc.clone(), sv: sv.clone(), caps: c.clone(), pos: 0, endpos: sc.len() };
                         let r = call(&repl, Args::p(vec![V::Ext(ExtRc::new(m))]))?;
                         if prog.bytes {
                             match bytes_of(&r) {
@@ -2283,7 +2326,7 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
                             }
                         } else {
                             match &r {
-                                V::Str(x) => out.extend(x.s.chars()),
+                                V::Str(x) => out.push_str(&x.s),
                                 _ => return type_err(format!("sequence item 0: expected str instance, {} found", tn(&r))),
                             }
                         }
@@ -2292,7 +2335,7 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
                 last = c[1];
             }
             out.extend(sc[last..].iter());
-            let rv = chars_v(prog.bytes, &out);
+            let rv = if prog.bytes { bytesv(out.chars().map(|c| c as u8).collect()) } else { st(out) };
             Ok(if n == "subn" { tup(vec![rv, V::Int(nsub as i64)]) } else { rv })
         }
         "split" => {
