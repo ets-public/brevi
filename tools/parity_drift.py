@@ -5,8 +5,8 @@ tools/upstream_pins.json lists each library at the version Brevi's tests/*/NAME.
 For every group with a newer release on PyPI, this installs the pinned versions and the newest ones into two
 venvs, runs the group's test programs in CPython with each, and compares the two outputs on the same machine
 (so CPU kernels and Python version cancel out). Any test whose output changes is drift Brevi's copy must follow.
-It opens one `upstream` issue per new release set (deduplicated by title) with the diffs and a checklist, which
-auto-fix.yml then works on. No Brevi build is needed, so it costs a few minutes of Linux time.
+It opens one `upstream` issue per new release set (deduplicated by title) with the diffs and a checklist, for a
+maintainer to work on. No Brevi build is needed, so it costs a few minutes of Linux time.
 
 usage: parity_drift.py [--dry-run] [--group NAME] [--force]   (--force runs groups that have no new release)
 """
