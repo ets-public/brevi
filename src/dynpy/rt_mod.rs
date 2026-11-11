@@ -1852,8 +1852,8 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
         "repeat" => {
             let x = a.p[0].clone();
             match a.p.get(1).cloned().or(a.kw("times")) {
-                Some(n) => vec_iter(ItKind::ItRepeat, vec![x; idx_of(&n)?.max(0) as usize]),
-                None => gen_iter(ItKind::ItRepeat, move || Ok(Some(x.clone()))),
+                Some(n) => new_iter(It::Repeat(x, Some(idx_of(&n)?.max(0))), IterClass::Kind(ItKind::ItRepeat)),
+                None => new_iter(It::Repeat(x, None), IterClass::Kind(ItKind::ItRepeat)),
             }
         }
         "cycle" => {
@@ -2792,7 +2792,7 @@ fn namedtuple_with(mut a: Args, check_name: bool) -> R {
     // each field is a read-only descriptor holding its index in the wrapped tuple (V::NTF): getattr reads
     // the tuple directly for it, with no Args allocation and no call (see getattr in rt_call.rs).
     for (i, f) in fields.iter().enumerate() {
-        c.set(*f, V::NTF(Rc::new(i as i64)));
+        c.set(*f, V::NTF(Rc::new(Ntf { idx: i as i64, doc: RefCell::new(st(format!("Alias for field number {i}"))) })));
     }
 
     let frepr = fields.clone();

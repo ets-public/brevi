@@ -342,6 +342,19 @@ pub fn repr(v: &V) -> Result<String, E> {
         }
         V::BMeth(b) => format!("<built-in method {} of {} object>", b.1, tn(&b.0)),
         V::Iter(x) => {
+            // itertools.repeat keeps its element and remaining count as its state; copy them out before repr,
+            // because repr'ing the element may run user code.
+            if let IterClass::Kind(ItKind::ItRepeat) = &x.kind {
+                if let Some((e, n)) = x.it.try_borrow().ok().and_then(|it| match &*it {
+                    It::Repeat(e, n) => Some((e.clone(), *n)),
+                    _ => None,
+                }) {
+                    return Ok(match n {
+                        Some(n) => format!("repeat({}, {})", repr(&e)?, n),
+                        None => format!("repeat({})", repr(&e)?),
+                    });
+                }
+            }
             // a generator (or genexpr) reprs with its dotted __qualname__, as in CPython; the cells are held
             // while the generator body runs, so read them only when free (the running generator's name is
             // remembered elsewhere for that case)
@@ -399,7 +412,13 @@ pub fn repr(v: &V) -> Result<String, E> {
             format!("{}([{}])", name, join_repr(&to_vec(v)?)?)
         }
         V::Prop(_) => "<property object>".into(),
-        V::NTF(i) => format!("_tuplegetter({}, 'Alias for field number {}')", **i, **i),
+        V::NTF(n) => {
+            let d = n.doc.borrow().clone();
+            match d {
+                V::Unbound => format!("_tuplegetter({}, <NULL>)", n.idx),
+                d => format!("_tuplegetter({}, {})", n.idx, repr(&d)?),
+            }
+        }
         V::Cell(c) => {
             let p = Rc::as_ptr(c) as *const u8 as usize;
             // Copy the contents out before repr'ing them: a cell's value may change while its repr runs.
