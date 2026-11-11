@@ -38,6 +38,10 @@ class Assertions(unittest.TestCase):
     def test_equal_keeps_literal_spelling(self):
         self.assertEqual(self.rewritten("self.assertEqual(0xff, 0o377)"), "print(repr(0xff))\n    print(repr(0o377))")
 
+    def test_a_module_is_compared_not_shown(self):
+        s = cut("    def test_a(self):\n        self.assertEqual(json.decoder.json, json)\n", head="import json\n" + HEAD)
+        self.assertIn("print((json.decoder.json) == (json))", s)
+
     def test_msg_is_dropped(self):
         self.assertEqual(self.rewritten("self.assertEqual(a, 1, 'why')"), "print(repr(a))")
         self.assertEqual(self.rewritten("self.assertTrue(a, msg='why')"), "print(repr(bool(a)))")

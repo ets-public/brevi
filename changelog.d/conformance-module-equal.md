@@ -1,0 +1,1 @@
+- **Conformance: comparing modules.** An `assertEqual` with a module on either side is now extracted as an equality check, not as two printed reprs: a module's repr names the file it was loaded from, which differs between machines. `test_collections.TestNamedTuple.test_module_parameter` now matches.
