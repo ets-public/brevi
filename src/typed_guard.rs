@@ -160,9 +160,6 @@ fn collections_user(body: &[Stmt]) -> Option<(usize, String)> {
     hit
 }
 fn check_body(body: &[Stmt]) -> Option<(usize, String, Vec<String>)> {
-    if let Some((line, why)) = collections_user(body) {
-        return Some((line, why, vec![]));
-    }
     let mut g = G::default();
     collect_params(body, &mut g);
     for _ in 0..8 {
@@ -193,7 +190,7 @@ fn check_body(body: &[Stmt]) -> Option<(usize, String, Vec<String>)> {
     if let Some(line) = crate::dynpy::typing::typed_isinstance(body) {
         return Some((line, "isinstance with a typing name".into(), vec![]));
     }
-    if let Some((line, why)) = odd_decorator(body).or_else(|| json_kwargs(body)).or_else(|| pickled_iterators(body)).or_else(|| findall_groups(body)).or_else(|| pattern_uses(body)).or_else(|| default_reads(body)).or_else(|| crate::share_guard::check(body)) {
+    if let Some((line, why)) = odd_decorator(body).or_else(|| json_kwargs(body)).or_else(|| pickled_iterators(body)).or_else(|| collections_user(body)).or_else(|| findall_groups(body)).or_else(|| pattern_uses(body)).or_else(|| default_reads(body)).or_else(|| crate::share_guard::check(body)) {
         return Some((line, why, vec![]));
     }
     let mut hits = vec![];
