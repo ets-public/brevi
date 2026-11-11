@@ -1,0 +1,10 @@
+rmul rmul rmul
+can't multiply sequence by non-int of type 'bytes'
+can't multiply sequence by non-int of type 'float'
+rmul rmul
+can't multiply sequence by non-int of type 'bytes'
+can't multiply sequence by non-int of type 'float'
+can't multiply sequence by non-int of type 'str'
+can't multiply sequence by non-int of type 'bytes'
+can't multiply sequence by non-int of type 'float'
+(b'', b'', b'ab') (b'', b'', b'') (bytearray(b'a'), bytearray(b'b'), bytearray(b'c')) b'b'
