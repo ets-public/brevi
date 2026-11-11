@@ -1,0 +1,1 @@
+- **`locals()` in a class body (dynamic build).** A class body that calls `locals()` now runs over its real namespace dict, as CPython's does: `locals()["x"] = v` is seen by later name reads, `del name` deletes from it, and the class is made from the dict. Classes that do not call `locals()` build exactly as before.
