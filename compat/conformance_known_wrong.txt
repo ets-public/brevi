@@ -14,7 +14,5 @@ test_list.ListTest.test_iterator_pickle dyn issue=#396 owner=ets-public expires=
 test_list.ListTest.test_iterator_pickle normal issue=#396 owner=ets-public expires=2026-12-11
 test_list.ListTest.test_reversed_pickle dyn issue=#396 owner=ets-public expires=2026-12-11
 test_list.ListTest.test_reversed_pickle normal issue=#396 owner=ets-public expires=2026-12-11
-test_scope.ScopeTests.testCellIsArgAndEscapes dyn issue=#397 owner=ets-public expires=2026-12-11
-test_scope.ScopeTests.testCellIsArgAndEscapes normal issue=#397 owner=ets-public expires=2026-12-11
 test_scope.ScopeTests.testCellIsLocalAndEscapes dyn issue=#397 owner=ets-public expires=2026-12-11
 test_scope.ScopeTests.testCellIsLocalAndEscapes normal issue=#397 owner=ets-public expires=2026-12-11

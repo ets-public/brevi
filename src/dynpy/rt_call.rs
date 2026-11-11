@@ -1230,6 +1230,21 @@ pub fn getattr(o: &V, name: &str) -> R {
                 0 => Err(exc("AttributeError", format!("'{}' object has no attribute '__code__'", if f.kind.get() == 3 { "builtin_function_or_method" } else { "function" }))),
                 fl => Ok(mk_code(f.name.get(), fl)),
             },
+            // the cells the function closes over: None with no free variables, a tuple of cell objects otherwise
+            "__closure__" => {
+                if f.kind.get() == 3 {
+                    return Err(exc("AttributeError", "'builtin_function_or_method' object has no attribute '__closure__'".into()));
+                }
+                let mut cells = Vec::new();
+                for c in f.closure.borrow().iter() {
+                    match c.upgrade() {
+                        Some(r) => cells.push(V::Cell(r)),
+                        // the function's own FnBox holds every captured cell for the function's whole life
+                        None => return Err(unsupported("a def's __closure__ after a captured cell was dropped")),
+                    }
+                }
+                if cells.is_empty() { Ok(V::None) } else { Ok(tup(cells)) }
+            },
             // the dict of attributes assigned to the function; slot-backed names stay out, as in CPython
             "__dict__" if f.kind.get() != 3 => Ok(V::Dict(func_dict_make(f)?)),
             // 0 function, 1 staticmethod, 2 classmethod (Brevi's pydantic reads it)
@@ -1247,6 +1262,16 @@ pub fn getattr(o: &V, name: &str) -> R {
             "__func__" => Ok(b.1.clone()),
             _ => getattr(&b.1, name),
         },
+        V::Cell(c) if name == "cell_contents" => {
+            let v = {
+                let b = c.borrow();
+                match &*b {
+                    V::Unbound => return Err(exc("ValueError", "Cell is empty".into())),
+                    v => v.clone(),
+                }
+            };
+            Ok(v)
+        }
         V::Ext(x) => match x.attr(o, name) {
             Some(r) => r,
             None => {
@@ -1363,6 +1388,10 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
             None => Err(exc("AttributeError", format!("'{}' object has no attribute '{}' and no __dict__ for setting new attributes", tn(o), name))),
         },
         V::Func(f) => {
+            // the closure tuple is made from the def's captured cells, as in CPython it is read-only
+            if name == "__closure__" {
+                return Err(exc("AttributeError", "readonly attribute".into()));
+            }
             // a def's name cells are what its repr and errors show, so assignments go there, as in CPython
             if name == "__name__" || name == "__qualname__" {
                 let V::Str(t) = &v else {

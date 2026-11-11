@@ -1035,6 +1035,25 @@ fn free_of_def(params: &[String], body: &[Stmt]) -> BTreeSet<String> {
     used.extend(sc.nonlocals.iter().cloned());
     used.into_iter().filter(|n| !sc.locals.contains(n) || sc.nonlocals.contains(n)).filter(|n| !sc.globals.contains(n)).collect()
 }
+// Whether a method body needs the class cell (a zero-argument super() call). Brevi captures the class
+// cell for every method so its Rust can reach the class, but CPython puts it in __closure__ only when the
+// body uses it; __closure__ is built from the smaller list below.
+fn body_has_zero_super(body: &[Stmt]) -> bool {
+    let mut ex = vec![];
+    stmt_exprs(body, &mut ex);
+    ex.iter().any(|e| {
+        let mut found = false;
+        visit_ex(e, &mut |x| {
+            if let Ex::Call(f, args) = x {
+                if matches!(f.as_ref(), Ex::Name(n) if n == "super") && args.is_empty() {
+                    found = true;
+                }
+            }
+        });
+        found
+    })
+}
+
 // free names of the defs and classes directly nested in body
 fn nested_free(body: &[Stmt]) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
@@ -3509,6 +3528,16 @@ impl Em {
         }
         // a closure
         let caps: String = captures.iter().map(|(_, r)| format!("let {r} = {r}.clone(); ")).collect();
+        // The cells __closure__ exposes: the same ones, minus a class cell the body never uses (CPython does
+        // not expose that one, and the body's FnBox does not hold it either).
+        let class_name = self.class_ctx.clone();
+        let need_class = class_name.is_some() && body_has_zero_super(body);
+        let closure_captures: Vec<&(String, String)> = captures
+            .iter()
+            .filter(|(n, _)| Some(n.as_str()) != class_name.as_deref() || need_class)
+            .collect();
+        // clones made before `caps` moves its own into the function
+        let clos_pre: String = format!("let __clos = vec![{}]; ", closure_captures.iter().map(|(_, r)| format!("{r}.clone(), ")).collect::<String>());
         let bind_params: String = params.iter().map(|n| format!("let mut v_{} = __b.next().unwrap(); ", rust_ident(n))).collect();
         // a nested def that calls reach directly: a plain Rust function taking its cells, and a wrapper
         if is_def && !is_gen && !is_async {
@@ -3522,7 +3551,7 @@ impl Em {
                     let cparams: String = dcaps.iter().map(|r| format!("{r}: Rc<RefCell<V>>, ")).collect();
                     write!(self.items, "fn {dfn}({cparams}{}) -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }}\n", pdecl.join(", ")).unwrap();
                     let cargs: String = dcaps.iter().map(|r| format!("{r}.clone(), ")).collect();
-                    return Ok(format!("with_fq(with_code({{ let __d = vec![{}]; {caps} func({name_lit}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {dfn}({cargs}{unpack}) }}) }}, {code}), {fq})", dflt_all.join(", ")));
+                    return Ok(format!("with_fq({{ {clos_pre} with_closure(with_code({{ let __d = vec![{}]; {caps} func({name_lit}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {dfn}({cargs}{unpack}) }}) }}, {code}), __clos) }}, {fq})", dflt_all.join(", ")));
                 }
                 return Err(err(line, "internal: a nested function's captures changed"));
             }
@@ -3530,12 +3559,12 @@ impl Em {
         if is_gen || is_async {
             let mk = if is_async && is_gen { format!("make_agen(sym({name_lit}), ") } else if is_async { format!("make_acoro(sym({name_lit}), ") } else { format!("make_gen(sym({qname}), ") };
             return Ok(format!(
-                "with_fq(with_code({{ let __d = vec![{}]; {caps} func({name_lit}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{caps} Ok({mk}move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}) }}, {code}), {fq})",
+                "with_fq({{ {clos_pre} with_closure(with_code({{ let __d = vec![{}]; {caps} func({name_lit}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{caps} Ok({mk}move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}) }}, {code}), __clos) }}, {fq})",
                 dflt_all.join(", ")
             ));
         }
         Ok(format!(
-            "with_fq(with_code({{ let __d = vec![{}]; {caps} func({name_lit}, move |a: Args| -> R {{ let __depth = Depth::new()?; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{decls}{cells_init}\n{body_code}\nOk(V::None) }}) }}, {code}), {fq})",
+            "with_fq({{ {clos_pre} with_closure(with_code({{ let __d = vec![{}]; {caps} func({name_lit}, move |a: Args| -> R {{ let __depth = Depth::new()?; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{decls}{cells_init}\n{body_code}\nOk(V::None) }}) }}, {code}), __clos) }}, {fq})",
             dflt_all.join(", ")
         ))
     }

@@ -241,6 +241,22 @@ pub fn eq(a: &V, b: &V) -> Result<bool, E> {
         (V::View(x), V::View(y)) if x.1 == 3 && y.1 == 3 => eq(&x.0, &y.0)?,
         (V::View(x), V::Dict(_)) if x.1 == 3 => eq(&x.0, b)?,
         (V::Dict(_), V::View(y)) if y.1 == 3 => eq(a, &y.0)?,
+        // a cell compares by its contents, exactly as CPython's cell type does (an empty cell raises)
+        (V::Cell(x), V::Cell(y)) => {
+            let (xv, yv) = {
+                let (xb, yb) = (x.borrow(), y.borrow());
+                let xv = match &*xb {
+                    V::Unbound => return Err(exc("ValueError", "Cell is empty".into())),
+                    v => v.clone(),
+                };
+                let yv = match &*yb {
+                    V::Unbound => return Err(exc("ValueError", "Cell is empty".into())),
+                    v => v.clone(),
+                };
+                (xv, yv)
+            };
+            eq(&xv, &yv)?
+        }
         (V::Set(_) | V::FSet(_), V::Set(_) | V::FSet(_)) => {
             let (x, y) = (set_of(a).unwrap(), set_of(b).unwrap());
             x.used == y.used && x.keys().iter().all(|k| y.contains(k).unwrap_or(false))
@@ -335,6 +351,7 @@ pub fn is(a: &V, b: &V) -> bool {
         (V::Dict(x), V::Dict(y)) => Rc::ptr_eq(x, y),
         (V::Set(x), V::Set(y)) => Rc::ptr_eq(x, y),
         (V::FSet(x), V::FSet(y)) => Rc::ptr_eq(x, y),
+        (V::Cell(x), V::Cell(y)) => Rc::ptr_eq(x, y),
         (V::Func(x), V::Func(y)) => Rc::ptr_eq(x, y),
         (V::Class(x), V::Class(y)) => Rc::ptr_eq(x, y),
         (V::Obj(x), V::Obj(y)) => Rc::ptr_eq(x, y),
@@ -379,6 +396,22 @@ pub fn order(a: &V, b: &V, op: &str) -> Result<Option<std::cmp::Ordering>, E> {
                 (false, true) => Some(Greater),
                 _ => None,
             }
+        }
+        // a cell orders by its contents, as CPython's cell type does
+        (V::Cell(x), V::Cell(y)) => {
+            let (xv, yv) = {
+                let (xb, yb) = (x.borrow(), y.borrow());
+                let xv = match &*xb {
+                    V::Unbound => return Err(exc("ValueError", "Cell is empty".into())),
+                    v => v.clone(),
+                };
+                let yv = match &*yb {
+                    V::Unbound => return Err(exc("ValueError", "Cell is empty".into())),
+                    v => v.clone(),
+                };
+                (xv, yv)
+            };
+            order(&xv, &yv, op)?
         }
         (V::Obj(o), _) | (_, V::Obj(o)) => {
             // rich comparison through __lt__/__gt__/__le__/__ge__
