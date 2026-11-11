@@ -3291,7 +3291,7 @@ pub fn init_builtin_classes() {
         ("JSONDecodeError", "ValueError"),
         ("InvalidOperation", "ArithmeticError"),
         ("DivisionByZero", "ZeroDivisionError"),
-        ("error", "Exception"),
+        ("PatternError", "Exception"),
         ("StatisticsError", "ValueError"),
         ("ZoneInfoNotFoundError", "KeyError"),
         ("PackageNotFoundError", "ModuleNotFoundError"),
@@ -3302,7 +3302,7 @@ pub fn init_builtin_classes() {
         let module = match *n {
             "JSONDecodeError" => "json.decoder",
             "InvalidOperation" | "DivisionByZero" => "decimal",
-            "error" => "re",
+            "PatternError" => "re",
             "StatisticsError" => "statistics",
             "ZoneInfoNotFoundError" => "zoneinfo._common",
             "PackageNotFoundError" => "importlib.metadata",

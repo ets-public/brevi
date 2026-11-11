@@ -22,6 +22,7 @@ pub enum RNode {
 pub struct RClass {
     items: Vec<CItem>,
     neg: bool,
+    ascii: bool,
 }
 #[derive(Clone, Debug)]
 enum CItem {
@@ -45,19 +46,117 @@ const F_X: i64 = 64;
 const F_A: i64 = 256;
 // The largest repeat count CPython's sre accepts (2**32 - 2); one more raises OverflowError.
 const MAX_REPEAT: usize = 0xFFFF_FFFE;
+const MAX_GROUPS: usize = 0x3FFF_FFFF;
 
-fn re_err<T>(msg: String) -> Result<T, E> {
-    Err(exc("error", msg))
+// CPython's re.PatternError: the instance's msg is the bare message; args[0] (and str()) carry the position.
+fn re_error(msg: &str, pattern: &str, pos: usize) -> E {
+    re_error_full(msg, pattern, pos, None)
+}
+fn re_error_full(msg: &str, pattern: &str, pos: usize, pat: Option<V>) -> E {
+    let mut full = format!("{msg} at position {pos}");
+    let mut lineno = 1usize;
+    let mut colno = pos + 1;
+    for (i, c) in pattern.chars().enumerate().take(pos) {
+        if c == '\n' {
+            lineno += 1;
+            colno = pos - i;
+        }
+    }
+    if pattern.contains('\n') {
+        full.push_str(&format!(" (line {lineno}, column {colno})"));
+    }
+    let o = Obj::new(exc_class("PatternError"));
+    o.set("msg", st(msg.to_string()));
+    match pat {
+        Some(p) => o.set("pattern", p),
+        None => o.set("pattern", st(pattern.to_string())),
+    }
+    o.set("pos", V::Int(pos as i64));
+    o.set("lineno", V::Int(lineno as i64));
+    o.set("colno", V::Int(colno as i64));
+    o.set("args", tup(vec![st(full)]));
+    E(V::Obj(o))
+}
+fn bytes_src(v: &V) -> Option<(String, V)> {
+    let V::Ext(x) = v else { return None };
+    let b = x.any().downcast_ref::<BytesV>()?;
+    Some((b.0.iter().map(|&c| c as char).collect(), v.clone()))
+}
+fn re_error_bytes(msg: &str, pat: &V, pos: usize) -> E {
+    let Some((decoded, pat)) = bytes_src(pat) else { return re_error(msg, "", pos) };
+    re_error_full(msg, &decoded, pos, Some(pat))
+}
+fn py_ascii(s: &str) -> String {
+    let mut out = String::from("'");
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '\'' => out.push_str("\\'"),
+            c if c.is_ascii() && !c.is_control() => out.push(c),
+            c if (c as u32) <= 0xff => {
+                write!(out, "\\x{:02x}", c as u32).unwrap();
+            }
+            c if (c as u32) <= 0xffff => {
+                write!(out, "\\u{:04x}", c as u32).unwrap();
+            }
+            c => {
+                write!(out, "\\U{:08x}", c as u32).unwrap();
+            }
+        }
+    }
+    out.push('\'');
+    out
 }
 
 struct RP<'a> {
     c: &'a [char],
+    src: &'a str,
     i: usize,
     flags: i64,
     ngroups: usize,
+    closed: usize,
     names: Vec<(String, usize)>,
+    lb: Option<usize>,
+    global_ok: bool,
+    cond_refs: Vec<(usize, usize)>,
+    bytes: bool,
+    pat: Option<V>,
+}
+fn re_py_ident(s: &str) -> bool {
+    let mut cs = s.chars();
+    match cs.next() {
+        Some(c) if c == '_' || c.is_alphabetic() => cs.all(|c| c == '_' || c.is_alphanumeric()),
+        _ => false,
+    }
+}
+fn is_repeat_node(n: &RNode) -> bool {
+    match n {
+        RNode::Repeat(..) => true,
+        RNode::Atomic(a) => a.len() == 1 && a[0].len() == 1 && matches!(a[0][0], RNode::Repeat(..)),
+        _ => false,
+    }
+}
+fn is_flag_char(c: char) -> bool {
+    matches!(c, 'i' | 'm' | 's' | 'x' | 'a' | 'u' | 'L')
+}
+fn flag_bit(c: char) -> i64 {
+    match c {
+        'i' => F_I,
+        'm' => F_M,
+        's' => F_S,
+        'x' => F_X,
+        'a' => F_A,
+        'u' => 32,
+        _ => 4,
+    }
 }
 impl<'a> RP<'a> {
+    fn err<T>(&self, msg: &str, pos: usize) -> Result<T, E> {
+        match &self.pat {
+            Some(p) => Err(re_error_bytes(msg, p, pos)),
+            None => Err(re_error(msg, self.src, pos)),
+        }
+    }
     fn peek(&self) -> Option<char> {
         self.c.get(self.i).copied()
     }
@@ -84,47 +183,53 @@ impl<'a> RP<'a> {
         let mut alts = vec![self.seq()?];
         while self.peek() == Some('|') {
             self.i += 1;
+            self.global_ok = false;
             alts.push(self.seq()?);
         }
         Ok(alts)
     }
     fn seq(&mut self) -> Result<Vec<RNode>, E> {
-        let mut v = vec![];
+        let mut v: Vec<RNode> = vec![];
         loop {
             self.skip_x();
             match self.peek() {
                 None | Some('|') | Some(')') => return Ok(v),
                 _ => {}
             }
-            let start = self.i;
+            // A repeat after an item quantifies that item (a second repeat is "multiple repeat").
+            if !v.is_empty() && matches!(self.peek(), Some('*') | Some('+') | Some('?') | Some('{')) {
+                let q = self.quant()?;
+                if let Some((lo, hi, greedy, poss, qstart)) = q {
+                    let atom = v.pop().unwrap();
+                    if matches!(atom, RNode::Bol | RNode::Eol | RNode::StrStart | RNode::StrEnd | RNode::WordB(_)) {
+                        return self.err("nothing to repeat", qstart);
+                    }
+                    if is_repeat_node(&atom) {
+                        return self.err("multiple repeat", qstart);
+                    }
+                    let r = RNode::Repeat(Box::new(atom), lo, hi, greedy);
+                    v.push(if poss { RNode::Atomic(Rc::new(vec![vec![r]])) } else { r });
+                    continue;
+                }
+            }
             let atom = self.atom()?;
             let Some(atom) = atom else { continue };
+            self.global_ok = false;
             self.skip_x();
             let q = self.quant()?;
             match q {
-                Some((lo, hi, greedy, poss)) => {
-                    if matches!(atom, RNode::Bol | RNode::Eol | RNode::StrStart | RNode::StrEnd | RNode::WordB(_) | RNode::Look(..)) && false {
-                        let _ = start;
+                Some((lo, hi, greedy, poss, qstart)) => {
+                    if matches!(atom, RNode::Bol | RNode::Eol | RNode::StrStart | RNode::StrEnd | RNode::WordB(_)) {
+                        return self.err("nothing to repeat", qstart);
                     }
-                    if let RNode::Repeat(..) = atom {
-                        return re_err(format!("multiple repeat at position {}", self.i - 1));
+                    if is_repeat_node(&atom) {
+                        return self.err("multiple repeat", qstart);
                     }
                     let r = RNode::Repeat(Box::new(atom), lo, hi, greedy);
                     v.push(if poss { RNode::Atomic(Rc::new(vec![vec![r]])) } else { r });
                 }
                 None => v.push(atom),
             }
-        }
-    }
-    fn num(&mut self) -> Option<usize> {
-        let s = self.i;
-        while self.peek().is_some_and(|c| c.is_ascii_digit()) {
-            self.i += 1;
-        }
-        if s == self.i {
-            None
-        } else {
-            self.c[s..self.i].iter().collect::<String>().parse().ok()
         }
     }
     // A quantifier count: None when there are no digits, plus a flag when the digits
@@ -138,11 +243,50 @@ impl<'a> RP<'a> {
             return (None, false);
         }
         match self.c[s..self.i].iter().collect::<String>().parse::<usize>() {
-            Ok(n) if n <= MAX_REPEAT => (Some(n), false),
+            Ok(n) if n < MAX_REPEAT => (Some(n), false),
             _ => (None, true),
         }
     }
-    fn quant(&mut self) -> Result<Option<(usize, usize, bool, bool)>, E> {
+    // Parses `{m,n}` with self.i just after `{`; leaves self.i just after `{` when it is not a quantifier.
+    fn brace(&mut self) -> Result<Option<(usize, usize)>, E> {
+        let after = self.i;
+        let (lo, lo_big) = self.rep_num();
+        let (r, big) = if self.peek() == Some(',') {
+            self.i += 1;
+            let (hi, hi_big) = self.rep_num();
+            ((lo.unwrap_or(0), hi.unwrap_or(usize::MAX)), lo_big || hi_big)
+        } else {
+            match lo {
+                Some(n) => ((n, n), lo_big),
+                None if lo_big => {
+                    if self.peek() == Some('}') {
+                        self.i += 1;
+                        return Err(exc("OverflowError", "the repetition number is too large".into()));
+                    }
+                    self.i = after;
+                    return Ok(None);
+                }
+                None => {
+                    self.i = after;
+                    return Ok(None);
+                }
+            }
+        };
+        if self.peek() != Some('}') {
+            self.i = after;
+            return Ok(None);
+        }
+        self.i += 1;
+        if big {
+            return Err(exc("OverflowError", "the repetition number is too large".into()));
+        }
+        if r.1 < r.0 {
+            return self.err("min repeat greater than max repeat", after);
+        }
+        Ok(Some(r))
+    }
+    fn quant(&mut self) -> Result<Option<(usize, usize, bool, bool, usize)>, E> {
+        let start = self.i;
         let (lo, hi) = match self.peek() {
             Some('*') => {
                 self.i += 1;
@@ -157,42 +301,14 @@ impl<'a> RP<'a> {
                 (0, 1)
             }
             Some('{') => {
-                let save = self.i;
                 self.i += 1;
-                let (lo, lo_big) = self.rep_num();
-                let (r, big) = if self.peek() == Some(',') {
-                    self.i += 1;
-                    let (hi, hi_big) = self.rep_num();
-                    ((lo.unwrap_or(0), hi.unwrap_or(usize::MAX)), lo_big || hi_big)
-                } else {
-                    match lo {
-                        Some(n) => ((n, n), lo_big),
-                        None if lo_big => {
-                            if self.peek() == Some('}') {
-                                self.i += 1;
-                                return Err(exc("OverflowError", "the repetition number is too large".into()));
-                            }
-                            self.i = save;
-                            return Ok(None);
-                        }
-                        None => {
-                            self.i = save;
-                            return Ok(None);
-                        }
+                match self.brace()? {
+                    Some(r) => r,
+                    None => {
+                        self.i = start;
+                        return Ok(None);
                     }
-                };
-                if self.peek() != Some('}') {
-                    self.i = save;
-                    return Ok(None);
                 }
-                self.i += 1;
-                if big {
-                    return Err(exc("OverflowError", "the repetition number is too large".into()));
-                }
-                if r.1 < r.0 {
-                    return re_err(format!("min repeat greater than max repeat at position {}", save + 1));
-                }
-                r
             }
             _ => return Ok(None),
         };
@@ -205,244 +321,147 @@ impl<'a> RP<'a> {
             self.i += 1;
             poss = true;
         }
-        Ok(Some((lo, hi, greedy, poss)))
+        Ok(Some((lo, hi, greedy, poss, start)))
     }
-    fn escape_char(&mut self, c: char) -> Result<Option<char>, E> {
-        Ok(Some(match c {
+    fn plain_escape(&self, c: char) -> Option<char> {
+        Some(match c {
             'n' => '\n',
             't' => '\t',
             'r' => '\r',
             'f' => '\x0c',
             'v' => '\x0b',
             'a' => '\x07',
-            '0' => {
-                let mut v = 0u32;
-                let mut k = 0;
-                while k < 2 && self.peek().is_some_and(|c| ('0'..='7').contains(&c)) {
-                    v = v * 8 + self.peek().unwrap().to_digit(8).unwrap();
-                    self.i += 1;
-                    k += 1;
-                }
-                char::from_u32(v).unwrap_or('\0')
-            }
-            'x' | 'u' | 'U' => {
-                let n = match c {
-                    'x' => 2,
-                    'u' => 4,
-                    _ => 8,
-                };
-                let h: String = self.c.get(self.i..self.i + n).map(|x| x.iter().collect()).unwrap_or_default();
-                let v = u32::from_str_radix(&h, 16).ok().filter(|_| h.len() == n);
-                match v.and_then(char::from_u32) {
-                    Some(ch) => {
-                        self.i += n;
-                        ch
-                    }
-                    None => return re_err(format!("incomplete escape \\{c}{h}")),
-                }
-            }
-            c if c.is_ascii_alphanumeric() => return Ok(None),
+            c if c.is_ascii_alphabetic() => return None,
             c => c,
-        }))
+        })
     }
-    fn atom(&mut self) -> Result<Option<RNode>, E> {
-        let c = self.peek().unwrap();
-        self.i += 1;
-        let ic = self.flags & F_I != 0;
-        let ch = |c: char| if ic { RNode::Class(Rc::new(RClass { items: fold_items(c), neg: false })) } else { RNode::Char(c) };
-        Ok(Some(match c {
-            '.' => RNode::Any,
-            '^' => RNode::Bol,
-            '$' => RNode::Eol,
-            '*' | '+' | '?' => return re_err(format!("nothing to repeat at position {}", self.i - 1)),
-            '{' => {
-                // a literal { unless it is a valid quantifier (which has nothing to repeat)
-                ch('{')
-            }
-            '[' => self.class()?,
-            '(' => return self.group(),
-            '\\' => {
-                let Some(e) = self.peek() else { return re_err("bad escape (end of pattern)".into()) };
-                self.i += 1;
-                match e {
-                    'd' | 'D' => RNode::Class(Rc::new(RClass { items: vec![CItem::Digit(e == 'D')], neg: false })),
-                    'w' | 'W' => RNode::Class(Rc::new(RClass { items: vec![CItem::Word(e == 'W')], neg: false })),
-                    's' | 'S' => RNode::Class(Rc::new(RClass { items: vec![CItem::Space(e == 'S')], neg: false })),
-                    'b' => RNode::WordB(true),
-                    'B' => RNode::WordB(false),
-                    'A' => RNode::StrStart,
-                    'Z' | 'z' => RNode::StrEnd,
-                    '1'..='9' => {
-                        self.i -= 1;
-                        let n = self.num().unwrap();
-                        if n > self.ngroups {
-                            return re_err(format!("invalid group reference {n} at position {}", self.i));
-                        }
-                        RNode::Backref(n)
-                    }
-                    _ => match self.escape_char(e)? {
-                        Some(c) => ch(c),
-                        None => return re_err(format!("bad escape \\{e} at position {}", self.i - 2)),
-                    },
-                }
-            }
-            c => ch(c),
-        }))
-    }
-    fn group(&mut self) -> Result<Option<RNode>, E> {
-        if self.peek() == Some('?') {
+    fn hex_escape(&mut self, c: char, back: usize) -> Result<char, E> {
+        let n = match c {
+            'x' => 2,
+            'u' => 4,
+            _ => 8,
+        };
+        let mut h = String::new();
+        while h.len() < n && self.peek().is_some_and(|c| c.is_ascii_hexdigit()) {
+            h.push(self.peek().unwrap());
             self.i += 1;
-            let k = self.peek();
-            match k {
-                Some(':') => {
-                    self.i += 1;
-                    let a = self.alts()?;
-                    self.close()?;
-                    return Ok(Some(RNode::Group(Rc::new(a), None)));
-                }
-                Some('>') => {
-                    self.i += 1;
-                    let a = self.alts()?;
-                    self.close()?;
-                    return Ok(Some(RNode::Atomic(Rc::new(a))));
-                }
-                Some('=') | Some('!') => {
-                    self.i += 1;
-                    let a = self.alts()?;
-                    self.close()?;
-                    return Ok(Some(RNode::Look(Rc::new(a), false, k == Some('!'))));
-                }
-                Some('<') if matches!(self.c.get(self.i + 1), Some('=') | Some('!')) => {
-                    let neg = self.c[self.i + 1] == '!';
-                    self.i += 2;
-                    let a = self.alts()?;
-                    self.close()?;
-                    return Ok(Some(RNode::Look(Rc::new(a), true, neg)));
-                }
-                Some('P') | Some('<') => {
-                    if k == Some('P') {
-                        self.i += 1;
-                    }
-                    match self.peek() {
-                        Some('<') => {
-                            self.i += 1;
-                            let s = self.i;
-                            while self.peek().is_some_and(|c| c != '>') {
-                                self.i += 1;
-                            }
-                            let name: String = self.c[s..self.i].iter().collect();
-                            self.i += 1;
-                            if let Some(&(_, old)) = self.names.iter().find(|x| x.0 == name) {
-                                return re_err(format!(
-                                    "redefinition of group name '{name}' as group {}; was group {old} at position {s}",
-                                    self.ngroups + 1
-                                ));
-                            }
-                            self.ngroups += 1;
-                            let g = self.ngroups;
-                            self.names.push((name, g));
-                            let a = self.alts()?;
-                            self.close()?;
-                            return Ok(Some(RNode::Group(Rc::new(a), Some(g))));
-                        }
-                        Some('=') => {
-                            self.i += 1;
-                            let s = self.i;
-                            while self.peek().is_some_and(|c| c != ')') {
-                                self.i += 1;
-                            }
-                            let name: String = self.c[s..self.i].iter().collect();
-                            self.i += 1;
-                            return match self.names.iter().find(|x| x.0 == name) {
-                                Some(x) => Ok(Some(RNode::Backref(x.1))),
-                                None => re_err(format!("unknown group name '{name}'")),
-                            };
-                        }
-                        _ => return re_err("unknown extension ?P".into()),
-                    }
-                }
-                Some('#') => {
-                    while self.peek().is_some_and(|c| c != ')') {
-                        self.i += 1;
-                    }
-                    self.i += 1;
-                    return Ok(None);
-                }
-                Some('(') => {
-                    self.i += 1;
-                    let n = match self.num() {
-                        Some(n) => n,
-                        None => {
-                            let s = self.i;
-                            while self.peek().is_some_and(|c| c != ')') {
-                                self.i += 1;
-                            }
-                            let name: String = self.c[s..self.i].iter().collect();
-                            self.names.iter().find(|x| x.0 == name).map(|x| x.1).ok_or_else(|| exc("error", format!("unknown group name '{name}'")))?
-                        }
-                    };
-                    self.close()?;
-                    let yes = self.seq()?;
-                    let no = if self.peek() == Some('|') {
-                        self.i += 1;
-                        self.seq()?
-                    } else {
-                        vec![]
-                    };
-                    self.close()?;
-                    return Ok(Some(RNode::Cond(n, Rc::new(yes), Rc::new(no))));
-                }
-                _ => {
-                    // inline flags: (?aiLmsux) or (?flags:...)
-                    let mut on = 0;
-                    let mut off = 0;
-                    let mut neg = false;
-                    loop {
-                        match self.peek() {
-                            Some('i') => *(if neg { &mut off } else { &mut on }) |= F_I,
-                            Some('m') => *(if neg { &mut off } else { &mut on }) |= F_M,
-                            Some('s') => *(if neg { &mut off } else { &mut on }) |= F_S,
-                            Some('x') => *(if neg { &mut off } else { &mut on }) |= F_X,
-                            Some('a') => on |= F_A,
-                            Some('u') | Some('L') => {}
-                            Some('-') => neg = true,
-                            Some(')') => {
-                                self.i += 1;
-                                self.flags |= on;
-                                return Ok(None);
-                            }
-                            Some(':') => {
-                                self.i += 1;
-                                let saved = self.flags;
-                                self.flags = (self.flags | on) & !off;
-                                let a = self.alts()?;
-                                self.flags = saved;
-                                self.close()?;
-                                return Ok(Some(RNode::Group(Rc::new(a), None)));
-                            }
-                            _ => return re_err(format!("unknown extension ?{} at position {}", self.peek().unwrap_or(' '), self.i - 1)),
-                        }
-                        self.i += 1;
-                    }
-                }
+        }
+        if h.len() != n {
+            return self.err(&format!("incomplete escape \\{c}{h}"), back);
+        }
+        let v = u32::from_str_radix(&h, 16).unwrap();
+        match char::from_u32(v) {
+            Some(ch) => Ok(ch),
+            None => self.err(&format!("bad escape \\{c}{h}"), back),
+        }
+    }
+    fn octal_escape(&mut self, first: char, back: usize) -> Result<char, E> {
+        let mut ds = vec![first];
+        while ds.len() < 3 && self.peek().is_some_and(|c| ('0'..='7').contains(&c)) {
+            ds.push(self.peek().unwrap());
+            self.i += 1;
+        }
+        let d: String = ds.iter().collect();
+        let v = u32::from_str_radix(&d, 8).unwrap();
+        if v > 0o377 {
+            return self.err(&format!("octal escape value \\{d} outside of range 0-0o377"), back);
+        }
+        Ok(char::from_u32(v).unwrap())
+    }
+    fn check_backref(&self, g: usize, pos: usize) -> Result<(), E> {
+        if g > self.ngroups {
+            return self.err(&format!("invalid group reference {g}"), pos);
+        }
+        if g > self.closed {
+            return self.err("cannot refer to an open group", pos);
+        }
+        if let Some(lb) = self.lb {
+            if g >= lb {
+                return self.err("cannot refer to group defined in the same lookbehind subpattern", pos);
             }
         }
-        self.ngroups += 1;
-        let g = self.ngroups;
-        let a = self.alts()?;
-        self.close()?;
-        Ok(Some(RNode::Group(Rc::new(a), Some(g))))
+        Ok(())
     }
-    fn close(&mut self) -> Result<(), E> {
+    fn group_or_octal(&mut self, first: char, back: usize) -> Result<RNode, E> {
+        let mut ds = vec![first];
+        if self.peek().is_some_and(|c| c.is_ascii_digit()) {
+            let d2 = self.peek().unwrap();
+            self.i += 1;
+            ds.push(d2);
+            if ('0'..='7').contains(&first) && ('0'..='7').contains(&d2) && self.peek().is_some_and(|c| ('0'..='7').contains(&c)) {
+                let d3 = self.peek().unwrap();
+                self.i += 1;
+                ds.push(d3);
+                let d: String = ds.iter().collect();
+                let v = u32::from_str_radix(&d, 8).unwrap();
+                if v > 0o377 {
+                    return self.err(&format!("octal escape value \\{d} outside of range 0-0o377"), back);
+                }
+                return Ok(RNode::Char(char::from_u32(v).unwrap()));
+            }
+        }
+        let d: String = ds.iter().collect();
+        let g = d.parse::<usize>().unwrap_or(usize::MAX);
+        if g > self.ngroups {
+            return self.err(&format!("invalid group reference {g}"), back + 1);
+        }
+        if g > self.closed {
+            return self.err("cannot refer to an open group", back);
+        }
+        if let Some(lb) = self.lb {
+            if g >= lb {
+                return self.err("cannot refer to group defined in the same lookbehind subpattern", back + 1);
+            }
+        }
+        Ok(RNode::Backref(g))
+    }
+    fn get_name(&mut self, term: char, what: &str) -> Result<(String, usize), E> {
+        let start = self.i;
+        let mut name = String::new();
+        while let Some(c) = self.peek() {
+            if c == term {
+                let at = self.i;
+                self.i += 1;
+                if name.is_empty() {
+                    return self.err(&format!("missing {what}"), at);
+                }
+                return Ok((name, start));
+            }
+            self.i += 1;
+            name.push(c);
+        }
+        if name.is_empty() {
+            self.err(&format!("missing {what}"), self.i)
+        } else {
+            self.err(&format!("missing {term}, unterminated name"), start)
+        }
+    }
+    fn check_group_name(&self, name: &str, start: usize) -> Result<(), E> {
+        if (self.bytes && !name.is_ascii()) || !re_py_ident(name) {
+            let shown = if self.bytes { py_ascii(name) } else { format!("'{name}'") };
+            self.err(&format!("bad character in group name {shown}"), start)
+        } else {
+            Ok(())
+        }
+    }
+    fn close(&mut self, gstart: usize) -> Result<(), E> {
         if self.peek() == Some(')') {
             self.i += 1;
             Ok(())
         } else {
-            re_err(format!("missing ), unterminated subpattern at position {}", self.i))
+            self.err("missing ), unterminated subpattern", gstart)
         }
     }
+    fn sub_parse(&mut self) -> Result<Vec<Vec<RNode>>, E> {
+        let ok = self.global_ok;
+        self.global_ok = false;
+        let a = self.alts();
+        self.global_ok = ok;
+        a
+    }
     fn class(&mut self) -> Result<RNode, E> {
-        let mut items = vec![];
+        let open = self.i - 1;
+        let mut items: Vec<CItem> = vec![];
         let mut neg = false;
         if self.peek() == Some('^') {
             neg = true;
@@ -450,52 +469,88 @@ impl<'a> RP<'a> {
         }
         let mut first = true;
         loop {
-            let Some(c) = self.peek() else { return re_err("unterminated character set".into()) };
+            let Some(c) = self.peek() else { return self.err("unterminated character set", open) };
+            let lo_start = self.i;
             self.i += 1;
             if c == ']' && !first {
                 break;
             }
             first = false;
-            let lo = if c == '\\' {
-                let e = self.peek().ok_or_else(|| exc("error", "bad escape (end of pattern)".into()))?;
+            let (lo, lo_disp) = if c == '\\' {
+                let back = lo_start;
+                let Some(e) = self.peek() else { return self.err("bad escape (end of pattern)", back) };
                 self.i += 1;
-                match e {
-                    'd' | 'D' => {
-                        items.push(CItem::Digit(e == 'D'));
-                        continue;
+                let item = match e {
+                    'd' | 'D' => CItem::Digit(e == 'D'),
+                    'w' | 'W' => CItem::Word(e == 'W'),
+                    's' | 'S' => CItem::Space(e == 'S'),
+                    'b' => CItem::Ch('\x08'),
+                    'x' | 'u' | 'U' => CItem::Ch(self.hex_escape(e, back)?),
+                    '0'..='7' => CItem::Ch(self.octal_escape(e, back)?),
+                    '8' | '9' => return self.err(&format!("bad escape \\{e}"), back),
+                    'N' => {
+                        if self.peek() != Some('{') {
+                            return self.err("missing {", self.i);
+                        }
+                        return Err(unsupported("re with a \\N{...} pattern"));
                     }
-                    'w' | 'W' => {
-                        items.push(CItem::Word(e == 'W'));
-                        continue;
-                    }
-                    's' | 'S' => {
-                        items.push(CItem::Space(e == 'S'));
-                        continue;
-                    }
-                    'b' => '\x08',
-                    _ => match self.escape_char(e)? {
-                        Some(c) => c,
-                        None => return re_err(format!("bad escape \\{e}")),
+                    _ => match self.plain_escape(e) {
+                        Some(ch) => CItem::Ch(ch),
+                        None => return self.err(&format!("bad escape \\{e}"), back),
                     },
-                }
+                };
+                (item, format!("\\{e}"))
             } else {
-                c
+                (CItem::Ch(c), c.to_string())
             };
-            if self.peek() == Some('-') && self.c.get(self.i + 1).is_some_and(|&x| x != ']') {
+            if self.peek() == Some('-') {
                 self.i += 1;
-                let mut hi = self.peek().unwrap();
+                let Some(that) = self.peek() else { return self.err("unterminated character set", open) };
+                let hi_start = self.i;
                 self.i += 1;
-                if hi == '\\' {
-                    let e = self.peek().unwrap_or('\\');
+                if that == ']' {
+                    items.push(lo);
+                    items.push(CItem::Ch('-'));
+                    break;
+                }
+                let (hi, hi_disp) = if that == '\\' {
+                    let back = hi_start;
+                    let Some(e) = self.peek() else { return self.err("bad escape (end of pattern)", back) };
                     self.i += 1;
-                    hi = self.escape_char(e)?.unwrap_or(e);
+                    let item = match e {
+                        'd' | 'D' => CItem::Digit(e == 'D'),
+                        'w' | 'W' => CItem::Word(e == 'W'),
+                        's' | 'S' => CItem::Space(e == 'S'),
+                        'b' => CItem::Ch('\x08'),
+                        'x' | 'u' | 'U' => CItem::Ch(self.hex_escape(e, back)?),
+                        '0'..='7' => CItem::Ch(self.octal_escape(e, back)?),
+                        '8' | '9' => return self.err(&format!("bad escape \\{e}"), back),
+                        'N' => {
+                            if self.peek() != Some('{') {
+                                return self.err("missing {", self.i);
+                            }
+                            return Err(unsupported("re with a \\N{...} pattern"));
+                        }
+                        _ => match self.plain_escape(e) {
+                            Some(ch) => CItem::Ch(ch),
+                            None => return self.err(&format!("bad escape \\{e}"), back),
+                        },
+                    };
+                    (item, format!("\\{e}"))
+                } else {
+                    (CItem::Ch(that), that.to_string())
+                };
+                let is_cat = |x: &CItem| matches!(x, CItem::Digit(_) | CItem::Word(_) | CItem::Space(_));
+                if is_cat(&lo) || is_cat(&hi) {
+                    return self.err(&format!("bad character range {lo_disp}-{hi_disp}"), lo_start);
                 }
-                if hi < lo {
-                    return re_err(format!("bad character range {lo}-{hi}"));
+                let (CItem::Ch(a), CItem::Ch(b)) = (&lo, &hi) else { unreachable!() };
+                if b < a {
+                    return self.err(&format!("bad character range {a}-{b}"), lo_start);
                 }
-                items.push(CItem::Range(lo, hi));
+                items.push(CItem::Range(*a, *b));
             } else {
-                items.push(CItem::Ch(lo));
+                items.push(lo);
             }
         }
         if self.flags & F_I != 0 {
@@ -515,7 +570,305 @@ impl<'a> RP<'a> {
             }
             items.extend(more);
         }
-        Ok(RNode::Class(Rc::new(RClass { items, neg })))
+        Ok(RNode::Class(Rc::new(RClass { items, neg, ascii: self.flags & F_A != 0 && self.flags & 32 == 0 })))
+    }
+    fn atom(&mut self) -> Result<Option<RNode>, E> {
+        let c = self.peek().unwrap();
+        let at = self.i;
+        self.i += 1;
+        let ic = self.flags & F_I != 0;
+        let ascii = self.flags & F_A != 0 && self.flags & 32 == 0;
+        let ch = |c: char| if ic { RNode::Class(Rc::new(RClass { items: fold_items(c), neg: false, ascii })) } else { RNode::Char(c) };
+        Ok(Some(match c {
+            '.' => RNode::Any,
+            '^' => RNode::Bol,
+            '$' => RNode::Eol,
+            '*' | '+' | '?' => return self.err("nothing to repeat", at),
+            '{' => {
+                if self.peek() != Some('}') && self.brace()?.is_some() {
+                    return self.err("nothing to repeat", at);
+                }
+                ch('{')
+            }
+            '[' => self.class()?,
+            '(' => return self.group(),
+            '\\' => {
+                let back = self.i - 1;
+                let Some(e) = self.peek() else { return self.err("bad escape (end of pattern)", back) };
+                self.i += 1;
+                match e {
+                    'd' | 'D' => RNode::Class(Rc::new(RClass { items: vec![CItem::Digit(e == 'D')], neg: false, ascii })),
+                    'w' | 'W' => RNode::Class(Rc::new(RClass { items: vec![CItem::Word(e == 'W')], neg: false, ascii })),
+                    's' | 'S' => RNode::Class(Rc::new(RClass { items: vec![CItem::Space(e == 'S')], neg: false, ascii })),
+                    'b' => RNode::WordB(true),
+                    'B' => RNode::WordB(false),
+                    'A' => RNode::StrStart,
+                    'Z' => RNode::StrEnd,
+                    '0' => ch(self.octal_escape(e, back)?),
+                    '1'..='9' => self.group_or_octal(e, back)?,
+                    'x' | 'u' | 'U' => ch(self.hex_escape(e, back)?),
+                    'N' => {
+                        if self.peek() != Some('{') {
+                            return self.err("missing {", self.i);
+                        }
+                        return Err(unsupported("re with a \\N{...} pattern"));
+                    }
+                    _ => match self.plain_escape(e) {
+                        Some(c2) => ch(c2),
+                        None => return self.err(&format!("bad escape \\{e}"), back),
+                    },
+                }
+            }
+            c => ch(c),
+        }))
+    }
+    fn flags_group(&mut self, gstart: usize, first: char) -> Result<Option<RNode>, E> {
+        let type_flags = F_A | 32 | 4;
+        let mut add = 0i64;
+        let mut del = 0i64;
+        let mut off = first == '-';
+        if off {
+            self.i += 1;
+        }
+        if !off {
+            let mut cur = first;
+            loop {
+                if cur == 'L' && !self.bytes {
+                    return self.err("bad inline flags: cannot use 'L' flag with a str pattern", self.i);
+                }
+                if cur == 'u' && self.bytes {
+                    return self.err("bad inline flags: cannot use 'u' flag with a bytes pattern", self.i + 1);
+                }
+                let bit = flag_bit(cur);
+                add |= bit;
+                if bit & type_flags != 0 && add & type_flags != bit {
+                    return self.err("bad inline flags: flags 'a', 'u' and 'L' are incompatible", self.i + 1);
+                }
+                self.i += 1;
+                let Some(n) = self.peek() else { return self.err("missing -, : or )", self.i) };
+                if n == ')' {
+                    if !self.global_ok {
+                        return self.err("global flags not at the start of the expression", gstart);
+                    }
+                    self.i += 1;
+                    if add & F_A != 0 {
+                        self.flags &= !32;
+                    }
+                    if add & 32 != 0 {
+                        self.flags &= !F_A;
+                    }
+                    self.flags |= add;
+                    return Ok(None);
+                }
+                if n == ':' {
+                    self.i += 1;
+                    break;
+                }
+                if n == '-' {
+                    self.i += 1;
+                    off = true;
+                    break;
+                }
+                if !is_flag_char(n) {
+                    return self.err(if n.is_alphabetic() { "unknown flag" } else { "missing -, : or )" }, self.i);
+                }
+                cur = n;
+            }
+        }
+        if off {
+            loop {
+                let Some(n) = self.peek() else { return self.err("missing flag", self.i) };
+                if !is_flag_char(n) {
+                    return self.err(if n.is_alphabetic() { "unknown flag" } else { "missing flag" }, self.i);
+                }
+                let bit = flag_bit(n);
+                if bit & type_flags != 0 {
+                    return self.err("bad inline flags: cannot turn off flags 'a', 'u' and 'L'", self.i + 1);
+                }
+                del |= bit;
+                self.i += 1;
+                let Some(m) = self.peek() else { return self.err("missing :", self.i) };
+                if m == ':' {
+                    self.i += 1;
+                    break;
+                }
+                if !is_flag_char(m) {
+                    return self.err(if m.is_alphabetic() { "unknown flag" } else { "missing :" }, self.i);
+                }
+            }
+        }
+        if add & del != 0 {
+            return self.err("bad inline flags: flag turned on and off", self.i - 1);
+        }
+        let saved = self.flags;
+        let mut f = (self.flags | add) & !del;
+        if add & F_A != 0 {
+            f &= !32;
+        }
+        if add & 32 != 0 {
+            f &= !F_A;
+        }
+        self.flags = f;
+        let a = self.sub_parse()?;
+        self.flags = saved;
+        self.close(gstart)?;
+        Ok(Some(RNode::Group(Rc::new(a), None)))
+    }
+    fn python_ext(&mut self, gstart: usize, qpos: usize) -> Result<Option<RNode>, E> {
+        self.i += 1;
+        let Some(c) = self.peek() else { return self.err("unexpected end of pattern", self.i) };
+        match c {
+            '<' => {
+                self.i += 1;
+                let (name, start) = self.get_name('>', "group name")?;
+                self.check_group_name(&name, start)?;
+                if let Some(&(_, old)) = self.names.iter().find(|x| x.0 == name) {
+                    return self.err(
+                        &format!("redefinition of group name '{name}' as group {}; was group {old}", self.ngroups + 1),
+                        start,
+                    );
+                }
+                self.ngroups += 1;
+                let g = self.ngroups;
+                self.names.push((name, g));
+                let a = self.sub_parse()?;
+                self.close(gstart)?;
+                self.closed += 1;
+                Ok(Some(RNode::Group(Rc::new(a), Some(g))))
+            }
+            '=' => {
+                self.i += 1;
+                let (name, start) = self.get_name(')', "group name")?;
+                self.check_group_name(&name, start)?;
+                let Some(&(_, g)) = self.names.iter().find(|x| x.0 == name) else {
+                    return self.err(&format!("unknown group name '{name}'"), start);
+                };
+                self.check_backref(g, start)?;
+                Ok(Some(RNode::Backref(g)))
+            }
+            _ => {
+                self.i += 1;
+                self.err(&format!("unknown extension ?P{c}"), qpos)
+            }
+        }
+    }
+    fn conditional(&mut self, gstart: usize) -> Result<Option<RNode>, E> {
+        self.i += 1;
+        let (name, start) = self.get_name(')', "group name")?;
+        let g = if !name.is_empty() && name.chars().all(|c| c.is_ascii_digit()) {
+            let n = name.parse::<usize>().unwrap_or(usize::MAX);
+            if n == 0 {
+                return self.err("bad group number", start);
+            }
+            if n >= MAX_GROUPS {
+                return self.err(&format!("invalid group reference {n}"), start);
+            }
+            if self.lb.is_some() {
+                self.check_backref(n, start)?;
+            }
+            self.cond_refs.push((n, start));
+            n
+        } else {
+            self.check_group_name(&name, start)?;
+            let Some(&(_, n)) = self.names.iter().find(|x| x.0 == name) else {
+                return self.err(&format!("unknown group name '{name}'"), start);
+            };
+            if self.lb.is_some() {
+                self.check_backref(n, start)?;
+            }
+            n
+        };
+        let ok = self.global_ok;
+        self.global_ok = false;
+        let yes = self.seq()?;
+        let no = if self.peek() == Some('|') {
+            self.i += 1;
+            self.seq()?
+        } else {
+            vec![]
+        };
+        if self.peek() == Some('|') {
+            self.global_ok = ok;
+            return self.err("conditional backref with more than two branches", self.i);
+        }
+        self.global_ok = ok;
+        self.close(gstart)?;
+        Ok(Some(RNode::Cond(g, Rc::new(yes), Rc::new(no))))
+    }
+    fn group(&mut self) -> Result<Option<RNode>, E> {
+        let gstart = self.i - 1;
+        if self.peek() != Some('?') {
+            self.ngroups += 1;
+            let g = self.ngroups;
+            let a = self.sub_parse()?;
+            self.close(gstart)?;
+            self.closed += 1;
+            return Ok(Some(RNode::Group(Rc::new(a), Some(g))));
+        }
+        self.i += 1;
+        let qpos = self.i - 1;
+        let Some(k) = self.peek() else { return self.err("unexpected end of pattern", self.i) };
+        match k {
+            ':' => {
+                self.i += 1;
+                let a = self.sub_parse()?;
+                self.close(gstart)?;
+                Ok(Some(RNode::Group(Rc::new(a), None)))
+            }
+            '>' => {
+                self.i += 1;
+                let a = self.sub_parse()?;
+                self.close(gstart)?;
+                Ok(Some(RNode::Atomic(Rc::new(a))))
+            }
+            '=' => {
+                self.i += 1;
+                let a = self.sub_parse()?;
+                self.close(gstart)?;
+                Ok(Some(RNode::Look(Rc::new(a), false, false)))
+            }
+            '!' => {
+                self.i += 1;
+                let a = self.sub_parse()?;
+                self.close(gstart)?;
+                Ok(Some(RNode::Look(Rc::new(a), false, true)))
+            }
+            '<' => {
+                self.i += 1;
+                let Some(n) = self.peek() else { return self.err("unexpected end of pattern", self.i) };
+                match n {
+                    '=' | '!' => {
+                        self.i += 1;
+                        let set_lb = self.lb.is_none();
+                        if set_lb {
+                            self.lb = Some(self.ngroups + 1);
+                        }
+                        let a = self.sub_parse()?;
+                        if set_lb {
+                            self.lb = None;
+                        }
+                        self.close(gstart)?;
+                        Ok(Some(RNode::Look(Rc::new(a), true, n == '!')))
+                    }
+                    _ => self.err(&format!("unknown extension ?<{n}"), qpos),
+                }
+            }
+            'P' => self.python_ext(gstart, qpos),
+            '#' => {
+                self.i += 1;
+                loop {
+                    let Some(c) = self.peek() else { return self.err("missing ), unterminated comment", gstart) };
+                    self.i += 1;
+                    if c == ')' {
+                        break;
+                    }
+                }
+                Ok(None)
+            }
+            '(' => self.conditional(gstart),
+            'i' | 'm' | 's' | 'x' | 'a' | 'u' | 'L' | '-' => self.flags_group(gstart, k),
+            _ => self.err(&format!("unknown extension ?{k}"), qpos),
+        }
     }
 }
 fn fold_items(c: char) -> Vec<CItem> {
@@ -567,45 +920,48 @@ impl RClass {
 }
 
 pub fn re_compile(src: &str, flags: i64) -> Result<Rc<Prog>, E> {
+    re_compile2(src, flags, None)
+}
+fn re_compile_bytes(src: &str, flags: i64, pat: V) -> Result<Rc<Prog>, E> {
+    re_compile2(src, flags, Some(pat))
+}
+fn re_compile2(src: &str, flags: i64, pat: Option<V>) -> Result<Rc<Prog>, E> {
     thread_local! {
         static CACHE: RefCell<HashMap<(String, i64), Rc<Prog>>> = RefCell::new(HashMap::new());
     }
-    if let Some(p) = CACHE.with(|c| c.borrow().get(&(src.to_string(), flags)).cloned()) {
-        return Ok(p);
-    }
-    let chars: Vec<char> = src.chars().collect();
-    // global inline flags anywhere at the top level are applied from the start, as Python does at the start
-    let mut fl = flags;
-    {
-        let mut p = RP { c: &chars, i: 0, flags: fl, ngroups: 0, names: vec![] };
-        if chars.starts_with(&['(', '?']) {
-            p.i = 2;
-            let mut f = 0;
-            while let Some(c) = p.peek() {
-                match c {
-                    'i' => f |= F_I,
-                    'm' => f |= F_M,
-                    's' => f |= F_S,
-                    'x' => f |= F_X,
-                    'a' => f |= F_A,
-                    'u' | 'L' => {}
-                    ')' => {
-                        fl |= f;
-                        break;
-                    }
-                    _ => break,
-                }
-                p.i += 1;
-            }
+    if pat.is_none() {
+        if let Some(p) = CACHE.with(|c| c.borrow().get(&(src.to_string(), flags)).cloned()) {
+            return Ok(p);
         }
     }
-    let mut p = RP { c: &chars, i: 0, flags: fl, ngroups: 0, names: vec![] };
+    let chars: Vec<char> = src.chars().collect();
+    let mut p = RP {
+        c: &chars,
+        src,
+        i: 0,
+        flags,
+        ngroups: 0,
+        closed: 0,
+        names: vec![],
+        lb: None,
+        global_ok: true,
+        cond_refs: vec![],
+        bytes: pat.is_some(),
+        pat,
+    };
     let alts = p.alts()?;
     if p.i < chars.len() {
-        return re_err(format!("unbalanced parenthesis at position {}", p.i));
+        return p.err("unbalanced parenthesis", p.i);
     }
-    let prog = Rc::new(Prog { alts, ngroups: p.ngroups, names: p.names, flags: p.flags | fl, src: src.to_string() });
-    CACHE.with(|c| c.borrow_mut().insert((src.to_string(), flags), prog.clone()));
+    for &(g, pos) in &p.cond_refs {
+        if g > p.ngroups {
+            return p.err(&format!("invalid group reference {g}"), pos);
+        }
+    }
+    let prog = Rc::new(Prog { alts, ngroups: p.ngroups, names: p.names, flags: p.flags, src: src.to_string() });
+    if p.pat.is_none() {
+        CACHE.with(|c| c.borrow_mut().insert((src.to_string(), flags), prog.clone()));
+    }
     Ok(prog)
 }
 
@@ -620,7 +976,6 @@ type Kont<'k> = &'k mut dyn FnMut(&mut Ctx, usize) -> bool;
 
 impl<'a> Ctx<'a> {
     fn single(&self, n: &RNode, pos: usize) -> Option<bool> {
-        let ascii = self.flags & F_A != 0;
         Some(match n {
             RNode::Char(c) => self.s.get(pos) == Some(c),
             RNode::Any => match self.s.get(pos) {
@@ -629,7 +984,7 @@ impl<'a> Ctx<'a> {
                 None => false,
             },
             RNode::Class(k) => match self.s.get(pos) {
-                Some(&c) => k.matches(c, ascii),
+                Some(&c) => k.matches(c, k.ascii),
                 None => false,
             },
             _ => return None,
@@ -1247,50 +1602,102 @@ fn all_matches(prog: &Prog, s: &[char], pos: usize, endpos: usize, limit: usize)
     out
 }
 fn expand_template(t: &str, m: &RMatch) -> Result<String, E> {
+    expand_template2(t, m, None)
+}
+fn tpl_err(pat: Option<&V>, msg: &str, t: &str, pos: usize) -> E {
+    match pat {
+        Some(p) => re_error_bytes(msg, p, pos),
+        None => re_error(msg, t, pos),
+    }
+}
+fn expand_template2(t: &str, m: &RMatch, pat: Option<&V>) -> Result<String, E> {
     let c: Vec<char> = t.chars().collect();
     let mut out = String::new();
     let mut i = 0;
     while i < c.len() {
-        if c[i] != '\\' || i + 1 >= c.len() {
-            if c[i] == '\\' {
-                return re_err("bad escape (end of pattern)".into());
-            }
+        if c[i] != '\\' {
             out.push(c[i]);
             i += 1;
             continue;
         }
+        if i + 1 >= c.len() {
+            return Err(tpl_err(pat, "bad escape (end of pattern)", t, i));
+        }
         let e = c[i + 1];
+        let back = i;
         i += 2;
         match e {
             'g' => {
                 if c.get(i) != Some(&'<') {
-                    return re_err("missing <".into());
+                    return Err(tpl_err(pat, "missing <", t, i));
                 }
                 let st = i + 1;
-                let Some(end) = c[st..].iter().position(|x| *x == '>') else { return re_err("missing >, unterminated name".into()) };
-                let name: String = c[st..st + end].iter().collect();
-                i = st + end + 1;
-                let g = match name.parse::<usize>() {
-                    Ok(n) if n <= m.prog.ngroups => n,
-                    Ok(n) => return re_err(format!("invalid group reference {n}")),
-                    Err(_) => m.prog.names.iter().find(|x| x.0 == name).map(|x| x.1).ok_or_else(|| exc("IndexError", format!("unknown group name '{name}'")))?,
+                let Some(len) = c[st..].iter().position(|x| *x == '>') else {
+                    if st == c.len() {
+                        return Err(tpl_err(pat, "missing group name", t, st));
+                    }
+                    return Err(tpl_err(pat, "missing >, unterminated name", t, st));
+                };
+                let name: String = c[st..st + len].iter().collect();
+                i = st + len + 1;
+                if name.is_empty() {
+                    return Err(tpl_err(pat, "missing group name", t, st));
+                }
+                let g = if name.chars().all(|x| x.is_ascii_digit()) {
+                    let n = name.parse::<usize>().unwrap_or(usize::MAX);
+                    if n >= MAX_GROUPS {
+                        return Err(tpl_err(pat, &format!("invalid group reference {n}"), t, st));
+                    }
+                    if n > m.prog.ngroups {
+                        return Err(tpl_err(pat, &format!("invalid group reference {n}"), t, st));
+                    }
+                    n
+                } else {
+                    if (pat.is_some() && !name.is_ascii()) || !re_py_ident(&name) {
+                        let shown = if pat.is_some() { py_ascii(&name) } else { format!("'{name}'") };
+                        return Err(tpl_err(pat, &format!("bad character in group name {shown}"), t, st));
+                    }
+                    match m.prog.names.iter().find(|x| x.0 == name) {
+                        Some(x) => x.1,
+                        None => return Err(exc("IndexError", format!("unknown group name '{name}'"))),
+                    }
                 };
                 out.push_str(&m.text(g).unwrap_or_default());
             }
-            '0'..='9' => {
-                let mut n = e.to_digit(10).unwrap() as usize;
-                if c.get(i).is_some_and(|x| x.is_ascii_digit()) && n * 10 + (c[i].to_digit(10).unwrap() as usize) <= m.prog.ngroups {
-                    n = n * 10 + c[i].to_digit(10).unwrap() as usize;
+            '0' => {
+                let mut ds = String::from("0");
+                while ds.len() < 3 && c.get(i).is_some_and(|x| ('0'..='7').contains(x)) {
+                    ds.push(c[i]);
                     i += 1;
                 }
-                if e == '0' {
-                    out.push('\0');
-                    continue;
+                let v = u32::from_str_radix(&ds, 8).unwrap();
+                out.push(char::from_u32(v & 0xff).unwrap());
+            }
+            '1'..='9' => {
+                let mut ds = vec![e];
+                if c.get(i).is_some_and(|x| x.is_ascii_digit()) {
+                    let d2 = c[i];
+                    i += 1;
+                    ds.push(d2);
+                    if ('0'..='7').contains(&e) && ('0'..='7').contains(&d2) && c.get(i).is_some_and(|x| ('0'..='7').contains(x)) {
+                        let d3 = c[i];
+                        i += 1;
+                        ds.push(d3);
+                        let d: String = ds.iter().collect();
+                        let v = u32::from_str_radix(&d, 8).unwrap();
+                        if v > 0o377 {
+                            return Err(tpl_err(pat, &format!("octal escape value \\{d} outside of range 0-0o377"), t, back));
+                        }
+                        out.push(char::from_u32(v).unwrap());
+                        continue;
+                    }
                 }
-                if n > m.prog.ngroups {
-                    return re_err(format!("invalid group reference {n} at position {}", i - 1));
+                let d: String = ds.iter().collect();
+                let g = d.parse::<usize>().unwrap_or(usize::MAX);
+                if g > m.prog.ngroups {
+                    return Err(tpl_err(pat, &format!("invalid group reference {g}"), t, back + 1));
                 }
-                out.push_str(&m.text(n).unwrap_or_default());
+                out.push_str(&m.text(g).unwrap_or_default());
             }
             'n' => out.push('\n'),
             't' => out.push('\t'),
@@ -1300,7 +1707,7 @@ fn expand_template(t: &str, m: &RMatch) -> Result<String, E> {
             'a' => out.push('\x07'),
             'b' => out.push('\x08'),
             '\\' => out.push('\\'),
-            x if x.is_ascii_alphabetic() => return re_err(format!("bad escape \\{x} at position {}", i - 2)),
+            x if x.is_ascii_alphabetic() => return Err(tpl_err(pat, &format!("bad escape \\{x}"), t, back)),
             x => {
                 out.push('\\');
                 out.push(x);
@@ -1376,6 +1783,13 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
                 V::Str(t) => Some(t.s.clone()),
                 _ => None,
             };
+            // CPython parses the replacement before looking for matches: a bad template raises even for ''.
+            if let Some(t) = &tmpl {
+                if t.contains('\\') {
+                    let dummy = RMatch { prog: prog.clone(), s: sc.clone(), sv: sv.clone(), caps: vec![UNSET; 2 * (prog.ngroups + 1)], pos: 0, endpos: sc.len() };
+                    let _ = expand_template(t, &dummy)?;
+                }
+            }
             for c in ms {
                 out.extend(sc[last..c[0]].iter());
                 let m = RMatch { prog: prog.clone(), s: sc.clone(), sv: sv.clone(), caps: c.clone(), pos: 0, endpos: sc.len() };
@@ -1445,13 +1859,24 @@ fn pat_of(v: &V, flags: i64) -> Result<Rc<Prog>, E> {
                 }
                 Ok(p.prog.clone())
             }
-            None if tn(v) == "bytes" => Err(unsupported("re with a bytes pattern")),
-            None => type_err("first argument must be string or compiled pattern".into()),
+            None => match bytes_src(v) {
+                Some((bs, pv)) => match re_compile_bytes(&bs, flags, pv) {
+                    Ok(_) => Err(unsupported("re with a bytes pattern")),
+                    Err(e) => Err(e),
+                },
+                None => type_err("first argument must be string or compiled pattern".into()),
+            },
         },
         _ => type_err("first argument must be string or compiled pattern".into()),
     }
 }
 pub fn re_fn(n: &str, mut a: Args) -> R {
+    if n == "purge" {
+        if !a.p.is_empty() || !a.k.is_empty() {
+            return type_err(format!("purge() takes 0 positional arguments but {} was given", a.p.len()));
+        }
+        return Ok(V::None);
+    }
     a.k.retain(|(k, _)| *k != "pattern" || {
         true
     });
@@ -1506,6 +1931,15 @@ pub fn re_fn(n: &str, mut a: Args) -> R {
         }
         "sub" | "subn" => {
             let f = flags_arg(&mut a, 3)?;
+            if let Some((bs, bpv)) = bytes_src(&pv) {
+                let prog = re_compile_bytes(&bs, f, bpv)?;
+                let repl = a.kw("repl").or_else(|| a.p.first().cloned()).unwrap_or(V::None);
+                if let Some((rt, rv)) = bytes_src(&repl) {
+                    let dummy = RMatch { prog: prog.clone(), s: Rc::new(vec![]), sv: V::None, caps: vec![UNSET; 2 * (prog.ngroups + 1)], pos: 0, endpos: 0 };
+                    let _ = expand_template2(&rt, &dummy, Some(&rv))?;
+                }
+                return Err(unsupported("re with a bytes pattern"));
+            }
             let prog = pat_of(&pv, f)?;
             a.k.retain(|(k, _)| *k != "flags");
             pat_call(&prog, n, &mut a)
