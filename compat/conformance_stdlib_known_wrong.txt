@@ -75,6 +75,8 @@ test_functools.TestPartialC.test_no_side_effects dyn issue=#447 owner=ets-public
 test_functools.TestPartialC.test_no_side_effects normal issue=#447 owner=ets-public expires=2026-12-11
 test_functools.TestPartialC.test_partial_genericalias dyn issue=#446 owner=ets-public expires=2026-12-11
 test_functools.TestPartialC.test_partial_genericalias normal issue=#446 owner=ets-public expires=2026-12-11
+test_functools.TestPartialC.test_pickle dyn issue=#446 owner=ets-public expires=2026-12-11
+test_functools.TestPartialC.test_pickle normal issue=#446 owner=ets-public expires=2026-12-11
 test_functools.TestPartialC.test_positional dyn issue=#447 owner=ets-public expires=2026-12-11
 test_functools.TestPartialC.test_positional normal issue=#447 owner=ets-public expires=2026-12-11
 test_functools.TestPartialC.test_protection_of_callers_dict_argument dyn issue=#447 owner=ets-public expires=2026-12-11
