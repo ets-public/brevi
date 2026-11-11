@@ -1079,7 +1079,8 @@ pub fn ext_class(n: &'static str) -> Rc<Class> {
     }
     // datetime.datetime is a subclass of datetime.date, as in CPython (isinstance, issubclass, __mro__)
     let base = if n == "datetime.datetime" { ext_class("datetime.date") } else { bclass("object") };
-    let c = Class::new(n, "builtins", vec![base], BT::Other);
+    // bytes is the library class a user class may subclass: its instances wrap a bytes value
+    let c = Class::new(n, "builtins", vec![base], if n == "bytes" { BT::Bytes } else { BT::Other });
     EXT_CLASSES.with(|m| m.borrow_mut().insert(n, c.clone()));
     c
 }

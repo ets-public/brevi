@@ -2267,6 +2267,8 @@ pub enum BT {
     Counter,
     OrderedDict,
     Deque,
+    // bytes (a library class in the dynamic build): a subclass instance wraps a bytes value
+    Bytes,
     Other,
 }
 
