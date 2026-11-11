@@ -10,8 +10,8 @@
 # generated Rust didn't change aren't recompiled. The daily run always starts cold and runs everything.
 # The release (release.yml) calls this workflow with release: true on the commit it ships: the same checks as the
 # daily run, never skipped as already tested, plus the stdlib conformance slice.
-# The daily run and the release install the real duckdb, onnxruntime and mcp packages (tests/requirements-native.txt),
-# and a native-copy check that cannot run fails instead of skipping (CHECK_REQUIRE_LIBS=1).
+# The daily run and the release also run the duckdb, onnxruntime and mcp sections on CPython 3.13 with the real
+# packages (tests/requirements-native.txt), where a native-copy check that cannot run fails instead of skipping.
 # Run tools/ci_local.sh before merging.
 name: Toolchains
 
@@ -135,12 +135,6 @@ jobs:
           python-version: ${{ matrix.python == 'next' && needs.versions.outputs.next_python || matrix.python }}
           allow-prereleases: true
 
-      # Pull requests leave these out (the duckdb, onnxruntime and mcp-client sections skip there); the daily run and
-      # the release need them, and fail without them. No wheels exist yet for a pre-release Python.
-      - name: Python packages the native copies are checked against (daily and release)
-        if: github.event_name != 'pull_request' && matrix.python == '3.x'
-        run: python3 -m pip install --quiet -r tests/requirements-native.txt
-
       - name: Toolchain fingerprint
         id: fp
         run: |
@@ -210,9 +204,23 @@ jobs:
         if: steps.seen.outputs.cache-hit != 'true'
         env:
           BREVI: ./target/release/brevi
-          CHECK_REQUIRE_LIBS: ${{ (github.event_name != 'pull_request' && matrix.python == '3.x') && '1' || '0' }}
         # check.sh in parallel, one job per CPU (the same checks, the same report)
         run: python3 tests/check_parallel.py
+
+      # The language tests above skip these sections (this runner's Python has no duckdb, onnxruntime or mcp, and the
+      # newest Python may have no wheels for them yet). The daily run and the release run them on CPython 3.13 with the
+      # pinned packages, where a section that cannot run fails instead of skipping.
+      - name: Native copies against the real duckdb, onnxruntime and mcp (daily and release; never skipped)
+        if: steps.seen.outputs.cache-hit != 'true' && github.event_name != 'pull_request' && matrix.rust == 'stable' && matrix.python == '3.x'
+        env:
+          BREVI: ./target/release/brevi
+          CHECK_REQUIRE_LIBS: "1"
+          CHECK_ONLY: duckdb,onnxruntime,mcp_sdk,mcp_http
+        run: |
+          python3 -m pip install --quiet uv
+          uv venv --quiet --python 3.13.13 "$RUNNER_TEMP/native"
+          uv pip install --quiet --python "$RUNNER_TEMP/native/bin/python" -r tests/requirements-native.txt
+          PATH="$RUNNER_TEMP/native/bin:$PATH" python3 tests/check_parallel.py
 
       - name: MCP server tests
         if: steps.seen.outputs.cache-hit != 'true'
