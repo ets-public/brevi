@@ -42,6 +42,12 @@ pub fn check_soft(src: &str) -> Result<Option<(usize, String, Vec<String>)>, (us
     Ok(check_body(&crate::dynpy::parse::parse(src)?))
 }
 
+// check_soft on the file at `path` holding `src`, parsed once for this and the sharing proof's reading of
+// the files that import it (share_guard::parsed).
+pub fn check_soft_at(path: &std::path::Path, src: &str) -> Result<Option<(usize, String, Vec<String>)>, (usize, String)> {
+    Ok(check_body(&crate::share_guard::parsed(path, src)?))
+}
+
 // json.dumps(x, ...): the typed build writes indent, separators (a pair), sort_keys and ensure_ascii; any other
 // keyword (allow_nan, default, cls, ...) it would leave out.
 fn json_kwargs(body: &[Stmt]) -> Option<(usize, String)> {
