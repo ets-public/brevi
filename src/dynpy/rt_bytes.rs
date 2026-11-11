@@ -67,33 +67,194 @@ fn find_sub(h: &[u8], n: &[u8], from: usize) -> Option<usize> {
 }
 
 // A bytes argument of a bytes method: bytes, or an int byte where CPython takes one (find, count, in).
-fn sub_arg(v: &V, m: &str, int_ok: bool) -> Result<Vec<u8>, E> {
+fn sub_arg(v: &V, int_ok: bool) -> Result<Vec<u8>, E> {
     if let Some(b) = bytes_of(v) {
         return Ok(b);
     }
     if int_ok {
-        if let V::Int(i) = v {
-            if !(0..256).contains(i) {
+        if let Some(i) = try_index(v)? {
+            let i = match &i {
+                V::Int(i) => *i,
+                V::Bool(b) => *b as i64,
+                V::Big(_) => return val_err("byte must be in range(0, 256)".into()),
+                o => return Err(exc("TypeError", format!("__index__ returned non-int (type {})", tn(o)))),
+            };
+            if !(0..256).contains(&i) {
                 return val_err("byte must be in range(0, 256)".into());
             }
-            return Ok(vec![*i as u8]);
+            return Ok(vec![i as u8]);
         }
     }
-    let _ = m;
     type_err(format!("a bytes-like object is required, not '{}'", tn(v)))
 }
 
-// (start, end) of a find/count/startswith range, clamped as Python slices are.
-fn sub_range(a: &Args, at: usize, n: usize) -> Result<(usize, usize), E> {
+// The needle of find/index/rfind/rindex/count: CPython 3.13's own message for a non-byte, non-int.
+fn find_needle(v: &V) -> Result<Vec<u8>, E> {
+    if let Some(b) = bytes_of(v) {
+        return Ok(b);
+    }
+    if let Some(i) = try_index(v)? {
+        let i = match &i {
+            V::Int(i) => *i,
+            V::Bool(b) => *b as i64,
+            V::Big(_) => return val_err("byte must be in range(0, 256)".into()),
+            o => return Err(exc("TypeError", format!("__index__ returned non-int (type {})", tn(o)))),
+        };
+        if !(0..256).contains(&i) {
+            return val_err("byte must be in range(0, 256)".into());
+        }
+        return Ok(vec![i as u8]);
+    }
+    type_err(format!("argument should be integer or bytes-like object, not '{}'", tn(v)))
+}
+
+// __index__ of an int-like value, or None when the value has no __index__ (CPython's PyIndex_Check).
+fn try_index(v: &V) -> Result<Option<V>, E> {
+    match v {
+        V::Int(_) | V::Bool(_) | V::Big(_) => Ok(Some(v.clone())),
+        V::Obj(o) => {
+            if let Some(f) = o.cls.lookup("__index__") {
+                return call(&f, Args::p(vec![v.clone()])).map(Some);
+            }
+            match inner_of(v) {
+                Some(inner) if matches!(inner, V::Int(_) | V::Bool(_) | V::Big(_)) => Ok(Some(inner)),
+                _ => Ok(None),
+            }
+        }
+        V::Ext(x) if is_np(v) => match x.method(v, "__index__", &mut Args::p(vec![])) {
+            Some(r) => r.map(Some),
+            None => Ok(None),
+        },
+        _ => Ok(None),
+    }
+}
+
+// The start/end of find/count/startswith/endswith, as CPython's PyNumber_AsSsize_t parses them:
+// a huge int clamps to the extremes like a slice index, a non-index raises the slice TypeError.
+fn slice_bound(v: &V) -> Result<i64, E> {
+    match try_index(v)? {
+        Some(V::Int(i)) => Ok(i),
+        Some(V::Bool(b)) => Ok(b as i64),
+        Some(V::Big(b)) => Ok(if b.neg { -(i64::MAX / 2) } else { i64::MAX / 2 }),
+        Some(o) => Err(exc("TypeError", format!("__index__ returned non-int (type {})", tn(&o)))),
+        None => Err(exc("TypeError", "slice indices must be integers or None or have an __index__ method".into())),
+    }
+}
+
+// PyLong_AsSsize_t, as center/zfill/split parse their width/maxsplit arguments.
+fn ssize_arg(v: &V) -> Result<i64, E> {
+    match try_index(v)? {
+        Some(V::Int(i)) => Ok(i),
+        Some(V::Bool(b)) => Ok(b as i64),
+        Some(V::Big(_)) => Err(exc("OverflowError", "Python int too large to convert to C ssize_t".into())),
+        Some(o) => Err(exc("TypeError", format!("__index__ returned non-int (type {})", tn(&o)))),
+        None => Err(exc("TypeError", format!("'{}' object cannot be interpreted as an integer", tn(v)))),
+    }
+}
+
+// PyLong_AsInt, as expandtabs and hex parse their tab size / bytes_per_sep arguments.
+fn c_int_arg(v: &V) -> Result<i64, E> {
+    match try_index(v)? {
+        Some(V::Int(i)) => {
+            if i < i32::MIN as i64 || i > i32::MAX as i64 {
+                return Err(exc("OverflowError", "Python int too large to convert to C int".into()));
+            }
+            Ok(i)
+        }
+        Some(V::Bool(b)) => Ok(b as i64),
+        Some(V::Big(_)) => Err(exc("OverflowError", "Python int too large to convert to C int".into())),
+        Some(o) => Err(exc("TypeError", format!("__index__ returned non-int (type {})", tn(&o)))),
+        None => Err(exc("TypeError", format!("'{}' object cannot be interpreted as an integer", tn(v)))),
+    }
+}
+
+// METH_NOARGS bytes methods (upper, capitalize, ...): CPython's "takes no arguments" errors.
+fn no_bytes_args(n: &str, a: &Args) -> Result<(), E> {
+    if !a.k.is_empty() {
+        return type_err(format!("bytes.{n}() takes no keyword arguments"));
+    }
+    if !a.p.is_empty() {
+        return type_err(format!("bytes.{n}() takes no arguments ({} given)", a.p.len()));
+    }
+    Ok(())
+}
+
+// The keyword-less bytes methods refuse any keyword outright (CPython 3.13's positional-only methods).
+fn no_kws(n: &str, a: &Args) -> Result<(), E> {
+    if let Some((k, _)) = a.k.first() {
+        return type_err(format!("bytes.{n}() takes no keyword arguments"));
+    }
+    Ok(())
+}
+
+// "find expected at least 1 argument, got 0": PyArg_UnpackTuple-style range checks, except that a
+// fixed count says "expected N arguments" (maketrans).
+fn unpack_range(f: &str, a: &Args, lo: usize, hi: usize) -> Result<(), E> {
+    if lo == hi {
+        if a.p.len() != lo {
+            return type_err(format!("{f} expected {lo} argument{}, got {}", if lo == 1 { "" } else { "s" }, a.p.len()));
+        }
+        return Ok(());
+    }
+    if a.p.len() < lo {
+        return type_err(format!("{f} expected at least {lo} argument{}, got {}", if lo == 1 { "" } else { "s" }, a.p.len()));
+    }
+    if a.p.len() > hi {
+        return type_err(format!("{f} expected at most {hi} argument{}, got {}", if hi == 1 { "" } else { "s" }, a.p.len()));
+    }
+    Ok(())
+}
+
+fn levenshtein(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    let mut cur = vec![0usize; b.len() + 1];
+    for i in 1..=a.len() {
+        cur[0] = i;
+        for j in 1..=b.len() {
+            cur[j] = (prev[j] + 1).min(cur[j - 1] + 1).min(prev[j - 1] + usize::from(a[i - 1] != b[j - 1]));
+        }
+        std::mem::swap(&mut prev, &mut cur);
+    }
+    prev[b.len()]
+}
+
+// The closest known keyword one edit away, as CPython's "Did you mean" suggestion does.
+fn closest_kw<'a>(k: &str, known: &'a [&'a str]) -> Option<&'a str> {
+    let k = k.to_lowercase();
+    let mut best: Option<(usize, &'a str)> = None;
+    for &n in known {
+        let d = levenshtein(&k, &n.to_lowercase());
+        if d <= 1 && best.map_or(true, |(bd, _)| d < bd) {
+            best = Some((d, n));
+        }
+    }
+    best.map(|(_, n)| n)
+}
+
+// "split() got an unexpected keyword argument 'x'. Did you mean 'sep'?"
+fn unexpected_kw(f: &str, a: &Args, known: &[&str]) -> Result<(), E> {
+    let Some((k, _)) = a.k.first() else { return Ok(()) };
+    let mut msg = format!("{f}() got an unexpected keyword argument '{k}'");
+    if let Some(s) = closest_kw(k, known) {
+        msg.push_str(&format!(". Did you mean '{s}'?"));
+    }
+    type_err(msg)
+}
+
+// (start, end) of a find/count/startswith range. Negative values add len; the upper end is not
+// clamped here, because CPython uses the raw values to decide the empty-needle cases.
+fn sub_range(a: &Args, at: usize, n: usize) -> Result<(i64, i64), E> {
     let get = |k: usize, d: i64| -> Result<i64, E> {
         match a.p.get(k) {
             None | Some(V::None) => Ok(d),
-            Some(x) => idx_of(x),
+            Some(x) => slice_bound(x),
         }
     };
     let n = n as i64;
-    let fix = |x: i64| if x < 0 { (x + n).max(0) } else { x.min(n) };
-    Ok((fix(get(at, 0)?) as usize, fix(get(at + 1, n)?) as usize))
+    let adj = |x: i64| if x < 0 { x.saturating_add(n).max(0) } else { x };
+    Ok((adj(get(at, 0)?), adj(get(at + 1, n)?)))
 }
 
 fn codec_name(v: Option<&V>) -> Result<&'static str, E> {
@@ -125,7 +286,8 @@ fn errors_name(v: Option<&V>) -> Result<String, E> {
 pub fn bytes_decode(b: &[u8], enc: Option<&V>, errors: Option<&V>) -> R {
     let codec = codec_name(enc)?;
     let errors = errors_name(errors)?;
-    if !matches!(errors.as_str(), "strict" | "replace" | "ignore") {
+    let errors = errors.to_lowercase();
+    if !matches!(errors.as_str(), "strict" | "replace" | "ignore" | "backslashreplace") {
         return Err(unsupported(&format!("decode errors='{errors}'")));
     }
     match codec {
@@ -139,6 +301,8 @@ pub fn bytes_decode(b: &[u8], enc: Option<&V>, errors: Option<&V>) -> R {
                     return Err(udec_err("ascii", b, i, i + 1, "ordinal not in range(128)"));
                 } else if errors == "replace" {
                     out.push('\u{fffd}');
+                } else if errors == "backslashreplace" {
+                    out.push_str(&format!("\\x{c:02x}"));
                 }
             }
             Ok(st(out))
@@ -167,10 +331,15 @@ pub fn bytes_decode(b: &[u8], enc: Option<&V>, errors: Option<&V>) -> R {
                             };
                             return Err(udec_err("utf-8", b, pos, end, reason));
                         }
-                        if errors == "replace" {
+                        let skip = bad.unwrap_or(rest.len() - ok);
+                        if errors == "backslashreplace" {
+                            // backslashreplace escapes each byte of the bad run with \xhh
+                            for &c in &rest[ok..ok + skip] {
+                                out.push_str(&format!("\\x{c:02x}"));
+                            }
+                        } else if errors == "replace" {
                             out.push('\u{fffd}');
                         }
-                        let skip = bad.unwrap_or(rest.len() - ok);
                         rest = &rest[ok + skip..];
                         base += ok + skip;
                     }
@@ -335,6 +504,23 @@ pub fn bytes_fromhex(a: Args) -> R {
     Ok(bytesv(out))
 }
 
+// bytes.maketrans(frm, to): the 256-byte table that maps frm's bytes to to's (CPython's static method).
+pub fn bytes_maketrans(a: Args) -> R {
+    let a = a;
+    no_kws("maketrans", &a)?;
+    unpack_range("maketrans", &a, 2, 2)?;
+    let frm = sub_arg(&a.p[0], false)?;
+    let to = sub_arg(&a.p[1], false)?;
+    if frm.len() != to.len() {
+        return val_err("maketrans arguments must have same length".into());
+    }
+    let mut table: Vec<u8> = (0..=255).collect();
+    for (f, t) in frm.iter().zip(to.iter()) {
+        table[*f as usize] = *t;
+    }
+    Ok(bytesv(table))
+}
+
 fn hex_of(b: &[u8]) -> String {
     b.iter().map(|c| format!("{c:02x}")).collect()
 }
@@ -361,22 +547,16 @@ fn bytes_split(b: &[u8], sep: Option<&[u8]>, max: i64) -> Result<Vec<V>, E> {
             out.push(bytesv(b[from..].to_vec()));
         }
         None => {
+            // 3.13's whitespace split: with maxsplit, the first split consumes the leading
+            // whitespace run and the remainder keeps its trailing whitespace; without, all runs split.
             let mut i = 0;
             let mut n = 0;
-            loop {
+            while max < 0 || n < max {
                 while i < b.len() && is_py_space(b[i]) {
                     i += 1;
                 }
                 if i >= b.len() {
-                    break;
-                }
-                if max >= 0 && n >= max {
-                    let mut e = b.len();
-                    while e > i && is_py_space(b[e - 1]) {
-                        e -= 1;
-                    }
-                    out.push(bytesv(b[i..e].to_vec()));
-                    break;
+                    return Ok(out);
                 }
                 let st = i;
                 while i < b.len() && !is_py_space(b[i]) {
@@ -385,9 +565,84 @@ fn bytes_split(b: &[u8], sep: Option<&[u8]>, max: i64) -> Result<Vec<V>, E> {
                 out.push(bytesv(b[st..i].to_vec()));
                 n += 1;
             }
+            if max >= 0 {
+                while i < b.len() && is_py_space(b[i]) {
+                    i += 1;
+                }
+                if i < b.len() {
+                    out.push(bytesv(b[i..].to_vec()));
+                }
+            }
         }
     }
     Ok(out)
+}
+
+fn bytes_rsplit(b: &[u8], sep: Option<&[u8]>, max: i64) -> Result<Vec<V>, E> {
+    match sep {
+        Some(sep) => {
+            if sep.is_empty() {
+                return val_err("empty separator".into());
+            }
+            let mut pos = vec![];
+            let mut from = 0;
+            while let Some(k) = find_sub(b, sep, from) {
+                pos.push(k);
+                from = k + sep.len();
+            }
+            let n = if max < 0 { pos.len() as i64 } else { max.min(pos.len() as i64) };
+            let mut out = vec![];
+            let mut cur = 0;
+            for &k in &pos[pos.len() - n as usize..] {
+                out.push(bytesv(b[cur..k].to_vec()));
+                cur = k + sep.len();
+            }
+            out.push(bytesv(b[cur..].to_vec()));
+            Ok(out)
+        }
+        None => {
+            let mut words = vec![];
+            let mut end = b.len();
+            if max == 0 {
+                // no splits: the trailing whitespace run is consumed, the leading one kept
+                while end > 0 && is_py_space(b[end - 1]) {
+                    end -= 1;
+                }
+                if end > 0 {
+                    words.push(bytesv(b[..end].to_vec()));
+                }
+                return Ok(words);
+            }
+            loop {
+                let mut e = end;
+                while e > 0 && is_py_space(b[e - 1]) {
+                    e -= 1;
+                }
+                if e == 0 {
+                    break;
+                }
+                let mut s = e;
+                while s > 0 && !is_py_space(b[s - 1]) {
+                    s -= 1;
+                }
+                words.push(bytesv(b[s..e].to_vec()));
+                if max > 0 && words.len() as i64 >= max {
+                    // the whitespace run before the last word found is consumed, too
+                    let mut ws = s;
+                    while ws > 0 && is_py_space(b[ws - 1]) {
+                        ws -= 1;
+                    }
+                    if ws > 0 {
+                        words.push(bytesv(b[..ws].to_vec()));
+                    }
+                    break;
+                }
+                end = s;
+            }
+            words.reverse();
+            Ok(words)
+        }
+    }
 }
 
 impl BytesV {
@@ -423,51 +678,178 @@ impl BytesV {
                 },
                 "__contains__" => {
                     let x = a.p.first().cloned().unwrap_or(V::None);
-                    let sub = sub_arg(&x, "in", true)?;
+                    let sub = sub_arg(&x, true)?;
                     V::Bool(find_sub(b, &sub, 0).is_some())
                 }
+                "__len__" => {
+                    if !a.p.is_empty() {
+                        return type_err(format!("expected 0 arguments, got {}", a.p.len()));
+                    }
+                    V::Int(b.len() as i64)
+                }
+                "__bytes__" => {
+                    no_bytes_args("__bytes__", &a)?;
+                    me.clone()
+                }
                 "decode" => {
+                    if a.p.len() + a.k.len() > 2 {
+                        return type_err(format!("decode() takes at most 2 arguments ({} given)", a.p.len() + a.k.len()));
+                    }
+                    let has_kw = |name: &str| a.k.iter().any(|(k, _)| *k == name);
+                    if has_kw("encoding") && !a.p.is_empty() {
+                        return type_err("argument for decode() given by name ('encoding') and position (1)".into());
+                    }
+                    if has_kw("errors") && a.p.len() >= 2 {
+                        return type_err("argument for decode() given by name ('errors') and position (2)".into());
+                    }
                     let enc = a.kw("encoding").or_else(|| a.p.first().cloned());
                     let errs = a.kw("errors").or_else(|| a.p.get(1).cloned());
-                    a.no_kw("decode")?;
+                    unexpected_kw("decode", &a, &["encoding", "errors"])?;
                     bytes_decode(b, enc.as_ref(), errs.as_ref())?
                 }
                 "hex" => {
-                    let sep = a.kw("sep").or_else(|| a.p.first().cloned());
-                    match sep {
-                        None => st(hex_of(b)),
-                        Some(V::Str(s)) if s.s.chars().count() == 1 => st(b.iter().map(|c| format!("{c:02x}")).collect::<Vec<_>>().join(&s.s)),
-                        Some(_) => return Err(unsupported("bytes.hex() separator options")),
+                    if a.p.len() + a.k.len() > 2 {
+                        return type_err(format!("hex() takes at most 2 arguments ({} given)", a.p.len() + a.k.len()));
                     }
-                }
-                "startswith" | "endswith" => {
-                    let (lo, hi) = sub_range(&a, 1, b.len())?;
-                    let w = &b[lo..hi.max(lo)];
-                    let test = |p: &[u8]| if n == "startswith" { w.starts_with(p) } else { w.ends_with(p) };
-                    match a.p.first() {
-                        Some(V::Tuple(t)) => {
-                            let mut hit = false;
-                            for x in t.iter() {
-                                hit |= test(&sub_arg(x, n, false)?);
+                    let has_kw = |name: &str| a.k.iter().any(|(k, _)| *k == name);
+                    if has_kw("sep") && !a.p.is_empty() {
+                        return type_err("argument for hex() given by name ('sep') and position (1)".into());
+                    }
+                    if has_kw("bytes_per_sep") && a.p.len() >= 2 {
+                        return type_err("argument for hex() given by name ('bytes_per_sep') and position (2)".into());
+                    }
+                    let sep = a.kw("sep").or_else(|| a.p.first().cloned());
+                    let bps = a.kw("bytes_per_sep").or_else(|| a.p.get(1).cloned());
+                    unexpected_kw("hex", &a, &["sep", "bytes_per_sep"])?;
+                    let bps = match &bps {
+                        None => 1i64,
+                        Some(v) => c_int_arg(v)?,
+                    };
+                    let sep_byte = match &sep {
+                        // no separator: CPython's default is an empty separator, so the output is plain hex
+                        None => return Ok(st(hex_of(b))),
+                        Some(V::Str(sd)) => {
+                            let mut cs = sd.s.chars();
+                            match (cs.next(), cs.next()) {
+                                (Some(c), None) if (c as u32) < 128 => c as u32 as u8,
+                                (Some(_), None) => return val_err("sep must be ASCII.".into()),
+                                _ => return val_err("sep must be length 1.".into()),
                             }
-                            V::Bool(hit)
                         }
                         Some(x) => match bytes_of(x) {
-                            Some(p) => V::Bool(test(&p)),
+                            Some(bs) => match bs.len() {
+                                1 if bs[0] < 128 => bs[0],
+                                1 => return val_err("sep must be ASCII.".into()),
+                                _ => return val_err("sep must be length 1.".into()),
+                            },
+                            None => {
+                                // CPython takes PyObject_Length(sep): without __len__ it is "object of
+                                // type 'X' has no len()", a length != 1 is "sep must be length 1.", and
+                                // a length of 1 that is not str or bytes is "sep must be str or bytes.".
+                                return match len(x) {
+                                    Ok(n) => {
+                                        if n != 1 {
+                                            val_err("sep must be length 1.".into())
+                                        } else {
+                                            type_err("sep must be str or bytes.".into())
+                                        }
+                                    }
+                                    Err(_) => type_err(format!("object of type '{}' has no len()", tn(x))),
+                                };
+                            }
+                        },
+                    };
+                    if bps == 0 {
+                        return Ok(st(hex_of(b)));
+                    }
+                    let g = bps.unsigned_abs() as usize;
+                    let mut out = String::new();
+                    for (k, c) in b.iter().enumerate() {
+                        if k > 0 {
+                            // positive: groups from the right; negative: from the left
+                            let boundary = if bps > 0 { (b.len() - k) % g == 0 } else { k % g == 0 };
+                            if boundary {
+                                out.push(sep_byte as char);
+                            }
+                        }
+                        out.push_str(&format!("{c:02x}"));
+                    }
+                    st(out)
+                }
+                "startswith" | "endswith" => {
+                    no_kws(n, &a)?;
+                    unpack_range(n, &a, 1, 3)?;
+                    let (st, en) = sub_range(&a, 1, b.len())?;
+                    let nlen = b.len() as i64;
+                    let lo = st.min(nlen);
+                    let hi = en.min(nlen);
+                    let test = |p: &[u8], w: &[u8]| if n == "startswith" { w.starts_with(p) } else { w.ends_with(p) };
+                    match a.p.first() {
+                        Some(V::Tuple(t)) => {
+                            for x in t.iter() {
+                                let p = sub_arg(x, false)?;
+                                if p.is_empty() {
+                                    // an empty needle matches only when start <= end and start <= len
+                                    if st <= en && st <= nlen {
+                                        return Ok(V::Bool(true));
+                                    }
+                                } else {
+                                    let w = if hi > lo { &b[lo as usize..hi as usize] } else { &[] };
+                                    if test(&p, w) {
+                                        return Ok(V::Bool(true));
+                                    }
+                                }
+                            }
+                            V::Bool(false)
+                        }
+                        Some(x) => match bytes_of(x) {
+                            Some(p) => {
+                                if p.is_empty() {
+                                    return Ok(V::Bool(st <= en && st <= nlen));
+                                }
+                                let w = if hi > lo { &b[lo as usize..hi as usize] } else { &[] };
+                                V::Bool(test(&p, w))
+                            }
                             None => return type_err(format!("{n} first arg must be bytes or a tuple of bytes, not {}", tn(x))),
                         },
-                        None => return type_err(format!("{n}() takes at least 1 argument (0 given)")),
+                        None => unreachable!(),
                     }
                 }
                 "find" | "index" | "rfind" | "rindex" | "count" => {
+                    no_kws(n, &a)?;
+                    unpack_range(n, &a, 1, 3)?;
+                    // CPython converts start/end before the needle, so their TypeError wins
+                    let (st, en) = sub_range(&a, 1, b.len())?;
                     let x = a.p.first().cloned().unwrap_or(V::None);
-                    let sub = sub_arg(&x, n, true)?;
-                    let (lo, hi) = sub_range(&a, 1, b.len())?;
-                    let w: &[u8] = if hi >= lo { &b[lo..hi] } else { &[] };
-                    if n == "count" {
-                        if sub.is_empty() {
-                            return Ok(V::Int(if hi >= lo { (hi - lo + 1) as i64 } else { 0 }));
+                    let sub = find_needle(&x)?;
+                    let nlen = b.len() as i64;
+                    if sub.is_empty() {
+                        // an empty needle is found once, when start <= end and start <= len: find at
+                        // start, rfind at the end of the window
+                        if n == "count" {
+                            if st > nlen {
+                                return Ok(V::Int(0));
+                            }
+                            let hi = en.min(nlen);
+                            return Ok(V::Int((hi - st + 1).max(0)));
                         }
+                        let hit = if st > en || st > nlen {
+                            None
+                        } else if n.starts_with('r') {
+                            Some(en.min(nlen))
+                        } else {
+                            Some(st)
+                        };
+                        match hit {
+                            Some(k) => return Ok(V::Int(k)),
+                            None if n.ends_with("index") => return val_err("subsection not found".into()),
+                            None => return Ok(V::Int(-1)),
+                        }
+                    }
+                    let lo = st.max(0).min(nlen);
+                    let hi = en.min(nlen).max(lo);
+                    let w = &b[lo as usize..hi as usize];
+                    if n == "count" {
                         let mut c = 0;
                         let mut from = 0;
                         while let Some(k) = find_sub(w, &sub, from) {
@@ -476,40 +858,53 @@ impl BytesV {
                         }
                         return Ok(V::Int(c));
                     }
-                    let hit = if hi < lo && !sub.is_empty() {
-                        None
-                    } else if n.starts_with('r') {
+                    let hit = if n.starts_with('r') {
                         (0..=w.len().saturating_sub(sub.len())).rev().find(|&i| w.len() >= sub.len() && &w[i..i + sub.len()] == sub.as_slice())
                     } else {
                         find_sub(w, &sub, 0)
                     };
                     match hit {
-                        Some(k) => V::Int((k + lo) as i64),
+                        Some(k) => V::Int(k as i64 + lo),
                         None if n.ends_with("index") => return val_err("subsection not found".into()),
                         None => V::Int(-1),
                     }
                 }
                 "split" | "rsplit" => {
+                    if a.p.len() + a.k.len() > 2 {
+                        return type_err(format!("{n}() takes at most 2 arguments ({} given)", a.p.len() + a.k.len()));
+                    }
+                    let has_kw = |name: &str| a.k.iter().any(|(k, _)| *k == name);
+                    if has_kw("sep") && !a.p.is_empty() {
+                        return type_err(format!("argument for {n}() given by name ('sep') and position (1)"));
+                    }
+                    if has_kw("maxsplit") && a.p.len() >= 2 {
+                        return type_err(format!("argument for {n}() given by name ('maxsplit') and position (2)"));
+                    }
                     let sep = a.kw("sep").or_else(|| a.p.first().cloned());
                     let max = a.kw("maxsplit").or_else(|| a.p.get(1).cloned());
-                    a.no_kw(n)?;
+                    unexpected_kw(n, &a, &["sep", "maxsplit"])?;
                     let max = match max {
                         None => -1,
-                        Some(m) => idx_of(&m)?,
+                        Some(m) => ssize_arg(&m)?,
                     };
-                    if n == "rsplit" && max >= 0 {
-                        return Err(unsupported("bytes.rsplit with maxsplit"));
-                    }
                     let sep = match sep {
                         None | Some(V::None) => None,
-                        Some(x) => Some(sub_arg(&x, n, false)?),
+                        Some(x) => Some(sub_arg(&x, false)?),
                     };
-                    list(bytes_split(b, sep.as_deref(), max)?)
+                    if n == "split" {
+                        list(bytes_split(b, sep.as_deref(), max)?)
+                    } else {
+                        list(bytes_rsplit(b, sep.as_deref(), max)?)
+                    }
                 }
                 "strip" | "lstrip" | "rstrip" => {
+                    no_kws(n, &a)?;
+                    if a.p.len() > 1 {
+                        return type_err(format!("{n} expected at most 1 argument, got {}", a.p.len()));
+                    }
                     let chars = match a.p.first() {
                         None | Some(V::None) => None,
-                        Some(x) => Some(sub_arg(x, n, false)?),
+                        Some(x) => Some(sub_arg(x, false)?),
                     };
                     let keep = |c: u8| match &chars {
                         None => !is_py_space(c),
@@ -530,25 +925,37 @@ impl BytesV {
                     bytesv(b[lo..hi].to_vec())
                 }
                 "join" => {
-                    let xs = to_vec(a.p.first().unwrap_or(&V::None))?;
+                    no_kws(n, &a)?;
+                    if a.p.len() != 1 {
+                        return type_err(format!("bytes.join() takes exactly one argument ({} given)", a.p.len()));
+                    }
+                    let x = &a.p[0];
+                    let mut it = match iter(x) {
+                        Ok(it) => it,
+                        Err(_) => return type_err("can only join an iterable".into()),
+                    };
                     let mut out = vec![];
-                    for (i, x) in xs.iter().enumerate() {
+                    let mut i = 0;
+                    while let Some(x) = it.next()? {
                         if i > 0 {
                             out.extend_from_slice(b);
                         }
-                        match bytes_of(x) {
+                        match bytes_of(&x) {
                             Some(p) => out.extend(p),
-                            None => return type_err(format!("sequence item {i}: expected a bytes-like object, {} found", tn(x))),
+                            None => return type_err(format!("sequence item {i}: expected a bytes-like object, {} found", tn(&x))),
                         }
+                        i += 1;
                     }
                     bytesv(out)
                 }
                 "replace" => {
-                    let old = sub_arg(a.p.first().unwrap_or(&V::None), n, false)?;
-                    let new = sub_arg(a.p.get(1).unwrap_or(&V::None), n, false)?;
+                    no_kws(n, &a)?;
+                    unpack_range(n, &a, 2, 3)?;
+                    let old = sub_arg(&a.p[0], false)?;
+                    let new = sub_arg(&a.p[1], false)?;
                     let max = match a.p.get(2) {
                         None => -1,
-                        Some(m) => idx_of(m)?,
+                        Some(m) => ssize_arg(m)?,
                     };
                     let mut out = vec![];
                     let mut from = 0;
@@ -580,7 +987,11 @@ impl BytesV {
                     bytesv(out)
                 }
                 "removeprefix" | "removesuffix" => {
-                    let p = sub_arg(a.p.first().unwrap_or(&V::None), n, false)?;
+                    no_kws(n, &a)?;
+                    if a.p.len() != 1 {
+                        return type_err(format!("bytes.{n}() takes exactly one argument ({} given)", a.p.len()));
+                    }
+                    let p = sub_arg(&a.p[0], false)?;
                     if n == "removeprefix" && b.starts_with(&p) {
                         bytesv(b[p.len()..].to_vec())
                     } else if n == "removesuffix" && b.ends_with(&p) && !p.is_empty() {
@@ -589,39 +1000,283 @@ impl BytesV {
                         bytesv(b.clone())
                     }
                 }
-                "upper" => bytesv(b.to_ascii_uppercase()),
-                "lower" => bytesv(b.to_ascii_lowercase()),
-                "isdigit" => V::Bool(!b.is_empty() && b.iter().all(|c| c.is_ascii_digit())),
-                "isalpha" => V::Bool(!b.is_empty() && b.iter().all(|c| c.is_ascii_alphabetic())),
-                "isalnum" => V::Bool(!b.is_empty() && b.iter().all(|c| c.is_ascii_alphanumeric())),
-                "isspace" => V::Bool(!b.is_empty() && b.iter().all(|&c| is_py_space(c))),
-                "isupper" => V::Bool(b.iter().any(|c| c.is_ascii_uppercase()) && !b.iter().any(|c| c.is_ascii_lowercase())),
-                "islower" => V::Bool(b.iter().any(|c| c.is_ascii_lowercase()) && !b.iter().any(|c| c.is_ascii_uppercase())),
-                "isascii" => V::Bool(b.is_ascii()),
-                "splitlines" => {
-                    if !a.p.is_empty() || !a.k.is_empty() {
-                        return Err(unsupported("bytes.splitlines(keepends)"));
+                "upper" | "lower" | "capitalize" | "title" | "istitle" | "swapcase" | "isdigit" | "isalpha" | "isalnum" | "isspace" | "isupper" | "islower" | "isascii" => {
+                    no_bytes_args(n, &a)?;
+                    match n {
+                        "upper" => bytesv(b.to_ascii_uppercase()),
+                        "lower" => bytesv(b.to_ascii_lowercase()),
+                        "capitalize" => {
+                            let mut out = b.clone();
+                            if !out.is_empty() {
+                                out[0] = out[0].to_ascii_uppercase();
+                                for c in &mut out[1..] {
+                                    *c = c.to_ascii_lowercase();
+                                }
+                            }
+                            bytesv(out)
+                        }
+                        "title" => {
+                            // a letter is uppercased after a non-letter, lowercased otherwise
+                            let mut out = vec![];
+                            let mut prev_cased = false;
+                            for &c in b.iter() {
+                                let d = if c.is_ascii_alphabetic() {
+                                    if prev_cased { c.to_ascii_lowercase() } else { c.to_ascii_uppercase() }
+                                } else {
+                                    c
+                                };
+                                out.push(d);
+                                prev_cased = c.is_ascii_alphabetic();
+                            }
+                            bytesv(out)
+                        }
+                        "istitle" => {
+                            let mut cased = false;
+                            let mut prev_cased = false;
+                            let mut ok = true;
+                            for &c in b.iter() {
+                                if c.is_ascii_uppercase() {
+                                    if prev_cased {
+                                        ok = false;
+                                        break;
+                                    }
+                                    prev_cased = true;
+                                    cased = true;
+                                } else if c.is_ascii_lowercase() {
+                                    if !prev_cased {
+                                        ok = false;
+                                        break;
+                                    }
+                                    prev_cased = true;
+                                    cased = true;
+                                } else {
+                                    prev_cased = false;
+                                }
+                            }
+                            V::Bool(cased && ok)
+                        }
+                        "swapcase" => bytesv(b.iter().map(|&c| {
+                            if c.is_ascii_uppercase() {
+                                c.to_ascii_lowercase()
+                            } else if c.is_ascii_lowercase() {
+                                c.to_ascii_uppercase()
+                            } else {
+                                c
+                            }
+                        }).collect()),
+                        "isdigit" => V::Bool(!b.is_empty() && b.iter().all(|c| c.is_ascii_digit())),
+                        "isalpha" => V::Bool(!b.is_empty() && b.iter().all(|c| c.is_ascii_alphabetic())),
+                        "isalnum" => V::Bool(!b.is_empty() && b.iter().all(|c| c.is_ascii_alphanumeric())),
+                        "isspace" => V::Bool(!b.is_empty() && b.iter().all(|&c| is_py_space(c))),
+                        "isupper" => V::Bool(b.iter().any(|c| c.is_ascii_uppercase()) && !b.iter().any(|c| c.is_ascii_lowercase())),
+                        "islower" => V::Bool(b.iter().any(|c| c.is_ascii_lowercase()) && !b.iter().any(|c| c.is_ascii_uppercase())),
+                        _ => V::Bool(b.is_ascii()),
                     }
+                }
+                "center" | "ljust" | "rjust" => {
+                    no_kws(n, &a)?;
+                    unpack_range(n, &a, 1, 2)?;
+                    let width = ssize_arg(&a.p[0])?;
+                    let fill = match a.p.get(1) {
+                        None => b' ',
+                        Some(v) => match bytes_of(v) {
+                            Some(bs) if bs.len() == 1 => bs[0],
+                            Some(_) => return type_err(format!("{n}() argument 2 must be a byte string of length 1, not bytes")),
+                            // CPython prints "not None" for None, not the NoneType tn() gives
+                            None => return type_err(format!("{n}() argument 2 must be a byte string of length 1, not {}", match v { V::None => "None".into(), _ => tn(v) })),
+                        },
+                    };
+                    let w = width.max(0) as usize;
+                    if w <= b.len() {
+                        return Ok(bytesv(b.clone()));
+                    }
+                    let pad = w - b.len();
+                    // CPython: the extra padding goes on the left when the total is odd
+                    let (left, right) = match n {
+                        "center" => (pad / 2 + (pad & w & 1), pad - (pad / 2 + (pad & w & 1))),
+                        "ljust" => (0, pad),
+                        _ => (pad, 0),
+                    };
+                    let mut out = Vec::new();
+                    if out.try_reserve_exact(w).is_err() {
+                        return Err(exc0("MemoryError"));
+                    }
+                    out.extend(std::iter::repeat(fill).take(left));
+                    out.extend_from_slice(b);
+                    out.extend(std::iter::repeat(fill).take(right));
+                    bytesv(out)
+                }
+                "zfill" => {
+                    no_kws(n, &a)?;
+                    if a.p.len() != 1 {
+                        return type_err(format!("bytes.zfill() takes exactly one argument ({} given)", a.p.len()));
+                    }
+                    let width = ssize_arg(&a.p[0])?;
+                    let w = width.max(0) as usize;
+                    if w <= b.len() {
+                        return Ok(bytesv(b.clone()));
+                    }
+                    let sign = b.first().is_some_and(|&c| c == b'+' || c == b'-');
+                    let pad = w - b.len();
+                    let mut out = Vec::new();
+                    if out.try_reserve_exact(w).is_err() {
+                        return Err(exc0("MemoryError"));
+                    }
+                    if sign {
+                        out.push(b[0]);
+                        out.extend(std::iter::repeat(b'0').take(pad));
+                        out.extend_from_slice(&b[1..]);
+                    } else {
+                        out.extend(std::iter::repeat(b'0').take(pad));
+                        out.extend_from_slice(b);
+                    }
+                    bytesv(out)
+                }
+                "expandtabs" => {
+                    if a.p.len() + a.k.len() > 1 {
+                        return type_err(format!("expandtabs() takes at most 1 argument ({} given)", a.p.len() + a.k.len()));
+                    }
+                    let ts = match a.kw("tabsize").or_else(|| a.p.first().cloned()) {
+                        None => 8,
+                        Some(v) => c_int_arg(&v)?,
+                    };
+                    unexpected_kw("expandtabs", &a, &["tabsize"])?;
+                    let mut out: Vec<u8> = vec![];
+                    let mut col: u64 = 0;
+                    for &c in b {
+                        if c == b'\t' {
+                            if ts > 0 {
+                                // a tab advances to the next multiple of tabsize; tabsize <= 0 drops it
+                                let incr = ts as u64 - (col % ts as u64);
+                                if out.try_reserve(incr as usize).is_err() {
+                                    return Err(exc0("MemoryError"));
+                                }
+                                out.extend(std::iter::repeat(b' ').take(incr as usize));
+                                col += incr;
+                            }
+                        } else {
+                            out.push(c);
+                            col += 1;
+                            if c == b'\n' || c == b'\r' {
+                                col = 0;
+                            }
+                        }
+                    }
+                    bytesv(out)
+                }
+                "splitlines" => {
+                    if a.p.len() > 1 {
+                        return type_err(format!("splitlines() takes at most 1 argument ({} given)", a.p.len()));
+                    }
+                    let has_kw = |name: &str| a.k.iter().any(|(k, _)| *k == name);
+                    if has_kw("keepends") && !a.p.is_empty() {
+                        return type_err("argument for splitlines() given by name ('keepends') and position (1)".into());
+                    }
+                    let keep = a.kw("keepends").or_else(|| a.p.first().cloned());
+                    unexpected_kw("splitlines", &a, &["keepends"])?;
+                    let keep = match keep {
+                        Some(v) => truth(&v)?,
+                        None => false,
+                    };
                     let mut out = vec![];
                     let mut st = 0;
                     let mut i = 0;
                     while i < b.len() {
                         if b[i] == b'\n' || b[i] == b'\r' {
-                            out.push(bytesv(b[st..i].to_vec()));
-                            if b[i] == b'\r' && b.get(i + 1) == Some(&b'\n') {
-                                i += 1;
-                            }
-                            st = i + 1;
+                            let e = if b[i] == b'\r' && b.get(i + 1) == Some(&b'\n') { i + 2 } else { i + 1 };
+                            // keepends keeps the whole terminator (\r\n); otherwise the piece ends before it
+                            let end = if keep { e } else { i };
+                            out.push(bytesv(b[st..end].to_vec()));
+                            st = e;
+                            i = e;
+                        } else {
+                            i += 1;
                         }
-                        i += 1;
                     }
                     if st < b.len() {
                         out.push(bytesv(b[st..].to_vec()));
                     }
                     list(out)
                 }
-                "__len__" => V::Int(b.len() as i64),
-                "__bytes__" => me.clone(),
+                "partition" | "rpartition" => {
+                    no_kws(n, &a)?;
+                    if a.p.len() != 1 {
+                        return type_err(format!("bytes.{n}() takes exactly one argument ({} given)", a.p.len()));
+                    }
+                    let sep = sub_arg(&a.p[0], false)?;
+                    if sep.is_empty() {
+                        return val_err("empty separator".into());
+                    }
+                    let hit = if n == "partition" {
+                        find_sub(b, &sep, 0)
+                    } else {
+                        (0..=b.len().saturating_sub(sep.len())).rev().find(|&i| &b[i..i + sep.len()] == sep.as_slice())
+                    };
+                    match hit {
+                        Some(k) => tup(vec![bytesv(b[..k].to_vec()), bytesv(sep.clone()), bytesv(b[k + sep.len()..].to_vec())]),
+                        None if n == "partition" => tup(vec![bytesv(b.clone()), bytesv(vec![]), bytesv(vec![])]),
+                        None => tup(vec![bytesv(vec![]), bytesv(vec![]), bytesv(b.clone())]),
+                    }
+                }
+                "translate" => {
+                    if a.p.len() + a.k.len() > 2 {
+                        return type_err(format!("translate() takes at most 2 arguments ({} given)", a.p.len() + a.k.len()));
+                    }
+                    if a.p.is_empty() {
+                        return type_err("translate() takes at least 1 positional argument (0 given)".into());
+                    }
+                    let has_kw = |name: &str| a.k.iter().any(|(k, _)| *k == name);
+                    if has_kw("delete") && a.p.len() >= 2 {
+                        return type_err("argument for translate() given by name ('delete') and position (2)".into());
+                    }
+                    let table = a.p.first().cloned();
+                    let delete = a.kw("delete").or_else(|| a.p.get(1).cloned());
+                    if let Some((k, _)) = a.k.first() {
+                        return type_err(format!("translate() got an unexpected keyword argument '{k}'"));
+                    }
+                    let table = match table {
+                        Some(V::None) => None,
+                        Some(x) => match bytes_of(&x) {
+                            Some(tb) if tb.len() == 256 => Some(tb),
+                            Some(_) => return val_err("translation table must be 256 characters long".into()),
+                            None => return type_err(format!("a bytes-like object is required, not '{}'", tn(&x))),
+                        },
+                        None => unreachable!(),
+                    };
+                    let delete = match delete {
+                        None => vec![],
+                        Some(x) => match bytes_of(&x) {
+                            Some(d) => d,
+                            None => return type_err(format!("a bytes-like object is required, not '{}'", tn(&x))),
+                        },
+                    };
+                    let mut out = vec![];
+                    for &c in b.iter() {
+                        if delete.contains(&c) {
+                            continue;
+                        }
+                        out.push(match &table {
+                            Some(tb) => tb[c as usize],
+                            None => c,
+                        });
+                    }
+                    bytesv(out)
+                }
+                "maketrans" => {
+                    no_kws("maketrans", &a)?;
+                    unpack_range("maketrans", &a, 2, 2)?;
+                    let frm = sub_arg(&a.p[0], false)?;
+                    let to = sub_arg(&a.p[1], false)?;
+                    if frm.len() != to.len() {
+                        return val_err("maketrans arguments must have same length".into());
+                    }
+                    let mut table: Vec<u8> = (0..=255).collect();
+                    for (f, t) in frm.iter().zip(to.iter()) {
+                        table[*f as usize] = *t;
+                    }
+                    bytesv(table)
+                }
+                "fromhex" => bytes_fromhex(Args { p: a.p, k: a.k })?,
                 _ => return Err(exc("AttributeError", format!("'bytes' object has no attribute '{n}'"))),
             })
         })())
@@ -686,7 +1341,7 @@ impl Ext for BytesV {
         self.call(me, n, a)
     }
     fn attr(&self, me: &V, n: &str) -> Option<R> {
-        const M: &[&str] = &["decode", "hex", "startswith", "endswith", "find", "index", "rfind", "rindex", "count", "split", "rsplit", "strip", "lstrip", "rstrip", "join", "replace", "removeprefix", "removesuffix", "upper", "lower", "isdigit", "isalpha", "isalnum", "isspace", "isupper", "islower", "isascii", "splitlines"];
+        const M: &[&str] = &["decode", "hex", "startswith", "endswith", "find", "index", "rfind", "rindex", "count", "split", "rsplit", "strip", "lstrip", "rstrip", "join", "replace", "removeprefix", "removesuffix", "upper", "lower", "capitalize", "title", "istitle", "swapcase", "center", "ljust", "rjust", "zfill", "expandtabs", "partition", "rpartition", "translate", "isdigit", "isalpha", "isalnum", "isspace", "isupper", "islower", "isascii", "splitlines", "maketrans", "fromhex"];
         M.contains(&n).then(|| Ok(V::BMeth(Rc::new((me.clone(), sym(n))))))
     }
     fn binop(&self, _me: &V, op: &str, o: &V, right: bool) -> Option<R> {
@@ -703,9 +1358,28 @@ impl Ext for BytesV {
                 let n = match o {
                     V::Int(n) => *n,
                     V::Bool(b) => *b as i64,
-                    _ => return None,
+                    // a huge int cannot fit the Py_ssize_t CPython's repeat takes
+                    V::Big(_) => return Some(Err(exc("OverflowError", "cannot fit 'int' into an index-sized integer".into()))),
+                    _ => return Some(type_err(format!("can't multiply sequence by non-int of type '{}'", tn(o)))),
                 };
-                Some(Ok(bytesv(self.0.repeat(n.max(0) as usize))))
+                if n < 0 {
+                    return Some(Ok(bytesv(vec![])));
+                }
+                // CPython's bytes_repeat: the total size cannot fit a Py_ssize_t
+                if n > 0 && (self.0.len() as i64) > i64::MAX / n {
+                    return Some(Err(exc("OverflowError", "repeated bytes are too long".into())));
+                }
+                let Some(total) = (self.0.len() as u64).checked_mul(n as u64) else {
+                    return Some(Err(exc0("MemoryError")));
+                };
+                let mut out = Vec::new();
+                if out.try_reserve_exact(total as usize).is_err() {
+                    return Some(Err(exc0("MemoryError")));
+                }
+                for _ in 0..n {
+                    out.extend_from_slice(&self.0);
+                }
+                Some(Ok(bytesv(out)))
             }
             _ => None,
         }

@@ -1052,6 +1052,11 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
                 _ => unreachable!(),
             });
         }
+        // str/list/tuple raise their own TypeError for a non-int multiplier, never NotImplemented:
+        // 'x' * b'y' says "of type 'bytes'", from the sequence's side.
+        (V::Str(_) | V::List(_) | V::Tuple(_), _) if op == "*" => {
+            return type_err(format!("can't multiply sequence by non-int of type '{}'", tn(b)));
+        }
         (V::Str(f), _) if op == "%" => return Ok(st(percent_format(&f.s, b)?)),
         (V::Set(_) | V::FSet(_), V::Set(_) | V::FSet(_)) if matches!(op, "|" | "&" | "-" | "^") => {
             let r = set_op(&set_of(a).unwrap(), &set_of(b).unwrap(), op)?;
