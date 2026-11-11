@@ -686,6 +686,12 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         }
         lib_classes(&mods, &texts, &mut bridge)?;
     }
+    for (m, (path, src)) in &texts {
+        let abs = std::fs::canonicalize(path).map(|p| p.to_string_lossy().to_string()).unwrap_or(path.clone());
+        // the file as on disk (CPython's warning shows that line), not the text with __file__ filled in
+        let disk = std::fs::read_to_string(path).unwrap_or_else(|_| src.clone());
+        bridge.srcs.insert(m.clone(), (abs, disk));
+    }
     // The file of the module the error is in, not always the main file (#194).
     if bridge.on && emit::NP_ON.load(std::sync::atomic::Ordering::Relaxed) {
         // numpy's arrays would cross into the bridged library: both go to CPython

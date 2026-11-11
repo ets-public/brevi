@@ -1467,6 +1467,8 @@ pub struct Bridge {
     pub imports: HashMap<String, String>,
     // module -> its file
     pub files: HashMap<String, String>,
+    // module -> (its absolute path, its source), for the warnings the runtime issues at a line of it
+    pub srcs: HashMap<String, (String, String)>,
 }
 impl Bridge {
     pub fn has(&self, m: &str) -> bool {
@@ -1597,6 +1599,8 @@ pub struct Em {
     bridged_used: BTreeSet<String>,
     // the program calls the re module (see the buffer check at the end of emit)
     uses_re: bool,
+    // (module, name) bound by `from re import name`: calls of it say where they are, as `re.name(...)` does
+    re_names: HashSet<(String, String)>,
     // module + value set -> the first display's items in source order (CPython's constant merging)
     set_lits: HashMap<(String, BTreeSet<ConstKey>), Vec<Ex>>,
 }
@@ -2202,6 +2206,14 @@ impl Em {
         })
     }
     // the module name `x` refers to, when x is bound only by `import m`
+    // A call of a re function, told its line first: the warnings CPython's re issues name the caller's line.
+    // `call` is the call's Rust text over `__ra`, the evaluated arguments.
+    fn re_call(&self, call: &str, args: &str, line: usize) -> String {
+        let (file, src) = self.bridge.srcs.get(&self.module).cloned().unwrap_or_default();
+        let text = src.lines().nth(line.wrapping_sub(1)).unwrap_or("");
+        let module = if self.module.is_empty() { "__main__" } else { self.module.as_str() };
+        format!("{{ let __ra = {args}; re_site({line}, {}, {}, {}); let __rr = {call}; re_site_clear(); __rr }}", lit(&file), lit(module), lit(text))
+    }
     fn static_module(&self, e: &Ex) -> Option<String> {
         if let Ex::Name(n) = e {
             if let Some(Var::Global(_)) = self.lookup(n) {
@@ -2287,6 +2299,15 @@ impl Em {
         if matches!(f, Ex::Name(n) if n == "catch_warnings") || matches!(f, Ex::Attr(_, n) if n == "catch_warnings") {
             if args.iter().any(|a| matches!(a, Arg::KwStar(_)) || matches!(a, Arg::Kw(k, v) if k == "record" && !matches!(v, Ex::False))) {
                 return Err(err(line, "warnings.catch_warnings(record=True) is not supported in dynamic builds"));
+            }
+        }
+        // `from re import sub` then `sub(...)`: told its line, as re.sub(...) is
+        if let Ex::Name(n) = f {
+            if self.re_names.contains(&(self.module.clone(), n.clone())) && matches!(self.lookup(n), Some(Var::Global(_))) {
+                self.uses_re = true;
+                let fv = self.ex(f, line)?;
+                let a = self.args(args, line, None)?;
+                return Ok(self.q(&self.re_call(&format!("call(&{fv}, __ra)"), &a, line)));
             }
         }
         // CPython's inspect cannot read a dynamic build's function objects (their code and annotations are
@@ -2446,6 +2467,9 @@ impl Em {
                             _ => return Err(err(line, &format!("numpy: np.{m}(*args or **kwargs) is not in Brevi's native numpy"))),
                         }
                     }
+                }
+                if md == "re" {
+                    return Ok(self.q(&self.re_call(&format!("module_call(\"re\", {}, __ra)", lit(m)), &a, line)));
                 }
                 return Ok(self.q(&format!("module_call({}, {}, {a})", lit(&md), lit(m))));
             }
@@ -3173,6 +3197,9 @@ impl Em {
                         return Err(err(line, "from ... import * is not supported for library modules"));
                     }
                     let bind = a.clone().unwrap_or(n.clone());
+                    if m == "re" {
+                        self.re_names.insert((self.module.clone(), bind.clone()));
+                    }
                     if !user && !module_has(m, n) {
                         if hybrid_bridged(m) {
                             self.bridged_used.insert(m.to_string());
@@ -4032,6 +4059,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         bridge,
         bridged_used: BTreeSet::new(),
         uses_re: false,
+        re_names: HashSet::new(),
         set_lits: HashMap::new(),
     };
     // Brevi's own library copies first, each group named and numbered on its own, then the program's modules:
@@ -4225,10 +4253,12 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     };
     write!(
         out,
-        "fn __run() -> Result<(), E> {{ unsafe {{ GL = vec![V::Unbound; {}]; K = vec![{}]; }} USER_MOD.with(|u| u.set(Some(user_mod))); MAIN_GTAB.with(|u| u.set(Some(gtab___main__))); {} let r = init___main__(); fin_point(); r }}\nfn main() {{ run_main(__run); }}\n",
+        "fn __run() -> Result<(), E> {{ unsafe {{ GL = vec![V::Unbound; {}]; K = vec![{}]; }} USER_MOD.with(|u| u.set(Some(user_mod))); MAIN_GTAB.with(|u| u.set(Some(gtab___main__))); {}{} let r = init___main__(); fin_point(); r }}\nfn main() {{ run_main(__run); }}\n",
         em.nglobals.max(1),
         consts.join(", "),
-        del_on
+        del_on,
+        // the program uses CPython's warnings module: the warnings the runtime issues go through it
+        if em.bridged_used.contains("warnings") { " set_warn_bridge(pyd_warn_at);" } else { "" }
     )
     .unwrap();
     let _ = &em.out;
