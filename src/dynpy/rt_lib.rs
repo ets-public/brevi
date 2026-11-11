@@ -532,6 +532,10 @@ pub fn bi_reversed(a: Args) -> R {
         },
         _ => ItKind::Reversed,
     };
+    if let V::List(l) = &x {
+        let n = l.borrow().len();
+        return Ok(new_iter(It::RevList(l.clone(), n), IterClass::Kind(kind)));
+    }
     if matches!(x, V::Dict(_) | V::List(_) | V::Tuple(_) | V::Str(_) | V::Deque(_) | V::View(_)) || inner_of(&x).is_some() {
         let mut v = to_vec(&x)?;
         v.reverse();

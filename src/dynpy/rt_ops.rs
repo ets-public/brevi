@@ -2088,6 +2088,9 @@ pub enum ItKind {
 
 pub enum It {
     List(Rc<RefCell<Vec<V>>>, usize),
+    // reversed() of a list: live like CPython's list_reverseiterator (it sees later writes, and stops early
+    // if the list shrinks); the number is the next index plus one, so 0 means exhausted
+    RevList(Rc<RefCell<Vec<V>>>, usize),
     Tuple(Tup, usize),
     Vec(std::vec::IntoIter<V>),
     // itertools.repeat: the element and the calls left (None = forever), so repr() shows CPython's
@@ -2157,6 +2160,16 @@ impl It {
     #[inline(never)]
     fn next_slow(&mut self) -> Result<Option<V>, E> {
         match self {
+            It::RevList(l, i) => {
+                let got = if *i > 0 { l.borrow().get(*i - 1).cloned() } else { None };
+                if got.is_some() {
+                    *i -= 1;
+                    Ok(got)
+                } else {
+                    *self = It::Done;
+                    Ok(None)
+                }
+            }
             It::List(l, i) => {
                 let got = l.borrow().get(*i).cloned();
                 if got.is_some() {
