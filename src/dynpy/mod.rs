@@ -274,6 +274,8 @@ fn sandbox_module(m: &str) -> Option<&'static str> {
         "textwrap" => include_str!("py/textwrap.py"),
         "logging" => include_str!("py/logging.py"),
         "argparse" => include_str!("py/argparse.py"),
+        "string" => include_str!("py/string.py"),
+        "_string" => include_str!("py/_string.py"),
         "asyncio" => include_str!("py/asyncio.py"),
         "asyncio.subprocess" => include_str!("py/asyncio_subprocess.py"),
         "tiktoken" => include_str!("py/tiktoken.py"),

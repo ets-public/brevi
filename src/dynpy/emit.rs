@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 type ER<T> = Result<T, (usize, String)>;
 
-pub const BUILTIN_MODULES: [&str; 50] = ["_brevi_col", "_brevi_srv", "_brevi_proc", "importlib.metadata", "zoneinfo", "tzlocal", "atexit", "_brevi_async", "_brevi_net", "_brevi_fs", "_brevi_st", "_brevi_ort", "_brevi_sqlite", "_brevi_duckdb", "_brevi_stdio", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading", "gc", "weakref"];
+pub const BUILTIN_MODULES: [&str; 49] = ["_brevi_col", "_brevi_srv", "_brevi_proc", "importlib.metadata", "zoneinfo", "tzlocal", "atexit", "_brevi_async", "_brevi_net", "_brevi_fs", "_brevi_st", "_brevi_ort", "_brevi_sqlite", "_brevi_duckdb", "_brevi_stdio", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading", "gc", "weakref"];
 
 
 // ---------- numpy, natively (rt_np*.rs) ----------
@@ -205,7 +205,6 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "itertools" => &["accumulate", "chain", "combinations", "combinations_with_replacement", "compress", "count", "cycle", "dropwhile", "filterfalse", "groupby", "islice", "pairwise", "permutations", "product", "repeat", "starmap", "takewhile", "zip_longest"],
         "copy" => &["copy", "deepcopy"],
         "operator" => &["add", "and_", "attrgetter", "contains", "eq", "floordiv", "ge", "getitem", "gt", "index", "itemgetter", "le", "lshift", "lt", "methodcaller", "mod", "mul", "ne", "neg", "not_", "or_", "pow", "rshift", "sub", "truediv", "truth", "xor"],
-        "string" => &["ascii_lowercase", "ascii_uppercase", "ascii_letters", "digits", "hexdigits", "octdigits", "punctuation", "whitespace", "printable"],
         "time" => &["time", "perf_counter", "monotonic", "process_time", "sleep", "time_ns", "perf_counter_ns", "monotonic_ns", "process_time_ns", "gmtime", "strftime"],
         "abc" => &["ABC", "abstractmethod"],
         "enum" => &["Enum", "IntEnum", "StrEnum", "Flag", "IntFlag", "auto", "unique"],

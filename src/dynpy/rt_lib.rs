@@ -1295,6 +1295,13 @@ fn builtin_class_attr_raw(c: &Rc<Class>, name: &str) -> Option<V> {
             Some(V::Class(c)) => Err(unsupported(&format!("object.__new__({})", c.name))),
             _ => type_err("object.__new__(X): X is not a type object".into()),
         })),
+        // object.__init__ is a no-op that accepts any object but needs the instance argument
+        ("object", "__init__") => Some(builtin("__init__", |a: Args| {
+            if a.p.is_empty() {
+                return type_err("descriptor '__init__' of 'object' object needs an argument".into());
+            }
+            Ok(V::None)
+        })),
         ("object", "__init_subclass__") => Some(builtin("__init_subclass__", |_a: Args| Ok(V::None))),
         // the lookup without the class's __getattr__ fallback
         ("object", "__getattribute__") => Some(builtin("__getattribute__", |a: Args| {
