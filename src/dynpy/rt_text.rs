@@ -1341,7 +1341,7 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
             let endpos = opt_pos(a, 2, "endpos", len)?.unwrap_or(len);
             let ms = all_matches(prog, &sc, pos, endpos, usize::MAX);
             if n == "finditer" {
-                return Ok(vec_iter(ms.into_iter().map(|c| mk_match(prog, &sc, &sv, c, pos, endpos)).collect()));
+                return Ok(vec_iter(ItKind::CallableIterator, ms.into_iter().map(|c| mk_match(prog, &sc, &sv, c, pos, endpos)).collect()));
             }
             let txt = |c: &Vec<usize>, g: usize| -> V {
                 if c[2 * g] == UNSET {

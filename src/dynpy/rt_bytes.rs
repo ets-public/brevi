@@ -15,6 +15,10 @@ pub fn bytes_of(v: &V) -> Option<Vec<u8>> {
     }
 }
 
+pub fn is_bytes_v(v: &V) -> bool {
+    matches!(v, V::Ext(x) if x.any().downcast_ref::<BytesV>().is_some())
+}
+
 fn want_bytes(v: &V, what: &str) -> Result<Vec<u8>, E> {
     bytes_of(v).ok_or_else(|| exc("TypeError", format!("{what}, not '{}'", tn(v))))
 }

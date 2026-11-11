@@ -1,0 +1,49 @@
+list_iterator  True
+tuple_iterator  True
+str_ascii_iterator  True
+str_iterator  True
+range_iterator  True
+dict_keyiterator  True
+dict_keyiterator  True
+dict_valueiterator  True
+dict_itemiterator  True
+set_iterator  True
+set_iterator  True
+bytes_iterator  True
+_deque_iterator collections True
+list_reverseiterator False True
+reversed False True
+dict_reversekeyiterator False True
+range_iterator False True
+map False True
+filter False True
+zip False True
+enumerate False True
+generator False True
+callable_iterator False True
+count False True
+chain False True
+islice False True
+repeat False True
+cycle False True
+accumulate False True
+starmap False True
+product False True
+permutations False True
+combinations False True
+groupby False True
+pairwise False True
+compress False True
+zip_longest False True
+takewhile False True
+dropwhile False True
+filterfalse False True
+str_iterator list_iterator
+iterator
+It True
+generator True
+True False
+list_iterator
+True False
+chain
+False True

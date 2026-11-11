@@ -1364,7 +1364,7 @@ pub fn getattr(o: &V, name: &str) -> R {
         V::Iter(it) if name == "__qualname__" || name == "__name__" => {
             // only generators and genexprs carry these; the cells are held while the generator body runs,
             // so read them only when free (the running generator's name is remembered elsewhere)
-            let qn = it.try_borrow().ok().and_then(|i| match &*i {
+            let qn = it.it.try_borrow().ok().and_then(|i| match &*i {
                 It::Coro(c) => c.try_borrow().ok().map(|c| c.name),
                 It::GenExp(_, n, _) => Some(*n),
                 _ => None,

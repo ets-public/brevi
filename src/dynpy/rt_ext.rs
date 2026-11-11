@@ -2586,7 +2586,7 @@ fn csv_fieldnames_arg(v: V) -> Result<V, E> {
     }
     let it = iter_v(&v)?;
     if let V::Iter(cell) = &it {
-        if let Ok(b) = cell.try_borrow() {
+        if let Ok(b) = cell.it.try_borrow() {
             if let It::Obj(inner) = &*b {
                 if is(inner, &v) {
                     return Ok(list(to_vec(&v)?));
