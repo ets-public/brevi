@@ -182,19 +182,20 @@ jobs:
           fi
           changed=$(git diff --name-only HEAD^1 HEAD)
           echo "$changed"
-          if echo "$changed" | grep -qE '^(src/|Cargo\.(toml|lock)$|compat/|tools/compat\.py$|bench/(solutions|tasks|ref)/)'; then
+          if echo "$changed" | grep -qE '^(src/|Cargo\.(toml|lock)$|compat/baseline\.txt$|tools/compat\.py$|bench/(solutions|tasks|ref)/)'; then
             echo "compat=true" >> "$GITHUB_OUTPUT"
           fi
           # The Rust and Python solutions never go through Brevi, so a compiler change can't break them;
+          # (compat/ also holds the conformance ratchet's lists, which this check never reads)
           # rebuild them only when they, their tests or the checker change.
-          if echo "$changed" | grep -qE '^(compat/|tools/compat\.py$|bench/(solutions|tasks)/)'; then
+          if echo "$changed" | grep -qE '^(compat/baseline\.txt$|tools/compat\.py$|bench/(solutions|tasks)/)'; then
             echo "kinds=brevi,python,rust" >> "$GITHUB_OUTPUT"
           else
             echo "kinds=brevi" >> "$GITHUB_OUTPUT"
           fi
           # grammar/brevi.lark is separate from the compiler's parser: only the grammar, the programs it
           # parses or its tools can change the result.
-          if echo "$changed" | grep -qE '^(grammar/|tests/run/|bench/solutions/|compat/|tools/(grammar_check|lark_to_gbnf)\.py$|tools/requirements-ci\.txt$)'; then
+          if echo "$changed" | grep -qE '^(grammar/|tests/run/|bench/solutions/|compat/baseline\.txt$|tools/(grammar_check|lark_to_gbnf)\.py$|tools/requirements-ci\.txt$)'; then
             echo "grammar=true" >> "$GITHUB_OUTPUT"
           fi
 
