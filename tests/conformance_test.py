@@ -196,6 +196,22 @@ class Classify(unittest.TestCase):
         self.assertEqual(c.classify(want, built, other)[0], "wrong_output")
         self.assertEqual(c.masked(c.Run(0, b"0x7f1a2b3c\n", b"", "")).out, b"0x7f1a2b3c\n")
 
+    def test_only_the_lone_surrogate_stop_in_both_builds_needs_the_string_model(self):
+        stop = "exit 1, expected 0: NotImplementedError: brevi: chr() of a lone surrogate (U+D800..U+DFFF) is not supported in dynamic builds"
+        ex = lambda d: {"category": "wrong_exit", "path": "dynamic", "detail": d, "silent": False}
+        both = {"id": "t.A.sur", "modes": {"normal": ex(stop), "dyn": ex(stop)}}
+        one = {"id": "t.A.one", "modes": {"normal": ex(stop), "dyn": ex("exit 1, expected 0: ValueError: x")}}
+        other = {"id": "t.A.oth", "modes": {"normal": ex(stop.replace("chr()", "json")), "dyn": ex(stop.replace("chr()", "json"))}}
+        self.assertTrue(c.string_model_stop(both))
+        self.assertFalse(c.string_model_stop(one))
+        self.assertFalse(c.string_model_stop(other))
+        for x in both["modes"].values():
+            x["category"] = "string_model"
+        ok = {"category": "matched", "path": "dynamic", "detail": "", "silent": False}
+        t = c.tally([both, {"id": "t.A.ok", "modes": {"normal": ok, "dyn": ok}}], "normal")
+        self.assertEqual((t["string_model"], t["wrong"], t["scored"], t["coverage"]), (1, 0, 2, 0.5))
+        self.assertEqual(c.bad_ids([both]), [])
+
 
 if __name__ == "__main__":
     unittest.main()

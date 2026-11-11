@@ -14,10 +14,12 @@ same stdout and exit with the same code. `brevi run` is never used: it falls bac
                                                    floor this run's match counts
   python3 tools/conformance.py --show ID           print one test's generated script and how to reproduce it
 
-Categories: matched, refused, by_design, wrong_output, wrong_exit, crash_or_timeout, not_extractable, unstable,
+Categories: matched, refused, by_design, string_model, wrong_output, wrong_exit, crash_or_timeout, not_extractable, unstable,
 and excluded (CPython internals, each with a reason). by_design is a test the build refuses because it runs a string
 as code (compile/exec/eval), which a sandboxed native binary refuses on purpose; each one is listed by name in
-compat/conformance_by_design.txt and printed beside the score. coverage = matched / (all - unstable - excluded -
+compat/conformance_by_design.txt and printed beside the score. string_model is a listed test (compat/
+conformance_needs_string_model.txt, each with an issue) that stops in both builds because it needs a str holding a lone
+surrogate; it is printed beside the score and counts as not matched. coverage = matched / (all - unstable - excluded -
 by_design); wrong = wrong_output + wrong_exit among programs that built.
 
 The test files are fetched once from the pinned tag into a cache outside git (not vendored: nothing of
@@ -38,6 +40,12 @@ BY_DESIGN_FILE = ROOT / "compat" / "conformance_by_design.txt"  # reviewed: test
 # The refusal that makes a test by-design: the dynamic build's own reason (the normal build's names the typed path it
 # tried first). Only the plain "X() is not supported" of a string run as code; eval() of a literal is supported.
 BY_DESIGN_REFUSAL = re.compile(r"^(compile|exec|eval)\(\) is not supported in dynamic builds$")
+# Tests that stop because they need the string model (a str holding a lone surrogate, which a Rust string cannot):
+# reviewed, each tied to an open issue, printed beside every score. Matched only by this exact run-time stop, in both
+# builds, and only for a listed id: no other run-time refusal counts, and the tests stay in the denominator.
+STRING_MODEL_FILE = ROOT / "compat" / "conformance_needs_string_model.txt"
+STRING_MODEL_STOP = re.compile(r"^exit 1, expected 0: NotImplementedError: brevi: chr\(\) of a lone surrogate \(U\+D800\.\.U\+DFFF\) "
+                               r"is not supported in dynamic builds$")
 BAD = ("wrong_output", "wrong_exit", "crash_or_timeout")  # built, but did not do what CPython does
 TAG = "v3.13.13"
 PYTHON_VERSION = "3.13.13"
@@ -1171,7 +1179,7 @@ def run_case(case, cfg):
     return {**case, "modes": modes}
 
 
-CATEGORIES = ["matched", "refused", "by_design", "wrong_output", "wrong_exit", "crash_or_timeout", "not_extractable", "unstable", "excluded"]
+CATEGORIES = ["matched", "refused", "by_design", "string_model", "wrong_output", "wrong_exit", "crash_or_timeout", "not_extractable", "unstable", "excluded"]
 # A native program that dies on one of these may be memory-unsafe, which SECURITY.md asks to report privately:
 # the public report only counts them; the test names go to private_signals.json in the cache.
 PRIVATE_SIGNALS = ("SIGSEGV", "SIGBUS", "SIGILL", "SIGABRT", "SIGFPE", "SIGTRAP")
@@ -1215,6 +1223,20 @@ def by_design_refusal(r):
     return ("modes" in r and r["modes"]["dyn"]["category"] in ("refused", "by_design")
             and bool(BY_DESIGN_REFUSAL.match(r["modes"]["dyn"]["detail"] or ""))
             and r["modes"]["normal"]["category"] in ("refused", "by_design"))
+
+
+def read_string_model():
+    """{test id: issue} from the reviewed needs-the-string-model list: `test-id  issue=#N`, `#` comments."""
+    if not STRING_MODEL_FILE.exists():
+        return {}
+    rows = [ln.split() for ln in STRING_MODEL_FILE.read_text().splitlines() if ln.strip() and not ln.startswith("#")]
+    return {r[0]: next((t[len("issue="):] for t in r[1:] if t.startswith("issue=#")), "") for r in rows}
+
+
+def string_model_stop(r):
+    """Whether both builds stopped on the lone-surrogate refusal and on nothing else."""
+    return "modes" in r and all(x["category"] in ("wrong_exit", "string_model") and bool(STRING_MODEL_STOP.match(x["detail"] or ""))
+                                for x in r["modes"].values())
 
 
 def bad_ids(results):
@@ -1307,6 +1329,8 @@ def markdown(rep, results):
              f"Forced dynamic build (`BREVI_DYN=1`): coverage {d['coverage'] * 100:.1f}%, wrong {d['wrong']}.", "",
              f"**Refused by design: {n['by_design']}** tests run a string as code (compile, exec or eval), which a sandboxed "
              "native binary refuses on purpose. They are left out of the coverage denominator and listed by name below.", "",
+             f"**Need the string model: {n['string_model']}** tests stop on a str holding a lone surrogate, which Brevi's "
+             "strings cannot hold yet. They count as not matched and are listed by name below.", "",
              "## Normal build", ""] + table("normal") + ["", "## Forced dynamic build", ""] + table("dyn")
     lines += ["", "## Paths taken", "", "| Build | " + " | ".join(rep["paths"]["normal"]) + " |",
               "| --- | " + " | ".join("---:" for _ in rep["paths"]["normal"]) + " |",
@@ -1318,6 +1342,11 @@ def markdown(rep, results):
               f"Reviewed list: [compat/conformance_by_design.txt](../../compat/{BY_DESIGN_FILE.name}). `--check` fails on one not in it.", ""]
     lines += [f"- `{r['id']}`: {r['modes']['dyn']['detail']}" for r in results
               if "modes" in r and r["modes"]["normal"]["category"] == "by_design"]
+    sm = read_string_model()
+    lines += ["", "## Need the string model (lone surrogates)", "",
+              f"Reviewed list: [compat/{STRING_MODEL_FILE.name}](../../compat/{STRING_MODEL_FILE.name}), each tied to an issue.", ""]
+    lines += [f"- `{r['id']}` ({sm.get(r['id'], '')}): {r['modes']['normal']['detail']}" for r in results
+              if "modes" in r and r["modes"]["normal"]["category"] == "string_model"]
     lines += ["", "## Excluded (CPython internals)", ""]
     why = collections.Counter(r["detail"] for r in results if r.get("category") == "excluded")
     lines += [f"- {w}: {c}" for w, c in why.most_common()]
@@ -1430,6 +1459,11 @@ def main():
             for x in r["modes"].values():
                 if x["category"] == "refused":
                     x["category"] = "by_design"
+    string_model = read_string_model()
+    for r in results:
+        if r["id"] in string_model and string_model_stop(r):
+            for x in r["modes"].values():
+                x["category"] = "string_model"
     version = subprocess.run([cfg.brevi, "--version"], capture_output=True, text=True).stdout.strip()
     rep = {"brevi": version, "python": PYTHON_VERSION, "tag": TAG, "date": time.strftime("%Y-%m-%d"), "platform": sys.platform,
            "sandboxed": cfg.sandbox, "timeout_s": cfg.timeout, "mem_mb": cfg.mem_mb,
@@ -1445,7 +1479,8 @@ def main():
     (cache / "private_signals.json").write_text(json.dumps(private, indent=1) + "\n")
     n = rep["totals"]["normal"]
     print(f"coverage {n['coverage'] * 100:.1f}%, wrong {n['wrong']} ({n['wrong_output']} output, {n['wrong_exit']} exit), "
-          f"{n['by_design']} refused by design (strings run as code, not counted); report in {out}")
+          f"{n['by_design']} refused by design (strings run as code, not counted), "
+          f"{n['string_model']} need the string model (counted as not matched); report in {out}")
     bad = set(bad_ids(results))
     matched = {m: rep["totals"][m]["matched"] for m in ("normal", "dyn")}
     if cfg.write_baseline:
@@ -1466,6 +1501,15 @@ def main():
         if stale:
             print(f"{len(stale)} tests in {BY_DESIGN_FILE.relative_to(ROOT)} are no longer refused for running a string as code; "
                   "remove them:\n  " + "\n  ".join(stale))
+            failed = True
+        sm_stale = sorted(i for i in string_model if i in ran and not any(r["id"] == i and string_model_stop(r) for r in results))
+        sm_untied = sorted(i for i, issue in string_model.items() if not issue)
+        if sm_stale:
+            print(f"{len(sm_stale)} tests in {STRING_MODEL_FILE.relative_to(ROOT)} no longer stop on the lone-surrogate refusal "
+                  "in both builds; remove them:\n  " + "\n  ".join(sm_stale))
+            failed = True
+        if sm_untied:
+            print(f"{len(sm_untied)} lines in {STRING_MODEL_FILE.relative_to(ROOT)} have no issue=#N:\n  " + "\n  ".join(sm_untied))
             failed = True
         if unowned:
             print(f"{len(unowned)} known-wrong lines lack a tracking issue, owner or live expiry ({BASELINE.relative_to(ROOT)}):\n  "
@@ -1498,7 +1542,8 @@ def main():
             problems.append(f"{len(bad)} wrong results or crashes; the release gate allows none")
         if problems:
             print("release gate FAILS:\n  " + "\n  ".join(problems)); sys.exit(1)
-        print(f"release gate holds: coverage {n['coverage'] * 100:.1f}%, no wrong results, {n['by_design']} refused by design")
+        print(f"release gate holds: coverage {n['coverage'] * 100:.1f}%, no wrong results, {n['by_design']} refused by design, "
+              f"{n['string_model']} need the string model")
 
 
 if __name__ == "__main__":
