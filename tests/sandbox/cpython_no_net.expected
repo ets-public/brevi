@@ -1,0 +1,19 @@
+{"path":"pybridge","why":"socket run in CPython","py":["socket"]}
+refused
+refused
+refused
+ping
+exit 0
+-- dynamic
+refused
+refused
+refused
+ping
+exit 0
+-- typed
+{"path":"pybridge","why":"socket run in CPython","py":["socket"]}
+refused
+refused
+refused
+ping
+exit 0

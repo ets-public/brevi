@@ -17,7 +17,7 @@ mod brevi_duckglue {
     type P = *mut c_void;
 
     // libduckdb is dlopen'd on Unix; on Windows the same library (libduckdb.dll, or the DuckDB library inside
-    // the duckdb Python package) is LoadLibraryA'd, and GetLastError names what a failed load wanted.
+    // the duckdb Python package) is loaded by absolute path (libpin.rs), and GetLastError names what a failed load wanted.
     #[cfg(unix)]
     extern "C" {
         fn dlopen(f: *const c_char, flag: i32) -> P;
@@ -26,7 +26,7 @@ mod brevi_duckglue {
     }
     #[cfg(windows)]
     unsafe extern "system" {
-        fn LoadLibraryA(f: *const c_char) -> P;
+        fn LoadLibraryExA(f: *const c_char, file: P, flags: u32) -> P;
         fn GetProcAddress(h: P, s: *const c_char) -> P;
         fn GetLastError() -> u32;
     }
@@ -36,7 +36,12 @@ mod brevi_duckglue {
     }
     #[cfg(windows)]
     unsafe fn ax_dlopen(f: *const c_char, _flag: i32) -> P {
-        LoadLibraryA(f)
+        // absolute paths only, dependencies from the library's folder or System32 (see libpin.rs)
+        if std::path::Path::new(CStr::from_ptr(f).to_string_lossy().as_ref()).is_absolute() {
+            LoadLibraryExA(f, std::ptr::null_mut(), 0x100 | 0x800)
+        } else {
+            std::ptr::null_mut()
+        }
     }
     #[cfg(unix)]
     unsafe fn ax_dlsym(h: P, s: *const c_char) -> P {
@@ -199,41 +204,44 @@ mod brevi_duckglue {
     }
 
     unsafe fn load_lib() -> Result<Lib, String> {
-        let mut names: Vec<(String, &str)> = vec![];
-        if !FS_SANDBOX {
-            if let Ok(p) = std::env::var("BREVI_DUCKDB_LIB") {
-                names.push((p, ""));
-            }
-        }
-        #[cfg(unix)]
-        names.push((if cfg!(target_os = "macos") { "libduckdb.dylib" } else { "libduckdb.so" }.to_string(), ""));
-        // Windows has no bare-name fallback: a duckdb.dll in the program's folder or CWD must not run.
-        // DUCK_LIBS holds the absolute path from the duckdb package found at build time; BREVI_DUCKDB_LIB
-        // is the explicit override.
-        for l in DUCK_LIBS {
-            names.push((l.to_string(), DUCK_PRELOAD));
-        }
         let mut h: P = std::ptr::null_mut();
         let mut why = String::new();
-        for (n, pre) in &names {
-            if !pre.is_empty() {
-                let c = CString::new(*pre).unwrap();
-                // RTLD_NOW | RTLD_GLOBAL: CPython's symbols, for the duckdb package's library
-                ax_dlopen(c.as_ptr(), 2 | 0x100);
+        // BREVI_DUCKDB_LIB (outside the sandbox): the caller's own choice, not pinned.
+        if !FS_SANDBOX {
+            if let Ok(p) = std::env::var("BREVI_DUCKDB_LIB") {
+                match brevi_libpin::open_unpinned(&p) {
+                    Ok(x) => h = x,
+                    Err(e) => why = e,
+                }
             }
-            let c = CString::new(n.as_str()).unwrap();
+        }
+        // A system libduckdb by name (Unix only: the system's library folders). Windows has no bare-name
+        // fallback: a duckdb.dll in the program's folder or CWD must not run.
+        #[cfg(unix)]
+        if h.is_null() {
+            let c = CString::new(if cfg!(target_os = "macos") { "libduckdb.dylib" } else { "libduckdb.so" }).unwrap();
             h = ax_dlopen(c.as_ptr(), 2);
+        }
+        // The duckdb package's library found at build time, pinned by SHA-256 (libpin.rs), after CPython's
+        // library (pinned too) for the symbols it refers to.
+        let mut pre_ok = DUCK_PRELOAD.0.is_empty();
+        for (l, sum) in DUCK_LIBS {
             if !h.is_null() {
                 break;
             }
-            // a Windows load failure is worth telling even for the bare names: it names the missing DLL
-            #[cfg(windows)]
-            {
-                why = ax_dlerror();
+            if !pre_ok {
+                // RTLD_NOW | RTLD_GLOBAL: CPython's symbols, for the duckdb package's library (loaded once)
+                match brevi_libpin::open(DUCK_PRELOAD.0, DUCK_PRELOAD.1, 2 | 0x100) {
+                    Ok(_) => pre_ok = true,
+                    Err(e) => {
+                        why = e;
+                        break;
+                    }
+                }
             }
-            #[cfg(not(windows))]
-            if !pre.is_empty() {
-                why = ax_dlerror();
+            match brevi_libpin::open(l, sum, 2) {
+                Ok(x) => h = x,
+                Err(e) => why = e,
             }
         }
         if h.is_null() {

@@ -70,6 +70,42 @@ pub fn upgrade_at(path: &Path) {
     }
 }
 
+// The line (then a tab and a path) a child build prints on stderr for a file outside the program that its
+// binary depends on byte for byte: an engine library pinned by SHA-256 (dynpy/libpin.rs). The parent keeps
+// each file's size and modification time with the entry, and a replay is a miss once any of them changed, so
+// an upgraded library gets a fresh build (and a fresh pin) instead of a binary that refuses to load it.
+const DEPENDS: &str = "{\"brevi_cache\":\"depends\"}";
+
+pub fn depends_on(path: &Path) {
+    if in_child() {
+        eprintln!("{DEPENDS}\t{}", path.display());
+    }
+}
+
+fn stamp(path: &Path) -> Option<String> {
+    let m = std::fs::metadata(path).ok()?;
+    Some(format!("{}\t{} {:?}", path.display(), m.len(), m.modified().ok()?))
+}
+
+// Takes the child's depends lines out of its stderr: each file with its size and time now, one per line.
+fn take_depends(stderr: &mut Vec<u8>) -> Option<String> {
+    let text = String::from_utf8_lossy(stderr).to_string();
+    let at = |l: &str| l.trim_end_matches(['\n', '\r']).strip_prefix(DEPENDS).and_then(|r| r.strip_prefix('\t')).map(String::from);
+    let files: Vec<String> = text.lines().filter_map(at).collect();
+    if files.is_empty() {
+        return None;
+    }
+    let kept: String = text.split_inclusive('\n').filter(|l| at(l).is_none()).collect();
+    *stderr = kept.into_bytes();
+    let mut out = String::new();
+    for f in files {
+        // a file that cannot be stamped now cannot be checked later: keep nothing
+        out.push_str(&stamp(Path::new(&f))?);
+        out.push('\n');
+    }
+    Some(out)
+}
+
 // Takes the child's not-kept line out of its stderr: true when it was there.
 fn take_not_kept(stderr: &mut Vec<u8>) -> bool {
     let text = String::from_utf8_lossy(stderr);
@@ -111,11 +147,13 @@ pub fn phase(args: &[String], file: &str, bin: Option<&Path>, envs: &[(&str, &st
         Ok(o) => Done { stdout: o.stdout, stderr: o.stderr, code: o.status.code(), hit: false },
         Err(e) => Done { stdout: format!("{{\"e\":\"io\",\"msg\":\"{}\"}}\n", crate::diag::esc(&e.to_string())).into_bytes(), stderr: vec![], code: Some(1), hit: false },
     };
-    let machine = take_not_kept(&mut done.stderr);
+    let had_depends = String::from_utf8_lossy(&done.stderr).contains(DEPENDS);
+    let depends = take_depends(&mut done.stderr);
+    let machine = take_not_kept(&mut done.stderr) || (had_depends && depends.is_none());
     let upgrade = take_upgrade(&mut done.stderr);
     if let Some(d) = &dir {
         if !machine && (done.ok() || (refusals && refusal_kept(&done, file))) {
-            save(d, &done, bin, upgrade.as_deref().filter(|_| done.ok()));
+            save(d, &done, bin, upgrade.as_deref().filter(|_| done.ok()), depends.as_deref());
         }
     }
     done
@@ -125,6 +163,14 @@ fn replay(d: &Path, bin: Option<&Path>) -> Option<Done> {
     let code: i32 = std::fs::read_to_string(d.join("code")).ok()?.trim().parse().ok()?;
     let stdout = std::fs::read(d.join("out")).ok()?;
     let stderr = std::fs::read(d.join("err")).ok()?;
+    if let Ok(deps) = std::fs::read_to_string(d.join("depends")) {
+        for l in deps.lines() {
+            let path = l.split('\t').next()?;
+            if stamp(Path::new(path)).as_deref() != Some(l) {
+                return None;
+            }
+        }
+    }
     // A quick (opt-level 0) entry whose optimised binary has landed: it takes the quick one's place.
     if let Ok(at) = std::fs::read_to_string(d.join("upgrade")) {
         let at = Path::new(at.trim());
@@ -155,7 +201,7 @@ fn refusal_kept(done: &Done, file: &str) -> bool {
     matches!(done.code, Some(1 | 3)) && !text.contains("\"e\":") && !text.contains("cargo") && !text.contains("\"line\":0") && only_local_and_stdlib(file)
 }
 
-fn save(d: &Path, done: &Done, bin: Option<&Path>, upgrade: Option<&str>) {
+fn save(d: &Path, done: &Done, bin: Option<&Path>, upgrade: Option<&str>, depends: Option<&str>) {
     let runs = d.parent().unwrap();
     if std::fs::create_dir_all(runs).is_err() {
         return;
@@ -173,6 +219,9 @@ fn save(d: &Path, done: &Done, bin: Option<&Path>, upgrade: Option<&str>) {
     }
     if let Some(u) = upgrade {
         ok = ok && std::fs::write(tmp.join("upgrade"), u).is_ok();
+    }
+    if let Some(f) = depends {
+        ok = ok && std::fs::write(tmp.join("depends"), f).is_ok();
     }
     // `code` last: an entry without it is never read.
     ok = ok && std::fs::write(tmp.join("code"), done.code.unwrap_or(1).to_string()).is_ok();

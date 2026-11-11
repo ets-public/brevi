@@ -1283,7 +1283,21 @@ fn consts() -> String {
         None => String::new(),
     };
     let subs = SUBS.with(|x| x.borrow().clone());
-    format!("const AX_PYB_SUBS: &[&str] = &{subs:?};\nconst AX_PYB_CONF: &str = {conf:?};\nconst AX_PYB_QUERY: &str = {QUERY:?};\nconst AX_PYB_FILE: &str = {file:?};\nconst AX_PYB_HOLD: AxPybHold = {};\n", fs_hold())
+    format!("const AX_PYB_SUBS: &[&str] = &{subs:?};\nconst AX_PYB_CONF: &str = {conf:?};\nconst AX_PYB_QUERY: &str = {QUERY:?};\nconst AX_PYB_FILE: &str = {file:?};\nconst AX_PYB_HOLD: AxPybHold = {};\nconst AX_PYB_NET: u8 = {};\n", fs_hold(), net_hold())
+}
+
+// Under --sandbox, CPython's network is held by the kernel too (Linux seccomp, pyrt_load.rs ax_pyb_nonet):
+// 0 no hold (no sandbox, or --allow net), 1 no network at all (nothing granted), 2 hosts named with
+// --allow-net, which the kernel cannot hold CPython to, so the program is refused when CPython starts.
+fn net_hold() -> u8 {
+    if !crate::caps::sandboxed() {
+        return 0;
+    }
+    match crate::caps::net_hosts() {
+        (true, _) => 0,
+        (false, h) if h.is_empty() => 1,
+        _ => 2,
+    }
 }
 
 // Under --sandbox, CPython (granted with --allow-py or --allow native) is held to the file grants by the

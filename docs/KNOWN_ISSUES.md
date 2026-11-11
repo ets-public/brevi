@@ -46,7 +46,7 @@ Tests: [tests/windows/check.ps1](../tests/windows/check.ps1).
 The full model is [THREAT_MODEL.md](THREAT_MODEL.md). No outside security review has been done. The sandbox is a compile-time capability check plus a runtime with nothing in it, not an operating-system jail. In short:
 
 - `--allow-py` and `--allow native` are full trust. Only files are held, and only on Linux 5.13 or later with Landlock. Where Landlock is missing, named folders are refused, and with none named CPython keeps full file access.
-- The network, processes and the `files`, `net` and `written` limits are not held for CPython.
+- Processes and the `files`, `net` and `written` limits are not held for CPython. The network is held for it only on Linux, from v0.28.0 (no network without a grant; hosts named with `--allow-net` are refused); on macOS and Windows CPython keeps the network.
 - `--allow read` and `--allow write` are whole-account grants. A swap of a folder for a symlink by another process between check and open can redirect an open.
 - The network grant matches host names. `--allow net` reaches anything the machine can, including `localhost` and cloud metadata.
 - Not limited: connections to granted hosts, disk space used by overwriting bytes, writes through memory maps.
