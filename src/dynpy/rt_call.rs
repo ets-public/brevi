@@ -1039,6 +1039,14 @@ fn setattr_ic_slow(o: &V, name: Sym, v: V, ic: &std::sync::atomic::AtomicUsize) 
     }
     setattr(o, name, v)
 }
+// (module, name) of a class Brevi names by its dotted CPython type name, as CPython's type.__module__ and
+// __name__ split a static type's tp_name at its last dot; None for every other class.
+fn dotted_type_name(c: &Class) -> Option<(&'static str, &'static str)> {
+    if c.module != "builtins" {
+        return None;
+    }
+    c.name.rsplit_once('.')
+}
 pub fn getattr(o: &V, name: &str) -> R {
     match o {
         V::Obj(ob) => {
@@ -1139,13 +1147,11 @@ pub fn getattr(o: &V, name: &str) -> R {
                 }
             }
             match name {
-                // numpy's classes: float64, str_ (their module is numpy)
-                "__name__" => Ok(s(c.name.strip_prefix("numpy.").filter(|n| !n.contains('.')).unwrap_or(c.name))),
-                "__qualname__" => {
-                    let qn = c.qualname.get();
-                    Ok(s(qn.strip_prefix("numpy.").filter(|n| !n.contains('.')).unwrap_or(qn)))
-                },
-                "__module__" => Ok(s(c.module)),
+                // A library type named by its dotted CPython type name ("datetime.date", "numpy.float64"; see
+                // ext_class): CPython splits such a name at its last dot into __module__ and __name__.
+                "__name__" => Ok(s(dotted_type_name(c).map_or(c.name, |(_, n)| n))),
+                "__qualname__" => Ok(s(dotted_type_name(c).map_or(c.qualname.get(), |(_, n)| n))),
+                "__module__" => Ok(s(dotted_type_name(c).map_or(c.module, |(m, _)| m))),
                 "__mro__" => Ok(tup(c.mro.borrow().iter().map(|k| V::Class(k.clone())).collect())),
                 "__bases__" => Ok(tup(c.bases.iter().map(|k| V::Class(k.clone())).collect())),
                 "__subclasses__" => {

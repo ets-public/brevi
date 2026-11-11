@@ -1,0 +1,6 @@
+True (<class 'datetime.datetime'>, <class 'datetime.date'>, <class 'object'>) True
+date datetime date <class 'datetime.date'>
+Fraction Decimal decimal
+False False timedelta
+TE '<' not supported between instances of 'datetime.datetime' and 'datetime.date'
+True True
