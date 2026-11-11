@@ -392,6 +392,17 @@ fn visit_ex(e: &Ex, f: &mut dyn FnMut(&Ex)) {
     }
 }
 // Visit every expression of the statements, nested defs, classes and lambda bodies included.
+// Whether the module names __annotations__ anywhere (an attribute or a name).
+fn mentions_annotations(body: &[Stmt]) -> bool {
+    let mut found = false;
+    visit_any(body, &mut |e| {
+        if matches!(e, Ex::Attr(_, n) | Ex::Name(n) if n == "__annotations__") {
+            found = true;
+        }
+    });
+    found
+}
+
 pub fn visit_any(body: &[Stmt], f: &mut dyn FnMut(&Ex)) {
     fn lam(e: &Ex, f: &mut dyn FnMut(&Ex)) {
         visit_ex(e, &mut |x| {
@@ -1572,6 +1583,12 @@ pub struct Em {
     // names assigned anywhere at module level, per module
     mod_names: HashMap<String, BTreeSet<String>>,
     class_ctx: Option<String>,
+    // the module being built has `from __future__ import annotations` (annotations stay strings, unevaluated)
+    lazy: bool,
+    // the program reads __annotations__ somewhere, so class bodies keep theirs (evaluated as CPython does);
+    // otherwise annotations are dropped unevaluated as before, since an annotation the runtime cannot
+    // evaluate (`int | None`, a forward name) must not stop a program that never looks at it
+    keep_ann: bool,
     // the def being built is an async def (read by closure)
     next_async: bool,
     direct_ok: HashSet<(String, String)>,
@@ -3726,8 +3743,16 @@ impl Em {
             base_vars.push(vn);
         }
         // the class body runs with its own namespace: class-level names are Rust locals here,
-        // invisible to the methods
-        let sc = scope_of(&c.body, &[]);
+        // invisible to the methods. When the body has an annotated statement, __annotations__ starts as
+        // CPython's SETUP_ANNOTATIONS does: an empty dict, filled as the statements run. (Never under
+        // `from __future__ import annotations`, where annotations are strings the parser does not keep;
+        // and a class with no annotations has no __annotations__ of its own until one is read, which
+        // getattr in rt_call lazily makes.)
+        let mut sc = scope_of(&c.body, &[]);
+        let setup = !self.lazy && self.keep_ann && c.body.iter().any(|s| matches!(s.st, St::AnnAssign(..)));
+        if setup {
+            sc.locals.insert("__annotations__".into());
+        }
         let parent = self.fstack.last().unwrap();
         // CPython's __qualname__: `Outer.Inner` inside a class, `f.<locals>.C` inside a function.
         let qualname = self.qualname_of(&c.name);
@@ -3739,7 +3764,8 @@ impl Em {
         write!(decls, "let {ctx}: i64 = enum_auto_ctx(&[{}]); let mut {av}: Vec<V> = vec![]; ", base_vars.iter().map(|v| format!("&{v}")).collect::<Vec<_>>().join(", ")).unwrap();
         for n in sc.locals.iter() {
             let r = format!("a{id}_{}", rust_ident(n));
-            write!(decls, "let mut {r}: V = V::Unbound; ").unwrap();
+            let init = if setup && n == "__annotations__" { "dict_new()" } else { "V::Unbound" };
+            write!(decls, "let mut {r}: V = {init}; ").unwrap();
             fr.vars.insert(n.clone(), Var::Local(r));
         }
         fr.enum_cnv = Some((av, ctx));
@@ -3759,16 +3785,61 @@ impl Em {
         let mut body = String::new();
         let mut res = Ok(());
         for s in &c.body {
-            match self.stmt(s) {
-                Ok(x) => {
-                    body.push_str(&x);
-                    body.push('\n');
+            let mut code = String::new();
+            if let (true, St::AnnAssign(t, v, ann)) = (setup, &s.st) {
+                let line = s.line;
+                // CPython evaluates the value first, then the annotation, then stores both.
+                let mut have_val = None;
+                if let Some(v) = v {
+                    let vv = match self.ex(v, line) {
+                        Ok(x) => x,
+                        Err(e) => {
+                            res = Err(e);
+                            break;
+                        }
+                    };
+                    code.push_str(&format!("let __val = {vv}; "));
+                    have_val = Some(self.assign(t, "__val", line));
                 }
-                Err(e) => {
-                    res = Err(e);
-                    break;
+                if !self.lazy {
+                    // The annotation is evaluated as the statement runs, and a simple name's is stored in
+                    // the class's __annotations__ (CPython's STORE_ANNOTATION).
+                    let av = match self.ex(ann, line) {
+                        Ok(x) => x,
+                        Err(e) => {
+                            res = Err(e);
+                            break;
+                        }
+                    };
+                    if let Ex::Name(n) = t {
+                        let r = format!("a{id}_{}", rust_ident("__annotations__"));
+                        let set = self.q(&format!("setitem(&{r}, &__k, __av)"));
+                        code.push_str(&format!("let __av = {av}; let __k = s({}); {set}; ", lit(n)));
+                    } else {
+                        code.push_str(&format!("let _ = {av}; "));
+                    }
+                }
+                if let Some(a) = have_val {
+                    let a = match a {
+                        Ok(x) => x,
+                        Err(e) => {
+                            res = Err(e);
+                            break;
+                        }
+                    };
+                    code.push_str(&a);
+                }
+            } else {
+                match self.stmt(s) {
+                    Ok(x) => code.push_str(&x),
+                    Err(e) => {
+                        res = Err(e);
+                        break;
+                    }
                 }
             }
+            body.push_str(&code);
+            body.push('\n');
         }
         self.fstack.pop();
         self.class_ctx = saved;
@@ -3796,7 +3867,16 @@ impl Em {
             }
         }
         let mut attrs = String::new();
+        // __annotations__ is the first name the class namespace binds (SETUP_ANNOTATIONS runs before the
+        // body; a later assignment to it keeps the first position, as a dict key does in CPython).
+        if setup {
+            let r = format!("a{id}___annotations__");
+            write!(attrs, "__at.push((\"__annotations__\", {r})); ").unwrap();
+        }
         for n in order {
+            if setup && n == "__annotations__" {
+                continue;
+            }
             let r = format!("a{id}_{}", rust_ident(n));
             write!(attrs, "if !matches!({r}, V::Unbound) {{ __at.push(({}, {r})); }} ", lit(n)).unwrap();
         }
@@ -3813,6 +3893,11 @@ impl Em {
         }
         Ok(v)
     }
+}
+
+// `from __future__ import annotations` (a __future__ import is always at the top of the module).
+fn future_annotations(body: &[Stmt]) -> bool {
+    body.iter().any(|s| matches!(&s.st, St::ImportFrom(m, v) if m == "__future__" && v.iter().any(|(n, _)| n == "annotations")))
 }
 
 // What a class-body annotation tells dataclasses: ClassVar, InitVar or KW_ONLY (as a name, or in a string).
@@ -3915,6 +4000,8 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         mod_alias: HashMap::new(),
         mod_names: HashMap::new(),
         class_ctx: None,
+        lazy: false,
+        keep_ann: false,
         next_async: false,
         direct_ok: HashSet::new(),
         bridge,
@@ -3930,7 +4017,13 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     let users: Vec<&Module> = mods.iter().filter(|m| !libs.iter().any(|l| l.name == m.name)).collect();
     let mut lib_part = String::new();
     let mut inits = String::new();
+    // Only the program's own modules decide (Brevi's copies never keep class annotations: their Rust must not
+    // depend on the program), and never with Brevi's pydantic, which gives classes descriptor annotations (pyd.rs).
+    let copies = OWN_COPIES.lock().unwrap().clone();
+    let users_read_ann = !PYD_ON.load(std::sync::atomic::Ordering::Relaxed)
+        && users.iter().any(|m| !copies.contains(&m.name) && mentions_annotations(&m.body));
     for (gi, group) in [libs.clone(), users].into_iter().enumerate() {
+        em.keep_ann = gi == 1 && users_read_ann;
     // module-level names, import aliases and directly callable defs
         for m in group.iter().copied() {
             let sc = scope_of(&m.body, &[]);
@@ -4039,6 +4132,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     // bodies
         for m in group.iter().copied() {
             em.module = m.name.clone();
+            em.lazy = future_annotations(&m.body);
             IN_COPY.with(|c| c.set(OWN_COPIES.lock().unwrap().contains(&m.name)));
             let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, qname: String::new(), exc_vars: vec![], is_module: true, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![] };
             for n in em.mod_names[&m.name].clone() {
