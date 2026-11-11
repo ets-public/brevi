@@ -1760,7 +1760,7 @@ impl Dict {
 // instance whose class defines neither __eq__ nor __hash__ compares by identity.)
 fn key_eq_safe(v: &V) -> bool {
     match v {
-        V::None | V::Bool(_) | V::Int(_) | V::Big(_) | V::Float(_) | V::Str(_) | V::Range(_) | V::Class(_) | V::Func(_) | V::Cell(_) | V::Module(_) | V::Ellipsis | V::NotImpl => true,
+        V::None | V::Bool(_) | V::Int(_) | V::Big(_) | V::Float(_) | V::Str(_) | V::Range(_) | V::Class(_) | V::Func(_) | V::Module(_) | V::Ellipsis | V::NotImpl => true,
         V::Tuple(xs) => xs.iter().all(key_eq_safe),
         V::FSet(p) => p.keys().iter().all(key_eq_safe),
         V::Obj(o) => o.cls.lookup("__eq__").is_none() && o.inner.borrow().as_ref().map_or(true, |i| key_eq_safe(i)),
@@ -2120,7 +2120,7 @@ pub struct Func {
     pub attrs: RefCell<Vec<(Sym, V)>>,
     // the cells the function closes over, in __closure__ order; Weak so the function's own FnBox
     // (not this list) keeps them alive, and CellGuard's cycle breaking counts stay as they were
-    pub closure: RefCell<Vec<Weak<RefCell<V>>>>,
+    pub closure: RefCell<Option<Vec<Weak<RefCell<V>>>>>,
     // co_flags of the def's code object (0: none, as for builtins); the object itself is made when
     // __code__ is read, so creating a function allocates nothing extra
     pub code_flags: Cell<u32>,
@@ -2136,10 +2136,10 @@ pub enum FastFn {
     F4(fn(V, V, V, V) -> R),
 }
 pub fn func(name: Sym, f: impl Fn(Args) -> R + 'static) -> V {
-    V::Func(Rc::new(Func { name: Cell::new(name), qualname: Cell::new(name), fq: Cell::new(name), f: Box::new(f), kind: Cell::new(0), attrs: RefCell::new(vec![]), closure: RefCell::new(vec![]), code_flags: Cell::new(0), fast: Cell::new(FastFn::No) }))
+    V::Func(Rc::new(Func { name: Cell::new(name), qualname: Cell::new(name), fq: Cell::new(name), f: Box::new(f), kind: Cell::new(0), attrs: RefCell::new(vec![]), closure: RefCell::new(None), code_flags: Cell::new(0), fast: Cell::new(FastFn::No) }))
 }
 pub fn builtin(name: Sym, f: impl Fn(Args) -> R + 'static) -> V {
-    V::Func(Rc::new(Func { name: Cell::new(name), qualname: Cell::new(name), fq: Cell::new(name), f: Box::new(f), kind: Cell::new(3), attrs: RefCell::new(vec![]), closure: RefCell::new(vec![]), code_flags: Cell::new(0), fast: Cell::new(FastFn::No) }))
+    V::Func(Rc::new(Func { name: Cell::new(name), qualname: Cell::new(name), fq: Cell::new(name), f: Box::new(f), kind: Cell::new(3), attrs: RefCell::new(vec![]), closure: RefCell::new(None), code_flags: Cell::new(0), fast: Cell::new(FastFn::No) }))
 }
 // a def's function value, with the qualified name duplicate-keyword errors print
 pub fn with_fq(f: V, fq: Sym) -> V {
@@ -2173,7 +2173,7 @@ pub fn with_code(f: V, flags: u32) -> V {
 // this list keeps Weak handles so reading __closure__ does not add a second strong cycle to CellGuard's count)
 pub fn with_closure(f: V, cells: Vec<Rc<RefCell<V>>>) -> V {
     if let V::Func(x) = &f {
-        *x.closure.borrow_mut() = cells.iter().map(Rc::downgrade).collect();
+        *x.closure.borrow_mut() = Some(cells.iter().map(Rc::downgrade).collect());
     }
     f
 }

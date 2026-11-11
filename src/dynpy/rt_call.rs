@@ -1236,7 +1236,12 @@ pub fn getattr(o: &V, name: &str) -> R {
                     return Err(exc("AttributeError", "'builtin_function_or_method' object has no attribute '__closure__'".into()));
                 }
                 let mut cells = Vec::new();
-                for c in f.closure.borrow().iter() {
+                let rec = f.closure.borrow();
+                // recorded only when the source names __closure__ (and not for a method needing the __class__ cell): an unrecorded one is refused, never guessed
+                let Some(rec) = rec.as_ref() else {
+                    return Err(unsupported("__closure__ of a function whose cells this build did not record (a method using super(), or a name computed at run time)"));
+                };
+                for c in rec.iter() {
                     match c.upgrade() {
                         Some(r) => cells.push(V::Cell(r)),
                         // the function's own FnBox holds every captured cell for the function's whole life

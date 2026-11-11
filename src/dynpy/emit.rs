@@ -1539,6 +1539,9 @@ fn const_key(e: &Ex) -> ConstKey {
 pub struct Em {
     // some module mentions __del__: statements run waiting finalizers (block)
     has_del: bool,
+    // some module mentions __closure__: defs record their cells for it (else reading it is refused at run time,
+    // so making a closure costs nothing extra in the programs that never look)
+    has_closure: bool,
     // cells with a CellGuard (see self_recursive_def)
     guards: HashSet<String>,
     // nested defs callable as plain Rust functions, by the cell holding them: (rust fn, captured cells, nparams).
@@ -3513,6 +3516,10 @@ impl Em {
                 }
                 let dv: Vec<String> = (0..npos).map(|k| if k >= npos - nd { format!("gr({})", slots[k - (npos - nd)]) } else { "V::Unbound".into() }).collect();
                 let v = format!("with_fq(with_code({{ {sets} func({name_lit}, move |a: Args| {{ let __d = [{}]; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}, {code}), {fq})", dv.join(", "));
+                // no free variables: __closure__ is None
+                // (a method with a zero-argument super() has CPython's __class__ cell, which this path does not hold:
+                // its __closure__ stays unrecorded, so reading it is refused rather than answered None)
+                let v = if self.has_closure && !(self.class_ctx.is_some() && body_has_zero_super(body)) { format!("with_closure({v}, vec![])") } else { v };
                 if !is_async && !is_gen && (1..=4).contains(&nparams) {
                     return Ok(format!("with_fast({v}, FastFn::F{nparams}({fname}))"));
                 }
@@ -3520,6 +3527,9 @@ impl Em {
             }
             let _ = need_defaults;
             let v = format!("with_fq(with_code({{ let __d = vec![{}]; func({name_lit}, move |a: Args| {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {fname}({unpack}) }}) }}, {code}), {fq})", dflt_all.join(", "));
+            // (a method with a zero-argument super() has CPython's __class__ cell, which this path does not hold:
+                // its __closure__ stays unrecorded, so reading it is refused rather than answered None)
+                let v = if self.has_closure && !(self.class_ctx.is_some() && body_has_zero_super(body)) { format!("with_closure({v}, vec![])") } else { v };
             // methods (and defs not called directly): calls passing every parameter by position skip bind()
             if !is_async && !is_gen && !star && !kwstar && p.kwonly.is_empty() && (1..=4).contains(&nparams) {
                 return Ok(format!("with_fast({v}, FastFn::F{nparams}({fname}))"));
@@ -3537,7 +3547,11 @@ impl Em {
             .filter(|(n, _)| Some(n.as_str()) != class_name.as_deref() || need_class)
             .collect();
         // clones made before `caps` moves its own into the function
-        let clos_pre: String = format!("let __clos = vec![{}]; ", closure_captures.iter().map(|(_, r)| format!("{r}.clone(), ")).collect::<String>());
+        let (wo, wc) = if self.has_closure {
+            (format!("{{ let __clos = vec![{}]; with_closure(", closure_captures.iter().map(|(_, r)| format!("{r}.clone(), ")).collect::<String>()), ", __clos) }")
+        } else {
+            (String::new(), "")
+        };
         let bind_params: String = params.iter().map(|n| format!("let mut v_{} = __b.next().unwrap(); ", rust_ident(n))).collect();
         // a nested def that calls reach directly: a plain Rust function taking its cells, and a wrapper
         if is_def && !is_gen && !is_async {
@@ -3551,7 +3565,7 @@ impl Em {
                     let cparams: String = dcaps.iter().map(|r| format!("{r}: Rc<RefCell<V>>, ")).collect();
                     write!(self.items, "fn {dfn}({cparams}{}) -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }}\n", pdecl.join(", ")).unwrap();
                     let cargs: String = dcaps.iter().map(|r| format!("{r}.clone(), ")).collect();
-                    return Ok(format!("with_fq({{ {clos_pre} with_closure(with_code({{ let __d = vec![{}]; {caps} func({name_lit}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {dfn}({cargs}{unpack}) }}) }}, {code}), __clos) }}, {fq})", dflt_all.join(", ")));
+                    return Ok(format!("with_fq({wo}with_code({{ let __d = vec![{}]; {caps} func({name_lit}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {dfn}({cargs}{unpack}) }}) }}, {code}){wc}, {fq})", dflt_all.join(", ")));
                 }
                 return Err(err(line, "internal: a nested function's captures changed"));
             }
@@ -3559,12 +3573,12 @@ impl Em {
         if is_gen || is_async {
             let mk = if is_async && is_gen { format!("make_agen(sym({name_lit}), ") } else if is_async { format!("make_acoro(sym({name_lit}), ") } else { format!("make_gen(sym({qname}), ") };
             return Ok(format!(
-                "with_fq({{ {clos_pre} with_closure(with_code({{ let __d = vec![{}]; {caps} func({name_lit}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{caps} Ok({mk}move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}) }}, {code}), __clos) }}, {fq})",
+                "with_fq({wo}with_code({{ let __d = vec![{}]; {caps} func({name_lit}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{caps} Ok({mk}move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}) }}, {code}){wc}, {fq})",
                 dflt_all.join(", ")
             ));
         }
         Ok(format!(
-            "with_fq({{ {clos_pre} with_closure(with_code({{ let __d = vec![{}]; {caps} func({name_lit}, move |a: Args| -> R {{ let __depth = Depth::new()?; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{decls}{cells_init}\n{body_code}\nOk(V::None) }}) }}, {code}), __clos) }}, {fq})",
+            "with_fq({wo}with_code({{ let __d = vec![{}]; {caps} func({name_lit}, move |a: Args| -> R {{ let __depth = Depth::new()?; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{decls}{cells_init}\n{body_code}\nOk(V::None) }}) }}, {code}){wc}, {fq})",
             dflt_all.join(", ")
         ))
     }
@@ -3752,8 +3766,10 @@ pub fn ic_statics() -> String {
 }
 pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>), (String, usize, String)> {
     let has_del = mods.iter().any(|m| format!("{:?}", m.body).contains("\"__del__\""));
+    let has_closure = mods.iter().any(|m| format!("{:?}", m.body).contains("__closure__"));
     let mut em = Em {
         has_del,
+        has_closure,
         guards: HashSet::new(),
         nested_direct: HashMap::new(),
         safe_cells: HashMap::new(),
