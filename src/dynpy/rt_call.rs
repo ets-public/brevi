@@ -1358,7 +1358,7 @@ pub fn getattr(o: &V, name: &str) -> R {
             // after `del P.x.__doc__` the descriptor's getter reads None, as CPython's does
             Ok(match d { V::Unbound => V::None, d => d })
         }
-        V::NTF(_) => Err(exc("AttributeError", format!("'{}' object has no attribute '{}'", tn(o), name))),
+        V::NTF(_) => Err(exc("AttributeError", format!("'collections._tuplegetter' object has no attribute '{}'", name))),
         V::View(v) if name == "mapping" && v.1 != 3 => match &v.0 {
             V::Dict(_) => Ok(V::View(Rc::new((v.0.clone(), 3)))),
             _ => Err(exc("AttributeError", format!("'{}' object has no attribute 'mapping'", tn(o)))),
@@ -1436,7 +1436,7 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
             *n.doc.borrow_mut() = v;
             Ok(())
         }
-        V::NTF(_) => Err(exc("AttributeError", format!("'{}' object has no attribute '{}' and no __dict__ for setting new attributes", tn(o), name))),
+        V::NTF(_) => Err(exc("AttributeError", format!("'collections._tuplegetter' object has no attribute '{}' and no __dict__ for setting new attributes", name))),
         V::Module(&ModName("decimal.context")) => decimal_context_set(name, &v),
         V::Ext(x) => match x.set_attr(o, name, v) {
             Some(r) => r,
@@ -1514,7 +1514,7 @@ pub fn delattr(o: &V, name: &str) -> Result<(), E> {
             *n.doc.borrow_mut() = V::Unbound;
             Ok(())
         }
-        V::NTF(_) => Err(exc("AttributeError", format!("'{}' object has no attribute '{}'", tn(o), name))),
+        V::NTF(_) => Err(exc("AttributeError", format!("'collections._tuplegetter' object has no attribute '{}'", name))),
         V::Class(c) if c.del(name) => Ok(()),
         V::Class(c) => Err(exc("AttributeError", format!("type object '{}' has no attribute '{}'", c.name, name))),
         // a def's user attribute: from its __dict__ once that has been made, else from its attrs (as setattr stores it)
