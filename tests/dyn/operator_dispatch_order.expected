@@ -1,0 +1,32 @@
+B.radd B.radd A.add A.add A.add
+TE unsupported operand type(s) for +: 'N' and 'N'
+M.radd
+TE unsupported operand type(s) for +: 'N' and 'M'
+Q.rsub
+F.eq F.eq
+G.eq H
+G.eq G
+G.eq H
+G.eq G
+False False
+G.gt H
+G.lt G
+TE '<' not supported between instances of 'G' and 'H'
+True True
+mul
+[1, 2] [1, 2]
+True True True True
+True True False
+True False True
+True True
+True False True False True
+False True True
+True True
+TE '<' not supported between instances of 'O' and 'O'
+TE '<' not supported between instances of 'R' and 'R'
+TE '<' not supported between instances of 'R' and 'int'
+V.radd 3
+True 2 0
+[0.25, Fraction(1, 2)]
+ne ok
+ne self ok

@@ -1881,15 +1881,27 @@ fn obj_cmp(a: &V, b: &V, op: &str) -> Option<R> {
         "<=" => ("__le__", "__ge__"),
         _ => ("__ge__", "__le__"),
     };
-    for (x, y, d) in [(a, b, l), (b, a, r)] {
+    if op == "!=" {
+        return obj_ne(a, b).transpose();
+    }
+    // the right operand first when its class is a strict subclass of the left operand's (do_richcompare)
+    let order = if reflected_first(a, b) { [(b, a, r), (a, b, l)] } else { [(a, b, l), (b, a, r)] };
+    let mut called = false;
+    for (x, y, d) in order {
         if let V::Obj(o) = x {
             if let Some(f) = o.cls.lookup(d) {
+                called = true;
                 match call(&f, Args::p(vec![x.clone(), y.clone()])) {
                     Ok(V::NotImpl) => {}
                     res => return Some(res),
                 }
             }
         }
+    }
+    // every dunder answered NotImplemented: CPython's default (identity for ==, TypeError otherwise), unless
+    // an operand wraps a builtin value, whose own comparison the general path runs
+    if called && inner_of(a).is_none() && inner_of(b).is_none() {
+        return Some(if op == "==" { Ok(V::Bool(is(a, b))) } else { Err(cmp_err(op, a, b)) });
     }
     None
 }
