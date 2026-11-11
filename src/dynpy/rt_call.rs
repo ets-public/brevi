@@ -1123,6 +1123,8 @@ pub fn getattr(o: &V, name: &str) -> R {
             if let Some(v) = ob.get_attr(name)? {
                 return Ok(v);
             }
+            // (An instance's __annotations__ is an ordinary lookup through its class's MRO, so a base's dict is
+            // found and a class with none raises AttributeError, as in CPython; only the class itself is special.)
             if let Some(v) = ob.cls.lookup(name) {
                 return match &v {
                     // a non-data descriptor of the program (its class defines __get__)
@@ -1195,6 +1197,11 @@ pub fn getattr(o: &V, name: &str) -> R {
             Err(exc("AttributeError", format!("'{}' object has no attribute '{}'", ob.cls.name, name)))
         }
         V::Class(c) => {
+            // annotations are the class's own only, never a base's (CPython's type.__getattribute__).
+            // Builtin types keep their old path (object raises AttributeError).
+            if name == "__annotations__" && c.module != "builtins" {
+                return Ok(c.annotations());
+            }
             if let Some(v) = c.lookup(name) {
                 return Ok(match &v {
                     V::Func(f) if f.kind.get() == 2 => V::Bound(Rc::new((o.clone(), v.clone()))),

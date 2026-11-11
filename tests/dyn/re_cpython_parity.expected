@@ -55,3 +55,5 @@ a(?<=a*) E look-behind requires fixed-width pattern None
 (?<=ab|c)x E look-behind requires fixed-width pattern None
 (?<=(a)\1)x E cannot refer to group defined in the same lookbehind subpattern at position 9 9
 ['x']  False True
+(1, 3) axc ['b', 'b']
+error looks too much behind

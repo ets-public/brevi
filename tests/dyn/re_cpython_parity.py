@@ -49,3 +49,9 @@ for p in [r"a(?<=a*)", r"(a)(?<=\1b*)", r"(?<=ab|c)x", r"(?<=(a)\1)x"]:
     try: print(p, ascii(re.findall(p, "aacx aax")))
     except re.error as e: print(p, "E", e, e.pos)
 print(re.findall(r"(?<=\d{3})x", "12x 123x"), re.compile("(?P<a²>x)") if False else "", "a²".isidentifier(), "x·y".isidentifier())
+class S(str): pass
+print(re.search(S("b+"), S("abbc")).span(), re.sub(S("b"), "x", S("abc")), re.findall("b", S("bab")))
+try:
+    re.compile("(?<=a{2147483648}a{2147483648})b")
+except re.error as e:
+    print("error", e)

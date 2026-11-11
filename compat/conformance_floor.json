@@ -1,7 +1,7 @@
 {
  "matched": {
-  "normal": 254,
-  "dyn": 256
+  "normal": 255,
+  "dyn": 257
  },
  "note": "tools/conformance.py --check fails below these; --write-baseline raises them",
  "release_gate": {
