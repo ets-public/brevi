@@ -1,0 +1,12 @@
+'bba' ['x', 'x', 'x']
+'baa' ['x', 'xax']
+'bbb' ['x', 'x', 'x']
+'bbb' ['x', 'x', 'x']
+'aaa' ['xaxax']
+'bba' ['x', 'x', 'x']
+'baa' ['x', 'xax']
+OverflowError Python int too large to convert to C ssize_t
+OverflowError Python int too large to convert to C ssize_t
+TypeError 'float' object cannot be interpreted as an integer
+TypeError 'str' object cannot be interpreted as an integer
+TypeError 'NoneType' object cannot be interpreted as an integer

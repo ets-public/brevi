@@ -1,0 +1,14 @@
+DeprecationWarning 'count' is passed as positional argument True False
+DeprecationWarning 'count' is passed as positional argument True False
+DeprecationWarning 'maxsplit' is passed as positional argument True False
+FutureWarning Possible set difference at position 4 False True
+FutureWarning Possible nested set at position 1 False True
+FutureWarning Possible set intersection at position 2 False True
+FutureWarning Possible set union at position 2 False True
+FutureWarning Possible set symmetric difference at position 2 False True
+FutureWarning Possible set difference at position 2 False True
+FutureWarning Possible set difference at position 2 False True
+'baa'
+TypeError sub() got multiple values for argument 'count'
+TypeError split() takes from 2 to 4 positional arguments but 5 were given
+bbaaa ['x', 'x', 'x']

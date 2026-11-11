@@ -135,6 +135,8 @@ struct RP<'a> {
     tail_bs: Option<usize>,
     // Unicode IGNORECASE was used (refused when Rust's Unicode tables are not ones case_after_15_1 covers)
     uni_fold: Cell<bool>,
+    // the warnings CPython's parser issues while it reads the pattern (category, message), in order
+    warns: &'a RefCell<Vec<(&'static str, String)>>,
 }
 // str.isidentifier(), with CPython 3.13's tables
 pub fn py_isidentifier(s: &str) -> bool {
@@ -531,10 +533,17 @@ impl<'a> RP<'a> {
         self.global_ok = ok;
         a
     }
+    fn warn(&self, cat: &'static str, msg: String) {
+        self.warns.borrow_mut().push((cat, msg));
+    }
     fn class(&mut self) -> Result<RNode, E> {
         let open = self.i - 1;
         let mut items: Vec<CItem> = vec![];
         let mut neg = false;
+        // CPython's FutureWarnings for syntax a future set notation may give another meaning
+        if self.peek() == Some('[') {
+            self.warn("FutureWarning", format!("Possible nested set at position {}", self.i));
+        }
         if self.peek() == Some('^') {
             neg = true;
             self.i += 1;
@@ -578,6 +587,15 @@ impl<'a> RP<'a> {
                 };
                 (item, self.token_at(lo_start))
             } else {
+                if !items.is_empty() && matches!(c, '-' | '&' | '~' | '|') && self.peek() == Some(c) {
+                    let op = match c {
+                        '-' => "difference",
+                        '&' => "intersection",
+                        '~' => "symmetric difference",
+                        _ => "union",
+                    };
+                    self.warn("FutureWarning", format!("Possible set {op} at position {lo_start}"));
+                }
                 (CItem::Ch(c), c.to_string())
             };
             if self.peek() == Some('-') {
@@ -589,6 +607,9 @@ impl<'a> RP<'a> {
                     items.push(lo);
                     items.push(CItem::Ch('-'));
                     break;
+                }
+                if that == '-' {
+                    self.warn("FutureWarning", format!("Possible set difference at position {}", hi_start - 1));
                 }
                 let (hi, hi_disp) = if that == '\\' {
                     let back = hi_start;
@@ -1272,14 +1293,75 @@ pub fn re_compile(src: &str, flags: i64) -> Result<Rc<Prog>, E> {
 fn re_compile_bytes(src: &str, flags: i64, pat: V) -> Result<Rc<Prog>, E> {
     re_compile2(src, flags, Some(pat))
 }
+// Where a re module function was called from, for the warnings CPython issues there (its stacklevel points at
+// the caller's line). Set by the program around each `re.f(...)` call; None for calls Brevi cannot place.
+#[derive(Clone, Copy)]
+pub struct ReSite {
+    line: usize,
+    file: &'static str,
+    module: &'static str,
+    src: &'static str,
+}
+thread_local! {
+    static RE_SITE: Cell<Option<ReSite>> = const { Cell::new(None) };
+    // the program uses the warnings module (CPython's, through the bridge): warnings go through it
+    static WARN_BRIDGE: Cell<Option<WarnFn>> = const { Cell::new(None) };
+    // what the default filters already showed: (module, message, category, line), shown once ("default")
+    static WARN_SHOWN: RefCell<std::collections::HashSet<(&'static str, String, &'static str, usize)>> = RefCell::new(std::collections::HashSet::new());
+}
+pub fn re_site(line: usize, file: &'static str, module: &'static str, src: &'static str) {
+    RE_SITE.set(Some(ReSite { line, file, module, src }));
+}
+pub fn re_site_clear() {
+    RE_SITE.set(None);
+}
+// pyglue's pyd_warn_at: (category, message, file, line, module)
+pub type WarnFn = fn(&str, &str, &str, usize, &str) -> Result<(), E>;
+pub fn set_warn_bridge(f: WarnFn) {
+    WARN_BRIDGE.set(Some(f));
+}
+// warnings.warn(msg, cat, stacklevel=<the re caller>) as CPython issues it.
+fn re_warn(cat: &'static str, msg: String) -> Result<(), E> {
+    let site = RE_SITE.get();
+    if let Some(warn) = WARN_BRIDGE.get() {
+        let Some(s) = site else {
+            return Err(unsupported("a re warning from a call whose line the dynamic build does not know"));
+        };
+        return warn(cat, &msg, s.file, s.line, s.module);
+    }
+    // CPython's default filters: DeprecationWarning shown only for __main__, each warning once per location
+    let Some(s) = site else { return Ok(()) };
+    if cat == "DeprecationWarning" && s.module != "__main__" {
+        return Ok(());
+    }
+    if WARN_SHOWN.with(|w| w.borrow_mut().insert((s.module, msg.clone(), cat, s.line))) {
+        out_flush();
+        let src = s.src.trim();
+        if src.is_empty() {
+            eprintln!("{}:{}: {cat}: {msg}", s.file, s.line);
+        } else {
+            eprintln!("{}:{}: {cat}: {msg}\n  {src}", s.file, s.line);
+        }
+    }
+    Ok(())
+}
 fn re_compile2(src: &str, flags: i64, pat: Option<V>) -> Result<Rc<Prog>, E> {
+    let warns = RefCell::new(vec![]);
+    let r = re_compile3(src, flags, pat, &warns);
+    for (cat, msg) in warns.into_inner() {
+        re_warn(cat, msg)?;
+    }
+    r
+}
+// bytes patterns share the cache under this flag bit (CPython keys its cache by the pattern's type too)
+const BYTES_KEY: i64 = 1 << 40;
+fn re_compile3(src: &str, flags: i64, pat: Option<V>, warns: &RefCell<Vec<(&'static str, String)>>) -> Result<Rc<Prog>, E> {
     thread_local! {
         static CACHE: RefCell<HashMap<(String, i64), Rc<Prog>>> = RefCell::new(HashMap::new());
     }
-    if pat.is_none() {
-        if let Some(p) = CACHE.with(|c| c.borrow().get(&(src.to_string(), flags)).cloned()) {
-            return Ok(p);
-        }
+    let key = if pat.is_some() { flags | BYTES_KEY } else { flags };
+    if let Some(p) = CACHE.with(|c| c.borrow().get(&(src.to_string(), key)).cloned()) {
+        return Ok(p);
     }
     let chars: Vec<char> = src.chars().collect();
     let mut p = RP {
@@ -1295,6 +1377,7 @@ fn re_compile2(src: &str, flags: i64, pat: Option<V>) -> Result<Rc<Prog>, E> {
         cond_refs: vec![],
         bytes: pat.is_some(),
         uni_fold: Cell::new(false),
+        warns,
         tail_bs: (chars.iter().rev().take_while(|&&c| c == '\\').count() % 2 == 1).then(|| chars.len() - 1),
         pat,
     };
@@ -1339,9 +1422,7 @@ fn re_compile2(src: &str, flags: i64, pat: Option<V>) -> Result<Rc<Prog>, E> {
         return Err(E(V::Obj(e)));
     }
     let prog = Rc::new(Prog { alts, ngroups: p.ngroups, names: p.names, flags: p.flags, src: src.to_string(), bytes: p.bytes });
-    if p.pat.is_none() {
-        CACHE.with(|c| c.borrow_mut().insert((src.to_string(), flags), prog.clone()));
-    }
+    CACHE.with(|c| c.borrow_mut().insert((src.to_string(), key), prog.clone()));
     Ok(prog)
 }
 
@@ -2024,6 +2105,27 @@ fn empty_v(bytes: bool) -> V {
         s("")
     }
 }
+// sub's count and split's maxsplit as CPython's _sre reads them (an index: re.I is 2, True is 1):
+// 0 means unlimited, a negative number means none.
+fn re_count(v: Option<V>) -> Result<usize, E> {
+    let Some(v) = v else { return Ok(usize::MAX) };
+    let v = match v {
+        V::Obj(_) => match inner_of(&v) {
+            Some(x @ (V::Int(_) | V::Bool(_) | V::Big(_))) => x,
+            _ if matches!(&v, V::Obj(o) if o.cls.lookup("__index__").is_some()) => call_method(&v, "__index__", Args::p(vec![]))?,
+            _ => v,
+        },
+        v => v,
+    };
+    match v {
+        V::Int(0) => Ok(usize::MAX),
+        V::Int(c) if c > 0 => Ok(c as usize),
+        V::Int(_) => Ok(0),
+        V::Bool(b) => Ok(if b { 1 } else { usize::MAX }),
+        V::Big(_) => Err(exc("OverflowError", "Python int too large to convert to C ssize_t".into())),
+        x => type_err(format!("'{}' object cannot be interpreted as an integer", tn(&x))),
+    }
+}
 fn opt_pos(a: &mut Args, i: usize, name: &str, n: usize) -> Result<Option<usize>, E> {
     let v = a.kw(name).or_else(|| a.p.get(i).cloned());
     match v {
@@ -2265,13 +2367,7 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
         "sub" | "subn" => {
             let repl = a.kw("repl").or_else(|| a.p.first().cloned()).unwrap_or(V::None);
             let sv = a.kw("string").or_else(|| a.p.get(1).cloned()).unwrap_or(V::None);
-            let count = match a.kw("count").or_else(|| a.p.get(2).cloned()) {
-                Some(V::Int(c)) if c > 0 => c as usize,
-                // CPython's _sre.subx: count == 0 means unlimited, a negative count means none
-                Some(V::Int(0)) => usize::MAX,
-                Some(V::Int(_)) => 0,
-                _ => usize::MAX,
-            };
+            let count = re_count(a.kw("count").or_else(|| a.p.get(2).cloned()))?;
             let callable = matches!(repl, V::Func(_) | V::Bound(_) | V::BMeth(_) | V::Class(_))
                 || matches!(&repl, V::Obj(o) if o.cls.lookup("__call__").is_some());
             // CPython parses the replacement template before it converts the subject: a bad
@@ -2340,13 +2436,7 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
         }
         "split" => {
             let sv = a.kw("string").or_else(|| a.p.first().cloned()).unwrap_or(V::None);
-            let maxsplit = match a.kw("maxsplit").or_else(|| a.p.get(1).cloned()) {
-                Some(V::Int(c)) if c > 0 => c as usize,
-                // CPython's _sre.split: maxsplit == 0 means unlimited, a negative one means none
-                Some(V::Int(0)) => usize::MAX,
-                Some(V::Int(_)) => 0,
-                _ => usize::MAX,
-            };
+            let maxsplit = re_count(a.kw("maxsplit").or_else(|| a.p.get(1).cloned()))?;
             let (sc, _) = re_subject(&sv, prog.bytes)?;
             let ms = all_matches(prog, &sc, 0, sc.len(), maxsplit);
             let mut out = vec![];
@@ -2494,6 +2584,19 @@ pub fn re_fn(n: &str, mut a: Args) -> R {
         }
         "purge" => Ok(V::None),
         "match" | "fullmatch" | "search" | "findall" | "finditer" | "split" => {
+            // re.split(pattern, string, *args, maxsplit=, flags=): positional maxsplit and flags are deprecated
+            if n == "split" && a.p.len() > 1 {
+                if a.kw("maxsplit").is_some() {
+                    return type_err("split() got multiple values for argument 'maxsplit'".into());
+                }
+                if a.p.len() > 2 && a.kw("flags").is_some() {
+                    return type_err("split() got multiple values for argument 'flags'".into());
+                }
+                if a.p.len() > 3 {
+                    return type_err(format!("split() takes from 2 to 4 positional arguments but {} were given", a.p.len() + 1));
+                }
+                re_warn("DeprecationWarning", "'maxsplit' is passed as positional argument".into())?;
+            }
             let fi = if n == "split" { 2 } else { 1 };
             let f = flags_arg(&mut a, fi)?;
             let prog = pat_of(&pv, f)?;
@@ -2508,6 +2611,19 @@ pub fn re_fn(n: &str, mut a: Args) -> R {
             pat_call(&prog, n, &mut a)
         }
         "sub" | "subn" => {
+            // re.sub(pattern, repl, string, *args, count=, flags=): positional count and flags are deprecated
+            if a.p.len() > 2 {
+                if a.kw("count").is_some() {
+                    return type_err(format!("{n}() got multiple values for argument 'count'"));
+                }
+                if a.p.len() > 3 && a.kw("flags").is_some() {
+                    return type_err(format!("{n}() got multiple values for argument 'flags'"));
+                }
+                if a.p.len() > 4 {
+                    return type_err(format!("{n}() takes from 3 to 5 positional arguments but {} were given", a.p.len() + 1));
+                }
+                re_warn("DeprecationWarning", "'count' is passed as positional argument".into())?;
+            }
             let f = flags_arg(&mut a, 3)?;
             let prog = pat_of(&pv, f)?;
             a.k.retain(|(k, _)| *k != "flags");
