@@ -327,7 +327,7 @@ For `brevi run x.py` without `--native`, Brevi runs a strict build of itself as 
 ## Tests
 
 - `tests/check.sh`: every program in `tests/run` and `tests/errors` must match its `.expected` file; `tests/bv_libs/*.bv` must run their libraries on the engine (never CPython); `tests/dyn/*.py` run with `BREVI_DYN=1` against `python3`'s output; `tests/fallback` covers the CPython fallback.
-- `tools/conformance.py --check`: CPython's own test files, run natively; a wrong answer not listed in `compat/conformance_known_wrong.txt` (each line with an issue, an owner and an expiry date) fails the check, and `--release-gate` holds a release to an absolute bar.
+- `tools/conformance.py --check`: CPython's own test files, run natively; a wrong answer not listed in `compat/conformance_known_wrong.txt` (each line with an issue, an owner and an expiry date) fails the check, and `--release-gate` holds a release to an absolute bar (core 90%, stdlib 80%, no known-wrong result): release.yml runs it on the commit it ships and publishes nothing below it.
 - `tests/strict/`: `--strict` refuses every fallback (from the next release).
 - `bench/verify.sh OLD NEW`: every saved benchmark solution must still give the same output.
 - `tools/compat.py check`: every solution in `compat/baseline.txt` must keep building on new Rust and Python releases.

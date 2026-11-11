@@ -268,11 +268,14 @@ jobs:
         run: |
           python3 -m pip install --quiet uv
           uv python install 3.13.13 --quiet
-          python3 tools/conformance.py --check --python "$(uv python find 3.13.13)" --out conformance-report
+          # A release also holds each slice to its absolute bar (release_gate in compat/conformance*_floor.json: core 90%,
+          # stdlib 80%, no known-wrong result). Below it, nothing is released or published.
+          gate=""; [ "$RELEASE" = true ] && gate="--release-gate"
+          python3 tools/conformance.py --check $gate --python "$(uv python find 3.13.13)" --out conformance-report
           cat conformance-report/report.md >> "$GITHUB_STEP_SUMMARY"
           # The stdlib slice (itertools, collections, re, ...) takes as long again, so only the daily run and a release check it.
           if [ "${{ github.event_name }}" = schedule ] || [ "$RELEASE" = true ]; then
-            python3 tools/conformance.py --slice stdlib --check --python "$(uv python find 3.13.13)" --out conformance-stdlib
+            python3 tools/conformance.py --slice stdlib --check $gate --python "$(uv python find 3.13.13)" --out conformance-stdlib
             cat conformance-stdlib/report.md >> "$GITHUB_STEP_SUMMARY"
           fi
 

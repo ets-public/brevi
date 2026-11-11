@@ -1,0 +1,1 @@
+- **Releases are held to the conformance gates.** The release suite now runs `tools/conformance.py --release-gate` on both slices: nothing is released or published unless core matches CPython on at least 90% of its scored tests, stdlib on at least 80%, and neither has a known-wrong result.
