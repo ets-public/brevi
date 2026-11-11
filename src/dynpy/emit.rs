@@ -3334,6 +3334,9 @@ impl Em {
                     return Ok(b);
                 }
                 let user = self.user_modules.contains(m);
+                // Brevi's own `collections` module reads the native classes through its own name
+                // (`from collections import deque` in collections.py itself): as a builtin import.
+                let self_imp = user && *m == self.module && builtin_mod(m.as_str());
                 if !user && !builtin_mod(m.as_str()) && self.bridge.has(m) {
                     self.bridged_used.insert(m.split('.').next().unwrap_or(m).to_string());
                     for (n, a) in names {
@@ -3345,11 +3348,11 @@ impl Em {
                     }
                     return Ok(b);
                 }
-                if user {
+                if user && !self_imp {
                     let init = self.q(&format!("init_{}()", rust_ident(m)));
                     let reg = self.q(&format!("sys_modules_set({}, &V::Module(&ModName({})))", lit(m), lit(m)));
                     write!(b, "{reg}; {init}; ").unwrap();
-                } else if !builtin_mod(m.as_str()) {
+                } else if !builtin_mod(m.as_str()) && !self_imp {
                     return Err(err(line, &format!("module '{m}' is not supported in dynamic builds")));
                 } else {
                     let reg = self.q(&format!("sys_modules_set({}, &V::Module(&ModName({})))", lit(m), lit(m)));
@@ -3400,7 +3403,16 @@ impl Em {
                         b.push_str(&self.store(&bind, &format!("V::Module(&ModName({}))", lit(&sub))));
                         continue;
                     }
-                    let v = if user { self.user_mod_load(m, n, line)? } else { self.q(&format!("module_attr({}, {})", lit(m), lit(n))) };
+                    let v = if self_imp {
+                        if !module_has(m, n) {
+                            return Err(err(line, &format!("{m}.{n} is not supported in dynamic builds")));
+                        }
+                        self.q(&format!("module_attr({}, {})", lit(m), lit(n)))
+                    } else if user {
+                        self.user_mod_load(m, n, line)?
+                    } else {
+                        self.q(&format!("module_attr({}, {})", lit(m), lit(n)))
+                    };
                     b.push_str(&self.store(&bind, &v));
                 }
                 b
