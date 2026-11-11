@@ -1,0 +1,7 @@
+{'x': <class 'int'>, 'y': 's', 'return': None}
+__module__ '__main__'
+__name__ 'f'
+__qualname__ 'f'
+__doc__ None
+__annotations__ {'x': <class 'int'>, 'y': 's', 'return': None}
+__type_params__ ()

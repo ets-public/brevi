@@ -396,7 +396,10 @@ fn visit_ex(e: &Ex, f: &mut dyn FnMut(&Ex)) {
 fn mentions_annotations(body: &[Stmt]) -> bool {
     let mut found = false;
     visit_any(body, &mut |e| {
-        if matches!(e, Ex::Attr(_, n) | Ex::Name(n) if n == "__annotations__") {
+        // read by name too: getattr(f, "__annotations__"), or through functools.WRAPPER_ASSIGNMENTS
+        if matches!(e, Ex::Attr(_, n) | Ex::Name(n) if n == "__annotations__" || n == "WRAPPER_ASSIGNMENTS")
+            || matches!(e, Ex::Str(t) if t == "__annotations__")
+        {
             found = true;
         }
     });

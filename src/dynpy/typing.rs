@@ -135,7 +135,9 @@ pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
     }
     let reads = mods.iter().any(|(_, b)| {
         let mut r = false;
-        walk_all(b, &mut |e, _| r |= matches!(e, Ex::Attr(_, a) if a == "__annotations__"));
+        walk_all(b, &mut |e, _| {
+            r |= matches!(e, Ex::Attr(_, a) | Ex::Name(a) if a == "__annotations__" || a == "WRAPPER_ASSIGNMENTS") || matches!(e, Ex::Str(t) if t == "__annotations__")
+        });
         r
     });
     let defs = reads

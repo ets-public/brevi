@@ -15,8 +15,6 @@ test_collections.TestOneTrickPonyABCs.test_direct_subclassing dyn issue=#398 own
 test_collections.TestOneTrickPonyABCs.test_direct_subclassing normal issue=#398 owner=ets-public expires=2026-12-11
 test_collections.TestOneTrickPonyABCs.test_registration dyn issue=#398 owner=ets-public expires=2026-12-11
 test_collections.TestOneTrickPonyABCs.test_registration normal issue=#398 owner=ets-public expires=2026-12-11
-test_functools.TestLRUC.test_lru_cache_decoration dyn issue=#448 owner=ets-public expires=2026-12-11
-test_functools.TestLRUC.test_lru_cache_decoration normal issue=#448 owner=ets-public expires=2026-12-11
 test_functools.TestPartialC.test_pickle dyn issue=#446 owner=ets-public expires=2026-12-11
 test_functools.TestPartialC.test_pickle normal issue=#446 owner=ets-public expires=2026-12-11
 test_functools.TestPartialCSubclass.test_pickle dyn issue=#446 owner=ets-public expires=2026-12-11
