@@ -11,7 +11,8 @@ fn ax_pybapi() -> &'static ax_pyffi::Api {
     }) {
         Ok(a) => a,
         Err(e) => {
-            eprintln!("{{\"e\":\"runtime\",\"msg\":{e:?},\"fix\":\"run the program with python3, or install a Python that has its shared library (libpython)\"}}");
+            let fix = if e.starts_with("brevi: --sandbox:") { "change what the message names, or run without --sandbox" } else { "run the program with python3, or install a Python that has its shared library (libpython)" };
+            eprintln!("{{\"e\":\"runtime\",\"msg\":{e:?},\"fix\":{fix:?}}}");
             std::process::exit(1)
         }
     }

@@ -106,6 +106,27 @@ done
 big=$(seq 1 2000000 | timeout 120 $BREVI run tests/replay/late_overflow.py --native 2>/dev/null; echo "exit $?")
 want=$(seq 1 2000000 | python3 tests/replay/late_overflow.py; echo "exit $?")
 if [ "$big" != "$want" ]; then echo "FAIL late_overflow (piped)"; fail=1; else echo "ok   late_overflow (piped)"; fi
+#== strict
+# --strict (BREVI_STRICT=1): no fallback. A file only the dynamic build takes is refused with one
+# {"e":"strict"} line, a typed run past 64 bits stops instead of running again, brevi-python hands nothing to
+# CPython, and every build prints its path line (typed too).
+strict_out=$(cd tests/strict && B=../../$BREVI
+  for f in typed guard cpython_only pybridge big_power; do
+    echo "-- run $f"; $B run $f.py --strict 2>&1; echo "exit $?"
+  done
+  echo "-- check guard"; BREVI_STRICT=1 $B check guard.py 2>&1; echo "exit $?"
+  echo "-- verify guard"; BREVI_STRICT=1 $B run --verify guard.py </dev/null 2>&1; echo "exit $?"
+  ln -sf "$(cd ../.. && pwd)/$BREVI" ./brevi-python
+  echo "-- shim -m"; BREVI_STRICT=1 ./brevi-python -m json.tool </dev/null 2>&1; echo "exit $?"
+  echo "-- shim guard"; BREVI_STRICT=1 ./brevi-python guard.py 2>&1; echo "exit $?"
+  echo "-- shim typed"; BREVI_STRICT=1 ./brevi-python typed.py 2>&1; echo "exit $?"
+  rm -f ./brevi-python)
+if [ "$1" = "--update" ]; then printf '%s\n' "$strict_out" > tests/strict.expected
+elif [ "$strict_out" != "$(cat tests/strict.expected)" ]; then
+  echo "FAIL strict"; printf '%s\n' "$strict_out" | diff tests/strict.expected - ; fail=1
+else
+  echo "ok   strict"
+fi
 #== lib split
 # Standard-library programs must print what python3 prints, natively: whichever path the build takes
 # (typed or dynamic), never CPython (pybridge or the python3 fallback).

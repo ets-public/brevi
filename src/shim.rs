@@ -38,6 +38,15 @@ pub fn args() -> Option<Vec<OsString>> {
 
 pub fn main(args: Vec<OsString>) -> ! {
     let python = cpython();
+    // BREVI_STRICT=1: no fallback, so nothing is handed to CPython (src/main.rs strict). A script still goes to
+    // `brevi run`, which holds it to the same rule.
+    let exec = |c: &mut Command| -> ! {
+        if crate::strict() && c.get_program() == python.as_os_str() {
+            eprintln!("brevi-python: BREVI_STRICT=1 allows no fallback, and this would run CPython ({}); unset BREVI_STRICT to let it", c.get_args().map(|a| a.to_string_lossy().to_string()).collect::<Vec<_>>().join(" "));
+            std::process::exit(1);
+        }
+        exec(c)
+    };
     if std::env::var("BREVI_SHIM").is_ok_and(|v| v == "0") {
         exec(Command::new(&python).args(&args));
     }

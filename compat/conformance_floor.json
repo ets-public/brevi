@@ -3,5 +3,10 @@
   "normal": 250,
   "dyn": 251
  },
- "note": "tools/conformance.py --check fails below these; --write-baseline raises them"
+ "note": "tools/conformance.py --check fails below these; --write-baseline raises them",
+ "release_gate": {
+  "coverage": 0.9,
+  "wrong": 0,
+  "note": "tools/conformance.py --release-gate: the release bar (absolute coverage of the normal build, no known-wrong result)"
+ }
 }

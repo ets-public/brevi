@@ -495,7 +495,7 @@ def main():
     print(json.dumps(result, indent=2))
     if a.branch and diff and fixed and not broke and built:
         if not task_mode:
-            lines = [l for l in BASELINE.read_text().splitlines() if not any(l == f"{a.test_id} {b}" for b in fixed)]
+            lines = [l for l in BASELINE.read_text().splitlines() if not any(l.split()[:2] == [a.test_id, b] for b in fixed)]
             BASELINE.write_text("\n".join(lines) + "\n")
         git("checkout", "-b", a.branch)
         git("add", "-A", "src", "tests", "compat", "docs")

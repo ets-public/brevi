@@ -41,6 +41,27 @@ if os.path.exists(report):
               f"(itertools, collections, re, textwrap, functools, string; {cov.group(1)}) match, and {wrong.group(1)} give a different answer "
               f"([report](https://github.com/ets-public/brevi/blob/{tag}/bench/conformance/stdlib/report.md)).")
         print()
+# Which path the conformance programs took (the report's "paths", normal build): how much ran on the typed fast
+# path, how much fell back to the dynamic build, and how much Brevi refused (python3 would have run it, or
+# --strict / --native refuse it). One line per slice.
+paths_lines = []
+for name, rel in (("core", "report.json"), ("stdlib", os.path.join("stdlib", "report.json"))):
+    f = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "bench", "conformance", rel)
+    if not os.path.exists(f):
+        continue
+    import json
+    p = json.load(open(f)).get("paths", {}).get("normal", {})
+    total = sum(p.values())
+    if not total:
+        continue
+    pct = lambda k: f"{p.get(k, 0)} ({100 * p.get(k, 0) / total:.1f}%)"
+    paths_lines.append(f"{name} {total} programs: typed {pct('typed')}, pybridge {pct('pybridge')}, "
+                       f"dynamic fallback {pct('dynamic')}, refused {pct('refused')}")
+if paths_lines:
+    print("**Paths taken:** " + "; ".join(paths_lines) + ". Only typed and pybridge pass `--strict`, "
+          "which fails closed on any fallback; every build reports its path ([support matrix](https://github.com/ets-public/brevi/blob/"
+          + tag + "/docs/SUPPORT_MATRIX.md)).")
+    print()
 print("Prebuilt brevi compiler for Linux, macOS and Windows. brevi still needs rustc on the PATH to build programs. "
       "On Linux and macOS, `sh install.sh` installs rustc if it is missing and picks the right download; on Windows, "
       "install Rust with rustup and unzip the .zip. Details: https://brevi-lang.org/docs/install")
