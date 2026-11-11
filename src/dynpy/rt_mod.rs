@@ -1567,6 +1567,96 @@ fn islice_ssize(v: &V, none: i64) -> i64 {
 const ISLICE_STOP_MSG: &str = "Stop argument for islice() must be None or an integer: 0 <= x <= sys.maxsize.";
 const ISLICE_START_MSG: &str = "Indices for islice() must be None or an integer: 0 <= x <= sys.maxsize.";
 const ISLICE_STEP_MSG: &str = "Step for islice() must be a positive integer or None.";
+
+// PyNumber_AsSsize_t, as itertools.tee and itertools.batched convert their n argument.
+fn it_ssize_arg(v: &V) -> Result<i64, E> {
+    let x = match v {
+        V::Int(i) => *i,
+        V::Bool(b) => *b as i64,
+        V::Big(_) => return Err(exc("OverflowError", "Python int too large to convert to C ssize_t".into())),
+        V::Obj(o) => {
+            if let Some(f) = o.cls.lookup("__index__") {
+                return it_index_result(&call(&f, Args::p(vec![v.clone()]))?);
+            }
+            if matches!(inner_of(v), Some(V::Int(_) | V::Bool(_) | V::Big(_))) {
+                return it_ssize_arg(&inner_of(v).unwrap());
+            }
+            return Err(exc("TypeError", format!("'{}' object cannot be interpreted as an integer", tn(v))));
+        }
+        _ => return Err(exc("TypeError", format!("'{}' object cannot be interpreted as an integer", tn(v)))),
+    };
+    Ok(x)
+}
+fn it_index_result(r: &V) -> Result<i64, E> {
+    match r {
+        V::Int(i) => Ok(*i),
+        V::Bool(b) => Ok(*b as i64),
+        V::Big(_) => Err(exc("OverflowError", "Python int too large to convert to C ssize_t".into())),
+        V::Obj(_) if matches!(inner_of(r), Some(V::Int(_) | V::Bool(_) | V::Big(_))) => it_index_result(&inner_of(r).unwrap()),
+        x => Err(exc("TypeError", format!("__index__ returned non-int (type {})", tn(x)))),
+    }
+}
+
+// itertools.tee: the tee iterators share a TeeData holding the source and every value fetched so far, and each
+// keeps its own position in it. A re-entrant next() on any tee of one group raises RuntimeError, as CPython does.
+struct TeeData {
+    it: Rc<RefCell<It>>,
+    vals: RefCell<Vec<V>>,
+    active: Cell<bool>,
+}
+struct TeePos {
+    data: Rc<TeeData>,
+    pos: Cell<usize>,
+}
+fn tee_step(p: &Rc<TeePos>) -> Result<Option<V>, E> {
+    if p.data.active.get() {
+        return Err(exc("RuntimeError", "cannot re-enter the tee iterator".into()));
+    }
+    p.data.active.set(true);
+    let r = tee_step_inner(p);
+    p.data.active.set(false);
+    r
+}
+fn tee_step_inner(p: &Rc<TeePos>) -> Result<Option<V>, E> {
+    let i = p.pos.get();
+    {
+        let vals = p.data.vals.borrow();
+        if i < vals.len() {
+            let v = vals[i].clone();
+            drop(vals);
+            p.pos.set(i + 1);
+            return Ok(Some(v));
+        }
+    }
+    match iter_step(&p.data.it)? {
+        Some(v) => {
+            p.data.vals.borrow_mut().push(v.clone());
+            p.pos.set(i + 1);
+            Ok(Some(v))
+        }
+        None => Ok(None),
+    }
+}
+fn tee_pos_of(v: &V) -> Option<(Rc<TeeData>, usize)> {
+    let V::Iter(cell) = v else { return None };
+    let Ok(it) = cell.try_borrow() else { return None };
+    match &*it {
+        It::Tee(p) => Some((p.data.clone(), p.pos.get())),
+        _ => None,
+    }
+}
+// copy.copy/deepcopy of a tee iterator make a new tee at the same position, sharing the group, as CPython does.
+fn tee_copy_iter(v: &V) -> Option<V> {
+    let V::Iter(cell) = v else { return None };
+    let Ok(it) = cell.try_borrow() else { return None };
+    match &*it {
+        It::Tee(p) => {
+            let np = Rc::new(TeePos { data: p.data.clone(), pos: Cell::new(p.pos.get()) });
+            Some(V::Iter(Rc::new(RefCell::new(It::Tee(np)))))
+        }
+        _ => None,
+    }
+}
 pub fn itertools_fn(name: &str, mut a: Args) -> R {
     Ok(match name {
         "permutations" => {
@@ -1970,6 +2060,103 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
                 }
             })
         }
+        "tee" => {
+            if !a.k.is_empty() {
+                return Err(exc("TypeError", "itertools.tee() takes no keyword arguments".into()));
+            }
+            a.want("tee", 1, 2)?;
+            let n = match a.p.get(1) {
+                Some(x) => it_ssize_arg(x)?,
+                None => 2,
+            };
+            if n < 0 {
+                return Err(exc("ValueError", "n must be >= 0".into()));
+            }
+            if n == 0 {
+                return Ok(tup(vec![]));
+            }
+            // Teeing a tee shares the original group and starts at the source's position, as CPython does.
+            let (data, pos) = match tee_pos_of(&a.p[0]) {
+                Some((data, pos)) => (data, pos),
+                None => {
+                    let it = shared_input(&a.p[0])?;
+                    (Rc::new(TeeData { it, vals: RefCell::new(vec![]), active: Cell::new(false) }), 0)
+                }
+            };
+            let mut out = vec![];
+            for _ in 0..n {
+                out.push(V::Iter(Rc::new(RefCell::new(It::Tee(Rc::new(TeePos { data: data.clone(), pos: Cell::new(pos) }))))));
+            }
+            tup(out)
+        }
+        "batched" => {
+            // CPython's Argument Clinic checks these in this order before converting anything.
+            if a.p.len() > 2 {
+                return type_err(format!("batched() takes exactly 2 positional arguments ({} given)", a.p.len()));
+            }
+            if a.p.len() + a.k.len() > 3 {
+                return type_err(format!("batched() takes at most 3 arguments ({} given)", a.p.len() + a.k.len()));
+            }
+            if a.p.len() >= 1 && a.k.iter().any(|(n, _)| *n == "iterable") {
+                return type_err("argument for batched() given by name ('iterable') and position (1)".into());
+            }
+            if a.p.len() >= 2 && a.k.iter().any(|(n, _)| *n == "n") {
+                return type_err("argument for batched() given by name ('n') and position (2)".into());
+            }
+            for (n, _) in &a.k {
+                if *n != "iterable" && *n != "n" && *n != "strict" {
+                    return type_err(format!("batched() got an unexpected keyword argument '{n}'"));
+                }
+            }
+            let iterable = match a.p.first().cloned() {
+                Some(v) => v,
+                None => match a.kw("iterable") {
+                    Some(v) => v,
+                    None => return type_err("batched() missing required argument 'iterable' (pos 1)".into()),
+                },
+            };
+            let nv = match a.p.get(1).cloned() {
+                Some(v) => v,
+                None => match a.kw("n") {
+                    Some(v) => v,
+                    None => return type_err("batched() missing required argument 'n' (pos 2)".into()),
+                },
+            };
+            let n = it_ssize_arg(&nv)?;
+            let strict = truth(&a.kw("strict").unwrap_or(V::Bool(false)))?;
+            if n <= 0 {
+                return Err(exc("ValueError", "n must be at least one".into()));
+            }
+            let it = shared_input(&iterable)?;
+            let dead = Rc::new(RefCell::new(false));
+            shared_iter(move || {
+                if *dead.borrow() {
+                    return Ok(None);
+                }
+                let mut row = vec![];
+                for i in 0..n {
+                    match iter_step(&it)? {
+                        Some(x) => row.push(x),
+                        None => {
+                            if i == 0 {
+                                *dead.borrow_mut() = true;
+                                let old = std::mem::replace(&mut *it.borrow_mut(), It::Done);
+                                drop(old);
+                                return Ok(None);
+                            }
+                            if strict {
+                                *dead.borrow_mut() = true;
+                                let old = std::mem::replace(&mut *it.borrow_mut(), It::Done);
+                                drop(old);
+                                return Err(exc("ValueError", "batched(): incomplete batch".into()));
+                            }
+                            return Ok(Some(tup(row)));
+                        }
+                    }
+                }
+                Ok(Some(tup(row)))
+            })
+        }
         _ => return Err(unsupported(&format!("itertools.{name}"))),
     })
 }
@@ -2016,6 +2203,10 @@ pub fn shallow_copy(x: &V) -> R {
             });
             V::Obj(n)
         }
+        V::Iter(_) => match tee_copy_iter(x) {
+            Some(v) => v,
+            None => x.clone(),
+        },
         _ => x.clone(),
     })
 }
@@ -2128,6 +2319,10 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
             }
             V::Obj(n)
         }
+        V::Iter(_) => match tee_copy_iter(x) {
+            Some(v) => v,
+            None => x.clone(),
+        },
         _ => x.clone(),
     })
 }
