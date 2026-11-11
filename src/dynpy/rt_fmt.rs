@@ -412,7 +412,13 @@ pub fn repr(v: &V) -> Result<String, E> {
             format!("{}([{}])", name, join_repr(&to_vec(v)?)?)
         }
         V::Prop(_) => "<property object>".into(),
-        V::NTF(i) => format!("_tuplegetter({}, 'Alias for field number {}')", **i, **i),
+        V::NTF(n) => {
+            let d = n.doc.borrow().clone();
+            match d {
+                V::Unbound => format!("_tuplegetter({}, <NULL>)", n.idx),
+                d => format!("_tuplegetter({}, {})", n.idx, repr(&d)?),
+            }
+        }
         V::Cell(c) => {
             let p = Rc::as_ptr(c) as *const u8 as usize;
             // Copy the contents out before repr'ing them: a cell's value may change while its repr runs.

@@ -2792,7 +2792,7 @@ fn namedtuple_with(mut a: Args, check_name: bool) -> R {
     // each field is a read-only descriptor holding its index in the wrapped tuple (V::NTF): getattr reads
     // the tuple directly for it, with no Args allocation and no call (see getattr in rt_call.rs).
     for (i, f) in fields.iter().enumerate() {
-        c.set(*f, V::NTF(Rc::new(i as i64)));
+        c.set(*f, V::NTF(Rc::new(Ntf { idx: i as i64, doc: RefCell::new(st(format!("Alias for field number {i}"))) })));
     }
 
     let frepr = fields.clone();
