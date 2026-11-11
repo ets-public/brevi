@@ -1,0 +1,1 @@
+- Dynamic build: `int()` of an object whose `__int__` or `__index__` returns a strict subclass of int (such as `bool`) gives a plain int with CPython 3.13's DeprecationWarning, where it used to return the subclass instance silently. `int()` delegating to `__trunc__` issues its DeprecationWarning too, and a `__trunc__` result that is not an integer is CPython's TypeError.

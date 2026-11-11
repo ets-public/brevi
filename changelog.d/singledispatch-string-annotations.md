@@ -1,0 +1,1 @@
+- Dynamic build: `functools.singledispatch`'s `register` reads a string annotation (`def _(arg: "collections.abc.Sequence")`) as `typing.get_type_hints` does, from the module's globals. It used to stop at run time with a refusal (#452).

@@ -1,0 +1,10 @@
+1 True
+1 True
+1 True
+TypeError __trunc__ returned non-Integral (type str)
+DeprecationWarning 25 __int__ returned non-int (type bool).  T
+DeprecationWarning 25 __index__ returned non-int (type bool). 
+DeprecationWarning 25 The delegation of int() to __trunc__ is 
+DeprecationWarning 25 __index__ returned non-int (type bool). 
+DeprecationWarning 28 The delegation of int() to __trunc__ is 
+raised __int__ returned non-int (type

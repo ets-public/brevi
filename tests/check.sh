@@ -57,6 +57,17 @@ for f in tests/fallback/*.py; do
     echo "ok   $f"
   fi
 done
+# The dynamic build itself refuses catch_warnings(record=True) in a program that uses itertools and pickles or
+# copies (not only the typed build), so CPython runs it.
+if [ "$1" != "--update" ]; then
+  cw_dir=$(mktemp -d)
+  out=$(BREVI_DYN=1 $BREVI build tests/fallback/catch_warnings_record_itertools.py -o "$cw_dir/prog" 2>&1)
+  case "$out" in
+    *'catch_warnings(record=True) in a program that pickles or copies itertools iterators is not supported in dynamic builds'*) echo "ok   dynamic build refuses catch_warnings(record=True) with itertools pickling" ;;
+    *) echo "FAIL dynamic build refuses catch_warnings(record=True) with itertools pickling"; printf '%s\n' "$out" | tail -3; fail=1 ;;
+  esac
+  rm -rf "$cw_dir"
+fi
 # A warning whose line the dynamic build does not know is refused, never placed wrong: stacklevel above 1 when
 # it builds, a call opening on a later line of its statement when it runs.
 if [ "$1" != "--update" ]; then
