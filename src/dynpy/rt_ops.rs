@@ -589,12 +589,18 @@ fn obj_binop(a: &V, b: &V, op: &str) -> Option<R> {
     // reflected method, Python tries that reflected method first (`ChainMap() | SubclassRor()` calls
     // SubclassRor.__ror__, not ChainMap.__or__).
     let right_first = match (a, b) {
+        // CPython: the right class is a strict subclass and its reflected method is a different one from the
+        // left class's (defined by another class in the MRO), whether it defines it or inherits it.
         (V::Obj(x), V::Obj(y)) => {
-            !std::rc::Rc::ptr_eq(&x.cls, &y.cls) && y.cls.is_sub(&x.cls) && y.cls.own(r).is_some()
+            let definer = |c: &Class| c.mro.borrow().iter().find(|k| k.own(r).is_some()).map(|k| std::rc::Rc::as_ptr(k));
+            !std::rc::Rc::ptr_eq(&x.cls, &y.cls) && y.cls.is_sub(&x.cls) && definer(&y.cls).is_some() && definer(&y.cls) != definer(&x.cls)
         }
         _ => false,
     };
+    // the reflected method already ran (and returned NotImplemented): CPython does not run it a second time
+    let mut right_done = false;
     if right_first {
+        right_done = true;
         if let V::Obj(o) = b {
             if let Some(f) = o.cls.lookup(r) {
                 match call2(&f, b.clone(), a.clone()) {
@@ -612,7 +618,7 @@ fn obj_binop(a: &V, b: &V, op: &str) -> Option<R> {
             }
         }
     }
-    if let V::Obj(o) = b {
+    if let (V::Obj(o), false) = (b, right_done) {
         if let Some(f) = o.cls.lookup(r) {
             match call2(&f, b.clone(), a.clone()) {
                 Ok(V::NotImpl) => {}
