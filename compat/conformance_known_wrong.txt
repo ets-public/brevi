@@ -2,12 +2,3 @@
 # `--check` fails on a wrong result not here, on a line here that is no longer wrong (so this list only shrinks),
 # and on a line without a tracking issue, an owner and an expiry date, or past its expiry. `--write-baseline`
 # keeps the metadata of lines already here and writes new ones with `?`, which --check refuses until filled in.
-test_dict.DictTest.test_reverseiterator_pickling dyn issue=#396 owner=ets-public expires=2026-12-11
-test_dict.DictTest.test_reverseiterator_pickling normal issue=#396 owner=ets-public expires=2026-12-11
-test_dict.DictTest.test_reversevaluesiterator_pickling dyn issue=#396 owner=ets-public expires=2026-12-11
-test_dict.DictTest.test_reversevaluesiterator_pickling normal issue=#396 owner=ets-public expires=2026-12-11
-test_dict.DictTest.test_valuesiterator_pickling normal issue=#396 owner=ets-public expires=2026-12-11
-test_list.ListTest.test_iterator_pickle dyn issue=#396 owner=ets-public expires=2026-12-11
-test_list.ListTest.test_iterator_pickle normal issue=#396 owner=ets-public expires=2026-12-11
-test_list.ListTest.test_reversed_pickle dyn issue=#396 owner=ets-public expires=2026-12-11
-test_list.ListTest.test_reversed_pickle normal issue=#396 owner=ets-public expires=2026-12-11

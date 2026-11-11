@@ -264,7 +264,7 @@ fn gc_edges(v: &V) -> Vec<V> {
             let Ok(it) = it.it.try_borrow() else { return vec![] };
             let mut out = vec![];
             match &*it {
-                It::List(x, _) => out.push(V::List(x.clone())),
+                It::List(x, _) | It::RevList(x, _) => out.push(V::List(x.clone())),
                 It::Tuple(x, _) => out.push(V::Tuple(x.clone())),
                 It::Dict(x, ..) => out.push(V::Dict(x.clone())),
                 It::Set(x, ..) => out.push(V::Set(x.clone())),
