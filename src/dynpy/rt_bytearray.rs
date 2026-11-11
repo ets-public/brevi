@@ -508,7 +508,8 @@ impl Ext for ByteArrayV {
                     V::Int(n) => *n,
                     V::Bool(b) => *b as i64,
                     V::Big(_) => return Some(Err(exc("OverflowError", "cannot fit 'int' into an index-sized integer".into()))),
-                    V::Obj(_) | V::Ext(_) => return None,
+                    V::Obj(_) => return None,
+                    V::Ext(_) if bytes_of(o).is_none() && memview_of(o).is_none() => return None,
                     _ => return Some(type_err(format!("can't multiply sequence by non-int of type '{}'", tn(o)))),
                 };
                 let _ = me;

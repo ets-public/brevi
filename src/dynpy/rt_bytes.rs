@@ -286,7 +286,6 @@ fn errors_name(v: Option<&V>) -> Result<String, E> {
 pub fn bytes_decode(b: &[u8], enc: Option<&V>, errors: Option<&V>) -> R {
     let codec = codec_name(enc)?;
     let errors = errors_name(errors)?;
-    let errors = errors.to_lowercase();
     if !matches!(errors.as_str(), "strict" | "replace" | "ignore" | "backslashreplace") {
         return Err(unsupported(&format!("decode errors='{errors}'")));
     }
@@ -1210,7 +1209,7 @@ impl BytesV {
                     let hit = if n == "partition" {
                         find_sub(b, &sep, 0)
                     } else {
-                        (0..=b.len().saturating_sub(sep.len())).rev().find(|&i| &b[i..i + sep.len()] == sep.as_slice())
+                        (sep.len() <= b.len()).then(|| (0..=b.len() - sep.len()).rev().find(|&i| &b[i..i + sep.len()] == sep.as_slice())).flatten()
                     };
                     match hit {
                         Some(k) => tup(vec![bytesv(b[..k].to_vec()), bytesv(sep.clone()), bytesv(b[k + sep.len()..].to_vec())]),
@@ -1360,6 +1359,9 @@ impl Ext for BytesV {
                     V::Bool(b) => *b as i64,
                     // a huge int cannot fit the Py_ssize_t CPython's repeat takes
                     V::Big(_) => return Some(Err(exc("OverflowError", "cannot fit 'int' into an index-sized integer".into()))),
+                    // an instance or library value may define __rmul__: leave it to the reflected operation
+                    V::Obj(_) => return None,
+                    V::Ext(_) if bytes_of(o).is_none() && memview_of(o).is_none() => return None,
                     _ => return Some(type_err(format!("can't multiply sequence by non-int of type '{}'", tn(o)))),
                 };
                 if n < 0 {

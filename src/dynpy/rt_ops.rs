@@ -1052,9 +1052,9 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
                 _ => unreachable!(),
             });
         }
-        // str/list/tuple raise their own TypeError for a non-int multiplier, never NotImplemented:
-        // 'x' * b'y' says "of type 'bytes'", from the sequence's side.
-        (V::Str(_) | V::List(_) | V::Tuple(_), _) if op == "*" => {
+        // str/list/tuple raise their own TypeError for a non-int multiplier ('x' * b'y' says "of type 'bytes'"),
+        // after the other operand's __rmul__ had its turn: an instance or library value goes on to the reflected path.
+        (V::Str(_) | V::List(_) | V::Tuple(_), _) if op == "*" && (bytes_of(b).is_some() || !matches!(b, V::Obj(_) | V::Ext(_))) => {
             return type_err(format!("can't multiply sequence by non-int of type '{}'", tn(b)));
         }
         (V::Str(f), _) if op == "%" => return Ok(st(percent_format(&f.s, b)?)),
