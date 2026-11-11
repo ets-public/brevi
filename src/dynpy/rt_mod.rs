@@ -886,6 +886,8 @@ struct SDState {
     registry: Rc<RefCell<Dict>>,
     // keyed by the class's address; each entry holds its class, so the address stays that class's while cached
     cache: RefCell<std::collections::HashMap<usize, (V, Option<V>)>>,
+    // the ABC cache token the cache was filled under
+    token: Cell<u64>,
 }
 fn sd_registry_view(st: &Rc<SDState>) -> V {
     V::View(Rc::new((V::Dict(st.registry.clone()), 3)))
@@ -978,8 +980,7 @@ fn sd_register_ann(st: &Rc<SDState>, f: V) -> R {
 fn sd_register_type(st: &Rc<SDState>, cls: &V, func: V) -> R {
     match cls {
         V::Class(k) if k.module == "typing" => {
-            // collections.abc as Brevi's typing forms is not a set of real ABCs here; dispatch over its MRO
-            // would not do what CPython's virtual subclass registration does.
+            // typing's forms are not classes CPython's singledispatch can dispatch on
             return Err(unsupported(&format!("singledispatch on this ABC ({})", k.name)));
         }
         V::Class(_) => {}
@@ -1007,18 +1008,135 @@ fn sd_register(st: Rc<SDState>, mut a: Args) -> R {
     }
     sd_register_ann(&st, first)
 }
-fn sd_find_impl(cls: &V, reg: &Rc<RefCell<Dict>>) -> Result<Option<V>, E> {
-    let V::Class(c) = cls else { return Ok(None) };
-    let mro = c.mro.borrow().clone();
-    let items = reg.borrow().items();
-    for t in mro {
-        for (k, v) in &items {
-            if is(k, &V::Class(t.clone())) {
-                return Ok(Some(v.clone()));
+// functools' _find_impl, _compose_mro, _c3_mro and _c3_merge (CPython 3.13), over Brevi's classes: the MRO
+// with the registered ABCs inserted where their functionality is introduced, then the first registered type
+// in it, with CPython's "Ambiguous dispatch" error.
+fn sd_issub(c: &Rc<Class>, t: &Rc<Class>) -> Result<bool, E> {
+    if t.abc.get() {
+        abc_subclasscheck(t, c)
+    } else {
+        Ok(c.is_sub(t))
+    }
+}
+fn sd_has(v: &[Rc<Class>], c: &Rc<Class>) -> bool {
+    v.iter().any(|x| Rc::ptr_eq(x, c))
+}
+fn sd_c3_merge(mut seqs: Vec<Vec<Rc<Class>>>) -> Result<Vec<Rc<Class>>, E> {
+    let mut out = vec![];
+    loop {
+        seqs.retain(|s| !s.is_empty());
+        if seqs.is_empty() {
+            return Ok(out);
+        }
+        let mut cand = None;
+        for s1 in &seqs {
+            let c = &s1[0];
+            if !seqs.iter().any(|s2| sd_has(&s2[1..], c)) {
+                cand = Some(c.clone());
+                break;
+            }
+        }
+        let Some(c) = cand else { return Err(exc("RuntimeError", "Inconsistent hierarchy".into())) };
+        out.push(c.clone());
+        for s in seqs.iter_mut() {
+            if Rc::ptr_eq(&s[0], &c) {
+                s.remove(0);
             }
         }
     }
-    Ok(None)
+}
+fn sd_c3_mro(cls: &Rc<Class>, abcs: &mut Vec<Rc<Class>>) -> Result<Vec<Rc<Class>>, E> {
+    let bases = &cls.bases;
+    let mut boundary = 0;
+    for (i, b) in bases.iter().enumerate().rev() {
+        if b.lookup("__abstractmethods__").is_some() {
+            boundary = i + 1;
+            break;
+        }
+    }
+    let explicit: Vec<Rc<Class>> = bases[..boundary].to_vec();
+    let other: Vec<Rc<Class>> = bases[boundary..].to_vec();
+    let mut abstract_bases = vec![];
+    for b in abcs.clone() {
+        if sd_issub(cls, &b)? {
+            let mut any = false;
+            for x in bases {
+                if sd_issub(x, &b)? {
+                    any = true;
+                    break;
+                }
+            }
+            if !any {
+                abstract_bases.push(b);
+            }
+        }
+    }
+    abcs.retain(|x| !sd_has(&abstract_bases, x));
+    let mut seqs = vec![vec![cls.clone()]];
+    for group in [&explicit, &abstract_bases, &other] {
+        for b in group.iter() {
+            seqs.push(sd_c3_mro(b, abcs)?);
+        }
+    }
+    seqs.push(explicit);
+    seqs.push(abstract_bases);
+    seqs.push(other);
+    sd_c3_merge(seqs)
+}
+fn sd_compose_mro(cls: &Rc<Class>, types: Vec<Rc<Class>>) -> Result<Vec<Rc<Class>>, E> {
+    let bases = cls.mro.borrow().clone();
+    let mut rel = vec![];
+    for t in types {
+        if !sd_has(&bases, &t) && sd_issub(cls, &t)? {
+            rel.push(t);
+        }
+    }
+    let types: Vec<Rc<Class>> = rel.iter().filter(|t| !rel.iter().any(|o| !Rc::ptr_eq(o, t) && sd_has(&o.mro.borrow(), t))).cloned().collect();
+    let mut mro: Vec<Rc<Class>> = vec![];
+    for t in &types {
+        let mut found: Vec<Vec<Rc<Class>>> = vec![];
+        let subs: Vec<Rc<Class>> = t.subs.borrow().iter().filter_map(|w| w.upgrade()).collect();
+        for sub in subs {
+            if !sd_has(&bases, &sub) && sd_issub(cls, &sub)? {
+                found.push(sub.mro.borrow().iter().filter(|s| sd_has(&types, s)).cloned().collect());
+            }
+        }
+        if found.is_empty() {
+            mro.push(t.clone());
+            continue;
+        }
+        // sorted by length, longest first; a stable sort keeps CPython's order among equals
+        found.sort_by(|a, b| b.len().cmp(&a.len()));
+        for sub in found {
+            for s in sub {
+                if !sd_has(&mro, &s) {
+                    mro.push(s);
+                }
+            }
+        }
+    }
+    sd_c3_mro(cls, &mut mro)
+}
+fn sd_find_impl(cls: &V, reg: &Rc<RefCell<Dict>>) -> Result<Option<V>, E> {
+    let V::Class(c) = cls else { return Ok(None) };
+    let items = reg.borrow().items();
+    let keys: Vec<Rc<Class>> = items.iter().filter_map(|(k, _)| if let V::Class(k) = k { Some(k.clone()) } else { None }).collect();
+    let mro = sd_compose_mro(c, keys)?;
+    let cmro = c.mro.borrow().clone();
+    let get = |t: &Rc<Class>| items.iter().find(|(k, _)| matches!(k, V::Class(x) if Rc::ptr_eq(x, t))).map(|(_, v)| v.clone());
+    let mut found: Option<Rc<Class>> = None;
+    for t in &mro {
+        if let Some(m) = &found {
+            if get(t).is_some() && !sd_has(&cmro, t) && !sd_has(&cmro, m) && !sd_issub(m, t)? {
+                return Err(exc("RuntimeError", format!("Ambiguous dispatch: {} or {}", repr(&V::Class(m.clone()))?, repr(&V::Class(t.clone()))?)));
+            }
+            break;
+        }
+        if get(t).is_some() {
+            found = Some(t.clone());
+        }
+    }
+    Ok(found.and_then(|m| get(&m)))
 }
 fn sd_key(cls: &V) -> usize {
     match cls {
@@ -1027,6 +1145,12 @@ fn sd_key(cls: &V) -> usize {
     }
 }
 fn sd_dispatch_impl(st: &Rc<SDState>, cls: &V) -> R {
+    // CPython drops the dispatch cache when abc.get_cache_token() moves (a register() on any ABC)
+    let token = ABC_TOKEN.load(std::sync::atomic::Ordering::Relaxed);
+    if st.token.get() != token {
+        st.token.set(token);
+        st.cache.borrow_mut().clear();
+    }
     {
         if let Some((_, v)) = st.cache.borrow().get(&sd_key(cls)) {
             return Ok(v.clone().unwrap_or(V::None));
@@ -1078,7 +1202,7 @@ fn sd_make_wrapper(st: &Rc<SDState>, f: V) -> R {
     update_wrapper(w, f, wraps_assigned(), wraps_updated())
 }
 fn singledispatch_impl(f: V) -> R {
-    let st = Rc::new(SDState { registry: Rc::new(RefCell::new(Dict::new())), cache: RefCell::new(std::collections::HashMap::new()) });
+    let st = Rc::new(SDState { registry: Rc::new(RefCell::new(Dict::new())), cache: RefCell::new(std::collections::HashMap::new()), token: Cell::new(u64::MAX) });
     sd_make_wrapper(&st, f)
 }
 fn sd_is_abstract(v: &V) -> bool {
@@ -1182,7 +1306,7 @@ fn singledispatchmethod_impl(f: V) -> R {
         let r = repr(&f).unwrap_or_else(|_| "<object>".into());
         return type_err(format!("{r} is not callable or a descriptor"));
     }
-    let st = Rc::new(SDState { registry: Rc::new(RefCell::new(Dict::new())), cache: RefCell::new(std::collections::HashMap::new()) });
+    let st = Rc::new(SDState { registry: Rc::new(RefCell::new(Dict::new())), cache: RefCell::new(std::collections::HashMap::new()), token: Cell::new(u64::MAX) });
     let dispatcher = sd_make_wrapper(&st, f.clone())?;
     Ok(V::Ext(ExtRc::new(SDMethod { st, dispatcher, func: f })))
 }

@@ -752,7 +752,7 @@ fn abc_has(v: &[Rc<Class>], c: &Rc<Class>) -> bool {
 }
 // ABCMeta.__subclasscheck__ (the C _abc_subclasscheck): cache, __subclasshook__, direct subclass,
 // registered classes, then subclasses, recursively.
-fn abc_subclasscheck(cls: &Rc<Class>, sub: &Rc<Class>) -> Result<bool, E> {
+pub fn abc_subclasscheck(cls: &Rc<Class>, sub: &Rc<Class>) -> Result<bool, E> {
     if abc_has(&cls.abc_cache.borrow(), sub) {
         return Ok(true);
     }

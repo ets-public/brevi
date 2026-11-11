@@ -182,6 +182,10 @@ fn walk_imports(body: &[parse::Stmt], out: &mut Vec<String>) {
             St::Import(v) => {
                 for (m, a) in v {
                     out.push(if a.is_some() { m.clone() } else { m.split('.').next().unwrap().to_string() });
+                    // `import collections.abc` loads collections.abc too: Brevi's ABCs, not its typing forms
+                    if a.is_none() && m == "collections.abc" {
+                        out.push(m.clone());
+                    }
                 }
             }
             St::ImportFrom(m, _) => out.push(m.clone()),
@@ -564,6 +568,10 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
             if d.join("__init__.py").is_file() && (d.join(format!("{n}.py")).is_file() || d.join(&n).join("__init__.py").is_file()) {
                 imps.push(format!("{m}.{n}"));
             }
+        }
+        // CPython's collections imports collections.abc and binds it as collections.abc
+        if imps.iter().any(|m| m == "collections") && !imps.iter().any(|m| m == "collections.abc") && texts.get(&mods[k].name).is_some_and(|t| t.1.contains(".abc")) {
+            imps.push("collections.abc".into());
         }
         // the builtin open(): Brevi's, in _brevi_open (emit.rs loads it when the program uses no CPython library)
         if texts.get(&mods[k].name).is_some_and(|t| uses_open(&t.1)) {

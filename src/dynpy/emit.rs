@@ -1943,7 +1943,7 @@ impl Em {
                 if let Some(m) = self.static_module(o) {
                     if m == "collections" && n == "abc" && self.user_modules.iter().any(|u| u == "collections.abc") {
                         let init = self.q(&format!("init_{}()", rust_ident("collections.abc")));
-                        return Ok(self.q(&format!("{{ {init} V::Module(&ModName(\"collections.abc\")) }}")));
+                        return Ok(self.q(&format!("{{ {init}; Ok::<V, E>(V::Module(&ModName(\"collections.abc\"))) }}")));
                     }
                     if self.user_modules.contains(&m) {
                         return self.user_mod_load(&m, n, line);
