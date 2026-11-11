@@ -1,0 +1,20 @@
+1 3 2 ['a', 'b'] ChainMap({'a': 1}, {'a': 2, 'b': 3}) <class 'collections.ChainMap'> collections
+True True True
+{'a'} {'a': 1, 'b': 3, 'z': 0}
+True 9 [('a', 1), ('b', 3), ('q', 9)]
+{'x': 1, 'y': 2} 1 True {'x': 1, 'y': 2, 'k': 1} UserDict
+[1, 2, 3] [2, 3] UserList [1, 2, 3, 1, 2, 3] [1, 2, 3, 9] True
+HELLO UserString el hello! 2 ab
+True True deque([1]) [('a', 2)]
+True
+8
+ChainMap({'a': 1}, {'a': 2, 'b': 3}) [1, 2, 3]
+True True True
+['ChainMap', 'Counter', 'OrderedDict', 'UserDict', 'UserList', 'UserString', 'defaultdict', 'deque', 'namedtuple']
+Ab c ['Ab', 'c'] xb c Ab cAb c True True False
+[-1, 0, 1, 2, 4, 7] 8 4 1 generator
+[10, 11, 2, 4, 7] 5 [11, 10, 7, 4, 2]
+KeyError "Key not found in the first mapping: 'zz'"
+ChainMap({}) [{}] 2 5 False ChainMap({}) ChainMap({'a': 0, 'b': 0})
+ChainMap({'x': 1}) ChainMap({'y': 2, 'x': 1})
+generator True

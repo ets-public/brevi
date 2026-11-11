@@ -21,9 +21,9 @@ if [ "$mode" = pr ]; then
   if [ -n "$base" ]; then
     fast="--changed-since $base"
     changed=$( { git diff --name-only "$base"; git ls-files --others --exclude-standard; } )
-    echo "$changed" | grep -qE '^(src/|Cargo\.(toml|lock)$|compat/|tools/compat\.py$|bench/(solutions|tasks|ref)/)' || compat=0
-    echo "$changed" | grep -qE '^(compat/|tools/compat\.py$|bench/(solutions|tasks)/)' || kinds=brevi
-    echo "$changed" | grep -qE '^(grammar/|tests/run/|bench/solutions/|compat/|tools/(grammar_check|lark_to_gbnf)\.py$|tools/requirements-ci\.txt$)' || grammar=0
+    echo "$changed" | grep -qE '^(src/|Cargo\.(toml|lock)$|compat/baseline\.txt$|tools/compat\.py$|bench/(solutions|tasks|ref)/)' || compat=0
+    echo "$changed" | grep -qE '^(compat/baseline\.txt$|tools/compat\.py$|bench/(solutions|tasks)/)' || kinds=brevi
+    echo "$changed" | grep -qE '^(grammar/|tests/run/|bench/solutions/|compat/baseline\.txt$|tools/(grammar_check|lark_to_gbnf)\.py$|tools/requirements-ci\.txt$)' || grammar=0
   fi
 fi
 step "Toolchain"; rustc -V; python3 -V
