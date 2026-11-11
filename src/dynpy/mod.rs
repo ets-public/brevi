@@ -263,12 +263,38 @@ fn package_native(pkg: &Path, top: &str) -> bool {
     }
     true
 }
+// os.py as the platform's os: on Windows, os.name "nt", the Windows separators and line ending, and ntpath as
+// os.path (CPython's os on Windows).
+fn os_py() -> &'static str {
+    const SRC: &str = include_str!("py/os.py");
+    if !cfg!(windows) {
+        return SRC;
+    }
+    static NT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    NT.get_or_init(|| os_nt(SRC))
+}
+fn os_nt(src: &str) -> String {
+    // a Windows checkout may have CRLF line endings (core.autocrlf), which include_str! keeps
+    let mut s = src.replace("\r\n", "\n");
+    for (a, b) in [("import posixpath as path\n", "import ntpath as path\n"), ("sep = \"/\"\n", "sep = \"\\\\\"\n"),
+                   ("altsep = None\n", "altsep = \"/\"\n"), ("linesep = \"\\n\"\n", "linesep = \"\\r\\n\"\n"), ("name = \"posix\"\n", "name = \"nt\"\n")] {
+        assert!(s.contains(a), "os.py no longer has {a:?}");
+        s = s.replacen(a, b, 1);
+    }
+    s
+}
 fn sandbox_module(m: &str) -> Option<&'static str> {
     Some(match m {
         "random" => include_str!("py/random.py"),
-        "os" => include_str!("py/os.py"),
+        "os" => os_py(),
         "posixpath" => include_str!("py/posixpath.py"),
+        "ntpath" => include_str!("py/ntpath.py"),
+        // os.path is the platform's: ntpath on Windows, as in CPython
+        "os.path" if cfg!(windows) => include_str!("py/ntpath.py"),
         "os.path" => include_str!("py/posixpath.py"),
+        // Brevi's pathlib is PurePosixPath-shaped; on Windows CPython's Path is a WindowsPath, so it is refused
+        // there (the program runs in CPython or, with --strict, does not build) rather than answer with POSIX paths.
+        "pathlib" if cfg!(windows) => return None,
         "pathlib" => include_str!("py/pathlib.py"),
         "io" => include_str!("py/io.py"),
         "textwrap" => include_str!("py/textwrap.py"),
@@ -1588,6 +1614,15 @@ fn uses_open(src: &str) -> bool {
 
 #[cfg(test)]
 mod libpin_tests {
+    // os.py keeps the lines os_nt rewrites for Windows, so the Windows os stays CPython's there.
+    #[test]
+    fn os_for_windows() {
+        let nt = super::os_nt(include_str!("py/os.py"));
+        for l in ["import ntpath as path", "sep = \"\\\\\"", "altsep = \"/\"", "linesep = \"\\r\\n\"", "name = \"nt\""] {
+            assert!(nt.lines().any(|x| x == l), "{l}");
+        }
+    }
+
     use super::brevi_libpin;
 
     #[test]

@@ -85,6 +85,10 @@ jobs:
         if: steps.seen.outputs.cache-hit != 'true'
         run: pwsh -NoProfile -File tests/windows/check.ps1
 
+      - name: Windows parity checks (argv, newlines, fibers, DLL search order, public TLS)
+        if: steps.seen.outputs.cache-hit != 'true'
+        run: pwsh -NoProfile -File tests/windows/parity.ps1
+
       - name: Remember this commit passed
         if: success() && steps.seen.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
