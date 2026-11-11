@@ -94,6 +94,19 @@ class Assertions(unittest.TestCase):
 
 
 class Inlining(unittest.TestCase):
+    def test_mixin_tests_run_with_the_c_copy_and_the_py_copy_is_excluded(self):
+        head = ("import unittest\nfrom test.support import import_helper\n"
+                "py_json = import_helper.import_fresh_module('json', blocked=['_json'])\n"
+                "c_json = import_helper.import_fresh_module('json', fresh=['_json'])\n"
+                "class Base:\n    def test_a(self):\n        self.assertEqual(self.module.dumps(1), '1')\n"
+                "@unittest.skipUnless(c_json, 'needs C')\nclass TC(Base, unittest.TestCase):\n    if c_json:\n        module = c_json\n"
+                "class TPy(Base, unittest.TestCase):\n    module = py_json\n")
+        u = universe("", head=head)
+        self.assertEqual(sorted(u.tests("test_x")), [("TC", "test_a"), ("TPy", "test_a")])
+        self.assertEqual(run(u.extract("test_x", "TC", "test_a")).stdout, "'1'\n")
+        with self.assertRaises(c.Excluded):
+            u.extract("test_x", "TPy", "test_a")
+
     def test_a_fresh_module_copy_is_the_module(self):
         s = cut("    def test_a(self):\n        self.assertEqual(py_json.dumps([1]), '[1]')\n",
                 head="import unittest\nfrom test.support import import_helper\n"

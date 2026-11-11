@@ -208,7 +208,7 @@ def fresh_module(node):
     if (isinstance(v, ast.Call) and isinstance(v.func, ast.Attribute) and v.func.attr == "import_fresh_module"
             and isinstance(v.func.value, ast.Name) and v.func.value.id == "import_helper"
             and v.args and isinstance(v.args[0], ast.Constant) and isinstance(v.args[0].value, str)):
-        return node.targets[0].id, v.args[0].value
+        return node.targets[0].id, v.args[0].value, any(k.arg == "blocked" for k in v.keywords)
     return None
 
 
@@ -223,7 +223,7 @@ class Mod:
         self.starts = [0]
         for line in data.split(b"\n"):
             self.starts.append(self.starts[-1] + len(line) + 1)
-        self.edits, self.defs, self.imports, self.stars = [], {}, {}, []
+        self.edits, self.defs, self.imports, self.stars, self.py_copies, self.fresh = [], {}, {}, [], set(), set()
         for node in self.tree.body:
             self.index(node)
 
@@ -244,6 +244,15 @@ class Mod:
             # run some classes against both its C and its pure-Python copy of a module. Brevi has one copy, so each
             # variant is the module itself, compared with what the reference CPython prints for its default copy.
             self.imports[fresh[0]] = ("import", fresh[1], fresh[0])
+            self.fresh.add(fresh[0])
+            if fresh[2]:
+                self.py_copies.add(fresh[0])
+        elif isinstance(node, ast.If) and isinstance(node.test, ast.Name) and node.test.id in self.fresh and not node.orelse:
+            # `if c_functools: class CPartialSubclass(c_functools.partial): ...`: the copy always exists, so the
+            # block defines what it defines; a test that needs one of its names takes the whole block
+            for sub in ast.walk(node):
+                if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) or (isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Store)):
+                    self.defs.setdefault(sub.name if not isinstance(sub, ast.Name) else sub.id, []).append(node)
         elif not (isinstance(node, ast.If) and "__name__" in ast.dump(node.test)):
             for sub in ast.walk(node):
                 if isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Store):
@@ -525,7 +534,16 @@ class Universe:
         if not bases:
             return None
         if len(bases) > 1:
-            raise CantExtract("more than one base class")
+            # `class TestPartialC(TestPartial, unittest.TestCase)`: mixins, then TestCase last. The MRO is then the
+            # class, each mixin's own line of bases in order, and TestCase, when no class appears twice.
+            if not self.is_testcase(bases[-1]):
+                raise CantExtract("more than one base class")
+            for b in bases[:-1]:
+                line = self.mixin_line(mod, b)
+                if line is None or any(c in out for c in line):
+                    raise CantExtract("more than one base class")
+                out += line
+            return out
         b = bases[0]
         if isinstance(b, ast.Attribute) and isinstance(b.value, ast.Name) and b.attr == "TestCase" and b.value.id == "unittest":
             return out
@@ -541,6 +559,26 @@ class Universe:
         found = [n for n in target[0].defs.get(target[1], []) if isinstance(n, ast.ClassDef)]
         rest = self.chain(target[0], found[0]) if found else None
         return out + rest if rest else None
+
+    @staticmethod
+    def is_testcase(b):
+        return isinstance(b, ast.Attribute) and isinstance(b.value, ast.Name) and b.attr == "TestCase" and b.value.id == "unittest"
+
+    def mixin_line(self, mod, b):
+        """A mixin base and its own bases, nearest first, down to object: [(mod, class), ...], or None."""
+        if not isinstance(b, ast.Name):
+            return None
+        found = [n for n in mod.defs.get(b.id, []) if isinstance(n, ast.ClassDef)]
+        if len(found) != 1:
+            return None
+        c = found[0]
+        bases = [x for x in c.bases if not (isinstance(x, ast.Name) and x.id == "object")]
+        if c.keywords or c.decorator_list or len(bases) > 1:
+            return None
+        if not bases:
+            return [(mod, c)]
+        rest = self.mixin_line(mod, bases[0])
+        return [(mod, c)] + rest if rest else None
 
     def tests(self, name):
         """(class, method) for every test the unittest loader would run in this file, inherited ones included."""
@@ -571,6 +609,11 @@ class Universe:
         if cls_name in EXCLUDED_CLASSES:
             raise Excluded(EXCLUDED_CLASSES[cls_name])
         chain = self.chain(mod, cls)
+        # `class TestLRUPy(TestLRU, unittest.TestCase): module = py_functools`: the same tests against the pure-Python
+        # copy. Brevi has one copy of the module, which its C-copy twin already scores.
+        class_level = [st for _, c in chain for st in c.body if not isinstance(st, (ast.FunctionDef, ast.AsyncFunctionDef))]
+        if mod.py_copies and any(isinstance(n, ast.Name) and n.id in mod.py_copies for st in class_level for n in ast.walk(st)):
+            raise Excluded("the pure-Python copy of a module CPython also tests in C (Brevi has one copy)")
         owner, fn = next((m, n) for m, c in chain for n in c.body
                          if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == method)
         for m, c in chain:
@@ -614,6 +657,10 @@ def condition_value(py, mod, test, trusted=False, cache={}):
     allowed = (ast.BoolOp, ast.UnaryOp, ast.Not, ast.Or, ast.And, ast.Compare, ast.Constant, ast.Name, ast.Load, ast.Attribute,
                ast.Call, ast.GtE, ast.Gt, ast.Lt, ast.LtE, ast.Eq, ast.NotEq, ast.Is, ast.IsNot, ast.In, ast.NotIn, ast.Tuple)
     text = ast.unparse(test)
+    if isinstance(test, ast.Name) and test.id in getattr(mod, "fresh", ()):
+        # `@skipUnless(c_functools, ...)`: the copy exists in the reference CPython, which has every C accelerator
+        # module (the extracted script imports the module itself under that name)
+        return True
     for n in ([] if trusted else ast.walk(test)):
         bad = not isinstance(n, allowed)
         if isinstance(n, ast.Name) and n.id not in CONDITION_NAMES:
@@ -783,6 +830,13 @@ class Script:
         return "\n".join(out) + "\n" + "\n".join(calls) + "\n"
 
     def member(self, mod, node, name):
+        if isinstance(node, ast.If) and isinstance(node.test, ast.Name) and node.test.id in mod.fresh:
+            # `if c_functools: module = c_functools`: the copy always exists (condition_value), so the body runs
+            for sub in node.body:
+                text = self.member(mod, sub, name)
+                if text is not None:
+                    return "\n".join(ln[4:] if ln.startswith("    ") else ln for ln in text.split("\n"))
+            return None
         if node is self.test_fn:
             return mod.bare(node)  # its decorators were dealt with (decorator_plan)
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == name:
