@@ -737,6 +737,10 @@ def self_used(text):
     def walk(node):
         for c in ast.iter_child_nodes(node):
             if isinstance(c, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)) and any(a.arg == "self" for a in c.args.args):
+                # its body's self is its own, but decorators and defaults run here: `@self.module.lru_cache(2)`
+                outer = getattr(c, "decorator_list", []) + c.args.defaults + [d for d in c.args.kw_defaults if d]
+                if any(walk(ast.Expression(o)) for o in outer):
+                    return True
                 continue
             if (isinstance(c, ast.Name) and c.id == "self") or walk(c):
                 return True
@@ -751,6 +755,22 @@ def has_mangled(text):
         if name.startswith("__") and not name.endswith("__"):
             return True
     return False
+
+
+class FreshMember:
+    """A class member inside `if c_functools:`, one indent deeper than the class body."""
+
+    def __init__(self, node):
+        self.node, self.lineno = node, node.lineno
+
+
+def flat_body(mod, body):
+    """A class body with each `if <fresh module>:` block opened up, so every member in it can be picked on its own."""
+    for node in body:
+        if isinstance(node, ast.If) and isinstance(node.test, ast.Name) and node.test.id in mod.fresh and not node.orelse:
+            yield from (FreshMember(sub) for sub in node.body)
+        else:
+            yield node
 
 
 class Script:
@@ -798,7 +818,7 @@ class Script:
                 continue
             done.add(name)
             for i, (mod, c) in enumerate(chain):
-                for node in c.body:
+                for node in flat_body(mod, c.body):
                     text = self.member(mod, node, name)
                     if text is None:
                         continue
@@ -830,13 +850,10 @@ class Script:
         return "\n".join(out) + "\n" + "\n".join(calls) + "\n"
 
     def member(self, mod, node, name):
-        if isinstance(node, ast.If) and isinstance(node.test, ast.Name) and node.test.id in mod.fresh:
+        if isinstance(node, FreshMember):
             # `if c_functools: module = c_functools`: the copy always exists (condition_value), so the body runs
-            for sub in node.body:
-                text = self.member(mod, sub, name)
-                if text is not None:
-                    return "\n".join(ln[4:] if ln.startswith("    ") else ln for ln in text.split("\n"))
-            return None
+            text = self.member(mod, node.node, name)
+            return None if text is None else "\n".join(ln[4:] if ln.startswith("    ") else ln for ln in text.split("\n"))
         if node is self.test_fn:
             return mod.bare(node)  # its decorators were dealt with (decorator_plan)
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == name:
@@ -1039,8 +1056,17 @@ def run_env(folder, seed):
             "PYTHONHASHSEED": str(seed), "PYTHONDONTWRITEBYTECODE": "1"}
 
 
+ADDRESS = re.compile(rb" at 0x[0-9a-fA-F]+>")
+
+
+def masked(run):
+    """The run with object addresses in default reprs (`<function f at 0x7f...>`) blanked. An address is where the
+    object happens to live in this process, so it differs on every CPython run and can never match a build's."""
+    return run._replace(out=ADDRESS.sub(b" at 0x?>", run.out)) if run else run
+
+
 def reference(py, script, folder, seed, cfg):
-    return run_limited([py, "-B", "-s", "-P", str(script)], str(folder), run_env(folder, seed), cfg.timeout, cfg.mem_mb, cfg.sandbox)
+    return masked(run_limited([py, "-B", "-s", "-P", str(script)], str(folder), run_env(folder, seed), cfg.timeout, cfg.mem_mb, cfg.sandbox))
 
 
 def last_line(data):
@@ -1126,7 +1152,7 @@ def run_case(case, cfg):
     modes = {}
     for mode in ("normal", "dyn"):
         exe, path, why, crashed = build(script, folder, mode, cfg)
-        got = run_limited([str(exe)], str(folder), run_env(folder, 1), cfg.timeout, cfg.mem_mb, cfg.sandbox) if exe else None
+        got = masked(run_limited([str(exe)], str(folder), run_env(folder, 1), cfg.timeout, cfg.mem_mb, cfg.sandbox)) if exe else None
         category, detail = classify(a, (exe is not None, why, crashed), got)
         if category == "wrong_output":
             # Two seeds can agree by luck on a small str set: try more before calling this Brevi's fault.
