@@ -1234,9 +1234,24 @@ pub fn functools_fn(name: &str, mut a: Args) -> R {
             acc
         }
         "cmp_to_key" => {
-            let f = a1(&a, name)?;
+            // cmp_to_key(mycmp) and K(obj) take their one argument by position or by name, as in CPython
+            fn one(mut a: Args, f: &str, n: &str) -> R {
+                // CPython's argument clinic: the count first, then the name
+                let total = a.p.len() + a.k.len();
+                if total > 1 {
+                    return type_err(format!("{f}() takes at most 1 argument ({total} given)"));
+                }
+                if let Some(v) = a.p.pop() {
+                    return Ok(v);
+                }
+                match a.kw(n) {
+                    Some(v) => Ok(v),
+                    None => type_err(format!("{f}() missing required argument '{n}' (pos 1)")),
+                }
+            }
+            let f = one(a, name, "mycmp")?;
             builtin("K", move |a: Args| {
-                let x = a1(&a, "K")?;
+                let x = one(a, "K", "obj")?;
                 Ok(V::Ext(ExtRc::new(CmpKey { f: f.clone(), v: x })))
             })
         }

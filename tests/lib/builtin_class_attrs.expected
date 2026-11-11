@@ -4,3 +4,9 @@ True
 2 9
 CacheInfo(hits=1, misses=2, maxsize=2, currsize=2) True CacheInfo(hits=1, misses=2, maxsize=3, currsize=4)
 CacheInfo ('hits', 'misses', 'maxsize', 'currsize')
+10 [3, 2, 1] 4
+cmp_to_key() missing required argument 'mycmp' (pos 1)
+K() missing required argument 'obj' (pos 1)
+K() takes at most 1 argument (2 given)
+K() takes at most 1 argument (2 given)
+cmp_to_key() missing required argument 'mycmp' (pos 1)

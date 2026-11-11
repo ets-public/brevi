@@ -27,3 +27,12 @@ sq(2), sq(2), sq(3)
 info = sq.cache_info()
 print(info, type(info) is functools._CacheInfo, functools._CacheInfo(1, 2, 3, 4))
 print(functools._CacheInfo.__name__, functools._CacheInfo._fields)
+import functools
+k = functools.cmp_to_key(mycmp=lambda x, y: y - x)
+o = k(10)
+print(o.obj, sorted([1, 3, 2], key=k), k(obj=4).obj)
+for f in (lambda: functools.cmp_to_key(), lambda: k(), lambda: k(1, 2), lambda: k(1, obj=2), lambda: functools.cmp_to_key(f=1)):
+    try:
+        f()
+    except TypeError as e:
+        print(e)

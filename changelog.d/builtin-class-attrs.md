@@ -1,1 +1,2 @@
 - Dynamic build: a builtin, or a library module's function, stored as a class attribute no longer binds as a method. `class T: reduce = functools.reduce` and then `T().reduce(f, xs)` works as in CPython, where these are not descriptors; before, `self` was passed as the first argument (#447). `functools._CacheInfo` is the class every `cache_info()` returns, and it can be called (#448).
+`functools.cmp_to_key(mycmp=f)` and `key(obj=x)` take their argument by name too, with CPython's errors.
