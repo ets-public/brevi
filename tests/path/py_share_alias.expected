@@ -1,0 +1,3 @@
+{"path":"dynamic","file":"_share_push.py","line":4,"fn":"push","why":"cannot work out the type of xs in push"}
+{"path":"dynamic","file":"_share_push.py","line":4,"fn":"push","why":"cannot work out the type of xs in push"}
+{"path":"dynamic","file":"_share_push.py","line":4,"fn":"push","why":"cannot work out the type of xs in push","fix":"write it: xs: TYPE","also":[{"file":"_share_push.py","line":4,"msg":"cannot work out the type of v in push","fix":"write it: v: TYPE"}]}
