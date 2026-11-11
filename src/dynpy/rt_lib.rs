@@ -1940,13 +1940,7 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
         "istitle" => V::Bool(t.chars().any(|c| c.is_alphabetic()) && py_title(t) == t),
         "isascii" => V::Bool(t.is_ascii()),
         "isprintable" => V::Bool(t.chars().all(|c| if c.is_ascii() { (' '..='~').contains(&c) } else { !tab_has(PY_NOPRINT, c) })),
-        "isidentifier" => V::Bool({
-            let mut cs = t.chars();
-            match cs.next() {
-                Some(c) if c == '_' || c.is_alphabetic() => cs.all(|c| c == '_' || c.is_alphanumeric()),
-                _ => false,
-            }
-        }),
+        "isidentifier" => V::Bool(py_isidentifier(t)),
         "ljust" | "rjust" | "center" => {
             a.want(name, 1, 2)?;
             let w = idx_of(&a.p[0])?.max(0) as usize;

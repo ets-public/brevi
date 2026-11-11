@@ -85,8 +85,6 @@ test_re.ReTests.test_qualified_re_split dyn issue=#418 owner=ets-public expires=
 test_re.ReTests.test_qualified_re_split normal issue=#418 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_qualified_re_sub dyn issue=#418 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_qualified_re_sub normal issue=#418 owner=ets-public expires=2026-12-11
-test_re.ReTests.test_re_escape dyn issue=#419 owner=ets-public expires=2026-12-11
-test_re.ReTests.test_re_escape normal issue=#419 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_re_escape_bytes dyn issue=#419 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_re_escape_bytes normal issue=#419 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_re_escape_non_ascii_bytes dyn issue=#419 owner=ets-public expires=2026-12-11

@@ -3,16 +3,17 @@
 #[derive(Clone, Debug)]
 pub enum RNode {
     Char(char),
-    Any,
+    Any(bool), // DOTALL in scope
     Class(Rc<RClass>),
-    Bol,
-    Eol,
+    Bol(bool), // MULTILINE in scope
+    Eol(bool),
     StrStart,
     StrEnd,
-    WordB(bool),
+    WordB(bool, bool), // boundary? (else \B), ASCII-only word characters
     Group(Rc<Vec<Vec<RNode>>>, Option<usize>),
-    Look(Rc<Vec<Vec<RNode>>>, bool, bool), // behind?, negative?
-    Backref(usize),
+    // behind?, negative?, and a look-behind's fixed width (set by the width pass after parsing)
+    Look(Rc<Vec<Vec<RNode>>>, bool, bool, Cell<usize>),
+    Backref(usize, u8), // group, IGNORECASE fold in scope (0, FOLD_UNI, FOLD_ASCII)
     Repeat(Box<RNode>, usize, usize, bool),
     Atomic(Rc<Vec<Vec<RNode>>>),
     // (?(1)yes|no)
@@ -22,7 +23,13 @@ pub enum RNode {
 pub struct RClass {
     items: Vec<CItem>,
     neg: bool,
+    ascii: bool,
+    // IGNORECASE as CPython's sre does it: the items hold lowercased characters and the input character is
+    // lowercased before the test (FOLD_UNI: Unicode simple lowercase; FOLD_ASCII: ASCII only; 0: as is)
+    fold: u8,
 }
+const FOLD_UNI: u8 = 1;
+const FOLD_ASCII: u8 = 2;
 #[derive(Clone, Debug)]
 enum CItem {
     Ch(char),
@@ -30,6 +37,9 @@ enum CItem {
     Digit(bool),
     Word(bool),
     Space(bool),
+    // CPython's RANGE_UNI_IGNORE (a range reaching past the BMP under Unicode IGNORECASE): the lowercased input
+    // character or its uppercase is in the range
+    RangeUI(char, char),
 }
 pub struct Prog {
     alts: Vec<Vec<RNode>>,
@@ -45,19 +55,156 @@ const F_X: i64 = 64;
 const F_A: i64 = 256;
 // The largest repeat count CPython's sre accepts (2**32 - 2); one more raises OverflowError.
 const MAX_REPEAT: usize = 0xFFFF_FFFE;
+const MAX_GROUPS: usize = 0x3FFF_FFFF;
 
-fn re_err<T>(msg: String) -> Result<T, E> {
-    Err(exc("error", msg))
+// CPython's re.PatternError: the instance's msg is the bare message; args[0] (and str()) carry the position.
+fn re_error(msg: &str, pattern: &str, pos: usize) -> E {
+    re_error_full(msg, pattern, pos, None)
+}
+fn re_error_full(msg: &str, pattern: &str, pos: usize, pat: Option<V>) -> E {
+    let mut full = format!("{msg} at position {pos}");
+    let mut lineno = 1usize;
+    let mut colno = pos + 1;
+    for (i, c) in pattern.chars().enumerate().take(pos) {
+        if c == '\n' {
+            lineno += 1;
+            colno = pos - i;
+        }
+    }
+    if pattern.contains('\n') {
+        full.push_str(&format!(" (line {lineno}, column {colno})"));
+    }
+    let o = Obj::new(exc_class("PatternError"));
+    o.set("msg", st(msg.to_string()));
+    match pat {
+        Some(p) => o.set("pattern", p),
+        None => o.set("pattern", st(pattern.to_string())),
+    }
+    o.set("pos", V::Int(pos as i64));
+    o.set("lineno", V::Int(lineno as i64));
+    o.set("colno", V::Int(colno as i64));
+    o.set("args", tup(vec![st(full)]));
+    E(V::Obj(o))
+}
+fn bytes_src(v: &V) -> Option<(String, V)> {
+    let V::Ext(x) = v else { return None };
+    let b = x.any().downcast_ref::<BytesV>()?;
+    Some((b.0.iter().map(|&c| c as char).collect(), v.clone()))
+}
+fn re_error_bytes(msg: &str, pat: &V, pos: usize) -> E {
+    let Some((decoded, pat)) = bytes_src(pat) else { return re_error(msg, "", pos) };
+    re_error_full(msg, &decoded, pos, Some(pat))
+}
+fn py_ascii(s: &str) -> String {
+    backslashreplace(&str_repr(s))
+}
+fn backslashreplace(s: &str) -> String {
+    let mut out = String::new();
+    for c in s.chars() {
+        match c as u32 {
+            0..=0x7f => out.push(c),
+            u @ 0x80..=0xff => write!(out, "\\x{u:02x}").unwrap(),
+            u @ 0x100..=0xffff => write!(out, "\\u{u:04x}").unwrap(),
+            u => write!(out, "\\U{u:08x}").unwrap(),
+        }
+    }
+    out
+}
+fn py_repr(s: &str) -> String {
+    str_repr(s)
 }
 
 struct RP<'a> {
     c: &'a [char],
+    src: &'a str,
     i: usize,
     flags: i64,
     ngroups: usize,
+    open: Vec<usize>,
     names: Vec<(String, usize)>,
+    lb: Option<usize>,
+    global_ok: bool,
+    cond_refs: Vec<(usize, usize)>,
+    bytes: bool,
+    pat: Option<V>,
+    // a lone backslash at the end: CPython's tokenizer raises for it as soon as the token before it is read
+    tail_bs: Option<usize>,
+    // Unicode IGNORECASE was used (refused when Rust's Unicode tables are not ones case_after_15_1 covers)
+    uni_fold: Cell<bool>,
+}
+// str.isidentifier(), with CPython 3.13's tables
+pub fn py_isidentifier(s: &str) -> bool {
+    let mut cs = s.chars();
+    match cs.next() {
+        Some(c) if c.is_ascii() && (c == '_' || c.is_ascii_alphabetic()) => {}
+        Some(c) if !c.is_ascii() && tab_has(PY_ID_START, c) => {}
+        _ => return false,
+    }
+    cs.all(|c| if c.is_ascii() { c == '_' || c.is_ascii_alphanumeric() } else { tab_has(PY_ID_CONT, c) })
+}
+// The message for a group name CPython rejects, None when it accepts it; Err for a name this engine cannot judge.
+fn bad_group_name(name: &str, bytes: bool) -> Result<Option<String>, E> {
+    if bytes && !name.is_ascii() {
+        return Ok(Some(format!("bad character in group name {}", py_ascii(name))));
+    }
+    if py_isidentifier(name) {
+        Ok(None)
+    } else {
+        Ok(Some(format!("bad character in group name {}", py_repr(name))))
+    }
+}
+fn is_flag_char(c: char) -> bool {
+    matches!(c, 'i' | 'm' | 's' | 'x' | 'a' | 'u' | 'L')
+}
+fn flag_bit(c: char) -> i64 {
+    match c {
+        'i' => F_I,
+        'm' => F_M,
+        's' => F_S,
+        'x' => F_X,
+        'a' => F_A,
+        'u' => 32,
+        _ => 4,
+    }
 }
 impl<'a> RP<'a> {
+    fn overflow<T>(&self) -> Result<T, E> {
+        match self.tail_bs {
+            Some(t) if self.i >= t => self.err("", t),
+            _ => Err(exc("OverflowError", "the repetition number is too large".into())),
+        }
+    }
+    fn err<T>(&self, msg: &str, pos: usize) -> Result<T, E> {
+        let (msg, pos) = match self.tail_bs {
+            Some(t) if self.i >= t => ("bad escape (end of pattern)", t),
+            _ => (msg, pos),
+        };
+        match &self.pat {
+            // bytes patterns: CPython escapes non-ASCII characters in the message ('backslashreplace')
+            Some(p) => Err(re_error_bytes(&backslashreplace(msg), p, pos)),
+            None => Err(re_error(msg, self.src, pos)),
+        }
+    }
+    // CPython's tokenizer hands an escape over as one token: `\\` plus the next character.
+    // the IGNORECASE folding the flags in scope ask for (bytes patterns fold ASCII only)
+    fn fold_mode(&self) -> u8 {
+        if self.bytes || (self.flags & F_A != 0 && self.flags & 32 == 0) {
+            FOLD_ASCII
+        } else {
+            self.uni_fold.set(true);
+            FOLD_UNI
+        }
+    }
+    fn backref(&self, g: usize) -> RNode {
+        RNode::Backref(g, if self.flags & F_I != 0 { self.fold_mode() } else { 0 })
+    }
+    fn token_at(&self, i: usize) -> String {
+        match self.c.get(i) {
+            Some('\\') => self.c[i..(i + 2).min(self.c.len())].iter().collect(),
+            Some(&c) => c.to_string(),
+            None => String::new(),
+        }
+    }
     fn peek(&self) -> Option<char> {
         self.c.get(self.i).copied()
     }
@@ -67,7 +214,7 @@ impl<'a> RP<'a> {
         }
         loop {
             match self.peek() {
-                Some(c) if c.is_whitespace() => self.i += 1,
+                Some(' ' | '\t' | '\n' | '\r' | '\x0b' | '\x0c') => self.i += 1,
                 Some('#') => {
                     while let Some(c) = self.peek() {
                         self.i += 1;
@@ -84,47 +231,57 @@ impl<'a> RP<'a> {
         let mut alts = vec![self.seq()?];
         while self.peek() == Some('|') {
             self.i += 1;
+            self.global_ok = false;
             alts.push(self.seq()?);
         }
         Ok(alts)
     }
     fn seq(&mut self) -> Result<Vec<RNode>, E> {
-        let mut v = vec![];
+        let mut v: Vec<RNode> = vec![];
+        // whether v's last item came from a quantifier (an explicit (?>...) group is not one)
+        let mut last_rep = false;
         loop {
             self.skip_x();
             match self.peek() {
                 None | Some('|') | Some(')') => return Ok(v),
                 _ => {}
             }
-            let start = self.i;
-            let atom = self.atom()?;
-            let Some(atom) = atom else { continue };
-            self.skip_x();
-            let q = self.quant()?;
-            match q {
-                Some((lo, hi, greedy, poss)) => {
-                    if matches!(atom, RNode::Bol | RNode::Eol | RNode::StrStart | RNode::StrEnd | RNode::WordB(_) | RNode::Look(..)) && false {
-                        let _ = start;
+            // A repeat after an item quantifies that item (a second repeat is "multiple repeat").
+            if !v.is_empty() && matches!(self.peek(), Some('*') | Some('+') | Some('?') | Some('{')) {
+                let q = self.quant()?;
+                if let Some((lo, hi, greedy, poss, qstart)) = q {
+                    let atom = v.pop().unwrap();
+                    if matches!(atom, RNode::Bol(_) | RNode::Eol(_) | RNode::StrStart | RNode::StrEnd | RNode::WordB(..)) {
+                        return self.err("nothing to repeat", qstart);
                     }
-                    if let RNode::Repeat(..) = atom {
-                        return re_err(format!("multiple repeat at position {}", self.i - 1));
+                    if last_rep {
+                        return self.err("multiple repeat", qstart);
                     }
                     let r = RNode::Repeat(Box::new(atom), lo, hi, greedy);
                     v.push(if poss { RNode::Atomic(Rc::new(vec![vec![r]])) } else { r });
+                    last_rep = true;
+                    continue;
                 }
-                None => v.push(atom),
             }
-        }
-    }
-    fn num(&mut self) -> Option<usize> {
-        let s = self.i;
-        while self.peek().is_some_and(|c| c.is_ascii_digit()) {
-            self.i += 1;
-        }
-        if s == self.i {
-            None
-        } else {
-            self.c[s..self.i].iter().collect::<String>().parse().ok()
+            let atom = self.atom()?;
+            let Some(atom) = atom else { continue };
+            self.global_ok = false;
+            self.skip_x();
+            let q = self.quant()?;
+            match q {
+                Some((lo, hi, greedy, poss, qstart)) => {
+                    if matches!(atom, RNode::Bol(_) | RNode::Eol(_) | RNode::StrStart | RNode::StrEnd | RNode::WordB(..)) {
+                        return self.err("nothing to repeat", qstart);
+                    }
+                    let r = RNode::Repeat(Box::new(atom), lo, hi, greedy);
+                    v.push(if poss { RNode::Atomic(Rc::new(vec![vec![r]])) } else { r });
+                    last_rep = true;
+                }
+                None => {
+                    v.push(atom);
+                    last_rep = false;
+                }
+            }
         }
     }
     // A quantifier count: None when there are no digits, plus a flag when the digits
@@ -142,7 +299,46 @@ impl<'a> RP<'a> {
             _ => (None, true),
         }
     }
-    fn quant(&mut self) -> Result<Option<(usize, usize, bool, bool)>, E> {
+    // Parses `{m,n}` with self.i just after `{`; leaves self.i just after `{` when it is not a quantifier.
+    fn brace(&mut self) -> Result<Option<(usize, usize)>, E> {
+        let after = self.i;
+        let (lo, lo_big) = self.rep_num();
+        let (r, big) = if self.peek() == Some(',') {
+            self.i += 1;
+            let (hi, hi_big) = self.rep_num();
+            ((lo.unwrap_or(0), hi.unwrap_or(usize::MAX)), lo_big || hi_big)
+        } else {
+            match lo {
+                Some(n) => ((n, n), lo_big),
+                None if lo_big => {
+                    if self.peek() == Some('}') {
+                        self.i += 1;
+                        return self.overflow();
+                    }
+                    self.i = after;
+                    return Ok(None);
+                }
+                None => {
+                    self.i = after;
+                    return Ok(None);
+                }
+            }
+        };
+        if self.peek() != Some('}') {
+            self.i = after;
+            return Ok(None);
+        }
+        self.i += 1;
+        if big {
+            return self.overflow();
+        }
+        if r.1 < r.0 {
+            return self.err("min repeat greater than max repeat", after);
+        }
+        Ok(Some(r))
+    }
+    fn quant(&mut self) -> Result<Option<(usize, usize, bool, bool, usize)>, E> {
+        let start = self.i;
         let (lo, hi) = match self.peek() {
             Some('*') => {
                 self.i += 1;
@@ -157,42 +353,14 @@ impl<'a> RP<'a> {
                 (0, 1)
             }
             Some('{') => {
-                let save = self.i;
                 self.i += 1;
-                let (lo, lo_big) = self.rep_num();
-                let (r, big) = if self.peek() == Some(',') {
-                    self.i += 1;
-                    let (hi, hi_big) = self.rep_num();
-                    ((lo.unwrap_or(0), hi.unwrap_or(usize::MAX)), lo_big || hi_big)
-                } else {
-                    match lo {
-                        Some(n) => ((n, n), lo_big),
-                        None if lo_big => {
-                            if self.peek() == Some('}') {
-                                self.i += 1;
-                                return Err(exc("OverflowError", "the repetition number is too large".into()));
-                            }
-                            self.i = save;
-                            return Ok(None);
-                        }
-                        None => {
-                            self.i = save;
-                            return Ok(None);
-                        }
+                match self.brace()? {
+                    Some(r) => r,
+                    None => {
+                        self.i = start;
+                        return Ok(None);
                     }
-                };
-                if self.peek() != Some('}') {
-                    self.i = save;
-                    return Ok(None);
                 }
-                self.i += 1;
-                if big {
-                    return Err(exc("OverflowError", "the repetition number is too large".into()));
-                }
-                if r.1 < r.0 {
-                    return re_err(format!("min repeat greater than max repeat at position {}", save + 1));
-                }
-                r
             }
             _ => return Ok(None),
         };
@@ -205,244 +373,163 @@ impl<'a> RP<'a> {
             self.i += 1;
             poss = true;
         }
-        Ok(Some((lo, hi, greedy, poss)))
+        Ok(Some((lo, hi, greedy, poss, start)))
     }
-    fn escape_char(&mut self, c: char) -> Result<Option<char>, E> {
-        Ok(Some(match c {
+    fn plain_escape(&self, c: char) -> Option<char> {
+        Some(match c {
             'n' => '\n',
             't' => '\t',
             'r' => '\r',
             'f' => '\x0c',
             'v' => '\x0b',
             'a' => '\x07',
-            '0' => {
-                let mut v = 0u32;
-                let mut k = 0;
-                while k < 2 && self.peek().is_some_and(|c| ('0'..='7').contains(&c)) {
-                    v = v * 8 + self.peek().unwrap().to_digit(8).unwrap();
-                    self.i += 1;
-                    k += 1;
-                }
-                char::from_u32(v).unwrap_or('\0')
-            }
-            'x' | 'u' | 'U' => {
-                let n = match c {
-                    'x' => 2,
-                    'u' => 4,
-                    _ => 8,
-                };
-                let h: String = self.c.get(self.i..self.i + n).map(|x| x.iter().collect()).unwrap_or_default();
-                let v = u32::from_str_radix(&h, 16).ok().filter(|_| h.len() == n);
-                match v.and_then(char::from_u32) {
-                    Some(ch) => {
-                        self.i += n;
-                        ch
-                    }
-                    None => return re_err(format!("incomplete escape \\{c}{h}")),
-                }
-            }
-            c if c.is_ascii_alphanumeric() => return Ok(None),
+            c if c.is_ascii_alphabetic() => return None,
             c => c,
-        }))
+        })
     }
-    fn atom(&mut self) -> Result<Option<RNode>, E> {
-        let c = self.peek().unwrap();
-        self.i += 1;
-        let ic = self.flags & F_I != 0;
-        let ch = |c: char| if ic { RNode::Class(Rc::new(RClass { items: fold_items(c), neg: false })) } else { RNode::Char(c) };
-        Ok(Some(match c {
-            '.' => RNode::Any,
-            '^' => RNode::Bol,
-            '$' => RNode::Eol,
-            '*' | '+' | '?' => return re_err(format!("nothing to repeat at position {}", self.i - 1)),
-            '{' => {
-                // a literal { unless it is a valid quantifier (which has nothing to repeat)
-                ch('{')
-            }
-            '[' => self.class()?,
-            '(' => return self.group(),
-            '\\' => {
-                let Some(e) = self.peek() else { return re_err("bad escape (end of pattern)".into()) };
-                self.i += 1;
-                match e {
-                    'd' | 'D' => RNode::Class(Rc::new(RClass { items: vec![CItem::Digit(e == 'D')], neg: false })),
-                    'w' | 'W' => RNode::Class(Rc::new(RClass { items: vec![CItem::Word(e == 'W')], neg: false })),
-                    's' | 'S' => RNode::Class(Rc::new(RClass { items: vec![CItem::Space(e == 'S')], neg: false })),
-                    'b' => RNode::WordB(true),
-                    'B' => RNode::WordB(false),
-                    'A' => RNode::StrStart,
-                    'Z' | 'z' => RNode::StrEnd,
-                    '1'..='9' => {
-                        self.i -= 1;
-                        let n = self.num().unwrap();
-                        if n > self.ngroups {
-                            return re_err(format!("invalid group reference {n} at position {}", self.i));
-                        }
-                        RNode::Backref(n)
-                    }
-                    _ => match self.escape_char(e)? {
-                        Some(c) => ch(c),
-                        None => return re_err(format!("bad escape \\{e} at position {}", self.i - 2)),
-                    },
-                }
-            }
-            c => ch(c),
-        }))
-    }
-    fn group(&mut self) -> Result<Option<RNode>, E> {
-        if self.peek() == Some('?') {
+    fn hex_escape(&mut self, c: char, back: usize) -> Result<char, E> {
+        let n = match c {
+            'x' => 2,
+            'u' => 4,
+            _ => 8,
+        };
+        let mut h = String::new();
+        while h.len() < n && self.peek().is_some_and(|c| c.is_ascii_hexdigit()) {
+            h.push(self.peek().unwrap());
             self.i += 1;
-            let k = self.peek();
-            match k {
-                Some(':') => {
+        }
+        if h.len() != n {
+            return self.err(&format!("incomplete escape \\{c}{h}"), back);
+        }
+        let v = u32::from_str_radix(&h, 16).unwrap();
+        match char::from_u32(v) {
+            Some(ch) => Ok(ch),
+            None => self.err(&format!("bad escape \\{c}{h}"), back),
+        }
+    }
+    fn octal_escape(&mut self, first: char, back: usize) -> Result<char, E> {
+        let mut ds = vec![first];
+        while ds.len() < 3 && self.peek().is_some_and(|c| ('0'..='7').contains(&c)) {
+            ds.push(self.peek().unwrap());
+            self.i += 1;
+        }
+        let d: String = ds.iter().collect();
+        let v = u32::from_str_radix(&d, 8).unwrap();
+        if v > 0o377 {
+            return self.err(&format!("octal escape value \\{d} outside of range 0-0o377"), back);
+        }
+        Ok(char::from_u32(v).unwrap())
+    }
+    // CPython's checklookbehindgroup for (?(N)...) inside a look-behind; positions are just past the `)`.
+    fn cond_lookbehind(&self, g: usize) -> Result<(), E> {
+        let Some(lb) = self.lb else { return Ok(()) };
+        if g > self.ngroups || self.open.contains(&g) {
+            return self.err("cannot refer to an open group", self.i);
+        }
+        if g >= lb {
+            return self.err("cannot refer to group defined in the same lookbehind subpattern", self.i);
+        }
+        Ok(())
+    }
+    fn check_backref(&self, g: usize, pos: usize) -> Result<(), E> {
+        if g > self.ngroups {
+            return self.err(&format!("invalid group reference {g}"), pos);
+        }
+        if self.open.contains(&g) {
+            return self.err("cannot refer to an open group", pos);
+        }
+        if let Some(lb) = self.lb {
+            if g >= lb {
+                return self.err("cannot refer to group defined in the same lookbehind subpattern", self.i);
+            }
+        }
+        Ok(())
+    }
+    fn group_or_octal(&mut self, first: char, back: usize) -> Result<RNode, E> {
+        let mut ds = vec![first];
+        if self.peek().is_some_and(|c| c.is_ascii_digit()) {
+            let d2 = self.peek().unwrap();
+            self.i += 1;
+            ds.push(d2);
+            if ('0'..='7').contains(&first) && ('0'..='7').contains(&d2) && self.peek().is_some_and(|c| ('0'..='7').contains(&c)) {
+                let d3 = self.peek().unwrap();
+                self.i += 1;
+                ds.push(d3);
+                let d: String = ds.iter().collect();
+                let v = u32::from_str_radix(&d, 8).unwrap();
+                if v > 0o377 {
+                    return self.err(&format!("octal escape value \\{d} outside of range 0-0o377"), back);
+                }
+                return Ok(RNode::Char(char::from_u32(v).unwrap()));
+            }
+        }
+        let d: String = ds.iter().collect();
+        let g = d.parse::<usize>().unwrap_or(usize::MAX);
+        if g > self.ngroups {
+            return self.err(&format!("invalid group reference {g}"), back + 1);
+        }
+        if self.open.contains(&g) {
+            return self.err("cannot refer to an open group", back);
+        }
+        if let Some(lb) = self.lb {
+            if g >= lb {
+                return self.err("cannot refer to group defined in the same lookbehind subpattern", self.i);
+            }
+        }
+        Ok(self.backref(g))
+    }
+    fn get_name(&mut self, term: char, what: &str) -> Result<(String, usize), E> {
+        let start = self.i;
+        let mut name = String::new();
+        while let Some(c) = self.peek() {
+            if c == term {
+                let at = self.i;
+                self.i += 1;
+                if name.is_empty() {
+                    return self.err(&format!("missing {what}"), at);
+                }
+                return Ok((name, start));
+            }
+            self.i += 1;
+            name.push(c);
+            // an escape is one token for CPython's getuntil: `\>` does not end the name
+            if c == '\\' {
+                if let Some(n) = self.peek() {
                     self.i += 1;
-                    let a = self.alts()?;
-                    self.close()?;
-                    return Ok(Some(RNode::Group(Rc::new(a), None)));
-                }
-                Some('>') => {
-                    self.i += 1;
-                    let a = self.alts()?;
-                    self.close()?;
-                    return Ok(Some(RNode::Atomic(Rc::new(a))));
-                }
-                Some('=') | Some('!') => {
-                    self.i += 1;
-                    let a = self.alts()?;
-                    self.close()?;
-                    return Ok(Some(RNode::Look(Rc::new(a), false, k == Some('!'))));
-                }
-                Some('<') if matches!(self.c.get(self.i + 1), Some('=') | Some('!')) => {
-                    let neg = self.c[self.i + 1] == '!';
-                    self.i += 2;
-                    let a = self.alts()?;
-                    self.close()?;
-                    return Ok(Some(RNode::Look(Rc::new(a), true, neg)));
-                }
-                Some('P') | Some('<') => {
-                    if k == Some('P') {
-                        self.i += 1;
-                    }
-                    match self.peek() {
-                        Some('<') => {
-                            self.i += 1;
-                            let s = self.i;
-                            while self.peek().is_some_and(|c| c != '>') {
-                                self.i += 1;
-                            }
-                            let name: String = self.c[s..self.i].iter().collect();
-                            self.i += 1;
-                            if let Some(&(_, old)) = self.names.iter().find(|x| x.0 == name) {
-                                return re_err(format!(
-                                    "redefinition of group name '{name}' as group {}; was group {old} at position {s}",
-                                    self.ngroups + 1
-                                ));
-                            }
-                            self.ngroups += 1;
-                            let g = self.ngroups;
-                            self.names.push((name, g));
-                            let a = self.alts()?;
-                            self.close()?;
-                            return Ok(Some(RNode::Group(Rc::new(a), Some(g))));
-                        }
-                        Some('=') => {
-                            self.i += 1;
-                            let s = self.i;
-                            while self.peek().is_some_and(|c| c != ')') {
-                                self.i += 1;
-                            }
-                            let name: String = self.c[s..self.i].iter().collect();
-                            self.i += 1;
-                            return match self.names.iter().find(|x| x.0 == name) {
-                                Some(x) => Ok(Some(RNode::Backref(x.1))),
-                                None => re_err(format!("unknown group name '{name}'")),
-                            };
-                        }
-                        _ => return re_err("unknown extension ?P".into()),
-                    }
-                }
-                Some('#') => {
-                    while self.peek().is_some_and(|c| c != ')') {
-                        self.i += 1;
-                    }
-                    self.i += 1;
-                    return Ok(None);
-                }
-                Some('(') => {
-                    self.i += 1;
-                    let n = match self.num() {
-                        Some(n) => n,
-                        None => {
-                            let s = self.i;
-                            while self.peek().is_some_and(|c| c != ')') {
-                                self.i += 1;
-                            }
-                            let name: String = self.c[s..self.i].iter().collect();
-                            self.names.iter().find(|x| x.0 == name).map(|x| x.1).ok_or_else(|| exc("error", format!("unknown group name '{name}'")))?
-                        }
-                    };
-                    self.close()?;
-                    let yes = self.seq()?;
-                    let no = if self.peek() == Some('|') {
-                        self.i += 1;
-                        self.seq()?
-                    } else {
-                        vec![]
-                    };
-                    self.close()?;
-                    return Ok(Some(RNode::Cond(n, Rc::new(yes), Rc::new(no))));
-                }
-                _ => {
-                    // inline flags: (?aiLmsux) or (?flags:...)
-                    let mut on = 0;
-                    let mut off = 0;
-                    let mut neg = false;
-                    loop {
-                        match self.peek() {
-                            Some('i') => *(if neg { &mut off } else { &mut on }) |= F_I,
-                            Some('m') => *(if neg { &mut off } else { &mut on }) |= F_M,
-                            Some('s') => *(if neg { &mut off } else { &mut on }) |= F_S,
-                            Some('x') => *(if neg { &mut off } else { &mut on }) |= F_X,
-                            Some('a') => on |= F_A,
-                            Some('u') | Some('L') => {}
-                            Some('-') => neg = true,
-                            Some(')') => {
-                                self.i += 1;
-                                self.flags |= on;
-                                return Ok(None);
-                            }
-                            Some(':') => {
-                                self.i += 1;
-                                let saved = self.flags;
-                                self.flags = (self.flags | on) & !off;
-                                let a = self.alts()?;
-                                self.flags = saved;
-                                self.close()?;
-                                return Ok(Some(RNode::Group(Rc::new(a), None)));
-                            }
-                            _ => return re_err(format!("unknown extension ?{} at position {}", self.peek().unwrap_or(' '), self.i - 1)),
-                        }
-                        self.i += 1;
-                    }
+                    name.push(n);
                 }
             }
         }
-        self.ngroups += 1;
-        let g = self.ngroups;
-        let a = self.alts()?;
-        self.close()?;
-        Ok(Some(RNode::Group(Rc::new(a), Some(g))))
+        if name.is_empty() {
+            self.err(&format!("missing {what}"), self.i)
+        } else {
+            self.err(&format!("missing {term}, unterminated name"), start)
+        }
     }
-    fn close(&mut self) -> Result<(), E> {
+    fn check_group_name(&self, name: &str, start: usize) -> Result<(), E> {
+        match bad_group_name(name, self.bytes)? {
+            Some(msg) => self.err(&msg, start),
+            None => Ok(()),
+        }
+    }
+    fn close(&mut self, gstart: usize) -> Result<(), E> {
         if self.peek() == Some(')') {
             self.i += 1;
             Ok(())
         } else {
-            re_err(format!("missing ), unterminated subpattern at position {}", self.i))
+            self.err("missing ), unterminated subpattern", gstart)
         }
     }
+    fn sub_parse(&mut self) -> Result<Vec<Vec<RNode>>, E> {
+        let ok = self.global_ok;
+        self.global_ok = false;
+        let a = self.alts();
+        self.global_ok = ok;
+        a
+    }
     fn class(&mut self) -> Result<RNode, E> {
-        let mut items = vec![];
+        let open = self.i - 1;
+        let mut items: Vec<CItem> = vec![];
         let mut neg = false;
         if self.peek() == Some('^') {
             neg = true;
@@ -450,83 +537,568 @@ impl<'a> RP<'a> {
         }
         let mut first = true;
         loop {
-            let Some(c) = self.peek() else { return re_err("unterminated character set".into()) };
+            let Some(c) = self.peek() else { return self.err("unterminated character set", open) };
+            let lo_start = self.i;
             self.i += 1;
             if c == ']' && !first {
                 break;
             }
             first = false;
-            let lo = if c == '\\' {
-                let e = self.peek().ok_or_else(|| exc("error", "bad escape (end of pattern)".into()))?;
+            let (lo, lo_disp) = if c == '\\' {
+                let back = lo_start;
+                let Some(e) = self.peek() else { return self.err("bad escape (end of pattern)", back) };
+                self.i += 1;
+                let item = match e {
+                    'd' | 'D' => CItem::Digit(e == 'D'),
+                    'w' | 'W' => CItem::Word(e == 'W'),
+                    's' | 'S' => CItem::Space(e == 'S'),
+                    'b' => CItem::Ch('\x08'),
+                    'x' | 'u' | 'U' => CItem::Ch(self.hex_escape(e, back)?),
+                    '0'..='7' => CItem::Ch(self.octal_escape(e, back)?),
+                    '8' | '9' => return self.err(&format!("bad escape \\{e}"), back),
+                    'N' => {
+                        if self.peek() != Some('{') {
+                            return self.err("missing {", self.i);
+                        }
+                        return Err(unsupported("re with a \\N{...} pattern"));
+                    }
+                    _ => match self.plain_escape(e) {
+                        Some(ch) => CItem::Ch(ch),
+                        None => return self.err(&format!("bad escape \\{e}"), back),
+                    },
+                };
+                (item, self.token_at(lo_start))
+            } else {
+                (CItem::Ch(c), c.to_string())
+            };
+            if self.peek() == Some('-') {
+                self.i += 1;
+                let Some(that) = self.peek() else { return self.err("unterminated character set", open) };
+                let hi_start = self.i;
+                self.i += 1;
+                if that == ']' {
+                    items.push(lo);
+                    items.push(CItem::Ch('-'));
+                    break;
+                }
+                let (hi, hi_disp) = if that == '\\' {
+                    let back = hi_start;
+                    let Some(e) = self.peek() else { return self.err("bad escape (end of pattern)", back) };
+                    self.i += 1;
+                    let item = match e {
+                        'd' | 'D' => CItem::Digit(e == 'D'),
+                        'w' | 'W' => CItem::Word(e == 'W'),
+                        's' | 'S' => CItem::Space(e == 'S'),
+                        'b' => CItem::Ch('\x08'),
+                        'x' | 'u' | 'U' => CItem::Ch(self.hex_escape(e, back)?),
+                        '0'..='7' => CItem::Ch(self.octal_escape(e, back)?),
+                        '8' | '9' => return self.err(&format!("bad escape \\{e}"), back),
+                        'N' => {
+                            if self.peek() != Some('{') {
+                                return self.err("missing {", self.i);
+                            }
+                            return Err(unsupported("re with a \\N{...} pattern"));
+                        }
+                        _ => match self.plain_escape(e) {
+                            Some(ch) => CItem::Ch(ch),
+                            None => return self.err(&format!("bad escape \\{e}"), back),
+                        },
+                    };
+                    (item, self.token_at(hi_start))
+                } else {
+                    (CItem::Ch(that), that.to_string())
+                };
+                let is_cat = |x: &CItem| matches!(x, CItem::Digit(_) | CItem::Word(_) | CItem::Space(_));
+                // CPython names the range by its tokens (an escape is `\\` and one character) and puts the
+                // position that many characters back from the end of the range
+                let back = (self.i).saturating_sub(lo_disp.chars().count() + 1 + hi_disp.chars().count());
+                if is_cat(&lo) || is_cat(&hi) {
+                    return self.err(&format!("bad character range {lo_disp}-{hi_disp}"), back);
+                }
+                let (CItem::Ch(a), CItem::Ch(b)) = (&lo, &hi) else { unreachable!() };
+                if b < a {
+                    return self.err(&format!("bad character range {lo_disp}-{hi_disp}"), back);
+                }
+                items.push(CItem::Range(*a, *b));
+            } else {
+                items.push(lo);
+            }
+        }
+        let ascii = self.flags & F_A != 0 && self.flags & 32 == 0;
+        let mut fold = 0;
+        if self.flags & F_I != 0 {
+            (items, fold) = fold_set(items, self.fold_mode());
+        }
+        Ok(RNode::Class(Rc::new(RClass { items, neg, ascii, fold })))
+    }
+    fn atom(&mut self) -> Result<Option<RNode>, E> {
+        let c = self.peek().unwrap();
+        let at = self.i;
+        self.i += 1;
+        let ic = self.flags & F_I != 0;
+        let ascii = self.flags & F_A != 0 && self.flags & 32 == 0;
+        let fm = if ic { self.fold_mode() } else { 0 };
+        let ch = |c: char| if ic { fold_literal(c, fm, ascii) } else { RNode::Char(c) };
+        Ok(Some(match c {
+            '.' => RNode::Any(self.flags & F_S != 0),
+            '^' => RNode::Bol(self.flags & F_M != 0),
+            '$' => RNode::Eol(self.flags & F_M != 0),
+            '*' | '+' | '?' => return self.err("nothing to repeat", at),
+            '{' => {
+                if self.peek() != Some('}') && self.brace()?.is_some() {
+                    return self.err("nothing to repeat", at);
+                }
+                ch('{')
+            }
+            '[' => self.class()?,
+            '(' => return self.group(),
+            '\\' => {
+                let back = self.i - 1;
+                let Some(e) = self.peek() else { return self.err("bad escape (end of pattern)", back) };
                 self.i += 1;
                 match e {
-                    'd' | 'D' => {
-                        items.push(CItem::Digit(e == 'D'));
-                        continue;
+                    'd' | 'D' => RNode::Class(Rc::new(RClass { items: vec![CItem::Digit(e == 'D')], neg: false, ascii, fold: 0 })),
+                    'w' | 'W' => RNode::Class(Rc::new(RClass { items: vec![CItem::Word(e == 'W')], neg: false, ascii, fold: 0 })),
+                    's' | 'S' => RNode::Class(Rc::new(RClass { items: vec![CItem::Space(e == 'S')], neg: false, ascii, fold: 0 })),
+                    'b' => RNode::WordB(true, ascii),
+                    'B' => RNode::WordB(false, ascii),
+                    'A' => RNode::StrStart,
+                    'Z' => RNode::StrEnd,
+                    '0' => ch(self.octal_escape(e, back)?),
+                    '1'..='9' => match self.group_or_octal(e, back)? {
+                        RNode::Char(c) => ch(c),
+                        n => n,
+                    },
+                    'x' | 'u' | 'U' => ch(self.hex_escape(e, back)?),
+                    'N' => {
+                        if self.peek() != Some('{') {
+                            return self.err("missing {", self.i);
+                        }
+                        return Err(unsupported("re with a \\N{...} pattern"));
                     }
-                    'w' | 'W' => {
-                        items.push(CItem::Word(e == 'W'));
-                        continue;
-                    }
-                    's' | 'S' => {
-                        items.push(CItem::Space(e == 'S'));
-                        continue;
-                    }
-                    'b' => '\x08',
-                    _ => match self.escape_char(e)? {
-                        Some(c) => c,
-                        None => return re_err(format!("bad escape \\{e}")),
+                    _ => match self.plain_escape(e) {
+                        Some(c2) => ch(c2),
+                        None => return self.err(&format!("bad escape \\{e}"), back),
                     },
                 }
-            } else {
-                c
-            };
-            if self.peek() == Some('-') && self.c.get(self.i + 1).is_some_and(|&x| x != ']') {
-                self.i += 1;
-                let mut hi = self.peek().unwrap();
-                self.i += 1;
-                if hi == '\\' {
-                    let e = self.peek().unwrap_or('\\');
-                    self.i += 1;
-                    hi = self.escape_char(e)?.unwrap_or(e);
-                }
-                if hi < lo {
-                    return re_err(format!("bad character range {lo}-{hi}"));
-                }
-                items.push(CItem::Range(lo, hi));
-            } else {
-                items.push(CItem::Ch(lo));
             }
+            c => ch(c),
+        }))
+    }
+    fn flags_group(&mut self, gstart: usize, first: char) -> Result<Option<RNode>, E> {
+        let type_flags = F_A | 32 | 4;
+        let mut add = 0i64;
+        let mut del = 0i64;
+        let mut off = first == '-';
+        if off {
+            self.i += 1;
         }
-        if self.flags & F_I != 0 {
-            let mut more = vec![];
-            for it in &items {
-                match it {
-                    CItem::Ch(c) => more.extend(fold_items(*c)),
-                    CItem::Range(a, b) => {
-                        if (*b as u32) - (*a as u32) < 512 {
-                            for x in *a..=*b {
-                                more.extend(fold_items(x));
-                            }
-                        }
+        if !off {
+            let mut cur = first;
+            loop {
+                if cur == 'L' && !self.bytes {
+                    return self.err("bad inline flags: cannot use 'L' flag with a str pattern", self.i + 1);
+                }
+                if cur == 'u' && self.bytes {
+                    return self.err("bad inline flags: cannot use 'u' flag with a bytes pattern", self.i + 1);
+                }
+                let bit = flag_bit(cur);
+                add |= bit;
+                if bit & type_flags != 0 && add & type_flags != bit {
+                    return self.err("bad inline flags: flags 'a', 'u' and 'L' are incompatible", self.i + 1);
+                }
+                self.i += 1;
+                let Some(n) = self.peek() else { return self.err("missing -, : or )", self.i) };
+                if n == ')' {
+                    if !self.global_ok {
+                        return self.err("global flags not at the start of the expression", gstart);
                     }
-                    _ => {}
+                    self.i += 1;
+                    // global flags add up; an ASCII and UNICODE mix is CPython's ValueError at the end of parsing
+                    self.flags |= add;
+                    return Ok(None);
+                }
+                if n == ':' {
+                    self.i += 1;
+                    break;
+                }
+                if n == '-' {
+                    self.i += 1;
+                    off = true;
+                    break;
+                }
+                if !is_flag_char(n) {
+                    return self.err(if n.is_alphabetic() { "unknown flag" } else { "missing -, : or )" }, self.i);
+                }
+                cur = n;
+            }
+        }
+        if off {
+            loop {
+                let Some(n) = self.peek() else { return self.err("missing flag", self.i) };
+                if !is_flag_char(n) {
+                    return self.err(if n.is_alphabetic() { "unknown flag" } else { "missing flag" }, self.i);
+                }
+                let bit = flag_bit(n);
+                if bit & type_flags != 0 {
+                    return self.err("bad inline flags: cannot turn off flags 'a', 'u' and 'L'", self.i + 1);
+                }
+                del |= bit;
+                self.i += 1;
+                let Some(m) = self.peek() else { return self.err("missing :", self.i) };
+                if m == ':' {
+                    self.i += 1;
+                    break;
+                }
+                if !is_flag_char(m) {
+                    return self.err(if m.is_alphabetic() { "unknown flag" } else { "missing :" }, self.i);
                 }
             }
-            items.extend(more);
         }
-        Ok(RNode::Class(Rc::new(RClass { items, neg })))
+        if add & del != 0 {
+            return self.err("bad inline flags: flag turned on and off", self.i - 1);
+        }
+        let saved = self.flags;
+        let mut f = (self.flags | add) & !del;
+        if add & F_A != 0 {
+            f &= !32;
+        }
+        if add & 32 != 0 {
+            f &= !F_A;
+        }
+        self.flags = f;
+        let a = self.sub_parse()?;
+        self.flags = saved;
+        self.close(gstart)?;
+        Ok(Some(RNode::Group(Rc::new(a), None)))
+    }
+    fn python_ext(&mut self, gstart: usize, qpos: usize) -> Result<Option<RNode>, E> {
+        self.i += 1;
+        let Some(c) = self.peek() else { return self.err("unexpected end of pattern", self.i) };
+        match c {
+            '<' => {
+                self.i += 1;
+                let (name, start) = self.get_name('>', "group name")?;
+                self.check_group_name(&name, start)?;
+                if let Some(&(_, old)) = self.names.iter().find(|x| x.0 == name) {
+                    return self.err(
+                        &format!("redefinition of group name {} as group {}; was group {old}", py_repr(&name), self.ngroups + 1),
+                        start,
+                    );
+                }
+                self.ngroups += 1;
+                let g = self.ngroups;
+                self.open.push(g);
+                self.names.push((name, g));
+                let a = self.sub_parse()?;
+                self.close(gstart)?;
+                self.open.pop();
+                Ok(Some(RNode::Group(Rc::new(a), Some(g))))
+            }
+            '=' => {
+                self.i += 1;
+                let (name, start) = self.get_name(')', "group name")?;
+                self.check_group_name(&name, start)?;
+                let Some(&(_, g)) = self.names.iter().find(|x| x.0 == name) else {
+                    return self.err(&format!("unknown group name {}", py_repr(&name)), start);
+                };
+                self.check_backref(g, start)?;
+                Ok(Some(self.backref(g)))
+            }
+            _ => {
+                self.i += 1;
+                self.err(&format!("unknown extension ?P{}", self.token_at(self.i - 1)), qpos)
+            }
+        }
+    }
+    fn conditional(&mut self, gstart: usize) -> Result<Option<RNode>, E> {
+        self.i += 1;
+        let (name, start) = self.get_name(')', "group name")?;
+        let g = if !name.is_empty() && name.chars().all(|c| c.is_ascii_digit()) {
+            let n = name.parse::<usize>().unwrap_or(usize::MAX);
+            if n == 0 {
+                return self.err("bad group number", start);
+            }
+            if n >= MAX_GROUPS {
+                return self.err(&format!("invalid group reference {n}"), start);
+            }
+            self.cond_lookbehind(n)?;
+            self.cond_refs.push((n, start));
+            n
+        } else {
+            self.check_group_name(&name, start)?;
+            let Some(&(_, n)) = self.names.iter().find(|x| x.0 == name) else {
+                return self.err(&format!("unknown group name {}", py_repr(&name)), start);
+            };
+            self.cond_lookbehind(n)?;
+            n
+        };
+        let ok = self.global_ok;
+        self.global_ok = false;
+        let yes = self.seq()?;
+        let no = if self.peek() == Some('|') {
+            self.i += 1;
+            self.seq()?
+        } else {
+            vec![]
+        };
+        if self.peek() == Some('|') {
+            self.global_ok = ok;
+            return self.err("conditional backref with more than two branches", self.i);
+        }
+        self.global_ok = ok;
+        self.close(gstart)?;
+        Ok(Some(RNode::Cond(g, Rc::new(yes), Rc::new(no))))
+    }
+    fn group(&mut self) -> Result<Option<RNode>, E> {
+        let gstart = self.i - 1;
+        if self.peek() != Some('?') {
+            self.ngroups += 1;
+            let g = self.ngroups;
+            self.open.push(g);
+            let a = self.sub_parse()?;
+            self.close(gstart)?;
+            self.open.pop();
+            return Ok(Some(RNode::Group(Rc::new(a), Some(g))));
+        }
+        self.i += 1;
+        let qpos = self.i - 1;
+        let Some(k) = self.peek() else { return self.err("unexpected end of pattern", self.i) };
+        match k {
+            ':' => {
+                self.i += 1;
+                let a = self.sub_parse()?;
+                self.close(gstart)?;
+                Ok(Some(RNode::Group(Rc::new(a), None)))
+            }
+            '>' => {
+                self.i += 1;
+                let a = self.sub_parse()?;
+                self.close(gstart)?;
+                Ok(Some(RNode::Atomic(Rc::new(a))))
+            }
+            '=' => {
+                self.i += 1;
+                let a = self.sub_parse()?;
+                self.close(gstart)?;
+                Ok(Some(RNode::Look(Rc::new(a), false, false, Cell::new(0))))
+            }
+            '!' => {
+                self.i += 1;
+                let a = self.sub_parse()?;
+                self.close(gstart)?;
+                Ok(Some(RNode::Look(Rc::new(a), false, true, Cell::new(0))))
+            }
+            '<' => {
+                self.i += 1;
+                let Some(n) = self.peek() else { return self.err("unexpected end of pattern", self.i) };
+                match n {
+                    '=' | '!' => {
+                        self.i += 1;
+                        let set_lb = self.lb.is_none();
+                        if set_lb {
+                            self.lb = Some(self.ngroups + 1);
+                        }
+                        let a = self.sub_parse()?;
+                        if set_lb {
+                            self.lb = None;
+                        }
+                        self.close(gstart)?;
+                        Ok(Some(RNode::Look(Rc::new(a), true, n == '!', Cell::new(0))))
+                    }
+                    _ => self.err(&format!("unknown extension ?<{}", self.token_at(self.i)), qpos),
+                }
+            }
+            'P' => self.python_ext(gstart, qpos),
+            '#' => {
+                self.i += 1;
+                loop {
+                    let Some(c) = self.peek() else { return self.err("missing ), unterminated comment", gstart) };
+                    self.i += 1;
+                    if c == ')' {
+                        break;
+                    }
+                    // the tokenizer takes `\)` as one escape token, which does not end the comment
+                    if c == '\\' && self.peek().is_some() {
+                        self.i += 1;
+                    }
+                }
+                Ok(None)
+            }
+            '(' => self.conditional(gstart),
+            'i' | 'm' | 's' | 'x' | 'a' | 'u' | 'L' | '-' => self.flags_group(gstart, k),
+            _ => self.err(&format!("unknown extension ?{}", self.token_at(self.i)), qpos),
+        }
     }
 }
-fn fold_items(c: char) -> Vec<CItem> {
-    let mut v = vec![CItem::Ch(c)];
-    for l in c.to_lowercase() {
-        v.push(CItem::Ch(l));
+// CPython 3.13 has Unicode 15.1; Rust's tables can be newer. These characters gained case mappings after 15.1
+// (up to Unicode 17), so for re they keep CPython's identity mapping. A Rust newer than Unicode 17 may have more:
+// IGNORECASE patterns are then refused (see UNI_FOLD_OK).
+fn case_after_15_1(c: char) -> bool {
+    matches!(c as u32, 0x19b | 0x264 | 0x1c89..=0x1c8a | 0xa7cb..=0xa7cf | 0xa7d2..=0xa7d5 | 0xa7da..=0xa7dc
+        | 0x10d50..=0x10d65 | 0x10d70..=0x10d85 | 0x16ea0..=0x16eb8 | 0x16ebb..=0x16ed3)
+}
+const UNI_FOLD_OK: bool = char::UNICODE_VERSION.0 >= 15 && char::UNICODE_VERSION.0 <= 17;
+// _sre.unicode_tolower: the simple lowercase (the first character of the full mapping, as for U+0130)
+fn lower_uni(c: char) -> char {
+    if c.is_ascii() {
+        c.to_ascii_lowercase()
+    } else {
+        if case_after_15_1(c) {
+            return c;
+        }
+        c.to_lowercase().next().unwrap_or(c)
     }
-    for u in c.to_uppercase() {
-        v.push(CItem::Ch(u));
+}
+fn upper_uni(c: char) -> char {
+    if c.is_ascii() {
+        c.to_ascii_uppercase()
+    } else {
+        if case_after_15_1(c) {
+            return c;
+        }
+        c.to_uppercase().next().unwrap_or(c)
     }
-    v
+}
+#[inline(never)]
+fn fold_slow(c: char, fold: u8) -> char {
+    fold_char(c, fold)
+}
+fn fold_char(c: char, fold: u8) -> char {
+    match fold {
+        FOLD_UNI => lower_uni(c),
+        FOLD_ASCII => c.to_ascii_lowercase(),
+        _ => c,
+    }
+}
+fn is_cased(c: char, fold: u8) -> bool {
+    if fold == FOLD_ASCII || c.is_ascii() {
+        return c.is_ascii_alphabetic();
+    }
+    if case_after_15_1(c) {
+        return false;
+    }
+    let (mut l, mut u) = (c.to_lowercase(), c.to_uppercase());
+    !(l.next() == Some(c) && l.next().is_none() && u.next() == Some(c) && u.next().is_none())
+}
+// re._casefix._EXTRA_CASES (CPython 3.13): other lowercase characters with the same uppercase
+fn extra_cases(c: char) -> &'static [char] {
+    match c as u32 {
+        0x0069 => &['\u{131}'],
+        0x0073 => &['\u{17f}'],
+        0x00b5 => &['\u{3bc}'],
+        0x0131 => &['\u{69}'],
+        0x017f => &['\u{73}'],
+        0x0345 => &['\u{3b9}', '\u{1fbe}'],
+        0x0390 => &['\u{1fd3}'],
+        0x03b0 => &['\u{1fe3}'],
+        0x03b2 => &['\u{3d0}'],
+        0x03b5 => &['\u{3f5}'],
+        0x03b8 => &['\u{3d1}'],
+        0x03b9 => &['\u{345}', '\u{1fbe}'],
+        0x03ba => &['\u{3f0}'],
+        0x03bc => &['\u{b5}'],
+        0x03c0 => &['\u{3d6}'],
+        0x03c1 => &['\u{3f1}'],
+        0x03c2 => &['\u{3c3}'],
+        0x03c3 => &['\u{3c2}'],
+        0x03c6 => &['\u{3d5}'],
+        0x03d0 => &['\u{3b2}'],
+        0x03d1 => &['\u{3b8}'],
+        0x03d5 => &['\u{3c6}'],
+        0x03d6 => &['\u{3c0}'],
+        0x03f0 => &['\u{3ba}'],
+        0x03f1 => &['\u{3c1}'],
+        0x03f5 => &['\u{3b5}'],
+        0x0432 => &['\u{1c80}'],
+        0x0434 => &['\u{1c81}'],
+        0x043e => &['\u{1c82}'],
+        0x0441 => &['\u{1c83}'],
+        0x0442 => &['\u{1c84}', '\u{1c85}'],
+        0x044a => &['\u{1c86}'],
+        0x0463 => &['\u{1c87}'],
+        0x1c80 => &['\u{432}'],
+        0x1c81 => &['\u{434}'],
+        0x1c82 => &['\u{43e}'],
+        0x1c83 => &['\u{441}'],
+        0x1c84 => &['\u{442}', '\u{1c85}'],
+        0x1c85 => &['\u{442}', '\u{1c84}'],
+        0x1c86 => &['\u{44a}'],
+        0x1c87 => &['\u{463}'],
+        0x1c88 => &['\u{a64b}'],
+        0x1e61 => &['\u{1e9b}'],
+        0x1e9b => &['\u{1e61}'],
+        0x1fbe => &['\u{345}', '\u{3b9}'],
+        0x1fd3 => &['\u{390}'],
+        0x1fe3 => &['\u{3b0}'],
+        0xa64b => &['\u{1c88}'],
+        0xfb05 => &['\u{fb06}'],
+        0xfb06 => &['\u{fb05}'],
+        _ => &[],
+    }
+}
+// A literal under IGNORECASE, as CPython's compiler emits it.
+fn fold_literal(c: char, fold: u8, ascii: bool) -> RNode {
+    if !is_cased(c, fold) {
+        return RNode::Char(c);
+    }
+    let lo = fold_char(c, fold);
+    let mut items = vec![CItem::Ch(lo)];
+    if fold == FOLD_UNI {
+        items.extend(extra_cases(lo).iter().map(|&k| CItem::Ch(k)));
+    }
+    RNode::Class(Rc::new(RClass { items, neg: false, ascii, fold }))
+}
+// A set under IGNORECASE, as CPython's _optimize_charset builds it: (items, fold) where fold is 0 when no
+// character in the set is cased.
+fn fold_set(items: Vec<CItem>, fold: u8) -> (Vec<CItem>, u8) {
+    let mut chars: Vec<char> = vec![];
+    let mut tail: Vec<CItem> = vec![];
+    let mut cased = false;
+    let mut add = |chars: &mut Vec<char>, x: char| {
+        let l = fold_char(x, fold);
+        chars.push(l);
+        if fold == FOLD_UNI {
+            chars.extend_from_slice(extra_cases(l));
+        }
+        l
+    };
+    for it in items {
+        match it {
+            CItem::Ch(c) => {
+                let l = add(&mut chars, c);
+                cased |= is_cased(l, fold);
+            }
+            CItem::Range(a, b) => {
+                let top = (b as u32).min(0xFFFF);
+                for u in a as u32..=top {
+                    if let Some(x) = char::from_u32(u) {
+                        add(&mut chars, x);
+                        cased = cased || is_cased(x, fold);
+                    }
+                }
+                if b as u32 > 0xFFFF {
+                    tail.push(if fold == FOLD_UNI { CItem::RangeUI(a, b) } else { CItem::Range(a.max('\u{10000}'), b) });
+                    cased = true;
+                }
+            }
+            other => tail.push(other),
+        }
+    }
+    chars.sort_unstable();
+    chars.dedup();
+    let mut out: Vec<CItem> = vec![];
+    let mut k = 0;
+    while k < chars.len() {
+        let mut e = k;
+        while e + 1 < chars.len() && chars[e + 1] as u32 == chars[e] as u32 + 1 {
+            e += 1;
+        }
+        out.push(if e == k { CItem::Ch(chars[k]) } else { CItem::Range(chars[k], chars[e]) });
+        k = e + 1;
+    }
+    out.extend(tail);
+    (out, if cased { fold } else { 0 })
 }
 fn is_word(c: char, ascii: bool) -> bool {
     if ascii {
@@ -547,8 +1119,18 @@ fn is_digit(c: char, ascii: bool) -> bool {
 fn is_space(c: char, ascii: bool) -> bool {
     matches!(c, ' ' | '\t' | '\n' | '\r' | '\x0b' | '\x0c') || (!ascii && !c.is_ascii() && c.is_whitespace()) || (!ascii && matches!(c, '\x1c'..='\x1f'))
 }
+#[cold]
+#[inline(never)]
+fn range_ui(a: char, b: char, c: char) -> bool {
+    (a <= c && c <= b) || {
+        let u = upper_uni(c);
+        a <= u && u <= b
+    }
+}
 impl RClass {
+    #[inline]
     fn matches(&self, c: char, ascii: bool) -> bool {
+        let c = if self.fold == 0 { c } else { fold_slow(c, self.fold) };
         let mut hit = false;
         for it in &self.items {
             if match it {
@@ -557,6 +1139,7 @@ impl RClass {
                 CItem::Digit(n) => is_digit(c, ascii) != *n,
                 CItem::Word(n) => is_word(c, ascii) != *n,
                 CItem::Space(n) => is_space(c, ascii) != *n,
+                CItem::RangeUI(a, b) => range_ui(*a, *b, c),
             } {
                 hit = true;
                 break;
@@ -566,46 +1149,125 @@ impl RClass {
     }
 }
 
+// (min, max) width of a node list as CPython's getwidth() computes it, plus false when some look-behind inside
+// is not fixed-width. gw holds the widths of the groups closed so far, for backreferences.
+type Wd = (usize, usize);
+fn alts_width(alts: &[Vec<RNode>], gw: &mut Vec<Option<Wd>>) -> (Wd, bool) {
+    let (mut lo, mut hi, mut ok) = (usize::MAX, 0usize, true);
+    for a in alts {
+        let (w, k) = seq_width(a, gw);
+        lo = lo.min(w.0);
+        hi = hi.max(w.1);
+        ok &= k;
+    }
+    if alts.is_empty() {
+        lo = 0;
+    }
+    ((lo, hi), ok)
+}
+fn seq_width(v: &[RNode], gw: &mut Vec<Option<Wd>>) -> (Wd, bool) {
+    let (mut lo, mut hi, mut ok) = (0usize, 0usize, true);
+    for n in v {
+        let (w, k) = node_width(n, gw);
+        lo = lo.saturating_add(w.0);
+        hi = hi.saturating_add(w.1);
+        ok &= k;
+    }
+    ((lo, hi), ok)
+}
+fn node_width(n: &RNode, gw: &mut Vec<Option<Wd>>) -> (Wd, bool) {
+    match n {
+        RNode::Char(_) | RNode::Any(_) | RNode::Class(_) => ((1, 1), true),
+        RNode::Bol(_) | RNode::Eol(_) | RNode::StrStart | RNode::StrEnd | RNode::WordB(..) => ((0, 0), true),
+        RNode::Group(a, g) => {
+            let r = alts_width(a, gw);
+            if let Some(g) = g {
+                gw[*g] = Some(r.0);
+            }
+            r
+        }
+        RNode::Atomic(a) => alts_width(a, gw),
+        RNode::Look(a, behind, _, width) => {
+            let (w, ok) = alts_width(a, gw);
+            width.set(w.0);
+            ((0, 0), ok && (!behind || w.0 == w.1))
+        }
+        RNode::Backref(g, _) => (gw.get(*g).copied().flatten().unwrap_or((0, usize::MAX)), true),
+        RNode::Repeat(x, min, max, _) => {
+            let ((i, j), ok) = node_width(x, gw);
+            let hi = if *max == usize::MAX && j > 0 { usize::MAX } else { j.saturating_mul(*max) };
+            ((i.saturating_mul(*min), hi), ok)
+        }
+        RNode::Cond(_, yes, no) => {
+            let ((i, j), k1) = seq_width(yes, gw);
+            let ((l, h), k2) = seq_width(no, gw);
+            ((i.min(l), j.max(h)), k1 && k2)
+        }
+    }
+}
 pub fn re_compile(src: &str, flags: i64) -> Result<Rc<Prog>, E> {
+    re_compile2(src, flags, None)
+}
+fn re_compile_bytes(src: &str, flags: i64, pat: V) -> Result<Rc<Prog>, E> {
+    re_compile2(src, flags, Some(pat))
+}
+fn re_compile2(src: &str, flags: i64, pat: Option<V>) -> Result<Rc<Prog>, E> {
     thread_local! {
         static CACHE: RefCell<HashMap<(String, i64), Rc<Prog>>> = RefCell::new(HashMap::new());
     }
-    if let Some(p) = CACHE.with(|c| c.borrow().get(&(src.to_string(), flags)).cloned()) {
-        return Ok(p);
-    }
-    let chars: Vec<char> = src.chars().collect();
-    // global inline flags anywhere at the top level are applied from the start, as Python does at the start
-    let mut fl = flags;
-    {
-        let mut p = RP { c: &chars, i: 0, flags: fl, ngroups: 0, names: vec![] };
-        if chars.starts_with(&['(', '?']) {
-            p.i = 2;
-            let mut f = 0;
-            while let Some(c) = p.peek() {
-                match c {
-                    'i' => f |= F_I,
-                    'm' => f |= F_M,
-                    's' => f |= F_S,
-                    'x' => f |= F_X,
-                    'a' => f |= F_A,
-                    'u' | 'L' => {}
-                    ')' => {
-                        fl |= f;
-                        break;
-                    }
-                    _ => break,
-                }
-                p.i += 1;
-            }
+    if pat.is_none() {
+        if let Some(p) = CACHE.with(|c| c.borrow().get(&(src.to_string(), flags)).cloned()) {
+            return Ok(p);
         }
     }
-    let mut p = RP { c: &chars, i: 0, flags: fl, ngroups: 0, names: vec![] };
+    let chars: Vec<char> = src.chars().collect();
+    let mut p = RP {
+        c: &chars,
+        src,
+        i: 0,
+        flags,
+        ngroups: 0,
+        open: vec![],
+        names: vec![],
+        lb: None,
+        global_ok: true,
+        cond_refs: vec![],
+        bytes: pat.is_some(),
+        uni_fold: Cell::new(false),
+        tail_bs: (chars.iter().rev().take_while(|&&c| c == '\\').count() % 2 == 1).then(|| chars.len() - 1),
+        pat,
+    };
     let alts = p.alts()?;
-    if p.i < chars.len() {
-        return re_err(format!("unbalanced parenthesis at position {}", p.i));
+    if !p.bytes && p.flags & F_A != 0 && p.flags & 32 != 0 {
+        return Err(exc("ValueError", "ASCII and UNICODE flags are incompatible".into()));
     }
-    let prog = Rc::new(Prog { alts, ngroups: p.ngroups, names: p.names, flags: p.flags | fl, src: src.to_string() });
-    CACHE.with(|c| c.borrow_mut().insert((src.to_string(), flags), prog.clone()));
+    if p.i < chars.len() {
+        return p.err("unbalanced parenthesis", p.i);
+    }
+    if p.uni_fold.get() && !UNI_FOLD_OK {
+        return Err(unsupported("re.IGNORECASE with this Rust toolchain's Unicode tables"));
+    }
+    for &(g, pos) in &p.cond_refs {
+        if g > p.ngroups {
+            return p.err(&format!("invalid group reference {g}"), pos);
+        }
+    }
+    // CPython's compiler: a look-behind must have a fixed width (raised without a position)
+    let mut gw = vec![None; p.ngroups + 1];
+    if !alts_width(&alts, &mut gw).1 {
+        let e = Obj::new(exc_class("PatternError"));
+        let msg = "look-behind requires fixed-width pattern";
+        e.set("msg", st(msg.to_string()));
+        for k in ["pattern", "pos", "lineno", "colno"] {
+            e.set(k, V::None);
+        }
+        e.set("args", tup(vec![st(msg.to_string())]));
+        return Err(E(V::Obj(e)));
+    }
+    let prog = Rc::new(Prog { alts, ngroups: p.ngroups, names: p.names, flags: p.flags, src: src.to_string() });
+    if p.pat.is_none() {
+        CACHE.with(|c| c.borrow_mut().insert((src.to_string(), flags), prog.clone()));
+    }
     Ok(prog)
 }
 
@@ -616,20 +1278,24 @@ struct Ctx<'a> {
     steps: u64,
 }
 const UNSET: usize = usize::MAX;
+// A match's capture vector: start and end of each group (0 is the whole match), then the group that closed last
+// in the successful path (CPython's lastindex; UNSET for none), which backtracking restores with the rest.
+fn ncaps(ngroups: usize) -> usize {
+    2 * (ngroups + 1) + 1
+}
 type Kont<'k> = &'k mut dyn FnMut(&mut Ctx, usize) -> bool;
 
 impl<'a> Ctx<'a> {
     fn single(&self, n: &RNode, pos: usize) -> Option<bool> {
-        let ascii = self.flags & F_A != 0;
         Some(match n {
             RNode::Char(c) => self.s.get(pos) == Some(c),
-            RNode::Any => match self.s.get(pos) {
-                Some('\n') => self.flags & F_S != 0,
+            RNode::Any(dotall) => match self.s.get(pos) {
+                Some('\n') => *dotall,
                 Some(_) => true,
                 None => false,
             },
             RNode::Class(k) => match self.s.get(pos) {
-                Some(&c) => k.matches(c, ascii),
+                Some(&c) => k.matches(c, k.ascii),
                 None => false,
             },
             _ => return None,
@@ -647,25 +1313,24 @@ impl<'a> Ctx<'a> {
         self.steps += 1;
         let Some(n) = seq.first() else { return k(self, pos) };
         let rest = &seq[1..];
-        let ascii = self.flags & F_A != 0;
         match n {
-            RNode::Char(_) | RNode::Any | RNode::Class(_) => {
+            RNode::Char(_) | RNode::Any(_) | RNode::Class(_) => {
                 if self.single(n, pos).unwrap() {
                     self.seq(rest, pos + 1, k)
                 } else {
                     false
                 }
             }
-            RNode::Bol => {
-                if pos == 0 || (self.flags & F_M != 0 && self.s[pos - 1] == '\n') {
+            RNode::Bol(ml) => {
+                if pos == 0 || (*ml && self.s[pos - 1] == '\n') {
                     self.seq(rest, pos, k)
                 } else {
                     false
                 }
             }
-            RNode::Eol => {
+            RNode::Eol(ml) => {
                 let n = self.s.len();
-                if pos == n || (pos == n - 1 && self.s[pos] == '\n') || (self.flags & F_M != 0 && self.s[pos] == '\n') {
+                if pos == n || (pos == n - 1 && self.s[pos] == '\n') || (*ml && self.s[pos] == '\n') {
                     self.seq(rest, pos, k)
                 } else {
                     false
@@ -673,10 +1338,11 @@ impl<'a> Ctx<'a> {
             }
             RNode::StrStart => pos == 0 && self.seq(rest, pos, k),
             RNode::StrEnd => pos == self.s.len() && self.seq(rest, pos, k),
-            RNode::WordB(want) => {
-                let a = pos > 0 && is_word(self.s[pos - 1], ascii);
-                let b = pos < self.s.len() && is_word(self.s[pos], ascii);
-                if (a != b) == *want {
+            RNode::WordB(want, wa) => {
+                let a = pos > 0 && is_word(self.s[pos - 1], *wa);
+                let b = pos < self.s.len() && is_word(self.s[pos], *wa);
+                // CPython 3.13: \B never matches in an empty string
+                if (a != b) == *want && (*want || !self.s.is_empty()) {
                     self.seq(rest, pos, k)
                 } else {
                     false
@@ -687,14 +1353,17 @@ impl<'a> Ctx<'a> {
                 Some(g) => {
                     let g = *g;
                     self.alts(alts, pos, &mut |c: &mut Ctx, p| {
-                        let (os, oe) = (c.caps[2 * g], c.caps[2 * g + 1]);
+                        let li = c.caps.len() - 1;
+                        let (os, oe, ol) = (c.caps[2 * g], c.caps[2 * g + 1], c.caps[li]);
                         c.caps[2 * g] = pos;
                         c.caps[2 * g + 1] = p;
+                        c.caps[li] = g;
                         if c.seq(rest, p, k) {
                             return true;
                         }
                         c.caps[2 * g] = os;
                         c.caps[2 * g + 1] = oe;
+                        c.caps[li] = ol;
                         false
                     })
                 }
@@ -713,17 +1382,12 @@ impl<'a> Ctx<'a> {
                 self.caps = saved;
                 false
             }
-            RNode::Look(alts, behind, neg) => {
+            RNode::Look(alts, behind, neg, width) => {
                 let saved = self.caps.clone();
                 let ok = if *behind {
-                    let mut ok = false;
-                    for st in (0..=pos).rev() {
-                        if self.alts(alts, st, &mut |_c: &mut Ctx, p| p == pos) {
-                            ok = true;
-                            break;
-                        }
-                    }
-                    ok
+                    // fixed width (compile refuses anything else): one start to try
+                    let w = width.get();
+                    pos >= w && self.alts(alts, pos - w, &mut |_c: &mut Ctx, p| p == pos)
                 } else {
                     self.alts(alts, pos, &mut |_c: &mut Ctx, _p| true)
                 };
@@ -740,7 +1404,7 @@ impl<'a> Ctx<'a> {
                 self.caps = saved;
                 false
             }
-            RNode::Backref(g) => {
+            RNode::Backref(g, fold) => {
                 let (a, b) = (self.caps[2 * g], self.caps[2 * g + 1]);
                 if a == UNSET {
                     return false;
@@ -749,10 +1413,9 @@ impl<'a> Ctx<'a> {
                 if pos + len > self.s.len() {
                     return false;
                 }
-                let ic = self.flags & F_I != 0;
                 for i in 0..len {
                     let (x, y) = (self.s[a + i], self.s[pos + i]);
-                    if x != y && !(ic && x.to_lowercase().eq(y.to_lowercase())) {
+                    if x != y && fold_char(x, *fold) != fold_char(y, *fold) {
                         return false;
                     }
                 }
@@ -841,14 +1504,14 @@ fn st_probe(pos: usize, len: usize) -> usize {
 // no_empty_at: an empty match at that position is not accepted.
 fn re_exec(p: &Prog, s: &[char], pos: usize, endpos: usize, anchored: bool, full: bool, no_empty_at: Option<usize>) -> Option<Vec<usize>> {
     let sub = &s[..endpos];
-    let mut c = Ctx { s: sub, caps: vec![UNSET; 2 * (p.ngroups + 1)], flags: p.flags, steps: 0 };
+    let mut c = Ctx { s: sub, caps: vec![UNSET; ncaps(p.ngroups)], flags: p.flags, steps: 0 };
     let last = if anchored { pos } else { endpos };
     // The characters a match can start with, when the pattern says (a literal, or a class of literals such as
     // re.I gives, after any \b, ^ or \A): the search skips to the next of them.
     let firsts: Option<Vec<char>> = match p.alts.as_slice() {
-        [a] => match a.iter().find(|n| !matches!(n, RNode::WordB(_) | RNode::Bol | RNode::StrStart)) {
+        [a] => match a.iter().find(|n| !matches!(n, RNode::WordB(..) | RNode::Bol(_) | RNode::StrStart)) {
             Some(RNode::Char(ch)) => Some(vec![*ch]),
-            Some(RNode::Class(k)) if !k.neg && k.items.iter().all(|i| matches!(i, CItem::Ch(_))) => Some(k.items.iter().map(|i| if let CItem::Ch(c) = i { *c } else { unreachable!() }).collect()),
+            Some(RNode::Class(k)) if !k.neg && k.fold == 0 && k.items.iter().all(|i| matches!(i, CItem::Ch(_))) => Some(k.items.iter().map(|i| if let CItem::Ch(c) = i { *c } else { unreachable!() }).collect()),
             _ => None,
         },
         _ => None,
@@ -1003,36 +1666,14 @@ impl Ext for RMatch {
                 let f = |v: usize| if v == UNSET { V::Int(-1) } else { V::Int(v as i64) };
                 tup((0..=self.prog.ngroups).map(|g| tup(vec![f(self.caps[2 * g]), f(self.caps[2 * g + 1])])).collect())
             }
-            "lastindex" => {
-                let mut best: Option<(usize, usize)> = None;
-                for g in 1..=self.prog.ngroups {
-                    if self.caps[2 * g] != UNSET {
-                        let e = self.caps[2 * g + 1];
-                        if best.is_none_or(|b| e > b.1 || (e == b.1 && false)) {
-                            best = Some((g, e));
-                        }
-                    }
-                }
-                match best {
-                    Some((g, _)) => V::Int(g as i64),
-                    None => V::None,
-                }
-            }
-            "lastgroup" => {
-                let mut best: Option<(usize, usize)> = None;
-                for g in 1..=self.prog.ngroups {
-                    if self.caps[2 * g] != UNSET {
-                        let e = self.caps[2 * g + 1];
-                        if best.is_none_or(|b| e > b.1) {
-                            best = Some((g, e));
-                        }
-                    }
-                }
-                match best.and_then(|(g, _)| self.prog.names.iter().find(|x| x.1 == g)) {
-                    Some((n, _)) => s(n),
-                    None => V::None,
-                }
-            }
+            "lastindex" => match self.caps[self.caps.len() - 1] {
+                UNSET => V::None,
+                g => V::Int(g as i64),
+            },
+            "lastgroup" => match self.prog.names.iter().find(|x| x.1 == self.caps[self.caps.len() - 1]) {
+                Some((n, _)) => s(n),
+                None => V::None,
+            },
             _ => return None,
         }))
     }
@@ -1247,50 +1888,130 @@ fn all_matches(prog: &Prog, s: &[char], pos: usize, endpos: usize, limit: usize)
     out
 }
 fn expand_template(t: &str, m: &RMatch) -> Result<String, E> {
+    expand_template2(t, m, None)
+}
+fn tpl_err(pat: Option<&V>, msg: &str, t: &str, pos: usize) -> E {
+    match pat {
+        Some(p) => re_error_bytes(msg, p, pos),
+        None => re_error(msg, t, pos),
+    }
+}
+fn expand_template2(t: &str, m: &RMatch, pat: Option<&V>) -> Result<String, E> {
+    Ok(apply_template(&compile_template(t, &m.prog, pat)?, m))
+}
+// A replacement template parsed once (as CPython's _compile_template): literal text and group references.
+enum TPiece {
+    Lit(String),
+    Group(usize),
+}
+fn apply_template(ps: &[TPiece], m: &RMatch) -> String {
+    let mut out = String::new();
+    for p in ps {
+        match p {
+            TPiece::Lit(s) => out.push_str(s),
+            TPiece::Group(g) => out.push_str(&m.text(*g).unwrap_or_default()),
+        }
+    }
+    out
+}
+fn compile_template(t: &str, prog: &Prog, pat: Option<&V>) -> Result<Vec<TPiece>, E> {
     let c: Vec<char> = t.chars().collect();
+    let mut ps: Vec<TPiece> = vec![];
     let mut out = String::new();
     let mut i = 0;
     while i < c.len() {
-        if c[i] != '\\' || i + 1 >= c.len() {
-            if c[i] == '\\' {
-                return re_err("bad escape (end of pattern)".into());
-            }
+        if c[i] != '\\' {
             out.push(c[i]);
             i += 1;
             continue;
         }
+        if i + 1 >= c.len() {
+            return Err(tpl_err(pat, "bad escape (end of pattern)", t, i));
+        }
         let e = c[i + 1];
+        let back = i;
         i += 2;
         match e {
             'g' => {
                 if c.get(i) != Some(&'<') {
-                    return re_err("missing <".into());
+                    return Err(tpl_err(pat, "missing <", t, i));
                 }
                 let st = i + 1;
-                let Some(end) = c[st..].iter().position(|x| *x == '>') else { return re_err("missing >, unterminated name".into()) };
-                let name: String = c[st..st + end].iter().collect();
-                i = st + end + 1;
-                let g = match name.parse::<usize>() {
-                    Ok(n) if n <= m.prog.ngroups => n,
-                    Ok(n) => return re_err(format!("invalid group reference {n}")),
-                    Err(_) => m.prog.names.iter().find(|x| x.0 == name).map(|x| x.1).ok_or_else(|| exc("IndexError", format!("unknown group name '{name}'")))?,
+                let mut q = st;
+                while q < c.len() && c[q] != '>' {
+                    q += if c[q] == '\\' { 2 } else { 1 };
+                }
+                let Some(len) = (q < c.len()).then(|| q - st) else {
+                    if st == c.len() {
+                        return Err(tpl_err(pat, "missing group name", t, st));
+                    }
+                    return Err(tpl_err(pat, "missing >, unterminated name", t, st));
                 };
-                out.push_str(&m.text(g).unwrap_or_default());
+                let name: String = c[st..st + len].iter().collect();
+                i = st + len + 1;
+                if name.is_empty() {
+                    return Err(tpl_err(pat, "missing group name", t, st));
+                }
+                let g = if name.chars().all(|x| x.is_ascii_digit()) {
+                    let n = name.parse::<usize>().unwrap_or(usize::MAX);
+                    if n >= MAX_GROUPS {
+                        return Err(tpl_err(pat, &format!("invalid group reference {n}"), t, st));
+                    }
+                    if n > prog.ngroups {
+                        return Err(tpl_err(pat, &format!("invalid group reference {n}"), t, st));
+                    }
+                    n
+                } else {
+                    if let Some(msg) = bad_group_name(&name, pat.is_some())? {
+                        return Err(tpl_err(pat, &msg, t, st));
+                    }
+                    match prog.names.iter().find(|x| x.0 == name) {
+                        Some(x) => x.1,
+                        None => return Err(exc("IndexError", format!("unknown group name {}", py_repr(&name)))),
+                    }
+                };
+                if !out.is_empty() {
+                    ps.push(TPiece::Lit(std::mem::take(&mut out)));
+                }
+                ps.push(TPiece::Group(g));
             }
-            '0'..='9' => {
-                let mut n = e.to_digit(10).unwrap() as usize;
-                if c.get(i).is_some_and(|x| x.is_ascii_digit()) && n * 10 + (c[i].to_digit(10).unwrap() as usize) <= m.prog.ngroups {
-                    n = n * 10 + c[i].to_digit(10).unwrap() as usize;
+            '0' => {
+                let mut ds = String::from("0");
+                while ds.len() < 3 && c.get(i).is_some_and(|x| ('0'..='7').contains(x)) {
+                    ds.push(c[i]);
                     i += 1;
                 }
-                if e == '0' {
-                    out.push('\0');
-                    continue;
+                let v = u32::from_str_radix(&ds, 8).unwrap();
+                out.push(char::from_u32(v & 0xff).unwrap());
+            }
+            '1'..='9' => {
+                let mut ds = vec![e];
+                if c.get(i).is_some_and(|x| x.is_ascii_digit()) {
+                    let d2 = c[i];
+                    i += 1;
+                    ds.push(d2);
+                    if ('0'..='7').contains(&e) && ('0'..='7').contains(&d2) && c.get(i).is_some_and(|x| ('0'..='7').contains(x)) {
+                        let d3 = c[i];
+                        i += 1;
+                        ds.push(d3);
+                        let d: String = ds.iter().collect();
+                        let v = u32::from_str_radix(&d, 8).unwrap();
+                        if v > 0o377 {
+                            return Err(tpl_err(pat, &format!("octal escape value \\{d} outside of range 0-0o377"), t, back));
+                        }
+                        out.push(char::from_u32(v).unwrap());
+                        continue;
+                    }
                 }
-                if n > m.prog.ngroups {
-                    return re_err(format!("invalid group reference {n} at position {}", i - 1));
+                let d: String = ds.iter().collect();
+                let g = d.parse::<usize>().unwrap_or(usize::MAX);
+                if g > prog.ngroups {
+                    return Err(tpl_err(pat, &format!("invalid group reference {g}"), t, back + 1));
                 }
-                out.push_str(&m.text(n).unwrap_or_default());
+                if !out.is_empty() {
+                    ps.push(TPiece::Lit(std::mem::take(&mut out)));
+                }
+                ps.push(TPiece::Group(g));
             }
             'n' => out.push('\n'),
             't' => out.push('\t'),
@@ -1300,14 +2021,17 @@ fn expand_template(t: &str, m: &RMatch) -> Result<String, E> {
             'a' => out.push('\x07'),
             'b' => out.push('\x08'),
             '\\' => out.push('\\'),
-            x if x.is_ascii_alphabetic() => return re_err(format!("bad escape \\{x} at position {}", i - 2)),
+            x if x.is_ascii_alphabetic() => return Err(tpl_err(pat, &format!("bad escape \\{x}"), t, back)),
             x => {
                 out.push('\\');
                 out.push(x);
             }
         }
     }
-    Ok(out)
+    if !out.is_empty() {
+        ps.push(TPiece::Lit(out));
+    }
+    Ok(ps)
 }
 fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
     match n {
@@ -1376,17 +2100,19 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
                 V::Str(t) => Some(t.s.clone()),
                 _ => None,
             };
+            // CPython parses the replacement before looking for matches: a bad template raises even for ''.
+            let pieces = match &tmpl {
+                Some(t) if t.contains('\\') => Some(compile_template(t, prog, None)?),
+                _ => None,
+            };
             for c in ms {
                 out.extend(sc[last..c[0]].iter());
                 let m = RMatch { prog: prog.clone(), s: sc.clone(), sv: sv.clone(), caps: c.clone(), pos: 0, endpos: sc.len() };
                 match &tmpl {
-                    Some(t) => {
-                        if t.contains('\\') {
-                            out.push_str(&expand_template(t, &m)?);
-                        } else {
-                            out.push_str(t);
-                        }
-                    }
+                    Some(t) => match &pieces {
+                        Some(ps) => out.push_str(&apply_template(ps, &m)),
+                        None => out.push_str(t),
+                    },
                     None => {
                         let r = call(&repl, Args::p(vec![V::Ext(ExtRc::new(m))]))?;
                         match &r {
@@ -1445,13 +2171,64 @@ fn pat_of(v: &V, flags: i64) -> Result<Rc<Prog>, E> {
                 }
                 Ok(p.prog.clone())
             }
-            None if tn(v) == "bytes" => Err(unsupported("re with a bytes pattern")),
-            None => type_err("first argument must be string or compiled pattern".into()),
+            None => match bytes_src(v) {
+                Some((bs, pv)) => match re_compile_bytes(&bs, flags, pv) {
+                    Ok(_) => Err(unsupported("re with a bytes pattern")),
+                    Err(e) => Err(e),
+                },
+                None => type_err("first argument must be string or compiled pattern".into()),
+            },
         },
         _ => type_err("first argument must be string or compiled pattern".into()),
     }
 }
+// re.error(msg, pattern=None, pos=None), as CPython's PatternError.__init__ builds it
+fn re_error_new(mut a: Args) -> R {
+    let mut get = |i: usize, k: &str| a.kw(k).or_else(|| a.p.get(i).cloned());
+    let (msg, pattern, pos) = (get(0, "msg"), get(1, "pattern"), get(2, "pos"));
+    if !a.k.is_empty() || a.p.len() > 3 {
+        return type_err("PatternError() takes at most 3 arguments".into());
+    }
+    let Some(V::Str(msg)) = msg else { return Err(unsupported("re.error with a msg that is not a str")) };
+    let msg = msg.s.to_string();
+    match (pattern.unwrap_or(V::None), pos.unwrap_or(V::None)) {
+        (pat, V::Int(p)) if !matches!(pat, V::None) && p >= 0 => {
+            let src = match &pat {
+                V::Str(s) => s.s.to_string(),
+                v => match bytes_src(v) {
+                    Some((b, _)) => b,
+                    None => return Err(unsupported("re.error with a pattern that is not str or bytes")),
+                },
+            };
+            if p as usize > src.chars().count() {
+                return Err(unsupported("re.error with a position past the pattern"));
+            }
+            let E(e) = re_error_full(&msg, &src, p as usize, Some(pat));
+            Ok(e)
+        }
+        (pat, pos) => {
+            // both given (and not a position >= 0) would need CPython's '%d' formatting of pos
+            if !matches!(pat, V::None) && !matches!(pos, V::None) {
+                return Err(unsupported("re.error with this position"));
+            }
+            let o = Obj::new(exc_class("PatternError"));
+            o.set("msg", st(msg.clone()));
+            o.set("pattern", pat);
+            o.set("pos", pos);
+            o.set("lineno", V::None);
+            o.set("colno", V::None);
+            o.set("args", tup(vec![st(msg)]));
+            Ok(V::Obj(o))
+        }
+    }
+}
 pub fn re_fn(n: &str, mut a: Args) -> R {
+    if n == "purge" {
+        if !a.p.is_empty() || !a.k.is_empty() {
+            return type_err(format!("purge() takes 0 positional arguments but {} was given", a.p.len()));
+        }
+        return Ok(V::None);
+    }
     a.k.retain(|(k, _)| *k != "pattern" || {
         true
     });
@@ -1506,6 +2283,15 @@ pub fn re_fn(n: &str, mut a: Args) -> R {
         }
         "sub" | "subn" => {
             let f = flags_arg(&mut a, 3)?;
+            if let Some((bs, bpv)) = bytes_src(&pv) {
+                let prog = re_compile_bytes(&bs, f, bpv)?;
+                let repl = a.kw("repl").or_else(|| a.p.first().cloned()).unwrap_or(V::None);
+                if let Some((rt, rv)) = bytes_src(&repl) {
+                    let dummy = RMatch { prog: prog.clone(), s: Rc::new(vec![]), sv: V::None, caps: vec![UNSET; ncaps(prog.ngroups)], pos: 0, endpos: 0 };
+                    let _ = expand_template2(&rt, &dummy, Some(&rv))?;
+                }
+                return Err(unsupported("re with a bytes pattern"));
+            }
             let prog = pat_of(&pv, f)?;
             a.k.retain(|(k, _)| *k != "flags");
             pat_call(&prog, n, &mut a)
@@ -2412,6 +3198,10 @@ pub fn is_nd(c: char) -> bool {
 
 // Unicode categories L and N (Python \w) (non-ASCII, from CPython 3.13.13's unicodedata 15.1.0)
 const PY_LN: &[(u32, u32)] = &[(0xaa,0xaa),(0xb2,0xb3),(0xb5,0xb5),(0xb9,0xba),(0xbc,0xbe),(0xc0,0xd6),(0xd8,0xf6),(0xf8,0x2c1),(0x2c6,0x2d1),(0x2e0,0x2e4),(0x2ec,0x2ec),(0x2ee,0x2ee),(0x370,0x374),(0x376,0x377),(0x37a,0x37d),(0x37f,0x37f),(0x386,0x386),(0x388,0x38a),(0x38c,0x38c),(0x38e,0x3a1),(0x3a3,0x3f5),(0x3f7,0x481),(0x48a,0x52f),(0x531,0x556),(0x559,0x559),(0x560,0x588),(0x5d0,0x5ea),(0x5ef,0x5f2),(0x620,0x64a),(0x660,0x669),(0x66e,0x66f),(0x671,0x6d3),(0x6d5,0x6d5),(0x6e5,0x6e6),(0x6ee,0x6fc),(0x6ff,0x6ff),(0x710,0x710),(0x712,0x72f),(0x74d,0x7a5),(0x7b1,0x7b1),(0x7c0,0x7ea),(0x7f4,0x7f5),(0x7fa,0x7fa),(0x800,0x815),(0x81a,0x81a),(0x824,0x824),(0x828,0x828),(0x840,0x858),(0x860,0x86a),(0x870,0x887),(0x889,0x88e),(0x8a0,0x8c9),(0x904,0x939),(0x93d,0x93d),(0x950,0x950),(0x958,0x961),(0x966,0x96f),(0x971,0x980),(0x985,0x98c),(0x98f,0x990),(0x993,0x9a8),(0x9aa,0x9b0),(0x9b2,0x9b2),(0x9b6,0x9b9),(0x9bd,0x9bd),(0x9ce,0x9ce),(0x9dc,0x9dd),(0x9df,0x9e1),(0x9e6,0x9f1),(0x9f4,0x9f9),(0x9fc,0x9fc),(0xa05,0xa0a),(0xa0f,0xa10),(0xa13,0xa28),(0xa2a,0xa30),(0xa32,0xa33),(0xa35,0xa36),(0xa38,0xa39),(0xa59,0xa5c),(0xa5e,0xa5e),(0xa66,0xa6f),(0xa72,0xa74),(0xa85,0xa8d),(0xa8f,0xa91),(0xa93,0xaa8),(0xaaa,0xab0),(0xab2,0xab3),(0xab5,0xab9),(0xabd,0xabd),(0xad0,0xad0),(0xae0,0xae1),(0xae6,0xaef),(0xaf9,0xaf9),(0xb05,0xb0c),(0xb0f,0xb10),(0xb13,0xb28),(0xb2a,0xb30),(0xb32,0xb33),(0xb35,0xb39),(0xb3d,0xb3d),(0xb5c,0xb5d),(0xb5f,0xb61),(0xb66,0xb6f),(0xb71,0xb77),(0xb83,0xb83),(0xb85,0xb8a),(0xb8e,0xb90),(0xb92,0xb95),(0xb99,0xb9a),(0xb9c,0xb9c),(0xb9e,0xb9f),(0xba3,0xba4),(0xba8,0xbaa),(0xbae,0xbb9),(0xbd0,0xbd0),(0xbe6,0xbf2),(0xc05,0xc0c),(0xc0e,0xc10),(0xc12,0xc28),(0xc2a,0xc39),(0xc3d,0xc3d),(0xc58,0xc5a),(0xc5d,0xc5d),(0xc60,0xc61),(0xc66,0xc6f),(0xc78,0xc7e),(0xc80,0xc80),(0xc85,0xc8c),(0xc8e,0xc90),(0xc92,0xca8),(0xcaa,0xcb3),(0xcb5,0xcb9),(0xcbd,0xcbd),(0xcdd,0xcde),(0xce0,0xce1),(0xce6,0xcef),(0xcf1,0xcf2),(0xd04,0xd0c),(0xd0e,0xd10),(0xd12,0xd3a),(0xd3d,0xd3d),(0xd4e,0xd4e),(0xd54,0xd56),(0xd58,0xd61),(0xd66,0xd78),(0xd7a,0xd7f),(0xd85,0xd96),(0xd9a,0xdb1),(0xdb3,0xdbb),(0xdbd,0xdbd),(0xdc0,0xdc6),(0xde6,0xdef),(0xe01,0xe30),(0xe32,0xe33),(0xe40,0xe46),(0xe50,0xe59),(0xe81,0xe82),(0xe84,0xe84),(0xe86,0xe8a),(0xe8c,0xea3),(0xea5,0xea5),(0xea7,0xeb0),(0xeb2,0xeb3),(0xebd,0xebd),(0xec0,0xec4),(0xec6,0xec6),(0xed0,0xed9),(0xedc,0xedf),(0xf00,0xf00),(0xf20,0xf33),(0xf40,0xf47),(0xf49,0xf6c),(0xf88,0xf8c),(0x1000,0x102a),(0x103f,0x1049),(0x1050,0x1055),(0x105a,0x105d),(0x1061,0x1061),(0x1065,0x1066),(0x106e,0x1070),(0x1075,0x1081),(0x108e,0x108e),(0x1090,0x1099),(0x10a0,0x10c5),(0x10c7,0x10c7),(0x10cd,0x10cd),(0x10d0,0x10fa),(0x10fc,0x1248),(0x124a,0x124d),(0x1250,0x1256),(0x1258,0x1258),(0x125a,0x125d),(0x1260,0x1288),(0x128a,0x128d),(0x1290,0x12b0),(0x12b2,0x12b5),(0x12b8,0x12be),(0x12c0,0x12c0),(0x12c2,0x12c5),(0x12c8,0x12d6),(0x12d8,0x1310),(0x1312,0x1315),(0x1318,0x135a),(0x1369,0x137c),(0x1380,0x138f),(0x13a0,0x13f5),(0x13f8,0x13fd),(0x1401,0x166c),(0x166f,0x167f),(0x1681,0x169a),(0x16a0,0x16ea),(0x16ee,0x16f8),(0x1700,0x1711),(0x171f,0x1731),(0x1740,0x1751),(0x1760,0x176c),(0x176e,0x1770),(0x1780,0x17b3),(0x17d7,0x17d7),(0x17dc,0x17dc),(0x17e0,0x17e9),(0x17f0,0x17f9),(0x1810,0x1819),(0x1820,0x1878),(0x1880,0x1884),(0x1887,0x18a8),(0x18aa,0x18aa),(0x18b0,0x18f5),(0x1900,0x191e),(0x1946,0x196d),(0x1970,0x1974),(0x1980,0x19ab),(0x19b0,0x19c9),(0x19d0,0x19da),(0x1a00,0x1a16),(0x1a20,0x1a54),(0x1a80,0x1a89),(0x1a90,0x1a99),(0x1aa7,0x1aa7),(0x1b05,0x1b33),(0x1b45,0x1b4c),(0x1b50,0x1b59),(0x1b83,0x1ba0),(0x1bae,0x1be5),(0x1c00,0x1c23),(0x1c40,0x1c49),(0x1c4d,0x1c7d),(0x1c80,0x1c88),(0x1c90,0x1cba),(0x1cbd,0x1cbf),(0x1ce9,0x1cec),(0x1cee,0x1cf3),(0x1cf5,0x1cf6),(0x1cfa,0x1cfa),(0x1d00,0x1dbf),(0x1e00,0x1f15),(0x1f18,0x1f1d),(0x1f20,0x1f45),(0x1f48,0x1f4d),(0x1f50,0x1f57),(0x1f59,0x1f59),(0x1f5b,0x1f5b),(0x1f5d,0x1f5d),(0x1f5f,0x1f7d),(0x1f80,0x1fb4),(0x1fb6,0x1fbc),(0x1fbe,0x1fbe),(0x1fc2,0x1fc4),(0x1fc6,0x1fcc),(0x1fd0,0x1fd3),(0x1fd6,0x1fdb),(0x1fe0,0x1fec),(0x1ff2,0x1ff4),(0x1ff6,0x1ffc),(0x2070,0x2071),(0x2074,0x2079),(0x207f,0x2089),(0x2090,0x209c),(0x2102,0x2102),(0x2107,0x2107),(0x210a,0x2113),(0x2115,0x2115),(0x2119,0x211d),(0x2124,0x2124),(0x2126,0x2126),(0x2128,0x2128),(0x212a,0x212d),(0x212f,0x2139),(0x213c,0x213f),(0x2145,0x2149),(0x214e,0x214e),(0x2150,0x2189),(0x2460,0x249b),(0x24ea,0x24ff),(0x2776,0x2793),(0x2c00,0x2ce4),(0x2ceb,0x2cee),(0x2cf2,0x2cf3),(0x2cfd,0x2cfd),(0x2d00,0x2d25),(0x2d27,0x2d27),(0x2d2d,0x2d2d),(0x2d30,0x2d67),(0x2d6f,0x2d6f),(0x2d80,0x2d96),(0x2da0,0x2da6),(0x2da8,0x2dae),(0x2db0,0x2db6),(0x2db8,0x2dbe),(0x2dc0,0x2dc6),(0x2dc8,0x2dce),(0x2dd0,0x2dd6),(0x2dd8,0x2dde),(0x2e2f,0x2e2f),(0x3005,0x3007),(0x3021,0x3029),(0x3031,0x3035),(0x3038,0x303c),(0x3041,0x3096),(0x309d,0x309f),(0x30a1,0x30fa),(0x30fc,0x30ff),(0x3105,0x312f),(0x3131,0x318e),(0x3192,0x3195),(0x31a0,0x31bf),(0x31f0,0x31ff),(0x3220,0x3229),(0x3248,0x324f),(0x3251,0x325f),(0x3280,0x3289),(0x32b1,0x32bf),(0x3400,0x4dbf),(0x4e00,0xa48c),(0xa4d0,0xa4fd),(0xa500,0xa60c),(0xa610,0xa62b),(0xa640,0xa66e),(0xa67f,0xa69d),(0xa6a0,0xa6ef),(0xa717,0xa71f),(0xa722,0xa788),(0xa78b,0xa7ca),(0xa7d0,0xa7d1),(0xa7d3,0xa7d3),(0xa7d5,0xa7d9),(0xa7f2,0xa801),(0xa803,0xa805),(0xa807,0xa80a),(0xa80c,0xa822),(0xa830,0xa835),(0xa840,0xa873),(0xa882,0xa8b3),(0xa8d0,0xa8d9),(0xa8f2,0xa8f7),(0xa8fb,0xa8fb),(0xa8fd,0xa8fe),(0xa900,0xa925),(0xa930,0xa946),(0xa960,0xa97c),(0xa984,0xa9b2),(0xa9cf,0xa9d9),(0xa9e0,0xa9e4),(0xa9e6,0xa9fe),(0xaa00,0xaa28),(0xaa40,0xaa42),(0xaa44,0xaa4b),(0xaa50,0xaa59),(0xaa60,0xaa76),(0xaa7a,0xaa7a),(0xaa7e,0xaaaf),(0xaab1,0xaab1),(0xaab5,0xaab6),(0xaab9,0xaabd),(0xaac0,0xaac0),(0xaac2,0xaac2),(0xaadb,0xaadd),(0xaae0,0xaaea),(0xaaf2,0xaaf4),(0xab01,0xab06),(0xab09,0xab0e),(0xab11,0xab16),(0xab20,0xab26),(0xab28,0xab2e),(0xab30,0xab5a),(0xab5c,0xab69),(0xab70,0xabe2),(0xabf0,0xabf9),(0xac00,0xd7a3),(0xd7b0,0xd7c6),(0xd7cb,0xd7fb),(0xf900,0xfa6d),(0xfa70,0xfad9),(0xfb00,0xfb06),(0xfb13,0xfb17),(0xfb1d,0xfb1d),(0xfb1f,0xfb28),(0xfb2a,0xfb36),(0xfb38,0xfb3c),(0xfb3e,0xfb3e),(0xfb40,0xfb41),(0xfb43,0xfb44),(0xfb46,0xfbb1),(0xfbd3,0xfd3d),(0xfd50,0xfd8f),(0xfd92,0xfdc7),(0xfdf0,0xfdfb),(0xfe70,0xfe74),(0xfe76,0xfefc),(0xff10,0xff19),(0xff21,0xff3a),(0xff41,0xff5a),(0xff66,0xffbe),(0xffc2,0xffc7),(0xffca,0xffcf),(0xffd2,0xffd7),(0xffda,0xffdc),(0x10000,0x1000b),(0x1000d,0x10026),(0x10028,0x1003a),(0x1003c,0x1003d),(0x1003f,0x1004d),(0x10050,0x1005d),(0x10080,0x100fa),(0x10107,0x10133),(0x10140,0x10178),(0x1018a,0x1018b),(0x10280,0x1029c),(0x102a0,0x102d0),(0x102e1,0x102fb),(0x10300,0x10323),(0x1032d,0x1034a),(0x10350,0x10375),(0x10380,0x1039d),(0x103a0,0x103c3),(0x103c8,0x103cf),(0x103d1,0x103d5),(0x10400,0x1049d),(0x104a0,0x104a9),(0x104b0,0x104d3),(0x104d8,0x104fb),(0x10500,0x10527),(0x10530,0x10563),(0x10570,0x1057a),(0x1057c,0x1058a),(0x1058c,0x10592),(0x10594,0x10595),(0x10597,0x105a1),(0x105a3,0x105b1),(0x105b3,0x105b9),(0x105bb,0x105bc),(0x10600,0x10736),(0x10740,0x10755),(0x10760,0x10767),(0x10780,0x10785),(0x10787,0x107b0),(0x107b2,0x107ba),(0x10800,0x10805),(0x10808,0x10808),(0x1080a,0x10835),(0x10837,0x10838),(0x1083c,0x1083c),(0x1083f,0x10855),(0x10858,0x10876),(0x10879,0x1089e),(0x108a7,0x108af),(0x108e0,0x108f2),(0x108f4,0x108f5),(0x108fb,0x1091b),(0x10920,0x10939),(0x10980,0x109b7),(0x109bc,0x109cf),(0x109d2,0x10a00),(0x10a10,0x10a13),(0x10a15,0x10a17),(0x10a19,0x10a35),(0x10a40,0x10a48),(0x10a60,0x10a7e),(0x10a80,0x10a9f),(0x10ac0,0x10ac7),(0x10ac9,0x10ae4),(0x10aeb,0x10aef),(0x10b00,0x10b35),(0x10b40,0x10b55),(0x10b58,0x10b72),(0x10b78,0x10b91),(0x10ba9,0x10baf),(0x10c00,0x10c48),(0x10c80,0x10cb2),(0x10cc0,0x10cf2),(0x10cfa,0x10d23),(0x10d30,0x10d39),(0x10e60,0x10e7e),(0x10e80,0x10ea9),(0x10eb0,0x10eb1),(0x10f00,0x10f27),(0x10f30,0x10f45),(0x10f51,0x10f54),(0x10f70,0x10f81),(0x10fb0,0x10fcb),(0x10fe0,0x10ff6),(0x11003,0x11037),(0x11052,0x1106f),(0x11071,0x11072),(0x11075,0x11075),(0x11083,0x110af),(0x110d0,0x110e8),(0x110f0,0x110f9),(0x11103,0x11126),(0x11136,0x1113f),(0x11144,0x11144),(0x11147,0x11147),(0x11150,0x11172),(0x11176,0x11176),(0x11183,0x111b2),(0x111c1,0x111c4),(0x111d0,0x111da),(0x111dc,0x111dc),(0x111e1,0x111f4),(0x11200,0x11211),(0x11213,0x1122b),(0x1123f,0x11240),(0x11280,0x11286),(0x11288,0x11288),(0x1128a,0x1128d),(0x1128f,0x1129d),(0x1129f,0x112a8),(0x112b0,0x112de),(0x112f0,0x112f9),(0x11305,0x1130c),(0x1130f,0x11310),(0x11313,0x11328),(0x1132a,0x11330),(0x11332,0x11333),(0x11335,0x11339),(0x1133d,0x1133d),(0x11350,0x11350),(0x1135d,0x11361),(0x11400,0x11434),(0x11447,0x1144a),(0x11450,0x11459),(0x1145f,0x11461),(0x11480,0x114af),(0x114c4,0x114c5),(0x114c7,0x114c7),(0x114d0,0x114d9),(0x11580,0x115ae),(0x115d8,0x115db),(0x11600,0x1162f),(0x11644,0x11644),(0x11650,0x11659),(0x11680,0x116aa),(0x116b8,0x116b8),(0x116c0,0x116c9),(0x11700,0x1171a),(0x11730,0x1173b),(0x11740,0x11746),(0x11800,0x1182b),(0x118a0,0x118f2),(0x118ff,0x11906),(0x11909,0x11909),(0x1190c,0x11913),(0x11915,0x11916),(0x11918,0x1192f),(0x1193f,0x1193f),(0x11941,0x11941),(0x11950,0x11959),(0x119a0,0x119a7),(0x119aa,0x119d0),(0x119e1,0x119e1),(0x119e3,0x119e3),(0x11a00,0x11a00),(0x11a0b,0x11a32),(0x11a3a,0x11a3a),(0x11a50,0x11a50),(0x11a5c,0x11a89),(0x11a9d,0x11a9d),(0x11ab0,0x11af8),(0x11c00,0x11c08),(0x11c0a,0x11c2e),(0x11c40,0x11c40),(0x11c50,0x11c6c),(0x11c72,0x11c8f),(0x11d00,0x11d06),(0x11d08,0x11d09),(0x11d0b,0x11d30),(0x11d46,0x11d46),(0x11d50,0x11d59),(0x11d60,0x11d65),(0x11d67,0x11d68),(0x11d6a,0x11d89),(0x11d98,0x11d98),(0x11da0,0x11da9),(0x11ee0,0x11ef2),(0x11f02,0x11f02),(0x11f04,0x11f10),(0x11f12,0x11f33),(0x11f50,0x11f59),(0x11fb0,0x11fb0),(0x11fc0,0x11fd4),(0x12000,0x12399),(0x12400,0x1246e),(0x12480,0x12543),(0x12f90,0x12ff0),(0x13000,0x1342f),(0x13441,0x13446),(0x14400,0x14646),(0x16800,0x16a38),(0x16a40,0x16a5e),(0x16a60,0x16a69),(0x16a70,0x16abe),(0x16ac0,0x16ac9),(0x16ad0,0x16aed),(0x16b00,0x16b2f),(0x16b40,0x16b43),(0x16b50,0x16b59),(0x16b5b,0x16b61),(0x16b63,0x16b77),(0x16b7d,0x16b8f),(0x16e40,0x16e96),(0x16f00,0x16f4a),(0x16f50,0x16f50),(0x16f93,0x16f9f),(0x16fe0,0x16fe1),(0x16fe3,0x16fe3),(0x17000,0x187f7),(0x18800,0x18cd5),(0x18d00,0x18d08),(0x1aff0,0x1aff3),(0x1aff5,0x1affb),(0x1affd,0x1affe),(0x1b000,0x1b122),(0x1b132,0x1b132),(0x1b150,0x1b152),(0x1b155,0x1b155),(0x1b164,0x1b167),(0x1b170,0x1b2fb),(0x1bc00,0x1bc6a),(0x1bc70,0x1bc7c),(0x1bc80,0x1bc88),(0x1bc90,0x1bc99),(0x1d2c0,0x1d2d3),(0x1d2e0,0x1d2f3),(0x1d360,0x1d378),(0x1d400,0x1d454),(0x1d456,0x1d49c),(0x1d49e,0x1d49f),(0x1d4a2,0x1d4a2),(0x1d4a5,0x1d4a6),(0x1d4a9,0x1d4ac),(0x1d4ae,0x1d4b9),(0x1d4bb,0x1d4bb),(0x1d4bd,0x1d4c3),(0x1d4c5,0x1d505),(0x1d507,0x1d50a),(0x1d50d,0x1d514),(0x1d516,0x1d51c),(0x1d51e,0x1d539),(0x1d53b,0x1d53e),(0x1d540,0x1d544),(0x1d546,0x1d546),(0x1d54a,0x1d550),(0x1d552,0x1d6a5),(0x1d6a8,0x1d6c0),(0x1d6c2,0x1d6da),(0x1d6dc,0x1d6fa),(0x1d6fc,0x1d714),(0x1d716,0x1d734),(0x1d736,0x1d74e),(0x1d750,0x1d76e),(0x1d770,0x1d788),(0x1d78a,0x1d7a8),(0x1d7aa,0x1d7c2),(0x1d7c4,0x1d7cb),(0x1d7ce,0x1d7ff),(0x1df00,0x1df1e),(0x1df25,0x1df2a),(0x1e030,0x1e06d),(0x1e100,0x1e12c),(0x1e137,0x1e13d),(0x1e140,0x1e149),(0x1e14e,0x1e14e),(0x1e290,0x1e2ad),(0x1e2c0,0x1e2eb),(0x1e2f0,0x1e2f9),(0x1e4d0,0x1e4eb),(0x1e4f0,0x1e4f9),(0x1e7e0,0x1e7e6),(0x1e7e8,0x1e7eb),(0x1e7ed,0x1e7ee),(0x1e7f0,0x1e7fe),(0x1e800,0x1e8c4),(0x1e8c7,0x1e8cf),(0x1e900,0x1e943),(0x1e94b,0x1e94b),(0x1e950,0x1e959),(0x1ec71,0x1ecab),(0x1ecad,0x1ecaf),(0x1ecb1,0x1ecb4),(0x1ed01,0x1ed2d),(0x1ed2f,0x1ed3d),(0x1ee00,0x1ee03),(0x1ee05,0x1ee1f),(0x1ee21,0x1ee22),(0x1ee24,0x1ee24),(0x1ee27,0x1ee27),(0x1ee29,0x1ee32),(0x1ee34,0x1ee37),(0x1ee39,0x1ee39),(0x1ee3b,0x1ee3b),(0x1ee42,0x1ee42),(0x1ee47,0x1ee47),(0x1ee49,0x1ee49),(0x1ee4b,0x1ee4b),(0x1ee4d,0x1ee4f),(0x1ee51,0x1ee52),(0x1ee54,0x1ee54),(0x1ee57,0x1ee57),(0x1ee59,0x1ee59),(0x1ee5b,0x1ee5b),(0x1ee5d,0x1ee5d),(0x1ee5f,0x1ee5f),(0x1ee61,0x1ee62),(0x1ee64,0x1ee64),(0x1ee67,0x1ee6a),(0x1ee6c,0x1ee72),(0x1ee74,0x1ee77),(0x1ee79,0x1ee7c),(0x1ee7e,0x1ee7e),(0x1ee80,0x1ee89),(0x1ee8b,0x1ee9b),(0x1eea1,0x1eea3),(0x1eea5,0x1eea9),(0x1eeab,0x1eebb),(0x1f100,0x1f10c),(0x1fbf0,0x1fbf9),(0x20000,0x2a6df),(0x2a700,0x2b739),(0x2b740,0x2b81d),(0x2b820,0x2cea1),(0x2ceb0,0x2ebe0),(0x2ebf0,0x2ee5d),(0x2f800,0x2fa1d),(0x30000,0x3134a),(0x31350,0x323af)];
+// str.isidentifier() as CPython 3.13 (Unicode 15.1) has it: characters that can start an identifier, and
+// ones that can continue it (generated from CPython 3.13.13's str.isidentifier).
+const PY_ID_START: &[(u32, u32)] = &[(0x41,0x5a),(0x5f,0x5f),(0x61,0x7a),(0xaa,0xaa),(0xb5,0xb5),(0xba,0xba),(0xc0,0xd6),(0xd8,0xf6),(0xf8,0x2c1),(0x2c6,0x2d1),(0x2e0,0x2e4),(0x2ec,0x2ec),(0x2ee,0x2ee),(0x370,0x374),(0x376,0x377),(0x37b,0x37d),(0x37f,0x37f),(0x386,0x386),(0x388,0x38a),(0x38c,0x38c),(0x38e,0x3a1),(0x3a3,0x3f5),(0x3f7,0x481),(0x48a,0x52f),(0x531,0x556),(0x559,0x559),(0x560,0x588),(0x5d0,0x5ea),(0x5ef,0x5f2),(0x620,0x64a),(0x66e,0x66f),(0x671,0x6d3),(0x6d5,0x6d5),(0x6e5,0x6e6),(0x6ee,0x6ef),(0x6fa,0x6fc),(0x6ff,0x6ff),(0x710,0x710),(0x712,0x72f),(0x74d,0x7a5),(0x7b1,0x7b1),(0x7ca,0x7ea),(0x7f4,0x7f5),(0x7fa,0x7fa),(0x800,0x815),(0x81a,0x81a),(0x824,0x824),(0x828,0x828),(0x840,0x858),(0x860,0x86a),(0x870,0x887),(0x889,0x88e),(0x8a0,0x8c9),(0x904,0x939),(0x93d,0x93d),(0x950,0x950),(0x958,0x961),(0x971,0x980),(0x985,0x98c),(0x98f,0x990),(0x993,0x9a8),(0x9aa,0x9b0),(0x9b2,0x9b2),(0x9b6,0x9b9),(0x9bd,0x9bd),(0x9ce,0x9ce),(0x9dc,0x9dd),(0x9df,0x9e1),(0x9f0,0x9f1),(0x9fc,0x9fc),(0xa05,0xa0a),(0xa0f,0xa10),(0xa13,0xa28),(0xa2a,0xa30),(0xa32,0xa33),(0xa35,0xa36),(0xa38,0xa39),(0xa59,0xa5c),(0xa5e,0xa5e),(0xa72,0xa74),(0xa85,0xa8d),(0xa8f,0xa91),(0xa93,0xaa8),(0xaaa,0xab0),(0xab2,0xab3),(0xab5,0xab9),(0xabd,0xabd),(0xad0,0xad0),(0xae0,0xae1),(0xaf9,0xaf9),(0xb05,0xb0c),(0xb0f,0xb10),(0xb13,0xb28),(0xb2a,0xb30),(0xb32,0xb33),(0xb35,0xb39),(0xb3d,0xb3d),(0xb5c,0xb5d),(0xb5f,0xb61),(0xb71,0xb71),(0xb83,0xb83),(0xb85,0xb8a),(0xb8e,0xb90),(0xb92,0xb95),(0xb99,0xb9a),(0xb9c,0xb9c),(0xb9e,0xb9f),(0xba3,0xba4),(0xba8,0xbaa),(0xbae,0xbb9),(0xbd0,0xbd0),(0xc05,0xc0c),(0xc0e,0xc10),(0xc12,0xc28),(0xc2a,0xc39),(0xc3d,0xc3d),(0xc58,0xc5a),(0xc5d,0xc5d),(0xc60,0xc61),(0xc80,0xc80),(0xc85,0xc8c),(0xc8e,0xc90),(0xc92,0xca8),(0xcaa,0xcb3),(0xcb5,0xcb9),(0xcbd,0xcbd),(0xcdd,0xcde),(0xce0,0xce1),(0xcf1,0xcf2),(0xd04,0xd0c),(0xd0e,0xd10),(0xd12,0xd3a),(0xd3d,0xd3d),(0xd4e,0xd4e),(0xd54,0xd56),(0xd5f,0xd61),(0xd7a,0xd7f),(0xd85,0xd96),(0xd9a,0xdb1),(0xdb3,0xdbb),(0xdbd,0xdbd),(0xdc0,0xdc6),(0xe01,0xe30),(0xe32,0xe32),(0xe40,0xe46),(0xe81,0xe82),(0xe84,0xe84),(0xe86,0xe8a),(0xe8c,0xea3),(0xea5,0xea5),(0xea7,0xeb0),(0xeb2,0xeb2),(0xebd,0xebd),(0xec0,0xec4),(0xec6,0xec6),(0xedc,0xedf),(0xf00,0xf00),(0xf40,0xf47),(0xf49,0xf6c),(0xf88,0xf8c),(0x1000,0x102a),(0x103f,0x103f),(0x1050,0x1055),(0x105a,0x105d),(0x1061,0x1061),(0x1065,0x1066),(0x106e,0x1070),(0x1075,0x1081),(0x108e,0x108e),(0x10a0,0x10c5),(0x10c7,0x10c7),(0x10cd,0x10cd),(0x10d0,0x10fa),(0x10fc,0x1248),(0x124a,0x124d),(0x1250,0x1256),(0x1258,0x1258),(0x125a,0x125d),(0x1260,0x1288),(0x128a,0x128d),(0x1290,0x12b0),(0x12b2,0x12b5),(0x12b8,0x12be),(0x12c0,0x12c0),(0x12c2,0x12c5),(0x12c8,0x12d6),(0x12d8,0x1310),(0x1312,0x1315),(0x1318,0x135a),(0x1380,0x138f),(0x13a0,0x13f5),(0x13f8,0x13fd),(0x1401,0x166c),(0x166f,0x167f),(0x1681,0x169a),(0x16a0,0x16ea),(0x16ee,0x16f8),(0x1700,0x1711),(0x171f,0x1731),(0x1740,0x1751),(0x1760,0x176c),(0x176e,0x1770),(0x1780,0x17b3),(0x17d7,0x17d7),(0x17dc,0x17dc),(0x1820,0x1878),(0x1880,0x18a8),(0x18aa,0x18aa),(0x18b0,0x18f5),(0x1900,0x191e),(0x1950,0x196d),(0x1970,0x1974),(0x1980,0x19ab),(0x19b0,0x19c9),(0x1a00,0x1a16),(0x1a20,0x1a54),(0x1aa7,0x1aa7),(0x1b05,0x1b33),(0x1b45,0x1b4c),(0x1b83,0x1ba0),(0x1bae,0x1baf),(0x1bba,0x1be5),(0x1c00,0x1c23),(0x1c4d,0x1c4f),(0x1c5a,0x1c7d),(0x1c80,0x1c88),(0x1c90,0x1cba),(0x1cbd,0x1cbf),(0x1ce9,0x1cec),(0x1cee,0x1cf3),(0x1cf5,0x1cf6),(0x1cfa,0x1cfa),(0x1d00,0x1dbf),(0x1e00,0x1f15),(0x1f18,0x1f1d),(0x1f20,0x1f45),(0x1f48,0x1f4d),(0x1f50,0x1f57),(0x1f59,0x1f59),(0x1f5b,0x1f5b),(0x1f5d,0x1f5d),(0x1f5f,0x1f7d),(0x1f80,0x1fb4),(0x1fb6,0x1fbc),(0x1fbe,0x1fbe),(0x1fc2,0x1fc4),(0x1fc6,0x1fcc),(0x1fd0,0x1fd3),(0x1fd6,0x1fdb),(0x1fe0,0x1fec),(0x1ff2,0x1ff4),(0x1ff6,0x1ffc),(0x2071,0x2071),(0x207f,0x207f),(0x2090,0x209c),(0x2102,0x2102),(0x2107,0x2107),(0x210a,0x2113),(0x2115,0x2115),(0x2118,0x211d),(0x2124,0x2124),(0x2126,0x2126),(0x2128,0x2128),(0x212a,0x2139),(0x213c,0x213f),(0x2145,0x2149),(0x214e,0x214e),(0x2160,0x2188),(0x2c00,0x2ce4),(0x2ceb,0x2cee),(0x2cf2,0x2cf3),(0x2d00,0x2d25),(0x2d27,0x2d27),(0x2d2d,0x2d2d),(0x2d30,0x2d67),(0x2d6f,0x2d6f),(0x2d80,0x2d96),(0x2da0,0x2da6),(0x2da8,0x2dae),(0x2db0,0x2db6),(0x2db8,0x2dbe),(0x2dc0,0x2dc6),(0x2dc8,0x2dce),(0x2dd0,0x2dd6),(0x2dd8,0x2dde),(0x3005,0x3007),(0x3021,0x3029),(0x3031,0x3035),(0x3038,0x303c),(0x3041,0x3096),(0x309d,0x309f),(0x30a1,0x30fa),(0x30fc,0x30ff),(0x3105,0x312f),(0x3131,0x318e),(0x31a0,0x31bf),(0x31f0,0x31ff),(0x3400,0x4dbf),(0x4e00,0xa48c),(0xa4d0,0xa4fd),(0xa500,0xa60c),(0xa610,0xa61f),(0xa62a,0xa62b),(0xa640,0xa66e),(0xa67f,0xa69d),(0xa6a0,0xa6ef),(0xa717,0xa71f),(0xa722,0xa788),(0xa78b,0xa7ca),(0xa7d0,0xa7d1),(0xa7d3,0xa7d3),(0xa7d5,0xa7d9),(0xa7f2,0xa801),(0xa803,0xa805),(0xa807,0xa80a),(0xa80c,0xa822),(0xa840,0xa873),(0xa882,0xa8b3),(0xa8f2,0xa8f7),(0xa8fb,0xa8fb),(0xa8fd,0xa8fe),(0xa90a,0xa925),(0xa930,0xa946),(0xa960,0xa97c),(0xa984,0xa9b2),(0xa9cf,0xa9cf),(0xa9e0,0xa9e4),(0xa9e6,0xa9ef),(0xa9fa,0xa9fe),(0xaa00,0xaa28),(0xaa40,0xaa42),(0xaa44,0xaa4b),(0xaa60,0xaa76),(0xaa7a,0xaa7a),(0xaa7e,0xaaaf),(0xaab1,0xaab1),(0xaab5,0xaab6),(0xaab9,0xaabd),(0xaac0,0xaac0),(0xaac2,0xaac2),(0xaadb,0xaadd),(0xaae0,0xaaea),(0xaaf2,0xaaf4),(0xab01,0xab06),(0xab09,0xab0e),(0xab11,0xab16),(0xab20,0xab26),(0xab28,0xab2e),(0xab30,0xab5a),(0xab5c,0xab69),(0xab70,0xabe2),(0xac00,0xd7a3),(0xd7b0,0xd7c6),(0xd7cb,0xd7fb),(0xf900,0xfa6d),(0xfa70,0xfad9),(0xfb00,0xfb06),(0xfb13,0xfb17),(0xfb1d,0xfb1d),(0xfb1f,0xfb28),(0xfb2a,0xfb36),(0xfb38,0xfb3c),(0xfb3e,0xfb3e),(0xfb40,0xfb41),(0xfb43,0xfb44),(0xfb46,0xfbb1),(0xfbd3,0xfc5d),(0xfc64,0xfd3d),(0xfd50,0xfd8f),(0xfd92,0xfdc7),(0xfdf0,0xfdf9),(0xfe71,0xfe71),(0xfe73,0xfe73),(0xfe77,0xfe77),(0xfe79,0xfe79),(0xfe7b,0xfe7b),(0xfe7d,0xfe7d),(0xfe7f,0xfefc),(0xff21,0xff3a),(0xff41,0xff5a),(0xff66,0xff9d),(0xffa0,0xffbe),(0xffc2,0xffc7),(0xffca,0xffcf),(0xffd2,0xffd7),(0xffda,0xffdc),(0x10000,0x1000b),(0x1000d,0x10026),(0x10028,0x1003a),(0x1003c,0x1003d),(0x1003f,0x1004d),(0x10050,0x1005d),(0x10080,0x100fa),(0x10140,0x10174),(0x10280,0x1029c),(0x102a0,0x102d0),(0x10300,0x1031f),(0x1032d,0x1034a),(0x10350,0x10375),(0x10380,0x1039d),(0x103a0,0x103c3),(0x103c8,0x103cf),(0x103d1,0x103d5),(0x10400,0x1049d),(0x104b0,0x104d3),(0x104d8,0x104fb),(0x10500,0x10527),(0x10530,0x10563),(0x10570,0x1057a),(0x1057c,0x1058a),(0x1058c,0x10592),(0x10594,0x10595),(0x10597,0x105a1),(0x105a3,0x105b1),(0x105b3,0x105b9),(0x105bb,0x105bc),(0x10600,0x10736),(0x10740,0x10755),(0x10760,0x10767),(0x10780,0x10785),(0x10787,0x107b0),(0x107b2,0x107ba),(0x10800,0x10805),(0x10808,0x10808),(0x1080a,0x10835),(0x10837,0x10838),(0x1083c,0x1083c),(0x1083f,0x10855),(0x10860,0x10876),(0x10880,0x1089e),(0x108e0,0x108f2),(0x108f4,0x108f5),(0x10900,0x10915),(0x10920,0x10939),(0x10980,0x109b7),(0x109be,0x109bf),(0x10a00,0x10a00),(0x10a10,0x10a13),(0x10a15,0x10a17),(0x10a19,0x10a35),(0x10a60,0x10a7c),(0x10a80,0x10a9c),(0x10ac0,0x10ac7),(0x10ac9,0x10ae4),(0x10b00,0x10b35),(0x10b40,0x10b55),(0x10b60,0x10b72),(0x10b80,0x10b91),(0x10c00,0x10c48),(0x10c80,0x10cb2),(0x10cc0,0x10cf2),(0x10d00,0x10d23),(0x10e80,0x10ea9),(0x10eb0,0x10eb1),(0x10f00,0x10f1c),(0x10f27,0x10f27),(0x10f30,0x10f45),(0x10f70,0x10f81),(0x10fb0,0x10fc4),(0x10fe0,0x10ff6),(0x11003,0x11037),(0x11071,0x11072),(0x11075,0x11075),(0x11083,0x110af),(0x110d0,0x110e8),(0x11103,0x11126),(0x11144,0x11144),(0x11147,0x11147),(0x11150,0x11172),(0x11176,0x11176),(0x11183,0x111b2),(0x111c1,0x111c4),(0x111da,0x111da),(0x111dc,0x111dc),(0x11200,0x11211),(0x11213,0x1122b),(0x1123f,0x11240),(0x11280,0x11286),(0x11288,0x11288),(0x1128a,0x1128d),(0x1128f,0x1129d),(0x1129f,0x112a8),(0x112b0,0x112de),(0x11305,0x1130c),(0x1130f,0x11310),(0x11313,0x11328),(0x1132a,0x11330),(0x11332,0x11333),(0x11335,0x11339),(0x1133d,0x1133d),(0x11350,0x11350),(0x1135d,0x11361),(0x11400,0x11434),(0x11447,0x1144a),(0x1145f,0x11461),(0x11480,0x114af),(0x114c4,0x114c5),(0x114c7,0x114c7),(0x11580,0x115ae),(0x115d8,0x115db),(0x11600,0x1162f),(0x11644,0x11644),(0x11680,0x116aa),(0x116b8,0x116b8),(0x11700,0x1171a),(0x11740,0x11746),(0x11800,0x1182b),(0x118a0,0x118df),(0x118ff,0x11906),(0x11909,0x11909),(0x1190c,0x11913),(0x11915,0x11916),(0x11918,0x1192f),(0x1193f,0x1193f),(0x11941,0x11941),(0x119a0,0x119a7),(0x119aa,0x119d0),(0x119e1,0x119e1),(0x119e3,0x119e3),(0x11a00,0x11a00),(0x11a0b,0x11a32),(0x11a3a,0x11a3a),(0x11a50,0x11a50),(0x11a5c,0x11a89),(0x11a9d,0x11a9d),(0x11ab0,0x11af8),(0x11c00,0x11c08),(0x11c0a,0x11c2e),(0x11c40,0x11c40),(0x11c72,0x11c8f),(0x11d00,0x11d06),(0x11d08,0x11d09),(0x11d0b,0x11d30),(0x11d46,0x11d46),(0x11d60,0x11d65),(0x11d67,0x11d68),(0x11d6a,0x11d89),(0x11d98,0x11d98),(0x11ee0,0x11ef2),(0x11f02,0x11f02),(0x11f04,0x11f10),(0x11f12,0x11f33),(0x11fb0,0x11fb0),(0x12000,0x12399),(0x12400,0x1246e),(0x12480,0x12543),(0x12f90,0x12ff0),(0x13000,0x1342f),(0x13441,0x13446),(0x14400,0x14646),(0x16800,0x16a38),(0x16a40,0x16a5e),(0x16a70,0x16abe),(0x16ad0,0x16aed),(0x16b00,0x16b2f),(0x16b40,0x16b43),(0x16b63,0x16b77),(0x16b7d,0x16b8f),(0x16e40,0x16e7f),(0x16f00,0x16f4a),(0x16f50,0x16f50),(0x16f93,0x16f9f),(0x16fe0,0x16fe1),(0x16fe3,0x16fe3),(0x17000,0x187f7),(0x18800,0x18cd5),(0x18d00,0x18d08),(0x1aff0,0x1aff3),(0x1aff5,0x1affb),(0x1affd,0x1affe),(0x1b000,0x1b122),(0x1b132,0x1b132),(0x1b150,0x1b152),(0x1b155,0x1b155),(0x1b164,0x1b167),(0x1b170,0x1b2fb),(0x1bc00,0x1bc6a),(0x1bc70,0x1bc7c),(0x1bc80,0x1bc88),(0x1bc90,0x1bc99),(0x1d400,0x1d454),(0x1d456,0x1d49c),(0x1d49e,0x1d49f),(0x1d4a2,0x1d4a2),(0x1d4a5,0x1d4a6),(0x1d4a9,0x1d4ac),(0x1d4ae,0x1d4b9),(0x1d4bb,0x1d4bb),(0x1d4bd,0x1d4c3),(0x1d4c5,0x1d505),(0x1d507,0x1d50a),(0x1d50d,0x1d514),(0x1d516,0x1d51c),(0x1d51e,0x1d539),(0x1d53b,0x1d53e),(0x1d540,0x1d544),(0x1d546,0x1d546),(0x1d54a,0x1d550),(0x1d552,0x1d6a5),(0x1d6a8,0x1d6c0),(0x1d6c2,0x1d6da),(0x1d6dc,0x1d6fa),(0x1d6fc,0x1d714),(0x1d716,0x1d734),(0x1d736,0x1d74e),(0x1d750,0x1d76e),(0x1d770,0x1d788),(0x1d78a,0x1d7a8),(0x1d7aa,0x1d7c2),(0x1d7c4,0x1d7cb),(0x1df00,0x1df1e),(0x1df25,0x1df2a),(0x1e030,0x1e06d),(0x1e100,0x1e12c),(0x1e137,0x1e13d),(0x1e14e,0x1e14e),(0x1e290,0x1e2ad),(0x1e2c0,0x1e2eb),(0x1e4d0,0x1e4eb),(0x1e7e0,0x1e7e6),(0x1e7e8,0x1e7eb),(0x1e7ed,0x1e7ee),(0x1e7f0,0x1e7fe),(0x1e800,0x1e8c4),(0x1e900,0x1e943),(0x1e94b,0x1e94b),(0x1ee00,0x1ee03),(0x1ee05,0x1ee1f),(0x1ee21,0x1ee22),(0x1ee24,0x1ee24),(0x1ee27,0x1ee27),(0x1ee29,0x1ee32),(0x1ee34,0x1ee37),(0x1ee39,0x1ee39),(0x1ee3b,0x1ee3b),(0x1ee42,0x1ee42),(0x1ee47,0x1ee47),(0x1ee49,0x1ee49),(0x1ee4b,0x1ee4b),(0x1ee4d,0x1ee4f),(0x1ee51,0x1ee52),(0x1ee54,0x1ee54),(0x1ee57,0x1ee57),(0x1ee59,0x1ee59),(0x1ee5b,0x1ee5b),(0x1ee5d,0x1ee5d),(0x1ee5f,0x1ee5f),(0x1ee61,0x1ee62),(0x1ee64,0x1ee64),(0x1ee67,0x1ee6a),(0x1ee6c,0x1ee72),(0x1ee74,0x1ee77),(0x1ee79,0x1ee7c),(0x1ee7e,0x1ee7e),(0x1ee80,0x1ee89),(0x1ee8b,0x1ee9b),(0x1eea1,0x1eea3),(0x1eea5,0x1eea9),(0x1eeab,0x1eebb),(0x20000,0x2a6df),(0x2a700,0x2b739),(0x2b740,0x2b81d),(0x2b820,0x2cea1),(0x2ceb0,0x2ebe0),(0x2ebf0,0x2ee5d),(0x2f800,0x2fa1d),(0x30000,0x3134a),(0x31350,0x323af)];
+const PY_ID_CONT: &[(u32, u32)] = &[(0x30,0x39),(0x41,0x5a),(0x5f,0x5f),(0x61,0x7a),(0xaa,0xaa),(0xb5,0xb5),(0xb7,0xb7),(0xba,0xba),(0xc0,0xd6),(0xd8,0xf6),(0xf8,0x2c1),(0x2c6,0x2d1),(0x2e0,0x2e4),(0x2ec,0x2ec),(0x2ee,0x2ee),(0x300,0x374),(0x376,0x377),(0x37b,0x37d),(0x37f,0x37f),(0x386,0x38a),(0x38c,0x38c),(0x38e,0x3a1),(0x3a3,0x3f5),(0x3f7,0x481),(0x483,0x487),(0x48a,0x52f),(0x531,0x556),(0x559,0x559),(0x560,0x588),(0x591,0x5bd),(0x5bf,0x5bf),(0x5c1,0x5c2),(0x5c4,0x5c5),(0x5c7,0x5c7),(0x5d0,0x5ea),(0x5ef,0x5f2),(0x610,0x61a),(0x620,0x669),(0x66e,0x6d3),(0x6d5,0x6dc),(0x6df,0x6e8),(0x6ea,0x6fc),(0x6ff,0x6ff),(0x710,0x74a),(0x74d,0x7b1),(0x7c0,0x7f5),(0x7fa,0x7fa),(0x7fd,0x7fd),(0x800,0x82d),(0x840,0x85b),(0x860,0x86a),(0x870,0x887),(0x889,0x88e),(0x898,0x8e1),(0x8e3,0x963),(0x966,0x96f),(0x971,0x983),(0x985,0x98c),(0x98f,0x990),(0x993,0x9a8),(0x9aa,0x9b0),(0x9b2,0x9b2),(0x9b6,0x9b9),(0x9bc,0x9c4),(0x9c7,0x9c8),(0x9cb,0x9ce),(0x9d7,0x9d7),(0x9dc,0x9dd),(0x9df,0x9e3),(0x9e6,0x9f1),(0x9fc,0x9fc),(0x9fe,0x9fe),(0xa01,0xa03),(0xa05,0xa0a),(0xa0f,0xa10),(0xa13,0xa28),(0xa2a,0xa30),(0xa32,0xa33),(0xa35,0xa36),(0xa38,0xa39),(0xa3c,0xa3c),(0xa3e,0xa42),(0xa47,0xa48),(0xa4b,0xa4d),(0xa51,0xa51),(0xa59,0xa5c),(0xa5e,0xa5e),(0xa66,0xa75),(0xa81,0xa83),(0xa85,0xa8d),(0xa8f,0xa91),(0xa93,0xaa8),(0xaaa,0xab0),(0xab2,0xab3),(0xab5,0xab9),(0xabc,0xac5),(0xac7,0xac9),(0xacb,0xacd),(0xad0,0xad0),(0xae0,0xae3),(0xae6,0xaef),(0xaf9,0xaff),(0xb01,0xb03),(0xb05,0xb0c),(0xb0f,0xb10),(0xb13,0xb28),(0xb2a,0xb30),(0xb32,0xb33),(0xb35,0xb39),(0xb3c,0xb44),(0xb47,0xb48),(0xb4b,0xb4d),(0xb55,0xb57),(0xb5c,0xb5d),(0xb5f,0xb63),(0xb66,0xb6f),(0xb71,0xb71),(0xb82,0xb83),(0xb85,0xb8a),(0xb8e,0xb90),(0xb92,0xb95),(0xb99,0xb9a),(0xb9c,0xb9c),(0xb9e,0xb9f),(0xba3,0xba4),(0xba8,0xbaa),(0xbae,0xbb9),(0xbbe,0xbc2),(0xbc6,0xbc8),(0xbca,0xbcd),(0xbd0,0xbd0),(0xbd7,0xbd7),(0xbe6,0xbef),(0xc00,0xc0c),(0xc0e,0xc10),(0xc12,0xc28),(0xc2a,0xc39),(0xc3c,0xc44),(0xc46,0xc48),(0xc4a,0xc4d),(0xc55,0xc56),(0xc58,0xc5a),(0xc5d,0xc5d),(0xc60,0xc63),(0xc66,0xc6f),(0xc80,0xc83),(0xc85,0xc8c),(0xc8e,0xc90),(0xc92,0xca8),(0xcaa,0xcb3),(0xcb5,0xcb9),(0xcbc,0xcc4),(0xcc6,0xcc8),(0xcca,0xccd),(0xcd5,0xcd6),(0xcdd,0xcde),(0xce0,0xce3),(0xce6,0xcef),(0xcf1,0xcf3),(0xd00,0xd0c),(0xd0e,0xd10),(0xd12,0xd44),(0xd46,0xd48),(0xd4a,0xd4e),(0xd54,0xd57),(0xd5f,0xd63),(0xd66,0xd6f),(0xd7a,0xd7f),(0xd81,0xd83),(0xd85,0xd96),(0xd9a,0xdb1),(0xdb3,0xdbb),(0xdbd,0xdbd),(0xdc0,0xdc6),(0xdca,0xdca),(0xdcf,0xdd4),(0xdd6,0xdd6),(0xdd8,0xddf),(0xde6,0xdef),(0xdf2,0xdf3),(0xe01,0xe3a),(0xe40,0xe4e),(0xe50,0xe59),(0xe81,0xe82),(0xe84,0xe84),(0xe86,0xe8a),(0xe8c,0xea3),(0xea5,0xea5),(0xea7,0xebd),(0xec0,0xec4),(0xec6,0xec6),(0xec8,0xece),(0xed0,0xed9),(0xedc,0xedf),(0xf00,0xf00),(0xf18,0xf19),(0xf20,0xf29),(0xf35,0xf35),(0xf37,0xf37),(0xf39,0xf39),(0xf3e,0xf47),(0xf49,0xf6c),(0xf71,0xf84),(0xf86,0xf97),(0xf99,0xfbc),(0xfc6,0xfc6),(0x1000,0x1049),(0x1050,0x109d),(0x10a0,0x10c5),(0x10c7,0x10c7),(0x10cd,0x10cd),(0x10d0,0x10fa),(0x10fc,0x1248),(0x124a,0x124d),(0x1250,0x1256),(0x1258,0x1258),(0x125a,0x125d),(0x1260,0x1288),(0x128a,0x128d),(0x1290,0x12b0),(0x12b2,0x12b5),(0x12b8,0x12be),(0x12c0,0x12c0),(0x12c2,0x12c5),(0x12c8,0x12d6),(0x12d8,0x1310),(0x1312,0x1315),(0x1318,0x135a),(0x135d,0x135f),(0x1369,0x1371),(0x1380,0x138f),(0x13a0,0x13f5),(0x13f8,0x13fd),(0x1401,0x166c),(0x166f,0x167f),(0x1681,0x169a),(0x16a0,0x16ea),(0x16ee,0x16f8),(0x1700,0x1715),(0x171f,0x1734),(0x1740,0x1753),(0x1760,0x176c),(0x176e,0x1770),(0x1772,0x1773),(0x1780,0x17d3),(0x17d7,0x17d7),(0x17dc,0x17dd),(0x17e0,0x17e9),(0x180b,0x180d),(0x180f,0x1819),(0x1820,0x1878),(0x1880,0x18aa),(0x18b0,0x18f5),(0x1900,0x191e),(0x1920,0x192b),(0x1930,0x193b),(0x1946,0x196d),(0x1970,0x1974),(0x1980,0x19ab),(0x19b0,0x19c9),(0x19d0,0x19da),(0x1a00,0x1a1b),(0x1a20,0x1a5e),(0x1a60,0x1a7c),(0x1a7f,0x1a89),(0x1a90,0x1a99),(0x1aa7,0x1aa7),(0x1ab0,0x1abd),(0x1abf,0x1ace),(0x1b00,0x1b4c),(0x1b50,0x1b59),(0x1b6b,0x1b73),(0x1b80,0x1bf3),(0x1c00,0x1c37),(0x1c40,0x1c49),(0x1c4d,0x1c7d),(0x1c80,0x1c88),(0x1c90,0x1cba),(0x1cbd,0x1cbf),(0x1cd0,0x1cd2),(0x1cd4,0x1cfa),(0x1d00,0x1f15),(0x1f18,0x1f1d),(0x1f20,0x1f45),(0x1f48,0x1f4d),(0x1f50,0x1f57),(0x1f59,0x1f59),(0x1f5b,0x1f5b),(0x1f5d,0x1f5d),(0x1f5f,0x1f7d),(0x1f80,0x1fb4),(0x1fb6,0x1fbc),(0x1fbe,0x1fbe),(0x1fc2,0x1fc4),(0x1fc6,0x1fcc),(0x1fd0,0x1fd3),(0x1fd6,0x1fdb),(0x1fe0,0x1fec),(0x1ff2,0x1ff4),(0x1ff6,0x1ffc),(0x200c,0x200d),(0x203f,0x2040),(0x2054,0x2054),(0x2071,0x2071),(0x207f,0x207f),(0x2090,0x209c),(0x20d0,0x20dc),(0x20e1,0x20e1),(0x20e5,0x20f0),(0x2102,0x2102),(0x2107,0x2107),(0x210a,0x2113),(0x2115,0x2115),(0x2118,0x211d),(0x2124,0x2124),(0x2126,0x2126),(0x2128,0x2128),(0x212a,0x2139),(0x213c,0x213f),(0x2145,0x2149),(0x214e,0x214e),(0x2160,0x2188),(0x2c00,0x2ce4),(0x2ceb,0x2cf3),(0x2d00,0x2d25),(0x2d27,0x2d27),(0x2d2d,0x2d2d),(0x2d30,0x2d67),(0x2d6f,0x2d6f),(0x2d7f,0x2d96),(0x2da0,0x2da6),(0x2da8,0x2dae),(0x2db0,0x2db6),(0x2db8,0x2dbe),(0x2dc0,0x2dc6),(0x2dc8,0x2dce),(0x2dd0,0x2dd6),(0x2dd8,0x2dde),(0x2de0,0x2dff),(0x3005,0x3007),(0x3021,0x302f),(0x3031,0x3035),(0x3038,0x303c),(0x3041,0x3096),(0x3099,0x309a),(0x309d,0x309f),(0x30a1,0x30ff),(0x3105,0x312f),(0x3131,0x318e),(0x31a0,0x31bf),(0x31f0,0x31ff),(0x3400,0x4dbf),(0x4e00,0xa48c),(0xa4d0,0xa4fd),(0xa500,0xa60c),(0xa610,0xa62b),(0xa640,0xa66f),(0xa674,0xa67d),(0xa67f,0xa6f1),(0xa717,0xa71f),(0xa722,0xa788),(0xa78b,0xa7ca),(0xa7d0,0xa7d1),(0xa7d3,0xa7d3),(0xa7d5,0xa7d9),(0xa7f2,0xa827),(0xa82c,0xa82c),(0xa840,0xa873),(0xa880,0xa8c5),(0xa8d0,0xa8d9),(0xa8e0,0xa8f7),(0xa8fb,0xa8fb),(0xa8fd,0xa92d),(0xa930,0xa953),(0xa960,0xa97c),(0xa980,0xa9c0),(0xa9cf,0xa9d9),(0xa9e0,0xa9fe),(0xaa00,0xaa36),(0xaa40,0xaa4d),(0xaa50,0xaa59),(0xaa60,0xaa76),(0xaa7a,0xaac2),(0xaadb,0xaadd),(0xaae0,0xaaef),(0xaaf2,0xaaf6),(0xab01,0xab06),(0xab09,0xab0e),(0xab11,0xab16),(0xab20,0xab26),(0xab28,0xab2e),(0xab30,0xab5a),(0xab5c,0xab69),(0xab70,0xabea),(0xabec,0xabed),(0xabf0,0xabf9),(0xac00,0xd7a3),(0xd7b0,0xd7c6),(0xd7cb,0xd7fb),(0xf900,0xfa6d),(0xfa70,0xfad9),(0xfb00,0xfb06),(0xfb13,0xfb17),(0xfb1d,0xfb28),(0xfb2a,0xfb36),(0xfb38,0xfb3c),(0xfb3e,0xfb3e),(0xfb40,0xfb41),(0xfb43,0xfb44),(0xfb46,0xfbb1),(0xfbd3,0xfc5d),(0xfc64,0xfd3d),(0xfd50,0xfd8f),(0xfd92,0xfdc7),(0xfdf0,0xfdf9),(0xfe00,0xfe0f),(0xfe20,0xfe2f),(0xfe33,0xfe34),(0xfe4d,0xfe4f),(0xfe71,0xfe71),(0xfe73,0xfe73),(0xfe77,0xfe77),(0xfe79,0xfe79),(0xfe7b,0xfe7b),(0xfe7d,0xfe7d),(0xfe7f,0xfefc),(0xff10,0xff19),(0xff21,0xff3a),(0xff3f,0xff3f),(0xff41,0xff5a),(0xff65,0xffbe),(0xffc2,0xffc7),(0xffca,0xffcf),(0xffd2,0xffd7),(0xffda,0xffdc),(0x10000,0x1000b),(0x1000d,0x10026),(0x10028,0x1003a),(0x1003c,0x1003d),(0x1003f,0x1004d),(0x10050,0x1005d),(0x10080,0x100fa),(0x10140,0x10174),(0x101fd,0x101fd),(0x10280,0x1029c),(0x102a0,0x102d0),(0x102e0,0x102e0),(0x10300,0x1031f),(0x1032d,0x1034a),(0x10350,0x1037a),(0x10380,0x1039d),(0x103a0,0x103c3),(0x103c8,0x103cf),(0x103d1,0x103d5),(0x10400,0x1049d),(0x104a0,0x104a9),(0x104b0,0x104d3),(0x104d8,0x104fb),(0x10500,0x10527),(0x10530,0x10563),(0x10570,0x1057a),(0x1057c,0x1058a),(0x1058c,0x10592),(0x10594,0x10595),(0x10597,0x105a1),(0x105a3,0x105b1),(0x105b3,0x105b9),(0x105bb,0x105bc),(0x10600,0x10736),(0x10740,0x10755),(0x10760,0x10767),(0x10780,0x10785),(0x10787,0x107b0),(0x107b2,0x107ba),(0x10800,0x10805),(0x10808,0x10808),(0x1080a,0x10835),(0x10837,0x10838),(0x1083c,0x1083c),(0x1083f,0x10855),(0x10860,0x10876),(0x10880,0x1089e),(0x108e0,0x108f2),(0x108f4,0x108f5),(0x10900,0x10915),(0x10920,0x10939),(0x10980,0x109b7),(0x109be,0x109bf),(0x10a00,0x10a03),(0x10a05,0x10a06),(0x10a0c,0x10a13),(0x10a15,0x10a17),(0x10a19,0x10a35),(0x10a38,0x10a3a),(0x10a3f,0x10a3f),(0x10a60,0x10a7c),(0x10a80,0x10a9c),(0x10ac0,0x10ac7),(0x10ac9,0x10ae6),(0x10b00,0x10b35),(0x10b40,0x10b55),(0x10b60,0x10b72),(0x10b80,0x10b91),(0x10c00,0x10c48),(0x10c80,0x10cb2),(0x10cc0,0x10cf2),(0x10d00,0x10d27),(0x10d30,0x10d39),(0x10e80,0x10ea9),(0x10eab,0x10eac),(0x10eb0,0x10eb1),(0x10efd,0x10f1c),(0x10f27,0x10f27),(0x10f30,0x10f50),(0x10f70,0x10f85),(0x10fb0,0x10fc4),(0x10fe0,0x10ff6),(0x11000,0x11046),(0x11066,0x11075),(0x1107f,0x110ba),(0x110c2,0x110c2),(0x110d0,0x110e8),(0x110f0,0x110f9),(0x11100,0x11134),(0x11136,0x1113f),(0x11144,0x11147),(0x11150,0x11173),(0x11176,0x11176),(0x11180,0x111c4),(0x111c9,0x111cc),(0x111ce,0x111da),(0x111dc,0x111dc),(0x11200,0x11211),(0x11213,0x11237),(0x1123e,0x11241),(0x11280,0x11286),(0x11288,0x11288),(0x1128a,0x1128d),(0x1128f,0x1129d),(0x1129f,0x112a8),(0x112b0,0x112ea),(0x112f0,0x112f9),(0x11300,0x11303),(0x11305,0x1130c),(0x1130f,0x11310),(0x11313,0x11328),(0x1132a,0x11330),(0x11332,0x11333),(0x11335,0x11339),(0x1133b,0x11344),(0x11347,0x11348),(0x1134b,0x1134d),(0x11350,0x11350),(0x11357,0x11357),(0x1135d,0x11363),(0x11366,0x1136c),(0x11370,0x11374),(0x11400,0x1144a),(0x11450,0x11459),(0x1145e,0x11461),(0x11480,0x114c5),(0x114c7,0x114c7),(0x114d0,0x114d9),(0x11580,0x115b5),(0x115b8,0x115c0),(0x115d8,0x115dd),(0x11600,0x11640),(0x11644,0x11644),(0x11650,0x11659),(0x11680,0x116b8),(0x116c0,0x116c9),(0x11700,0x1171a),(0x1171d,0x1172b),(0x11730,0x11739),(0x11740,0x11746),(0x11800,0x1183a),(0x118a0,0x118e9),(0x118ff,0x11906),(0x11909,0x11909),(0x1190c,0x11913),(0x11915,0x11916),(0x11918,0x11935),(0x11937,0x11938),(0x1193b,0x11943),(0x11950,0x11959),(0x119a0,0x119a7),(0x119aa,0x119d7),(0x119da,0x119e1),(0x119e3,0x119e4),(0x11a00,0x11a3e),(0x11a47,0x11a47),(0x11a50,0x11a99),(0x11a9d,0x11a9d),(0x11ab0,0x11af8),(0x11c00,0x11c08),(0x11c0a,0x11c36),(0x11c38,0x11c40),(0x11c50,0x11c59),(0x11c72,0x11c8f),(0x11c92,0x11ca7),(0x11ca9,0x11cb6),(0x11d00,0x11d06),(0x11d08,0x11d09),(0x11d0b,0x11d36),(0x11d3a,0x11d3a),(0x11d3c,0x11d3d),(0x11d3f,0x11d47),(0x11d50,0x11d59),(0x11d60,0x11d65),(0x11d67,0x11d68),(0x11d6a,0x11d8e),(0x11d90,0x11d91),(0x11d93,0x11d98),(0x11da0,0x11da9),(0x11ee0,0x11ef6),(0x11f00,0x11f10),(0x11f12,0x11f3a),(0x11f3e,0x11f42),(0x11f50,0x11f59),(0x11fb0,0x11fb0),(0x12000,0x12399),(0x12400,0x1246e),(0x12480,0x12543),(0x12f90,0x12ff0),(0x13000,0x1342f),(0x13440,0x13455),(0x14400,0x14646),(0x16800,0x16a38),(0x16a40,0x16a5e),(0x16a60,0x16a69),(0x16a70,0x16abe),(0x16ac0,0x16ac9),(0x16ad0,0x16aed),(0x16af0,0x16af4),(0x16b00,0x16b36),(0x16b40,0x16b43),(0x16b50,0x16b59),(0x16b63,0x16b77),(0x16b7d,0x16b8f),(0x16e40,0x16e7f),(0x16f00,0x16f4a),(0x16f4f,0x16f87),(0x16f8f,0x16f9f),(0x16fe0,0x16fe1),(0x16fe3,0x16fe4),(0x16ff0,0x16ff1),(0x17000,0x187f7),(0x18800,0x18cd5),(0x18d00,0x18d08),(0x1aff0,0x1aff3),(0x1aff5,0x1affb),(0x1affd,0x1affe),(0x1b000,0x1b122),(0x1b132,0x1b132),(0x1b150,0x1b152),(0x1b155,0x1b155),(0x1b164,0x1b167),(0x1b170,0x1b2fb),(0x1bc00,0x1bc6a),(0x1bc70,0x1bc7c),(0x1bc80,0x1bc88),(0x1bc90,0x1bc99),(0x1bc9d,0x1bc9e),(0x1cf00,0x1cf2d),(0x1cf30,0x1cf46),(0x1d165,0x1d169),(0x1d16d,0x1d172),(0x1d17b,0x1d182),(0x1d185,0x1d18b),(0x1d1aa,0x1d1ad),(0x1d242,0x1d244),(0x1d400,0x1d454),(0x1d456,0x1d49c),(0x1d49e,0x1d49f),(0x1d4a2,0x1d4a2),(0x1d4a5,0x1d4a6),(0x1d4a9,0x1d4ac),(0x1d4ae,0x1d4b9),(0x1d4bb,0x1d4bb),(0x1d4bd,0x1d4c3),(0x1d4c5,0x1d505),(0x1d507,0x1d50a),(0x1d50d,0x1d514),(0x1d516,0x1d51c),(0x1d51e,0x1d539),(0x1d53b,0x1d53e),(0x1d540,0x1d544),(0x1d546,0x1d546),(0x1d54a,0x1d550),(0x1d552,0x1d6a5),(0x1d6a8,0x1d6c0),(0x1d6c2,0x1d6da),(0x1d6dc,0x1d6fa),(0x1d6fc,0x1d714),(0x1d716,0x1d734),(0x1d736,0x1d74e),(0x1d750,0x1d76e),(0x1d770,0x1d788),(0x1d78a,0x1d7a8),(0x1d7aa,0x1d7c2),(0x1d7c4,0x1d7cb),(0x1d7ce,0x1d7ff),(0x1da00,0x1da36),(0x1da3b,0x1da6c),(0x1da75,0x1da75),(0x1da84,0x1da84),(0x1da9b,0x1da9f),(0x1daa1,0x1daaf),(0x1df00,0x1df1e),(0x1df25,0x1df2a),(0x1e000,0x1e006),(0x1e008,0x1e018),(0x1e01b,0x1e021),(0x1e023,0x1e024),(0x1e026,0x1e02a),(0x1e030,0x1e06d),(0x1e08f,0x1e08f),(0x1e100,0x1e12c),(0x1e130,0x1e13d),(0x1e140,0x1e149),(0x1e14e,0x1e14e),(0x1e290,0x1e2ae),(0x1e2c0,0x1e2f9),(0x1e4d0,0x1e4f9),(0x1e7e0,0x1e7e6),(0x1e7e8,0x1e7eb),(0x1e7ed,0x1e7ee),(0x1e7f0,0x1e7fe),(0x1e800,0x1e8c4),(0x1e8d0,0x1e8d6),(0x1e900,0x1e94b),(0x1e950,0x1e959),(0x1ee00,0x1ee03),(0x1ee05,0x1ee1f),(0x1ee21,0x1ee22),(0x1ee24,0x1ee24),(0x1ee27,0x1ee27),(0x1ee29,0x1ee32),(0x1ee34,0x1ee37),(0x1ee39,0x1ee39),(0x1ee3b,0x1ee3b),(0x1ee42,0x1ee42),(0x1ee47,0x1ee47),(0x1ee49,0x1ee49),(0x1ee4b,0x1ee4b),(0x1ee4d,0x1ee4f),(0x1ee51,0x1ee52),(0x1ee54,0x1ee54),(0x1ee57,0x1ee57),(0x1ee59,0x1ee59),(0x1ee5b,0x1ee5b),(0x1ee5d,0x1ee5d),(0x1ee5f,0x1ee5f),(0x1ee61,0x1ee62),(0x1ee64,0x1ee64),(0x1ee67,0x1ee6a),(0x1ee6c,0x1ee72),(0x1ee74,0x1ee77),(0x1ee79,0x1ee7c),(0x1ee7e,0x1ee7e),(0x1ee80,0x1ee89),(0x1ee8b,0x1ee9b),(0x1eea1,0x1eea3),(0x1eea5,0x1eea9),(0x1eeab,0x1eebb),(0x1fbf0,0x1fbf9),(0x20000,0x2a6df),(0x2a700,0x2b739),(0x2b740,0x2b81d),(0x2b820,0x2cea1),(0x2ceb0,0x2ebe0),(0x2ebf0,0x2ee5d),(0x2f800,0x2fa1d),(0x30000,0x3134a),(0x31350,0x323af),(0xe0100,0xe01ef)];
 
 // Unicode category Nd (Python \d) (non-ASCII, from CPython 3.13.13's unicodedata 15.1.0)
 const PY_ND: &[(u32, u32)] = &[(0x660,0x669),(0x6f0,0x6f9),(0x7c0,0x7c9),(0x966,0x96f),(0x9e6,0x9ef),(0xa66,0xa6f),(0xae6,0xaef),(0xb66,0xb6f),(0xbe6,0xbef),(0xc66,0xc6f),(0xce6,0xcef),(0xd66,0xd6f),(0xde6,0xdef),(0xe50,0xe59),(0xed0,0xed9),(0xf20,0xf29),(0x1040,0x1049),(0x1090,0x1099),(0x17e0,0x17e9),(0x1810,0x1819),(0x1946,0x194f),(0x19d0,0x19d9),(0x1a80,0x1a89),(0x1a90,0x1a99),(0x1b50,0x1b59),(0x1bb0,0x1bb9),(0x1c40,0x1c49),(0x1c50,0x1c59),(0xa620,0xa629),(0xa8d0,0xa8d9),(0xa900,0xa909),(0xa9d0,0xa9d9),(0xa9f0,0xa9f9),(0xaa50,0xaa59),(0xabf0,0xabf9),(0xff10,0xff19),(0x104a0,0x104a9),(0x10d30,0x10d39),(0x11066,0x1106f),(0x110f0,0x110f9),(0x11136,0x1113f),(0x111d0,0x111d9),(0x112f0,0x112f9),(0x11450,0x11459),(0x114d0,0x114d9),(0x11650,0x11659),(0x116c0,0x116c9),(0x11730,0x11739),(0x118e0,0x118e9),(0x11950,0x11959),(0x11c50,0x11c59),(0x11d50,0x11d59),(0x11da0,0x11da9),(0x11f50,0x11f59),(0x16a60,0x16a69),(0x16ac0,0x16ac9),(0x16b50,0x16b59),(0x1d7ce,0x1d7ff),(0x1e140,0x1e149),(0x1e2f0,0x1e2f9),(0x1e4f0,0x1e4f9),(0x1e950,0x1e959),(0x1fbf0,0x1fbf9)];
