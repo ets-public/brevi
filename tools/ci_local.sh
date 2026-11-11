@@ -31,6 +31,7 @@ step "Build"; cargo build --release -q
 step "Unit tests"; cargo test --release -q
 step "Language tests"; BREVI=./target/release/brevi python3 tests/check_parallel.py --quiet $fast
 step "MCP server"; python3 tests/mcp_test.py && python3 tests/mcp_http_test.py
+step "Model box"; python3 tests/modelbox_test.py
 step "Python SDK and brevi-python"; BREVI=./target/release/brevi python3 tests/sdk_test.py
 BREVI=./target/release/brevi node tests/sdk_node_test.mjs
 step "Guide budget"; python3 tools/guide_budget.py

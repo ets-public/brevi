@@ -15,13 +15,71 @@ usage: python3 e2e.py RUN --lang brevi|python|pyb --model sonnet|haiku|deepseek|
 Claude needs BENCH_ANTHROPIC_KEY and `pip install anthropic`; DeepSeek needs DEEPSEEK_API_KEY (bench/deepseek.py,
 standard library only). DeepSeek is report-only in --verdict for now (REPORT_ONLY). Writes logs/e2e/RUN-MODEL-LANG.jsonl, one line per task,
 and keeps each task's files in work/e2e/RUN-MODEL-LANG/TASK/.
+
+Everything the model writes is built and run in tools/modelbox.py's box (no credential, process, socket or network
+of this harness is reachable; Linux as root, refused elsewhere): a program that printed this process's
+environment would otherwise send the API keys to the model's provider. The box's builds use their own cache
+(BREVI_BOX_CACHE, default ~/.cache/brevi-box), never the one the harness's own builds use.
 """
-import argparse, concurrent.futures as cf, glob, hashlib, json, os, subprocess, sys, tempfile, time
+import argparse, concurrent.futures as cf, glob, hashlib, json, os, subprocess, sys, tempfile, threading, time
 from pathlib import Path
 
 B = Path(__file__).resolve().parent
 ROOT = B.parent
 BREVI = os.environ.get("BREVI", str(ROOT / "target" / "release" / "brevi"))
+sys.path.insert(0, str(ROOT / "tools"))
+import modelbox  # noqa: E402
+
+BOX_CACHE = Path(os.environ.get("BREVI_BOX_CACHE") or Path.home() / ".cache" / "brevi-box")
+_BOX, _BOX_LOCK = [], threading.Lock()
+
+
+def box():
+    """The one box this process runs model-written code in (made, and self-checked, on first use)."""
+    with _BOX_LOCK:
+        if not _BOX:
+            b = modelbox.Box(ROOT, rw=[B / "work", BOX_CACHE], ro=[Path(BREVI).resolve().parent])
+            b.selftest()
+            _BOX.append(b)
+        return _BOX[0]
+
+
+# Runs inside the box: each test's command with its input, timed there (so the box's own start-up is not counted
+# in run_ms), and prints one JSON list of results.
+RUNNER = r"""
+import json, subprocess, sys, time
+res = []
+for it in json.load(open(sys.argv[1])):
+    try:
+        t0 = time.perf_counter()
+        r = subprocess.run(it["cmd"], stdin=open(it["stdin"]), capture_output=True, text=True, timeout=it["timeout"],
+                           env=it.get("env"))
+        res.append({"ms": (time.perf_counter() - t0) * 1000, "stdout": r.stdout, "stderr": r.stderr, "timeout": False})
+    except subprocess.TimeoutExpired:
+        res.append({"ms": 0, "stdout": "", "stderr": "", "timeout": True})
+sys.stdout.write("\n@@results@@" + json.dumps(res))
+"""
+
+
+def boxed(cmd, cwd, env=None, timeout=900):
+    """A build or compile step on the model's files, in the box. Returns (code, stdout, stderr)."""
+    return box().run(cmd, timeout=timeout, cwd=cwd, env=dict(env or {}, BREVI_CACHE=str(BOX_CACHE)))
+
+
+def boxed_tests(items, cwd):
+    """items: [{cmd, stdin, timeout, env?}] run one after another in one box. Returns their results."""
+    b = box()
+    d = b.mkdir("tests-")
+    (d / "items.json").write_text(json.dumps(items))
+    (d / "runner.py").write_text(RUNNER)
+    os.chown(d / "items.json", modelbox.NOBODY, modelbox.NOBODY)
+    budget = sum(it["timeout"] for it in items) + 60
+    c, so, se = b.run([sys.executable, str(d / "runner.py"), str(d / "items.json")], timeout=budget, cwd=cwd,
+                      env={"BREVI_CACHE": str(BOX_CACHE)})
+    try:
+        return json.loads(so.rsplit("@@results@@", 1)[1])
+    except (IndexError, ValueError):
+        return [{"ms": 0, "stdout": "", "stderr": f"the test runner failed: {(so + se)[-500:]}", "timeout": False}] * len(items)
 MODELS = {"sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5", "deepseek": "deepseek-flash", "deepseek-pro": "deepseek-v4-pro"}
 # $ per million tokens: input, output, cache read; a 5-minute cache write is 1.25x input (DeepSeek bills none).
 # DeepSeek: peak list prices (off-peak is half; pyb and python run side by side, so the ratio is the same either way),
@@ -131,52 +189,56 @@ def run_check(lang, task, work, native_only=False):
     if missing:
         return f"missing files: {' '.join(missing)}", None
     main = work / f"main.{ext}"
-    binp = Path(tempfile.mkdtemp()) / "prog"
+    # the box may write the task's folder (CPython's .pyc files, files a program makes), not replace the model's files
+    os.chown(work, modelbox.NOBODY, modelbox.NOBODY)
+    binp = box().mkdir("prog-") / "prog"
     if lang == "pyb":
         # The same Python files, built by Brevi as `brevi build main.py` would (typed build first, then the dynamic one).
-        bdir = Path(tempfile.mkdtemp())
+        bdir = box().mkdir("pyb-")
         for f in work.glob("*.py"):
             (bdir / f.name).write_text(f.read_text())
-        r = subprocess.run([BREVI, "build", str(bdir / "main.py"), "-o", str(binp)], capture_output=True, text=True, cwd=work,
-                           env=dict(os.environ, BREVI_PATH="1"))
-        native = not r.returncode
-        LAST_PATH[str(work)] = build_path(r.stderr) if native else None
+            os.chown(bdir / f.name, modelbox.NOBODY, modelbox.NOBODY)
+        code, so, se = boxed([BREVI, "build", str(bdir / "main.py"), "-o", str(binp)], work, env={"BREVI_PATH": "1"})
+        native = not code
+        LAST_PATH[str(work)] = build_path(se) if native else None
         if not native and native_only:
-            return (r.stdout + r.stderr).strip().replace(".bv", ".py"), False
-        refusal = "" if native else (r.stdout + r.stderr).strip().replace(".bv", ".py")
+            return (so + se).strip().replace(".bv", ".py"), False
+        refusal = "" if native else (so + se).strip().replace(".bv", ".py")
         cmd = [str(binp)] if native else [sys.executable, str(main)]
     elif lang == "brevi":
-        r = subprocess.run([BREVI, "build", str(main), "-o", str(binp)], capture_output=True, text=True, cwd=work)
-        if r.returncode:
-            return (r.stdout + r.stderr).strip(), None
+        code, so, se = boxed([BREVI, "build", str(main), "-o", str(binp)], work)
+        if code:
+            return (so + se).strip(), None
         cmd = [str(binp)]
     else:
         for f in files:
-            r = subprocess.run([sys.executable, "-m", "py_compile", f"{f}.py"], capture_output=True, text=True, cwd=work)
-            if r.returncode:
-                return (r.stdout + r.stderr).strip(), None
+            code, so, se = boxed([sys.executable, "-m", "py_compile", f"{f}.py"], work)
+            if code:
+                return (so + se).strip(), None
         cmd = [sys.executable, str(main)]
     # GUI tasks (tasks/NAME/gui): CPython runs tkinter programs through the headless stand-in in tkshim/.
-    env = dict(os.environ, PYTHONPATH=str(B / "tkshim")) if (tdir / "gui").exists() and cmd[0] == sys.executable else None
+    env = dict(modelbox.ENV_KEEP, PATH=modelbox.BOX_PATH, HOME=str(box().dir), PYTHONPATH=str(B / "tkshim")) \
+        if (tdir / "gui").exists() and cmd[0] == sys.executable else None
     tests = sorted(glob.glob(str(tdir / "tests" / "*.in")))
+    # The verify check (pyb, native): the same test under CPython, compared with the native output (not with the expected).
+    verify = lang == "pyb" and native
+    items = []
+    for t in tests:
+        items.append({"cmd": cmd, "stdin": t, "timeout": 10, "env": env})
+        if verify:
+            items.append({"cmd": [sys.executable, str(main)], "stdin": t, "timeout": 10, "env": env})
+    results = iter(boxed_tests(items, work)) if items else iter(())
     passed, first, ms = 0, None, 0.0
     differs = 0
     for t in tests:
         want = Path(t[:-3] + ".out").read_text()
-        try:
-            t0 = time.perf_counter()
-            got = subprocess.run(cmd, stdin=open(t), capture_output=True, text=True, timeout=10, cwd=work, env=env)
-            ms += (time.perf_counter() - t0) * 1000
-            out = (got.stdout + got.stderr).rstrip("\n")
-        except subprocess.TimeoutExpired:
-            out = "timeout after 10 s"
-        # The verify check: the same test under CPython, compared with the native output (not with the expected).
-        if lang == "pyb" and native:
-            try:
-                py = subprocess.run([sys.executable, str(main)], stdin=open(t), capture_output=True, text=True, timeout=10, cwd=work, env=env)
-                differs += got.stdout != py.stdout if out != "timeout after 10 s" else 0
-            except subprocess.TimeoutExpired:
-                pass
+        got = next(results)
+        ms += got["ms"]
+        out = "timeout after 10 s" if got["timeout"] else (got["stdout"] + got["stderr"]).rstrip("\n")
+        if verify:
+            py = next(results)
+            if not py["timeout"] and out != "timeout after 10 s":
+                differs += got["stdout"] != py["stdout"]
         if out == want.rstrip("\n"):
             passed += 1
         elif first is None:

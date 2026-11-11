@@ -111,7 +111,7 @@ Needs Rust stable and `python3`. Working on the compiler itself: [AGENTS.md](AGE
 | `templates/` | Agent sandboxes on E2B, Daytona, Modal, Cloudflare and Docker, running code under Brevi's sandbox and limits |
 | `grammar/`, `tools/grammar_check.py`, `tools/lark_to_gbnf.py` | Grammar for constrained decoding, and its checks |
 | `tools/upstream_watch.py` | Opens review issues for new Rust, Python and crate releases |
-| `.github/` | Daily toolchain matrix, upstream watch, auto-fix, Dependabot (see "Staying current") |
+| `.github/` | Daily toolchain matrix, upstream watch, Dependabot (see "Staying current") |
 
 ## Staying current
 
@@ -126,8 +126,6 @@ Brevi must never fall behind Rust or Python, and code that once passed must neve
   run `sh tools/ci_local.sh` (the same checks) before merging.
 - **Upstream releases** (`upstream.yml`, twice a week): one `upstream` issue per new Rust stable, Python release or
   newer crate pinned in tests/examples, listing the new language features and stabilized APIs with a review checklist.
-- **Auto-fix** (`auto-fix.yml`): Claude Code picks up `toolchain` and `upstream` issues and opens a PR, using the
-  `ANTHROPIC_API_KEY` repository secret; a human reviews every PR.
 - **Dependabot**: Cargo dependencies and GitHub Actions versions, weekly.
 
 After a change that makes more solutions pass, run `python3 tools/compat.py baseline` to lock them in.
