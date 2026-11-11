@@ -6,6 +6,19 @@ use std::collections::{HashMap, HashSet};
 
 // The allocator comes first so that the inner attribute can lead the file.
 pub const PRELUDE: &str = concat!("#![allow(warnings)]\n", include_str!("alloc_rt.rs"), include_str!("fsscope.rs"), include_str!("prelude.rs"));
+// The Unicode tables for str.casefold() and str.isdigit(): ~1500 lines, so they are appended only to
+// programs that use one of these methods (the dynamic runtime compiles them once, in its library).
+pub const UNICODE: &str = include_str!("unicode.rs");
+// How the typed build calls them: one trait for every receiver a str method can have.
+const UNICODE_TRAIT: &str = "
+pub trait AxUni { fn ax_uni_casefold(&self) -> String; fn ax_uni_is_digit(&self) -> bool; }
+impl AxUni for str { fn ax_uni_casefold(&self) -> String { py_casefold(self) } fn ax_uni_is_digit(&self) -> bool { py_str_isdigit(self) } }
+impl AxUni for String { fn ax_uni_casefold(&self) -> String { py_casefold(self) } fn ax_uni_is_digit(&self) -> bool { py_str_isdigit(self) } }
+impl AxUni for Json {
+    fn ax_uni_casefold(&self) -> String { py_casefold(self.ax_jtext(\"casefold\")) }
+    fn ax_uni_is_digit(&self) -> bool { py_str_isdigit(self.ax_jtext(\"isdigit\")) }
+}
+";
 
 const BUILTINS: &[&str] = &["__shared", "print", "read", "write", "args", "input", "stdin", "lines", "str", "fail", "json", "csv", "date", "abs", "min", "max", "heap", "none", "__global", "__try", "__err", "__err_raw", "__exc", "__exc_is", "__exc_obj", "__exc_get", "__default", "__zero", "__truediv", "__readline", "__try_read", "__eprint"];
 // The id in a call spelling a sentinel made by pysentinel.rs (`__sent0()`).
@@ -23,7 +36,7 @@ pub const METHODS: &[&str] = &[
     "abs", "add_days", "all", "any", "big", "day", "days", "dec", "digit", "or", "ceil", "chars", "contains", "count", "ends_with", "enumerate", "filter", "first",
     "find", "find_from", "float", "floor", "fmt", "fold", "ints", "is_alpha", "is_digit", "is_space", "slice", "slice_step", "get_or", "has", "index_of", "insert", "int", "is_empty", "join", "keys", "last",
     "len", "lines", "lower", "map", "max", "min", "pairs", "pop", "push", "remove", "repeat", "replace", "rev",
-    "round", "skip", "sort", "sort_by", "split", "sqrt", "starts_with", "sum", "sum_from", "take", "trim", "upper", "values",
+    "round", "skip", "sort", "sort_by", "split", "sqrt", "starts_with", "sum", "sum_from", "take", "trim", "upper", "values", "casefold",
     "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step", "json", "spec", "flatten", "enumerate_from", "is_none", "is_true_obj", "is_false_obj", "not_true_obj", "not_false_obj",
     "text", "list", "is_null", "bool", "re_find", "re_full", "re_all", "re_list", "partition", "re_sub", "re_split",
     "trim_of", "trim_end", "trim_end_of", "trim_start", "trim_start_of", "is_upper", "is_lower", "is_alnum",
@@ -33,7 +46,7 @@ pub const METHODS: &[&str] = &[
 
 // Methods that return a new value; calling one as a statement does nothing.
 const PURE_METHODS: &[&str] = &[
-    "sort", "sort_by", "rev", "map", "filter", "take", "skip", "trim", "lower", "upper", "replace", "enumerate", "zip", "unique", "step", "slice_step", "flatten", "enumerate_from",
+    "sort", "sort_by", "rev", "map", "filter", "take", "skip", "trim", "lower", "casefold", "upper", "replace", "enumerate", "zip", "unique", "step", "slice_step", "flatten", "enumerate_from",
     "trim_of", "trim_end", "trim_end_of", "trim_start", "trim_start_of",
 ];
 const MUTATING_METHODS: &[&str] = &["push", "pop_or", "pop", "insert", "remove", "clear", "splice", "update", "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "next_or_none"];
@@ -1323,7 +1336,7 @@ impl Emitter {
             Expr::Method(_, m, _, _) => match m.as_str() {
                 "len" | "count" | "find" | "find_from" | "index_of" | "digit" => named("int"),
                 "words" | "lines" | "lines_keep" | "chars" | "split" | "split_n" | "rsplit_n" => Some(Ty::List(Box::new(Ty::Named("str".into())))),
-                "trim" | "lower" | "upper" | "join" | "replace" | "text" | "trim_of" | "trim_end" | "trim_end_of" | "trim_start" | "trim_start_of" | "zfill" | "title" | "center" | "center_with" | "capitalize" | "ljust" | "rjust" | "ljust_with" | "rjust_with" => named("str"),
+                "trim" | "lower" | "casefold" | "upper" | "join" | "replace" | "text" | "trim_of" | "trim_end" | "trim_end_of" | "trim_start" | "trim_start_of" | "zfill" | "title" | "center" | "center_with" | "capitalize" | "ljust" | "rjust" | "ljust_with" | "rjust_with" => named("str"),
                 "list" => Some(Ty::List(Box::new(Ty::Named("Json".into())))),
                 "dec" | "big" if matches!(e, Expr::Method(r, ..) if matches!(r.as_ref(), Expr::Int(_) | Expr::Float(_))) => named(m),
                 "float" if matches!(e, Expr::Method(r, ..) if matches!(r.as_ref(), Expr::Int(_))) => named("f64"),
@@ -1446,8 +1459,14 @@ impl Emitter {
 
     pub fn program(&mut self, items: &[Item]) -> String {
         // The regex engine is left out of programs that do not use it, to keep builds fast.
-        let prelude = if format!("{items:?}").contains("\"re_") { PRELUDE } else { &PRELUDE[..PRELUDE.find("// @regex").unwrap_or(PRELUDE.len())] };
+        let items_dbg = format!("{items:?}");
+        let prelude = if items_dbg.contains("\"re_") { PRELUDE } else { &PRELUDE[..PRELUDE.find("// @regex").unwrap_or(PRELUDE.len())] };
         let mut out = String::from(prelude);
+        // The Unicode tables are left out of programs that do not use casefold() or isdigit().
+        if items_dbg.contains("\"casefold\"") || items_dbg.contains("\"is_digit\"") {
+            out.push_str(UNICODE);
+            out.push_str(UNICODE_TRAIT);
+        }
         out.push('\n');
         if self.py_mode && FAST_SETS.load(std::sync::atomic::Ordering::Relaxed) {
             let mut fields = fast_set_fields(items);
@@ -2757,6 +2776,12 @@ impl Emitter {
                 } else {
                     self.place(recv)
                 };
+                // str.casefold() and str.isdigit() follow CPython's Unicode tables (src/unicode.rs, appended
+                // above only when a program uses them) through the AxUni trait, which covers str, String and
+                // Json receivers alike, so the prelude does not depend on the tables.
+                if matches!(name.as_str(), "casefold" | "is_digit") && args.is_empty() {
+                    return format!("{{ ax_l({line}); ({r}).ax_uni_{name}() }}");
+                }
                 // A lambda inside the lambda that can fail (`[[int(x) for x in r] for r in rows]`) fails this one too.
                 let tries = (self.py_mode && name == "char" && !self.catch.is_empty() && self.catches("ValueError"))
                     || (TRY_METHODS.contains(&name.as_str()) && args.iter().any(|a| matches!(a, Expr::Lambda(_, b) if

@@ -2385,7 +2385,6 @@ pub trait AxStr {
     fn ax_slice(&self, a: i64, b: i64) -> String;
     fn ax_find(&self, s: String) -> i64;
     fn ax_find_from(&self, s: String, start: i64) -> i64;
-    fn ax_is_digit(&self) -> bool;
     fn ax_is_alpha(&self) -> bool;
     fn ax_is_space(&self) -> bool;
 }
@@ -2487,9 +2486,6 @@ impl AxStr for String {
             Some(i) => (st + self[off..off + i].chars().count()) as i64,
             None => -1,
         }
-    }
-    fn ax_is_digit(&self) -> bool {
-        !self.is_empty() && self.chars().all(|c| c.is_ascii_digit())
     }
     fn ax_is_alpha(&self) -> bool {
         !self.is_empty() && self.chars().all(|c| c.is_alphabetic())
@@ -7288,7 +7284,7 @@ impl AxTryList<Json> for Json {
 // Text and list methods on a dynamic value (a parameter or slot whose type could not be fixed): each works on
 // the text or list inside, as Python's would; any other kind stops the run with Python's TypeError.
 impl Json {
-    fn ax_jtext(&self, m: &str) -> &String {
+    pub fn ax_jtext(&self, m: &str) -> &String {
         match self {
             Json::Str { v } => v,
             other => panic!("TypeError: {} has no method {m}", other.ax_kind()),
@@ -7358,9 +7354,6 @@ impl Json {
     }
     pub fn ax_find(&self, x: String) -> i64 {
         self.ax_jtext("find").ax_find(x)
-    }
-    pub fn ax_is_digit(&self) -> bool {
-        self.ax_jtext("isdigit").ax_is_digit()
     }
     pub fn ax_is_alpha(&self) -> bool {
         self.ax_jtext("isalpha").ax_is_alpha()

@@ -1864,7 +1864,7 @@ fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Op
     // The prelude is linked from a prebuilt library rather than pasted in, so its own hash is part of the key:
     // a changed runtime (a brevi upgrade) must not reuse a binary or error built against the old one.
     static PRELUDE_HASH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    let ph = PRELUDE_HASH.get_or_init(|| format!("{:016x}", fnv(&[emit::PRELUDE, env!("CARGO_PKG_VERSION")], 3)));
+    let ph = PRELUDE_HASH.get_or_init(|| format!("{:016x}", fnv(&[emit::PRELUDE, emit::UNICODE, env!("CARGO_PKG_VERSION")], 3)));
     let eng = engine::lib().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
     let key_for = |extra: &[&str]| format!("{:016x}{:016x}", fnv(&[rust, &extra.join(" "), if link { "link" } else { "meta" }, rustc_version(), ph, &eng], 0), fnv(&[rust, &extra.join(" "), rustc_version(), ph, &eng], 7));
     let key = key_for(extra);
@@ -2050,6 +2050,8 @@ fn runtime_lib(release: bool) -> Option<PathBuf> {
 }
 
 fn runtime_lib_source() -> String {
+    // The prelude only: the Unicode tables (emit::UNICODE) are pasted into the programs that use them,
+    // so a build of any other program never compiles the tables.
     let mut out = String::with_capacity(emit::PRELUDE.len() + 4096);
     for l in emit::PRELUDE.lines() {
         let item = ["fn ", "struct ", "enum ", "trait ", "type ", "const ", "static ", "use ", "mod "].iter().any(|k| l.starts_with(k));

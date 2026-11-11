@@ -3719,8 +3719,8 @@ fn python_method(name: &str, nargs: usize) -> Option<String> {
         ("rjust", 2) => "rjust_with",
         ("most_common", 0) => "most_common_all",
         ("split", 0) => "words",
-        // `s.casefold()`: lower case (enough for comparing words without regard to case).
-        ("casefold", 0) => "lower",
+        // `s.casefold()`: the Unicode full case folding, not just lower casing (ß folds to "ss").
+        ("casefold", 0) => "casefold",
         ("__floor__", 0) => "floor",
         ("__ceil__", 0) => "ceil",
         ("__abs__", 0) => "abs",

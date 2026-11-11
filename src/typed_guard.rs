@@ -1406,7 +1406,7 @@ fn later_changes(args: &[&Ex], g: &G) -> Option<String> {
 fn held(e: &Ex, out: &mut Vec<String>) {
     const FRESH: &[&str] = &["len", "sum", "str", "repr", "ascii", "format", "int", "float", "bool", "abs", "round", "any", "all", "ord", "chr", "hash", "id", "type", "isinstance", "bin", "hex", "oct"];
     // pygen::NEXT is `next(g)`: it holds what the generator gave, not the generator.
-    const FRESH_METHODS: &[&str] = &[crate::pygen::NEXT, "join", "count", "index", "find", "rfind", "format", "startswith", "endswith", "upper", "lower", "strip", "lstrip", "rstrip", "split", "replace", "title"];
+    const FRESH_METHODS: &[&str] = &[crate::pygen::NEXT, "join", "count", "index", "find", "rfind", "format", "startswith", "endswith", "upper", "lower", "casefold", "strip", "lstrip", "rstrip", "split", "replace", "title"];
     match e {
         Ex::Name(n) => out.push(n.clone()),
         Ex::Attr(b, a) => {
@@ -2251,7 +2251,7 @@ fn default_reads(body: &[Stmt]) -> Option<(usize, String)> {
 
 // Calls whose only effect is their value. Methods are by name, whatever the receiver.
 const PURE_CALLS: &[&str] = &["len", "abs", "min", "max", "int", "str", "float", "bool", "sorted", "isinstance", "ord", "chr", "range", "tuple", "list", "set", "frozenset", "sum", "any", "all", "enumerate", "zip", "round", "divmod", "repr", "reversed", "map", "filter"];
-const PURE_METHODS: &[&str] = &["get", "lower", "upper", "strip", "lstrip", "rstrip", "startswith", "endswith", "isdigit", "isalpha", "isalnum", "isspace", "isupper", "islower", "split", "join", "find", "rfind", "count", "index", "replace", "keys", "values", "items", "copy", "issubset", "issuperset", "union", "intersection", "difference"];
+const PURE_METHODS: &[&str] = &["get", "lower", "casefold", "upper", "strip", "lstrip", "rstrip", "startswith", "endswith", "isdigit", "isalpha", "isalnum", "isspace", "isupper", "islower", "split", "join", "find", "rfind", "count", "index", "replace", "keys", "values", "items", "copy", "issubset", "issuperset", "union", "intersection", "difference"];
 
 fn pure_ex(e: &Ex, fns: &HashSet<String>) -> bool {
     let mut ok = true;

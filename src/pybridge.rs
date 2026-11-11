@@ -844,7 +844,7 @@ pub fn py_name(m: &str) -> Option<&str> {
     }
     Some(match m {
         "max" | "min" | "sum" | "round" | "sort" | "replace" | "split" | "lower" | "upper" | "keys" | "values" | "join" | "insert" | "remove" | "pop" | "clear" | "update" | "find"
-        | "title" | "capitalize" | "zfill" | "center" | "ljust" | "rjust" | "most_common" | "copy" | "abs" => m,
+        | "title" | "capitalize" | "zfill" | "center" | "ljust" | "rjust" | "most_common" | "copy" | "abs" | "casefold" => m,
         "push" => "append",
         "trim" | "trim_of" => "strip",
         "trim_end" | "trim_end_of" => "rstrip",

@@ -1795,7 +1795,7 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
         }
         "upper" => st(t.to_uppercase()),
         "lower" => st(t.to_lowercase()),
-        "casefold" => st(t.to_lowercase()),
+        "casefold" => st(py_casefold(t)),
         "title" => st(py_title(t)),
         "capitalize" => {
             let mut cs = t.chars();
@@ -1805,7 +1805,9 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             }
         }
         "swapcase" => st(t.chars().map(|c| if c.is_uppercase() { c.to_lowercase().collect::<String>() } else { c.to_uppercase().collect() }).collect()),
-        "isdigit" | "isdecimal" | "isnumeric" => V::Bool(!t.is_empty() && t.chars().all(|c| if name == "isnumeric" { c.is_numeric() } else { c.is_ascii_digit() || is_nd(c) || (name == "isdigit" && "²³¹⁰⁴⁵⁶⁷⁸⁹".contains(c)) })),
+        "isdigit" => V::Bool(py_str_isdigit(t)),
+        "isdecimal" => V::Bool(py_str_isdecimal(t)),
+        "isnumeric" => V::Bool(py_str_isnumeric(t)),
         "isalpha" => V::Bool(!t.is_empty() && t.chars().all(|c| c.is_alphabetic())),
         "isalnum" => V::Bool(!t.is_empty() && t.chars().all(|c| c.is_alphanumeric())),
         "isspace" => V::Bool(!t.is_empty() && t.chars().all(|c| c.is_whitespace())),
