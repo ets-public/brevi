@@ -8,21 +8,21 @@ links to the artifact it came from, with the date, the Brevi version and the har
 
 | Metric | Value | Version, date | Source |
 |---|---:|---|---|
-| Conformance | 58.2% (181 of 311); 80.4% (250 of 311) on main | v0.26.0, 9 Nov 2026; main, 10 Nov 2026 | `bench/conformance/report.md` |
-| Known-wrong results | 44 tests, 88 test-mode pairs | v0.26.0, 9 Nov 2026 | `compat/conformance_known_wrong.txt` |
-| Crash or timeout | 5 of 311 tests | v0.26.0, 9 Nov 2026 | `bench/conformance/report.md` |
-| `check --fast` p50 / p95 | 16.1 / 18.2 ms | v0.26.0, 9 Nov 2026 | `bench/latency-results/2026-11-09-v0.26.0.json` |
-| `check` p50 / p95 | 93.6 / 113.6 ms | v0.26.0, 9 Nov 2026 | same |
-| `check`, unchanged, p50 | 2.5 ms | v0.26.0, 9 Nov 2026 | same |
-| Build after an edit, p50 | 870 ms typed, 1508 ms dynamic | v0.26.0, 9 Nov 2026 | same, and `...-dyn.json` |
-| `run`, unchanged, p50 | 4.5 ms typed, 22.0 ms dynamic (CPython 16.8 ms) | v0.26.0, 9 Nov 2026 | same |
+| Conformance | 80.4% (250 of 311); stdlib slice 45.1% (250 of 554) | v0.27.0, 11 Nov 2026 | `bench/conformance/report.md`, `bench/conformance/stdlib/report.md` |
+| Known-wrong results | 8 tests, 16 test-mode pairs (7 and 13 on main); stdlib 20 tests, 39 pairs on main | v0.27.0, 11 Nov 2026 | `compat/conformance_known_wrong.txt`, `compat/conformance_stdlib_known_wrong.txt` |
+| Crash or timeout | 0 of 311 tests (stdlib: 1) | v0.27.0, 11 Nov 2026 | `bench/conformance/report.md` |
+| `check --fast` p50 / p95 | 160.3 / 174.4 ms (16.1 / 18.2 ms at v0.26.0; the fixture now builds dynamic, see LATENCY.md) | v0.27.0, 11 Nov 2026 | `bench/latency-results/2026-11-11-v0.27.0.json` |
+| `check` p50 / p95 | 159.8 / 209.3 ms (93.6 / 113.6 ms at v0.26.0) | v0.27.0, 11 Nov 2026 | same |
+| `check`, unchanged, p50 | 2.3 ms | v0.27.0, 11 Nov 2026 | same |
+| Build after an edit, p50 | 1181 ms (`brevi run` after an edit: 427 ms, opt-level 0 tier); v0.26.0: 870 ms typed, 1508 ms dynamic | v0.27.0, 11 Nov 2026 | same, and `...-dyn.json` |
+| `run`, unchanged, p50 | 5.4 ms as written, 20.6 ms forced dynamic (CPython 11.4 ms) | v0.27.0, 11 Nov 2026 | same |
 | Typed-path rate | 567 of 813 (70%) | v0.25.0 | `bench/typed_corpus.py`; to be rerun on v0.26.0 |
 | First-attempt native | 24/24 Haiku, 24/24 Sonnet (one run, 24 tasks, errors shown) | v0.26.0, 9 Nov 2026 | `bench/logs/e2e/se1a-*.jsonl`, `--summary` column `n1` |
 | Tokens-to-green, errors shown (dollars, vs CPython) | 1.04x Haiku, 1.03x Sonnet (one run; 95% range about 0.9x to 1.1x) | v0.26.0, 9 Nov 2026 | `bench/logs/e2e/se1a-*.jsonl`, `--verdict` |
 | ANER | not measured | | needs alpha traffic |
-| Install to first run, no Rust | not possible yet | | needs a published image or the hosted path |
+| Install to first run, no Rust | possible with `ghcr.io/ets-public/brevi-sandbox:0.27.0`; not yet timed | v0.27.0, 11 Nov 2026 | timed install test (to do) |
 
-Latency machine: Intel Xeon @ 2.10 GHz, 4 cores, x86_64 Linux, rustc 1.97.0, CPython 3.13.18.
+Latency machine: Intel Xeon @ 2.30 GHz, 4 cores, x86_64 Linux, rustc 1.97.0, CPython 3.13.18 (v0.26.0 was measured at 2.10 GHz).
 
 ## Definitions
 
@@ -43,7 +43,7 @@ publish all three with the percentage. Never use "native" and "matched" as if th
 ### Known-wrong results
 
 Lines of `compat/conformance_known_wrong.txt`: a test id and the build mode (`normal` or `dyn`) where Brevi built
-the test and gave a different answer from CPython. Count both the tests (44) and the pairs (88). The number may only
+the test and gave a different answer from CPython. Count both the tests and the pairs (8 and 16 at v0.27.0). The number may only
 go down: `tools/conformance.py --check` fails on any wrong result not in the file.
 
 ### Crash or timeout, and panic rate

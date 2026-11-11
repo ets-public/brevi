@@ -1,0 +1,50 @@
+{
+ "meta": {
+  "brevi": "brevi 0.27.0",
+  "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+  "python": "3.13.18",
+  "machine": "x86_64",
+  "cpu": "Intel(R) Xeon(R) Processor @ 2.30GHz",
+  "cpus": 4,
+  "date": "2026-11-11",
+  "path": "{\"path\":\"dynamic\",\"line\":45,\"fn\":\"main\",\"why\":\"`counts` and a value kept elsewhere name the same list in Python, and `counts` is changed (by a function the proof does not follow) while a value kept elsewhere is still used; the typed build would change only a copy, so the typed build would differ from CPython\"}",
+  "fixture_lines": 209
+ },
+ "results": {
+  "check_fast_edit": {
+   "p50_ms": 160.3,
+   "p95_ms": 174.4,
+   "runs": 20
+  },
+  "check_edit": {
+   "p50_ms": 159.8,
+   "p95_ms": 209.3,
+   "runs": 20
+  },
+  "check_cached": {
+   "p50_ms": 2.3,
+   "p95_ms": 6.1,
+   "runs": 20
+  },
+  "build_edit": {
+   "p50_ms": 1180.8,
+   "p95_ms": 1253.4,
+   "runs": 20
+  },
+  "run_edit": {
+   "p50_ms": 427.3,
+   "p95_ms": 469.3,
+   "runs": 20
+  },
+  "run_cached": {
+   "p50_ms": 5.4,
+   "p95_ms": 6.1,
+   "runs": 20
+  },
+  "python_run": {
+   "p50_ms": 11.4,
+   "p95_ms": 14.0,
+   "runs": 20
+  }
+ }
+}
