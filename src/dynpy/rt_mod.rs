@@ -1422,7 +1422,7 @@ impl Ext for CmpKey {
         "functools.KeyWrapper"
     }
     fn repr(&self) -> String {
-        "<functools.KeyWrapper object>".into()
+        format!("<functools.KeyWrapper object at 0x{:x}>", self as *const Self as usize)
     }
     fn any(&self) -> &dyn std::any::Any {
         self
