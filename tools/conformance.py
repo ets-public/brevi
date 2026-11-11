@@ -626,10 +626,15 @@ def find_python(given):
 Run = collections.namedtuple("Run", "rc out err note")
 
 
+WINDOWS = os.name == "nt"
+
+
 def run_limited(cmd, cwd, env, timeout, mem_mb, sandbox):
     """Runs a generated script or built program in its own process group: no network and writes only to
     its folder where sandbox-exec exists, CPU, output-size and (on Linux) address-space limits through
     ulimit, and on every platform a wall-clock timeout and a resident-memory watch."""
+    if WINDOWS:
+        return run_limited_windows(cmd, cwd, env, timeout, mem_mb)
     limits = f"ulimit -c 0; ulimit -f {128 * 1024}; ulimit -t {int(timeout) + 5}; ulimit -v {mem_mb * 1024} 2>/dev/null;"
     prefix = []
     if sandbox:
@@ -660,7 +665,53 @@ def run_limited(cmd, cwd, env, timeout, mem_mb, sandbox):
         return Run(p.returncode, out.read(), err.read(), note)
 
 
+def run_limited_windows(cmd, cwd, env, timeout, mem_mb):
+    """Windows has no ulimit or killpg: a wall-clock timeout and a resident-memory watch, and the whole process
+    tree is killed with taskkill when either trips."""
+    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+        p = subprocess.Popen(cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=out, stderr=err,
+                             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+        begun, note = time.monotonic(), ""
+        while p.poll() is None:
+            try:
+                p.wait(0.5)
+            except subprocess.TimeoutExpired:
+                if time.monotonic() - begun > timeout:
+                    note = "timeout"
+                elif resident_mb(p.pid) > mem_mb:
+                    note = "memory limit"
+                if note:
+                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.pid)], capture_output=True)
+                    p.wait()
+        out.seek(0)
+        err.seek(0)
+        return Run(p.returncode, out.read(), err.read(), note)
+
+
+# NTSTATUS codes a crashed Windows program exits with, as the POSIX signal of the same kind (so the private
+# handling of possible memory-unsafety in is_private covers Windows too).
+NT_CRASH = {0xC0000005: "SIGSEGV", 0xC00000FD: "SIGSEGV", 0xC0000409: "SIGABRT", 0xC000001D: "SIGILL",
+            0xC0000094: "SIGFPE", 0x80000003: "SIGTRAP", 0xC0000374: "SIGABRT"}
+
+
 def resident_mb(pid):
+    if WINDOWS:
+        import ctypes
+        from ctypes import wintypes
+
+        class Counters(ctypes.Structure):
+            _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD)] + [
+                (n, ctypes.c_size_t) for n in ("PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage",
+                                               "QuotaPagedPoolUsage", "QuotaPeakNonPagedPoolUsage",
+                                               "QuotaNonPagedPoolUsage", "PagefileUsage", "PeakPagefileUsage")]
+        k32 = ctypes.WinDLL("kernel32")
+        h = k32.OpenProcess(0x1000 | 0x0010, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ
+        if not h:
+            return 0
+        c = Counters(cb=ctypes.sizeof(Counters))
+        ok = k32.K32GetProcessMemoryInfo(h, ctypes.byref(c), c.cb)
+        k32.CloseHandle(h)
+        return c.WorkingSetSize // (1024 * 1024) if ok else 0
     r = subprocess.run(["ps", "-o", "rss=", "-p", str(pid)], capture_output=True, text=True)
     return int(r.stdout.strip() or 0) // 1024
 
@@ -673,6 +724,10 @@ def sandbox_works():
 
 
 def run_env(folder, seed):
+    if WINDOWS:
+        keep = {k: os.environ[k] for k in ("SystemRoot", "SystemDrive", "PATH", "PATHEXT", "COMSPEC", "WINDIR") if k in os.environ}
+        return {**keep, "USERPROFILE": str(folder), "TEMP": str(folder), "TMP": str(folder), "PYTHONUTF8": "1",
+                "PYTHONHASHSEED": str(seed), "PYTHONDONTWRITEBYTECODE": "1"}
     return {"PATH": "/usr/bin:/bin", "HOME": str(folder), "TMPDIR": str(folder), "PYTHONUTF8": "1",
             "PYTHONHASHSEED": str(seed), "PYTHONDONTWRITEBYTECODE": "1"}
 
@@ -710,6 +765,8 @@ def build(script, folder, mode, cfg):
             elif not why:
                 why = str(j.get("msg") or j.get("why") or line)[:200]
     if r.returncode == 0:
+        if WINDOWS and not exe.exists() and exe.with_suffix(".exe").exists():
+            exe = exe.with_suffix(".exe")
         return exe, path, "", False
     crashed = r.returncode < 0 or "panicked at" in r.stderr
     return None, path, why or last_line((r.stdout + r.stderr).encode()), crashed
@@ -728,6 +785,9 @@ def classify(want, built, got):
     ok, why, crashed = built
     if not ok:
         return ("crash_or_timeout", why) if crashed else ("refused", why)
+    if WINDOWS and got.rc >= 0xC0000000 and not got.note:
+        sig = NT_CRASH.get(got.rc)
+        return "crash_or_timeout", f"signal {sig} (0x{got.rc:08X})" if sig else f"exception 0x{got.rc:08X}"
     if got.note or got.rc < 0:
         return "crash_or_timeout", got.note or f"signal {signal.Signals(-got.rc).name}"
     if b"panicked at" in got.err:
@@ -984,7 +1044,7 @@ def main():
     cache = cache_dir()
     universe = Universe(load_sources(cache))
     cfg.python = find_python(cfg.python)
-    cfg.brevi = str(Path(os.environ.get("BREVI", ROOT / "target" / "release" / "brevi")).resolve())
+    cfg.brevi = str(Path(os.environ.get("BREVI", ROOT / "target" / "release" / ("brevi.exe" if WINDOWS else "brevi"))).resolve())
     cases = extract_all(universe, names, cfg.filter)
     if cfg.show:
         return show(cases, cfg.show, cfg)
