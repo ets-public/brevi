@@ -436,6 +436,27 @@ fn duck_libs() -> (Vec<String>, String) {
     (parts.filter(|x| !x.is_empty()).collect(), pre)
 }
 
+// Engine libraries are pinned by SHA-256 when the program is built and loaded only if they still match
+// (libpin.rs). The source is pasted into programs that load one, and compiled here for the hashing.
+const LIBPIN: &str = include_str!("libpin.rs");
+include!("libpin.rs");
+
+// The libssl DLL names Windows' OpenSSL comes as (libcrypto's are the same with libcrypto), newest first.
+pub(crate) const SSL_NAMES: [&str; 4] = ["libssl-3-x64.dll", "libssl-3.dll", "libssl-1_1-x64.dll", "libssl-1_1.dll"];
+
+// Each file that is there, with the SHA-256 of its bytes now. The build's result cache keeps the result only
+// while each file is unchanged (runcache::depends_on), so an upgraded library means a fresh build.
+fn pins(files: &[String]) -> Vec<(String, String)> {
+    let mut out = vec![];
+    for f in files.iter().filter(|f| !f.is_empty()) {
+        if let Ok(b) = std::fs::read(f) {
+            crate::runcache::depends_on(Path::new(f));
+            out.push((f.clone(), brevi_libpin::sha256_hex(&b)));
+        }
+    }
+    out
+}
+
 // The Python DLL folder that holds libssl/libcrypto, and certifi's CA bundle, embedded at build time so a
 // Windows program never loads (or trusts) a DLL or bundle from its own folder or PATH.
 fn python_ssl_dir() -> String {
@@ -734,6 +755,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         crate::pybridge::set_file(file);
         rust.push_str(&crate::pybridge::dyn_runtime());
         rust.push_str(GLUE);
+        rust = rust.replacen("fn main() { ", "fn main() { ax_pyb_early(); ", 1);
         *BRIDGED.lock().unwrap() = used;
     }
     if let Some(b) = &tok_files {
@@ -744,7 +766,10 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     }
     if net_used {
         if cfg!(windows) {
-            rust.push_str(&format!("\nconst BREVI_SSL_DIR: &str = {:?};\nconst BREVI_CA_FILE: &str = {:?};\n", python_ssl_dir(), python_ca_file()));
+            let dir = python_ssl_dir();
+            let files: Vec<String> = if dir.is_empty() { vec![] } else { SSL_NAMES.iter().flat_map(|n| [format!("{dir}\\{n}"), format!("{dir}\\{}", n.replace("libssl", "libcrypto"))]).collect() };
+            rust.push_str(&format!("\nconst BREVI_SSL_DIR: &str = {dir:?};\nconst BREVI_CA_FILE: &str = {:?};\nconst SSL_PINS: &[(&str, &str)] = &{:?};\n", python_ca_file(), pins(&files)));
+            rust.push_str(LIBPIN);
         }
         rust = rust.replacen("fn main() { ", "fn main() { NET.set(brevi_netglue::ops()).ok(); ", 1);
         rust.push_str(&net_glue());
@@ -797,12 +822,19 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     if duck_used {
         let (libs, pre) = duck_libs();
         rust = rust.replacen("fn main() { ", "fn main() { DUCK.set(brevi_duckglue::ops()).ok(); ", 1);
-        rust.push_str(&format!("\nconst DUCK_LIBS: &[&str] = &{libs:?};\nconst DUCK_PRELOAD: &str = {pre:?};\n"));
+        let pre = pins(&[pre]).into_iter().next().unwrap_or_default();
+        rust.push_str(&format!("\nconst DUCK_LIBS: &[(&str, &str)] = &{:?};\nconst DUCK_PRELOAD: (&str, &str) = {pre:?};\n", pins(&libs)));
+        if !rust.contains("mod brevi_libpin {") {
+            rust.push_str(LIBPIN);
+        }
         rust.push_str(include_str!("duckglue.rs"));
     }
     if ort_used {
         rust = rust.replacen("fn main() { ", "fn main() { ORT.set(brevi_ortglue::ops()).ok(); ", 1);
-        rust.push_str(&format!("\nconst ORT_LIBS: &[&str] = &{:?};\n", ort_libs()));
+        rust.push_str(&format!("\nconst ORT_LIBS: &[(&str, &str)] = &{:?};\n", pins(&ort_libs())));
+        if !rust.contains("mod brevi_libpin {") {
+            rust.push_str(LIBPIN);
+        }
         rust.push_str(include_str!("ortglue.rs"));
     }
     if mods.iter().any(|m| m.name == "argparse") && crate::pybridge::py_allowed("argparse") {
@@ -1536,4 +1568,40 @@ fn uses_open(src: &str) -> bool {
         let after = src[i + 4..].chars().next();
         !before.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '.') && !after.is_some_and(|c| c.is_alphanumeric() || c == '_')
     })
+}
+
+#[cfg(test)]
+mod libpin_tests {
+    use super::brevi_libpin;
+
+    #[test]
+    fn sha256_matches_the_plain_code_at_every_length() {
+        // the SHA-extension path (where the CPU has it) and the tail handling, against tok.rs' plain sha256
+        let mut x: u64 = 0x9e37_79b9_7f4a_7c15;
+        let data: Vec<u8> = (0..5000)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                x as u8
+            })
+            .collect();
+        for n in (0..300).chain([1000, 4095, 4096, 4097, 5000]) {
+            assert_eq!(brevi_libpin::sha256_hex(&data[..n]), super::tok::hex(&super::tok::sha256(&data[..n])), "length {n}");
+        }
+        assert_eq!(brevi_libpin::sha256_hex(b"abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_pinned_library_loads_only_with_its_own_hash() {
+        // libc is on every Unix machine: loading it again is harmless
+        let lib = ["/lib/x86_64-linux-gnu/libc.so.6", "/lib/aarch64-linux-gnu/libc.so.6", "/usr/lib/libSystem.B.dylib", "/lib64/libc.so.6"].into_iter().find(|p| std::path::Path::new(p).is_file());
+        let Some(lib) = lib else { return };
+        let sum = brevi_libpin::sha256_hex(&std::fs::read(lib).unwrap());
+        assert!(unsafe { brevi_libpin::open(lib, &sum, 2) }.is_ok());
+        let wrong = format!("{}0", &sum[..63]);
+        let e = unsafe { brevi_libpin::open(lib, &wrong, 2) }.unwrap_err();
+        assert!(e.contains("SHA-256 changed"), "{e}");
+    }
 }
