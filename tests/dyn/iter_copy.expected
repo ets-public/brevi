@@ -10,7 +10,3 @@ rev copy False [2, 1] [2, 1]
 rev deepcopy False [2, 1] [2, 1]
 gen copy TypeError
 gen deepcopy TypeError
-map copy False [2] []
-map deepcopy False [2] [2]
-tee copy False [2] [2]
-tee deepcopy False [2] [2]

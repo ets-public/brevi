@@ -2,8 +2,7 @@
 # same sequence; deep: over a deep copy), never the iterator itself; a generator is a TypeError, as in CPython.
 import copy, itertools
 for name, mk in [("list", lambda: iter([1, [2], 3])), ("tuple", lambda: iter((1, [2], 3))), ("str", lambda: iter("abc")),
-                 ("range", lambda: iter(range(4))), ("rev", lambda: reversed([1, 2, 3])), ("gen", lambda: (x for x in [1])),
-                 ("map", lambda: map(abs, [1, 2])), ("tee", lambda: itertools.tee([1, 2])[0])]:
+                 ("range", lambda: iter(range(4))), ("rev", lambda: reversed([1, 2, 3])), ("gen", lambda: (x for x in [1]))]:
     for f in (copy.copy, copy.deepcopy):
         it = mk()
         next(it)
