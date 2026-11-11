@@ -1056,8 +1056,17 @@ def run_env(folder, seed):
             "PYTHONHASHSEED": str(seed), "PYTHONDONTWRITEBYTECODE": "1"}
 
 
+ADDRESS = re.compile(rb" at 0x[0-9a-fA-F]+>")
+
+
+def masked(run):
+    """The run with object addresses in default reprs (`<function f at 0x7f...>`) blanked. An address is where the
+    object happens to live in this process, so it differs on every CPython run and can never match a build's."""
+    return run._replace(out=ADDRESS.sub(b" at 0x?>", run.out)) if run else run
+
+
 def reference(py, script, folder, seed, cfg):
-    return run_limited([py, "-B", "-s", "-P", str(script)], str(folder), run_env(folder, seed), cfg.timeout, cfg.mem_mb, cfg.sandbox)
+    return masked(run_limited([py, "-B", "-s", "-P", str(script)], str(folder), run_env(folder, seed), cfg.timeout, cfg.mem_mb, cfg.sandbox))
 
 
 def last_line(data):
@@ -1143,7 +1152,7 @@ def run_case(case, cfg):
     modes = {}
     for mode in ("normal", "dyn"):
         exe, path, why, crashed = build(script, folder, mode, cfg)
-        got = run_limited([str(exe)], str(folder), run_env(folder, 1), cfg.timeout, cfg.mem_mb, cfg.sandbox) if exe else None
+        got = masked(run_limited([str(exe)], str(folder), run_env(folder, 1), cfg.timeout, cfg.mem_mb, cfg.sandbox)) if exe else None
         category, detail = classify(a, (exe is not None, why, crashed), got)
         if category == "wrong_output":
             # Two seeds can agree by luck on a small str set: try more before calling this Brevi's fault.

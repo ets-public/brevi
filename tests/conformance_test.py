@@ -173,6 +173,15 @@ class Classify(unittest.TestCase):
         self.assertEqual(c.classify(self.want, (False, "no", False), None), ("refused", "no"))
         self.assertEqual(c.classify(self.want, (False, "panic", True), None)[0], "crash_or_timeout")
 
+    def test_object_addresses_are_blanked_but_the_rest_of_the_repr_is_compared(self):
+        want = c.masked(c.Run(0, b"<function f at 0x7f1a2b3c>\n", b"", ""))
+        same = c.masked(c.Run(0, b"<function f at 0x55e0d1>\n", b"", ""))
+        other = c.masked(c.Run(0, b"<builtin f at 0x55e0d1>\n", b"", ""))
+        built = (True, "", False)
+        self.assertEqual(c.classify(want, built, same)[0], "matched")
+        self.assertEqual(c.classify(want, built, other)[0], "wrong_output")
+        self.assertEqual(c.masked(c.Run(0, b"0x7f1a2b3c\n", b"", "")).out, b"0x7f1a2b3c\n")
+
 
 if __name__ == "__main__":
     unittest.main()
