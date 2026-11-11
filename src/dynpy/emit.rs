@@ -1578,6 +1578,8 @@ pub struct Em {
     bridge: Bridge,
     // what the program has CPython run, for the path report
     bridged_used: BTreeSet<String>,
+    // the program calls the re module (see the buffer check at the end of emit)
+    uses_re: bool,
     // module + value set -> the first display's items in source order (CPython's constant merging)
     set_lits: HashMap<(String, BTreeSet<ConstKey>), Vec<Ex>>,
 }
@@ -2379,6 +2381,9 @@ impl Em {
                 // time.strftime(fmt) formats local time, which dynamic builds do not know: CPython runs it.
                 if md == "time" && m == "strftime" && args.len() < 2 {
                     return Err(err(line, "time.strftime without a time tuple (local time) is not supported in dynamic builds"));
+                }
+                if md == "re" {
+                    self.uses_re = true;
                 }
                 // \N{NAME} is not in Brevi's regex engine, so CPython runs the program rather than answering wrong
                 if md == "re"
@@ -3915,6 +3920,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         direct_ok: HashSet::new(),
         bridge,
         bridged_used: BTreeSet::new(),
+        uses_re: false,
         set_lits: HashMap::new(),
     };
     // Brevi's own library copies first, each group named and numbered on its own, then the program's modules:
@@ -4108,6 +4114,13 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     )
     .unwrap();
     let _ = &em.out;
+    // CPython's re matches any buffer (array.array, mmap, ctypes arrays) as bytes, and slices the object
+    // itself for groups. Brevi's re takes str and bytes only, so CPython runs such a program.
+    if em.uses_re {
+        if let Some(m) = em.bridged_used.iter().find(|m| matches!(m.as_str(), "array" | "mmap" | "ctypes")) {
+            return Err((mods[0].name.clone(), 1, format!("re together with {m} (buffer subjects) is not supported in dynamic builds")));
+        }
+    }
     Ok((out, em.bridged_used.into_iter().collect()))
 }
 
