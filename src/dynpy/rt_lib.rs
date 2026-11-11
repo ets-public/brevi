@@ -1217,6 +1217,7 @@ pub fn bi_classmethod(a: Args) -> R {
 }
 fn rewrap(x: &Rc<Func>, kind: u8) -> V {
     let inner = V::Func(x.clone());
+    let wrapped = inner.clone();
     let g = func(x.name.get(), move |a: Args| call(&inner, a));
     if let V::Func(gf) = &g {
         gf.kind.set(kind);
@@ -1225,6 +1226,8 @@ fn rewrap(x: &Rc<Func>, kind: u8) -> V {
         gf.qualname.set(x.qualname.get());
         // the wrapped function's attributes (__doc__, __bv_np__) read through, as through CPython's __func__
         *gf.attrs.borrow_mut() = x.attrs.borrow().clone();
+        // __get__ returns the wrapped function (staticmethod) or a bound method of it (classmethod)
+        gf.attrs.borrow_mut().push(("__bv_wrapped__", wrapped));
     }
     g
 }

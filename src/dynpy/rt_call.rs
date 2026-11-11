@@ -1103,6 +1103,32 @@ pub fn desc_get(d: &V, obj: &V, cls: &V) -> R {
         None => Ok(d.clone()),
     }
 }
+// A function's __get__(obj, cls), as CPython's function/staticmethod/classmethod method-wrapper does. A
+// staticmethod's wrapper holds the wrapped def in __bv_wrapped__, so __get__ returns the def itself; a
+// classmethod's __get__ binds the wrapped def to cls (or to type(obj) when cls is omitted).
+pub fn func_get(f: &V, obj: V, cls: V) -> R {
+    let V::Func(ff) = f else {
+        return Err(exc("AttributeError", format!("'{}' object has no attribute '__get__'", tn(f))));
+    };
+    if matches!(obj, V::None) && matches!(cls, V::None) {
+        return Err(exc("TypeError", "__get__(None, None) is invalid".into()));
+    }
+    let wrapped = ff
+        .attrs
+        .borrow()
+        .iter()
+        .find(|(k, _)| *k == "__bv_wrapped__")
+        .map(|(_, v)| v.clone())
+        .unwrap_or_else(|| f.clone());
+    Ok(match ff.kind.get() {
+        0 => if matches!(obj, V::None) { f.clone() } else { V::Bound(Rc::new((obj, f.clone()))) },
+        1 => wrapped,
+        _ => {
+            let owner = if matches!(cls, V::None) { V::Class(type_of(&obj)?) } else { cls };
+            V::Bound(Rc::new((owner, wrapped)))
+        }
+    })
+}
 pub fn getattr(o: &V, name: &str) -> R {
     match o {
         V::Obj(ob) => {
@@ -1367,6 +1393,24 @@ pub fn getattr(o: &V, name: &str) -> R {
             "__dict__" if f.kind.get() != 3 => Ok(V::Dict(func_dict_make(f)?)),
             // 0 function, 1 staticmethod, 2 classmethod (Brevi's pydantic reads it)
             "__bv_kind__" => Ok(V::Int(f.kind.get() as i64)),
+            // CPython's def/staticmethod/classmethod method-wrapper; a functools.partial is not a descriptor
+            "__get__" if f.kind.get() != 3 && f.attrs.borrow().iter().all(|(k, _)| *k != "__bv_partial__") => {
+                let v = o.clone();
+                Ok(builtin("__get__", move |mut a: Args| {
+                    if !a.k.is_empty() {
+                        return type_err("wrapper __get__() takes no keyword arguments".into());
+                    }
+                    if a.p.is_empty() {
+                        return type_err("expected at least 1 argument, got 0".into());
+                    }
+                    if a.p.len() > 2 {
+                        return type_err(format!("expected at most 2 arguments, got {}", a.p.len()));
+                    }
+                    let obj = a.p.remove(0);
+                    let cls = a.p.pop().unwrap_or(V::None);
+                    func_get(&v, obj, cls)
+                }))
+            }
             "__doc__" => Ok(f.attrs.borrow().iter().find(|(k, _)| *k == "__doc__").map_or(V::None, |(_, v)| v.clone())),
             _ => {
                 if let Some(v) = func_user_attr(f, name)? {
