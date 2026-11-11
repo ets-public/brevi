@@ -656,6 +656,11 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         }
         k += 1;
     }
+    // compile() has no native implementation; when CPython may run, it is the builtin, so the dynamic build
+    // can still take a program that calls it (its SyntaxError keeps CPython's lineno/offset, see pyglue.rs).
+    if !bridge.on && bridge_ok() && crate::caps::py_only().is_none() && mods.iter().any(|m| uses_compile(&m.body)) {
+        bridge.on = true;
+    }
     if own_used && !own_ok && !crate::pybridge::no_native() {
         return Err((file.to_string(), 0, BEYOND_COPIES.into()));
     }
@@ -1610,6 +1615,19 @@ fn uses_open(src: &str) -> bool {
         let after = src[i + 4..].chars().next();
         !before.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '.') && !after.is_some_and(|c| c.is_alphanumeric() || c == '_')
     })
+}
+
+// Whether the program calls the builtin compile.
+fn uses_compile(body: &[parse::Stmt]) -> bool {
+    let mut found = false;
+    emit::visit_any(body, &mut |e| {
+        if let parse::Ex::Call(f, _) = e {
+            if matches!(f.as_ref(), parse::Ex::Name(n) if n == "compile") {
+                found = true;
+            }
+        }
+    });
+    found
 }
 
 #[cfg(test)]

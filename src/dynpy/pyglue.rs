@@ -221,7 +221,34 @@ unsafe fn pyd_exc_of(v: P) -> E {
     } else {
         pyd_wrap(args, true).unwrap_or_else(|_| tup(vec![]))
     };
-    o.set("args", args);
+    // SyntaxError's str and lineno/offset/... live in C slots in CPython; the program's own exception keeps them
+    // as ordinary attributes, and str(e) is CPython's own text.
+    let is_syntax = cls.is_sub(&exc_class("SyntaxError"));
+    let full = if is_syntax {
+        let s = (a.Str)(v);
+        if s.is_null() {
+            (a.ErrClear)();
+            String::new()
+        } else {
+            let t = pyd_text(s);
+            (a.DecRef)(s);
+            t.unwrap_or_default()
+        }
+    } else {
+        String::new()
+    };
+    o.set("args", if is_syntax && !full.is_empty() { tup(vec![st(full)]) } else { args });
+    if is_syntax {
+        for n in ["msg", "filename", "lineno", "offset", "text", "end_lineno", "end_offset"] {
+            let c = CString::new(n).unwrap();
+            let x = (a.GetAttr)(v, c.as_ptr());
+            if x.is_null() {
+                (a.ErrClear)();
+            } else {
+                o.set(sym(n), pyd_wrap(x, true).unwrap_or(V::None));
+            }
+        }
+    }
     if cls.is_sub(&exc_class("SystemExit")) {
         let c = (a.GetAttr)(v, c"code".as_ptr());
         if c.is_null() {

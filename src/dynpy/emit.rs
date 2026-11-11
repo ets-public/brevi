@@ -1761,25 +1761,45 @@ impl Em {
         None
     }
     fn load(&mut self, name: &str, line: usize) -> ER<String> {
+        let r = self.load_r(name, line)?;
+        Ok(self.q(&r))
+    }
+
+    // The same load as a Result<V> expression, before the enclosing try/finally jumps and `?` are added.
+    fn load_r(&mut self, name: &str, line: usize) -> ER<String> {
+        let class_local = self.f().is_class && matches!(self.lookup(name), Some(Var::Local(_)));
+        if class_local {
+            // A class body's LOAD_NAME sees the class namespace first, then globals and builtins; unlike a
+            // function it never sees enclosing function scopes (`C.f = f` reads the module's f).
+            let fr = self.fstack.pop().unwrap();
+            let n = self.fstack.len();
+            self.fstack.truncate(1);
+            let outer = self.load_r(name, line);
+            self.fstack.truncate(n);
+            self.fstack.push(fr);
+            let outer = outer?;
+            let Some(Var::Local(r)) = self.lookup(name) else { unreachable!() };
+            return Ok(format!("match {r}.clone() {{ V::Unbound => {outer}, v => Ok(v) }}"));
+        }
         match self.lookup(name) {
-            Some(Var::Local(r)) => Ok(self.q(&format!("ld(&{r}, {})", lit(name)))),
+            Some(Var::Local(r)) => Ok(format!("ld(&{r}, {})", lit(name))),
             Some(Var::Cell(r)) => {
                 let own = !self.f().cells.is_empty() && r.starts_with(&self.f().cells);
                 let fr = self.fstack.last().unwrap();
                 let inner = self.safe_cells.get(&r).is_some_and(|&d| self.fstack.len() > d) && !fr.is_gen && !fr.is_async;
                 let f = if own { "cget_own" } else if inner { "cgs" } else { "cget" };
-                Ok(self.q(&format!("{f}(&{r}, {})", lit(name))))
+                Ok(format!("{f}(&{r}, {})", lit(name)))
             }
             Some(Var::Global(i)) => {
                 if is_builtin_name(name) || name == "__name__" {
-                    Ok(self.q(&format!("glb({i}, {})", lit(name))))
+                    Ok(format!("glb({i}, {})", lit(name)))
                 } else {
-                    Ok(self.q(&format!("gl({i}, {})", lit(name))))
+                    Ok(format!("gl({i}, {})", lit(name)))
                 }
             }
             None => {
                 if name == "__name__" {
-                    return Ok(self.konst(&self.module.clone()).replace("kc", "kc"));
+                    return Ok(format!("Ok({})", self.konst(&self.module.clone()).replace("kc", "kc")));
                 }
                 if is_builtin_name(name) {
                     if is_exc_name(name) {
@@ -1787,31 +1807,36 @@ impl Em {
                             "IOError" | "EnvironmentError" => "OSError",
                             x => x,
                         };
-                        return Ok(format!("V::Class(exc_class({}))", lit(n)));
+                        return Ok(format!("Ok(V::Class(exc_class({})))", lit(n)));
                     }
                     if name == "super" {
                         return Err(err(line, "super used as a value is not supported"));
                     }
-                    return Ok(format!("builtin_value({}).unwrap()", lit(name)));
+                    return Ok(format!("Ok(builtin_value({}).unwrap())", lit(name)));
                 }
                 // Brevi's own open() (_brevi_open.py) when no CPython library is in the program
                 if name == "open" && !self.bridge.on && self.user_modules.iter().any(|m| m == "_brevi_open") {
                     let init = self.q("init__brevi_open()");
                     let v = self.user_mod_load("_brevi_open", "open", line)?;
-                    return Ok(format!("{{ {init}; {v} }}"));
+                    return Ok(format!("Ok({{ {init}; {v} }})"));
                 }
                 // Not under --sandbox --allow-py: the caller granted CPython for named modules, not open.
                 if name == "open" && self.bridge.on && crate::caps::py_only().is_none() {
                     self.bridged_used.insert("open".into());
-                    return Ok(self.q("pyd_builtin(\"open\")"));
+                    return Ok("pyd_builtin(\"open\")".into());
                 }
                 if name == "globals" {
                     return Err(err(line, "globals() is supported in dynamic builds only as globals()[name], globals().get(name) and name in globals()"));
                 }
+                // Not under --sandbox --allow-py: the caller granted CPython for named modules, not compile.
+                if name == "compile" && self.bridge.on && crate::caps::py_only().is_none() {
+                    self.bridged_used.insert("compile".into());
+                    return Ok("pyd_builtin(\"compile\")".into());
+                }
                 if is_missing_builtin(name) {
                     return Err(err(line, &format!("{name}() is not supported in dynamic builds")));
                 }
-                Ok(self.q(&format!("name_err({})", lit(name))))
+                Ok(format!("name_err({})", lit(name)))
             }
         }
     }
