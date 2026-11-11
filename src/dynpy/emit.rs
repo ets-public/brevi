@@ -774,6 +774,22 @@ fn scope_of(body: &[Stmt], params: &[String]) -> Scope {
     }
     sc
 }
+// Whether a class body calls locals() in its own scope (as opposed to inside a method, whose locals() is
+// that function's snapshot): the class then runs over a namespace dict, so `locals()["x"] = v` changes what
+// later `x` reads, as CPython's LOAD_NAME / LOAD_FROM_DICT_OR_DEREF see it.
+fn class_uses_locals(body: &[Stmt]) -> bool {
+    let mut exs = vec![];
+    stmt_exprs(body, &mut exs);
+    let mut hit = false;
+    for e in exs {
+        visit_ex(e, &mut |x| {
+            if let Ex::Call(f, args) = x {
+                hit |= args.is_empty() && matches!(f.as_ref(), Ex::Name(n) if n == "locals");
+            }
+        });
+    }
+    hit
+}
 // Names read in a function body (and its nested functions, minus their own locals): the free names.
 fn names_read_ex(e: &Ex, out: &mut BTreeSet<String>) {
     visit_ex(e, &mut |x| match x {
@@ -1417,6 +1433,9 @@ struct Func {
     exc_vars: Vec<String>,
     is_module: bool,
     is_class: bool,
+    // the class namespace dict this frame's body runs in (see class_ns); a class body that calls locals()
+    // gets one, so locals() writes are the same mapping its LOAD_NAME / LOAD_FROM_DICT_OR_DEREF reads
+    class_ns: Option<String>,
     // class-body stores turn auto() into its value here (last-values vec, enum kind), when the class
     // being defined is an Enum (None elsewhere)
     enum_cnv: Option<(String, String)>,
@@ -1761,66 +1780,105 @@ impl Em {
         None
     }
     fn load(&mut self, name: &str, line: usize) -> ER<String> {
-        match self.lookup(name) {
-            Some(Var::Local(r)) => Ok(self.q(&format!("ld(&{r}, {})", lit(name)))),
+        let ns = self.fstack.last().and_then(|f| f.class_ns.clone());
+        let v = self.lookup(name);
+        // A name the class body itself binds is a class local: LOAD_NAME (the dict was just checked), so a
+        // miss falls back to the module's globals and builtins, never to an enclosing function's cell.
+        let cur_owns = ns.is_some() && self.fstack.last().is_some_and(|f| v.as_ref().is_some_and(|v| f.vars.get(name) == Some(v)));
+        let fallback = match v {
+            Some(Var::Local(r)) if cur_owns => self.load_global(name, line)?,
+            Some(Var::Local(r)) => self.q(&format!("ld(&{r}, {})", lit(name))),
             Some(Var::Cell(r)) => {
                 let own = !self.f().cells.is_empty() && r.starts_with(&self.f().cells);
                 let fr = self.fstack.last().unwrap();
                 let inner = self.safe_cells.get(&r).is_some_and(|&d| self.fstack.len() > d) && !fr.is_gen && !fr.is_async;
                 let f = if own { "cget_own" } else if inner { "cgs" } else { "cget" };
-                Ok(self.q(&format!("{f}(&{r}, {})", lit(name))))
+                self.q(&format!("{f}(&{r}, {})", lit(name)))
             }
             Some(Var::Global(i)) => {
                 if is_builtin_name(name) || name == "__name__" {
-                    Ok(self.q(&format!("glb({i}, {})", lit(name))))
+                    self.q(&format!("glb({i}, {})", lit(name)))
                 } else {
-                    Ok(self.q(&format!("gl({i}, {})", lit(name))))
+                    self.q(&format!("gl({i}, {})", lit(name)))
                 }
             }
-            None => {
-                if name == "__name__" {
-                    return Ok(self.konst(&self.module.clone()).replace("kc", "kc"));
-                }
-                if is_builtin_name(name) {
-                    if is_exc_name(name) {
-                        let n = match name {
-                            "IOError" | "EnvironmentError" => "OSError",
-                            x => x,
-                        };
-                        return Ok(format!("V::Class(exc_class({}))", lit(n)));
-                    }
-                    if name == "super" {
-                        return Err(err(line, "super used as a value is not supported"));
-                    }
-                    return Ok(format!("builtin_value({}).unwrap()", lit(name)));
-                }
-                // Brevi's own open() (_brevi_open.py) when no CPython library is in the program
-                if name == "open" && !self.bridge.on && self.user_modules.iter().any(|m| m == "_brevi_open") {
-                    let init = self.q("init__brevi_open()");
-                    let v = self.user_mod_load("_brevi_open", "open", line)?;
-                    return Ok(format!("{{ {init}; {v} }}"));
-                }
-                // Not under --sandbox --allow-py: the caller granted CPython for named modules, not open.
-                if name == "open" && self.bridge.on && crate::caps::py_only().is_none() {
-                    self.bridged_used.insert("open".into());
-                    return Ok(self.q("pyd_builtin(\"open\")"));
-                }
-                if name == "globals" {
-                    return Err(err(line, "globals() is supported in dynamic builds only as globals()[name], globals().get(name) and name in globals()"));
-                }
-                if is_missing_builtin(name) {
-                    return Err(err(line, &format!("{name}() is not supported in dynamic builds")));
-                }
-                Ok(self.q(&format!("name_err({})", lit(name))))
-            }
+            None => self.load_missing(name, line)?,
+        };
+        Ok(match ns {
+            Some(ns) => format!("{{ let __k = s({}); if let Some(__v) = Dict::get_cell(&{ns}, &__k)? {{ __v }} else {{ {fallback} }} }}", lit(name)),
+            None => fallback,
+        })
+    }
+    // LOAD_NAME in a class body: the class dict was checked first, so a miss reads the module's globals and
+    // builtins. Enclosing function cells are not consulted (CPython marks names bound in the class body as
+    // locals of the class frame).
+    fn load_global(&mut self, name: &str, line: usize) -> ER<String> {
+        let g = self.fstack.iter().find(|f| f.is_module).and_then(|f| f.vars.get(name)).cloned();
+        match g {
+            Some(Var::Global(i)) => Ok(if is_builtin_name(name) || name == "__name__" {
+                self.q(&format!("glb({i}, {})", lit(name)))
+            } else {
+                self.q(&format!("gl({i}, {})", lit(name)))
+            }),
+            _ => self.load_missing(name, line),
         }
     }
+    fn load_missing(&mut self, name: &str, line: usize) -> ER<String> {
+        if name == "__name__" {
+            return Ok(self.konst(&self.module.clone()).replace("kc", "kc"));
+        }
+        if is_builtin_name(name) {
+            if is_exc_name(name) {
+                let n = match name {
+                    "IOError" | "EnvironmentError" => "OSError",
+                    x => x,
+                };
+                return Ok(format!("V::Class(exc_class({}))", lit(n)));
+            }
+            if name == "super" {
+                return Err(err(line, "super used as a value is not supported"));
+            }
+            return Ok(format!("builtin_value({}).unwrap()", lit(name)));
+        }
+        // Brevi's own open() (_brevi_open.py) when no CPython library is in the program
+        if name == "open" && !self.bridge.on && self.user_modules.iter().any(|m| m == "_brevi_open") {
+            let init = self.q("init__brevi_open()");
+            let v = self.user_mod_load("_brevi_open", "open", line)?;
+            return Ok(format!("{{ {init}; {v} }}"));
+        }
+        // Not under --sandbox --allow-py: the caller granted CPython for named modules, not open.
+        if name == "open" && self.bridge.on && crate::caps::py_only().is_none() {
+            self.bridged_used.insert("open".into());
+            return Ok(self.q("pyd_builtin(\"open\")"));
+        }
+        if name == "globals" {
+            return Err(err(line, "globals() is supported in dynamic builds only as globals()[name], globals().get(name) and name in globals()"));
+        }
+        if is_missing_builtin(name) {
+            return Err(err(line, &format!("{name}() is not supported in dynamic builds")));
+        }
+        Ok(self.q(&format!("name_err({})", lit(name))))
+    }
     fn store(&mut self, name: &str, val: &str) -> String {
-        let cnv = match self.fstack.last() {
-            Some(fr) if fr.is_class => fr.enum_cnv.clone(),
-            _ => None,
+        let (ns, cnv) = {
+            let fr = self.fstack.last().unwrap();
+            (fr.class_ns.clone(), if fr.is_class { fr.enum_cnv.clone() } else { None })
         };
-        match self.lookup(name) {
+        let v = self.lookup(name);
+        let cur_owns = ns.is_some() && self.fstack.last().is_some_and(|f| v.as_ref().is_some_and(|v| f.vars.get(name) == Some(v)));
+        match v {
+            // A name bound in a class body that runs over a namespace dict is stored in both places: the dict
+            // is what LOAD_NAME and the made class read, the Rust local mirrors it for the compiler's bookkeeping.
+            Some(Var::Local(r)) if cur_owns => {
+                let ns = ns.as_deref().unwrap();
+                let setns = self.q(&format!("Dict::set_cell(&{ns}, s({}), __v.clone())", lit(name)));
+                if let Some((av, ctx)) = cnv {
+                    let cv = self.q(&format!("enum_auto_store(&mut {av}, {ctx}, {}, {val})", lit(name)));
+                    format!("{{ let __v = {cv}; {r} = __v.clone(); {setns} }}")
+                } else {
+                    format!("{{ let __v = {val}; {r} = __v.clone(); {setns} }}")
+                }
+            }
             Some(Var::Local(r)) => {
                 if let Some((av, ctx)) = cnv {
                     format!("{r} = {};", self.q(&format!("enum_auto_store(&mut {av}, {ctx}, {}, {val})", lit(name))))
@@ -2293,8 +2351,13 @@ impl Em {
                 return Err(err(line, "eval() of names this frame does not hold is not supported in dynamic builds"));
             }
         }
+        // locals() in a class body: the class's own namespace dict, not a snapshot; writes through it change
+        // what later LOAD_NAME / LOAD_FROM_DICT_OR_DEREF reads.
         // locals() in a function: a snapshot dict of its bound names, in CPython's order
         if args.is_empty() && matches!(f, Ex::Name(n) if n == "locals") && self.lookup("locals").is_none() {
+            if let Some(ns) = self.fstack.last().unwrap().class_ns.clone() {
+                return Ok(format!("V::Dict({ns}.clone())"));
+            }
             let fr = self.fstack.last().unwrap();
             if !fr.is_module && !fr.is_class && !fr.is_gen && !fr.order.is_empty() || (!fr.is_module && !fr.is_class && !fr.is_gen && fr.vars.is_empty()) {
                 let mut b = String::from("{ let mut __d = Dict::new(); ");
@@ -2563,7 +2626,7 @@ impl Em {
         let gq = self.qualname_of("<genexpr>");
         let gq_lit = lit(&gq);
         let (class_expr, self_name) = (parent.class_expr.clone(), parent.self_name.clone());
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, qname: gq, exc_vars: vec![], is_module: false, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: true, direct_defs: HashMap::new(), cells: format!("g{id}_"), order: vec![] };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, qname: gq, exc_vars: vec![], is_module: false, is_class: false, class_ns: None, enum_cnv: None, is_async: false, is_agen: false, is_gen: true, direct_defs: HashMap::new(), cells: format!("g{id}_"), order: vec![] };
         let mut tdecl = String::new();
         for n in &names {
             if inner_free.contains(n) {
@@ -2990,24 +3053,43 @@ impl Em {
                 let mut b = String::new();
                 // a class body's `del x` is DELETE_NAME: it sees only the class namespace, so an unbound
                 // (or enclosing-scope) name raises NameError, never UnboundLocalError or a free-variable error
-                let in_class = self.f().is_class;
+                let (in_class, ns) = {
+                    let fr = self.f();
+                    (fr.is_class, fr.class_ns.clone())
+                };
                 for t in ts {
                     match t {
                         Ex::Name(n) => match self.lookup(&n) {
                             Some(Var::Local(r)) => {
-                                let (cls, msg) = if in_class {
-                                    ("NameError", format!("name '{n}' is not defined"))
+                                if in_class {
+                                    if let Some(ns) = ns.as_deref() {
+                                        let gone = self.q(&format!("Dict::del_cell(&{ns}, &s({}))", lit(n)));
+                                        let msg = format!("name '{n}' is not defined");
+                                        let raise = self.raise_code(&format!("exc(\"NameError\", {}.into())", lit(&msg)));
+                                        write!(b, "if {gone}.is_none() {{ {raise} }} {r} = V::Unbound; ").unwrap();
+                                    } else {
+                                        let msg = format!("name '{n}' is not defined");
+                                        let raise = self.raise_code(&format!("exc(\"NameError\", {}.into())", lit(&msg)));
+                                        write!(b, "if matches!({r}, V::Unbound) {{ {raise} }} {r} = V::Unbound; ").unwrap();
+                                    }
                                 } else {
-                                    ("UnboundLocalError", format!("cannot access local variable '{n}' where it is not associated with a value"))
-                                };
-                                let raise = self.raise_code(&format!("exc({}, {}.into())", lit(cls), lit(&msg)));
-                                write!(b, "if matches!({r}, V::Unbound) {{ {raise} }} {r} = V::Unbound; ").unwrap();
+                                    let msg = format!("cannot access local variable '{n}' where it is not associated with a value");
+                                    let raise = self.raise_code(&format!("exc(\"UnboundLocalError\", {}.into())", lit(&msg)));
+                                    write!(b, "if matches!({r}, V::Unbound) {{ {raise} }} {r} = V::Unbound; ").unwrap();
+                                }
                             }
                             Some(Var::Cell(r)) => {
                                 if in_class {
-                                    let msg = format!("name '{n}' is not defined");
-                                    let raise = self.raise_code(&format!("exc(\"NameError\", {}.into())", lit(&msg)));
-                                    write!(b, "{raise} ").unwrap();
+                                    if let Some(ns) = ns.as_deref() {
+                                        let gone = self.q(&format!("Dict::del_cell(&{ns}, &s({}))", lit(n)));
+                                        let msg = format!("name '{n}' is not defined");
+                                        let raise = self.raise_code(&format!("exc(\"NameError\", {}.into())", lit(&msg)));
+                                        write!(b, "if {gone}.is_none() {{ {raise} }} ").unwrap();
+                                    } else {
+                                        let msg = format!("name '{n}' is not defined");
+                                        let raise = self.raise_code(&format!("exc(\"NameError\", {}.into())", lit(&msg)));
+                                        write!(b, "{raise} ").unwrap();
+                                    }
                                 } else {
                                     // a cell this function owns is a local here; one from an outer function is a free variable
                                     let own = !self.f().cells.is_empty() && r.starts_with(&self.f().cells);
@@ -3485,7 +3567,7 @@ impl Em {
         // this function's frame
         let parent = self.fstack.last().unwrap();
         let (class_expr, self_name) = if self.class_ctx.is_some() { (self.class_ctx.clone(), p.pos.first().map(|x| x.0.clone())) } else { (parent.class_expr.clone(), parent.self_name.clone()) };
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, qname: qualname.to_string(), exc_vars: vec![], is_module: false, is_class: false, enum_cnv: None, is_async, is_agen: is_async && is_gen, is_gen, direct_defs: HashMap::new(), cells: format!("k{id}_"), order: vec![] };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, qname: qualname.to_string(), exc_vars: vec![], is_module: false, is_class: false, class_ns: None, enum_cnv: None, is_async, is_agen: is_async && is_gen, is_gen, direct_defs: HashMap::new(), cells: format!("k{id}_"), order: vec![] };
         for (n, r) in &captures {
             fr.vars.insert(n.clone(), Var::Cell(r.clone()));
         }
@@ -3717,16 +3799,22 @@ impl Em {
             base_vars.push(vn);
         }
         // the class body runs with its own namespace: class-level names are Rust locals here,
-        // invisible to the methods
+        // invisible to the methods. A body that calls locals() also gets the real namespace dict, so
+        // `locals()["x"] = v` changes what later name reads see (CPython's LOAD_NAME / LOAD_FROM_DICT_OR_DEREF).
         let sc = scope_of(&c.body, &[]);
+        let dict_mode = class_uses_locals(&c.body);
         let parent = self.fstack.last().unwrap();
         // CPython's __qualname__: `Outer.Inner` inside a class, `f.<locals>.C` inside a function.
         let qualname = self.qualname_of(&c.name);
-        let mut fr = Func { vars: HashMap::new(), frames: parent.frames.clone(), class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), qname: qualname.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![] };
+        let ns = format!("__ns{id}");
+        let mut fr = Func { vars: HashMap::new(), frames: parent.frames.clone(), class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), qname: qualname.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, class_ns: dict_mode.then(|| ns.clone()), enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![] };
         let ctx = format!("__auto_ctx{id}");
         let av = format!("__auto_last{id}");
         let mut decls = String::new();
         write!(decls, "{base_decls}").unwrap();
+        if dict_mode {
+            write!(decls, "let {ns}: Rc<RefCell<Dict>> = Rc::new(RefCell::new(Dict::new())); ").unwrap();
+        }
         write!(decls, "let {ctx}: i64 = enum_auto_ctx(&[{}]); let mut {av}: Vec<V> = vec![]; ", base_vars.iter().map(|v| format!("&{v}")).collect::<Vec<_>>().join(", ")).unwrap();
         for n in sc.locals.iter() {
             let r = format!("a{id}_{}", rust_ident(n));
@@ -3766,35 +3854,45 @@ impl Em {
         res?;
         // class attributes in the order the body first binds them, as CPython's class namespace keeps them
         // (Enum members and vars() follow it)
-        let mut order: Vec<&String> = vec![];
-        for s in &c.body {
-            let names: Vec<&String> = match &s.st {
-                St::Assign(ts, _) => ts.iter().filter_map(|t| if let Ex::Name(n) = t { Some(n) } else { None }).collect(),
-                St::AnnAssign(Ex::Name(n), _, _) => vec![n],
-                St::Def(d) => vec![&d.name],
-                St::Class(k) => vec![&k.name],
-                _ => vec![],
-            };
-            for n in names {
-                if sc.locals.contains(n) && !order.contains(&n) {
+        let mut attrs = String::new();
+        if dict_mode {
+            // The namespace dict holds every bound name, in CPython's insertion order, including names set
+            // only through locals().
+            let items = self.q(&format!("class_ns_items(&{ns})"));
+            write!(attrs, "for (__n{id}, __v{id}) in {items} {{ __at.push((__n{id}, __v{id})); }} ").unwrap();
+            let no_doc = format!("!matches!(Dict::contains_cell(&{ns}, &s(\"__doc__\"))?, true)");
+            let doc = docstring(&c.body).map_or("V::None".to_string(), |d| format!("s({})", lit(d)));
+            write!(attrs, "if {no_doc} {{ __at.push((\"__doc__\", {doc})); }} ").unwrap();
+        } else {
+            let mut order: Vec<&String> = vec![];
+            for s in &c.body {
+                let names: Vec<&String> = match &s.st {
+                    St::Assign(ts, _) => ts.iter().filter_map(|t| if let Ex::Name(n) = t { Some(n) } else { None }).collect(),
+                    St::AnnAssign(Ex::Name(n), _, _) => vec![n],
+                    St::Def(d) => vec![&d.name],
+                    St::Class(k) => vec![&k.name],
+                    _ => vec![],
+                };
+                for n in names {
+                    if sc.locals.contains(n) && !order.contains(&n) {
+                        order.push(n);
+                    }
+                }
+            }
+            for n in sc.locals.iter() {
+                if !order.contains(&n) {
                     order.push(n);
                 }
             }
-        }
-        for n in sc.locals.iter() {
-            if !order.contains(&n) {
-                order.push(n);
+            for n in order {
+                let r = format!("a{id}_{}", rust_ident(n));
+                write!(attrs, "if !matches!({r}, V::Unbound) {{ __at.push(({}, {r})); }} ", lit(n)).unwrap();
             }
-        }
-        let mut attrs = String::new();
-        for n in order {
-            let r = format!("a{id}_{}", rust_ident(n));
-            write!(attrs, "if !matches!({r}, V::Unbound) {{ __at.push(({}, {r})); }} ", lit(n)).unwrap();
-        }
-        // every class has its own __doc__ (None without a docstring), not its parent's
-        if !sc.locals.contains("__doc__") {
-            let doc = docstring(&c.body).map_or("V::None".to_string(), |d| format!("s({})", lit(d)));
-            write!(attrs, "__at.push((\"__doc__\", {doc})); ").unwrap();
+            // every class has its own __doc__ (None without a docstring), not its parent's
+            if !sc.locals.contains("__doc__") {
+                let doc = docstring(&c.body).map_or("V::None".to_string(), |d| format!("s({})", lit(d)));
+                write!(attrs, "__at.push((\"__doc__\", {doc})); ").unwrap();
+            }
         }
         let mk = self.q(&format!("make_class_f({}, {}, {}, vec![{}], __at, vec![{}])", lit(&c.name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", ")));
         let mut v = format!("{{ {decls}\n{body}\nlet mut __at: Vec<(Sym, V)> = vec![]; {attrs} let __c = {mk}; __c }}");
@@ -4031,7 +4129,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         for m in group.iter().copied() {
             em.module = m.name.clone();
             IN_COPY.with(|c| c.set(OWN_COPIES.lock().unwrap().contains(&m.name)));
-            let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, qname: String::new(), exc_vars: vec![], is_module: true, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![] };
+            let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, qname: String::new(), exc_vars: vec![], is_module: true, is_class: false, class_ns: None, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![] };
             for n in em.mod_names[&m.name].clone() {
                 let i = em.gslot(&m.name, &n);
                 fr.vars.insert(n.clone(), Var::Global(i));

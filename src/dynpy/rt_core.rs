@@ -1772,6 +1772,20 @@ impl Dict {
     }
 }
 
+// A class body's namespace dict, read as the (name, value) pairs the made class holds. Brevi's classes store
+// attributes under string names only, so a non-string key stops here instead of being silently dropped.
+pub fn class_ns_items(d: &Rc<RefCell<Dict>>) -> Result<Vec<(Sym, V)>, E> {
+    let items = d.borrow().items();
+    let mut out = vec![];
+    for (k, v) in items {
+        match k {
+            V::Str(sv) => out.push((sym(&sv.s), v)),
+            k => return type_err(format!("attribute name must be string, not '{}'", type_name(&k))),
+        }
+    }
+    Ok(out)
+}
+
 // May comparing this key with another key run user code? (Builtin values compare without it, and an
 // instance whose class defines neither __eq__ nor __hash__ compares by identity.)
 fn key_eq_safe(v: &V) -> bool {
