@@ -718,7 +718,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         }
     }
     if user_src().any(|t| t.contains("bytearray") || t.contains("memoryview")) {
-        const BA_OK: &[&str] = &["argparse", "asyncio", "asyncio_subprocess", "collections.abc", "contextlib", "io", "logging", "ntpath", "os", "pathlib", "posixpath", "random", "string", "_string", "textwrap"];
+        const BA_OK: &[&str] = &["argparse", "asyncio", "asyncio_subprocess", "collections", "collections.abc", "contextlib", "io", "logging", "ntpath", "os", "pathlib", "posixpath", "random", "string", "_string", "textwrap"];
         if let Some(m) = own_mods.iter().find(|m| !BA_OK.contains(&m.as_str())) {
             return Err((file.to_string(), 0, format!("bytearray or memoryview together with {m} is not supported in dynamic builds")));
         }
