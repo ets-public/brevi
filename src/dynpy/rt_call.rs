@@ -1639,6 +1639,8 @@ pub fn getattr(o: &V, name: &str) -> R {
                 None => Err(exc("AttributeError", format!("'{}' object has no attribute '{name}'", tn(o)))),
             }
         }
+        // every value's __class__ is its type (has_method would say yes and give a bound method)
+        _ if name == "__class__" => Ok(V::Class(type_of(o)?)),
         _ => {
             if has_method(o, name) {
                 return Ok(V::BMeth(Rc::new((o.clone(), sym(name)))));

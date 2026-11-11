@@ -291,6 +291,7 @@ fn os_nt(src: &str) -> String {
 fn sandbox_module(m: &str) -> Option<&'static str> {
     Some(match m {
         "random" => include_str!("py/random.py"),
+        "collections" => include_str!("py/collections.py"),
         "collections.abc" => include_str!("py/collections_abc.py"),
         "os" => os_py(),
         "posixpath" => include_str!("py/posixpath.py"),
@@ -417,6 +418,20 @@ fn int_seeds(src: &str) -> bool {
 
 // The Rust program for a Python file and the modules it imports from its own directory.
 // Err is (file, line, message).
+
+// CPython's ChainMap, UserDict, UserList and UserString are Python classes (py/collections.py). A program that
+// names one builds that full Python `collections` module, whose classes have __module__ 'collections'; Brevi's
+// native collections keeps the rest (defaultdict, deque, Counter, OrderedDict, namedtuple).
+fn add_collections(mods: &mut Vec<emit::Module>, own_mods: &mut HashSet<String>) -> Result<(), (String, usize, String)> {
+    if mods.iter().any(|m| m.name == "collections") {
+        return Ok(());
+    }
+    let Some(py) = sandbox_module("collections") else { return Ok(()) };
+    let body = parse::parse(py).map_err(|(l, msg)| ("<collections>".into(), l, msg))?;
+    own_mods.insert("collections".into());
+    mods.push(emit::Module { name: "collections".into(), body });
+    Ok(())
+}
 pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
     BRIDGED.lock().unwrap().clear();
     use std::sync::atomic::Ordering::Relaxed;
@@ -559,6 +574,12 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     texts.insert("__main__".into(), (file.to_string(), src.clone()));
     let mut k = 0;
     while k < mods.len() {
+        // A program that names one of the four user-object classes builds the full Python collections module
+        // (the native module has no such classes); checked per file, so a class named only in an imported
+        // module of the program still gets it.
+        if texts.get(&mods[k].name).is_some_and(|t| ["ChainMap", "UserDict", "UserList", "UserString"].iter().any(|n| t.1.contains(n))) {
+            add_collections(&mut mods, &mut own_mods)?;
+        }
         let mut imps = vec![];
         walk_imports(&mods[k].body, &mut imps);
         // a module of a package of the program's, named in `from pkg import sub`

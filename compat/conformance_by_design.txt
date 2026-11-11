@@ -3,6 +3,7 @@
 # tools/conformance.py leaves these out of the coverage denominator and prints their count and names beside every
 # score. `--check` fails on a test refused this way that is not listed here, and on a line here that no longer is,
 # so this list changes only by a reviewed edit. Format: `test-id  function`.
+test_collections.TestChainMap.test_basics  eval
 test_collections.TestCounter.test_copying  eval
 test_dict.DictTest.test_bad_key  exec
 test_grammar.GrammarTests.test_assert_warning_promotes_to_syntax_error  compile
