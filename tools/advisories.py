@@ -2,7 +2,8 @@
 """Looks up security advisories (OSV: RustSec, GitHub advisories, PyPA, npm) for everything Brevi depends on.
 
 Covers the crates in Cargo.lock and runtime/brevi_tk, crates Brevi programs pin with `use NAME "VERSION"`, the
-Python libraries Brevi mirrors (tools/upstream_pins.json) and the Python tools CI installs (tools/requirements-ci.txt).
+Python libraries Brevi mirrors (tools/upstream_pins.json) and the Python packages CI installs (tools/requirements-ci.txt,
+tests/requirements-native.txt).
 Prints a Markdown summary; with --issue, opens one `security` issue per advisory (deduplicated by title).
 No account or install needed: it uses the free https://osv.dev API.
 
@@ -33,10 +34,11 @@ def inventory():
     for g in groups.values():
         for p, v in {**g["watch"], **g.get("also", {})}.items():
             deps.append(("PyPI", p, v, "mirrored (tools/upstream_pins.json)"))
-    req = ROOT / "tools/requirements-ci.txt"
-    if req.exists():
-        for m in re.finditer(r"^([A-Za-z0-9_.-]+)==([^\s#]+)", req.read_text(), re.M):
-            deps.append(("PyPI", m.group(1), m.group(2), "tools/requirements-ci.txt"))
+    for rel in ("tools/requirements-ci.txt", "tests/requirements-native.txt"):
+        req = ROOT / rel
+        if req.exists():
+            for m in re.finditer(r"^([A-Za-z0-9_.-]+)==([^\s#]+)", req.read_text(), re.M):
+                deps.append(("PyPI", m.group(1), m.group(2), rel))
     return sorted(set(deps))
 
 

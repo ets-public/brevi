@@ -1,10 +1,18 @@
 # Windows platform checks: library bridge (typed and dynamic), output parity, and the
-# resource limits (mem in a Job Object; cpu, file and fds refused). Run from the repository root after `cargo build --release`.
+# resource limits (mem in a Job Object; cpu, file and fds refused). Run from the repository root after `cargo build --release`
+# (or set BREVI to the brevi.exe to check, as the release does for the binary it ships).
+# Every check runs: the duckdb, onnxruntime, requests and PyYAML checks need those packages
+# (python -m pip install -r tests\requirements-native.txt) and fail without them, never skip.
 $ErrorActionPreference = "Continue"
 
 $root = (Get-Location).Path
-$brevi = Join-Path $root "target\release\brevi.exe"
-if (-not (Test-Path $brevi)) { throw "brevi.exe not built; run cargo build --release first" }
+$brevi = if ($env:BREVI) { $env:BREVI } else { Join-Path $root "target\release\brevi.exe" }
+if (-not (Test-Path $brevi)) { throw "$brevi not found; run cargo build --release first (or set BREVI)" }
+$brevi = (Resolve-Path $brevi).Path
+$needs = "python -m pip install -r tests\requirements-native.txt"
+# The bridge checks compare with CPython's PyYAML: without it both sides would fail alike.
+& python -c "import yaml" 2>$null
+if ($LASTEXITCODE -ne 0) { throw "PyYAML is not installed: $needs" }
 
 function Clean-Output($lines) {
     return (($lines | ForEach-Object { "$_" } | Where-Object { $_ -notmatch '^\{"path":' }) -join "`n").Trim()
@@ -77,14 +85,17 @@ foreach ($lim in @("cpu=1", "file=1", "fds=16")) {
     Write-Host "PASS limit $lim refused"
 }
 $duck = & python -c "import importlib.util,glob,os,sys; s=importlib.util.find_spec('duckdb'); d=os.path.dirname(list(s.submodule_search_locations)[0]) if s else ''; sys.exit(0 if d and glob.glob(os.path.join(d,'*duckdb*')) else 1)" 2>$null
-if ($LASTEXITCODE -eq 0) { Check-Verify "duckdb_native.py"; Check-Run "duckdb_native.py" }
-$ort = & python -c "import importlib.util,glob,os,sys; s=importlib.util.find_spec('onnxruntime'); d=os.path.dirname(list(s.submodule_search_locations)[0]) if s else ''; sys.exit(0 if d and glob.glob(os.path.join(d,'capi','onnxruntime*.dll')) else 1)" 2>$null
-if ($LASTEXITCODE -eq 0) { Check-Verify "onnx_native.py"; Check-Run "onnx_native.py" }
+if ($LASTEXITCODE -ne 0) { throw "duckdb (with its engine library) is not installed: $needs" }
+Check-Verify "duckdb_native.py"; Check-Run "duckdb_native.py"
+$ort = & python -c "import importlib.util,glob,os,sys; s=importlib.util.find_spec('onnxruntime'); d=list(s.submodule_search_locations)[0] if s else ''; sys.exit(0 if d and glob.glob(os.path.join(d,'capi','onnxruntime*.dll')) else 1)" 2>$null
+if ($LASTEXITCODE -ne 0) { throw "onnxruntime (with its capi DLL) is not installed: $needs" }
+Check-Verify "onnx_native.py"; Check-Run "onnx_native.py"
 
 # Brevi's own requests over native Windows sockets and TLS: net_server.py serves localhost over HTTP and
 # HTTPS; net_requests.py must print what CPython's requests prints, built on the dynamic native path.
 & python -c "import requests" 2>$null
-if ($LASTEXITCODE -eq 0) {
+if ($LASTEXITCODE -ne 0) { throw "requests is not installed: $needs" }
+& {
     $srv = Start-Process -FilePath "python" -ArgumentList (Join-Path $root "tests\windows\net_server.py"), "18180", (Join-Path $root "tests\http") -PassThru -WindowStyle Hidden
     try {
         $ready = $false
