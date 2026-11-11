@@ -872,6 +872,311 @@ fn update_wrapper(wrapper: V, wrapped: V, assigned: V, updated: V) -> R {
     setattr(&wrapper, sym("__wrapped__"), wrapped)?;
     Ok(wrapper)
 }
+// ---------- functools.singledispatch / singledispatchmethod ----------
+// CPython 3.13's pure-Python implementation, over the dynamic runtime's values. The registry is a dict of
+// type keys (exposed read-only as its mappingproxy view); the dispatch cache keys by the concrete class, as
+// CPython's WeakKeyDictionary does. A def decorated with a bare `@register` carries its first annotation as a
+// private descriptor made by the compiler (emit.rs sd_ann_desc): only that descriptor is evaluated, never the
+// annotation itself.
+struct SDState {
+    registry: Rc<RefCell<Dict>>,
+    // keyed by the class's address; each entry holds its class, so the address stays that class's while cached
+    cache: RefCell<std::collections::HashMap<usize, (V, Option<V>)>>,
+}
+fn sd_registry_view(st: &Rc<SDState>) -> V {
+    V::View(Rc::new((V::Dict(st.registry.clone()), 3)))
+}
+fn sd_invalid_first(v: &V) -> E {
+    let r = repr(v).unwrap_or_else(|_| "<object>".into());
+    exc("TypeError", format!("Invalid first argument to `register()`. {r} is not a class or union type."))
+}
+fn sd_invalid_ann(arg: &str, rep: &str) -> E {
+    exc("TypeError", format!("Invalid annotation for '{arg}'. {rep} is not a class."))
+}
+fn sd_invalid_ann_union(arg: &str, rep: &str) -> E {
+    exc("TypeError", format!("Invalid annotation for '{arg}'. {rep} not all arguments are classes."))
+}
+fn sd_missing_ann(f: &V) -> E {
+    let r = repr(f).unwrap_or_else(|_| "<object>".into());
+    exc("TypeError", format!("Invalid first argument to `register()`: {r}. Use either `@register(some_class)` or plain `@register` on an annotated function."))
+}
+fn sd_desc_at(desc: &V, i: usize) -> Option<V> {
+    match desc {
+        V::Tuple(t) => t.get(i).cloned(),
+        _ => None,
+    }
+}
+// The classes an annotation descriptor names. `union_repr` is the whole union's repr, for its error message.
+fn sd_ann_classes(arg: &str, desc: &V, union_repr: Option<String>) -> Result<Vec<V>, E> {
+    let tag = match desc {
+        V::Tuple(t) if !t.is_empty() => to_str(&t[0]).unwrap_or_default(),
+        _ => return Err(unsupported("a singledispatch annotation")),
+    };
+    match tag.as_str() {
+        "type" => {
+            let thunk = sd_desc_at(desc, 1).ok_or_else(|| unsupported("a singledispatch annotation"))?;
+            let v = call(&thunk, Args::p(vec![]))?;
+            if matches!(v, V::Class(_)) {
+                Ok(vec![v])
+            } else if let Some(full) = union_repr {
+                Err(sd_invalid_ann_union(arg, &full))
+            } else {
+                Err(sd_invalid_ann(arg, &repr(&v).unwrap_or_else(|_| "<object>".into())))
+            }
+        }
+        "none" => Ok(vec![V::Class(type_of(&V::None))]),
+        "union" => {
+            let arms = match sd_desc_at(desc, 1) {
+                Some(V::Tuple(t)) => t.to_vec(),
+                _ => return Err(unsupported("a singledispatch union annotation")),
+            };
+            let full = sd_desc_at(desc, 2).map(|v| to_str(&v).unwrap_or_default()).unwrap_or_default();
+            let mut out = vec![];
+            for arm in arms {
+                out.extend(sd_ann_classes(arg, &arm, Some(full.clone()))?);
+            }
+            Ok(out)
+        }
+        "invalid" => {
+            let rep = sd_desc_at(desc, 1).map(|v| to_str(&v).unwrap_or_default()).unwrap_or_default();
+            if let Some(full) = union_repr {
+                Err(sd_invalid_ann_union(arg, &full))
+            } else {
+                Err(sd_invalid_ann(arg, &rep))
+            }
+        }
+        _ => Err(unsupported(&format!("singledispatch on this annotation ({})", tag))),
+    }
+}
+fn sd_register_ann(st: &Rc<SDState>, f: V) -> R {
+    let ann = match &f {
+        V::Func(_) => match getattr(&f, "__brevi_sd_ann__") {
+            Ok(v) => v,
+            Err(E(e)) if is_exc(&e, "AttributeError") => return Err(sd_missing_ann(&f)),
+            Err(e) => return Err(e),
+        },
+        _ => return Err(sd_missing_ann(&f)),
+    };
+    let (arg, desc) = match &ann {
+        V::Tuple(t) if t.len() == 2 => (to_str(&t[0]).unwrap_or_default(), t[1].clone()),
+        _ => return Err(unsupported("a singledispatch annotation")),
+    };
+    let classes = sd_ann_classes(&arg, &desc, None)?;
+    {
+        let mut reg = st.registry.borrow_mut();
+        for c in classes {
+            reg.set(c, f.clone())?;
+        }
+    }
+    st.cache.borrow_mut().clear();
+    Ok(f)
+}
+fn sd_register_type(st: &Rc<SDState>, cls: &V, func: V) -> R {
+    match cls {
+        V::Class(k) if k.module == "typing" => {
+            // collections.abc as Brevi's typing forms is not a set of real ABCs here; dispatch over its MRO
+            // would not do what CPython's virtual subclass registration does.
+            return Err(unsupported(&format!("singledispatch on this ABC ({})", k.name)));
+        }
+        V::Class(_) => {}
+        V::Ext(x) if x.subclasscheck(&V::None).is_some() => {
+            return Err(unsupported(&format!("singledispatch on this ABC ({})", x.tname())));
+        }
+        _ => return Err(sd_invalid_first(cls)),
+    }
+    st.registry.borrow_mut().set(cls.clone(), func.clone())?;
+    st.cache.borrow_mut().clear();
+    Ok(func)
+}
+fn sd_register(st: Rc<SDState>, mut a: Args) -> R {
+    if a.p.is_empty() {
+        return type_err("register() missing 1 required positional argument: 'cls'".into());
+    }
+    let first = a.p.remove(0);
+    if let Some(func) = a.kw("func").or_else(|| a.p.first().cloned()) {
+        return sd_register_type(&st, &first, func);
+    }
+    if matches!(first, V::Class(_)) {
+        let st2 = st.clone();
+        let c = first.clone();
+        return Ok(builtin("register", move |b: Args| sd_register_type(&st2, &c, a1(&b, "register")?)));
+    }
+    sd_register_ann(&st, first)
+}
+fn sd_find_impl(cls: &V, reg: &Rc<RefCell<Dict>>) -> Result<Option<V>, E> {
+    let V::Class(c) = cls else { return Ok(None) };
+    let mro = c.mro.borrow().clone();
+    let items = reg.borrow().items();
+    for t in mro {
+        for (k, v) in &items {
+            if is(k, &V::Class(t.clone())) {
+                return Ok(Some(v.clone()));
+            }
+        }
+    }
+    Ok(None)
+}
+fn sd_key(cls: &V) -> usize {
+    match cls {
+        V::Class(c) => Rc::as_ptr(c) as *const u8 as usize,
+        _ => 0,
+    }
+}
+fn sd_dispatch_impl(st: &Rc<SDState>, cls: &V) -> R {
+    {
+        if let Some((_, v)) = st.cache.borrow().get(&sd_key(cls)) {
+            return Ok(v.clone().unwrap_or(V::None));
+        }
+    }
+    let found = match Dict::get_cell(&st.registry, cls)? {
+        Some(v) => Some(v),
+        None => sd_find_impl(cls, &st.registry)?,
+    };
+    st.cache.borrow_mut().insert(sd_key(cls), (cls.clone(), found.clone()));
+    Ok(found.unwrap_or(V::None))
+}
+fn sd_make_wrapper(st: &Rc<SDState>, f: V) -> R {
+    let funcname = match getattr(&f, "__name__") {
+        Ok(V::Str(x)) => x.s.clone(),
+        _ => "singledispatch function".into(),
+    };
+    let stw = st.clone();
+    let w = func("singledispatch", move |a: Args| {
+        if a.p.is_empty() {
+            return type_err(format!("{funcname} requires at least 1 positional argument"));
+        }
+        let cls = V::Class(type_of(&a.p[0]));
+        let implv = sd_dispatch_impl(&stw, &cls)?;
+        call(&implv, a)
+    });
+    st.registry.borrow_mut().set(V::Class(bclass("object")), f.clone())?;
+    let st1 = st.clone();
+    let st2 = st.clone();
+    let st3 = st.clone();
+    if let V::Func(wf) = &w {
+        let reg = builtin("register", move |a: Args| sd_register(st1.clone(), a));
+        let disp = builtin("dispatch", move |a: Args| {
+            let c = a1(&a, "dispatch")?;
+            match &c {
+                V::Class(_) => sd_dispatch_impl(&st2, &c),
+                _ => type_err(format!("dispatch() argument must be a class, not '{}'", tn(&c))),
+            }
+        });
+        let clear = builtin("_clear_cache", move |_a: Args| {
+            st3.cache.borrow_mut().clear();
+            Ok(V::None)
+        });
+        wf.attrs.borrow_mut().push(("register", reg));
+        wf.attrs.borrow_mut().push(("dispatch", disp));
+        wf.attrs.borrow_mut().push(("_clear_cache", clear));
+        wf.attrs.borrow_mut().push(("registry", sd_registry_view(st)));
+    }
+    update_wrapper(w, f, wraps_assigned(), wraps_updated())
+}
+fn singledispatch_impl(f: V) -> R {
+    let st = Rc::new(SDState { registry: Rc::new(RefCell::new(Dict::new())), cache: RefCell::new(std::collections::HashMap::new()) });
+    sd_make_wrapper(&st, f)
+}
+fn sd_is_abstract(v: &V) -> bool {
+    match getattr(v, "__isabstractmethod__") {
+        Ok(x) => truth(&x).unwrap_or(false),
+        Err(_) => false,
+    }
+}
+fn sd_bind_impl(implv: &V, obj: &V, cls: &V) -> R {
+    match implv {
+        V::Func(f) if f.kind.get() == 1 => Ok(implv.clone()),
+        V::Func(f) if f.kind.get() == 2 => Ok(V::Bound(Rc::new((cls.clone(), implv.clone())))),
+        V::Func(_) => Ok(if matches!(obj, V::None) { implv.clone() } else { V::Bound(Rc::new((obj.clone(), implv.clone()))) }),
+        other => match getattr(other, "__get__") {
+            Ok(g) => call(&g, Args::p(vec![obj.clone(), cls.clone()])),
+            Err(_) => Ok(other.clone()),
+        },
+    }
+}
+fn sd_method_get(md: &SDMethod, obj: V, cls: V) -> R {
+    let funcname = match getattr(&md.func, "__name__") {
+        Ok(V::Str(x)) => x.s.clone(),
+        _ => "singledispatchmethod method".into(),
+    };
+    let st = md.st.clone();
+    let orig = md.func.clone();
+    let objc = obj.clone();
+    let clsc = cls.clone();
+    let m = func("_method", move |a: Args| {
+        if a.p.is_empty() {
+            return type_err(format!("{funcname} requires at least 1 positional argument"));
+        }
+        let first_cls = V::Class(type_of(&a.p[0]));
+        let implv = sd_dispatch_impl(&st, &first_cls)?;
+        let bound = sd_bind_impl(&implv, &objc, &clsc)?;
+        call(&bound, a)
+    });
+    let regst = md.st.clone();
+    if let V::Func(mf) = &m {
+        mf.attrs.borrow_mut().push(("__isabstractmethod__", V::Bool(sd_is_abstract(&orig))));
+        mf.attrs.borrow_mut().push(("register", builtin("register", move |a: Args| sd_register(regst.clone(), a))));
+    }
+    update_wrapper(m, orig, wraps_assigned(), wraps_updated())
+}
+struct SDMethod {
+    st: Rc<SDState>,
+    dispatcher: V,
+    func: V,
+}
+impl Ext for SDMethod {
+    fn tname(&self) -> &'static str {
+        "functools.singledispatchmethod"
+    }
+    fn repr(&self) -> String {
+        format!("<functools.singledispatchmethod object at 0x{:x}>", self as *const SDMethod as usize)
+    }
+    fn any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn attr(&self, _me: &V, n: &str) -> Option<R> {
+        Some(match n {
+            "register" => {
+                let st = self.st.clone();
+                Ok(builtin("register", move |a: Args| sd_register(st.clone(), a)))
+            }
+            "dispatcher" => Ok(self.dispatcher.clone()),
+            "__isabstractmethod__" => Ok(V::Bool(sd_is_abstract(&self.func))),
+            "__name__" => getattr(&self.func, "__name__").or_else(|_| Ok(s("singledispatchmethod"))),
+            "__doc__" => getattr(&self.func, "__doc__").or_else(|_| Ok(V::None)),
+            _ => return None,
+        })
+    }
+    fn method(&self, _me: &V, n: &str, a: &mut Args) -> Option<R> {
+        match n {
+            "__get__" => {
+                let obj = a.p.first().cloned().unwrap_or(V::None);
+                let cls = a.p.get(1).cloned().unwrap_or_else(|| V::Class(type_of(&obj)));
+                Some(sd_method_get(self, obj, cls))
+            }
+            "register" => {
+                let st = self.st.clone();
+                let a = Args { p: a.p.clone(), k: a.k.clone() };
+                Some(sd_register(st, a))
+            }
+            _ => None,
+        }
+    }
+    fn descriptor(&self, _me: &V, obj: &V, cls: &V) -> Option<R> {
+        Some(sd_method_get(self, obj.clone(), cls.clone()))
+    }
+}
+fn singledispatchmethod_impl(f: V) -> R {
+    let ok = matches!(f, V::Func(_) | V::Class(_)) || getattr(&f, "__call__").is_ok() || getattr(&f, "__get__").is_ok();
+    if !ok {
+        let r = repr(&f).unwrap_or_else(|_| "<object>".into());
+        return type_err(format!("{r} is not callable or a descriptor"));
+    }
+    let st = Rc::new(SDState { registry: Rc::new(RefCell::new(Dict::new())), cache: RefCell::new(std::collections::HashMap::new()) });
+    let dispatcher = sd_make_wrapper(&st, f.clone())?;
+    Ok(V::Ext(ExtRc::new(SDMethod { st, dispatcher, func: f })))
+}
+
 pub fn functools_fn(name: &str, mut a: Args) -> R {
     Ok(match name {
         "lru_cache" | "cache" => {
@@ -963,6 +1268,8 @@ pub fn functools_fn(name: &str, mut a: Args) -> R {
             }
             c
         }
+        "singledispatch" => singledispatch_impl(a1(&a, name)?)?,
+        "singledispatchmethod" => singledispatchmethod_impl(a1(&a, name)?)?,
         _ => return Err(unsupported(&format!("functools.{name}"))),
     })
 }

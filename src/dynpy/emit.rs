@@ -204,7 +204,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "atexit" => &["register", "unregister", "_run_exitfuncs", "_clear", "_ncallbacks"],
         "heapq" => &["heapify", "heappop", "heappush", "heappushpop", "heapreplace", "merge", "nlargest", "nsmallest"],
         "bisect" => &["bisect", "bisect_left", "bisect_right", "insort", "insort_left", "insort_right"],
-        "functools" => &["cache", "cmp_to_key", "lru_cache", "partial", "reduce", "total_ordering", "update_wrapper", "wraps"],
+        "functools" => &["cache", "cmp_to_key", "lru_cache", "partial", "reduce", "singledispatch", "singledispatchmethod", "total_ordering", "update_wrapper", "wraps"],
         "itertools" => &["accumulate", "chain", "combinations", "combinations_with_replacement", "compress", "count", "cycle", "dropwhile", "filterfalse", "groupby", "islice", "pairwise", "permutations", "product", "repeat", "starmap", "takewhile", "zip_longest"],
         "copy" => &["copy", "deepcopy"],
         "operator" => &["add", "and_", "attrgetter", "contains", "eq", "floordiv", "ge", "getitem", "gt", "index", "itemgetter", "le", "lshift", "lt", "methodcaller", "mod", "mul", "ne", "neg", "not_", "or_", "pow", "rshift", "sub", "truediv", "truth", "xor"],
@@ -1580,10 +1580,111 @@ pub struct Em {
     set_lits: HashMap<(String, BTreeSet<ConstKey>), Vec<Ex>>,
 }
 
+// The annotation a def passes to functools.singledispatch's register when the def is decorated with a bare
+// `@register` (no explicit class). Brevi never evaluates annotations, so the def carries a private descriptor
+// instead: ("type", lambda) for a class, ("none",) for None, ("union", (arms...), repr) for a union, and
+// ("invalid", repr) / ("unsupported", repr) for the rest. register evaluates only the descriptor it is given.
+fn sd_is_typing(e: &Ex) -> bool {
+    matches!(e, Ex::Attr(o, _) if matches!(o.as_ref(), Ex::Name(m) if m == "typing" || m == "typing_extensions"))
+}
+fn sd_typing_name(e: &Ex) -> Option<&str> {
+    match e {
+        Ex::Attr(_, n) if sd_is_typing(e) => Some(n),
+        _ => None,
+    }
+}
+fn sd_args(i: &Ex) -> Vec<&Ex> {
+    match i {
+        Ex::Tuple(v) => v.iter().collect(),
+        x => vec![x],
+    }
+}
+fn sd_has_typing(e: &Ex) -> bool {
+    match e {
+        Ex::Attr(..) if sd_is_typing(e) => true,
+        Ex::Index(o, i) => sd_is_typing(o) || sd_has_typing(o) || sd_has_typing(i),
+        Ex::Bin(_, a, b) => sd_has_typing(a) || sd_has_typing(b),
+        _ => false,
+    }
+}
+fn sd_repr(e: &Ex) -> String {
+    match e {
+        Ex::Name(n) => n.clone(),
+        Ex::Attr(o, n) => format!("{}.{}", sd_repr(o), n),
+        Ex::Index(o, i) => format!("{}[{}]", sd_repr(o), sd_repr_args(i)),
+        // types.UnionType with a typing form inside prints as CPython's typing.Union[...] repr.
+        Ex::Bin("|", a, b) if sd_has_typing(a) || sd_has_typing(b) => format!("typing.Union[{}, {}]", sd_repr(a), sd_repr(b)),
+        Ex::Bin(op, a, b) => format!("{} {op} {}", sd_repr(a), sd_repr(b)),
+        Ex::NoneV => "None".into(),
+        Ex::Str(s) => format!("{s:?}"),
+        Ex::Int(t) => t.clone(),
+        Ex::Float(f) => f.to_string(),
+        Ex::True => "True".into(),
+        Ex::False => "False".into(),
+        Ex::Ellipsis => "...".into(),
+        Ex::Tuple(v) => v.iter().map(sd_repr).collect::<Vec<_>>().join(", "),
+        _ => format!("{e:?}"),
+    }
+}
+fn sd_repr_args(i: &Ex) -> String {
+    match i {
+        Ex::Tuple(v) => v.iter().map(sd_repr).collect::<Vec<_>>().join(", "),
+        x => sd_repr(x),
+    }
+}
+// A name or attribute that Python would evaluate to a class. Typing forms and collections.abc ABCs are not
+// classes Brevi's dynamic runtime can dispatch on, so they stay out (as unsupported annotations).
+fn sd_class_like(e: &Ex) -> bool {
+    match e {
+        Ex::Name(n) => !super::typing::TYPING_NAMES.contains(&n.as_str()),
+        Ex::Attr(o, _) => !matches!(o.as_ref(), Ex::Name(m) if m == "typing" || m == "typing_extensions" || m == "collections" || m == "abc"),
+        _ => false,
+    }
+}
+fn is_dec_name(e: &Ex, n: &str) -> bool {
+    match e {
+        Ex::Attr(_, x) if x == n => true,
+        Ex::Name(x) if x == n => true,
+        _ => false,
+    }
+}
+
 impl Em {
     fn id(&mut self) -> usize {
         self.n += 1;
         self.n
+    }
+    // The descriptor value (as a Rust expression) for a def's first annotation.
+    fn sd_ann_desc(&mut self, e: &Ex, line: usize) -> ER<String> {
+        Ok(match e {
+            Ex::NoneV => "tup(vec![s(\"none\")])".into(),
+            Ex::Bin("|", a, b) => {
+                let la = self.sd_ann_desc(a, line)?;
+                let lb = self.sd_ann_desc(b, line)?;
+                format!("tup(vec![s(\"union\"), tup(vec![{la}, {lb}]), s({})])", lit(&sd_repr(e)))
+            }
+            Ex::Index(head, i) => {
+                let hn = sd_typing_name(head);
+                if matches!(hn, Some("Union" | "Optional")) {
+                    let mut arms: Vec<String> = vec![];
+                    for x in sd_args(i) {
+                        arms.push(self.sd_ann_desc(x, line)?);
+                    }
+                    if hn == Some("Optional") {
+                        arms.push("tup(vec![s(\"none\")])".into());
+                    }
+                    format!("tup(vec![s(\"union\"), tup(vec![{}]), s({})])", arms.join(", "), lit(&sd_repr(e)))
+                } else {
+                    format!("tup(vec![s(\"invalid\"), s({})])", lit(&sd_repr(e)))
+                }
+            }
+            _ if sd_class_like(e) => {
+                let lam = Ex::Lambda(Box::new(Params::default()), Box::new(e.clone()));
+                let lv = self.ex(&lam, line)?;
+                format!("tup(vec![s(\"type\"), {lv}])")
+            }
+            _ => format!("tup(vec![s(\"unsupported\"), s({})])", lit(&sd_repr(e))),
+        })
     }
     fn gslot(&mut self, module: &str, name: &str) -> usize {
         if let Some(&i) = self.globals.get(&(module.to_string(), name.to_string())) {
@@ -2155,6 +2256,11 @@ impl Em {
         format!("gtab_{}", rust_ident(&self.module))
     }
     fn call(&mut self, f: &Ex, args: &[Arg], line: usize) -> ER<String> {
+        // CPython's inspect cannot read a dynamic build's function objects (their code and annotations are
+        // not built), so Signature.from_callable on one would raise where CPython prints a signature.
+        if matches!(f, Ex::Attr(o, m) if m == "from_callable" && matches!(o.as_ref(), Ex::Name(n) if n == "Signature")) {
+            return Err(err(line, "Signature.from_callable is not supported in dynamic builds"));
+        }
         // eval("literal text"): parsed when the program is built and run in place. Refused when a name in it
         // would resolve differently (CPython's eval sees this frame's locals and the globals, not enclosing cells).
         if let [Arg::Pos(Ex::Str(text))] = args {
@@ -3286,6 +3392,9 @@ impl Em {
 
     // ---- functions and classes ----
     fn def(&mut self, d: &FuncDef) -> ER<String> {
+        if d.decorators.iter().any(|x| is_dec_name(x, "singledispatchmethod")) && d.decorators.iter().any(|x| is_dec_name(x, "abstractmethod")) {
+            return Err(err(d.line, "singledispatchmethod with abstractmethod is not supported in dynamic builds"));
+        }
         if has_yield(&d.body) && !d.is_async {
             if !GEN_OK {
                 return Err(err(d.line, "generators (yield) are not supported in dynamic builds on this platform"));
@@ -3310,6 +3419,13 @@ impl Em {
         if PYD_ON.load(std::sync::atomic::Ordering::Relaxed) {
             let n = if d.params.star.is_some() { 99 } else { d.params.pos.len() };
             v = format!("with_np({v}, {n})");
+        }
+        // `@some_dispatcher.register` (no explicit class) registers on the def's first annotation.
+        if d.decorators.iter().any(|x| matches!(x, Ex::Attr(_, n) if n == "register")) {
+            if let Some((pn, ann)) = d.params.ann.first() {
+                let desc = self.sd_ann_desc(ann, d.line)?;
+                v = format!("with_sd_ann({v}, tup(vec![s({}), {desc}]))", lit(pn));
+            }
         }
         for dec in d.decorators.iter().rev() {
             let dd = self.ex(dec, d.line)?;
