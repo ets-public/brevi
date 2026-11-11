@@ -354,9 +354,20 @@ pub fn make_class_f(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, at
         bs.push(bclass("object"));
     }
     let bt = if bs.iter().any(|b| b.base_bt() == BT::Exc) { BT::Exc } else { BT::Other };
+    // A collections.abc class, or one built on it, follows ABCMeta's rules.
+    let abc = module == "collections.abc" || bs.iter().any(|b| b.abc.get());
     let c = Class::with_qualname(name, qualname, module, bs, bt);
+    c.abc.set(abc);
     for (n, v) in attrs {
         c.set(n, v);
+    }
+    // type.__new__: a class that defines __eq__ and no __hash__ gets __hash__ = None (unhashable, and so
+    // not Hashable), which its subclasses inherit
+    if c.own("__eq__").is_some() && c.own("__hash__").is_none() {
+        c.set("__hash__", V::None);
+    }
+    if abc {
+        abc_setup(&c)?;
     }
     // a __slots__ name that the class body also binds is refused, as CPython refuses it
     if let Some(sv) = c.own("__slots__") {
@@ -404,6 +415,52 @@ pub fn make_class_f(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, at
         call(&f, Args::p(vec![V::Class(c.clone())]))?;
     }
     Ok(V::Class(c))
+}
+fn is_abstract_method(v: &V) -> bool {
+    match v {
+        V::Func(f) => f.attrs.borrow().iter().any(|(k, _)| *k == "__isabstractmethod__"),
+        _ => false,
+    }
+}
+// ABCMeta.__new__'s class setup: __abstractmethods__, __flags__ and the flag conflict check.
+fn abc_setup(c: &Rc<Class>) -> R {
+    let mut names: Vec<Sym> = vec![];
+    for (n, v) in c.attrs.borrow().iter() {
+        if is_abstract_method(v) && !names.contains(n) {
+            names.push(*n);
+        }
+    }
+    for b in c.bases.iter() {
+        if let Some(fs) = b.own("__abstractmethods__") {
+            if let V::FSet(p) = &fs {
+                for k in p.keys() {
+                    let n = to_str(&k).unwrap_or_default();
+                    if !names.iter().any(|x| same_name(x, &n)) && c.lookup(&n).as_ref().is_some_and(is_abstract_method) {
+                        names.push(sym(&n));
+                    }
+                }
+            }
+        }
+    }
+    names.sort();
+    let abs = PSet::from_iter(names.iter().map(|n| s(n)).collect())?;
+    c.set("__abstractmethods__", V::FSet(Rc::new(abs)));
+    let mut flags: i64 = 0;
+    for b in c.bases.iter() {
+        if b.abc.get() {
+            if let Some(V::Int(f)) = b.own("__flags__") {
+                flags |= f;
+            }
+        }
+    }
+    if let Some(V::Int(f)) = c.own("__abc_tpflags__") {
+        flags |= f;
+    }
+    if flags & 32 != 0 && flags & 64 != 0 {
+        return Err(exc("TypeError", "__abc_tpflags__ cannot be both Py_TPFLAGS_SEQUENCE and Py_TPFLAGS_MAPPING".into()));
+    }
+    c.set("__flags__", V::Int(flags));
+    Ok(V::None)
 }
 // A def's number of positional parameters, for Brevi's pydantic (which calls a validator with info only when
 // it takes it, as pydantic reads the signature).
@@ -498,6 +555,22 @@ fn plain_new(c: &Rc<Class>) -> bool {
     b
 }
 pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
+    if c.abc.get() {
+        if let Some(V::FSet(p)) = c.lookup("__abstractmethods__") {
+            let mut names: Vec<String> = p.keys().iter().map(|k| to_str(k).unwrap_or_default()).collect();
+            names.sort();
+            if !names.is_empty() {
+                let many = names.len() > 1;
+                return type_err(format!(
+                    "Can't instantiate abstract class {} without an implementation for abstract {}{} {}",
+                    c.name,
+                    if many { "methods" } else { "method" },
+                    if names.len() == 1 { "" } else { "" },
+                    names.iter().map(|n| format!("'{n}'")).collect::<Vec<_>>().join(", ")
+                ));
+            }
+        }
+    }
     // the classes of Brevi's own iterators: only itertools._tee can be called here; for the others a plain
     // object would be silently wrong
     if c.module != "__main__" && is_iter_class(c) {
@@ -1192,6 +1265,31 @@ pub fn getattr(o: &V, name: &str) -> R {
                         Ok(v)
                     }
                 };
+            }
+            // object's rich comparison slots, which every instance has (an instance wrapping a builtin value
+            // gets that type's below): __eq__ is identity or NotImplemented, __ne__ inverts the instance's own
+            // __eq__ (NotImplemented passes through), and the four orderings answer NotImplemented.
+            if matches!(name, "__lt__" | "__le__" | "__gt__" | "__ge__" | "__eq__" | "__ne__") && ob.inner.borrow().is_none() {
+                let me = o.clone();
+                let n = sym(name);
+                return Ok(builtin(n, move |a: Args| {
+                    a.want(n, 1, 1)?;
+                    let other = &a.p[0];
+                    match n {
+                        "__eq__" => Ok(if is(&me, other) { V::Bool(true) } else { V::NotImpl }),
+                        "__ne__" => {
+                            let r = match &me {
+                                V::Obj(x) => match x.cls.lookup("__eq__") {
+                                    Some(f) => call(&f, Args::p(vec![me.clone(), other.clone()]))?,
+                                    None => if is(&me, other) { V::Bool(true) } else { V::NotImpl },
+                                },
+                                _ => V::NotImpl,
+                            };
+                            Ok(if matches!(r, V::NotImpl) { r } else { V::Bool(!truth(&r)?) })
+                        }
+                        _ => Ok(V::NotImpl),
+                    }
+                }));
             }
             match name {
                 "__class__" => return Ok(V::Class(ob.cls.clone())),

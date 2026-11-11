@@ -20,6 +20,8 @@ use std::ffi::{c_char, c_int, CString};
 use ax_pyffi::P;
 
 static PYD_API: std::sync::OnceLock<Result<ax_pyffi::Api, String>> = std::sync::OnceLock::new();
+// the type of _brevi_dyn's _BrIt, once one has been made
+static PYD_BRIT: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_MAIN: std::sync::OnceLock<std::thread::ThreadId> = std::sync::OnceLock::new();
 const PYD_CAP: &std::ffi::CStr = c"brevi.dyn.callable";
 
@@ -27,8 +29,8 @@ const PYD_HELPERS: &str = r#"
 import builtins as _b, operator as _o, types as _t, sys as _s
 _d = _t.ModuleType('_brevi_dyn')
 class _BrIt:
-    __slots__ = ('f', 'r')
-    def __init__(s, f, r): s.f = f; s.r = r
+    __slots__ = ('f', 'r', 'b')
+    def __init__(s, f, r, b): s.f = f; s.r = r; s.b = b
     def __iter__(s): return s
     def __next__(s): return s.f()
     def __reduce__(s): return s.r()
@@ -671,6 +673,20 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
         (a.DecRef)(p);
         return made;
     }
+    if t == PYD_BRIT.load(std::sync::atomic::Ordering::Relaxed) {
+        // an iterator of the program that went into Python (a library returned it, or types.coroutine)
+        let b = (a.GetAttr)(p, c"b".as_ptr());
+        if !b.is_null() {
+            let v = pyd_callable_v(b);
+            (a.DecRef)(b);
+            if let Some(v) = v {
+                (a.DecRef)(p);
+                return Ok(v);
+            }
+        } else {
+            (a.ErrClear)();
+        }
+    }
     if t == a.TCFunction {
         if let Some(v) = pyd_callable_v(p) {
             (a.DecRef)(p);
@@ -1103,10 +1119,6 @@ fn iter_reduce(v: &V) -> R {
             It::List(l, i) => ItPlan::At(V::List(l.clone()), *i),
             // -1 once it has given every item but not yet said so, as CPython's index reads then
             It::RevList(l, i) => ItPlan::Rev(V::List(l.clone()), *i as i64 - 1),
-            // a dict's reverse iterators hold the rest, and CPython pickles them as exactly that: iter([rest])
-            It::Vec(rest) if matches!(cell.kind, IterClass::Kind(ItKind::DictReverseKeys | ItKind::DictReverseValues | ItKind::DictReverseItems)) => {
-                ItPlan::Seq(rest.as_slice().to_vec())
-            }
             It::Tuple(t, i) => ItPlan::At(tup(t.to_vec()), *i),
             // It::Vec holds the rest of reversed(), map(), zip() and others: CPython pickles each of those its own
             // way (`reversed`, `map(f, it)`, ...), so it is refused rather than saved as a plain list iterator.
@@ -1116,6 +1128,11 @@ fn iter_reduce(v: &V) -> R {
             It::Dict(d, i, kind, ver, n0) => ItPlan::Dict(d.clone(), *i, *kind, *ver, *n0),
             It::Set(s, i, n0) => ItPlan::Set(s.clone(), *i, *n0),
             It::Done => ItPlan::Seq(vec![]),
+            // reversed() of a dict or its views keeps the rest as It::Vec; CPython pickles those iterators as
+            // iter(list of the rest), as here
+            It::Vec(rest) if matches!(cell.kind, IterClass::Kind(ItKind::DictReverseKeys | ItKind::DictReverseValues | ItKind::DictReverseItems)) => {
+                ItPlan::Seq(rest.as_slice().to_vec())
+            }
             It::Coro(_) | It::GenExp(..) => {
                 return Err(exc("TypeError", "cannot pickle 'generator' object".into()))
             }
@@ -1436,10 +1453,17 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
             let red = func(sym("__reduce__"), move |_a: Args| iter_reduce(&red_me));
             let f = pyd_callable(&next)?;
             let r = pyd_callable(&red)?;
-            let o = pyd_mod_call("_brevi_dyn", "it", &[f, r]);
+            // the iterator itself, so that it comes back out of Python as the program's own iterator
+            let b = pyd_callable(v)?;
+            let o = pyd_mod_call("_brevi_dyn", "it", &[f, r, b]);
             (a.DecRef)(f);
             (a.DecRef)(r);
-            o?
+            (a.DecRef)(b);
+            let o = o?;
+            let t = (a.Type)(o);
+            (a.DecRef)(t);
+            PYD_BRIT.store(t, std::sync::atomic::Ordering::Relaxed);
+            o
         }
         V::Func(_) | V::Bound(_) | V::BMeth(_) | V::Class(_) => pyd_callable(v)?,
         V::Obj(o) if o.cls.lookup("__call__").is_some() => pyd_callable(v)?,
