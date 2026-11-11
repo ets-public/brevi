@@ -1,0 +1,18 @@
+bytearray(b'Azzcd') 5 bytearray(b'AZZCD') [bytearray(b'A'), bytearray(b''), bytearray(b'cd')] [65, 122, 122, 99, 100] True <class 'bytearray'> <class 'bytes'>
+bytearray(b'AzzcdAz') bytearray(b'\xab') b'AzzcdAzz' 42 122 1
+b'abcdefgh' b'efgh' <class 'bytes'> True <re.Match object; span=(0, 8), match=b'abcdefgh'>
+b'xyz' b'' (0, 8) ()
+BufferError Existing exports of data: object cannot be re-sized
+[]
+5
+b'1'
+[b'9', b'3']
+b'xaz' [b'a', b'b', b'', b'c'] [b'a', b'b']
+<re.Match object; span=(0, 2), match=b'aa'> (b'a', None)
+TE unhashable type: 'bytearray'
+TE cannot use a string pattern on a bytes-like object
+<re.Match object; span=(0, 1), match=b'a'> <re.Match object; span=(1, 2), match=b'a'> None
+b'a<1>b<2>cXd<4>' bytearray(b'a1b2cXd4')
+BE Existing exports of data: object cannot be re-sized
+bytearray(b'a1b2\x02')
+(b'-a-b-', 3) b'zza'

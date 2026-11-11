@@ -50,6 +50,8 @@ pub const RUNTIME: &str = concat!(
     include_str!("rt_typing.rs"),
     include_str!("rt_rand.rs"),
     include_str!("rt_bytes.rs"),
+    include_str!("rt_bytearray.rs"),
+    include_str!("rt_memview.rs"),
     include_str!("rt_np.rs"),
     include_str!("rt_npsort.rs"),
     include_str!("rt_npfmt.rs"),
@@ -691,6 +693,26 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         // the file as on disk (CPython's warning shows that line), not the text with __file__ filled in
         let disk = std::fs::read_to_string(path).unwrap_or_else(|_| src.clone());
         bridge.srcs.insert(m.clone(), (abs, disk));
+    }
+    // bytearray is checked against CPython for the builtins, re and the standard modules Brevi copies; the
+    // library ports (numpy, httpx, tokenizers, sqlite3, ...) have not been, so such a program runs in CPython.
+    let user_src = || texts.iter().filter(|(m, _)| !own_mods.contains(*m)).map(|(_, (_, src))| src.as_str());
+    // memoryview has one dimension of bytes here: cast() and the shaped views are CPython's
+    if user_src().any(|t| t.contains("memoryview")) {
+        for a in [".cast(", ".suboffsets", "._from_flags"] {
+            if user_src().any(|t| t.contains(a)) {
+                return Err((file.to_string(), 0, format!("memoryview{} is not supported in dynamic builds", a.trim_end_matches('('))));
+            }
+        }
+    }
+    if user_src().any(|t| t.contains("bytearray") || t.contains("memoryview")) {
+        const BA_OK: &[&str] = &["argparse", "asyncio", "asyncio_subprocess", "contextlib", "io", "logging", "ntpath", "os", "pathlib", "posixpath", "random", "string", "_string", "textwrap"];
+        if let Some(m) = own_mods.iter().find(|m| !BA_OK.contains(&m.as_str())) {
+            return Err((file.to_string(), 0, format!("bytearray or memoryview together with {m} is not supported in dynamic builds")));
+        }
+        if emit::NP_ON.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err((file.to_string(), 0, "bytearray or memoryview together with numpy is not supported in dynamic builds".into()));
+        }
     }
     // The file of the module the error is in, not always the main file (#194).
     if bridge.on && emit::NP_ON.load(std::sync::atomic::Ordering::Relaxed) {

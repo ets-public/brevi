@@ -8,9 +8,16 @@ pub fn bytesv(b: Vec<u8>) -> V {
     V::Ext(ExtRc::new(BytesV(b)))
 }
 
+// the bytes of a bytes-like value: bytes, or a bytearray's current contents (CPython's buffer protocol)
 pub fn bytes_of(v: &V) -> Option<Vec<u8>> {
     match v {
-        V::Ext(x) => x.any().downcast_ref::<BytesV>().map(|b| b.0.clone()),
+        V::Ext(x) => match x.any().downcast_ref::<BytesV>() {
+            Some(b) => Some(b.0.clone()),
+            None => match x.any().downcast_ref::<ByteArrayV>() {
+                Some(b) => Some(b.d.borrow().clone()),
+                None => x.any().downcast_ref::<MemV>().and_then(mv_simple),
+            },
+        },
         _ => None,
     }
 }
@@ -266,7 +273,7 @@ pub fn bi_bytes(a: Args) -> R {
     if errs.is_some() {
         return type_err("errors without a string argument".into());
     }
-    if let Some(b) = bytes_of(x) {
+    if let Some(b) = buf_full(x)? {
         return Ok(bytesv(b));
     }
     if let V::Int(n) = x {
@@ -632,7 +639,10 @@ impl Ext for BytesV {
         self
     }
     fn hash(&self) -> Option<i64> {
-        // the same as a str of the same ASCII text, as in CPython
+        // the same as a str of the same ASCII text, as in CPython (b'' hashes as 0)
+        if self.0.is_empty() {
+            return Some(0);
+        }
         let mut h: u64 = 0xcbf29ce484222325;
         for &b in &self.0 {
             h ^= b as u64;
@@ -642,9 +652,16 @@ impl Ext for BytesV {
         Some(if h == -1 { -2 } else { h })
     }
     fn eq(&self, o: &V) -> Option<bool> {
+        if let Some(m) = memview_of(o) {
+            return m.eq(&bytesv(self.0.clone()));
+        }
         Some(bytes_of(o).is_some_and(|b| b == self.0))
     }
     fn cmp(&self, o: &V) -> Option<std::cmp::Ordering> {
+        // bytes order against bytes and bytearray only: `b'a' < memoryview(b'b')` is a TypeError, as in CPython
+        if memview_of(o).is_some() {
+            return None;
+        }
         bytes_of(o).map(|b| self.0.as_slice().cmp(b.as_slice()))
     }
     fn truth(&self) -> bool {
@@ -657,6 +674,15 @@ impl Ext for BytesV {
         Some(self.0.iter().map(|&c| V::Int(c as i64)).collect())
     }
     fn method(&self, me: &V, n: &str, a: &mut Args) -> Option<R> {
+        // the methods that read a buffer argument (an unknown name stays an AttributeError)
+        if matches!(n, "count" | "find" | "index" | "rfind" | "rindex" | "startswith" | "endswith" | "split" | "rsplit" | "strip"
+            | "lstrip" | "rstrip" | "replace" | "removeprefix" | "removesuffix" | "partition" | "rpartition" | "translate"
+            | "maketrans" | "__contains__")
+        {
+            if let Err(e) = mv_arg_check(a) {
+                return Some(Err(e));
+            }
+        }
         self.call(me, n, a)
     }
     fn attr(&self, me: &V, n: &str) -> Option<R> {

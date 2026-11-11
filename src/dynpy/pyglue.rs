@@ -1045,6 +1045,10 @@ unsafe fn pyd_to(v: &V) -> Result<P, E> {
                 (a.IncRef)(p.p);
                 return Ok(p.p);
             }
+            // a bytearray would arrive as a copy, so the library's changes would not reach the program's
+            if bytearray_of(v).is_some() || memview_of(v).is_some() {
+                return Err(unsupported("a bytearray or memoryview passed to a library CPython runs"));
+            }
             if let Some(b) = bytes_of(v) {
                 return pyd_own((a.BytesFrom)(b.as_ptr() as *const c_char, b.len() as isize));
             }

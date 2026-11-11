@@ -1222,6 +1222,9 @@ pub fn iop(a: &V, b: &V, op: &str) -> R {
 }
 #[inline(never)]
 fn iop_slow(a: &V, b: &V, op: &str) -> R {
+    if let Some(r) = bytearray_iop(a, b, op) {
+        return r;
+    }
     if let Some(x) = as_np(a) {
         return np_iop(x, a, b, op);
     }
@@ -1527,6 +1530,7 @@ pub fn len(v: &V) -> Result<usize, E> {
         },
         V::Ext(x) => match x.len() {
             Some(n) => n,
+            None if memview_of(v).is_some() => return Err(exc("ValueError", "operation forbidden on released memoryview object".into())),
             None => return type_err(format!("object of type '{}' has no len()", tn(v))),
         },
         _ => return type_err(format!("object of type '{}' has no len()", tn(v))),
@@ -1957,6 +1961,7 @@ pub fn setitem(c: &V, i: &V, v: V) -> Result<(), E> {
             }
             type_err(format!("'{}' object does not support item assignment", tn(c)))
         }
+        (V::Ext(_), _) if is_bytes_v(c) => type_err("'bytes' object does not support item assignment".into()),
         (V::Ext(x), _) => match x.method(c, "__setitem__", &mut Args::p(vec![i.clone(), v])) {
             Some(r) => r.map(|_| ()),
             None => type_err(format!("'{}' object does not support item assignment", tn(c))),
@@ -2010,6 +2015,7 @@ pub fn delitem(c: &V, i: &V) -> Result<(), E> {
             }
             type_err(format!("'{}' object doesn't support item deletion", tn(c)))
         }
+        (V::Ext(_), _) if is_bytes_v(c) => type_err("'bytes' object doesn't support item deletion".into()),
         (V::Ext(x), _) => match x.method(c, "__delitem__", &mut Args::p(vec![i.clone()])) {
             Some(r) => r.map(|_| ()),
             None => type_err(format!("'{}' object doesn't support item deletion", tn(c))),

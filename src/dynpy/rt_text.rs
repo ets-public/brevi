@@ -1763,6 +1763,8 @@ struct RScan {
 pub struct RScanner {
     prog: Rc<Prog>,
     st: RefCell<RScan>,
+    // a bytearray subject's buffer, held while the scanner lives
+    hold: Option<BufHold>,
 }
 impl RMatch {
     fn group_idx(&self, g: &V) -> Result<usize, E> {
@@ -1795,6 +1797,16 @@ impl RMatch {
         }
     }
     fn text_v(&self, g: usize) -> Option<V> {
+        // a bytearray subject is read as it is now, its span cut to its length (CPython, bpo-29444)
+        if bytearray_of(&self.sv).is_some() || memview_of(&self.sv).is_some() {
+            let (a, z) = (self.caps[2 * g], self.caps[2 * g + 1]);
+            if a == UNSET {
+                return None;
+            }
+            let d = bytes_of(&self.sv).unwrap_or_default();
+            let z = z.min(d.len());
+            return Some(bytesv(d[a.min(z)..z].to_vec()));
+        }
         self.text(g).map(|t| chars_v(self.prog.bytes, t))
     }
     fn gv(&self, g: usize, dflt: &V) -> V {
@@ -1898,7 +1910,7 @@ impl Ext for RMatch {
                             match p {
                                 TPiece::Lit(s) => out.extend(s.chars().map(|c| c as u8)),
                                 TPiece::Group(g) => match self.text(*g) {
-                                    Some(t) if self.prog.bytes => out.extend(t.iter().map(|&c| c as u8)),
+                                    Some(_) if self.prog.bytes => out.extend(self.text_v(*g).and_then(|v| bytes_of(&v)).unwrap_or_default()),
                                     Some(_) => return type_err("sequence item 1: expected a bytes-like object, str found".into()),
                                     None => {}
                                 },
@@ -1968,10 +1980,14 @@ impl Ext for RScanner {
         if !a.p.is_empty() || !a.k.is_empty() {
             return Some(type_err(format!("{n}() takes no arguments")));
         }
-        let (s, sv, start, endpos, orig_pos, no_empty) = {
+        let (mut s, sv, start, endpos, orig_pos, no_empty) = {
             let st = self.st.borrow();
             (st.s.clone(), st.sv.clone(), st.pos, st.endpos, st.orig_pos, st.no_empty)
         };
+        if self.hold.is_some() {
+            // the bytearray as it is now (it cannot have changed size)
+            s = Rc::new(bytes_of(&sv).unwrap_or_default().iter().map(|&x| x as char).collect());
+        }
         Some(match re_exec(&self.prog, &s, start, endpos, anchored, false, no_empty) {
             Some(caps) => {
                 let v = mk_match(&self.prog, &s, &sv, caps.clone(), orig_pos, endpos);
@@ -2052,6 +2068,11 @@ impl Ext for RPat {
     }
 }
 
+// CPython looks the pattern up in its cache first, so an unhashable one (a bytearray, a list) fails there
+fn pat_type_err<T>(v: &V) -> Result<T, E> {
+    hash_of(v)?;
+    type_err("first argument must be string or compiled pattern".into())
+}
 fn re_str(v: &V) -> Result<(Rc<Vec<char>>, V), E> {
     match v {
         // The last string searched keeps its characters: a loop that tries many patterns on one text (#195)
@@ -2071,7 +2092,9 @@ fn re_str(v: &V) -> Result<(Rc<Vec<char>>, V), E> {
             let inner = o.inner().as_ref().unwrap().clone();
             Ok((re_str(&inner)?.0, v.clone()))
         }
-        V::Ext(e) if e.any().downcast_ref::<BytesV>().is_some() => type_err("cannot use a string pattern on a bytes-like object".into()),
+        V::Ext(e) if e.any().downcast_ref::<BytesV>().is_some() || e.any().downcast_ref::<ByteArrayV>().is_some() || e.any().downcast_ref::<MemV>().is_some() => {
+            type_err("cannot use a string pattern on a bytes-like object".into())
+        }
         _ => type_err(format!("expected string or bytes-like object, got '{}'", tn(v))),
     }
 }
@@ -2133,6 +2156,68 @@ fn opt_pos(a: &mut Args, i: usize, name: &str, n: usize) -> Result<Option<usize>
         Some(V::Int(x)) => Ok(Some(if x < 0 { 0 } else { (x as usize).min(n) })),
         Some(x) => type_err(format!("'{}' object cannot be interpreted as an integer", tn(&x))),
     }
+}
+// re.sub(pattern, callback, bytearray): CPython holds the buffer (a resize in the callback raises BufferError)
+// and goes on matching the bytes as the callback leaves them, so each step reads them again.
+fn ba_sub_call(prog: &Rc<Prog>, repl: &V, sv: V, count: usize, subn: bool) -> R {
+    let _hold = BufHold::of(&sv);
+    let live = || -> Rc<Vec<char>> { Rc::new(bytes_of(&sv).unwrap_or_default().iter().map(|&x| x as char).collect()) };
+    let mut sc = live();
+    let mut out: Vec<u8> = vec![];
+    let (mut at, mut last, mut no_empty, mut nsub) = (0usize, 0usize, None, 0usize);
+    let end = sc.len();
+    while at <= end && nsub < count {
+        let Some(c) = re_exec(prog, &sc, at, end, false, false, no_empty) else { break };
+        out.extend(sc[last..c[0]].iter().map(|&x| x as u8));
+        let m = RMatch { prog: prog.clone(), s: sc.clone(), sv: sv.clone(), caps: c.clone(), pos: 0, endpos: end };
+        let r = call(repl, Args::p(vec![V::Ext(ExtRc::new(m))]))?;
+        match bytes_of(&r) {
+            Some(b) => out.extend(b),
+            None => return type_err(format!("sequence item 0: expected a bytes-like object, {} found", tn(&r))),
+        }
+        nsub += 1;
+        let (a, z) = (c[0], c[1]);
+        no_empty = if a == z { Some(z) } else { None };
+        at = z;
+        last = z;
+        sc = live();
+        if a == z && z >= end {
+            break;
+        }
+    }
+    out.extend(sc[last..].iter().map(|&x| x as u8));
+    let rv = bytesv(out);
+    Ok(if subn { tup(vec![rv, V::Int(nsub as i64)]) } else { rv })
+}
+// finditer over a bytearray: it holds the buffer (so the bytearray cannot be resized while it lives, as in
+// CPython) and matches against the bytes as they are at each step.
+fn ba_finditer(prog: &Rc<Prog>, sv: V, pos: usize, endpos: usize) -> V {
+    let hold = BufHold::of(&sv);
+    let prog = prog.clone();
+    let st = Cell::new((pos, None::<usize>, false));
+    new_iter(
+        It::Shared(Rc::new(move || {
+            let _ = &hold;
+            let (at, no_empty, done) = st.get();
+            if done || at > endpos {
+                return Ok(None);
+            }
+            let sc: Rc<Vec<char>> = Rc::new(bytes_of(&sv).unwrap_or_default().iter().map(|&x| x as char).collect());
+            let end = endpos.min(sc.len());
+            match re_exec(&prog, &sc, at.min(end), end, false, false, no_empty) {
+                Some(c) => {
+                    let (a, b) = (c[0], c[1]);
+                    st.set((b, if a == b { Some(b) } else { None }, a == b && b >= end));
+                    Ok(Some(mk_match(&prog, &sc, &sv, c, pos, endpos)))
+                }
+                None => {
+                    st.set((at, no_empty, true));
+                    Ok(None)
+                }
+            }
+        })),
+        IterClass::Kind(ItKind::CallableIterator),
+    )
 }
 fn mk_match(prog: &Rc<Prog>, s: &Rc<Vec<char>>, sv: &V, caps: Vec<usize>, pos: usize, endpos: usize) -> V {
     V::Ext(ExtRc::new(RMatch { prog: prog.clone(), s: s.clone(), sv: sv.clone(), caps, pos, endpos }))
@@ -2321,7 +2406,8 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
             let len = sc.len();
             let pos = opt_pos(a, 1, "pos", len)?.unwrap_or(0);
             let endpos = opt_pos(a, 2, "endpos", len)?.unwrap_or(len);
-            Ok(V::Ext(ExtRc::new(RScanner { prog: prog.clone(), st: RefCell::new(RScan { s: sc, sv, orig_pos: pos, pos, endpos, no_empty: None }) })))
+            let hold = BufHold::of(&sv).or_else(|| memview_of(&sv).map(|_| BufHold::none()));
+            Ok(V::Ext(ExtRc::new(RScanner { prog: prog.clone(), st: RefCell::new(RScan { s: sc, sv, orig_pos: pos, pos, endpos, no_empty: None }), hold })))
         }
         "match" | "fullmatch" | "search" => {
             let sv = a.kw("string").or_else(|| a.p.first().cloned()).ok_or_else(|| exc("TypeError", format!("{n}() missing required argument 'string' (pos 1)")))?;
@@ -2343,6 +2429,9 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
             let len = sc.len();
             let pos = opt_pos(a, 1, "pos", len)?.unwrap_or(0);
             let endpos = opt_pos(a, 2, "endpos", len)?.unwrap_or(len);
+            if n == "finditer" && (bytearray_of(&sv).is_some() || memview_of(&sv).is_some()) {
+                return Ok(ba_finditer(prog, sv, pos, endpos));
+            }
             let ms = all_matches(prog, &sc, pos, endpos, usize::MAX);
             if n == "finditer" {
                 return Ok(vec_iter(ItKind::CallableIterator, ms.into_iter().map(|c| mk_match(prog, &sc, &sv, c, pos, endpos)).collect()));
@@ -2396,6 +2485,9 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
                 return type_err(format!("decoding to str: need a bytes-like object, {} found", tn(&repl)));
             };
             let (sc, sv) = re_subject(&sv, prog.bytes)?;
+            if callable && (bytearray_of(&sv).is_some() || memview_of(&sv).is_some()) {
+                return ba_sub_call(prog, &repl, sv, count, n == "subn");
+            }
             let ms = all_matches(prog, &sc, 0, sc.len(), count);
             // bytes results are built as Latin-1 chars and converted once at the end
             let mut out = String::new();
@@ -2478,14 +2570,14 @@ fn pat_of(v: &V, flags: i64) -> Result<Rc<Prog>, E> {
             }
             None => match bytes_src(v) {
                 Some((bs, pv)) => re_compile_bytes(&bs, flags, pv),
-                None => type_err("first argument must be string or compiled pattern".into()),
+                None => pat_type_err(v),
             },
         },
         V::Obj(o) if matches!(o.inner().as_ref(), Some(V::Str(_))) => {
             let inner = o.inner().as_ref().unwrap().clone();
             pat_of(&inner, flags)
         }
-        _ => type_err("first argument must be string or compiled pattern".into()),
+        _ => pat_type_err(v),
     }
 }
 // re.error(msg, pattern=None, pos=None), as CPython's PatternError.__init__ builds it

@@ -1164,7 +1164,11 @@ fn frexp(f: f64) -> (f64, i32) {
     (m, e)
 }
 fn hash_str(s: &str) -> i64 {
-    // CPython randomizes string hashes; any stable hash keeps the same guarantees.
+    // CPython randomizes string hashes; any stable hash keeps the same guarantees. The empty string hashes as 0,
+    // as in CPython.
+    if s.is_empty() {
+        return 0;
+    }
     let mut h: u64 = 0xcbf29ce484222325;
     for b in s.bytes() {
         h ^= b as u64;
@@ -1281,6 +1285,7 @@ pub fn py_hash(v: &V) -> Result<i64, E> {
         V::Cell(_) => return type_err("unhashable type: 'cell'".into()),
         V::Ext(x) => match x.hash() {
             Some(h) => h,
+            None if memview_of(v).is_some() => return memview_hash(v).unwrap(),
             None => return type_err(format!("unhashable type: '{}'", x.tname())),
         },
         V::Range(r) => hash_tuple(&[V::Int(r.0), V::Int(r.1), V::Int(r.2)])?,
