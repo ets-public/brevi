@@ -41,8 +41,8 @@ jobs:
     # The x86_64 Linux job runs the full test suite, about 45 to 50 minutes on a GitHub runner (toolchains.yml allows 60).
     timeout-minutes: 75
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           targets: ${{ matrix.targets }}
       - name: Build
@@ -56,7 +56,7 @@ jobs:
           ./target/$t/release/brevi run smoke.bv | grep -qx "hi 2"
       # The tests compare with CPython 3.12+ behaviour (compensated float sum, except*); the runner's own
       # python3 is 3.10, so pin a current one as toolchains.yml does.
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         if: ${{ matrix.test }}
         with:
           python-version: "3.13"
@@ -77,7 +77,7 @@ jobs:
             if [ "$RUNNER_OS" != Windows ]; then ln -s brevi $name/brevi-python; fi
             if [ "$RUNNER_OS" = Windows ]; then 7z a $name.zip $name >/dev/null; else tar czf $name.tar.gz $name; fi
           done
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: brevi-${{ matrix.os }}
           path: brevi-*.*
@@ -88,8 +88,8 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         if: ${{ !inputs.from_release }}
         with:
           path: dist
@@ -98,8 +98,9 @@ jobs:
         if: ${{ inputs.from_release }}
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
         run: |
-          gh release download "${{ inputs.tag }}" -R "$GITHUB_REPOSITORY" -D dist -p 'brevi-*' -p SHA256SUMS
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -D dist -p 'brevi-*' -p SHA256SUMS
           cd dist && sha256sum -c SHA256SUMS
       - name: Checksums
         if: ${{ !inputs.from_release }}
@@ -119,7 +120,7 @@ jobs:
       - name: Wheels
         if: ${{ needs.build.result == 'success' || inputs.from_release }}
         run: python3 tools/make_wheels.py dist wheels
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: ${{ needs.build.result == 'success' || inputs.from_release }}
         with:
           name: wheels
@@ -138,14 +139,16 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Version check
-        run: python3 tools/version_sync.py --tag "${{ github.event.inputs.tag || github.ref_name }}"
-      - uses: actions/download-artifact@v8
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: python3 tools/version_sync.py --tag "$TAG"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: wheels
           path: wheels
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1
         with:
           packages-dir: wheels
           skip-existing: true
@@ -158,10 +161,12 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Version check
-        run: python3 tools/version_sync.py --tag "${{ github.event.inputs.tag || github.ref_name }}"
-      - uses: actions/setup-node@v7
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: python3 tools/version_sync.py --tag "$TAG"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
@@ -182,18 +187,20 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Version check
-        run: python3 tools/version_sync.py --tag "${{ github.event.inputs.tag || github.ref_name }}"
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: python3 tools/version_sync.py --tag "$TAG"
       - name: Already published?
         id: check
         run: |
           v=$(python3 -c 'import re;print(re.search(r"^version = \"([^\"]+)\"",open("Cargo.toml").read(),re.M)[1])')
           code=$(curl -s -o /dev/null -w '%{http_code}' -A 'brevi-release (github.com/ets-public/brevi)' "https://crates.io/api/v1/crates/brevi/$v")
           if [ "$code" = 200 ]; then echo "brevi $v is already on crates.io"; echo skip=true >> "$GITHUB_OUTPUT"; fi
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         if: ${{ steps.check.outputs.skip != 'true' }}
-      - uses: rust-lang/crates-io-auth-action@v1.0.6
+      - uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
         if: ${{ steps.check.outputs.skip != 'true' }}
         id: auth
       - name: Publish
@@ -218,9 +225,11 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Version check
-        run: python3 tools/version_sync.py --tag "${{ github.event.inputs.tag || github.ref_name }}"
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: python3 tools/version_sync.py --tag "$TAG"
       - name: Build, test and push
         env:
           GH_TOKEN: ${{ github.token }}
@@ -239,7 +248,7 @@ jobs:
       # The dev container feature ghcr.io/ets-public/features/brevi (devcontainer/src/brevi); a feature
       # version already published is skipped.
       - name: Publish the dev container feature
-        uses: devcontainers/action@v1
+        uses: devcontainers/action@bef2cf2d1a019b00b45e184f83035e01bd1972f3 # v1
         with:
           publish-features: "true"
           base-path-to-features: ./devcontainer/src
@@ -257,7 +266,7 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Publish server.json
         run: |
           curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
