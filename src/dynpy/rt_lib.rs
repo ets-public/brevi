@@ -765,10 +765,14 @@ thread_local! {
     pub static EXT_CLASSES: RefCell<HashMap<&'static str, Rc<Class>>> = RefCell::new(HashMap::new());
 }
 pub fn ext_class(n: &'static str) -> Rc<Class> {
-    EXT_CLASSES.with(|m| {
-        let mut m = m.borrow_mut();
-        m.entry(n).or_insert_with(|| Class::new(n, "builtins", vec![bclass("object")], BT::Other)).clone()
-    })
+    if let Some(c) = EXT_CLASSES.with(|m| m.borrow().get(n).cloned()) {
+        return c;
+    }
+    // datetime.datetime is a subclass of datetime.date, as in CPython (isinstance, issubclass, __mro__)
+    let base = if n == "datetime.datetime" { ext_class("datetime.date") } else { bclass("object") };
+    let c = Class::new(n, "builtins", vec![base], BT::Other);
+    EXT_CLASSES.with(|m| m.borrow_mut().insert(n, c.clone()));
+    c
 }
 pub fn bi_type(a: Args) -> R {
     if a.p.len() == 3 {
