@@ -240,7 +240,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "_brevi_mt" => &["new", "seed", "next", "random", "bits", "below", "shuffle"],
         "collections" => &["defaultdict", "Counter", "OrderedDict", "deque", "namedtuple"],
         "dataclasses" => &["asdict", "astuple", "dataclass", "field", "fields", "replace", "is_dataclass", "MISSING", "KW_ONLY", "InitVar", "Field", "FrozenInstanceError"],
-        "re" => &["compile", "escape", "findall", "finditer", "fullmatch", "match", "purge", "search", "split", "sub", "subn", "IGNORECASE", "I", "LOCALE", "L", "MULTILINE", "M", "DOTALL", "S", "VERBOSE", "X", "ASCII", "A", "NOFLAG", "UNICODE", "U", "DEBUG", "RegexFlag", "error", "PatternError"],
+        "re" => &["compile", "escape", "findall", "finditer", "fullmatch", "match", "purge", "search", "split", "sub", "subn", "IGNORECASE", "I", "LOCALE", "L", "MULTILINE", "M", "DOTALL", "S", "VERBOSE", "X", "ASCII", "A", "NOFLAG", "UNICODE", "U", "DEBUG", "RegexFlag", "error", "PatternError", "Pattern", "Match"],
         "re._constants" => &["MAXGROUPS", "MAXREPEAT"],
         "json" => &["dump", "dumps", "load", "loads", "JSONDecodeError", "JSONDecoder", "JSONEncoder"],
         "json.decoder" => &["scanstring", "JSONDecoder", "JSONDecodeError"],
@@ -2574,13 +2574,6 @@ impl Em {
                 if md == "re" {
                     self.uses_re = true;
                 }
-                // \N{NAME} is not in Brevi's regex engine, so CPython runs the program rather than answering wrong
-                if md == "re"
-                    && matches!(m.as_str(), "compile" | "match" | "fullmatch" | "search" | "findall" | "finditer" | "split" | "sub" | "subn")
-                    && args.first().is_some_and(|a| matches!(a, Arg::Pos(Ex::Str(s)) | Arg::Kw(_, Ex::Str(s)) if s.contains("\\N{")))
-                {
-                    return Err(err(line, "re with a \\N{...} pattern is not supported in dynamic builds"));
-                }
                 let a = self.args(args, line, None)?;
                 if !module_has(&md, m) {
                     if hybrid_bridged(&md) {
@@ -4437,6 +4430,8 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         out.push_str(&gtab(&em, &m.name));
     }
     let consts: Vec<String> = em.consts.iter().map(|c| format!("s({})", lit(c))).collect();
+    // re's \N{NAME}: the name table goes into programs whose source may hold such a pattern
+    let uname = em.uses_re && em.bridge.srcs.values().any(|(_, t)| t.contains("\\N{"));
     // At exit CPython finalizes __main__'s globals in the order they were first set; the slots are in name order,
     // so the order is the names' first appearance in the module's source.
     let del_on = if em.has_del {
@@ -4458,14 +4453,21 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     };
     write!(
         out,
-        "fn __run() -> Result<(), E> {{ unsafe {{ GL = vec![V::Unbound; {}]; K = vec![{}]; }} USER_MOD.with(|u| u.set(Some(user_mod))); MAIN_GTAB.with(|u| u.set(Some(gtab___main__))); {}{} let r = init___main__(); fin_point(); r }}\nfn main() {{ run_main(__run); }}\n",
+        "fn __run() -> Result<(), E> {{ unsafe {{ GL = vec![V::Unbound; {}]; K = vec![{}]; }} USER_MOD.with(|u| u.set(Some(user_mod))); MAIN_GTAB.with(|u| u.set(Some(gtab___main__))); {}{}{} let r = init___main__(); fin_point(); r }}\nfn main() {{ run_main(__run); }}\n",
         em.nglobals.max(1),
         consts.join(", "),
         del_on,
         // the program uses CPython's warnings module: the warnings the runtime issues go through it
-        if em.bridged_used.contains("warnings") { " set_warn_bridge(pyd_warn_at);" } else { "" }
+        if em.bridged_used.contains("warnings") { " set_warn_bridge(pyd_warn_at);" } else { "" },
+        if uname { " set_name_lookup(__uname);" } else { "" }
     )
     .unwrap();
+    if uname {
+        out.push_str(include_str!("uname_glue.rs"));
+        out.push_str("const UNAMES: &str = r###\"");
+        out.push_str(include_str!("../pynames/unicode_names.txt"));
+        out.push_str("\"###;\n");
+    }
     let _ = &em.out;
     // CPython's re matches any buffer (array.array, mmap, ctypes arrays) as bytes, and slices the object
     // itself for groups; Brevi's re takes str and bytes only. weakref would be handed Brevi's Pattern and
