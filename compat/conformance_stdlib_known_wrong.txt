@@ -41,7 +41,3 @@ test_re.ReTests.test_look_behind_overflow dyn
 test_re.ReTests.test_look_behind_overflow normal
 test_re.ReTests.test_weakref dyn
 test_re.ReTests.test_weakref normal
-test_textwrap.WrapTestCase.test_fix_sentence_endings dyn
-test_textwrap.WrapTestCase.test_fix_sentence_endings normal
-test_textwrap.WrapTestCase.test_whitespace dyn
-test_textwrap.WrapTestCase.test_whitespace normal
