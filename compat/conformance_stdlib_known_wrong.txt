@@ -61,8 +61,6 @@ test_itertools.TestBasicOps.test_zip_longest_pickling dyn issue=#396 owner=ets-p
 test_itertools.TestBasicOps.test_zip_longest_pickling normal issue=#396 owner=ets-public expires=2026-12-11
 test_itertools.TestExamples.test_accumulate_reducible dyn issue=#396 owner=ets-public expires=2026-12-11
 test_itertools.TestExamples.test_accumulate_reducible normal issue=#396 owner=ets-public expires=2026-12-11
-test_itertools.TestPurePythonRoughEquivalents.test_tee_recipe dyn issue=#400 owner=ets-public expires=2026-12-11
-test_itertools.TestPurePythonRoughEquivalents.test_tee_recipe normal issue=#400 owner=ets-public expires=2026-12-11
 test_re.PatternReprTests.test_bytes dyn issue=#399 owner=ets-public expires=2026-12-11
 test_re.PatternReprTests.test_bytes normal issue=#399 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_bigcharset dyn issue=#399 owner=ets-public expires=2026-12-11
@@ -89,5 +87,3 @@ test_re.ReTests.test_re_escape_non_ascii_bytes dyn issue=#419 owner=ets-public e
 test_re.ReTests.test_re_escape_non_ascii_bytes normal issue=#419 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_re_subn dyn issue=#418 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_re_subn normal issue=#418 owner=ets-public expires=2026-12-11
-test_re.ReTests.test_weakref dyn issue=#399 owner=ets-public expires=2026-12-11
-test_re.ReTests.test_weakref normal issue=#399 owner=ets-public expires=2026-12-11

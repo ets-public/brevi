@@ -1257,6 +1257,8 @@ pub fn py_hash(v: &V) -> Result<i64, E> {
         }
         V::Class(c) => (Rc::as_ptr(c) as usize >> 4) as i64,
         V::Func(f) => (Rc::as_ptr(f) as usize >> 4) as i64,
+        // iterators and generators hash by identity, as in CPython
+        V::Iter(x) => (Rc::as_ptr(x) as *const u8 as usize >> 4) as i64,
         // a cell object has no __hash__, exactly as in CPython (it only compares by identity)
         V::Cell(_) => return type_err("unhashable type: 'cell'".into()),
         V::Ext(x) => match x.hash() {

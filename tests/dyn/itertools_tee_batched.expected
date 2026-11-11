@@ -1,0 +1,17 @@
+1 [1, 2, 3] [2, 3] _tee
+False [] []
+[1, 2, 3, 4] [1, 2, 3, 4] [0, 1, 2, 3, 4]
+['a', 'b'] ()
+_tee [1, 2, 3] [1, 2, 3]
+[('a', 'b', 'c'), ('d', 'e', 'f'), ('g',)] []
+batched(): incomplete batch
+n must be at least one
+batched
+200000 200000
+[0, 1, 2]
+RE cannot re-enter the tee iterator
+TypeError _tee expected 1 argument, got 0
+TypeError 'int' object is not iterable
+TypeError _tee expected 1 argument, got 2
+['a', 'b', 'c'] ['a', 'b', 'c'] ['a', 'b', 'c']
+_tee [1, 2, 3]
