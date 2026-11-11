@@ -56,36 +56,36 @@ either FieldInfo(annotation=Union[int, str], required=False, default=0)
 2 validation errors for User
 id
   Field required [type=missing, input_value={}, input_type=dict]
-    For further information visit https://errors.pydantic.dev/2.13/v/missing
+    For further information visit https://errors.pydantic.dev/2.14/v/missing
 name
   Field required [type=missing, input_value={}, input_type=dict]
-    For further information visit https://errors.pydantic.dev/2.13/v/missing
+    For further information visit https://errors.pydantic.dev/2.14/v/missing
 2 User
   missing ('id',) 'Field required' None
   missing ('name',) 'Field required' None
 2 validation errors for User
 id
   Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='x', input_type=str]
-    For further information visit https://errors.pydantic.dev/2.13/v/int_parsing
+    For further information visit https://errors.pydantic.dev/2.14/v/int_parsing
 name
   Input should be a valid string [type=string_type, input_value=None, input_type=NoneType]
-    For further information visit https://errors.pydantic.dev/2.13/v/string_type
+    For further information visit https://errors.pydantic.dev/2.14/v/string_type
 2 User
   int_parsing ('id',) 'Input should be a valid integer, unable to parse string as an integer' None
   string_type ('name',) 'Input should be a valid string' None
 4 validation errors for User
 id
   Input should be a valid integer, got a number with a fractional part [type=int_from_float, input_value=1.5, input_type=float]
-    For further information visit https://errors.pydantic.dev/2.13/v/int_from_float
+    For further information visit https://errors.pydantic.dev/2.14/v/int_from_float
 age
   Input should be greater than or equal to 0 [type=greater_than_equal, input_value=-1, input_type=int]
-    For further information visit https://errors.pydantic.dev/2.13/v/greater_than_equal
+    For further information visit https://errors.pydantic.dev/2.14/v/greater_than_equal
 tags
   Input should be a valid list [type=list_type, input_value='abc', input_type=str]
-    For further information visit https://errors.pydantic.dev/2.13/v/list_type
+    For further information visit https://errors.pydantic.dev/2.14/v/list_type
 role
   Input should be 'admin' or 'user' [type=literal_error, input_value='root', input_type=str]
-    For further information visit https://errors.pydantic.dev/2.13/v/literal_error
+    For further information visit https://errors.pydantic.dev/2.14/v/literal_error
 4 User
   int_from_float ('id',) 'Input should be a valid integer, got a number with a fractional part' None
   greater_than_equal ('age',) 'Input should be greater than or equal to 0' {'ge': 0}
@@ -94,23 +94,23 @@ role
 2 validation errors for User
 address.street
   Field required [type=missing, input_value={'zip_code': 75001}, input_type=dict]
-    For further information visit https://errors.pydantic.dev/2.13/v/missing
+    For further information visit https://errors.pydantic.dev/2.14/v/missing
 address.zip_code
   Input should be a valid string [type=string_type, input_value=75001, input_type=int]
-    For further information visit https://errors.pydantic.dev/2.13/v/string_type
+    For further information visit https://errors.pydantic.dev/2.14/v/string_type
 2 User
   missing ('address', 'street') 'Field required' None
   string_type ('address', 'zip_code') 'Input should be a valid string' None
 3 validation errors for User
 friends.1
   Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='two', input_type=str]
-    For further information visit https://errors.pydantic.dev/2.13/v/int_parsing
+    For further information visit https://errors.pydantic.dev/2.14/v/int_parsing
 friends.3
   Input should be a valid integer, got a number with a fractional part [type=int_from_float, input_value=4.5, input_type=float]
-    For further information visit https://errors.pydantic.dev/2.13/v/int_from_float
+    For further information visit https://errors.pydantic.dev/2.14/v/int_from_float
 pair.1
   Field required [type=missing, input_value=[1], input_type=list]
-    For further information visit https://errors.pydantic.dev/2.13/v/missing
+    For further information visit https://errors.pydantic.dev/2.14/v/missing
 3 User
   int_parsing ('friends', 1) 'Input should be a valid integer, unable to parse string as an integer' None
   int_from_float ('friends', 3) 'Input should be a valid integer, got a number with a fractional part' None
@@ -118,18 +118,18 @@ pair.1
 3 validation errors for User
 meta
   Input should be a valid dictionary [type=dict_type, input_value=[], input_type=list]
-    For further information visit https://errors.pydantic.dev/2.13/v/dict_type
+    For further information visit https://errors.pydantic.dev/2.14/v/dict_type
 either.int
   Input should be a valid integer [type=int_type, input_value=[1], input_type=list]
-    For further information visit https://errors.pydantic.dev/2.13/v/int_type
+    For further information visit https://errors.pydantic.dev/2.14/v/int_type
 either.str
   Input should be a valid string [type=string_type, input_value=[1], input_type=list]
-    For further information visit https://errors.pydantic.dev/2.13/v/string_type
+    For further information visit https://errors.pydantic.dev/2.14/v/string_type
 3 User
   dict_type ('meta',) 'Input should be a valid dictionary' None
   int_type ('either', 'int') 'Input should be a valid integer' None
   string_type ('either', 'str') 'Input should be a valid string' None
 1 validation error for User
   Input should be a valid dictionary or instance of User [type=model_type, input_value=5, input_type=int]
-    For further information visit https://errors.pydantic.dev/2.13/v/model_type
+    For further information visit https://errors.pydantic.dev/2.14/v/model_type
 [{'type': 'model_type', 'loc': (), 'msg': 'Input should be a valid dictionary or instance of User', 'input': ['id', 1], 'ctx': {'class_name': 'User'}}]

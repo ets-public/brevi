@@ -2863,11 +2863,18 @@ impl Em {
         // `async for` clauses and `await`s: the comprehension runs in place in the async function (CPython inlines
         // it too). A generator expression with them is an async generator, which Brevi builds eagerly: refused.
         let mut awaits = gens.iter().any(|g| g.is_async);
+        let mut walrus = false;
         visit_ex(&Ex::Comp(kind, Box::new(elt.clone()), val.map(|v| Box::new(v.clone())), gens.to_vec()), &mut |x| {
             if matches!(x, Ex::Await(_)) {
                 awaits = true;
             }
+            if matches!(x, Ex::Walrus(..)) {
+                walrus = true;
+            }
         });
+        if walrus && self.fstack.last().unwrap().is_class {
+            return Err(err(line, "assignment expression within a comprehension cannot be used in a class body"));
+        }
         if awaits {
             if kind == 'g' {
                 return Err(err(line, "asynchronous generator expressions are not supported in dynamic builds"));
@@ -2892,8 +2899,40 @@ impl Em {
             _ => None,
         };
         let first_iter = if first_zip.is_some() { String::new() } else { self.ex(&gens[0].iter, line)? };
+        // In a class body the rest of the comprehension does not see the class's names (CPython resolves them
+        // past the class scope, to enclosing functions, globals and builtins), and its own variables are plain
+        // locals: never class namespace stores, nor Enum auto() stores (whose `&mut` borrow the enclosing
+        // class-level store already holds).
+        let class_saved = if self.f().is_class {
+            let fr = self.f();
+            Some((std::mem::take(&mut fr.vars), fr.enum_cnv.take(), fr.ns.take()))
+        } else {
+            None
+        };
+        let res = self.comp_rest(kind, elt, val, gens, line, id, &names, first_zip, first_iter);
+        if let Some((vars, cnv, ns)) = class_saved {
+            let fr = self.f();
+            fr.vars = vars;
+            fr.enum_cnv = cnv;
+            fr.ns = ns;
+            return res;
+        }
+        for (n, v) in saved {
+            match v {
+                Some(v) => {
+                    self.f().vars.insert(n, v);
+                }
+                None => {
+                    self.f().vars.remove(&n);
+                }
+            }
+        }
+        res
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn comp_rest(&mut self, kind: char, elt: &Ex, val: Option<&Ex>, gens: &[CompFor], line: usize, id: usize, names: &BTreeSet<String>, first_zip: Option<(String, String)>, first_iter: String) -> ER<String> {
         let mut decl = String::new();
-        for n in &names {
+        for n in names {
             let r = format!("c{id}_{}", rust_ident(n));
             write!(decl, "let mut {r}: V = V::Unbound; ").unwrap();
             self.f().vars.insert(n.clone(), Var::Local(r));
@@ -2966,16 +3005,6 @@ impl Em {
             'g' => b.push_str("vec_iter(ItKind::Generator, __out) }"),
             's' => b.push_str("V::Set(Rc::new(RefCell::new(__out))) }"),
             _ => b.push_str("V::Dict(Rc::new(RefCell::new(__out))) }"),
-        }
-        for (n, v) in saved {
-            match v {
-                Some(v) => {
-                    self.f().vars.insert(n, v);
-                }
-                None => {
-                    self.f().vars.remove(&n);
-                }
-            }
         }
         Ok(b)
     }

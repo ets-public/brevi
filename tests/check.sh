@@ -272,7 +272,7 @@ if [ "$1" != "--update" ]; then
 fi
 #== pydantic split
 # pydantic programs must print what CPython's pydantic prints, with Brevi's own pydantic: never CPython. The
-# .expected files come from pydantic 2.13.5 / pydantic-core 2.46.5 (CI has none): `--update` needs it installed.
+# .expected files come from pydantic 2.14.3 / pydantic-core 2.50.4 (CI has none): `--update` needs it installed.
 for f in tests/pydantic/*.py; do
   exp="${f%.py}.expected"
   if [ "$1" = "--update" ]; then
@@ -530,7 +530,7 @@ if [ "$1" != "--update" ]; then
 fi
 kill $srv 2>/dev/null
 #== llm split
-# anthropic and openai programs must print what CPython's anthropic 2.6 and openai 3.46 print (models, streams,
+# anthropic and openai programs must print what CPython's anthropic 2.6 and openai 3.49 print (models, streams,
 # tool calls, errors, retries), with Brevi's own copies over its httpx: never CPython. They talk to the mock API in
 # tests/llm/server.py on 18090. `--update` needs both SDKs (and tools/gen_llm_types.py rewrites the types).
 # tests/check_parallel.py starts this server once for all its jobs (CHECK_SERVERS=1).
