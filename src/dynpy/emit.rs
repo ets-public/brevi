@@ -2486,14 +2486,6 @@ impl Em {
         format!("gtab_{}", rust_ident(&self.module))
     }
     fn call(&mut self, f: &Ex, args: &[Arg], line: usize) -> ER<String> {
-        // warnings.catch_warnings(record=True) is bridged: its list of recorded warnings is copied into a native
-        // list when the block starts, so the warnings CPython appends later never show (len(ws) stays 0).
-        // CPython runs the program until bridged lists stay live.
-        if matches!(f, Ex::Name(n) if n == "catch_warnings") || matches!(f, Ex::Attr(_, n) if n == "catch_warnings") {
-            if args.iter().any(|a| matches!(a, Arg::KwStar(_)) || matches!(a, Arg::Kw(k, v) if k == "record" && !matches!(v, Ex::False))) {
-                return Err(err(line, "warnings.catch_warnings(record=True) is not supported in dynamic builds"));
-            }
-        }
         // warnings.warn(..., stacklevel=2) in the program names a caller's line, which the dynamic build does
         // not keep: CPython runs it (a stacklevel it only learns at run time is refused there, see pyglue)
         if self.track_warn {

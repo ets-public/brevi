@@ -1,1 +1,1 @@
-- **`warnings.catch_warnings(record=True)` runs on CPython** rather than in a dynamic build. Its bridged list of recorded warnings was copied when the block started, so it stayed empty: a silent wrong answer (#438).
+- Dynamic build: `warnings.catch_warnings(record=True)` is no longer refused. The block gets CPython's own list, kept live, and each recorded warning names the program's file, line and module (with the line tracking from the warnings change). A warning at a line the build cannot place is still refused rather than recorded at a wrong line.
