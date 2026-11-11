@@ -98,7 +98,7 @@ done
 big=$(seq 1 2000000 | timeout 120 $BREVI run tests/replay/late_overflow.py --native 2>/dev/null; echo "exit $?")
 want=$(seq 1 2000000 | python3 tests/replay/late_overflow.py; echo "exit $?")
 if [ "$big" != "$want" ]; then echo "FAIL late_overflow (piped)"; fail=1; else echo "ok   late_overflow (piped)"; fi
-#== strict split
+#== strict
 # --strict (BREVI_STRICT=1): no fallback. A file only the dynamic build takes is refused with one
 # {"e":"strict"} line, a typed run past 64 bits stops instead of running again, brevi-python hands nothing to
 # CPython, and every build prints its path line (typed too).
