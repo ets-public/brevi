@@ -339,7 +339,5 @@ jobs:
           if [ -n "$n" ]; then
             gh issue comment "$n" --body-file body.md
           else
-            n=$(gh issue create --title "$title" --label toolchain --body-file body.md | sed 's#.*/##')
-            # Issues opened with the Actions token do not trigger other workflows, so start auto-fix directly.
-            gh workflow run auto-fix.yml -f issue="$n" || echo "could not start auto-fix"
+            gh issue create --title "$title" --label toolchain --body-file body.md
           fi

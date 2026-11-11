@@ -1,5 +1,5 @@
 # Watches everything upstream of Brevi and opens a review issue for each thing that needs work (deduplicated by
-# title; auto-fix.yml then works on it):
+# title; a maintainer works on it):
 #   - new Rust stable, Python, pinned-crate and MCP specification releases (tools/upstream_watch.py)
 #   - new releases of the Python libraries Brevi mirrors natively, with a CPython run of their tests on the pinned
 #     and the new version to show exactly what changed (tools/parity_drift.py, tools/upstream_pins.json)
