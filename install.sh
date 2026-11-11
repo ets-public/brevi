@@ -4,7 +4,7 @@
 # one exists for this machine and checked against the release's SHA256SUMS, or brevi is built from source.
 # It also links brevi-python, the brevi binary acting as python3 (native when Brevi can build the program).
 # usage: sh install.sh            (BREVI_FROM_SOURCE=1 always builds from source;
-#                                  BREVI_VERSION=0.27.0 installs that release instead of the latest)
+#                                  BREVI_VERSION=0.27.1 installs that release instead of the latest)
 set -e
 # Stops with nothing installed: a download that cannot be verified is never unpacked.
 die() {
