@@ -39,3 +39,7 @@ collections.abc.Mapping[str, int] collections.abc.Sequence[int] __main__.A2[int]
 None False True 1
 unhashable type: 'H'
 unhashable type: 'C'
+[(3, 4), (1, 2)] [(3, 4), (1, 2)]
+[3, 1] [3, 1]
+[4, 2] [4, 2]
+[3, 1] [3, 1]

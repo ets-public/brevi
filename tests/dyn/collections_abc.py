@@ -64,3 +64,10 @@ class C(B):
     def __eq__(s, o): return True
 try: hash(C())
 except TypeError as e: print(e)
+
+# reversed() dict iterators pickle as CPython's: iter(list of the rest)
+import pickle
+_d = {1: 2, 3: 4, 5: 6}
+for _it in (reversed(_d.items()), reversed(_d), reversed(_d.values()), reversed(_d.keys())):
+    next(_it)
+    print(list(pickle.loads(pickle.dumps(_it))), list(_it))

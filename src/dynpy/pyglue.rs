@@ -712,6 +712,11 @@ fn iter_reduce(v: &V) -> R {
             It::Dict(d, i, kind, ver, n0) => ItPlan::Dict(d.clone(), *i, *kind, *ver, *n0),
             It::Set(s, i, n0) => ItPlan::Set(s.clone(), *i, *n0),
             It::Done => ItPlan::Seq(vec![]),
+            // reversed() of a dict or its views keeps the rest as It::Vec; CPython pickles those iterators as
+            // iter(list of the rest), as here
+            It::Vec(rest) if matches!(cell.kind, IterClass::Kind(ItKind::DictReverseKeys | ItKind::DictReverseValues | ItKind::DictReverseItems)) => {
+                ItPlan::Seq(rest.as_slice().to_vec())
+            }
             It::Coro(_) | It::GenExp(..) => {
                 return Err(exc("TypeError", "cannot pickle 'generator' object".into()))
             }
