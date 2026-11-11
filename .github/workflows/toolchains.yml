@@ -221,6 +221,8 @@ jobs:
           uv venv --quiet --python 3.13.13 "$RUNNER_TEMP/native"
           uv pip install --quiet --python "$RUNNER_TEMP/native/bin/python" -r tests/requirements-native.txt
           PATH="$RUNNER_TEMP/native/bin:$PATH" python3 tests/check_parallel.py
+          # Brevi's own MCP server over HTTP, driven by the official client
+          PATH="$RUNNER_TEMP/native/bin:$PATH" python3 tests/mcp_http_test.py
 
       - name: MCP server tests
         if: steps.seen.outputs.cache-hit != 'true'
