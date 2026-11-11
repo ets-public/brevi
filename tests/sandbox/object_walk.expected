@@ -1,11 +1,9 @@
 {"path":"dynamic","line":3,"why":"unknown method .__subclasses__()"}
-Traceback (most recent call last):
-AttributeError: 'method' object has no attribute '__mro__'
-exit 1
+True
+exit 0
 -- dynamic
-Traceback (most recent call last):
-AttributeError: 'method' object has no attribute '__mro__'
-exit 1
+True
+exit 0
 -- typed
 {"line":3,"msg":"unknown method .__subclasses__()"}
 exit 1
