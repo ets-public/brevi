@@ -589,41 +589,69 @@ pub fn bi_zip(mut a: Args) -> R {
         Ok(Some(tup(row)))
     }))
 }
+fn map_red_mk(state: V) -> V {
+    red_iter(ItKind::Map, state, map_red_step, map_red_mk, map_red_reduce, None)
+}
+fn map_red_step(st: &Rc<RefCell<V>>) -> Result<Option<V>, E> {
+    let (f, its) = {
+        let s = st.borrow();
+        let V::Tuple(t) = &*s else { return Ok(None) };
+        let V::Tuple(its) = &t[1] else { return Ok(None) };
+        (t[0].clone(), its.to_vec())
+    };
+    let mut args = Vec::with_capacity(its.len());
+    for it in its {
+        match step_value(&it)? {
+            Some(x) => args.push(x),
+            None => return Ok(None),
+        }
+    }
+    Ok(Some(call(&f, Args::p(args))?))
+}
+fn map_red_reduce(state: &V) -> V {
+    let V::Tuple(t) = state else { return tup(vec![builtin(sym("map"), bi_map), tup(vec![])]) };
+    let V::Tuple(its) = &t[1] else { return tup(vec![builtin(sym("map"), bi_map), tup(vec![])]) };
+    let mut a = vec![t[0].clone()];
+    a.extend(its.iter().cloned());
+    tup(vec![builtin(sym("map"), bi_map), tup(a)])
+}
 pub fn bi_map(a: Args) -> R {
     if a.p.len() < 2 {
         return type_err("map() must have at least two arguments.".into());
     }
     let f = a.p[0].clone();
-    let mut its: Vec<Rc<RefCell<It>>> = vec![];
+    let mut its = vec![];
     for x in &a.p[1..] {
-        its.push(shared_input(x)?);
+        its.push(iter_v(x)?);
     }
-    Ok(shared_iter(ItKind::Map, move || {
-        let mut args = Vec::with_capacity(its.len());
-        for it in its.iter() {
-            match iter_step(it)? {
-                Some(x) => args.push(x),
-                None => return Ok(None),
-            }
+    Ok(map_red_mk(tup(vec![f, tup(its)])))
+}
+fn filter_red_mk(state: V) -> V {
+    red_iter(ItKind::Filter, state, filter_red_step, filter_red_mk, filter_red_reduce, None)
+}
+fn filter_red_step(st: &Rc<RefCell<V>>) -> Result<Option<V>, E> {
+    let (f, it) = {
+        let s = st.borrow();
+        let V::Tuple(t) = &*s else { return Ok(None) };
+        (t[0].clone(), t[1].clone())
+    };
+    loop {
+        let Some(x) = step_value(&it)? else { return Ok(None) };
+        let keep = if matches!(f, V::None) { truth(&x)? } else { truth(&call(&f, Args::p(vec![x.clone()]))?)? };
+        if keep {
+            return Ok(Some(x));
         }
-        Ok(Some(call(&f, Args::p(args))?))
-    }))
+    }
+}
+fn filter_red_reduce(state: &V) -> V {
+    let V::Tuple(t) = state else { return tup(vec![builtin(sym("filter"), bi_filter), tup(vec![])]) };
+    tup(vec![builtin(sym("filter"), bi_filter), tup(vec![t[0].clone(), t[1].clone()])])
 }
 pub fn bi_filter(a: Args) -> R {
     a.want("filter", 2, 2)?;
     let f = a.p[0].clone();
-    let mut it = iter(&a.p[1])?;
-    Ok(gen_iter(ItKind::Filter, move || loop {
-        match it.next()? {
-            Some(x) => {
-                let keep = if matches!(f, V::None) { truth(&x)? } else { truth(&call(&f, Args::p(vec![x.clone()]))?)? };
-                if keep {
-                    return Ok(Some(x));
-                }
-            }
-            None => return Ok(None),
-        }
-    }))
+    let it = iter_v(&a.p[1])?;
+    Ok(filter_red_mk(tup(vec![f, it])))
 }
 pub fn bi_any(a: Args) -> R {
     let mut it = iter(&a1(&a, "any")?)?;
@@ -3125,6 +3153,17 @@ pub fn builtin_method(o: &V, name: &str, a: Args) -> R {
                 };
                 let r = c.borrow_mut().close_py();
                 r
+            }
+            "__reduce__" => {
+                let Some(r) = red_of(it) else { return bad_method(o, name) };
+                let s = r.state.borrow();
+                Ok((r.reduce)(&s))
+            }
+            "__setstate__" => {
+                let Some(r) = red_of(it) else { return bad_method(o, name) };
+                let Some(set) = r.set else { return bad_method(o, name) };
+                set(&r.state, a1(&a, name)?)?;
+                Ok(V::None)
             }
             _ => bad_method(o, name),
         },

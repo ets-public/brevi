@@ -1567,101 +1567,823 @@ fn islice_ssize(v: &V, none: i64) -> i64 {
 const ISLICE_STOP_MSG: &str = "Stop argument for islice() must be None or an integer: 0 <= x <= sys.maxsize.";
 const ISLICE_START_MSG: &str = "Indices for islice() must be None or an integer: 0 <= x <= sys.maxsize.";
 const ISLICE_STEP_MSG: &str = "Step for islice() must be a positive integer or None.";
+
+// itertools.chain's state: (source, active) where source is an iterator over the tuple of input
+// iterables and active is the input iterator currently being drained (None before the first one).
+fn chain_parts(st: &Rc<RefCell<V>>) -> (V, Option<V>) {
+    let s = st.borrow();
+    let V::Tuple(t) = &*s else { return (V::None, None) };
+    let a = if matches!(t[1], V::None) { None } else { Some(t[1].clone()) };
+    (t[0].clone(), a)
+}
+fn chain_set(st: &Rc<RefCell<V>>, src: V, active: Option<V>) {
+    *st.borrow_mut() = tup(vec![src, active.unwrap_or(V::None)]);
+}
+fn red_chain_step(st: &Rc<RefCell<V>>) -> Result<Option<V>, E> {
+    let (src, mut cur) = chain_parts(st);
+    loop {
+        if let Some(a) = &cur {
+            if let Some(x) = step_value(a)? {
+                chain_set(st, src.clone(), cur);
+                return Ok(Some(x));
+            }
+            cur = None;
+        }
+        let Some(n) = step_value(&src)? else {
+            chain_set(st, src, None);
+            return Ok(None);
+        };
+        cur = Some(iter_v(&n)?);
+        chain_set(st, src.clone(), cur.clone());
+    }
+}
+fn red_chain_mk(state: V) -> V {
+    red_iter(ItKind::ItChain, state, red_chain_step, red_chain_mk, red_chain_reduce, Some(red_chain_set))
+}
+fn red_chain_reduce(state: &V) -> V {
+    let V::Tuple(t) = state else { return tup(vec![modfn("itertools", "chain"), tup(vec![]), tup(vec![])]) };
+    let st = if matches!(t[1], V::None) { tup(vec![t[0].clone()]) } else { tup(vec![t[0].clone(), t[1].clone()]) };
+    tup(vec![modfn("itertools", "chain"), tup(vec![]), st])
+}
+fn red_chain_set(st: &Rc<RefCell<V>>, arg: V) -> Result<(), E> {
+    let V::Tuple(t) = arg else {
+        return Err(exc("TypeError", "state is not a tuple".into()));
+    };
+    match t.len() {
+        1 | 2 => {}
+        0 => return Err(exc("TypeError", "function takes at least 1 argument (0 given)".into())),
+        n => return Err(exc("TypeError", format!("function takes at most 2 arguments ({n} given)"))),
+    }
+    if !is_iter_value(&t[0]) || (t.len() == 2 && !is_iter_value(&t[1])) {
+        return Err(exc("TypeError", "Arguments must be iterators.".into()));
+    }
+    *st.borrow_mut() = tup(vec![t[0].clone(), if t.len() == 2 { t[1].clone() } else { V::None }]);
+    Ok(())
+}
+
+// The single-source iterators whose __reduce__ is just `(type, (func, it))` (or two iterators, for compress).
+fn red_src_state(a: V, b: V) -> V {
+    tup(vec![a, b])
+}
+fn compress_red_mk(state: V) -> V {
+    red_iter(ItKind::ItCompress, state, compress_red_step, compress_red_mk, compress_red_reduce, None)
+}
+fn compress_red_step(st: &Rc<RefCell<V>>) -> Result<Option<V>, E> {
+    let (data, sel) = {
+        let s = st.borrow();
+        let V::Tuple(t) = &*s else { return Ok(None) };
+        (t[0].clone(), t[1].clone())
+    };
+    loop {
+        let Some(x) = step_value(&data)? else { return Ok(None) };
+        let Some(s) = step_value(&sel)? else { return Ok(None) };
+        if truth(&s)? {
+            return Ok(Some(x));
+        }
+    }
+}
+fn compress_red_reduce(state: &V) -> V {
+    let V::Tuple(t) = state else { return tup(vec![modfn("itertools", "compress"), tup(vec![])]) };
+    tup(vec![modfn("itertools", "compress"), tup(vec![t[0].clone(), t[1].clone()])])
+}
+
+fn starmap_red_mk(state: V) -> V {
+    red_iter(ItKind::ItStarmap, state, starmap_red_step, starmap_red_mk, starmap_red_reduce, None)
+}
+fn starmap_red_step(st: &Rc<RefCell<V>>) -> Result<Option<V>, E> {
+    let (f, it) = {
+        let s = st.borrow();
+        let V::Tuple(t) = &*s else { return Ok(None) };
+        (t[0].clone(), t[1].clone())
+    };
+    match step_value(&it)? {
+        Some(x) => Ok(Some(call(&f, Args::p(to_vec(&x)?))?)),
+        None => Ok(None),
+    }
+}
+fn starmap_red_reduce(state: &V) -> V {
+    let V::Tuple(t) = state else { return tup(vec![modfn("itertools", "starmap"), tup(vec![])]) };
+    tup(vec![modfn("itertools", "starmap"), tup(vec![t[0].clone(), t[1].clone()])])
+}
+
+fn filterfalse_red_mk(state: V) -> V {
+    red_iter(ItKind::ItFilterfalse, state, filterfalse_red_step, filterfalse_red_mk, filterfalse_red_reduce, None)
+}
+fn filterfalse_red_step(st: &Rc<RefCell<V>>) -> Result<Option<V>, E> {
+    let (f, it) = {
+        let s = st.borrow();
+        let V::Tuple(t) = &*s else { return Ok(None) };
+        (t[0].clone(), t[1].clone())
+    };
+    loop {
+        let Some(x) = step_value(&it)? else { return Ok(None) };
+        let t = if matches!(f, V::None) { truth(&x)? } else { truth(&call(&f, Args::p(vec![x.clone()]))?)? };
+        if !t {
+            return Ok(Some(x));
+        }
+    }
+}
+fn filterfalse_red_reduce(state: &V) -> V {
+    let V::Tuple(t) = state else { return tup(vec![modfn("itertools", "filterfalse"), tup(vec![])]) };
+    tup(vec![modfn("itertools", "filterfalse"), tup(vec![t[0].clone(), t[1].clone()])])
+}
+
+fn dropwhile_red_mk(state: V) -> V {
+    red_iter(ItKind::ItDropwhile, state, dropwhile_red_step, dropwhile_red_mk, dropwhile_red_reduce, Some(dropwhile_red_set))
+}
+fn dropwhile_red_step(st: &Rc<RefCell<V>>) -> Result<Option<V>, E> {
+    let (f, it, start) = {
+        let s = st.borrow();
+        let V::Tuple(t) = &*s else { return Ok(None) };
+        (t[0].clone(), t[1].clone(), !matches!(t[2], V::Int(0)))
+    };
+    if start {
+        return step_value(&it);
+    }
+    loop {
+        let Some(x) = step_value(&it)? else { return Ok(None) };
+        if !truth(&call(&f, Args::p(vec![x.clone()]))?)? {
+            *st.borrow_mut() = tup(vec![f, it, V::Int(1)]);
+            return Ok(Some(x));
+        }
+    }
+}
+fn dropwhile_red_reduce(state: &V) -> V {
+    let V::Tuple(t) = state else { return tup(vec![modfn("itertools", "dropwhile"), tup(vec![]), V::Int(0)]) };
+    tup(vec![modfn("itertools", "dropwhile"), tup(vec![t[0].clone(), t[1].clone()]), t[2].clone()])
+}
+fn dropwhile_red_set(st: &Rc<RefCell<V>>, arg: V) -> Result<(), E> {
+    let start = truth(&arg)?;
+    let (f, it) = {
+        let s = st.borrow();
+        let V::Tuple(t) = &*s else { return Ok(()) };
+        (t[0].clone(), t[1].clone())
+    };
+    *st.borrow_mut() = tup(vec![f, it, V::Int(start as i64)]);
+    Ok(())
+}
+
+fn takewhile_red_mk(state: V) -> V {
+    red_iter(ItKind::ItTakewhile, state, takewhile_red_step, takewhile_red_mk, takewhile_red_reduce, Some(takewhile_red_set))
+}
+fn takewhile_red_step(st: &Rc<RefCell<V>>) -> Result<Option<V>, E> {
+    let (f, it, stop) = {
+        let s = st.borrow();
+        let V::Tuple(t) = &*s else { return Ok(None) };
+        (t[0].clone(), t[1].clone(), !matches!(t[2], V::Int(0)))
+    };
+    if stop {
+        return Ok(None);
+    }
+    let Some(x) = step_value(&it)? else { return Ok(None) };
+    if !truth(&call(&f, Args::p(vec![x.clone()]))?)? {
+        *st.borrow_mut() = tup(vec![f, it, V::Int(1)]);
+        return Ok(None);
+    }
+    Ok(Some(x))
+}
+fn takewhile_red_reduce(state: &V) -> V {
+    let V::Tuple(t) = state else { return tup(vec![modfn("itertools", "takewhile"), tup(vec![]), V::Int(0)]) };
+    tup(vec![modfn("itertools", "takewhile"), tup(vec![t[0].clone(), t[1].clone()]), t[2].clone()])
+}
+fn takewhile_red_set(st: &Rc<RefCell<V>>, arg: V) -> Result<(), E> {
+    let stop = truth(&arg)?;
+    let (f, it) = {
+        let s = st.borrow();
+        let V::Tuple(t) = &*s else { return Ok(()) };
+        (t[0].clone(), t[1].clone())
+    };
+    *st.borrow_mut() = tup(vec![f, it, V::Int(stop as i64)]);
+    Ok(())
+}
+
+// islice: state is (it, next, stop, step, cnt); next is the index of the next item to yield, cnt counts the
+// source items already read.
+fn islice_red_mk(state: V) -> V {
+    red_iter(ItKind::ItIslice, state, islice_red_step, islice_red_mk, islice_red_reduce, Some(islice_red_set))
+}
+fn islice_red_step(st: &Rc<RefCell<V>>) -> Result<Option<V>, E> {
+    let (it, mut next, stop, step, mut cnt) = {
+        let s = st.borrow();
+        let V::Tuple(t) = &*s else { return Ok(None) };
+        let V::Int(next) = t[1] else { return Ok(None) };
+        let V::Int(stop) = t[2] else { return Ok(None) };
+        let V::Int(step) = t[3] else { return Ok(None) };
+        let V::Int(cnt) = t[4] else { return Ok(None) };
+        (t[0].clone(), next, stop, step, cnt)
+    };
+    loop {
+        if cnt >= stop {
+            return Ok(None);
+        }
+        let Some(x) = step_value(&it)? else { return Ok(None) };
+        cnt += 1;
+        if cnt <= next {
+            continue;
+        }
+        next = (next + step).min(stop);
+        *st.borrow_mut() = tup(vec![it, V::Int(next), V::Int(stop), V::Int(step), V::Int(cnt)]);
+        return Ok(Some(x));
+    }
+}
+fn islice_red_reduce(state: &V) -> V {
+    let V::Tuple(t) = state else { return tup(vec![modfn("itertools", "islice"), tup(vec![]), V::Int(0)]) };
+    tup(vec![
+        modfn("itertools", "islice"),
+        tup(vec![t[0].clone(), t[1].clone(), t[2].clone(), t[3].clone()]),
+        t[4].clone(),
+    ])
+}
+fn islice_red_set(st: &Rc<RefCell<V>>, arg: V) -> Result<(), E> {
+    let cnt = match &arg {
+        V::Int(i) => *i,
+        V::Bool(b) => *b as i64,
+        V::Big(_) => return Err(exc("OverflowError", "Python int too large to convert to C ssize_t".into())),
+        V::Obj(o) if o.cls.lookup("__index__").is_some() => {
+            let r = call(&o.cls.lookup("__index__").unwrap(), Args::p(vec![arg.clone()]))?;
+            match r {
+                V::Int(i) => i,
+                _ => return Err(exc("TypeError", "an integer is required".into())),
+            }
+        }
+        V::Obj(_) if matches!(inner_of(&arg), Some(V::Int(_) | V::Bool(_) | V::Big(_))) => match inner_of(&arg).unwrap() {
+            V::Int(i) => i,
+            _ => return Err(exc("OverflowError", "Python int too large to convert to C ssize_t".into())),
+        },
+        _ => return Err(exc("TypeError", "an integer is required".into())),
+    };
+    let (it, next, stop, step) = {
+        let s = st.borrow();
+        let V::Tuple(t) = &*s else { return Ok(()) };
+        (t[0].clone(), t[1].clone(), t[2].clone(), t[3].clone())
+    };
+    *st.borrow_mut() = tup(vec![it, next, stop, step, V::Int(cnt)]);
+    Ok(())
+}
+
+// zip_longest: state is (iterators, active, fillvalue); an exhausted slot is None.
+fn zip_longest_red_mk(state: V) -> V {
+    red_iter(ItKind::ItZipLongest, state, zip_longest_red_step, zip_longest_red_mk, zip_longest_red_reduce, None)
+}
+fn zip_longest_red_step(st: &Rc<RefCell<V>>) -> Result<Option<V>, E> {
+    let (its, mut active, fill) = {
+        let s = st.borrow();
+        let V::Tuple(t) = &*s else { return Ok(None) };
+        let V::Tuple(its) = &t[0] else { return Ok(None) };
+        let V::Int(active) = t[1] else { return Ok(None) };
+        (its.to_vec(), active, t[2].clone())
+    };
+    if active == 0 {
+        return Ok(None);
+    }
+    let mut row = Vec::with_capacity(its.len());
+    for (i, slot) in its.into_iter().enumerate() {
+        if matches!(slot, V::None) {
+            row.push(fill.clone());
+            continue;
+        }
+        match step_value(&slot)? {
+            Some(x) => row.push(x),
+            None => {
+                active -= 1;
+                let mut ns = Vec::with_capacity(0);
+                {
+                    let s = st.borrow();
+                    let V::Tuple(t) = &*s else { return Ok(None) };
+                    let V::Tuple(all) = &t[0] else { return Ok(None) };
+                    ns = all.to_vec();
+                }
+                ns[i] = V::None;
+                *st.borrow_mut() = tup(vec![tup(ns), V::Int(active), fill.clone()]);
+                if active == 0 {
+                    return Ok(None);
+                }
+                row.push(fill.clone());
+            }
+        }
+    }
+    Ok(Some(tup(row)))
+}
+fn zip_longest_red_reduce(state: &V) -> V {
+    let V::Tuple(t) = state else { return tup(vec![modfn("itertools", "zip_longest"), tup(vec![]), V::None]) };
+    let V::Tuple(its) = &t[0] else { return tup(vec![modfn("itertools", "zip_longest"), tup(vec![]), V::None]) };
+    let srcs = its.iter().map(|x| if matches!(x, V::None) { tup(vec![]) } else { x.clone() }).collect();
+    tup(vec![modfn("itertools", "zip_longest"), tup(srcs), t[2].clone()])
+}
+
+// The CPython int conversion of __setstate__ arguments that are an index or a flag.
+fn it_index_arg(v: &V) -> Result<i64, E> {
+    match v {
+        V::Int(i) => Ok(*i),
+        V::Bool(b) => Ok(*b as i64),
+        V::Big(_) => Err(exc("OverflowError", "Python int too large to convert to C ssize_t".into())),
+        V::Obj(o) if o.cls.lookup("__index__").is_some() => {
+            let r = call(&o.cls.lookup("__index__").unwrap(), Args::p(vec![v.clone()]))?;
+            match r {
+                V::Int(i) => Ok(i),
+                V::Big(_) => Err(exc("OverflowError", "Python int too large to convert to C ssize_t".into())),
+                x => Err(exc("TypeError", format!("__index__ returned non-int (type {})", tn(&x)))),
+            }
+        }
+        V::Obj(_) if matches!(inner_of(v), Some(V::Int(_) | V::Bool(_) | V::Big(_))) => match inner_of(v).unwrap() {
+            V::Int(i) => Ok(i),
+            _ => Err(exc("OverflowError", "Python int too large to convert to C ssize_t".into())),
+        },
+        _ => Err(exc("TypeError", format!("'{}' object cannot be interpreted as an integer", tn(v)))),
+    }
+}
+
+// cycle: state is (source, saved, firstpass, index). firstpass==0 reads the source and appends to saved;
+// firstpass==1 cycles over saved.
+fn cycle_red_mk(state: V) -> V {
+    red_iter(ItKind::ItCycle, state, cycle_red_step, cycle_red_mk, cycle_red_reduce, Some(cycle_red_set))
+}
+fn cycle_red_step(st: &Rc<RefCell<V>>) -> Result<Option<V>, E> {
+    let (src, saved, firstpass, idx) = {
+        let s = st.borrow();
+        let V::Tuple(t) = &*s else { return Ok(None) };
+        let V::List(sv) = &t[1] else { return Ok(None) };
+        let V::Int(idx) = t[3] else { return Ok(None) };
+        (if matches!(t[0], V::None) { None } else { Some(t[0].clone()) }, sv.clone(), !matches!(t[2], V::Int(0)), idx)
+    };
+    if let Some(src) = src {
+        if let Some(x) = step_value(&src)? {
+            if !firstpass {
+                saved.borrow_mut().push(x.clone());
+            }
+            return Ok(Some(x));
+        }
+        let n = saved.borrow().len() as i64;
+        *st.borrow_mut() = tup(vec![V::None, V::List(saved.clone()), V::Int(1), V::Int(if n == 0 { 0 } else { idx % n })]);
+        // fall through to cycle over the saved items
+    }
+    let n = saved.borrow().len();
+    if n == 0 {
+        return Ok(None);
+    }
+    let i = idx.rem_euclid(n as i64) as usize;
+    let x = saved.borrow()[i].clone();
+    *st.borrow_mut() = tup(vec![V::None, V::List(saved.clone()), V::Int(1), V::Int(((i + 1) % n) as i64)]);
+    Ok(Some(x))
+}
+fn cycle_red_reduce(state: &V) -> V {
+    let V::Tuple(t) = state else { return tup(vec![modfn("itertools", "cycle"), tup(vec![]), tup(vec![V::None, V::Int(0)])]) };
+    let V::List(sv) = &t[1] else { return tup(vec![modfn("itertools", "cycle"), tup(vec![]), tup(vec![V::None, V::Int(0)])]) };
+    let V::Int(idx) = t[3] else { return tup(vec![modfn("itertools", "cycle"), tup(vec![]), tup(vec![V::None, V::Int(0)])]) };
+    let src = if matches!(t[0], V::None) { list_iter_at(sv, idx as usize) } else { t[0].clone() };
+    tup(vec![modfn("itertools", "cycle"), tup(vec![src]), tup(vec![V::List(sv.clone()), t[2].clone()])])
+}
+fn cycle_red_set(st: &Rc<RefCell<V>>, arg: V) -> Result<(), E> {
+    let V::Tuple(t) = arg else {
+        return Err(exc("TypeError", "state is not a tuple".into()));
+    };
+    if t.len() != 2 {
+        return Err(exc("TypeError", format!("function takes exactly 2 arguments ({} given)", t.len())));
+    }
+    let V::List(sv) = &t[0] else {
+        return Err(exc("TypeError", format!("argument 1 must be list, not {}", tn(&t[0]))));
+    };
+    let fp = it_index_arg(&t[1])?;
+    let src = {
+        let s = st.borrow();
+        let V::Tuple(cur) = &*s else { return Ok(()) };
+        cur[0].clone()
+    };
+    *st.borrow_mut() = tup(vec![src, V::List(sv.clone()), V::Int(if fp == 0 { 0 } else { 1 }), V::Int(0)]);
+    Ok(())
+}
+
+// accumulate: state is (iterable, current iterator, total, initial, func, started). The current iterator is
+// made lazily when initial is set, so __reduce__ can show CPython's chain over [initial] + iterable first.
+fn accumulate_red_mk(state: V) -> V {
+    red_iter(ItKind::ItAccumulate, state, accumulate_red_step, accumulate_red_mk, accumulate_red_reduce, Some(accumulate_red_set))
+}
+fn accumulate_red_step(st: &Rc<RefCell<V>>) -> Result<Option<V>, E> {
+    let (iterable, cur, total, initial, f, started) = {
+        let s = st.borrow();
+        let V::Tuple(t) = &*s else { return Ok(None) };
+        (
+            t[0].clone(),
+            if matches!(t[1], V::None) { None } else { Some(t[1].clone()) },
+            if matches!(t[2], V::None) { None } else { Some(t[2].clone()) },
+            if matches!(t[3], V::None) { None } else { Some(t[3].clone()) },
+            if matches!(t[4], V::None) { None } else { Some(t[4].clone()) },
+            !matches!(t[5], V::Int(0)),
+        )
+    };
+    let cur = match cur {
+        Some(c) => c,
+        None => {
+            let c = iter_v(&iterable)?;
+            let (total, initial, f) = (total.clone(), initial.clone(), f.clone());
+            *st.borrow_mut() = tup(vec![iterable.clone(), c.clone(), total.map_or(V::None, |x| x.clone()), initial.unwrap_or(V::None), f.unwrap_or(V::None), V::Int(1)]);
+            c
+        }
+    };
+    if !started {
+        let x = if let Some(i) = initial {
+            i
+        } else {
+            match step_value(&cur)? {
+                Some(x) => x,
+                None => {
+                    *st.borrow_mut() = tup(vec![iterable, cur, V::None, V::None, f.unwrap_or(V::None), V::Int(1)]);
+                    return Ok(None);
+                }
+            }
+        };
+        *st.borrow_mut() = tup(vec![iterable, cur, x.clone(), V::None, f.unwrap_or(V::None), V::Int(1)]);
+        return Ok(Some(x));
+    }
+    let Some(x) = step_value(&cur)? else { return Ok(None) };
+    let v = match total {
+        None => x,
+        Some(p) => match &f {
+            Some(f) => call(f, Args::p(vec![p, x]))?,
+            None => add(&p, &x)?,
+        },
+    };
+    *st.borrow_mut() = tup(vec![iterable, cur, v.clone(), V::None, f.unwrap_or(V::None), V::Int(1)]);
+    Ok(Some(v))
+}
+fn accumulate_red_reduce(state: &V) -> V {
+    let V::Tuple(t) = state else { return tup(vec![modfn("itertools", "accumulate"), tup(vec![V::None, V::None]), V::None]) };
+    let started = !matches!(t[5], V::Int(0));
+    let has_init = !matches!(t[3], V::None);
+    let src = if !started && has_init {
+        itertools_fn("chain", Args::p(vec![list(vec![t[3].clone()]), t[0].clone()])).unwrap_or(t[1].clone())
+    } else {
+        t[1].clone()
+    };
+    tup(vec![modfn("itertools", "accumulate"), tup(vec![src, t[4].clone()]), t[2].clone()])
+}
+fn accumulate_red_set(st: &Rc<RefCell<V>>, arg: V) -> Result<(), E> {
+    let (iterable, cur, f) = {
+        let s = st.borrow();
+        let V::Tuple(t) = &*s else { return Ok(()) };
+        (t[0].clone(), t[1].clone(), t[4].clone())
+    };
+    let cur = if matches!(cur, V::None) { iter_v(&iterable)? } else { cur };
+    *st.borrow_mut() = tup(vec![iterable, cur, arg, V::None, f, V::Int(1)]);
+    Ok(())
+}
+
+// combinations and combinations_with_replacement: state is (pool, r, indices, started, stopped).
+fn combinations_state(pool: V, r: i64, rep: bool) -> V {
+    let n = match &pool {
+        V::Tuple(t) => t.len() as i64,
+        _ => 0,
+    };
+    let idx: Vec<V> = (0..r).map(|i| V::Int(if rep { 0 } else { i })).collect();
+    let stopped = if rep { n == 0 && r > 0 } else { r > n };
+    tup(vec![pool, V::Int(r), tup(idx), V::Int(0), V::Int(stopped as i64)])
+}
+fn combinations_step(st: &Rc<RefCell<V>>, rep: bool) -> Result<Option<V>, E> {
+    let (pool, r, idx, started, stopped) = {
+        let s = st.borrow();
+        let V::Tuple(t) = &*s else { return Ok(None) };
+        let V::Tuple(p) = &t[0] else { return Ok(None) };
+        let V::Int(r) = t[1] else { return Ok(None) };
+        let V::Tuple(idx) = &t[2] else { return Ok(None) };
+        (p.to_vec(), r, idx.to_vec(), !matches!(t[3], V::Int(0)), !matches!(t[4], V::Int(0)))
+    };
+    if stopped {
+        return Ok(None);
+    }
+    if !started {
+        let out = idx.iter().map(|i| pool[usize_of(i, pool.len())].clone()).collect();
+        *st.borrow_mut() = tup(vec![V::Tuple(vt(pool)), V::Int(r), V::Tuple(vt(idx)), V::Int(1), V::Int(0)]);
+        return Ok(Some(tup(out)));
+    }
+    let n = pool.len() as i64;
+    let mut found = false;
+    let mut i = r as usize;
+    while i > 0 {
+        i -= 1;
+        let lim = if rep { n - 1 } else { i as i64 + n - r };
+        if idx_of(&idx[i]).unwrap_or(0) != lim {
+            found = true;
+            break;
+        }
+    }
+    if !found {
+        *st.borrow_mut() = tup(vec![V::Tuple(vt(pool)), V::Int(r), V::Tuple(vt(idx)), V::Int(1), V::Int(1)]);
+        return Ok(None);
+    }
+    let mut idx = idx;
+    idx[i] = V::Int(idx_of(&idx[i]).unwrap_or(0) + 1);
+    if rep {
+        let v = idx[i].clone();
+        for j in i + 1..r as usize {
+            idx[j] = v.clone();
+        }
+    } else {
+        for j in i + 1..r as usize {
+            idx[j] = V::Int(idx_of(&idx[j - 1]).unwrap_or(0) + 1);
+        }
+    }
+    let out = idx.iter().map(|k| pool[usize_of(k, pool.len())].clone()).collect();
+    *st.borrow_mut() = tup(vec![V::Tuple(vt(pool)), V::Int(r), V::Tuple(vt(idx)), V::Int(1), V::Int(0)]);
+    Ok(Some(tup(out)))
+}
+fn usize_of(v: &V, n: usize) -> usize {
+    idx_of(v).unwrap_or(0).clamp(0, n.saturating_sub(1) as i64) as usize
+}
+fn vt(items: Vec<V>) -> Tup {
+    match tup(items) {
+        V::Tuple(t) => t,
+        _ => unreachable!(),
+    }
+}
+fn combinations_red_mk(state: V) -> V {
+    red_iter(ItKind::ItCombinations, state, |s| combinations_step(s, false), combinations_red_mk, combinations_red_reduce, Some(combinations_red_set))
+}
+fn combinations_red_reduce(state: &V) -> V {
+    let V::Tuple(t) = state else { return tup(vec![modfn("itertools", "combinations"), tup(vec![])]) };
+    let args = tup(vec![t[0].clone(), t[1].clone()]);
+    if matches!(t[3], V::Int(0)) {
+        tup(vec![modfn("itertools", "combinations"), args])
+    } else {
+        tup(vec![modfn("itertools", "combinations"), args, t[2].clone()])
+    }
+}
+fn comb_arg_int(v: &V) -> Result<i64, E> {
+    match v {
+        V::Int(i) => Ok(*i),
+        V::Bool(b) => Ok(*b as i64),
+        V::Big(_) => Err(exc("OverflowError", "Python int too large to convert to C ssize_t".into())),
+        V::Obj(o) if o.cls.lookup("__index__").is_some() => {
+            let r = call(&o.cls.lookup("__index__").unwrap(), Args::p(vec![v.clone()]))?;
+            match r {
+                V::Int(i) => Ok(i),
+                _ => Err(exc("TypeError", "an integer is required".into())),
+            }
+        }
+        _ => Err(exc("TypeError", "an integer is required".into())),
+    }
+}
+fn combinations_red_set(st: &Rc<RefCell<V>>, arg: V) -> Result<(), E> {
+    let V::Tuple(t) = arg else {
+        return Err(exc("ValueError", "invalid arguments".into()));
+    };
+    let (pool, r) = {
+        let s = st.borrow();
+        let V::Tuple(cur) = &*s else { return Ok(()) };
+        let V::Int(r) = cur[1] else { return Ok(()) };
+        (cur[0].clone(), r)
+    };
+    let n = match &pool {
+        V::Tuple(p) => p.len() as i64,
+        _ => 0,
+    };
+    if t.len() as i64 != r {
+        return Err(exc("ValueError", "invalid arguments".into()));
+    }
+    let mut idx = vec![];
+    for (i, x) in t.iter().enumerate() {
+        let v = comb_arg_int(x)?;
+        let max = i as i64 + n - r;
+        idx.push(V::Int(v.clamp(0, max.max(0))));
+    }
+    *st.borrow_mut() = tup(vec![pool, V::Int(r), tup(idx), V::Int(1), V::Int(0)]);
+    Ok(())
+}
+fn cwr_red_mk(state: V) -> V {
+    red_iter(ItKind::ItCombinationsWithReplacement, state, |s| combinations_step(s, true), cwr_red_mk, cwr_red_reduce, Some(cwr_red_set))
+}
+fn cwr_red_reduce(state: &V) -> V {
+    let V::Tuple(t) = state else { return tup(vec![modfn("itertools", "combinations_with_replacement"), tup(vec![])]) };
+    let args = tup(vec![t[0].clone(), t[1].clone()]);
+    if matches!(t[3], V::Int(0)) {
+        tup(vec![modfn("itertools", "combinations_with_replacement"), args])
+    } else {
+        tup(vec![modfn("itertools", "combinations_with_replacement"), args, t[2].clone()])
+    }
+}
+fn cwr_red_set(st: &Rc<RefCell<V>>, arg: V) -> Result<(), E> {
+    let V::Tuple(t) = arg else {
+        return Err(exc("ValueError", "invalid arguments".into()));
+    };
+    let (pool, r) = {
+        let s = st.borrow();
+        let V::Tuple(cur) = &*s else { return Ok(()) };
+        let V::Int(r) = cur[1] else { return Ok(()) };
+        (cur[0].clone(), r)
+    };
+    let n = match &pool {
+        V::Tuple(p) => p.len() as i64,
+        _ => 0,
+    };
+    if t.len() as i64 != r {
+        return Err(exc("ValueError", "invalid arguments".into()));
+    }
+    let mut idx = vec![];
+    for x in t.iter() {
+        idx.push(V::Int(comb_arg_int(x)?.clamp(0, (n - 1).max(0))));
+    }
+    *st.borrow_mut() = tup(vec![pool, V::Int(r), tup(idx), V::Int(1), V::Int(0)]);
+    Ok(())
+}
+
+// permutations: state is (pool, r, indices, cycles, started, stopped); indices and cycles are both length n.
+fn permutations_red_mk(state: V) -> V {
+    red_iter(ItKind::ItPermutations, state, permutations_red_step, permutations_red_mk, permutations_red_reduce, Some(permutations_red_set))
+}
+fn permutations_red_step(st: &Rc<RefCell<V>>) -> Result<Option<V>, E> {
+    let (pool, r, mut idx, mut cyc, started, mut stopped) = {
+        let s = st.borrow();
+        let V::Tuple(t) = &*s else { return Ok(None) };
+        let V::Tuple(p) = &t[0] else { return Ok(None) };
+        let V::Int(r) = t[1] else { return Ok(None) };
+        let V::Tuple(idx) = &t[2] else { return Ok(None) };
+        let V::Tuple(cyc) = &t[3] else { return Ok(None) };
+        (p.to_vec(), r, idx.to_vec(), cyc.to_vec(), !matches!(t[4], V::Int(0)), !matches!(t[5], V::Int(0)))
+    };
+    if stopped || r > pool.len() as i64 {
+        return Ok(None);
+    }
+    let out = || -> Vec<V> { idx[..r as usize].iter().map(|k| pool[usize_of(k, pool.len())].clone()).collect() };
+    if !started {
+        *st.borrow_mut() = tup(vec![V::Tuple(vt(pool)), V::Int(r), V::Tuple(vt(idx.clone())), V::Tuple(vt(cyc)), V::Int(1), V::Int(0)]);
+        return Ok(Some(tup(out())));
+    }
+    let n = pool.len();
+    if n == 0 {
+        stopped = true;
+        *st.borrow_mut() = tup(vec![V::Tuple(vt(pool)), V::Int(r), V::Tuple(vt(idx)), V::Tuple(vt(cyc)), V::Int(1), V::Int(1)]);
+        return Ok(None);
+    }
+    let mut i = r as usize;
+    loop {
+        if i == 0 {
+            stopped = true;
+            *st.borrow_mut() = tup(vec![V::Tuple(vt(pool)), V::Int(r), V::Tuple(vt(idx)), V::Tuple(vt(cyc)), V::Int(1), V::Int(1)]);
+            return Ok(None);
+        }
+        i -= 1;
+        cyc[i] = V::Int(idx_of(&cyc[i]).unwrap_or(0) - 1);
+        if idx_of(&cyc[i]).unwrap_or(0) == 0 {
+            let x = idx.remove(i);
+            idx.push(x);
+            cyc[i] = V::Int((n - i) as i64);
+        } else {
+            let j = idx_of(&cyc[i]).unwrap_or(0) as usize;
+            idx.swap(i, n - j);
+            let out = out();
+            *st.borrow_mut() = tup(vec![V::Tuple(vt(pool)), V::Int(r), V::Tuple(vt(idx)), V::Tuple(vt(cyc)), V::Int(1), V::Int(0)]);
+            return Ok(Some(tup(out)));
+        }
+    }
+}
+fn permutations_red_reduce(state: &V) -> V {
+    let V::Tuple(t) = state else { return tup(vec![modfn("itertools", "permutations"), tup(vec![])]) };
+    let args = tup(vec![t[0].clone(), t[1].clone()]);
+    if matches!(t[4], V::Int(0)) {
+        tup(vec![modfn("itertools", "permutations"), args])
+    } else {
+        tup(vec![modfn("itertools", "permutations"), args, tup(vec![t[2].clone(), t[3].clone()])])
+    }
+}
+fn permutations_red_set(st: &Rc<RefCell<V>>, arg: V) -> Result<(), E> {
+    let V::Tuple(t) = arg else {
+        return Err(exc("TypeError", "state is not a tuple".into()));
+    };
+    if t.len() != 2 {
+        return Err(exc("TypeError", format!("function takes exactly 2 arguments ({} given)", t.len())));
+    }
+    let (pool, r) = {
+        let s = st.borrow();
+        let V::Tuple(cur) = &*s else { return Ok(()) };
+        let V::Int(r) = cur[1] else { return Ok(()) };
+        (cur[0].clone(), r)
+    };
+    let n = match &pool {
+        V::Tuple(p) => p.len() as i64,
+        _ => 0,
+    };
+    let V::Tuple(ix) = &t[0] else {
+        return Err(exc("TypeError", "argument 1 must be tuple, not int".into()));
+    };
+    let V::Tuple(cy) = &t[1] else {
+        return Err(exc("TypeError", "argument 2 must be tuple, not int".into()));
+    };
+    if ix.len() as i64 != n || cy.len() as i64 != n {
+        return Err(exc("ValueError", "invalid arguments".into()));
+    }
+    let mut idx = vec![];
+    for x in ix.iter() {
+        idx.push(V::Int(comb_arg_int(x)?.clamp(0, (n - 1).max(0))));
+    }
+    let mut cyc = vec![];
+    for (i, x) in cy.iter().enumerate() {
+        cyc.push(V::Int(comb_arg_int(x)?.clamp(0, (n - i as i64).max(0))));
+    }
+    *st.borrow_mut() = tup(vec![pool, V::Int(r), tup(idx), tup(cyc), V::Int(1), V::Int(0)]);
+    Ok(())
+}
+
+// product: state is (pools, indices, started, stopped).
+fn product_red_mk(state: V) -> V {
+    red_iter(ItKind::ItProduct, state, product_red_step, product_red_mk, product_red_reduce, Some(product_red_set))
+}
+fn product_red_step(st: &Rc<RefCell<V>>) -> Result<Option<V>, E> {
+    let (pools, mut idx, started, mut stopped) = {
+        let s = st.borrow();
+        let V::Tuple(t) = &*s else { return Ok(None) };
+        let V::Tuple(pools) = &t[0] else { return Ok(None) };
+        let V::Tuple(idx) = &t[1] else { return Ok(None) };
+        (pools.to_vec(), idx.to_vec(), !matches!(t[2], V::Int(0)), !matches!(t[3], V::Int(0)))
+    };
+    if stopped || pools.is_empty() {
+        return Ok(None);
+    }
+    let mkout = || -> Vec<V> {
+        pools.iter().enumerate().map(|(i, p)| {
+            let V::Tuple(p) = p else { return V::None };
+            p[usize_of(&idx.get(i).cloned().unwrap_or(V::Int(0)), p.len())].clone()
+        }).collect()
+    };
+    if !started {
+        *st.borrow_mut() = tup(vec![V::Tuple(vt(pools)), V::Tuple(vt(idx)), V::Int(1), V::Int(0)]);
+        return Ok(Some(tup(mkout())));
+    }
+    let mut i = pools.len();
+    loop {
+        if i == 0 {
+            stopped = true;
+            *st.borrow_mut() = tup(vec![V::Tuple(vt(pools)), V::Tuple(vt(idx)), V::Int(1), V::Int(1)]);
+            return Ok(None);
+        }
+        i -= 1;
+        let V::Tuple(p) = &pools[i] else { return Ok(None) };
+        idx[i] = V::Int(idx_of(&idx[i]).unwrap_or(0) + 1);
+        if idx_of(&idx[i]).unwrap_or(0) == p.len() as i64 {
+            idx[i] = V::Int(0);
+        } else {
+            let out = mkout();
+            *st.borrow_mut() = tup(vec![V::Tuple(vt(pools)), V::Tuple(vt(idx)), V::Int(1), V::Int(0)]);
+            return Ok(Some(tup(out)));
+        }
+    }
+}
+fn product_red_reduce(state: &V) -> V {
+    let V::Tuple(t) = state else { return tup(vec![modfn("itertools", "product"), tup(vec![])]) };
+    if matches!(t[3], V::Int(1)) {
+        tup(vec![modfn("itertools", "product"), tup(vec![tup(vec![])])])
+    } else if matches!(t[2], V::Int(0)) {
+        tup(vec![modfn("itertools", "product"), tup(vec![t[0].clone()])])
+    } else {
+        tup(vec![modfn("itertools", "product"), tup(vec![t[0].clone()]), t[1].clone()])
+    }
+}
+fn product_red_set(st: &Rc<RefCell<V>>, arg: V) -> Result<(), E> {
+    let V::Tuple(t) = arg else {
+        return Err(exc("ValueError", "invalid arguments".into()));
+    };
+    let pools = {
+        let s = st.borrow();
+        let V::Tuple(cur) = &*s else { return Ok(()) };
+        let V::Tuple(p) = &cur[0] else { return Ok(()) };
+        p.to_vec()
+    };
+    if t.len() != pools.len() {
+        return Err(exc("ValueError", "invalid arguments".into()));
+    }
+    let mut idx = vec![];
+    let mut empty = false;
+    for (i, x) in t.iter().enumerate() {
+        let v = comb_arg_int(x)?;
+        let V::Tuple(p) = &pools[i] else { empty = true; idx.push(V::Int(0)); continue };
+        if p.is_empty() {
+            empty = true;
+        }
+        idx.push(V::Int(v.clamp(0, (p.len() as i64 - 1).max(0))));
+    }
+    *st.borrow_mut() = tup(vec![V::Tuple(vt(pools)), tup(idx), V::Int(1), V::Int(empty as i64)]);
+    Ok(())
+}
 pub fn itertools_fn(name: &str, mut a: Args) -> R {
     Ok(match name {
         "permutations" => {
             let pool = to_vec(a.p.first().ok_or_else(|| exc("TypeError", "permutations() missing iterable".into()))?)?;
             let r = match a.p.get(1).cloned().or(a.kw("r")) {
-                Some(V::None) | None => pool.len(),
-                Some(x) => it_ssize(&x, "r must be non-negative")? as usize,
+                Some(V::None) | None => pool.len() as i64,
+                Some(x) => it_ssize(&x, "r must be non-negative")?,
             };
             let n = pool.len();
-            let mut out = vec![];
-            if r <= n {
-                let mut idx: Vec<usize> = (0..n).collect();
-                let mut cyc: Vec<usize> = (n - r + 1..=n).rev().collect();
-                out.push(tup(idx[..r].iter().map(|&i| pool[i].clone()).collect()));
-                'outer: loop {
-                    if n == 0 {
-                        break;
-                    }
-                    let mut i = r;
-                    loop {
-                        if i == 0 {
-                            break 'outer;
-                        }
-                        i -= 1;
-                        cyc[i] -= 1;
-                        if cyc[i] == 0 {
-                            let x = idx.remove(i);
-                            idx.push(x);
-                            cyc[i] = n - i;
-                        } else {
-                            let j = cyc[i];
-                            idx.swap(i, n - j);
-                            out.push(tup(idx[..r].iter().map(|&k| pool[k].clone()).collect()));
-                            break;
-                        }
-                    }
-                }
-            }
-            vec_iter(ItKind::ItPermutations, out)
+            let idx: Vec<V> = (0..n).map(|i| V::Int(i as i64)).collect();
+            let cyc: Vec<V> = (n as i64 - r + 1..=n as i64).rev().map(V::Int).collect();
+            permutations_red_mk(tup(vec![tup(pool), V::Int(r), tup(idx), tup(cyc), V::Int(0), V::Int(0)]))
         }
         "combinations" | "combinations_with_replacement" => {
             a.want(name, 2, 2)?;
             let pool = to_vec(&a.p[0])?;
-            let r = it_ssize(&a.p[1], "r must be non-negative")? as usize;
-            let n = pool.len();
-            let mut out = vec![];
-            let rep = name != "combinations";
-            if rep {
-                if n > 0 || r == 0 {
-                    let mut idx = vec![0usize; r];
-                    out.push(tup(idx.iter().map(|&i| pool[i].clone()).collect()));
-                    loop {
-                        let mut i = r;
-                        let mut found = false;
-                        while i > 0 {
-                            i -= 1;
-                            if idx[i] != n - 1 {
-                                found = true;
-                                break;
-                            }
-                        }
-                        if !found {
-                            break;
-                        }
-                        let v = idx[i] + 1;
-                        for j in i..r {
-                            idx[j] = v;
-                        }
-                        out.push(tup(idx.iter().map(|&i| pool[i].clone()).collect()));
-                    }
-                }
-            } else if r <= n {
-                let mut idx: Vec<usize> = (0..r).collect();
-                out.push(tup(idx.iter().map(|&i| pool[i].clone()).collect()));
-                loop {
-                    let mut i = r;
-                    let mut found = false;
-                    while i > 0 {
-                        i -= 1;
-                        if idx[i] != i + n - r {
-                            found = true;
-                            break;
-                        }
-                    }
-                    if !found {
-                        break;
-                    }
-                    idx[i] += 1;
-                    for j in i + 1..r {
-                        idx[j] = idx[j - 1] + 1;
-                    }
-                    out.push(tup(idx.iter().map(|&i| pool[i].clone()).collect()));
-                }
+            let r = it_ssize(&a.p[1], "r must be non-negative")?;
+            if name == "combinations" {
+                combinations_red_mk(combinations_state(tup(pool), r, false))
+            } else {
+                cwr_red_mk(combinations_state(tup(pool), r, true))
             }
-            vec_iter(if rep { ItKind::ItCombinationsWithReplacement } else { ItKind::ItCombinations }, out)
         }
         "product" => {
             let rep = match a.kw("repeat") {
@@ -1670,42 +2392,19 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             };
             let mut pools = vec![];
             for x in &a.p {
-                pools.push(to_vec(x)?);
+                pools.push(tup(to_vec(x)?));
             }
-            let pools: Vec<Vec<V>> = (0..rep).flat_map(|_| pools.clone()).collect();
-            let mut res: Vec<Vec<V>> = vec![vec![]];
-            for p in &pools {
-                let mut nr = vec![];
-                for r in &res {
-                    for x in p {
-                        let mut y = r.clone();
-                        y.push(x.clone());
-                        nr.push(y);
-                    }
-                }
-                res = nr;
-            }
-            vec_iter(ItKind::ItProduct, res.into_iter().map(tup).collect())
+            let pools: Vec<V> = (0..rep).flat_map(|_| pools.clone()).collect();
+            let empty = pools.iter().any(|p| matches!(p, V::Tuple(t) if t.is_empty()));
+            let idx: Vec<V> = vec![V::Int(0); pools.len()];
+            product_red_mk(tup(vec![tup(pools), tup(idx), V::Int(0), V::Int(empty as i64)]))
         }
         // The iterator tools are lazy, as in CPython: they pull from their inputs one item at a time, so they work
         // on infinite inputs, see items added after they were made, and run callbacks in CPython's order.
         "chain" => {
-            let srcs = std::mem::take(&mut a.p);
-            let mut k = 0;
-            let mut cur: Option<It> = None;
-            gen_iter(ItKind::ItChain, move || loop {
-                if let Some(it) = &mut cur {
-                    if let Some(x) = it.next()? {
-                        return Ok(Some(x));
-                    }
-                    cur = None;
-                }
-                if k >= srcs.len() {
-                    return Ok(None);
-                }
-                k += 1;
-                cur = Some(iter(&srcs[k - 1])?);
-            })
+            let src = tup(std::mem::take(&mut a.p));
+            let src_it = iter_v(&src)?;
+            red_iter(ItKind::ItChain, tup(vec![src_it, V::None]), red_chain_step, red_chain_mk, red_chain_reduce, Some(red_chain_set))
         }
         "chain.from_iterable" => {
             let mut outer = iter(&a1(&a, "from_iterable")?)?;
@@ -1733,25 +2432,9 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
         "accumulate" => {
             let init = a.kw("initial").filter(|x| !matches!(x, V::None));
             let f = a.p.get(1).cloned().or(a.kw("func")).filter(|f| !matches!(f, V::None));
-            let mut it = iter(&a.p.first().cloned().or(a.kw("iterable")).ok_or_else(|| exc("TypeError", "accumulate() missing required argument 'iterable' (pos 1)".into()))?)?;
-            let mut acc: Option<V> = None;
-            let mut first = init;
-            gen_iter(ItKind::ItAccumulate, move || {
-                if let Some(i) = first.take() {
-                    acc = Some(i.clone());
-                    return Ok(Some(i));
-                }
-                let Some(x) = it.next()? else { return Ok(None) };
-                let v = match acc.take() {
-                    None => x,
-                    Some(p) => match &f {
-                        Some(f) => call(f, Args::p(vec![p, x]))?,
-                        None => add(&p, &x)?,
-                    },
-                };
-                acc = Some(v.clone());
-                Ok(Some(v))
-            })
+            let iterable = a.p.first().cloned().or(a.kw("iterable")).ok_or_else(|| exc("TypeError", "accumulate() missing required argument 'iterable' (pos 1)".into()))?;
+            let cur = if init.is_some() { V::None } else { iter_v(&iterable)? };
+            accumulate_red_mk(tup(vec![iterable, cur, V::None, init.unwrap_or(V::None), f.unwrap_or(V::None), V::Int(0)]))
         }
         "groupby" => {
             let key = a.p.get(1).cloned().or(a.kw("key")).filter(|k| !matches!(k, V::None));
@@ -1795,59 +2478,17 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             if step < 1 {
                 return Err(exc("ValueError", ISLICE_STEP_MSG.into()));
             }
-            let mut it = iter(&src)?;
-            let mut i = 0i64;
-            let mut next_i = start;
-            gen_iter(ItKind::ItIslice, move || loop {
-                if i >= stop || next_i >= stop {
-                    return Ok(None);
-                }
-                match it.next()? {
-                    None => return Ok(None),
-                    Some(x) => {
-                        let cur = i;
-                        i += 1;
-                        if cur == next_i {
-                            next_i += step;
-                            return Ok(Some(x));
-                        }
-                    }
-                }
-            })
+            let it = iter_v(&src)?;
+            islice_red_mk(tup(vec![it, V::Int(start), V::Int(stop), V::Int(step), V::Int(0)]))
         }
         "zip_longest" => {
             let fill = a.kw("fillvalue").unwrap_or(V::None);
-            let mut its: Vec<Option<It>> = vec![];
+            let mut its: Vec<V> = vec![];
             for x in &a.p {
-                its.push(Some(iter(x)?));
+                its.push(iter_v(x)?);
             }
-            let mut active = its.len();
-            gen_iter(ItKind::ItZipLongest, move || {
-                if active == 0 {
-                    return Ok(None);
-                }
-                let mut row = Vec::with_capacity(its.len());
-                for slot in its.iter_mut() {
-                    let got = match slot {
-                        Some(it) => it.next()?,
-                        None => None,
-                    };
-                    match got {
-                        Some(x) => row.push(x),
-                        None => {
-                            if slot.take().is_some() {
-                                active -= 1;
-                                if active == 0 {
-                                    its.clear();
-                                    return Ok(None);
-                                }
-                            }
-                            row.push(fill.clone());
-                        }
-                    }
-                }
-                Ok(Some(tup(row)))
-            })
+            let active = its.len() as i64;
+            zip_longest_red_mk(tup(vec![tup(its), V::Int(active), fill]))
         }
         "repeat" => {
             let x = a.p[0].clone();
@@ -1857,59 +2498,24 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             }
         }
         "cycle" => {
-            let mut it = Some(iter(&a1(&a, name)?)?);
-            let mut saved: Vec<V> = vec![];
-            let mut i = 0;
-            gen_iter(ItKind::ItCycle, move || {
-                if let Some(src) = &mut it {
-                    if let Some(x) = src.next()? {
-                        saved.push(x.clone());
-                        return Ok(Some(x));
-                    }
-                    it = None;
-                }
-                if saved.is_empty() {
-                    return Ok(None);
-                }
-                let v = saved[i % saved.len()].clone();
-                i += 1;
-                Ok(Some(v))
-            })
+            let src = iter_v(&a1(&a, name)?)?;
+            cycle_red_mk(tup(vec![src, list(vec![]), V::Int(0), V::Int(0)]))
         }
         "starmap" => {
             a.want(name, 2, 2)?;
             let f = a.p[0].clone();
-            let mut it = iter(&a.p[1])?;
-            gen_iter(ItKind::ItStarmap, move || match it.next()? {
-                Some(x) => Ok(Some(call(&f, Args::p(to_vec(&x)?))?)),
-                None => Ok(None),
-            })
+            let it = iter_v(&a.p[1])?;
+            starmap_red_mk(tup(vec![f, it]))
         }
         "takewhile" | "dropwhile" => {
             a.want(name, 2, 2)?;
             let f = a.p[0].clone();
-            let mut it = iter(&a.p[1])?;
-            let take = name == "takewhile";
-            let mut flag = false;
-            gen_iter(if take { ItKind::ItTakewhile } else { ItKind::ItDropwhile }, move || loop {
-                if take && flag {
-                    return Ok(None);
-                }
-                let Some(x) = it.next()? else { return Ok(None) };
-                if !take && flag {
-                    return Ok(Some(x));
-                }
-                let t = truth(&call(&f, Args::p(vec![x.clone()]))?)?;
-                if take {
-                    if t {
-                        return Ok(Some(x));
-                    }
-                    flag = true;
-                } else if !t {
-                    flag = true;
-                    return Ok(Some(x));
-                }
-            })
+            let it = iter_v(&a.p[1])?;
+            if name == "takewhile" {
+                takewhile_red_mk(tup(vec![f, it, V::Int(0)]))
+            } else {
+                dropwhile_red_mk(tup(vec![f, it, V::Int(0)]))
+            }
         }
         "pairwise" => {
             // CPython's order, which re-entrant inputs can observe: the first item, then each next one
@@ -1948,27 +2554,15 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
         "compress" => {
             let data = a.p.first().cloned().or(a.kw("data")).ok_or_else(|| exc("TypeError", "compress() missing required argument 'data' (pos 1)".into()))?;
             let sel = a.p.get(1).cloned().or(a.kw("selectors")).ok_or_else(|| exc("TypeError", "compress() missing required argument 'selectors' (pos 2)".into()))?;
-            let mut xs = iter(&data)?;
-            let mut ss = iter(&sel)?;
-            gen_iter(ItKind::ItCompress, move || loop {
-                let Some(x) = xs.next()? else { return Ok(None) };
-                let Some(s0) = ss.next()? else { return Ok(None) };
-                if truth(&s0)? {
-                    return Ok(Some(x));
-                }
-            })
+            let xs = iter_v(&data)?;
+            let ss = iter_v(&sel)?;
+            compress_red_mk(tup(vec![xs, ss]))
         }
         "filterfalse" => {
             a.want(name, 2, 2)?;
             let f = a.p[0].clone();
-            let mut it = iter(&a.p[1])?;
-            gen_iter(ItKind::ItFilterfalse, move || loop {
-                let Some(x) = it.next()? else { return Ok(None) };
-                let t = if matches!(f, V::None) { truth(&x)? } else { truth(&call(&f, Args::p(vec![x.clone()]))?)? };
-                if !t {
-                    return Ok(Some(x));
-                }
-            })
+            let it = iter_v(&a.p[1])?;
+            filterfalse_red_mk(tup(vec![f, it]))
         }
         _ => return Err(unsupported(&format!("itertools.{name}"))),
     })
@@ -2015,6 +2609,13 @@ pub fn shallow_copy(x: &V) -> R {
                 None => None,
             });
             V::Obj(n)
+        }
+        V::Iter(cell) => {
+            if let Some(r) = red_of(cell) {
+                let st = r.state.borrow().clone();
+                return Ok((r.rebuild)(st));
+            }
+            return Err(exc("TypeError", format!("cannot pickle '{}' object", tn(x))));
         }
         _ => x.clone(),
     })
@@ -2127,6 +2728,38 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
                 n.set_inner(Some(deepcopy(&i, memo)?));
             }
             V::Obj(n)
+        }
+        V::Iter(cell) => {
+            if let Some(r) = red_of(cell) {
+                let st = r.state.borrow().clone();
+                let st = deepcopy(&st, memo)?;
+                return Ok((r.rebuild)(st));
+            }
+            let kind = match &cell.kind {
+                IterClass::Kind(k) => IterClass::Kind(*k),
+                IterClass::Class(c) => IterClass::Class(c.clone()),
+            };
+            let Ok(it) = cell.it.try_borrow() else {
+                return Err(exc("ValueError", "iterator already executing".into()));
+            };
+            return Ok(match &*it {
+                It::List(l, i) => {
+                    let V::List(nl) = deepcopy(&V::List(l.clone()), memo)? else { unreachable!() };
+                    new_iter(It::List(nl, *i), kind)
+                }
+                It::Tuple(t, i) => {
+                    let mut v = vec![];
+                    for y in t.iter() {
+                        v.push(deepcopy(y, memo)?);
+                    }
+                    let V::Tuple(nt) = tup(v) else { unreachable!() };
+                    new_iter(It::Tuple(nt, *i), kind)
+                }
+                It::Str(s, i) => new_iter(It::Str(s.clone(), *i), kind),
+                It::Range(a, b, st) => new_iter(It::Range(*a, *b, *st), kind),
+                It::Done => new_iter(It::Done, kind),
+                _ => return Err(exc("TypeError", format!("cannot pickle '{}' object", tn(x)))),
+            });
         }
         _ => x.clone(),
     })

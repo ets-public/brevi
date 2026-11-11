@@ -1996,6 +1996,10 @@ pub enum It {
     // an iterator whose state lives behind its own cells and holds no borrow while it calls user code, so
     // it may be re-entered (from a key function or __eq__, say), as CPython's C iterators may
     Shared(Rc<dyn Fn() -> Result<Option<V>, E>>),
+    // an iterator whose whole state is a V in `state`: stepping, copying and pickling all read and write
+    // that one value. Used for the builtin and itertools iterators whose __reduce__/__setstate__ CPython
+    // supports (map, filter, chain, combinations, ...).
+    Red(Rc<Red>),
     Done,
 }
 pub struct Iter {
@@ -2016,6 +2020,37 @@ pub struct IterCell {
 }
 pub fn new_iter(it: It, kind: IterClass) -> V {
     V::Iter(Rc::new(IterCell { kind, it: Rc::new(RefCell::new(it)) }))
+}
+
+// One step, one rebuild (copy) and one __reduce__ for an iterator whose state is a single V. The functions
+// are per kind; the state cell is what makes copies of the iterator independent without copying its inputs.
+pub struct Red {
+    pub state: Rc<RefCell<V>>,
+    pub step: fn(&Rc<RefCell<V>>) -> Result<Option<V>, E>,
+    pub rebuild: fn(V) -> V,
+    pub reduce: fn(&V) -> V,
+    pub set: Option<fn(&Rc<RefCell<V>>, V) -> Result<(), E>>,
+}
+pub fn red_iter(
+    kind: ItKind,
+    state: V,
+    step: fn(&Rc<RefCell<V>>) -> Result<Option<V>, E>,
+    rebuild: fn(V) -> V,
+    reduce: fn(&V) -> V,
+    set: Option<fn(&Rc<RefCell<V>>, V) -> Result<(), E>>,
+) -> V {
+    new_iter(
+        It::Red(Rc::new(Red { state: Rc::new(RefCell::new(state)), step, rebuild, reduce, set })),
+        IterClass::Kind(kind),
+    )
+}
+// The reducible state behind a V::Iter, when it has one (None: list/tuple/range/dict/set iterators and the
+// closures that do not support CPython's __reduce__).
+pub fn red_of(cell: &IterCell) -> Option<Rc<Red>> {
+    match cell.it.try_borrow().as_deref() {
+        Ok(It::Red(r)) => Some(r.clone()),
+        _ => None,
+    }
 }
 impl It {
     // lists and tuples first, inline in the loop that runs them; the rest through one match
@@ -2138,6 +2173,7 @@ impl It {
             It::Obj(o) => obj_next(o),
             It::Ref(r) => iter_step(r),
             It::Shared(f) => f(),
+            It::Red(r) => (r.step)(&r.state),
             It::Done => Ok(None),
         }
     }
@@ -2413,6 +2449,11 @@ pub fn iter_step(it: &Rc<RefCell<It>>) -> Result<Option<V>, E> {
             drop(g);
             obj_next(&o)
         }
+        It::Red(r) => {
+            let r = r.clone();
+            drop(g);
+            (r.step)(&r.state)
+        }
         _ => g.next(),
     }
 }
@@ -2425,4 +2466,37 @@ pub fn shared_input(v: &V) -> Result<Rc<RefCell<It>>, E> {
         V::Iter(it) => it.it.clone(),
         _ => Rc::new(RefCell::new(iter(v)?)),
     })
+}
+// One step of a value held in a reducible iterator's state. Those are always iterators, but a state loaded
+// from pickle may be an arbitrary bridged object; stepping through iter() covers it as CPython's iter does.
+pub fn step_value(v: &V) -> Result<Option<V>, E> {
+    if let V::Iter(i) = v {
+        return iter_step(&i.it);
+    }
+    let mut it = iter(v)?;
+    it.next()
+}
+// Whether a value is already an iterator, as __setstate__'s "Arguments must be iterators" checks it.
+pub fn is_iter_value(v: &V) -> bool {
+    match v {
+        V::Iter(_) => true,
+        V::Obj(o) => o.cls.lookup("__next__").is_some() && o.cls.lookup("__iter__").is_some(),
+        V::Ext(x) => x.iter_class(v).is_some(),
+        _ => false,
+    }
+}
+// A fresh list iterator at position `i`, as cycle's __reduce__ reports its saved pool.
+pub fn list_iter_at(l: &Rc<RefCell<Vec<V>>>, i: usize) -> V {
+    new_iter(It::List(l.clone(), i), IterClass::Kind(ItKind::ListIter))
+}
+// A fresh iterator over tuple `t`, advanced `n` items, as chain's __reduce__ reports its sources.
+pub fn tuple_iter_at(t: Tup, n: usize) -> V {
+    let v = new_iter(It::Tuple(t, 0), IterClass::Kind(ItKind::TupleIter));
+    let V::Iter(cell) = &v else { unreachable!() };
+    let mut g = cell.it.borrow_mut();
+    for _ in 0..n {
+        let _ = g.next();
+    }
+    drop(g);
+    v
 }
