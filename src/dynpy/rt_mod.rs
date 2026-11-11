@@ -2235,7 +2235,7 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         ("sys", "stderr") => V::Module(&ModName("sys.stderr")),
         ("sys", "argv") => list(ARGV.with(|a| a.borrow().iter().map(|x| s(x)).collect())),
         ("sys", "maxsize") => V::Int(i64::MAX),
-        ("sys", "platform") => s("linux"),
+        ("sys", "platform") => s(if cfg!(windows) { "win32" } else if cfg!(target_os = "macos") { "darwin" } else { "linux" }),
         ("sys", "byteorder") => s("little"),
         ("sys", "version_info") => sys_version_info(),
         ("sys", "version") => s("3.13.0 (brevi)"),

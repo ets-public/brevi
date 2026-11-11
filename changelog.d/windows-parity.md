@@ -1,0 +1,5 @@
+- Windows: `os.path` is now `ntpath`, as in CPython. It handles drive letters, both slashes and UNC shares. `os.name`, `os.sep`, `os.altsep` and `os.linesep` are now the Windows values. Before this change, a program on Windows used POSIX path rules and gave silently wrong answers: `os.path.basename("C:\\a\\b.txt")` returned the whole path. `import ntpath` works natively on every platform, and posixpath gains `splitroot`/`splitdrive`.
+- `sys.platform` is now `win32` on Windows and `darwin` on macOS in dynamic builds. It used to say `linux` everywhere.
+- Windows: `pathlib` is refused in dynamic builds. Brevi's copy is POSIX-shaped and CPython's `Path` on Windows is a `WindowsPath`, so such a program now runs in CPython instead (or, with `--strict`, does not build).
+- Windows: a generator's fiber now reserves its 16 MB stack and commits only 64 KB up front, as on Linux and macOS. Before, each live generator committed its whole stack.
+- New Windows parity checks (`tests/windows/parity.ps1`, part of the Windows workflow) cover command-line arguments, CRLF text mode, 5,000 live generators, paths, DLLs planted beside a program, and TLS against public roots.

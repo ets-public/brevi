@@ -1,0 +1,55 @@
+'C:\\Users\\a\\file.txt' ('C:', '\\', 'Users\\a\\file.txt') ('C:', '\\Users\\a\\file.txt') ('C:\\Users\\a', 'file.txt') ('C:\\Users\\a\\file', '.txt')
+   file.txt 'C:\\Users\\a' True 'C:\\Users\\a\\file.txt' 'c:\\users\\a\\file.txt'
+'C:/Users/a/file.tar.gz' ('C:', '/', 'Users/a/file.tar.gz') ('C:', '/Users/a/file.tar.gz') ('C:/Users/a', 'file.tar.gz') ('C:/Users/a/file.tar', '.gz')
+   file.tar.gz 'C:/Users/a' True 'C:\\Users\\a\\file.tar.gz' 'c:\\users\\a\\file.tar.gz'
+'\\\\server\\share\\dir\\x.py' ('\\\\server\\share', '\\', 'dir\\x.py') ('\\\\server\\share', '\\dir\\x.py') ('\\\\server\\share\\dir', 'x.py') ('\\\\server\\share\\dir\\x', '.py')
+   x.py '\\\\server\\share\\dir' True '\\\\server\\share\\dir\\x.py' '\\\\server\\share\\dir\\x.py'
+'\\\\server\\share' ('\\\\server\\share', '', '') ('\\\\server\\share', '') ('\\\\server\\share', '') ('\\\\server\\share', '')
+    '\\\\server\\share' True '\\\\server\\share' '\\\\server\\share'
+'\\\\?\\UNC\\srv\\sh\\f' ('\\\\?\\UNC\\srv\\sh', '\\', 'f') ('\\\\?\\UNC\\srv\\sh', '\\f') ('\\\\?\\UNC\\srv\\sh\\', 'f') ('\\\\?\\UNC\\srv\\sh\\f', '')
+   f '\\\\?\\UNC\\srv\\sh\\' True '\\\\?\\UNC\\srv\\sh\\f' '\\\\?\\unc\\srv\\sh\\f'
+'\\\\.\\device\\x' ('\\\\.\\device', '\\', 'x') ('\\\\.\\device', '\\x') ('\\\\.\\device\\', 'x') ('\\\\.\\device\\x', '')
+   x '\\\\.\\device\\' True '\\\\.\\device\\x' '\\\\.\\device\\x'
+'C:' ('C:', '', '') ('C:', '') ('C:', '') ('C:', '')
+    'C:' False 'C:' 'c:'
+'C:rel\\p' ('C:', '', 'rel\\p') ('C:', 'rel\\p') ('C:rel', 'p') ('C:rel\\p', '')
+   p 'C:rel' False 'C:rel\\p' 'c:rel\\p'
+'\\rooted\\p' ('', '\\', 'rooted\\p') ('', '\\rooted\\p') ('\\rooted', 'p') ('\\rooted\\p', '')
+   p '\\rooted' False '\\rooted\\p' '\\rooted\\p'
+'rel/dir\\mixed.txt' ('', '', 'rel/dir\\mixed.txt') ('', 'rel/dir\\mixed.txt') ('rel/dir', 'mixed.txt') ('rel/dir\\mixed', '.txt')
+   mixed.txt 'rel/dir' False 'rel\\dir\\mixed.txt' 'rel\\dir\\mixed.txt'
+'..\\up\\.\\x' ('', '', '..\\up\\.\\x') ('', '..\\up\\.\\x') ('..\\up\\.', 'x') ('..\\up\\.\\x', '')
+   x '..\\up\\.' False '..\\up\\x' '..\\up\\.\\x'
+'C:\\a\\..\\..\\b' ('C:', '\\', 'a\\..\\..\\b') ('C:', '\\a\\..\\..\\b') ('C:\\a\\..\\..', 'b') ('C:\\a\\..\\..\\b', '')
+   b 'C:\\a\\..\\..' True 'C:\\b' 'c:\\a\\..\\..\\b'
+'\\..\\x' ('', '\\', '..\\x') ('', '\\..\\x') ('\\..', 'x') ('\\..\\x', '')
+   x '\\..' False '\\x' '\\..\\x'
+'.hidden' ('', '', '.hidden') ('', '.hidden') ('', '.hidden') ('.hidden', '')
+   .hidden '' False '.hidden' '.hidden'
+'a.b.c' ('', '', 'a.b.c') ('', 'a.b.c') ('', 'a.b.c') ('a.b', '.c')
+   a.b.c '' False 'a.b.c' 'a.b.c'
+'dir\\' ('', '', 'dir\\') ('', 'dir\\') ('dir', '') ('dir\\', '')
+    'dir' False 'dir' 'dir\\'
+'' ('', '', '') ('', '') ('', '') ('', '')
+    '' False '.' ''
+'c:\\' ('c:', '\\', '') ('c:', '\\') ('c:\\', '') ('c:\\', '')
+    'c:\\' True 'c:\\' 'c:\\'
+'//x/y/z' ('//x/y', '/', 'z') ('//x/y', '/z') ('//x/y/', 'z') ('//x/y/z', '')
+   z '//x/y/' True '\\\\x\\y\\z' '\\\\x\\y\\z'
+'C:\\a' 'b' 'C:\\a\\b'
+'C:\\a' 'D:\\x' 'D:\\x'
+'C:\\a' '\\x' 'C:\\x'
+'a' 'b/' 'a\\b/'
+'\\\\srv\\sh' 'x' '\\\\srv\\sh\\x'
+'C:' 'x' 'C:x'
+'c:\\a' 'C:b' 'C:\\a\\b'
+'c:\\a' 'd:b' 'd:b'
+'' 'x' 'x'
+'a\\' '\\\\srv\\sh\\y' '\\\\srv\\sh\\y'
+'C:a' 'C:\\b' 'C:\\b'
+C:\a\b\c.txt C:\a\ \ /
+'/a/b' ('', '/', 'a/b') ('', '/a/b')
+'//a/b' ('', '//', 'a/b') ('', '//a/b')
+'///a' ('', '/', '//a') ('', '///a')
+'a/b' ('', '', 'a/b') ('', 'a/b')
+'' ('', '', '') ('', '')

@@ -294,7 +294,7 @@ pub fn allow_line(cap: &str) -> String {
 // Without `allow native` a program may use only these, and random only as far as Brevi's own copy goes (all
 // built from src/dynpy/py, see dynpy::sandbox_module).
 const PURE_OS: &[&str] = &["path", "sep", "curdir", "pardir", "extsep", "altsep", "linesep", "name", "fspath", "listdir", "walk"];
-const PURE_OS_PATH: &[&str] = &["join", "basename", "dirname", "split", "splitext", "normpath", "normcase", "isabs", "commonprefix", "sep", "curdir", "pardir", "extsep", "altsep", "exists", "lexists", "isfile", "isdir", "islink", "getsize"];
+const PURE_OS_PATH: &[&str] = &["join", "basename", "dirname", "split", "splitext", "splitdrive", "splitroot", "normpath", "normcase", "isabs", "commonprefix", "sep", "curdir", "pardir", "extsep", "altsep", "exists", "lexists", "isfile", "isdir", "islink", "getsize"];
 const PURE_PATHLIB: &[&str] = &["PurePath", "PurePosixPath"];
 // What src/dynpy/py/random.py has (CPython's generator, so seeded draws match).
 const OWN_RANDOM: &[&str] = &["Random", "seed", "random", "getrandbits", "randrange", "randint", "choice", "choices", "shuffle", "sample", "uniform", "gauss"];
@@ -543,11 +543,11 @@ const ASYNCIO_LOOP_IO: &[&str] = &[
     "shutdown_default_executor",
 ];
 
-// The module os, os.path (posixpath) or pathlib a name or dotted module stands for.
+// The module os, os.path (posixpath, ntpath) or pathlib a name or dotted module stands for.
 fn path_module(m: &str) -> Option<&'static str> {
     match m {
         "os" => Some("os"),
-        "os.path" | "posixpath" => Some("os.path"),
+        "os.path" | "posixpath" | "ntpath" => Some("os.path"),
         "pathlib" => Some("pathlib"),
         "random" => Some("random"),
         "io" => Some("io"),
@@ -1461,11 +1461,11 @@ mod tests {
     // Brevi's own math and time, and _brevi_fs (files, under the read and write grants), and open nothing.
     #[test]
     fn sandbox_modules_reach_nothing() {
-        for (name, src) in [("random", include_str!("dynpy/py/random.py")), ("os", include_str!("dynpy/py/os.py")), ("posixpath", include_str!("dynpy/py/posixpath.py")), ("pathlib", include_str!("dynpy/py/pathlib.py")), ("io", include_str!("dynpy/py/io.py")), ("textwrap", include_str!("dynpy/py/textwrap.py"))] {
+        for (name, src) in [("random", include_str!("dynpy/py/random.py")), ("os", include_str!("dynpy/py/os.py")), ("posixpath", include_str!("dynpy/py/posixpath.py")), ("ntpath", include_str!("dynpy/py/ntpath.py")), ("pathlib", include_str!("dynpy/py/pathlib.py")), ("io", include_str!("dynpy/py/io.py")), ("textwrap", include_str!("dynpy/py/textwrap.py"))] {
             for l in src.lines().map(str::trim) {
                 if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
                     let m = m.split_whitespace().next().unwrap();
-                    assert!(["math", "time", "posixpath", "_brevi_mt", "_brevi_fs"].contains(&m), "{name}.py imports {m}");
+                    assert!(["math", "time", "posixpath", "ntpath", "_brevi_mt", "_brevi_fs"].contains(&m), "{name}.py imports {m}");
                 }
                 for bad in ["open(", "__import__", "exec(", "eval(", "getattr(", "sys."] {
                     assert!(!l.contains(bad), "{name}.py uses {bad}");

@@ -75,7 +75,7 @@ mod fiber {
     pub type H = *mut c_void;
     unsafe extern "system" {
         fn ConvertThreadToFiber(p: *mut c_void) -> H;
-        fn CreateFiber(size: usize, start: unsafe extern "system" fn(*mut c_void), p: *mut c_void) -> H;
+        fn CreateFiberEx(commit: usize, reserve: usize, flags: u32, start: unsafe extern "system" fn(*mut c_void), p: *mut c_void) -> H;
         fn DeleteFiber(f: H);
         fn SwitchToFiber(f: H);
         fn GetLastError() -> u32;
@@ -96,8 +96,11 @@ mod fiber {
         CUR.with(|c| c.set(f));
         Ok(())
     }
+    // `size` is the stack's reserve, like the Unix mmap: CreateFiber's one size is what it COMMITS up front, so
+    // 16 MB each ran out of commit charge after a few hundred live generators. Commit 64 KB and let the stack
+    // grow through its guard page; FIBER_FLAG_FLOAT_SWITCH (1) keeps each fiber's floating-point state its own.
     pub unsafe fn create(size: usize, start: unsafe extern "system" fn(*mut c_void), p: *mut c_void) -> H {
-        CreateFiber(size, start, p)
+        CreateFiberEx(64 << 10, size, 1, start, p)
     }
     pub unsafe fn delete(h: H) {
         DeleteFiber(h)

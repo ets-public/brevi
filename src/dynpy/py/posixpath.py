@@ -41,6 +41,20 @@ def split(p):
     return (head, tail)
 
 
+def splitroot(p):
+    p = _s(p)
+    if p[:1] != "/":
+        return ("", "", p)
+    if p[1:2] != "/" or p[2:3] == "/":
+        return ("", "/", p[1:])
+    # exactly two leading slashes keep their meaning (POSIX leaves it to the system)
+    return ("", p[:2], p[2:])
+
+
+def splitdrive(p):
+    return ("", _s(p))
+
+
 def basename(p):
     p = _s(p)
     return p[p.rfind("/") + 1:]
