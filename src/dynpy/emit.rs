@@ -4649,6 +4649,14 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
             return Err((mods[0].name.clone(), 1, format!("re together with {m} is not supported in dynamic builds")));
         }
     }
+    // array.array, mmap and ctypes arrays are buffers CPython's bytearray and memoryview take (memoryview(arr),
+    // ba.extend(arr), arr.frombytes(ba)), and array.array is a sequence collections.abc knows; Brevi's bytearray
+    // and memoryview see a bridged object, not a buffer.
+    if em.bridge.srcs.values().any(|(_, t)| t.contains("bytearray") || t.contains("memoryview")) {
+        if let Some(m) = em.bridged_used.iter().find(|m| matches!(m.as_str(), "array" | "mmap" | "ctypes")) {
+            return Err((mods[0].name.clone(), 1, format!("bytearray or memoryview together with {m} is not supported in dynamic builds")));
+        }
+    }
     Ok((out, em.bridged_used.into_iter().collect()))
 }
 
