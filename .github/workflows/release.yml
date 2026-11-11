@@ -149,13 +149,49 @@ jobs:
         with:
           name: brevi-${{ matrix.os }}
           path: brevi-*.*
+  # The shipped Linux x86-64 binary must be byte-for-byte what its source gives: it is built again here, from a
+  # fresh checkout in another folder with the same toolchain, and the two must be identical. Also records the
+  # rustc version for the SBOM.
+  reproducible:
+    needs: [preflight, build]
+    if: ${{ !inputs.from_release }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      rustc: ${{ steps.again.outputs.rustc }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: rebuilt-here
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: brevi-ubuntu-22.04
+          path: shipped
+      - name: Build again and compare
+        id: again
+        run: |
+          echo "rustc=$(rustc --version | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
+          (cd rebuilt-here && cargo build --release --locked --target x86_64-unknown-linux-gnu)
+          tar xzf shipped/brevi-x86_64-unknown-linux-gnu.tar.gz -C shipped
+          a=$(sha256sum < shipped/brevi-x86_64-unknown-linux-gnu/brevi)
+          b=$(sha256sum < rebuilt-here/target/x86_64-unknown-linux-gnu/release/brevi)
+          echo "shipped: $a"; echo "rebuilt: $b"
+          [ "$a" = "$b" ] || { echo "the shipped binary is not reproducible from this commit"; exit 1; }
   release:
-    needs: [preflight, suite, build]
+    needs: [preflight, suite, build, reproducible]
     # Every platform built and passed, and the suite passed on this commit; or from_release, which publishes what is
     # already attached. A dry run stops here.
-    if: ${{ !cancelled() && !inputs.dry_run && needs.preflight.result == 'success' && (inputs.from_release || (needs.build.result == 'success' && needs.suite.result == 'success')) }}
+    if: ${{ !cancelled() && !inputs.dry_run && needs.preflight.result == 'success' && (inputs.from_release || (needs.build.result == 'success' && needs.suite.result == 'success' && needs.reproducible.result == 'success')) }}
     runs-on: ubuntu-22.04
     timeout-minutes: 15
+    # id-token and attestations: the build-provenance attestations (signed through Sigstore with this run's identity)
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
@@ -171,9 +207,22 @@ jobs:
         run: |
           gh release download "$TAG" -R "$GITHUB_REPOSITORY" -D dist -p 'brevi-*' -p SHA256SUMS
           cd dist && sha256sum -c SHA256SUMS
+      # The SBOM (tools/sbom.py) lists each archive with its SHA-256; it is itself in SHA256SUMS.
+      - name: SBOM
+        if: ${{ !inputs.from_release }}
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          RUSTC: ${{ needs.reproducible.outputs.rustc }}
+        run: python3 tools/sbom.py --tag "$TAG" --dist dist --rustc "$RUSTC" > sbom.json && mv sbom.json dist/brevi-sbom.cdx.json
       - name: Checksums
         if: ${{ !inputs.from_release }}
         run: cd dist && sha256sum brevi-* > SHA256SUMS
+      # Provenance: each archive, the SBOM and SHA256SUMS get a signed statement that this workflow built them from
+      # this commit. `gh attestation verify FILE -R ets-public/brevi` checks one.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: ${{ !inputs.from_release }}
+        with:
+          subject-path: "dist/brevi-*, dist/SHA256SUMS"
       - name: Attach to release
         if: ${{ !inputs.from_release }}
         env:
@@ -200,6 +249,9 @@ jobs:
           (cd published && sha256sum -c SHA256SUMS)
           diff <(cd dist && ls) <(cd published && ls)
           for f in dist/brevi-*; do grep -q " $(basename "$f")\$" published/SHA256SUMS || { echo "$f is not in SHA256SUMS"; exit 1; }; done
+          # each published file is attested by this repository's release workflow
+          for f in published/*; do gh attestation verify "$f" -R "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" >/dev/null || { echo "$f has no valid attestation"; exit 1; }; done
+          echo "every published file has a valid build-provenance attestation"
       # PyPI wheels repack these same binaries (tools/make_wheels.py), so they cost no extra build.
       - name: Wheels
         if: ${{ needs.build.result == 'success' || inputs.from_release }}
