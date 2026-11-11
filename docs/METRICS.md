@@ -35,7 +35,7 @@ A program with no tests is left out, not counted as a match.
 
 ### Conformance
 
-Matched / (all − unstable − excluded) on the pinned CPython tag and file list. "Matched" means a native build printed
+Matched / (all − unstable − excluded − by_design) on the pinned CPython tag and file list. `by_design` tests run a string as code (compile, exec, eval), which Brevi refuses on purpose; they are named in `compat/conformance_by_design.txt`, and their count is published beside the percentage. "Matched" means a native build printed
 exactly what CPython printed and exited the same way; a program that ran library calls in CPython (`pybridge`) stays
 matched but does not count. `tools/conformance.py` prints the file list, the CPython tag and the known-wrong count;
 publish all three with the percentage. Never use "native" and "matched" as if they meant the same thing.

@@ -16,6 +16,8 @@ What "the same" covers: stdout byte for byte and the exit status. Text on stderr
 | Behaviour traps (13: big ints, `//` and `%` signs, float printing, dict order, unicode, aliasing, deep recursion, ...) | 13 match |
 | Release test, v0.26.0 (24 tasks, Sonnet and Haiku writing fresh Python, two runs) | 96 of 96 final programs native (the bar is 90%; earlier releases 92 to 100%), the rest would run via the CPython fallback |
 
+From the next release, tests that run a string as code (`compile`, `exec`, `eval`) are counted as **refused by design**: a sandboxed native binary refuses to run new code from a string on purpose. They are named in [compat/conformance_by_design.txt](repo:compat/conformance_by_design.txt) (25 core, 2 stdlib), left out of the denominator, and their count is printed beside every score.
+
 The 44 and the 5 are bugs against the aim above, and they are what we are fixing first. The CPython-test row is the closest thing to an outside sample; the saved-program rows are in-distribution by construction.
 
 "Match" means stdout byte for byte and the same exit status. See [Benchmarks](/docs/benchmarks) for the method.
