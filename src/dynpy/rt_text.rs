@@ -1372,12 +1372,13 @@ pub fn set_name_lookup(f: fn(&str) -> Option<char>) {
 pub fn set_warn_bridge(f: WarnFn) {
     WARN_BRIDGE.set(Some(f));
 }
-// warnings.warn(msg, cat, stacklevel=<the re caller>) as CPython issues it.
-fn re_warn(cat: &'static str, msg: String) -> Result<(), E> {
+// warnings.warn(msg, cat, stacklevel=<the caller>) as CPython issues it, for a warning Brevi's runtime issues
+// where CPython's C code would (re's, int()'s).
+pub fn re_warn(cat: &'static str, msg: String) -> Result<(), E> {
     let site = RE_SITE.get();
     if let Some(warn) = WARN_BRIDGE.get() {
         let Some(s) = site else {
-            return Err(unsupported("a re warning from a call whose line the dynamic build does not know"));
+            return Err(unsupported("a warning from a call whose line the dynamic build does not know"));
         };
         // line 0: the module is known and the line is not; the bridge decides only where the line cannot matter
         return warn(cat, &msg, s.m.file, s.line, s.m.module);
@@ -1388,7 +1389,7 @@ fn re_warn(cat: &'static str, msg: String) -> Result<(), E> {
         return Ok(());
     }
     if s.line == 0 {
-        return Err(unsupported("a re warning from a call whose line the dynamic build does not know"));
+        return Err(unsupported("a warning from a call whose line the dynamic build does not know"));
     }
     if WARN_SHOWN.with(|w| w.borrow_mut().insert((s.m.module, msg.clone(), cat, s.line))) {
         out_flush();

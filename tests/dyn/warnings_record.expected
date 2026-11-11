@@ -1,0 +1,10 @@
+6
+('UserWarning', 'recorded', 'warnings_record.py', 13)
+('RuntimeWarning', 'from f', 'warnings_record.py', 9)
+('DeprecationWarning', "'count' is passed as positional argument", 'warnings_record.py', 15)
+('DeprecationWarning', 'an instance', 'warnings_record.py', 16)
+('UserWarning', 'twice', 'warnings_record.py', 18)
+('UserWarning', 'twice', 'warnings_record.py', 18)
+[('UserWarning', 'once per line', 'warnings_record.py', 25), ('UserWarning', 'once per line', 'warnings_record.py', 26)]
+raised raised
+[] True

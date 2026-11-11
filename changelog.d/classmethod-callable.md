@@ -1,0 +1,1 @@
+- Dynamic build: `classmethod()` and `staticmethod()` of a callable instance (a `functools.partial`, an object with `__call__`) bind as CPython's do. A classmethod used to drop the class argument.

@@ -1311,19 +1311,39 @@ pub fn to_int(v: &V) -> R {
         V::Str(s) => int_text_limit(&s.s, 10, parse_int(&s.s, 10))?.ok_or_else(|| exc("ValueError", format!("invalid literal for int() with base 10: {}", str_repr(&s.s)))),
         V::Obj(o) => {
             if let Some(f) = o.cls.lookup("__int__") {
-                return match call(&f, Args::p(vec![v.clone()]))? {
-                    r @ (V::Int(_) | V::Big(_) | V::Bool(_)) => Ok(r),
-                    r => type_err(format!("__int__ returned non-int (type {})", tn(&r))),
-                };
+                return int_returned(call(&f, Args::p(vec![v.clone()]))?, "__int__");
             }
             // a subclass of int, float or str (IntEnum, StrEnum): int's own __int__ wins over a user __index__
             if let Some(i) = inner_of(v).filter(|i| matches!(i, V::Int(_) | V::Big(_) | V::Bool(_) | V::Float(_) | V::Str(_))) {
                 return to_int(&i);
             }
-            for n in ["__index__", "__trunc__"] {
-                if let Some(f) = o.cls.lookup(n) {
-                    return call(&f, Args::p(vec![v.clone()]));
-                }
+            if let Some(f) = o.cls.lookup("__index__") {
+                return int_returned(call(&f, Args::p(vec![v.clone()]))?, "__index__");
+            }
+            if let Some(f) = o.cls.lookup("__trunc__") {
+                // CPython 3.13: int() still delegates to __trunc__, with a DeprecationWarning
+                re_warn("DeprecationWarning", "The delegation of int() to __trunc__ is deprecated.".into())?;
+                let r = call(&f, Args::p(vec![v.clone()]))?;
+                return match &r {
+                    V::Int(_) | V::Big(_) => Ok(r),
+                    V::Bool(b) => Ok(V::Int(*b as i64)),
+                    _ => {
+                        if let Some(i) = inner_of(&r).filter(|i| matches!(i, V::Int(_) | V::Big(_) | V::Bool(_))) {
+                            return to_int(&i);
+                        }
+                        match &r {
+                            V::Obj(ro) if ro.cls.lookup("__index__").is_some() => {
+                                let g = ro.cls.lookup("__index__").unwrap();
+                                match call(&g, Args::p(vec![r.clone()])).and_then(|x| int_returned(x, "__index__")) {
+                                    Ok(x) => Ok(x),
+                                    Err(e) if is_exc(&e.0, "TypeError") => type_err(format!("__trunc__ returned non-Integral (type {})", tn(&r))),
+                                    Err(e) => Err(e),
+                                }
+                            }
+                            _ => type_err(format!("__trunc__ returned non-Integral (type {})", tn(&r))),
+                        }
+                    }
+                };
             }
             type_err(format!("int() argument must be a string, a bytes-like object or a real number, not '{}'", tn(v)))
         }
@@ -1338,6 +1358,28 @@ pub fn to_int(v: &V) -> R {
             None => type_err(format!("int() argument must be a string, a bytes-like object or a real number, not '{}'", tn(v))),
         },
         _ => type_err(format!("int() argument must be a string, a bytes-like object or a real number, not '{}'", tn(v))),
+    }
+}
+
+// What int() makes of `r`, the result of a user __int__ or __index__ (CPython's PyNumber_Long and
+// PyNumber_Index): an int, or an instance of a strict subclass of int (bool included) as a plain int with
+// CPython's DeprecationWarning; anything else is a TypeError.
+fn int_returned(r: V, name: &str) -> R {
+    match &r {
+        V::Int(_) | V::Big(_) => Ok(r),
+        _ => {
+            let i = match &r {
+                V::Bool(b) => Some(V::Int(*b as i64)),
+                _ => inner_of(&r).filter(|i| matches!(i, V::Int(_) | V::Big(_) | V::Bool(_))),
+            };
+            match i {
+                Some(i) => {
+                    re_warn("DeprecationWarning", format!("{name} returned non-int (type {}).  The ability to return an instance of a strict subclass of int is deprecated, and may be removed in a future version of Python.", tn(&r)))?;
+                    to_int(&i)
+                }
+                None => type_err(format!("{name} returned non-int (type {})", tn(&r))),
+            }
+        }
     }
 }
 

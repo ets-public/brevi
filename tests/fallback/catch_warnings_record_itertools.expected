@@ -1,0 +1,3 @@
+{"path":"pybridge","why":"itertools.islice, pickle, warnings run in CPython","py":["itertools.islice","pickle","warnings"]}
+1 UserWarning [1, 2]
+native exit 0

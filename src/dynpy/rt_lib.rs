@@ -1421,6 +1421,7 @@ pub fn bi_staticmethod(a: Args) -> R {
             let g = rewrap(x, 1);
             g
         }
+        V::Obj(_) => rewrap_obj(&f, 1),
         _ => f,
     })
 }
@@ -1428,8 +1429,22 @@ pub fn bi_classmethod(a: Args) -> R {
     let f = a1(&a, "classmethod")?;
     Ok(match &f {
         V::Func(x) => rewrap(x, 2),
+        V::Obj(_) => rewrap_obj(&f, 2),
         _ => f,
     })
+}
+// staticmethod/classmethod of a callable instance (a functools.partial, an object with __call__): read from
+// the class it is the instance itself (its own __get__ never runs) or a method bound to the class.
+fn rewrap_obj(f: &V, kind: u8) -> V {
+    let inner = f.clone();
+    let g = func("", move |a: Args| call(&inner, a));
+    if let V::Func(gf) = &g {
+        gf.kind.set(kind);
+        let mut at = gf.attrs.borrow_mut();
+        at.push(("__bv_wrapped__", f.clone()));
+        at.push(("__func__", f.clone()));
+    }
+    g
 }
 fn rewrap(x: &Rc<Func>, kind: u8) -> V {
     let inner = V::Func(x.clone());

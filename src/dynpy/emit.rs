@@ -1697,6 +1697,9 @@ pub struct Em {
     re_names: HashSet<(String, String)>,
     // the program uses the warnings module: every statement says where it is, so a warning names its line
     track_warn: bool,
+    // the program imports itertools and pickles or copies something: its iterators do not pickle, and their
+    // copies miss CPython 3.13's DeprecationWarning, so catch_warnings(record=True) there is refused
+    iter_pickle: bool,
     // module -> the lines whose logical line runs over more than one line (None: the module did not lex)
     multi: HashMap<String, Option<HashSet<usize>>>,
     // the WMod statics written so far
@@ -1809,6 +1812,30 @@ impl Em {
                 let lam = Ex::Lambda(Box::new(Params::default()), Box::new(e.clone()));
                 let lv = self.ex(&lam, line)?;
                 format!("tup(vec![s(\"type\"), {lv}])")
+            }
+            // a string annotation, as typing.get_type_hints reads it: evaluated in the def's module globals.
+            // Taken when it names a class through names that are the module's own (or builtins) here too.
+            Ex::Str(text) => {
+                let parsed = super::parse::parse(text.trim()).ok().and_then(|mut v| match v.pop() {
+                    Some(st) if v.is_empty() => match st.st {
+                        St::Expr(x) => Some(x),
+                        _ => None,
+                    },
+                    _ => None,
+                });
+                fn base(e: &Ex) -> Option<&str> {
+                    match e {
+                        Ex::Name(n) => Some(n),
+                        Ex::Attr(o, _) => base(o),
+                        _ => None,
+                    }
+                }
+                match parsed {
+                    Some(x) if sd_class_like(&x) && base(&x).is_some_and(|n| matches!(self.lookup(n), None | Some(Var::Global(_)))) => {
+                        self.sd_ann_desc(&x, line)?
+                    }
+                    _ => format!("tup(vec![s(\"unsupported\"), s({})])", lit(&sd_repr(e))),
+                }
             }
             _ => format!("tup(vec![s(\"unsupported\"), s({})])", lit(&sd_repr(e))),
         })
@@ -2491,12 +2518,11 @@ impl Em {
         format!("gtab_{}", rust_ident(&self.module))
     }
     fn call(&mut self, f: &Ex, args: &[Arg], line: usize) -> ER<String> {
-        // warnings.catch_warnings(record=True) is bridged: its list of recorded warnings is copied into a native
-        // list when the block starts, so the warnings CPython appends later never show (len(ws) stays 0).
-        // CPython runs the program until bridged lists stay live.
-        if matches!(f, Ex::Name(n) if n == "catch_warnings") || matches!(f, Ex::Attr(_, n) if n == "catch_warnings") {
+        // warnings.catch_warnings(record=True) records what CPython would; in a program that pickles or copies
+        // and uses itertools it would record an itertools copy without its DeprecationWarning, so it is refused
+        if self.iter_pickle && (matches!(f, Ex::Name(n) if n == "catch_warnings") || matches!(f, Ex::Attr(_, n) if n == "catch_warnings")) {
             if args.iter().any(|a| matches!(a, Arg::KwStar(_)) || matches!(a, Arg::Kw(k, v) if k == "record" && !matches!(v, Ex::False))) {
-                return Err(err(line, "warnings.catch_warnings(record=True) is not supported in dynamic builds"));
+                return Err(err(line, "warnings.catch_warnings(record=True) in a program that pickles or copies itertools iterators is not supported in dynamic builds"));
             }
         }
         // warnings.warn(..., stacklevel=2) in the program names a caller's line, which the dynamic build does
@@ -4386,6 +4412,12 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         let b = format!("{:?}", m.body);
         bridge.srcs.contains_key(&m.name) && (b.contains("\"warnings\"") || b.contains("\"functools\"") && b.contains("\"partial\""))
     });
+    let iter_pickle = mods.iter().any(|m| {
+        let b = format!("{:?}", m.body);
+        bridge.srcs.contains_key(&m.name)
+            && b.contains("\"itertools\"")
+            && ["\"pickle\"", "\"copy\"", "\"deepcopy\"", "\"__reduce__\"", "\"__reduce_ex__\"", "\"__setstate__\""].iter().any(|k| b.contains(k))
+    });
     let has_del = mods.iter().any(|m| format!("{:?}", m.body).contains("\"__del__\""));
     let has_closure = mods.iter().any(|m| format!("{:?}", m.body).contains("__closure__"));
     let mut em = Em {
@@ -4417,6 +4449,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         uses_re: false,
         re_names: HashSet::new(),
         track_warn,
+        iter_pickle,
         multi: HashMap::new(),
         wmods: HashSet::new(),
         warn_names: HashSet::new(),
