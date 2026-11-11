@@ -75,13 +75,11 @@ const NP_NARROW_FUNCS: &[&str] = &[
     "equal", "not_equal", "less", "less_equal", "greater", "greater_equal", "logical_and", "logical_or", "logical_xor",
     "bitwise_and", "bitwise_or", "bitwise_xor", "left_shift", "right_shift", "random",
 ];
-// collections.abc as Brevi's typing forms (off when the program needs CPython's ABCs: the bridge runs them).
-pub static ABC_NATIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 // false: `string` is CPython's Lib/string.py compiled in (py/string.py), for Template and Formatter; true (the
 // default): the native module, constants only, which builds and starts much faster
 pub static STRING_NATIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 pub fn builtin_mod(m: &str) -> bool {
-    (BUILTIN_MODULES.contains(&m) && (m != "string" || STRING_NATIVE.load(std::sync::atomic::Ordering::Relaxed))) || m == "typing_extensions" || (m == "collections.abc" && ABC_NATIVE.load(std::sync::atomic::Ordering::Relaxed)) || (matches!(m, "numpy" | "numpy.random" | "numpy.linalg") && np_native())
+    (BUILTIN_MODULES.contains(&m) && (m != "string" || STRING_NATIVE.load(std::sync::atomic::Ordering::Relaxed))) || m == "typing_extensions" || (matches!(m, "numpy" | "numpy.random" | "numpy.linalg") && np_native())
 }
 // The numpy functions and attributes the native numpy has, with the keyword arguments each takes.
 const NP_FUNCS: &[(&str, &[&str])] = &[
@@ -195,7 +193,7 @@ fn np_attr_check(n: &str, kws: &[&str], line: usize) -> ER<()> {
 pub fn module_has(m: &str, n: &str) -> bool {
     let names: &[&str] = match m {
         "__future__" => return true,
-        "typing" | "typing_extensions" | "collections.abc" => return super::typing::module_has(m, n),
+        "typing" | "typing_extensions" => return super::typing::module_has(m, n),
         "numpy" => return np_func_kw(n).is_some() && (!np_narrow() || NP_NARROW_FUNCS.contains(&n) || (NP_F32_SIMD.contains(&n) && np_f32_simd_here()) || (matches!(n, "dot" | "matmul") && np_f32_simd_here())),
         "numpy.random" => return np_rand_kw(n).is_some(),
         "numpy.linalg" => return np_linalg_kw(n).is_some() && (!np_narrow() || n == "norm"),
@@ -207,10 +205,10 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "functools" => &["RLock", "WRAPPER_ASSIGNMENTS", "WRAPPER_UPDATES", "_CacheInfo", "cache", "cached_property", "cmp_to_key", "lru_cache", "partial", "partialmethod", "reduce", "singledispatch", "singledispatchmethod", "total_ordering", "update_wrapper", "wraps"],
         "itertools" => &["accumulate", "batched", "chain", "combinations", "combinations_with_replacement", "compress", "count", "cycle", "dropwhile", "filterfalse", "groupby", "islice", "pairwise", "permutations", "product", "repeat", "starmap", "takewhile", "tee", "zip_longest"],
         "copy" => &["copy", "deepcopy"],
-        "operator" => &["add", "and_", "attrgetter", "contains", "eq", "floordiv", "ge", "getitem", "gt", "index", "itemgetter", "le", "lshift", "lt", "methodcaller", "mod", "mul", "ne", "neg", "not_", "or_", "pow", "rshift", "sub", "truediv", "truth", "xor"],
+        "operator" => &["add", "and_", "attrgetter", "contains", "eq", "floordiv", "ge", "getitem", "gt", "index", "itemgetter", "le", "lshift", "lt", "methodcaller", "mod", "mul", "ne", "neg", "not_", "or_", "pow", "rshift", "sub", "truediv", "truth", "xor", "__lt__", "__le__", "__gt__", "__ge__", "__eq__", "__ne__", "__and__", "__or__", "__xor__", "__sub__"],
         "string" => &["ascii_lowercase", "ascii_uppercase", "ascii_letters", "digits", "hexdigits", "octdigits", "punctuation", "whitespace", "printable"],
         "time" => &["time", "perf_counter", "monotonic", "process_time", "sleep", "time_ns", "perf_counter_ns", "monotonic_ns", "process_time_ns", "gmtime", "strftime"],
-        "abc" => &["ABC", "abstractmethod"],
+        "abc" => &["ABC", "abstractmethod", "_abc_register", "_check_methods"],
         "enum" => &["Enum", "IntEnum", "StrEnum", "Flag", "IntFlag", "auto", "unique"],
         "_brevi_term" => &["columns"],
         "hashlib" => &["new", "md5", "sha1", "sha224", "sha256", "sha384", "sha512"],
@@ -238,7 +236,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         ],
         "_brevi_col" => &["fsum", "cmp", "farith", "iarith", "take", "mask", "group1", "infer"],
         "_brevi_mt" => &["new", "seed", "next", "random", "bits", "below", "shuffle"],
-        "collections" => &["defaultdict", "Counter", "OrderedDict", "deque", "namedtuple"],
+        "collections" => &["defaultdict", "Counter", "OrderedDict", "deque", "namedtuple", "abc"],
         "dataclasses" => &["asdict", "astuple", "dataclass", "field", "fields", "replace", "is_dataclass", "MISSING", "KW_ONLY", "InitVar", "Field", "FrozenInstanceError"],
         "re" => &["compile", "escape", "findall", "finditer", "fullmatch", "match", "purge", "search", "split", "sub", "subn", "IGNORECASE", "I", "LOCALE", "L", "MULTILINE", "M", "DOTALL", "S", "VERBOSE", "X", "ASCII", "A", "NOFLAG", "UNICODE", "U", "DEBUG", "RegexFlag", "error", "PatternError", "Pattern", "Match"],
         "re._constants" => &["MAXGROUPS", "MAXREPEAT"],
@@ -2098,6 +2096,10 @@ impl Em {
             Ex::Star(_) => return Err(err(line, "starred expression here is not supported")),
             Ex::Attr(o, n) => {
                 if let Some(m) = self.static_module(o) {
+                    if m == "collections" && n == "abc" && self.user_modules.iter().any(|u| u == "collections.abc") {
+                        let init = self.q(&format!("init_{}()", rust_ident("collections.abc")));
+                        return Ok(self.q(&format!("{{ {init}; Ok::<V, E>(V::Module(&ModName(\"collections.abc\"))) }}")));
+                    }
                     if self.user_modules.contains(&m) {
                         return self.user_mod_load(&m, n, line);
                     }
@@ -3393,6 +3395,10 @@ impl Em {
                     let id = self.id();
                     // `import a.b` binds `a` but CPython registers `a.b` in sys.modules too
                     if target != *m && (self.user_modules.contains(m) || builtin_mod(m.as_str()) || m == "os.path") {
+                        if m == "collections.abc" && self.user_modules.contains(m) {
+                            let init = self.q(&format!("init_{}()", rust_ident(m)));
+                            write!(b, "{init}; ").unwrap();
+                        }
                         let reg = self.q(&format!("sys_modules_set({}, &V::Module(&ModName({})))", lit(m), lit(m)));
                         write!(b, "{reg}; ").unwrap();
                     }
@@ -3448,6 +3454,9 @@ impl Em {
                 }
                 for (n, a) in names {
                     if n == "*" {
+                        if m == "collections.abc" {
+                            return Err(err(line, "from collections.abc import * is not supported in dynamic builds"));
+                        }
                         if user {
                             let all: Vec<String> = self.mod_names.get(m).cloned().unwrap_or_default().into_iter().filter(|x| !x.starts_with('_')).collect();
                             for x in all {
@@ -3459,6 +3468,14 @@ impl Em {
                         return Err(err(line, "from ... import * is not supported for library modules"));
                     }
                     let bind = a.clone().unwrap_or(n.clone());
+                    if m == "collections" && n == "abc" && self.user_modules.iter().any(|u| u == "collections.abc") {
+                        let sub = "collections.abc";
+                        let init = self.q(&format!("init_{}()", rust_ident(sub)));
+                        let reg = self.q(&format!("sys_modules_set({}, &V::Module(&ModName({})))", lit(sub), lit(sub)));
+                        write!(b, "{reg}; {init}; ").unwrap();
+                        b.push_str(&self.store(&bind, &format!("V::Module(&ModName({}))", lit(sub))));
+                        continue;
+                    }
                     if m == "re" {
                         self.re_names.insert((self.module.clone(), bind.clone()));
                     }

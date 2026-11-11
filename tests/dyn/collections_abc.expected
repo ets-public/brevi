@@ -1,0 +1,46 @@
+collections.abc.Mapping[int, int] collections.abc.Mapping[str, int]
+True True True False True True
+True False True True True True
+False False
+1 True None [('a', 1)] True {'a': 1} True
+Can't instantiate abstract class Mapping without an implementation for abstract methods '__getitem__', '__iter__', '__len__'
+True True
+True True
+NotImplemented True NotImplemented NotImplemented
+NotImplemented NotImplemented False
+True
+True True
+1 ('b', 2) 0 {'x'}
+<class 'abc.ABCMeta'> collections.abc Mapping (<class 'collections.abc.Mapping'>, <class 'collections.abc.Collection'>, <class 'collections.abc.Sized'>, <class 'collections.abc.Iterable'>, <class 'collections.abc.Container'>, <class 'object'>)
+NoneType [False, False, False, True, False, False, False, False, False, False, False]
+int [False, False, False, True, False, False, False, False, False, False, False]
+float [False, False, False, True, False, False, False, False, False, False, False]
+str [False, True, False, True, True, True, True, True, True, False, False]
+bytes [False, True, False, True, True, True, True, True, True, False, False]
+list [False, True, False, False, True, True, True, True, True, True, False]
+tuple [False, True, False, True, True, True, True, True, True, False, False]
+dict [True, False, False, False, True, True, True, True, True, False, False]
+set [False, False, True, False, True, True, True, False, True, False, False]
+frozenset [False, False, True, True, True, True, True, False, True, False, False]
+range [False, True, False, True, True, True, True, True, True, False, False]
+dict_keys [False, False, True, False, True, True, True, True, True, False, False]
+dict_values [False, False, False, True, True, True, True, True, True, False, False]
+dict_items [False, False, True, False, True, True, True, True, True, False, False]
+builtin_function_or_method [False, False, False, True, False, False, False, False, False, False, True]
+ABCMeta [False, False, False, True, False, False, False, False, False, False, True]
+list_iterator [False, False, False, True, True, False, False, False, False, False, False]
+generator [False, False, False, True, True, False, False, False, False, False, False]
+slice [False, False, False, True, False, False, False, False, False, False, False]
+ellipsis [False, False, False, True, False, False, False, False, False, False, False]
+NotImplementedType [False, False, False, True, False, False, False, False, False, False, False]
+ABCMeta True True
+[1, 2, 3] True [3, 2, 1] 1 1 True
+collections.abc.Mapping[str, int] collections.abc.Sequence[int] __main__.A2[int]
+None False True 1
+unhashable type: 'H'
+unhashable type: 'C'
+[(3, 4), (1, 2)] [(3, 4), (1, 2)]
+[3, 1] [3, 1]
+[4, 2] [4, 2]
+[3, 1] [3, 1]
+False True
