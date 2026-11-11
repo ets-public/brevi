@@ -320,6 +320,33 @@ unsafe fn pyd_type_is(p: P, t: P) -> bool {
     x == t
 }
 
+// (__name__, __module__) of the type CPython gives iter(p), for type() of a Brevi iterator over a
+// bridged value (a proxy list iterates as list_iterator, and so on).
+unsafe fn pyd_iter_type(p: P) -> Option<(String, String)> {
+    let a = pyd_api();
+    let it = (a.GetIter)(p);
+    if it.is_null() {
+        (a.ErrClear)();
+        return None;
+    }
+    let t = (a.Type)(it);
+    (a.DecRef)(it);
+    let get = |attr: &'static std::ffi::CStr| -> Option<String> {
+        let v = (a.GetAttr)(t, attr.as_ptr());
+        if v.is_null() {
+            (a.ErrClear)();
+            return None;
+        }
+        let s = pyd_text(v).ok();
+        (a.DecRef)(v);
+        s
+    };
+    let name = get(c"__name__");
+    let module = get(c"__module__").unwrap_or_else(|| "builtins".to_string());
+    (a.DecRef)(t);
+    name.map(|name| (name, module))
+}
+
 // Python object `p` (consumed) as the program's value: copied when it is data (deep: lists, dicts and sets too).
 unsafe fn pyd_wrap(p: P, deep: bool) -> R {
     let a = pyd_api();
@@ -655,7 +682,7 @@ fn iter_reduce(v: &V) -> R {
         return Err(exc("TypeError", format!("cannot pickle '{}' object", tn(v))));
     };
     let plan = {
-        let Ok(it) = cell.try_borrow() else {
+        let Ok(it) = cell.it.try_borrow() else {
             return Err(exc("ValueError", "iterator already executing".into()));
         };
         match &*it {
@@ -1346,6 +1373,11 @@ impl Ext for PyV {
                 pyd_wrap(x, false).map(Some)
             }
         }))))
+    }
+    fn iter_class(&self, _me: &V) -> Option<Rc<Class>> {
+        let _g = PydGil::take();
+        let (name, module) = unsafe { pyd_iter_type(self.p)? };
+        Some(ext_class_mod(&module, &name))
     }
     fn next_item(&self) -> Option<R> {
         // `next(x)` has CPython's answer even when the library value is not an iterator (a list, a module, ...),

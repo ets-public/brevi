@@ -241,7 +241,7 @@ pub fn aw(x: &V) -> R {
     }
     let it = call_method(x, "__await__", Args::p(vec![]))?;
     match &it {
-        V::Iter(i) if coro_of(i).is_some() => delegate(&coro_of(i).unwrap()),
+        V::Iter(i) if coro_of(&i.it).is_some() => delegate(&coro_of(&i.it).unwrap()),
         V::Iter(_) => {
             let mut i = iter(&it)?;
             while let Some(v) = i.next()? {

@@ -261,7 +261,7 @@ fn gc_edges(v: &V) -> Vec<V> {
         V::Prop(x) => vec![x.0.clone(), x.1.clone()],
         V::Range(_) => vec![],
         V::Iter(it) => {
-            let Ok(it) = it.try_borrow() else { return vec![] };
+            let Ok(it) = it.it.try_borrow() else { return vec![] };
             let mut out = vec![];
             match &*it {
                 It::List(x, _) => out.push(V::List(x.clone())),
@@ -324,7 +324,7 @@ fn gc_clear(v: &V) {
             drop(old);
         }
         V::Iter(it) => {
-            let Ok(mut it) = it.try_borrow_mut() else { return };
+            let Ok(mut it) = it.it.try_borrow_mut() else { return };
             let old = std::mem::replace(&mut *it, It::Done);
             drop(it);
             drop(old);

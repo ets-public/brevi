@@ -503,7 +503,7 @@ pub fn gen_yield(v: V) -> R {
 // `yield from it`: every item of it, then its return value.
 pub fn gen_yield_from(it: &V) -> R {
     if let V::Iter(i) = it {
-        if let Some(c) = coro_of(i) {
+        if let Some(c) = coro_of(&i.it) {
             return delegate(&c);
         }
     }
@@ -516,7 +516,7 @@ pub fn gen_yield_from(it: &V) -> R {
 
 // A generator object: the function body, started at the first next().
 pub fn make_gen(name: Sym, body: impl FnOnce() -> R + 'static) -> V {
-    V::Iter(Rc::new(RefCell::new(It::Coro(Rc::new(RefCell::new(Coro::new(name, Box::new(body))))))))
+    new_iter(It::Coro(Rc::new(RefCell::new(Coro::new(name, Box::new(body))))), IterClass::Kind(ItKind::Generator))
 }
 // The __qualname__ of the generator whose body is running now (None otherwise).
 pub fn running_gen_name() -> Option<Sym> {

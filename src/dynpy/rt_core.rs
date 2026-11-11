@@ -37,7 +37,7 @@ pub enum V {
     Obj(Rc<Obj>),
     Bound(Rc<(V, V)>),
     BMeth(Rc<(V, Sym)>),
-    Iter(Rc<RefCell<It>>),
+    Iter(Rc<IterCell>),
     Range(Rc<(i64, i64, i64)>),
     Slice(Rc<(V, V, V)>),
     Deque(Rc<RefCell<Deq>>),
@@ -183,6 +183,11 @@ pub trait Ext {
         None
     }
     fn lazy_iter(&self) -> Option<Result<It, E>> {
+        None
+    }
+    // The Python class type(iter(me)) reports, when this library value can say (a bridged CPython value
+    // asks CPython; most others cannot and type() of their iterator refuses instead of guessing).
+    fn iter_class(&self, _me: &V) -> Option<Rc<Class>> {
         None
     }
     // `next(x)` for an iterator-valued library object (csv.reader): its own next step.
@@ -3326,6 +3331,8 @@ pub fn init_builtin_classes() {
     BUILTIN_CLASSES.with(|b| *b.borrow_mut() = m);
     OSE_CLASS.with(|c| *c.borrow_mut() = None);
     TYPE_CACHE.with(|c| *c.borrow_mut() = Default::default());
+    ITER_CLASSES.with(|c| *c.borrow_mut() = std::array::from_fn(|_| None));
+    EXT_ITER_CLASSES.with(|c| *c.borrow_mut() = Default::default());
     BV_CACHE.with(|c| *c.borrow_mut() = Default::default());
 }
 
