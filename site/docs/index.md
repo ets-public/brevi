@@ -38,4 +38,4 @@ cat: 1
 
 ## Status
 
-Brevi is a preview, at version __VERSION__. It builds most real-world agent-written Python natively today, and the [roadmap](/docs/roadmap) lists what is still missing. Package-manager installs (pip, npm, Homebrew) and the hosted service at [brevi.run](https://brevi.run) are coming; for now, install from the GitHub release.
+Brevi is a preview, at version __VERSION__. It builds most real-world agent-written Python natively today, and the [roadmap](/docs/roadmap) lists what is still missing. Install it with the script, `pip install brevi`, `npm install -g brevi`, `cargo install brevi` or from the GitHub release ([Install](/docs/install)); Homebrew and the hosted service at [brevi.run](https://brevi.run) are coming.

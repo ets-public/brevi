@@ -20,7 +20,6 @@ mod brevi_sqlglue {
     }
     #[cfg(windows)]
     unsafe extern "system" {
-        fn LoadLibraryA(f: *const c_char) -> P;
         fn LoadLibraryExA(f: *const c_char, file: P, flags: u32) -> P;
         fn GetProcAddress(h: P, s: *const c_char) -> *mut c_void;
     }
@@ -31,13 +30,16 @@ mod brevi_sqlglue {
     #[cfg(windows)]
     unsafe fn ax_dlopen(f: *const c_char, _flag: c_int) -> P {
         // winsqlite3.dll is Windows' own copy in System32: LOAD_LIBRARY_SEARCH_SYSTEM32 (0x800) keeps a
-        // sqlite3.dll in the program's folder or CWD from being picked up instead. Any other name is an
-        // explicit absolute path (Python's DLL, or BREVI_SQLITE_LIB).
+        // sqlite3.dll in the program's folder or CWD from being picked up instead. Any other name is the
+        // caller's BREVI_SQLITE_LIB (never read under the sandbox), loaded only by an absolute path, its own
+        // dependencies from its folder or System32 (LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR, 0x100).
         let name = CStr::from_ptr(f).to_string_lossy();
         if name.eq_ignore_ascii_case("winsqlite3.dll") {
             LoadLibraryExA(f, std::ptr::null_mut(), 0x800)
+        } else if std::path::Path::new(name.as_ref()).is_absolute() {
+            LoadLibraryExA(f, std::ptr::null_mut(), 0x100 | 0x800)
         } else {
-            LoadLibraryA(f)
+            std::ptr::null_mut()
         }
     }
     #[cfg(unix)]

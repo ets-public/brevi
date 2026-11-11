@@ -1,7 +1,23 @@
 # Loop latency: baseline and the daemon spike
 
-Status: first measurements, 9 November 2026 (ROADMAP.md, WS2). Machine: Intel Xeon @ 2.10 GHz, 4 cores, rustc 1.97.0.
+Status: measured on v0.26.0 (9 November 2026) and v0.27.0 (11 November 2026) (ROADMAP.md, WS2). Machine: Intel Xeon @ 2.10 GHz, 4 cores, rustc 1.97.0.
 Fixture and method: `bench/latency.py` (METRICS.md, "Check latency").
+
+## v0.27.0, 11 November 2026
+
+Machine: Intel Xeon @ 2.30 GHz, 4 cores, rustc 1.97.0, CPython 3.13.18 (a different machine from the v0.26.0 baseline, so compare loosely). Release binary, `bench/latency-results/2026-11-11-v0.27.0[-dyn].json`.
+
+| Mode | Fixture as written p50 / p95 | Dynamic path (`--dyn`) p50 / p95 |
+|---|---|---|
+| `brevi check --fast` after an edit | 160.3 / 174.4 ms | 149.9 / 181.0 ms |
+| `brevi check` after an edit | 159.8 / 209.3 ms | 156.0 / 164.8 ms |
+| `brevi check`, nothing changed | 2.3 / 6.1 ms | 2.0 / 2.8 ms |
+| `brevi build` after an edit | 1180.8 / 1253.4 ms | 1182.8 / 1268.8 ms |
+| `brevi run` after an edit (opt-level 0 tier) | 427.3 / 469.3 ms | 435.8 / 479.6 ms |
+| `brevi run`, nothing changed | 5.4 / 6.1 ms | 20.6 / 23.8 ms |
+| `python3 main.py`, for scale | 11.4 / 14.0 ms | 11.9 / 14.3 ms |
+
+**The fixture no longer takes the typed path.** The sharing proof added in v0.27.0 (`share_guard.rs`) sends it to the dynamic build: it cannot follow `top_words(counts, 3)` into the sibling module `textutil.py`, so it assumes `counts` is changed. That is why both columns match, and why `check --fast` rose from 16 ms to 160 ms. It is a false refusal and is being fixed; these numbers are rerun when it is. Tiered builds work as planned: `brevi run` after an edit is 427 ms, against 1181 ms for `brevi build`.
 
 ## Baseline, v0.26.0
 
@@ -41,7 +57,7 @@ front end and process start; it cannot reach the 500 ms build target alone.
    meeting the ≤500 ms target. The cost is run time: on a sieve-and-loop program the O0 binary took 474 ms, the
    O1 binary 101 ms, CPython 1040 ms. O0 is still 2x faster than CPython but 4.7x slower than today's default.
 
-## Proposal: tiered builds
+## Tiered builds (shipped in v0.27.0, `tier.rs`)
 
 - `brevi run` and `brevi test` after an edit build at `opt-level=0` and run that binary at once.
 - In the same call, a background job builds the same Rust at `opt-level=1` into the build cache, under the key the
@@ -71,7 +87,7 @@ today) and lld as the default linker where it is installed.
 ## Next steps
 
 1. Land `-C incremental` for `check` with its cache eviction, behind the normal tests.
-2. Tiered O0/O1 builds for `run` and `test`, with a test that the background build lands in the cache and that
-   `brevi build` output is unchanged.
-3. Add `bench/latency.py` to `tools/ci_local.sh` as a report (not a gate) until the numbers are stable across runs;
+2. ~~Tiered O0/O1 builds for `run` and `test`~~: shipped in v0.27.0 (see above).
+3. Keep the fixture on the typed path: fix the sharing proof's refusal of calls into sibling modules.
+4. Add `bench/latency.py` to `tools/ci_local.sh` as a report (not a gate) until the numbers are stable across runs;
    then a p50/p95 non-regression gate on a fixed runner.

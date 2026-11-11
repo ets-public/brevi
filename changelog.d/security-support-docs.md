@@ -1,0 +1,1 @@
+- **Security and support docs.** SECURITY.md now says which releases get fixes, how fast we reply to reports, how a compromise is handled and how to check a download; new pages cover [support](docs/SUPPORT.md), [upgrading](docs/UPGRADING.md) and [known issues](docs/KNOWN_ISSUES.md).

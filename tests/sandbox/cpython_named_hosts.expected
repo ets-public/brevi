@@ -1,0 +1,10 @@
+{"path":"pybridge","why":"socket run in CPython","py":["socket"]}
+{"e":"runtime","msg":"brevi: --sandbox: CPython (--allow-py or --allow native) cannot be held to the hosts named with --allow-net: the kernel can hold it to no network, or allow it every host; grant --allow net, or leave out --allow-net","fix":"change what the message names, or run without --sandbox"}
+exit 1
+-- dynamic
+{"e":"runtime","msg":"brevi: --sandbox: CPython (--allow-py or --allow native) cannot be held to the hosts named with --allow-net: the kernel can hold it to no network, or allow it every host; grant --allow net, or leave out --allow-net","fix":"change what the message names, or run without --sandbox"}
+exit 1
+-- typed
+{"path":"pybridge","why":"socket run in CPython","py":["socket"]}
+{"e":"runtime","msg":"brevi: --sandbox: CPython (--allow-py or --allow native) cannot be held to the hosts named with --allow-net: the kernel can hold it to no network, or allow it every host; grant --allow net, or leave out --allow-net","fix":"change what the message names, or run without --sandbox"}
+exit 1

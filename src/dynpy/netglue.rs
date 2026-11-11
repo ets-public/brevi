@@ -39,7 +39,6 @@ mod brevi_netglue {
     }
     #[cfg(windows)]
     unsafe extern "system" {
-        fn LoadLibraryA(f: *const c_char) -> P;
         fn GetProcAddress(h: P, s: *const c_char) -> *mut c_void;
     }
     #[cfg(windows)]
@@ -658,35 +657,31 @@ mod brevi_netglue {
     // libssl must never run.
     #[cfg(windows)]
     unsafe fn ssl_handles() -> Option<(P, P)> {
-        let names = ["libssl-3-x64.dll", "libssl-3.dll", "libssl-1_1-x64.dll", "libssl-1_1.dll"];
-        let mut files: Vec<String> = vec![];
+        // The caller's own copy (BREVI_SSL_LIB, BREVI_SSL_DIR; never read under the sandbox): not pinned, but
+        // loaded only by an absolute path with the safe dependency search (libpin.rs open_unpinned).
         if !NET_SANDBOX {
+            let mut files: Vec<String> = vec![];
             if let Ok(p) = std::env::var("BREVI_SSL_LIB") {
                 files.push(p);
             }
             if let Ok(d) = std::env::var("BREVI_SSL_DIR") {
-                for n in names {
+                for n in ["libssl-3-x64.dll", "libssl-3.dll", "libssl-1_1-x64.dll", "libssl-1_1.dll"] {
                     files.push(format!("{d}\\{n}"));
                 }
             }
-        }
-        if !BREVI_SSL_DIR.is_empty() {
-            for n in names {
-                files.push(format!("{}\\{n}", BREVI_SSL_DIR));
+            for f in &files {
+                let Ok(crypto) = brevi_libpin::open_unpinned(&f.replace("libssl", "libcrypto")) else { continue };
+                let Ok(lib) = brevi_libpin::open_unpinned(f) else { continue };
+                return Some((lib, crypto));
             }
         }
-        for f in &files {
+        // Python's own copy, found when the program was built, each DLL pinned by SHA-256 (SSL_PINS).
+        let pin = |f: &str| SSL_PINS.iter().find(|(p, _)| *p == f).map(|(_, s)| *s);
+        for (f, _) in SSL_PINS.iter().filter(|(p, _)| p.contains("libssl")) {
             let cf = f.replace("libssl", "libcrypto");
-            let Ok(cs) = CString::new(cf.as_str()) else { continue };
-            let Ok(ss) = CString::new(f.as_str()) else { continue };
-            let crypto = LoadLibraryA(cs.as_ptr());
-            if crypto.is_null() {
-                continue;
-            }
-            let lib = LoadLibraryA(ss.as_ptr());
-            if lib.is_null() {
-                continue;
-            }
+            let Some(csum) = pin(&cf) else { continue };
+            let Ok(crypto) = brevi_libpin::open(&cf, csum, 0) else { continue };
+            let Ok(lib) = brevi_libpin::open(f, pin(f).unwrap_or(""), 0) else { continue };
             return Some((lib, crypto));
         }
         None

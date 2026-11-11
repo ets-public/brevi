@@ -400,6 +400,18 @@ pub fn repr(v: &V) -> Result<String, E> {
         }
         V::Prop(_) => "<property object>".into(),
         V::NTF(i) => format!("_tuplegetter({}, 'Alias for field number {}')", **i, **i),
+        V::Cell(c) => {
+            let p = Rc::as_ptr(c) as *const u8 as usize;
+            // Copy the contents out before repr'ing them: a cell's value may change while its repr runs.
+            match &*c.borrow() {
+                V::Unbound => return Ok(format!("<cell at {p:#x}: empty>")),
+                v => {
+                    let v = v.clone();
+                    let q = boxed_addr(&v).unwrap_or(0);
+                    format!("<cell at {p:#x}: {} object at {q:#x}>", tn(&v))
+                }
+            }
+        }
         V::Ext(x) => x.repr(),
         V::NotImpl => "NotImplemented".into(),
         V::Ellipsis => "Ellipsis".into(),
@@ -1385,6 +1397,25 @@ pub fn sort_values(v: &mut Vec<V>, key: Option<&V>, reverse: bool) -> Result<(),
     }
     *v = keyed.into_iter().map(|x| x.1).collect();
     Ok(())
+}
+
+// The address shown in a cell's repr for a heap value. Ints, floats and other unboxed values have none;
+// their cells print 0, which is close enough (cell reprs are not compared by conformance).
+fn boxed_addr(v: &V) -> Option<usize> {
+    Some(match v {
+        V::List(x) => Rc::as_ptr(x) as *const u8 as usize,
+        V::Tuple(x) => Tup::as_ptr(x) as usize,
+        V::Dict(x) => Rc::as_ptr(x) as *const u8 as usize,
+        V::Cell(x) => Rc::as_ptr(x) as *const u8 as usize,
+        V::Set(x) => Rc::as_ptr(x) as *const u8 as usize,
+        V::FSet(x) => Rc::as_ptr(x) as *const u8 as usize,
+        V::Func(x) => Rc::as_ptr(x) as *const u8 as usize,
+        V::Class(x) => Rc::as_ptr(x) as *const u8 as usize,
+        V::Obj(x) => Rc::as_ptr(x) as *const u8 as usize,
+        V::Iter(x) => Rc::as_ptr(x) as *const u8 as usize,
+        V::Deque(x) => Rc::as_ptr(x) as *const u8 as usize,
+        _ => return None,
+    })
 }
 
 /// The value of a Unicode decimal digit (category Nd, Unicode 15.1): `int("१२३")` is 123, as in CPython.

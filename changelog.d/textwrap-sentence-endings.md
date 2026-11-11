@@ -1,0 +1,1 @@
+- `textwrap` with `fix_sentence_endings=True` now works in native builds, exactly like CPython (it used to stop with NotImplementedError at run time). Fixes two known-wrong conformance results (stdlib slice). Written by DeepSeek, reviewed by Claude.

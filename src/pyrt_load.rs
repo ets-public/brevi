@@ -26,10 +26,15 @@ mod ax_pyffi {
     }
     #[cfg(windows)]
     pub unsafe fn ax_open(f: *const c_char, _flag: c_int) -> P {
-        // LOAD_WITH_ALTERED_SEARCH_PATH: the DLL's own folder is searched for its dependencies.
+        // Only an absolute path, and its dependencies only from its own folder or System32
+        // (LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32): never the program's folder, the
+        // working folder or PATH, where a planted vcruntime140.dll or python3.dll could sit.
         let s = std::ffi::CStr::from_ptr(f).to_string_lossy();
+        if !std::path::Path::new(s.as_ref()).is_absolute() {
+            return std::ptr::null_mut();
+        }
         let w: Vec<u16> = s.encode_utf16().chain(std::iter::once(0)).collect();
-        LoadLibraryExW(w.as_ptr(), std::ptr::null_mut(), 0x8)
+        LoadLibraryExW(w.as_ptr(), std::ptr::null_mut(), 0x100 | 0x800)
     }
     #[cfg(unix)]
     pub unsafe fn ax_sym(h: P, s: *const c_char) -> P {
@@ -603,6 +608,126 @@ fn ax_pyb_hold(h: (Option<&[&str]>, Option<&[&str]>, bool, Option<&[&str]>), lib
     }
 }
 
+// Every kernel hold under --sandbox (no network, the file grants), taken once, before CPython starts.
+static AX_PYB_HELD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn ax_pyb_holds(lib: &str, home: &str, path: &[String]) -> Result<(), String> {
+    use std::sync::atomic::Ordering;
+    if (AX_PYB_NET == 0 && AX_PYB_HOLD.is_none()) || AX_PYB_HELD.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+    ax_pyb_one_thread()?;
+    if AX_PYB_NET != 0 {
+        ax_pyb_nonet(AX_PYB_NET)?;
+    }
+    if let Some(h) = AX_PYB_HOLD {
+        ax_pyb_hold(h, lib, home, path)?;
+    }
+    AX_PYB_HELD.store(true, Ordering::SeqCst);
+    Ok(())
+}
+
+// Called first thing in main() by a dynamic build that may start CPython: the holds are taken while main is
+// still the only thread (the dynamic runtime runs the program on a thread of its own), so they hold both.
+// Without a CPython to find, nothing is held yet: loading CPython fails later anyway.
+#[allow(dead_code)]
+fn ax_pyb_early() {
+    if AX_PYB_NET == 0 && AX_PYB_HOLD.is_none() {
+        return;
+    }
+    if let Ok((lib, home, path)) = ax_pyb_conf() {
+        if let Err(e) = ax_pyb_holds(&lib, &home, &path) {
+            eprintln!("{{\"e\":\"runtime\",\"msg\":{e:?},\"fix\":\"change what the message names, or run without --sandbox\"}}");
+            std::process::exit(1)
+        }
+    }
+}
+
+// The kernel holds (Landlock's restrict_self, and seccomp) are taken by the thread that starts CPython, so it
+// must be the program's only thread: another thread, left unheld, shares the memory CPython's native code can
+// write. Brevi's own runtime starts no thread before this point; a program that did is refused.
+fn ax_pyb_one_thread() -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        let n = std::fs::read_dir("/proc/self/task").map(|d| d.count()).map_err(|e| format!("brevi: --sandbox: cannot count the program's threads before CPython starts ({e})"))?;
+        if n != 1 {
+            return Err(format!("brevi: --sandbox: CPython must start before the program starts threads ({n} are running), so the kernel can hold all of them"));
+        }
+    }
+    Ok(())
+}
+
+// Under --sandbox without a network grant, CPython (and the C extensions and processes it starts) must reach no
+// network: before CPython starts, a seccomp filter makes socket() and io_uring_setup() fail with EACCES (a
+// PermissionError in Python) for the whole program and everything it starts, and it cannot be lifted.
+// socketpair() stays (asyncio's and multiprocessing's own pipes reach nothing outside). A Unix socket by path
+// (a Docker or database daemon) needs socket() too, so it is held as well. Calls of another architecture's
+// table (x32, or 32-bit int 0x80 on x86-64) fail for every system call. With hosts named (--allow-net HOST)
+// the kernel cannot hold CPython to them, so that is refused on every OS. On Linux a kernel that refuses the
+// filter means the program is refused; other systems have no such filter and CPython keeps the network there.
+fn ax_pyb_nonet(mode: u8) -> Result<(), String> {
+    if mode == 2 {
+        return Err("brevi: --sandbox: CPython (--allow-py or --allow native) cannot be held to the hosts named with --allow-net: the kernel can hold it to no network, or allow it every host; grant --allow net, or leave out --allow-net".into());
+    }
+    // Elsewhere (macOS, Windows) CPython keeps the network, as THREAT_MODEL.md says: --allow-py and --allow
+    // native are full trust there.
+    #[cfg(not(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64"))))]
+    {
+        return Ok(());
+    }
+    #[cfg(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")))]
+    {
+        use std::ffi::{c_int, c_long};
+        extern "C" {
+            fn syscall(n: c_long, ...) -> c_long;
+            fn prctl(op: c_int, ...) -> c_int;
+        }
+        #[repr(C)]
+        struct Insn {
+            code: u16,
+            jt: u8,
+            jf: u8,
+            k: u32,
+        }
+        #[repr(C)]
+        struct Prog {
+            len: u16,
+            filter: *const Insn,
+        }
+        const LD_W_ABS: u16 = 0x20;
+        const JEQ_K: u16 = 0x15;
+        const JGE_K: u16 = 0x35;
+        const RET_K: u16 = 0x06;
+        const ALLOW: u32 = 0x7fff_0000;
+        const EACCES: u32 = 0x0005_0000 | 13;
+        // AUDIT_ARCH_*, and the numbers of socket, io_uring_setup and seccomp
+        #[cfg(target_arch = "x86_64")]
+        const T: (u32, u32, u32, c_long) = (0xc000_003e, 41, 425, 317);
+        #[cfg(target_arch = "aarch64")]
+        const T: (u32, u32, u32, c_long) = (0xc000_00b7, 198, 425, 277);
+        let (arch, socket, uring, seccomp) = T;
+        let i = |code: u16, jt: u8, jf: u8, k: u32| Insn { code, jt, jf, k };
+        let f = [
+            i(LD_W_ABS, 0, 0, 4),     // arch
+            i(JEQ_K, 1, 0, arch),     // ours: go on
+            i(RET_K, 0, 0, EACCES),   // another table: nothing
+            i(LD_W_ABS, 0, 0, 0),     // nr
+            i(JGE_K, 3, 0, 0x4000_0000), // x32 numbers: nothing
+            i(JEQ_K, 2, 0, socket),
+            i(JEQ_K, 1, 0, uring),
+            i(RET_K, 0, 0, ALLOW),
+            i(RET_K, 0, 0, EACCES),
+        ];
+        let prog = Prog { len: f.len() as u16, filter: f.as_ptr() };
+        // PR_SET_NO_NEW_PRIVS, then seccomp(SECCOMP_SET_MODE_FILTER, SECCOMP_FILTER_FLAG_TSYNC): every thread.
+        let held = unsafe { prctl(38, 1u64, 0u64, 0u64, 0u64) } == 0 && unsafe { syscall(seccomp, 1 as c_long, 1 as c_long, &prog as *const Prog) } == 0;
+        if !held {
+            return Err(format!("brevi: --sandbox: CPython without a network grant is held to no network by the kernel (seccomp), which refused ({}); grant --allow net to run it here", std::io::Error::last_os_error()));
+        }
+        Ok(())
+    }
+}
+
 fn ax_pyb_load() -> Result<ax_pyffi::Api, String> {
     use std::ffi::CString;
     let (lib, home, path) = ax_pyb_conf()?;
@@ -719,9 +844,7 @@ fn ax_pyb_load() -> Result<ax_pyffi::Api, String> {
             }
         }
     }
-    if let Some(h) = AX_PYB_HOLD {
-        ax_pyb_hold(h, &lib, &home, &path)?;
-    }
+    ax_pyb_holds(&lib, &home, &path)?;
     unsafe { (api.Init)(0) };
     // sys.argv as `python3 file.py args...` gives it (argparse reads it), sys.path as python3 has it.
     let lit = |s: &str| format!("{s:?}").replace("\\u{", "\\U000").replace('}', "");

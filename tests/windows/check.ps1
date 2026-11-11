@@ -23,8 +23,11 @@ function Check-Verify([string]$name) {
     $raw = & $brevi verify $file 2>&1
     $code = $LASTEXITCODE
     $out = ($raw | ForEach-Object { "$_" }) -join "`n"
-    if ($code -ne 0) { throw "verify $name exited $code`n$out" }
-    if ($out -notmatch '"verify":"identical"') { throw "verify $name did not match CPython`n$out" }
+    if ($code -ne 0 -or $out -notmatch '"verify":"identical"') {
+        # verify compares stdout; the program's own stderr says why it printed nothing
+        $why = (& $brevi run $file 2>&1 | ForEach-Object { "$_" }) -join "`n"
+        throw "verify $name exited $code`n$out`nbrevi run:`n$why"
+    }
     Write-Host "PASS verify $name"
 }
 

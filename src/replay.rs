@@ -122,6 +122,7 @@ pub fn run(mut c: Command, file: &str, args: &[String], release: bool) -> std::i
     let off = !crate::is_py(file)
         || !crate::proc::limits().is_empty()
         || std::env::var_os("BREVI_I64_REPLAY").is_some()
+        || crate::strict()
         || std::env::var("BREVI_DYN").is_ok_and(|v| v == "0")
         || std::env::var("BREVI_REPLAY").is_ok_and(|v| v == "0");
     if off {

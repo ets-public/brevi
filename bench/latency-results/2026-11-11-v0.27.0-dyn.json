@@ -1,0 +1,50 @@
+{
+ "meta": {
+  "brevi": "brevi 0.27.0",
+  "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+  "python": "3.13.18",
+  "machine": "x86_64",
+  "cpu": "Intel(R) Xeon(R) Processor @ 2.30GHz",
+  "cpus": 4,
+  "date": "2026-11-11",
+  "path": "{\"path\":\"dynamic\",\"why\":\"BREVI_DYN=1\"}",
+  "fixture_lines": 209
+ },
+ "results": {
+  "check_fast_edit": {
+   "p50_ms": 149.9,
+   "p95_ms": 181.0,
+   "runs": 20
+  },
+  "check_edit": {
+   "p50_ms": 156.0,
+   "p95_ms": 164.8,
+   "runs": 20
+  },
+  "check_cached": {
+   "p50_ms": 2.0,
+   "p95_ms": 2.8,
+   "runs": 20
+  },
+  "build_edit": {
+   "p50_ms": 1182.8,
+   "p95_ms": 1268.8,
+   "runs": 20
+  },
+  "run_edit": {
+   "p50_ms": 435.8,
+   "p95_ms": 479.6,
+   "runs": 20
+  },
+  "run_cached": {
+   "p50_ms": 20.6,
+   "p95_ms": 23.8,
+   "runs": 20
+  },
+  "python_run": {
+   "p50_ms": 11.9,
+   "p95_ms": 14.3,
+   "runs": 20
+  }
+ }
+}
