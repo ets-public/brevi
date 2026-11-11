@@ -1,4 +1,4 @@
-# Brevi's openai: the Python SDK's API (openai 3.46) for what agent programs use: OpenAI and AsyncOpenAI,
+# Brevi's openai: the Python SDK's API (openai 3.49) for what agent programs use: OpenAI and AsyncOpenAI,
 # chat.completions.create (also stream=True, tools), embeddings.create (the SDK's base64 default decoded as float32),
 # models.list / retrieve, responses.create (also stream=True) with Response.output_text, with_options / copy, the
 # SDK's errors, retries and request headers, and structured outputs: chat.completions.parse / .stream and
@@ -32,7 +32,7 @@ from _brevi_openai_types import ChatCompletion, ChatCompletionChunk, CreateEmbed
 import _brevi_openai_types as _ty
 
 __title__ = "openai"
-__version__ = "3.46.0"
+__version__ = "3.49.0"
 VERSION = __version__
 DEFAULT_MAX_RETRIES = 2
 DEFAULT_TIMEOUT = httpx.Timeout(timeout=600, connect=5.0)

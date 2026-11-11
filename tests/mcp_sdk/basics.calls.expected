@@ -4,7 +4,7 @@
 > {"jsonrpc":"2.0","id":2,"method":"tools/list"}
 < {"jsonrpc":"2.0","id":2,"result":{"tools":[{"description":"Add two numbers.","inputSchema":{"properties":{"a":{"title":"A","type":"integer"},"b":{"default":2,"title":"B","type":"integer"}},"required":["a"],"type":"object","title":"addArguments"},"name":"add","outputSchema":{"properties":{"result":{"title":"Result","type":"integer"}},"required":["result"],"type":"object","title":"addOutput"}},{"description":"","inputSchema":{"properties":{"name":{"title":"Name","type":"string"},"excited":{"default":false,"title":"Excited","type":"boolean"}},"required":["name"],"type":"object","title":"greetArguments"},"name":"greet","outputSchema":{"properties":{"result":{"title":"Result","type":"string"}},"required":["result"],"type":"object","title":"greetOutput"}}]}}
 > {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"add","arguments":{"a":1,"b":"x"}}}
-< {"jsonrpc":"2.0","id":3,"result":{"content":[{"text":"Error executing tool add: 1 validation error for addArguments\nb\n  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='x', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/int_parsing","type":"text"}],"isError":true}}
+< {"jsonrpc":"2.0","id":3,"result":{"content":[{"text":"Error executing tool add: 1 validation error for addArguments\nb\n  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='x', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.14/v/int_parsing","type":"text"}],"isError":true}}
 > {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"add","arguments":{"a":1}}}
 < {"jsonrpc":"2.0","id":4,"result":{"content":[{"text":"3","type":"text"}],"isError":false,"structuredContent":{"result":3}}}
 > {"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"greet","arguments":{"name":"Bo","excited":true}}}
@@ -28,7 +28,7 @@
 > {"jsonrpc":"2.0","id":14,"method":"ping"}
 < {"jsonrpc":"2.0","id":14,"result":{}}
 > {"jsonrpc":"2.0","id":15,"method":"tools/call","params":{"name":"add"}}
-< {"jsonrpc":"2.0","id":15,"result":{"content":[{"text":"Error executing tool add: 1 validation error for addArguments\na\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing","type":"text"}],"isError":true}}
+< {"jsonrpc":"2.0","id":15,"result":{"content":[{"text":"Error executing tool add: 1 validation error for addArguments\na\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.14/v/missing","type":"text"}],"isError":true}}
 > {"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"arguments":{}}}
 < {"jsonrpc":"2.0","id":16,"error":{"code":-32602,"message":"Invalid request parameters","data":""}}
 > {bad json

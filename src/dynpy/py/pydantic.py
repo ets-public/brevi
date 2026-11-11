@@ -1,4 +1,4 @@
-# Brevi's pydantic: the part of pydantic 2.13 (and of pydantic-core 2.46, its Rust validator) that programs use
+# Brevi's pydantic: the part of pydantic 2.14 (and of pydantic-core 2.50, its Rust validator) that programs use
 # most, written in Python and built natively with the program: BaseModel, Field, ConfigDict, field_validator,
 # model_validator, computed_field, ValidationError and the JSON of model_dump_json / model_validate_json. Its
 # messages, error locations, reprs and JSON are pydantic's own, byte for byte.
@@ -14,9 +14,9 @@ import json as _json
 import math as _math
 import re as _re
 
-VERSION = "2.13.5"
+VERSION = "2.14.3"
 __version__ = VERSION
-_URL = "https://errors.pydantic.dev/2.13/v/"
+_URL = "https://errors.pydantic.dev/2.14/v/"
 
 
 class _Undefined:
@@ -753,7 +753,7 @@ def _build_cls(c, cx, cons, strict):
         if cx.cfg.get("arbitrary_types_allowed", False):
             return _IsInst(c)
     raise PydanticSchemaGenerationError(
-        "Unable to generate pydantic-core schema for %r. Set `arbitrary_types_allowed=True` in the model_config to ignore this error or implement `__get_pydantic_core_schema__` on your type to fully support it.\n\nIf you got this error by calling handler(<some type>) with a custom type, check for a pydantic-core schema for <some type>, in particular for any type that does not have a `__get_pydantic_core_schema__` method.\n\nFor further information visit https://errors.pydantic.dev/2.13/u/schema-for-unknown-type" % (c,))
+        "Unable to generate pydantic-core schema for %r. Set `arbitrary_types_allowed=True` in the model_config to ignore this error or implement `__get_pydantic_core_schema__` on your type to fully support it.\n\nIf you got this error by calling handler(<some type>) with a custom type, check for a pydantic-core schema for <some type>, in particular for any type that does not have a `__get_pydantic_core_schema__` method.\n\nFor further information visit https://errors.pydantic.dev/2.14/u/schema-for-unknown-type" % (c,))
 
 
 def _is_enum(c):

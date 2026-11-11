@@ -17,8 +17,8 @@
       "stderr": false
     },
     "pydantic": {
-      "watch": {"pydantic": "2.13.5"},
-      "also": {"pydantic-core": "2.46.5"},
+      "watch": {"pydantic": "2.14.3"},
+      "also": {"pydantic-core": "2.50.4"},
       "tests": ["tests/pydantic/*.py"],
       "stderr": true
     },
@@ -29,7 +29,7 @@
       "stderr": false
     },
     "llm": {
-      "watch": {"anthropic": "2.6.0", "openai": "3.46.0"},
+      "watch": {"anthropic": "2.6.0", "openai": "3.49.0"},
       "tests": ["tests/llm/anthropic_*.py", "tests/llm/openai_*.py"],
       "server": ["tests/llm/server.py", "18090", "listening"],
       "unset_env": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"],

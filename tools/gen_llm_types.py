@@ -3,7 +3,7 @@
 # API name of each (alias), its type as a small descriptor and its default, so that what a program sees (repr,
 # model_dump, to_json, isinstance, attribute access) matches the SDK's.
 #
-#   python3 tools/gen_llm_types.py      (needs anthropic 2.6.0 and openai 3.46.0 installed)
+#   python3 tools/gen_llm_types.py      (needs anthropic 2.6.0 and openai 3.49.0 installed)
 #
 # Descriptors: None any value; "str" "int" "float" "bool" "none" "dt" (datetime) "date"; ("L", d) list;
 # ("D", d) dict values; ("Lit", values); ("M", "Class"); ("U", (d, ...), disc) a union, disc = (field, {value:
