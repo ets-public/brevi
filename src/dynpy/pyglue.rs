@@ -73,7 +73,26 @@ def _nt(cls, name, fields, values):
 # warnings.warn would from that frame: one registry per module, like each module's __warningregistry__.
 def _warn_at(msg, cat, file, line, module):
     import warnings
+    if line == 0:
+        return _at_unknown(msg, getattr(_b, cat), module)
     warnings.warn_explicit(msg, getattr(_b, cat), file, line, module, _d.regs.setdefault(module, {}))
+# A warning at a line of the program the dynamic build does not know (a statement over several lines), in a
+# known module. Only an "error" filter that names no line gives CPython's answer without the line (it raises
+# before the registry or the line is looked at); anything else is refused.
+def _at_unknown(message, category, module):
+    import warnings as _w
+    if isinstance(message, Warning):
+        text = str(message)
+        category = message.__class__
+    else:
+        text = message
+        message = category(message)
+    for action, msg, cat, mod, ln in _w.filters:
+        if (msg is None or msg.match(text)) and issubclass(category, cat) and (mod is None or mod.match(module)):
+            if ln == 0 and action == "error":
+                raise message
+            break
+    raise NotImplementedError("brevi: a warning at a line of the program the dynamic build does not know is not supported in dynamic builds")
 _d.regs = {}
 _d.warn_at = _warn_at
 # The program uses the warnings module. A program frame is no Python frame, so CPython's warnings.warn would
@@ -137,6 +156,8 @@ def _install_warn(site):
             return _w.warn_explicit(message, category, fm.f_code.co_filename, fm.f_lineno, module, g.setdefault('__warningregistry__', {}), g, source)
         if i == P and s is not None:
             file, line, module = s
+            if line == 0:
+                return _at_unknown(message, category, module)
             return _w.warn_explicit(message, category, file, line, module, _d.regs.setdefault(module, {}), None, source)
         raise NotImplementedError("brevi: a warning at a line of the program the dynamic build does not know is not supported in dynamic builds")
     warn.__doc__ = _w.warn.__doc__

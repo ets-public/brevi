@@ -1379,12 +1379,16 @@ fn re_warn(cat: &'static str, msg: String) -> Result<(), E> {
         let Some(s) = site else {
             return Err(unsupported("a re warning from a call whose line the dynamic build does not know"));
         };
+        // line 0: the module is known and the line is not; the bridge decides only where the line cannot matter
         return warn(cat, &msg, s.m.file, s.line, s.m.module);
     }
     // CPython's default filters: DeprecationWarning shown only for __main__, each warning once per location
     let Some(s) = site else { return Ok(()) };
     if cat == "DeprecationWarning" && s.m.module != "__main__" {
         return Ok(());
+    }
+    if s.line == 0 {
+        return Err(unsupported("a re warning from a call whose line the dynamic build does not know"));
     }
     if WARN_SHOWN.with(|w| w.borrow_mut().insert((s.m.module, msg.clone(), cat, s.line))) {
         out_flush();

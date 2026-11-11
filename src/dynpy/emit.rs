@@ -2340,9 +2340,11 @@ impl Em {
     // `call` is the call's Rust text over `__ra`, the evaluated arguments.
     fn re_call(&mut self, call: &str, args: &str, line: usize) -> String {
         // a statement over several lines: which of them the call is on is not known, so no line is named
+        // (the module is still known: line 0 says so, and a warning the filters turn into an error is exact there)
         let site = match self.wmod() {
             Some(m) if !self.multi_line(line) => format!("re_site({line}, &{m});"),
-            _ => "re_site_clear();".to_string(),
+            Some(m) => format!("re_site(0, &{m});"),
+            None => "re_site_clear();".to_string(),
         };
         format!("{{ let __ra = {args}; let __ws = re_site_get(); {site} let __rr = {call}; re_site_put(__ws); __rr }}")
     }
@@ -2398,12 +2400,10 @@ impl Em {
         if !self.track_warn {
             return String::new();
         }
-        if !known || line == 0 || self.multi_line(line) {
-            return "re_site_clear();".into();
-        }
-        // Brevi's own library copies have no lines of CPython's to name
+        let known = known && line != 0 && !self.multi_line(line);
+        // Brevi's own library copies have no lines of CPython's to name; line 0 is this module at a line not known
         match self.wmod() {
-            Some(m) => format!("re_site({line}, &{m});"),
+            Some(m) => format!("re_site({}, &{m});", if known { line } else { 0 }),
             None => "re_site_clear();".into(),
         }
     }
@@ -3500,7 +3500,8 @@ impl Em {
                     let mut cc = self.cond(c, line)?;
                     if k > 0 && self.track_warn {
                         // an elif's own line is not kept
-                        cc = format!("{{ re_site_clear(); {cc} }}");
+                        let ws = self.wsite(0, false);
+                        cc = format!("{{ {ws} {cc} }}");
                     }
                     let bb = self.block(body)?;
                     if k > 0 {
