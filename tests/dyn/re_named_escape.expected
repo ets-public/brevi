@@ -1,0 +1,21 @@
+True True None
+True True
+\N missing { 2
+[\N] missing { 3
+\N{ missing character name 3
+[\N{ missing character name 4
+\N{} missing character name 3
+[\N{}] missing character name 4
+\NSNAKE} missing { 2
+[\NSNAKE}] missing { 3
+\N{SNAKE missing }, unterminated name 3
+[\N{SNAKE] missing }, unterminated name 4
+[\N{SNAKE]} undefined character name 'SNAKE]' 1
+\N{SPAM} undefined character name 'SPAM' 0
+[\N{SPAM}] undefined character name 'SPAM' 1
+\N{KEYCAP NUMBER SIGN} undefined character name 'KEYCAP NUMBER SIGN' 0
+(?x)\N{ SNAKE} undefined character name ' SNAKE' 4
+a\N{NBSP}b a\N{NBSP}b
+b'\\N{LESS-THAN SIGN}' bad escape \N 0
+b'[\\N{LESS-THAN SIGN}]' bad escape \N 1
+['一', '각']

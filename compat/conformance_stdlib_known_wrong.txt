@@ -19,5 +19,5 @@ test_itertools.SubclassWithKwargsTest.test_keywords_in_subclass dyn issue=#398 o
 test_itertools.SubclassWithKwargsTest.test_keywords_in_subclass normal issue=#398 owner=ets-public expires=2026-12-11
 test_itertools.TestBasicOps.test_filter dyn issue=#396 owner=ets-public expires=2026-12-11
 test_itertools.TestBasicOps.test_filter normal issue=#396 owner=ets-public expires=2026-12-11
-test_re.ReTests.test_bigcharset dyn issue=#399 owner=ets-public expires=2026-12-11
-test_re.ReTests.test_bigcharset normal issue=#399 owner=ets-public expires=2026-12-11
+test_re.ReTests.test_bigcharset dyn issue=#450 owner=ets-public expires=2026-12-11
+test_re.ReTests.test_bigcharset normal issue=#450 owner=ets-public expires=2026-12-11
