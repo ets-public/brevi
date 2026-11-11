@@ -1,1 +1,0 @@
-- `itertools.islice`, `permutations`, `combinations` and `product` reject negative, oversized and non-integer sizes with the same errors as CPython, in the order CPython checks them.

@@ -1,1 +1,0 @@
-- Classes have `__subclasses__()`, as in CPython (review l04).

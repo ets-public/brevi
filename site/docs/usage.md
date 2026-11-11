@@ -244,14 +244,14 @@ The sandbox decides what a program may touch; `--limit` decides how much it may 
 | Limit | Unit | Holds | How |
 | --- | --- | --- | --- |
 | `cpu` | seconds | CPU time, all threads together | the kernel (`RLIMIT_CPU`); refused on Windows |
-| `mem` | MB | address space on Linux; committed memory of the program and everything it starts on Windows | the kernel (`RLIMIT_AS`); on Windows a Job Object, from the next release; not on macOS |
+| `mem` | MB | address space on Linux; committed memory of the program and everything it starts on Windows | the kernel (`RLIMIT_AS`); on Windows a Job Object, from v0.27.0; not on macOS |
 | `time` | seconds | wall-clock time, waiting included | `brevi`, which stops the program |
 | `output` | KB | stdout and stderr together | `brevi`, which passes output on and stops the program at the limit |
 | `file` | MB | the size of any one file the program writes | the kernel (`RLIMIT_FSIZE`) |
 | `written` | MB | bytes written to files in all (stdout and stderr are `output`, network bytes are `net`; from v0.27.0, on every OS) | Brevi's own file code in the program, which counts before each write; `--sandbox` without `--allow-py` or `native` only |
 | `files` | count | files the program creates | Brevi's own file code in the program; `--sandbox` without `--allow-py` or `native` only |
 | `net` | MB | bytes sent and received over the network | Brevi's own network code in the program; `--sandbox` without `--allow-py` or `native` only |
-| `threads` | count | threads at once, the program's and those of every process it starts, Linux only | the kernel: the program runs in a cgroup of its own whose `pids.max` is the limit, so the thread or process past it is never created; refused where Brevi cannot make that cgroup (from the next release) |
+| `threads` | count | threads at once, the program's and those of every process it starts, Linux only | the kernel: the program runs in a cgroup of its own whose `pids.max` is the limit, so the thread or process past it is never created; refused where Brevi cannot make that cgroup (from v0.27.0) |
 | `fds` | count | files and sockets open at once | the kernel (`RLIMIT_NOFILE`): an open past it fails with `OSError: Too many open files`, it does not stop the program |
 
 Plain numbers use those units; `mem=1gb`, `output=512kb`, `time=1.5` and `time=500ms` work too. Join limits with commas:
@@ -319,7 +319,7 @@ window "tk"
 
 Running `brevi check`, `build` or `run` again on files that did not change replays the last result: the same output, the same `{"path":...}` line and the same binary, in about 10 ms, with no parsing, type inference or `rustc`. The key is a hash of the program's files (every `.py` and `.bv` file in its folder and the package folders it imports), the command and flags, the `BREVI_*` and Python settings in the environment, the Brevi binary and the Rust toolchain; any change to one builds again. A failed build is replayed too when the program imports only its own files and Python's standard library (a later `pip install` must not meet an old refusal). Below that, builds are also cached by the generated code, so an edit that changes nothing in the generated Rust skips `rustc`. The cache keeps at most `BREVI_CACHE_MB` megabytes (default 1024), least recently used first out; `--no-cache` builds from scratch. A new small program builds in well under a second by default (about 0.15 to 0.3 s) and a few seconds with `--release`.
 
-From the next release, `brevi run` and `brevi test` after an edit don't wait for the optimised build. They build the program unoptimised (rustc opt-level 0), run it at once, and build the optimised binary (opt-level 1, the default) in the background into the cache. The next run of the unchanged program uses the optimised one. On a 200-line program, a run after an edit went from 0.82 s to 0.32 s on the typed path, and from 1.50 s to 0.50 s on the dynamic path. The unoptimised binary runs slower (often 2x to 5x slower on loops), so for a long computation use `--release`, or set `BREVI_TIERED=0`. `brevi build` always makes the optimised binary, and so does a run with `--no-cache`. The very first build after installing Brevi, or after a Rust update, also builds Brevi's runtime library once, which takes about 5 to 15 seconds.
+From v0.27.0, `brevi run` and `brevi test` after an edit don't wait for the optimised build. They build the program unoptimised (rustc opt-level 0), run it at once, and build the optimised binary (opt-level 1, the default) in the background into the cache. The next run of the unchanged program uses the optimised one. On a 200-line program, a run after an edit went from 0.82 s to 0.32 s on the typed path, and from 1.50 s to 0.50 s on the dynamic path. The unoptimised binary runs slower (often 2x to 5x slower on loops), so for a long computation use `--release`, or set `BREVI_TIERED=0`. `brevi build` always makes the optimised binary, and so does a run with `--no-cache`. The very first build after installing Brevi, or after a Rust update, also builds Brevi's runtime library once, which takes about 5 to 15 seconds.
 
 Write the plain, direct program. Brevi runs plain loops over ints and lists several times faster than CPython (1.7x to 39.5x, median 8.5x, on our 12 compute benchmarks), so code hand-tuned for CPython (bit tricks, packing values into big integers) is usually slower under Brevi, not faster.
 
@@ -334,7 +334,7 @@ Write the plain, direct program. Brevi runs plain loops over ints and lists seve
 | `BREVI_NO_CACHE=1` | Same as `--no-cache`: do not use the result or build cache. |
 | `BREVI_CACHE_MB` | Most megabytes of builds the cache keeps (default 1024); the least recently used go first. |
 | `BREVI_TIME=1` | Print how long each build stage took, in ms, on stderr. |
-| `BREVI_TIERED=0` | From the next release: `run` and `test` always wait for the optimised build instead of running an unoptimised one first. |
+| `BREVI_TIERED=0` | From v0.27.0: `run` and `test` always wait for the optimised build instead of running an unoptimised one first. |
 | `BREVI_PY_CACHE` | Where `--standalone` binaries unpack CPython (default `~/.cache/brevi/py`). |
 | `BREVI_GUI=headless` | Run a `--window` GUI build headless. |
 | `BREVI_DYN=1` / `BREVI_DYN=0` | Force the dynamic build, or turn it off (to see the typed build's errors). |

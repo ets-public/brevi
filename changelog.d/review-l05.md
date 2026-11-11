@@ -1,1 +1,0 @@
-- `sys.version_info` is a named struct sequence: `.major`, `.minor` and the rest read as attributes (review l05).

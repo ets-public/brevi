@@ -1,1 +1,0 @@
-- `del` on a name with no value now raises CPython's exact error: `UnboundLocalError` in a function, `NameError: name 'x' is not defined` in a class body (also when the name is deleted twice, or belongs to an enclosing function).

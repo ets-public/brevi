@@ -1,1 +1,0 @@
-- The dynamic build's asyncio is faster (task stepping, `gather` and the ready queue run natively, falling back to the Python implementation for subclasses and patched methods), and long-running programs no longer grow memory per coroutine started.

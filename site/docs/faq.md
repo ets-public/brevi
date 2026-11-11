@@ -24,7 +24,7 @@ No. Write Python. Brevi also has its own language for `.bv` files, but measureme
 
 ## Will my program give the same answer?
 
-That is the aim, and usually yes, but not always yet. Brevi tries to refuse at build time anything it cannot match, and every change is checked against hundreds of saved programs and behaviour traps. On CPython 3.13's own tests, though, 58% match, 21% are refused, and 44 of 311 tests (14%) still build and answer differently, plus 5 that crash ([In numbers](/docs/compatibility#in-numbers)). For a program that matters, run `brevi verify x.py --input tests/`: it runs the native build and CPython on the same inputs and certifies them only if they agree. If you find a difference, it is a bug, so please report it.
+That is the aim, and usually yes, but not always yet. Brevi tries to refuse at build time anything it cannot match, and every change is checked against hundreds of saved programs and behaviour traps. On CPython 3.13's own tests, though, 80% match, 12% are refused, and 8 of 311 tests (3%) still build and answer differently, and none crash ([In numbers](/docs/compatibility#in-numbers)). For a program that matters, run `brevi verify x.py --input tests/`: it runs the native build and CPython on the same inputs and certifies them only if they agree. If you find a difference, it is a bug, so please report it.
 
 ## What happens when Brevi cannot build my file?
 
@@ -48,11 +48,11 @@ Brevi programs are memory-safe, and integers never silently overflow. A program 
 
 ## Does it cost more tokens than Python?
 
-About the same. In the v0.26.0 release test (24 tasks, two runs), Brevi cost 1.07x (Sonnet) and 1.00x (Haiku) of what the same models cost running Python with CPython. Every task passed, and all 96 final programs built natively. Recent releases have stayed between 0.97x and 1.09x for Sonnet, mostly a few percent above 1.00x, so Brevi does not save model cost on ordinary tasks. In this test, when Brevi cannot build a file it runs with CPython, as `brevi run` does, so the model does not see Brevi's build errors. On four heavy tasks, telling the model (on the Brevi side only) that its code is compiled and should be written plainly brought the cost to about half; CPython has not yet been run with the same line, so that does not yet show what Brevi itself saves. [Benchmarks](/docs/benchmarks#the-release-test) has every run.
+About the same. In the v0.27.0 release test (24 tasks, two runs), Brevi cost 1.08x (Sonnet) and 0.97x (Haiku) of what the same models cost running Python with CPython. Every task passed, and 92 of 96 final programs built natively (the other 4 failed to build only while another job used the same machine, and build natively when rebuilt). Recent releases have stayed between 0.97x and 1.09x for Sonnet, mostly a few percent above 1.00x, so Brevi does not save model cost on ordinary tasks. In this test, when Brevi cannot build a file it runs with CPython, as `brevi run` does, so the model does not see Brevi's build errors. On four heavy tasks, telling the model (on the Brevi side only) that its code is compiled and should be written plainly brought the cost to about half; CPython has not yet been run with the same line, so that does not yet show what Brevi itself saves. [Benchmarks](/docs/benchmarks#the-release-test) has every run.
 
 ## Which platforms?
 
-Linux, macOS and Windows on x86-64 and ARM64 (Windows x86-64 only). Library calls through CPython work on Windows too from the next release (the Python on PATH must have its DLL); `--standalone` builds are Linux only for now. See [Platforms](/docs/compatibility#platforms).
+Linux, macOS and Windows on x86-64 and ARM64 (Windows x86-64 only). Library calls through CPython work on Windows too from v0.27.0 (the Python on PATH must have its DLL); `--standalone` builds are Linux only for now. See [Platforms](/docs/compatibility#platforms).
 
 ## Is it free? What is brevi.run?
 

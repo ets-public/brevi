@@ -1,0 +1,5 @@
+False 2
+caught 'function' object has no attribute 'a'
+{'b': 2}
+{} False
+caught 'function' object has no attribute 'c'

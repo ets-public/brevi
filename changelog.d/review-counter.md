@@ -1,1 +1,0 @@
-- The dynamic build runs `collections.Counter` natively (all methods and operators, subclasses included), and functions, classes, methods and generators carry CPython's dotted `__qualname__` (`outer.<locals>.f`, `K.m`), used in reprs and argument errors.

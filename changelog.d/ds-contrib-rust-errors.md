@@ -1,1 +1,0 @@
-- `tools/ds_contrib.py` has a `typed_rust_errors` tool: it emits the typed build's Rust for a file, compiles it, and shows each rustc error with the Python line it came from.

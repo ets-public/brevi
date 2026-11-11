@@ -1,1 +1,0 @@
-- Typed build: reading a missing key of a `defaultdict` (`d[k]`) inserts the key with its default, as in CPython (so `len`, iteration and `in` agree afterwards), instead of sending the program to the dynamic build. +6 saved agent programs now build typed.

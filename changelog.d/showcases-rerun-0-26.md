@@ -1,1 +1,0 @@
-- **Showcases rerun on Brevi 0.26.0.** On 10 November: SQLite MCP server 26x, the official MCP time server 21x, token count 11x for one file and 2.2x for a tree, micrograd 9.7x, microgpt 1.3x, all with the same output as CPython (site docs and `bench/showcase/results.json`).

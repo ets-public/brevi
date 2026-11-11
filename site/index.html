@@ -30,7 +30,7 @@ __HEADER__
           <a class="btn ghost" href="__GITHUB__" rel="noopener">__GHICON__View on GitHub</a>
           <a class="more" href="/docs/agents">Set up an agent →</a>
         </div>
-        <p class="fine">It aims to print exactly what CPython prints and to refuse what it cannot match; today it matches <strong>58% of CPython's own tests</strong>, so it is a preview, not a drop-in <code>python3</code>. When Brevi cannot build a file, it says why in one line of JSON.</p>
+        <p class="fine">It aims to print exactly what CPython prints and to refuse what it cannot match; today it matches <strong>80% of CPython's own tests</strong>, so it is a preview, not a drop-in <code>python3</code>. When Brevi cannot build a file, it says why in one line of JSON.</p>
         <p class="status jl">__STATUS__</p>
       </div>
       <div class="term" aria-label="Example program and output">
@@ -53,7 +53,7 @@ cat: 1</pre>
     <div class="wrap">
       <div class="stats">
         <div class="stat"><span class="num">8.5x</span><span class="lab">Median speed over CPython</span><span class="sub">1.7x to 39.5x on 12 compute benchmarks, default build</span></div>
-        <div class="stat"><span class="num">181 of 311</span><span class="lab">CPython 3.13 tests matched</span><span class="sub">58% in v__VERSION__. <a href="/docs/compatibility#in-numbers">All the numbers</a></span></div>
+        <div class="stat"><span class="num">250 of 311</span><span class="lab">CPython 3.13 tests matched</span><span class="sub">80% in v__VERSION__. <a href="/docs/compatibility#in-numbers">All the numbers</a></span></div>
         <div class="stat"><span class="num">591 of 591</span><span class="lab">Saved agent programs still match</span><span class="sub">A regression check, not a measure of Python coverage</span></div>
         <div class="stat"><span class="num">1 line</span><span class="lab">Per error, as JSON</span><span class="sub">With the line number and, where it can, a fix</span></div>
       </div>
@@ -105,12 +105,12 @@ cat: 1</pre>
       <div class="conf">
         <div class="bars">
           <div class="bar-row">
-            <div class="cap"><span>v__VERSION__, the current release</span><b>181 <small>of 311 match</small></b></div>
-            <div class="bar" role="img" aria-label="Of 311 tests: 181 match, 66 refused, 44 answer differently, 5 crash, 15 could not be extracted"><i class="seg-match" style="width: 58.2%"></i><i class="seg-refused" style="width: 21.2%"></i><i class="seg-differ" style="width: 14.1%"></i><i class="seg-crash" style="width: 1.6%"></i><i class="seg-other" style="width: 4.8%"></i></div>
+            <div class="cap"><span>v__VERSION__, the current release</span><b>250 <small>of 311 match</small></b></div>
+            <div class="bar" role="img" aria-label="Of 311 tests: 250 match, 38 refused, 8 answer differently, none crash, 15 could not be extracted"><i class="seg-match" style="width: 80.4%"></i><i class="seg-refused" style="width: 12.2%"></i><i class="seg-differ" style="width: 2.6%"></i><i class="seg-other" style="width: 4.8%"></i></div>
           </div>
           <div class="bar-row">
-            <div class="cap"><span>On main, from the next release</span><b>250 <small>of 311 match</small></b></div>
-            <div class="bar" role="img" aria-label="Of 311 tests: 250 match, 38 refused, 8 answer differently, none crash, 15 could not be extracted"><i class="seg-match" style="width: 80.4%"></i><i class="seg-refused" style="width: 12.2%"></i><i class="seg-differ" style="width: 2.6%"></i><i class="seg-other" style="width: 4.8%"></i></div>
+            <div class="cap"><span>v0.26.0, the release before</span><b>181 <small>of 311 match</small></b></div>
+            <div class="bar" role="img" aria-label="Of 311 tests: 181 match, 66 refused, 44 answer differently, 5 crash, 15 could not be extracted"><i class="seg-match" style="width: 58.2%"></i><i class="seg-refused" style="width: 21.2%"></i><i class="seg-differ" style="width: 14.1%"></i><i class="seg-crash" style="width: 1.6%"></i><i class="seg-other" style="width: 4.8%"></i></div>
           </div>
           <ul class="legend">
             <li><i class="seg-match"></i>Prints what CPython prints</li>
@@ -122,7 +122,7 @@ cat: 1</pre>
         </div>
         <div>
           <h3>CPython's own tests</h3>
-          <p>Of 311 tests from CPython 3.13's own suite, 181 build natively and print exactly what CPython prints, 66 are refused with a reason, 44 still build and answer differently, and 5 crash. Those 49 are bugs, and they are what we fix first. On main, for the next release, 250 match, 38 are refused, 8 answer differently and none crash. <a href="/docs/compatibility#in-numbers">The numbers</a></p>
+          <p>Of 311 tests from CPython 3.13's own suite, 250 build natively and print exactly what CPython prints, 38 are refused with a reason, 8 still build and answer differently, and none crash (v0.26.0: 181, 66, 44 and 5). Those 8 are bugs, and they are what we fix first. Of CPython's tests for the standard-library modules agents use most, 250 of 554 match and 22 answer differently. <a href="/docs/compatibility#in-numbers">The numbers</a></p>
         </div>
       </div>
       <div class="grid3">
@@ -208,7 +208,7 @@ IndexError: list index out of range</pre>
             <table>
               <thead><tr><th>Model cost, Brevi vs CPython</th><th class="n">Sonnet</th><th class="n">Haiku</th></tr></thead>
               <tbody>
-                <tr><td>Release test, 24 tasks (v0.26.0, two runs)</td><td class="n">1.07x</td><td class="n">1.00x</td></tr>
+                <tr><td>Release test, 24 tasks (v0.27.0, two runs)</td><td class="n">1.08x</td><td class="n">0.97x</td></tr>
                 <tr><td>4 heavy tasks, Brevi side told "write it plainly" (no CPython control yet)</td><td class="n">0.58x</td><td class="n">0.53x</td></tr>
               </tbody>
             </table>

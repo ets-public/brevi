@@ -1,1 +1,0 @@
-- `tools/ds_contrib.py` no longer passes credentials to anything the model runs: subprocesses get an environment without secret-looking variables, and secret values are masked in tool output before it reaches the model or the session log.

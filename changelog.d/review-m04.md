@@ -1,1 +1,0 @@
-- math.modf keeps the sign of zero (`modf(-0.0)`, `modf(-2.0)`) and gives `(0.0, inf)` for infinity, as CPython does.
