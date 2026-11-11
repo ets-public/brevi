@@ -7,7 +7,7 @@
 #[allow(non_snake_case, non_camel_case_types, dead_code)]
 mod brevi_sqlglue {
     use super::*;
-    use brevi_dyn::{DbV, SqlOps};
+    use brevi_dyn::{BytesV, DbV, SqlOps, V};
     use std::ffi::{c_char, c_int, c_void, CStr, CString};
     use std::sync::OnceLock;
 
@@ -373,16 +373,20 @@ mod brevi_sqlglue {
     fn step(st: i64) -> i64 {
         unsafe { (l().step)(p(st)) as i64 }
     }
-    fn bind(st: i64, k: i64, v: &DbV) -> i64 {
+    fn bind(st: i64, k: i64, v: &V) -> i64 {
         let l = l();
         let (s, k) = (p(st), k as c_int);
         unsafe {
             (match v {
-                DbV::Null => (l.bind_null)(s, k),
-                DbV::Int(i) => (l.bind_int64)(s, k, *i),
-                DbV::Float(f) => (l.bind_double)(s, k, *f),
-                DbV::Text(t) => (l.bind_text)(s, k, t.as_ptr() as *const c_char, t.len() as c_int, -1),
-                DbV::Blob(b) => (l.bind_blob)(s, k, b.as_ptr() as *const c_void, b.len() as c_int, -1),
+                V::None => (l.bind_null)(s, k),
+                V::Int(i) => (l.bind_int64)(s, k, *i),
+                V::Float(f) => (l.bind_double)(s, k, *f),
+                V::Str(t) => (l.bind_text)(s, k, t.s.as_ptr() as *const c_char, t.s.len() as c_int, -1),
+                V::Ext(x) => match x.any().downcast_ref::<BytesV>() {
+                    Some(b) => (l.bind_blob)(s, k, b.0.as_ptr() as *const c_void, b.0.len() as c_int, -1),
+                    None => 21,
+                },
+                _ => 21,
             }) as i64
         }
     }

@@ -1907,6 +1907,9 @@ pub enum It {
     Obj(V),
     // another iterator object, stepped through iter_step so that re-entrant calls work
     Ref(Rc<RefCell<It>>),
+    // a Python iterator object with its class's __next__ cached, valid while CLASS_EPOCH is unchanged
+    // (a class change re-looks it up, as CPython reads the current __next__ each step)
+    ObjMeth(V, V, u64),
     // an iterator whose state lives behind its own cells and holds no borrow while it calls user code, so
     // it may be re-entered (from a key function or __eq__, say), as CPython's C iterators may
     Shared(Rc<dyn Fn() -> Result<Option<V>, E>>),
@@ -2034,6 +2037,28 @@ impl It {
             }
             It::Coro(c) => coro_next(c, V::None),
             It::Obj(o) => obj_next(o),
+            It::ObjMeth(o, f, ep) => {
+                let cur = CLASS_EPOCH.with(|e| e.get());
+                if *ep != cur {
+                    let nf = match o {
+                        V::Obj(ob) => ob.cls.lookup("__next__"),
+                        _ => None,
+                    };
+                    match nf {
+                        Some(nf) => {
+                            *f = nf;
+                            *ep = cur;
+                        }
+                        // __next__ was deleted from the class: the uncached path raises the TypeError
+                        None => return obj_next(o),
+                    }
+                }
+                match call1(f, o.clone()) {
+                    Ok(v) => Ok(Some(v)),
+                    Err(E(e)) if is_exc(&e, "StopIteration") => Ok(None),
+                    Err(e) => Err(e),
+                }
+            }
             It::Ref(r) => iter_step(r),
             It::Shared(f) => f(),
             It::Done => Ok(None),
@@ -2046,7 +2071,7 @@ fn obj_next(o: &V) -> Result<Option<V>, E> {
         _ => None,
     };
     match f {
-        Some(f) => match call(&f, Args::p(vec![o.clone()])) {
+        Some(f) => match call1(&f, o.clone()) {
             Ok(v) => Ok(Some(v)),
             Err(E(e)) if is_exc(&e, "StopIteration") => Ok(None),
             Err(e) => Err(e),
@@ -2095,10 +2120,10 @@ pub fn iter(v: &V) -> Result<It, E> {
             if let Some(f) = o.cls.lookup("__iter__") {
                 let r = call(&f, Args::p(vec![v.clone()]))?;
                 if let V::Obj(ro) = &r {
-                    if ro.cls.lookup("__next__").is_none() {
-                        return type_err(format!("iter() returned non-iterator of type '{}'", tn(&r)));
+                    if let Some(n) = ro.cls.lookup("__next__") {
+                        return Ok(It::ObjMeth(r.clone(), n, CLASS_EPOCH.with(|e| e.get())));
                     }
-                    return Ok(It::Obj(r));
+                    return type_err(format!("iter() returned non-iterator of type '{}'", tn(&r)));
                 }
                 return iter(&r);
             }
@@ -2139,10 +2164,10 @@ pub fn iter_v(v: &V) -> R {
         if let Some(f) = o.cls.lookup("__iter__") {
             let r = call(&f, Args::p(vec![v.clone()]))?;
             if let V::Obj(ro) = &r {
-                if ro.cls.lookup("__next__").is_none() {
-                    return type_err(format!("iter() returned non-iterator of type '{}'", tn(&r)));
+                if let Some(n) = ro.cls.lookup("__next__") {
+                    return Ok(V::Iter(Rc::new(RefCell::new(It::ObjMeth(r.clone(), n, CLASS_EPOCH.with(|e| e.get()))))));
                 }
-                return Ok(V::Iter(Rc::new(RefCell::new(It::Obj(r)))));
+                return type_err(format!("iter() returned non-iterator of type '{}'", tn(&r)));
             }
             return iter_v(&r);
         }

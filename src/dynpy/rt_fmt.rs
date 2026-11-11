@@ -890,8 +890,67 @@ pub fn fmt_v(v: &V, spec: &str) -> R {
     Ok(st(format_spec(v, spec)?))
 }
 
+// The one-conversion, no-flags cases ("%d" % n, "%s" % name, "%f" % x): the general parser below walks the
+// format as a Vec<char> and allocates several strings per conversion, so these run through a straight scan.
+// Anything it does not recognise falls through to the general (exact) parser.
+fn percent_simple(f: &str, args: &V) -> Option<Result<String, E>> {
+    if !f.is_ascii() {
+        return None;
+    }
+    let b = f.as_bytes();
+    let mut conv: Option<usize> = None;
+    for (i, &c) in b.iter().enumerate() {
+        if c == b'%' {
+            if i + 1 >= b.len() || b[i + 1] == b'%' || conv.is_some() {
+                return None;
+            }
+            conv = Some(i);
+        }
+    }
+    let p = conv?;
+    let ty = b[p + 1] as char;
+    if !matches!(ty, 'd' | 'i' | 'u' | 's' | 'f') {
+        return None;
+    }
+    let v: &V = match args {
+        V::Tuple(t) => {
+            let t = t.as_slice();
+            if t.len() != 1 {
+                return None;
+            }
+            &t[0]
+        }
+        V::Dict(_) => return None,
+        x => x,
+    };
+    let piece = match ty {
+        'd' | 'i' | 'u' => match v {
+            V::Int(i) => format_spec(&V::Int(*i), "d").ok()?,
+            V::Bool(x) => format_spec(&V::Int(*x as i64), "d").ok()?,
+            _ => return None,
+        },
+        's' => match v {
+            V::Str(s) => s.s.clone(),
+            _ => return None,
+        },
+        'f' => match v {
+            V::Float(x) => format_spec(&V::Float(*x), ".6f").ok()?,
+            _ => return None,
+        },
+        _ => unreachable!(),
+    };
+    let mut out = String::with_capacity(b.len() - 2 + piece.len());
+    out.push_str(&f[..p]);
+    out.push_str(&piece);
+    out.push_str(&f[p + 2..]);
+    Some(Ok(out))
+}
+
 // '%5.2f' % x
 pub fn percent_format(f: &str, args: &V) -> Result<String, E> {
+    if let Some(r) = percent_simple(f, args) {
+        return r;
+    }
     let (items, dict): (Vec<V>, Option<V>) = match args {
         V::Tuple(t) => (t.to_vec(), None),
         V::Dict(_) => (vec![args.clone()], Some(args.clone())),
