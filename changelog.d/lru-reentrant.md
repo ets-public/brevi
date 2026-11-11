@@ -1,0 +1,1 @@
+- Dynamic build: a hit in a bounded `functools.lru_cache` no longer changes the cache's dict (it only moves the result to most recently used), so a key whose `__eq__` calls the cached function again works as in CPython instead of raising `RuntimeError: dict mutated during lookup` (#451).

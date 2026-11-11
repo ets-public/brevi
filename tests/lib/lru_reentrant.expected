@@ -1,0 +1,17 @@
+miss 1
+10
+miss 2
+20
+10
+miss 3
+30
+miss 2
+20
+miss 1
+10
+10
+CacheInfo(hits=2, misses=5, maxsize=2, currsize=2)
+miss 1
+10 CacheInfo(hits=0, misses=1, maxsize=2, currsize=1)
+1 1 CacheInfo(hits=1, misses=1, maxsize=None, currsize=1)
+2 CacheInfo(hits=2, misses=2, maxsize=4, currsize=2)
