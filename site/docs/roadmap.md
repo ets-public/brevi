@@ -20,10 +20,10 @@ Each measure links to where its number comes from. Notes on the marked numbers a
 
 | Measure | Now | In 90 days | In 12 months |
 |---|---|---|---|
-| [`brevi check --fast`](https://github.com/ets-public/brevi/blob/main/docs/LATENCY.md) | **25 ms**<sup>1</sup> | 20 ms | 10 ms |
-| [`brevi check`](https://github.com/ets-public/brevi/blob/main/docs/LATENCY.md) | **109 ms**<sup>1</sup> | 50 ms | 30 ms |
-| [Build](https://github.com/ets-public/brevi/blob/main/docs/LATENCY.md) | **0.97 s**<sup>1</sup> | 0.5 s | 0.3 s |
-| [`brevi run`](https://github.com/ets-public/brevi/blob/main/docs/LATENCY.md) (quick first build) | **0.36 s**<sup>1</sup> | | |
+| [`brevi check --fast`](https://github.com/ets-public/brevi/blob/main/docs/LATENCY.md) | **22 ms**<sup>1</sup> | 20 ms | 10 ms |
+| [`brevi check`](https://github.com/ets-public/brevi/blob/main/docs/LATENCY.md) | **94 ms**<sup>1</sup> | 50 ms | 30 ms |
+| [Build](https://github.com/ets-public/brevi/blob/main/docs/LATENCY.md) | **0.91 s**<sup>1</sup> | 0.5 s | 0.3 s |
+| [`brevi run`](https://github.com/ets-public/brevi/blob/main/docs/LATENCY.md) (quick first build) | **0.35 s**<sup>1</sup> | | |
 
 ### Agents
 
@@ -42,7 +42,7 @@ Each measure links to where its number comes from. Notes on the marked numbers a
 
 **Notes**
 
-1. **Measured on main with a fix that ships in the next release.** In v0.27.0 and v0.27.1 a new safety check wrongly sent the test program to the slower dynamic build, so these were 160 ms, 160 ms, 1.18 s and 0.43 s. At v0.26.0 they were 16 ms, 94 ms and 0.87 s; the safety check still costs about 9 ms of `check --fast`.
+1. **Measured on main with fixes that ship in the next release.** In v0.27.0 and v0.27.1 a new safety check wrongly sent the test program to the slower dynamic build, so these were 160 ms, 160 ms, 1.18 s and 0.43 s. At v0.26.0 they were 16 ms, 94 ms and 0.87 s; the safety check still costs about 6 ms of `check --fast`.
 2. Measured at v0.25.0.
 3. Measured at v0.26.0, one run each with Haiku and Sonnet, with Brevi's errors shown to the model.
 4. Possible since v0.27.0 with the [brevi-sandbox image](https://github.com/ets-public/brevi/blob/main/docs/SDK_AND_IMAGES.md).
