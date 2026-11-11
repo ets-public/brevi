@@ -200,6 +200,18 @@ def parse(src):
         return ast.parse(src)
 
 
+def fresh_module(node):
+    """(name, module) for `name = import_helper.import_fresh_module('module', ...)`, else None."""
+    if not (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)):
+        return None
+    v = node.value
+    if (isinstance(v, ast.Call) and isinstance(v.func, ast.Attribute) and v.func.attr == "import_fresh_module"
+            and isinstance(v.func.value, ast.Name) and v.func.value.id == "import_helper"
+            and v.args and isinstance(v.args[0], ast.Constant) and isinstance(v.args[0].value, str)):
+        return node.targets[0].id, v.args[0].value
+    return None
+
+
 class Mod:
     """One fetched source file: its top-level definitions, and the edits that rewrite its assertions.
 
@@ -227,6 +239,11 @@ class Mod:
                     self.stars.append(node.module)
                 else:
                     self.imports[a.asname or a.name] = ("from", node.module, a.name)
+        elif fresh := fresh_module(node):
+            # `py_functools = import_helper.import_fresh_module('functools', blocked=['_functools'])`: CPython's tests
+            # run some classes against both its C and its pure-Python copy of a module. Brevi has one copy, so each
+            # variant is the module itself, compared with what the reference CPython prints for its default copy.
+            self.imports[fresh[0]] = ("import", fresh[1], fresh[0])
         elif not (isinstance(node, ast.If) and "__name__" in ast.dump(node.test)):
             for sub in ast.walk(node):
                 if isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Store):

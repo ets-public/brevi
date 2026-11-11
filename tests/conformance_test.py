@@ -90,6 +90,14 @@ class Assertions(unittest.TestCase):
 
 
 class Inlining(unittest.TestCase):
+    def test_a_fresh_module_copy_is_the_module(self):
+        s = cut("    def test_a(self):\n        self.assertEqual(py_json.dumps([1]), '[1]')\n",
+                head="import unittest\nfrom test.support import import_helper\n"
+                     "py_json = import_helper.import_fresh_module('json', blocked=['_json'])\nclass T(unittest.TestCase):\n")
+        self.assertIn("import json as py_json", s)
+        self.assertNotIn("import_helper", s)
+        self.assertEqual(run(s).stdout, "'[1]'\n")
+
     def test_helpers_and_setup_come_along(self):
         s = cut("    def setUp(self):\n        self.v = K\n    def twice(self):\n        return helper(self.v)\n"
                 "    def test_a(self):\n        self.assertEqual(self.twice(), 8)\n    def test_b(self):\n        pass\n",
