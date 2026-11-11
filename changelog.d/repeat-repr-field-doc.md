@@ -1,0 +1,1 @@
+- Dynamic builds: `itertools.repeat` objects repr as CPython's (`repeat('a', 2)`, the count going down as items are taken, negative counts shown as 0), and `repeat(x, n)` no longer builds a list of n items up front. Each namedtuple field (`Point.x`) has its own `__doc__`, which can be set and deleted as in CPython.

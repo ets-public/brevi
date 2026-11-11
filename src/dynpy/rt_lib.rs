@@ -770,6 +770,7 @@ pub fn type_of(x: &V) -> Result<Rc<Class>, E> {
         V::View(x) if x.1 == 3 => tclass(17, "mappingproxy"),
         V::Ext(e) => ext_class(e.tname()),
         V::Iter(it) => return iter_type_of(it),
+        V::NTF(_) => ext_class("collections._tuplegetter"),
         _ => tclass(18, "object"),
     })
 }
@@ -826,6 +827,8 @@ pub fn it_class(k: ItKind) -> Result<Rc<Class>, E> {
         ItKind::ItPermutations => ("itertools", "permutations"),
         ItKind::ItCombinations => ("itertools", "combinations"),
         ItKind::ItCombinationsWithReplacement => ("itertools", "combinations_with_replacement"),
+        ItKind::ItTee => ("itertools", "_tee"),
+        ItKind::ItBatched => ("itertools", "batched"),
         ItKind::Unknown => return Err(iter_type_unsupported()),
     };
     ITER_CLASSES.with(|c| {
@@ -874,7 +877,7 @@ thread_local! {
     pub static EXT_ITER_CLASSES: RefCell<HashMap<(Sym, Sym), Rc<Class>>> = RefCell::new(HashMap::new());
 }
 // A class type() gives for an iterator (one of ITER_CLASSES, or a bridged value's iterator type).
-fn is_iter_class(k: &Rc<Class>) -> bool {
+pub fn is_iter_class(k: &Rc<Class>) -> bool {
     ITER_CLASSES.with(|c| c.borrow().iter().flatten().any(|x| Rc::ptr_eq(x, k)))
         || EXT_ITER_CLASSES.with(|m| m.borrow().values().any(|x| Rc::ptr_eq(x, k)))
 }
@@ -1939,13 +1942,7 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
         "istitle" => V::Bool(t.chars().any(|c| c.is_alphabetic()) && py_title(t) == t),
         "isascii" => V::Bool(t.is_ascii()),
         "isprintable" => V::Bool(t.chars().all(|c| if c.is_ascii() { (' '..='~').contains(&c) } else { !tab_has(PY_NOPRINT, c) })),
-        "isidentifier" => V::Bool({
-            let mut cs = t.chars();
-            match cs.next() {
-                Some(c) if c == '_' || c.is_alphabetic() => cs.all(|c| c == '_' || c.is_alphanumeric()),
-                _ => false,
-            }
-        }),
+        "isidentifier" => V::Bool(py_isidentifier(t)),
         "ljust" | "rjust" | "center" => {
             a.want(name, 1, 2)?;
             let w = idx_of(&a.p[0])?.max(0) as usize;
