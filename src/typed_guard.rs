@@ -76,7 +76,69 @@ fn json_kwargs(body: &[Stmt]) -> Option<(usize, String)> {
     });
     hit
 }
+// ChainMap, UserDict, UserList and UserString are the dynamic build's Python classes (src/dynpy/py/collections.py).
+// The typed build has no such classes, so a use of one becomes a CPython object through the library bridge, and a
+// Brevi value used with it can then take a method of the Python object's (''.join(cm) looked join up on CPython's
+// ChainMap): a file that uses one goes to the dynamic build, which carries the class itself.
+fn collections_user(body: &[Stmt]) -> Option<(usize, String)> {
+    const NAMES: [&str; 4] = ["ChainMap", "UserDict", "UserList", "UserString"];
+    // names bound to the collections module (import collections / import collections as c)
+    let mut mods: HashSet<String> = HashSet::new();
+    fn find_imports(body: &[Stmt], mods: &mut HashSet<String>, hit: &mut Option<(usize, String)>) {
+        for s in body {
+            if let St::Import(v) = &s.st {
+                for (m, a) in v {
+                    // `import collections.abc` binds the name `collections` too, as in CPython
+                    if m == "collections" || m.starts_with("collections.") {
+                        mods.insert(a.clone().unwrap_or_else(|| m.split('.').next().unwrap().to_string()));
+                    }
+                }
+            }
+            if let St::ImportFrom(m, v) = &s.st {
+                if m == "collections" {
+                    if let Some((n, _)) = v.iter().find(|(n, _)| NAMES.contains(&n.as_str())) {
+                        if hit.is_none() {
+                            *hit = Some((s.line, format!("the {n} class (from collections) runs in the dynamic build")));
+                        }
+                    }
+                }
+            }
+            if hit.is_none() {
+                if let St::If(arms, els) = &s.st {
+                    for (c, b) in arms {
+                        if !crate::dynpy::typing::type_checking(c) {
+                            find_imports(b, mods, hit);
+                        }
+                    }
+                    if let Some(b) = els {
+                        find_imports(b, mods, hit);
+                    }
+                } else {
+                    each_block(&s.st, &mut |b| find_imports(b, mods, hit));
+                }
+            }
+        }
+    }
+    let mut hit = None;
+    find_imports(body, &mut mods, &mut hit);
+    if hit.is_none() {
+        // walk_all visits every expression, nested blocks and class bases included
+        crate::dynpy::typing::walk_all(body, &mut |e, line| {
+            if hit.is_none() {
+                if let Ex::Attr(o, n) = e {
+                    if NAMES.contains(&n.as_str()) && matches!(o.as_ref(), Ex::Name(x) if mods.contains(x)) {
+                        hit = Some((line, format!("the {n} class (from collections) runs in the dynamic build")));
+                    }
+                }
+            }
+        });
+    }
+    hit
+}
 fn check_body(body: &[Stmt]) -> Option<(usize, String, Vec<String>)> {
+    if let Some((line, why)) = collections_user(body) {
+        return Some((line, why, vec![]));
+    }
     let mut g = G::default();
     collect_params(body, &mut g);
     for _ in 0..8 {
