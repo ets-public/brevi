@@ -1,0 +1,16 @@
+list copy False [[2], 3] [[2], 3]
+list deepcopy False [[2], 3] [[2], 3]
+tuple copy False [[2], 3] [[2], 3]
+tuple deepcopy False [[2], 3] [[2], 3]
+str copy False ['b', 'c'] ['b', 'c']
+str deepcopy False ['b', 'c'] ['b', 'c']
+range copy False [1, 2, 3] [1, 2, 3]
+range deepcopy False [1, 2, 3] [1, 2, 3]
+rev copy False [2, 1] [2, 1]
+rev deepcopy False [2, 1] [2, 1]
+gen copy TypeError
+gen deepcopy TypeError
+map copy False [2] []
+map deepcopy False [2] [2]
+tee copy False [2] [2]
+tee deepcopy False [2] [2]
