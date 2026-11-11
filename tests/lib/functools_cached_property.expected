@@ -1,0 +1,6 @@
+<unloc functools cached_property True
+1 1 doc __main__ True {'cost': 1}
+No '__dict__' attribute on 'S' instance to cache 'cost' property.
+Cannot assign the same cached_property to two different names ('a' and 'b').
+1
+1

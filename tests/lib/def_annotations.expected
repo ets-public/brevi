@@ -1,0 +1,15 @@
+{'a': <class 'int'>, 'args': <class 'str'>, 'b': 'x', 'kw': <class 'float'>, 'return': None} {} True
+{'x': 'K', 'return': <class 'int'>}
+True f doc
+{'a': <class 'int'>, 'args': <class 'str'>, 'b': 'x', 'kw': <class 'float'>, 'return': None}
+{'x': <class 'int'>} {'a': <class 'int'>, 'return': <class 'str'>} {'a': <class 'int'>, 'return': <class 'str'>}
+{}
+max(iterab ('__module__', '__name__', '__qualname__', '__doc__', '__annotations__', '__type_params__')
+{'arg': <class 'int'>, 'return': <class 'str'>}
+{'arg': <class 'int'>, 'return': <class 'str'>}
+{'arg': <class 'int'>, 'return': <class 'str'>} {'arg': <class 'int'>, 'return': <class 'str'>}
+cm __main__ cm
+c 2
+type {} () ()
+max True max(iterable, *[, default=obj, key=func]) -> value {}
+True

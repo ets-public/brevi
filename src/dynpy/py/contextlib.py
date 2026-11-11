@@ -2,6 +2,7 @@
 # suppress, nullcontext, closing, aclosing, ExitStack and AsyncExitStack. What is not here (redirect_stdout,
 # chdir, ContextDecorator, ...) is refused when a program is built (src/caps.rs), and CPython runs it.
 import sys
+from functools import wraps
 
 
 class AbstractContextManager:
@@ -128,20 +129,16 @@ class _AsyncGeneratorContextManager(AbstractAsyncContextManager):
 
 
 def contextmanager(func):
+    @wraps(func)
     def helper(*args, **kwds):
         return _GeneratorContextManager(func, args, kwds)
-    helper.__name__ = getattr(func, "__name__", "helper")
-    helper.__doc__ = getattr(func, "__doc__", None)
-    helper.__wrapped__ = func
     return helper
 
 
 def asynccontextmanager(func):
+    @wraps(func)
     def helper(*args, **kwds):
         return _AsyncGeneratorContextManager(func, args, kwds)
-    helper.__name__ = getattr(func, "__name__", "helper")
-    helper.__doc__ = getattr(func, "__doc__", None)
-    helper.__wrapped__ = func
     return helper
 
 
