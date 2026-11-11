@@ -1,0 +1,20 @@
+42 warnings_lines.py UserWarning class body
+47 warnings_lines.py UserWarning top
+18 warnings_lines.py UserWarning in inner
+24 warnings_lines.py UserWarning in outer after inner
+28 warnings_lines.py UserWarning gen start
+51 warnings_lines.py UserWarning between
+30 warnings_lines.py UserWarning gen after yield
+34 warnings_lines.py UserWarning lambda
+38 warnings_lines.py UserWarning callback
+55 warnings_lines.py DeprecationWarning ast.Num is deprecated and will be remove
+60 warnings_lines.py UserWarning loop
+60 warnings_lines.py UserWarning loop
+61 warnings_lines.py DeprecationWarning as instance
+62 warnings_lines.py UserWarning over two lines, the call on the first
+TypeError category must be a Warning subclass, not 'int'
+71 warnings_lines.py UserWarning once here
+72 warnings_lines.py UserWarning once here
+75 warnings_lines.py DeprecationWarning DeprecationWarning shown for __main__
+raised in inner
+warn

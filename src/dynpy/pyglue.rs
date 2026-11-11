@@ -76,6 +76,81 @@ def _warn_at(msg, cat, file, line, module):
     warnings.warn_explicit(msg, getattr(_b, cat), file, line, module, _d.regs.setdefault(module, {}))
 _d.regs = {}
 _d.warn_at = _warn_at
+# The program uses the warnings module. A program frame is no Python frame, so CPython's warnings.warn would
+# report a warning that points at the program (warnings.warn called by it, or a library's warn whose
+# stacklevel reaches it) at "<sys>":0 in module sys. This warn walks the Python frames of the library call
+# only, up to the frame that called into the program (_d.bnd, pushed by each call of a program function from
+# Python), and names the program's line (_d.site) when it gets there; a frame further out is not known, so
+# that warning is refused rather than placed wrong.
+_d.bnd = []
+def _bpush():
+    try:
+        _d.bnd.append(_s._getframe(1))
+    except ValueError:
+        _d.bnd.append(None)
+def _bpop():
+    _d.bnd.pop()
+_d.bpush = _bpush
+_d.bpop = _bpop
+def _install_warn(site):
+    import warnings as _w
+    _d.site = site
+    def warn(message, category=None, stacklevel=1, source=None, *, skip_file_prefixes=()):
+        if isinstance(message, Warning):
+            category = message.__class__
+        if category is None:
+            category = UserWarning
+        if not (isinstance(category, type) and issubclass(category, Warning)):
+            raise TypeError("category must be a Warning subclass, not '{:s}'".format(type(category).__name__))
+        if not isinstance(skip_file_prefixes, tuple):
+            raise TypeError('skip_file_prefixes must be a tuple of strs.')
+        if skip_file_prefixes:
+            stacklevel = max(2, stacklevel)
+        stop = _d.bnd[-1] if _d.bnd else None
+        fr = []
+        try:
+            f = _s._getframe(1)
+        except ValueError:
+            f = None
+        while f is not None and f is not stop:
+            fr.append(f)
+            f = f.f_back
+        # fr[0..P] are the library's frames, newest first; P is the program's frame; past it, not known
+        P = len(fr)
+        s = _d.site()
+        if stacklevel <= 1 or (fr and _w._is_internal_frame(fr[0])):
+            i = max(stacklevel, 1) - 1
+        else:
+            i = 0
+            for _ in range(stacklevel - 1):
+                i += 1
+                while i < P and (_w._is_internal_frame(fr[i]) or _w._is_filename_to_skip(fr[i].f_code.co_filename, skip_file_prefixes)):
+                    i += 1
+                if i == P and s is not None and _w._is_filename_to_skip(s[0], skip_file_prefixes):
+                    i += 1
+                if i > P:
+                    break
+        if i < P:
+            fm = fr[i]
+            g = fm.f_globals
+            module = g['__name__'] if '__name__' in g else '<string>'
+            return _w.warn_explicit(message, category, fm.f_code.co_filename, fm.f_lineno, module, g.setdefault('__warningregistry__', {}), g, source)
+        if i == P and s is not None:
+            file, line, module = s
+            return _w.warn_explicit(message, category, file, line, module, _d.regs.setdefault(module, {}), None, source)
+        raise NotImplementedError("brevi: a warning at a line of the program the dynamic build does not know is not supported in dynamic builds")
+    warn.__doc__ = _w.warn.__doc__
+    warn.__module__ = '_warnings'
+    warn.__qualname__ = 'warn'
+    _w.warn = warn
+    # a warning C code issues with no Python frame left lands at "<sys>": refused, never shown or recorded there
+    show = _w._showwarnmsg
+    def _showwarnmsg(msg):
+        if msg.filename == '<sys>':
+            raise NotImplementedError("brevi: a warning at a line of the program the dynamic build does not know is not supported in dynamic builds")
+        return show(msg)
+    _w._showwarnmsg = _showwarnmsg
+_d.install_warn = _install_warn
 _d.it = _BrIt
 _d.pyclass = _pyclass
 _d._nt = _nt
@@ -366,6 +441,24 @@ pub fn pyd_warn_at(cat: &str, msg: &str, file: &str, line: usize, module: &str) 
         }
         r.map(|_| ())
     }
+}
+// The program uses the warnings module: CPython's warnings.warn names the program's line (see _install_warn).
+static PYD_WARN_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub fn pyd_warn_install() -> Result<(), E> {
+    let site = func("site", |_a: Args| Ok(match warn_site() {
+        Some((f, l, m)) => tup(vec![s(f), V::Int(l as i64), s(m)]),
+        None => V::None,
+    }));
+    unsafe {
+        let _g = PydGil::take();
+        let a = pyd_api();
+        let p = pyd_to(&site)?;
+        let r = pyd_helper("install_warn", &[p]);
+        (a.DecRef)(p);
+        r?;
+    }
+    PYD_WARN_ON.store(true, std::sync::atomic::Ordering::Relaxed);
+    Ok(())
 }
 unsafe fn pyd_type_is(p: P, t: P) -> bool {
     let a = pyd_api();
@@ -821,6 +914,14 @@ unsafe extern "C" fn pyd_tramp(me: P, args: P, kw: P) -> P {
         return std::ptr::null_mut();
     }
     let f = (*f).clone();
+    // a program using warnings: where this library call reached the program (see _install_warn)
+    let warn_on = PYD_WARN_ON.load(std::sync::atomic::Ordering::Relaxed);
+    if warn_on {
+        if let Err(e) = pyd_helper("bpush", &[]) {
+            pyd_raise(&e);
+            return std::ptr::null_mut();
+        }
+    }
     let r = (|| -> R {
         let mut pos = vec![];
         for i in 0..(a.TupleSize)(args) {
@@ -840,6 +941,9 @@ unsafe extern "C" fn pyd_tramp(me: P, args: P, kw: P) -> P {
         }
         call(&f, Args { p: pos, k: kws })
     })();
+    if warn_on {
+        let _ = pyd_helper("bpop", &[]);
+    }
     match r.and_then(|v| pyd_to(&v)) {
         Ok(p) => p,
         Err(e) => {
