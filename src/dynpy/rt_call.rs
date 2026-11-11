@@ -400,6 +400,15 @@ pub fn with_doc(f: V, doc: &str) -> V {
     }
     f
 }
+// The private first-annotation descriptor a def carries when it is decorated with a bare `@register`
+// (functools.singledispatch reads it; see sd_ann_desc in emit.rs). Classmethod and staticmethod copy it with
+// the def's other attributes.
+pub fn with_sd_ann(f: V, ann: V) -> V {
+    if let V::Func(ff) = &f {
+        ff.attrs.borrow_mut().push(("__brevi_sd_ann__", ann));
+    }
+    f
+}
 // A def's __module__ when it isn't __main__ (the default getattr gives).
 pub fn with_module(f: V, m: &str) -> V {
     if let V::Func(ff) = &f {
@@ -1051,7 +1060,14 @@ pub fn getattr(o: &V, name: &str) -> R {
                     V::Prop(p) => call(&p.0, Args::p(vec![o.clone()])),
                     // a namedtuple field descriptor: index the wrapped tuple directly, no Args and no call
                     V::NTF(i) => ntf_get(o, ob, **i),
-                    _ => Ok(v),
+                    _ => {
+                        if let V::Ext(x) = &v {
+                            if let Some(r) = x.descriptor(&v, o, &V::Class(ob.cls.clone())) {
+                                return r;
+                            }
+                        }
+                        Ok(v)
+                    }
                 };
             }
             match name {
@@ -1107,7 +1123,14 @@ pub fn getattr(o: &V, name: &str) -> R {
             if let Some(v) = c.lookup(name) {
                 return Ok(match &v {
                     V::Func(f) if f.kind.get() == 2 => V::Bound(Rc::new((o.clone(), v.clone()))),
-                    _ => v,
+                    _ => {
+                        if let V::Ext(x) = &v {
+                            if let Some(r) = x.descriptor(&v, &V::None, o) {
+                                return r;
+                            }
+                        }
+                        v
+                    }
                 });
             }
             if c.name.contains('.') {
@@ -1537,7 +1560,14 @@ pub fn call_method(o: &V, name: &str, mut a: Args) -> R {
                         let f = getattr(o, name)?;
                         call(&f, a)
                     }
-                    _ => call(&v, a),
+                    _ => {
+                        if let V::Ext(x) = &v {
+                            if let Some(r) = x.descriptor(&v, o, &V::Class(ob.cls.clone())) {
+                                return call(&r?, a);
+                            }
+                        }
+                        call(&v, a)
+                    }
                 };
             }
             // A dict subclass's copy() returns the subclass (a Counter's too). The class defines no copy of its
@@ -1581,7 +1611,14 @@ pub fn call_method(o: &V, name: &str, mut a: Args) -> R {
                         prepend(&mut a.p, o.clone());
                         call(&v, a)
                     }
-                    _ => call(&v, a),
+                    _ => {
+                        if let V::Ext(x) = &v {
+                            if let Some(r) = x.descriptor(&v, &V::None, o) {
+                                return call(&r?, a);
+                            }
+                        }
+                        call(&v, a)
+                    }
                 };
             }
             let f = getattr(o, name)?;

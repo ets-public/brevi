@@ -136,6 +136,10 @@ pub trait Ext {
     fn method(&self, _me: &V, _n: &str, _a: &mut Args) -> Option<R> {
         None
     }
+    // A data descriptor stored on a class: `obj.name` and `Cls.name` ask it, as CPython asks __get__.
+    fn descriptor(&self, _me: &V, _obj: &V, _cls: &V) -> Option<R> {
+        None
+    }
     fn binop(&self, _me: &V, _op: &str, _o: &V, _right: bool) -> Option<R> {
         None
     }
@@ -2103,7 +2107,7 @@ pub type FnBox = Box<dyn Fn(Args) -> R>;
 pub const FUNC_SLOT_ATTRS: &[&str] = &[
     "__name__", "__qualname__", "__module__", "__doc__", "__annotations__", "__code__", "__defaults__",
     "__kwdefaults__", "__type_params__", "__closure__", "__globals__", "__builtins__", "__bv_np__", "__bv_kind__", "__bv_repr__",
-    "__bv_dict__",
+    "__bv_dict__", "__brevi_sd_ann__",
     // lru_cache's methods live on the wrapper's class in CPython, not in its __dict__
     "cache_clear", "cache_info",
 ];
