@@ -3257,6 +3257,9 @@ fn partial_class() -> Rc<Class> {
             if a.p.len() < 2 || a.p.len() > 3 {
                 return type_err(format!("expected 1 or 2 arguments, got {}", a.p.len().saturating_sub(1)));
             }
+            if !matches!(a.p[1], V::None) {
+                re_warn("FutureWarning", "functools.partial will be a method descriptor in future Python versions; wrap it in staticmethod() if you want to preserve the old behavior".into())?;
+            }
             Ok(a.p[0].clone())
         }));
         let cg = func(sym("__class_getitem__"), |a: Args| {

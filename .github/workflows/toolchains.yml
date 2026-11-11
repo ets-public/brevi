@@ -226,6 +226,22 @@ jobs:
           # Brevi's own MCP server over HTTP, driven by the official client
           PATH="$RUNNER_TEMP/native/bin:$PATH" python3 tests/mcp_http_test.py
 
+      # Pull requests: the MCP sections alone against the real mcp and the pydantic it prints errors with (the same pins
+      # as the daily run, without duckdb and onnxruntime, about a minute), so a change to Brevi's mcp or pydantic copy,
+      # or a pin bump without new transcripts, fails on the PR instead of the next day.
+      - name: MCP servers against the real mcp (pull requests; never skipped)
+        if: steps.seen.outputs.cache-hit != 'true' && github.event_name == 'pull_request' && matrix.rust == 'stable' && matrix.python == '3.x'
+        env:
+          BREVI: ./target/release/brevi
+          CHECK_REQUIRE_LIBS: "1"
+          CHECK_ONLY: mcp_sdk,mcp_http
+        run: |
+          python3 -m pip install --quiet uv
+          uv venv --quiet --python 3.13.13 "$RUNNER_TEMP/mcp"
+          grep -vE '^(duckdb|onnxruntime)==' tests/requirements-native.txt > "$RUNNER_TEMP/mcp-requirements.txt"
+          uv pip install --quiet --python "$RUNNER_TEMP/mcp/bin/python" -r "$RUNNER_TEMP/mcp-requirements.txt"
+          PATH="$RUNNER_TEMP/mcp/bin:$PATH" python3 tests/check_parallel.py
+
       - name: MCP server tests
         if: steps.seen.outputs.cache-hit != 'true'
         run: python3 tests/mcp_test.py && python3 tests/mcp_http_test.py

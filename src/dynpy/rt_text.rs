@@ -1314,9 +1314,13 @@ fn re_compile_bytes(src: &str, flags: i64, pat: V) -> Result<Rc<Prog>, E> {
 #[derive(Clone, Copy)]
 pub struct ReSite {
     line: usize,
-    file: &'static str,
-    module: &'static str,
-    src: &'static str,
+    m: &'static WMod,
+}
+// A module of the program, for the place a warning names: its file, its name and its source (the line shown).
+pub struct WMod {
+    pub file: &'static str,
+    pub module: &'static str,
+    pub src: &'static str,
 }
 thread_local! {
     static RE_SITE: Cell<Option<ReSite>> = const { Cell::new(None) };
@@ -1325,11 +1329,36 @@ thread_local! {
     // what the default filters already showed: (module, message, category, line), shown once ("default")
     static WARN_SHOWN: RefCell<std::collections::HashSet<(&'static str, String, &'static str, usize)>> = RefCell::new(std::collections::HashSet::new());
 }
-pub fn re_site(line: usize, file: &'static str, module: &'static str, src: &'static str) {
-    RE_SITE.set(Some(ReSite { line, file, module, src }));
+#[inline]
+pub fn re_site(line: usize, m: &'static WMod) {
+    RE_SITE.set(Some(ReSite { line, m }));
 }
 pub fn re_site_clear() {
     RE_SITE.set(None);
+}
+// The place a warning issued now is reported at, saved and put back around a call (re's calls, and every
+// function and lambda of a program that uses the warnings module), so a call's lines never leak into its caller.
+pub fn re_site_get() -> Option<ReSite> {
+    RE_SITE.get()
+}
+pub fn re_site_put(s: Option<ReSite>) {
+    RE_SITE.set(s);
+}
+pub struct WarnGuard(Option<ReSite>);
+impl Drop for WarnGuard {
+    #[inline]
+    fn drop(&mut self) {
+        RE_SITE.set(self.0);
+    }
+}
+#[inline]
+pub fn warn_guard() -> WarnGuard {
+    WarnGuard(RE_SITE.get())
+}
+// (file, line, module) of the program's line running now, for a warning CPython's warnings.warn points at
+// the program's own frame; None where the dynamic build does not know the line.
+pub fn warn_site() -> Option<(&'static str, usize, &'static str)> {
+    RE_SITE.get().map(|s| (s.m.file, s.line, s.m.module))
 }
 // pyglue's pyd_warn_at: (category, message, file, line, module)
 pub type WarnFn = fn(&str, &str, &str, usize, &str) -> Result<(), E>;
@@ -1350,20 +1379,24 @@ fn re_warn(cat: &'static str, msg: String) -> Result<(), E> {
         let Some(s) = site else {
             return Err(unsupported("a re warning from a call whose line the dynamic build does not know"));
         };
-        return warn(cat, &msg, s.file, s.line, s.module);
+        // line 0: the module is known and the line is not; the bridge decides only where the line cannot matter
+        return warn(cat, &msg, s.m.file, s.line, s.m.module);
     }
     // CPython's default filters: DeprecationWarning shown only for __main__, each warning once per location
     let Some(s) = site else { return Ok(()) };
-    if cat == "DeprecationWarning" && s.module != "__main__" {
+    if cat == "DeprecationWarning" && s.m.module != "__main__" {
         return Ok(());
     }
-    if WARN_SHOWN.with(|w| w.borrow_mut().insert((s.module, msg.clone(), cat, s.line))) {
+    if s.line == 0 {
+        return Err(unsupported("a re warning from a call whose line the dynamic build does not know"));
+    }
+    if WARN_SHOWN.with(|w| w.borrow_mut().insert((s.m.module, msg.clone(), cat, s.line))) {
         out_flush();
-        let src = s.src.trim();
+        let src = s.m.src.lines().nth(s.line.wrapping_sub(1)).unwrap_or("").trim();
         if src.is_empty() {
-            eprintln!("{}:{}: {cat}: {msg}", s.file, s.line);
+            eprintln!("{}:{}: {cat}: {msg}", s.m.file, s.line);
         } else {
-            eprintln!("{}:{}: {cat}: {msg}\n  {src}", s.file, s.line);
+            eprintln!("{}:{}: {cat}: {msg}\n  {src}", s.m.file, s.line);
         }
     }
     Ok(())
