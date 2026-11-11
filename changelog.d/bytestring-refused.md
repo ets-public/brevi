@@ -1,0 +1,1 @@
+- Dynamic build: `collections.abc.ByteString` (and `typing.ByteString`) is refused at build time. In CPython 3.13 it issues a DeprecationWarning on every `isinstance()` check and subclass through its own metaclass, which the dynamic build has no counterpart for, so `catch_warnings(record=True)` would have recorded nothing.
