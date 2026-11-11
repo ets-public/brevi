@@ -2046,7 +2046,7 @@ fn obj_next(o: &V) -> Result<Option<V>, E> {
         _ => None,
     };
     match f {
-        Some(f) => match call(&f, Args::p(vec![o.clone()])) {
+        Some(f) => match call1(&f, o.clone()) {
             Ok(v) => Ok(Some(v)),
             Err(E(e)) if is_exc(&e, "StopIteration") => Ok(None),
             Err(e) => Err(e),

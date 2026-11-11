@@ -2066,9 +2066,21 @@ pub fn stream_fn(stream: &str, name: &str, a: Args) -> R {
         _ => Err(unsupported(&format!("{stream}.{name}"))),
     }
 }
+thread_local! {
+    // module functions are the same object every time they are read (CPython: `m.f is m.f`), and creating a
+    // V::Func per read would also cost a hot call site on every call, so modfn caches them
+    static MODFNS: RefCell<HashMap<(&'static str, Sym), V>> = RefCell::new(HashMap::new());
+}
 fn modfn(m: &'static str, n: &str) -> V {
     let n: Sym = sym(n);
-    builtin(n, move |a: Args| module_call(m, n, a))
+    if let Some(v) = MODFNS.with(|c| c.borrow().get(&(m, n)).cloned()) {
+        return v;
+    }
+    let v = builtin(n, move |a: Args| module_call(m, n, a));
+    MODFNS.with(|c| {
+        c.borrow_mut().insert((m, n), v.clone());
+    });
+    v
 }
 // A library str (numpy's np.str_) given to a text module is that str (re.match(p, names[0])); json reads
 // it inside lists and dicts too.
@@ -2103,6 +2115,8 @@ pub fn module_call(m: &str, n: &str, a: Args) -> R {
         a
     };
     match m {
+        // the sqlite3 hot path: skip ext_module_call's module match
+        "_brevi_sqlite" => brevi_sqlite_fn(n, a),
         "math" => math_fn(n, a),
         "atexit" => atexit_fn(n, a),
         "heapq" => heapq_fn(n, a),
@@ -2251,7 +2265,9 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         ("itertools", "chain") => {
             let f = modfn("itertools", "chain");
             if let V::Func(ff) = &f {
-                ff.attrs.borrow_mut().push(("from_iterable", modfn("itertools", "chain.from_iterable")));
+                if !ff.attrs.borrow().iter().any(|(k, _)| *k == "from_iterable") {
+                    ff.attrs.borrow_mut().push(("from_iterable", modfn("itertools", "chain.from_iterable")));
+                }
             }
             f
         }
@@ -3162,6 +3178,9 @@ pub fn ext_module_attr(m: &str, n: &str) -> Result<Option<V>, E> {
     }
     Ok(match (m, n) {
         ("re", _) if re_flag(n).is_some() => re_flag(n),
+        ("_brevi_sqlite", "cursor_next") => Some(cursor_next_func()),
+        ("_brevi_sqlite", "cursor_fetchone") => Some(cursor_fetchone_func()),
+        ("_brevi_sqlite", "conn_execute") => Some(conn_execute_func()),
         ("re", "error") => Some(V::Class(exc_class("error"))),
         ("json" | "json.decoder", "JSONDecodeError") => Some(V::Class(exc_class("JSONDecodeError"))),
         ("json" | "json.decoder", "JSONDecoder") => Some(V::Class(json_decoder_class())),

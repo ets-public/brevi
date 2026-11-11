@@ -51,11 +51,7 @@ pub fn call(f: &V, a: Args) -> R {
             }
             (fun.f)(a)
         }
-        V::Bound(b) => {
-            let mut a = a;
-            prepend(&mut a.p, b.0.clone());
-            call(&b.1, a)
-        }
+        V::Bound(b) => call_self(&b.1, b.0.clone(), a),
         V::BMeth(b) => {
             if let Some(k) = kw_dup(&a.k) {
                 return type_err(format!("{}.{}() got multiple values for keyword argument '{}'", owner_name(&b.0), b.1, k));

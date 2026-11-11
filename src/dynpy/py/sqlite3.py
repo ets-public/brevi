@@ -354,6 +354,7 @@ def register_adapter(type, adapter):
     global _base_adapted
     if type is int or type is float or type is str:
         _base_adapted = True
+        _s.set_adapted()
     adapters[(type, PrepareProtocol)] = adapter
 
 
@@ -463,6 +464,23 @@ class _Statement:
             _s.finalize(st)
             self.st = 0
             raise ProgrammingError("You can only execute one statement at a time.")
+        # the columns' names and declared types, once per prepared statement (CPython's statement keeps
+        # them too); description and converters use these, so executes need not ask the engine for them
+        if st:
+            n = _s.ncols(st)
+            names = []
+            decls = []
+            for k in range(n):
+                names.append(_s.col_name(st, k))
+                decls.append(_s.col_decl(st, k))
+            self.names = names
+            self.decls = decls
+        else:
+            self.names = []
+            self.decls = []
+            n = 0
+        # the column count is constant for a prepared statement (CPython's statement keeps it too)
+        self.nc = n
 
     def reset(self):
         if self.st:
@@ -572,93 +590,250 @@ def _strip_colname(name):
 
 
 class Cursor:
+    # per-cursor state starts at the class defaults; only what a cursor changes is set on the instance
+    arraysize = 1
+    lastrowid = None
+    rowcount = -1
+    row_factory = None
+    _stmt = None
+    _hold = None
+    _closed = False
+    _conv = None
+    _desc_meta = None
+    _stmt_meta = None
+
     def __init__(self, connection):
         if not isinstance(connection, Connection):
             raise TypeError("Cursor() argument 1 must be sqlite3.Connection, not " + type(connection).__name__)
         self.connection = connection
-        self.arraysize = 1
-        self.description = None
-        self.lastrowid = None
-        self.rowcount = -1
-        self.row_factory = connection.row_factory
-        self._stmt = None
-        self._closed = False
-        self._conv = None
+        rf = connection.row_factory
+        if rf is not None:
+            self.row_factory = rf
+
+    # No __del__ here: _stmt's release runs in the native _hold's Drop (a discarded cursor costs nothing
+    # Python-side), and CPython's Cursor type has no __del__ attribute either.
 
     def _check(self):
         if self._closed:
             raise ProgrammingError("Cannot operate on a closed cursor.")
         self.connection._check()
 
+    # built from the statement's columns when it is first asked for, as CPython's Cursor does on execute
+    @property
+    def description(self):
+        st = self._stmt_meta
+        if st is None:
+            return None
+        meta = self._desc_meta
+        if meta is None:
+            meta = self._desc_meta = (st.names, st.decls)
+        names, _decls = meta
+        conv = self._conv
+        strip = self.connection._detect & PARSE_COLNAMES
+        out = []
+        for k in range(len(names)):
+            name = _strip_colname(names[k]) if strip else names[k]
+            out.append((name, None, None, None, None, None, None))
+        return tuple(out)
+
+    def _make_conv(self, names, decls):
+        detect = self.connection._detect
+        conv = [None] * len(names)
+        any_conv = False
+        for k in range(len(names)):
+            c = None
+            if detect & PARSE_COLNAMES:
+                t = _colname_type(names[k])
+                if t is not None:
+                    c = converters.get(t.upper())
+            if c is None and detect & PARSE_DECLTYPES:
+                c = _decltype_converter(decls[k])
+            if c is not None:
+                any_conv = True
+                conv[k] = c
+        self._conv = conv if any_conv else None
+
     def _query(self, multiple, sql, params):
-        self._check()
-        if self._stmt is not None:
-            self._stmt.release()
-            self._stmt = None
+        if self._closed:
+            raise ProgrammingError("Cannot operate on a closed cursor.")
         con = self.connection
+        if not con._db:
+            raise ProgrammingError("Cannot operate on a closed database.")
+        if self._stmt is not None:
+            self._stmt = None
+            self._hold = None
         stmt = con._statement(sql)
         if multiple and not stmt.is_dml:
             stmt.release()
             raise ProgrammingError("executemany() can only execute DML statements.")
-        if con._autocommit == LEGACY_TRANSACTION_CONTROL and con._isolation is not None and stmt.is_dml and _s.db_int(con._db, 3):
-            con._exec("BEGIN " + con._isolation)
-        self.description = None
-        self.rowcount = 0 if stmt.is_dml else -1
+        begin = con._begin
+        if stmt.is_dml and begin is not None and _s.db_int(con._db, 3):
+            con._exec(begin)
+        self._desc_meta = None
+        self._stmt_meta = None
         self._conv = None
+        self.rowcount = 0 if stmt.is_dml else -1
         if not stmt.st:
             return self
         plist = params if multiple else [params]
         try:
             for p in plist:
-                rc = -1 if _base_adapted else _s.run(stmt.st, p)
+                if _base_adapted:
+                    rc = -1
+                    nc = 0
+                    changes = 0
+                    lastrowid = 0
+                else:
+                    rc, nc, changes, lastrowid, _row, _kinds = _s.run(stmt.st, p, con._db, 0)
                 if rc == -1:
                     _s.reset(stmt.st)
                     _bind(stmt.st, p)
                     rc = _s.step(stmt.st)
+                    nc = len(stmt.names)
+                    changes = _s.db_int(con._db, 0) if stmt.is_dml else 0
+                    lastrowid = _s.db_int(con._db, 2)
                 if rc != SQLITE_ROW and rc != SQLITE_DONE:
-                    _s.reset(stmt.st)
                     raise _db_error(con._db)
-                nc = _s.ncols(stmt.st)
-                if self.description is None and nc > 0:
-                    cols = []
-                    conv = []
-                    any_conv = False
-                    for k in range(nc):
-                        name = _s.col_name(stmt.st, k)
-                        c = None
-                        if con._detect & PARSE_COLNAMES:
-                            t = _colname_type(name)
-                            if t is not None:
-                                c = converters.get(t.upper())
-                            name = _strip_colname(name)
-                        if c is None and con._detect & PARSE_DECLTYPES:
-                            c = _decltype_converter(_s.col_decl(stmt.st, k))
-                        if c is not None:
-                            any_conv = True
-                        conv.append(c)
-                        cols.append((name, None, None, None, None, None, None))
-                    self.description = tuple(cols)
-                    self._conv = conv if any_conv else None
+                if self._stmt_meta is None and nc > 0:
+                    self._stmt_meta = stmt
+                    self._make_conv(stmt.names, stmt.decls)
                 if rc == SQLITE_DONE:
                     if stmt.is_dml:
-                        self.rowcount += _s.db_int(con._db, 0)
-                    _s.reset(stmt.st)
+                        self.rowcount += changes
                 elif multiple:
                     raise ProgrammingError("executemany() can only execute DML statements.")
                 if not multiple:
-                    self.lastrowid = _s.db_int(con._db, 2)
+                    self.lastrowid = lastrowid
                 if rc == SQLITE_ROW:
                     self._stmt = stmt
+                    self._hold = _s.hold(stmt.st, stmt.cached, stmt, con._db)
                     stmt = None
         finally:
             if stmt is not None:
                 stmt.release()
         return self
 
+    # the single execute fast path: no executemany and no adapters, so one engine call does the implicit
+    # BEGIN (when needed), reset, bind and step, and returns the columns and counts. CPython steps a SELECT
+    # once at execute and holds the row; the row itself is read when fetched. fresh: the cursor is new from
+    # Connection.execute, so nothing to release or clear.
+    def _fast_query(self, sql, params, fresh):
+        con = self.connection
+        if fresh:
+            stmt = None
+            if sql is con._last_sql:
+                st = con._last_stmt
+                if st is not None and st.st and not st.in_use:
+                    st.in_use = True
+                    stmt = st
+            if stmt is None:
+                stmt = con._statement(sql)
+        else:
+            if self._closed:
+                raise ProgrammingError("Cannot operate on a closed cursor.")
+            if not con._db:
+                raise ProgrammingError("Cannot operate on a closed database.")
+            if self._stmt is not None:
+                self._stmt = None
+                self._hold = None
+            stmt = None
+            if sql is con._last_sql:
+                st = con._last_stmt
+                if st is not None and st.st and not st.in_use:
+                    st.in_use = True
+                    stmt = st
+            if stmt is None:
+                stmt = con._statement(sql)
+        if stmt.is_dml:
+            if not fresh:
+                self._desc_meta = None
+                self._stmt_meta = None
+                self._conv = None
+            if not stmt.st:
+                self.rowcount = 0
+                return self
+            if _base_adapted:
+                rc = -1
+                changes = 0
+                lastrowid = 0
+            else:
+                rc, changes, lastrowid = _s.dml(stmt.st, params, con._db, con._begin_st)
+            if rc == -1:
+                try:
+                    _s.reset(stmt.st)
+                    _bind(stmt.st, params)
+                    rc = _s.step(stmt.st)
+                    changes = _s.db_int(con._db, 0)
+                    lastrowid = _s.db_int(con._db, 2)
+                except Exception:
+                    stmt.release()
+                    raise
+            if (rc == SQLITE_DONE or rc == SQLITE_ROW) and stmt.nc > 0:
+                # INSERT/UPDATE/DELETE ... RETURNING: CPython gives these a description and converters too
+                self._stmt_meta = stmt
+                if con._detect:
+                    self._make_conv(stmt.names, stmt.decls)
+            if rc == SQLITE_DONE:
+                self.lastrowid = lastrowid
+                self.rowcount = changes
+                if stmt.cached:
+                    stmt.in_use = False
+                else:
+                    stmt.finalize()
+                return self
+            if rc == SQLITE_ROW:
+                self.lastrowid = lastrowid
+                self.rowcount = 0
+                self._stmt = stmt
+                self._hold = _s.hold(stmt.st, stmt.cached, stmt, con._db)
+                return self
+            stmt.release()
+            raise _db_error(con._db)
+        if not fresh:
+            self._desc_meta = None
+            self._stmt_meta = None
+            self._conv = None
+            self.rowcount = -1
+        if not stmt.st:
+            return self
+        if _base_adapted:
+            rc = -1
+            nc = 0
+            lastrowid = 0
+        else:
+            rc, nc, _changes, lastrowid, _row, _kinds = _s.run(stmt.st, params, con._db, 0)
+        if rc == -1:
+            try:
+                _s.reset(stmt.st)
+                _bind(stmt.st, params)
+                rc = _s.step(stmt.st)
+                nc = len(stmt.names)
+                lastrowid = _s.db_int(con._db, 2)
+            except Exception:
+                stmt.release()
+                raise
+        if rc != SQLITE_ROW and rc != SQLITE_DONE:
+            stmt.release()
+            raise _db_error(con._db)
+        self.lastrowid = lastrowid
+        if nc > 0:
+            self._stmt_meta = stmt
+            if con._detect:
+                self._make_conv(stmt.names, stmt.decls)
+        if rc == SQLITE_DONE:
+            if stmt.cached:
+                stmt.in_use = False
+            else:
+                stmt.finalize()
+        else:
+            self._stmt = stmt
+            self._hold = _s.hold(stmt.st, stmt.cached, stmt, con._db)
+        return self
+
     def execute(self, sql, parameters=()):
         if not isinstance(sql, str):
             raise TypeError("execute() argument 1 must be str, not " + type(sql).__name__)
-        return self._query(False, sql, parameters)
+        return self._fast_query(sql, parameters, False)
 
     def executemany(self, sql, seq_of_parameters):
         if not isinstance(sql, str):
@@ -736,53 +911,101 @@ class Cursor:
         return self
 
     def __next__(self):
-        if self._closed or not self.connection._db:
-            self._check()
+        con = self.connection
         stmt = self._stmt
         if stmt is None:
+            if self._closed or not con._db:
+                self._check()
             raise StopIteration
-        if self._conv is None and self.connection.text_factory is str:
-            row, bad, rc = _s.fetch(stmt.st, 1)
-            if bad >= 0:
-                raise OperationalError("Could not decode to UTF-8 column '" + _s.col_name(stmt.st, bad) + "' with text '" + row[bad].decode("utf-8", "replace") + "'")
-        else:
+        st = stmt.st
+        if st and self._conv is None and con.text_factory is str:
+            row = _s.fetch_next(self, self._hold)
+            if row is None:
+                raise StopIteration
+        elif st:
             row = self._row()
-            rc = _s.step(stmt.st)
-        if rc == SQLITE_DONE:
-            if stmt.is_dml:
-                self.rowcount = _s.db_int(self.connection._db, 0)
-            stmt.release()
+            rc = _s.step(st)
+            if rc == SQLITE_DONE:
+                if stmt.is_dml:
+                    self.rowcount = _s.db_int(con._db, 0)
+                # the hold's Drop puts the statement back (reset for a cached one, finalize otherwise)
+                self._stmt = None
+                self._hold = None
+            elif rc != SQLITE_ROW:
+                e = _db_error(con._db)
+                self._stmt = None
+                self._hold = None
+                raise e
+        else:
+            # the connection was closed under this cursor (its statements were finalized): _check raises
+            self._check()
+        if isinstance(row, list):
+            # fetch_next read the row but hit a case only Python builds exactly: 2 a text column that was not
+            # UTF-8 (leave the statement where it is, as CPython does), 1 an engine error
+            if row[0] == 2:
+                raise OperationalError("Could not decode to UTF-8 column '" + row[1] + "' with text '" + row[2].decode("utf-8", "replace") + "'")
+            e = _error(row[1], row[2])
             self._stmt = None
-        elif rc != SQLITE_ROW:
-            e = _db_error(self.connection._db)
-            stmt.release()
-            self._stmt = None
+            self._hold = None
             raise e
         if self.row_factory is not None:
             return self.row_factory(self, row)
         return row
 
     def fetchone(self):
-        try:
-            return self.__next__()
-        except StopIteration:
+        con = self.connection
+        stmt = self._stmt
+        if stmt is None:
+            if self._closed or not con._db:
+                self._check()
             return None
+        st = stmt.st
+        if st and self._conv is None and con.text_factory is str:
+            row = _s.fetch_next(self, self._hold)
+            if row is None:
+                return None
+        elif st:
+            row = self._row()
+            rc = _s.step(st)
+            if rc == SQLITE_DONE:
+                if stmt.is_dml:
+                    self.rowcount = _s.db_int(con._db, 0)
+                self._stmt = None
+                self._hold = None
+            elif rc != SQLITE_ROW:
+                e = _db_error(con._db)
+                self._stmt = None
+                self._hold = None
+                raise e
+        else:
+            # the connection was closed under this cursor (its statements were finalized): _check raises
+            self._check()
+        if isinstance(row, list):
+            if row[0] == 2:
+                raise OperationalError("Could not decode to UTF-8 column '" + row[1] + "' with text '" + row[2].decode("utf-8", "replace") + "'")
+            e = _error(row[1], row[2])
+            self._stmt = None
+            self._hold = None
+            raise e
+        if self.row_factory is not None:
+            return self.row_factory(self, row)
+        return row
 
     # rows read by the engine in one go, when nothing of Python's is called per row
     def _fast_rows(self, max):
         stmt = self._stmt
         if stmt is None or self._closed or not self.connection._db or self._conv is not None or self.connection.text_factory is not str:
             return None
-        rows, bad, rc = _s.fetch_all(stmt.st, 1, max)
+        rows, bad, rc = _s.fetch_all(stmt.st, stmt.nc, 1, -1 if max < 0 else max)
         if rc == SQLITE_DONE:
             if stmt.is_dml:
                 self.rowcount = _s.db_int(self.connection._db, 0)
-            stmt.release()
             self._stmt = None
+            self._hold = None
         elif rc != SQLITE_ROW:
             e = _db_error(self.connection._db)
-            stmt.release()
             self._stmt = None
+            self._hold = None
             raise e
         elif bad >= 0:
             self.__next__()
@@ -818,16 +1041,32 @@ class Cursor:
         return out
 
     def close(self):
-        if not self.connection._closed_flag() and self._stmt is not None:
-            self._stmt.release()
+        # the hold's Drop resets or finalizes the statement; after the connection is closed its hold was
+        # already invalidated (in _s.close), so this is safe either way
         self._stmt = None
+        self._hold = None
         self._closed = True
+
+    # called by the native __next__ / fetchone after a step failed: the cursor was already cleared, and
+    # this raises the connection's error, exactly as CPython's fetch does
+    def _step_error(self):
+        e = _db_error(self.connection._db)
+        raise e
 
     def setinputsizes(self, sizes):
         pass
 
     def setoutputsize(self, size, column=None):
         pass
+
+
+# the per-row hot methods are native functions; the Python originals keep every slow path (converters, a
+# non-str text_factory, a closed cursor or connection) and the exact error messages
+Cursor._next_py = Cursor.__next__
+Cursor._fetchone_py = Cursor.fetchone
+Cursor.__next__ = _s.cursor_next
+Cursor.fetchone = _s.cursor_fetchone
+_s.set_cursor_class(Cursor)
 
 
 class Row:
@@ -992,26 +1231,40 @@ class Connection:
         self._db = db
         self._cache = {}
         self._cache_size = cached_statements
+        self._last_sql = None
+        self._last_stmt = None
         self._detect = detect_types
         self._autocommit = autocommit
         self._isolation = ""
+        self._begin = None
+        self._begin_st = 0
         self.row_factory = None
         self.text_factory = str
+        self._exact = type(self) is Connection
         _s.busy_timeout(db, int(timeout * 1000))
         self.isolation_level = isolation_level
         if autocommit is False:
             self._exec("BEGIN")
 
-    # a prepared statement for the SQL: the cached one when no cursor is using it (CPython's LRU of 128)
+    # a prepared statement for the SQL: the cached one when no cursor is using it. The last SQL repeats often
+    # (a loop over execute), so it has its own slot; the dict is the cache of up to _cache_size statements and
+    # evicts an idle one when full.
     def _statement(self, sql):
+        if sql is self._last_sql:
+            st = self._last_stmt
+            if st is not None and st.st and not st.in_use:
+                st.in_use = True
+                return st
         st = self._cache.get(sql)
         if st is not None and not st.in_use:
-            del self._cache[sql]
-            self._cache[sql] = st
             st.in_use = True
+            self._last_sql = sql
+            self._last_stmt = st
             return st
         st = _Statement(self, sql)
         st.in_use = True
+        self._last_sql = sql
+        self._last_stmt = st
         if st.st and self._cache_size > 0 and sql not in self._cache:
             st.cached = True
             self._cache[sql] = st
@@ -1039,6 +1292,22 @@ class Connection:
         if rc != SQLITE_DONE and rc != SQLITE_ROW:
             raise _db_error(self._db)
 
+    # the implicit "BEGIN ..." for legacy transaction control, or None when none is due
+    def _update_begin(self):
+        if self._autocommit == LEGACY_TRANSACTION_CONTROL and self._isolation is not None:
+            self._begin = "BEGIN " + self._isolation
+        else:
+            self._begin = None
+        # the BEGIN is prepared once and reset before each use, as CPython's connection keeps it
+        if self._begin_st:
+            _s.finalize(self._begin_st)
+            self._begin_st = 0
+        if self._begin is not None and self._db:
+            rc, st, _used = _s.prepare(self._db, self._begin)
+            if rc != SQLITE_OK:
+                raise _db_error(self._db)
+            self._begin_st = st
+
     @property
     def isolation_level(self):
         return self._isolation
@@ -1049,12 +1318,14 @@ class Connection:
             if self._db and not _s.db_int(self._db, 3):
                 self._exec("COMMIT")
             self._isolation = None
+            self._update_begin()
             return
         if not isinstance(value, str):
             raise TypeError("isolation_level must be str or None")
         if value.upper() not in _LEVELS:
             raise ValueError("isolation_level string must be '', 'DEFERRED', 'IMMEDIATE', or 'EXCLUSIVE'")
         self._isolation = value.upper()
+        self._update_begin()
 
     @property
     def autocommit(self):
@@ -1071,6 +1342,7 @@ class Connection:
         elif value is False and _s.db_int(self._db, 3):
             self._exec("BEGIN")
         self._autocommit = value
+        self._update_begin()
 
     @property
     def in_transaction(self):
@@ -1083,7 +1355,10 @@ class Connection:
         return _s.db_int(self._db, 1)
 
     def cursor(self, factory=Cursor):
-        self._check()
+        if not self._db:
+            raise ProgrammingError("Cannot operate on a closed database.")
+        if factory is Cursor:
+            return _s.cursor_new(Cursor, self)
         c = factory(self)
         if not isinstance(c, Cursor):
             raise TypeError("factory must return a cursor, not " + type(c).__name__)
@@ -1092,6 +1367,108 @@ class Connection:
         return c
 
     def execute(self, sql, parameters=()):
+        if self._exact:
+            if not self._db:
+                raise ProgrammingError("Cannot operate on a closed database.")
+            if not isinstance(sql, str):
+                raise TypeError("execute() argument 1 must be str, not " + type(sql).__name__)
+            cur = _s.cursor_new(Cursor, self)
+            # the hot insert and point-query paths, inlined: the cache's statement is known, so no cursor
+            # method call and no _fast_query bookkeeping (nothing to release, no description or converter
+            # state to clear). in_use goes up only when user code may run or the statement is held: a
+            # completed DML does neither, so it is clear of two attribute writes.
+            st = self._last_stmt
+            if st is not None and st.st and not st.in_use and sql is self._last_sql:
+                db = self._db
+                st_id = st.st
+                if st.is_dml:
+                    grabbed = False
+                    if _base_adapted:
+                        rc = -1
+                        changes = 0
+                        lastrowid = 0
+                        st.in_use = True
+                        grabbed = True
+                    else:
+                        rc, changes, lastrowid = _s.dml(st_id, parameters, db, self._begin_st)
+                    if rc == -1:
+                        st.in_use = True
+                        grabbed = True
+                        try:
+                            _s.reset(st_id)
+                            _bind(st_id, parameters)
+                            rc = _s.step(st_id)
+                            changes = _s.db_int(db, 0)
+                            lastrowid = _s.db_int(db, 2)
+                        except Exception:
+                            st.release()
+                            raise
+                    if (rc == SQLITE_DONE or rc == SQLITE_ROW) and st.nc > 0:
+                        # ... RETURNING: a description and converters, as CPython gives them
+                        cur._stmt_meta = st
+                        if self._detect:
+                            cur._make_conv(st.names, st.decls)
+                    if rc == SQLITE_DONE:
+                        cur.lastrowid = lastrowid
+                        cur.rowcount = changes
+                        if not st.cached:
+                            st.finalize()
+                        elif grabbed:
+                            st.in_use = False
+                        return cur
+                    if rc == SQLITE_ROW:
+                        if not grabbed:
+                            st.in_use = True
+                        cur.lastrowid = lastrowid
+                        cur.rowcount = 0
+                        cur._stmt = st
+                        cur._hold = _s.hold(st_id, st.cached, st, db)
+                        return cur
+                    st.release()
+                    raise _db_error(db)
+                # a repeated SELECT: bind, step and make the native hold, all in one engine call
+                grabbed = False
+                if _base_adapted:
+                    rc = -1
+                    lastrowid = 0
+                    hold = None
+                    st.in_use = True
+                    grabbed = True
+                else:
+                    rc, lastrowid, hold = _s.runhold(st_id, parameters, db, st, st.cached)
+                if rc == -1:
+                    st.in_use = True
+                    grabbed = True
+                    try:
+                        _s.reset(st_id)
+                        _bind(st_id, parameters)
+                        rc = _s.step(st_id)
+                        lastrowid = _s.db_int(db, 2)
+                        if rc == SQLITE_ROW:
+                            hold = _s.hold(st_id, st.cached, st, db)
+                    except Exception:
+                        st.release()
+                        raise
+                if rc != SQLITE_ROW and rc != SQLITE_DONE:
+                    st.release()
+                    raise _db_error(db)
+                cur.lastrowid = lastrowid
+                if st.nc > 0:
+                    cur._stmt_meta = st
+                    if self._detect:
+                        cur._make_conv(st.names, st.decls)
+                if rc == SQLITE_DONE:
+                    if not st.cached:
+                        st.finalize()
+                    elif grabbed:
+                        st.in_use = False
+                else:
+                    if not grabbed:
+                        st.in_use = True
+                    cur._stmt = st
+                    cur._hold = hold
+                return cur
+            return cur._fast_query(sql, parameters, True)
         return self.cursor().execute(sql, parameters)
 
     def executemany(self, sql, parameters):
@@ -1127,6 +1504,11 @@ class Connection:
             st.cached = False
             st.finalize()
         self._cache = {}
+        self._last_sql = None
+        self._last_stmt = None
+        if self._begin_st:
+            _s.finalize(self._begin_st)
+            self._begin_st = 0
         _s.close(self._db)
         self._db = 0
 
@@ -1163,6 +1545,12 @@ class Connection:
         if category < 0 or category > 11:
             raise ProgrammingError("'category' is out of bounds")
         return _s.limit(self._db, category, limit)
+
+    # called by the native Connection.execute after a step failed: the statement was already released,
+    # and this raises the connection's error, as CPython's execute does
+    def _raise_db_error(self):
+        e = _db_error(self._db)
+        raise e
 
     def create_function(self, *a, **k):
         _lacks("create_function")
@@ -1220,6 +1608,11 @@ Connection.ProgrammingError = ProgrammingError
 Connection.IntegrityError = IntegrityError
 Connection.DataError = DataError
 Connection.NotSupportedError = NotSupportedError
+
+# the repeated-statement execute is a native function; the Python original keeps every slow path (adapters,
+# converters, dict parameters, subclasses) and the exact error messages
+Connection._execute_py = Connection.execute
+Connection.execute = _s.conn_execute
 
 
 def connect(database, timeout=5.0, detect_types=0, isolation_level="", check_same_thread=True, factory=Connection,

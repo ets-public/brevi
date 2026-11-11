@@ -222,7 +222,8 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "_brevi_st" => &["header", "header_len", "tensor", "dtype_name", "slice", "serialize"],
         "_brevi_sqlite" => &[
             "load", "open", "close", "errmsg", "errcode", "errstr", "prepare", "finalize", "reset", "clear", "step", "bind", "nparams", "param_name",
-            "ncols", "col_name", "col_decl", "row", "col", "run", "fetch", "fetch_all", "db_int", "stmt_int", "busy_timeout", "interrupt", "limit", "complete",
+            "ncols", "col_name", "col_decl", "row", "col", "run", "dml", "fetch", "fetch_all", "db_int", "stmt_int", "busy_timeout", "interrupt", "limit", "complete", "hold", "runhold", "fetch_next",
+            "cursor_next", "cursor_fetchone", "cursor_new", "conn_execute", "set_cursor_class", "set_adapted",
         ],
         "_brevi_duckdb" => &["load", "open", "connect", "disconnect", "close", "query", "many", "describe", "cols", "info", "fetch", "free", "interrupt", "term"],
         "_brevi_tok" => &["core", "ranks", "max_rank", "n_ranks", "find_special"],
