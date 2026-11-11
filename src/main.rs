@@ -136,6 +136,15 @@ fn explain(msg: &str, fix: &str) {
 
 // The files of the program (see modules.rs), so error lines can name the file they are in.
 static SEGS: std::sync::OnceLock<Vec<modules::Seg>> = std::sync::OnceLock::new();
+/// Where a file of the program starts in the joined source the typed build reads, less one (0 for the main
+/// file, and for every file of a one-file program); None for a file that is not part of it.
+pub fn seg_offset(path: &Path) -> Option<usize> {
+    let Some(segs) = SEGS.get().filter(|s| s.len() > 1) else { return Some(0) };
+    let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let want = canon(path);
+    segs.iter().find(|g| canon(&g.path) == want).map(|g| g.start - 1)
+}
+
 fn at(json: &str) -> String {
     match SEGS.get() {
         Some(s) if s.len() > 1 => modules::relocate(s, json),
@@ -1876,6 +1885,7 @@ fn guard_files(file: &str) -> (Option<(usize, String, PathBuf, Vec<String>)>, Op
         let Ok(src) = crate::read_src(&f) else { continue };
         let src = if seen.len() == 1 { pysentinel::rewrite(&pygen::rewrite(&src)) } else { src };
         let shown = |why: String| if seen.len() == 1 { why } else { format!("{}: {why}", f.file_name().unwrap_or_default().to_string_lossy()) };
+        share_guard::set_context(&f);
         // `allow` lines are not Python, and the guard reads what the typed build reads once they are gone.
         match typed_guard::check_soft(&caps::split(&src).0) {
             Ok(Some((line, why, names))) => {

@@ -1,0 +1,3 @@
+{"path":"dynamic","why":"the typed build's Rust did not compile (the trait bound `Vec<i64>: AxWhole` is not satisfied)"}
+{"path":"dynamic","why":"the typed build's Rust did not compile (the trait bound `Vec<i64>: AxWhole` is not satisfied)"}
+{"path":"dynamic","why":"the typed build's Rust did not compile (the trait bound `Vec<i64>: AxWhole` is not satisfied)"}
