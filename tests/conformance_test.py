@@ -66,8 +66,23 @@ class Assertions(unittest.TestCase):
         self.assertEqual(run(s).stdout, "1\n2\n")
 
     def test_unknown_assertion_is_not_extractable(self):
-        with self.assertRaisesRegex(c.CantExtract, "assertWarns"):
-            cut("    def test_a(self):\n        with self.assertWarns(Warning):\n            pass\n")
+        with self.assertRaisesRegex(c.CantExtract, "assertLogs"):
+            cut("    def test_a(self):\n        with self.assertLogs('x'):\n            pass\n")
+
+    def test_assert_warns_records_the_warning(self):
+        s = cut("    def test_a(self):\n        import warnings\n        with self.assertWarns(DeprecationWarning):\n            warnings.warn('old', DeprecationWarning)\n")
+        self.assertEqual(run(s).stdout, "warns True ['DeprecationWarning']\n")
+
+    def test_skip_condition_is_decided_by_the_reference_python(self):
+        u = universe("    @unittest.skipIf(sys.platform != 'nonexistent', 'never runs')\n    def test_a(self):\n        pass\n"
+                     "    @unittest.skipUnless(sys.platform != 'nonexistent', 'always runs')\n    def test_b(self):\n        pass\n",
+                     "import sys\n" + HEAD)
+        u.python = sys.executable
+        with self.assertRaisesRegex(c.Excluded, "skipped by CPython: never runs"):
+            u.extract("test_x", "T", "test_a")
+        self.assertEqual(run(u.extract("test_x", "T", "test_b")).returncode, 0)
+        with self.assertRaisesRegex(c.CantExtract, "cannot be decided"):
+            cut("    @unittest.skipIf(open('x'), 'no')\n    def test_a(self):\n        pass\n")
 
     def test_assertion_inside_a_lambda_is_not_extractable(self):
         with self.assertRaisesRegex(c.CantExtract, "assertEqual"):

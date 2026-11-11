@@ -26,7 +26,7 @@ Env: BREVI (default target/release/brevi), BREVI_CACHE (the cache is its conform
 ~/.cache/brevi/conformance).
 """
 import argparse, ast, collections, concurrent.futures as cf, hashlib, json, os, re, shlex, shutil, signal
-import functools, importlib, subprocess, sys, tempfile, time, urllib.request, warnings
+import functools, importlib, subprocess, symtable, sys, tempfile, time, urllib.request, warnings
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -85,7 +85,87 @@ EXCLUDED_DECORATORS = {
     "suppress_immortalization": "tests CPython's immortal objects",
     "requires_resource": "needs an opt-in test resource",
     "bigmemtest": "needs gigabytes of memory",
+    "bigaddrspacetest": "needs gigabytes of memory",  # skips itself unless run with -M, which regrtest does not pass
 }
+# Names a skip condition may read, and what each is under the reference run (no -O, a normal build). Anything else
+# in a condition leaves the test not_extractable: only a condition we can evaluate the way CPython would is decided.
+CONDITION_PRELUDE = """import sys, re, sysconfig
+is_emscripten = sys.platform == "emscripten"
+is_wasi = sys.platform == "wasi"
+class support:
+    is_wasi = is_wasi
+try:
+    import _multiprocessing
+except ImportError:
+    multiprocessing = None
+else:
+    import multiprocessing
+"""
+CONDITION_BINDINGS = {"sys": ("import", "sys", None), "re": ("import", "re", None), "support": ("from", "test", "support"),
+                      "is_emscripten": ("from", "test.support", "is_emscripten"), "is_wasi": ("from", "test.support", "is_wasi")}
+CONDITION_NAMES = {"sys", "re", "hasattr", "is_emscripten", "is_wasi", "support", "multiprocessing", "__debug__"}
+# support.requires_docstrings is skipUnless(HAVE_DOCSTRINGS, ...); with no -O, HAVE_DOCSTRINGS is `not MISSING_C_DOCSTRINGS`
+# (Lib/test/support/__init__.py: MISSING_C_DOCSTRINGS = check_impl_detail() and platform != 'win32' and no WITH_DOC_STRINGS).
+DOCSTRINGS_CONDITION = 'not (sys.platform != "win32" and not sysconfig.get_config_var("WITH_DOC_STRINGS"))'
+# What a decorator that wraps a test does, as helper code the generated script carries when it is used. All of it
+# mirrors CPython's definitions: pickle_deprecated is in Lib/test/test_itertools.py (runs the test three times), the
+# others are unittest's assertWarns and Lib/test/support/warnings_helper.py's ignore_warnings.
+HELPERS = {
+    "_conf_Warns": """class _conf_Warns:
+    def __init__(self, category, regex=None):
+        self.category, self.regex = category, regex
+
+    def __enter__(self):
+        self.ctx = warnings.catch_warnings(record=True)
+        self.warnings = self.ctx.__enter__()
+        warnings.simplefilter("always")
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.ctx.__exit__(exc_type, exc, tb)
+        if exc_type is not None:
+            return False
+        self.warning = self.filename = self.lineno = None
+        for m in self.warnings:
+            if not isinstance(m.message, self.category):
+                continue
+            if self.regex is not None and not re.search(self.regex, str(m.message)):
+                continue
+            self.warning, self.filename, self.lineno = m.message, m.filename, m.lineno
+            break
+        print('warns', self.warning is not None, sorted(m.category.__name__ for m in self.warnings))
+        return False""",
+    "_conf_pickle_deprecated": """def _conf_pickle_deprecated(testfunc):
+    def inner():
+        with _conf_Warns(DeprecationWarning):
+            testfunc()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=DeprecationWarning)
+            testfunc()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", category=DeprecationWarning)
+            try:
+                testfunc()
+            except (DeprecationWarning, AssertionError, SystemError) as _e:
+                print('raises', type(_e).__name__)
+            else:
+                print('NO-RAISE')
+    return inner""",
+    "_conf_ignore_warnings": """def _conf_ignore_warnings(category):
+    def decorator(test):
+        def wrapper():
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', category=category)
+                return test()
+        return wrapper
+    return decorator""",
+    "_conf_search": """def _conf_search(text, regex):
+    print(repr(text))
+    print(re.search(regex, text) is not None)""",
+}
+HELPER_IMPORTS = {"_conf_Warns": ["import re", "import warnings"], "_conf_pickle_deprecated": ["import warnings"],
+                  "_conf_ignore_warnings": ["import warnings"], "_conf_search": ["import re"]}
+HELPER_NEEDS = {"_conf_pickle_deprecated": ["_conf_Warns"]}
 EXCLUDED_CLASSES = {
     "PyLongModuleTests": "tests _pylong, a private CPython module",
     "CAPITest": "tests the C API",
@@ -180,6 +260,10 @@ class Mod:
         start, end = self.span(node)
         return self.text(self.starts[min([node.lineno] + [d.lineno for d in getattr(node, "decorator_list", [])]) - 1], end)
 
+    def bare(self, node):
+        """Like block, without the decorators."""
+        return self.text(self.starts[node.lineno - 1], self.span(node)[1])
+
     def alone(self, node):
         """Whether a statement has its lines to itself, so it can become several lines."""
         start = self.starts[node.lineno - 1]
@@ -193,12 +277,36 @@ class Rewriter(ast.NodeVisitor):
     final check on the generated script then records the test as not_extractable."""
 
     def __init__(self, mod, helper_modules):
-        self.m, self.helpers, self.caught = mod, helper_modules, set()
+        self.m, self.helpers, self.caught, self.alias = mod, helper_modules, set(), {}
 
     def visit_FunctionDef(self, node):
-        saved, self.caught = self.caught, set()
+        saved, self.caught, saved_alias = self.caught, set(), self.alias
+        self.alias = self.find_aliases(node)
         self.generic_visit(node)
-        self.caught = saved
+        self.caught, self.alias = saved, saved_alias
+
+    def find_aliases(self, fn):
+        """`eq = self.assertEqual` inside a test: calls of `eq` are the assertion, if that is all `eq` is used for."""
+        found, uses_of = {}, collections.Counter()
+        for sub in ast.walk(fn):
+            if (isinstance(sub, ast.Assign) and len(sub.targets) == 1 and isinstance(sub.targets[0], ast.Name)
+                    and isinstance(sub.value, ast.Attribute) and isinstance(sub.value.value, ast.Name)
+                    and sub.value.value.id in RECEIVERS and sub.value.attr.startswith("assert")):
+                found.setdefault(sub.targets[0].id, []).append(sub)
+            elif isinstance(sub, ast.Name):
+                uses_of[sub.id] += 1  # every mention, stores included
+        calls = collections.Counter()
+        for sub in ast.walk(fn):
+            if isinstance(sub, ast.Expr):
+                v = sub.value.elts[0] if isinstance(sub.value, ast.Tuple) and len(sub.value.elts) == 1 else sub.value
+                if isinstance(v, ast.Call) and isinstance(v.func, ast.Name):
+                    calls[v.func.id] += 1
+        out = {}
+        for name, assigns in found.items():
+            # one assignment, and no mention of the name beyond it and calls written as statements
+            if len(assigns) == 1 and uses_of[name] == 1 + calls[name]:
+                out[name] = assigns[0]
+        return out
 
     def visit_Attribute(self, node):
         self.generic_visit(node)
@@ -212,12 +320,27 @@ class Rewriter(ast.NodeVisitor):
             self.m.imports.setdefault(node.attr, ("from", f"{kind[1]}.{kind[2]}", node.attr))
             self.m.edit(*self.m.span(node), node.attr)
 
+    def visit_Assign(self, node):
+        self.generic_visit(node)
+        if any(a is node for a in self.alias.values()):
+            self.m.edit(*self.m.span(node), "pass")
+
     def visit_Expr(self, node):
         self.generic_visit(node)
         call = node.value
+        if isinstance(call, ast.Tuple) and len(call.elts) == 1:
+            call = call.elts[0]  # `self.assertEqual(...),` with a stray comma is a one-tuple statement
         if not isinstance(call, ast.Call):
             return
         f = call.func
+        if isinstance(f, ast.Name) and f.id in self.alias:
+            name = self.alias[f.id].value.attr
+            lines = rewrite_assertion(self.m, node, name, call)
+            if lines:
+                sep = "\n" + " " * node.col_offset if self.m.alone(node) else "; "
+                if "\n" in sep or not any(ln.startswith((" ", "try:", "except", "else:")) for ln in lines):
+                    self.m.edit(*self.m.span(node), sep.join(lines))
+            return
         if isinstance(f, ast.Attribute) and f.attr == "__init__" and "TestCase" in ast.dump(f.value):
             self.m.edit(*self.m.span(node), "pass")
         elif isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id in RECEIVERS:
@@ -243,6 +366,9 @@ class Rewriter(ast.NodeVisitor):
         ind = " " * node.col_offset
         if c.func.attr == "subTest":
             self.m.edit(start, header_end, "if True:")
+        elif c.func.attr in ("assertWarns", "assertWarnsRegex") and len(c.args) == (2 if c.func.attr == "assertWarnsRegex" else 1) and not c.keywords:
+            # the same block, recorded: _conf_Warns prints whether a matching warning was raised
+            self.m.edit(*self.m.span(c), "_conf_Warns(" + ", ".join(self.m.expr(a) for a in c.args) + ")")
         elif c.func.attr in ("assertRaises", "assertRaisesRegex") and c.args:
             lines = caught_lines(self.m.expr(c.args[0]), c.func.attr == "assertRaisesRegex")
             if item.optional_vars is not None:
@@ -294,6 +420,8 @@ def rewrite_assertion(m, stmt, name, call):
         return [f"print(not isinstance({t[0]}, {t[1]}))"]
     if name == "assertAlmostEqual" and len(t) == 2 and not call.keywords:
         return [f"print(round(({t[0]}) - ({t[1]}), 7) == 0)"]
+    if name in ("assertRegex", "assertNotRegex") and len(t) == 2:
+        return [f"_conf_search({t[0]}, {t[1]})"]
     if name == "fail":
         return [f"raise AssertionError({t[0] if t else ''})"]
     if name in ("assertRaises", "assertRaisesRegex"):
@@ -332,7 +460,24 @@ def uses(text):
             stored.add(n.asname or n.name.split(".")[0])
         if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id in ("self", "cls"):
             attrs.add(n.attr)
-    return loaded - stored, attrs
+    return (loaded - stored) | global_reads(text), attrs
+
+
+def global_reads(text):
+    """Names some scope in the code reads as a global, even though another scope binds the same name locally
+    (`prod` called in the test, and the loop variable `prod` in a nested function): the flat sets cannot tell."""
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            top = symtable.symtable("class _:\n" + text if text[:1].isspace() else text, "<test>", "exec")
+    except SyntaxError:
+        return set()
+    out, todo = set(), [top]
+    while todo:
+        t = todo.pop()
+        todo += t.get_children()
+        out.update(s.get_name() for s in t.get_symbols() if s.is_referenced() and s.is_global() and not s.is_assigned())
+    return out
 
 
 class Universe:
@@ -346,6 +491,7 @@ class Universe:
             self.mods[name] = m
             Rewriter(m, names).visit(m.tree)
         self.order = list(sources)
+        self.python = None  # the reference interpreter, set before tests are cut out: skip conditions are evaluated by it
 
     def chain(self, mod, cls):
         """The class and its bases, nearest first, ending before unittest.TestCase; None if not a test."""
@@ -402,9 +548,10 @@ class Universe:
         chain = self.chain(mod, cls)
         owner, fn = next((m, n) for m, c in chain for n in c.body
                          if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == method)
-        for _, c in chain:
-            check_decorators(c)
-        check_decorators(fn)
+        for m, c in chain:
+            if decorator_plan(self.python, m, c):
+                raise CantExtract("decorator that changes how the class runs")
+        wrappers = decorator_plan(self.python, owner, fn)
         raw = owner.data[owner.starts[fn.lineno - 1]:owner.off(fn.end_lineno, fn.end_col_offset)].decode()
         for pattern, why in EXCLUDED_SOURCE:
             if re.search(pattern, raw):
@@ -415,7 +562,8 @@ class Universe:
             raise CantExtract("test method takes extra arguments")
 
         script = Script(self)
-        body = owner.block(fn)
+        script.test_fn = fn
+        body = owner.bare(fn)
         names, attrs = uses(body)
         plain = (not self_used(body) and "super" not in names and not has_mangled(body)
                  and not any(n.name in ("setUp", "tearDown") for _, c in chain for n in c.body if isinstance(n, ast.FunctionDef)))
@@ -424,21 +572,92 @@ class Universe:
             text = re.sub(r"^def (\w+)\(self\)", r"def \1()", text, count=1)
             for n in names:
                 script.need(owner, n)
-            tail = f"{text}\n\n{method}()\n"
+            tail = f"{text}\n\n{wrapped_call(wrappers, method)}\n"
         else:
-            tail = script.class_shape(chain, cls_name, method)
+            tail = script.class_shape(chain, cls_name, method, wrappers)
         header = f"# Extracted by tools/conformance.py from CPython {TAG} Lib/test/{name}.py, {cls_name}.{method}\n"
         header += "# (CPython's test suite is under the PSF licence: https://docs.python.org/3/license.html)\n"
         return script.finish(header, tail)
 
 
-def check_decorators(node):
+SKIPS = {"skipIf": False, "skipUnless": True}  # unittest decorator -> the value of the condition that lets the test run
+
+
+def condition_value(py, mod, test, trusted=False, cache={}):
+    """What a skipIf/skipUnless condition is under the reference interpreter, or CantExtract if it reads anything
+    we do not model. The expression is checked against a whitelist before it is evaluated, in a child process."""
+    allowed = (ast.BoolOp, ast.UnaryOp, ast.Not, ast.Or, ast.And, ast.Compare, ast.Constant, ast.Name, ast.Load, ast.Attribute,
+               ast.Call, ast.GtE, ast.Gt, ast.Lt, ast.LtE, ast.Eq, ast.NotEq, ast.Is, ast.IsNot, ast.In, ast.NotIn, ast.Tuple)
+    text = ast.unparse(test)
+    for n in ([] if trusted else ast.walk(test)):
+        bad = not isinstance(n, allowed)
+        if isinstance(n, ast.Name) and n.id not in CONDITION_NAMES:
+            bad = True
+        elif isinstance(n, ast.Name) and n.id in CONDITION_BINDINGS and mod.imports.get(n.id) != CONDITION_BINDINGS[n.id]:
+            bad = True  # the name must be bound the way the prelude binds it
+        elif isinstance(n, ast.Name) and n.id == "multiprocessing" and mod.name != "test.test_re":
+            bad = True  # test_re binds it with a try/except import, which the prelude copies
+        if isinstance(n, ast.Call) and not (isinstance(n.func, ast.Name) and n.func.id == "hasattr"
+                                            or isinstance(n.func, ast.Attribute) and n.func.attr == "startswith"):
+            bad = True
+        if bad:
+            raise CantExtract(f"skip condition `{text}` cannot be decided")
+    if py is None:
+        raise CantExtract(f"skip condition `{text}` cannot be decided without the reference interpreter")
+    if (py, text) not in cache:
+        r = subprocess.run([py, "-I", "-B", "-c", CONDITION_PRELUDE + f"print(bool({text}))"], capture_output=True, text=True, timeout=30)
+        if r.returncode != 0 or r.stdout.strip() not in ("True", "False"):
+            raise CantExtract(f"skip condition `{text}` cannot be evaluated")
+        cache[(py, text)] = r.stdout.strip() == "True"
+    return cache[(py, text)]
+
+
+def decorator_plan(py, mod, node):
+    """What CPython does with the decorators of a test (or test class): Excluded if one skips it or marks it as
+    not a language test, CantExtract if one is not understood, else the wrappers the script must apply, outermost first.
+    Each is ("pickle_deprecated",) or ("ignore_warnings", category name)."""
+    wrappers, excluded, unknown = [], None, None
     for d in node.decorator_list:
         target = d.func if isinstance(d, ast.Call) else d
+        dotted = ast.unparse(target)
         last = target.attr if isinstance(target, ast.Attribute) else getattr(target, "id", "")
-        if last in EXCLUDED_DECORATORS:
-            raise Excluded(EXCLUDED_DECORATORS[last])
-        raise CantExtract(f"decorator @{ast.unparse(target)}")
+        args = d.args if isinstance(d, ast.Call) else []
+        kws = {k.arg: k.value for k in d.keywords} if isinstance(d, ast.Call) else {}
+        try:
+            if last in EXCLUDED_DECORATORS:
+                excluded = excluded or EXCLUDED_DECORATORS[last]
+            elif dotted in ("unittest.skipIf", "unittest.skipUnless") and args and not kws:
+                if condition_value(py, mod, args[0]) != SKIPS[last]:
+                    why = ast.literal_eval(args[1]) if len(args) > 1 and isinstance(args[1], ast.Constant) else ast.unparse(args[0])
+                    excluded = excluded or f"skipped by CPython: {why}"
+            elif dotted == "support.requires_docstrings" and mod.imports.get("support") == ("from", "test", "support"):
+                if not condition_value(py, mod, ast.parse(DOCSTRINGS_CONDITION, mode="eval").body, trusted=True):
+                    excluded = excluded or "skipped by CPython: test requires docstrings"
+            elif dotted == "support.skip_if_pgo_task" and mod.imports.get("support") == ("from", "test", "support"):
+                pass  # support.PGO is False outside the PGO build task, so this is the identity
+            elif dotted == "support.impl_detail" and not kws and mod.imports.get("support") == ("from", "test", "support"):
+                excluded = excluded or "tests CPython internals"  # runs on CPython, but says it is specific to it
+            elif dotted == "pickle_deprecated" and mod.name == "test.test_itertools" and not args:
+                wrappers.append(("pickle_deprecated",))
+            elif (dotted == "warnings_helper.ignore_warnings" and not args and list(kws) == ["category"]
+                  and isinstance(kws["category"], ast.Name) and kws["category"].id in ("DeprecationWarning", "PendingDeprecationWarning", "UserWarning", "ResourceWarning", "RuntimeWarning", "SyntaxWarning")):
+                wrappers.append(("ignore_warnings", kws["category"].id))
+            else:
+                raise CantExtract(f"decorator @{dotted}")
+        except CantExtract as e:
+            unknown = unknown or e
+    if excluded:
+        raise Excluded(excluded)
+    if unknown:
+        raise unknown
+    return wrappers
+
+
+def wrapped_call(wrappers, target):
+    """The expression that runs `target` the way its decorators make CPython run it."""
+    for w in reversed(wrappers):
+        target = f"_conf_pickle_deprecated({target})" if w[0] == "pickle_deprecated" else f"_conf_ignore_warnings({w[1]})({target})"
+    return target + "()"
 
 
 def self_used(text):
@@ -466,7 +685,7 @@ class Script:
     """The definitions one test needs, gathered by following names from the test outward."""
 
     def __init__(self, universe):
-        self.u, self.seen, self.nodes, self.lines = universe, set(), {}, set()
+        self.u, self.seen, self.nodes, self.lines, self.test_fn = universe, set(), {}, set(), None
 
     def need(self, mod, name):
         if (mod.name, name) in self.seen:
@@ -497,7 +716,7 @@ class Script:
         for n in uses(text)[0]:
             self.need(mod, n)
 
-    def class_shape(self, chain, leaf, method):
+    def class_shape(self, chain, leaf, method, wrappers):
         """A test that needs self keeps its class, with only the members it reaches, and its bases."""
         picked, todo = {}, [method, "__init__", "setUp", "tearDown", "setUpClass", "tearDownClass"]
         done = set()
@@ -533,12 +752,14 @@ class Script:
         calls = [f"{leaf}.setUpClass()"] if has("setUpClass") else []
         calls.append(f"_t = {leaf}()")
         calls += ["_t.setUp()"] if has("setUp") else []
-        calls.append(f"_t.{method}()")
+        calls.append(wrapped_call(wrappers, f"_t.{method}"))
         calls += ["_t.tearDown()"] if has("tearDown") else []
         calls += [f"{leaf}.tearDownClass()"] if has("tearDownClass") else []
         return "\n".join(out) + "\n" + "\n".join(calls) + "\n"
 
     def member(self, mod, node, name):
+        if node is self.test_fn:
+            return mod.bare(node)  # its decorators were dealt with (decorator_plan)
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == name:
             return mod.block(node)
         if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
@@ -554,9 +775,14 @@ class Script:
         return None
 
     def finish(self, header, tail):
+        text = "\n".join(list(self.nodes.values()) + [tail])
+        used = [h for h in HELPERS if re.search(rf"\b{h}\b", text)]
+        used += [d for h in used for d in HELPER_NEEDS.get(h, []) if d not in used]
+        self.lines.update(i for h in used for i in HELPER_IMPORTS[h])
         future = sorted(ln for ln in self.lines if ln.startswith("from __future__"))
         imports = sorted(self.lines - set(future))
-        parts = [header + "\n".join(future + imports)] + [self.nodes[k] for k in sorted(self.nodes)] + [tail]
+        parts = ([header + "\n".join(future + imports)] + [HELPERS[h] for h in HELPERS if h in used]
+                 + [self.nodes[k] for k in sorted(self.nodes)] + [tail])
         script = "\n\n".join(p for p in parts if p.strip())
         validate(script)
         return script
@@ -568,6 +794,7 @@ def validate(script):
         tree = parse(script)
     except SyntaxError as e:
         raise CantExtract(f"generated script does not parse: {e.msg}")
+    defined = {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
     for n in ast.walk(tree):
         if isinstance(n, ast.Import):
             roots = [a.name.split(".")[0] for a in n.names]
@@ -580,7 +807,8 @@ def validate(script):
                 raise CantExtract(f"imports {r}")
         if isinstance(n, ast.Name) and n.id in FORBIDDEN_NAMES and isinstance(n.ctx, ast.Load):
             raise CantExtract(f"uses {n.id}()")
-        if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id in RECEIVERS and n.attr.startswith("assert"):
+        if (isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id in RECEIVERS
+                and n.attr.startswith("assert") and n.attr not in defined):  # a helper the test class defines is fine
             raise CantExtract(f"unittest API {n.attr}")
         f = n.func if isinstance(n, ast.Call) else None
         if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id in RECEIVERS and f.attr in TEST_API:
@@ -1045,6 +1273,7 @@ def main():
     universe = Universe(load_sources(cache))
     cfg.python = find_python(cfg.python)
     cfg.brevi = str(Path(os.environ.get("BREVI", ROOT / "target" / "release" / ("brevi.exe" if WINDOWS else "brevi"))).resolve())
+    universe.python = cfg.python
     cases = extract_all(universe, names, cfg.filter)
     if cfg.show:
         return show(cases, cfg.show, cfg)
