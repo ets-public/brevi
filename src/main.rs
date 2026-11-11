@@ -237,7 +237,10 @@ fn main() {
     // cache, whose key holds every BREVI_* variable, verify's builds, replays), so one switch holds them all.
     if matches!(argv.first().map(|a| a.as_str()), Some("build" | "run" | "check" | "emit" | "test" | "fix" | "verify")) {
         let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
-        if let Some(i) = argv[..dash].iter().position(|a| a == "--strict") {
+        // `brevi run --verify --strict` keeps its own meaning (a wrong answer prints nothing, exits 1): the run is
+        // checked against CPython, so its dynamic build is no unchecked fallback. BREVI_STRICT=1 holds it too.
+        let verified_run = argv[0] == "run" && argv[..dash].iter().any(|a| a == "--verify");
+        if let Some(i) = argv[..dash].iter().position(|a| a == "--strict").filter(|_| !verified_run) {
             argv.remove(i);
             // SAFETY: no other thread has started yet (the rustc probe below starts the first one).
             unsafe { std::env::set_var("BREVI_STRICT", "1") };

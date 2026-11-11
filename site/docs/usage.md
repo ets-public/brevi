@@ -102,7 +102,7 @@ From the next release, `--strict` (or `BREVI_STRICT=1`, which reaches every `bre
 - Nothing runs with `python3`: `--strict` implies `--native`, and `brevi-python` under `BREVI_STRICT=1` refuses to hand anything to CPython (`-m`, the REPL, or a script it would pass on).
 - A typed run whose int outgrows 64 bits stops with an error instead of running again on the dynamic build.
 - Every build prints its path line, `{"path":"typed"}` too (`BREVI_PATH=0` still silences it).
-- With `brevi run --verify`, `--strict` also prints neither run's output and exits 1 on a wrong answer, as before.
+- `brevi run --verify --strict` keeps its own meaning: a wrong answer prints neither run's output and exits 1. That run is checked against CPython, so its dynamic build is not refused; `BREVI_STRICT=1` refuses it there too.
 
 `BREVI_DYN=1` (an explicit dynamic build) is not a fallback and is not refused. Which constructs take which path, per platform: [docs/SUPPORT_MATRIX.md](https://github.com/ets-public/brevi/blob/main/docs/SUPPORT_MATRIX.md).
 

@@ -107,7 +107,7 @@ strict_out=$(cd tests/strict && B=../../$BREVI
     echo "-- run $f"; $B run $f.py --strict 2>&1; echo "exit $?"
   done
   echo "-- check guard"; BREVI_STRICT=1 $B check guard.py 2>&1; echo "exit $?"
-  echo "-- verify guard"; $B run --verify guard.py --strict </dev/null 2>&1; echo "exit $?"
+  echo "-- verify guard"; BREVI_STRICT=1 $B run --verify guard.py </dev/null 2>&1; echo "exit $?"
   ln -sf "$(cd ../.. && pwd)/$BREVI" ./brevi-python
   echo "-- shim -m"; BREVI_STRICT=1 ./brevi-python -m json.tool </dev/null 2>&1; echo "exit $?"
   echo "-- shim guard"; BREVI_STRICT=1 ./brevi-python guard.py 2>&1; echo "exit $?"
