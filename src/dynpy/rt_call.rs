@@ -1666,11 +1666,25 @@ pub fn call_method(o: &V, name: &str, mut a: Args) -> R {
     }
     match o {
         V::Obj(ob) => {
+            // obj.name(args) is obj.name, then a call: a data descriptor of the program wins over the instance's
+            // own attribute, and a non-data one is asked after it (see getattr)
+            if USER_DATA_DESC.load(std::sync::atomic::Ordering::Relaxed) {
+                if let Some(d) = ob.cls.lookup(name) {
+                    if is_data_desc(&d) {
+                        let f = desc_get(&d, o, &V::Class(ob.cls.clone()))?;
+                        return call(&f, a);
+                    }
+                }
+            }
             if let Some(v) = ob.get_attr(name)? {
                 return call(&v, a);
             }
             if let Some(v) = ob.cls.lookup(name) {
                 return match &v {
+                    V::Obj(d) if d.cls.lookup("__get__").is_some() => {
+                        let f = desc_get(&v, o, &V::Class(ob.cls.clone()))?;
+                        call(&f, a)
+                    }
                     V::Func(f) => match f.kind.get() {
                         1 => call(&v, a),
                         2 => {
@@ -1736,6 +1750,11 @@ pub fn call_method(o: &V, name: &str, mut a: Args) -> R {
                         let mut a = a;
                         prepend(&mut a.p, o.clone());
                         call(&v, a)
+                    }
+                    // a descriptor of the program read from the class: __get__(None, cls), then the call
+                    V::Obj(d) if d.cls.lookup("__get__").is_some() => {
+                        let f = desc_get(&v, &V::None, o)?;
+                        call(&f, a)
                     }
                     _ => {
                         if let V::Ext(x) = &v {

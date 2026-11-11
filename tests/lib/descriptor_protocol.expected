@@ -26,3 +26,5 @@ No '__dict__' attribute on 'S' instance to cache 'cost' property.
 Cannot assign the same cached_property to two different names ('a' and 'b').
 1
 1
+('got', False, (1,)) ('got', True, (2,)) ('got', False, (3,))
+('own', (4,)) ('got', False, (5,))

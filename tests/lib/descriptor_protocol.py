@@ -89,3 +89,26 @@ class T:
     @ro
     def prop(s): return s._p
 t=T(1); print(t.prop); t._p=9; print(t.prop)
+
+
+# obj.name(args) goes through the descriptor too (a call of what __get__ gives)
+class MDesc:
+    def __get__(self, inst, owner=None):
+        return lambda *a: ("got", inst is None, a)
+
+
+class MData(MDesc):
+    def __set__(self, inst, v):
+        raise AttributeError("read only")
+
+
+class M:
+    m = MDesc()
+    d = MData()
+
+
+mo = M()
+print(mo.m(1), M.m(2), mo.d(3))
+mo.__dict__["m"] = lambda *a: ("own", a)
+mo.__dict__["d"] = lambda *a: ("own", a)
+print(mo.m(4), mo.d(5))
