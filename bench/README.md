@@ -220,7 +220,7 @@ python3 tests/conformance_test.py                              # the extractor's
 
 **coverage** is `matched` / (all - `unstable` - `excluded`), not counting matches where library calls ran in CPython (`pybridge`). **wrong** is `wrong_output` + `wrong_exit`. The headline is the normal build; `BREVI_DYN=1` is reported beside it.
 
-`compat/conformance_known_wrong.txt` lists the known wrong results, one `test-id mode` a line, and `--check` exits 1 only on a wrong result not listed. Remove a line when its bug is fixed. A program that ends on a signal that could mean memory unsafety is only counted in the report; its name goes to `private_signals.json` in the cache, to be read before anything is published ([SECURITY.md](../SECURITY.md)).
+`compat/conformance_known_wrong.txt` lists the known wrong results, one `test-id mode issue=#N owner=LOGIN expires=YYYY-MM-DD` a line, and `--check` exits 1 on a wrong result not listed and on a line with no tracking issue, owner or expiry, or past its expiry: no known-wrong entry without someone answering for it. Remove a line when its bug is fixed. `--release-gate` is the release bar: it exits 1 when the normal build's coverage is below `release_gate.coverage` in the slice's floor file (core 90%, stdlib 60%) or any known-wrong result remains. The report also gives assertion-bearing coverage (native matches whose program printed something to compare; silent matches only show the program built and exited 0) and the typed-path share of native matches. A program that ends on a signal that could mean memory unsafety is only counted in the report; its name goes to `private_signals.json` in the cache, to be read before anything is published ([SECURITY.md](../SECURITY.md)).
 
 ## Speed benchmark (`perf/`)
 
