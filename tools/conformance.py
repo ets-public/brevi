@@ -411,6 +411,11 @@ def caught_lines(exc, with_message):
     return [f"except {exc} as _e:", f"    print('raises', {shown})", "else:", f"    print('{NO_RAISE}')"]
 
 
+def is_module_name(m, node):
+    """Whether node is a name the test file binds with a plain `import`."""
+    return isinstance(node, ast.Name) and m.imports.get(node.id, ("",))[0] == "import"
+
+
 def rewrite_assertion(m, stmt, name, call):
     """The lines that replace `self.<name>(...)`, or None to leave it for the final check."""
     if any(k.arg not in ("msg", None) for k in call.keywords) and not name.startswith("assertRaises"):
@@ -419,6 +424,9 @@ def rewrite_assertion(m, stmt, name, call):
     if any(isinstance(a, ast.Starred) for a in args[:2]):
         return None
     t = [m.expr(a) for a in args]
+    if name in SAME_AS_EQUAL and len(t) >= 2 and any(is_module_name(m, a) for a in args[:2]):
+        # a module's repr names the file it was loaded from, which differs between machines: compare instead
+        return [f"print(({t[0]}) == ({t[1]}))"]
     if name in SAME_AS_EQUAL and len(t) >= 2:
         b = args[1]
         plain = isinstance(b, ast.Constant) and t[1] == repr(b.value)

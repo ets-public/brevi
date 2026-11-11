@@ -9,8 +9,6 @@ test_collections.TestCollectionABCs.test_MutableSet dyn issue=#398 owner=ets-pub
 test_collections.TestCollectionABCs.test_MutableSet normal issue=#398 owner=ets-public expires=2026-12-11
 test_collections.TestNamedTuple.test_field_doc dyn issue=#400 owner=ets-public expires=2026-12-11
 test_collections.TestNamedTuple.test_field_doc normal issue=#400 owner=ets-public expires=2026-12-11
-test_collections.TestNamedTuple.test_module_parameter dyn issue=#400 owner=ets-public expires=2026-12-11
-test_collections.TestNamedTuple.test_module_parameter normal issue=#400 owner=ets-public expires=2026-12-11
 test_collections.TestOneTrickPonyABCs.test_AsyncIterable dyn issue=#398 owner=ets-public expires=2026-12-11
 test_collections.TestOneTrickPonyABCs.test_AsyncIterable normal issue=#398 owner=ets-public expires=2026-12-11
 test_collections.TestOneTrickPonyABCs.test_AsyncIterator dyn issue=#398 owner=ets-public expires=2026-12-11
