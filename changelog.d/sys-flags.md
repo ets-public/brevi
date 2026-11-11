@@ -1,0 +1,1 @@
+- Dynamic build: `sys.flags` gives the options of a plain `python3 prog.py` run (`optimize`, `debug`, `dev_mode`, ... read 0 or False, since a built program takes no interpreter options). The fields that depend on the environment or on CPython's startup (`hash_randomization`, `utf8_mode`, `int_max_str_digits`, `gil`) and the tuple forms are refused rather than guessed.
