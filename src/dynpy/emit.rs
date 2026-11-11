@@ -1692,6 +1692,14 @@ pub struct Em {
     uses_re: bool,
     // (module, name) bound by `from re import name`: calls of it say where they are, as `re.name(...)` does
     re_names: HashSet<(String, String)>,
+    // the program uses the warnings module: every statement says where it is, so a warning names its line
+    track_warn: bool,
+    // module -> the lines whose logical line runs over more than one line (None: the module did not lex)
+    multi: HashMap<String, Option<HashSet<usize>>>,
+    // the WMod statics written so far
+    wmods: HashSet<String>,
+    // (module, name) bound by `import warnings`
+    warn_names: HashSet<(String, String)>,
     // module + value set -> the first display's items in source order (CPython's constant merging)
     set_lits: HashMap<(String, BTreeSet<ConstKey>), Vec<Ex>>,
 }
@@ -2332,11 +2340,74 @@ impl Em {
     // the module name `x` refers to, when x is bound only by `import m`
     // A call of a re function, told its line first: the warnings CPython's re issues name the caller's line.
     // `call` is the call's Rust text over `__ra`, the evaluated arguments.
-    fn re_call(&self, call: &str, args: &str, line: usize) -> String {
-        let (file, src) = self.bridge.srcs.get(&self.module).cloned().unwrap_or_default();
-        let text = src.lines().nth(line.wrapping_sub(1)).unwrap_or("");
-        let module = if self.module.is_empty() { "__main__" } else { self.module.as_str() };
-        format!("{{ let __ra = {args}; re_site({line}, {}, {}, {}); let __rr = {call}; re_site_clear(); __rr }}", lit(&file), lit(module), lit(text))
+    fn re_call(&mut self, call: &str, args: &str, line: usize) -> String {
+        // a statement over several lines: which of them the call is on is not known, so no line is named
+        // (the module is still known: line 0 says so, and a warning the filters turn into an error is exact there)
+        let site = match self.wmod() {
+            Some(m) if !self.multi_line(line) => format!("re_site({line}, &{m});"),
+            Some(m) => format!("re_site(0, &{m});"),
+            None => "re_site_clear();".to_string(),
+        };
+        format!("{{ let __ra = {args}; let __ws = re_site_get(); {site} let __rr = {call}; re_site_put(__ws); __rr }}")
+    }
+    // The static naming this module of the program for warnings (None for Brevi's own library copies).
+    fn wmod(&mut self) -> Option<String> {
+        let (file, src) = self.bridge.srcs.get(&self.module).cloned()?;
+        let name = format!("WM_{}", rust_ident(if self.module.is_empty() { "__main__" } else { &self.module }));
+        if self.wmods.insert(name.clone()) {
+            let module = if self.module.is_empty() { "__main__".to_string() } else { self.module.clone() };
+            write!(self.items, "static {name}: WMod = WMod {{ file: {}, module: {}, src: {} }};\n", lit(&file), lit(&module), lit(&src)).unwrap();
+        }
+        Some(name)
+    }
+    // Whether a call in the logical line starting at `line` of this module may start on a later line than it.
+    // CPython names the line a call starts on; the dynamic build knows a statement's first line only, so
+    // a statement over several lines is known only when every call in it opens on its first line.
+    fn multi_line(&mut self, line: usize) -> bool {
+        use super::parse::Tok;
+        if !self.multi.contains_key(&self.module) {
+            let set = self.bridge.srcs.get(&self.module).and_then(|(_, src)| super::parse::lex(src).ok()).map(|lx| {
+                let mut set = HashSet::new();
+                let mut start: Option<usize> = None;
+                let mut prev: Option<&Tok> = None;
+                for (tk, l) in &lx.toks {
+                    match tk {
+                        Tok::Indent | Tok::Dedent | Tok::Eof => {}
+                        Tok::Newline => {
+                            start = None;
+                        }
+                        _ => {
+                            let s = *start.get_or_insert(*l);
+                            // a `(` after a name, `)`, `]`, `}` or a string may be a call
+                            let call = matches!(tk, Tok::Op("(")) && matches!(prev, Some(Tok::Name(_) | Tok::Op(")") | Tok::Op("]") | Tok::Op("}") | Tok::Str(..) | Tok::FStr(..) | Tok::Bytes(_)));
+                            if *l != s && (call || matches!(tk, Tok::Op("@"))) {
+                                set.insert(s);
+                            }
+                        }
+                    }
+                    prev = Some(tk);
+                }
+                set
+            });
+            self.multi.insert(self.module.clone(), set);
+        }
+        match self.multi.get(&self.module) {
+            Some(Some(set)) => set.contains(&line),
+            _ => true,
+        }
+    }
+    // The statement that says where the program is (`line` of this module), for a program using warnings;
+    // `known` false where the line is not known (a decorated def, an elif condition).
+    fn wsite(&mut self, line: usize, known: bool) -> String {
+        if !self.track_warn {
+            return String::new();
+        }
+        let known = known && line != 0 && !self.multi_line(line);
+        // Brevi's own library copies have no lines of CPython's to name; line 0 is this module at a line not known
+        match self.wmod() {
+            Some(m) => format!("re_site({}, &{m});", if known { line } else { 0 }),
+            None => "re_site_clear();".into(),
+        }
     }
     fn static_module(&self, e: &Ex) -> Option<String> {
         if let Ex::Name(n) = e {
@@ -2425,13 +2496,29 @@ impl Em {
                 return Err(err(line, "warnings.catch_warnings(record=True) is not supported in dynamic builds"));
             }
         }
+        // warnings.warn(..., stacklevel=2) in the program names a caller's line, which the dynamic build does
+        // not keep: CPython runs it (a stacklevel it only learns at run time is refused there, see pyglue)
+        if self.track_warn {
+            if let Ex::Attr(o, m) = f {
+                if m == "warn" && matches!(o.as_ref(), Ex::Name(n) if self.warn_names.contains(&(self.module.clone(), n.clone())) && matches!(self.lookup(n), Some(Var::Global(_)))) {
+                    let lvl = args.iter().find_map(|a| match a { Arg::Kw(k, v) if k == "stacklevel" => Some(v), _ => None })
+                        .or_else(|| args.iter().filter(|a| matches!(a, Arg::Pos(_))).nth(2).and_then(|a| if let Arg::Pos(v) = a { Some(v) } else { None }));
+                    if let Some(v) = lvl {
+                        if !matches!(v, Ex::Int(n) if n.parse::<i64>().is_ok_and(|n| n <= 1)) {
+                            return Err(err(line, "warnings.warn with a stacklevel above 1 is not supported in dynamic builds"));
+                        }
+                    }
+                }
+            }
+        }
         // `from re import sub` then `sub(...)`: told its line, as re.sub(...) is
         if let Ex::Name(n) = f {
             if self.re_names.contains(&(self.module.clone(), n.clone())) && matches!(self.lookup(n), Some(Var::Global(_))) {
                 self.uses_re = true;
                 let fv = self.ex(f, line)?;
                 let a = self.args(args, line, None)?;
-                return Ok(self.q(&self.re_call(&format!("call(&{fv}, __ra)"), &a, line)));
+                let rc = self.re_call(&format!("call(&{fv}, __ra)"), &a, line);
+                return Ok(self.q(&rc));
             }
         }
         // CPython's inspect cannot read a dynamic build's function objects (their code and annotations are
@@ -2603,7 +2690,8 @@ impl Em {
                     }
                 }
                 if md == "re" {
-                    return Ok(self.q(&self.re_call(&format!("module_call(\"re\", {}, __ra)", lit(m)), &a, line)));
+                    let rc = self.re_call(&format!("module_call(\"re\", {}, __ra)", lit(m)), &a, line);
+                    return Ok(self.q(&rc));
                 }
                 return Ok(self.q(&format!("module_call({}, {}, {a})", lit(&md), lit(m))));
             }
@@ -3064,6 +3152,8 @@ impl Em {
             b.push_str("fin_point();\n");
         }
         for s in body {
+            let w = self.stmt_site(s);
+            b.push_str(&w);
             b.push_str(&self.stmt(s)?);
             // A program with __del__ runs the finalizers its statement made waiting (rt_core's fin_point).
             if self.has_del && matches!(s.st, St::Expr(_) | St::Assign(..) | St::AugAssign(..) | St::Del(_)) {
@@ -3072,6 +3162,18 @@ impl Em {
             b.push('\n');
         }
         Ok(b)
+    }
+    // Where statement `s` is, said before it runs (a program using warnings).
+    fn stmt_site(&mut self, s: &Stmt) -> String {
+        if !self.track_warn {
+            return String::new();
+        }
+        let known = match &s.st {
+            St::Def(d) => d.decorators.is_empty(),
+            St::Class(c) => c.decorators.is_empty(),
+            _ => true,
+        };
+        self.wsite(s.line, known)
     }
     fn loop_label(&self) -> Option<String> {
         for fr in self.fstack.last().unwrap().frames.iter().rev() {
@@ -3295,6 +3397,9 @@ impl Em {
                     let top = m.split('.').next().unwrap().to_string();
                     let bind = a.clone().unwrap_or(top.clone());
                     let target = if a.is_some() { m.clone() } else { top.clone() };
+                    if target == "warnings" {
+                        self.warn_names.insert((self.module.clone(), bind.clone()));
+                    }
                     let id = self.id();
                     // `import a.b` binds `a` but CPython registers `a.b` in sys.modules too
                     if target != *m && (self.user_modules.contains(m) || builtin_mod(m.as_str()) || m == "os.path") {
@@ -3421,7 +3526,12 @@ impl Em {
             St::If(arms, els) => {
                 let mut b = String::new();
                 for (k, (c, body)) in arms.iter().enumerate() {
-                    let cc = self.cond(c, line)?;
+                    let mut cc = self.cond(c, line)?;
+                    if k > 0 && self.track_warn {
+                        // an elif's own line is not kept
+                        let ws = self.wsite(0, false);
+                        cc = format!("{{ {ws} {cc} }}");
+                    }
                     let bb = self.block(body)?;
                     if k > 0 {
                         b.push_str(" else ");
@@ -3437,7 +3547,12 @@ impl Em {
             St::While(c, body, els) => {
                 let id = self.id();
                 let lbl = format!("'l{id}");
-                let cc = self.cond(c, line)?;
+                let mut cc = self.cond(c, line)?;
+                if self.track_warn {
+                    // the condition runs again after the body, at the while's line
+                    let w = self.wsite(line, true);
+                    cc = format!("{{ {w} {cc} }}");
+                }
                 self.f().frames.push(Frame::Loop(lbl.clone()));
                 let bb = self.block(body)?;
                 self.f().frames.pop();
@@ -3520,7 +3635,8 @@ impl Em {
         if !fast {
             let itv = self.ex(it, line)?;
             let iv = self.q(&format!("iter(&{itv})"));
-            let nx = self.q(&format!("__it{id}.next()"));
+            let w = self.wsite(line, true);
+            let nx = self.q(&format!("{{ {w} __it{id}.next() }}"));
             head = format!("let mut __it{id} = {iv}; {lbl}: while let Some(__x{id}) = {nx} {{ ");
         }
         if asg.is_empty() {
@@ -3641,8 +3757,10 @@ impl Em {
         self.f().frames.push(Frame::Fin(lbl.clone()));
         let bb = self.block(body)?;
         self.f().frames.pop();
-        let exit_ok = self.q(&format!("call_method(&__m{id}, \"__exit__\", Args::p(vec![V::None, V::None, V::None]))"));
-        let exit_err = self.q(&format!("call_method(&__m{id}, \"__exit__\", Args::p(vec![V::Class(type_of(&__ev)?), __ev.clone(), V::None]))"));
+        // __exit__ runs at the with's line
+        let w = self.wsite(line, true);
+        let exit_ok = self.q(&format!("{{ {w} call_method(&__m{id}, \"__exit__\", Args::p(vec![V::None, V::None, V::None])) }}"));
+        let exit_err = self.q(&format!("{{ {w} call_method(&__m{id}, \"__exit__\", Args::p(vec![V::Class(type_of(&__ev)?), __ev.clone(), V::None])) }}"));
         let sup = self.q("truth(&__sx)");
         let after = self.flow_dispatch(id, line)?;
         Ok(format!(
@@ -4050,7 +4168,7 @@ impl Em {
         let mut body = String::new();
         let mut res = Ok(());
         for s in &c.body {
-            let mut code = String::new();
+            let mut code = self.stmt_site(s);
             if let (true, St::AnnAssign(t, v, ann)) = (setup, &s.st) {
                 let line = s.line;
                 // CPython evaluates the value first, then the annotation, then stores both.
@@ -4109,6 +4227,8 @@ impl Em {
         self.fstack.pop();
         self.class_ctx = saved;
         res?;
+        // the class is made at the class statement's line
+        let w = self.wsite(c.line, c.decorators.is_empty());
         let mut v = if dict_mode {
             // the namespace dict holds the class attributes in the order the body bound them; the doc is
             // added only now, as __build_class__ adds it after the body
@@ -4120,7 +4240,7 @@ impl Em {
             }
             let items = self.q(&format!("dict_sym_items(&{ns_var})"));
             let mk = self.q(&format!("make_class_f({}, {}, {}, vec![{}], {items}, vec![{}])", lit(&c.name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", ")));
-            format!("{{ {decls}\n{body}\n{attrs} let __c = {mk}; __c }}")
+            format!("{{ {decls}\n{body}\n{attrs} {w} let __c = {mk}; __c }}")
         } else {
             // class attributes in the order the body first binds them, as CPython's class namespace keeps them
             // (Enum members and vars() follow it)
@@ -4164,7 +4284,7 @@ impl Em {
                 write!(attrs, "__at.push((\"__doc__\", {doc})); ").unwrap();
             }
             let mk = self.q(&format!("make_class_f({}, {}, {}, vec![{}], __at, vec![{}])", lit(&c.name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", ")));
-            format!("{{ {decls}\n{body}\nlet mut __at: Vec<(Sym, V)> = vec![]; {attrs} let __c = {mk}; __c }}")
+            format!("{{ {decls}\n{body}\nlet mut __at: Vec<(Sym, V)> = vec![]; {attrs} {w} let __c = {mk}; __c }}")
         };
         for dec in c.decorators.iter().rev() {
             let dd = self.ex(dec, c.line)?;
@@ -4257,6 +4377,12 @@ pub fn ic_statics() -> String {
     s
 }
 pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>), (String, usize, String)> {
+    // the program (not Brevi's library copies) uses the warnings module
+    // (or functools.partial, whose __get__ warns at the line that reads it from an instance)
+    let track_warn = mods.iter().any(|m| {
+        let b = format!("{:?}", m.body);
+        bridge.srcs.contains_key(&m.name) && (b.contains("\"warnings\"") || b.contains("\"functools\"") && b.contains("\"partial\""))
+    });
     let has_del = mods.iter().any(|m| format!("{:?}", m.body).contains("\"__del__\""));
     let has_closure = mods.iter().any(|m| format!("{:?}", m.body).contains("__closure__"));
     let mut em = Em {
@@ -4287,6 +4413,10 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         bridged_used: BTreeSet::new(),
         uses_re: false,
         re_names: HashSet::new(),
+        track_warn,
+        multi: HashMap::new(),
+        wmods: HashSet::new(),
+        warn_names: HashSet::new(),
         set_lits: HashMap::new(),
     };
     // Brevi's own library copies first, each group named and numbered on its own, then the program's modules:
@@ -4487,7 +4617,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         consts.join(", "),
         del_on,
         // the program uses CPython's warnings module: the warnings the runtime issues go through it
-        if em.bridged_used.contains("warnings") { " set_warn_bridge(pyd_warn_at);" } else { "" },
+        if em.bridged_used.contains("warnings") { " set_warn_bridge(pyd_warn_at); pyd_warn_install()?;" } else { "" },
         if uname { " set_name_lookup(__uname);" } else { "" }
     )
     .unwrap();
@@ -4498,6 +4628,8 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         out.push_str("\"###;\n");
     }
     let _ = &em.out;
+    // a program using warnings: each function puts its caller's line back when it returns (or raises)
+    let out = if em.track_warn { out.replace("let __depth = Depth::new()?;", "let __depth = Depth::new()?; let __wg = warn_guard();") } else { out };
     // CPython's re matches any buffer (array.array, mmap, ctypes arrays) as bytes, and slices the object
     // itself for groups; Brevi's re takes str and bytes only. weakref would be handed Brevi's Pattern and
     // Match values, which a bridged library cannot hold. CPython runs such a program.

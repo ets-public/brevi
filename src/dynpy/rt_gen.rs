@@ -149,6 +149,8 @@ pub struct Coro {
     // the order it was started in: slots are reused, so close_live_gens sorts by this to close in creation
     // order exactly as before slots were reused
     live_seq: u64,
+    // where its own code was when it last yielded: a warning issued in it names its line, never the caller's
+    wsite: Option<ReSite>,
 }
 
 thread_local! {
@@ -297,10 +299,20 @@ impl Coro {
             depth_base: 0,
             live_idx: 0,
             live_seq: 0,
+            wsite: None,
         })
     }
     // Runs the generator to its next yield: Some(value), or None once it has returned.
     pub fn resume(&mut self, sent: V) -> Result<Option<V>, E> {
+        // the generator runs at its own line and the caller gets its line back, however the switch ends
+        let caller = re_site_get();
+        re_site_put(self.wsite);
+        let r = self.resume_in(sent);
+        self.wsite = re_site_get();
+        re_site_put(caller);
+        r
+    }
+    fn resume_in(&mut self, sent: V) -> Result<Option<V>, E> {
         if self.result.is_some() {
             return Ok(None);
         }
