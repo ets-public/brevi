@@ -107,6 +107,18 @@ class Inlining(unittest.TestCase):
         with self.assertRaises(c.Excluded):
             u.extract("test_x", "TPy", "test_a")
 
+    def test_every_member_of_a_fresh_module_block_is_picked(self):
+        head = ("import unittest\nfrom test.support import import_helper\n"
+                "c_json = import_helper.import_fresh_module('json', fresh=['_json'])\n"
+                "class Base:\n    def test_a(self):\n        self.assertEqual(self.module.dumps(self.v), '2')\n"
+                "class TC(Base, unittest.TestCase):\n    if c_json:\n        module = c_json\n        v = 2\n")
+        self.assertEqual(run(universe("", head=head).extract("test_x", "TC", "test_a")).stdout, "'2'\n")
+
+    def test_self_in_a_nested_methods_decorator_is_the_tests_self(self):
+        s = cut("    k = 3\n    def test_a(self):\n        class X:\n            @self.deco\n            def f(self):\n                return 1\n"
+                "        self.assertEqual(X().f(), 3)\n    def deco(self, f):\n        return lambda s: self.k\n")
+        self.assertEqual(run(s).stdout, "3\n")
+
     def test_a_fresh_module_copy_is_the_module(self):
         s = cut("    def test_a(self):\n        self.assertEqual(py_json.dumps([1]), '[1]')\n",
                 head="import unittest\nfrom test.support import import_helper\n"
