@@ -11,11 +11,11 @@ links to the artifact it came from, with the date, the Brevi version and the har
 | Conformance | 80.4% (250 of 311); stdlib slice 45.1% (250 of 554) | v0.27.0, 11 Nov 2026 | `bench/conformance/report.md`, `bench/conformance/stdlib/report.md` |
 | Known-wrong results | 8 tests, 16 test-mode pairs (7 and 13 on main); stdlib 20 tests, 39 pairs on main | v0.27.0, 11 Nov 2026 | `compat/conformance_known_wrong.txt`, `compat/conformance_stdlib_known_wrong.txt` |
 | Crash or timeout | 0 of 311 tests (stdlib: 1) | v0.27.0, 11 Nov 2026 | `bench/conformance/report.md` |
-| `check --fast` p50 / p95 | 25.0 / 35.6 ms on main (16.1 / 18.2 at v0.26.0; 160.3 / 174.4 at v0.27.0, when the fixture built dynamic) | main 0349bd8, 11 Nov 2026 | `bench/latency-results/2026-11-11-main-0349bd8.json` |
-| `check` p50 / p95 | 109.4 / 127.2 ms on main (93.6 / 113.6 ms at v0.26.0) | main 0349bd8, 11 Nov 2026 | same |
-| `check`, unchanged, p50 | 2.5 ms | main 0349bd8, 11 Nov 2026 | same |
-| Build after an edit, p50 | 967 ms typed, 1566 ms dynamic (`brevi run` after an edit: 361 ms, opt-level 0 tier); v0.26.0: 870 ms typed, 1508 ms dynamic | main 0349bd8, 11 Nov 2026 | same, and `...-dyn.json` |
-| `run`, unchanged, p50 | 5.3 ms typed, 26.6 ms dynamic (CPython 17.9 ms) | main 0349bd8, 11 Nov 2026 | same |
+| `check --fast` p50 / p95 | 22.0 / 24.4 ms on main (16.1 / 18.2 at v0.26.0; 160.3 / 174.4 at v0.27.0, when the fixture built dynamic) | main d91ca4b, 11 Nov 2026 | `bench/latency-results/2026-11-11-main-d91ca4b.json` |
+| `check` p50 / p95 | 94.4 / 107.4 ms on main (93.6 / 113.6 ms at v0.26.0) | main d91ca4b, 11 Nov 2026 | same |
+| `check`, unchanged, p50 | 2.3 ms | main d91ca4b, 11 Nov 2026 | same |
+| Build after an edit, p50 | 905 ms typed, 1603 ms dynamic (`brevi run` after an edit: 348 ms, opt-level 0 tier); v0.26.0: 870 ms typed, 1508 ms dynamic | main d91ca4b, 11 Nov 2026 | same, and `...-dyn.json` |
+| `run`, unchanged, p50 | 5.6 ms typed, 27.6 ms dynamic (CPython 15.3 ms) | main d91ca4b, 11 Nov 2026 | same |
 | Typed-path rate | 567 of 813 (70%) | v0.25.0 | `bench/typed_corpus.py`; to be rerun on v0.26.0 |
 | First-attempt native | 24/24 Haiku, 24/24 Sonnet (one run, 24 tasks, errors shown) | v0.26.0, 9 Nov 2026 | `bench/logs/e2e/se1a-*.jsonl`, `--summary` column `n1` |
 | Tokens-to-green, errors shown (dollars, vs CPython) | 1.04x Haiku, 1.03x Sonnet (one run; 95% range about 0.9x to 1.1x) | v0.26.0, 9 Nov 2026 | `bench/logs/e2e/se1a-*.jsonl`, `--verdict` |

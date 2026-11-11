@@ -56,9 +56,9 @@ match CPython on their own tests, and do so on the first check. Fast, correct an
 | Conformance (CPython 3.13.13 slice) | 80.4% (250/311) at v0.27.0 | ≥70% | ≥90% | `tools/conformance.py` |
 | Known-wrong allowlist | 8 tests, 16 test-mode pairs at v0.27.0 (44 and 88 at v0.26.0) | ≤25 tests | 0 | `compat/conformance_known_wrong.txt` |
 | Crash or timeout (conformance) | 0 of 311 tests at v0.27.0 | 0 on fuzz corpus | 0 on fuzz corpus | fuzz harness (WS1) |
-| `brevi check --fast` p50 / p95 | 25 / 36 ms on main (0349bd8; the fix ships in the next release); 160 / 174 ms at v0.27.0, when a false refusal sent the fixture dynamic; 16 / 18 ms at v0.26.0 | ≤20 ms p50 | ≤10 ms p50 | `bench/latency.py` |
-| `brevi check` p50 / p95 | 109 / 127 ms on main; 160 / 209 ms at v0.27.0; 94 / 114 ms at v0.26.0 | ≤50 / ≤150 ms | ≤30 / ≤80 ms | `bench/latency.py` |
-| Build after an edit, p50 | 0.97 s typed, 1.57 s dynamic on main; `brevi run` after an edit 0.36 s with tiered builds; 1.18 s at v0.27.0; 0.87 s typed, 1.5 s dynamic at v0.26.0 | ≤500 ms | ≤300 ms | `bench/latency.py` |
+| `brevi check --fast` p50 / p95 | 22 / 24 ms on main (d91ca4b; ships in the next release); 160 / 174 ms at v0.27.0, when a false refusal sent the fixture dynamic; 16 / 18 ms at v0.26.0 | ≤20 ms p50 | ≤10 ms p50 | `bench/latency.py` |
+| `brevi check` p50 / p95 | 94 / 107 ms on main; 160 / 209 ms at v0.27.0; 94 / 114 ms at v0.26.0 | ≤50 / ≤150 ms | ≤30 / ≤80 ms | `bench/latency.py` |
+| Build after an edit, p50 | 0.91 s typed, 1.6 s dynamic on main; `brevi run` after an edit 0.35 s with tiered builds; 1.18 s at v0.27.0; 0.87 s typed, 1.5 s dynamic at v0.26.0 | ≤500 ms | ≤300 ms | `bench/latency.py` |
 | Typed-path rate (agent corpus) | 567/813 (70%, v0.25.0) | 80% | 90% | `bench/typed_corpus.py` |
 | First-attempt native build | 24/24 (Haiku and Sonnet, one run, errors shown) | 80% | 90% | `bench/e2e.py` (`n1`), alpha traffic |
 | Tokens-to-green vs CPython, errors shown | 1.04x Haiku, 1.03x Sonnet (one run) | ≤1.10x | ≤1.00x | `bench/e2e.py --show-errors` |
