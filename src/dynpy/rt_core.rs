@@ -26,6 +26,10 @@ pub enum V {
     List(Rc<RefCell<Vec<V>>>),
     Tuple(Tup),
     Dict(Rc<RefCell<Dict>>),
+    // a closure cell as CPython exposes it through a function's __closure__: the value it wraps is the
+    // runtime's cell (Rc<RefCell<V>>), and two Cell values are the same object exactly when they wrap
+    // the same cell.
+    Cell(Rc<RefCell<V>>),
     Set(Rc<RefCell<PSet>>),
     FSet(Rc<PSet>),
     Func(Rc<Func>),
@@ -82,6 +86,7 @@ impl V {
             V::List(x) => V::List(x.clone()),
             V::Tuple(x) => V::Tuple(x.clone()),
             V::Dict(x) => V::Dict(x.clone()),
+            V::Cell(x) => V::Cell(x.clone()),
             V::Set(x) => V::Set(x.clone()),
             V::FSet(x) => V::FSet(x.clone()),
             V::Func(x) => V::Func(x.clone()),
@@ -1236,6 +1241,8 @@ pub fn py_hash(v: &V) -> Result<i64, E> {
         }
         V::Class(c) => (Rc::as_ptr(c) as usize >> 4) as i64,
         V::Func(f) => (Rc::as_ptr(f) as usize >> 4) as i64,
+        // a cell object has no __hash__, exactly as in CPython (it only compares by identity)
+        V::Cell(_) => return type_err("unhashable type: 'cell'".into()),
         V::Ext(x) => match x.hash() {
             Some(h) => h,
             None => return type_err(format!("unhashable type: '{}'", x.tname())),
@@ -1773,6 +1780,7 @@ fn same_key(a: &V, b: &V) -> bool {
         (V::Big(x), V::Big(y)) => Rc::ptr_eq(x, y),
         (V::Range(x), V::Range(y)) => Rc::ptr_eq(x, y),
         (V::Func(x), V::Func(y)) => Rc::ptr_eq(x, y),
+        (V::Cell(x), V::Cell(y)) => Rc::ptr_eq(x, y),
         (V::Module(x), V::Module(y)) => x == y,
         (V::None, V::None) => true,
         (V::Bool(x), V::Bool(y)) => x == y,
@@ -2094,7 +2102,7 @@ pub type FnBox = Box<dyn Fn(Args) -> R>;
 // Names a function keeps in slots (or Brevi's own cells/attrs), never in its user-facing __dict__.
 pub const FUNC_SLOT_ATTRS: &[&str] = &[
     "__name__", "__qualname__", "__module__", "__doc__", "__annotations__", "__code__", "__defaults__",
-    "__kwdefaults__", "__type_params__", "__globals__", "__builtins__", "__bv_np__", "__bv_kind__", "__bv_repr__",
+    "__kwdefaults__", "__type_params__", "__closure__", "__globals__", "__builtins__", "__bv_np__", "__bv_kind__", "__bv_repr__",
     "__bv_dict__",
     // lru_cache's methods live on the wrapper's class in CPython, not in its __dict__
     "cache_clear", "cache_info",
@@ -2110,6 +2118,9 @@ pub struct Func {
     // 0 function, 1 staticmethod, 2 classmethod, 3 builtin
     pub kind: Cell<u8>,
     pub attrs: RefCell<Vec<(Sym, V)>>,
+    // the cells the function closes over, in __closure__ order; Weak so the function's own FnBox
+    // (not this list) keeps them alive, and CellGuard's cycle breaking counts stay as they were
+    pub closure: RefCell<Option<Vec<Weak<RefCell<V>>>>>,
     // co_flags of the def's code object (0: none, as for builtins); the object itself is made when
     // __code__ is read, so creating a function allocates nothing extra
     pub code_flags: Cell<u32>,
@@ -2125,10 +2136,10 @@ pub enum FastFn {
     F4(fn(V, V, V, V) -> R),
 }
 pub fn func(name: Sym, f: impl Fn(Args) -> R + 'static) -> V {
-    V::Func(Rc::new(Func { name: Cell::new(name), qualname: Cell::new(name), fq: Cell::new(name), f: Box::new(f), kind: Cell::new(0), attrs: RefCell::new(vec![]), code_flags: Cell::new(0), fast: Cell::new(FastFn::No) }))
+    V::Func(Rc::new(Func { name: Cell::new(name), qualname: Cell::new(name), fq: Cell::new(name), f: Box::new(f), kind: Cell::new(0), attrs: RefCell::new(vec![]), closure: RefCell::new(None), code_flags: Cell::new(0), fast: Cell::new(FastFn::No) }))
 }
 pub fn builtin(name: Sym, f: impl Fn(Args) -> R + 'static) -> V {
-    V::Func(Rc::new(Func { name: Cell::new(name), qualname: Cell::new(name), fq: Cell::new(name), f: Box::new(f), kind: Cell::new(3), attrs: RefCell::new(vec![]), code_flags: Cell::new(0), fast: Cell::new(FastFn::No) }))
+    V::Func(Rc::new(Func { name: Cell::new(name), qualname: Cell::new(name), fq: Cell::new(name), f: Box::new(f), kind: Cell::new(3), attrs: RefCell::new(vec![]), closure: RefCell::new(None), code_flags: Cell::new(0), fast: Cell::new(FastFn::No) }))
 }
 // a def's function value, with the qualified name duplicate-keyword errors print
 pub fn with_fq(f: V, fq: Sym) -> V {
@@ -2155,6 +2166,14 @@ pub fn with_fast(f: V, fast: FastFn) -> V {
 pub fn with_code(f: V, flags: u32) -> V {
     if let V::Func(x) = &f {
         x.code_flags.set(flags);
+    }
+    f
+}
+// a closure's function value, with the cells it captures (the function's own FnBox holds them strongly;
+// this list keeps Weak handles so reading __closure__ does not add a second strong cycle to CellGuard's count)
+pub fn with_closure(f: V, cells: Vec<Rc<RefCell<V>>>) -> V {
+    if let V::Func(x) = &f {
+        *x.closure.borrow_mut() = Some(cells.iter().map(Rc::downgrade).collect());
     }
     f
 }
@@ -3324,6 +3343,7 @@ pub fn type_name(v: &V) -> String {
             3 => "collections.OrderedDict".into(),
             _ => "dict".into(),
         },
+        V::Cell(_) => "cell".into(),
         V::Set(_) => "set".into(),
         V::FSet(_) => "frozenset".into(),
         V::Func(f) => if f.kind.get() == 3 { "builtin_function_or_method".into() } else { "function".into() },

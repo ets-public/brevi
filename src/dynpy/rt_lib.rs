@@ -733,6 +733,7 @@ pub fn type_of(x: &V) -> Rc<Class> {
             3 => tclass(8, "OrderedDict"),
             _ => tclass(9, "dict"),
         },
+        V::Cell(_) => ext_class("cell"),
         V::Set(_) => tclass(10, "set"),
         V::FSet(_) => tclass(11, "frozenset"),
         V::None => tclass(12, "NoneType"),
