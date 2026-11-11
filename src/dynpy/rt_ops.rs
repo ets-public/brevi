@@ -1728,6 +1728,14 @@ struct GAlias {
     origin: Rc<Class>,
     args: Vec<V>,
 }
+// cls[item] for a class whose __class_getitem__ is types.GenericAlias
+pub fn class_alias(k: &Rc<Class>, i: &V) -> V {
+    let args = match i {
+        V::Tuple(t) => t.to_vec(),
+        other => vec![other.clone()],
+    };
+    V::Ext(ExtRc::new(GAlias { origin: k.clone(), args }))
+}
 fn alias_arg_repr(v: &V) -> String {
     match v {
         V::Class(k) if k.module == "builtins" => k.name.to_string(),
@@ -1875,7 +1883,7 @@ pub fn getitem(c: &V, i: &V) -> R {
             return type_err(format!("'{}' object is not subscriptable", tn(c)));
         }
         (V::Class(k), _) if is_enum(k) => return enum_getitem(k, i),
-        (V::Class(k), _) if k.lookup("__bv_namedtuple__").is_some() => {
+        (V::Class(k), _) if k.lookup("__bv_namedtuple__").is_some() || k.lookup("__bv_galias__").is_some() => {
             let args = match i {
                 V::Tuple(t) => t.to_vec(),
                 other => vec![other.clone()],

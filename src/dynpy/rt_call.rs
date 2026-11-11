@@ -1645,6 +1645,10 @@ pub fn delattr(o: &V, name: &str) -> Result<(), E> {
                 call(&da, Args::p(vec![o.clone(), s(name)]))?;
                 return Ok(());
             }
+            // a C type's __dict__ descriptor (functools.partial's) cannot be deleted
+            if name == "__dict__" && ob.cls.lookup("__bv_nodeldict__").is_some() {
+                return type_err("cannot delete __dict__".into());
+            }
             // deleting an OSError field empties the slot (getattr then reads None), it does not raise
             if matches!(name, "errno" | "strerror" | "filename" | "filename2")
                 && ob.cls.base_bt() == BT::Exc
