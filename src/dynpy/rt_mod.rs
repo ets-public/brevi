@@ -3181,7 +3181,7 @@ pub fn ext_module_attr(m: &str, n: &str) -> Result<Option<V>, E> {
         ("_brevi_sqlite", "cursor_next") => Some(cursor_next_func()),
         ("_brevi_sqlite", "cursor_fetchone") => Some(cursor_fetchone_func()),
         ("_brevi_sqlite", "conn_execute") => Some(conn_execute_func()),
-        ("re", "error") => Some(V::Class(exc_class("error"))),
+        ("re", "error") | ("re", "PatternError") => Some(V::Class(exc_class("PatternError"))),
         ("json" | "json.decoder", "JSONDecodeError") => Some(V::Class(exc_class("JSONDecodeError"))),
         ("json" | "json.decoder", "JSONDecoder") => Some(V::Class(json_decoder_class())),
         ("json" | "json.encoder", "JSONEncoder") => Some(V::Class(json_encoder_class())),

@@ -22,10 +22,13 @@ pub enum RNode {
 pub struct RClass {
     items: Vec<CItem>,
     neg: bool,
+    fold: bool,
 }
 #[derive(Clone, Debug)]
 enum CItem {
     Ch(char),
+    // a character plus everything CPython's IGNORECASE treats as the same letter
+    Cf(char),
     Range(char, char),
     Digit(bool),
     Word(bool),
@@ -37,17 +40,21 @@ pub struct Prog {
     names: Vec<(String, usize)>,
     flags: i64,
     src: String,
+    bytes: bool,
 }
 const F_I: i64 = 2;
+const F_L: i64 = 4;
 const F_M: i64 = 8;
 const F_S: i64 = 16;
+const F_U: i64 = 32;
 const F_X: i64 = 64;
 const F_A: i64 = 256;
+const TYPE_FLAGS: i64 = F_A | F_U | F_L;
 // The largest repeat count CPython's sre accepts (2**32 - 2); one more raises OverflowError.
 const MAX_REPEAT: usize = 0xFFFF_FFFE;
 
 fn re_err<T>(msg: String) -> Result<T, E> {
-    Err(exc("error", msg))
+    Err(exc("PatternError", msg))
 }
 
 struct RP<'a> {
@@ -56,6 +63,7 @@ struct RP<'a> {
     flags: i64,
     ngroups: usize,
     names: Vec<(String, usize)>,
+    bytes: bool,
 }
 impl<'a> RP<'a> {
     fn peek(&self) -> Option<char> {
@@ -66,18 +74,25 @@ impl<'a> RP<'a> {
             return;
         }
         loop {
-            match self.peek() {
-                Some(c) if c.is_whitespace() => self.i += 1,
-                Some('#') => {
-                    while let Some(c) = self.peek() {
-                        self.i += 1;
-                        if c == '\n' {
-                            break;
-                        }
+            let ws = match self.peek() {
+                Some(c) if self.bytes => matches!(c, ' ' | '\t' | '\n' | '\r' | '\x0b' | '\x0c'),
+                Some(c) => c.is_whitespace(),
+                _ => false,
+            };
+            if ws {
+                self.i += 1;
+                continue;
+            }
+            if self.peek() == Some('#') {
+                while let Some(c) = self.peek() {
+                    self.i += 1;
+                    if c == '\n' {
+                        break;
                     }
                 }
-                _ => break,
+                continue;
             }
+            break;
         }
     }
     fn alts(&mut self) -> Result<Vec<Vec<RNode>>, E> {
@@ -208,6 +223,29 @@ impl<'a> RP<'a> {
         Ok(Some((lo, hi, greedy, poss)))
     }
     fn escape_char(&mut self, c: char) -> Result<Option<char>, E> {
+        if self.bytes {
+            return Ok(match c {
+                'n' => Some('\n'),
+                't' => Some('\t'),
+                'r' => Some('\r'),
+                'f' => Some('\x0c'),
+                'v' => Some('\x0b'),
+                'a' => Some('\x07'),
+                'x' => {
+                    let h: String = self.c.get(self.i..self.i + 2).map(|x| x.iter().collect()).unwrap_or_default();
+                    let v = u32::from_str_radix(&h, 16).ok().filter(|_| h.len() == 2);
+                    match v.and_then(char::from_u32) {
+                        Some(ch) => {
+                            self.i += 2;
+                            Some(ch)
+                        }
+                        None => return re_err(format!("incomplete escape \\x{h}")),
+                    }
+                }
+                c if c.is_ascii_alphanumeric() => None,
+                c => Some(c),
+            });
+        }
         Ok(Some(match c {
             'n' => '\n',
             't' => '\t',
@@ -245,11 +283,75 @@ impl<'a> RP<'a> {
             c => c,
         }))
     }
+    // The \1..\99 group-reference-or-octal rule bytes patterns follow (CPython's _escape).
+    fn bytes_num_escape(&mut self, first: char, start: usize) -> Result<RNode, E> {
+        if first == '0' {
+            let mut v = 0u32;
+            let mut k = 0;
+            while k < 2 && self.peek().is_some_and(|c| ('0'..='7').contains(&c)) {
+                v = v * 8 + self.peek().unwrap().to_digit(8).unwrap();
+                self.i += 1;
+                k += 1;
+            }
+            return Ok(RNode::Char(char::from_u32(v).unwrap_or('\0')));
+        }
+        let one = first.to_digit(10).unwrap();
+        if self.peek().is_some_and(|c| c.is_ascii_digit()) {
+            let d1 = self.peek().unwrap();
+            self.i += 1;
+            if matches!(first, '1'..='7') && matches!(d1, '0'..='7') && self.peek().is_some_and(|c| ('0'..='7').contains(&c)) {
+                let d2 = self.peek().unwrap();
+                self.i += 1;
+                let v = (first.to_digit(8).unwrap() * 8 + d1.to_digit(8).unwrap()) * 8 + d2.to_digit(8).unwrap();
+                if v > 0o377 {
+                    return re_err(format!("octal escape value \\{first}{d1}{d2} outside of range 0-0o377"));
+                }
+                return Ok(RNode::Char(char::from_u32(v).unwrap()));
+            }
+            let n = one * 10 + d1.to_digit(10).unwrap();
+            if (n as usize) < self.ngroups {
+                return Ok(RNode::Backref(n as usize));
+            }
+            return re_err(format!("invalid group reference {n} at position {start}"));
+        }
+        let n = one as usize;
+        if n < self.ngroups {
+            return Ok(RNode::Backref(n));
+        }
+        re_err(format!("invalid group reference {n} at position {start}"))
+    }
+    fn class_escape(&mut self, e: char) -> Result<char, E> {
+        if !self.bytes {
+            return match self.escape_char(e)? {
+                Some(c) => Ok(c),
+                None => re_err(format!("bad escape \\{e}")),
+            };
+        }
+        match e {
+            '0'..='7' => {
+                let mut v = e.to_digit(8).unwrap();
+                let mut k = 0;
+                while k < 2 && self.peek().is_some_and(|c| ('0'..='7').contains(&c)) {
+                    v = v * 8 + self.peek().unwrap().to_digit(8).unwrap();
+                    self.i += 1;
+                    k += 1;
+                }
+                if v > 0o377 {
+                    return re_err(format!("octal escape value \\{e} outside of range 0-0o377"));
+                }
+                Ok(char::from_u32(v).unwrap())
+            }
+            _ => match self.escape_char(e)? {
+                Some(c) => Ok(c),
+                None => re_err(format!("bad escape \\{e}")),
+            },
+        }
+    }
     fn atom(&mut self) -> Result<Option<RNode>, E> {
         let c = self.peek().unwrap();
         self.i += 1;
         let ic = self.flags & F_I != 0;
-        let ch = |c: char| if ic { RNode::Class(Rc::new(RClass { items: fold_items(c), neg: false })) } else { RNode::Char(c) };
+        let ch = |c: char| if ic { RNode::Class(Rc::new(RClass { items: vec![CItem::Cf(c)], neg: false, fold: true })) } else { RNode::Char(c) };
         Ok(Some(match c {
             '.' => RNode::Any,
             '^' => RNode::Bol,
@@ -263,15 +365,17 @@ impl<'a> RP<'a> {
             '(' => return self.group(),
             '\\' => {
                 let Some(e) = self.peek() else { return re_err("bad escape (end of pattern)".into()) };
+                let start = self.i;
                 self.i += 1;
                 match e {
-                    'd' | 'D' => RNode::Class(Rc::new(RClass { items: vec![CItem::Digit(e == 'D')], neg: false })),
-                    'w' | 'W' => RNode::Class(Rc::new(RClass { items: vec![CItem::Word(e == 'W')], neg: false })),
-                    's' | 'S' => RNode::Class(Rc::new(RClass { items: vec![CItem::Space(e == 'S')], neg: false })),
+                    'd' | 'D' => RNode::Class(Rc::new(RClass { items: vec![CItem::Digit(e == 'D')], neg: false, fold: false })),
+                    'w' | 'W' => RNode::Class(Rc::new(RClass { items: vec![CItem::Word(e == 'W')], neg: false, fold: false })),
+                    's' | 'S' => RNode::Class(Rc::new(RClass { items: vec![CItem::Space(e == 'S')], neg: false, fold: false })),
                     'b' => RNode::WordB(true),
                     'B' => RNode::WordB(false),
                     'A' => RNode::StrStart,
                     'Z' | 'z' => RNode::StrEnd,
+                    '0'..='9' if self.bytes => return Ok(Some(self.bytes_num_escape(e, start)?)),
                     '1'..='9' => {
                         self.i -= 1;
                         let n = self.num().unwrap();
@@ -332,6 +436,9 @@ impl<'a> RP<'a> {
                             }
                             let name: String = self.c[s..self.i].iter().collect();
                             self.i += 1;
+                            if self.bytes && !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                                return re_err(format!("bad character in group name '{name}' at position {s}"));
+                            }
                             if let Some(&(_, old)) = self.names.iter().find(|x| x.0 == name) {
                                 return re_err(format!(
                                     "redefinition of group name '{name}' as group {}; was group {old} at position {s}",
@@ -378,7 +485,7 @@ impl<'a> RP<'a> {
                                 self.i += 1;
                             }
                             let name: String = self.c[s..self.i].iter().collect();
-                            self.names.iter().find(|x| x.0 == name).map(|x| x.1).ok_or_else(|| exc("error", format!("unknown group name '{name}'")))?
+                            self.names.iter().find(|x| x.0 == name).map(|x| x.1).ok_or_else(|| exc("PatternError", format!("unknown group name '{name}'")))?
                         }
                     };
                     self.close()?;
@@ -403,8 +510,39 @@ impl<'a> RP<'a> {
                             Some('m') => *(if neg { &mut off } else { &mut on }) |= F_M,
                             Some('s') => *(if neg { &mut off } else { &mut on }) |= F_S,
                             Some('x') => *(if neg { &mut off } else { &mut on }) |= F_X,
-                            Some('a') => on |= F_A,
-                            Some('u') | Some('L') => {}
+                            Some('a') => {
+                                if neg {
+                                    return re_err("bad inline flags: cannot turn off flags 'a', 'u' and 'L'".into());
+                                }
+                                on |= F_A;
+                                if on & TYPE_FLAGS != F_A {
+                                    return re_err("bad inline flags: flags 'a', 'u' and 'L' are incompatible".into());
+                                }
+                            }
+                            Some('u') => {
+                                if self.bytes {
+                                    return re_err("bad inline flags: cannot use 'u' flag with a bytes pattern".into());
+                                }
+                                if neg {
+                                    return re_err("bad inline flags: cannot turn off flags 'a', 'u' and 'L'".into());
+                                }
+                                on |= F_U;
+                                if on & TYPE_FLAGS != F_U {
+                                    return re_err("bad inline flags: flags 'a', 'u' and 'L' are incompatible".into());
+                                }
+                            }
+                            Some('L') => {
+                                if !self.bytes {
+                                    return re_err("bad inline flags: cannot use 'L' flag with a str pattern".into());
+                                }
+                                if neg {
+                                    return re_err("bad inline flags: cannot turn off flags 'a', 'u' and 'L'".into());
+                                }
+                                on |= F_L;
+                                if on & TYPE_FLAGS != F_L {
+                                    return re_err("bad inline flags: flags 'a', 'u' and 'L' are incompatible".into());
+                                }
+                            }
                             Some('-') => neg = true,
                             Some(')') => {
                                 self.i += 1;
@@ -457,7 +595,7 @@ impl<'a> RP<'a> {
             }
             first = false;
             let lo = if c == '\\' {
-                let e = self.peek().ok_or_else(|| exc("error", "bad escape (end of pattern)".into()))?;
+                let e = self.peek().ok_or_else(|| exc("PatternError", "bad escape (end of pattern)".into()))?;
                 self.i += 1;
                 match e {
                     'd' | 'D' => {
@@ -473,10 +611,7 @@ impl<'a> RP<'a> {
                         continue;
                     }
                     'b' => '\x08',
-                    _ => match self.escape_char(e)? {
-                        Some(c) => c,
-                        None => return re_err(format!("bad escape \\{e}")),
-                    },
+                    _ => self.class_escape(e)?,
                 }
             } else {
                 c
@@ -488,7 +623,7 @@ impl<'a> RP<'a> {
                 if hi == '\\' {
                     let e = self.peek().unwrap_or('\\');
                     self.i += 1;
-                    hi = self.escape_char(e)?.unwrap_or(e);
+                    hi = self.class_escape(e)?;
                 }
                 if hi < lo {
                     return re_err(format!("bad character range {lo}-{hi}"));
@@ -498,15 +633,16 @@ impl<'a> RP<'a> {
                 items.push(CItem::Ch(lo));
             }
         }
-        if self.flags & F_I != 0 {
+        let fold = self.flags & F_I != 0;
+        if fold {
             let mut more = vec![];
             for it in &items {
                 match it {
-                    CItem::Ch(c) => more.extend(fold_items(*c)),
+                    CItem::Ch(c) => more.push(CItem::Cf(*c)),
                     CItem::Range(a, b) => {
                         if (*b as u32) - (*a as u32) < 512 {
                             for x in *a..=*b {
-                                more.extend(fold_items(x));
+                                more.push(CItem::Cf(x));
                             }
                         }
                     }
@@ -515,18 +651,54 @@ impl<'a> RP<'a> {
             }
             items.extend(more);
         }
-        Ok(RNode::Class(Rc::new(RClass { items, neg })))
+        Ok(RNode::Class(Rc::new(RClass { items, neg, fold })))
     }
 }
-fn fold_items(c: char) -> Vec<CItem> {
-    let mut v = vec![CItem::Ch(c)];
-    for l in c.to_lowercase() {
-        v.push(CItem::Ch(l));
+// CPython's re._casefix._EXTRA_CASES: characters one of the simple case mappings
+// does not reach (the full case mappings Rust's char offers are one step wider).
+fn extra_case(a: char, b: char) -> bool {
+    let u = a as u32;
+    let v = b as u32;
+    matches!((u, v),
+        (0x69, 0x131) | (0x131, 0x69) | (0x73, 0x17f) | (0x17f, 0x73) | (0xb5, 0x3bc) | (0x3bc, 0xb5)
+        | (0x345, 0x3b9) | (0x345, 0x1fbe) | (0x3b9, 0x345) | (0x3b9, 0x1fbe) | (0x1fbe, 0x345) | (0x1fbe, 0x3b9)
+        | (0x390, 0x1fd3) | (0x1fd3, 0x390) | (0x3b0, 0x1fe3) | (0x1fe3, 0x3b0)
+        | (0x3b2, 0x3d0) | (0x3d0, 0x3b2) | (0x3b5, 0x3f5) | (0x3f5, 0x3b5) | (0x3b8, 0x3d1) | (0x3d1, 0x3b8)
+        | (0x3ba, 0x3f0) | (0x3f0, 0x3ba) | (0x3c0, 0x3d6) | (0x3d6, 0x3c0) | (0x3c1, 0x3f1) | (0x3f1, 0x3c1)
+        | (0x3c2, 0x3c3) | (0x3c3, 0x3c2) | (0x3c6, 0x3d5) | (0x3d5, 0x3c6)
+        | (0x432, 0x1c80) | (0x1c80, 0x432) | (0x434, 0x1c81) | (0x1c81, 0x434) | (0x43e, 0x1c82) | (0x1c82, 0x43e)
+        | (0x441, 0x1c83) | (0x1c83, 0x441) | (0x442, 0x1c84) | (0x442, 0x1c85) | (0x1c84, 0x442) | (0x1c84, 0x1c85)
+        | (0x1c85, 0x442) | (0x1c85, 0x1c84) | (0x44a, 0x1c86) | (0x1c86, 0x44a) | (0x463, 0x1c87) | (0x1c87, 0x463)
+        | (0x1c88, 0xa64b) | (0xa64b, 0x1c88) | (0x1e61, 0x1e9b) | (0x1e9b, 0x1e61)
+        | (0xfb05, 0xfb06) | (0xfb06, 0xfb05)
+    )
+}
+fn cf_eq(a: char, b: char, ascii: bool) -> bool {
+    if ascii {
+        a.to_ascii_lowercase() == b.to_ascii_lowercase()
+    } else {
+        a.to_lowercase().eq(b.to_lowercase()) || a.to_uppercase().eq(b.to_uppercase()) || extra_case(a, b)
     }
-    for u in c.to_uppercase() {
-        v.push(CItem::Ch(u));
+}
+fn range_fold_hit(a: char, b: char, c: char, ascii: bool) -> bool {
+    if (a..=b).contains(&c) {
+        return true;
     }
-    v
+    if ascii {
+        if !c.is_ascii() {
+            return false;
+        }
+        return (a..=b).contains(&c.to_ascii_lowercase()) || (a..=b).contains(&c.to_ascii_uppercase());
+    }
+    let mut cands = vec![c];
+    for x in c.to_lowercase().chain(c.to_uppercase()) {
+        cands.push(x);
+        cands.extend(x.to_lowercase().chain(x.to_uppercase()));
+    }
+    if cands.iter().any(|&x| (a..=b).contains(&x) && cf_eq(x, c, false)) {
+        return true;
+    }
+    (a..=b).any(|x| cf_eq(x, c, false))
 }
 fn is_word(c: char, ascii: bool) -> bool {
     if ascii {
@@ -553,6 +725,8 @@ impl RClass {
         for it in &self.items {
             if match it {
                 CItem::Ch(x) => *x == c,
+                CItem::Cf(x) => cf_eq(*x, c, ascii),
+                CItem::Range(a, b) if self.fold => range_fold_hit(*a, *b, c, ascii),
                 CItem::Range(a, b) => *a <= c && c <= *b,
                 CItem::Digit(n) => is_digit(c, ascii) != *n,
                 CItem::Word(n) => is_word(c, ascii) != *n,
@@ -566,46 +740,51 @@ impl RClass {
     }
 }
 
-pub fn re_compile(src: &str, flags: i64) -> Result<Rc<Prog>, E> {
-    thread_local! {
-        static CACHE: RefCell<HashMap<(String, i64), Rc<Prog>>> = RefCell::new(HashMap::new());
+fn fix_flags(bytes: bool, flags: i64) -> Result<i64, E> {
+    if bytes {
+        if flags & F_U != 0 {
+            return val_err("cannot use UNICODE flag with a bytes pattern".into());
+        }
+        if flags & F_L != 0 && flags & F_A != 0 {
+            return val_err("ASCII and LOCALE flags are incompatible".into());
+        }
+        Ok(flags)
+    } else {
+        if flags & F_L != 0 {
+            return val_err("cannot use LOCALE flag with a str pattern".into());
+        }
+        if flags & F_A == 0 {
+            Ok(flags | F_U)
+        } else if flags & F_U != 0 {
+            val_err("ASCII and UNICODE flags are incompatible".into())
+        } else {
+            Ok(flags)
+        }
     }
-    if let Some(p) = CACHE.with(|c| c.borrow().get(&(src.to_string(), flags)).cloned()) {
+}
+pub fn re_compile(src: &str, flags: i64) -> Result<Rc<Prog>, E> {
+    re_compile2(src, flags, false)
+}
+pub fn re_compile_bytes(src: &[u8], flags: i64) -> Result<Rc<Prog>, E> {
+    let s: String = src.iter().map(|&b| b as char).collect();
+    re_compile2(&s, flags, true)
+}
+fn re_compile2(src: &str, flags: i64, bytes: bool) -> Result<Rc<Prog>, E> {
+    thread_local! {
+        static CACHE: RefCell<HashMap<(String, i64, bool), Rc<Prog>>> = RefCell::new(HashMap::new());
+    }
+    if let Some(p) = CACHE.with(|c| c.borrow().get(&(src.to_string(), flags, bytes)).cloned()) {
         return Ok(p);
     }
     let chars: Vec<char> = src.chars().collect();
-    // global inline flags anywhere at the top level are applied from the start, as Python does at the start
-    let mut fl = flags;
-    {
-        let mut p = RP { c: &chars, i: 0, flags: fl, ngroups: 0, names: vec![] };
-        if chars.starts_with(&['(', '?']) {
-            p.i = 2;
-            let mut f = 0;
-            while let Some(c) = p.peek() {
-                match c {
-                    'i' => f |= F_I,
-                    'm' => f |= F_M,
-                    's' => f |= F_S,
-                    'x' => f |= F_X,
-                    'a' => f |= F_A,
-                    'u' | 'L' => {}
-                    ')' => {
-                        fl |= f;
-                        break;
-                    }
-                    _ => break,
-                }
-                p.i += 1;
-            }
-        }
-    }
-    let mut p = RP { c: &chars, i: 0, flags: fl, ngroups: 0, names: vec![] };
+    let mut p = RP { c: &chars, i: 0, flags, ngroups: 0, names: vec![], bytes };
     let alts = p.alts()?;
     if p.i < chars.len() {
         return re_err(format!("unbalanced parenthesis at position {}", p.i));
     }
-    let prog = Rc::new(Prog { alts, ngroups: p.ngroups, names: p.names, flags: p.flags | fl, src: src.to_string() });
-    CACHE.with(|c| c.borrow_mut().insert((src.to_string(), flags), prog.clone()));
+    let fixed = fix_flags(bytes, p.flags)?;
+    let prog = Rc::new(Prog { alts, ngroups: p.ngroups, names: p.names, flags: fixed, src: src.to_string(), bytes });
+    CACHE.with(|c| c.borrow_mut().insert((src.to_string(), flags, bytes), prog.clone()));
     Ok(prog)
 }
 
@@ -614,13 +793,14 @@ struct Ctx<'a> {
     caps: Vec<usize>,
     flags: i64,
     steps: u64,
+    bytes: bool,
 }
 const UNSET: usize = usize::MAX;
 type Kont<'k> = &'k mut dyn FnMut(&mut Ctx, usize) -> bool;
 
 impl<'a> Ctx<'a> {
     fn single(&self, n: &RNode, pos: usize) -> Option<bool> {
-        let ascii = self.flags & F_A != 0;
+        let ascii = self.bytes || self.flags & F_A != 0;
         Some(match n {
             RNode::Char(c) => self.s.get(pos) == Some(c),
             RNode::Any => match self.s.get(pos) {
@@ -647,7 +827,7 @@ impl<'a> Ctx<'a> {
         self.steps += 1;
         let Some(n) = seq.first() else { return k(self, pos) };
         let rest = &seq[1..];
-        let ascii = self.flags & F_A != 0;
+        let ascii = self.bytes || self.flags & F_A != 0;
         match n {
             RNode::Char(_) | RNode::Any | RNode::Class(_) => {
                 if self.single(n, pos).unwrap() {
@@ -674,6 +854,11 @@ impl<'a> Ctx<'a> {
             RNode::StrStart => pos == 0 && self.seq(rest, pos, k),
             RNode::StrEnd => pos == self.s.len() && self.seq(rest, pos, k),
             RNode::WordB(want) => {
+                // CPython: \B has no match in an empty string, although its rule
+                // (two non-word sides) would otherwise say it does.
+                if !*want && self.s.is_empty() {
+                    return false;
+                }
                 let a = pos > 0 && is_word(self.s[pos - 1], ascii);
                 let b = pos < self.s.len() && is_word(self.s[pos], ascii);
                 if (a != b) == *want {
@@ -750,9 +935,10 @@ impl<'a> Ctx<'a> {
                     return false;
                 }
                 let ic = self.flags & F_I != 0;
+                let ascii = self.bytes || self.flags & F_A != 0;
                 for i in 0..len {
                     let (x, y) = (self.s[a + i], self.s[pos + i]);
-                    if x != y && !(ic && x.to_lowercase().eq(y.to_lowercase())) {
+                    if x != y && !(ic && cf_eq(x, y, ascii)) {
                         return false;
                     }
                 }
@@ -841,7 +1027,7 @@ fn st_probe(pos: usize, len: usize) -> usize {
 // no_empty_at: an empty match at that position is not accepted.
 fn re_exec(p: &Prog, s: &[char], pos: usize, endpos: usize, anchored: bool, full: bool, no_empty_at: Option<usize>) -> Option<Vec<usize>> {
     let sub = &s[..endpos];
-    let mut c = Ctx { s: sub, caps: vec![UNSET; 2 * (p.ngroups + 1)], flags: p.flags, steps: 0 };
+    let mut c = Ctx { s: sub, caps: vec![UNSET; 2 * (p.ngroups + 1)], flags: p.flags, steps: 0, bytes: p.bytes };
     let last = if anchored { pos } else { endpos };
     // The characters a match can start with, when the pattern says (a literal, or a class of literals such as
     // re.I gives, after any \b, ^ or \A): the search skips to the next of them.
@@ -968,17 +1154,20 @@ impl RMatch {
             _ => Err(exc("IndexError", "no such group".into())),
         }
     }
-    fn text(&self, g: usize) -> Option<String> {
+    fn text(&self, g: usize) -> Option<&[char]> {
         let (a, b) = (self.caps[2 * g], self.caps[2 * g + 1]);
         if a == UNSET {
             None
         } else {
-            Some(self.s[a..b].iter().collect())
+            Some(&self.s[a..b])
         }
     }
+    fn text_v(&self, g: usize) -> Option<V> {
+        self.text(g).map(|t| chars_v(self.prog.bytes, t))
+    }
     fn gv(&self, g: usize, dflt: &V) -> V {
-        match self.text(g) {
-            Some(t) => st(t),
+        match self.text_v(g) {
+            Some(t) => t,
             None => dflt.clone(),
         }
     }
@@ -988,7 +1177,11 @@ impl Ext for RMatch {
         "re.Match"
     }
     fn repr(&self) -> String {
-        format!("<re.Match object; span=({}, {}), match={}>", self.caps[0], self.caps[1], str_repr(&self.text(0).unwrap_or_default()))
+        let shown = match self.text_v(0) {
+            Some(v) => repr(&v).unwrap_or_default(),
+            None => "''".into(),
+        };
+        format!("<re.Match object; span=({}, {}), match={}>", self.caps[0], self.caps[1], shown)
     }
     fn any(&self) -> &dyn std::any::Any {
         self
@@ -1084,6 +1277,14 @@ impl Ext for RMatch {
                     })
                 }
                 "expand" => {
+                    if self.prog.bytes {
+                        if tn(&a.p[0]) != "bytes" {
+                            return type_err(format!("expected bytes-like object, {} found", tn(&a.p[0])));
+                        }
+                        let b = bytes_of(&a.p[0]).unwrap();
+                        let c = expand_template_b(&b, self)?;
+                        return Ok(bytesv(c.iter().map(|&x| x as u8).collect()));
+                    }
                     let t = to_str(&a.p[0])?;
                     Ok(st(expand_template(&t, self)?))
                 }
@@ -1151,8 +1352,15 @@ impl Ext for RPat {
     }
     fn repr(&self) -> String {
         // CPython's: the pattern's repr cut to 200 characters, then the flags other than the implied UNICODE
-        let r: String = str_repr(&self.prog.src).chars().take(200).collect();
-        match self.prog.flags & !32 {
+        let r = if self.prog.bytes {
+            let b: Vec<u8> = self.prog.src.chars().map(|c| c as u8).collect();
+            bytes_repr(&b[..b.len().min(200)])
+        } else {
+            let s: String = self.prog.src.chars().take(200).collect();
+            str_repr(&s)
+        };
+        let f = if self.prog.bytes { self.prog.flags } else { self.prog.flags & !F_U };
+        match f {
             0 => format!("re.compile({r})"),
             f => format!("re.compile({r}, {})", re_flag_names(f)),
         }
@@ -1162,17 +1370,23 @@ impl Ext for RPat {
     }
     fn eq(&self, o: &V) -> Option<bool> {
         Some(match o {
-            V::Ext(x) => x.any().downcast_ref::<RPat>().is_some_and(|p| p.prog.src == self.prog.src && p.prog.flags == self.prog.flags),
+            V::Ext(x) => x.any().downcast_ref::<RPat>().is_some_and(|p| p.prog.src == self.prog.src && p.prog.flags == self.prog.flags && p.prog.bytes == self.prog.bytes),
             _ => false,
         })
     }
     fn hash(&self) -> Option<i64> {
-        Some(self.prog.src.len() as i64)
+        Some((self.prog.src.len() as i64) ^ if self.prog.bytes { 1 } else { 0 })
     }
     fn attr(&self, _me: &V, n: &str) -> Option<R> {
         Some(Ok(match n {
-            "pattern" => s(&self.prog.src),
-            "flags" => V::Int(if self.prog.flags & F_A != 0 { self.prog.flags } else { self.prog.flags | 32 }),
+            "pattern" => {
+                if self.prog.bytes {
+                    bytesv(self.prog.src.chars().map(|c| c as u8).collect())
+                } else {
+                    s(&self.prog.src)
+                }
+            }
+            "flags" => V::Int(self.prog.flags),
             "groups" => V::Int(self.prog.ngroups as i64),
             "groupindex" => {
                 let mut d = Dict::new();
@@ -1211,7 +1425,23 @@ fn re_str(v: &V) -> Result<(Rc<Vec<char>>, V), E> {
             Ok((c, v.clone()))
         }
         V::Ext(e) if matches!(e.native(), Some(Ok(V::Str(_)))) => re_str(&e.native().unwrap()?),
+        V::Ext(e) if e.any().downcast_ref::<BytesV>().is_some() => type_err("cannot use a string pattern on a bytes-like object".into()),
         _ => type_err(format!("expected string or bytes-like object, got '{}'", tn(v))),
+    }
+}
+fn re_subject(v: &V, bytes: bool) -> Result<(Rc<Vec<char>>, V), E> {
+    if bytes {
+        match v {
+            V::Ext(e) if e.any().downcast_ref::<BytesV>().is_some() => {
+                let b = bytes_of(v).unwrap();
+                let c: Rc<Vec<char>> = Rc::new(b.iter().map(|&x| x as char).collect());
+                Ok((c, v.clone()))
+            }
+            V::Str(_) => type_err("cannot use a bytes pattern on a string-like object".into()),
+            _ => type_err(format!("expected string or bytes-like object, got '{}'", tn(v))),
+        }
+    } else {
+        re_str(v)
     }
 }
 fn opt_pos(a: &mut Args, i: usize, name: &str, n: usize) -> Result<Option<usize>, E> {
@@ -1220,6 +1450,20 @@ fn opt_pos(a: &mut Args, i: usize, name: &str, n: usize) -> Result<Option<usize>
         None | Some(V::None) => Ok(None),
         Some(V::Int(x)) => Ok(Some(if x < 0 { 0 } else { (x as usize).min(n) })),
         Some(x) => type_err(format!("'{}' object cannot be interpreted as an integer", tn(&x))),
+    }
+}
+fn chars_v(bytes: bool, t: &[char]) -> V {
+    if bytes {
+        bytesv(t.iter().map(|&c| c as u8).collect())
+    } else {
+        st(t.iter().collect())
+    }
+}
+fn empty_v(bytes: bool) -> V {
+    if bytes {
+        bytesv(vec![])
+    } else {
+        s("")
     }
 }
 fn mk_match(prog: &Rc<Prog>, s: &Rc<Vec<char>>, sv: &V, caps: Vec<usize>, pos: usize, endpos: usize) -> V {
@@ -1275,7 +1519,7 @@ fn expand_template(t: &str, m: &RMatch) -> Result<String, E> {
                     Ok(n) => return re_err(format!("invalid group reference {n}")),
                     Err(_) => m.prog.names.iter().find(|x| x.0 == name).map(|x| x.1).ok_or_else(|| exc("IndexError", format!("unknown group name '{name}'")))?,
                 };
-                out.push_str(&m.text(g).unwrap_or_default());
+                out.extend(m.text(g).unwrap_or(&[]));
             }
             '0'..='9' => {
                 let mut n = e.to_digit(10).unwrap() as usize;
@@ -1290,7 +1534,7 @@ fn expand_template(t: &str, m: &RMatch) -> Result<String, E> {
                 if n > m.prog.ngroups {
                     return re_err(format!("invalid group reference {n} at position {}", i - 1));
                 }
-                out.push_str(&m.text(n).unwrap_or_default());
+                out.extend(m.text(n).unwrap_or(&[]));
             }
             'n' => out.push('\n'),
             't' => out.push('\t'),
@@ -1309,11 +1553,93 @@ fn expand_template(t: &str, m: &RMatch) -> Result<String, E> {
     }
     Ok(out)
 }
+fn expand_template_b(t: &[u8], m: &RMatch) -> Result<Vec<char>, E> {
+    let mut out = vec![];
+    let mut i = 0;
+    fn group_text(m: &RMatch, g: usize) -> Result<Vec<char>, E> {
+        if g > m.prog.ngroups {
+            return re_err(format!("invalid group reference {g}"));
+        }
+        Ok(m.text(g).unwrap_or(&[]).to_vec())
+    }
+    while i < t.len() {
+        if t[i] != b'\\' {
+            out.push(t[i] as char);
+            i += 1;
+            continue;
+        }
+        if i + 1 >= t.len() {
+            return re_err("bad escape (end of pattern)".into());
+        }
+        let c = t[i + 1];
+        i += 2;
+        match c {
+            b'g' => {
+                if t.get(i) != Some(&b'<') {
+                    return re_err("missing <".into());
+                }
+                let st = i + 1;
+                let Some(end) = t[st..].iter().position(|&x| x == b'>') else { return re_err("missing group name".into()) };
+                let name: String = t[st..st + end].iter().map(|&x| x as char).collect();
+                i = st + end + 1;
+                let g = match name.parse::<usize>() {
+                    Ok(n) => n,
+                    Err(_) => m.prog.names.iter().find(|x| x.0 == name).map(|x| x.1).ok_or_else(|| exc("IndexError", format!("unknown group name '{name}'")))?,
+                };
+                out.extend(group_text(m, g)?);
+            }
+            b'0' => {
+                let mut v = 0u32;
+                let mut k = 0;
+                while k < 2 && t.get(i).is_some_and(|x| (b'0'..=b'7').contains(x)) {
+                    v = v * 8 + (t[i] - b'0') as u32;
+                    i += 1;
+                    k += 1;
+                }
+                out.push(char::from_u32(v & 0xff).unwrap());
+            }
+            b'1'..=b'9' => {
+                let one = (c - b'0') as usize;
+                if t.get(i).is_some_and(|x| x.is_ascii_digit()) {
+                    let d1 = t[i];
+                    i += 1;
+                    if (b'1'..=b'7').contains(&c) && (b'0'..=b'7').contains(&d1) && t.get(i).is_some_and(|x| (b'0'..=b'7').contains(x)) {
+                        let d2 = t[i];
+                        i += 1;
+                        let v = ((c - b'0') as u32 * 8 + (d1 - b'0') as u32) * 8 + (d2 - b'0') as u32;
+                        if v > 0o377 {
+                            return re_err(format!("octal escape value \\{}{}{} outside of range 0-0o377", c as char, d1 as char, d2 as char));
+                        }
+                        out.push(char::from_u32(v).unwrap());
+                        continue;
+                    }
+                    out.extend(group_text(m, one * 10 + (d1 - b'0') as usize)?);
+                } else {
+                    out.extend(group_text(m, one)?);
+                }
+            }
+            b'n' => out.push('\n'),
+            b't' => out.push('\t'),
+            b'r' => out.push('\r'),
+            b'f' => out.push('\x0c'),
+            b'v' => out.push('\x0b'),
+            b'a' => out.push('\x07'),
+            b'b' => out.push('\x08'),
+            b'\\' => out.push('\\'),
+            x if x.is_ascii_alphabetic() => return re_err(format!("bad escape \\{} at position {}", x as char, i - 1)),
+            x => {
+                out.push('\\');
+                out.push(x as char);
+            }
+        }
+    }
+    Ok(out)
+}
 fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
     match n {
         "scanner" => {
             let sv = a.kw("string").or_else(|| a.p.first().cloned()).ok_or_else(|| exc("TypeError", "scanner() missing required argument 'string' (pos 1)".into()))?;
-            let (sc, sv) = re_str(&sv)?;
+            let (sc, sv) = re_subject(&sv, prog.bytes)?;
             let len = sc.len();
             let pos = opt_pos(a, 1, "pos", len)?.unwrap_or(0);
             let endpos = opt_pos(a, 2, "endpos", len)?.unwrap_or(len);
@@ -1321,7 +1647,7 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
         }
         "match" | "fullmatch" | "search" => {
             let sv = a.kw("string").or_else(|| a.p.first().cloned()).ok_or_else(|| exc("TypeError", format!("{n}() missing required argument 'string' (pos 1)")))?;
-            let (sc, sv) = re_str(&sv)?;
+            let (sc, sv) = re_subject(&sv, prog.bytes)?;
             let len = sc.len();
             let pos = opt_pos(a, 1, "pos", len)?.unwrap_or(0);
             let endpos = opt_pos(a, 2, "endpos", len)?.unwrap_or(len);
@@ -1335,7 +1661,7 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
         }
         "findall" | "finditer" => {
             let sv = a.kw("string").or_else(|| a.p.first().cloned()).unwrap_or(V::None);
-            let (sc, sv) = re_str(&sv)?;
+            let (sc, sv) = re_subject(&sv, prog.bytes)?;
             let len = sc.len();
             let pos = opt_pos(a, 1, "pos", len)?.unwrap_or(0);
             let endpos = opt_pos(a, 2, "endpos", len)?.unwrap_or(len);
@@ -1345,9 +1671,9 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
             }
             let txt = |c: &Vec<usize>, g: usize| -> V {
                 if c[2 * g] == UNSET {
-                    s("")
+                    empty_v(prog.bytes)
                 } else {
-                    st(sc[c[2 * g]..c[2 * g + 1]].iter().collect())
+                    chars_v(prog.bytes, &sc[c[2 * g]..c[2 * g + 1]])
                 }
             };
             Ok(list(
@@ -1367,30 +1693,49 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
                 Some(V::Int(c)) if c > 0 => c as usize,
                 _ => usize::MAX,
             };
-            let (sc, sv) = re_str(&sv)?;
+            let (sc, sv) = re_subject(&sv, prog.bytes)?;
             let ms = all_matches(prog, &sc, 0, sc.len(), count);
-            let mut out = String::new();
+            let mut out: Vec<char> = vec![];
             let mut last = 0;
             let nsub = ms.len();
-            let tmpl = match &repl {
-                V::Str(t) => Some(t.s.clone()),
-                _ => None,
+            let (tmpl_s, tmpl_b) = if prog.bytes {
+                match &repl {
+                    V::Ext(e) if e.any().downcast_ref::<BytesV>().is_some() => (None, Some(bytes_of(&repl).unwrap())),
+                    V::Func(_) | V::Bound(_) | V::BMeth(_) | V::Class(_) => (None, None),
+                    _ => return type_err(format!("sequence item 0: expected a bytes-like object, {} found", tn(&repl))),
+                }
+            } else {
+                match &repl {
+                    V::Str(t) => (Some(t.s.clone()), None),
+                    V::Func(_) | V::Bound(_) | V::BMeth(_) | V::Class(_) => (None, None),
+                    _ => return type_err(format!("sequence item 0: expected str instance, {} found", tn(&repl))),
+                }
             };
             for c in ms {
                 out.extend(sc[last..c[0]].iter());
                 let m = RMatch { prog: prog.clone(), s: sc.clone(), sv: sv.clone(), caps: c.clone(), pos: 0, endpos: sc.len() };
-                match &tmpl {
-                    Some(t) => {
-                        if t.contains('\\') {
-                            out.push_str(&expand_template(t, &m)?);
-                        } else {
-                            out.push_str(t);
-                        }
+                if let Some(t) = &tmpl_s {
+                    if t.contains('\\') {
+                        out.extend(expand_template(t, &m)?.chars());
+                    } else {
+                        out.extend(t.chars());
                     }
-                    None => {
-                        let r = call(&repl, Args::p(vec![V::Ext(ExtRc::new(m))]))?;
+                } else if let Some(t) = &tmpl_b {
+                    if t.contains(&b'\\') {
+                        out.extend(expand_template_b(t, &m)?);
+                    } else {
+                        out.extend(t.iter().map(|&x| x as char));
+                    }
+                } else {
+                    let r = call(&repl, Args::p(vec![V::Ext(ExtRc::new(m))]))?;
+                    if prog.bytes {
                         match &r {
-                            V::Str(x) => out.push_str(&x.s),
+                            V::Ext(e) if e.any().downcast_ref::<BytesV>().is_some() => out.extend(bytes_of(&r).unwrap().iter().map(|&x| x as char)),
+                            _ => return type_err(format!("expected bytes-like object, {} found", tn(&r))),
+                        }
+                    } else {
+                        match &r {
+                            V::Str(x) => out.extend(x.s.chars()),
                             _ => return type_err(format!("expected str instance, {} found", tn(&r))),
                         }
                     }
@@ -1398,7 +1743,8 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
                 last = c[1];
             }
             out.extend(sc[last..].iter());
-            Ok(if n == "subn" { tup(vec![st(out), V::Int(nsub as i64)]) } else { st(out) })
+            let rv = if prog.bytes { bytesv(out.iter().map(|&c| c as u8).collect()) } else { st(out.iter().collect()) };
+            Ok(if n == "subn" { tup(vec![rv, V::Int(nsub as i64)]) } else { rv })
         }
         "split" => {
             let sv = a.kw("string").or_else(|| a.p.first().cloned()).unwrap_or(V::None);
@@ -1406,18 +1752,18 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
                 Some(V::Int(c)) if c > 0 => c as usize,
                 _ => usize::MAX,
             };
-            let (sc, _) = re_str(&sv)?;
+            let (sc, _) = re_subject(&sv, prog.bytes)?;
             let ms = all_matches(prog, &sc, 0, sc.len(), maxsplit);
             let mut out = vec![];
             let mut last = 0;
             for c in ms {
-                out.push(st(sc[last..c[0]].iter().collect()));
+                out.push(chars_v(prog.bytes, &sc[last..c[0]]));
                 for g in 1..=prog.ngroups {
-                    out.push(if c[2 * g] == UNSET { V::None } else { st(sc[c[2 * g]..c[2 * g + 1]].iter().collect()) });
+                    out.push(if c[2 * g] == UNSET { V::None } else { chars_v(prog.bytes, &sc[c[2 * g]..c[2 * g + 1]]) });
                 }
                 last = c[1];
             }
-            out.push(st(sc[last..].iter().collect()));
+            out.push(chars_v(prog.bytes, &sc[last..]));
             Ok(list(out))
         }
         _ => Err(exc("AttributeError", format!("'re.Pattern' object has no attribute '{n}'"))),
@@ -1445,7 +1791,7 @@ fn pat_of(v: &V, flags: i64) -> Result<Rc<Prog>, E> {
                 }
                 Ok(p.prog.clone())
             }
-            None if tn(v) == "bytes" => Err(unsupported("re with a bytes pattern")),
+            None if tn(v) == "bytes" => re_compile_bytes(&bytes_of(v).unwrap(), flags),
             None => type_err("first argument must be string or compiled pattern".into()),
         },
         _ => type_err("first argument must be string or compiled pattern".into()),
@@ -1479,6 +1825,17 @@ pub fn re_fn(n: &str, mut a: Args) -> R {
             Ok(V::Ext(ExtRc::new(RPat { prog: pat_of(&pv, f)? })))
         }
         "escape" => {
+            if tn(&pv) == "bytes" {
+                let b = bytes_of(&pv).unwrap();
+                let mut out = vec![];
+                for c in b {
+                    if matches!(c, b'(' | b')' | b'[' | b']' | b'{' | b'}' | b'?' | b'*' | b'+' | b'-' | b'|' | b'^' | b'$' | b'\\' | b'.' | b'&' | b'~' | b'#' | b' ' | b'\t' | b'\n' | b'\r' | 0x0b | 0x0c) {
+                        out.push(b'\\');
+                    }
+                    out.push(c);
+                }
+                return Ok(bytesv(out));
+            }
             let t = to_str(&pv)?;
             let mut out = String::new();
             for c in t.chars() {
