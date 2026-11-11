@@ -2252,6 +2252,15 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         ("math", "inf") => V::Float(f64::INFINITY),
         ("math", "nan") => V::Float(math_nan()),
         ("collections", "defaultdict" | "Counter" | "OrderedDict" | "deque") => V::Class(bclass(name)),
+        ("string", "ascii_lowercase") => s("abcdefghijklmnopqrstuvwxyz"),
+        ("string", "ascii_uppercase") => s("ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
+        ("string", "ascii_letters") => s("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"),
+        ("string", "digits") => s("0123456789"),
+        ("string", "hexdigits") => s("0123456789abcdefABCDEF"),
+        ("string", "octdigits") => s("01234567"),
+        ("string", "punctuation") => s("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"),
+        ("string", "whitespace") => s(" \t\n\r\x0b\x0c"),
+        ("string", "printable") => s("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~ \t\n\r\x0b\x0c"),
         ("typing" | "typing_extensions" | "collections.abc", _) => typing_attr(name),
         ("itertools", "chain") => {
             let f = modfn("itertools", "chain");

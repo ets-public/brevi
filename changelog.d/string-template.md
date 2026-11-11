@@ -1,0 +1,1 @@
+- Dynamic build: `string.Template` and `string.Formatter` are now available, compiled from CPython 3.13's `string` module. Programs that use only the `string` constants keep the native module and build as fast as before. The stdlib conformance slice rises from 45.1% to 50.4%.

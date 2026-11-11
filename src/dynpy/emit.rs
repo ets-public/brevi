@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 type ER<T> = Result<T, (usize, String)>;
 
-pub const BUILTIN_MODULES: [&str; 49] = ["_brevi_col", "_brevi_srv", "_brevi_proc", "importlib.metadata", "zoneinfo", "tzlocal", "atexit", "_brevi_async", "_brevi_net", "_brevi_fs", "_brevi_st", "_brevi_ort", "_brevi_sqlite", "_brevi_duckdb", "_brevi_stdio", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading", "gc", "weakref"];
+pub const BUILTIN_MODULES: [&str; 50] = ["_brevi_col", "_brevi_srv", "_brevi_proc", "importlib.metadata", "zoneinfo", "tzlocal", "atexit", "_brevi_async", "_brevi_net", "_brevi_fs", "_brevi_st", "_brevi_ort", "_brevi_sqlite", "_brevi_duckdb", "_brevi_stdio", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading", "gc", "weakref"];
 
 
 // ---------- numpy, natively (rt_np*.rs) ----------
@@ -77,8 +77,11 @@ const NP_NARROW_FUNCS: &[&str] = &[
 ];
 // collections.abc as Brevi's typing forms (off when the program needs CPython's ABCs: the bridge runs them).
 pub static ABC_NATIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+// false: `string` is CPython's Lib/string.py compiled in (py/string.py), for Template and Formatter; true (the
+// default): the native module, constants only, which builds and starts much faster
+pub static STRING_NATIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 pub fn builtin_mod(m: &str) -> bool {
-    BUILTIN_MODULES.contains(&m) || m == "typing_extensions" || (m == "collections.abc" && ABC_NATIVE.load(std::sync::atomic::Ordering::Relaxed)) || (matches!(m, "numpy" | "numpy.random" | "numpy.linalg") && np_native())
+    (BUILTIN_MODULES.contains(&m) && (m != "string" || STRING_NATIVE.load(std::sync::atomic::Ordering::Relaxed))) || m == "typing_extensions" || (m == "collections.abc" && ABC_NATIVE.load(std::sync::atomic::Ordering::Relaxed)) || (matches!(m, "numpy" | "numpy.random" | "numpy.linalg") && np_native())
 }
 // The numpy functions and attributes the native numpy has, with the keyword arguments each takes.
 const NP_FUNCS: &[(&str, &[&str])] = &[
@@ -205,6 +208,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "itertools" => &["accumulate", "chain", "combinations", "combinations_with_replacement", "compress", "count", "cycle", "dropwhile", "filterfalse", "groupby", "islice", "pairwise", "permutations", "product", "repeat", "starmap", "takewhile", "zip_longest"],
         "copy" => &["copy", "deepcopy"],
         "operator" => &["add", "and_", "attrgetter", "contains", "eq", "floordiv", "ge", "getitem", "gt", "index", "itemgetter", "le", "lshift", "lt", "methodcaller", "mod", "mul", "ne", "neg", "not_", "or_", "pow", "rshift", "sub", "truediv", "truth", "xor"],
+        "string" => &["ascii_lowercase", "ascii_uppercase", "ascii_letters", "digits", "hexdigits", "octdigits", "punctuation", "whitespace", "printable"],
         "time" => &["time", "perf_counter", "monotonic", "process_time", "sleep", "time_ns", "perf_counter_ns", "monotonic_ns", "process_time_ns", "gmtime", "strftime"],
         "abc" => &["ABC", "abstractmethod"],
         "enum" => &["Enum", "IntEnum", "StrEnum", "Flag", "IntFlag", "auto", "unique"],
