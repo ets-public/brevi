@@ -4,6 +4,11 @@
 # and the sandbox image is pushed to ghcr.io/ets-public/brevi-sandbox (templates/image/Dockerfile).
 # Publishing uses trusted publishing (OIDC): no tokens are stored in the repo. Each registry trusts
 # this file by name (release.yml), so renaming it breaks publishing. See packaging/README.md.
+# A release ships only what it tested: the full Linux suite (toolchains.yml with release: true: unit, language and
+# MCP tests, every old solution, both CPython conformance slices, the fuzz corpus) runs on the commit being released,
+# Windows runs tests/windows/check.ps1 on the brevi.exe unpacked from the zip it ships, every archive is unpacked and
+# run (tools/archive_check.py), and SHA256SUMS is checked against the files as published. Nothing is released or
+# published unless every platform built and passed. dry_run does all of that and stops before the release.
 name: release
 on:
   push:
@@ -21,25 +26,70 @@ on:
         description: "Skip the build: publish the binaries already attached to this release (crates.io is skipped, since it publishes source)"
         type: boolean
         default: false
+      dry_run:
+        description: "Build and run every release check, then stop: no GitHub release, no publishing"
+        type: boolean
+        default: false
 permissions:
   contents: write
 jobs:
-  # Actions minutes are shared and metered (macOS counts 10x), so: one macOS job builds both Mac
-  # targets, and only the Linux x86-64 job runs the full test suite (CI already tests every push to main).
+  # Fails in a minute what would otherwise fail after the builds: a tag that is not Cargo.toml's version, or a tag
+  # that already exists on another commit than the one being built.
+  preflight:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Version check
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: python3 tools/version_sync.py --tag "$TAG"
+      # (A dry run attaches nothing, so it may rehearse a tag already released from an earlier commit.)
+      - name: The tag, if it exists, is this commit
+        if: ${{ !inputs.from_release && !inputs.dry_run }}
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          at=$(git ls-remote origin "refs/tags/$TAG^{}" "refs/tags/$TAG" | head -1 | cut -f1)
+          # ^{} (the commit an annotated tag points at) sorts after the plain ref, so prefer it when present.
+          peeled=$(git ls-remote origin "refs/tags/$TAG^{}" | cut -f1)
+          [ -n "$peeled" ] && at=$peeled
+          if [ -n "$at" ] && [ "$at" != "$GITHUB_SHA" ]; then
+            echo "tag $TAG is at $at, but this run builds $GITHUB_SHA"; exit 1
+          fi
+          echo "tag $TAG: ${at:-not made yet}; building $GITHUB_SHA"
+
+  # The whole Linux suite on the commit being released, never skipped as already tested.
+  suite:
+    needs: [preflight]
+    if: ${{ !inputs.from_release }}
+    uses: ./.github/workflows/toolchains.yml
+    with:
+      release: true
+    permissions:
+      contents: read
+      issues: write
+      actions: write
+
+  # Actions minutes are shared and metered (macOS counts 10x, Windows 2x), so: one macOS job builds both Mac
+  # targets, the Linux suite runs once (the suite job, same source, compiler and flags), and Windows runs its own
+  # platform checks (tests/windows/check.ps1, about 10 minutes) because nothing else tests Windows at this commit.
   build:
+    needs: [preflight]
     if: ${{ !inputs.from_release }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-22.04, targets: x86_64-unknown-linux-gnu, test: true }
+          - { os: ubuntu-22.04, targets: x86_64-unknown-linux-gnu }
           - { os: ubuntu-22.04-arm, targets: aarch64-unknown-linux-gnu }
-          # Intel Mac images are being retired, so the Intel binary is cross-built on Apple silicon.
+          # Intel Mac images are being retired, so the Intel binary is cross-built on Apple silicon (and run under Rosetta).
           - { os: macos-15, targets: aarch64-apple-darwin x86_64-apple-darwin }
-          - { os: windows-2022, targets: x86_64-pc-windows-msvc }
+          - { os: windows-2022, targets: x86_64-pc-windows-msvc, test: true }
     runs-on: ${{ matrix.os }}
-    # The x86_64 Linux job runs the full test suite, about 45 to 50 minutes on a GitHub runner (toolchains.yml allows 60).
-    timeout-minutes: 75
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
@@ -54,17 +104,10 @@ jobs:
           t=$(echo ${{ matrix.targets }} | cut -d' ' -f1)
           printf 'n = 1 + 1\nprint("hi {n}")\n' > smoke.bv
           ./target/$t/release/brevi run smoke.bv | grep -qx "hi 2"
-      # The tests compare with CPython 3.12+ behaviour (compensated float sum, except*); the runner's own
-      # python3 is 3.10, so pin a current one as toolchains.yml does.
+      # The checks compare with CPython 3.12+ behaviour; the runners' own Pythons differ, so pin one as toolchains.yml does.
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
-        if: ${{ matrix.test }}
         with:
           python-version: "3.13"
-      - name: Unit and language tests
-        if: ${{ matrix.test }}
-        run: |
-          cargo test --release --locked
-          BREVI=./target/${{ matrix.targets }}/release/brevi python3 tests/check_parallel.py
       - name: Package
         shell: bash
         run: |
@@ -77,14 +120,40 @@ jobs:
             if [ "$RUNNER_OS" != Windows ]; then ln -s brevi $name/brevi-python; fi
             if [ "$RUNNER_OS" = Windows ]; then 7z a $name.zip $name >/dev/null; else tar czf $name.tar.gz $name; fi
           done
+      # Each archive as a user gets it: unpacked into an empty folder, its brevi must say this version and build and
+      # run a typed and a dynamic program.
+      - name: Unpack and run each archive
+        shell: bash
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          for t in ${{ matrix.targets }}; do
+            a=brevi-$t.tar.gz; [ "$RUNNER_OS" = Windows ] && a=brevi-$t.zip
+            arch=; [ "$RUNNER_OS" = macOS ] && [ "$t" = x86_64-apple-darwin ] && arch="--arch x86_64"
+            python tools/archive_check.py "$a" "$TAG" $arch | tee check.log
+            [ "$t" = x86_64-pc-windows-msvc ] && echo "BREVI_SHIPPED=$(tail -1 check.log | tr -d '\r')" >> "$GITHUB_ENV"
+          done
+          rm -f check.log
+      # Required, never optional: a green job means every native-copy check ran.
+      - name: Python packages the Windows checks compare with (pinned)
+        if: ${{ matrix.test }}
+        run: python -m pip install --quiet -r tests/requirements-native.txt
+      - name: Windows platform checks, on the brevi.exe from the zip
+        if: ${{ matrix.test }}
+        shell: pwsh
+        run: |
+          $env:BREVI = $env:BREVI_SHIPPED
+          pwsh -NoProfile -File tests/windows/check.ps1
+          if ($LASTEXITCODE -ne 0) { throw "tests/windows/check.ps1 failed" }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: brevi-${{ matrix.os }}
           path: brevi-*.*
   release:
-    needs: [build]
-    # Attach whatever built, so one platform's runner trouble does not hold back the rest.
-    if: ${{ !cancelled() }}
+    needs: [preflight, suite, build]
+    # Every platform built and passed, and the suite passed on this commit; or from_release, which publishes what is
+    # already attached. A dry run stops here.
+    if: ${{ !cancelled() && !inputs.dry_run && needs.preflight.result == 'success' && (inputs.from_release || (needs.build.result == 'success' && needs.suite.result == 'success')) }}
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
@@ -111,11 +180,26 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
-          # Release notes: this tag's section of CHANGELOG.md, then the install note.
+          # Release notes: this tag's section of CHANGELOG.md, then the install note, then the run that tested it.
           python3 tools/release_notes.py "$TAG" > notes.md
+          printf '\n**Tested:** these binaries were built from %s and passed the full Linux suite, the Windows platform checks and the archive checks in [this run](%s/%s/actions/runs/%s).\n' \
+            "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> notes.md
           gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
             gh release create "$TAG" -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Brevi $TAG" --notes-file notes.md
           gh release upload "$TAG" dist/* -R "$GITHUB_REPOSITORY" --clobber
+      # What users download, not what this job holds: every asset fetched back from the release must match
+      # SHA256SUMS, and the release must hold exactly the files built.
+      - name: Verify the published files
+        if: ${{ !inputs.from_release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          mkdir published
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -D published -p 'brevi-*' -p SHA256SUMS
+          (cd published && sha256sum -c SHA256SUMS)
+          diff <(cd dist && ls) <(cd published && ls)
+          for f in dist/brevi-*; do grep -q " $(basename "$f")\$" published/SHA256SUMS || { echo "$f is not in SHA256SUMS"; exit 1; }; done
       # PyPI wheels repack these same binaries (tools/make_wheels.py), so they cost no extra build.
       - name: Wheels
         if: ${{ needs.build.result == 'success' || inputs.from_release }}

@@ -3,7 +3,7 @@ reply as JSON, notifications 202; bad bodies, media types, methods, paths and or
 token is checked; two clients using the same ids get their own replies; cancelling ends the waiting POST; a
 non-local address needs a token. With the official mcp client too, where python3 has it.
 usage: python3 tests/mcp_http_test.py [BREVI]"""
-import json, socket, subprocess, sys, threading, time, urllib.error, urllib.request
+import json, os, socket, subprocess, sys, threading, time, urllib.error, urllib.request
 
 B = sys.argv[1] if len(sys.argv) > 1 else "target/release/brevi"
 fails = 0
@@ -100,6 +100,10 @@ try:
     from mcp import ClientSession
     from mcp.client.streamable_http import streamable_http_client
 except ImportError:
+    # Releases and the daily run install the official client (tests/requirements-native.txt) and require it.
+    if os.environ.get("CHECK_REQUIRE_LIBS") == "1":
+        print("FAIL official mcp client: python3 has no mcp (CHECK_REQUIRE_LIBS=1; pip install -r tests/requirements-native.txt)")
+        sys.exit(1)
     print("skip official mcp client (no mcp in python3)")
 else:
     async def official():

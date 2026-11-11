@@ -1,6 +1,12 @@
 # Windows platform checks: the CPython library bridge, output parity, generators/async,
 # Brevi's native requests/httpx, sqlite3, duckdb, onnxruntime and MCP, and the resource limits.
-# Runs on PRs that touch the compiler or these tests.
+# Runs on PRs that touch the compiler or these tests, and nightly on main, so a Windows break that a merge
+# brings in (the merged tree is not the PR head CI tested) shows within a day. The nightly run skips the build
+# and checks when main's compiler, runtime and Windows tests are unchanged since they last passed here (Windows
+# minutes count double), and always runs
+# the canary: the last release's own Windows zip, on today's runner, must still build and run a plain, a
+# bridge and a native-copy program.
+# A nightly failure opens (or updates) a GitHub issue labelled "windows".
 name: windows
 
 on:
@@ -8,14 +14,24 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "src/**"
+      - "runtime/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "tests/windows/**"
+      - "tests/requirements-native.txt"
       - ".github/workflows/windows.yml"
-  workflow_dispatch: {}
+  schedule:
+    - cron: "41 6 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Run the checks even if this commit already passed here"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: windows-${{ github.ref }}
@@ -25,12 +41,29 @@ jobs:
   platform:
     # Draft PRs skip CI (AGENTS.md), and so does this job.
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    runs-on: windows-latest
-    timeout-minutes: 30
+    runs-on: windows-2022
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      # The key is the git tree of everything the checks depend on, so a night with only docs or site merges costs
+      # no build.
+      - name: What the checks depend on
+        id: tree
+        shell: bash
+        run: echo "key=windows-passed-$(git rev-parse HEAD:src HEAD:runtime HEAD:Cargo.toml HEAD:Cargo.lock HEAD:tests/windows HEAD:tests/requirements-native.txt HEAD:.github/workflows/windows.yml | sha256sum | cut -c1-20)" >> "$GITHUB_OUTPUT"
+
+      - name: Already passed with this tree?
+        id: seen
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.force)
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: tests/windows/plain.py
+          key: ${{ steps.tree.outputs.key }}
+          lookup-only: true
+
       - name: Rust stable
+        if: steps.seen.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
 
       - name: Python 3.13
@@ -38,15 +71,58 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Python libraries for the checks
-        run: python -m pip install --quiet pyyaml requests
-
-      - name: Optional native-copy libraries (checks skip when absent)
-        continue-on-error: true
-        run: python -m pip install --quiet duckdb onnxruntime
+      # Required, never optional: a green run means every native-copy check ran.
+      - name: Python packages the checks compare with (pinned)
+        run: python -m pip install --quiet -r tests/requirements-native.txt
 
       - name: Build Brevi
-        run: cargo build --release
+        if: steps.seen.outputs.cache-hit != 'true'
+        run: cargo build --release --locked
 
       - name: Windows platform checks
+        if: steps.seen.outputs.cache-hit != 'true'
         run: pwsh -NoProfile -File tests/windows/check.ps1
+
+      - name: Remember this commit passed
+        if: success() && steps.seen.outputs.cache-hit != 'true' && github.event_name != 'pull_request'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: tests/windows/plain.py
+          key: ${{ steps.tree.outputs.key }}
+
+      # The last release's zip, as users install it, against today's runner image and Python. The
+      # programs are copies from tests/windows that every release since v0.27.0 supports.
+      - name: Canary (the last release's Windows zip)
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "canary"
+          gh release download -R $env:GITHUB_REPOSITORY -p "brevi-x86_64-pc-windows-msvc.zip" -p SHA256SUMS -D $dir
+          if ($LASTEXITCODE -ne 0) { throw "could not download the last release's Windows zip" }
+          Push-Location $dir
+          $want = (Get-Content SHA256SUMS | Where-Object { $_ -match 'brevi-x86_64-pc-windows-msvc\.zip$' }) -split '\s+' | Select-Object -First 1
+          $got = (Get-FileHash brevi-x86_64-pc-windows-msvc.zip -Algorithm SHA256).Hash.ToLower()
+          if (-not $want -or $want -ne $got) { throw "the release zip's SHA-256 $got does not match SHA256SUMS ($want)" }
+          Expand-Archive brevi-x86_64-pc-windows-msvc.zip -DestinationPath .
+          Pop-Location
+          $brevi = Join-Path $dir "brevi-x86_64-pc-windows-msvc\brevi.exe"
+          & $brevi --version
+          foreach ($p in @("plain.py", "bridge_yaml.py", "sqlite.py", "duckdb_native.py")) {
+            $out = (& $brevi verify (Join-Path "tests\windows" $p) 2>&1 | ForEach-Object { "$_" }) -join "`n"
+            if ($LASTEXITCODE -ne 0 -or $out -notmatch '"verify":"identical"') { throw "canary $p`n$out" }
+            Write-Host "PASS canary $p"
+          }
+
+      - name: Open or update an issue
+        if: failure() && github.event_name == 'schedule'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Windows break on main"
+          printf 'The nightly Windows check failed at %s.\n\n- Run: %s/%s/actions/runs/%s\n' "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" > body.md
+          gh label create windows --color 0E8A16 --description "Breakage on Windows" 2>/dev/null || true
+          n=$(gh issue list --state open --label windows --search "\"$title\" in:title" --json number,title --jq ".[] | select(.title == \"$title\") | .number" | head -1)
+          if [ -n "$n" ]; then gh issue comment "$n" --body-file body.md; else gh issue create --title "$title" --label windows --body-file body.md; fi

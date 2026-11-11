@@ -1,0 +1,18 @@
+# The real Python packages the release checks and the daily run need, so no native-copy check is skipped there:
+# duckdb and onnxruntime supply the engine libraries Brevi's own copies load, mcp is the official client Brevi's
+# MCP servers are checked against, and PyYAML and requests are what the Windows bridge and network checks compare
+# with. The versions are the ones the .expected files were made with (tools/upstream_pins.json; tools/version_sync.py
+# fails if they differ). mcp's own dependencies that change what a server prints (pydantic's error text, the HTTP
+# stack) are pinned too, to the versions the MCP transcripts pass with. Not watched by Dependabot on purpose: bump
+# a pin together with its .expected files.
+duckdb==2.0.0
+onnxruntime==1.31.1
+mcp==2.3.0
+requests==2.34.2
+PyYAML==6.0.3
+pydantic==2.13.5
+pydantic-core==2.46.5
+httpx==0.28.1
+starlette==1.7.0
+anyio==4.15.1
+uvicorn==0.54.0
