@@ -1411,6 +1411,8 @@ fn builtin_class_attr_raw(c: &Rc<Class>, name: &str) -> Option<V> {
     // dict.fromkeys, str.maketrans, int.from_bytes ... and unbound methods (str.lower)
     match (c.name, name) {
         ("bytes", "fromhex") => Some(builtin("fromhex", bytes_fromhex)),
+        // bytes.maketrans is a static method: class calls do not bind their first argument as self
+        ("bytes", "maketrans") => Some(builtin("maketrans", bytes_maketrans)),
         ("int", "from_bytes") => Some(builtin("from_bytes", |a: Args| int_from_bytes(&V::None, a))),
         // str.maketrans is a static method: class calls do not bind their first argument as self
         ("str", "maketrans") => Some(builtin("maketrans", |a: Args| str_maketrans(&a))),
