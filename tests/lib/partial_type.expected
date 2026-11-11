@@ -1,0 +1,31 @@
+<class 'functools.partial'> partial functools True True
+((1, 3), {'x': 2, 'y': 4}) ((1,), {'x': 5})
+True (1,) {'x': 2}
+{} {}
+{'attr': 7} 7
+True (9,)
+True (1, 2)
+True True ((1, 2), {})
+(1, 2) (1, 2)
+func readonly attribute
+del func readonly attribute
+args readonly attribute
+del args readonly attribute
+keywords readonly attribute
+del keywords readonly attribute
+cannot delete __dict__
+type 'partial' takes at least one argument
+the first argument must be callable
+<member 'func' of 'functools.partial' objects> member_descriptor
+functools.partial[int] __main__.S[int]
+True (<built-in function max>,) (<built-in function max>, (1,), {'k': 2}, None)
+<built-in function min> (3, 5) {} 3
+{'a': 1} 1
+[3, 2, 1]
+[2, 4, 8]
+(('bound?', 1), {}) (('bound?', 2), {})
+(1,) {'z': 3}
+((), {'n': 1})
+1
+True True True
+Create a new function with partial application of the given arguments
