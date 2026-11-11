@@ -1175,13 +1175,6 @@ pub fn getattr(o: &V, name: &str) -> R {
                     Ok(V::View(Rc::new((V::Dict(Rc::new(RefCell::new(d))), 3))))
                 }
                 _ => {
-                    // A plain class inherits object.__init__ (so Formatter.__init__(self) works as it
-                    // does in CPython); it is not among c.lookup's names because object adds no slot.
-                    if name == "__init__" {
-                        if let Some(v) = builtin_class_attr(&bclass("object"), "__init__") {
-                            return Ok(v);
-                        }
-                    }
                     // methods of a builtin base (tuple's __getitem__ on a namedtuple class, list's
                     // append on a list subclass) live on the builtin class in CPython, not on the subclass
                     if c.module == "builtins" || c.module == "collections" {
@@ -1196,6 +1189,14 @@ pub fn getattr(o: &V, name: &str) -> R {
                             if let Some(v) = builtin_class_attr(k, name) {
                                 return Ok(v);
                             }
+                        }
+                    }
+                    // Last: a plain class inherits object.__init__ (so Formatter.__init__(self) works as it
+                    // does in CPython); it is not among c.lookup's names because object adds no slot.
+                    // After the builtin bases, so ValueError.__init__ on an exception subclass stays ValueError's.
+                    if name == "__init__" {
+                        if let Some(v) = builtin_class_attr(&bclass("object"), "__init__") {
+                            return Ok(v);
                         }
                     }
                     Err(exc("AttributeError", format!("type object '{}' has no attribute '{}'", c.name, name)))
