@@ -22,6 +22,8 @@ on:
       - ".github/workflows/windows.yml"
   schedule:
     - cron: "41 6 * * *"
+    # weekly: CPython conformance on Windows (the `conformance` job below)
+    - cron: "17 7 * * 0"
   workflow_dispatch:
     inputs:
       force:
@@ -40,7 +42,7 @@ concurrency:
 jobs:
   platform:
     # Draft PRs skip CI (AGENTS.md), and so does this job.
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && github.event.schedule != '17 7 * * 0'
     runs-on: windows-2022
     timeout-minutes: 40
     steps:
@@ -126,3 +128,40 @@ jobs:
           gh label create windows --color 0E8A16 --description "Breakage on Windows" 2>/dev/null || true
           n=$(gh issue list --state open --label windows --search "\"$title\" in:title" --json number,title --jq ".[] | select(.title == \"$title\") | .number" | head -1)
           if [ -n "$n" ]; then gh issue comment "$n" --body-file body.md; else gh issue create --title "$title" --label windows --body-file body.md; fi
+
+  # CPython conformance on Windows: the same pinned CPython tests as the Linux ratchet (tools/conformance.py, core
+  # slice), built and run here, so a Windows number exists next to the Linux one. Weekly and on demand only
+  # (Windows minutes count double). It reports; it does not gate yet: a Windows known-wrong list and floor come
+  # from its first results.
+  conformance:
+    if: github.event.schedule == '17 7 * * 0' || github.event_name == 'workflow_dispatch'
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Rust stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+
+      - name: Python 3.13
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.13"
+
+      - name: Build Brevi
+        run: cargo build --release --locked
+
+      - name: CPython conformance (core slice; report only)
+        shell: bash
+        run: |
+          python -m pip install --quiet uv
+          uv python install 3.13.13 --quiet
+          python tools/conformance.py --python "$(uv python find 3.13.13)" --jobs 4 --out conformance-windows
+          cat conformance-windows/report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: conformance-windows
+          path: conformance-windows
