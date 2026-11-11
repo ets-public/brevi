@@ -1,43 +1,44 @@
-# Known wrong results and crashes of tools/conformance.py: `test id` then normal or dyn. `--check` fails on a
-# line not here, and on a line here that is no longer wrong, so this list only shrinks. Remove a line when the
-# bug is fixed; add one only with `--write-baseline` after reading the result.
-test_collections.TestChainMap.test_order_preservation normal
-test_collections.TestCollectionABCs.test_MutableMapping dyn
-test_collections.TestCollectionABCs.test_MutableMapping normal
-test_collections.TestCollectionABCs.test_MutableSet dyn
-test_collections.TestCollectionABCs.test_MutableSet normal
-test_collections.TestNamedTuple.test_module_parameter dyn
-test_collections.TestNamedTuple.test_module_parameter normal
-test_collections.TestOneTrickPonyABCs.test_AsyncIterable dyn
-test_collections.TestOneTrickPonyABCs.test_AsyncIterable normal
-test_collections.TestOneTrickPonyABCs.test_AsyncIterator dyn
-test_collections.TestOneTrickPonyABCs.test_AsyncIterator normal
-test_collections.TestOneTrickPonyABCs.test_direct_subclassing dyn
-test_collections.TestOneTrickPonyABCs.test_direct_subclassing normal
-test_collections.TestOneTrickPonyABCs.test_registration dyn
-test_collections.TestOneTrickPonyABCs.test_registration normal
-test_functools.TestTotalOrdering.test_pickle dyn
-test_functools.TestTotalOrdering.test_pickle normal
-test_itertools.SubclassWithKwargsTest.test_keywords_in_subclass dyn
-test_itertools.SubclassWithKwargsTest.test_keywords_in_subclass normal
-test_itertools.TestBasicOps.test_filter dyn
-test_itertools.TestBasicOps.test_filter normal
-test_itertools.TestBasicOps.test_repeat_with_negative_times dyn
-test_itertools.TestBasicOps.test_repeat_with_negative_times normal
-test_itertools.TestPurePythonRoughEquivalents.test_tee_recipe dyn
-test_itertools.TestPurePythonRoughEquivalents.test_tee_recipe normal
-test_re.PatternReprTests.test_bytes dyn
-test_re.PatternReprTests.test_bytes normal
-test_re.ReTests.test_bigcharset dyn
-test_re.ReTests.test_bigcharset normal
-test_re.ReTests.test_bug_2537 normal
-test_re.ReTests.test_bug_764548 dyn
-test_re.ReTests.test_bug_764548 normal
-test_re.ReTests.test_ignore_spaces dyn
-test_re.ReTests.test_ignore_spaces normal
-test_re.ReTests.test_issue17998 dyn
-test_re.ReTests.test_issue17998 normal
-test_re.ReTests.test_look_behind_overflow dyn
-test_re.ReTests.test_look_behind_overflow normal
-test_re.ReTests.test_weakref dyn
-test_re.ReTests.test_weakref normal
+# Known wrong results and crashes of tools/conformance.py: `test-id mode issue=#N owner=LOGIN expires=YYYY-MM-DD`.
+# `--check` fails on a wrong result not here, on a line here that is no longer wrong (so this list only shrinks),
+# and on a line without a tracking issue, an owner and an expiry date, or past its expiry. `--write-baseline`
+# keeps the metadata of lines already here and writes new ones with `?`, which --check refuses until filled in.
+test_collections.TestChainMap.test_order_preservation normal issue=#400 owner=ets-public expires=2026-12-11
+test_collections.TestCollectionABCs.test_MutableMapping dyn issue=#398 owner=ets-public expires=2026-12-11
+test_collections.TestCollectionABCs.test_MutableMapping normal issue=#398 owner=ets-public expires=2026-12-11
+test_collections.TestCollectionABCs.test_MutableSet dyn issue=#398 owner=ets-public expires=2026-12-11
+test_collections.TestCollectionABCs.test_MutableSet normal issue=#398 owner=ets-public expires=2026-12-11
+test_collections.TestNamedTuple.test_module_parameter dyn issue=#400 owner=ets-public expires=2026-12-11
+test_collections.TestNamedTuple.test_module_parameter normal issue=#400 owner=ets-public expires=2026-12-11
+test_collections.TestOneTrickPonyABCs.test_AsyncIterable dyn issue=#398 owner=ets-public expires=2026-12-11
+test_collections.TestOneTrickPonyABCs.test_AsyncIterable normal issue=#398 owner=ets-public expires=2026-12-11
+test_collections.TestOneTrickPonyABCs.test_AsyncIterator dyn issue=#398 owner=ets-public expires=2026-12-11
+test_collections.TestOneTrickPonyABCs.test_AsyncIterator normal issue=#398 owner=ets-public expires=2026-12-11
+test_collections.TestOneTrickPonyABCs.test_direct_subclassing dyn issue=#398 owner=ets-public expires=2026-12-11
+test_collections.TestOneTrickPonyABCs.test_direct_subclassing normal issue=#398 owner=ets-public expires=2026-12-11
+test_collections.TestOneTrickPonyABCs.test_registration dyn issue=#398 owner=ets-public expires=2026-12-11
+test_collections.TestOneTrickPonyABCs.test_registration normal issue=#398 owner=ets-public expires=2026-12-11
+test_functools.TestTotalOrdering.test_pickle dyn issue=#396 owner=ets-public expires=2026-12-11
+test_functools.TestTotalOrdering.test_pickle normal issue=#396 owner=ets-public expires=2026-12-11
+test_itertools.SubclassWithKwargsTest.test_keywords_in_subclass dyn issue=#398 owner=ets-public expires=2026-12-11
+test_itertools.SubclassWithKwargsTest.test_keywords_in_subclass normal issue=#398 owner=ets-public expires=2026-12-11
+test_itertools.TestBasicOps.test_filter dyn issue=#396 owner=ets-public expires=2026-12-11
+test_itertools.TestBasicOps.test_filter normal issue=#396 owner=ets-public expires=2026-12-11
+test_itertools.TestBasicOps.test_repeat_with_negative_times dyn issue=#400 owner=ets-public expires=2026-12-11
+test_itertools.TestBasicOps.test_repeat_with_negative_times normal issue=#400 owner=ets-public expires=2026-12-11
+test_itertools.TestPurePythonRoughEquivalents.test_tee_recipe dyn issue=#400 owner=ets-public expires=2026-12-11
+test_itertools.TestPurePythonRoughEquivalents.test_tee_recipe normal issue=#400 owner=ets-public expires=2026-12-11
+test_re.PatternReprTests.test_bytes dyn issue=#399 owner=ets-public expires=2026-12-11
+test_re.PatternReprTests.test_bytes normal issue=#399 owner=ets-public expires=2026-12-11
+test_re.ReTests.test_bigcharset dyn issue=#399 owner=ets-public expires=2026-12-11
+test_re.ReTests.test_bigcharset normal issue=#399 owner=ets-public expires=2026-12-11
+test_re.ReTests.test_bug_2537 normal issue=#399 owner=ets-public expires=2026-12-11
+test_re.ReTests.test_bug_764548 dyn issue=#399 owner=ets-public expires=2026-12-11
+test_re.ReTests.test_bug_764548 normal issue=#399 owner=ets-public expires=2026-12-11
+test_re.ReTests.test_ignore_spaces dyn issue=#399 owner=ets-public expires=2026-12-11
+test_re.ReTests.test_ignore_spaces normal issue=#399 owner=ets-public expires=2026-12-11
+test_re.ReTests.test_issue17998 dyn issue=#399 owner=ets-public expires=2026-12-11
+test_re.ReTests.test_issue17998 normal issue=#399 owner=ets-public expires=2026-12-11
+test_re.ReTests.test_look_behind_overflow dyn issue=#399 owner=ets-public expires=2026-12-11
+test_re.ReTests.test_look_behind_overflow normal issue=#399 owner=ets-public expires=2026-12-11
+test_re.ReTests.test_weakref dyn issue=#399 owner=ets-public expires=2026-12-11
+test_re.ReTests.test_weakref normal issue=#399 owner=ets-public expires=2026-12-11
