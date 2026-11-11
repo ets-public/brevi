@@ -1852,8 +1852,8 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
         "repeat" => {
             let x = a.p[0].clone();
             match a.p.get(1).cloned().or(a.kw("times")) {
-                Some(n) => vec_iter(ItKind::ItRepeat, vec![x; idx_of(&n)?.max(0) as usize]),
-                None => gen_iter(ItKind::ItRepeat, move || Ok(Some(x.clone()))),
+                Some(n) => new_iter(It::Repeat(x, Some(idx_of(&n)?.max(0))), IterClass::Kind(ItKind::ItRepeat)),
+                None => new_iter(It::Repeat(x, None), IterClass::Kind(ItKind::ItRepeat)),
             }
         }
         "cycle" => {

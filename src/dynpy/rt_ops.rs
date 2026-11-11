@@ -2080,6 +2080,9 @@ pub enum It {
     List(Rc<RefCell<Vec<V>>>, usize),
     Tuple(Tup, usize),
     Vec(std::vec::IntoIter<V>),
+    // itertools.repeat: the element and the calls left (None = forever), so repr() shows CPython's
+    // remaining count even after the iterator is exhausted.
+    Repeat(V, Option<i64>),
     Str(Rc<S>, usize),
     Range(i64, i64, i64),
     Dict(Rc<RefCell<Dict>>, usize, u8, u64, usize),
@@ -2160,6 +2163,14 @@ impl It {
                 }
             }
             It::Vec(v) => Ok(v.next()),
+            It::Repeat(x, n) => match n {
+                Some(k) if *k == 0 => Ok(None),
+                Some(k) => {
+                    *n = Some(*k - 1);
+                    Ok(Some(x.clone()))
+                }
+                None => Ok(Some(x.clone())),
+            },
             It::Str(s, i) => {
                 if *i >= s.s.len() {
                     return Ok(None);
