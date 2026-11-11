@@ -71,6 +71,13 @@ def _nt(cls, name, fields, values):
         setattr(_d, name, c)
         _d.nts[cls] = c
     return c(*values)
+# A warning Brevi's runtime issues (re's DeprecationWarning/FutureWarning) at the program's line, as
+# warnings.warn would from that frame: one registry per module, like each module's __warningregistry__.
+def _warn_at(msg, cat, file, line, module):
+    import warnings
+    warnings.warn_explicit(msg, getattr(_b, cat), file, line, module, _d.regs.setdefault(module, {}))
+_d.regs = {}
+_d.warn_at = _warn_at
 _d.it = _BrIt
 _d.pyclass = _pyclass
 _d._nt = _nt
@@ -337,6 +344,31 @@ unsafe fn pyd_helper(name: &str, args: &[P]) -> R {
     pyd_wrap(pyd_own(r)?, true)
 }
 
+// warnings.warn_explicit(msg, <builtin category>, file, line, module) through CPython's warnings module, so
+// its filters, catch_warnings and showwarning see it; a filter that makes it an error raises here.
+pub fn pyd_warn_at(cat: &str, msg: &str, file: &str, line: usize, module: &str) -> Result<(), E> {
+    unsafe {
+        let _g = PydGil::take();
+        let a = pyd_api();
+        let mut ps = vec![];
+        for v in [st(msg.to_string()), st(cat.to_string()), st(file.to_string()), V::Int(line as i64), st(module.to_string())] {
+            match pyd_to(&v) {
+                Ok(p) => ps.push(p),
+                Err(e) => {
+                    for p in ps {
+                        (a.DecRef)(p);
+                    }
+                    return Err(e);
+                }
+            }
+        }
+        let r = pyd_helper("warn_at", &ps);
+        for p in ps {
+            (a.DecRef)(p);
+        }
+        r.map(|_| ())
+    }
+}
 unsafe fn pyd_type_is(p: P, t: P) -> bool {
     let a = pyd_api();
     let x = (a.Type)(p);
@@ -387,6 +419,15 @@ unsafe fn pyd_wrap(p: P, deep: bool) -> R {
     if t == a.TBool {
         let b = (a.IsTrue)(p) == 1;
         return done(V::Bool(b));
+    }
+    // A class (its type is `type`, whose type is itself): Python's own exception classes come back as the
+    // program's, so `w.category is DeprecationWarning` and issubclass(w.category, Warning) hold as in CPython.
+    let tt = (a.Type)(t);
+    (a.DecRef)(tt);
+    if tt == t {
+        if let Some(c) = pyd_builtin_exc(p) {
+            return done(V::Class(c));
+        }
     }
     if t == a.TLong {
         let mut over = 0;
@@ -739,6 +780,29 @@ unsafe fn pyd_raise(e: &E) {
     }
 }
 
+// The program's class for p when p is one of Python's builtin exception classes.
+unsafe fn pyd_builtin_exc(p: P) -> Option<Rc<Class>> {
+    let a = pyd_api();
+    let n = pyd_own((a.GetAttr)(p, c"__name__".as_ptr())).ok()?;
+    let name = pyd_text(n);
+    (a.DecRef)(n);
+    let name = name.ok()?;
+    let c = BUILTIN_CLASSES.with(|b| b.borrow().get(name.as_str()).cloned())?;
+    if !(c.module == "builtins" && (c.bt == BT::Exc || c.is_sub(&exc_class("BaseException")))) {
+        return None;
+    }
+    let same = match pyd_builtins_attr(&name) {
+        Ok(q) => {
+            (a.DecRef)(q);
+            q == p
+        }
+        Err(_) => {
+            (a.ErrClear)();
+            false
+        }
+    };
+    same.then_some(c)
+}
 unsafe fn pyd_builtins_attr(name: &str) -> Result<P, E> {
     let a = pyd_api();
     let b = pyd_own((a.Import)(c"builtins".as_ptr()))?;
@@ -1259,6 +1323,14 @@ impl PyV {
                 let k = pyd_to(a.p.first().unwrap_or(&V::None))?;
                 let r = pyd_helper("contains", &[self.p, k]);
                 (api.DecRef)(k);
+                r
+            }
+            // What a context manager hands the block is usually something it keeps changing (the list
+            // catch_warnings(record=True) appends to): kept live, as CPython shares it, not copied.
+            "__enter__" => {
+                let f = self.attr_raw("__enter__")?;
+                let r = pyd_invoke(f, &[], a, false);
+                (api.DecRef)(f);
                 r
             }
             "__exit__" => {

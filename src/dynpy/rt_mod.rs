@@ -2967,6 +2967,37 @@ fn sys_version_info() -> V {
         V::Obj(o)
     })
 }
+// sys.flags: the interpreter options of a plain `python3 prog.py` run, which is what a built program is.
+// Only the options a built program cannot change (no -O, -d, -i, -B, ... flags exist for it) are given;
+// the ones that depend on the environment or on CPython's startup (hash_randomization, utf8_mode,
+// int_max_str_digits, gil) and the tuple forms (repr, len, iteration, indexing) are refused, never guessed.
+fn sys_flags() -> V {
+    thread_local! {
+        static SYS_FLAGS: RefCell<Option<Rc<Obj>>> = const { RefCell::new(None) };
+    }
+    SYS_FLAGS.with(|slot| {
+        if let Some(f) = slot.borrow().as_ref() {
+            return V::Obj(f.clone());
+        }
+        let c = Class::new("flags", "sys", vec![bclass("object")], BT::Other);
+        c.set("__getattr__", func("__getattr__", |a: Args| {
+            let n = match a.p.get(1) { Some(V::Str(n)) => n.s.clone(), _ => String::new() };
+            Err(unsupported(&format!("sys.flags.{n}")))
+        }));
+        for m in ["__repr__", "__len__", "__iter__", "__getitem__", "__eq__", "__hash__"] {
+            c.set(m, func(m, move |_a: Args| Err(unsupported(&format!("sys.flags.{m}")))));
+        }
+        let o = Obj::new(c);
+        for n in ["debug", "inspect", "interactive", "optimize", "dont_write_bytecode", "no_user_site", "no_site",
+                  "ignore_environment", "verbose", "bytes_warning", "quiet", "isolated", "warn_default_encoding"] {
+            o.set(sym(n), V::Int(0));
+        }
+        o.set(sym("dev_mode"), V::Bool(false));
+        o.set(sym("safe_path"), V::Bool(false));
+        *slot.borrow_mut() = Some(o.clone());
+        V::Obj(o)
+    })
+}
 pub fn module_attr(m: &'static str, name: &str) -> R {
     let v = match (m, name) {
         ("sys", "stdin") => V::Module(&ModName("sys.stdin")),
@@ -2977,6 +3008,7 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         ("sys", "platform") => s(if cfg!(windows) { "win32" } else if cfg!(target_os = "macos") { "darwin" } else { "linux" }),
         ("sys", "byteorder") => s("little"),
         ("sys", "version_info") => sys_version_info(),
+        ("sys", "flags") => sys_flags(),
         ("sys", "version") => s("3.13.0 (brevi)"),
         ("sys", "float_info") => return Err(unsupported("sys.float_info")),
         ("sys", "modules") => sys_modules(),

@@ -2522,6 +2522,19 @@ pub fn dict_items_of(v: &V) -> Result<Vec<(V, V)>, E> {
     }
 }
 
+// A class body's namespace dict as the class's attribute list: every key must be a string, as
+// __build_class__ requires.
+pub fn dict_sym_items(v: &V) -> Result<Vec<(Sym, V)>, E> {
+    let mut out = vec![];
+    for (k, x) in dict_items_of(v)? {
+        match k {
+            V::Str(sv) => out.push((sym(&sv.s), x)),
+            _ => return type_err("__build_class__: keys must be strings".into()),
+        }
+    }
+    Ok(out)
+}
+
 // One step of a shared iterator. An iterator whose own step calls back into it (a map function that calls next()
 // on the zip reading that map) cannot be stepped twice at once here: that raises ValueError, as CPython does for a
 // generator already executing, instead of a RefCell panic.

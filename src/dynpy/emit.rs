@@ -197,7 +197,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "numpy" => return np_func_kw(n).is_some() && (!np_narrow() || NP_NARROW_FUNCS.contains(&n) || (NP_F32_SIMD.contains(&n) && np_f32_simd_here()) || (matches!(n, "dot" | "matmul") && np_f32_simd_here())),
         "numpy.random" => return np_rand_kw(n).is_some(),
         "numpy.linalg" => return np_linalg_kw(n).is_some() && (!np_narrow() || n == "norm"),
-        "sys" => &["exit", "setrecursionlimit", "getrecursionlimit", "getsizeof", "intern", "set_int_max_str_digits", "get_int_max_str_digits", "stdin", "stdout", "stderr", "argv", "maxsize", "platform", "byteorder", "version_info", "version", "modules", "path", "exception", "exc_info"],
+        "sys" => &["exit", "setrecursionlimit", "getrecursionlimit", "getsizeof", "intern", "set_int_max_str_digits", "get_int_max_str_digits", "stdin", "stdout", "stderr", "argv", "maxsize", "platform", "byteorder", "version_info", "flags", "version", "modules", "path", "exception", "exc_info"],
         "math" => &["acos", "asin", "atan", "atan2", "ceil", "comb", "copysign", "cos", "cosh", "degrees", "dist", "exp", "fabs", "factorial", "floor", "fmod", "frexp", "fsum", "gcd", "hypot", "isclose", "isfinite", "isinf", "isnan", "isqrt", "lcm", "ldexp", "log", "log10", "log1p", "log2", "modf", "perm", "pow", "prod", "radians", "remainder", "sin", "sinh", "sqrt", "tan", "tanh", "trunc", "pi", "e", "tau", "inf", "nan"],
         "atexit" => &["register", "unregister", "_run_exitfuncs", "_clear", "_ncallbacks"],
         "heapq" => &["heapify", "heappop", "heappush", "heappushpop", "heapreplace", "merge", "nlargest", "nsmallest"],
@@ -548,6 +548,94 @@ fn stmt_exprs<'a>(body: &'a [Stmt], out: &mut Vec<&'a Ex>) {
             _ => {}
         }
     }
+}
+
+// Visit the expression nodes that run in the current class-body scope: no lambda bodies, and only a
+// comprehension's outermost iterable (the rest runs in the comprehension's own frame).
+fn visit_class_ex(e: &Ex, f: &mut dyn FnMut(&Ex)) {
+    f(e);
+    match e {
+        Ex::List(v) | Ex::Tuple(v) | Ex::Set(v) => v.iter().for_each(|x| visit_class_ex(x, f)),
+        Ex::Dict(v) => v.iter().for_each(|(k, x)| {
+            if let Some(k) = k {
+                visit_class_ex(k, f);
+            }
+            visit_class_ex(x, f)
+        }),
+        Ex::Star(x) | Ex::Attr(x, _) | Ex::Unary(_, x) | Ex::Walrus(_, x) | Ex::YieldFrom(x) | Ex::Await(x) => visit_class_ex(x, f),
+        Ex::Yield(x) => {
+            if let Some(x) = x {
+                visit_class_ex(x, f)
+            }
+        }
+        Ex::Index(a, b) | Ex::Bin(_, a, b) | Ex::And(a, b) | Ex::Or(a, b) => {
+            visit_class_ex(a, f);
+            visit_class_ex(b, f)
+        }
+        Ex::Slice(a, b, c) => {
+            for x in [a, b, c].into_iter().flatten() {
+                visit_class_ex(x, f);
+            }
+        }
+        Ex::Call(c, args) => {
+            visit_class_ex(c, f);
+            for a in args {
+                match a {
+                    Arg::Pos(x) | Arg::Star(x) | Arg::Kw(_, x) | Arg::KwStar(x) => visit_class_ex(x, f),
+                }
+            }
+        }
+        Ex::Cmp(a, rest) => {
+            visit_class_ex(a, f);
+            rest.iter().for_each(|(_, x)| visit_class_ex(x, f))
+        }
+        Ex::IfExp(a, b, c) => {
+            visit_class_ex(a, f);
+            visit_class_ex(b, f);
+            visit_class_ex(c, f)
+        }
+        Ex::Comp(_, _, _, gens) => {
+            if let Some(g) = gens.first() {
+                visit_class_ex(&g.iter, f);
+            }
+        }
+        Ex::FStr(parts) => {
+            for p in parts {
+                if let FPart::Expr(x, _, spec, _) = p {
+                    visit_class_ex(x, f);
+                    for sp in spec {
+                        if let FPart::Expr(y, ..) = sp {
+                            visit_class_ex(y, f);
+                        }
+                    }
+                }
+            }
+        }
+        Ex::Lambda(p, _) => {
+            for (_, d) in p.pos.iter().chain(p.kwonly.iter()) {
+                if let Some(d) = d {
+                    visit_class_ex(d, f);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+// Whether the class body itself calls locals() (not a nested def, class, lambda body or the inner
+// part of a comprehension): then its namespace must be a dict the call returns and may change.
+fn class_calls_locals(body: &[Stmt]) -> bool {
+    let mut ex = vec![];
+    stmt_exprs(body, &mut ex);
+    let mut found = false;
+    for e in ex {
+        visit_class_ex(e, &mut |x| {
+            if matches!(x, Ex::Call(f, a) if a.is_empty() && matches!(f.as_ref(), Ex::Name(n) if n == "locals")) {
+                found = true;
+            }
+        });
+    }
+    found
 }
 // `def n` in this body (not in a nested function) whose own body calls n through the enclosing cell
 fn self_recursive_def(body: &[Stmt], n: &str) -> bool {
@@ -1405,6 +1493,9 @@ enum Var {
     Local(String),
     Cell(String),
     Global(usize),
+    // a name of a class body run in namespace-dict mode (it calls locals()): stored in and read
+    // from the class namespace dict held in the Rust local named by the string
+    NS(String),
 }
 
 #[derive(Clone)]
@@ -1444,6 +1535,8 @@ struct Func {
     is_gen: bool,
     // nested defs held in plain locals of this frame that calls here reach directly (see Em::nested_direct)
     direct_defs: HashMap<String, (String, Vec<String>, usize)>,
+    // a class body run in namespace-dict mode: the Rust local holding its namespace dict
+    ns: Option<String>,
 }
 
 pub struct Module {
@@ -1465,6 +1558,8 @@ pub struct Bridge {
     pub imports: HashMap<String, String>,
     // module -> its file
     pub files: HashMap<String, String>,
+    // module -> (its absolute path, its source), for the warnings the runtime issues at a line of it
+    pub srcs: HashMap<String, (String, String)>,
 }
 impl Bridge {
     pub fn has(&self, m: &str) -> bool {
@@ -1595,6 +1690,8 @@ pub struct Em {
     bridged_used: BTreeSet<String>,
     // the program calls the re module (see the buffer check at the end of emit)
     uses_re: bool,
+    // (module, name) bound by `from re import name`: calls of it say where they are, as `re.name(...)` does
+    re_names: HashSet<(String, String)>,
     // module + value set -> the first display's items in source order (CPython's constant merging)
     set_lits: HashMap<(String, BTreeSet<ConstKey>), Vec<Ex>>,
 }
@@ -1780,6 +1877,18 @@ impl Em {
         None
     }
     fn load(&mut self, name: &str, line: usize) -> ER<String> {
+        // A class body in namespace-dict mode reads every name through its dict first
+        // (CPython's LOAD_FROM_DICT_OR_DEREF, and LOAD_NAME for the class's own names).
+        let ns = self.f().ns.clone();
+        if let Some(r) = ns {
+            let id = self.id();
+            let get = self.q(&format!("class_ns_get(&{r}, {})", lit(name)));
+            let fallback = self.load_named(name, line)?;
+            return Ok(format!("{{ let __g{id} = {get}; if let Some(__g{id}) = __g{id} {{ __g{id} }} else {{ {fallback} }} }}"));
+        }
+        self.load_named(name, line)
+    }
+    fn load_named(&mut self, name: &str, line: usize) -> ER<String> {
         match self.lookup(name) {
             Some(Var::Local(r)) => Ok(self.q(&format!("ld(&{r}, {})", lit(name)))),
             Some(Var::Cell(r)) => {
@@ -1796,43 +1905,50 @@ impl Em {
                     Ok(self.q(&format!("gl({i}, {})", lit(name))))
                 }
             }
-            None => {
-                if name == "__name__" {
-                    return Ok(self.konst(&self.module.clone()).replace("kc", "kc"));
-                }
-                if is_builtin_name(name) {
-                    if is_exc_name(name) {
-                        let n = match name {
-                            "IOError" | "EnvironmentError" => "OSError",
-                            x => x,
-                        };
-                        return Ok(format!("V::Class(exc_class({}))", lit(n)));
-                    }
-                    if name == "super" {
-                        return Err(err(line, "super used as a value is not supported"));
-                    }
-                    return Ok(format!("builtin_value({}).unwrap()", lit(name)));
-                }
-                // Brevi's own open() (_brevi_open.py) when no CPython library is in the program
-                if name == "open" && !self.bridge.on && self.user_modules.iter().any(|m| m == "_brevi_open") {
-                    let init = self.q("init__brevi_open()");
-                    let v = self.user_mod_load("_brevi_open", "open", line)?;
-                    return Ok(format!("{{ {init}; {v} }}"));
-                }
-                // Not under --sandbox --allow-py: the caller granted CPython for named modules, not open.
-                if name == "open" && self.bridge.on && crate::caps::py_only().is_none() {
-                    self.bridged_used.insert("open".into());
-                    return Ok(self.q("pyd_builtin(\"open\")"));
-                }
-                if name == "globals" {
-                    return Err(err(line, "globals() is supported in dynamic builds only as globals()[name], globals().get(name) and name in globals()"));
-                }
-                if is_missing_builtin(name) {
-                    return Err(err(line, &format!("{name}() is not supported in dynamic builds")));
-                }
-                Ok(self.q(&format!("name_err({})", lit(name))))
-            }
+            // LOAD_NAME after a miss in the class namespace sees only globals and builtins,
+            // never an enclosing function's cells.
+            Some(Var::NS(_)) => match self.fstack[0].vars.get(name).cloned() {
+                Some(Var::Global(i)) => Ok(self.q(&format!("gl({i}, {})", lit(name)))),
+                _ => self.load_missing(name, line),
+            },
+            None => self.load_missing(name, line),
         }
+    }
+    fn load_missing(&mut self, name: &str, line: usize) -> ER<String> {
+        if name == "__name__" {
+            return Ok(self.konst(&self.module.clone()).replace("kc", "kc"));
+        }
+        if is_builtin_name(name) {
+            if is_exc_name(name) {
+                let n = match name {
+                    "IOError" | "EnvironmentError" => "OSError",
+                    x => x,
+                };
+                return Ok(format!("V::Class(exc_class({}))", lit(n)));
+            }
+            if name == "super" {
+                return Err(err(line, "super used as a value is not supported"));
+            }
+            return Ok(format!("builtin_value({}).unwrap()", lit(name)));
+        }
+        // Brevi's own open() (_brevi_open.py) when no CPython library is in the program
+        if name == "open" && !self.bridge.on && self.user_modules.iter().any(|m| m == "_brevi_open") {
+            let init = self.q("init__brevi_open()");
+            let v = self.user_mod_load("_brevi_open", "open", line)?;
+            return Ok(format!("{{ {init}; {v} }}"));
+        }
+        // Not under --sandbox --allow-py: the caller granted CPython for named modules, not open.
+        if name == "open" && self.bridge.on && crate::caps::py_only().is_none() {
+            self.bridged_used.insert("open".into());
+            return Ok(self.q("pyd_builtin(\"open\")"));
+        }
+        if name == "globals" {
+            return Err(err(line, "globals() is supported in dynamic builds only as globals()[name], globals().get(name) and name in globals()"));
+        }
+        if is_missing_builtin(name) {
+            return Err(err(line, &format!("{name}() is not supported in dynamic builds")));
+        }
+        Ok(self.q(&format!("name_err({})", lit(name))))
     }
     fn store(&mut self, name: &str, val: &str) -> String {
         let cnv = match self.fstack.last() {
@@ -1849,6 +1965,16 @@ impl Em {
             }
             Some(Var::Cell(r)) => format!("cset(&{r}, {val});"),
             Some(Var::Global(i)) => format!("gs({i}, {val});"),
+            Some(Var::NS(r)) => {
+                if let Some((av, ctx)) = cnv {
+                    let v = self.q(&format!("enum_auto_store(&mut {av}, {ctx}, {}, {val})", lit(name)));
+                    let set = self.q(&format!("setitem(&{r}, &s({}), __v)", lit(name)));
+                    format!("{{ let __v = {v}; {set}; }}")
+                } else {
+                    let set = self.q(&format!("setitem(&{r}, &s({}), {val})", lit(name)));
+                    format!("{set};")
+                }
+            }
             None => {
                 let m = self.module.clone();
                 let i = self.gslot(&m, name);
@@ -2204,6 +2330,14 @@ impl Em {
         })
     }
     // the module name `x` refers to, when x is bound only by `import m`
+    // A call of a re function, told its line first: the warnings CPython's re issues name the caller's line.
+    // `call` is the call's Rust text over `__ra`, the evaluated arguments.
+    fn re_call(&self, call: &str, args: &str, line: usize) -> String {
+        let (file, src) = self.bridge.srcs.get(&self.module).cloned().unwrap_or_default();
+        let text = src.lines().nth(line.wrapping_sub(1)).unwrap_or("");
+        let module = if self.module.is_empty() { "__main__" } else { self.module.as_str() };
+        format!("{{ let __ra = {args}; re_site({line}, {}, {}, {}); let __rr = {call}; re_site_clear(); __rr }}", lit(&file), lit(module), lit(text))
+    }
     fn static_module(&self, e: &Ex) -> Option<String> {
         if let Ex::Name(n) = e {
             if let Some(Var::Global(_)) = self.lookup(n) {
@@ -2291,6 +2425,15 @@ impl Em {
                 return Err(err(line, "warnings.catch_warnings(record=True) is not supported in dynamic builds"));
             }
         }
+        // `from re import sub` then `sub(...)`: told its line, as re.sub(...) is
+        if let Ex::Name(n) = f {
+            if self.re_names.contains(&(self.module.clone(), n.clone())) && matches!(self.lookup(n), Some(Var::Global(_))) {
+                self.uses_re = true;
+                let fv = self.ex(f, line)?;
+                let a = self.args(args, line, None)?;
+                return Ok(self.q(&self.re_call(&format!("call(&{fv}, __ra)"), &a, line)));
+            }
+        }
         // CPython's inspect cannot read a dynamic build's function objects (their code and annotations are
         // not built), so Signature.from_callable on one would raise where CPython prints a signature.
         if matches!(f, Ex::Attr(o, m) if m == "from_callable" && matches!(o.as_ref(), Ex::Name(n) if n == "Signature")) {
@@ -2329,21 +2472,38 @@ impl Em {
             }
         }
         // locals() in a function: a snapshot dict of its bound names, in CPython's order
-        if args.is_empty() && matches!(f, Ex::Name(n) if n == "locals") && self.lookup("locals").is_none() {
-            let fr = self.fstack.last().unwrap();
-            if !fr.is_module && !fr.is_class && !fr.is_gen && !fr.order.is_empty() || (!fr.is_module && !fr.is_class && !fr.is_gen && fr.vars.is_empty()) {
-                let mut b = String::from("{ let mut __d = Dict::new(); ");
-                for n in fr.order.clone() {
-                    let get = match self.lookup(&n) {
-                        Some(Var::Local(r)) => format!("{r}.clone()"),
-                        Some(Var::Cell(r)) => format!("{r}.borrow().clone()"),
-                        _ => continue,
-                    };
-                    let set = self.q(&format!("__d.set(s({}), __v)", lit(&n)));
-                    write!(b, "{{ let __v = {get}; if !matches!(__v, V::Unbound) {{ {set}; }} }} ").unwrap();
+        if args.is_empty() && matches!(f, Ex::Name(n) if n == "locals") {
+            match self.lookup("locals") {
+                None => {
+                    let fr = self.fstack.last().unwrap();
+                    // in a class body run with a namespace dict, locals() is that dict itself
+                    if let Some(r) = fr.ns.clone() {
+                        return Ok(format!("{r}.clone()"));
+                    }
+                    if !fr.is_module && !fr.is_class && !fr.is_gen && !fr.order.is_empty() || (!fr.is_module && !fr.is_class && !fr.is_gen && fr.vars.is_empty()) {
+                        let mut b = String::from("{ let mut __d = Dict::new(); ");
+                        for n in fr.order.clone() {
+                            let get = match self.lookup(&n) {
+                                Some(Var::Local(r)) => format!("{r}.clone()"),
+                                Some(Var::Cell(r)) => format!("{r}.borrow().clone()"),
+                                _ => continue,
+                            };
+                            let set = self.q(&format!("__d.set(s({}), __v)", lit(&n)));
+                            write!(b, "{{ let __v = {get}; if !matches!(__v, V::Unbound) {{ {set}; }} }} ").unwrap();
+                        }
+                        b.push_str("V::Dict(Rc::new(RefCell::new(__d))) }");
+                        return Ok(b);
+                    }
                 }
-                b.push_str("V::Dict(Rc::new(RefCell::new(__d))) }");
-                return Ok(b);
+                // `locals` is a name of the class body itself: it may hold a shadowing value, or (not set
+                // yet, or deleted) the builtin locals, which is this namespace dict.
+                Some(Var::NS(r)) if self.f().ns.is_some() => {
+                    let id = self.id();
+                    let get = self.q(&format!("class_ns_get(&{r}, {})", lit("locals")));
+                    let body = format!("{{ let __v{id} = {get}; if let Some(__v{id}) = __v{id} {{ call(&__v{id}, Args::p(vec![])) }} else {{ Ok({r}.clone()) }} }}");
+                    return Ok(self.q(&body));
+                }
+                _ => {}
             }
         }
         // globals().get(k) / globals().get(k, d)
@@ -2448,6 +2608,9 @@ impl Em {
                             _ => return Err(err(line, &format!("numpy: np.{m}(*args or **kwargs) is not in Brevi's native numpy"))),
                         }
                     }
+                }
+                if md == "re" {
+                    return Ok(self.q(&self.re_call(&format!("module_call(\"re\", {}, __ra)", lit(m)), &a, line)));
                 }
                 return Ok(self.q(&format!("module_call({}, {}, {a})", lit(&md), lit(m))));
             }
@@ -2604,7 +2767,7 @@ impl Em {
         let gq = self.qualname_of("<genexpr>");
         let gq_lit = lit(&gq);
         let (class_expr, self_name) = (parent.class_expr.clone(), parent.self_name.clone());
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, qname: gq, exc_vars: vec![], is_module: false, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: true, direct_defs: HashMap::new(), cells: format!("g{id}_"), order: vec![] };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, qname: gq, exc_vars: vec![], is_module: false, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: true, direct_defs: HashMap::new(), cells: format!("g{id}_"), order: vec![], ns: None };
         let mut tdecl = String::new();
         for n in &names {
             if inner_free.contains(n) {
@@ -3065,6 +3228,10 @@ impl Em {
                                 let c = self.q(&format!("gdel({i}, {})", lit(&n)));
                                 write!(b, "{c}; ").unwrap();
                             }
+                            Some(Var::NS(r)) => {
+                                let c = self.q(&format!("class_ns_del(&{r}, {})", lit(&n)));
+                                write!(b, "{c}; ").unwrap();
+                            }
                             None => return Err(err(line, "del of an unknown name")),
                         },
                         Ex::Index(o, i) => {
@@ -3189,6 +3356,9 @@ impl Em {
                         write!(b, "{reg}; {init}; ").unwrap();
                         b.push_str(&self.store(&bind, &format!("V::Module(&ModName({}))", lit(sub))));
                         continue;
+                    }
+                    if m == "re" {
+                        self.re_names.insert((self.module.clone(), bind.clone()));
                     }
                     if !user && !module_has(m, n) {
                         if hybrid_bridged(m) {
@@ -3553,7 +3723,7 @@ impl Em {
         // this function's frame
         let parent = self.fstack.last().unwrap();
         let (class_expr, self_name) = if self.class_ctx.is_some() { (self.class_ctx.clone(), p.pos.first().map(|x| x.0.clone())) } else { (parent.class_expr.clone(), parent.self_name.clone()) };
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, qname: qualname.to_string(), exc_vars: vec![], is_module: false, is_class: false, enum_cnv: None, is_async, is_agen: is_async && is_gen, is_gen, direct_defs: HashMap::new(), cells: format!("k{id}_"), order: vec![] };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, qname: qualname.to_string(), exc_vars: vec![], is_module: false, is_class: false, enum_cnv: None, is_async, is_agen: is_async && is_gen, is_gen, direct_defs: HashMap::new(), cells: format!("k{id}_"), order: vec![], ns: None };
         for (n, r) in &captures {
             fr.vars.insert(n.clone(), Var::Cell(r.clone()));
         }
@@ -3795,20 +3965,39 @@ impl Em {
         if setup {
             sc.locals.insert("__annotations__".into());
         }
+        // A class body that calls locals() must run with its namespace as a dict: locals() returns that
+        // dict, and every name load and store goes through it (CPython's LOAD_FROM_DICT_OR_DEREF / LOAD_NAME
+        // and DELETE_NAME). Other classes keep the plain Rust locals exactly as before.
+        let dict_mode = class_calls_locals(&c.body);
         let parent = self.fstack.last().unwrap();
         // CPython's __qualname__: `Outer.Inner` inside a class, `f.<locals>.C` inside a function.
         let qualname = self.qualname_of(&c.name);
-        let mut fr = Func { vars: HashMap::new(), frames: parent.frames.clone(), class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), qname: qualname.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![] };
+        let ns_var = format!("__ns{id}");
+        let mut fr = Func { vars: HashMap::new(), frames: parent.frames.clone(), class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), qname: qualname.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![], ns: dict_mode.then_some(ns_var.clone()) };
         let ctx = format!("__auto_ctx{id}");
         let av = format!("__auto_last{id}");
         let mut decls = String::new();
         write!(decls, "{base_decls}").unwrap();
         write!(decls, "let {ctx}: i64 = enum_auto_ctx(&[{}]); let mut {av}: Vec<V> = vec![]; ", base_vars.iter().map(|v| format!("&{v}")).collect::<Vec<_>>().join(", ")).unwrap();
-        for n in sc.locals.iter() {
-            let r = format!("a{id}_{}", rust_ident(n));
-            let init = if setup && n == "__annotations__" { "dict_new()" } else { "V::Unbound" };
-            write!(decls, "let mut {r}: V = {init}; ").unwrap();
-            fr.vars.insert(n.clone(), Var::Local(r));
+        if dict_mode {
+            write!(decls, "let mut {ns_var}: V = dict_new(); ").unwrap();
+            if setup {
+                // SETUP_ANNOTATIONS runs first, so __annotations__ is the namespace dict's first key; the
+                // alias here is the same dict the class body stores annotations into.
+                let r = format!("a{id}___annotations__");
+                let set = self.q(&format!("setitem(&{ns_var}, &s(\"__annotations__\"), {r}.clone())"));
+                write!(decls, "let {r}: V = dict_new(); {set}; ").unwrap();
+            }
+            for n in sc.locals.iter() {
+                fr.vars.insert(n.clone(), Var::NS(ns_var.clone()));
+            }
+        } else {
+            for n in sc.locals.iter() {
+                let r = format!("a{id}_{}", rust_ident(n));
+                let init = if setup && n == "__annotations__" { "dict_new()" } else { "V::Unbound" };
+                write!(decls, "let mut {r}: V = {init}; ").unwrap();
+                fr.vars.insert(n.clone(), Var::Local(r));
+            }
         }
         fr.enum_cnv = Some((av, ctx));
         let mut fields = vec![];
@@ -3886,49 +4075,63 @@ impl Em {
         self.fstack.pop();
         self.class_ctx = saved;
         res?;
-        // class attributes in the order the body first binds them, as CPython's class namespace keeps them
-        // (Enum members and vars() follow it)
-        let mut order: Vec<&String> = vec![];
-        for s in &c.body {
-            let names: Vec<&String> = match &s.st {
-                St::Assign(ts, _) => ts.iter().filter_map(|t| if let Ex::Name(n) = t { Some(n) } else { None }).collect(),
-                St::AnnAssign(Ex::Name(n), _, _) => vec![n],
-                St::Def(d) => vec![&d.name],
-                St::Class(k) => vec![&k.name],
-                _ => vec![],
-            };
-            for n in names {
-                if sc.locals.contains(n) && !order.contains(&n) {
+        let mut v = if dict_mode {
+            // the namespace dict holds the class attributes in the order the body bound them; the doc is
+            // added only now, as __build_class__ adds it after the body
+            let mut attrs = String::new();
+            if !sc.locals.contains("__doc__") {
+                let doc = docstring(&c.body).map_or("V::None".to_string(), |d| format!("s({})", lit(d)));
+                let set = self.q(&format!("setitem(&{ns_var}, &s(\"__doc__\"), {doc})"));
+                write!(attrs, "{set}; ").unwrap();
+            }
+            let items = self.q(&format!("dict_sym_items(&{ns_var})"));
+            let mk = self.q(&format!("make_class_f({}, {}, {}, vec![{}], {items}, vec![{}])", lit(&c.name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", ")));
+            format!("{{ {decls}\n{body}\n{attrs} let __c = {mk}; __c }}")
+        } else {
+            // class attributes in the order the body first binds them, as CPython's class namespace keeps them
+            // (Enum members and vars() follow it)
+            let mut order: Vec<&String> = vec![];
+            for s in &c.body {
+                let names: Vec<&String> = match &s.st {
+                    St::Assign(ts, _) => ts.iter().filter_map(|t| if let Ex::Name(n) = t { Some(n) } else { None }).collect(),
+                    St::AnnAssign(Ex::Name(n), _, _) => vec![n],
+                    St::Def(d) => vec![&d.name],
+                    St::Class(k) => vec![&k.name],
+                    _ => vec![],
+                };
+                for n in names {
+                    if sc.locals.contains(n) && !order.contains(&n) {
+                        order.push(n);
+                    }
+                }
+            }
+            for n in sc.locals.iter() {
+                if !order.contains(&n) {
                     order.push(n);
                 }
             }
-        }
-        for n in sc.locals.iter() {
-            if !order.contains(&n) {
-                order.push(n);
+            let mut attrs = String::new();
+            // __annotations__ is the first name the class namespace binds (SETUP_ANNOTATIONS runs before the
+            // body; a later assignment to it keeps the first position, as a dict key does in CPython).
+            if setup {
+                let r = format!("a{id}___annotations__");
+                write!(attrs, "__at.push((\"__annotations__\", {r})); ").unwrap();
             }
-        }
-        let mut attrs = String::new();
-        // __annotations__ is the first name the class namespace binds (SETUP_ANNOTATIONS runs before the
-        // body; a later assignment to it keeps the first position, as a dict key does in CPython).
-        if setup {
-            let r = format!("a{id}___annotations__");
-            write!(attrs, "__at.push((\"__annotations__\", {r})); ").unwrap();
-        }
-        for n in order {
-            if setup && n == "__annotations__" {
-                continue;
+            for n in order {
+                if setup && n == "__annotations__" {
+                    continue;
+                }
+                let r = format!("a{id}_{}", rust_ident(n));
+                write!(attrs, "if !matches!({r}, V::Unbound) {{ __at.push(({}, {r})); }} ", lit(n)).unwrap();
             }
-            let r = format!("a{id}_{}", rust_ident(n));
-            write!(attrs, "if !matches!({r}, V::Unbound) {{ __at.push(({}, {r})); }} ", lit(n)).unwrap();
-        }
-        // every class has its own __doc__ (None without a docstring), not its parent's
-        if !sc.locals.contains("__doc__") {
-            let doc = docstring(&c.body).map_or("V::None".to_string(), |d| format!("s({})", lit(d)));
-            write!(attrs, "__at.push((\"__doc__\", {doc})); ").unwrap();
-        }
-        let mk = self.q(&format!("make_class_f({}, {}, {}, vec![{}], __at, vec![{}])", lit(&c.name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", ")));
-        let mut v = format!("{{ {decls}\n{body}\nlet mut __at: Vec<(Sym, V)> = vec![]; {attrs} let __c = {mk}; __c }}");
+            // every class has its own __doc__ (None without a docstring), not its parent's
+            if !sc.locals.contains("__doc__") {
+                let doc = docstring(&c.body).map_or("V::None".to_string(), |d| format!("s({})", lit(d)));
+                write!(attrs, "__at.push((\"__doc__\", {doc})); ").unwrap();
+            }
+            let mk = self.q(&format!("make_class_f({}, {}, {}, vec![{}], __at, vec![{}])", lit(&c.name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", ")));
+            format!("{{ {decls}\n{body}\nlet mut __at: Vec<(Sym, V)> = vec![]; {attrs} let __c = {mk}; __c }}")
+        };
         for dec in c.decorators.iter().rev() {
             let dd = self.ex(dec, c.line)?;
             v = self.q(&format!("call(&{dd}, Args::p(vec![{v}]))"));
@@ -4049,6 +4252,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         bridge,
         bridged_used: BTreeSet::new(),
         uses_re: false,
+        re_names: HashSet::new(),
         set_lits: HashMap::new(),
     };
     // Brevi's own library copies first, each group named and numbered on its own, then the program's modules:
@@ -4177,7 +4381,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
             em.module = m.name.clone();
             em.lazy = future_annotations(&m.body);
             IN_COPY.with(|c| c.set(OWN_COPIES.lock().unwrap().contains(&m.name)));
-            let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, qname: String::new(), exc_vars: vec![], is_module: true, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![] };
+            let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, qname: String::new(), exc_vars: vec![], is_module: true, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![], ns: None };
             for n in em.mod_names[&m.name].clone() {
                 let i = em.gslot(&m.name, &n);
                 fr.vars.insert(n.clone(), Var::Global(i));
@@ -4242,10 +4446,12 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     };
     write!(
         out,
-        "fn __run() -> Result<(), E> {{ unsafe {{ GL = vec![V::Unbound; {}]; K = vec![{}]; }} USER_MOD.with(|u| u.set(Some(user_mod))); MAIN_GTAB.with(|u| u.set(Some(gtab___main__))); {} let r = init___main__(); fin_point(); r }}\nfn main() {{ run_main(__run); }}\n",
+        "fn __run() -> Result<(), E> {{ unsafe {{ GL = vec![V::Unbound; {}]; K = vec![{}]; }} USER_MOD.with(|u| u.set(Some(user_mod))); MAIN_GTAB.with(|u| u.set(Some(gtab___main__))); {}{} let r = init___main__(); fin_point(); r }}\nfn main() {{ run_main(__run); }}\n",
         em.nglobals.max(1),
         consts.join(", "),
-        del_on
+        del_on,
+        // the program uses CPython's warnings module: the warnings the runtime issues go through it
+        if em.bridged_used.contains("warnings") { " set_warn_bridge(pyd_warn_at);" } else { "" }
     )
     .unwrap();
     let _ = &em.out;
