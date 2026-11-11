@@ -2675,6 +2675,10 @@ fn modfn(m: &'static str, n: &str) -> V {
         return v;
     }
     let v = builtin(n, move |a: Args| module_call(m, n, a));
+    // marked as a module's function, so it never reads as the builtins function of its name (math.pow.__doc__)
+    if let V::Func(f) = &v {
+        f.attrs.borrow_mut().push(("__bv_mod__", s(m)));
+    }
     MODFNS.with(|c| {
         c.borrow_mut().insert((m, n), v.clone());
     });
@@ -2877,6 +2881,8 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         ("functools", "partialmethod") => V::Class(partialmethod_class()),
         // CPython's functools imports RLock from _thread, so it is an attribute of the module
         ("functools", "RLock") => return module_attr("threading", "RLock"),
+        ("functools", "WRAPPER_ASSIGNMENTS") => wraps_assigned(),
+        ("functools", "WRAPPER_UPDATES") => wraps_updated(),
         _ => {
             if let Some(v) = ext_module_attr(m, name)? {
                 return Ok(v);

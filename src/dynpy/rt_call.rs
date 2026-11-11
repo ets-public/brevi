@@ -420,6 +420,18 @@ pub fn with_doc(f: V, doc: &str) -> V {
     }
     f
 }
+// A def's __annotations__, evaluated when the def was made (see ANN_DEFS in typing.rs): a dict of the
+// annotated parameters in order, then "return".
+pub fn with_ann(f: V, kv: Vec<(V, V)>) -> R {
+    let d = dict_new();
+    for (k, v) in kv {
+        setitem(&d, &k, v)?;
+    }
+    if let V::Func(ff) = &f {
+        ff.attrs.borrow_mut().push(("__annotations__", d));
+    }
+    Ok(f)
+}
 // The private first-annotation descriptor a def carries when it is decorated with a bare `@register`
 // (functools.singledispatch reads it; see sd_ann_desc in emit.rs). Classmethod and staticmethod copy it with
 // the def's other attributes.
@@ -1248,6 +1260,10 @@ pub fn getattr(o: &V, name: &str) -> R {
                     return Ok(v);
                 }
             }
+            // a builtin type has none (CPython's static types raise)
+            if name == "__annotations__" {
+                return Err(exc("AttributeError", format!("type object '{}' has no attribute '__annotations__'", c.name)));
+            }
             match name {
                 // A library type named by its dotted CPython type name ("datetime.date", "numpy.float64"; see
                 // ext_class): CPython splits such a name at its last dot into __module__ and __name__.
@@ -1290,6 +1306,8 @@ pub fn getattr(o: &V, name: &str) -> R {
                     }))
                 }
                 "__doc__" => Ok(V::None),
+                // a class that is not generic (Brevi has no `class C[T]`): CPython's empty tuple
+                "__type_params__" => Ok(tup(vec![])),
                 // the class's own names in the order its body bound them (CPython's is a read-only view
                 // with a few more dunder names)
                 "__dict__" => {
@@ -1335,6 +1353,10 @@ pub fn getattr(o: &V, name: &str) -> R {
             }
         }
         V::Module(m) => {
+            // a module's annotations (its annotated top-level names) are not kept
+            if name == "__annotations__" {
+                return Err(unsupported("a module's __annotations__"));
+            }
             if let Some(f) = USER_MOD.with(|u| u.get()) {
                 if let Some(r) = f(m, name) {
                     return r;
@@ -1411,7 +1433,14 @@ pub fn getattr(o: &V, name: &str) -> R {
                     func_get(&v, obj, cls)
                 }))
             }
-            "__doc__" => Ok(f.attrs.borrow().iter().find(|(k, _)| *k == "__doc__").map_or(V::None, |(_, v)| v.clone())),
+            "__doc__" => Ok(match f.attrs.borrow().iter().find(|(k, _)| *k == "__doc__") {
+                Some((_, v)) => v.clone(),
+                // a builtin of the builtins module (a module's function carries its __module__): CPython's text
+                None if f.kind.get() == 3 && !f.attrs.borrow().iter().any(|(k, _)| *k == "__module__" || *k == "__bv_mod__") => {
+                    builtin_doc(&f.name.get()).map_or(V::None, |d| s(d))
+                }
+                None => V::None,
+            }),
             _ => {
                 if let Some(v) = func_user_attr(f, name)? {
                     return Ok(v);

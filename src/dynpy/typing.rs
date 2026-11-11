@@ -110,6 +110,12 @@ impl Names {
 // Every module's typing uses, checked; Err(module, line, why) for the first one the runtime does not have.
 // Set while the program uses Brevi's pydantic (its TypeAdapter takes typing forms as descriptors).
 pub static OWN_PYDANTIC: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+// Set while the program's defs keep their annotations (see with_ann in rt_call.rs): one of its modules reads
+// `.__annotations__`, no module has `from __future__ import annotations` (strings Brevi does not make), the
+// program does not use Brevi's pydantic, and every def's annotation is a plain name, attribute, string or None
+// (a type expression such as `int | None` or `list[int]` has no runtime object here). Each def then evaluates its
+// annotations when it is made, as CPython 3.13 does; otherwise a read of a def's __annotations__ is refused.
+pub static ANN_DEFS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
     let mut names: HashMap<String, Names> = HashMap::new();
@@ -127,6 +133,15 @@ pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
         nm.lazy = future_annotations(body);
         nm.odd_ann = odd_class_annotation(body, false);
     }
+    let reads = mods.iter().any(|(_, b)| {
+        let mut r = false;
+        walk_all(b, &mut |e, _| r |= matches!(e, Ex::Attr(_, a) if a == "__annotations__"));
+        r
+    });
+    let defs = reads
+        && !OWN_PYDANTIC.load(std::sync::atomic::Ordering::Relaxed)
+        && mods.iter().all(|(m, b)| !names[*m].lazy && !odd_def_annotation(b) && !typing_def_annotation(b, &names[*m]));
+    ANN_DEFS.store(defs, std::sync::atomic::Ordering::Relaxed);
     for (m, body) in mods {
         let nm = &names[*m];
         stmts(body, nm).map_err(|(l, w)| (m.to_string(), l, w))?;
@@ -295,6 +310,41 @@ fn odd_class_annotation(body: &[Stmt], in_class: bool) -> bool {
             let mut odd = false;
             blocks(st, &mut |b| odd |= odd_class_annotation(b, in_class));
             odd
+        }
+    })
+}
+
+// A def anywhere in the body (methods and nested defs too) with an annotation that is not a plain name,
+// attribute, string or None.
+fn odd_def_annotation(body: &[Stmt]) -> bool {
+    fn plain(e: &Ex) -> bool {
+        match e {
+            Ex::Name(_) | Ex::Str(_) | Ex::NoneV => true,
+            Ex::Attr(o, _) => plain(o),
+            _ => false,
+        }
+    }
+    body.iter().any(|s| match &s.st {
+        St::Def(d) => d.params.ann.iter().map(|(_, a)| a).chain(d.ret.iter()).any(|a| !plain(a)) || odd_def_annotation(&d.body),
+        St::Class(c) => odd_def_annotation(&c.body),
+        st => {
+            let mut odd = false;
+            blocks(st, &mut |b| odd |= odd_def_annotation(b));
+            odd
+        }
+    })
+}
+
+// A def anywhere in the body whose annotation names a typing form (`List`, `t.Optional`): as a value, that needs
+// CPython's typing.
+fn typing_def_annotation(body: &[Stmt], nm: &Names) -> bool {
+    body.iter().any(|s| match &s.st {
+        St::Def(d) => d.params.ann.iter().map(|(_, a)| a).chain(d.ret.iter()).any(|a| nm.typing_expr(a)) || typing_def_annotation(&d.body, nm),
+        St::Class(c) => typing_def_annotation(&c.body, nm),
+        st => {
+            let mut t = false;
+            blocks(st, &mut |b| t |= typing_def_annotation(b, nm));
+            t
         }
     })
 }
@@ -587,10 +637,16 @@ fn expr(e: &Ex, ok: bool, line: usize, nm: &Names) -> Result<(), Er> {
             // pydantic replaces every class's __annotations__ with descriptors, so its programs stay refused.
             if a == "__annotations__" {
                 let own_pyd = OWN_PYDANTIC.load(std::sync::atomic::Ordering::Relaxed);
-                if nm.lazy || own_pyd || !on_class(o, nm) {
+                if nm.lazy || own_pyd {
                     return Err(err(line, ".__annotations__"));
                 }
-                if nm.odd_ann {
+                // anything but a class of the program: a def's (kept under ANN_DEFS), and at run time a
+                // builtin's AttributeError; a lambda's, a module's and the rest are refused there
+                if !on_class(o, nm) {
+                    if !ANN_DEFS.load(std::sync::atomic::Ordering::Relaxed) {
+                        return Err(err(line, ".__annotations__"));
+                    }
+                } else if nm.odd_ann {
                     return Err(err(line, ".__annotations__ of a class annotated with a type expression (such as int | None or list[int])"));
                 }
             }

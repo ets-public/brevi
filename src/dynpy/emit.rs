@@ -204,7 +204,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "atexit" => &["register", "unregister", "_run_exitfuncs", "_clear", "_ncallbacks"],
         "heapq" => &["heapify", "heappop", "heappush", "heappushpop", "heapreplace", "merge", "nlargest", "nsmallest"],
         "bisect" => &["bisect", "bisect_left", "bisect_right", "insort", "insort_left", "insort_right"],
-        "functools" => &["RLock", "cache", "cached_property", "cmp_to_key", "lru_cache", "partial", "partialmethod", "reduce", "singledispatch", "singledispatchmethod", "total_ordering", "update_wrapper", "wraps"],
+        "functools" => &["RLock", "WRAPPER_ASSIGNMENTS", "WRAPPER_UPDATES", "cache", "cached_property", "cmp_to_key", "lru_cache", "partial", "partialmethod", "reduce", "singledispatch", "singledispatchmethod", "total_ordering", "update_wrapper", "wraps"],
         "itertools" => &["accumulate", "batched", "chain", "combinations", "combinations_with_replacement", "compress", "count", "cycle", "dropwhile", "filterfalse", "groupby", "islice", "pairwise", "permutations", "product", "repeat", "starmap", "takewhile", "tee", "zip_longest"],
         "copy" => &["copy", "deepcopy"],
         "operator" => &["add", "and_", "attrgetter", "contains", "eq", "floordiv", "ge", "getitem", "gt", "index", "itemgetter", "le", "lshift", "lt", "methodcaller", "mod", "mul", "ne", "neg", "not_", "or_", "pow", "rshift", "sub", "truediv", "truth", "xor"],
@@ -2061,7 +2061,11 @@ impl Em {
                 let ret = Stmt { line, st: St::Return(Some((**body).clone())) };
                 let qn = self.qualname_of("<lambda>");
                 let f = self.closure("<lambda>", &qn, p, &[ret], line, false)?;
-                let f = format!("with_qualname({f}, {})", lit(&qn));
+                let mut f = format!("with_qualname({f}, {})", lit(&qn));
+                // a lambda has no annotations: its __annotations__ is {} (kept like a def's, see ANN_DEFS)
+                if super::typing::ANN_DEFS.load(std::sync::atomic::Ordering::Relaxed) {
+                    f = self.q(&format!("with_ann({f}, vec![])"));
+                }
                 if PYD_ON.load(std::sync::atomic::Ordering::Relaxed) { format!("with_np({f}, {})", if p.star.is_some() { 99 } else { p.pos.len() }) } else { f }
             }
             Ex::Comp(kind, elt, val, gens) => self.comp(*kind, elt, val.as_deref(), gens, line)?,
@@ -3442,6 +3446,18 @@ impl Em {
         }
         if self.module != "__main__" {
             v = format!("with_module({v}, {})", lit(&self.module));
+        }
+        // the def's annotations, evaluated now (after the defaults, as CPython does), while the program reads
+        // __annotations__ somewhere: parameters in order, then "return"
+        if super::typing::ANN_DEFS.load(std::sync::atomic::Ordering::Relaxed) {
+            let mut kv = vec![];
+            for (pn, a) in d.params.ann.iter() {
+                kv.push(format!("(s({}), {})", lit(pn), self.ex(a, d.line)?));
+            }
+            if let Some(r) = &d.ret {
+                kv.push(format!("(s(\"return\"), {})", self.ex(r, d.line)?));
+            }
+            v = self.q(&format!("with_ann({v}, vec![{}])", kv.join(", ")));
         }
         if PYD_ON.load(std::sync::atomic::Ordering::Relaxed) {
             let n = if d.params.star.is_some() { 99 } else { d.params.pos.len() };

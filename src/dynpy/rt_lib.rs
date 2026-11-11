@@ -1228,6 +1228,10 @@ fn rewrap(x: &Rc<Func>, kind: u8) -> V {
         *gf.attrs.borrow_mut() = x.attrs.borrow().clone();
         // __get__ returns the wrapped function (staticmethod) or a bound method of it (classmethod)
         gf.attrs.borrow_mut().push(("__bv_wrapped__", wrapped));
+        // staticmethod(f).__func__ and classmethod(f).__func__ are f
+        let mut at = gf.attrs.borrow_mut();
+        at.retain(|(k, _)| *k != "__func__");
+        at.push(("__func__", V::Func(x.clone())));
     }
     g
 }

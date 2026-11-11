@@ -2121,7 +2121,7 @@ pub type FnBox = Box<dyn Fn(Args) -> R>;
 pub const FUNC_SLOT_ATTRS: &[&str] = &[
     "__name__", "__qualname__", "__module__", "__doc__", "__annotations__", "__code__", "__defaults__",
     "__kwdefaults__", "__type_params__", "__closure__", "__globals__", "__builtins__", "__bv_np__", "__bv_kind__", "__bv_repr__",
-    "__bv_dict__", "__bv_wrapped__", "__bv_partial__", "__brevi_sd_ann__",
+    "__bv_dict__", "__bv_wrapped__", "__bv_partial__", "__brevi_sd_ann__", "__func__", "__bv_mod__",
     // lru_cache's methods live on the wrapper's class in CPython, not in its __dict__
     "cache_clear", "cache_info",
 ];
