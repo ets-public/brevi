@@ -19,8 +19,8 @@ def depth(n):
 
 
 def deep():
-    # recursion inside the generator: thousands of frames, far past the first 64 KB of its stack
-    yield depth(3000)
+    # recursion inside the generator: 900 frames (under CPython's limit of 1000), past the first 64 KB of its stack
+    yield depth(900)
 
 
 print(next(deep()))
