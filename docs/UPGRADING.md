@@ -35,6 +35,15 @@ Notes:
 
 Newest first. Only changes that can affect programs or setups that already work.
 
+### Next release
+
+These are on `main` now and ship with the next release.
+
+- **Sandboxed CPython has no network without a grant (Linux).** Under `--sandbox`, a program that loads CPython (`--allow-py`, `--allow native`) and has no network grant gets `PermissionError` from `socket()`, in CPython, its C extensions and every process they start. A sandboxed program that starts CPython with hosts named by `--allow-net` is refused on every OS, because CPython cannot be held to those hosts. Grant `--allow net`, or leave CPython out.
+- **DuckDB and ONNX Runtime libraries are pinned to the build.** A program loads the library only if its bytes still match the ones it was built against. After upgrading duckdb or onnxruntime, `brevi run` rebuilds by itself, but a binary from `brevi build` must be built again.
+- **Pickling iterators.** `reversed`, `map`, `zip` and generator iterators raise `TypeError: cannot pickle` instead of being saved as a plain list iterator.
+- **New `--strict`** (or `BREVI_STRICT=1`) refuses every fallback. It changes nothing unless you pass it ([Strict builds](https://brevi-lang.org/docs/usage#strict-builds)).
+
 ### v0.27.0
 
 - **MCP sandbox is locked by default.** A plain `brevi mcp` refuses a call with `sandbox: false`. A call can grant only what you passed to `brevi mcp` (`--allow`, `--allow-py`, `--allow-net`, `--allow-read DIR`, `--allow-write DIR`); the default is nothing. `--trust-calls` restores the old behaviour, and the `verify` tool needs it. The Python and Node SDKs start it that way, so they work as before.

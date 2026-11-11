@@ -7,19 +7,19 @@ The full plan, with every decision and risk, is [docs/ROADMAP.md](https://github
 
 ## The numbers we steer by
 
-Measured on v0.26.0, 9 November 2026, except the two conformance rows, which are from v0.27.0 (11 November). Latency is from one machine (4-core Xeon @ 2.10 GHz); every number links to where it comes from.
+Conformance and latency rows are from v0.27.0 (11 November 2026); the rest from v0.26.0 (9 November). Latency is from one machine (4-core Xeon @ 2.30 GHz; v0.26.0 at 2.10 GHz); every number links to where it comes from.
 
 | | Now | In 90 days | In 12 months |
 |---|---:|---:|---:|
 | [CPython conformance](https://github.com/ets-public/brevi/blob/main/bench/conformance/report.md) (tests that print exactly what CPython prints from a native build) | 80.4% (250 of 311) at v0.27.0 | 70% | 90% |
 | [Known wrong results](https://github.com/ets-public/brevi/blob/main/compat/conformance_known_wrong.txt) (built, but answered differently from CPython) | 8 tests at v0.27.0 (44 at v0.26.0) | 25 or fewer | 0 |
-| [`brevi check --fast`](https://github.com/ets-public/brevi/blob/main/docs/LATENCY.md) after an edit, median | 16 ms | 20 ms or less | 10 ms |
-| [`brevi check`](https://github.com/ets-public/brevi/blob/main/docs/LATENCY.md) after an edit, median | 94 ms | 50 ms | 30 ms |
-| [Build after an edit](https://github.com/ets-public/brevi/blob/main/docs/LATENCY.md), median | 0.87 s typed, 1.5 s dynamic | 0.5 s | 0.3 s |
+| [`brevi check --fast`](https://github.com/ets-public/brevi/blob/main/docs/LATENCY.md) after an edit, median | 160 ms at v0.27.0, a regression: the test program now builds dynamic because of a false refusal, being fixed (16 ms at v0.26.0) | 20 ms or less | 10 ms |
+| [`brevi check`](https://github.com/ets-public/brevi/blob/main/docs/LATENCY.md) after an edit, median | 160 ms at v0.27.0, same cause (94 ms at v0.26.0) | 50 ms | 30 ms |
+| [Build after an edit](https://github.com/ets-public/brevi/blob/main/docs/LATENCY.md), median | 1.18 s at v0.27.0, same cause; `brevi run` after an edit 0.43 s with tiered builds (0.87 s typed at v0.26.0) | 0.5 s | 0.3 s |
 | Saved agent programs on the fast typed path | 567 of 813 (70%, v0.25.0) | 80% | 90% |
 | First check that builds natively, on the [release test](https://github.com/ets-public/brevi/blob/main/docs/METRICS.md) | 24 of 24 tasks (Haiku and Sonnet, one run) | 80% | 90% |
 | [Cost to a passing answer](https://github.com/ets-public/brevi/blob/main/docs/METRICS.md) vs CPython, with Brevi's errors shown to the model | 1.04x Haiku, 1.03x Sonnet (one run) | 1.10x or less | 1.00x or less |
-| Install to a first native run with no Rust installed | not possible yet | 60 s | 60 s |
+| Install to a first native run with no Rust installed | possible with the [brevi-sandbox image](https://github.com/ets-public/brevi/blob/main/docs/SDK_AND_IMAGES.md) from v0.27.0, not yet timed | 60 s | 60 s |
 | Harnesses or sandbox platforms that ship Brevi | 0 | 1 | 3 |
 
 The north star is the share of real agent-written programs that build natively, match CPython on their own tests, and do so on the first check. It needs real agent traffic, so it starts with the alpha below.
