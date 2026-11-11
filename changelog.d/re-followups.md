@@ -1,0 +1,1 @@
+- **`re` in the dynamic build accepts `str` subclasses** as patterns and subjects (they raised `TypeError`), and a look-behind wider than 2**32-1 characters raises CPython's "looks too much behind".

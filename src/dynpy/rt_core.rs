@@ -2367,6 +2367,17 @@ impl Class {
     pub fn own(&self, n: &str) -> Option<V> {
         self.attrs.borrow().iter().find(|(k, _)| same_name(k, n)).map(|(_, v)| v.clone())
     }
+    // A class's own __annotations__: annotations are never inherited (CPython's type.__getattribute__ takes
+    // only the class's own), and a class without any annotated statement gets an empty dict the first time
+    // one is read, kept in its dict as CPython's lazy _PyType_GetAnnotations keeps it.
+    pub fn annotations(&self) -> V {
+        if let Some(v) = self.own("__annotations__") {
+            return v;
+        }
+        let d = dict_new();
+        self.set(sym("__annotations__"), d.clone());
+        d
+    }
     pub fn lookup(&self, n: &str) -> Option<V> {
         let ep = CLASS_EPOCH.with(|e| e.get());
         let addr = n.as_ptr() as usize;

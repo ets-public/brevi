@@ -1,0 +1,19 @@
+0 [True, True, True, True, True]
+1 [True, True, True, True, True]
+2 [True, True, True, True, True]
+3 [True, True, True, True, True]
+4 [True, True, True, True, True]
+5 [True, True, True, True, True]
+3
+['function', 'type', 'type', 'int']
+AttributeError Can't get local object 'g.<locals>.h'
+PicklingError it's not the same object as __main__.f
+False True
+functools _gt_from_lt __gt__
+functools _le_from_lt __le__
+functools _lt_from_le __lt__
+functools _ge_from_le __ge__
+False True False True True
+__gt__ True
+__le__ True
+__ge__ True

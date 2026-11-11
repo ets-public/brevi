@@ -1,0 +1,6 @@
+{'x': <class 'int'>}
+{}
+AttributeError 'C' object has no attribute '__annotations__'
+{}
+{}
+True

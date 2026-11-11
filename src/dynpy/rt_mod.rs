@@ -1461,60 +1461,66 @@ fn total_ordering(k: &Rc<Class>) -> Result<(), E> {
     if derived.is_empty() {
         return Ok(());
     }
-    let rf = match k.lookup(root) {
-        Some(f) => f,
-        None => return Err(unsupported(&format!("functools.total_ordering: {root} inherited from a builtin base"))),
-    };
+    if k.lookup(root).is_none() {
+        return Err(unsupported(&format!("functools.total_ordering: {root} inherited from a builtin base")));
+    }
     for (n, helper, doc) in derived {
-        let rf2 = rf.clone();
-        let f = func(n, move |a: Args| {
-            let r = call(&rf2, Args::p(vec![a.p[0].clone(), a.p[1].clone()]))?;
-            if matches!(r, V::NotImpl) {
-                return Ok(r);
-            }
-            let t = truth(&r)?;
-            let eqv = || cmp_v(&a.p[0], &a.p[1], "==");
-            let nev = || cmp_v(&a.p[0], &a.p[1], "!=");
-            match (root, n) {
-                ("__lt__", "__gt__") => {
-                    if t { Ok(V::Bool(false)) } else { nev() }
-                }
-                ("__lt__", "__le__") => {
-                    if t { Ok(r) } else { eqv() }
-                }
-                ("__lt__", "__ge__") => Ok(V::Bool(!t)),
-                ("__le__", "__ge__") => {
-                    if !t { Ok(V::Bool(true)) } else { eqv() }
-                }
-                ("__le__", "__lt__") => {
-                    if t { nev() } else { Ok(r) }
-                }
-                ("__le__", "__gt__") => Ok(V::Bool(!t)),
-                ("__gt__", "__lt__") => {
-                    if t { Ok(V::Bool(false)) } else { nev() }
-                }
-                ("__gt__", "__ge__") => {
-                    if t { Ok(r) } else { eqv() }
-                }
-                ("__gt__", "__le__") => Ok(V::Bool(!t)),
-                ("__ge__", "__lt__") => Ok(V::Bool(!t)),
-                ("__ge__", "__gt__") => {
-                    if t { nev() } else { Ok(r) }
-                }
-                ("__ge__", "__le__") => {
-                    if !t { Ok(V::Bool(true)) } else { eqv() }
-                }
-                _ => unreachable!(),
-            }
-        });
-        // as CPython: opfunc.__name__ = opname; the helper's own qualname and docstring remain
-        if let V::Func(fv) = &f {
-            fv.qualname.set(sym(helper));
-            fv.attrs.borrow_mut().push(("__doc__", s(doc)));
-        }
-        k.set(n, f);
+        k.set(n, total_ordering_helper(root, n, helper, doc));
     }
     Ok(())
+}
+// CPython's helpers (_gt_from_lt & co.) are module-level functions of functools, shared by every class the
+// decorator fills in (`A.__gt__ is B.__gt__`, pickled by reference as functools._gt_from_lt). Each looks the
+// root up on type(self) when called, so a subclass that overrides the root is used, as in CPython.
+thread_local! {
+    static TO_HELPERS: RefCell<Vec<(&'static str, V)>> = const { RefCell::new(Vec::new()) };
+}
+pub fn total_ordering_helper_named(helper: &str) -> Option<V> {
+    TO_HELPERS.with(|h| h.borrow().iter().find(|(n, _)| *n == helper).map(|(_, v)| v.clone()))
+}
+fn total_ordering_helper(root: &'static str, n: &'static str, helper: &'static str, doc: &'static str) -> V {
+    if let Some(f) = total_ordering_helper_named(helper) {
+        // as CPython: opfunc.__name__ = opname on the shared function
+        if let V::Func(fv) = &f {
+            fv.name.set(sym(n));
+        }
+        return f;
+    }
+    let f = func(n, move |a: Args| {
+        if a.p.len() != 2 {
+            return type_err(format!("{helper}() takes 2 positional arguments but {} were given", a.p.len()));
+        }
+        let rf = getattr(&V::Class(type_of(&a.p[0])?), root)?;
+        let r = call(&rf, Args::p(vec![a.p[0].clone(), a.p[1].clone()]))?;
+        if matches!(r, V::NotImpl) {
+            return Ok(r);
+        }
+        let t = truth(&r)?;
+        let eqv = || cmp_v(&a.p[0], &a.p[1], "==");
+        let nev = || cmp_v(&a.p[0], &a.p[1], "!=");
+        match (root, n) {
+            ("__lt__", "__gt__") | ("__gt__", "__lt__") => {
+                if t { Ok(V::Bool(false)) } else { nev() }
+            }
+            ("__lt__", "__le__") | ("__gt__", "__ge__") => {
+                if t { Ok(r) } else { eqv() }
+            }
+            ("__le__", "__ge__") | ("__ge__", "__le__") => {
+                if !t { Ok(V::Bool(true)) } else { eqv() }
+            }
+            ("__le__", "__lt__") | ("__ge__", "__gt__") => {
+                if t { nev() } else { Ok(r) }
+            }
+            _ => Ok(V::Bool(!t)),
+        }
+    });
+    if let V::Func(fv) = &f {
+        fv.qualname.set(sym(helper));
+        fv.attrs.borrow_mut().push(("__doc__", s(doc)));
+    }
+    let f = with_module(f, "functools");
+    TO_HELPERS.with(|h| h.borrow_mut().push((helper, f.clone())));
+    f
 }
 pub struct CmpKey {
     pub f: V,

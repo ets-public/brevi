@@ -30,6 +30,8 @@ pub struct RClass {
 }
 const FOLD_UNI: u8 = 1;
 const FOLD_ASCII: u8 = 2;
+// bytes under LOCALE|IGNORECASE: sets match when the lower or upper case of a byte is in them (C locale)
+const FOLD_LOC: u8 = 3;
 #[derive(Clone, Debug)]
 enum CItem {
     Ch(char),
@@ -47,8 +49,10 @@ pub struct Prog {
     names: Vec<(String, usize)>,
     flags: i64,
     src: String,
+    bytes: bool,
 }
 const F_I: i64 = 2;
+const F_L: i64 = 4;
 const F_M: i64 = 8;
 const F_S: i64 = 16;
 const F_X: i64 = 64;
@@ -553,10 +557,15 @@ impl<'a> RP<'a> {
                     'w' | 'W' => CItem::Word(e == 'W'),
                     's' | 'S' => CItem::Space(e == 'S'),
                     'b' => CItem::Ch('\x08'),
-                    'x' | 'u' | 'U' => CItem::Ch(self.hex_escape(e, back)?),
+                    'x' => CItem::Ch(self.hex_escape(e, back)?),
+                    'u' | 'U' if !self.bytes => CItem::Ch(self.hex_escape(e, back)?),
+                    'u' | 'U' => return self.err(&format!("bad escape \\{e}"), back),
                     '0'..='7' => CItem::Ch(self.octal_escape(e, back)?),
                     '8' | '9' => return self.err(&format!("bad escape \\{e}"), back),
                     'N' => {
+                        if self.bytes {
+                            return self.err("bad escape \\N", back);
+                        }
                         if self.peek() != Some('{') {
                             return self.err("missing {", self.i);
                         }
@@ -590,10 +599,15 @@ impl<'a> RP<'a> {
                         'w' | 'W' => CItem::Word(e == 'W'),
                         's' | 'S' => CItem::Space(e == 'S'),
                         'b' => CItem::Ch('\x08'),
-                        'x' | 'u' | 'U' => CItem::Ch(self.hex_escape(e, back)?),
+                        'x' => CItem::Ch(self.hex_escape(e, back)?),
+                        'u' | 'U' if !self.bytes => CItem::Ch(self.hex_escape(e, back)?),
+                        'u' | 'U' => return self.err(&format!("bad escape \\{e}"), back),
                         '0'..='7' => CItem::Ch(self.octal_escape(e, back)?),
                         '8' | '9' => return self.err(&format!("bad escape \\{e}"), back),
                         'N' => {
+                            if self.bytes {
+                                return self.err("bad escape \\N", back);
+                            }
                             if self.peek() != Some('{') {
                                 return self.err("missing {", self.i);
                             }
@@ -624,9 +638,14 @@ impl<'a> RP<'a> {
                 items.push(lo);
             }
         }
-        let ascii = self.flags & F_A != 0 && self.flags & 32 == 0;
+        let ascii = self.bytes || (self.flags & F_A != 0 && self.flags & 32 == 0);
         let mut fold = 0;
-        if self.flags & F_I != 0 {
+        // bytes with LOCALE|IGNORECASE: CPython compiles the set unfolded (IN_LOC_IGNORE) and tests the
+        // lowercase and uppercase of each character against it, negation included. A one-literal set is
+        // a (NOT_)LITERAL at parse time, which ASCII folding matches exactly.
+        if self.flags & F_I != 0 && self.bytes && self.flags & F_L != 0 && !(items.len() == 1 && matches!(items[0], CItem::Ch(_))) {
+            fold = FOLD_LOC;
+        } else if self.flags & F_I != 0 {
             (items, fold) = fold_set(items, self.fold_mode());
         }
         Ok(RNode::Class(Rc::new(RClass { items, neg, ascii, fold })))
@@ -636,7 +655,7 @@ impl<'a> RP<'a> {
         let at = self.i;
         self.i += 1;
         let ic = self.flags & F_I != 0;
-        let ascii = self.flags & F_A != 0 && self.flags & 32 == 0;
+        let ascii = self.bytes || (self.flags & F_A != 0 && self.flags & 32 == 0);
         let fm = if ic { self.fold_mode() } else { 0 };
         let ch = |c: char| if ic { fold_literal(c, fm, ascii) } else { RNode::Char(c) };
         Ok(Some(match c {
@@ -669,8 +688,13 @@ impl<'a> RP<'a> {
                         RNode::Char(c) => ch(c),
                         n => n,
                     },
-                    'x' | 'u' | 'U' => ch(self.hex_escape(e, back)?),
+                    'x' => ch(self.hex_escape(e, back)?),
+                    'u' | 'U' if !self.bytes => ch(self.hex_escape(e, back)?),
+                    'u' | 'U' => return self.err(&format!("bad escape \\{e}"), back),
                     'N' => {
+                        if self.bytes {
+                            return self.err("bad escape \\N", back);
+                        }
                         if self.peek() != Some('{') {
                             return self.err("missing {", self.i);
                         }
@@ -906,7 +930,12 @@ impl<'a> RP<'a> {
                         self.close(gstart)?;
                         Ok(Some(RNode::Look(Rc::new(a), true, n == '!', Cell::new(0))))
                     }
-                    _ => self.err(&format!("unknown extension ?<{}", self.token_at(self.i)), qpos),
+                    _ => {
+                let t = self.token_at(self.i);
+                // CPython has consumed this token (and so read any trailing backslash) before it reports
+                self.i += t.chars().count();
+                self.err(&format!("unknown extension ?<{t}"), qpos)
+            }
                 }
             }
             'P' => self.python_ext(gstart, qpos),
@@ -927,7 +956,12 @@ impl<'a> RP<'a> {
             }
             '(' => self.conditional(gstart),
             'i' | 'm' | 's' | 'x' | 'a' | 'u' | 'L' | '-' => self.flags_group(gstart, k),
-            _ => self.err(&format!("unknown extension ?{}", self.token_at(self.i)), qpos),
+            _ => {
+                let t = self.token_at(self.i);
+                // CPython has consumed this token (and so read any trailing backslash) before it reports
+                self.i += t.chars().count();
+                self.err(&format!("unknown extension ?{t}"), qpos)
+            }
         }
     }
 }
@@ -1130,7 +1164,23 @@ fn range_ui(a: char, b: char, c: char) -> bool {
 impl RClass {
     #[inline]
     fn matches(&self, c: char, ascii: bool) -> bool {
-        let c = if self.fold == 0 { c } else { fold_slow(c, self.fold) };
+        let c = if self.fold == 0 {
+            c
+        } else if self.fold == FOLD_LOC {
+            return self.loc_ignore(c, ascii);
+        } else {
+            fold_slow(c, self.fold)
+        };
+        self.raw(c, ascii)
+    }
+    #[cold]
+    #[inline(never)]
+    fn loc_ignore(&self, c: char, ascii: bool) -> bool {
+        let (lo, up) = (c.to_ascii_lowercase(), c.to_ascii_uppercase());
+        self.raw(lo, ascii) || (up != lo && self.raw(up, ascii))
+    }
+    #[inline]
+    fn raw(&self, c: char, ascii: bool) -> bool {
         let mut hit = false;
         for it in &self.items {
             if match it {
@@ -1152,33 +1202,34 @@ impl RClass {
 // (min, max) width of a node list as CPython's getwidth() computes it, plus false when some look-behind inside
 // is not fixed-width. gw holds the widths of the groups closed so far, for backreferences.
 type Wd = (usize, usize);
-fn alts_width(alts: &[Vec<RNode>], gw: &mut Vec<Option<Wd>>) -> (Wd, bool) {
-    let (mut lo, mut hi, mut ok) = (usize::MAX, 0usize, true);
+type WErr = Option<&'static str>;
+fn alts_width(alts: &[Vec<RNode>], gw: &mut Vec<Option<Wd>>) -> (Wd, WErr) {
+    let (mut lo, mut hi, mut ok) = (usize::MAX, 0usize, None);
     for a in alts {
         let (w, k) = seq_width(a, gw);
         lo = lo.min(w.0);
         hi = hi.max(w.1);
-        ok &= k;
+        ok = ok.or(k);
     }
     if alts.is_empty() {
         lo = 0;
     }
     ((lo, hi), ok)
 }
-fn seq_width(v: &[RNode], gw: &mut Vec<Option<Wd>>) -> (Wd, bool) {
-    let (mut lo, mut hi, mut ok) = (0usize, 0usize, true);
+fn seq_width(v: &[RNode], gw: &mut Vec<Option<Wd>>) -> (Wd, WErr) {
+    let (mut lo, mut hi, mut ok) = (0usize, 0usize, None);
     for n in v {
         let (w, k) = node_width(n, gw);
         lo = lo.saturating_add(w.0);
         hi = hi.saturating_add(w.1);
-        ok &= k;
+        ok = ok.or(k);
     }
     ((lo, hi), ok)
 }
-fn node_width(n: &RNode, gw: &mut Vec<Option<Wd>>) -> (Wd, bool) {
+fn node_width(n: &RNode, gw: &mut Vec<Option<Wd>>) -> (Wd, WErr) {
     match n {
-        RNode::Char(_) | RNode::Any(_) | RNode::Class(_) => ((1, 1), true),
-        RNode::Bol(_) | RNode::Eol(_) | RNode::StrStart | RNode::StrEnd | RNode::WordB(..) => ((0, 0), true),
+        RNode::Char(_) | RNode::Any(_) | RNode::Class(_) => ((1, 1), None),
+        RNode::Bol(_) | RNode::Eol(_) | RNode::StrStart | RNode::StrEnd | RNode::WordB(..) => ((0, 0), None),
         RNode::Group(a, g) => {
             let r = alts_width(a, gw);
             if let Some(g) = g {
@@ -1188,11 +1239,21 @@ fn node_width(n: &RNode, gw: &mut Vec<Option<Wd>>) -> (Wd, bool) {
         }
         RNode::Atomic(a) => alts_width(a, gw),
         RNode::Look(a, behind, _, width) => {
-            let (w, ok) = alts_width(a, gw);
+            let (w, inner) = alts_width(a, gw);
             width.set(w.0);
-            ((0, 0), ok && (!behind || w.0 == w.1))
+            // CPython's compiler checks this look-behind before compiling (and checking) the ones inside it
+            let own = if !*behind {
+                None
+            } else if w.0 > 0xFFFF_FFFF {
+                Some("looks too much behind")
+            } else if w.0 != w.1 {
+                Some("look-behind requires fixed-width pattern")
+            } else {
+                None
+            };
+            ((0, 0), own.or(inner))
         }
-        RNode::Backref(g, _) => (gw.get(*g).copied().flatten().unwrap_or((0, usize::MAX)), true),
+        RNode::Backref(g, _) => (gw.get(*g).copied().flatten().unwrap_or((0, usize::MAX)), None),
         RNode::Repeat(x, min, max, _) => {
             let ((i, j), ok) = node_width(x, gw);
             let hi = if *max == usize::MAX && j > 0 { usize::MAX } else { j.saturating_mul(*max) };
@@ -1201,7 +1262,7 @@ fn node_width(n: &RNode, gw: &mut Vec<Option<Wd>>) -> (Wd, bool) {
         RNode::Cond(_, yes, no) => {
             let ((i, j), k1) = seq_width(yes, gw);
             let ((l, h), k2) = seq_width(no, gw);
-            ((i.min(l), j.max(h)), k1 && k2)
+            ((i.min(l), j.max(h)), k1.or(k2))
         }
     }
 }
@@ -1238,8 +1299,22 @@ fn re_compile2(src: &str, flags: i64, pat: Option<V>) -> Result<Rc<Prog>, E> {
         pat,
     };
     let alts = p.alts()?;
-    if !p.bytes && p.flags & F_A != 0 && p.flags & 32 != 0 {
-        return Err(exc("ValueError", "ASCII and UNICODE flags are incompatible".into()));
+    // CPython's re._parser.fix_flags, run after parsing (so a parse error wins over a bad flag mix):
+    // the flags accumulated from the pattern's global inline flags decide, in this order.
+    if p.bytes {
+        if p.flags & 32 != 0 {
+            return Err(exc("ValueError", "cannot use UNICODE flag with a bytes pattern".into()));
+        }
+        if p.flags & F_L != 0 && p.flags & F_A != 0 {
+            return Err(exc("ValueError", "ASCII and LOCALE flags are incompatible".into()));
+        }
+    } else {
+        if p.flags & F_L != 0 {
+            return Err(exc("ValueError", "cannot use LOCALE flag with a str pattern".into()));
+        }
+        if p.flags & F_A != 0 && p.flags & 32 != 0 {
+            return Err(exc("ValueError", "ASCII and UNICODE flags are incompatible".into()));
+        }
     }
     if p.i < chars.len() {
         return p.err("unbalanced parenthesis", p.i);
@@ -1254,9 +1329,8 @@ fn re_compile2(src: &str, flags: i64, pat: Option<V>) -> Result<Rc<Prog>, E> {
     }
     // CPython's compiler: a look-behind must have a fixed width (raised without a position)
     let mut gw = vec![None; p.ngroups + 1];
-    if !alts_width(&alts, &mut gw).1 {
+    if let Some(msg) = alts_width(&alts, &mut gw).1 {
         let e = Obj::new(exc_class("PatternError"));
-        let msg = "look-behind requires fixed-width pattern";
         e.set("msg", st(msg.to_string()));
         for k in ["pattern", "pos", "lineno", "colno"] {
             e.set(k, V::None);
@@ -1264,7 +1338,7 @@ fn re_compile2(src: &str, flags: i64, pat: Option<V>) -> Result<Rc<Prog>, E> {
         e.set("args", tup(vec![st(msg.to_string())]));
         return Err(E(V::Obj(e)));
     }
-    let prog = Rc::new(Prog { alts, ngroups: p.ngroups, names: p.names, flags: p.flags, src: src.to_string() });
+    let prog = Rc::new(Prog { alts, ngroups: p.ngroups, names: p.names, flags: p.flags, src: src.to_string(), bytes: p.bytes });
     if p.pat.is_none() {
         CACHE.with(|c| c.borrow_mut().insert((src.to_string(), flags), prog.clone()));
     }
@@ -1631,17 +1705,20 @@ impl RMatch {
             _ => Err(exc("IndexError", "no such group".into())),
         }
     }
-    fn text(&self, g: usize) -> Option<String> {
+    fn text(&self, g: usize) -> Option<&[char]> {
         let (a, b) = (self.caps[2 * g], self.caps[2 * g + 1]);
         if a == UNSET {
             None
         } else {
-            Some(self.s[a..b].iter().collect())
+            Some(&self.s[a..b])
         }
     }
+    fn text_v(&self, g: usize) -> Option<V> {
+        self.text(g).map(|t| chars_v(self.prog.bytes, t))
+    }
     fn gv(&self, g: usize, dflt: &V) -> V {
-        match self.text(g) {
-            Some(t) => st(t),
+        match self.text_v(g) {
+            Some(t) => t,
             None => dflt.clone(),
         }
     }
@@ -1651,7 +1728,12 @@ impl Ext for RMatch {
         "re.Match"
     }
     fn repr(&self) -> String {
-        format!("<re.Match object; span=({}, {}), match={}>", self.caps[0], self.caps[1], str_repr(&self.text(0).unwrap_or_default()))
+        let shown = match self.text_v(0) {
+            Some(v) => repr(&v).unwrap_or_default(),
+            None if self.prog.bytes => "b''".into(),
+            None => "''".into(),
+        };
+        format!("<re.Match object; span=({}, {}), match={}>", self.caps[0], self.caps[1], shown)
     }
     fn any(&self) -> &dyn std::any::Any {
         self
@@ -1725,8 +1807,46 @@ impl Ext for RMatch {
                     })
                 }
                 "expand" => {
-                    let t = to_str(&a.p[0])?;
-                    Ok(st(expand_template(&t, self)?))
+                    // CPython: the template's type decides the result's type; a group's text spliced into
+                    // the other string type raises the join's TypeError.
+                    if let Some(b) = bytes_of(&a.p[0]) {
+                        let ts: String = b.iter().map(|&x| x as char).collect();
+                        let pieces = compile_template(&ts, &self.prog, Some(&a.p[0]))?;
+                        let mut out: Vec<u8> = vec![];
+                        for p in &pieces {
+                            match p {
+                                TPiece::Lit(s) => out.extend(s.chars().map(|c| c as u8)),
+                                TPiece::Group(g) => match self.text(*g) {
+                                    Some(t) if self.prog.bytes => out.extend(t.iter().map(|&c| c as u8)),
+                                    Some(_) => return type_err("sequence item 1: expected a bytes-like object, str found".into()),
+                                    None => {}
+                                },
+                            }
+                        }
+                        Ok(bytesv(out))
+                    } else if self.prog.bytes {
+                        // a str template on a bytes match: CPython splices the literal text but cannot
+                        // splice a group's bytes text into a str result
+                        let V::Str(t) = &a.p[0] else {
+                            return type_err(format!("decoding to str: need a bytes-like object, {} found", tn(&a.p[0])));
+                        };
+                        let pieces = compile_template(&t.s, &self.prog, None)?;
+                        let mut out = String::new();
+                        for p in &pieces {
+                            match p {
+                                TPiece::Lit(s) => out.push_str(s),
+                                TPiece::Group(g) => {
+                                    if self.text(*g).is_some() {
+                                        return type_err("sequence item 1: expected str instance, bytes found".into());
+                                    }
+                                }
+                            }
+                        }
+                        Ok(st(out))
+                    } else {
+                        let t = to_str(&a.p[0])?;
+                        Ok(st(expand_template(&t, self)?))
+                    }
                 }
                 "__bool__" => Ok(V::Bool(true)),
                 _ => Err(exc("AttributeError", format!("'re.Match' object has no attribute '{n}'"))),
@@ -1792,8 +1912,15 @@ impl Ext for RPat {
     }
     fn repr(&self) -> String {
         // CPython's: the pattern's repr cut to 200 characters, then the flags other than the implied UNICODE
-        let r: String = str_repr(&self.prog.src).chars().take(200).collect();
-        match self.prog.flags & !32 {
+        let r = if self.prog.bytes {
+            let b: Vec<u8> = self.prog.src.chars().map(|c| c as u8).collect();
+            bytes_repr(&b[..b.len().min(200)])
+        } else {
+            let s: String = str_repr(&self.prog.src).chars().take(200).collect();
+            s
+        };
+        let f = if self.prog.bytes { self.prog.flags } else { self.prog.flags & !32 };
+        match f {
             0 => format!("re.compile({r})"),
             f => format!("re.compile({r}, {})", re_flag_names(f)),
         }
@@ -1803,17 +1930,23 @@ impl Ext for RPat {
     }
     fn eq(&self, o: &V) -> Option<bool> {
         Some(match o {
-            V::Ext(x) => x.any().downcast_ref::<RPat>().is_some_and(|p| p.prog.src == self.prog.src && p.prog.flags == self.prog.flags),
+            V::Ext(x) => x.any().downcast_ref::<RPat>().is_some_and(|p| p.prog.src == self.prog.src && p.prog.flags == self.prog.flags && p.prog.bytes == self.prog.bytes),
             _ => false,
         })
     }
     fn hash(&self) -> Option<i64> {
-        Some(self.prog.src.len() as i64)
+        Some((self.prog.src.len() as i64) ^ if self.prog.bytes { 1 } else { 0 })
     }
     fn attr(&self, _me: &V, n: &str) -> Option<R> {
         Some(Ok(match n {
-            "pattern" => s(&self.prog.src),
-            "flags" => V::Int(if self.prog.flags & F_A != 0 { self.prog.flags } else { self.prog.flags | 32 }),
+            "pattern" => {
+                if self.prog.bytes {
+                    bytesv(self.prog.src.chars().map(|c| c as u8).collect())
+                } else {
+                    s(&self.prog.src)
+                }
+            }
+            "flags" => V::Int(if self.prog.bytes { self.prog.flags } else if self.prog.flags & F_A != 0 { self.prog.flags } else { self.prog.flags | 32 }),
             "groups" => V::Int(self.prog.ngroups as i64),
             "groupindex" => {
                 let mut d = Dict::new();
@@ -1852,7 +1985,43 @@ fn re_str(v: &V) -> Result<(Rc<Vec<char>>, V), E> {
             Ok((c, v.clone()))
         }
         V::Ext(e) if matches!(e.native(), Some(Ok(V::Str(_)))) => re_str(&e.native().unwrap()?),
+        // a str subclass: its characters, and the object itself as match.string
+        V::Obj(o) if matches!(o.inner().as_ref(), Some(V::Str(_))) => {
+            let inner = o.inner().as_ref().unwrap().clone();
+            Ok((re_str(&inner)?.0, v.clone()))
+        }
+        V::Ext(e) if e.any().downcast_ref::<BytesV>().is_some() => type_err("cannot use a string pattern on a bytes-like object".into()),
         _ => type_err(format!("expected string or bytes-like object, got '{}'", tn(v))),
+    }
+}
+// The subject of a pattern call: str (or a str subclass) for str patterns, bytes for bytes patterns.
+fn re_subject(v: &V, bytes: bool) -> Result<(Rc<Vec<char>>, V), E> {
+    if !bytes {
+        return re_str(v);
+    }
+    if let Some(b) = bytes_of(v) {
+        let c: Rc<Vec<char>> = Rc::new(b.iter().map(|&x| x as char).collect());
+        Ok((c, v.clone()))
+    } else {
+        match v {
+            V::Str(_) => type_err("cannot use a bytes pattern on a string-like object".into()),
+            _ => type_err(format!("expected string or bytes-like object, got '{}'", tn(v))),
+        }
+    }
+}
+// A group's text (or an empty string of the pattern's type) as a value.
+fn chars_v(bytes: bool, t: &[char]) -> V {
+    if bytes {
+        bytesv(t.iter().map(|&c| c as u8).collect())
+    } else {
+        st(t.iter().collect())
+    }
+}
+fn empty_v(bytes: bool) -> V {
+    if bytes {
+        bytesv(vec![])
+    } else {
+        s("")
     }
 }
 fn opt_pos(a: &mut Args, i: usize, name: &str, n: usize) -> Result<Option<usize>, E> {
@@ -1906,13 +2075,22 @@ enum TPiece {
 }
 fn apply_template(ps: &[TPiece], m: &RMatch) -> String {
     let mut out = String::new();
+    apply_caps(ps, &m.s, &m.caps, &mut out);
+    out
+}
+// Appends a parsed template's text for one match (its capture slots over subject s) to out.
+fn apply_caps(ps: &[TPiece], s: &[char], caps: &[usize], out: &mut String) {
     for p in ps {
         match p {
-            TPiece::Lit(s) => out.push_str(s),
-            TPiece::Group(g) => out.push_str(&m.text(*g).unwrap_or_default()),
+            TPiece::Lit(t) => out.push_str(t),
+            TPiece::Group(g) => {
+                let (a, b) = (caps[2 * g], caps[2 * g + 1]);
+                if a != UNSET {
+                    out.extend(s[a..b].iter());
+                }
+            }
         }
     }
-    out
 }
 fn compile_template(t: &str, prog: &Prog, pat: Option<&V>) -> Result<Vec<TPiece>, E> {
     let c: Vec<char> = t.chars().collect();
@@ -2037,7 +2215,7 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
     match n {
         "scanner" => {
             let sv = a.kw("string").or_else(|| a.p.first().cloned()).ok_or_else(|| exc("TypeError", "scanner() missing required argument 'string' (pos 1)".into()))?;
-            let (sc, sv) = re_str(&sv)?;
+            let (sc, sv) = re_subject(&sv, prog.bytes)?;
             let len = sc.len();
             let pos = opt_pos(a, 1, "pos", len)?.unwrap_or(0);
             let endpos = opt_pos(a, 2, "endpos", len)?.unwrap_or(len);
@@ -2045,7 +2223,7 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
         }
         "match" | "fullmatch" | "search" => {
             let sv = a.kw("string").or_else(|| a.p.first().cloned()).ok_or_else(|| exc("TypeError", format!("{n}() missing required argument 'string' (pos 1)")))?;
-            let (sc, sv) = re_str(&sv)?;
+            let (sc, sv) = re_subject(&sv, prog.bytes)?;
             let len = sc.len();
             let pos = opt_pos(a, 1, "pos", len)?.unwrap_or(0);
             let endpos = opt_pos(a, 2, "endpos", len)?.unwrap_or(len);
@@ -2059,7 +2237,7 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
         }
         "findall" | "finditer" => {
             let sv = a.kw("string").or_else(|| a.p.first().cloned()).unwrap_or(V::None);
-            let (sc, sv) = re_str(&sv)?;
+            let (sc, sv) = re_subject(&sv, prog.bytes)?;
             let len = sc.len();
             let pos = opt_pos(a, 1, "pos", len)?.unwrap_or(0);
             let endpos = opt_pos(a, 2, "endpos", len)?.unwrap_or(len);
@@ -2069,9 +2247,9 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
             }
             let txt = |c: &Vec<usize>, g: usize| -> V {
                 if c[2 * g] == UNSET {
-                    s("")
+                    empty_v(prog.bytes)
                 } else {
-                    st(sc[c[2 * g]..c[2 * g + 1]].iter().collect())
+                    chars_v(prog.bytes, &sc[c[2 * g]..c[2 * g + 1]])
                 }
             };
             Ok(list(
@@ -2089,61 +2267,98 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
             let sv = a.kw("string").or_else(|| a.p.get(1).cloned()).unwrap_or(V::None);
             let count = match a.kw("count").or_else(|| a.p.get(2).cloned()) {
                 Some(V::Int(c)) if c > 0 => c as usize,
+                // CPython's _sre.subx: count == 0 means unlimited, a negative count means none
+                Some(V::Int(0)) => usize::MAX,
+                Some(V::Int(_)) => 0,
                 _ => usize::MAX,
             };
-            let (sc, sv) = re_str(&sv)?;
+            let callable = matches!(repl, V::Func(_) | V::Bound(_) | V::BMeth(_) | V::Class(_))
+                || matches!(&repl, V::Obj(o) if o.cls.lookup("__call__").is_some());
+            // CPython parses the replacement template before it converts the subject: a bad
+            // template raises even when the subject has no match. A template of the other string
+            // type (str for a bytes pattern and vice versa) also parses here; its type error is
+            // raised only when a match splices it in.
+            let (pieces, wrong_type) = if callable {
+                (None, false)
+            } else if prog.bytes {
+                if let Some(b) = bytes_of(&repl) {
+                    let ts: String = b.iter().map(|&x| x as char).collect();
+                    (Some(compile_template(&ts, prog, Some(&repl))?), false)
+                } else if matches!(repl, V::Str(_)) {
+                    let t = to_str(&repl)?;
+                    (Some(compile_template(&t, prog, None)?), true)
+                } else {
+                    return type_err(format!("decoding to str: need a bytes-like object, {} found", tn(&repl)));
+                }
+            } else if matches!(repl, V::Str(_)) {
+                let t = to_str(&repl)?;
+                (Some(compile_template(&t, prog, None)?), false)
+            } else if let Some(b) = bytes_of(&repl) {
+                let ts: String = b.iter().map(|&x| x as char).collect();
+                (Some(compile_template(&ts, prog, Some(&repl))?), true)
+            } else {
+                return type_err(format!("decoding to str: need a bytes-like object, {} found", tn(&repl)));
+            };
+            let (sc, sv) = re_subject(&sv, prog.bytes)?;
             let ms = all_matches(prog, &sc, 0, sc.len(), count);
+            // bytes results are built as Latin-1 chars and converted once at the end
             let mut out = String::new();
             let mut last = 0;
             let nsub = ms.len();
-            let tmpl = match &repl {
-                V::Str(t) => Some(t.s.clone()),
-                _ => None,
-            };
-            // CPython parses the replacement before looking for matches: a bad template raises even for ''.
-            let pieces = match &tmpl {
-                Some(t) if t.contains('\\') => Some(compile_template(t, prog, None)?),
-                _ => None,
-            };
             for c in ms {
                 out.extend(sc[last..c[0]].iter());
-                let m = RMatch { prog: prog.clone(), s: sc.clone(), sv: sv.clone(), caps: c.clone(), pos: 0, endpos: sc.len() };
-                match &tmpl {
-                    Some(t) => match &pieces {
-                        Some(ps) => out.push_str(&apply_template(ps, &m)),
-                        None => out.push_str(t),
-                    },
+                if wrong_type {
+                    return if prog.bytes {
+                        type_err(format!("sequence item 0: expected a bytes-like object, {} found", tn(&repl)))
+                    } else {
+                        type_err(format!("sequence item 0: expected str instance, {} found", tn(&repl)))
+                    };
+                }
+                match &pieces {
+                    Some(ps) => apply_caps(ps, &sc, &c, &mut out),
                     None => {
+                        let m = RMatch { prog: prog.clone(), s: sc.clone(), sv: sv.clone(), caps: c.clone(), pos: 0, endpos: sc.len() };
                         let r = call(&repl, Args::p(vec![V::Ext(ExtRc::new(m))]))?;
-                        match &r {
-                            V::Str(x) => out.push_str(&x.s),
-                            _ => return type_err(format!("expected str instance, {} found", tn(&r))),
+                        if prog.bytes {
+                            match bytes_of(&r) {
+                                Some(b) => out.extend(b.iter().map(|&x| x as char)),
+                                None => return type_err(format!("sequence item 0: expected a bytes-like object, {} found", tn(&r))),
+                            }
+                        } else {
+                            match &r {
+                                V::Str(x) => out.push_str(&x.s),
+                                _ => return type_err(format!("sequence item 0: expected str instance, {} found", tn(&r))),
+                            }
                         }
                     }
                 }
                 last = c[1];
             }
             out.extend(sc[last..].iter());
-            Ok(if n == "subn" { tup(vec![st(out), V::Int(nsub as i64)]) } else { st(out) })
+            let rv = if prog.bytes { bytesv(out.chars().map(|c| c as u8).collect()) } else { st(out) };
+            Ok(if n == "subn" { tup(vec![rv, V::Int(nsub as i64)]) } else { rv })
         }
         "split" => {
             let sv = a.kw("string").or_else(|| a.p.first().cloned()).unwrap_or(V::None);
             let maxsplit = match a.kw("maxsplit").or_else(|| a.p.get(1).cloned()) {
                 Some(V::Int(c)) if c > 0 => c as usize,
+                // CPython's _sre.split: maxsplit == 0 means unlimited, a negative one means none
+                Some(V::Int(0)) => usize::MAX,
+                Some(V::Int(_)) => 0,
                 _ => usize::MAX,
             };
-            let (sc, _) = re_str(&sv)?;
+            let (sc, _) = re_subject(&sv, prog.bytes)?;
             let ms = all_matches(prog, &sc, 0, sc.len(), maxsplit);
             let mut out = vec![];
             let mut last = 0;
             for c in ms {
-                out.push(st(sc[last..c[0]].iter().collect()));
+                out.push(chars_v(prog.bytes, &sc[last..c[0]]));
                 for g in 1..=prog.ngroups {
-                    out.push(if c[2 * g] == UNSET { V::None } else { st(sc[c[2 * g]..c[2 * g + 1]].iter().collect()) });
+                    out.push(if c[2 * g] == UNSET { V::None } else { chars_v(prog.bytes, &sc[c[2 * g]..c[2 * g + 1]]) });
                 }
                 last = c[1];
             }
-            out.push(st(sc[last..].iter().collect()));
+            out.push(chars_v(prog.bytes, &sc[last..]));
             Ok(list(out))
         }
         _ => Err(exc("AttributeError", format!("'re.Pattern' object has no attribute '{n}'"))),
@@ -2172,13 +2387,14 @@ fn pat_of(v: &V, flags: i64) -> Result<Rc<Prog>, E> {
                 Ok(p.prog.clone())
             }
             None => match bytes_src(v) {
-                Some((bs, pv)) => match re_compile_bytes(&bs, flags, pv) {
-                    Ok(_) => Err(unsupported("re with a bytes pattern")),
-                    Err(e) => Err(e),
-                },
+                Some((bs, pv)) => re_compile_bytes(&bs, flags, pv),
                 None => type_err("first argument must be string or compiled pattern".into()),
             },
         },
+        V::Obj(o) if matches!(o.inner().as_ref(), Some(V::Str(_))) => {
+            let inner = o.inner().as_ref().unwrap().clone();
+            pat_of(&inner, flags)
+        }
         _ => type_err("first argument must be string or compiled pattern".into()),
     }
 }
@@ -2256,6 +2472,16 @@ pub fn re_fn(n: &str, mut a: Args) -> R {
             Ok(V::Ext(ExtRc::new(RPat { prog: pat_of(&pv, f)? })))
         }
         "escape" => {
+            if let Some(b) = bytes_of(&pv) {
+                let mut out = vec![];
+                for c in b {
+                    if matches!(c, b'(' | b')' | b'[' | b']' | b'{' | b'}' | b'?' | b'*' | b'+' | b'-' | b'|' | b'^' | b'$' | b'\\' | b'.' | b'&' | b'~' | b'#' | b' ' | b'\t' | b'\n' | b'\r' | 0x0b | 0x0c) {
+                        out.push(b'\\');
+                    }
+                    out.push(c);
+                }
+                return Ok(bytesv(out));
+            }
             let t = to_str(&pv)?;
             let mut out = String::new();
             for c in t.chars() {
@@ -2283,15 +2509,6 @@ pub fn re_fn(n: &str, mut a: Args) -> R {
         }
         "sub" | "subn" => {
             let f = flags_arg(&mut a, 3)?;
-            if let Some((bs, bpv)) = bytes_src(&pv) {
-                let prog = re_compile_bytes(&bs, f, bpv)?;
-                let repl = a.kw("repl").or_else(|| a.p.first().cloned()).unwrap_or(V::None);
-                if let Some((rt, rv)) = bytes_src(&repl) {
-                    let dummy = RMatch { prog: prog.clone(), s: Rc::new(vec![]), sv: V::None, caps: vec![UNSET; ncaps(prog.ngroups)], pos: 0, endpos: 0 };
-                    let _ = expand_template2(&rt, &dummy, Some(&rv))?;
-                }
-                return Err(unsupported("re with a bytes pattern"));
-            }
             let prog = pat_of(&pv, f)?;
             a.k.retain(|(k, _)| *k != "flags");
             pat_call(&prog, n, &mut a)
