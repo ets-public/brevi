@@ -1190,6 +1190,7 @@ fn singledispatchmethod_impl(f: V) -> R {
 pub fn functools_fn(name: &str, mut a: Args) -> R {
     Ok(match name {
         "cached_property" => return call(&V::Class(cached_property_class()), a),
+        "partialmethod" => return call(&V::Class(partialmethod_class()), a),
         // CPython's functools.RLock is _thread.RLock
         "RLock" => return threading_fn("RLock", a),
         "lru_cache" | "cache" => {
@@ -1233,7 +1234,7 @@ pub fn functools_fn(name: &str, mut a: Args) -> R {
             let f = a.p.remove(0);
             let pre = a.p.clone();
             let kw = a.k.clone();
-            func("partial", move |b: Args| {
+            let p = func("partial", move |b: Args| {
                 let mut p = pre.clone();
                 p.extend(b.p);
                 let mut k = kw.clone();
@@ -1242,7 +1243,12 @@ pub fn functools_fn(name: &str, mut a: Args) -> R {
                     k.push((n, v));
                 }
                 call(&f, Args { p, k })
-            })
+            });
+            // functools.partial is a callable, not a descriptor; the marker also tells isinstance checks
+            if let V::Func(pf) = &p {
+                pf.attrs.borrow_mut().push(("__bv_partial__", V::Bool(true)));
+            }
+            p
         }
         "update_wrapper" => {
             if a.p.is_empty() {
@@ -2669,6 +2675,10 @@ fn modfn(m: &'static str, n: &str) -> V {
         return v;
     }
     let v = builtin(n, move |a: Args| module_call(m, n, a));
+    // marked as a module's function, so it never reads as the builtins function of its name (math.pow.__doc__)
+    if let V::Func(f) = &v {
+        f.attrs.borrow_mut().push(("__bv_mod__", s(m)));
+    }
     MODFNS.with(|c| {
         c.borrow_mut().insert((m, n), v.clone());
     });
@@ -2868,8 +2878,11 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         ("re._constants", "MAXREPEAT") => V::Int(0xFFFF_FFFE),
         ("re._constants", "MAXGROUPS") => V::Int(0x3FFF_FFFF),
         ("functools", "cached_property") => V::Class(cached_property_class()),
+        ("functools", "partialmethod") => V::Class(partialmethod_class()),
         // CPython's functools imports RLock from _thread, so it is an attribute of the module
         ("functools", "RLock") => return module_attr("threading", "RLock"),
+        ("functools", "WRAPPER_ASSIGNMENTS") => wraps_assigned(),
+        ("functools", "WRAPPER_UPDATES") => wraps_updated(),
         _ => {
             if let Some(v) = ext_module_attr(m, name)? {
                 return Ok(v);
@@ -2955,6 +2968,186 @@ fn cached_property_class() -> Rc<Class> {
                 Err(e) => Err(e),
             }
         }));
+        *slot.borrow_mut() = Some(c.clone());
+        c
+    })
+}
+thread_local! {
+    static PARTIALMETHOD: RefCell<Option<Rc<Class>>> = const { RefCell::new(None) };
+}
+fn is_partial_v(v: &V) -> bool {
+    matches!(v, V::Func(f) if f.attrs.borrow().iter().any(|(k, _)| *k == "__bv_partial__"))
+}
+fn kw_syms(v: &V) -> Result<Vec<(Sym, V)>, E> {
+    let mut out = vec![];
+    for (k, v) in dict_items_of(v)? {
+        match &k {
+            V::Str(t) => out.push((sym(&t.s), v)),
+            _ => return type_err("keywords must be strings".into()),
+        }
+    }
+    Ok(out)
+}
+// functools.partialmethod, as CPython 3.13's pure-Python class: a non-data descriptor (see getattr) that
+// binds func through its own __get__ when it has one, and otherwise binds _make_unbound_method like a
+// plain def. A program class may subclass it.
+fn partialmethod_class() -> Rc<Class> {
+    PARTIALMETHOD.with(|slot| {
+        if let Some(c) = slot.borrow().as_ref() {
+            return c.clone();
+        }
+        let c = Class::new("partialmethod", "functools", vec![bclass("object")], BT::Other);
+        let cw = Rc::downgrade(&c);
+        c.set("__init__", func(sym("__init__"), move |a: Args| {
+            if a.p.len() < 2 {
+                return type_err("partialmethod.__init__() missing 1 required positional argument: 'func'".into());
+            }
+            let me = a.p[0].clone();
+            let funcv = a.p[1].clone();
+            let args = tup(a.p[2..].to_vec());
+            let kw = Rc::new(RefCell::new(Dict::new()));
+            for (n, v) in &a.k {
+                Dict::set_cell(&kw, s(n), v.clone())?;
+            }
+            let callable = truth(&bi_callable(Args::p(vec![funcv.clone()]))?)?;
+            let has_get = match getattr(&funcv, "__get__") {
+                Ok(_) => true,
+                Err(E(e)) if is_exc(&e, "AttributeError") => false,
+                Err(e) => return Err(e),
+            };
+            if !callable && !has_get {
+                return type_err(format!("{} is not callable or a descriptor", repr(&funcv)?));
+            }
+            let nested = match &funcv {
+                V::Obj(o) => cw.upgrade().is_some_and(|k| o.cls.is_sub(&k)),
+                _ => false,
+            };
+            if nested {
+                let f = getattr(&funcv, "func")?;
+                let mut all_args = to_vec(&getattr(&funcv, "args")?)?;
+                all_args.extend(a.p[2..].iter().cloned());
+                let all_kw = Rc::new(RefCell::new(Dict::new()));
+                for (k, v) in dict_items_of(&getattr(&funcv, "keywords")?)? {
+                    Dict::set_cell(&all_kw, k, v)?;
+                }
+                for (n, v) in &a.k {
+                    Dict::set_cell(&all_kw, s(n), v.clone())?;
+                }
+                setattr(&me, sym("func"), f)?;
+                setattr(&me, sym("args"), tup(all_args))?;
+                setattr(&me, sym("keywords"), V::Dict(all_kw))?;
+            } else {
+                setattr(&me, sym("func"), funcv)?;
+                setattr(&me, sym("args"), args)?;
+                setattr(&me, sym("keywords"), V::Dict(kw))?;
+            }
+            Ok(V::None)
+        }));
+        c.set("__repr__", func(sym("__repr__"), move |mut a: Args| {
+            if a.p.len() != 1 {
+                return type_err(format!("partialmethod.__repr__() takes 1 positional argument but {} were given", a.p.len()));
+            }
+            a.no_kw("partialmethod.__repr__")?;
+            let me = &a.p[0];
+            let cls = V::Class(type_of(me)?);
+            let module = to_str(&getattr(&cls, "__module__")?)?;
+            let qualname = to_str(&getattr(&cls, "__qualname__")?)?;
+            let mut parts = vec![repr(&getattr(me, "func")?)?];
+            for x in to_vec(&getattr(me, "args")?)? {
+                parts.push(repr(&x)?);
+            }
+            for (k, v) in dict_items_of(&getattr(me, "keywords")?)? {
+                parts.push(format!("{}={}", to_str(&k)?, repr(&v)?));
+            }
+            Ok(st(format!("{module}.{qualname}({})", parts.join(", "))))
+        }));
+        c.set("_make_unbound_method", func(sym("_make_unbound_method"), move |a: Args| {
+            if a.p.len() != 1 || !a.k.is_empty() {
+                return type_err(format!("partialmethod._make_unbound_method() takes 1 positional argument but {} were given", a.p.len()));
+            }
+            let me = a.p[0].clone();
+            let funcv = getattr(&me, "func")?;
+            let margs = getattr(&me, "args")?;
+            let mkw = getattr(&me, "keywords")?;
+            let isabs = match getattr(&me, "__isabstractmethod__") {
+                Ok(v) => v,
+                Err(E(e)) if is_exc(&e, "AttributeError") => V::Bool(false),
+                Err(e) => return Err(e),
+            };
+            let m = func("_method", move |b: Args| {
+                if b.p.is_empty() {
+                    return type_err("_method() missing 1 required positional argument: 'cls_or_self'".into());
+                }
+                let mut p = vec![b.p[0].clone()];
+                p.extend(to_vec(&margs)?);
+                p.extend(b.p[1..].iter().cloned());
+                let mut k = kw_syms(&mkw)?;
+                for (n, v) in &b.k {
+                    match k.iter_mut().find(|(m, _)| *m == *n) {
+                        Some(e) => e.1 = v.clone(),
+                        None => k.push((*n, v.clone())),
+                    }
+                }
+                call(&funcv, Args { p, k })
+            });
+            if let V::Func(mf) = &m {
+                mf.attrs.borrow_mut().push(("__isabstractmethod__", isabs));
+                mf.attrs.borrow_mut().push(("__partialmethod__", me));
+            }
+            Ok(m)
+        }));
+        c.set("__get__", func(sym("__get__"), move |mut a: Args| {
+            if a.p.len() < 2 || a.p.len() > 3 {
+                return type_err(format!("partialmethod.__get__() takes from 2 to 3 positional arguments but {} were given", a.p.len()));
+            }
+            let me = a.p[0].clone();
+            let obj = a.p[1].clone();
+            let cls = if a.p.len() == 3 { a.p[2].clone() } else { a.kw("cls").unwrap_or(V::None) };
+            a.no_kw("partialmethod.__get__")?;
+            let funcv = getattr(&me, "func")?;
+            let get = match getattr(&funcv, "__get__") {
+                Ok(g) => Some(g),
+                Err(E(e)) if is_exc(&e, "AttributeError") => None,
+                Err(e) => return Err(e),
+            };
+            let mut result: Option<V> = None;
+            if let Some(g) = get {
+                if !is_partial_v(&funcv) {
+                    let new_func = call(&g, Args::p(vec![obj.clone(), cls.clone()]))?;
+                    if !is(&new_func, &funcv) {
+                        let mut p = vec![new_func.clone()];
+                        p.extend(to_vec(&getattr(&me, "args")?)?);
+                        let part = functools_fn("partial", Args { p, k: kw_syms(&getattr(&me, "keywords")?)? })?;
+                        match getattr(&new_func, "__self__") {
+                            Ok(sv) => {
+                                if let Err(e) = setattr(&part, sym("__self__"), sv) {
+                                    if !is_exc(&e.0, "AttributeError") {
+                                        return Err(e);
+                                    }
+                                }
+                            }
+                            Err(E(e)) if is_exc(&e, "AttributeError") => {}
+                            Err(e) => return Err(e),
+                        }
+                        result = Some(part);
+                    }
+                }
+            }
+            if result.is_none() {
+                let m = call_method(&me, "_make_unbound_method", Args::p(vec![]))?;
+                result = Some(func_get(&m, obj, cls)?);
+            }
+            Ok(result.unwrap())
+        }));
+        let getter = func(sym("__isabstractmethod__"), move |a: Args| {
+            let f = getattr(&a.p[0], "func")?;
+            match getattr(&f, "__isabstractmethod__") {
+                Ok(v) => Ok(v),
+                Err(E(e)) if is_exc(&e, "AttributeError") => Ok(V::Bool(false)),
+                Err(e) => Err(e),
+            }
+        });
+        c.set("__isabstractmethod__", V::Prop(Rc::new((getter, V::None))));
         *slot.borrow_mut() = Some(c.clone());
         c
     })

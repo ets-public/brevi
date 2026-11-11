@@ -420,6 +420,18 @@ pub fn with_doc(f: V, doc: &str) -> V {
     }
     f
 }
+// A def's __annotations__, evaluated when the def was made (see ANN_DEFS in typing.rs): a dict of the
+// annotated parameters in order, then "return".
+pub fn with_ann(f: V, kv: Vec<(V, V)>) -> R {
+    let d = dict_new();
+    for (k, v) in kv {
+        setitem(&d, &k, v)?;
+    }
+    if let V::Func(ff) = &f {
+        ff.attrs.borrow_mut().push(("__annotations__", d));
+    }
+    Ok(f)
+}
 // The private first-annotation descriptor a def carries when it is decorated with a bare `@register`
 // (functools.singledispatch reads it; see sd_ann_desc in emit.rs). Classmethod and staticmethod copy it with
 // the def's other attributes.
@@ -1103,6 +1115,32 @@ pub fn desc_get(d: &V, obj: &V, cls: &V) -> R {
         None => Ok(d.clone()),
     }
 }
+// A function's __get__(obj, cls), as CPython's function/staticmethod/classmethod method-wrapper does. A
+// staticmethod's wrapper holds the wrapped def in __bv_wrapped__, so __get__ returns the def itself; a
+// classmethod's __get__ binds the wrapped def to cls (or to type(obj) when cls is omitted).
+pub fn func_get(f: &V, obj: V, cls: V) -> R {
+    let V::Func(ff) = f else {
+        return Err(exc("AttributeError", format!("'{}' object has no attribute '__get__'", tn(f))));
+    };
+    if matches!(obj, V::None) && matches!(cls, V::None) {
+        return Err(exc("TypeError", "__get__(None, None) is invalid".into()));
+    }
+    let wrapped = ff
+        .attrs
+        .borrow()
+        .iter()
+        .find(|(k, _)| *k == "__bv_wrapped__")
+        .map(|(_, v)| v.clone())
+        .unwrap_or_else(|| f.clone());
+    Ok(match ff.kind.get() {
+        0 => if matches!(obj, V::None) { f.clone() } else { V::Bound(Rc::new((obj, f.clone()))) },
+        1 => wrapped,
+        _ => {
+            let owner = if matches!(cls, V::None) { V::Class(type_of(&obj)?) } else { cls };
+            V::Bound(Rc::new((owner, wrapped)))
+        }
+    })
+}
 pub fn getattr(o: &V, name: &str) -> R {
     match o {
         V::Obj(ob) => {
@@ -1222,6 +1260,10 @@ pub fn getattr(o: &V, name: &str) -> R {
                     return Ok(v);
                 }
             }
+            // a builtin type has none (CPython's static types raise)
+            if name == "__annotations__" {
+                return Err(exc("AttributeError", format!("type object '{}' has no attribute '__annotations__'", c.name)));
+            }
             match name {
                 // A library type named by its dotted CPython type name ("datetime.date", "numpy.float64"; see
                 // ext_class): CPython splits such a name at its last dot into __module__ and __name__.
@@ -1264,6 +1306,8 @@ pub fn getattr(o: &V, name: &str) -> R {
                     }))
                 }
                 "__doc__" => Ok(V::None),
+                // a class that is not generic (Brevi has no `class C[T]`): CPython's empty tuple
+                "__type_params__" => Ok(tup(vec![])),
                 // the class's own names in the order its body bound them (CPython's is a read-only view
                 // with a few more dunder names)
                 "__dict__" => {
@@ -1309,6 +1353,10 @@ pub fn getattr(o: &V, name: &str) -> R {
             }
         }
         V::Module(m) => {
+            // a module's annotations (its annotated top-level names) are not kept
+            if name == "__annotations__" {
+                return Err(unsupported("a module's __annotations__"));
+            }
             if let Some(f) = USER_MOD.with(|u| u.get()) {
                 if let Some(r) = f(m, name) {
                     return r;
@@ -1367,7 +1415,32 @@ pub fn getattr(o: &V, name: &str) -> R {
             "__dict__" if f.kind.get() != 3 => Ok(V::Dict(func_dict_make(f)?)),
             // 0 function, 1 staticmethod, 2 classmethod (Brevi's pydantic reads it)
             "__bv_kind__" => Ok(V::Int(f.kind.get() as i64)),
-            "__doc__" => Ok(f.attrs.borrow().iter().find(|(k, _)| *k == "__doc__").map_or(V::None, |(_, v)| v.clone())),
+            // CPython's def/staticmethod/classmethod method-wrapper; a functools.partial is not a descriptor
+            "__get__" if f.kind.get() != 3 && f.attrs.borrow().iter().all(|(k, _)| *k != "__bv_partial__") => {
+                let v = o.clone();
+                Ok(builtin("__get__", move |mut a: Args| {
+                    if !a.k.is_empty() {
+                        return type_err("wrapper __get__() takes no keyword arguments".into());
+                    }
+                    if a.p.is_empty() {
+                        return type_err("expected at least 1 argument, got 0".into());
+                    }
+                    if a.p.len() > 2 {
+                        return type_err(format!("expected at most 2 arguments, got {}", a.p.len()));
+                    }
+                    let obj = a.p.remove(0);
+                    let cls = a.p.pop().unwrap_or(V::None);
+                    func_get(&v, obj, cls)
+                }))
+            }
+            "__doc__" => Ok(match f.attrs.borrow().iter().find(|(k, _)| *k == "__doc__") {
+                Some((_, v)) => v.clone(),
+                // a builtin of the builtins module (a module's function carries its __module__): CPython's text
+                None if f.kind.get() == 3 && !f.attrs.borrow().iter().any(|(k, _)| *k == "__module__" || *k == "__bv_mod__") => {
+                    builtin_doc(&f.name.get()).map_or(V::None, |d| s(d))
+                }
+                None => V::None,
+            }),
             _ => {
                 if let Some(v) = func_user_attr(f, name)? {
                     return Ok(v);
