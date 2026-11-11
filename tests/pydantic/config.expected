@@ -2,34 +2,34 @@ name='hello' color=<Color.GREEN: 'green'> level=<Level.HIGH: 2>
 1 validation error for Strict
 other
   Extra inputs are not permitted [type=extra_forbidden, input_value=1, input_type=int]
-    For further information visit https://errors.pydantic.dev/2.13/v/extra_forbidden
+    For further information visit https://errors.pydantic.dev/2.14/v/extra_forbidden
 2 validation errors for Strict
 color
   Input should be 'red' or 'green' [type=enum, input_value='blue', input_type=str]
-    For further information visit https://errors.pydantic.dev/2.13/v/enum
+    For further information visit https://errors.pydantic.dev/2.14/v/enum
 level
   Input should be 1 or 2 [type=enum, input_value=3, input_type=int]
-    For further information visit https://errors.pydantic.dev/2.13/v/enum
+    For further information visit https://errors.pydantic.dev/2.14/v/enum
 Open(color='green', size=3, label='x') {'size': 3, 'label': 'x'} {'color': 'green', 'size': 3, 'label': 'x'} 3 {"color":"green","size":3,"label":"x"}
 a=1 b=(1, 2) True 1
 1 validation error for Frozen
 a
   Instance is frozen [type=frozen_instance, input_value=2, input_type=int]
-    For further information visit https://errors.pydantic.dev/2.13/v/frozen_instance
+    For further information visit https://errors.pydantic.dev/2.14/v/frozen_instance
 count=3 label=None count=4 label=None live 1 2 1
 7 ['count']
 ValidationError 1 validation error for Live
 count
   Input should be greater than 0 [type=greater_than, input_value=0, input_type=int]
-    For further information visit https://errors.pydantic.dev/2.13/v/greater_than
+    For further information visit https://errors.pydantic.dev/2.14/v/greater_than
 ValidationError 1 validation error for Live
 label
   Input should be a valid string [type=string_type, input_value=5, input_type=int]
-    For further information visit https://errors.pydantic.dev/2.13/v/string_type
+    For further information visit https://errors.pydantic.dev/2.14/v/string_type
 ValidationError 1 validation error for Live
 nope
   Object has no attribute 'nope' [type=no_such_attribute, input_value=1, input_type=int]
-    For further information visit https://errors.pydantic.dev/2.13/v/no_such_attribute
+    For further information visit https://errors.pydantic.dev/2.14/v/no_such_attribute
 'kind' is a ClassVar of `Live` and cannot be set on an instance. If you want to set a value on the class, use `Live.kind = value`.
 Child(id=1, name='child', extra=[Base(id=2, name='base'), Base(id=3, name='base'), Child(id=4, name='child', extra=[])]) ['id', 'name', 'extra'] True
 {'id': 1, 'name': 'child', 'extra': [{'id': 2, 'name': 'base'}, {'id': 3, 'name': 'base'}, {'id': 4, 'name': 'child'}]}
@@ -38,23 +38,23 @@ n=1 s='a'
 2 validation errors for StrictModel
 n
   Input should be a valid integer [type=int_type, input_value='1', input_type=str]
-    For further information visit https://errors.pydantic.dev/2.13/v/int_type
+    For further information visit https://errors.pydantic.dev/2.14/v/int_type
 s
   Input should be a valid string [type=string_type, input_value=1, input_type=int]
-    For further information visit https://errors.pydantic.dev/2.13/v/string_type
+    For further information visit https://errors.pydantic.dev/2.14/v/string_type
 2 validation errors for StrictModel
 n
   Input should be a valid integer [type=int_type, input_value=True, input_type=bool]
-    For further information visit https://errors.pydantic.dev/2.13/v/int_type
+    For further information visit https://errors.pydantic.dev/2.14/v/int_type
 s
   Input should be a valid string [type=string_type, input_value=b'x', input_type=bytes]
-    For further information visit https://errors.pydantic.dev/2.13/v/string_type
+    For further information visit https://errors.pydantic.dev/2.14/v/string_type
 thing=Thing(3) more=[Thing(1), Thing(2)] 6 {'thing': Thing(3), 'more': [Thing(1), Thing(2)]}
 1 validation error for Box
 thing
   Input should be an instance of Thing [type=is_instance_of, input_value=5, input_type=int]
-    For further information visit https://errors.pydantic.dev/2.13/v/is_instance_of
+    For further information visit https://errors.pydantic.dev/2.14/v/is_instance_of
 1 validation error for Box
   Value error, too big [type=value_error, input_value={'thing': Thing(6), 'more': [Thing(1), Thing(1)]}, input_type=dict]
-    For further information visit https://errors.pydantic.dev/2.13/v/value_error
+    For further information visit https://errors.pydantic.dev/2.14/v/value_error
 PydanticSerializationError Unable to serialize unknown type: <class '__main__.Thing'>
