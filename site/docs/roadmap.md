@@ -7,12 +7,12 @@ The full plan, with every decision and risk, is [docs/ROADMAP.md](https://github
 
 ## The numbers we steer by
 
-Measured on v0.26.0, 9 November 2026. Latency is from one machine (4-core Xeon @ 2.10 GHz); every number links to where it comes from.
+Measured on v0.26.0, 9 November 2026, except the two conformance rows, which are from v0.27.0 (11 November). Latency is from one machine (4-core Xeon @ 2.10 GHz); every number links to where it comes from.
 
 | | Now | In 90 days | In 12 months |
 |---|---:|---:|---:|
 | [CPython conformance](https://github.com/ets-public/brevi/blob/main/bench/conformance/report.md) (tests that print exactly what CPython prints from a native build) | 80.4% (250 of 311) at v0.27.0 | 70% | 90% |
-| [Known wrong results](https://github.com/ets-public/brevi/blob/main/compat/conformance_known_wrong.txt) (built, but answered differently from CPython) | 44 tests | 25 or fewer | 0 |
+| [Known wrong results](https://github.com/ets-public/brevi/blob/main/compat/conformance_known_wrong.txt) (built, but answered differently from CPython) | 8 tests at v0.27.0 (44 at v0.26.0) | 25 or fewer | 0 |
 | [`brevi check --fast`](https://github.com/ets-public/brevi/blob/main/docs/LATENCY.md) after an edit, median | 16 ms | 20 ms or less | 10 ms |
 | [`brevi check`](https://github.com/ets-public/brevi/blob/main/docs/LATENCY.md) after an edit, median | 94 ms | 50 ms | 30 ms |
 | [Build after an edit](https://github.com/ets-public/brevi/blob/main/docs/LATENCY.md), median | 0.87 s typed, 1.5 s dynamic | 0.5 s | 0.3 s |
@@ -27,7 +27,7 @@ The north star is the share of real agent-written programs that build natively, 
 ## Now (the next 30 days)
 
 - **Tell the truth everywhere.** One source for every public number, no absolute claims, measured speed ranges, and the conformance score first in the numbers table.
-- **Conformance in CI.** The CPython conformance run becomes a release gate that fails on any new wrong result, with a public dashboard and the known-wrong list burned down in public, one fix at a time. Shipped in v0.27.0: `tools/conformance.py --check` fails CI on any new wrong result, and conformance is up from 58.2% to 80.4% (250 of 311).
+- **Conformance in CI.** The CPython conformance run becomes a release gate that fails on any new wrong result, with a public dashboard and the known-wrong list burned down in public, one fix at a time. Shipped in v0.27.0: `tools/conformance.py --check` fails CI on any new wrong result, and conformance is up from 58.2% to 80.4% (250 of 311). From the next release: every known-wrong entry names an issue, an owner and an expiry date, and `--release-gate` fails below core 90%, stdlib 60% or any known-wrong result.
 - **Fuzzing.** Generated programs run natively and under CPython and compared; a crash is a top-priority bug, and a signal is treated as a security bug until it is understood. Shipped in v0.27.0: `tools/fuzz.py` writes seeded random agent-style Python, including shared-list cases, and compares the builds with CPython.
 - **Verify by default.** `brevi verify` (v0.26.0) checks a program against CPython on your inputs and prints a certificate. Next, `brevi run --verify` and the MCP `run` tool check every run where it is safe and cheap, and answer with CPython's output if the two ever differ. [Design](https://github.com/ets-public/brevi/blob/main/docs/VERIFY_BY_DEFAULT.md). Shipped in v0.27.0: `brevi run --verify` and the MCP `run` tool do this.
 - **Measure the loop.** `bench/latency.py` times every command an agent runs after an edit, and the release test now records how often the first check builds natively and what it costs to reach a passing answer with Brevi's errors shown to the model.
