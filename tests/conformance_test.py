@@ -173,6 +173,20 @@ class Classify(unittest.TestCase):
         self.assertEqual(c.classify(self.want, (False, "no", False), None), ("refused", "no"))
         self.assertEqual(c.classify(self.want, (False, "panic", True), None)[0], "crash_or_timeout")
 
+    def test_a_string_run_as_code_is_by_design_and_left_out_of_coverage(self):
+        refused = lambda d: {"category": "refused", "path": None, "detail": d, "silent": False}
+        ok = {"category": "matched", "path": "dynamic", "detail": "", "silent": False}
+        ex = {"id": "t.A.ex", "modes": {"normal": refused("unknown function exec()"), "dyn": refused("exec() is not supported in dynamic builds")}}
+        lit = {"id": "t.A.lit", "modes": {"normal": refused("x"), "dyn": refused("eval() of a complex literal is not supported in dynamic builds")}}
+        good = {"id": "t.A.ok", "modes": {"normal": ok, "dyn": ok}}
+        self.assertTrue(c.by_design_refusal(ex))
+        self.assertFalse(c.by_design_refusal(lit))
+        self.assertFalse(c.by_design_refusal(good))
+        for x in ex["modes"].values():
+            x["category"] = "by_design"
+        t = c.tally([ex, lit, good], "normal")
+        self.assertEqual((t["by_design"], t["scored"], t["coverage"]), (1, 2, 0.5))
+
     def test_object_addresses_are_blanked_but_the_rest_of_the_repr_is_compared(self):
         want = c.masked(c.Run(0, b"<function f at 0x7f1a2b3c>\n", b"", ""))
         same = c.masked(c.Run(0, b"<function f at 0x55e0d1>\n", b"", ""))
