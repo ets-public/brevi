@@ -114,7 +114,7 @@ struct RP<'a> {
     i: usize,
     flags: i64,
     ngroups: usize,
-    closed: usize,
+    open: Vec<usize>,
     names: Vec<(String, usize)>,
     lb: Option<usize>,
     global_ok: bool,
@@ -372,7 +372,7 @@ impl<'a> RP<'a> {
         if g > self.ngroups {
             return self.err(&format!("invalid group reference {g}"), pos);
         }
-        if g > self.closed {
+        if self.open.contains(&g) {
             return self.err("cannot refer to an open group", pos);
         }
         if let Some(lb) = self.lb {
@@ -405,7 +405,7 @@ impl<'a> RP<'a> {
         if g > self.ngroups {
             return self.err(&format!("invalid group reference {g}"), back + 1);
         }
-        if g > self.closed {
+        if self.open.contains(&g) {
             return self.err("cannot refer to an open group", back);
         }
         if let Some(lb) = self.lb {
@@ -605,7 +605,10 @@ impl<'a> RP<'a> {
                     'A' => RNode::StrStart,
                     'Z' => RNode::StrEnd,
                     '0' => ch(self.octal_escape(e, back)?),
-                    '1'..='9' => self.group_or_octal(e, back)?,
+                    '1'..='9' => match self.group_or_octal(e, back)? {
+                        RNode::Char(c) => ch(c),
+                        n => n,
+                    },
                     'x' | 'u' | 'U' => ch(self.hex_escape(e, back)?),
                     'N' => {
                         if self.peek() != Some('{') {
@@ -730,10 +733,11 @@ impl<'a> RP<'a> {
                 }
                 self.ngroups += 1;
                 let g = self.ngroups;
+                self.open.push(g);
                 self.names.push((name, g));
                 let a = self.sub_parse()?;
                 self.close(gstart)?;
-                self.closed += 1;
+                self.open.pop();
                 Ok(Some(RNode::Group(Rc::new(a), Some(g))))
             }
             '=' => {
@@ -800,9 +804,10 @@ impl<'a> RP<'a> {
         if self.peek() != Some('?') {
             self.ngroups += 1;
             let g = self.ngroups;
+            self.open.push(g);
             let a = self.sub_parse()?;
             self.close(gstart)?;
-            self.closed += 1;
+            self.open.pop();
             return Ok(Some(RNode::Group(Rc::new(a), Some(g))));
         }
         self.i += 1;
@@ -941,7 +946,7 @@ fn re_compile2(src: &str, flags: i64, pat: Option<V>) -> Result<Rc<Prog>, E> {
         i: 0,
         flags,
         ngroups: 0,
-        closed: 0,
+        open: vec![],
         names: vec![],
         lb: None,
         global_ok: true,
