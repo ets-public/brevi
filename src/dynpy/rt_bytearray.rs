@@ -403,6 +403,16 @@ impl ByteArrayV {
                     None => return Err(exc("AttributeError", format!("'bytearray' object has no attribute '{n}'"))),
                 };
                 let _ = me;
+                if matches!(n, "partition" | "rpartition") {
+                    // bytearray's partition gives three new bytearrays, the separator copied too
+                    if let V::Tuple(t) = &r {
+                        let mut out = vec![];
+                        for x in t.iter() {
+                            out.push(bytearrayv(buf_full(x)?.unwrap_or_default()));
+                        }
+                        return Ok(tup(out));
+                    }
+                }
                 Ok(if BA_WRAPS.contains(&n) { ba_wrap(r) } else { r })
             }
         }

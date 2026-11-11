@@ -1,0 +1,4 @@
+bytes ['Buffer', 'Sequence', 'Hashable', 'Iterable', 'Sized', 'Container', 'Reversible', 'Collection']
+bytearray ['Buffer', 'Sequence', 'MutableSequence', 'Iterable', 'Sized', 'Container', 'Reversible', 'Collection']
+memoryview ['Buffer', 'Sequence', 'Hashable', 'Iterable', 'Sized', 'Container', 'Reversible', 'Collection']
+True True True

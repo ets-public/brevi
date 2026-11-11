@@ -749,6 +749,7 @@ class Sequence(Reversible, Collection):
 Sequence.register(tuple)
 Sequence.register(str)
 Sequence.register(range)
+Sequence.register(memoryview)
 
 
 class ByteString(Sequence):
@@ -757,6 +758,7 @@ class ByteString(Sequence):
 
 
 ByteString.register(type(b''))
+ByteString.register(bytearray)
 
 
 class MutableSequence(Sequence):
@@ -811,6 +813,7 @@ class MutableSequence(Sequence):
 
 
 MutableSequence.register(list)
+MutableSequence.register(bytearray)
 
 
 __all__ = ["Awaitable", "Coroutine",

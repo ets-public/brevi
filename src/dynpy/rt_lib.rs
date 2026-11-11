@@ -853,6 +853,8 @@ fn builtin_hook_methods(c: &Rc<Class>) -> Option<Option<&'static [&'static str]>
             "NoneType" | "bool" | "int" | "float" | "complex" | "object" | "slice" | "ellipsis" | "NotImplementedType" | "cell" => SCALAR,
             "str" => &["__hash__", "__iter__", "__len__", "__contains__"],
             "bytes" => &["__hash__", "__iter__", "__len__", "__contains__", "__buffer__"],
+            "bytearray" => &["__iter__", "__len__", "__contains__", "__buffer__"],
+            "memoryview" => &["__hash__", "__iter__", "__len__", "__buffer__"],
             "list" | "dict" | "defaultdict" | "Counter" | "OrderedDict" | "deque" | "dict_keys" | "dict_items" => &["__iter__", "__reversed__", "__len__", "__contains__"],
             "tuple" | "frozenset" => &["__hash__", "__iter__", "__len__", "__contains__"],
             "set" => &["__iter__", "__len__", "__contains__"],

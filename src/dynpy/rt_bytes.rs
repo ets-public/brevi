@@ -257,11 +257,19 @@ fn sub_range(a: &Args, at: usize, n: usize) -> Result<(i64, i64), E> {
     Ok((adj(get(at, 0)?), adj(get(at + 1, n)?)))
 }
 
+// a wrong argument's type as CPython's argument errors name it: None is "None", not "NoneType"
+fn arg_tn(x: &V) -> String {
+    match x {
+        V::None => "None".into(),
+        x => tn(x),
+    }
+}
+
 fn codec_name(v: Option<&V>) -> Result<&'static str, E> {
     let n = match v {
         None => return Ok("utf-8"),
         Some(V::Str(s)) => s.s.to_lowercase().replace('_', "-"),
-        Some(x) => return type_err(format!("decode() argument 'encoding' must be str, not {}", tn(x))),
+        Some(x) => return type_err(format!("decode() argument 'encoding' must be str, not {}", arg_tn(x))),
     };
     Ok(match n.as_str() {
         "utf-8" | "utf8" | "u8" | "utf" | "cp65001" => "utf-8",
@@ -279,13 +287,22 @@ fn errors_name(v: Option<&V>) -> Result<String, E> {
     match v {
         None => Ok("strict".into()),
         Some(V::Str(s)) => Ok(s.s.clone()),
-        Some(x) => type_err(format!("decode() argument 'errors' must be str, not {}", tn(x))),
+        Some(x) => type_err(format!("decode() argument 'errors' must be str, not {}", arg_tn(x))),
     }
 }
 
 pub fn bytes_decode(b: &[u8], enc: Option<&V>, errors: Option<&V>) -> R {
+    // the argument types are checked first; empty input then decodes to '' without looking the codec or the error
+    // handler up, as in CPython (b''.decode('nope') is '')
+    if let Some(x) = enc.filter(|x| !matches!(x, V::Str(_))) {
+        return type_err(format!("decode() argument 'encoding' must be str, not {}", arg_tn(x)));
+    }
+    let errors_s = errors_name(errors)?;
+    if b.is_empty() {
+        return Ok(st(String::new()));
+    }
     let codec = codec_name(enc)?;
-    let errors = errors_name(errors)?;
+    let errors = errors_s;
     if !matches!(errors.as_str(), "strict" | "replace" | "ignore" | "backslashreplace") {
         return Err(unsupported(&format!("decode errors='{errors}'")));
     }
@@ -480,7 +497,7 @@ pub fn bi___bytes_lit(a: Args) -> R {
 pub fn bytes_fromhex(a: Args) -> R {
     let s = match a.p.first() {
         Some(V::Str(s)) => s.s.clone(),
-        Some(x) => return type_err(format!("fromhex() argument must be str, not {}", tn(x))),
+        Some(x) => return type_err(format!("fromhex() argument must be str, not {}", arg_tn(x))),
         None => return type_err("fromhex() takes exactly one argument (0 given)".into()),
     };
     let cs: Vec<char> = s.chars().collect();
@@ -508,6 +525,7 @@ pub fn bytes_maketrans(a: Args) -> R {
     let a = a;
     no_kws("maketrans", &a)?;
     unpack_range("maketrans", &a, 2, 2)?;
+    mv_arg_check(&a)?;
     let frm = sub_arg(&a.p[0], false)?;
     let to = sub_arg(&a.p[1], false)?;
     if frm.len() != to.len() {
@@ -1212,7 +1230,8 @@ impl BytesV {
                         (sep.len() <= b.len()).then(|| (0..=b.len() - sep.len()).rev().find(|&i| &b[i..i + sep.len()] == sep.as_slice())).flatten()
                     };
                     match hit {
-                        Some(k) => tup(vec![bytesv(b[..k].to_vec()), bytesv(sep.clone()), bytesv(b[k + sep.len()..].to_vec())]),
+                        // the separator found is the argument object itself, as in CPython
+                        Some(k) => tup(vec![bytesv(b[..k].to_vec()), a.p[0].clone(), bytesv(b[k + sep.len()..].to_vec())]),
                         None if n == "partition" => tup(vec![bytesv(b.clone()), bytesv(vec![]), bytesv(vec![])]),
                         None => tup(vec![bytesv(vec![]), bytesv(vec![]), bytesv(b.clone())]),
                     }
@@ -1635,7 +1654,7 @@ pub fn hashlib_fn(n: &str, a: Args) -> R {
     let (name, data) = if n == "new" {
         let nm = match a.p.first() {
             Some(V::Str(s)) => s.s.clone(),
-            Some(x) => return type_err(format!("new() argument 'name' must be str, not {}", tn(x))),
+            Some(x) => return type_err(format!("new() argument 'name' must be str, not {}", arg_tn(x))),
             None => return type_err("new() missing required argument 'name' (pos 1)".into()),
         };
         match hash_algo(&nm) {
