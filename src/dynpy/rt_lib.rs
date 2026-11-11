@@ -720,6 +720,9 @@ pub fn isinstance(x: &V, c: &V) -> Result<bool, E> {
             if k.name == "object" && k.module == "builtins" {
                 return Ok(true);
             }
+            if k.abc.get() {
+                return abc_instancecheck(k, x);
+            }
             if let V::Obj(o) = x {
                 return Ok(o.cls.is_sub(k) || (k.name == "object" && k.module == "builtins"));
             }
@@ -743,6 +746,171 @@ pub fn isinstance(x: &V, c: &V) -> Result<bool, E> {
         V::Func(f) if &*f.name.get() == "slice" => Ok(matches!(x, V::Slice(_))),
         _ => type_err("isinstance() arg 2 must be a type, a tuple of types, or a union".into()),
     }
+}
+fn abc_has(v: &[Rc<Class>], c: &Rc<Class>) -> bool {
+    v.iter().any(|x| Rc::ptr_eq(x, c))
+}
+// ABCMeta.__subclasscheck__ (the C _abc_subclasscheck): cache, __subclasshook__, direct subclass,
+// registered classes, then subclasses, recursively.
+fn abc_subclasscheck(cls: &Rc<Class>, sub: &Rc<Class>) -> Result<bool, E> {
+    if abc_has(&cls.abc_cache.borrow(), sub) {
+        return Ok(true);
+    }
+    let token = ABC_TOKEN.load(std::sync::atomic::Ordering::Relaxed);
+    if cls.abc_neg_ver.get() < token {
+        cls.abc_neg_cache.borrow_mut().clear();
+        cls.abc_neg_ver.set(token);
+    } else if abc_has(&cls.abc_neg_cache.borrow(), sub) {
+        return Ok(false);
+    }
+    let hook = match getattr(&V::Class(cls.clone()), "__subclasshook__") {
+        Ok(h) => Some(h),
+        Err(E(e)) if is_exc(&e, "AttributeError") => None,
+        Err(e) => return Err(e),
+    };
+    if let Some(h) = hook {
+        let r = call(&h, Args::p(vec![V::Class(sub.clone())]))?;
+        if !matches!(r, V::NotImpl) {
+            let ok = truth(&r)?;
+            let mut cache = if ok { cls.abc_cache.borrow_mut() } else { cls.abc_neg_cache.borrow_mut() };
+            if !abc_has(&cache, sub) {
+                cache.push(sub.clone());
+            }
+            drop(cache);
+            return Ok(ok);
+        }
+    }
+    if sub.is_sub(cls) {
+        if !abc_has(&cls.abc_cache.borrow(), sub) {
+            cls.abc_cache.borrow_mut().push(sub.clone());
+        }
+        return Ok(true);
+    }
+    let registered = cls.abc_registry.borrow().clone();
+    for r in registered {
+        let ok = if r.abc.get() { abc_subclasscheck(&r, sub)? } else { sub.is_sub(&r) };
+        if ok {
+            if !abc_has(&cls.abc_cache.borrow(), sub) {
+                cls.abc_cache.borrow_mut().push(sub.clone());
+            }
+            return Ok(true);
+        }
+    }
+    let subs: Vec<Rc<Class>> = cls.subs.borrow().iter().filter_map(|w| w.upgrade()).collect();
+    for s in subs {
+        let ok = if s.abc.get() { abc_subclasscheck(&s, sub)? } else { sub.is_sub(&s) };
+        if ok {
+            if !abc_has(&cls.abc_cache.borrow(), sub) {
+                cls.abc_cache.borrow_mut().push(sub.clone());
+            }
+            return Ok(true);
+        }
+    }
+    if !abc_has(&cls.abc_neg_cache.borrow(), sub) {
+        cls.abc_neg_cache.borrow_mut().push(sub.clone());
+    }
+    Ok(false)
+}
+// ABCMeta.__instancecheck__ (the C _abc_instancecheck).
+fn abc_instancecheck(cls: &Rc<Class>, x: &V) -> Result<bool, E> {
+    // an iterator whose CPython class Brevi cannot name is still an iterator (not a generator: those are named)
+    let subtype = match type_of(x) {
+        Ok(t) => t,
+        Err(_) if matches!(x, V::Iter(_)) => ext_class("iterator"),
+        Err(e) => return Err(e),
+    };
+    let subclass = match x {
+        V::Obj(o) => o.cls.clone(),
+        _ => subtype.clone(),
+    };
+    if abc_has(&cls.abc_cache.borrow(), &subclass) {
+        return Ok(true);
+    }
+    if Rc::ptr_eq(&subclass, &subtype) {
+        let token = ABC_TOKEN.load(std::sync::atomic::Ordering::Relaxed);
+        if cls.abc_neg_ver.get() == token && abc_has(&cls.abc_neg_cache.borrow(), &subclass) {
+            return Ok(false);
+        }
+        return abc_subclasscheck(cls, &subclass);
+    }
+    Ok(abc_subclasscheck(cls, &subclass)? || abc_subclasscheck(cls, &subtype)?)
+}
+// _check_methods in _collections_abc.py: scan the MRO's __dict__s. For Brevi's builtin classes the __dict__
+// is incomplete, so builtin_method_present answers from the same tables has_method uses, plus the few
+// dunder slots CPython's _check_methods sees (None marks __hash__ on unhashable types).
+fn builtin_method_present(c: &Rc<Class>, name: &str) -> Option<bool> {
+    let sample = match c.name {
+        "NoneType" => Some(V::None),
+        "bool" | "int" => Some(V::Int(0)),
+        "float" => Some(V::Float(0.0)),
+        "str" => Some(s("")),
+        "list" => Some(V::List(Rc::new(RefCell::new(vec![])))),
+        "tuple" => Some(tup(vec![])),
+        "dict" | "defaultdict" | "Counter" | "OrderedDict" => Some(V::Dict(Rc::new(RefCell::new(Dict::new())))),
+        "set" => Some(V::Set(Rc::new(RefCell::new(PSet::new())))),
+        "frozenset" => Some(V::FSet(Rc::new(PSet::new()))),
+        "range" => Some(V::Range(Rc::new((0, 0, 1)))),
+        "deque" => Some(V::Deque(Rc::new(RefCell::new(Deq { v: VecDeque::new(), max: None })))),
+        _ => None,
+    };
+    if let Some(sample) = sample {
+        if name == "__hash__" && matches!(c.name, "list" | "set" | "dict" | "defaultdict" | "Counter" | "OrderedDict") {
+            return Some(false);
+        }
+        return Some(has_method(&sample, name));
+    }
+    Some(match c.name {
+        "type" => matches!(name, "__hash__" | "__call__"),
+        "function" => matches!(name, "__hash__" | "__call__"),
+        "object" => name == "__hash__",
+        "coroutine" => matches!(name, "__hash__" | "__await__" | "send" | "throw" | "close"),
+        "async_generator" => matches!(name, "__hash__" | "__aiter__" | "__anext__" | "asend" | "athrow" | "aclose"),
+        "iterator" => matches!(name, "__hash__" | "__iter__" | "__next__"),
+        "generator" => matches!(name, "__hash__" | "__iter__" | "__next__" | "send" | "throw" | "close"),
+        _ => return None,
+    })
+}
+fn class_has_method(c: &Rc<Class>, name: &str) -> bool {
+    for k in c.mro.borrow().iter() {
+        if k.module == "builtins" || k.module == "collections" {
+            if let Some(p) = builtin_method_present(k, name) {
+                return p;
+            }
+        } else if let Some(v) = k.own(name) {
+            return !matches!(v, V::None);
+        }
+    }
+    false
+}
+pub fn abc_check_methods(a: Args) -> R {
+    let Some(V::Class(c)) = a.p.first() else {
+        return type_err("_check_methods() arg 1 must be a class".into());
+    };
+    for x in a.p.iter().skip(1) {
+        let name = to_str(x)?;
+        if !class_has_method(c, &name) {
+            return Ok(V::NotImpl);
+        }
+    }
+    Ok(V::Bool(true))
+}
+// ABCMeta.register: weak-set semantics without weak refs (the registered classes are program globals).
+pub fn abc_register(a: Args) -> R {
+    a.want("_abc_register", 2, 2)?;
+    let (V::Class(c), V::Class(s)) = (&a.p[0], &a.p[1]) else {
+        return type_err("Can only register classes".into());
+    };
+    if s.is_sub(c) {
+        return Ok(a.p[1].clone());
+    }
+    if c.is_sub(s) {
+        return Err(exc("RuntimeError", "Refusing to create an inheritance cycle".into()));
+    }
+    if !abc_has(&c.abc_registry.borrow(), s) {
+        c.abc_registry.borrow_mut().push(s.clone());
+    }
+    ABC_TOKEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    Ok(a.p[1].clone())
 }
 pub fn type_of(x: &V) -> Result<Rc<Class>, E> {
     Ok(match x {
@@ -902,7 +1070,13 @@ pub fn bi_issubclass(a: Args) -> R {
     };
     let check = |k: &V| -> Result<bool, E> {
         match k {
-            V::Class(k) => Ok(sub.is_sub(k)),
+            V::Class(k) => {
+                if k.abc.get() {
+                    abc_subclasscheck(k, &sub)
+                } else {
+                    Ok(sub.is_sub(k))
+                }
+            }
             V::Ext(e) => match e.subclasscheck(&V::Class(sub.clone())) {
                 Some(r) => r,
                 None => type_err("issubclass() arg 2 must be a class, a tuple of classes, or a union".into()),
