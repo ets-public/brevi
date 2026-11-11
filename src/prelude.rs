@@ -7846,7 +7846,17 @@ fn ax_rx_rep(n: &AxRx, lo: usize, hi: usize, lazy: bool, count: usize, s: &[char
     if lazy && count >= lo && k(i, caps) {
         return true;
     }
-    if count < hi && ax_rx_m(n, s, i, caps, &mut |j, caps: &mut AxCaps| (j != i || count < lo) && ax_rx_rep(n, lo, hi, lazy, count + 1, s, j, caps, k)) {
+    if count < hi
+        && ax_rx_m(n, s, i, caps, &mut |j, caps: &mut AxCaps| {
+            if j == i && count >= lo {
+                // A zero-width iteration cannot loop on itself (CPython's zero-width protection): keep the
+                // captures it set and try the tail, instead of discarding them as the old `j != i` guard did.
+                k(j, caps)
+            } else {
+                ax_rx_rep(n, lo, hi, lazy, count + 1, s, j, caps, k)
+            }
+        })
+    {
         return true;
     }
     !lazy && count >= lo && k(i, caps)
