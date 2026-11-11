@@ -274,7 +274,8 @@ fn os_py() -> &'static str {
     NT.get_or_init(|| os_nt(SRC))
 }
 fn os_nt(src: &str) -> String {
-    let mut s = src.to_string();
+    // a Windows checkout may have CRLF line endings (core.autocrlf), which include_str! keeps
+    let mut s = src.replace("\r\n", "\n");
     for (a, b) in [("import posixpath as path\n", "import ntpath as path\n"), ("sep = \"/\"\n", "sep = \"\\\\\"\n"),
                    ("altsep = None\n", "altsep = \"/\"\n"), ("linesep = \"\\n\"\n", "linesep = \"\\r\\n\"\n"), ("name = \"posix\"\n", "name = \"nt\"\n")] {
         assert!(s.contains(a), "os.py no longer has {a:?}");
