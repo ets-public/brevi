@@ -1189,6 +1189,9 @@ fn singledispatchmethod_impl(f: V) -> R {
 
 pub fn functools_fn(name: &str, mut a: Args) -> R {
     Ok(match name {
+        "cached_property" => return call(&V::Class(cached_property_class()), a),
+        // CPython's functools.RLock is _thread.RLock
+        "RLock" => return threading_fn("RLock", a),
         "lru_cache" | "cache" => {
             // @lru_cache, @lru_cache(), @lru_cache(maxsize=None); cache is lru_cache(maxsize=None)
             match a.p.first() {
@@ -2864,6 +2867,9 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         ("abc", "ABC") => V::Class(abc_class()),
         ("re._constants", "MAXREPEAT") => V::Int(0xFFFF_FFFE),
         ("re._constants", "MAXGROUPS") => V::Int(0x3FFF_FFFF),
+        ("functools", "cached_property") => V::Class(cached_property_class()),
+        // CPython's functools imports RLock from _thread, so it is an attribute of the module
+        ("functools", "RLock") => return module_attr("threading", "RLock"),
         _ => {
             if let Some(v) = ext_module_attr(m, name)? {
                 return Ok(v);
@@ -2875,6 +2881,83 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
 }
 thread_local! {
     static ABC: RefCell<Option<Rc<Class>>> = RefCell::new(None);
+}
+thread_local! {
+    static CACHED_PROPERTY: RefCell<Option<Rc<Class>>> = const { RefCell::new(None) };
+}
+// functools.cached_property, as CPython 3.13's pure-Python class: a non-data descriptor (see getattr) that
+// takes its name from __set_name__ and caches the value in the instance's __dict__ under it, so later reads
+// find the instance attribute first. A program class may subclass it.
+fn cached_property_class() -> Rc<Class> {
+    CACHED_PROPERTY.with(|slot| {
+        if let Some(c) = slot.borrow().as_ref() {
+            return c.clone();
+        }
+        let c = Class::new("cached_property", "functools", vec![bclass("object")], BT::Other);
+        c.set("__init__", func(sym("__init__"), |a: Args| {
+            if a.p.len() != 2 || !a.k.is_empty() {
+                return type_err(format!("cached_property.__init__() takes 2 positional arguments but {} were given", a.p.len()));
+            }
+            let (me, f) = (&a.p[0], &a.p[1]);
+            setattr(me, sym("func"), f.clone())?;
+            setattr(me, sym("attrname"), V::None)?;
+            setattr(me, sym("__doc__"), getattr(f, "__doc__")?)?;
+            setattr(me, sym("__module__"), getattr(f, "__module__")?)?;
+            Ok(V::None)
+        }));
+        c.set("__set_name__", func(sym("__set_name__"), |a: Args| {
+            if a.p.len() != 3 {
+                return type_err(format!("cached_property.__set_name__() takes 3 positional arguments but {} were given", a.p.len()));
+            }
+            let me = &a.p[0];
+            let cur = getattr(me, "attrname")?;
+            if matches!(cur, V::None) {
+                setattr(me, sym("attrname"), a.p[2].clone())?;
+            } else if !eq(&a.p[2], &cur)? {
+                return type_err(format!("Cannot assign the same cached_property to two different names ({} and {}).", repr(&cur)?, repr(&a.p[2])?));
+            }
+            Ok(V::None)
+        }));
+        c.set("__get__", func(sym("__get__"), |a: Args| {
+            if a.p.len() < 2 || a.p.len() > 3 {
+                return type_err(format!("cached_property.__get__() takes from 2 to 3 positional arguments but {} were given", a.p.len()));
+            }
+            let (me, inst) = (&a.p[0], &a.p[1]);
+            if matches!(inst, V::None) {
+                return Ok(me.clone());
+            }
+            let name = getattr(me, "attrname")?;
+            if matches!(name, V::None) {
+                return type_err("Cannot use cached_property instance without calling __set_name__ on it.".into());
+            }
+            let tname = || getattr(&V::Class(type_of(inst)?), "__name__").and_then(|n| repr(&n));
+            let cache = match getattr(inst, "__dict__") {
+                Ok(d) => d,
+                Err(e) if is_exc(&e.0, "AttributeError") => {
+                    return type_err(format!("No '__dict__' attribute on {} instance to cache {} property.", tname()?, repr(&name)?));
+                }
+                Err(e) => return Err(e),
+            };
+            let found = call(&getattr(&cache, "get")?, Args::p(vec![name.clone()]))?;
+            // a cached None is told apart from a missing key as CPython's _NOT_FOUND sentinel does
+            if !matches!(found, V::None) || truth(&call(&getattr(&cache, "__contains__")?, Args::p(vec![name.clone()]))?)? {
+                return Ok(found);
+            }
+            let f = getattr(me, "func")?;
+            let val = call(&f, Args::p(vec![inst.clone()]))?;
+            match setitem(&cache, &name, val.clone()) {
+                Ok(()) => Ok(val),
+                Err(e) if is_exc(&e.0, "TypeError") => type_err(format!(
+                    "The '__dict__' attribute on {} instance does not support item assignment for caching {} property.",
+                    tname()?,
+                    repr(&name)?
+                )),
+                Err(e) => Err(e),
+            }
+        }));
+        *slot.borrow_mut() = Some(c.clone());
+        c
+    })
 }
 fn abc_class() -> Rc<Class> {
     ABC.with(|a| {
