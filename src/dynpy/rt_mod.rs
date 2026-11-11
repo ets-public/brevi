@@ -710,6 +710,12 @@ pub fn bisect_fn(name: &str, mut a: Args) -> R {
     Ok(V::Int(lo as i64))
 }
 
+// a bounded lru_cache's results by slot: (key, value, last use), and the slots by last use
+struct LruSlots {
+    tick: u64,
+    map: std::collections::HashMap<i64, (V, V, u64)>,
+    order: std::collections::BTreeMap<u64, i64>,
+}
 fn lru_cache_wrap(f: V, maxsize: V, typed: bool) -> R {
     let cache: Rc<RefCell<Dict>> = Rc::new(RefCell::new(Dict::new()));
     let hits: Rc<Cell<i64>> = Rc::new(Cell::new(0));
@@ -719,6 +725,8 @@ fn lru_cache_wrap(f: V, maxsize: V, typed: bool) -> R {
         V::Func(x) => (x.name.get(), x.qualname.get()),
         _ => ("wrapper", "wrapper"),
     };
+    let slots: Rc<RefCell<LruSlots>> = Rc::new(RefCell::new(LruSlots { tick: 0, map: std::collections::HashMap::new(), order: std::collections::BTreeMap::new() }));
+    let s3 = slots.clone();
     let c2 = cache.clone();
     let h2 = hits.clone();
     let m2 = misses.clone();
@@ -751,15 +759,30 @@ fn lru_cache_wrap(f: V, maxsize: V, typed: bool) -> R {
             parts.push(tup(types));
         }
         let key = tup(parts);
+        // A bounded cache's dict maps each key to a slot number; the slots and their recency live outside the
+        // dict, so a hit (which only moves a result to most recently used) never changes the dict, as in
+        // CPython, where the order is a linked list: a key's __eq__ may call the cached function again.
         if bound != Some(0) {
             if let Some(v) = Dict::get_cell(&cache, &key)? {
                 h2.set(h2.get() + 1);
-                if bound.is_some() {
-                    // most recently used moves to the end
-                    Dict::del_cell(&cache, &key)?;
-                    Dict::set_cell(&cache, key, v.clone())?;
+                if bound.is_none() {
+                    return Ok(v);
                 }
-                return Ok(v);
+                let V::Int(id) = v else { unreachable!() };
+                let mut sl = slots.borrow_mut();
+                let t = sl.tick + 1;
+                sl.tick = t;
+                let (val, old) = match sl.map.get_mut(&id) {
+                    Some(e) => {
+                        let old = e.2;
+                        e.2 = t;
+                        (e.1.clone(), old)
+                    }
+                    None => unreachable!(),
+                };
+                sl.order.remove(&old);
+                sl.order.insert(t, id);
+                return Ok(val);
             }
         }
         m2.set(m2.get() + 1);
@@ -768,9 +791,24 @@ fn lru_cache_wrap(f: V, maxsize: V, typed: bool) -> R {
             Some(0) => {}
             Some(n) => {
                 if Dict::get_cell(&cache, &key)?.is_none() {
-                    Dict::set_cell(&cache, key, r.clone())?;
+                    let id = {
+                        let mut sl = slots.borrow_mut();
+                        sl.tick += 1;
+                        let t = sl.tick;
+                        sl.map.insert(t as i64, (key.clone(), r.clone(), t));
+                        sl.order.insert(t, t as i64);
+                        t as i64
+                    };
+                    Dict::set_cell(&cache, key, V::Int(id))?;
                     while cache.borrow().n > n {
-                        let oldest = cache.borrow().items().into_iter().next().map(|(k, _)| k);
+                        let oldest = {
+                            let mut sl = slots.borrow_mut();
+                            let first = sl.order.iter().next().map(|(t, id)| (*t, *id));
+                            first.and_then(|(t, id)| {
+                                sl.order.remove(&t);
+                                sl.map.remove(&id).map(|e| e.0)
+                            })
+                        };
                         match oldest {
                             Some(k) => {
                                 Dict::del_cell(&cache, &k)?;
@@ -790,6 +828,9 @@ fn lru_cache_wrap(f: V, maxsize: V, typed: bool) -> R {
         let m3 = misses.clone();
         wf.attrs.borrow_mut().push(("cache_clear", builtin("cache_clear", move |_a: Args| {
             c3.borrow_mut().clear();
+            let mut sl = s3.borrow_mut();
+            sl.map.clear();
+            sl.order.clear();
             h3.set(0);
             m3.set(0);
             Ok(V::None)
