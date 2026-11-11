@@ -30,7 +30,6 @@ test_re.PatternReprTests.test_bytes dyn
 test_re.PatternReprTests.test_bytes normal
 test_re.ReTests.test_bigcharset dyn
 test_re.ReTests.test_bigcharset normal
-test_re.ReTests.test_bug_2537 normal
 test_re.ReTests.test_bug_764548 dyn
 test_re.ReTests.test_bug_764548 normal
 test_re.ReTests.test_ignore_spaces dyn
