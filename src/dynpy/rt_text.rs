@@ -295,7 +295,7 @@ impl<'a> RP<'a> {
             return (None, false);
         }
         match self.c[s..self.i].iter().collect::<String>().parse::<usize>() {
-            Ok(n) if n < MAX_REPEAT => (Some(n), false),
+            Ok(n) if n <= MAX_REPEAT => (Some(n), false),
             _ => (None, true),
         }
     }
