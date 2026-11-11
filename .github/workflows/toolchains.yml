@@ -9,7 +9,8 @@
 # they themselves changed), and reuse the build cache the daily run saved, so test programs whose
 # generated Rust didn't change aren't recompiled. The daily run always starts cold and runs everything.
 # The release (release.yml) calls this workflow with release: true on the commit it ships: the same checks as the
-# daily run, never skipped as already tested, plus the stdlib conformance slice.
+# daily run, never skipped as already tested, plus the stdlib conformance slice (which main also runs after each
+# merge that can change it: stdlib.yml).
 # The daily run and the release also run the duckdb, onnxruntime and mcp sections on CPython 3.13 with the real
 # packages (tests/requirements-native.txt), where a native-copy check that cannot run fails instead of skipping.
 # Run tools/ci_local.sh before merging.
