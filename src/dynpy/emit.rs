@@ -4115,10 +4115,11 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     .unwrap();
     let _ = &em.out;
     // CPython's re matches any buffer (array.array, mmap, ctypes arrays) as bytes, and slices the object
-    // itself for groups. Brevi's re takes str and bytes only, so CPython runs such a program.
+    // itself for groups; Brevi's re takes str and bytes only. weakref would be handed Brevi's Pattern and
+    // Match values, which a bridged library cannot hold. CPython runs such a program.
     if em.uses_re {
-        if let Some(m) = em.bridged_used.iter().find(|m| matches!(m.as_str(), "array" | "mmap" | "ctypes")) {
-            return Err((mods[0].name.clone(), 1, format!("re together with {m} (buffer subjects) is not supported in dynamic builds")));
+        if let Some(m) = em.bridged_used.iter().find(|m| matches!(m.as_str(), "array" | "mmap" | "ctypes" | "weakref")) {
+            return Err((mods[0].name.clone(), 1, format!("re together with {m} is not supported in dynamic builds")));
         }
     }
     Ok((out, em.bridged_used.into_iter().collect()))
