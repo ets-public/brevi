@@ -359,6 +359,11 @@ pub fn make_class_f(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, at
     for (n, v) in attrs {
         c.set(n, v);
     }
+    // type.__new__: a class that defines __eq__ and no __hash__ gets __hash__ = None (unhashable, and so
+    // not Hashable), which its subclasses inherit
+    if c.own("__eq__").is_some() && c.own("__hash__").is_none() {
+        c.set("__hash__", V::None);
+    }
     if abc {
         abc_setup(&c)?;
     }
@@ -1146,21 +1151,29 @@ pub fn getattr(o: &V, name: &str) -> R {
                     }
                 };
             }
-            // object's rich comparison slots: every instance has them, as CPython's object does.
-            if matches!(name, "__lt__" | "__le__" | "__gt__" | "__ge__" | "__eq__" | "__ne__") {
+            // object's rich comparison slots, which every instance has (an instance wrapping a builtin value
+            // gets that type's below): __eq__ is identity or NotImplemented, __ne__ inverts the instance's own
+            // __eq__ (NotImplemented passes through), and the four orderings answer NotImplemented.
+            if matches!(name, "__lt__" | "__le__" | "__gt__" | "__ge__" | "__eq__" | "__ne__") && ob.inner.borrow().is_none() {
                 let me = o.clone();
-                let op = match name {
-                    "__lt__" => "<",
-                    "__le__" => "<=",
-                    "__gt__" => ">",
-                    "__ge__" => ">=",
-                    "__eq__" => "==",
-                    _ => "!=",
-                };
                 let n = sym(name);
                 return Ok(builtin(n, move |a: Args| {
-                    let other = a1(&a, n)?;
-                    cmp_v(&me, &other, op)
+                    a.want(n, 1, 1)?;
+                    let other = &a.p[0];
+                    match n {
+                        "__eq__" => Ok(if is(&me, other) { V::Bool(true) } else { V::NotImpl }),
+                        "__ne__" => {
+                            let r = match &me {
+                                V::Obj(x) => match x.cls.lookup("__eq__") {
+                                    Some(f) => call(&f, Args::p(vec![me.clone(), other.clone()]))?,
+                                    None => if is(&me, other) { V::Bool(true) } else { V::NotImpl },
+                                },
+                                _ => V::NotImpl,
+                            };
+                            Ok(if matches!(r, V::NotImpl) { r } else { V::Bool(!truth(&r)?) })
+                        }
+                        _ => Ok(V::NotImpl),
+                    }
                 }));
             }
             match name {

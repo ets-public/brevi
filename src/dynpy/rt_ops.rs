@@ -1889,6 +1889,23 @@ pub fn getitem(c: &V, i: &V) -> R {
             };
             return Ok(V::Ext(ExtRc::new(GAlias { origin: k.clone(), args })));
         }
+        // collections.abc.Mapping[str, int] (or a subclass of an ABC): a types.GenericAlias, as
+        // __class_getitem__ = classmethod(GenericAlias) makes it. Callable's alias flattens its arguments
+        // (_CallableGenericAlias), which this one does not do, so Callable[...] is refused.
+        (V::Class(k), _) if k.abc.get() => {
+            if k.lookup("__class_getitem__").is_some() {
+                let f = getattr(c, "__class_getitem__")?;
+                return call(&f, Args::p(vec![i.clone()]));
+            }
+            if k.mro.borrow().iter().any(|b| b.module == "collections.abc" && b.name == "Callable") {
+                return Err(exc("NotImplementedError", "brevi: collections.abc.Callable[...] is not supported in dynamic builds".into()));
+            }
+            let args = match i {
+                V::Tuple(t) => t.to_vec(),
+                other => vec![other.clone()],
+            };
+            return Ok(V::Ext(ExtRc::new(GAlias { origin: k.clone(), args })));
+        }
         (V::Class(_), _) => return Ok(c.clone()), // typing: list[int]
         (V::Ext(x), _) => {
             if let Some(r) = x.method(c, "__getitem__", &mut Args::p(vec![i.clone()])) {
