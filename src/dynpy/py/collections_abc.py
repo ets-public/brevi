@@ -623,6 +623,11 @@ class ValuesView(MappingView, Collection):
             yield self._mapping[key]
 
 
+KeysView.register(type({}.keys()))
+ItemsView.register(type({}.items()))
+ValuesView.register(type({}.values()))
+
+
 class MutableMapping(Mapping):
     """A MutableMapping is a generic container for associating key/value pairs."""
 
@@ -749,6 +754,9 @@ Sequence.register(range)
 class ByteString(Sequence):
 
     __slots__ = ()
+
+
+ByteString.register(type(b''))
 
 
 class MutableSequence(Sequence):
