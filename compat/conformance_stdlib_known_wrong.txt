@@ -7,6 +7,8 @@ test_functools.TestCacheC.test_cache dyn issue=#448 owner=ets-public expires=202
 test_functools.TestCacheC.test_cache normal issue=#448 owner=ets-public expires=2026-12-11
 test_functools.TestCmpToKeyC.test_bad_cmp dyn issue=#447 owner=ets-public expires=2026-12-11
 test_functools.TestCmpToKeyC.test_bad_cmp normal issue=#447 owner=ets-public expires=2026-12-11
+test_functools.TestCmpToKeyC.test_hash dyn issue=#447 owner=ets-public expires=2026-12-11
+test_functools.TestCmpToKeyC.test_hash normal issue=#447 owner=ets-public expires=2026-12-11
 test_functools.TestCmpToKeyC.test_sort_int dyn issue=#447 owner=ets-public expires=2026-12-11
 test_functools.TestCmpToKeyC.test_sort_int normal issue=#447 owner=ets-public expires=2026-12-11
 test_functools.TestCmpToKeyC.test_sort_int_str dyn issue=#447 owner=ets-public expires=2026-12-11

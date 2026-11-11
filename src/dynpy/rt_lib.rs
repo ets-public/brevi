@@ -861,6 +861,8 @@ fn builtin_hook_methods(c: &Rc<Class>) -> Option<Option<&'static [&'static str]>
             "iterator" => ITER,
             // library types Brevi names by their dotted CPython name: plain hashable values
             "datetime.date" | "datetime.datetime" | "datetime.time" | "datetime.timedelta" | "datetime.timezone" | "decimal.Decimal" | "fractions.Fraction" | "zoneinfo.ZoneInfo" | "re.Pattern" | "re.Match" => SCALAR,
+            // cmp_to_key's K objects: callable, with __hash__ = None
+            "functools.KeyWrapper" => &["__call__"],
             _ if c.name.ends_with("iterator") => ITER,
             _ => return Some(None),
         }));

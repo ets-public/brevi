@@ -71,3 +71,8 @@ _d = {1: 2, 3: 4, 5: 6}
 for _it in (reversed(_d.items()), reversed(_d), reversed(_d.values()), reversed(_d.keys())):
     next(_it)
     print(list(pickle.loads(pickle.dumps(_it))), list(_it))
+
+# cmp_to_key's K objects: __hash__ is None, __call__ is defined
+import functools as _ft
+_k = _ft.cmp_to_key(lambda x, y: y - x)(10)
+print(isinstance(_k, abc.Hashable), isinstance(_k, abc.Callable))
