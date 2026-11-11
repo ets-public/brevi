@@ -198,11 +198,21 @@ def table(rows, ctx):
         cls = ' class="n"' if i < len(al) and al[i] == "right" else ""
         return "<%s%s>%s</%s>" % (tag, cls, inline(c.replace("\\|", "|"), ctx), tag)
 
+    # Each cell carries its column's heading, so a phone can show a row as a card ("heading: value").
+    labels = [html.escape(re.sub(r"<[^>]+>", "", inline(c.replace("\\|", "|"), ctx)), quote=True) for c in head]
+
+    def cell(c, i):
+        lab = labels[i] if i < len(labels) else ""
+        t = td("td", c, i)
+        k = t.index(">") + 1
+        # The value goes in one span, so the card's two-column grid keeps bold and plain text together.
+        return '<td data-label="%s"' % lab + t[3:k] + "<span>" + t[k:-5] + "</span></td>"
+
     out = ['<div class="table-wrap"><table><thead><tr>']
     out += [td("th", c, i) for i, c in enumerate(head)]
     out.append("</tr></thead><tbody>")
     for r in body:
-        out.append("<tr>" + "".join(td("td", c, i) for i, c in enumerate(r)) + "</tr>")
+        out.append("<tr>" + "".join(cell(c, i) for i, c in enumerate(r)) + "</tr>")
     out.append("</tbody></table></div>")
     return "".join(out)
 

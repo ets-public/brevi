@@ -296,8 +296,23 @@ table.vs tr:last-child td { border-bottom: 0; }
 .prose th { color: var(--fg2); font-weight: 500; }
 .prose figure.diagram { margin: 0 0 20px; padding: 16px; background: #fbfbfa; border: 1px solid var(--line); border-radius: 12px; overflow-x: auto; text-align: center; }
 .prose figure.diagram img { display: block; margin: 0 auto; max-width: 100%; height: auto; }
-/* Code in a table cell wraps only at spaces, so a narrow column is not broken into single letters. */
-.prose td code { overflow-wrap: normal; }
+/* Docs tables fit the page: headings wrap, and long code in a cell may break, so no table has to scroll. */
+.prose th { white-space: normal; }
+.prose td code { overflow-wrap: anywhere; }
+/* On a phone each row becomes a card: the first cell is its title, the others read "heading: value". */
+@media (max-width: 640px) {
+  .prose .table-wrap { overflow-x: visible; }
+  .prose .table-wrap table, .prose .table-wrap tbody, .prose .table-wrap tr, .prose .table-wrap td { display: block; width: auto; }
+  .prose .table-wrap thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .prose .table-wrap tr { border-bottom: 1px solid var(--line); padding: 12px 0; }
+  .prose .table-wrap td { border: 0; padding: 2px 0; text-align: left; white-space: normal; display: grid; grid-template-columns: minmax(0, 40%) minmax(0, 1fr); gap: 12px; }
+  .prose .table-wrap td.n { font-family: inherit; font-size: inherit; line-height: inherit; }
+  .prose .table-wrap td::before { content: attr(data-label); color: var(--muted); font-size: 0.8125rem; }
+  .prose .table-wrap td:first-child { display: block; font-weight: 500; color: var(--fg); padding-bottom: 6px; }
+  .prose .table-wrap td:first-child::before { content: none; }
+  .prose .table-wrap td[data-label=""] { display: block; }
+  .prose .table-wrap td[data-label=""]::before { content: none; }
+}
 .prose figure.diagram a.zoom { display: block; cursor: zoom-in; border-radius: 4px; }
 .prose figure.diagram figcaption { margin-top: 12px; font-size: 0.8125rem; color: #5d6462; }
 /* Full-size diagram view (site/gen.py ZOOM_JS). The diagram keeps its light panel in both themes. */
