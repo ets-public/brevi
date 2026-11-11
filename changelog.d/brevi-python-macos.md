@@ -1,1 +1,0 @@
-- `brevi-python` works on macOS: it ran the program's `run FILE` arguments through CPython there, because macOS reports the link's path as the running binary. A copy of brevi named `python3` (not a link) no longer loops either. The new release archive check found it.

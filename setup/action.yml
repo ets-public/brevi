@@ -2,9 +2,9 @@
 # brevi-python beside it, and the Rust toolchain Brevi builds with if the runner lacks it. Brevi's build
 # cache is kept between runs, keyed on the Brevi version.
 #
-#   - uses: ets-public/brevi/setup@v0.27.0
+#   - uses: ets-public/brevi/setup@v0.27.1
 #     with:
-#       version: 0.27.0     # default: the release this action is from when pinned to a tag, else the latest
+#       version: 0.27.1     # default: the release this action is from when pinned to a tag, else the latest
 #   - run: brevi run main.py
 name: Set up Brevi
 description: Install the Brevi compiler (AI-written Python built natively and sandboxed) and its Rust toolchain
@@ -14,7 +14,7 @@ branding:
   color: orange
 inputs:
   version:
-    description: "Brevi version to install, e.g. 0.27.0 (default: the tag this action is used at, else the latest release)"
+    description: "Brevi version to install, e.g. 0.27.1 (default: the tag this action is used at, else the latest release)"
     default: ""
   cache:
     description: "Keep Brevi's build cache between runs (true or false)"
@@ -45,7 +45,7 @@ runs:
           *) echo "::error::no prebuilt brevi for $RUNNER_OS $RUNNER_ARCH"; exit 1 ;;
         esac
         v="${WANT#v}"
-        # Pinned to a release tag (setup@v0.27.0): install that release.
+        # Pinned to a release tag (setup@v0.27.1): install that release.
         if [ -z "$v" ] && [[ "$ACTION_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then v="${ACTION_REF#v}"; fi
         if [ -n "$v" ]; then base="https://github.com/ets-public/brevi/releases/download/v$v"
         else base="https://github.com/ets-public/brevi/releases/latest/download"; fi

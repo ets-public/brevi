@@ -4,6 +4,13 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 
 ## Unreleased
 
+## v0.27.1 (11 Nov 2026)
+
+- `brevi-python` works on macOS: it ran the program's `run FILE` arguments through CPython there, because macOS reports the link's path as the running binary. A copy of brevi named `python3` (not a link) no longer loops either. The new release archive check found it.
+- Releases test what they ship: the release runs the whole Linux suite (both CPython conformance slices included) on the commit it releases, runs the Windows platform checks on the brevi.exe unpacked from the zip it ships, unpacks and runs every archive, checks SHA256SUMS against the files as published, links the run from the release notes, and releases nothing unless every platform passed. A `dry_run` input runs all of it without releasing.
+- The duckdb, onnxruntime and MCP-client checks no longer skip silently: releases, the daily run and Windows CI install the pinned packages (tests/requirements-native.txt) and fail without them.
+- Windows CI also runs nightly on main (skipped when nothing it depends on changed) with a canary that runs the last release's Windows zip; a nightly failure opens a `windows` issue.
+
 ## v0.27.0 (11 Nov 2026)
 
 - **Windows is beta.** The Windows build is x86-64 only (`x86_64-pc-windows-msvc`). It builds, runs and verifies programs natively, including library calls through CPython, but `--standalone` builds of programs that use Python libraries need Linux for now. Of the sandbox limits, `--limit mem` is held by the OS (a Job Object, from the program's first instruction), and `time` and `output` are held as on Linux; `cpu`, `file`, `fds` and `threads` are refused on Windows rather than half enforced.
