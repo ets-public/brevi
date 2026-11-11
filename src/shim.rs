@@ -82,8 +82,13 @@ pub fn main(args: Vec<OsString>) -> ! {
     if needs_cpython(&src, inline.is_some()) {
         to_cpython(&Some(file));
     }
-    let me = std::env::current_exe().unwrap_or_else(|_| "brevi".into());
+    // The real binary, never the brevi-python link: macOS reports the path it was started by, and starting the
+    // link again would make the child the shim too (it would hand `run FILE` to CPython).
+    let me = std::env::current_exe().and_then(|p| p.canonicalize()).unwrap_or_else(|_| "brevi".into());
     let mut c = Command::new(me);
+    // A copy (not a link) named python3 is the shim under any path; argv[0] `brevi` makes the child the compiler.
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::arg0(&mut c, "brevi");
     c.arg("run").arg(&file).arg("--").args(&rest).env("BREVI_PYTHON", &python);
     if !std::env::var("BREVI_SHIM_VERBOSE").is_ok_and(|v| v == "1") {
         c.env("BREVI_PATH", "0").env("BREVI_TRACEBACK", "1");

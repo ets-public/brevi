@@ -84,7 +84,7 @@ foreach ($lim in @("cpu=1", "file=1", "fds=16")) {
 $duck = & python -c "import importlib.util,glob,os,sys; s=importlib.util.find_spec('duckdb'); d=os.path.dirname(list(s.submodule_search_locations)[0]) if s else ''; sys.exit(0 if d and glob.glob(os.path.join(d,'*duckdb*')) else 1)" 2>$null
 if ($LASTEXITCODE -ne 0) { throw "duckdb (with its engine library) is not installed: $needs" }
 Check-Verify "duckdb_native.py"; Check-Run "duckdb_native.py"
-$ort = & python -c "import importlib.util,glob,os,sys; s=importlib.util.find_spec('onnxruntime'); d=os.path.dirname(list(s.submodule_search_locations)[0]) if s else ''; sys.exit(0 if d and glob.glob(os.path.join(d,'capi','onnxruntime*.dll')) else 1)" 2>$null
+$ort = & python -c "import importlib.util,glob,os,sys; s=importlib.util.find_spec('onnxruntime'); d=list(s.submodule_search_locations)[0] if s else ''; sys.exit(0 if d and glob.glob(os.path.join(d,'capi','onnxruntime*.dll')) else 1)" 2>$null
 if ($LASTEXITCODE -ne 0) { throw "onnxruntime (with its capi DLL) is not installed: $needs" }
 Check-Verify "onnx_native.py"; Check-Run "onnx_native.py"
 
