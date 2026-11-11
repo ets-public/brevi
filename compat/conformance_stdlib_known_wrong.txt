@@ -3,10 +3,6 @@
 # and on a line without a tracking issue, an owner and an expiry date, or past its expiry. `--write-baseline`
 # keeps the metadata of lines already here and writes new ones with `?`, which --check refuses until filled in.
 test_collections.TestChainMap.test_order_preservation normal issue=#400 owner=ets-public expires=2026-12-11
-test_functools.TestLRUC.test_lru_cache_decoration dyn issue=#448 owner=ets-public expires=2026-12-11
-test_functools.TestLRUC.test_lru_cache_decoration normal issue=#448 owner=ets-public expires=2026-12-11
-test_functools.TestLRUC.test_need_for_rlock dyn issue=#451 owner=ets-public expires=2026-12-11
-test_functools.TestLRUC.test_need_for_rlock normal issue=#451 owner=ets-public expires=2026-12-11
 test_functools.TestPartialC.test_pickle dyn issue=#446 owner=ets-public expires=2026-12-11
 test_functools.TestPartialC.test_pickle normal issue=#446 owner=ets-public expires=2026-12-11
 test_functools.TestPartialCSubclass.test_pickle dyn issue=#446 owner=ets-public expires=2026-12-11

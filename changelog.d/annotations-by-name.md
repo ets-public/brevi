@@ -1,0 +1,1 @@
+- Dynamic build: a def keeps its `__annotations__` when the program reads them by name (`getattr(f, "__annotations__")`) or through `functools.WRAPPER_ASSIGNMENTS`, not only as `f.__annotations__`; before, those reads were refused at run time.
