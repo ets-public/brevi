@@ -13,7 +13,7 @@ command), see which build path Brevi takes for a file, and build a small Python 
 CPython. It cannot run arbitrary shell commands, push, or touch the network. Everything its work can make run (the
 compiler it edits, the programs it builds, its snippets, the check) runs in a box: its own PID, mount and network
 namespaces, as user nobody, with an allowlisted environment, so no credential is reachable; the run refuses to
-start if a self-check finds the box leaking (see box_script). When it calls
+start if a self-check finds the box leaking (see tools/modelbox.py). When it calls
 `finish`, the harness reruns the test (or check) itself and, if the change helps, commits it on a branch with
 DeepSeek as the author. Nothing is pushed: a human (or Claude) reviews the branch, runs the wider tests, and opens the PR.
 
@@ -21,7 +21,7 @@ Spend is counted from the API's own usage numbers at the prices below and the ru
 Every request, reply and tool result is logged as JSON lines to --log (default bench/logs/ds_contrib/ID.jsonl)
 so the run can be read afterwards. Needs DEEPSEEK_API_KEY; stdlib only.
 """
-import argparse, atexit, http.client, json, os, re, shlex, shutil, subprocess, sys, tempfile, time, urllib.error, urllib.request
+import argparse, atexit, http.client, json, os, re, shlex, subprocess, sys, time, urllib.error, urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -89,7 +89,7 @@ TOOLS = [
     ("list_dir", "List a directory under the repository.", {"path": "string"}, ["path"]),
     ("replace", "Replace exactly one occurrence of old with new in a file. old must match exactly, once.",
      {"path": "string", "old": "string", "new": "string"}, ["path", "old", "new"]),
-    ("write_file", "Create or overwrite a file under the repository (prefer replace for edits).",
+    ("write_file", "Create or overwrite a file under src/, tests/, compat/ or docs/ (prefer replace for edits).",
      {"path": "string", "content": "string"}, ["path", "content"]),
     ("build", "Rebuild the compiler (cargo build --release). Returns errors, or ok.", {}, []),
     ("check_test", "Rerun the failing conformance test against the current build, for the normal and the forced "
@@ -131,7 +131,7 @@ def clip(s, n=MAX_OUT):
     return s if len(s) <= n else s[: n // 2] + f"\n... [{len(s) - n} characters cut] ...\n" + s[-n // 2:]
 
 
-def safe_path(p):
+def safe_path(p, write=False):
     q = (ROOT / p).resolve()
     if q != ROOT and ROOT not in q.parents:
         raise ValueError("path outside the repository")
@@ -142,133 +142,38 @@ def safe_path(p):
         raise ValueError("this file is part of the test harness and must not be edited")
     if q in PROTECT:
         raise ValueError("this file is part of the task's check and must not be edited")
+    if write and (not rel or rel[0] not in WRITABLE):
+        raise ValueError("only files under " + ", ".join(w + "/" for w in WRITABLE) + " may be edited")
     return q
 
 
 # Everything the model can make run (its try_python code, the compiler it edits and rebuilds, the programs that
-# compiler builds, the check) runs in a box, not as this harness: a new PID, mount and network namespace, as the
-# unprivileged user nobody, with an allowlisted environment. Inside it no other process is visible (so not this
-# harness's environment, which holds DEEPSEEK_API_KEY), /root shows only the toolchains (read-only), /home/claude,
-# /mnt and /tmp are empty apart from the box's own folder, the project's deepseek-contrib folder (read-only) and
-# the build cache, and there is no network (so no proxy that adds credentials). Nothing the model writes can read
-# a credential; masking known values in output stays as a second line. Only the harness's own git commands run
-# outside the box. An env dump in a run once leaked a key (11-10); this is the full fix.
-SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASSW|CREDENTIAL|AUTH|COOKIE", re.I)
-SECRET_VALUES = sorted({v for k, v in os.environ.items() if SECRET_NAME.search(k) and len(v) >= 12}, key=len, reverse=True)
-NOBODY = 65534
-BOX = Path(tempfile.gettempdir()) / f"dsbox-{os.getpid()}"
-STAGE = Path("/run") / f"dsbox-stage-{os.getpid()}"
+# compiler builds, the check) runs in tools/modelbox.py's box, never as this harness: no credential, other process,
+# host socket or network is reachable there (see that module). Only the harness's own git commands and file reads
+# and writes run outside. An env dump in a run once leaked a key (11-10).
+sys.path.insert(0, str(ROOT / "tools"))
+from modelbox import Box, chown_tree, redact  # noqa: E402
+
 DSC = Path("/mnt/project-files/deepseek-contrib")
-TOOLCHAINS = [".cargo", ".rustup", ".local"]
-# the only variables a boxed command gets (plus the harness's own BREVI_* settings and each call's extras)
-ENV_KEEP = {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "TERM": "dumb", "CARGO_NET_OFFLINE": "true",
-            "CARGO_HOME": "/root/.cargo", "RUSTUP_HOME": "/root/.rustup", "PYTHONDONTWRITEBYTECODE": "1"}
-BOX_PATH = "/root/.cargo/bin:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-
-
-def box_env(extra=None):
-    env = dict(ENV_KEEP, PATH=BOX_PATH, HOME=str(BOX), TMPDIR=str(BOX / "tmp"))
-    env.update({k: v for k, v in os.environ.items() if k.startswith("BREVI_") and not SECRET_NAME.search(k)})
-    env.update(extra or {})
-    bad = [k for k in env if SECRET_NAME.search(k)]
-    if bad:
-        raise RuntimeError(f"refusing to pass {bad} into the box")
-    return env
-
-
-def chown_tree(p):
-    p = Path(p)
-    # already the box's (a later boxed run): files under it were made in the box
-    if not p.exists() or p.stat().st_uid == NOBODY:
-        return
-    os.lchown(p, NOBODY, NOBODY)
-    for d, dirs, files in os.walk(p):
-        for n in dirs + files:
-            os.lchown(os.path.join(d, n), NOBODY, NOBODY)
+BOX = None
+# The model may write only what the harness commits (git add below); everything else in the checkout (tools/, the
+# build scripts, .github/, Cargo.toml) can run outside the box later, in a reviewer's or CI's hands.
+WRITABLE = ("src", "tests", "compat", "docs")
 
 
 def box_init():
-    # the box's folder (home, temp files, the snippets the model tries) and what boxed builds write: target/ and
-    # the build cache become nobody's
-    (BOX / "tmp").mkdir(parents=True, exist_ok=True)
-    os.chmod(BOX, 0o700)
+    global BOX
     (ROOT / "target").mkdir(exist_ok=True)
-    chown_tree(BOX)
     chown_tree(ROOT / "target")
-    if os.environ.get("BREVI_CACHE"):
-        Path(os.environ["BREVI_CACHE"]).mkdir(parents=True, exist_ok=True)
-        chown_tree(os.environ["BREVI_CACHE"])
-    STAGE.mkdir(mode=0o700, exist_ok=True)
-
-
-def box_selftest():
-    """Refuse to start unless the box holds: boxed code must not see a secret variable, this harness's process,
-    a token file, /root beyond the toolchains, or the network."""
-    probe = (
-        "import os, socket, sys\n"
-        "bad = []\n"
-        "if os.getuid() != %d: bad.append('runs as uid %%d' %% os.getuid())\n"
-        "if [k for k in os.environ if __import__('re').search(%r, k, 2)]: bad.append('a secret-looking variable')\n"
-        "if os.path.exists('/proc/%d'): bad.append('the harness process is visible')\n"
-        "if sorted(os.listdir('/root')) != %r: bad.append('/root shows ' + str(os.listdir('/root')))\n"
-        "for p in %r:\n"
-        "    if p and os.path.exists(p): bad.append(p + ' is visible')\n"
-        "try:\n"
-        "    socket.create_connection(('1.1.1.1', 443), timeout=3); bad.append('the network is reachable')\n"
-        "except OSError:\n"
-        "    pass\n"
-        "print('BOX OK' if not bad else 'BOX LEAKS: ' + '; '.join(bad))\n"
-    ) % (NOBODY, SECRET_NAME.pattern, os.getpid(), sorted(TOOLCHAINS),
-         [os.environ.get("CLAUDE_SESSION_INGRESS_TOKEN_FILE", ""), "/root/.claude", "/home/claude/.claude"])
-    c, so, se = sh(["python3", "-c", probe], timeout=60)
-    if c != 0 or so.strip() != "BOX OK":
-        sys.exit("refusing to run: the box for the model's commands does not hold: " + (so + se).strip()[:500])
-
-
-def box_done():
-    shutil.rmtree(BOX, ignore_errors=True)
-    try:
-        STAGE.rmdir()
-    except OSError:
-        pass
-
-
-def box_script():
-    q = shlex.quote
-    keep = [str(BOX)] + ([os.environ["BREVI_CACHE"]] if os.environ.get("BREVI_CACHE") else [])
-    lines = ["set -e", "mount --make-rprivate /", f"mount -t tmpfs -o mode=700 tmpfs {q(str(STAGE))}"]
-    lines.append(f"mkdir {q(str(STAGE))}/root && mount --rbind /root {q(str(STAGE))}/root")
-    for i, k in enumerate(keep):
-        lines.append(f"mkdir {q(str(STAGE))}/k{i} && mount --bind {q(k)} {q(str(STAGE))}/k{i}")
-    # read-only folders a reviewer adds for --boxed runs (DS_BOX_RO=/a:/b), e.g. a corpus of programs
     ro = [DSC] + [Path(x) for x in os.environ.get("DS_BOX_RO", "").split(":") if x]
-    ro = [r for r in ro if r.is_dir()]
-    for i, r in enumerate(ro):
-        lines.append(f"mkdir {q(str(STAGE))}/r{i} && mount --bind {q(str(r))} {q(str(STAGE))}/r{i}")
-    lines.append("mount -t tmpfs -o mode=755 tmpfs /root")
-    for t in TOOLCHAINS:
-        lines.append(f"mkdir /root/{t} && mount --rbind {q(str(STAGE))}/root/{t} /root/{t} && mount -o remount,bind,ro /root/{t}")
-    lines.append("mount -t tmpfs -o mode=755 tmpfs /mnt")
-    for i, r in enumerate(ro):
-        lines.append(f"mkdir -p {q(str(r))} && mount --bind {q(str(STAGE))}/r{i} {q(str(r))} && mount -o remount,bind,ro {q(str(r))}")
-    lines.append("mount -t tmpfs -o mode=1777 tmpfs /tmp")
-    for i, k in enumerate(keep):
-        lines.append(f"mkdir -p {q(k)} && mount --bind {q(str(STAGE))}/k{i} {q(k)}")
-    lines.append("[ -d /home/claude ] && mount -t tmpfs -o mode=755 tmpfs /home/claude")
-    lines.append(f"umount -l {q(str(STAGE))}")
-    lines.append(f'exec setpriv --reuid={NOBODY} --regid={NOBODY} --clear-groups --no-new-privs --inh-caps=-all --bounding-set=-all -- "$@"')
-    return "\n".join(lines)
+    BOX = Box(ROOT, rw=[ROOT / "target", os.environ.get("BREVI_CACHE")], ro=ro)
+    atexit.register(BOX.close)
+    BOX.selftest()
 
 
 def sh(cmd, timeout=900, env=None, cwd=ROOT):
     """Run a command the model's work can influence: always in the box."""
-    box = ["unshare", "--mount", "--pid", "--net", "--fork", "--mount-proc", "--", "sh", "-c", box_script(), "box"]
-    try:
-        r = subprocess.run(box + ["env", "-i", *[f"{k}={v}" for k, v in box_env(env).items()], *cmd], cwd=cwd,
-                           capture_output=True, text=True, timeout=timeout, env={"PATH": BOX_PATH})
-        return r.returncode, redact(r.stdout), redact(r.stderr)
-    except subprocess.TimeoutExpired:
-        return -1, "", f"timed out after {timeout}s"
+    return BOX.run(cmd, timeout=timeout, env=env, cwd=cwd)
 
 
 def git(*args):
@@ -277,16 +182,8 @@ def git(*args):
     return r.returncode, redact(r.stdout), redact(r.stderr)
 
 
-def redact(text):
-    for v in SECRET_VALUES:
-        text = text.replace(v, "<redacted>")
-    return text
-
-
 def mkbox(prefix):
-    d = Path(tempfile.mkdtemp(prefix=prefix, dir=BOX / "tmp"))
-    os.chown(d, NOBODY, NOBODY)
-    return d
+    return BOX.mkdir(prefix)
 
 
 class Task:
@@ -406,7 +303,7 @@ def run_tool(name, a, task):
         p = safe_path(a["path"])
         return "\n".join(sorted(x.name + ("/" if x.is_dir() else "") for x in p.iterdir()))
     if name == "replace":
-        p = safe_path(a["path"])
+        p = safe_path(a["path"], write=True)
         t = p.read_text()
         n = t.count(a["old"])
         if n != 1:
@@ -414,7 +311,7 @@ def run_tool(name, a, task):
         p.write_text(t.replace(a["old"], a["new"], 1))
         return "ok"
     if name == "write_file":
-        p = safe_path(a["path"])
+        p = safe_path(a["path"], write=True)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(a["content"])
         return "ok"
@@ -476,19 +373,10 @@ def baseline_ids():
 
 
 def boxed_main(cmd):
-    """`ds_contrib.py --boxed CMD...`: run one command in the same box, from the current directory (a checkout), with
-    its output shown as it comes. For reviewing a model's branch: its compiler and the programs it builds never run
-    outside the box either."""
-    global ROOT
-    here = Path.cwd().resolve()
-    top = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip()
-    ROOT = Path(top) if top else here
-    box_init()
-    atexit.register(box_done)
-    box_selftest()
-    box = ["unshare", "--mount", "--pid", "--net", "--fork", "--mount-proc", "--", "sh", "-c", box_script(), "box"]
-    return subprocess.run(box + ["env", "-i", *[f"{k}={v}" for k, v in box_env().items()], *cmd], cwd=here,
-                          env={"PATH": BOX_PATH}).returncode
+    """`ds_contrib.py --boxed CMD...`: the same as `tools/modelbox.py CMD...` (kept for reviewers' scripts)."""
+    import modelbox
+    sys.argv = [sys.argv[0]] + cmd
+    return modelbox.main()
 
 
 def main():
@@ -524,8 +412,6 @@ def main():
     if git("status", "--porcelain", "--untracked-files=no")[1].strip():
         sys.exit("the working tree has changes: start from a clean checkout")
     box_init()
-    atexit.register(box_done)
-    box_selftest()
     task = CheckTask(a.id, a.task.read_text(), shlex.split(a.check), a.python) if task_mode else Task(a.test_id, a.python)
     log_path = a.log or ROOT / "bench" / "logs" / "ds_contrib" / (a.test_id + ".jsonl")
     log_path.parent.mkdir(parents=True, exist_ok=True)
