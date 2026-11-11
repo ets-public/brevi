@@ -12,6 +12,13 @@ use std::rc::{Rc, Weak};
 pub type R = Result<V, E>;
 pub type Sym = &'static str;
 
+// A namedtuple field descriptor (_tuplegetter in CPython): its field's index in the wrapped tuple, and the
+// __doc__ attribute CPython lets code read, assign and delete on each descriptor independently.
+pub struct Ntf {
+    pub idx: i64,
+    pub doc: RefCell<V>,
+}
+
 // The tag in a whole word: values move as three aligned words (a one-byte tag moved bytes 1..24 unaligned,
 // which stalls the CPU when the next load reads them back).
 #[repr(u64)]
@@ -46,7 +53,7 @@ pub enum V {
     Prop(Rc<(V, V)>),
     // a namedtuple field: a read-only descriptor holding the field's index in the wrapped tuple (the Rc
     // gives each descriptor its own identity, so `P.x is P.x` stays true, as in CPython)
-    NTF(Rc<i64>),
+    NTF(Rc<Ntf>),
     Ext(ExtRc),
     NotImpl,
     Ellipsis,

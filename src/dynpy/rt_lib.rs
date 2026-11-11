@@ -770,6 +770,7 @@ pub fn type_of(x: &V) -> Result<Rc<Class>, E> {
         V::View(x) if x.1 == 3 => tclass(17, "mappingproxy"),
         V::Ext(e) => ext_class(e.tname()),
         V::Iter(it) => return iter_type_of(it),
+        V::NTF(_) => ext_class("collections._tuplegetter"),
         _ => tclass(18, "object"),
     })
 }
