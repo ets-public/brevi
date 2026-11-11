@@ -880,7 +880,8 @@ fn update_wrapper(wrapper: V, wrapped: V, assigned: V, updated: V) -> R {
 // annotation itself.
 struct SDState {
     registry: Rc<RefCell<Dict>>,
-    cache: RefCell<Vec<(V, Option<V>)>>,
+    // keyed by the class's address; each entry holds its class, so the address stays that class's while cached
+    cache: RefCell<std::collections::HashMap<usize, (V, Option<V>)>>,
 }
 fn sd_registry_view(st: &Rc<SDState>) -> V {
     V::View(Rc::new((V::Dict(st.registry.clone()), 3)))
@@ -1015,20 +1016,23 @@ fn sd_find_impl(cls: &V, reg: &Rc<RefCell<Dict>>) -> Result<Option<V>, E> {
     }
     Ok(None)
 }
+fn sd_key(cls: &V) -> usize {
+    match cls {
+        V::Class(c) => Rc::as_ptr(c) as *const u8 as usize,
+        _ => 0,
+    }
+}
 fn sd_dispatch_impl(st: &Rc<SDState>, cls: &V) -> R {
     {
-        let cache = st.cache.borrow();
-        for (k, v) in cache.iter() {
-            if is(k, cls) {
-                return Ok(v.clone().unwrap_or(V::None));
-            }
+        if let Some((_, v)) = st.cache.borrow().get(&sd_key(cls)) {
+            return Ok(v.clone().unwrap_or(V::None));
         }
     }
     let found = match Dict::get_cell(&st.registry, cls)? {
         Some(v) => Some(v),
         None => sd_find_impl(cls, &st.registry)?,
     };
-    st.cache.borrow_mut().push((cls.clone(), found.clone()));
+    st.cache.borrow_mut().insert(sd_key(cls), (cls.clone(), found.clone()));
     Ok(found.unwrap_or(V::None))
 }
 fn sd_make_wrapper(st: &Rc<SDState>, f: V) -> R {
@@ -1070,7 +1074,7 @@ fn sd_make_wrapper(st: &Rc<SDState>, f: V) -> R {
     update_wrapper(w, f, wraps_assigned(), wraps_updated())
 }
 fn singledispatch_impl(f: V) -> R {
-    let st = Rc::new(SDState { registry: Rc::new(RefCell::new(Dict::new())), cache: RefCell::new(vec![]) });
+    let st = Rc::new(SDState { registry: Rc::new(RefCell::new(Dict::new())), cache: RefCell::new(std::collections::HashMap::new()) });
     sd_make_wrapper(&st, f)
 }
 fn sd_is_abstract(v: &V) -> bool {
@@ -1168,7 +1172,7 @@ fn singledispatchmethod_impl(f: V) -> R {
         let r = repr(&f).unwrap_or_else(|_| "<object>".into());
         return type_err(format!("{r} is not callable or a descriptor"));
     }
-    let st = Rc::new(SDState { registry: Rc::new(RefCell::new(Dict::new())), cache: RefCell::new(vec![]) });
+    let st = Rc::new(SDState { registry: Rc::new(RefCell::new(Dict::new())), cache: RefCell::new(std::collections::HashMap::new()) });
     let dispatcher = sd_make_wrapper(&st, f.clone())?;
     Ok(V::Ext(ExtRc::new(SDMethod { st, dispatcher, func: f })))
 }
