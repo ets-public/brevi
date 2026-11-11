@@ -7,7 +7,7 @@
 30 warnings_lines.py UserWarning gen after yield
 34 warnings_lines.py UserWarning lambda
 38 warnings_lines.py UserWarning callback
-55 warnings_lines.py DeprecationWarning glob.glob0 is deprecated and will be rem
+55 warnings_lines.py DeprecationWarning The 'January' attribute is deprecated, u
 60 warnings_lines.py UserWarning loop
 60 warnings_lines.py UserWarning loop
 61 warnings_lines.py DeprecationWarning as instance
