@@ -642,9 +642,9 @@ unsafe fn pyd_namedtuple(v: &V) -> Result<P, E> {
 // so the program's iterator does the same. The callback runs at pickle time, so it sees the iterator's position
 // then, not when the value was handed to the library.
 enum ItPlan {
+    // CPython's exact form for list, tuple and str iterators: `(iter, (whole,), index)`, then __setstate__(index).
+    At(V, usize),
     Seq(Vec<V>),
-    Tuple(Vec<V>),
-    Str(String),
     Range(i64, i64, i64),
     Dict(Rc<RefCell<Dict>>, usize, u8, u64, usize),
     Set(Rc<RefCell<PSet>>, usize, i64),
@@ -658,10 +658,12 @@ fn iter_reduce(v: &V) -> R {
             return Err(exc("ValueError", "iterator already executing".into()));
         };
         match &*it {
-            It::List(l, i) => ItPlan::Seq(l.borrow().iter().skip(*i).cloned().collect()),
-            It::Tuple(t, i) => ItPlan::Tuple(t[*i..].to_vec()),
-            It::Vec(x) => ItPlan::Seq(x.as_slice().to_vec()),
-            It::Str(s, i) => ItPlan::Str(s.s[*i..].to_string()),
+            It::List(l, i) => ItPlan::At(V::List(l.clone()), *i),
+            It::Tuple(t, i) => ItPlan::At(tup(t.to_vec()), *i),
+            // It::Vec holds the rest of reversed(), map(), zip() and others: CPython pickles each of those its own
+            // way (`reversed`, `map(f, it)`, ...), so it is refused rather than saved as a plain list iterator.
+            // the iterator keeps a byte offset; CPython's index counts characters
+            It::Str(s, i) => ItPlan::At(st(s.s.clone()), s.s[..*i].chars().count()),
             It::Range(a, b, st) => ItPlan::Range(*a, *b, *st),
             It::Dict(d, i, kind, ver, n0) => ItPlan::Dict(d.clone(), *i, *kind, *ver, *n0),
             It::Set(s, i, n0) => ItPlan::Set(s.clone(), *i, *n0),
@@ -672,10 +674,10 @@ fn iter_reduce(v: &V) -> R {
             _ => return Err(exc("TypeError", format!("cannot pickle '{}' object", tn(v)))),
         }
     };
+    let f = pyd_builtin("iter")?;
     let base = match plan {
+        ItPlan::At(whole, i) => return Ok(tup(vec![f, tup(vec![whole]), V::Int(i as i64)])),
         ItPlan::Seq(xs) => V::List(Rc::new(RefCell::new(xs))),
-        ItPlan::Tuple(xs) => tup(xs),
-        ItPlan::Str(s) => st(s),
         ItPlan::Range(a, b, st) => V::Range(Rc::new((a, b, st))),
         ItPlan::Dict(d, i, kind, ver, n0) => {
             let mut sim = It::Dict(d, i, kind, ver, n0);
@@ -694,7 +696,6 @@ fn iter_reduce(v: &V) -> R {
             V::List(Rc::new(RefCell::new(out)))
         }
     };
-    let f = pyd_builtin("iter")?;
     Ok(tup(vec![f, tup(vec![base])]))
 }
 
