@@ -2268,7 +2268,18 @@ pub struct Class {
     pub plain_new: Cell<(u64, bool)>,
     // (epoch, whether instances hash by identity: no __hash__ or __eq__ in the MRO, not an enum)
     pub plain_hash: Cell<(u64, bool)>,
+    // collections.abc: the class (or a subclass of one) follows ABCMeta's isinstance/issubclass rules
+    pub abc: Cell<bool>,
+    // ABCMeta's virtual subclasses, in registration order (strong: class objects outlive the program)
+    pub abc_registry: RefCell<Vec<Rc<Class>>>,
+    // ABCMeta's positive and negative caches; the negative cache is dropped when the global token moves on
+    pub abc_cache: RefCell<Vec<Rc<Class>>>,
+    pub abc_neg_cache: RefCell<Vec<Rc<Class>>>,
+    pub abc_neg_ver: Cell<u64>,
 }
+
+// ABCMeta._abc_invalidation_counter: every register() on any ABC moves it, clearing negative caches.
+pub static ABC_TOKEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 thread_local! {
     pub static CLASS_EPOCH: Cell<u64> = const { Cell::new(1) };
@@ -2300,7 +2311,7 @@ impl Class {
         Self::with_qualname(name, name, module, bases, bt)
     }
     pub fn with_qualname(name: Sym, qualname: Sym, module: Sym, bases: Vec<Rc<Class>>, bt: BT) -> Rc<Class> {
-        let c = Rc::new(Class { name, qualname: Cell::new(qualname), module, bases: bases.clone(), mro: RefCell::new(vec![]), subs: RefCell::new(vec![]), attrs: RefCell::new(vec![]), bt, fields: RefCell::new(vec![]), lcache: RefCell::new((0, HashMap::default())), fcache: RefCell::new((0, Default::default())), set_info: RefCell::new((0, false, vec![], None)), plain_new: Cell::new((0, false)), plain_hash: Cell::new((0, false)) });
+        let c = Rc::new(Class { name, qualname: Cell::new(qualname), module, bases: bases.clone(), mro: RefCell::new(vec![]), subs: RefCell::new(vec![]), attrs: RefCell::new(vec![]), bt, fields: RefCell::new(vec![]), lcache: RefCell::new((0, HashMap::default())), fcache: RefCell::new((0, Default::default())), set_info: RefCell::new((0, false, vec![], None)), plain_new: Cell::new((0, false)), plain_hash: Cell::new((0, false)), abc: Cell::new(false), abc_registry: RefCell::new(vec![]), abc_cache: RefCell::new(vec![]), abc_neg_cache: RefCell::new(vec![]), abc_neg_ver: Cell::new(0) });
         // C3 linearization
         let mut seqs: Vec<Vec<Rc<Class>>> = bases.iter().map(|b| b.mro.borrow().clone()).collect();
         seqs.push(bases.clone());

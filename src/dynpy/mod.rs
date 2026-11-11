@@ -266,6 +266,7 @@ fn package_native(pkg: &Path, top: &str) -> bool {
 fn sandbox_module(m: &str) -> Option<&'static str> {
     Some(match m {
         "random" => include_str!("py/random.py"),
+        "collections.abc" => include_str!("py/collections_abc.py"),
         "os" => include_str!("py/os.py"),
         "posixpath" => include_str!("py/posixpath.py"),
         "os.path" => include_str!("py/posixpath.py"),
@@ -403,21 +404,7 @@ pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
     r
 }
 
-const ABC_BRIDGE: &str = "collections.abc used as a value runs CPython's ABCs";
-
 fn to_rust_np(file: &str) -> Result<String, (String, usize, String)> {
-    emit::ABC_NATIVE.store(true, Ordering::Relaxed);
-    let r = to_rust_np2(file);
-    if matches!(&r, Err((_, 0, m)) if m == ABC_BRIDGE) {
-        emit::ABC_NATIVE.store(false, Ordering::Relaxed);
-        let r = to_rust_np2(file);
-        emit::ABC_NATIVE.store(true, Ordering::Relaxed);
-        return r;
-    }
-    r
-}
-
-fn to_rust_np2(file: &str) -> Result<String, (String, usize, String)> {
     match to_rust_with(file, true) {
         // More of os, pathlib, random, ... than Brevi's copies have: CPython's own modules, through the bridge.
         Err((_, 0, m)) if m == BEYOND_COPIES && bridge_ok() => to_rust_with(file, false),
@@ -622,10 +609,6 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         let user: Vec<(&str, &[parse::Stmt])> = mods.iter().filter(|m| !own_mods.contains(&m.name)).map(|m| (m.name.as_str(), m.body.as_slice())).collect();
         typing::OWN_PYDANTIC.store(own_mods.contains("pydantic"), Ordering::Relaxed);
         if let Err((m, l, why)) = typing::check(&user) {
-            // collections.abc as a value (isinstance(x, Mapping)): CPython's, through the bridge
-            if emit::ABC_NATIVE.load(Ordering::Relaxed) && typing::uses_abc(&user) && bridge_ok() && crate::pybridge::py_allowed("collections") {
-                return Err((file.to_string(), 0, ABC_BRIDGE.into()));
-            }
             let f = texts.get(&m).map_or(file.to_string(), |t| t.0.clone());
             return Err((f, l, why));
         }

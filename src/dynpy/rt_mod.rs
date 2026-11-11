@@ -1860,25 +1860,25 @@ pub fn operator_fn(name: &str, a: Args) -> R {
         _ => {
             let op = match name {
                 "add" | "__add__" => "+",
-                "sub" => "-",
-                "mul" => "*",
-                "truediv" => "/",
-                "floordiv" => "//",
-                "mod" => "%",
-                "pow" => "**",
-                "and_" => "&",
-                "or_" => "|",
-                "xor" => "^",
-                "lshift" => "<<",
-                "rshift" => ">>",
-                "lt" | "le" | "gt" | "ge" | "eq" | "ne" => {
+                "sub" | "__sub__" => "-",
+                "mul" | "__mul__" => "*",
+                "truediv" | "__truediv__" => "/",
+                "floordiv" | "__floordiv__" => "//",
+                "mod" | "__mod__" => "%",
+                "pow" | "__pow__" => "**",
+                "and_" | "__and__" => "&",
+                "or_" | "__or__" => "|",
+                "xor" | "__xor__" => "^",
+                "lshift" | "__lshift__" => "<<",
+                "rshift" | "__rshift__" => ">>",
+                "lt" | "__lt__" | "le" | "__le__" | "gt" | "__gt__" | "ge" | "__ge__" | "eq" | "__eq__" | "ne" | "__ne__" => {
                     a.want(name, 2, 2)?;
                     let o = match name {
-                        "lt" => "<",
-                        "le" => "<=",
-                        "gt" => ">",
-                        "ge" => ">=",
-                        "eq" => "==",
+                        "lt" | "__lt__" => "<",
+                        "le" | "__le__" => "<=",
+                        "gt" | "__gt__" => ">",
+                        "ge" | "__ge__" => ">=",
+                        "eq" | "__eq__" => "==",
                         _ => "!=",
                     };
                     // as `a < b`: an object's __lt__ result is the value (polars, numpy)
@@ -2167,7 +2167,20 @@ pub fn module_call(m: &str, n: &str, a: Args) -> R {
         },
         "typing" | "typing_extensions" => typing_call(n, a),
         "dataclasses" => dataclass_fn(n, a),
-        "abc" => Ok(a.p.first().cloned().unwrap_or(V::None)),
+        "abc" => match n {
+            "abstractmethod" => {
+                let v = a.p.first().cloned().unwrap_or(V::None);
+                if let V::Func(f) = &v {
+                    if !f.attrs.borrow().iter().any(|(k, _)| *k == "__isabstractmethod__") {
+                        f.attrs.borrow_mut().push(("__isabstractmethod__", V::Bool(true)));
+                    }
+                }
+                Ok(v)
+            }
+            "_check_methods" => abc_check_methods(a),
+            "_abc_register" => abc_register(a),
+            _ => Ok(a.p.first().cloned().unwrap_or(V::None)),
+        },
         "gc" => gc_fn(n, a),
         "weakref" => weakref_fn(n, a),
         _ => ext_module_call(m, n, a),
@@ -2252,6 +2265,7 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         ("math", "inf") => V::Float(f64::INFINITY),
         ("math", "nan") => V::Float(math_nan()),
         ("collections", "defaultdict" | "Counter" | "OrderedDict" | "deque") => V::Class(bclass(name)),
+        ("collections", "abc") => V::Module(&ModName("collections.abc")),
         ("string", "ascii_lowercase") => s("abcdefghijklmnopqrstuvwxyz"),
         ("string", "ascii_uppercase") => s("ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
         ("string", "ascii_letters") => s("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"),
