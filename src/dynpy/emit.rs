@@ -77,8 +77,11 @@ const NP_NARROW_FUNCS: &[&str] = &[
 ];
 // collections.abc as Brevi's typing forms (off when the program needs CPython's ABCs: the bridge runs them).
 pub static ABC_NATIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+// false: `string` is CPython's Lib/string.py compiled in (py/string.py), for Template and Formatter; true (the
+// default): the native module, constants only, which builds and starts much faster
+pub static STRING_NATIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 pub fn builtin_mod(m: &str) -> bool {
-    BUILTIN_MODULES.contains(&m) || m == "typing_extensions" || (m == "collections.abc" && ABC_NATIVE.load(std::sync::atomic::Ordering::Relaxed)) || (matches!(m, "numpy" | "numpy.random" | "numpy.linalg") && np_native())
+    (BUILTIN_MODULES.contains(&m) && (m != "string" || STRING_NATIVE.load(std::sync::atomic::Ordering::Relaxed))) || m == "typing_extensions" || (m == "collections.abc" && ABC_NATIVE.load(std::sync::atomic::Ordering::Relaxed)) || (matches!(m, "numpy" | "numpy.random" | "numpy.linalg") && np_native())
 }
 // The numpy functions and attributes the native numpy has, with the keyword arguments each takes.
 const NP_FUNCS: &[(&str, &[&str])] = &[

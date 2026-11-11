@@ -274,6 +274,8 @@ fn sandbox_module(m: &str) -> Option<&'static str> {
         "textwrap" => include_str!("py/textwrap.py"),
         "logging" => include_str!("py/logging.py"),
         "argparse" => include_str!("py/argparse.py"),
+        "string" => include_str!("py/string.py"),
+        "_string" => include_str!("py/_string.py"),
         "asyncio" => include_str!("py/asyncio.py"),
         "asyncio.subprocess" => include_str!("py/asyncio_subprocess.py"),
         "tiktoken" => include_str!("py/tiktoken.py"),
@@ -405,7 +407,21 @@ pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
 
 const ABC_BRIDGE: &str = "collections.abc used as a value runs CPython's ABCs";
 
+// The native `string` module has only the constants; a program using anything else from it (Template,
+// Formatter, capwords) is built again with CPython's string.py compiled in.
 fn to_rust_np(file: &str) -> Result<String, (String, usize, String)> {
+    emit::STRING_NATIVE.store(true, Ordering::Relaxed);
+    let r = to_rust_np_abc(file);
+    if matches!(&r, Err((_, _, m)) if m.starts_with("string.") && m.ends_with(" is not supported in dynamic builds")) {
+        emit::STRING_NATIVE.store(false, Ordering::Relaxed);
+        let r = to_rust_np_abc(file);
+        emit::STRING_NATIVE.store(true, Ordering::Relaxed);
+        return r;
+    }
+    r
+}
+
+fn to_rust_np_abc(file: &str) -> Result<String, (String, usize, String)> {
     emit::ABC_NATIVE.store(true, Ordering::Relaxed);
     let r = to_rust_np2(file);
     if matches!(&r, Err((_, 0, m)) if m == ABC_BRIDGE) {

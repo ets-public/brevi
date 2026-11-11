@@ -1191,6 +1191,14 @@ pub fn getattr(o: &V, name: &str) -> R {
                             }
                         }
                     }
+                    // Last: a plain class inherits object.__init__ (so Formatter.__init__(self) works as it
+                    // does in CPython); it is not among c.lookup's names because object adds no slot.
+                    // After the builtin bases, so ValueError.__init__ on an exception subclass stays ValueError's.
+                    if name == "__init__" {
+                        if let Some(v) = builtin_class_attr(&bclass("object"), "__init__") {
+                            return Ok(v);
+                        }
+                    }
                     Err(exc("AttributeError", format!("type object '{}' has no attribute '{}'", c.name, name)))
                 }
             }
