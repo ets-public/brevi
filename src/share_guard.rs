@@ -170,6 +170,23 @@ const MODULE: usize = usize::MAX;
 // of a sibling file can be followed instead of taken as an unknown call (see inline_imports).
 static CONTEXT: std::sync::Mutex<Option<std::path::PathBuf>> = std::sync::Mutex::new(None);
 
+// Each file's text and its parse, so the files of one program are parsed once (guard_files reads each one,
+// and the proof of a file reads the modules it imports).
+static PARSES: std::sync::Mutex<Vec<(std::path::PathBuf, String, Result<Vec<Stmt>, (usize, String)>)>> = std::sync::Mutex::new(vec![]);
+
+pub fn parsed(path: &std::path::Path, src: &str) -> Result<Vec<Stmt>, (usize, String)> {
+    let mut g = PARSES.lock().unwrap();
+    if let Some((_, _, r)) = g.iter().find(|(p, t, _)| p == path && t == src) {
+        return r.clone();
+    }
+    let r = crate::dynpy::parse::parse(src);
+    g.push((path.to_path_buf(), src.to_string(), r.clone()));
+    r
+}
+
+// Modules whose whole body a passing proof of an importing file took in (see check).
+static COVERED: std::sync::Mutex<BTreeSet<std::path::PathBuf>> = std::sync::Mutex::new(BTreeSet::new());
+
 pub fn set_context(file: &std::path::Path) {
     *CONTEXT.lock().unwrap() = Some(file.to_path_buf());
 }
@@ -182,6 +199,10 @@ const SHIFT: usize = 10_000_000;
 // Why the file needs the dynamic build (with the line), and the borrows to check when it does not.
 pub fn check(body: &[Stmt]) -> Option<(usize, String)> {
     let file = CONTEXT.lock().unwrap().clone().unwrap_or_default();
+    // Every statement of this module was already proved, joined into a file that imports it.
+    if !file.as_os_str().is_empty() && COVERED.lock().unwrap().contains(&file) {
+        return None;
+    }
     let dir = file.parent().map(|d| d.to_path_buf()).unwrap_or_default();
     let stem = file.file_stem().unwrap_or_default().to_string_lossy().to_string();
     let inlined = if file.as_os_str().is_empty() { None } else { inline_imports(body, &dir, &stem) };
@@ -212,6 +233,9 @@ pub fn check(body: &[Stmt]) -> Option<(usize, String)> {
     parts[0].muts = req.muts;
     for (k, r) in parts.into_iter().enumerate() {
         let path = if k == 0 { file.clone() } else { dir.join(format!("{}.py", imports[k - 1].1)) };
+        if k > 0 {
+            COVERED.lock().unwrap().insert(path.clone());
+        }
         add_required(&path, r);
     }
     None
@@ -346,7 +370,8 @@ fn inline_imports(body: &[Stmt], dir: &std::path::Path, stem: &str) -> Option<(V
             continue;
         }
         let path = dir.join(format!("{m}.py"));
-        let Some(mut mbody) = crate::read_src(&path).ok().and_then(|src| crate::dynpy::parse::parse(&src).ok()) else {
+        // As guard_files reads it (without `allow` lines), so the parse is shared.
+        let Some(mut mbody) = crate::read_src(&path).ok().and_then(|src| parsed(&path, &crate::caps::split(&src).0).ok()) else {
             i += 1;
             continue;
         };
