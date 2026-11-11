@@ -1,0 +1,6 @@
+6 6
+5
+True
+2 9
+CacheInfo(hits=1, misses=2, maxsize=2, currsize=2) True CacheInfo(hits=1, misses=2, maxsize=3, currsize=4)
+CacheInfo ('hits', 'misses', 'maxsize', 'currsize')

@@ -798,7 +798,7 @@ fn lru_cache_wrap(f: V, maxsize: V, typed: bool) -> R {
         let h4 = hits.clone();
         let m4 = misses.clone();
         let ms4 = maxsize.clone();
-        let info = namedtuple_runtime_type(Args { p: vec![s("CacheInfo"), tup(vec![s("hits"), s("misses"), s("maxsize"), s("currsize")])], k: vec![("module", s("functools"))] })?;
+        let info = cache_info_class()?;
         wf.attrs.borrow_mut().push(("cache_info", builtin("cache_info", move |_a: Args| {
             call(&info, Args::p(vec![V::Int(h4.get()), V::Int(m4.get()), ms4.clone(), V::Int(c4.borrow().n as i64)]))
         })));
@@ -813,6 +813,18 @@ fn lru_cache_wrap(f: V, maxsize: V, typed: bool) -> R {
     let w = with_qualname(w, qualname);
     let w = update_wrapper(w, f, wraps_assigned(), wraps_updated())?;
     Ok(w)
+}
+// functools._CacheInfo: one namedtuple class for every cache's cache_info(), as CPython's module has.
+fn cache_info_class() -> R {
+    thread_local! {
+        static CI: RefCell<Option<V>> = const { RefCell::new(None) };
+    }
+    if let Some(c) = CI.with(|c| c.borrow().clone()) {
+        return Ok(c);
+    }
+    let c = namedtuple_runtime_type(Args { p: vec![s("CacheInfo"), tup(vec![s("hits"), s("misses"), s("maxsize"), s("currsize")])], k: vec![("module", s("functools"))] })?;
+    CI.with(|x| *x.borrow_mut() = Some(c.clone()));
+    Ok(c)
 }
 // functools.wraps' defaults, shared with update_wrapper (CPython 3.13's WRAPPER_ASSIGNMENTS/UPDATES).
 fn wraps_assigned() -> V {
@@ -1191,6 +1203,7 @@ pub fn functools_fn(name: &str, mut a: Args) -> R {
     Ok(match name {
         "cached_property" => return call(&V::Class(cached_property_class()), a),
         "partialmethod" => return call(&V::Class(partialmethod_class()), a),
+        "_CacheInfo" => return call(&cache_info_class()?, a),
         // CPython's functools.RLock is _thread.RLock
         "RLock" => return threading_fn("RLock", a),
         "lru_cache" | "cache" => {
@@ -2678,6 +2691,7 @@ fn modfn(m: &'static str, n: &str) -> V {
     // marked as a module's function, so it never reads as the builtins function of its name (math.pow.__doc__)
     if let V::Func(f) = &v {
         f.attrs.borrow_mut().push(("__bv_mod__", s(m)));
+        f.attrs.borrow_mut().push(("__bv_nobind__", V::Bool(true)));
     }
     MODFNS.with(|c| {
         c.borrow_mut().insert((m, n), v.clone());
@@ -2913,6 +2927,7 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         ("functools", "partialmethod") => V::Class(partialmethod_class()),
         // CPython's functools imports RLock from _thread, so it is an attribute of the module
         ("functools", "RLock") => return module_attr("threading", "RLock"),
+        ("functools", "_CacheInfo") => cache_info_class()?,
         ("functools", "WRAPPER_ASSIGNMENTS") => wraps_assigned(),
         ("functools", "WRAPPER_UPDATES") => wraps_updated(),
         _ => {

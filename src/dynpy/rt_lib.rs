@@ -1346,7 +1346,11 @@ pub fn builtin_value(name: &str) -> Option<V> {
     }
     if let Some(f) = builtin_fn(name) {
         let n: Sym = sym(name);
-        return Some(builtin(n, f));
+        let v = builtin(n, f);
+        if let V::Func(x) = &v {
+            x.attrs.borrow_mut().push(("__bv_nobind__", V::Bool(true)));
+        }
+        return Some(v);
     }
     match name {
         "None" => Some(V::None),
