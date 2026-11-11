@@ -728,7 +728,12 @@ pub fn isinstance(x: &V, c: &V) -> Result<bool, E> {
                     return Ok(b);
                 }
             }
-            Ok(type_of(x)?.is_sub(k))
+            match type_of(x) {
+                Ok(t) => Ok(t.is_sub(k)),
+                // an iterator whose CPython class Brevi cannot name is an instance of none of the classes the
+                // program can name, except the iterator classes type() gives (which could be its own)
+                Err(e) => if is_iter_class(k) { Err(e) } else { Ok(false) },
+            }
         }
         V::Ext(e) => match e.instancecheck(x) {
             Some(r) => r,
@@ -863,6 +868,11 @@ pub fn ext_class(n: &'static str) -> Rc<Class> {
 // Keyed by module and name so `type(a) is type(b)` shares one class per CPython type.
 thread_local! {
     pub static EXT_ITER_CLASSES: RefCell<HashMap<(Sym, Sym), Rc<Class>>> = RefCell::new(HashMap::new());
+}
+// A class type() gives for an iterator (one of ITER_CLASSES, or a bridged value's iterator type).
+fn is_iter_class(k: &Rc<Class>) -> bool {
+    ITER_CLASSES.with(|c| c.borrow().iter().flatten().any(|x| Rc::ptr_eq(x, k)))
+        || EXT_ITER_CLASSES.with(|m| m.borrow().values().any(|x| Rc::ptr_eq(x, k)))
 }
 pub fn ext_class_mod(module: &str, name: &str) -> Rc<Class> {
     EXT_ITER_CLASSES.with(|m| {

@@ -928,7 +928,7 @@ fn sd_ann_classes(arg: &str, desc: &V, union_repr: Option<String>) -> Result<Vec
                 Err(sd_invalid_ann(arg, &repr(&v).unwrap_or_else(|_| "<object>".into())))
             }
         }
-        "none" => Ok(vec![V::Class(type_of(&V::None))]),
+        "none" => Ok(vec![V::Class(type_of(&V::None)?)]),
         "union" => {
             let arms = match sd_desc_at(desc, 1) {
                 Some(V::Tuple(t)) => t.to_vec(),
@@ -1049,7 +1049,7 @@ fn sd_make_wrapper(st: &Rc<SDState>, f: V) -> R {
         if a.p.is_empty() {
             return type_err(format!("{funcname} requires at least 1 positional argument"));
         }
-        let cls = V::Class(type_of(&a.p[0]));
+        let cls = V::Class(type_of(&a.p[0])?);
         let implv = sd_dispatch_impl(&stw, &cls)?;
         call(&implv, a)
     });
@@ -1111,7 +1111,7 @@ fn sd_method_get(md: &SDMethod, obj: V, cls: V) -> R {
         if a.p.is_empty() {
             return type_err(format!("{funcname} requires at least 1 positional argument"));
         }
-        let first_cls = V::Class(type_of(&a.p[0]));
+        let first_cls = V::Class(type_of(&a.p[0])?);
         let implv = sd_dispatch_impl(&st, &first_cls)?;
         let bound = sd_bind_impl(&implv, &objc, &clsc)?;
         call(&bound, a)
@@ -1155,7 +1155,13 @@ impl Ext for SDMethod {
         match n {
             "__get__" => {
                 let obj = a.p.first().cloned().unwrap_or(V::None);
-                let cls = a.p.get(1).cloned().unwrap_or_else(|| V::Class(type_of(&obj)));
+                let cls = match a.p.get(1) {
+                    Some(c) => c.clone(),
+                    None => match type_of(&obj) {
+                        Ok(c) => V::Class(c),
+                        Err(e) => return Some(Err(e)),
+                    },
+                };
                 Some(sd_method_get(self, obj, cls))
             }
             "register" => {
