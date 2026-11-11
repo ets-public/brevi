@@ -853,6 +853,8 @@ fn builtin_hook_methods(c: &Rc<Class>) -> Option<Option<&'static [&'static str]>
             "NoneType" | "bool" | "int" | "float" | "complex" | "object" | "slice" | "ellipsis" | "NotImplementedType" | "cell" => SCALAR,
             "str" => &["__hash__", "__iter__", "__len__", "__contains__"],
             "bytes" => &["__hash__", "__iter__", "__len__", "__contains__", "__buffer__"],
+            "bytearray" => &["__iter__", "__len__", "__contains__", "__buffer__"],
+            "memoryview" => &["__hash__", "__iter__", "__len__", "__buffer__"],
             "list" | "dict" | "defaultdict" | "Counter" | "OrderedDict" | "deque" | "dict_keys" | "dict_items" => &["__iter__", "__reversed__", "__len__", "__contains__"],
             "tuple" | "frozenset" => &["__hash__", "__iter__", "__len__", "__contains__"],
             "set" => &["__iter__", "__len__", "__contains__"],
@@ -1569,6 +1571,12 @@ pub fn builtin_value(name: &str) -> Option<V> {
     if name == "bytes" {
         return Some(V::Class(ext_class("bytes")));
     }
+    if name == "bytearray" {
+        return Some(V::Class(ext_class("bytearray")));
+    }
+    if name == "memoryview" {
+        return Some(V::Class(ext_class("memoryview")));
+    }
     if builtin_type_name(name) && name != "slice" {
         return Some(V::Class(bclass(name)));
     }
@@ -1596,6 +1604,12 @@ pub fn builtin_value(name: &str) -> Option<V> {
 pub fn builtin_type_call(c: &Rc<Class>, a: &mut Args) -> Option<R> {
     if c.name == "bytes" && c.module == "builtins" {
         return Some(bi_bytes(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));
+    }
+    if c.name == "bytearray" && c.module == "builtins" {
+        return Some(bi_bytearray(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));
+    }
+    if c.name == "memoryview" && c.module == "builtins" {
+        return Some(bi_memoryview(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));
     }
     // Other builtin classes (the exceptions) keep their arguments for the caller.
     if !matches!(c.name, "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "defaultdict" | "Counter" | "OrderedDict" | "deque") {
@@ -1646,6 +1660,10 @@ fn builtin_class_attr_raw(c: &Rc<Class>, name: &str) -> Option<V> {
     // dict.fromkeys, str.maketrans, int.from_bytes ... and unbound methods (str.lower)
     match (c.name, name) {
         ("bytes", "fromhex") => Some(builtin("fromhex", bytes_fromhex)),
+        ("bytearray", "fromhex") => Some(builtin("fromhex", bytearray_fromhex)),
+        // bytes.maketrans and bytearray.maketrans are static methods (both return bytes): class calls do not bind
+        // their first argument as self
+        ("bytes" | "bytearray", "maketrans") => Some(builtin("maketrans", bytes_maketrans)),
         ("int", "from_bytes") => Some(builtin("from_bytes", |a: Args| int_from_bytes(&V::None, a))),
         // str.maketrans is a static method: class calls do not bind their first argument as self
         ("str", "maketrans") => Some(builtin("maketrans", |a: Args| str_maketrans(&a))),
