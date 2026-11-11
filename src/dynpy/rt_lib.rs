@@ -532,6 +532,10 @@ pub fn bi_reversed(a: Args) -> R {
         },
         _ => ItKind::Reversed,
     };
+    if let V::List(l) = &x {
+        let n = l.borrow().len();
+        return Ok(new_iter(It::RevList(l.clone(), n), IterClass::Kind(kind)));
+    }
     if matches!(x, V::Dict(_) | V::List(_) | V::Tuple(_) | V::Str(_) | V::Deque(_) | V::View(_)) || inner_of(&x).is_some() {
         let mut v = to_vec(&x)?;
         v.reverse();
@@ -1558,7 +1562,11 @@ pub fn builtin_value(name: &str) -> Option<V> {
     }
     if let Some(f) = builtin_fn(name) {
         let n: Sym = sym(name);
-        return Some(builtin(n, f));
+        let v = builtin(n, f);
+        if let V::Func(x) = &v {
+            x.attrs.borrow_mut().push(("__bv_nobind__", V::Bool(true)));
+        }
+        return Some(v);
     }
     match name {
         "None" => Some(V::None),

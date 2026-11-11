@@ -947,10 +947,17 @@ pub fn object_setattr(me: &V, a: &[V]) -> R {
     o.set_res(name, a[1].clone())?;
     Ok(V::None)
 }
+// A builtin function or a library module's function (len, functools.reduce): not a descriptor in CPython, so
+// a class attribute holding one never binds (`class T: reduce = functools.reduce`, then T().reduce(f, xs)).
+#[inline]
+pub fn nobind(f: &Func) -> bool {
+    f.kind.get() == 3 && f.attrs.borrow().iter().any(|(k, _)| *k == "__bv_nobind__")
+}
 fn bind_attr(v: V, me: &V, from_class_lookup: bool) -> V {
     match &v {
         V::Func(f) => match f.kind.get() {
             1 => v.clone(),
+            3 if nobind(f) => v.clone(),
             2 => {
                 let cls = match me {
                     V::Obj(o) => V::Class(o.cls.clone()),
@@ -1242,6 +1249,7 @@ pub fn getattr(o: &V, name: &str) -> R {
                     V::Obj(d) if d.cls.lookup("__get__").is_some() => desc_get(&v, o, &V::Class(ob.cls.clone())),
                     V::Func(f) => Ok(match f.kind.get() {
                         1 => v.clone(),
+                        3 if nobind(f) => v.clone(),
                         2 => V::Bound(Rc::new((V::Class(ob.cls.clone()), v.clone()))),
                         _ => V::Bound(Rc::new((o.clone(), v.clone()))),
                     }),
@@ -1735,6 +1743,10 @@ pub fn delattr(o: &V, name: &str) -> Result<(), E> {
                 call(&da, Args::p(vec![o.clone(), s(name)]))?;
                 return Ok(());
             }
+            // a C type's __dict__ descriptor (functools.partial's) cannot be deleted
+            if name == "__dict__" && ob.cls.lookup("__bv_nodeldict__").is_some() {
+                return type_err("cannot delete __dict__".into());
+            }
             // deleting an OSError field empties the slot (getattr then reads None), it does not raise
             if matches!(name, "errno" | "strerror" | "filename" | "filename2")
                 && ob.cls.base_bt() == BT::Exc
@@ -1865,6 +1877,7 @@ pub fn call_method(o: &V, name: &str, mut a: Args) -> R {
                     }
                     V::Func(f) => match f.kind.get() {
                         1 => call(&v, a),
+                        3 if nobind(f) => call(&v, a),
                         2 => {
                             let mut a = a;
                             prepend(&mut a.p, V::Class(ob.cls.clone()));

@@ -39,7 +39,7 @@
 > {"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"name":"echo","arguments":{"text":"x","extra":1}}}
 < {"jsonrpc":"2.0","id":16,"result":{"content":[{"text":"x","type":"text"}],"isError":false,"structuredContent":{"result":"x"}}}
 > {"jsonrpc":"2.0","id":17,"method":"tools/call","params":{"name":"lst","arguments":{"n":"[1]"}}}
-< {"jsonrpc":"2.0","id":17,"result":{"content":[{"text":"Error executing tool lst: 1 validation error for lstArguments\nn\n  Input should be a valid integer [type=int_type, input_value=[1], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.13/v/int_type","type":"text"}],"isError":true}}
+< {"jsonrpc":"2.0","id":17,"result":{"content":[{"text":"Error executing tool lst: 1 validation error for lstArguments\nn\n  Input should be a valid integer [type=int_type, input_value=[1], input_type=list]\n    For further information visit https://errors.pydantic.dev/2.14/v/int_type","type":"text"}],"isError":true}}
 > {"jsonrpc":"2.0","id":null,"method":"ping"}
 > {"jsonrpc":"2.0","id":18,"method":"ping","params":{"_meta":{"x":1}}}
 < {"jsonrpc":"2.0","id":18,"result":{}}

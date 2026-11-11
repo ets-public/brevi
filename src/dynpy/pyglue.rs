@@ -406,6 +406,32 @@ unsafe fn pyd_iter_type(p: P) -> Option<(String, String)> {
 // Python object `p` (consumed) as the program's value: copied when it is data (deep: lists, dicts and sets too).
 unsafe fn pyd_wrap(p: P, deep: bool) -> R {
     let a = pyd_api();
+    if deep {
+        if let Some(v) = FROM_MEMO.with(|m| m.borrow().1.get(&(p as usize)).map(|e| e.1.clone())) {
+            (a.DecRef)(p);
+            return Ok(v);
+        }
+    }
+    FROM_MEMO.with(|m| m.borrow_mut().0 += 1);
+    let r = pyd_wrap_new(p, deep);
+    let held = FROM_MEMO.with(|m| {
+        let mut m = m.borrow_mut();
+        m.0 -= 1;
+        if m.0 == 0 { m.1.drain().map(|(_, e)| e.0).collect::<Vec<_>>() } else { vec![] }
+    });
+    held.into_iter().for_each(|q| (a.DecRef)(q));
+    r
+}
+
+// Remembers `v` as the program's value for the Python object `p` (the memo keeps `p` alive, so its address is
+// not reused by another object during the conversion).
+unsafe fn from_memo_put(p: P, v: &V) {
+    (pyd_api().IncRef)(p);
+    FROM_MEMO.with(|m| m.borrow_mut().1.insert(p as usize, (p, v.clone())));
+}
+
+unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
+    let a = pyd_api();
     if p == a.None {
         (a.DecRef)(p);
         return Ok(V::None);
@@ -477,22 +503,26 @@ unsafe fn pyd_wrap(p: P, deep: bool) -> R {
     }
     if deep && t == a.TList {
         let n = (a.ListSize)(p);
-        let mut out = Vec::with_capacity(n.max(0) as usize);
+        let cell = Rc::new(RefCell::new(Vec::with_capacity(n.max(0) as usize)));
+        let me = V::List(cell.clone());
+        from_memo_put(p, &me); // before its items: a list holding itself comes back holding itself
         for i in 0..n {
             let x = (a.ListGet)(p, i);
             (a.IncRef)(x);
             match pyd_wrap(x, true) {
-                Ok(v) => out.push(v),
+                Ok(v) => cell.borrow_mut().push(v),
                 Err(e) => {
                     (a.DecRef)(p);
                     return Err(e);
                 }
             }
         }
-        return done(list(out));
+        return done(me);
     }
     if deep && t == a.TDict {
-        let mut d = Dict::new();
+        let cell = Rc::new(RefCell::new(Dict::new()));
+        let me = V::Dict(cell.clone());
+        from_memo_put(p, &me);
         let mut pos: isize = 0;
         let (mut k, mut x): (P, P) = (std::ptr::null_mut(), std::ptr::null_mut());
         let mut items = vec![];
@@ -509,7 +539,7 @@ unsafe fn pyd_wrap(p: P, deep: bool) -> R {
                 continue;
             }
             let r = pyd_wrap(k, true).and_then(|kk| pyd_wrap(x, true).map(|xx| (kk, xx)));
-            match r.and_then(|(kk, xx)| d.set(kk, xx)) {
+            match r.and_then(|(kk, xx)| cell.borrow_mut().set(kk, xx)) {
                 Ok(()) => {}
                 Err(e) => err = Some(e),
             }
@@ -517,15 +547,17 @@ unsafe fn pyd_wrap(p: P, deep: bool) -> R {
         (a.DecRef)(p);
         return match err {
             Some(e) => Err(e),
-            None => Ok(V::Dict(Rc::new(RefCell::new(d)))),
+            None => Ok(me),
         };
     }
     if deep && (t == a.TSet || t == a.TFrozenSet) {
         let items = pyd_items(p);
+        let made = items.and_then(PSet::from_iter).map(|ps| if t == a.TSet { V::Set(Rc::new(RefCell::new(ps))) } else { V::FSet(Rc::new(ps)) });
+        if let Ok(me) = &made {
+            from_memo_put(p, me);
+        }
         (a.DecRef)(p);
-        let items = items?;
-        let ps = PSet::from_iter(items)?;
-        return Ok(if t == a.TSet { V::Set(Rc::new(RefCell::new(ps))) } else { V::FSet(Rc::new(ps)) });
+        return made;
     }
     if t == PYD_BRIT.load(std::sync::atomic::Ordering::Relaxed) {
         // an iterator of the program that went into Python (a library returned it, or types.coroutine)
@@ -547,7 +579,77 @@ unsafe fn pyd_wrap(p: P, deep: bool) -> R {
             return Ok(v);
         }
     }
+    if deep {
+        if let Some(v) = pyd_list_iter(p, t)? {
+            (a.DecRef)(p);
+            return Ok(v);
+        }
+    }
     Ok(pyv(p, t == a.TList || t == a.TDict || t == a.TSet))
+}
+
+// A list's iterator (or reverse iterator) of Python as the program's own iterator over the program's copy of
+// that list, at the same position: copied together with the list (`pickle.loads` of (iter(a), a)), it walks
+// the list the program then changes, as in CPython. None for any other object, or a state it cannot read.
+unsafe fn pyd_list_iter(p: P, t: P) -> Result<Option<V>, E> {
+    let a = pyd_api();
+    let name = (a.GetAttr)(t, c"__name__".as_ptr());
+    if name.is_null() {
+        (a.ErrClear)();
+        return Ok(None);
+    }
+    let text = pyd_text(name).ok();
+    (a.DecRef)(name);
+    let name = text;
+    let rev = match name.as_deref() {
+        Some("list_iterator") => false,
+        Some("list_reverseiterator") => true,
+        _ => return Ok(None),
+    };
+    let red = (a.GetAttr)(p, c"__reduce__".as_ptr());
+    if red.is_null() {
+        (a.ErrClear)();
+        return Ok(None);
+    }
+    let f = red;
+    let red = pyd_call_raw(f, &[]);
+    (a.DecRef)(f);
+    let red = match red {
+        Ok(r) => r,
+        Err(_) => {
+            (a.ErrClear)();
+            return Ok(None);
+        }
+    };
+    // (iter or reversed, (the list,), index), or (iter, (an empty sequence,)) once exhausted
+    let got = (|| -> Result<Option<V>, E> {
+        if !pyd_type_is(red, a.TTuple) || (a.TupleSize)(red) < 2 {
+            return Ok(None);
+        }
+        let args = (a.TupleGet)(red, 1);
+        if !pyd_type_is(args, a.TTuple) || (a.TupleSize)(args) != 1 {
+            return Ok(None);
+        }
+        let seq = (a.TupleGet)(args, 0);
+        if (a.TupleSize)(red) == 2 {
+            return Ok(Some(new_iter(It::Done, IterClass::Kind(if rev { ItKind::ListReverseIter } else { ItKind::ListIter }))));
+        }
+        let idx = (a.TupleGet)(red, 2);
+        if !pyd_type_is(seq, a.TList) || !pyd_type_is(idx, a.TLong) {
+            return Ok(None);
+        }
+        let i = (a.LongAs)(idx, &mut 0);
+        (a.IncRef)(seq);
+        let V::List(l) = pyd_wrap(seq, true)? else { return Ok(None) };
+        let n = l.borrow().len() as i64;
+        Ok(Some(if rev {
+            new_iter(if (0..n).contains(&i) { It::RevList(l, i as usize + 1) } else { It::Done }, IterClass::Kind(ItKind::ListReverseIter))
+        } else {
+            new_iter(It::List(l, i.max(0) as usize), IterClass::Kind(ItKind::ListIter))
+        }))
+    })();
+    (a.DecRef)(red);
+    got
 }
 
 // Items of a Python iterable (borrowed), copied.
@@ -873,6 +975,8 @@ unsafe fn pyd_namedtuple(v: &V) -> Result<P, E> {
 enum ItPlan {
     // CPython's exact form for list, tuple and str iterators: `(iter, (whole,), index)`, then __setstate__(index).
     At(V, usize),
+    // CPython's form for a list's reverse iterator: `(reversed, (whole,), index)`, then __setstate__(index).
+    Rev(V, i64),
     Seq(Vec<V>),
     Range(i64, i64, i64),
     Dict(Rc<RefCell<Dict>>, usize, u8, u64, usize),
@@ -888,6 +992,8 @@ fn iter_reduce(v: &V) -> R {
         };
         match &*it {
             It::List(l, i) => ItPlan::At(V::List(l.clone()), *i),
+            // -1 once it has given every item but not yet said so, as CPython's index reads then
+            It::RevList(l, i) => ItPlan::Rev(V::List(l.clone()), *i as i64 - 1),
             It::Tuple(t, i) => ItPlan::At(tup(t.to_vec()), *i),
             // It::Vec holds the rest of reversed(), map(), zip() and others: CPython pickles each of those its own
             // way (`reversed`, `map(f, it)`, ...), so it is refused rather than saved as a plain list iterator.
@@ -911,6 +1017,7 @@ fn iter_reduce(v: &V) -> R {
     let f = pyd_builtin("iter")?;
     let base = match plan {
         ItPlan::At(whole, i) => return Ok(tup(vec![f, tup(vec![whole]), V::Int(i as i64)])),
+        ItPlan::Rev(whole, i) => return Ok(tup(vec![pyd_builtin("reversed")?, tup(vec![whole]), V::Int(i)])),
         ItPlan::Seq(xs) => V::List(Rc::new(RefCell::new(xs))),
         ItPlan::Range(a, b, st) => V::Range(Rc::new((a, b, st))),
         ItPlan::Dict(d, i, kind, ver, n0) => {
@@ -933,8 +1040,63 @@ fn iter_reduce(v: &V) -> R {
     Ok(tup(vec![f, tup(vec![base])]))
 }
 
+// One conversion's memo, both directions: a list, dict or set reached twice (`[a, a]`, a cycle) becomes one
+// object on the other side, as pickle, copy and every library expect. The program-to-Python memo lives for a
+// whole library call (pyd_invoke), so a value converted again from a callback during the call (an iterator's
+// __reduce__ at pickle time names its list) is the object the call was given. Each entry holds a reference to
+// its Python object and a clone of the program's value, so neither address is reused while the memo lives.
+thread_local! {
+    static TO_MEMO: RefCell<(usize, std::collections::HashMap<usize, (P, V)>)> = RefCell::new((0, std::collections::HashMap::new()));
+    static FROM_MEMO: RefCell<(usize, std::collections::HashMap<usize, (P, V)>)> = RefCell::new((0, std::collections::HashMap::new()));
+}
+
+fn memo_key(v: &V) -> Option<usize> {
+    match v {
+        V::List(l) => Some(Rc::as_ptr(l) as *const u8 as usize),
+        V::Dict(d) => Some(Rc::as_ptr(d) as *const u8 as usize),
+        V::Set(x) => Some(Rc::as_ptr(x) as *const u8 as usize),
+        V::FSet(x) => Some(Rc::as_ptr(x) as *const u8 as usize),
+        _ => None,
+    }
+}
+
+// Remembers `p` as the Python object made for `v` (a new reference is kept by the memo).
+unsafe fn to_memo_put(v: &V, p: P) {
+    if let Some(k) = memo_key(v) {
+        (pyd_api().IncRef)(p);
+        TO_MEMO.with(|m| m.borrow_mut().1.insert(k, (p, v.clone())));
+    }
+}
+
 // The program's value `v` as a new Python object.
 unsafe fn pyd_to(v: &V) -> Result<P, E> {
+    let a = pyd_api();
+    if let Some(k) = memo_key(v) {
+        if let Some(p) = TO_MEMO.with(|m| m.borrow().1.get(&k).map(|e| e.0)) {
+            (a.IncRef)(p);
+            return Ok(p);
+        }
+    }
+    to_memo_enter();
+    let r = pyd_to_new(v);
+    to_memo_exit();
+    r
+}
+
+fn to_memo_enter() {
+    TO_MEMO.with(|m| m.borrow_mut().0 += 1);
+}
+
+unsafe fn to_memo_exit() {
+    let held = TO_MEMO.with(|m| {
+        let mut m = m.borrow_mut();
+        m.0 -= 1;
+        if m.0 == 0 { m.1.drain().map(|(_, e)| e).collect::<Vec<_>>() } else { vec![] }
+    });
+    held.into_iter().for_each(|(p, _)| (pyd_api().DecRef)(p)); // the program's values drop here, after
+}
+
+unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
     let a = pyd_api();
     Ok(match v {
         V::None => {
@@ -967,6 +1129,12 @@ unsafe fn pyd_to(v: &V) -> Result<P, E> {
         V::List(l) => {
             let items = l.borrow().clone();
             let p = (a.ListNew)(items.len() as isize);
+            // remembered before its items, so a list that holds itself comes out holding itself
+            for i in 0..items.len() {
+                (a.IncRef)(a.None);
+                (a.ListSet)(p, i as isize, a.None);
+            }
+            to_memo_put(v, p);
             for (i, x) in items.iter().enumerate() {
                 match pyd_to(x) {
                     Ok(q) => {
@@ -983,6 +1151,7 @@ unsafe fn pyd_to(v: &V) -> Result<P, E> {
         V::Dict(d) => {
             let items = d.borrow().items();
             let p = (a.DictNew)();
+            to_memo_put(v, p);
             for (k, x) in items {
                 let r = pyd_to(&k).and_then(|kk| match pyd_to(&x) {
                     Ok(xx) => Ok((kk, xx)),
@@ -1026,13 +1195,15 @@ unsafe fn pyd_to(v: &V) -> Result<P, E> {
                     return Err(pyd_err());
                 }
             }
-            if let V::FSet(_) = v {
+            let p = if let V::FSet(_) = v {
                 let f = (a.FrozenSetNew)(p);
                 (a.DecRef)(p);
                 pyd_own(f)?
             } else {
                 p
-            }
+            };
+            to_memo_put(v, p);
+            p
         }
         V::Range(r) => {
             let xs = [(a.LongFrom)(r.0), (a.LongFrom)(r.1), (a.LongFrom)(r.2)];
@@ -1275,8 +1446,14 @@ unsafe fn pyd_write_back(args: &PydArgs) -> Result<(), E> {
 unsafe fn pyd_invoke(f: P, pre: &[V], args: &Args, deep: bool) -> R {
     let a = pyd_api();
     out_flush();
-    let pa = pyd_args(pre, args)?;
-    let r = (a.Call)(f, pa.t, pa.kw);
+    to_memo_enter();
+    let pa = pyd_args(pre, args);
+    let r = match &pa {
+        Ok(pa) => (a.Call)(f, pa.t, pa.kw),
+        Err(_) => std::ptr::null_mut(),
+    };
+    to_memo_exit();
+    let pa = pa?;
     if r.is_null() {
         return Err(pyd_err());
     }

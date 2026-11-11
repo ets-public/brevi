@@ -214,6 +214,31 @@ impl<'a> RP<'a> {
     fn peek(&self) -> Option<char> {
         self.c.get(self.i).copied()
     }
+    // \N{NAME} as CPython's _parser reads it, with its messages and positions; `back` is the backslash. The
+    // name table is only in programs whose source holds a \N{ (NAME_LOOKUP); without it the escape is refused.
+    fn named_escape(&mut self, back: usize) -> Result<char, E> {
+        if self.peek() != Some('{') {
+            return self.err("missing {", self.i);
+        }
+        self.i += 1;
+        let start = self.i;
+        let Some(len) = self.c[start..].iter().position(|c| *c == '}') else {
+            self.i = self.c.len();
+            return if start == self.c.len() { self.err("missing character name", self.i) } else { self.err("missing }, unterminated name", start) };
+        };
+        if len == 0 {
+            return self.err("missing character name", start);
+        }
+        self.i = start + len + 1;
+        let name: String = self.c[start..start + len].iter().collect();
+        let Some(look) = NAME_LOOKUP.get() else {
+            return Err(unsupported("re with a \\N{...} pattern"));
+        };
+        match look(&name) {
+            Some(c) => Ok(c),
+            None => self.err(&format!("undefined character name {}", str_repr(&name)), back),
+        }
+    }
     fn skip_x(&mut self) {
         if self.flags & F_X == 0 {
             return;
@@ -575,10 +600,7 @@ impl<'a> RP<'a> {
                         if self.bytes {
                             return self.err("bad escape \\N", back);
                         }
-                        if self.peek() != Some('{') {
-                            return self.err("missing {", self.i);
-                        }
-                        return Err(unsupported("re with a \\N{...} pattern"));
+                        CItem::Ch(self.named_escape(back)?)
                     }
                     _ => match self.plain_escape(e) {
                         Some(ch) => CItem::Ch(ch),
@@ -629,10 +651,7 @@ impl<'a> RP<'a> {
                             if self.bytes {
                                 return self.err("bad escape \\N", back);
                             }
-                            if self.peek() != Some('{') {
-                                return self.err("missing {", self.i);
-                            }
-                            return Err(unsupported("re with a \\N{...} pattern"));
+                            CItem::Ch(self.named_escape(back)?)
                         }
                         _ => match self.plain_escape(e) {
                             Some(ch) => CItem::Ch(ch),
@@ -716,10 +735,7 @@ impl<'a> RP<'a> {
                         if self.bytes {
                             return self.err("bad escape \\N", back);
                         }
-                        if self.peek() != Some('{') {
-                            return self.err("missing {", self.i);
-                        }
-                        return Err(unsupported("re with a \\N{...} pattern"));
+                        ch(self.named_escape(back)?)
                     }
                     _ => match self.plain_escape(e) {
                         Some(c2) => ch(c2),
@@ -1317,6 +1333,13 @@ pub fn re_site_clear() {
 }
 // pyglue's pyd_warn_at: (category, message, file, line, module)
 pub type WarnFn = fn(&str, &str, &str, usize, &str) -> Result<(), E>;
+thread_local! {
+    static NAME_LOOKUP: Cell<Option<fn(&str) -> Option<char>>> = const { Cell::new(None) };
+}
+// the program's \N{NAME} table (unicodedata.lookup without named sequences), set by programs that may need it
+pub fn set_name_lookup(f: fn(&str) -> Option<char>) {
+    NAME_LOOKUP.set(Some(f));
+}
 pub fn set_warn_bridge(f: WarnFn) {
     WARN_BRIDGE.set(Some(f));
 }
@@ -2529,6 +2552,9 @@ fn re_error_new(mut a: Args) -> R {
     }
 }
 pub fn re_fn(n: &str, mut a: Args) -> R {
+    if n == "Pattern" || n == "Match" {
+        return type_err(format!("cannot create 're.{n}' instances"));
+    }
     if n == "purge" {
         if !a.p.is_empty() || !a.k.is_empty() {
             return type_err(format!("purge() takes 0 positional arguments but {} was given", a.p.len()));

@@ -202,7 +202,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "atexit" => &["register", "unregister", "_run_exitfuncs", "_clear", "_ncallbacks"],
         "heapq" => &["heapify", "heappop", "heappush", "heappushpop", "heapreplace", "merge", "nlargest", "nsmallest"],
         "bisect" => &["bisect", "bisect_left", "bisect_right", "insort", "insort_left", "insort_right"],
-        "functools" => &["RLock", "WRAPPER_ASSIGNMENTS", "WRAPPER_UPDATES", "cache", "cached_property", "cmp_to_key", "lru_cache", "partial", "partialmethod", "reduce", "singledispatch", "singledispatchmethod", "total_ordering", "update_wrapper", "wraps"],
+        "functools" => &["RLock", "WRAPPER_ASSIGNMENTS", "WRAPPER_UPDATES", "_CacheInfo", "cache", "cached_property", "cmp_to_key", "lru_cache", "partial", "partialmethod", "reduce", "singledispatch", "singledispatchmethod", "total_ordering", "update_wrapper", "wraps"],
         "itertools" => &["accumulate", "batched", "chain", "combinations", "combinations_with_replacement", "compress", "count", "cycle", "dropwhile", "filterfalse", "groupby", "islice", "pairwise", "permutations", "product", "repeat", "starmap", "takewhile", "tee", "zip_longest"],
         "copy" => &["copy", "deepcopy"],
         "operator" => &["add", "and_", "attrgetter", "contains", "eq", "floordiv", "ge", "getitem", "gt", "index", "itemgetter", "le", "lshift", "lt", "methodcaller", "mod", "mul", "ne", "neg", "not_", "or_", "pow", "rshift", "sub", "truediv", "truth", "xor", "__lt__", "__le__", "__gt__", "__ge__", "__eq__", "__ne__", "__and__", "__or__", "__xor__", "__sub__"],
@@ -238,7 +238,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "_brevi_mt" => &["new", "seed", "next", "random", "bits", "below", "shuffle"],
         "collections" => &["defaultdict", "Counter", "OrderedDict", "deque", "namedtuple", "abc"],
         "dataclasses" => &["asdict", "astuple", "dataclass", "field", "fields", "replace", "is_dataclass", "MISSING", "KW_ONLY", "InitVar", "Field", "FrozenInstanceError"],
-        "re" => &["compile", "escape", "findall", "finditer", "fullmatch", "match", "purge", "search", "split", "sub", "subn", "IGNORECASE", "I", "LOCALE", "L", "MULTILINE", "M", "DOTALL", "S", "VERBOSE", "X", "ASCII", "A", "NOFLAG", "UNICODE", "U", "DEBUG", "RegexFlag", "error", "PatternError"],
+        "re" => &["compile", "escape", "findall", "finditer", "fullmatch", "match", "purge", "search", "split", "sub", "subn", "IGNORECASE", "I", "LOCALE", "L", "MULTILINE", "M", "DOTALL", "S", "VERBOSE", "X", "ASCII", "A", "NOFLAG", "UNICODE", "U", "DEBUG", "RegexFlag", "error", "PatternError", "Pattern", "Match"],
         "re._constants" => &["MAXGROUPS", "MAXREPEAT"],
         "json" => &["dump", "dumps", "load", "loads", "JSONDecodeError", "JSONDecoder", "JSONEncoder"],
         "json.decoder" => &["scanstring", "JSONDecoder", "JSONDecodeError"],
@@ -2576,13 +2576,6 @@ impl Em {
                 if md == "re" {
                     self.uses_re = true;
                 }
-                // \N{NAME} is not in Brevi's regex engine, so CPython runs the program rather than answering wrong
-                if md == "re"
-                    && matches!(m.as_str(), "compile" | "match" | "fullmatch" | "search" | "findall" | "finditer" | "split" | "sub" | "subn")
-                    && args.first().is_some_and(|a| matches!(a, Arg::Pos(Ex::Str(s)) | Arg::Kw(_, Ex::Str(s)) if s.contains("\\N{")))
-                {
-                    return Err(err(line, "re with a \\N{...} pattern is not supported in dynamic builds"));
-                }
                 let a = self.args(args, line, None)?;
                 if !module_has(&md, m) {
                     if hybrid_bridged(&md) {
@@ -2865,11 +2858,18 @@ impl Em {
         // `async for` clauses and `await`s: the comprehension runs in place in the async function (CPython inlines
         // it too). A generator expression with them is an async generator, which Brevi builds eagerly: refused.
         let mut awaits = gens.iter().any(|g| g.is_async);
+        let mut walrus = false;
         visit_ex(&Ex::Comp(kind, Box::new(elt.clone()), val.map(|v| Box::new(v.clone())), gens.to_vec()), &mut |x| {
             if matches!(x, Ex::Await(_)) {
                 awaits = true;
             }
+            if matches!(x, Ex::Walrus(..)) {
+                walrus = true;
+            }
         });
+        if walrus && self.fstack.last().unwrap().is_class {
+            return Err(err(line, "assignment expression within a comprehension cannot be used in a class body"));
+        }
         if awaits {
             if kind == 'g' {
                 return Err(err(line, "asynchronous generator expressions are not supported in dynamic builds"));
@@ -2894,8 +2894,40 @@ impl Em {
             _ => None,
         };
         let first_iter = if first_zip.is_some() { String::new() } else { self.ex(&gens[0].iter, line)? };
+        // In a class body the rest of the comprehension does not see the class's names (CPython resolves them
+        // past the class scope, to enclosing functions, globals and builtins), and its own variables are plain
+        // locals: never class namespace stores, nor Enum auto() stores (whose `&mut` borrow the enclosing
+        // class-level store already holds).
+        let class_saved = if self.f().is_class {
+            let fr = self.f();
+            Some((std::mem::take(&mut fr.vars), fr.enum_cnv.take(), fr.ns.take()))
+        } else {
+            None
+        };
+        let res = self.comp_rest(kind, elt, val, gens, line, id, &names, first_zip, first_iter);
+        if let Some((vars, cnv, ns)) = class_saved {
+            let fr = self.f();
+            fr.vars = vars;
+            fr.enum_cnv = cnv;
+            fr.ns = ns;
+            return res;
+        }
+        for (n, v) in saved {
+            match v {
+                Some(v) => {
+                    self.f().vars.insert(n, v);
+                }
+                None => {
+                    self.f().vars.remove(&n);
+                }
+            }
+        }
+        res
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn comp_rest(&mut self, kind: char, elt: &Ex, val: Option<&Ex>, gens: &[CompFor], line: usize, id: usize, names: &BTreeSet<String>, first_zip: Option<(String, String)>, first_iter: String) -> ER<String> {
         let mut decl = String::new();
-        for n in &names {
+        for n in names {
             let r = format!("c{id}_{}", rust_ident(n));
             write!(decl, "let mut {r}: V = V::Unbound; ").unwrap();
             self.f().vars.insert(n.clone(), Var::Local(r));
@@ -2968,16 +3000,6 @@ impl Em {
             'g' => b.push_str("vec_iter(ItKind::Generator, __out) }"),
             's' => b.push_str("V::Set(Rc::new(RefCell::new(__out))) }"),
             _ => b.push_str("V::Dict(Rc::new(RefCell::new(__out))) }"),
-        }
-        for (n, v) in saved {
-            match v {
-                Some(v) => {
-                    self.f().vars.insert(n, v);
-                }
-                None => {
-                    self.f().vars.remove(&n);
-                }
-            }
         }
         Ok(b)
     }
@@ -4425,6 +4447,8 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         out.push_str(&gtab(&em, &m.name));
     }
     let consts: Vec<String> = em.consts.iter().map(|c| format!("s({})", lit(c))).collect();
+    // re's \N{NAME}: the name table goes into programs whose source may hold such a pattern
+    let uname = em.uses_re && em.bridge.srcs.values().any(|(_, t)| t.contains("\\N{"));
     // At exit CPython finalizes __main__'s globals in the order they were first set; the slots are in name order,
     // so the order is the names' first appearance in the module's source.
     let del_on = if em.has_del {
@@ -4446,14 +4470,21 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     };
     write!(
         out,
-        "fn __run() -> Result<(), E> {{ unsafe {{ GL = vec![V::Unbound; {}]; K = vec![{}]; }} USER_MOD.with(|u| u.set(Some(user_mod))); MAIN_GTAB.with(|u| u.set(Some(gtab___main__))); {}{} let r = init___main__(); fin_point(); r }}\nfn main() {{ run_main(__run); }}\n",
+        "fn __run() -> Result<(), E> {{ unsafe {{ GL = vec![V::Unbound; {}]; K = vec![{}]; }} USER_MOD.with(|u| u.set(Some(user_mod))); MAIN_GTAB.with(|u| u.set(Some(gtab___main__))); {}{}{} let r = init___main__(); fin_point(); r }}\nfn main() {{ run_main(__run); }}\n",
         em.nglobals.max(1),
         consts.join(", "),
         del_on,
         // the program uses CPython's warnings module: the warnings the runtime issues go through it
-        if em.bridged_used.contains("warnings") { " set_warn_bridge(pyd_warn_at);" } else { "" }
+        if em.bridged_used.contains("warnings") { " set_warn_bridge(pyd_warn_at);" } else { "" },
+        if uname { " set_name_lookup(__uname);" } else { "" }
     )
     .unwrap();
+    if uname {
+        out.push_str(include_str!("uname_glue.rs"));
+        out.push_str("const UNAMES: &str = r###\"");
+        out.push_str(include_str!("../pynames/unicode_names.txt"));
+        out.push_str("\"###;\n");
+    }
     let _ = &em.out;
     // CPython's re matches any buffer (array.array, mmap, ctypes arrays) as bytes, and slices the object
     // itself for groups; Brevi's re takes str and bytes only. weakref would be handed Brevi's Pattern and

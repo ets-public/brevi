@@ -331,7 +331,12 @@ pub fn repr(v: &V) -> Result<String, E> {
                 }
                 return repr(&i);
             }
-            format!("<{}.{} object at 0x{:x}>", o.cls.module, o.cls.qualname.get(), Rc::as_ptr(o) as *const u8 as usize)
+            // object.__repr__ leaves out the module for builtins (`<object object at 0x...>`)
+            if o.cls.module == "builtins" {
+                format!("<{} object at 0x{:x}>", o.cls.qualname.get(), Rc::as_ptr(o) as *const u8 as usize)
+            } else {
+                format!("<{}.{} object at 0x{:x}>", o.cls.module, o.cls.qualname.get(), Rc::as_ptr(o) as *const u8 as usize)
+            }
         }
         V::Bound(b) => {
             let fname = match &b.1 {

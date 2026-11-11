@@ -14,9 +14,11 @@ same stdout and exit with the same code. `brevi run` is never used: it falls bac
                                                    floor this run's match counts
   python3 tools/conformance.py --show ID           print one test's generated script and how to reproduce it
 
-Categories: matched, refused, wrong_output, wrong_exit, crash_or_timeout, not_extractable, unstable, and
-excluded (CPython internals, each with a reason). coverage = matched / (all - unstable - excluded);
-wrong = wrong_output + wrong_exit among programs that built.
+Categories: matched, refused, by_design, wrong_output, wrong_exit, crash_or_timeout, not_extractable, unstable,
+and excluded (CPython internals, each with a reason). by_design is a test the build refuses because it runs a string
+as code (compile/exec/eval), which a sandboxed native binary refuses on purpose; each one is listed by name in
+compat/conformance_by_design.txt and printed beside the score. coverage = matched / (all - unstable - excluded -
+by_design); wrong = wrong_output + wrong_exit among programs that built.
 
 The test files are fetched once from the pinned tag into a cache outside git (not vendored: nothing of
 CPython's lands in this repository, so no PSF notice has to travel with it, and a new pin is one edit).
@@ -32,6 +34,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE = ROOT / "compat" / "conformance_known_wrong.txt"
 FLOOR = ROOT / "compat" / "conformance_floor.json"  # the match counts a run may not fall below
+BY_DESIGN_FILE = ROOT / "compat" / "conformance_by_design.txt"  # reviewed: tests refused on purpose, shared by both slices
+# The refusal that makes a test by-design: the dynamic build's own reason (the normal build's names the typed path it
+# tried first). Only the plain "X() is not supported" of a string run as code; eval() of a literal is supported.
+BY_DESIGN_REFUSAL = re.compile(r"^(compile|exec|eval)\(\) is not supported in dynamic builds$")
 BAD = ("wrong_output", "wrong_exit", "crash_or_timeout")  # built, but did not do what CPython does
 TAG = "v3.13.13"
 PYTHON_VERSION = "3.13.13"
@@ -737,6 +743,10 @@ def self_used(text):
     def walk(node):
         for c in ast.iter_child_nodes(node):
             if isinstance(c, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)) and any(a.arg == "self" for a in c.args.args):
+                # its body's self is its own, but decorators and defaults run here: `@self.module.lru_cache(2)`
+                outer = getattr(c, "decorator_list", []) + c.args.defaults + [d for d in c.args.kw_defaults if d]
+                if any(walk(ast.Expression(o)) for o in outer):
+                    return True
                 continue
             if (isinstance(c, ast.Name) and c.id == "self") or walk(c):
                 return True
@@ -751,6 +761,22 @@ def has_mangled(text):
         if name.startswith("__") and not name.endswith("__"):
             return True
     return False
+
+
+class FreshMember:
+    """A class member inside `if c_functools:`, one indent deeper than the class body."""
+
+    def __init__(self, node):
+        self.node, self.lineno = node, node.lineno
+
+
+def flat_body(mod, body):
+    """A class body with each `if <fresh module>:` block opened up, so every member in it can be picked on its own."""
+    for node in body:
+        if isinstance(node, ast.If) and isinstance(node.test, ast.Name) and node.test.id in mod.fresh and not node.orelse:
+            yield from (FreshMember(sub) for sub in node.body)
+        else:
+            yield node
 
 
 class Script:
@@ -798,7 +824,7 @@ class Script:
                 continue
             done.add(name)
             for i, (mod, c) in enumerate(chain):
-                for node in c.body:
+                for node in flat_body(mod, c.body):
                     text = self.member(mod, node, name)
                     if text is None:
                         continue
@@ -830,13 +856,10 @@ class Script:
         return "\n".join(out) + "\n" + "\n".join(calls) + "\n"
 
     def member(self, mod, node, name):
-        if isinstance(node, ast.If) and isinstance(node.test, ast.Name) and node.test.id in mod.fresh:
+        if isinstance(node, FreshMember):
             # `if c_functools: module = c_functools`: the copy always exists (condition_value), so the body runs
-            for sub in node.body:
-                text = self.member(mod, sub, name)
-                if text is not None:
-                    return "\n".join(ln[4:] if ln.startswith("    ") else ln for ln in text.split("\n"))
-            return None
+            text = self.member(mod, node.node, name)
+            return None if text is None else "\n".join(ln[4:] if ln.startswith("    ") else ln for ln in text.split("\n"))
         if node is self.test_fn:
             return mod.bare(node)  # its decorators were dealt with (decorator_plan)
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == name:
@@ -1039,8 +1062,17 @@ def run_env(folder, seed):
             "PYTHONHASHSEED": str(seed), "PYTHONDONTWRITEBYTECODE": "1"}
 
 
+ADDRESS = re.compile(rb" at 0x[0-9a-fA-F]+>")
+
+
+def masked(run):
+    """The run with object addresses in default reprs (`<function f at 0x7f...>`) blanked. An address is where the
+    object happens to live in this process, so it differs on every CPython run and can never match a build's."""
+    return run._replace(out=ADDRESS.sub(b" at 0x?>", run.out)) if run else run
+
+
 def reference(py, script, folder, seed, cfg):
-    return run_limited([py, "-B", "-s", "-P", str(script)], str(folder), run_env(folder, seed), cfg.timeout, cfg.mem_mb, cfg.sandbox)
+    return masked(run_limited([py, "-B", "-s", "-P", str(script)], str(folder), run_env(folder, seed), cfg.timeout, cfg.mem_mb, cfg.sandbox))
 
 
 def last_line(data):
@@ -1126,7 +1158,7 @@ def run_case(case, cfg):
     modes = {}
     for mode in ("normal", "dyn"):
         exe, path, why, crashed = build(script, folder, mode, cfg)
-        got = run_limited([str(exe)], str(folder), run_env(folder, 1), cfg.timeout, cfg.mem_mb, cfg.sandbox) if exe else None
+        got = masked(run_limited([str(exe)], str(folder), run_env(folder, 1), cfg.timeout, cfg.mem_mb, cfg.sandbox)) if exe else None
         category, detail = classify(a, (exe is not None, why, crashed), got)
         if category == "wrong_output":
             # Two seeds can agree by luck on a small str set: try more before calling this Brevi's fault.
@@ -1139,7 +1171,7 @@ def run_case(case, cfg):
     return {**case, "modes": modes}
 
 
-CATEGORIES = ["matched", "refused", "wrong_output", "wrong_exit", "crash_or_timeout", "not_extractable", "unstable", "excluded"]
+CATEGORIES = ["matched", "refused", "by_design", "wrong_output", "wrong_exit", "crash_or_timeout", "not_extractable", "unstable", "excluded"]
 # A native program that dies on one of these may be memory-unsafe, which SECURITY.md asks to report privately:
 # the public report only counts them; the test names go to private_signals.json in the cache.
 PRIVATE_SIGNALS = ("SIGSEGV", "SIGBUS", "SIGILL", "SIGABRT", "SIGFPE", "SIGTRAP")
@@ -1157,7 +1189,7 @@ def tally(results, mode):
     c = collections.Counter(category_of(r, mode) for r in results)
     counts = {k: c[k] for k in CATEGORIES}
     bridged = sum(1 for r in results if "modes" in r and r["modes"][mode]["category"] == "matched" and r["modes"][mode]["path"] == "pybridge")
-    total = len(results) - counts["unstable"] - counts["excluded"]
+    total = len(results) - counts["unstable"] - counts["excluded"] - counts["by_design"]
     native = counts["matched"] - bridged
     silent = sum(1 for r in results if "modes" in r and r["modes"][mode]["category"] == "matched" and r["modes"][mode]["silent"])
     native_rows = [r for r in results if "modes" in r and r["modes"][mode]["category"] == "matched" and r["modes"][mode]["path"] != "pybridge"]
@@ -1169,6 +1201,20 @@ def tally(results, mode):
             "coverage": round(native / total, 4) if total else 0, "wrong": counts["wrong_output"] + counts["wrong_exit"],
             "matched_asserting": asserting, "assert_coverage": round(asserting / total, 4) if total else 0,
             "matched_typed": typed, "typed_share": round(typed / native, 4) if native else 0}
+
+
+def read_by_design():
+    """Test ids from the reviewed by-design list: `test-id  why`, one per line, `#` comments."""
+    if not BY_DESIGN_FILE.exists():
+        return set()
+    return {ln.split()[0] for ln in BY_DESIGN_FILE.read_text().splitlines() if ln.strip() and not ln.startswith("#")}
+
+
+def by_design_refusal(r):
+    """Whether the dynamic build refused this test because it runs a string as code (and nothing built it)."""
+    return ("modes" in r and r["modes"]["dyn"]["category"] in ("refused", "by_design")
+            and bool(BY_DESIGN_REFUSAL.match(r["modes"]["dyn"]["detail"] or ""))
+            and r["modes"]["normal"]["category"] in ("refused", "by_design"))
 
 
 def bad_ids(results):
@@ -1241,8 +1287,8 @@ def normalise(why):
 
 def markdown(rep, results):
     def table(mode):
-        out = ["| File | matched | refused | wrong_output | wrong_exit | crash_or_timeout | not_extractable | unstable | excluded | total | coverage | wrong |",
-               "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
+        out = ["| File | " + " | ".join(CATEGORIES) + " | total | coverage | wrong |",
+               "| --- | " + " | ".join("---:" for _ in CATEGORIES) + " | ---: | ---: | ---: |"]
         for name, t in list(rep["files"].items()) + [("**all**", rep["totals"])]:
             t = t[mode]
             cells = [t[k] for k in CATEGORIES] + [t["total"], f"{t['coverage'] * 100:.1f}%", t["wrong"]]
@@ -1259,6 +1305,8 @@ def markdown(rep, results):
              f"something to compare; {n['matched_silent']} matches print nothing). **Typed-path share {n['typed_share'] * 100:.1f}%** "
              f"({n['matched_typed']} of {n['matched'] - n['matched_through_cpython']} native matches took the typed build).", "",
              f"Forced dynamic build (`BREVI_DYN=1`): coverage {d['coverage'] * 100:.1f}%, wrong {d['wrong']}.", "",
+             f"**Refused by design: {n['by_design']}** tests run a string as code (compile, exec or eval), which a sandboxed "
+             "native binary refuses on purpose. They are left out of the coverage denominator and listed by name below.", "",
              "## Normal build", ""] + table("normal") + ["", "## Forced dynamic build", ""] + table("dyn")
     lines += ["", "## Paths taken", "", "| Build | " + " | ".join(rep["paths"]["normal"]) + " |",
               "| --- | " + " | ".join("---:" for _ in rep["paths"]["normal"]) + " |",
@@ -1266,6 +1314,10 @@ def markdown(rep, results):
     lines += ["", f"{n['matched_through_cpython']} matched programs on the normal build ran library calls in CPython (`pybridge`). "
               "They stay in `matched` but do not count towards coverage.",
               f"{n['matched_silent']} matched programs print nothing: the test has no assertion, so a match means it built and exited 0."]
+    lines += ["", "## Refused by design (strings run as code)", "",
+              f"Reviewed list: [compat/conformance_by_design.txt](../../compat/{BY_DESIGN_FILE.name}). `--check` fails on one not in it.", ""]
+    lines += [f"- `{r['id']}`: {r['modes']['dyn']['detail']}" for r in results
+              if "modes" in r and r["modes"]["normal"]["category"] == "by_design"]
     lines += ["", "## Excluded (CPython internals)", ""]
     why = collections.Counter(r["detail"] for r in results if r.get("category") == "excluded")
     lines += [f"- {w}: {c}" for w, c in why.most_common()]
@@ -1372,6 +1424,12 @@ def main():
     results = [futures[c["id"]].result() if "script" in c else c for c in cases]
     for r in results:
         r.pop("script", None)
+    reviewed = read_by_design()
+    for r in results:
+        if r["id"] in reviewed and by_design_refusal(r):
+            for x in r["modes"].values():
+                if x["category"] == "refused":
+                    x["category"] = "by_design"
     version = subprocess.run([cfg.brevi, "--version"], capture_output=True, text=True).stdout.strip()
     rep = {"brevi": version, "python": PYTHON_VERSION, "tag": TAG, "date": time.strftime("%Y-%m-%d"), "platform": sys.platform,
            "sandboxed": cfg.sandbox, "timeout_s": cfg.timeout, "mem_mb": cfg.mem_mb,
@@ -1386,7 +1444,8 @@ def main():
                for m, x in r.get("modes", {}).items() if is_private(x["detail"])]
     (cache / "private_signals.json").write_text(json.dumps(private, indent=1) + "\n")
     n = rep["totals"]["normal"]
-    print(f"coverage {n['coverage'] * 100:.1f}%, wrong {n['wrong']} ({n['wrong_output']} output, {n['wrong_exit']} exit); report in {out}")
+    print(f"coverage {n['coverage'] * 100:.1f}%, wrong {n['wrong']} ({n['wrong_output']} output, {n['wrong_exit']} exit), "
+          f"{n['by_design']} refused by design (strings run as code, not counted); report in {out}")
     bad = set(bad_ids(results))
     matched = {m: rep["totals"][m]["matched"] for m in ("normal", "dyn")}
     if cfg.write_baseline:
@@ -1398,6 +1457,16 @@ def main():
         ran = {r["id"] for r in results}  # --filter and --files say nothing about the tests they leave out
         new, gone = sorted(bad - set(known)), sorted(k for k in set(known) - bad if k.split()[0] in ran)
         unowned = check_meta(known, time.strftime("%Y-%m-%d"))
+        unreviewed = sorted(r["id"] for r in results if r["id"] not in reviewed and by_design_refusal(r))
+        stale = sorted(i for i in reviewed if i in ran and not any(r["id"] == i and by_design_refusal(r) for r in results))
+        if unreviewed:
+            print(f"{len(unreviewed)} tests are refused for running a string as code but are not in the reviewed list; read each "
+                  f"and add it to {BY_DESIGN_FILE.relative_to(ROOT)} (the list grows only by a reviewed edit):\n  " + "\n  ".join(unreviewed))
+            failed = True
+        if stale:
+            print(f"{len(stale)} tests in {BY_DESIGN_FILE.relative_to(ROOT)} are no longer refused for running a string as code; "
+                  "remove them:\n  " + "\n  ".join(stale))
+            failed = True
         if unowned:
             print(f"{len(unowned)} known-wrong lines lack a tracking issue, owner or live expiry ({BASELINE.relative_to(ROOT)}):\n  "
                   + "\n  ".join(unowned))
@@ -1429,7 +1498,7 @@ def main():
             problems.append(f"{len(bad)} wrong results or crashes; the release gate allows none")
         if problems:
             print("release gate FAILS:\n  " + "\n  ".join(problems)); sys.exit(1)
-        print(f"release gate holds: coverage {n['coverage'] * 100:.1f}%, no wrong results")
+        print(f"release gate holds: coverage {n['coverage'] * 100:.1f}%, no wrong results, {n['by_design']} refused by design")
 
 
 if __name__ == "__main__":

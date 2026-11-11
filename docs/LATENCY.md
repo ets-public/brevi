@@ -1,7 +1,23 @@
 # Loop latency: baseline and the daemon spike
 
-Status: measured on v0.26.0 (9 November 2026) and v0.27.0 (11 November 2026) (ROADMAP.md, WS2). Machine: Intel Xeon @ 2.10 GHz, 4 cores, rustc 1.97.0.
+Status: measured on v0.26.0 (9 November 2026), v0.27.0 and main after #414 (11 November 2026) (ROADMAP.md, WS2). Machine: Intel Xeon @ 2.10 GHz, 4 cores, rustc 1.97.0.
 Fixture and method: `bench/latency.py` (METRICS.md, "Check latency").
+
+## Main (d91ca4b), 11 November 2026
+
+Machine: Intel Xeon @ 2.10 GHz, 4 cores, rustc 1.97.0, CPython 3.13.18 (the same kind of machine as the v0.26.0 baseline). Release build of main at d91ca4b, with the sharing-proof fix (#414) and the faster guard (#462), both shipping in the next release. `bench/latency-results/2026-11-11-main-d91ca4b[-dyn].json` (the run after #414 alone, at 0349bd8, is kept next to it).
+
+| Mode | Typed path p50 / p95 | Dynamic path (`--dyn`) p50 / p95 |
+|---|---|---|
+| `brevi check --fast` after an edit | 22.0 / 24.4 ms | 24.0 / 31.4 ms |
+| `brevi check` after an edit | 94.4 / 107.4 ms | 97.3 / 454.7 ms |
+| `brevi check`, nothing changed | 2.3 / 3.3 ms | 2.4 / 5.4 ms |
+| `brevi build` after an edit | 905.0 / 987.0 ms | 1603.0 / 1734.9 ms |
+| `brevi run` after an edit (opt-level 0 tier) | 347.7 / 389.8 ms | 531.2 / 599.7 ms |
+| `brevi run`, nothing changed | 5.6 / 6.4 ms | 27.6 / 33.2 ms |
+| `python3 main.py`, for scale | 15.3 / 17.1 ms | 15.8 / 19.8 ms |
+
+The fixture is on the typed path. Compared with v0.26.0 on the same kind of machine, `check --fast` is 6 ms slower (22.0 against 16.1 ms), still just over the 20 ms target; after #414 alone it was 25.0 ms, and #462 (each file parsed once, no second proof of an imported module) took 3 ms off. The full check (94.4 ms) is back at v0.26.0's 93.6 ms, and a build is 35 ms slower. Tiered builds bring `brevi run` after an edit down to 348 ms, under the 500 ms target.
 
 ## v0.27.0, 11 November 2026
 
@@ -17,7 +33,7 @@ Machine: Intel Xeon @ 2.30 GHz, 4 cores, rustc 1.97.0, CPython 3.13.18 (a differ
 | `brevi run`, nothing changed | 5.4 / 6.1 ms | 20.6 / 23.8 ms |
 | `python3 main.py`, for scale | 11.4 / 14.0 ms | 11.9 / 14.3 ms |
 
-**The fixture no longer takes the typed path.** The sharing proof added in v0.27.0 (`share_guard.rs`) sends it to the dynamic build: it cannot follow `top_words(counts, 3)` into the sibling module `textutil.py`, so it assumes `counts` is changed. That is why both columns match, and why `check --fast` rose from 16 ms to 160 ms. It is a false refusal and is being fixed; these numbers are rerun when it is. Tiered builds work as planned: `brevi run` after an edit is 427 ms, against 1181 ms for `brevi build`.
+**At v0.27.0 the fixture did not take the typed path** (fixed on main, above). The sharing proof added in v0.27.0 (`share_guard.rs`) sends it to the dynamic build: it cannot follow `top_words(counts, 3)` into the sibling module `textutil.py`, so it assumes `counts` is changed. That is why both columns match, and why `check --fast` rose from 16 ms to 160 ms. It was a false refusal, fixed in #414. Tiered builds work as planned: `brevi run` after an edit is 427 ms, against 1181 ms for `brevi build`.
 
 ## Baseline, v0.26.0
 
@@ -88,6 +104,6 @@ today) and lld as the default linker where it is installed.
 
 1. Land `-C incremental` for `check` with its cache eviction, behind the normal tests.
 2. ~~Tiered O0/O1 builds for `run` and `test`~~: shipped in v0.27.0 (see above).
-3. Keep the fixture on the typed path: fix the sharing proof's refusal of calls into sibling modules.
+3. ~~Keep the fixture on the typed path~~: fixed in #414. #462 won back 3 of the 9 ms `check --fast` lost; the last 2 ms to the 20 ms target are next.
 4. Add `bench/latency.py` to `tools/ci_local.sh` as a report (not a gate) until the numbers are stable across runs;
    then a p50/p95 non-regression gate on a fixed runner.

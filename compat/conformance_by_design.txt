@@ -1,0 +1,32 @@
+# Tests refused BY DESIGN: each runs a string as code (compile, exec or eval). A Brevi binary is compiled ahead of
+# time and sandboxed by its caller, so running new code from a string at run time is refused on purpose.
+# tools/conformance.py leaves these out of the coverage denominator and prints their count and names beside every
+# score. `--check` fails on a test refused this way that is not listed here, and on a line here that no longer is,
+# so this list changes only by a reviewed edit. Format: `test-id  function`.
+test_collections.TestCounter.test_copying  eval
+test_dict.DictTest.test_bad_key  exec
+test_grammar.GrammarTests.test_assert_warning_promotes_to_syntax_error  compile
+test_grammar.GrammarTests.test_del_stmt  compile
+test_grammar.GrammarTests.test_expr_stmt  compile
+test_grammar.GrammarTests.test_former_statements_refer_to_builtins  exec
+test_grammar.GrammarTests.test_genexps  compile
+test_grammar.GrammarTests.test_lambdef  compile
+test_grammar.GrammarTests.test_listcomps  compile
+test_grammar.GrammarTests.test_return  compile
+test_grammar.GrammarTests.test_try  compile
+test_grammar.GrammarTests.test_try_star  compile
+test_grammar.GrammarTests.test_var_annot_custom_maps  exec
+test_grammar.GrammarTests.test_var_annot_refleak  exec
+test_grammar.GrammarTests.test_var_annot_simple_exec  exec
+test_grammar.GrammarTests.test_var_annot_syntax_errors  compile
+test_grammar.GrammarTests.test_yield  compile
+test_grammar.GrammarTests.test_yield_in_comprehensions  compile
+test_grammar.TokenTests.test_bad_numerical_literals  compile
+test_grammar.TokenTests.test_eof_error  compile
+test_grammar.TokenTests.test_plain_integers  eval
+test_grammar.TokenTests.test_underscore_literals  eval
+test_int.IntTestCases.test_underscores  eval
+test_itertools.TestBasicOps.test_ziplongest  eval
+test_scope.ScopeTests.testEvalExecFreeVars  eval
+test_scope.ScopeTests.testGlobalInParallelNestedFunctions  exec
+test_scope.ScopeTests.testUnoptimizedNamespaces  compile

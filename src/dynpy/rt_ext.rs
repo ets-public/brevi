@@ -2967,6 +2967,7 @@ pub fn ext_construct(cls: &str, a: Args) -> Option<R> {
         "datetime.time" => tm_new(a),
         "datetime.timezone" => tz_new(a),
         "zoneinfo.ZoneInfo" => zoneinfo_new(a),
+        "re.Pattern" | "re.Match" => type_err(format!("cannot create '{cls}' instances")),
         _ => return None,
     })
 }
@@ -3043,6 +3044,8 @@ pub fn ext_module_attr2(m: &str, n: &str) -> Option<V> {
         ("decimal.context", "prec") => V::Int(DPREC.with(|p| p.get()) as i64),
         ("decimal.context", "rounding") => s(ROUNDINGS[DROUND.with(|r| r.get()) as usize]),
         ("fractions", "Fraction") => V::Class(ext_class("fractions.Fraction")),
+        ("re", "Pattern") => V::Class(ext_class("re.Pattern")),
+        ("re", "Match") => V::Class(ext_class("re.Match")),
         ("datetime", "date") => V::Class(ext_class("datetime.date")),
         ("datetime", "datetime") => V::Class(ext_class("datetime.datetime")),
         ("datetime", "timedelta") => V::Class(ext_class("datetime.timedelta")),
