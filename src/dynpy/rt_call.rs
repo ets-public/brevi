@@ -384,6 +384,32 @@ fn meta_from_base(m: &Rc<Class>, name: Sym, qualname: Sym, module: Sym, bases: V
 }
 #[allow(clippy::too_many_arguments)]
 fn make_class_impl(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, attrs: Vec<(Sym, V)>, fields: Vec<Sym>, stmt: Option<(i64, Vec<Sym>)>, meta: Option<Rc<Class>>) -> R {
+    // a class on Generic, Protocol or a typing alias (which typing_class takes out of the bases), or on such a class
+    // (Class.made: 2 when how its subscript goes is not worked out here, 3 for none of its own type parameters, as
+    // with `class B(G)` or `class P(Protocol)`, 10 + n for `class G(Generic[T, ...])` with n of them)
+    let made = {
+        let (mut own, mut unknown, mut family) = (None, false, false);
+        for b in &bases {
+            match b {
+                V::Class(k) if k.module == "typing" && k.name == "Protocol" => family = true,
+                V::Class(k) if k.module == "typing" && k.name == "Generic" => unknown = true,
+                V::Class(k) if k.made.get() >= 2 && k.made.get() != 5 => family = true,
+                V::Ext(e) => match e.any().downcast_ref::<TForm>() {
+                    Some(f) if matches!(f.name, "Generic" | "Protocol") && own.is_none() => own = Some(f.params),
+                    _ if matches!(e.tname(), "typing._GenericAlias" | "typing._UnionGenericAlias") => unknown = true,
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
+        match own {
+            _ if unknown => 2,
+            Some(n) if n < 200 => 10 + n as u8,
+            Some(_) => 2,
+            None if family => 3,
+            None => 1,
+        }
+    };
     if let Some(r) = typing_class(name, qualname, module, &mut bases, &attrs, &fields) {
         if meta.is_some() {
             return Err(unsupported("a metaclass for a NamedTuple or TypedDict class"));
@@ -400,6 +426,7 @@ fn make_class_impl(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, att
     if bs.is_empty() {
         bs.push(bclass("object"));
     }
+    iter_base_check(&bs)?;
     if name != "ByteString" && bs.iter().any(|b| is_bytestring(b)) {
         bytestring_warn()?;
     }
@@ -408,6 +435,7 @@ fn make_class_impl(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, att
     let abc = module == "collections.abc" || bs.iter().any(|b| b.abc.get());
     let c = Class::with_qualname(name, qualname, module, bs, bt);
     c.abc.set(abc);
+    c.made.set(made);
     *c.meta.borrow_mut() = meta;
     for (n, v) in attrs {
         c.set_exact(n, v);
@@ -430,6 +458,15 @@ fn make_class_impl(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, att
         abc_setup(&c)?;
     }
     tdict_seal(&c);
+    // chain.from_iterable is a classmethod: C.from_iterable(x) makes a C
+    if let Some(base) = iter_base_of(&c) {
+        if (base.module, base.name) == ("itertools", "chain") {
+            // unless a class of the program defines its own from_iterable before chain in the MRO
+            if c.lookup("from_iterable").is_some_and(|f| is_chain_fi(&f)) {
+                c.set_exact("from_iterable", chain_from_iterable_for(&c));
+            }
+        }
+    }
     // a __slots__ name that the class body also binds is refused, as CPython refuses it
     if let Some(sv) = c.own("__slots__") {
         let mut own_slots = vec![];
@@ -672,12 +709,9 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
             }
         }
     }
-    // the classes of Brevi's own iterators: only itertools._tee can be called here; for the others a plain
-    // object would be silently wrong
+    // the classes of Brevi's own iterators (and itertools._tee_dataobject): the builtin or itertools function of the
+    // same name; for the others a plain object would be silently wrong
     if c.module != "__main__" && is_iter_class(c) {
-        if c.module == "itertools" && c.name == "_tee" {
-            return tee_new(a);
-        }
         if let Some(r) = iter_class_call(c, a) {
             return r;
         }
@@ -784,6 +818,11 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
         if c.lookup("__init__").map_or(true, |f| is_builtin_init(&f)) {
             a0 = Args { p: a.p.clone(), k: a.k.clone() };
         }
+        if bb == BT::Counter && c.lookup("__init__").map_or(true, |f| is_builtin_init(&f)) {
+            // Counter's __init__ is self.update(...): through the subclass's overrides
+            counter_obj_init(&me, a)?;
+            return Ok(me);
+        }
         let base = builtin_of_bt(bb);
         let inner = match builtin_type_call(&base, &mut a0) {
             Some(r) => r?,
@@ -886,6 +925,7 @@ fn builtin_of_bt(bt: BT) -> Rc<Class> {
         BT::OrderedDict => "OrderedDict",
         BT::Deque => "deque",
         BT::Bytes => return ext_class("bytes"),
+        BT::ByteArray => return ext_class("bytearray"),
         _ => "object",
     })
 }
@@ -980,6 +1020,9 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
                 let me2 = me.clone();
                 return Ok(builtin("__init__", move |mut a: Args| {
                     if let V::Obj(o) = &me2 {
+                        if o.cls.base_bt() == BT::Counter {
+                            return counter_obj_init(&me2, a);
+                        }
                         let bb = o.cls.base_bt();
                         let base = builtin_of_bt(bb);
                         if let Some(r) = builtin_type_call(&base, &mut a) {
@@ -1044,6 +1087,12 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
     if name == "__setattr__" {
         let me2 = me.clone();
         return Ok(builtin("__setattr__", move |a: Args| object_setattr(&me2, &a.p)));
+    }
+    // Counter's own update/subtract (Counter.update(self, ...), super().update(...)): through self's overrides
+    if matches!(name, "update" | "subtract") && counter_inner(me).is_some() {
+        let me2 = me.clone();
+        let n = sym(name);
+        return Ok(builtin(n, move |a: Args| counter_obj_method(&me2, n, a)));
     }
     if let Some(inner) = inner_of(me) {
         return getattr(&inner, name);
@@ -1460,18 +1509,26 @@ fn class_getattr(o: &V, c: &Rc<Class>, name: &str) -> R {
             // methods of a builtin base (tuple's __getitem__ on a namedtuple class, list's
             // append on a list subclass) live on the builtin class in CPython, not on the subclass
             if c.module == "builtins" || c.module == "collections" {
+                // a builtin type has only what CPython's type dicts hold (hasattr(int, "zzz") is False)
+                if cpy_type_has(c, name) == Some(false) {
+                    return Err(exc("AttributeError", format!("type object '{}' has no attribute '{}'", if c.module == "builtins" { c.name.to_string() } else { format!("{}.{}", c.module, c.name) }, name)));
+                }
                 if let Some(v) = builtin_class_attr(c, name) {
                     return Ok(v);
                 }
             }
             // a bytes subclass: maketrans is bytes' static method; fromhex is a classmethod that builds
             // the subclass from the bytes, as CPython's does (cls(bytes.fromhex(s)))
-            if c.base_bt() == BT::Bytes {
+            // (a bytearray subclass alike: cls(bytearray.fromhex(s)))
+            if matches!(c.base_bt(), BT::Bytes | BT::ByteArray) {
                 if name == "maketrans" {
                     return Ok(builtin("maketrans", bytes_maketrans));
                 }
                 if name == "fromhex" {
                     let k = V::Class(c.clone());
+                    if c.base_bt() == BT::ByteArray {
+                        return Ok(builtin("fromhex", move |a: Args| call(&k, Args::p(vec![bytearray_fromhex(a)?]))));
+                    }
                     return Ok(builtin("fromhex", move |a: Args| call(&k, Args::p(vec![bytes_fromhex(a)?]))));
                 }
             }
@@ -1607,6 +1664,19 @@ pub fn getattr(o: &V, name: &str) -> R {
             }
             if let Some(ga) = ob.cls.lookup("__getattr__") {
                 return call(&ga, Args::p(vec![o.clone(), s(name)]));
+            }
+            if matches!(name, "update" | "subtract") && counter_inner(o).is_some() {
+                return Ok(V::BMeth(Rc::new((o.clone(), sym(name)))));
+            }
+            // a bytearray subclass instance's __iadd__ and __imul__ change it and give back the instance itself
+            if is_ba_sub(o) && matches!(name, "__iadd__" | "__imul__") {
+                let (me, op) = (o.clone(), if name == "__iadd__" { "+" } else { "*" });
+                return Ok(builtin(sym(name), move |a: Args| {
+                    if a.p.len() != 1 || !a.k.is_empty() {
+                        return type_err(format!("expected 1 argument, got {}", a.p.len() + a.k.len()));
+                    }
+                    bytearray_iop(&me, &a.p[0], op).unwrap_or_else(|| type_err("internal: bytearray in-place operation".into()))
+                }));
             }
             if let Some(inner) = inner_of(o) {
                 if has_method(&inner, name) {
@@ -1878,6 +1948,10 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
         }
         V::NTF(_) => Err(exc("AttributeError", format!("'collections._tuplegetter' object has no attribute '{}' and no __dict__ for setting new attributes", name))),
         V::Module(&ModName("decimal.context")) => decimal_context_set(name, &v),
+        V::Module(m) if mod_assignable(m.0, name) => {
+            mod_assign(m.0, &name.to_string(), Some(v));
+            Ok(())
+        }
         V::Module(&ModName("sys")) if matches!(&*name.to_string(), "stdout" | "stderr" | "stdin") => sys_stream_assign(&name.to_string(), v),
         V::Ext(x) => match x.set_attr(o, name, v) {
             Some(r) => r,
@@ -1914,6 +1988,15 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
 pub fn delattr(o: &V, name: &str) -> Result<(), E> {
     if let Some(p) = proxy_deref(o) {
         return delattr(&p?, name);
+    }
+    if let V::Module(m) = o {
+        if mod_assignable(m.0, name) {
+            if matches!(mod_assigned(m.0, name), Some(None)) {
+                return Err(exc("AttributeError", format!("module '{}' has no attribute '{name}'", m.0)));
+            }
+            mod_assign(m.0, name, None);
+            return Ok(());
+        }
     }
     match o {
         V::Obj(ob) => {
@@ -2092,6 +2175,13 @@ pub fn call_method(o: &V, name: &str, mut a: Args) -> R {
                     no.set_inner(Some(inner));
                     return Ok(V::Obj(no));
                 }
+            }
+            if matches!(name, "update" | "subtract" | "__init__") && counter_inner(o).is_some() {
+                return if name == "__init__" { counter_obj_init(o, a) } else { counter_obj_method(o, name, a) };
+            }
+            // a bytearray subclass instance's __iadd__ and __imul__ give back the instance itself (getattr has the same)
+            if is_ba_sub(o) && matches!(name, "__iadd__" | "__imul__") {
+                return call(&getattr(o, name)?, a);
             }
             if let Some(inner) = inner_of(o) {
                 return call_method(&inner, name, a);

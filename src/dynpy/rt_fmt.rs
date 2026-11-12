@@ -335,6 +335,12 @@ pub fn repr(v: &V) -> Result<String, E> {
                         return counter_repr(d, o.cls.name);
                     }
                 }
+                // bytearray's repr names the instance's type, as CPython's does: BA(b'..')
+                if o.cls.base_bt() == BT::ByteArray {
+                    if let Some(b) = bytes_of(&i) {
+                        return Ok(format!("{}({})", o.cls.name, bytes_repr_q(&b, true)));
+                    }
+                }
                 return repr(&i);
             }
             // object.__repr__ leaves out the module for builtins (`<object object at 0x...>`)
@@ -576,7 +582,8 @@ pub fn to_str(v: &V) -> Result<String, E> {
             if let Some(i @ V::Str(_)) = inner_of(v) {
                 return to_str(&i);
             }
-            if o.cls.lookup("__repr__").is_some() {
+            // bytearray has no __str__ of its own: object's gives the repr, which names the subclass
+            if o.cls.lookup("__repr__").is_some() || o.cls.base_bt() == BT::ByteArray {
                 return repr(v);
             }
             if let Some(i) = inner_of(v) {
@@ -817,6 +824,23 @@ fn group_num(body: &str, sp: &Spec) -> String {
         }
     }
 }
+// Where a format spec's 'z' option is, if it has one: after an optional fill-and-align (or align) and sign.
+fn z_option_at(spec: &str) -> Option<usize> {
+    if !spec.contains('z') {
+        return None;
+    }
+    let c: Vec<(usize, char)> = spec.char_indices().collect();
+    let mut i = 0;
+    if c.len() >= 2 && matches!(c[1].1, '<' | '>' | '^' | '=') {
+        i = 2;
+    } else if !c.is_empty() && matches!(c[0].1, '<' | '>' | '^' | '=') {
+        i = 1;
+    }
+    if i < c.len() && matches!(c[i].1, '+' | '-' | ' ') {
+        i += 1;
+    }
+    (i < c.len() && c[i].1 == 'z').then(|| c[i].0)
+}
 pub fn format_spec(v: &V, spec: &str) -> Result<String, E> {
     match v {
         V::Obj(o) => {
@@ -847,6 +871,26 @@ pub fn format_spec(v: &V, spec: &str) -> Result<String, E> {
             }
         }
         _ => {}
+    }
+    // the 'z' option (negative zero coercion): after the fill, align and sign, as CPython parses it
+    if let Some(k) = z_option_at(spec) {
+        let mut rest = spec.to_string();
+        rest.remove(k);
+        let ty = rest.chars().last().filter(|c| c.is_ascii_alphabetic() || *c == '%');
+        let floaty = matches!(ty, Some('e' | 'E' | 'f' | 'F' | 'g' | 'G' | '%' | 'n'));
+        match v {
+            V::Float(x) => {
+                let r = format_spec(v, &rest)?;
+                if x.is_sign_negative() && !x.is_nan() && r == format_spec(&V::Float(-0.0), &rest)? {
+                    return format_spec(&V::Float(0.0), &rest);
+                }
+                return Ok(r);
+            }
+            V::Int(_) | V::Big(_) | V::Bool(_) if floaty && ty != Some('n') => return format_spec(v, &rest),
+            V::Int(_) | V::Big(_) | V::Bool(_) => return val_err("Negative zero coercion (z) not allowed in integer format specifier".into()),
+            V::Str(_) => return val_err("Negative zero coercion (z) not allowed in string format specifier".into()),
+            _ => {}
+        }
     }
     if spec.is_empty() {
         return to_str(v);
@@ -1126,6 +1170,7 @@ pub fn percent_format(f: &str, args: &V) -> Result<String, E> {
                         Big::from_f64(*x).norm()
                     }
                     V::Int(_) | V::Big(_) | V::Bool(_) => v.clone(),
+                    V::Ext(_) if cplx_of(&v).is_some() => return type_err(format!("%{ty} format: a real number is required, not complex")),
                     V::Ext(_) => to_int(&v)?,
                     // an int subclass (IntEnum): its int
                     V::Obj(_) if matches!(inner_of(&v), Some(V::Int(_) | V::Big(_) | V::Bool(_))) => inner_of(&v).unwrap(),
@@ -1158,6 +1203,7 @@ pub fn percent_format(f: &str, args: &V) -> Result<String, E> {
             'e' | 'E' | 'f' | 'F' | 'g' | 'G' => {
                 let x = match &v {
                     V::Str(_) | V::None | V::List(_) | V::Tuple(_) | V::Dict(_) => return type_err(format!("must be real number, not {}", tn(&v))),
+                    _ if cplx_of(&v).is_some() => return type_err("must be real number, not complex".into()),
                     _ => V::Float(to_float(&v)?),
                 };
                 format_spec(&x, &format!("{spec}.{}{ty}", prec.unwrap_or(6)))?
@@ -1200,14 +1246,18 @@ pub fn to_float(v: &V) -> Result<f64, E> {
         V::Str(s) => parse_float(&s.s).ok_or_else(|| exc("ValueError", format!("could not convert string to float: {}", str_repr(&s.s)))),
         V::Obj(o) => match o.cls.lookup("__float__") {
             Some(f) => to_float(&call(&f, Args::p(vec![v.clone()]))?),
-            // a bytes subclass instance parses as its bytes do
-            None if o.cls.base_bt() == BT::Bytes => to_float(&o.inner().unwrap_or(V::None)),
+            // a bytes or bytearray subclass instance parses as its bytes do
+            None if matches!(o.cls.base_bt(), BT::Bytes | BT::ByteArray) => {
+                let b = o.inner().and_then(|i| bytes_of(&i)).unwrap_or_default();
+                parse_float(&String::from_utf8_lossy(&b)).ok_or_else(|| exc("ValueError", format!("could not convert string to float: {}", repr(v).unwrap_or_default())))
+            }
             None => type_err(format!("float() argument must be a string or a real number, not '{}'", tn(v))),
         },
         // a memoryview counts when it gives a simple buffer (live and contiguous), as in CPython
         V::Ext(x) if x.any().is::<BytesV>() || x.any().is::<ByteArrayV>() || (x.any().is::<MemV>() && bytes_of(v).is_some()) => {
             let b = bytes_of(v).unwrap_or_default();
-            parse_float(&String::from_utf8_lossy(&b)).ok_or_else(|| exc("ValueError", format!("could not convert string to float: {}", bytes_repr(&b))))
+            // (the message shows the object's repr, as CPython's %R does: bytearray(b'x'))
+            parse_float(&String::from_utf8_lossy(&b)).ok_or_else(|| exc("ValueError", format!("could not convert string to float: {}", repr(v).unwrap_or_default())))
         }
         V::Ext(x) if x.any().is::<MemV>() => type_err("float() argument must be a string or a real number, not 'memoryview'".into()),
         V::Ext(x) => x.to_f64().ok_or_else(|| exc("TypeError", format!("float() argument must be a string or a real number, not '{}'", tn(v)))),
@@ -1347,7 +1397,7 @@ pub fn to_int(v: &V) -> R {
                 return int_returned(call(&f, Args::p(vec![v.clone()]))?, "__int__");
             }
             // a subclass of int, float or str (IntEnum, StrEnum): int's own __int__ wins over a user __index__
-            if let Some(i) = inner_of(v).filter(|i| matches!(i, V::Int(_) | V::Big(_) | V::Bool(_) | V::Float(_) | V::Str(_)) || is_bytes_v(i)) {
+            if let Some(i) = inner_of(v).filter(|i| matches!(i, V::Int(_) | V::Big(_) | V::Bool(_) | V::Float(_) | V::Str(_)) || is_bytes_v(i) || bytearray_of(i).is_some()) {
                 return to_int(&i);
             }
             if let Some(f) = o.cls.lookup("__index__") {

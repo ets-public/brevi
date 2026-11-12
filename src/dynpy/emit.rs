@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 type ER<T> = Result<T, (usize, String)>;
 
-pub const BUILTIN_MODULES: [&str; 51] = ["_brevi_col", "_brevi_srv", "_brevi_proc", "importlib.metadata", "zoneinfo", "tzlocal", "atexit", "_brevi_async", "_brevi_net", "_brevi_fs", "_brevi_st", "_brevi_ort", "_brevi_sqlite", "_brevi_duckdb", "_brevi_stdio", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "re._constants", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading", "gc", "weakref"];
+pub const BUILTIN_MODULES: [&str; 52] = ["_brevi_col", "_brevi_srv", "_brevi_proc", "importlib.metadata", "zoneinfo", "tzlocal", "atexit", "_brevi_async", "_brevi_net", "_brevi_fs", "_brevi_st", "_brevi_ort", "_brevi_sqlite", "_brevi_duckdb", "_brevi_stdio", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "re._constants", "re._compiler", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading", "gc", "weakref"];
 
 
 // ---------- numpy, natively (rt_np*.rs) ----------
@@ -15,6 +15,13 @@ pub static NP_NATIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicB
 pub static NP_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 // The program uses Brevi's pydantic: defs carry their number of positional parameters (src/dynpy/pyd.rs).
 pub static PYD_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+// With Brevi's pydantic, per module (pyd::rewrite): the model annotations' lines, which their descriptor
+// statement evaluates in place of the annotation, and the names holding descriptors or the pydantic copy, which
+// are not CPython's typing values (an annotation reading one is refused where CPython evaluates it).
+pub static PYD_ANN: std::sync::Mutex<Option<HashMap<String, (HashSet<usize>, HashSet<String>)>>> = std::sync::Mutex::new(None);
+// Set while the program is a .bv file in Brevi's own spellings, turned into Python (main.rs bv_as_py): its
+// annotations are Brevi's types, which may name a class defined further down, so none is evaluated.
+pub static BV_SPELLING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 pub fn np_native() -> bool {
     NP_NATIVE.load(std::sync::atomic::Ordering::Relaxed)
 }
@@ -205,10 +212,10 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "atexit" => &["register", "unregister", "_run_exitfuncs", "_clear", "_ncallbacks"],
         "heapq" => &["heapify", "heappop", "heappush", "heappushpop", "heapreplace", "merge", "nlargest", "nsmallest"],
         "bisect" => &["bisect", "bisect_left", "bisect_right", "insort", "insort_left", "insort_right"],
-        "functools" => &["RLock", "WRAPPER_ASSIGNMENTS", "WRAPPER_UPDATES", "_CacheInfo", "cache", "cached_property", "cmp_to_key", "lru_cache", "partial", "partialmethod", "reduce", "singledispatch", "singledispatchmethod", "total_ordering", "update_wrapper", "wraps"],
+        "functools" => &["RLock", "WRAPPER_ASSIGNMENTS", "WRAPPER_UPDATES", "_CacheInfo", "_c3_mro", "_compose_mro", "_find_impl", "cache", "cached_property", "cmp_to_key", "lru_cache", "partial", "partialmethod", "reduce", "singledispatch", "singledispatchmethod", "total_ordering", "update_wrapper", "wraps"],
         "itertools" => &["accumulate", "batched", "chain", "combinations", "combinations_with_replacement", "compress", "count", "cycle", "dropwhile", "filterfalse", "groupby", "islice", "pairwise", "permutations", "product", "repeat", "starmap", "takewhile", "tee", "zip_longest"],
         "copy" => &["copy", "deepcopy"],
-        "operator" => &["add", "and_", "attrgetter", "contains", "eq", "floordiv", "ge", "getitem", "gt", "index", "itemgetter", "le", "length_hint", "lshift", "lt", "methodcaller", "mod", "mul", "ne", "neg", "not_", "or_", "pow", "rshift", "sub", "truediv", "truth", "xor", "__lt__", "__le__", "__gt__", "__ge__", "__eq__", "__ne__", "__and__", "__or__", "__xor__", "__sub__"],
+        "operator" => &["add", "and_", "attrgetter", "contains", "eq", "floordiv", "ge", "getitem", "gt", "index", "is_", "is_not", "itemgetter", "le", "length_hint", "lshift", "lt", "methodcaller", "mod", "mul", "ne", "neg", "not_", "or_", "pow", "rshift", "sub", "truediv", "truth", "xor", "__lt__", "__le__", "__gt__", "__ge__", "__eq__", "__ne__", "__and__", "__or__", "__xor__", "__sub__"],
         "string" => &["ascii_lowercase", "ascii_uppercase", "ascii_letters", "digits", "hexdigits", "octdigits", "punctuation", "whitespace", "printable"],
         "time" => &["time", "perf_counter", "monotonic", "process_time", "sleep", "time_ns", "perf_counter_ns", "monotonic_ns", "process_time_ns", "gmtime", "strftime"],
         "abc" => &["ABC", "ABCMeta", "abstractmethod", "_abc_register", "_check_methods"],
@@ -239,10 +246,11 @@ pub fn module_has(m: &str, n: &str) -> bool {
         ],
         "_brevi_col" => &["fsum", "cmp", "farith", "iarith", "take", "mask", "group1", "infer"],
         "_brevi_mt" => &["new", "seed", "next", "random", "bits", "below", "shuffle"],
-        "collections" => &["defaultdict", "Counter", "OrderedDict", "deque", "namedtuple", "abc"],
+        "collections" => &["defaultdict", "Counter", "OrderedDict", "deque", "namedtuple", "abc", "_count_elements"],
         "dataclasses" => &["asdict", "astuple", "dataclass", "field", "fields", "replace", "is_dataclass", "MISSING", "KW_ONLY", "InitVar", "Field", "FrozenInstanceError"],
-        "re" => &["compile", "escape", "findall", "finditer", "fullmatch", "match", "purge", "search", "split", "sub", "subn", "IGNORECASE", "I", "LOCALE", "L", "MULTILINE", "M", "DOTALL", "S", "VERBOSE", "X", "ASCII", "A", "NOFLAG", "UNICODE", "U", "DEBUG", "RegexFlag", "error", "PatternError", "Pattern", "Match", "Scanner"],
+        "re" => &["compile", "_compile", "escape", "findall", "finditer", "fullmatch", "match", "purge", "search", "split", "sub", "subn", "IGNORECASE", "I", "LOCALE", "L", "MULTILINE", "M", "DOTALL", "S", "VERBOSE", "X", "ASCII", "A", "NOFLAG", "UNICODE", "U", "DEBUG", "RegexFlag", "error", "PatternError", "Pattern", "Match", "Scanner"],
         "re._constants" => &["MAXGROUPS", "MAXREPEAT"],
+        "re._compiler" => &["_generate_overlap_table"],
         "json" => &["dump", "dumps", "load", "loads", "JSONDecodeError", "JSONDecoder", "JSONEncoder"],
         "json.decoder" => &["scanstring", "JSONDecoder", "JSONDecodeError"],
         "decimal" => &["Decimal", "getcontext", "InvalidOperation", "DivisionByZero", "DecimalException", "ROUND_HALF_EVEN", "ROUND_HALF_UP", "ROUND_HALF_DOWN", "ROUND_UP", "ROUND_DOWN", "ROUND_CEILING", "ROUND_FLOOR", "ROUND_05UP"],
@@ -271,13 +279,13 @@ fn hybrid_bridged(m: &str) -> bool {
 }
 // Python builtins dynamic builds do not have: refused when the program is built.
 fn is_missing_builtin(n: &str) -> bool {
-    matches!(n, "exec" | "eval" | "compile" | "__import__" | "complex" | "help" | "breakpoint" | "open" | "__build_class__" | "globals" | "locals")
+    matches!(n, "exec" | "eval" | "compile" | "__import__" | "help" | "breakpoint" | "open" | "__build_class__" | "globals" | "locals")
 }
 
 fn is_builtin_name(n: &str) -> bool {
     matches!(
         n,
-        "print" | "input" | "len" | "repr" | "ascii" | "abs" | "min" | "max" | "sum" | "sorted" | "reversed" | "enumerate" | "zip" | "map" | "filter" | "any" | "all" | "iter" | "next" | "isinstance" | "issubclass" | "hasattr" | "getattr" | "setattr" | "delattr" | "callable" | "ord" | "chr" | "hex" | "oct" | "bin" | "round" | "divmod" | "pow" | "hash" | "id" | "format" | "vars" | "dir" | "exit" | "quit" | "staticmethod" | "classmethod" | "property" | "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "slice" | "super" | "NotImplemented" | "Ellipsis" | "__name__" | "bytes" | "bytearray" | "memoryview" | "__bytes_lit" | "aiter" | "anext" | "__brevi_aenter" | "__brevi_aexit" | "__brevi_eg_split" | "__brevi_eg_reraise"
+        "print" | "input" | "len" | "repr" | "ascii" | "abs" | "min" | "max" | "sum" | "sorted" | "reversed" | "enumerate" | "zip" | "map" | "filter" | "any" | "all" | "iter" | "next" | "isinstance" | "issubclass" | "hasattr" | "getattr" | "setattr" | "delattr" | "callable" | "ord" | "chr" | "hex" | "oct" | "bin" | "round" | "divmod" | "pow" | "hash" | "id" | "format" | "vars" | "dir" | "exit" | "quit" | "staticmethod" | "classmethod" | "property" | "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "slice" | "super" | "NotImplemented" | "Ellipsis" | "__name__" | "bytes" | "bytearray" | "memoryview" | "__bytes_lit" | "complex" | "__complex_lit" | "aiter" | "anext" | "__brevi_aenter" | "__brevi_aexit" | "__brevi_eg_split" | "__brevi_eg_reraise"
     ) || is_exc_name(n)
 }
 fn is_exc_name(n: &str) -> bool {
@@ -1695,6 +1703,13 @@ pub struct Em {
     // otherwise annotations are dropped unevaluated as before, since an annotation the runtime cannot
     // evaluate (`int | None`, a forward name) must not stop a program that never looks at it
     keep_ann: bool,
+    // CPython evaluates the annotations of this module's module and class bodies and defs (no `from __future__
+    // import annotations`, not Brevi's own copy of a CPython module, which CPython evaluates without error, and
+    // not a .bv file in Brevi's own spellings, whose annotations are Brevi's types): each is evaluated as its
+    // statement or def runs, so `x: undefined` raises NameError as in CPython
+    eval_ann: bool,
+    // PEP 695 type parameters of the def whose own annotations are being evaluated: TypeVars there
+    ann_tvars: Vec<String>,
     // the classes of the program seen so far that subclass type
     metaclasses: BTreeSet<String>,
     // the def being built is an async def (read by closure)
@@ -1709,9 +1724,6 @@ pub struct Em {
     re_names: HashSet<(String, String)>,
     // the program uses the warnings module: every statement says where it is, so a warning names its line
     track_warn: bool,
-    // the program uses a builtin iterator type (zip, map, filter, itertools.chain, ...) as a value: a class
-    // whose base is only known at run time may be built on one, which the dynamic build cannot subclass
-    iter_type_values: bool,
     // module -> the lines whose logical line runs over more than one line (None: the module did not lex)
     multi: HashMap<String, Option<HashSet<usize>>>,
     // the WMod statics written so far
@@ -2046,6 +2058,7 @@ impl Em {
     // ---- expressions ----
     fn ex(&mut self, e: &Ex, line: usize) -> ER<String> {
         Ok(match e {
+            Ex::Name(n) if self.ann_tvars.contains(n) => format!("pep695_typevar({})", lit(n)),
             Ex::Name(n) => self.load(n, line)?,
             Ex::Int(t) => {
                 let (body, base) = if let Some(r) = t.strip_prefix("0x") {
@@ -3237,6 +3250,37 @@ impl Em {
     // Where statement `s` is, said before it runs (a program using warnings).
     // An annotation with no value still evaluates its target's object: `o.a: T` evaluates o, and `o[i]: T`
     // evaluates o and i (CPython's compiler_annassign), with no attribute or item read; a name binds nothing.
+    // With Brevi's pydantic: whether to evaluate this annotation as CPython does (false: a model's, which its
+    // descriptor statement evaluates instead), or Err when it reads a descriptor or the pydantic copy, whose
+    // values are not CPython's typing objects.
+    fn pyd_ann(&self, ann: &Ex, line: usize, in_class: bool) -> Result<bool, (usize, String)> {
+        if !PYD_ON.load(std::sync::atomic::Ordering::Relaxed) {
+            return Ok(true);
+        }
+        let g = PYD_ANN.lock().unwrap();
+        let Some((lines, names)) = g.as_ref().and_then(|m| m.get(&self.module)) else { return Ok(true) };
+        if in_class && lines.contains(&line) {
+            return Ok(false);
+        }
+        // A bare name evaluates to what it holds whatever that is; inside a subscript, `|`, call or attribute, a
+        // descriptor would be checked as a typing value it is not.
+        if matches!(ann, Ex::Name(_)) {
+            return Ok(true);
+        }
+        let mut hit = None;
+        crate::typed_guard::walk_ex(ann, &mut |e| {
+            if let Ex::Name(n) = e {
+                if hit.is_none() && names.contains(n) {
+                    hit = Some(n.clone());
+                }
+            }
+        });
+        match hit {
+            Some(n) => Err(err(line, &format!("an annotation outside a model that subscripts or combines `{n}` (Brevi's pydantic holds no typing value there to evaluate) is not supported in dynamic builds"))),
+            None => Ok(true),
+        }
+    }
+
     fn ann_target_only(&mut self, t: &Ex, line: usize) -> Result<String, (usize, String)> {
         Ok(match t {
             Ex::Attr(o, _) => format!("{{ let _ = {}; }}", self.ex(o, line)?),
@@ -3319,13 +3363,23 @@ impl Em {
                 b.push('}');
                 b
             }
-            St::AnnAssign(t, v, _, _) => match v {
-                Some(v) => {
-                    let vv = self.ex(v, line)?;
-                    self.assign(t, &vv, line)?
+            St::AnnAssign(t, v, ann, _) => {
+                let mut code = match v {
+                    Some(v) => {
+                        let vv = self.ex(v, line)?;
+                        self.assign(t, &vv, line)?
+                    }
+                    None => self.ann_target_only(t, line)?,
+                };
+                // CPython (compiler_annassign) evaluates a module or class body's annotation after the value is
+                // stored (a function body's never); the class bodies that keep __annotations__ do it themselves
+                let fr = self.fstack.last().unwrap();
+                if self.eval_ann && (fr.is_module || fr.is_class) && self.pyd_ann(ann, line, fr.is_class)? {
+                    let av = self.ex(ann, line)?;
+                    code.push_str(&format!(" let _ = {av};"));
                 }
-                None => self.ann_target_only(t, line)?,
-            },
+                code
+            }
             St::AugAssign(t, op, v) => {
                 if *op == "@" && np_on() && np_narrow() && !np_f32_simd_here() {
                     return Err(err(line, "numpy: @= with float32 arrays (OpenBLAS sgemm) is not in Brevi's native numpy"));
@@ -3665,22 +3719,6 @@ impl Em {
                 }
             }
             St::Class(c) => {
-                // a base that is a builtin iterator type (zip, map, filter, enumerate, reversed, itertools.chain, ...)
-                let iter_base = c.bases.iter().any(|b| match b {
-                    Ex::Name(n) => ITER_TYPES.contains(&n.as_str()) && match self.lookup(n) {
-                        None => matches!(n.as_str(), "zip" | "map" | "filter" | "enumerate" | "reversed"),
-                        Some(Var::Global(_)) => self.bridge.srcs.get(&self.module).is_some_and(|(_, src)| src.contains("itertools")),
-                        _ => false,
-                    },
-                    Ex::Attr(o, n) => ITER_TYPES.contains(&n.as_str()) && matches!(o.as_ref(), Ex::Name(m) if m == "itertools"),
-                    _ => false,
-                });
-                if iter_base && self.bridge.srcs.contains_key(&self.module) {
-                    return Err(err(line, &format!("class {} is built on a builtin iterator type; subclassing zip, map, filter or an itertools type is not supported in dynamic builds", c.name)));
-                }
-                if self.iter_type_values && c.bases.iter().any(|b| matches!(b, Ex::Name(n) if matches!(self.lookup(n), Some(Var::Local(_) | Var::Cell(_))))) {
-                    return Err(err(line, &format!("class {} has a base chosen at run time in a program that uses builtin iterator types as values; subclassing zip, map, filter or an itertools type is not supported in dynamic builds", c.name)));
-                }
                 if let Some(src) = self.bridge.classes.get(&(self.module.clone(), c.line)).cloned() {
                     let m = self.module.clone();
                     let imports = self.bridge.imports.get(&m).cloned().unwrap_or_default();
@@ -3898,7 +3936,30 @@ impl Em {
         }
         // the def's annotations, evaluated now (after the defaults, as CPython does), while the program reads
         // __annotations__ somewhere: parameters in order, then "return"
-        if super::typing::ANN_DEFS.load(std::sync::atomic::Ordering::Relaxed) {
+        let anns = super::typing::ANN_DEFS.load(std::sync::atomic::Ordering::Relaxed);
+        if !anns && self.eval_ann && (!d.params.ann.is_empty() || d.ret.is_some()) {
+            for a in d.params.ann.iter().map(|(_, a)| a).chain(d.ret.iter()) {
+                self.pyd_ann(a, d.line, false)?;
+            }
+            // evaluated now and dropped, as CPython 3.13 evaluates them when the def runs; a PEP 695 parameter
+            // is the TypeVar CPython's annotation scope binds
+            self.ann_tvars = d.tparams.clone();
+            let mut evs = String::new();
+            let mut res = Ok(());
+            for a in d.params.ann.iter().map(|(_, a)| a).chain(d.ret.iter()) {
+                match self.ex(a, d.line) {
+                    Ok(x) => evs.push_str(&format!("let _ = {x}; ")),
+                    Err(e) => {
+                        res = Err(e);
+                        break;
+                    }
+                }
+            }
+            self.ann_tvars.clear();
+            res?;
+            v = format!("{{ let __fv = {v}; {evs}__fv }}");
+        }
+        if anns {
             let mut kv = vec![];
             for (pn, a) in d.params.ann.iter() {
                 kv.push(format!("(s({}), {})", lit(pn), self.ex(a, d.line)?));
@@ -3911,8 +3972,8 @@ impl Em {
         // PEP 695 `def f[T]`: the type parameters, set before the decorators run (as CPython's annotation scope
         // does). The names themselves are not bound, so a def that uses one is refused.
         if !d.tparams.is_empty() {
-            let anns = super::typing::ANN_DEFS.load(std::sync::atomic::Ordering::Relaxed);
-            if super::typing::tparams_used(d, &d.tparams, anns) {
+            // (the def's own evaluated annotations bind the parameters; a nested def's or class's do not here)
+            if super::typing::tparams_used(d, &d.tparams, anns) || (self.eval_ann && super::typing::tparams_in_nested_anns(&d.body, &d.tparams)) {
                 return Err(err(d.line, "a PEP 695 type parameter used inside its def (`def f[T]` with T in a default, the body or an evaluated annotation) is not supported in dynamic builds"));
             }
             let tv: Vec<String> = d.tparams.iter().map(|n| format!("pep695_typevar({})", lit(n))).collect();
@@ -4247,10 +4308,10 @@ impl Em {
     fn class(&mut self, c: &ClassDef) -> ER<String> {
         let id = self.id();
         let mut bases = vec![];
-        // a subclass of bytearray or memoryview has no wrapped value here (bytes, str, int and the containers do)
+        // a subclass of memoryview or complex has no wrapped value here (bytes, bytearray, str, int and the containers do)
         for b in &c.bases {
             if let Ex::Name(n) = b {
-                if matches!(n.as_str(), "bytearray" | "memoryview") && self.lookup(n).is_none() {
+                if matches!(n.as_str(), "memoryview" | "complex") && self.lookup(n).is_none() {
                     return Err(err(c.line, &format!("a subclass of {n} is not supported in dynamic builds")));
                 }
             }
@@ -4668,32 +4729,6 @@ pub fn ic_statics() -> String {
 }
 // Whether `src` names a builtin iterator type (zip, map, filter, enumerate, reversed, or an itertools one) other
 // than to call it or import it: `(repeat, args)`, `cls = chain`.
-const ITER_TYPES: [&str; 22] = ["zip", "map", "filter", "enumerate", "reversed", "repeat", "chain", "islice", "cycle", "compress", "starmap",
-        "takewhile", "dropwhile", "filterfalse", "accumulate", "zip_longest", "product", "permutations", "combinations", "groupby", "count", "pairwise"];
-fn iter_type_as_value(src: &str) -> bool {
-    const NAMES: [&str; 22] = ITER_TYPES;
-    let idc = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
-    for line in src.lines() {
-        let t = line.trim_start();
-        if t.starts_with("import ") || t.starts_with("from ") || t.starts_with('#') {
-            continue;
-        }
-        let lb = line.as_bytes();
-        for n in NAMES {
-            let mut from = 0;
-            while let Some(i) = line[from..].find(n).map(|i| i + from) {
-                from = i + n.len();
-                let before_ok = i == 0 || !(idc(lb[i - 1]) || lb[i - 1] == b'.');
-                let after = line[from..].trim_start();
-                let after_ok = from >= lb.len() || !idc(lb[from]);
-                if before_ok && after_ok && !after.starts_with('(') && !after.starts_with('=') && (after.starts_with(',') || after.starts_with(')') || after.starts_with(']') || after.is_empty()) {
-                    return true;
-                }
-            }
-        }
-    }
-    false
-}
 pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>), (String, usize, String)> {
     // the program (not Brevi's library copies) uses the warnings module
     // (or functools.partial, whose __get__ warns at the line that reads it from an instance, or
@@ -4704,15 +4739,6 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
             && b.contains("\"itertools\"")
             && ["\"pickle\"", "\"copy\"", "\"deepcopy\"", "\"__reduce__\"", "\"__reduce_ex__\"", "\"__setstate__\""].iter().any(|k| b.contains(k))
     });
-    let iter_type_values = mods.iter().any(|m| bridge.srcs.get(&m.name).is_some_and(|(_, src)| iter_type_as_value(src)));
-    // copy.deepcopy of a tee iterator deep-copies its buffer and the iterator under it (tee.__reduce__), which
-    // Brevi does not have; refused when the program is built rather than stopping when it runs
-    if mods.iter().any(|m| {
-        let b = format!("{:?}", m.body);
-        bridge.srcs.contains_key(&m.name) && b.contains("\"tee\"") && b.contains("\"deepcopy\"")
-    }) {
-        return Err((mods[0].name.clone(), 1, "copy.deepcopy in a program that uses itertools.tee is not supported in dynamic builds".into()));
-    }
     // (or pickles or copies itertools iterators, whose __reduce__ and __setstate__ warn at the caller's line)
     let track_warn = mods.iter().any(|m| {
         let b = format!("{:?}", m.body);
@@ -4743,6 +4769,8 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         class_ctx: None,
         lazy: false,
         keep_ann: false,
+        eval_ann: false,
+        ann_tvars: vec![],
         metaclasses: BTreeSet::new(),
         next_async: false,
         direct_ok: HashSet::new(),
@@ -4751,7 +4779,6 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         uses_re: false,
         re_names: HashSet::new(),
         track_warn,
-        iter_type_values,
         multi: HashMap::new(),
         wmods: HashSet::new(),
         lam_line: None,
@@ -4884,6 +4911,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
             em.module = m.name.clone();
             em.lazy = future_annotations(&m.body);
             IN_COPY.with(|c| c.set(OWN_COPIES.lock().unwrap().contains(&m.name)));
+            em.eval_ann = !em.lazy && gi == 1 && !copies.contains(&m.name) && !BV_SPELLING.load(std::sync::atomic::Ordering::Relaxed);
             let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, qname: String::new(), exc_vars: vec![], is_module: true, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![], ns: None };
             for n in em.mod_names[&m.name].clone() {
                 let i = em.gslot(&m.name, &n);
@@ -4895,7 +4923,9 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
             em.fstack.pop();
             let ident = rust_ident(&m.name);
             let nm = lit(&m.name);
-            write!(inits, "thread_local! {{ static DONE_{ident}: Cell<bool> = Cell::new(false); }}\nfn init_{ident}() -> Result<(), E> {{ if DONE_{ident}.with(|d| d.replace(true)) {{ return Ok(()); }} gs({name_slot}, s({nm}));\n{body}\nOk(()) }}\n").unwrap();
+            // a copy's classes follow Brevi's copy, whose __class_getitem__s are not all CPython's (class_subscript)
+            let mark = if IN_COPY.with(|c| c.get()) || gi == 0 { format!("copy_module({nm}); ") } else { String::new() };
+            write!(inits, "thread_local! {{ static DONE_{ident}: Cell<bool> = Cell::new(false); }}\nfn init_{ident}() -> Result<(), E> {{ if DONE_{ident}.with(|d| d.replace(true)) {{ return Ok(()); }} {mark}gs({name_slot}, s({nm}));\n{body}\nOk(()) }}\n").unwrap();
         }
         if gi == 0 && !libs.is_empty() {
             lib_part.push_str(&std::mem::take(&mut em.items));

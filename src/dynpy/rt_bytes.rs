@@ -30,8 +30,8 @@ pub fn bytes_of(v: &V) -> Option<Vec<u8>> {
                 },
             },
         },
-        // an instance of a bytes subclass: its bytes value
-        V::Obj(o) if o.cls.base_bt() == BT::Bytes => o.inner().and_then(|i| bytes_of(&i)),
+        // an instance of a bytes or bytearray subclass: its value's bytes
+        V::Obj(o) if matches!(o.cls.base_bt(), BT::Bytes | BT::ByteArray) => o.inner().and_then(|i| bytes_of(&i)),
         _ => None,
     }
 }
@@ -45,6 +45,10 @@ fn want_bytes(v: &V, what: &str) -> Result<Vec<u8>, E> {
 }
 
 pub fn bytes_repr(b: &[u8]) -> String {
+    bytes_repr_q(b, false)
+}
+// bytearray's repr escapes a single quote even inside double quotes (CPython's bytearray_repr): bytearray(b"\'")
+pub fn bytes_repr_q(b: &[u8], esc_single: bool) -> String {
     let q = if b.contains(&b'\'') && !b.contains(&b'"') { '"' } else { '\'' };
     let mut out = String::from("b");
     out.push(q);
@@ -54,9 +58,9 @@ pub fn bytes_repr(b: &[u8]) -> String {
             b'\t' => out.push_str("\\t"),
             b'\n' => out.push_str("\\n"),
             b'\r' => out.push_str("\\r"),
-            _ if c as char == q => {
+            _ if c as char == q || (esc_single && c == b'\'') => {
                 out.push('\\');
-                out.push(q);
+                out.push(c as char);
             }
             32..=126 => out.push(c as char),
             _ => out.push_str(&format!("\\x{c:02x}")),

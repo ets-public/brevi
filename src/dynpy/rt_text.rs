@@ -1889,7 +1889,7 @@ impl RMatch {
     fn text_v(&self, g: usize) -> Option<V> {
         // a mutable bytes-like subject is read as it is now, its span cut to its length (CPython, bpo-29444):
         // bytearray, memoryview and a library object's buffer (an array.array); bytes keeps its own text
-        let live = bytearray_of(&self.sv).is_some()
+        let live = ba_val(&self.sv).is_some()
             || memview_of(&self.sv).is_some()
             || (self.prog.bytes && matches!(&self.sv, V::Ext(_)) && !is_bytes_v(&self.sv));
         if live {
@@ -2537,7 +2537,7 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
             let len = sc.len();
             let pos = opt_pos(a, 1, "pos", len)?.unwrap_or(0);
             let endpos = opt_pos(a, 2, "endpos", len)?.unwrap_or(len);
-            if n == "finditer" && (bytearray_of(&sv).is_some() || memview_of(&sv).is_some()) {
+            if n == "finditer" && (ba_val(&sv).is_some() || memview_of(&sv).is_some()) {
                 return Ok(ba_finditer(prog, sv, pos, endpos));
             }
             let ms = all_matches(prog, &sc, pos, endpos, usize::MAX);
@@ -2593,7 +2593,7 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
                 return type_err(format!("decoding to str: need a bytes-like object, {} found", tn(&repl)));
             };
             let (sc, sv) = re_subject(&sv, prog.bytes)?;
-            if callable && (bytearray_of(&sv).is_some() || memview_of(&sv).is_some()) {
+            if callable && (ba_val(&sv).is_some() || memview_of(&sv).is_some()) {
                 return ba_sub_call(prog, &repl, sv, count, n == "subn");
             }
             let ms = all_matches(prog, &sc, 0, sc.len(), count);
@@ -2854,7 +2854,47 @@ impl Ext for RLexer {
         })
     }
 }
+// re._compile(pattern, flags): the function re.compile calls (and a pickled pattern's reconstructor); both
+// arguments required, by position or name
+fn re_private_compile(a: Args) -> R {
+    let sig = Sig { name: sym("_compile"), params: &["pattern", "flags"], npos: 2, npo: 0, star: false, kwstar: false };
+    let v = bind(&sig, &[V::Unbound, V::Unbound], a)?;
+    re_fn("compile", Args::p(v))
+}
+// re._compiler._generate_overlap_table(prefix): the KMP overlap table CPython's compiler builds for a literal
+// prefix, over any sequence
+pub fn re_compiler_fn(n: &str, a: Args) -> R {
+    match n {
+        "_generate_overlap_table" => {
+            let sig = Sig { name: sym("_generate_overlap_table"), params: &["prefix"], npos: 1, npo: 0, star: false, kwstar: false };
+            let v = bind(&sig, &[V::Unbound], a)?;
+            let p = &v[0];
+            let n = len(p)?;
+            let at = |i: usize| getitem(p, &V::Int(i as i64));
+            let mut table = vec![0i64; n];
+            for i in 1..n {
+                let mut idx = table[i - 1] as usize;
+                loop {
+                    if eq(&at(i)?, &at(idx)?)? {
+                        table[i] = idx as i64 + 1;
+                        break;
+                    }
+                    if idx == 0 {
+                        table[i] = 0;
+                        break;
+                    }
+                    idx = table[idx - 1] as usize;
+                }
+            }
+            Ok(list(table.into_iter().map(V::Int).collect()))
+        }
+        _ => Err(unsupported(&format!("re._compiler.{n}"))),
+    }
+}
 pub fn re_fn(n: &str, mut a: Args) -> R {
+    if n == "_compile" {
+        return re_private_compile(a);
+    }
     if n == "Scanner" {
         return re_scanner_new(a);
     }

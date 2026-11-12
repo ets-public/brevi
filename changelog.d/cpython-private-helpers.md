@@ -1,0 +1,5 @@
+- Dynamic builds have CPython's private helpers that CPython's own tests call: `collections._count_elements`, `functools._c3_mro`, `_compose_mro` and `_find_impl`, `re._compile` and `re._compiler._generate_overlap_table` (#481). The six stdlib conformance tests that used them now match CPython 3.13.
+- A compiled `re` pattern can go through `pickle` (it pickles as CPython's `re._compile(pattern, flags)` and comes back as the program's own pattern).
+- A `Counter` subclass's `__init__`, `update` and `subtract` call the subclass's own `get`, `__setitem__` and `update`, as CPython's Counter does.
+- `functools.singledispatch` follows CPython's dispatch cache: it is made by `weakref.WeakKeyDictionary` when singledispatch runs (which a program may assign), and an ABC registration clears it only once the function has an ABC registered. `functools._c3_mro` no longer lets one base's ABC list changes reach its sibling bases.
+- Fixed a crash at exit when a library value CPython runs was dropped after the program's output buffer.

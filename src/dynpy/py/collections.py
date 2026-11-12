@@ -27,7 +27,7 @@ import collections.abc as _collections_abc
 _sys.modules['collections.abc'] = _collections_abc
 abc = _collections_abc
 
-from collections import defaultdict, Counter, OrderedDict, deque, namedtuple
+from collections import defaultdict, Counter, OrderedDict, deque, namedtuple, _count_elements
 
 _collections_abc.MutableSequence.register(deque)
 

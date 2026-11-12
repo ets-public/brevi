@@ -35,7 +35,8 @@ step "Build"; cargo build --release -q
 # The MCP checks compare Brevi's servers with CPython running the real mcp, so they need the same mcp stack as GitHub
 # (tests/requirements-native.txt without duckdb and onnxruntime): with another pydantic, CPython's own session ends
 # differently and `brevi verify` reports "differs" on correct code. A venv over this Python's own packages holds the
-# pins, made once per pin set, and goes first on PATH for the rest of the run.
+# pins, made once per pin set. It goes on PATH only for the MCP checks, as on GitHub: the CPython sandbox hides
+# $HOME, so a python3 from there fails every sandboxed check (tests/sandbox, limits, bridge_sandbox, modelbox).
 if command -v uv >/dev/null 2>&1; then
   pins=$(grep -vE '^(#|duckdb==|onnxruntime==)' tests/requirements-native.txt | grep .)
   venv="${BREVI_CACHE:-$HOME/.cache/brevi}/ci-venv-$( { python3 -VV; echo "$pins"; } | sha256sum | cut -c1-12)"
@@ -45,13 +46,15 @@ if command -v uv >/dev/null 2>&1; then
       echo "$pins" | uv pip install -q --python "$venv.tmp/bin/python" -r /dev/stdin && mv "$venv.tmp" "$venv" ||
       { rm -rf "$venv.tmp"; echo "could not make $venv"; exit 1; }
   fi
-  PATH="$venv/bin:$PATH"; export PATH
+  mcp_path="$venv/bin:$PATH"
 else
+  mcp_path="$PATH"
   echo "warning: uv not installed (https://docs.astral.sh/uv/): the MCP checks compare against this Python's own mcp and pydantic, not the pinned ones"
 fi
 step "Unit tests"; cargo test --release -q
-step "Language tests"; BREVI=./target/release/brevi python3 tests/check_parallel.py --quiet $fast
-step "MCP server"; python3 tests/mcp_test.py && python3 tests/mcp_http_test.py
+step "Language tests"; BREVI=./target/release/brevi CHECK_SKIP=mcp_sdk,mcp_http python3 tests/check_parallel.py --quiet $fast
+step "MCP servers against the pinned mcp"; PATH="$mcp_path" BREVI=./target/release/brevi CHECK_ONLY=mcp_sdk,mcp_http python3 tests/check_parallel.py --quiet $fast
+step "MCP server"; python3 tests/mcp_test.py && PATH="$mcp_path" python3 tests/mcp_http_test.py
 step "Model box"; python3 tests/modelbox_test.py
 step "Python SDK and brevi-python"; BREVI=./target/release/brevi python3 tests/sdk_test.py
 BREVI=./target/release/brevi node tests/sdk_node_test.mjs
