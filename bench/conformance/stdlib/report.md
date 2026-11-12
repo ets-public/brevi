@@ -74,14 +74,13 @@ Reviewed list: [compat/conformance_cpython_private.txt](../../compat/conformance
 - tests CPython internals: 7
 - needs gigabytes of memory: 6
 - needs an opt-in test resource: 3
+- measures the recursion depth with _testinternalcapi (CPython's C internals): 3
 - skipped by CPython at run time: test needs en_US.iso88591 locale: 2
-- measures the recursion depth with _testinternalcapi (CPython's C internals): 2
 - runs a fresh CPython in a subprocess (a CPython crash regression): 1
 - skipped by CPython: requires debug build: 1
 - starts a child process: 1
 - tests CPython's deprecated sre_* modules: 1
 - tests CPython's immortal objects: 1
-- skipped by CPython: get_c_recursion_limit() requires _testcapi, which the reference build lacks: 1
 
 ## Why tests are not extractable
 
