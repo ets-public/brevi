@@ -1805,52 +1805,44 @@ fn it_index_result(r: &V) -> Result<i64, E> {
     }
 }
 
-// itertools.tee: the tee iterators of one group share a TeeData holding the source and the values fetched
-// but not yet read by every live member (CPython frees a link once all tees are past it), and each keeps its
-// own absolute position. A re-entrant next() on any tee of a group raises RuntimeError, as CPython does.
-pub struct TeeData {
-    it: Rc<RefCell<It>>,
-    // the buffered values in blocks of TEE_BLOCK (as CPython's teedataobject links blocks of 57): vals[0][0] is
-    // the value at absolute position `base`. Blocks keep a long buffer from ever being copied to grow it, and
-    // a block is freed once every member is past it.
-    vals: RefCell<std::collections::VecDeque<Vec<V>>>,
-    base: Cell<usize>,
-    members: RefCell<Vec<std::rc::Weak<TeePos>>>,
-    active: Cell<bool>,
+// itertools.tee, as CPython's teeobject and teedataobject: the members of a group read one chain of links, each
+// holding up to LINKCELLS values fetched from the shared source. A member keeps its link and its index in it, and
+// moves to the next link (made then if need be) only when it reads past a full one, so a member that has read
+// exactly 57 values still holds the first link. A link nobody holds any more is freed (Rc), as CPython frees a
+// teedataobject. Pickling, copy.deepcopy and __setstate__ see the same links and indexes CPython's do, so their
+// DeprecationWarnings and results match. A re-entrant fetch of a link's next value raises RuntimeError.
+pub struct TeeLink {
+    // the source iterator (teedataobject.it), and its cell, stepped without borrowing anything shared
+    src: V,
+    cell: Rc<RefCell<It>>,
+    vals: RefCell<Vec<V>>,
+    next: RefCell<Option<Rc<TeeLink>>>,
+    running: Cell<bool>,
+    // the link's _tee_dataobject value while one is alive, so every reduce names the same object
+    me: RefCell<std::rc::Weak<Box<dyn Ext>>>,
 }
-pub struct TeePos {
-    data: Rc<TeeData>,
-    pos: Cell<usize>,
-}
-impl Drop for TeePos {
+impl Drop for TeeLink {
+    // a long chain is freed one link at a time, not by recursion (teedataobject_safe_decref)
     fn drop(&mut self) {
-        // a deleted tee no longer holds values back (test_tee_del_backward)
-        tee_trim(&self.data);
-    }
-}
-const TEE_BLOCK: usize = 64;
-fn tee_trim(d: &TeeData) {
-    let lowest = {
-        let mut m = d.members.borrow_mut();
-        m.retain(|w| w.strong_count() > 0);
-        m.iter().filter_map(|w| w.upgrade()).map(|p| p.pos.get()).min()
-    };
-    let Some(lowest) = lowest else { return };
-    if lowest < d.base.get() + TEE_BLOCK {
-        return;
-    }
-    let mut freed = vec![];
-    {
-        let mut vals = d.vals.borrow_mut();
-        while d.base.get() + TEE_BLOCK <= lowest && vals.front().is_some_and(|b| b.len() == TEE_BLOCK) {
-            freed.push(vals.pop_front().unwrap());
-            d.base.set(d.base.get() + TEE_BLOCK);
+        let mut nx = self.next.get_mut().take();
+        while let Some(l) = nx {
+            match Rc::try_unwrap(l) {
+                Ok(mut inner) => nx = inner.next.get_mut().take(),
+                Err(_) => break,
+            }
         }
     }
-    // values are dropped after the borrow ends: a __del__ may run
-    drop(freed);
 }
-// itertools._tee(iterable), CPython's tee_new: a copy of a tee, else a lone member over iter(iterable)
+pub struct TeePos {
+    link: RefCell<Rc<TeeLink>>,
+    index: Cell<usize>,
+}
+const LINKCELLS: usize = 57;
+fn tee_link(src: V) -> Result<Rc<TeeLink>, E> {
+    let cell = shared_input(&src)?;
+    Ok(Rc::new(TeeLink { src, cell, vals: RefCell::new(Vec::new()), next: RefCell::new(None), running: Cell::new(false), me: RefCell::new(std::rc::Weak::<Box<dyn Ext>>::new()) }))
+}
+// itertools._tee(iterable), CPython's tee_fromiterable: a copy of a tee, else a lone member over iter(iterable)
 pub fn tee_new(a: Args) -> R {
     if !a.k.is_empty() {
         return type_err("_tee() takes no keyword arguments".into());
@@ -1858,73 +1850,216 @@ pub fn tee_new(a: Args) -> R {
     if a.p.len() != 1 {
         return type_err(format!("_tee expected 1 argument, got {}", a.p.len()));
     }
-    let it = iter_v(&a.p[0])?;
-    if let Some((data, pos)) = tee_pos_of(&it) {
-        return Ok(tee_member(&data, pos));
-    }
-    let src = shared_input(&it)?;
-    let data = Rc::new(TeeData { it: src, vals: RefCell::new(Default::default()), base: Cell::new(0), members: RefCell::new(vec![]), active: Cell::new(false) });
-    Ok(tee_member(&data, 0))
+    tee_from(&a.p[0])
 }
-fn tee_member(data: &Rc<TeeData>, pos: usize) -> V {
-    let p = Rc::new(TeePos { data: data.clone(), pos: Cell::new(pos) });
-    data.members.borrow_mut().push(Rc::downgrade(&p));
+fn tee_from(iterable: &V) -> R {
+    let it = iter_v(iterable)?;
+    if let Some((link, index)) = tee_pos_of(&it) {
+        return Ok(tee_member(&link, index));
+    }
+    Ok(tee_member(&tee_link(it)?, 0))
+}
+fn tee_member(link: &Rc<TeeLink>, index: usize) -> V {
+    let p = Rc::new(TeePos { link: RefCell::new(link.clone()), index: Cell::new(index) });
     new_iter(It::Tee(p), IterClass::Kind(ItKind::ItTee))
 }
 fn tee_step(p: &Rc<TeePos>) -> Result<Option<V>, E> {
-    if p.data.active.get() {
-        return Err(exc("RuntimeError", "cannot re-enter the tee iterator".into()));
+    if p.index.get() >= LINKCELLS {
+        let cur = p.link.borrow().clone();
+        let nx = {
+            let mut n = cur.next.borrow_mut();
+            match &*n {
+                Some(l) => l.clone(),
+                None => {
+                    let l = Rc::new(TeeLink { src: cur.src.clone(), cell: cur.cell.clone(), vals: RefCell::new(Vec::new()), next: RefCell::new(None), running: Cell::new(false), me: RefCell::new(std::rc::Weak::<Box<dyn Ext>>::new()) });
+                    *n = Some(l.clone());
+                    l
+                }
+            }
+        };
+        // the old link (and its values, whose __del__ may run) is dropped after the borrow ends
+        let old = std::mem::replace(&mut *p.link.borrow_mut(), nx);
+        p.index.set(0);
+        drop(old);
+        drop(cur);
     }
-    p.data.active.set(true);
-    let r = tee_step_inner(p);
-    p.data.active.set(false);
-    r
-}
-fn tee_step_inner(p: &Rc<TeePos>) -> Result<Option<V>, E> {
-    let i = p.pos.get();
-    let d = &p.data;
-    let got = {
-        let vals = d.vals.borrow();
-        let k = i - d.base.get();
-        vals.get(k / TEE_BLOCK).and_then(|b| b.get(k % TEE_BLOCK)).cloned()
-    };
+    let link = p.link.borrow().clone();
+    let i = p.index.get();
+    let got = link.vals.borrow().get(i).cloned();
     let v = match got {
         Some(v) => v,
-        None => match iter_step(&d.it)? {
-            Some(v) => {
-                let mut vals = d.vals.borrow_mut();
-                match vals.back_mut() {
-                    Some(b) if b.len() < TEE_BLOCK => b.push(v.clone()),
-                    _ => {
-                        let mut b = Vec::with_capacity(TEE_BLOCK);
-                        b.push(v.clone());
-                        vals.push_back(b);
-                    }
-                }
-                v
+        None => {
+            if link.running.get() {
+                return Err(exc("RuntimeError", "cannot re-enter the tee iterator".into()));
             }
-            None => return Ok(None),
-        },
+            link.running.set(true);
+            let r = iter_step(&link.cell);
+            link.running.set(false);
+            match r? {
+                Some(v) => {
+                    link.vals.borrow_mut().push(v.clone());
+                    v
+                }
+                None => return Ok(None),
+            }
+        }
     };
-    p.pos.set(i + 1);
-    // a block can be freed only once the last member reaches its end, a multiple of TEE_BLOCK
-    if (i + 1) % TEE_BLOCK == 0 {
-        tee_trim(d);
-    }
+    p.index.set(i + 1);
     Ok(Some(v))
 }
-fn tee_pos_of(v: &V) -> Option<(Rc<TeeData>, usize)> {
+fn tee_pos_of(v: &V) -> Option<(Rc<TeeLink>, usize)> {
     let V::Iter(cell) = v else { return None };
     let Ok(it) = cell.it.try_borrow() else { return None };
     match &*it {
-        It::Tee(p) => Some((p.data.clone(), p.pos.get())),
+        It::Tee(p) => Some((p.link.borrow().clone(), p.index.get())),
         _ => None,
     }
 }
-// copy.copy/deepcopy of a tee iterator make a new tee of the group at the same position, as CPython's
-// tee.__copy__ does.
+// copy.copy of a tee iterator: a new member at the same link and index, as CPython's tee.__copy__
 fn tee_copy_iter(v: &V) -> Option<V> {
-    tee_pos_of(v).map(|(d, pos)| tee_member(&d, pos))
+    tee_pos_of(v).map(|(l, i)| tee_member(&l, i))
+}
+// itertools._tee_dataobject: one link, as a value (what tee.__reduce__ names in its state)
+pub struct TeeDataV(pub Rc<TeeLink>);
+impl Ext for TeeDataV {
+    fn tname(&self) -> &'static str {
+        "itertools._tee_dataobject"
+    }
+    fn repr(&self) -> String {
+        format!("<itertools._tee_dataobject object at {:#x}>", Rc::as_ptr(&self.0) as usize)
+    }
+    fn any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn hash(&self) -> Option<i64> {
+        Some((Rc::as_ptr(&self.0) as usize).rotate_right(4) as i64)
+    }
+    fn eq(&self, o: &V) -> Option<bool> {
+        Some(teedata_of(o).is_some_and(|l| Rc::ptr_eq(&l, &self.0)))
+    }
+    fn method(&self, _me: &V, n: &str, a: &mut Args) -> Option<R> {
+        match n {
+            "__reduce__" => Some(a.want("__reduce__", 0, 0).and_then(|_| teedata_reduce(&self.0))),
+            "__reduce_ex__" => Some(a.want("__reduce_ex__", 1, 1).and_then(|_| teedata_reduce(&self.0))),
+            _ => None,
+        }
+    }
+}
+pub fn teedata_v(l: &Rc<TeeLink>) -> V {
+    if let Some(x) = l.me.borrow().upgrade() {
+        return V::Ext(ExtRc(x));
+    }
+    let x = ExtRc::new(TeeDataV(l.clone()));
+    *l.me.borrow_mut() = Rc::downgrade(&x.0);
+    V::Ext(x)
+}
+pub fn teedata_of(v: &V) -> Option<Rc<TeeLink>> {
+    match v {
+        V::Ext(x) => x.any().downcast_ref::<TeeDataV>().map(|d| d.0.clone()),
+        _ => None,
+    }
+}
+pub fn teedata_class() -> Rc<Class> {
+    ext_class_mod("itertools", "_tee_dataobject")
+}
+// teedataobject.__reduce__: (type, (it, values read so far, next link or None)), with the DeprecationWarning
+pub fn teedata_reduce(l: &Rc<TeeLink>) -> R {
+    it_pickle_warn()?;
+    let vals = l.vals.borrow().clone();
+    let nx = l.next.borrow().as_ref().map_or(V::None, teedata_v);
+    Ok(tup(vec![V::Class(teedata_class()), tup(vec![l.src.clone(), list(vals), nx])]))
+}
+// itertools._tee_dataobject(it, values, next), as CPython's teedataobject.__new__
+pub fn teedata_new(a: Args) -> R {
+    if !a.k.is_empty() {
+        return type_err("_tee_dataobject() takes no keyword arguments".into());
+    }
+    if a.p.len() != 3 {
+        return type_err(format!("_tee_dataobject expected 3 arguments, got {}", a.p.len()));
+    }
+    // a list, a subclass of list, or a list that pickle (CPython) made while loading
+    let vals = match &a.p[1] {
+        V::List(values) => values.borrow().clone(),
+        V::Obj(o) if o.cls.base_bt() == BT::List => to_vec(&a.p[1])?,
+        x if tn(x) == "list" => to_vec(x)?,
+        x => return type_err(format!("_tee_dataobject() argument 2 must be list, not {}", tn(x))),
+    };
+    let link = tee_link(a.p[0].clone())?;
+    let invalid = || exc("ValueError", "Invalid arguments".into());
+    if vals.len() > LINKCELLS {
+        return Err(invalid());
+    }
+    let full = vals.len() == LINKCELLS;
+    *link.vals.borrow_mut() = vals;
+    match &a.p[2] {
+        V::None => {}
+        nx if full => match teedata_of(nx) {
+            Some(n) => *link.next.borrow_mut() = Some(n),
+            None => return Err(invalid()),
+        },
+        _ => return Err(invalid()),
+    }
+    Ok(teedata_v(&link))
+}
+// tee.__reduce__: (itertools._tee, ((),), (dataobj, index)), with the DeprecationWarning
+pub fn tee_reduce(p: &Rc<TeePos>) -> R {
+    it_pickle_warn()?;
+    let l = p.link.borrow().clone();
+    Ok(tup(vec![V::Class(it_class(ItKind::ItTee)?), tup(vec![tup(vec![])]), tup(vec![teedata_v(&l), V::Int(p.index.get() as i64)])]))
+}
+// tee.__setstate__((dataobj, index)), as CPython's tee_setstate (its warning comes first)
+pub fn tee_setstate(p: &Rc<TeePos>, st: &V) -> Result<(), E> {
+    it_pickle_warn()?;
+    let V::Tuple(t) = st else {
+        return type_err("state is not a tuple".into());
+    };
+    if t.len() != 2 {
+        return type_err(format!("function takes exactly 2 arguments ({} given)", t.len()));
+    }
+    let Some(link) = teedata_of(&t[0]) else {
+        return type_err(format!("argument 1 must be itertools._tee_dataobject, not {}", tn(&t[0])));
+    };
+    let index = match &t[1] {
+        V::Float(_) => return type_err("'float' object cannot be interpreted as an integer".into()),
+        x => match to_int(x)? {
+            V::Int(i) if (i32::MIN as i64..=i32::MAX as i64).contains(&i) => i,
+            V::Int(i) if i > 0 => return Err(exc("OverflowError", "signed integer is greater than maximum".into())),
+            V::Int(_) => return Err(exc("OverflowError", "signed integer is less than minimum".into())),
+            _ => return Err(exc("OverflowError", "Python int too large to convert to C int".into())),
+        },
+    };
+    if index < 0 || index as usize > LINKCELLS {
+        return val_err("Index out of range".into());
+    }
+    let old = std::mem::replace(&mut *p.link.borrow_mut(), link);
+    p.index.set(index as usize);
+    drop(old);
+    Ok(())
+}
+// The iterator kind whose class an itertools name is (tee is a function, as in CPython).
+pub fn itertools_kind(n: &str) -> Option<ItKind> {
+    Some(match n {
+        "count" => ItKind::ItCount,
+        "chain" => ItKind::ItChain,
+        "islice" => ItKind::ItIslice,
+        "repeat" => ItKind::ItRepeat,
+        "cycle" => ItKind::ItCycle,
+        "accumulate" => ItKind::ItAccumulate,
+        "zip_longest" => ItKind::ItZipLongest,
+        "starmap" => ItKind::ItStarmap,
+        "takewhile" => ItKind::ItTakewhile,
+        "dropwhile" => ItKind::ItDropwhile,
+        "pairwise" => ItKind::ItPairwise,
+        "compress" => ItKind::ItCompress,
+        "filterfalse" => ItKind::ItFilterfalse,
+        "groupby" => ItKind::ItGroupby,
+        "product" => ItKind::ItProduct,
+        "permutations" => ItKind::ItPermutations,
+        "combinations" => ItKind::ItCombinations,
+        "combinations_with_replacement" => ItKind::ItCombinationsWithReplacement,
+        "batched" => ItKind::ItBatched,
+        _ => return None,
+    })
 }
 // Binds an itertools constructor's arguments as CPython's argument clinic does: `names` are positional-or-keyword
 // up to a "*", keyword-only after it; too many positionals, an unknown keyword or one given twice raise TypeError.
@@ -2148,17 +2283,13 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             if n == 0 {
                 return Ok(tup(vec![]));
             }
-            let mut out = vec![it.clone()];
-            if let Some((data, pos)) = tee_pos_of(&it) {
-                // CPython 3.13 makes every member new for a tee input (gh-123884), at its position
-                out = (0..n).map(|_| tee_member(&data, pos)).collect();
-            } else {
-                let src = shared_input(&it)?;
-                let data = Rc::new(TeeData { it: src, vals: RefCell::new(Default::default()), base: Cell::new(0), members: RefCell::new(vec![]), active: Cell::new(false) });
-                out.clear();
-                for _ in 0..n {
-                    out.push(tee_member(&data, 0));
-                }
+            // CPython 3.13: tee_fromiterable(it) (a tee input gives a new member at its position, gh-123884),
+            // then copies of that member
+            let first = tee_from(&it)?;
+            let (link, index) = tee_pos_of(&first).expect("a tee member");
+            let mut out = vec![first];
+            for _ in 1..n {
+                out.push(tee_member(&link, index));
             }
             tup(out)
         }
@@ -2241,6 +2372,14 @@ pub fn copy_fn(name: &str, a: Args) -> R {
     }
     shallow_copy(&x)
 }
+// copy.copy/deepcopy of an instance of a class built on an iterator type: CPython rebuilds it through the base's
+// __reduce__ (the class called again with the base's arguments, and no __dict__), which Brevi does not model
+fn iter_sub_copy_check(o: &Rc<Obj>) -> Result<(), E> {
+    match iter_base_of(&o.cls) {
+        Some(b) if matches!(o.inner(), Some(V::Iter(_))) => Err(unsupported(&format!("copying an instance of {}, a subclass of {}", o.cls.name, iter_tp_name(&b)))),
+        _ => Ok(()),
+    }
+}
 pub fn shallow_copy(x: &V) -> R {
     Ok(match x {
         V::List(l) => list(l.borrow().clone()),
@@ -2251,6 +2390,7 @@ pub fn shallow_copy(x: &V) -> R {
             if let Some(f) = o.cls.lookup("__copy__") {
                 return call(&f, Args::p(vec![x.clone()]));
             }
+            iter_sub_copy_check(o)?;
             let n = Obj::new(o.cls.clone());
             let (attrs, dict) = {
                 let d = o.d.borrow();
@@ -2292,6 +2432,7 @@ fn ptr_of(x: &V) -> Option<usize> {
         V::Tuple(l) => Tup::as_ptr(l) as *const u8 as usize,
         V::Deque(l) => Rc::as_ptr(l) as *const u8 as usize,
         V::Iter(l) => Rc::as_ptr(l) as *const u8 as usize,
+        V::Ext(_) => return teedata_of(x).map(|l| Rc::as_ptr(&l) as *const u8 as usize),
         _ => return None,
     })
 }
@@ -2356,6 +2497,7 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
             if let Some(f) = o.cls.lookup("__deepcopy__") {
                 return call(&f, Args::p(vec![x.clone(), dict_new()]));
             }
+            iter_sub_copy_check(o)?;
             if o.cls.base_bt() == BT::Exc {
                 return Ok(x.clone());
             }
@@ -2393,8 +2535,21 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
             }
             V::Obj(n)
         }
-        // CPython deep-copies a tee's buffer and its source iterator (the _tee_dataobject's __reduce__)
-        V::Iter(_) if tee_pos_of(x).is_some() => return Err(unsupported("copy.deepcopy of an itertools.tee iterator")),
+        // a tee's link (its _tee_dataobject): reduced and rebuilt as copy._reconstruct does, args deep-copied first
+        V::Ext(_) if teedata_of(x).is_some() => {
+            let rv = {
+                let _g = copy_line(Some(152));
+                teedata_reduce(&teedata_of(x).unwrap())?
+            };
+            let V::Tuple(t) = &rv else { unreachable!() };
+            let args = deepcopy(&t[1], memo)?;
+            let y = {
+                let _g = copy_line(None);
+                teedata_new(Args::p(to_vec(&args)?))?
+            };
+            memo.push((p.unwrap(), y.clone()));
+            y
+        }
         V::Iter(_) => iter_copy(x, Some(memo))?,
         _ => x.clone(),
     })
@@ -2542,6 +2697,10 @@ pub fn operator_fn(name: &str, a: Args) -> R {
                 "neg" => return neg(&a1(&a, name)?),
                 "not_" => return not(&a1(&a, name)?),
                 "truth" => return Ok(V::Bool(truth(&a1(&a, name)?)?)),
+                "is_" | "is_not" => {
+                    a.want(name, 2, 2)?;
+                    return Ok(V::Bool(is(&a.p[0], &a.p[1]) == (name == "is_")));
+                }
                 "getitem" => {
                     a.want(name, 2, 2)?;
                     return getitem(&a.p[0], &a.p[1]);
@@ -2975,15 +3134,8 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         ("string", "whitespace") => s(" \t\n\r\x0b\x0c"),
         ("string", "printable") => s("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~ \t\n\r\x0b\x0c"),
         ("typing" | "typing_extensions" | "collections.abc", _) => typing_attr(name),
-        ("itertools", "chain") => {
-            let f = modfn("itertools", "chain");
-            if let V::Func(ff) = &f {
-                if !ff.attrs.borrow().iter().any(|(k, _)| *k == "from_iterable") {
-                    ff.attrs.borrow_mut().push(("from_iterable", modfn("itertools", "chain.from_iterable")));
-                }
-            }
-            f
-        }
+        // itertools' iterator types are classes, as in CPython: type(chain()) is chain, isinstance, subclassing
+        ("itertools", n) if itertools_kind(n).is_some() => V::Class(it_class(itertools_kind(n).unwrap())?),
         ("dataclasses", "MISSING" | "KW_ONLY" | "InitVar" | "Field" | "FrozenInstanceError") => dataclass_attr(name).unwrap(),
         ("abc", "ABC") => V::Class(abc_class()),
         ("abc", "ABCMeta") => V::Class(abc_meta_class()),

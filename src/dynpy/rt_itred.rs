@@ -147,6 +147,13 @@ pub fn iter_reduce_v(v: &V) -> R {
         }
         return r.reduce(cls_of(cell)?);
     }
+    let tee = match cell.it.try_borrow().as_deref() {
+        Ok(It::Tee(p)) => Some(p.clone()),
+        _ => None,
+    };
+    if let Some(p) = tee {
+        return tee_reduce(&p);
+    }
     enum Plan {
         At(V, usize),
         Rev(V, i64),
@@ -252,6 +259,13 @@ pub fn iter_setstate_v(v: &V, st: &V) -> R {
     let V::Iter(cell) = v else {
         return Err(exc("AttributeError", format!("'{}' object has no attribute '__setstate__'", tn(v))));
     };
+    let tee = match cell.it.try_borrow().as_deref() {
+        Ok(It::Tee(p)) => Some(p.clone()),
+        _ => None,
+    };
+    if let Some(p) = tee {
+        return tee_setstate(&p, st).map(|_| V::None);
+    }
     if let Some(r) = red_of(cell) {
         let warn = is_itertools_kind(cell);
         return match r.setstate(st) {
@@ -341,11 +355,14 @@ pub fn iter_copy(x: &V, memo: Option<&mut Vec<(usize, V)>>) -> R {
 pub fn iter_class_call(c: &Class, a: Args) -> Option<R> {
     match (c.module, c.name) {
         ("itertools", "_grouper") => Some(grouper_new(a)),
-        ("itertools", n) if !matches!(n, "_tee" | "_tee_dataobject") => Some(itertools_fn(if n == "chain" { "chain" } else { n }, a)),
+        ("itertools", "_tee") => Some(tee_new(a)),
+        ("itertools", "_tee_dataobject") => Some(teedata_new(a)),
+        ("itertools", n) => Some(itertools_fn(if n == "chain" { "chain" } else { n }, a)),
         ("builtins", "map") => Some(bi_map(a)),
         ("builtins", "filter") => Some(bi_filter(a)),
         ("builtins", "zip") => Some(bi_zip(a)),
         ("builtins", "enumerate") => Some(bi_enumerate(a)),
+        ("builtins", "reversed") => Some(bi_reversed(a)),
         _ => None,
     }
 }
@@ -357,10 +374,13 @@ pub fn iter_class_named(m: &str, n: &str) -> Option<V> {
         ItKind::ItCount, ItKind::ItChain, ItKind::ItIslice, ItKind::ItRepeat, ItKind::ItCycle, ItKind::ItAccumulate, ItKind::ItZipLongest,
         ItKind::ItStarmap, ItKind::ItTakewhile, ItKind::ItDropwhile, ItKind::ItCompress, ItKind::ItFilterfalse, ItKind::ItGroupby,
         ItKind::ItGrouper, ItKind::ItProduct, ItKind::ItPermutations, ItKind::ItCombinations, ItKind::ItCombinationsWithReplacement,
-        ItKind::Map, ItKind::Filter, ItKind::Zip, ItKind::Enumerate,
+        ItKind::ItTee, ItKind::Map, ItKind::Filter, ItKind::Zip, ItKind::Enumerate,
     ];
     if !matches!(m, "itertools" | "builtins") {
         return None;
+    }
+    if (m, n) == ("itertools", "_tee_dataobject") {
+        return Some(V::Class(teedata_class()));
     }
     KINDS.iter().find_map(|k| match it_class(*k) {
         Ok(c) if c.module == m && c.name == n => Some(V::Class(c)),

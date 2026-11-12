@@ -400,6 +400,7 @@ fn make_class_impl(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, att
     if bs.is_empty() {
         bs.push(bclass("object"));
     }
+    iter_base_check(&bs)?;
     if name != "ByteString" && bs.iter().any(|b| is_bytestring(b)) {
         bytestring_warn()?;
     }
@@ -430,6 +431,15 @@ fn make_class_impl(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, att
         abc_setup(&c)?;
     }
     tdict_seal(&c);
+    // chain.from_iterable is a classmethod: C.from_iterable(x) makes a C
+    if let Some(base) = iter_base_of(&c) {
+        if (base.module, base.name) == ("itertools", "chain") {
+            // unless a class of the program defines its own from_iterable before chain in the MRO
+            if c.lookup("from_iterable").is_some_and(|f| is_chain_fi(&f)) {
+                c.set_exact("from_iterable", chain_from_iterable_for(&c));
+            }
+        }
+    }
     // a __slots__ name that the class body also binds is refused, as CPython refuses it
     if let Some(sv) = c.own("__slots__") {
         let mut own_slots = vec![];
@@ -672,12 +682,9 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
             }
         }
     }
-    // the classes of Brevi's own iterators: only itertools._tee can be called here; for the others a plain
-    // object would be silently wrong
+    // the classes of Brevi's own iterators (and itertools._tee_dataobject): the builtin or itertools function of the
+    // same name; for the others a plain object would be silently wrong
     if c.module != "__main__" && is_iter_class(c) {
-        if c.module == "itertools" && c.name == "_tee" {
-            return tee_new(a);
-        }
         if let Some(r) = iter_class_call(c, a) {
             return r;
         }
