@@ -2516,8 +2516,114 @@ fn strip_set(a: &Args, f: &str) -> Result<Option<Vec<char>>, E> {
         Some(x) => Ok(Some(arg_str(x, f)?.text().chars().collect())),
     }
 }
+// A str argument with a lone surrogate, or a tuple holding one (startswith's prefixes).
+fn arg_lone(x: &V) -> bool {
+    match x {
+        V::Str(y) => y.is_lone(),
+        V::Tuple(t) => t.iter().any(|y| matches!(y, V::Str(z) if z.is_lone())),
+        _ => false,
+    }
+}
+// The str methods whose answer for a str with a lone surrogate is the answer for the same text with each
+// surrogate swapped for an unused private-use character (Swap's rule): the methods only compare characters,
+// count them, and ask the properties Cs and Co share. Their errors never quote the text.
+const STR_SWAP_OK: &[&str] = &[
+    "split", "rsplit", "strip", "lstrip", "rstrip", "replace", "find", "rfind", "index", "rindex", "count", "startswith", "endswith", "upper", "lower", "casefold", "title", "capitalize", "swapcase", "isdigit", "isdecimal", "isnumeric", "isalpha", "isalnum", "isspace", "isupper", "islower", "istitle", "isascii", "isprintable", "isidentifier", "ljust", "rjust", "center", "zfill", "partition", "rpartition", "splitlines", "removeprefix", "removesuffix", "expandtabs",
+];
+// str_method for a call where the str or a str argument holds a lone surrogate: through Swap for the methods it is
+// sound for, code points for join and format; every other method stops (text()).
+fn str_method_lone(me: &Rc<S>, o: &V, name: &str, a: Args) -> R {
+    if !STR_SWAP_OK.contains(&name) {
+        return match name {
+            "join" | "format" | "format_map" => str_method_cps(me, name, a),
+            _ => lone_stop(std::panic::Location::caller()),
+        };
+    }
+    let mut strs: Vec<Rc<S>> = vec![me.clone()];
+    for x in a.p.iter().chain(a.k.iter().map(|(_, v)| v)) {
+        match x {
+            V::Str(y) => strs.push(y.clone()),
+            V::Tuple(t) => strs.extend(t.iter().filter_map(|y| if let V::Str(z) = y { Some(z.clone()) } else { None })),
+            _ => {}
+        }
+    }
+    let refs: Vec<&S> = strs.iter().map(|x| &**x).collect();
+    let Some(sw) = Swap::plan(&refs, &[]) else { lone_stop(std::panic::Location::caller()) };
+    // swapped value -> the caller's object, so that answers which are an input itself stay that object
+    let mut orig: Vec<(Rc<S>, V)> = vec![];
+    let mut to = |x: &V, orig: &mut Vec<(Rc<S>, V)>| -> V {
+        match x {
+            V::Str(y) => {
+                let z = Rc::new(sw.to(y));
+                orig.push((z.clone(), x.clone()));
+                V::Str(z)
+            }
+            V::Tuple(t) if t.iter().any(|y| matches!(y, V::Str(_))) => tup(t
+                .iter()
+                .map(|y| match y {
+                    V::Str(z) => V::Str(Rc::new(sw.to(z))),
+                    _ => y.clone(),
+                })
+                .collect()),
+            _ => x.clone(),
+        }
+    };
+    let me2 = Rc::new(sw.to(me));
+    orig.push((me2.clone(), o.clone()));
+    let a2 = Args { p: a.p.iter().map(|x| to(x, &mut orig)).collect(), k: a.k.iter().map(|(n, x)| (*n, to(x, &mut orig))).collect() };
+    let back = |x: V| -> V {
+        match &x {
+            V::Str(y) => match orig.iter().find(|(z, _)| Rc::ptr_eq(z, y)) {
+                Some((_, v)) => v.clone(),
+                None => V::Str(Rc::new(sw.back(y))),
+            },
+            _ => x,
+        }
+    };
+    Ok(match str_method(&me2, &V::Str(me2.clone()), name, a2)? {
+        V::List(l) => list(l.borrow().iter().cloned().map(back).collect()),
+        V::Tuple(t) => tup(t.iter().cloned().map(back).collect()),
+        r => back(r),
+    })
+}
+// join, format and format_map, over code points: the text they copy may hold lone surrogates.
+fn str_method_cps(me: &Rc<S>, name: &str, a: Args) -> R {
+    match name {
+        "join" => str_join(me, &a1(&a, "join")?),
+        "format" => Ok(V::Str(Rc::new(str_format_s(me, &a, None)?))),
+        _ => {
+            let m = a1(&a, "format_map")?;
+            Ok(V::Str(Rc::new(str_format_s(me, &Args { p: vec![], k: vec![] }, Some(&m))?)))
+        }
+    }
+}
+fn str_join(me: &S, it: &V) -> R {
+    let items = to_vec(it)?;
+    let mut out = Txt::new();
+    for (i, x) in items.iter().enumerate() {
+        if i > 0 {
+            out.push_s(me);
+        }
+        match x {
+            V::Str(y) => out.push_s(y),
+            // a library str (numpy's np.str_)
+            V::Ext(e) if matches!(e.native(), Some(Ok(V::Str(_)))) => {
+                if let Some(Ok(V::Str(y))) = e.native() {
+                    out.push_s(&y);
+                }
+            }
+            // a str subclass (StrEnum)
+            V::Obj(_) if matches!(inner_of(x), Some(V::Str(_))) => {
+                if let Some(V::Str(y)) = inner_of(x) {
+                    out.push_s(&y);
+                }
+            }
+            y => return type_err(format!("sequence item {i}: expected str instance, {} found", tn(y))),
+        }
+    }
+    Ok(txt_v(out))
+}
 pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
-    let t = me.text();
     // str subclasses (StrEnum members) as arguments: their str
     for x in a.p.iter_mut().chain(a.k.iter_mut().map(|(_, v)| v)) {
         if let V::Obj(_) = x {
@@ -2526,6 +2632,10 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             }
         }
     }
+    if me.is_lone() || a.p.iter().chain(a.k.iter().map(|(_, v)| v)).any(arg_lone) {
+        return str_method_lone(me, o, name, a);
+    }
+    let t = me.text();
     Ok(match name {
         "split" | "rsplit" => {
             let sep = a.kw("sep").or_else(|| a.p.first().cloned()).unwrap_or(V::None);
@@ -2569,36 +2679,15 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             }
             s(r)
         }
-        "join" => {
-            let items = to_vec(&a1(&a, "join")?)?;
-            let mut out = String::new();
-            for (i, x) in items.iter().enumerate() {
-                if i > 0 {
-                    out.push_str(t);
-                }
-                match x {
-                    V::Str(y) => out.push_str(&y.text()),
-                    // a library str (numpy's np.str_)
-                    V::Ext(e) if matches!(e.native(), Some(Ok(V::Str(_)))) => {
-                        if let Some(Ok(V::Str(y))) = e.native() {
-                            out.push_str(&y.text());
-                        }
-                    }
-                    // a str subclass (StrEnum)
-                    V::Obj(_) if matches!(inner_of(x), Some(V::Str(_))) => {
-                        if let Some(V::Str(y)) = inner_of(x) {
-                            out.push_str(&y.text());
-                        }
-                    }
-                    y => return type_err(format!("sequence item {i}: expected str instance, {} found", tn(y))),
-                }
-            }
-            st(out)
-        }
+        "join" => return str_join(me, &a1(&a, "join")?),
         "replace" => {
             a.want("replace", 2, 3)?;
             let (old, new) = (arg_str(&a.p[0], "replace")?, arg_str(&a.p[1], "replace")?);
             let count = opt_idx(&a, 2)?.unwrap_or(-1);
+            // nothing to replace: the str itself, as CPython returns it
+            if count == 0 || (old.text().is_empty() && new.text().is_empty()) || (!old.text().is_empty() && !t.contains(old.text())) {
+                return Ok(o.clone());
+            }
             if count < 0 {
                 if old.text().is_empty() {
                     let mut out = new.text().to_string();
@@ -2764,11 +2853,7 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             }
             list(out)
         }
-        "format" => st(str_format(t, &a, None)?),
-        "format_map" => {
-            let m = a1(&a, "format_map")?;
-            st(str_format(t, &Args { p: vec![], k: vec![] }, Some(&m))?)
-        }
+        "format" | "format_map" => return str_method_cps(me, name, a),
         "removeprefix" => {
             let p = arg_str(&a1(&a, name)?, name)?;
             match t.strip_prefix(p.text()) {
@@ -2913,7 +2998,7 @@ fn str_maketrans(a: &Args) -> R {
     }
 }
 // "{} {name} {0:>5}".format(...); `mapping` is str.format_map's mapping, resolved lazily with [key].
-pub fn str_format(t: &str, a: &Args, mapping: Option<&V>) -> Result<String, E> {
+pub fn str_format_s(t: &S, a: &Args, mapping: Option<&V>) -> Result<S, E> {
     Ok(str_format_auto(t, a, mapping, Some(0), 2)?.0)
 }
 // `auto` mirrors CPython's auto_arg_index: None once a manual field was seen, Some(next) while
@@ -2921,9 +3006,13 @@ pub fn str_format(t: &str, a: &Args, mapping: Option<&V>) -> Result<String, E> {
 // the same numbering (and can switch modes), and updated state comes back to the outer string.
 // `depth` mirrors CPython's recursion budget: every field consumes one level for its spec, even
 // an empty one, so two nested specs are as deep as str.format allows.
-fn str_format_auto(t: &str, a: &Args, mapping: Option<&V>, mut auto: Option<usize>, depth: usize) -> Result<(String, Option<usize>), E> {
+fn str_format_auto(ts: &S, a: &Args, mapping: Option<&V>, mut auto: Option<usize>, depth: usize) -> Result<(S, Option<usize>), E> {
+    // a lone surrogate in the template is U+FFFD here; literal text is copied from the code points, and a field
+    // holding one stops
+    let orig = ts.lone();
+    let t = ts.text_sub('\u{fffd}');
     let c: Vec<char> = t.chars().collect();
-    let mut out = String::new();
+    let mut out = Txt::new();
     let mut i = 0;
     while i < c.len() {
         if c[i] == '{' {
@@ -2948,6 +3037,9 @@ fn str_format_auto(t: &str, a: &Args, mapping: Option<&V>, mut auto: Option<usiz
             }
             if j >= c.len() {
                 return val_err("Single '{' encountered in format string".into());
+            }
+            if orig.is_some_and(|o| o[i + 1..j].iter().any(|&x| is_surrogate(x))) {
+                lone_stop(std::panic::Location::caller());
             }
             let field: String = c[i + 1..j].iter().collect();
             i = j + 1;
@@ -3009,19 +3101,19 @@ fn str_format_auto(t: &str, a: &Args, mapping: Option<&V>, mut auto: Option<usiz
             }
             let v = match conv.as_deref() {
                 Some("r") => st(repr(&v)?),
-                Some("s") => st(to_str(&v)?),
+                Some("s") => str_v(&v)?,
                 Some("a") => bi_ascii(Args::p(vec![v]))?,
                 _ => v,
             };
             // nested fields in the spec continue the same auto numbering
             let spec = if spec.contains('{') {
-                let (s, next) = str_format_auto(&spec, a, mapping, auto, depth - 1)?;
+                let (s, next) = str_format_auto(&S::new(spec), a, mapping, auto, depth - 1)?;
                 auto = next;
-                s
+                s.into_text()
             } else {
                 spec
             };
-            out.push_str(&format_spec(&v, &spec)?);
+            out.push_s(&fmt_s(&v, &spec)?);
         } else if c[i] == '}' {
             if i + 1 < c.len() && c[i + 1] == '}' {
                 out.push('}');
@@ -3030,11 +3122,14 @@ fn str_format_auto(t: &str, a: &Args, mapping: Option<&V>, mut auto: Option<usiz
             }
             return val_err("Single '}' encountered in format string".into());
         } else {
-            out.push(c[i]);
+            match orig {
+                Some(o) => out.push_cp(o[i]),
+                None => out.push(c[i]),
+            }
             i += 1;
         }
     }
-    Ok((out, auto))
+    Ok((out.finish(), auto))
 }
 // `xs.clear(None)`: CPython's TypeError for a method that takes no arguments.
 fn no_args(ty: &str, name: &str, a: &Args) -> Result<(), E> {

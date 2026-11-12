@@ -212,7 +212,7 @@ pub trait Ext {
     }
 }
 
-pub use strmodel::S;
+pub use strmodel::{is_surrogate, Swap, Txt, S};
 // The dynamic build's str (#450, handoffs/string-model-design.md). CPython's str is any sequence of code points,
 // lone surrogates (U+D800..U+DFFF) included, and a Rust String cannot hold those. So a str is UTF-8 text, or, when
 // it holds a lone surrogate, its code points. The fields are private: every reader picks text() (UTF-8 only: a
@@ -371,6 +371,119 @@ mod strmodel {
             }
         }
     }
+    // An output buffer for text that may take in a str with a lone surrogate: UTF-8 until one arrives, then
+    // code points (formatting, join, f-strings).
+    pub struct Txt {
+        s: String,
+        cps: Option<Vec<u32>>,
+    }
+    impl Txt {
+        pub fn new() -> Txt {
+            Txt { s: String::new(), cps: None }
+        }
+        #[inline]
+        pub fn push(&mut self, c: char) {
+            match &mut self.cps {
+                None => self.s.push(c),
+                Some(v) => v.push(c as u32),
+            }
+        }
+        #[inline]
+        pub fn push_str(&mut self, x: &str) {
+            match &mut self.cps {
+                None => self.s.push_str(x),
+                Some(v) => v.extend(x.chars().map(|c| c as u32)),
+            }
+        }
+        pub fn push_cp(&mut self, c: u32) {
+            match char::from_u32(c) {
+                Some(ch) => self.push(ch),
+                None => {
+                    self.to_cps().push(c);
+                }
+            }
+        }
+        fn to_cps(&mut self) -> &mut Vec<u32> {
+            if self.cps.is_none() {
+                self.cps = Some(std::mem::take(&mut self.s).chars().map(|c| c as u32).collect());
+            }
+            self.cps.as_mut().unwrap()
+        }
+        #[inline]
+        pub fn push_s(&mut self, x: &S) {
+            match &x.r {
+                Repr::Utf8(t) => self.push_str(t),
+                Repr::Lone(v) => self.to_cps().extend_from_slice(v),
+            }
+        }
+        pub fn finish(self) -> S {
+            match self.cps {
+                None => S::new(self.s),
+                Some(v) => S::from_cps(v),
+            }
+        }
+        // The text, for a buffer that must not hold a lone surrogate (a format spec); stops on one as text() does.
+        #[track_caller]
+        pub fn into_text(self) -> String {
+            self.finish().into_text()
+        }
+    }
+    // Surrogates swapped one-to-one for private-use code points (U+F0000..U+10FFFD, category Co) that none of the
+    // inputs hold. A str method whose answer depends on its characters only through equality, counts and Unicode
+    // properties that Co and Cs share (not cased, not alnum/digit/space/linebreak, not printable, mapped to itself
+    // by every case mapping, never part of an identifier) gives the same answer on the swapped text; `back`
+    // undoes the swap in what it returns. Callers must be on that list: never repr, encode, ord or translate.
+    pub struct Swap {
+        fwd: std::collections::HashMap<u32, char>,
+        back: std::collections::HashMap<char, u32>,
+    }
+    impl Swap {
+        // None if the inputs leave too few private-use code points free (they would have to hold ~130k).
+        pub fn plan(strs: &[&S], extra: &[&str]) -> Option<Swap> {
+            let mut used = std::collections::HashSet::new();
+            let mut sur = std::collections::BTreeSet::new();
+            for x in strs {
+                match &x.r {
+                    Repr::Utf8(t) => used.extend(t.chars().map(|c| c as u32).filter(|&c| c >= 0xF0000)),
+                    Repr::Lone(v) => {
+                        for &c in v.iter() {
+                            if is_surrogate(c) {
+                                sur.insert(c);
+                            } else if c >= 0xF0000 {
+                                used.insert(c);
+                            }
+                        }
+                    }
+                }
+            }
+            for t in extra {
+                used.extend(t.chars().map(|c| c as u32).filter(|&c| c >= 0xF0000));
+            }
+            let mut free = (0xF0000u32..=0xFFFFD).chain(0x100000..=0x10FFFD).filter(|c| !used.contains(c));
+            let mut sw = Swap { fwd: Default::default(), back: Default::default() };
+            for c in sur {
+                let p = char::from_u32(free.next()?).unwrap();
+                sw.fwd.insert(c, p);
+                sw.back.insert(p, c);
+            }
+            Some(sw)
+        }
+        pub fn to(&self, x: &S) -> S {
+            match &x.r {
+                Repr::Utf8(t) => S::with_ascii(t.clone(), x.ascii),
+                Repr::Lone(v) => S::new(v.iter().map(|c| char::from_u32(*c).unwrap_or_else(|| self.fwd[c])).collect()),
+            }
+        }
+        pub fn back_str(&self, t: &str) -> S {
+            if t.is_ascii() || !t.chars().any(|c| self.back.contains_key(&c)) {
+                return S::new(t.to_string());
+            }
+            S::from_cps(t.chars().map(|c| self.back.get(&c).copied().unwrap_or(c as u32)).collect())
+        }
+        pub fn back(&self, x: &S) -> S {
+            self.back_str(x.text())
+        }
+    }
 }
 // A str with a lone surrogate reached runtime code written only for UTF-8 text. CPython would go on; Brevi stops,
 // with process::exit so that no `except` (nor a generator's catch_unwind) can turn the stop into a different answer.
@@ -382,6 +495,16 @@ pub fn lone_stop(at: &std::panic::Location) -> ! {
         at.line()
     ));
     std::process::exit(1)
+}
+// A one-character str for a code point, a lone surrogate or not.
+pub fn cp1(c: u32) -> V {
+    match char::from_u32(c) {
+        Some(ch) => ch1(ch),
+        None => st_cps(vec![c]),
+    }
+}
+pub fn txt_v(t: Txt) -> V {
+    V::Str(Rc::new(t.finish()))
 }
 // A str from code points, which may hold lone surrogates.
 pub fn st_cps(v: Vec<u32>) -> V {

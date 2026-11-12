@@ -2109,7 +2109,7 @@ impl Em {
             Ex::Ellipsis => "V::Ellipsis".into(),
             Ex::FStr(parts) => {
                 let body = self.fparts(parts, line)?;
-                format!("st({{ let mut __s = String::new(); {body} __s }})")
+                format!("txt_v({{ let mut __s = Txt::new(); {body} __s }})")
             }
             Ex::List(v) => format!("list({})", self.seq(v, line)?),
             Ex::Tuple(v) => {
@@ -2381,11 +2381,11 @@ impl Em {
                     };
                     if spec.is_empty() {
                         let t = self.q(&format!("to_str(&__x)"));
-                        write!(b, "{{ let __x = {v}; if let V::Str(__y) = &__x {{ __s.push_str(__y.text()); }} else {{ __s.push_str(&{t}); }} }} ").unwrap();
+                        write!(b, "{{ let __x = {v}; if let V::Str(__y) = &__x {{ __s.push_s(__y); }} else {{ __s.push_str(&{t}); }} }} ").unwrap();
                     } else {
                         let sp = self.fparts(spec, line)?;
-                        let fs = self.q("format_spec(&__x, &__spec)");
-                        write!(b, "{{ let __x = {v}; let __spec = {{ let mut __s = String::new(); {sp} __s }}; __s.push_str(&{fs}); }} ").unwrap();
+                        let fs = self.q("fmt_s(&__x, &__spec)");
+                        write!(b, "{{ let __x = {v}; let __spec = {{ let mut __s = Txt::new(); {sp} __s.into_text() }}; __s.push_s(&{fs}); }} ").unwrap();
                     }
                 }
             }

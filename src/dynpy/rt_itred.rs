@@ -173,6 +173,7 @@ pub fn iter_reduce_v(v: &V) -> R {
             It::RevList(l, i) => Plan::Rev(V::List(l.clone()), *i as i64 - 1),
             It::Tuple(t, i) => Plan::At(tup(t.to_vec()), *i),
             // the iterator keeps a byte offset; CPython's index counts characters
+            It::Str(s, i) if s.is_lone() => Plan::At(V::Str(s.clone()), *i),
             It::Str(s, i) => Plan::At(st(s.text().to_string()), s.text()[..*i].chars().count()),
             It::Range(a, b, st) => Plan::Range(*a, *b, *st),
             It::Dict(d, i, kind, ver, n0) => Plan::Dict(d.clone(), *i, *kind, *ver, *n0),
@@ -304,6 +305,7 @@ pub fn iter_setstate_v(v: &V, st: &V) -> R {
         // silently clipped to the sequence, as CPython does
         It::List(l, i) => *i = idx.clamp(0, l.borrow().len() as i64) as usize,
         It::Tuple(t, i) => *i = idx.clamp(0, t.len() as i64) as usize,
+        It::Str(s, i) if s.is_lone() => *i = (idx.max(0) as usize).min(s.nchars()),
         It::Str(s, i) => {
             let n = idx.max(0) as usize;
             *i = s.text().char_indices().nth(n).map_or(s.text().len(), |(b, _)| b);
