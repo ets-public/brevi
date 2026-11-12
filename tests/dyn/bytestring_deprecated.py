@@ -2,6 +2,8 @@
 # not for an instance of the exact class) and when a subclass is made, at the program's line.
 import warnings
 from collections.abc import ByteString, Sequence
+
+warnings.simplefilter("ignore", DeprecationWarning)
 print(isinstance(b"", ByteString), issubclass(bytes, ByteString), isinstance([], (int, ByteString)))
 with warnings.catch_warnings(record=True) as w:
     warnings.simplefilter("always")
