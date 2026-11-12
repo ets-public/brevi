@@ -9,13 +9,13 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 590,
-"refused": 34,
+"matched": 592,
+"refused": 35,
 "by_design": 4,
 "string_model": 1,
 "cpython_private": 6,
 "wrong_output": 0,
-"wrong_exit": 3,
+"wrong_exit": 0,
 "crash_or_timeout": 0,
 "not_extractable": 0,
 "unstable": 15,
@@ -24,21 +24,21 @@
 "scored": 634,
 "matched_through_cpython": 1,
 "matched_silent": 34,
-"coverage": 0.929,
-"wrong": 3,
-"matched_asserting": 555,
-"assert_coverage": 0.8754,
+"coverage": 0.9322,
+"wrong": 0,
+"matched_asserting": 557,
+"assert_coverage": 0.8785,
 "matched_typed": 18,
-"typed_share": 0.0306
+"typed_share": 0.0305
 },
 "dyn": {
-"matched": 589,
-"refused": 35,
+"matched": 591,
+"refused": 36,
 "by_design": 4,
 "string_model": 1,
 "cpython_private": 6,
 "wrong_output": 0,
-"wrong_exit": 3,
+"wrong_exit": 0,
 "crash_or_timeout": 0,
 "not_extractable": 0,
 "unstable": 15,
@@ -47,10 +47,10 @@
 "scored": 634,
 "matched_through_cpython": 0,
 "matched_silent": 34,
-"coverage": 0.929,
-"wrong": 3,
-"matched_asserting": 555,
-"assert_coverage": 0.8754,
+"coverage": 0.9322,
+"wrong": 0,
+"matched_asserting": 557,
+"assert_coverage": 0.8785,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -59,12 +59,12 @@
 "test_itertools": {
 "normal": {
 "matched": 112,
-"refused": 7,
+"refused": 8,
 "by_design": 1,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
-"wrong_exit": 1,
+"wrong_exit": 0,
 "crash_or_timeout": 0,
 "not_extractable": 0,
 "unstable": 1,
@@ -74,7 +74,7 @@
 "matched_through_cpython": 0,
 "matched_silent": 28,
 "coverage": 0.9333,
-"wrong": 1,
+"wrong": 0,
 "matched_asserting": 84,
 "assert_coverage": 0.7,
 "matched_typed": 2,
@@ -82,12 +82,12 @@
 },
 "dyn": {
 "matched": 112,
-"refused": 7,
+"refused": 8,
 "by_design": 1,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
-"wrong_exit": 1,
+"wrong_exit": 0,
 "crash_or_timeout": 0,
 "not_extractable": 0,
 "unstable": 1,
@@ -97,7 +97,7 @@
 "matched_through_cpython": 0,
 "matched_silent": 28,
 "coverage": 0.9333,
-"wrong": 1,
+"wrong": 0,
 "matched_asserting": 84,
 "assert_coverage": 0.7,
 "matched_typed": 0,
@@ -250,13 +250,13 @@
 },
 "test_functools": {
 "normal": {
-"matched": 165,
+"matched": 167,
 "refused": 11,
 "by_design": 0,
 "string_model": 0,
 "cpython_private": 3,
 "wrong_output": 0,
-"wrong_exit": 2,
+"wrong_exit": 0,
 "crash_or_timeout": 0,
 "not_extractable": 0,
 "unstable": 2,
@@ -265,21 +265,21 @@
 "scored": 181,
 "matched_through_cpython": 0,
 "matched_silent": 3,
-"coverage": 0.9116,
-"wrong": 2,
-"matched_asserting": 162,
-"assert_coverage": 0.895,
+"coverage": 0.9227,
+"wrong": 0,
+"matched_asserting": 164,
+"assert_coverage": 0.9061,
 "matched_typed": 0,
 "typed_share": 0.0
 },
 "dyn": {
-"matched": 165,
+"matched": 167,
 "refused": 11,
 "by_design": 0,
 "string_model": 0,
 "cpython_private": 3,
 "wrong_output": 0,
-"wrong_exit": 2,
+"wrong_exit": 0,
 "crash_or_timeout": 0,
 "not_extractable": 0,
 "unstable": 2,
@@ -288,10 +288,10 @@
 "scored": 181,
 "matched_through_cpython": 0,
 "matched_silent": 3,
-"coverage": 0.9116,
-"wrong": 2,
-"matched_asserting": 162,
-"assert_coverage": 0.895,
+"coverage": 0.9227,
+"wrong": 0,
+"matched_asserting": 164,
+"assert_coverage": 0.9061,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -347,14 +347,14 @@
 },
 "paths": {
 "normal": {
-"dynamic": 575,
-"refused": 44,
+"dynamic": 574,
+"refused": 45,
 "typed": 18,
 "pybridge": 1
 },
 "dyn": {
-"dynamic": 593,
-"refused": 45
+"dynamic": 592,
+"refused": 46
 }
 },
 "tests": [
@@ -2163,14 +2163,12 @@
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: bases must be types"
+"category": "refused",
+"detail": "expected end of line, found subclass"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: bases must be types"
+"category": "refused",
+"detail": "class subclass has a base chosen at run time in a program that uses builtin iterator types as values; subclassing zip, map, filter or an itertools type is not supported in dynamic builds"
 }
 }
 },
@@ -6847,14 +6845,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: cannot pickle 'PyCapsule' object"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: cannot pickle 'PyCapsule' object"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -7449,14 +7445,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: cannot pickle 'PyCapsule' object"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: cannot pickle 'PyCapsule' object"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
