@@ -53,6 +53,8 @@ pub struct Prog {
     // a re.Scanner's combined pattern: Some(the flags it was given). CPython builds it from parsed phrases, so its
     // .pattern is None and its flags are the raw ones (no UNICODE added); see re_scanner_new.
     scan_flags: Option<i64>,
+    // the pattern object when it is a bytes subclass instance: Pattern.pattern gives it back, as in CPython
+    orig: Option<V>,
 }
 const F_I: i64 = 2;
 const F_L: i64 = 4;
@@ -93,10 +95,18 @@ fn re_error_full(msg: &str, pattern: &str, pos: usize, pat: Option<V>) -> E {
     o.set("args", tup(vec![st(full)]));
     E(V::Obj(o))
 }
+// a str, or an instance of a str subclass (its str value)
+fn is_str_like(v: &V) -> bool {
+    matches!(v, V::Str(_)) || matches!(v, V::Obj(o) if matches!(o.inner().as_ref(), Some(V::Str(_))))
+}
 fn bytes_src(v: &V) -> Option<(String, V)> {
-    let V::Ext(x) = v else { return None };
-    let b = x.any().downcast_ref::<BytesV>()?;
-    Some((b.0.iter().map(|&c| c as char).collect(), v.clone()))
+    let b = match v {
+        V::Ext(x) => x.any().downcast_ref::<BytesV>()?.0.clone(),
+        // a bytes subclass instance: its bytes, with the instance kept as the pattern
+        V::Obj(o) if o.cls.base_bt() == BT::Bytes => bytes_of(v)?,
+        _ => return None,
+    };
+    Some((b.iter().map(|&c| c as char).collect(), v.clone()))
 }
 fn re_error_bytes(msg: &str, pat: &V, pos: usize) -> E {
     let Some((decoded, pat)) = bytes_src(pat) else { return re_error(msg, "", pos) };
@@ -1433,8 +1443,12 @@ fn re_compile3(src: &str, flags: i64, pat: Option<V>, warns: &RefCell<Vec<(&'sta
         static CACHE: RefCell<HashMap<(String, i64), Rc<Prog>>> = RefCell::new(HashMap::new());
     }
     let key = if pat.is_some() { flags | BYTES_KEY } else { flags };
-    if let Some(p) = CACHE.with(|c| c.borrow().get(&(src.to_string(), key)).cloned()) {
-        return Ok(p);
+    // a subclass instance's pattern is kept on its own (uncached) program, so Pattern.pattern is that instance
+    let orig = pat.as_ref().filter(|v| matches!(v, V::Obj(_))).cloned();
+    if orig.is_none() {
+        if let Some(p) = CACHE.with(|c| c.borrow().get(&(src.to_string(), key)).cloned()) {
+            return Ok(p);
+        }
     }
     let chars: Vec<char> = src.chars().collect();
     let mut p = RP {
@@ -1494,8 +1508,11 @@ fn re_compile3(src: &str, flags: i64, pat: Option<V>, warns: &RefCell<Vec<(&'sta
         e.set("args", tup(vec![st(msg.to_string())]));
         return Err(E(V::Obj(e)));
     }
-    let prog = Rc::new(Prog { alts, ngroups: p.ngroups, names: p.names, flags: p.flags, src: src.to_string(), bytes: p.bytes, scan_flags: None });
-    CACHE.with(|c| c.borrow_mut().insert((src.to_string(), key), prog.clone()));
+    let keep = orig.is_none();
+    let prog = Rc::new(Prog { alts, ngroups: p.ngroups, names: p.names, flags: p.flags, src: src.to_string(), bytes: p.bytes, scan_flags: None, orig });
+    if keep {
+        CACHE.with(|c| c.borrow_mut().insert((src.to_string(), key), prog.clone()));
+    }
     Ok(prog)
 }
 
@@ -2118,7 +2135,9 @@ impl Ext for RPat {
             "pattern" if self.prog.scan_flags.is_some() => V::None,
             "flags" if self.prog.scan_flags.is_some() => V::Int(self.prog.scan_flags.unwrap_or(0)),
             "pattern" => {
-                if self.prog.bytes {
+                if let Some(o) = &self.prog.orig {
+                    o.clone()
+                } else if self.prog.bytes {
                     bytesv(self.prog.src.chars().map(|c| c as u8).collect())
                 } else {
                     s(&self.prog.src)
@@ -2550,13 +2569,13 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
                 if let Some(b) = bytes_of(&repl) {
                     let ts: String = b.iter().map(|&x| x as char).collect();
                     (Some(compile_template(&ts, prog, Some(&repl))?), false)
-                } else if matches!(repl, V::Str(_)) {
+                } else if is_str_like(&repl) {
                     let t = to_str(&repl)?;
                     (Some(compile_template(&t, prog, None)?), true)
                 } else {
                     return type_err(format!("decoding to str: need a bytes-like object, {} found", tn(&repl)));
                 }
-            } else if matches!(repl, V::Str(_)) {
+            } else if is_str_like(&repl) {
                 let t = to_str(&repl)?;
                 (Some(compile_template(&t, prog, None)?), false)
             } else if let Some(b) = bytes_of(&repl) {
@@ -2658,6 +2677,11 @@ fn pat_of(v: &V, flags: i64) -> Result<Rc<Prog>, E> {
             let inner = o.inner().as_ref().unwrap().clone();
             pat_of(&inner, flags)
         }
+        // a bytes subclass instance is a bytes pattern; Pattern.pattern keeps the instance, as in CPython
+        V::Obj(o) if o.cls.base_bt() == BT::Bytes => match bytes_src(v) {
+            Some((bs, pv)) => re_compile_bytes(&bs, flags, pv),
+            None => pat_type_err(v),
+        },
         _ => pat_type_err(v),
     }
 }
@@ -2743,7 +2767,7 @@ fn re_scanner_new(mut a: Args) -> R {
     }
     let run = if flags & (32 | F_A) == 0 { flags | F_A } else { flags };
     let base = re_compile(&src, run)?;
-    let prog = Rc::new(Prog { alts: base.alts.clone(), ngroups: base.ngroups, names: base.names.clone(), flags: base.flags, src: base.src.clone(), bytes: false, scan_flags: Some(flags) });
+    let prog = Rc::new(Prog { alts: base.alts.clone(), ngroups: base.ngroups, names: base.names.clone(), flags: base.flags, src: base.src.clone(), bytes: false, scan_flags: Some(flags), orig: None });
     let attrs = vec![("lexicon".to_string(), lexicon), ("scanner".to_string(), V::Ext(ExtRc::new(RPat { prog })))];
     Ok(V::Ext(ExtRc::new(RLexer { attrs: RefCell::new(attrs) })))
 }

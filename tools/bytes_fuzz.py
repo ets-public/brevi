@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Random bytes (and bytearray) method calls, run by CPython and by a dynamic build, compared line for line.
 
-  python3 tools/bytes_fuzz.py --python PY [--seeds 1-8] [--n 400] [--type bytes|bytearray|buffer] [--keep DIR]
+  python3 tools/bytes_fuzz.py --python PY [--seeds 1-8] [--n 400] [--type bytes|bytearray|buffer|bsub] [--keep DIR]
 
 Each case calls one method (or operator) on a random receiver with random arguments, mostly valid and some of the
 wrong type or out of range, and prints the repr of the result, or the exception's type and message; for bytearray
-it also prints the receiver afterwards, so mutation and aliasing are compared too. Exit 0 when every seed's output
-is the same as CPython's. Generated programs are built with BREVI_DYN=1 into a temp folder (never into the tree).
+it also prints the receiver afterwards, so mutation and aliasing are compared too. buffer runs only the mutation and
+memoryview cases; bsub makes half the receivers and bytes arguments instances of a bytes subclass. Exit 0 when every
+seed's output is the same as CPython's. Generated programs are built with BREVI_DYN=1 into a temp folder (never into
+the tree).
 """
 import argparse, os, random, re, subprocess, sys, tempfile
 from pathlib import Path
@@ -29,6 +31,8 @@ def lit(r, b, t):
     """the receiver or a bytes-like argument as source text"""
     if t == 'bytearray' and r.random() < 0.5:
         return 'bytearray(%r)' % b
+    if t == 'bsub' and r.random() < 0.5:
+        return 'B(%r)' % b
     return repr(b)
 
 
@@ -132,7 +136,7 @@ def case_ops(r, i, t):
     e = r.choice(['%s + %s' % (a, b), '%s * %s' % (a, rint(r)), '%s == %s' % (a, b), '%s < %s' % (a, b),
                   '%s >= %s' % (a, b), '%s in %s' % (b, a), '%s in %s' % (r.randint(-1, 256), a),
                   '%s[%s]' % (a, rint(r)), '%s[%s:%s:%s]' % (a, rint(r), rint(r), r.choice(['1', '-1', '2', '-3', 'None', '0'])),
-                  'list(%s)' % a, 'len(%s)' % a, 'bool(%s)' % a, 'bytes(%s)' % a, '%s(%s)' % (t, a),
+                  'list(%s)' % a, 'len(%s)' % a, 'bool(%s)' % a, 'bytes(%s)' % a, '%s(%s)' % ({'bsub': 'B'}.get(t, t), a),
                   'hash(%s) == hash(%s)' % (a, a), '%s == %r' % (a, 'x'), 'sorted([%s, %s])' % (a, b),
                   'bytes.fromhex(%r)' % r.choice(['', 'ab', 'a b', '0g', ' 01 02 ', 'abc']), "bytes.maketrans(%s, %s)[:4]" % (a, a)])
     return 'try:\n    print(%d, repr(%s))\nexcept Exception as e:\n    print(%d, type(e).__name__, e)\n' % (i, e, i)
@@ -189,7 +193,7 @@ def case_mv(r, i):
 
 def program(seed, n, t):
     r = random.Random(seed)
-    out = []
+    out = ['class B(bytes):\n    pass\n'] if t == 'bsub' else []
     for i in range(n):
         k = r.random()
         if t == 'buffer':
@@ -210,7 +214,7 @@ def main():
     ap.add_argument('--python', required=True)
     ap.add_argument('--seeds', default='1-8')
     ap.add_argument('--n', type=int, default=400)
-    ap.add_argument('--type', default='bytes', choices=['bytes', 'bytearray', 'buffer'])
+    ap.add_argument('--type', default='bytes', choices=['bytes', 'bytearray', 'buffer', 'bsub'])
     ap.add_argument('--keep', help='write each seed\'s program and outputs here')
     a = ap.parse_args()
     lo, _, hi = a.seeds.partition('-')

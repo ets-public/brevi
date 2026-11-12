@@ -10,8 +10,8 @@ same stdout and exit with the same code. `brevi run` is never used: it falls bac
   python3 tools/conformance.py --check             the ratchet: exit 1 on a wrong result or crash not in the baseline, on a
                                                    baseline line that is no longer wrong (remove it), or on fewer matches
                                                    than compat/conformance_floor.json allows (CI runs this; see below)
-  python3 tools/conformance.py --write-baseline    make the baseline the wrong results and crashes of this run, and the
-                                                   floor this run's match counts
+  python3 tools/conformance.py --write-baseline    make the baseline the wrong results and crashes of this run, and lower
+                                                   the floor to this run's match counts where they are below it
   python3 tools/conformance.py --show ID           print one test's generated script and how to reproduce it
 
 Categories: matched, refused, by_design, string_model, cpython_private, wrong_output, wrong_exit, crash_or_timeout, not_extractable, unstable,
@@ -37,7 +37,7 @@ import functools, importlib, subprocess, symtable, sys, tempfile, time, urllib.r
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-BASELINE = ROOT / "compat" / "conformance_known_wrong.txt"
+BASELINE = ROOT / "compat" / "conformance_known_wrong"  # one file per known-wrong entry (see read_baseline)
 FLOOR = ROOT / "compat" / "conformance_floor.json"  # the match counts a run may not fall below
 BY_DESIGN_FILE = ROOT / "compat" / "conformance_by_design.txt"  # reviewed: tests refused on purpose, shared by both slices
 # The refusal that makes a test by-design: the dynamic build's own reason (the normal build's names the typed path it
@@ -65,7 +65,7 @@ SCOPE = ["test_grammar", "test_scope", "test_int", "test_list", "test_dict"]
 SLICES = {
     "core": (SCOPE, BASELINE, FLOOR),
     "stdlib": (["test_itertools", "test_collections", "test_re", "test_textwrap", "test_functools", "test_string"],
-               ROOT / "compat" / "conformance_stdlib_known_wrong.txt", ROOT / "compat" / "conformance_stdlib_floor.json"),
+               ROOT / "compat" / "conformance_stdlib_known_wrong", ROOT / "compat" / "conformance_stdlib_floor.json"),
 }
 # Module name -> (path under Lib/, SHA-256). The helpers are only read for the definitions tests use.
 SOURCES = {
@@ -1540,17 +1540,26 @@ def read_floor():
 META_KEYS = ("issue", "owner", "expires")
 
 
+def entry_name(key):
+    """`test-id mode` -> its file name in the known-wrong folder: `test-id.mode`."""
+    tid, mode = key.split()
+    return f"{tid}.{mode}"
+
+
 def read_baseline():
-    """`test-id mode` -> its metadata ({issue, owner, expires}); every key must be filled in (see check_meta)."""
-    if not BASELINE.exists():
+    """`test-id mode` -> its metadata ({issue, owner, expires}); every key must be filled in (see check_meta).
+
+    One file per entry, named `test-id.mode` and holding `issue=#N owner=LOGIN expires=YYYY-MM-DD`, so two PRs that
+    add or remove different entries never touch the same file and never conflict (a single list conflicted whenever
+    two PRs changed neighbouring lines)."""
+    if not BASELINE.is_dir():
         return {}
     out = {}
-    for ln in BASELINE.read_text().splitlines():
-        parts = ln.split()
-        if not parts or ln.startswith("#"):
+    for f in sorted(BASELINE.iterdir()):
+        if f.name == "README.md" or f.name.startswith("."):
             continue
-        meta = dict(w.split("=", 1) for w in parts[2:] if "=" in w)
-        out[" ".join(parts[:2])] = meta
+        tid, _, mode = f.name.rpartition(".")
+        out[f"{tid} {mode}"] = dict(w.split("=", 1) for w in f.read_text().split() if "=" in w)
     return out
 
 
@@ -1568,15 +1577,19 @@ def check_meta(known, today):
     return bad
 
 
-def baseline_text(lines, known):
-    head = ("# Known wrong results and crashes of tools/conformance.py: `test-id mode issue=#N owner=LOGIN expires=YYYY-MM-DD`.\n"
-            "# `--check` fails on a wrong result not here, on a line here that is no longer wrong (so this list only shrinks),\n"
-            "# and on a line without a tracking issue, an owner and an expiry date, or past its expiry. `--write-baseline`\n"
-            "# keeps the metadata of lines already here and writes new ones with `?`, which --check refuses until filled in.\n")
-    def meta(k):
+def write_baseline(lines, known):
+    """Makes the known-wrong folder hold exactly `lines`, keeping the metadata of entries already there; a new entry
+    gets `?` values, which --check refuses until they are filled in."""
+    BASELINE.mkdir(parents=True, exist_ok=True)
+    want = {entry_name(k): k for k in lines}
+    for f in BASELINE.iterdir():
+        if f.name != "README.md" and not f.name.startswith(".") and f.name not in want:
+            f.unlink()
+    for name, k in want.items():
         m = known.get(k, {})
-        return " ".join(f"{key}={m.get(key) or '?'}" for key in META_KEYS)
-    return head + "".join(f"{w} {meta(w)}\n" for w in sorted(lines))
+        text = " ".join(f"{key}={m.get(key) or '?'}" for key in META_KEYS) + "\n"
+        if not (BASELINE / name).exists() or (BASELINE / name).read_text() != text:
+            (BASELINE / name).write_text(text)
 
 
 def public_rows(results):
@@ -1719,8 +1732,9 @@ def main():
     ap.add_argument("--python", help=f"the CPython {PYTHON_VERSION} to compare with (default: python3.13 on PATH)")
     ap.add_argument("--out", type=Path, help="folder for report.json and report.md (default: the cache)")
     ap.add_argument("--check", action="store_true", help="exit 1 on a wrong result not in the baseline")
+    ap.add_argument("--raise-floor", action="store_true", help="with --check: when the ratchet holds, raise the slice's floor to this run's matches (main only)")
     ap.add_argument("--release-gate", action="store_true", help="exit 1 below the slice's release_gate (absolute coverage, zero wrong)")
-    ap.add_argument("--write-baseline", action="store_true", help="replace the slice's known-wrong list and floor with this run's results")
+    ap.add_argument("--write-baseline", action="store_true", help="replace the slice's known-wrong list with this run's results; the floor only goes down (main raises it)")
     ap.add_argument("--show", metavar="ID", help="print one test's generated script and stop")
     cfg = ap.parse_args()
     global BASELINE, FLOOR, SCOPE
@@ -1794,8 +1808,12 @@ def main():
     bad = set(bad_ids(results))
     matched = {m: rep["totals"][m]["matched"] for m in ("normal", "dyn")}
     if cfg.write_baseline:
-        BASELINE.write_text(baseline_text(bad, read_baseline()))
-        FLOOR.write_text(json.dumps({**read_floor(), "matched": matched}, indent=1) + "\n")
+        write_baseline(bad, read_baseline())
+        # Only ever lowers the floor (a regression accepted on purpose): main raises it after each merge (--raise-floor),
+        # so a PR that edits it conflicts with every other open PR.
+        old = read_floor().get("matched", {})
+        low = {m: min(n, old.get(m, n)) for m, n in matched.items()}
+        FLOOR.write_text(json.dumps({**read_floor(), "matched": low}, indent=1) + "\n")
     if cfg.check:
         # The ratchet: the score only goes up, and the list of known-wrong results only shrinks.
         known, floor, failed = read_baseline(), read_floor().get("matched", {}), False
@@ -1838,7 +1856,8 @@ def main():
             print(f"{len(new)} NEW wrong results or crashes (fix them, or read each and add it with --write-baseline):\n  " + "\n  ".join(new))
             failed = True
         if gone:
-            print(f"{len(gone)} baseline lines are no longer wrong; remove them from {BASELINE.relative_to(ROOT)}:\n  " + "\n  ".join(gone))
+            print(f"{len(gone)} known-wrong entries are no longer wrong; delete their files from {BASELINE.relative_to(ROOT)}/:\n  "
+                  + "\n  ".join(f"{g}  ({entry_name(g)})" for g in gone))
             failed = True
         if not cfg.filter and cfg.files == ",".join(SCOPE):
             for m, n in matched.items():
@@ -1846,10 +1865,17 @@ def main():
                     print(f"{m} build: {n} tests match, below the floor of {floor[m]}; find the regression (or lower the floor on purpose)")
                     failed = True
                 elif m in floor and n > floor[m]:
-                    print(f"{m} build: {n} tests match, above the floor of {floor[m]}; raise it with --write-baseline")
+                    print(f"{m} build: {n} tests match, above the floor of {floor[m]}; main raises the floor after the merge (leave the floor file alone)")
         if failed:
             sys.exit(1)
         print(f"ratchet holds: no new wrong results ({len(bad)} known), matches {matched}")
+        if cfg.raise_floor and not cfg.filter and cfg.files == ",".join(SCOPE):
+            # Only main does this (.github/workflows/conformance-main.yml), after the ratchet held on the merged tree,
+            # so PRs never edit the floors and never conflict on them.
+            up = {m: max(n, floor.get(m, 0)) for m, n in matched.items()}
+            if up != floor:
+                FLOOR.write_text(json.dumps({**read_floor(), "matched": up}, indent=1) + "\n")
+                print(f"floor raised to {up} in {FLOOR.relative_to(ROOT)}")
     if cfg.release_gate:
         # The release bar: an absolute coverage floor and no known-wrong result at all (release_gate in the floor file).
         gate, n, problems = read_floor().get("release_gate", {}), rep["totals"]["normal"], []
