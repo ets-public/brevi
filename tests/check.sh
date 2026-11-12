@@ -996,4 +996,34 @@ if [ -n "$t3bad" ]; then
   echo "FAIL the same file built at once:$t3bad"; for o in "$t3"/*.out "$t3"/*.err; do echo "== $o"; cat "$o"; done; fail=1
 else echo "ok   the same file built at once"; fi
 rm -rf "$t3"
+# A cached program is marked as used (the cache evicts the least recently used) without a handle open for
+# writing: builds hard link it into place, and such a handle, however brief, makes any process starting one of
+# its links fail with "Text file busy" (ETXTBSY, os error 26), as random tests did at 32 parallel jobs. While a
+# link of it runs, a write handle cannot even be opened, so the mark must still land then.
+t4=$(mktemp -d)
+tag=$(( $$ * 1000 + $(date +%s) % 1000 ))
+printf 'import sys\nprint(len(sys.stdin.read()) + %s)\n' "$tag" > "$t4/a.py"
+cp "$t4/a.py" "$t4/b.py"; cp "$t4/a.py" "$t4/c.py"
+t4bad=""
+# a.py builds it; c.py, the same program, takes it from the binary cache: x1 is then a link of the cached binary
+for f in a c; do
+  BREVI_CACHE="$t4/cache" $BREVI build --native "$t4/$f.py" -o "$t4/x1" > "$t4/build-$f" 2>&1 || t4bad=" the build of $f.py failed"
+done
+t4c=$(find "$t4/cache" -samefile "$t4/x1" -path '*/bin/*' 2>/dev/null | head -1)
+[ -n "$t4bad" ] || [ -n "$t4c" ] || t4bad=" no cached binary is linked to the build"
+if [ -z "$t4bad" ]; then
+  mkfifo "$t4/in"
+  "$t4/x1" < "$t4/in" > "$t4/x1.out" &
+  exec 9<> "$t4/in"  # read-write: never blocks, even if x1 failed to start
+  touch -d '2001-01-01' "$t4/ref"; touch -d '2000-01-01' "$t4c"
+  # b.py: the same program at another path, so the result cache misses and the binary cache answers
+  BREVI_CACHE="$t4/cache" $BREVI build --native "$t4/b.py" -o "$t4/x2" > "$t4/build2" 2>&1 || t4bad=" second build failed"
+  [ "$t4c" -nt "$t4/ref" ] || t4bad="$t4bad (the cached binary was not marked as used while it ran)"
+  echo ab >&9; exec 9>&-; wait
+  [ "$(cat "$t4/x1.out")" = "$((tag + 3))" ] || t4bad="$t4bad (the running program printed $(cat "$t4/x1.out"))"
+fi
+if [ -n "$t4bad" ]; then
+  echo "FAIL the build cache marks a running program as used:$t4bad"; cat "$t4"/build* 2>/dev/null; fail=1
+else echo "ok   the build cache marks a running program as used"; fi
+rm -rf "$t4"
 exit $fail

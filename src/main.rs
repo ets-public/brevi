@@ -1859,6 +1859,9 @@ fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &
                 println!("{{\"e\":\"io\",\"msg\":\"cargo built no program\"}}");
                 return None;
             };
+            // A fresh file, never a write into the old one: `out` may be a hard link to a cached program (copy_bin)
+            // that another process is running.
+            std::fs::remove_file(out).ok();
             if std::fs::copy(&e, out).is_err() {
                 println!("{{\"e\":\"io\",\"msg\":\"cannot write {}\"}}", esc(&out.to_string_lossy()));
                 return None;
@@ -2240,8 +2243,23 @@ pub(crate) fn copy_bin(from: &Path, to: &Path) -> bool {
     std::fs::copy(from, &tmp).is_ok() && std::fs::rename(&tmp, to).is_ok()
 }
 
+// Marks a cache entry as just used (the cache evicts the least recently used). Its time is set through a
+// read-only handle: a cached program is hard linked into place (copy_bin), so a handle open for writing, however
+// briefly, makes every other process that runs one of its links at that moment fail with ETXTBSY ("Text file
+// busy", os error 26). 32 parallel test jobs hit that (tests/check_txtbsy.sh).
 pub(crate) fn touch(p: &Path) {
-    if let Ok(f) = std::fs::File::options().append(true).open(p) {
+    // futimens needs the file's owner, not a writable handle.
+    #[cfg(unix)]
+    let f = std::fs::File::open(p);
+    // Windows: only the right to change attributes (FILE_WRITE_ATTRIBUTES), never to write data.
+    #[cfg(windows)]
+    let f = {
+        use std::os::windows::fs::OpenOptionsExt;
+        std::fs::File::options().access_mode(0x100).open(p)
+    };
+    #[cfg(not(any(unix, windows)))]
+    let f = std::fs::File::options().append(true).open(p);
+    if let Ok(f) = f {
         f.set_modified(std::time::SystemTime::now()).ok();
     }
 }
