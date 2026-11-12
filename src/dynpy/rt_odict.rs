@@ -104,6 +104,18 @@ pub fn odict_copy(d: &Rc<RefCell<Dict>>) -> R {
     }
     Ok(V::Dict(Rc::new(RefCell::new(n))))
 }
+// od.copy() of an OrderedDict subclass instance (CPython's odict_copy): type(od)(), then copy[k] = od[k] for each
+// key in order, through the subclass's own __getitem__ and __setitem__
+pub fn odict_obj_copy(o: &V, cls: &V) -> R {
+    let d = odict_of(o).expect("odict_obj_copy on an OrderedDict");
+    let n = call(cls, Args::p(vec![]))?;
+    let keys = d.borrow().keys();
+    for k in keys {
+        let x = getitem(o, &k)?;
+        setitem(&n, &k, x)?;
+    }
+    Ok(n)
+}
 // a | b where either side is an OrderedDict (CPython's odict_or): type(the OrderedDict side)(a), updated with b;
 // None when the other side is not a dict, so the caller's TypeError follows
 pub fn odict_or(a: &V, b: &V) -> Option<R> {

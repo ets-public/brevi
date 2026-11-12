@@ -605,6 +605,10 @@ pub fn to_str(v: &V) -> Result<String, E> {
                     }
                 }
             }
+            // OrderedDict has no __str__: str of a subclass is its repr, which names the subclass (`Sub({...})`)
+            if o.cls.lookup("__str__").is_none() && matches!(inner_of(v), Some(V::Dict(d)) if d.borrow().kind == 3) {
+                return repr(v);
+            }
             if let Some(f) = o.cls.lookup("__str__") {
                 return match call(&f, Args::p(vec![v.clone()]))? {
                     V::Str(s) => Ok(s.text().to_string()),

@@ -2202,6 +2202,9 @@ pub fn call_method(o: &V, name: &str, mut a: Args) -> R {
             // A dict subclass's copy() returns the subclass (a Counter's too). The class defines no copy of its
             // own here; the wrapped builtin value is copied into a new instance of the same class.
             if name == "copy" && ob.cls.own(name).is_none() {
+                if odict_of(o).is_some() {
+                    return odict_obj_copy(o, &V::Class(ob.cls.clone()));
+                }
                 if let Some(V::Dict(d)) = inner_of(o) {
                     let inner = V::Dict(Rc::new(RefCell::new(d.borrow().copy())));
                     let no = Obj::new(ob.cls.clone());

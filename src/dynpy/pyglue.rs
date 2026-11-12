@@ -27,6 +27,9 @@ static PYD_BRIT: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::ato
 // back as the program's own (pickle.loads of a pickled pattern)
 static PYD_REPAT: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_BRRED: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+// CPython's collections.OrderedDict type, once a program's OrderedDict has gone into Python: objects of exactly that
+// type come back as the program's OrderedDict (pickle.loads of a pickled one), in their order, not as a plain dict
+static PYD_ODICT: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_MAIN: std::sync::OnceLock<std::thread::ThreadId> = std::sync::OnceLock::new();
 const PYD_CAP: &std::ffi::CStr = c"brevi.dyn.callable";
 
@@ -751,6 +754,42 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
         }
         return done(me);
     }
+    // CPython's OrderedDict (exactly that type): the program's OrderedDict, its keys in the OrderedDict's own order
+    // (iter(od), not the dict table, which move_to_end does not reorder), each value through od[key]
+    if deep && t == PYD_ODICT.load(std::sync::atomic::Ordering::Relaxed) {
+        let mut n = Dict::new();
+        n.kind = 3;
+        let cell = Rc::new(RefCell::new(n));
+        let me = V::Dict(cell.clone());
+        from_memo_put(p, &me);
+        let r = (|| -> Result<(), E> {
+            let it = pyd_own((a.GetIter)(p))?;
+            loop {
+                let k = (a.IterNext)(it);
+                if k.is_null() {
+                    break;
+                }
+                let x = (a.GetItem)(p, k);
+                if x.is_null() {
+                    (a.DecRef)(k);
+                    (a.DecRef)(it);
+                    return Err(pyd_err());
+                }
+                let r = pyd_wrap(k, true).and_then(|kk| pyd_wrap(x, true).map(|xx| (kk, xx)));
+                if let Err(e) = r.and_then(|(kk, xx)| cell.borrow_mut().set(kk, xx)) {
+                    (a.DecRef)(it);
+                    return Err(e);
+                }
+            }
+            (a.DecRef)(it);
+            if !(a.ErrOccurred)().is_null() {
+                return Err(pyd_err());
+            }
+            Ok(())
+        })();
+        (a.DecRef)(p);
+        return r.map(|_| me);
+    }
     if deep && t == a.TDict {
         let cell = Rc::new(RefCell::new(Dict::new()));
         let me = V::Dict(cell.clone());
@@ -1460,6 +1499,40 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
                         (a.DecRef)(p);
                         return Err(e);
                     }
+                }
+            }
+            p
+        }
+        // an OrderedDict goes in as CPython's OrderedDict, filled through its __setitem__ (PyDict_SetItem would leave
+        // its linked list out of step with the table)
+        V::Dict(d) if d.borrow().kind == 3 => {
+            let items = d.borrow().items();
+            let p = pyd_mod_call("collections", "OrderedDict", &[])?;
+            to_memo_put(v, p);
+            let t = (a.Type)(p);
+            (a.DecRef)(t);
+            PYD_ODICT.store(t, std::sync::atomic::Ordering::Relaxed);
+            for (k, x) in items {
+                let r = pyd_to(&k).and_then(|kk| match pyd_to(&x) {
+                    Ok(xx) => Ok((kk, xx)),
+                    Err(e) => {
+                        (a.DecRef)(kk);
+                        Err(e)
+                    }
+                });
+                let (kk, xx) = match r {
+                    Ok(t) => t,
+                    Err(e) => {
+                        (a.DecRef)(p);
+                        return Err(e);
+                    }
+                };
+                let bad = (a.SetItem)(p, kk, xx) < 0;
+                (a.DecRef)(kk);
+                (a.DecRef)(xx);
+                if bad {
+                    (a.DecRef)(p);
+                    return Err(pyd_err());
                 }
             }
             p

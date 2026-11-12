@@ -293,6 +293,12 @@ EXCLUDED_CLASSES = {
     "PyLongModuleTests": "tests _pylong, a private CPython module",
     "CAPITest": "tests the C API",
 }
+# (file, method): tests of one CPython C implementation detail, excluded wherever the method is (C and subclass classes)
+_ODICT_DICT_METHODS = ("dict's own method called on an OrderedDict: tests that CPython's C OrderedDict survives its "
+                       "linked list going out of step with the dict table (Brevi refuses the call with a clear error)")
+EXCLUDED_TESTS = {("test_ordered_dict", m): _ODICT_DICT_METHODS for m in (
+    "test_dict_setitem", "test_dict_delitem", "test_dict_clear", "test_dict_pop", "test_dict_popitem",
+    "test_dict_setdefault", "test_dict_update")}
 EXCLUDED_SOURCE = [
     (r"\b_test(capi|internalcapi|limitedcapi)\b", "tests the C API"),
     (r"\bsys\.getrefcount\b|\bcheck_free_after_iterating\b", "depends on reference counts"),
@@ -789,6 +795,8 @@ class Universe:
         cls = next(n for n in mod.tree.body if isinstance(n, ast.ClassDef) and n.name == cls_name)
         if cls_name in EXCLUDED_CLASSES:
             raise Excluded(EXCLUDED_CLASSES[cls_name])
+        if (name, method) in EXCLUDED_TESTS:
+            raise Excluded(EXCLUDED_TESTS[(name, method)])
         chain = self.chain(mod, cls)
         # `class TestLRUPy(TestLRU, unittest.TestCase): module = py_functools`: the same tests against the pure-Python
         # copy. Brevi has one copy of the module, which its C-copy twin already scores.
