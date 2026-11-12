@@ -2489,11 +2489,59 @@ pub fn shallow_copy(x: &V) -> R {
             });
             V::Obj(n)
         }
-        V::Iter(_) => match tee_copy_iter(x) {
-            Some(v) => v,
-            None => x.clone(),
-        },
+        V::Iter(_) => return iter_copy(x, None),
         _ => x.clone(),
+    })
+}
+// copy.copy / copy.deepcopy of an iterator (memo given: deep), as CPython's go through __reduce__: a new
+// iterator at the same place, over the same sequence (a shallow copy) or a deep copy of it. A tee copies as its
+// __copy__ does; a generator is CPython's TypeError. Others (map, zip, itertools, dict and set iterators) are
+// refused: CPython rebuilds each its own way, and handing back the same iterator would share its state.
+fn iter_copy(x: &V, memo: Option<&mut Vec<(usize, V)>>) -> R {
+    if let Some(v) = tee_copy_iter(x) {
+        return Ok(v);
+    }
+    let V::Iter(cell) = x else { return Ok(x.clone()) };
+    let kind = match &cell.kind {
+        IterClass::Kind(k) => IterClass::Kind(*k),
+        IterClass::Class(c) => IterClass::Class(c.clone()),
+    };
+    let Ok(it) = cell.it.try_borrow() else {
+        return Err(exc("ValueError", "iterator already executing".into()));
+    };
+    let list = |l: &Rc<RefCell<Vec<V>>>, memo: Option<&mut Vec<(usize, V)>>| -> Result<Rc<RefCell<Vec<V>>>, E> {
+        Ok(match memo {
+            None => l.clone(),
+            Some(m) => match deepcopy(&V::List(l.clone()), m)? {
+                V::List(nl) => nl,
+                _ => unreachable!(),
+            },
+        })
+    };
+    Ok(match &*it {
+        It::List(l, i) => new_iter(It::List(list(l, memo)?, *i), kind),
+        It::RevList(l, i) => new_iter(It::RevList(list(l, memo)?, *i), kind),
+        It::Tuple(t, i) => {
+            let t = match memo {
+                None => t.clone(),
+                Some(m) => {
+                    let mut v = vec![];
+                    for y in t.iter() {
+                        v.push(deepcopy(y, m)?);
+                    }
+                    match tup(v) {
+                        V::Tuple(nt) => nt,
+                        _ => unreachable!(),
+                    }
+                }
+            };
+            new_iter(It::Tuple(t, *i), kind)
+        }
+        It::Str(s, i) => new_iter(It::Str(s.clone(), *i), kind),
+        It::Range(a, b, st) => new_iter(It::Range(*a, *b, *st), kind),
+        It::Done => new_iter(It::Done, kind),
+        It::Coro(_) | It::GenExp(..) => return Err(exc("TypeError", "cannot pickle 'generator' object".into())),
+        _ => return Err(unsupported(&format!("copying a '{}' iterator", tn(x)))),
     })
 }
 fn ptr_of(x: &V) -> Option<usize> {
@@ -2605,10 +2653,7 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
             }
             V::Obj(n)
         }
-        V::Iter(_) => match tee_copy_iter(x) {
-            Some(v) => v,
-            None => x.clone(),
-        },
+        V::Iter(_) => return iter_copy(x, Some(memo)),
         _ => x.clone(),
     })
 }

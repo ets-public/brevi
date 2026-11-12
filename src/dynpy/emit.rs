@@ -2136,6 +2136,15 @@ impl Em {
             }
             Ex::Star(_) => return Err(err(line, "starred expression here is not supported")),
             Ex::Attr(o, n) => {
+                if n == "ByteString" && self.bridge.srcs.contains_key(&self.module) {
+                    let m = match o.as_ref() {
+                        Ex::Attr(c, a) if a == "abc" && matches!(c.as_ref(), Ex::Name(x) if x == "collections") => Some("collections.abc".to_string()),
+                        _ => self.static_module(o).filter(|m| m == "collections.abc" || m == "typing"),
+                    };
+                    if let Some(m) = m {
+                        return Err(err(line, &format!("{m}.ByteString is not supported in dynamic builds")));
+                    }
+                }
                 if let Some(m) = self.static_module(o) {
                     if m == "collections" && n == "abc" && self.user_modules.iter().any(|u| u == "collections.abc") {
                         let init = self.q(&format!("init_{}()", rust_ident("collections.abc")));
@@ -3477,6 +3486,11 @@ impl Em {
                 let mut b = String::new();
                 if m == "__future__" {
                     return Ok(b);
+                }
+                // ByteString warns on isinstance() and subclassing through its own metaclass in CPython 3.13,
+                // which the dynamic build has no counterpart for: refused rather than silent
+                if (m == "collections.abc" || m == "typing") && names.iter().any(|(n, _)| n == "ByteString") && self.bridge.srcs.contains_key(&self.module) {
+                    return Err(err(line, &format!("{m}.ByteString is not supported in dynamic builds")));
                 }
                 let user = self.user_modules.contains(m);
                 // Brevi's own `collections` module reads the native classes through its own name
