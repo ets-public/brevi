@@ -157,55 +157,14 @@ pub fn err_text(x: &S) -> std::borrow::Cow<'_, str> {
     let b = str_encode(x, None, Some(&s("backslashreplace"))).ok().and_then(|b| bytes_of(&b)).unwrap_or_default();
     std::borrow::Cow::Owned(String::from_utf8(b).unwrap_or_default())
 }
-// The error handler python3's stdout would encode with, when Brevi can name it: CPython's stdout is UTF-8 with
-// 'surrogateescape' under the C/POSIX locale, the coerced C.UTF-8 one or UTF-8 mode, 'strict' under another
-// UTF-8 locale. None (a lone surrogate then stops) for what Brevi does not model: Windows (the ANSI code page),
-// PYTHONIOENCODING, a locale whose codeset is not UTF-8.
+// The error handler python3's stdout would encode with, when Brevi can name it (None: a lone surrogate at stdout
+// stops). Naming it reads the environment (the locale, PYTHONUTF8, PYTHONIOENCODING), which the runtime never does
+// itself (caps.rs tests it, for --sandbox): outside the sandbox dynpy::to_rust sets the reader (STDOUT_ERRS_FN in
+// mod.rs); under it the hook stays unset and the program stops instead of guessing.
+pub static STDOUT_ERRS: std::sync::OnceLock<fn() -> Option<&'static str>> = std::sync::OnceLock::new();
 fn stdout_errors() -> Option<&'static str> {
     static ERRS: std::sync::OnceLock<Option<&'static str>> = std::sync::OnceLock::new();
-    *ERRS.get_or_init(|| {
-        if cfg!(windows) || std::env::var_os("PYTHONIOENCODING").is_some_and(|v| !v.is_empty()) {
-            return None;
-        }
-        if std::env::var("PYTHONUTF8").is_ok_and(|v| v == "1") {
-            return Some("surrogateescape");
-        }
-        let name = ctype_locale()?;
-        let up = name.to_ascii_uppercase().replace('-', "");
-        if name == "C" || name == "POSIX" || up == "C.UTF8" || up == "UTF8" {
-            Some("surrogateescape")
-        } else if up.ends_with(".UTF8") || up.contains(".UTF8@") {
-            Some("strict")
-        } else {
-            None
-        }
-    })
-}
-// The LC_CTYPE locale the environment selects (setlocale(LC_CTYPE, "") as python3 does at startup; restored after).
-#[cfg(unix)]
-fn ctype_locale() -> Option<String> {
-    use std::ffi::{c_char, c_int, CStr};
-    extern "C" {
-        fn setlocale(cat: c_int, loc: *const c_char) -> *mut c_char;
-    }
-    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))]
-    const LC_CTYPE: c_int = 2;
-    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd")))]
-    const LC_CTYPE: c_int = 0;
-    unsafe {
-        let old = setlocale(LC_CTYPE, std::ptr::null());
-        let old = (!old.is_null()).then(|| CStr::from_ptr(old).to_owned());
-        let p = setlocale(LC_CTYPE, b"\0".as_ptr() as *const c_char);
-        let name = (!p.is_null()).then(|| CStr::from_ptr(p).to_string_lossy().into_owned());
-        if let Some(o) = &old {
-            setlocale(LC_CTYPE, o.as_ptr());
-        }
-        Some(name.unwrap_or_else(|| "C".into()))
-    }
-}
-#[cfg(not(unix))]
-fn ctype_locale() -> Option<String> {
-    None
+    *ERRS.get_or_init(|| STDOUT_ERRS.get().and_then(|f| f()))
 }
 // print/sys.stdout.write of a str with a lone surrogate: python3's stdout encodes it (stdout_errors) and raises
 // UnicodeEncodeError if it cannot; Ok(bytes) are written as they are (surrogateescape gives back raw bytes).
