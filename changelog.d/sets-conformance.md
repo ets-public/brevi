@@ -1,0 +1,7 @@
+- Sets no longer crash with "RefCell already borrowed" when a key's `__eq__` changes the set during a lookup, update or in-place operator: the lookup lets go of the set while user code runs and starts over if the set changed, as CPython's does.
+- An exception raised by a key's `__eq__` inside a set operation is now passed on instead of being read as "not equal" (which gave wrong results such as a KeyError from `remove`).
+- `x in s`, `s.remove(x)` and `s.discard(x)` accept a set `x` and look it up as a frozenset; `set()`/`frozenset()` refuse keywords and a second argument; `set.__init__` works.
+- `id()` gives every heap value (sets, functions, classes, iterators, ...) its own identity instead of 1.
+- frozenset subclasses work; int, float, str, bytes, tuple and frozenset subclasses with their own `__init__` keep the value they were built from; set and frozenset subclasses repr with their class name, and a set inside its own repr prints `set(...)`.
+- frozenset hashes are cached (nested frozensets no longer rehash exponentially); `set(dict)`, `set.update(dict)` and `dict.fromkeys(set)` reuse stored hashes; a class attribute holding `dict.fromkeys` no longer binds; set iterators have `__length_hint__`; `copy.deepcopy` of a frozenset copies its items.
+- CPython's test_set joins the scored core conformance slice (0 wrong; 94.4% of its scored tests match).
