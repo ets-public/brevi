@@ -1,0 +1,441 @@
+{
+ "_doc": "Candidate files for widening conformance (tools/conformance.py --candidates). Measuring only: never scored, never a gate, never published.",
+ "imports": [
+  "argparse",
+  "base64",
+  "binascii",
+  "calendar",
+  "colorsys",
+  "copyreg",
+  "csv",
+  "datetime",
+  "difflib",
+  "fnmatch",
+  "graphlib",
+  "ipaddress",
+  "keyword",
+  "pprint",
+  "reprlib",
+  "secrets",
+  "shlex",
+  "statistics",
+  "zlib"
+ ],
+ "slices": {
+  "core": [
+   "test_bool",
+   "test_tuple",
+   "test_set",
+   "test_bytes",
+   "test_class",
+   "test_exceptions",
+   "test_exception_group",
+   "test_baseexception",
+   "test_except_star",
+   "test_generators",
+   "test_coroutines",
+   "test_with",
+   "test_raise",
+   "test_augassign",
+   "test_binop",
+   "test_compare",
+   "test_contains",
+   "test_range",
+   "test_slice",
+   "test_iter",
+   "test_builtin",
+   "test_format",
+   "test_fstring",
+   "test_keywordonlyarg",
+   "test_property",
+   "test_sort",
+   "test_patma",
+   "test_named_expressions",
+   "test_long",
+   "test_float",
+   "test_unary",
+   "test_listcomps",
+   "test_dictcomps",
+   "test_dictviews",
+   "test_opcodes",
+   "test_pow",
+   "test_print",
+   "test_index",
+   "test_isinstance",
+   "test_richcmp",
+   "test_decorators",
+   "test_type_params",
+   "test_typechecks",
+   "test_types",
+   "test_userlist",
+   "test_userdict",
+   "test_memoryview",
+   "test_descr"
+  ],
+  "stdlib": [
+   "test_dataclasses",
+   "test_enum",
+   "test_copy",
+   "test_copyreg",
+   "test_contextlib",
+   "test_deque",
+   "test_defaultdict",
+   "test_ordered_dict",
+   "test_operator",
+   "test_math",
+   "test_fractions",
+   "test_bisect",
+   "test_random",
+   "test_struct",
+   "test_weakref",
+   "test_zlib",
+   "test_unicodedata",
+   "test_statistics",
+   "test_numeric_tower",
+   "test_base64",
+   "test_binascii",
+   "test_calendar",
+   "test_colorsys",
+   "test_csv",
+   "test_difflib",
+   "test_fnmatch",
+   "test_graphlib",
+   "test_ipaddress",
+   "test_keyword",
+   "test_pprint",
+   "test_reprlib",
+   "test_secrets",
+   "test_shlex"
+  ]
+ },
+ "sources": {
+  "test.test_bool": [
+   "test/test_bool.py",
+   "1e7bf7a01da6f4a5f282e4806458e296fb8402ee1bdaa5773937e7cf6fafc61d"
+  ],
+  "test.test_tuple": [
+   "test/test_tuple.py",
+   "de89ebf6387fc48e8ffeb4d36cd9d67711c4bd8615f7250b514078f508f2df45"
+  ],
+  "test.test_set": [
+   "test/test_set.py",
+   "05f3ed822ab460c2efa96898cca6d9df4a2eac1833664c579450600eb2ddcd22"
+  ],
+  "test.test_bytes": [
+   "test/test_bytes.py",
+   "229945bddc3ce722cbf32205ceb3897acbb114d97076d160d6f913f2aa20a223"
+  ],
+  "test.test_class": [
+   "test/test_class.py",
+   "d12c6606b4fde917e838f29a15c9a558035f766e36dab9b9ff9592ab0716e2a0"
+  ],
+  "test.test_exceptions": [
+   "test/test_exceptions.py",
+   "70decd7fb2b95b5d4e1ce6e7dd8958edc1af46c9a0c127e6b1f94163bfd7810b"
+  ],
+  "test.test_exception_group": [
+   "test/test_exception_group.py",
+   "ee7bdc7c73396556ac48c41e4a652d67699b0889565d1589e065b5f9aea5055e"
+  ],
+  "test.test_baseexception": [
+   "test/test_baseexception.py",
+   "5ce4e8fb629320a28a2a1125e3851bc45fd2dc4dcbbb487d064fb43bcebc7815"
+  ],
+  "test.test_except_star": [
+   "test/test_except_star.py",
+   "7740cc0c3721ae7edc3492d8c71460bc3a81bd50924be2f969cb43b7ebe0f7dc"
+  ],
+  "test.test_generators": [
+   "test/test_generators.py",
+   "1fedd755454c18a3f1562e29294658b7c69fa9a7443f042da260373e38d53e66"
+  ],
+  "test.test_coroutines": [
+   "test/test_coroutines.py",
+   "161fbe91f6a7c92cdc887a4c824e6c76b33eb7bae449e58203c6ef98960279e5"
+  ],
+  "test.test_with": [
+   "test/test_with.py",
+   "dbcf093c3ed4e5be77fd6f345c178d545b7cd741f73dcac2a55cf97596e84b7f"
+  ],
+  "test.test_raise": [
+   "test/test_raise.py",
+   "ff1037ebdfb6b1f8900041bbb4b39d26441ed25b13783368169cda6e57bc8647"
+  ],
+  "test.test_augassign": [
+   "test/test_augassign.py",
+   "fa336b354cb98b5e290f71d9565cc0c1fc26d603450c9b96a2ee2a927ff99ea6"
+  ],
+  "test.test_binop": [
+   "test/test_binop.py",
+   "85af7379285b3787d61be4926d38fa188d7a7f11413398fd6364886208f4fd3f"
+  ],
+  "test.test_compare": [
+   "test/test_compare.py",
+   "2e20846df813bba0eef6a62f47ba0d4a10d40e0feb76cd8a63118567464d165a"
+  ],
+  "test.test_contains": [
+   "test/test_contains.py",
+   "34916d854f7f04c3189cd7d8e04177bca3c55bf1acdccf88beac501ff24239f4"
+  ],
+  "test.test_range": [
+   "test/test_range.py",
+   "603d1ca7b740d2e4702b3ff42202de4c261b41d51078227526c7447caa3bf80e"
+  ],
+  "test.test_slice": [
+   "test/test_slice.py",
+   "0eeed7ae5e6c9e261942d68ad4453eea48e12d987bf7d9b5ff10737528d1e2b3"
+  ],
+  "test.test_iter": [
+   "test/test_iter.py",
+   "2255bb4dac0165fd5f9bcc56112ec938722d425b819099749efdd24b9193887e"
+  ],
+  "test.test_builtin": [
+   "test/test_builtin.py",
+   "f464c23cd39de208cf4d7f065b497724a3f2ccd82b002bbcecf3cc7c357d2400"
+  ],
+  "test.test_format": [
+   "test/test_format.py",
+   "ed1a7e7c5a5f302fdea78ece87a379fe006ddbf7ee3c9a5b9aefa0dfda5cab67"
+  ],
+  "test.test_fstring": [
+   "test/test_fstring.py",
+   "2ec20e002839df3bade207ad6ad20d31f4a94c1455509b221907e0d4a3d1721c"
+  ],
+  "test.test_keywordonlyarg": [
+   "test/test_keywordonlyarg.py",
+   "f2b0fbe9258dc917eb73b5255f5657781f20cbf4b3c6de19456f70153f3d2f3b"
+  ],
+  "test.test_property": [
+   "test/test_property.py",
+   "e59b99738fc69da6382264c557236c7c59f3b3c7b8cb82c3e46bec6288b34b02"
+  ],
+  "test.test_sort": [
+   "test/test_sort.py",
+   "dd8cee99c70a21f6a220f64bf40e2ab9099c6df79f15859577cea4c4377fb382"
+  ],
+  "test.test_patma": [
+   "test/test_patma.py",
+   "651dcbe1421d8f6fda77f6319cedd3c2ca67193de805d08cadd22a3e9efc48ed"
+  ],
+  "test.test_named_expressions": [
+   "test/test_named_expressions.py",
+   "c32da01ce566fdd3691e007e988c287b2dde6fb05738d88be1dc02d69093d80c"
+  ],
+  "test.test_long": [
+   "test/test_long.py",
+   "66eeb959a2a1e573f16067fc02d75f22d5344a223bed08033b01612f52d9a11a"
+  ],
+  "test.test_float": [
+   "test/test_float.py",
+   "d509f2f33eaf5a9b9eccc8e5ae7ccd369422aa1a50a502be34a87176e1bb75a0"
+  ],
+  "test.test_unary": [
+   "test/test_unary.py",
+   "867adb0ac3eddbe957c0137a84f2dbac75bfd09c0a8b51e3e75a7af9eaa3f8eb"
+  ],
+  "test.test_listcomps": [
+   "test/test_listcomps.py",
+   "11e1784efd2a5058152b7f8cea0a6077bb3f7b058bb1fc6adb9c8844f99a48b4"
+  ],
+  "test.test_dictcomps": [
+   "test/test_dictcomps.py",
+   "c746036c505688ce9bb648b1439f5addba02533a0eed4c55ebf384bf3cb6fbfd"
+  ],
+  "test.test_dictviews": [
+   "test/test_dictviews.py",
+   "f6e290a9cda996fd2531e20902cb99fd8785da069a31e27038daed194b3295e2"
+  ],
+  "test.test_opcodes": [
+   "test/test_opcodes.py",
+   "2c30b2eeffad6d2b8eefa0bea40b7a7ce1e3674c5b6912805d81f1b3455d9c11"
+  ],
+  "test.test_pow": [
+   "test/test_pow.py",
+   "0cfbf5bc3b271db92d5f728c649b9501b4c786d42db74bc75afeb41a54dde27d"
+  ],
+  "test.test_print": [
+   "test/test_print.py",
+   "b71eb796beca13228164b29e43dbe9ce45ae2020af4ee553ac6bc2b0a9d93d22"
+  ],
+  "test.test_index": [
+   "test/test_index.py",
+   "bc74f38459434a91477197a4c9b3a58bb2bd4c70027472003c0e363c6d7efad5"
+  ],
+  "test.test_isinstance": [
+   "test/test_isinstance.py",
+   "2a1e36a89336d2a266ee56a5e725312ca19d86138e6414bd89f2ded6bbecf102"
+  ],
+  "test.test_richcmp": [
+   "test/test_richcmp.py",
+   "87ffd49f08a617224cdbb84f0eeb7cef643f3cd918090c606a311a25d929d135"
+  ],
+  "test.test_decorators": [
+   "test/test_decorators.py",
+   "0e00ff7031459a0513530f64591ba989e18e1eaf968f43e9239fb8413bc2c74e"
+  ],
+  "test.test_type_params": [
+   "test/test_type_params.py",
+   "8116cc1eddad7cefdd593e10490cf3935676bc7db31ddd1403de6953380a58f3"
+  ],
+  "test.test_typechecks": [
+   "test/test_typechecks.py",
+   "9f5a2e6cdaf162433b32a33bb982df55632cb4e64d48f7ff529e555fb25f4434"
+  ],
+  "test.test_types": [
+   "test/test_types.py",
+   "9ecf8e399e30e83794a1fafc34c5b990da2fa469c980e2f2157eeedc1b118d24"
+  ],
+  "test.test_userlist": [
+   "test/test_userlist.py",
+   "6aea7693c5f3f2446e1602ba6de6c71b6ea8a8acbfcb41e558eecb27bf8cd779"
+  ],
+  "test.test_userdict": [
+   "test/test_userdict.py",
+   "29e43b71cb8d29c6375c8c81e260f56b6f238cbfd4f678f045ffd77bff8f7543"
+  ],
+  "test.test_memoryview": [
+   "test/test_memoryview.py",
+   "79fb8f41a8095b14bf644c214bcabaf3c35f159ffe2077d04b65bc0c0c22a087"
+  ],
+  "test.test_descr": [
+   "test/test_descr.py",
+   "bba66f18787fd76ffc9d5553daf478ccb5c9d7d9c59ac4cc6bd1dc136dc3e08f"
+  ],
+  "test.test_dataclasses": [
+   "test/test_dataclasses/__init__.py",
+   "eb6d80602be85858a9a5f559c6f9fe7949b48972df4024aff8c825fcf8548cb4"
+  ],
+  "test.test_enum": [
+   "test/test_enum.py",
+   "c656b79b79a6706b54e47b4e9dcb36034f5e16f80b69dc3508acdb714d6c5809"
+  ],
+  "test.test_copy": [
+   "test/test_copy.py",
+   "1ea4c589e259257673f0b4650235a277767f71088f58a0f0f814091e911ee400"
+  ],
+  "test.test_copyreg": [
+   "test/test_copyreg.py",
+   "a807e5c6806c71551dad6320669fe7b665e127659f6afd9bdb7c21876ba2ccf9"
+  ],
+  "test.test_contextlib": [
+   "test/test_contextlib.py",
+   "b7b3a0f70a4c760743c99662de3e575711de671ce519780b0883e9a9ec94196c"
+  ],
+  "test.test_deque": [
+   "test/test_deque.py",
+   "15578b602865dfa5c80baa64006d64c5875765aab457d5b4bedd73a5e8436d73"
+  ],
+  "test.test_defaultdict": [
+   "test/test_defaultdict.py",
+   "5013a8342863f575ac15903abbedf23f075b33b87c01a3de9a2b026a440ff1b1"
+  ],
+  "test.test_ordered_dict": [
+   "test/test_ordered_dict.py",
+   "8f302ac84b0ce69f26dd5a91467874861c8600c034bd28245c214a143105c887"
+  ],
+  "test.test_operator": [
+   "test/test_operator.py",
+   "fe0142a62a7c126325b51aca99ad9f092604c175c5cfe034956f0566921587ac"
+  ],
+  "test.test_math": [
+   "test/test_math.py",
+   "c5ec63e224a6536382630cd88030bfca05e8e28a136cc029608d1b5b90f71211"
+  ],
+  "test.test_fractions": [
+   "test/test_fractions.py",
+   "c3a3f84319a5d19c07422a953275cd2622ec608555c4baa6b629a8919a0aad60"
+  ],
+  "test.test_bisect": [
+   "test/test_bisect.py",
+   "c2cc55581e637768faa0f51cbb66acbaa6664eb023e287b37db687faefa2c1c4"
+  ],
+  "test.test_random": [
+   "test/test_random.py",
+   "be9b02c9e37751193ad0a3116127ade98ba2a22df191626792e3fe359b147c9b"
+  ],
+  "test.test_struct": [
+   "test/test_struct.py",
+   "ebdd9b0b8dc10b8774c239c87117d221e3e5c76bff5d061805f8d4785a260dcc"
+  ],
+  "test.test_weakref": [
+   "test/test_weakref.py",
+   "d78120edc3ee4e30e1b7f2dbac5efdfea41f205dcf14278c25e3ebb9730fb5ea"
+  ],
+  "test.test_zlib": [
+   "test/test_zlib.py",
+   "3f337a482418efa9aff0d14a2ee61ea59a14681b91aa102d8a05012ea391e55c"
+  ],
+  "test.test_unicodedata": [
+   "test/test_unicodedata.py",
+   "aae683670383f9e505e61976fc1b59a6435bc1652195e1ded7fa9f487ffcf152"
+  ],
+  "test.test_statistics": [
+   "test/test_statistics.py",
+   "3c88859195eefbed1e7bfc4b4cdf89c72f145068572f94ca1f8cb0d169452a9a"
+  ],
+  "test.test_numeric_tower": [
+   "test/test_numeric_tower.py",
+   "91274b69a9ce91422ad6615ffae8c81d6039fd819b3b7d5c6963c0eb6f1f38fa"
+  ],
+  "test.test_base64": [
+   "test/test_base64.py",
+   "56075febc8ef0725e0c6c78817b450e74ccf94a3e0eccf2847c9069761c57220"
+  ],
+  "test.test_binascii": [
+   "test/test_binascii.py",
+   "e90a528b406e9e498b0226374fc0ca15e31dd89ae290f267535a5f4c59cb6cc6"
+  ],
+  "test.test_calendar": [
+   "test/test_calendar.py",
+   "421558919d09511931c7e258ac96b62db71909dc37bb1fce30ad5b55d4580efc"
+  ],
+  "test.test_colorsys": [
+   "test/test_colorsys.py",
+   "f7ea1907f751f0201ea69a0bc368cdb2b24e7c7f958d8df659a8ff84142bfb93"
+  ],
+  "test.test_csv": [
+   "test/test_csv.py",
+   "37be9144ab9838f7b385172571a26dadaed0b1cd45d6a8f731003ac7e9883939"
+  ],
+  "test.test_difflib": [
+   "test/test_difflib.py",
+   "07ff596fe72aed36b3fa4838cf530cabcda619000e1625a8c6a4276ceb43b266"
+  ],
+  "test.test_fnmatch": [
+   "test/test_fnmatch.py",
+   "8b1705a63c0947192afcb8f3cba1b6b02819eb69e9fbea82e337bcc22022bf33"
+  ],
+  "test.test_graphlib": [
+   "test/test_graphlib.py",
+   "87cde0e38dc1901e938356f4627f6842ff0cf9a74582edc1f22868b295944b3e"
+  ],
+  "test.test_ipaddress": [
+   "test/test_ipaddress.py",
+   "55e2cd843baf87a1076b69ddc449480584e5147b13d2a14c55f732237a6391fa"
+  ],
+  "test.test_keyword": [
+   "test/test_keyword.py",
+   "9af1d7e94d0027baca8b67db0013cc94bd81c5df01d28a76dc3198537a16e8df"
+  ],
+  "test.test_pprint": [
+   "test/test_pprint.py",
+   "e189a2517eb6569907fdfd8dcb5f820e96ce3cf97275aa288623b6441af91e19"
+  ],
+  "test.test_reprlib": [
+   "test/test_reprlib.py",
+   "ec84a6d632f43fce37efde8f18f6507dfec899bbbdae99000326a8c30fe17621"
+  ],
+  "test.test_secrets": [
+   "test/test_secrets.py",
+   "600692c863b60bafaceaa5656b68cb0e2b123455c6612572f9e4a4cb065dc0f1"
+  ],
+  "test.test_shlex": [
+   "test/test_shlex.py",
+   "32ce66232ba3885b36e739fabac3ae55d6c9b336e0ed65aafba2ef5b0e55c6df"
+  ],
+  "test.string_tests": [
+   "test/string_tests.py",
+   "8a4215e44a2b7fadacd9d00ce22308c0a1c4a640406adff87344dcad3a26fd95"
+  ]
+ }
+}
