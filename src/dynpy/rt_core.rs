@@ -3331,6 +3331,7 @@ pub fn init_builtin_classes() {
         ("RuntimeError", "Exception"),
         ("RecursionError", "RuntimeError"),
         ("NotImplementedError", "RuntimeError"),
+        ("SystemError", "Exception"),
         ("StopIteration", "Exception"),
         ("StopAsyncIteration", "Exception"),
         ("AssertionError", "Exception"),

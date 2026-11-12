@@ -360,6 +360,16 @@ pub fn repr(v: &V) -> Result<String, E> {
                     });
                 }
             }
+            // an iterator with CPython's own repr (itertools.count)
+            let red = x.it.try_borrow().ok().and_then(|it| match &*it {
+                It::Red(r) => Some(r.clone()),
+                _ => None,
+            });
+            if let Some(r) = red {
+                if let Some(t) = r.repr() {
+                    return t;
+                }
+            }
             // a generator (or genexpr) reprs with its dotted __qualname__, as in CPython; the cells are held
             // while the generator body runs, so read them only when free (the running generator's name is
             // remembered elsewhere for that case)

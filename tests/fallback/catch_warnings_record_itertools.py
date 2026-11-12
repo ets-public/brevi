@@ -1,5 +1,5 @@
-# catch_warnings(record=True) in a program that uses itertools and pickles or copies is refused by the dynamic
-# build itself (its iterators do not pickle yet, and a copy would miss CPython 3.13's DeprecationWarning).
+# catch_warnings(record=True) in a program that uses itertools and pickles: the typed build runs it through
+# the CPython bridge (the dynamic build runs it natively: tests/dyn/itertools_pickle.py).
 import itertools, pickle, warnings
 
 with warnings.catch_warnings(record=True) as ws:

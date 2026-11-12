@@ -1402,6 +1402,19 @@ pub fn re_warn(cat: &'static str, msg: String) -> Result<(), E> {
     }
     Ok(())
 }
+// A warning CPython issues with a frame of one of its own Python modules on top (copy.copy and copy.deepcopy
+// call an itertools __reduce__ from copy.py): the warning names that module's line, not the program's. `file`
+// is "<copy>" for copy.py, which the bridge names by CPython's own copy.__file__. With no bridge the default
+// filters apply: a DeprecationWarning outside __main__ is ignored.
+pub fn re_warn_at(cat: &'static str, msg: String, file: &str, line: usize, module: &str) -> Result<(), E> {
+    if let Some(warn) = WARN_BRIDGE.get() {
+        return warn(cat, &msg, file, line, module);
+    }
+    if cat == "DeprecationWarning" && module != "__main__" {
+        return Ok(());
+    }
+    Err(unsupported("a warning at a line of a Python library module"))
+}
 fn re_compile2(src: &str, flags: i64, pat: Option<V>) -> Result<Rc<Prog>, E> {
     let warns = RefCell::new(vec![]);
     let r = re_compile3(src, flags, pat, &warns);
