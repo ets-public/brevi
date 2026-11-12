@@ -1536,23 +1536,7 @@ pub fn py_hash(v: &V) -> Result<i64, E> {
             }
         },
         V::Tuple(xs) => hash_tuple(xs)?,
-        V::FSet(p) => {
-            // frozenset hash (CPython's algorithm)
-            let mut h: u64 = 0;
-            for k in p.keys() {
-                let x = py_hash(&k)? as u64;
-                h ^= ((x ^ 89869747) ^ (x << 16)).wrapping_mul(3644798167);
-            }
-            h ^= (p.used as u64 + 1).wrapping_mul(1927868237);
-            h ^= (h >> 11) ^ (h >> 25);
-            h = h.wrapping_mul(69069).wrapping_add(907133923);
-            let h = h as i64;
-            if h == -1 {
-                590923713
-            } else {
-                h
-            }
-        }
+        V::FSet(p) => p.fset_hash(),
         V::Obj(o) if {
             let ep = CLASS_EPOCH.with(|e| e.get());
             let (e, b) = o.cls.plain_hash.get();
@@ -2197,12 +2181,39 @@ pub enum Slot {
     Dummy,
     Full(V, i64),
 }
-#[derive(Clone)]
 pub struct PSet {
     pub t: Vec<Slot>,
     pub used: usize,
     pub fill: usize,
     pub finger: usize,
+    // Changes whenever the table does (and every PSet, clones included, starts with its own value), so a
+    // lookup that let go of its borrow to run a user __eq__ can tell the set changed under it and start
+    // over, as CPython's set_lookkey does when its table or entry changed.
+    pub ver: u64,
+    // a frozenset's hash, computed once (CPython caches it too; nested frozensets would rehash
+    // exponentially without it). -1: not computed yet.
+    pub hash: Cell<i64>,
+}
+thread_local! {
+    static PSET_VER: Cell<u64> = const { Cell::new(1) };
+}
+fn pset_ver() -> u64 {
+    PSET_VER.with(|c| {
+        let v = c.get();
+        c.set(v + 1);
+        v
+    })
+}
+impl Clone for PSet {
+    fn clone(&self) -> PSet {
+        PSet { t: self.t.clone(), used: self.used, fill: self.fill, finger: self.finger, ver: pset_ver(), hash: Cell::new(-1) }
+    }
+}
+// Where a probe for a key ended: on the key's slot, or absent with the slot an insert would use (the first
+// dummy on the probe path, as CPython's set_add_entry reuses it, else the empty slot that ended the probe).
+pub enum Probe {
+    Found(usize),
+    Absent(usize, bool),
 }
 const LINEAR_PROBES: usize = 9;
 // the same instance: sets and dicts check identity before ==, as CPython's do
@@ -2215,9 +2226,12 @@ pub fn same_obj(a: &V, b: &V) -> bool {
         _ => false,
     }
 }
+fn set_restart_err() -> E {
+    exc("RuntimeError", "set changed size during iteration".into())
+}
 impl PSet {
     pub fn new() -> PSet {
-        PSet { t: vec![Slot::Empty; 8], used: 0, fill: 0, finger: 0 }
+        PSet { t: vec![Slot::Empty; 8], used: 0, fill: 0, finger: 0, ver: pset_ver(), hash: Cell::new(-1) }
     }
     pub fn len(&self) -> usize {
         self.used
@@ -2225,70 +2239,237 @@ impl PSet {
     fn mask(&self) -> usize {
         self.t.len() - 1
     }
-    pub fn find(&self, k: &V, h: i64) -> Option<usize> {
+    // The probe for a set nobody else can reach while it runs (a frozenset, or one being built): a user
+    // __eq__ may run, and its error is passed on, but it cannot change this table.
+    pub fn probe(&self, k: &V, h: i64) -> Result<Probe, E> {
         let mask = self.mask();
         let mut perturb = h as u64;
         let mut i = (h as u64 as usize) & mask;
-        loop {
-            let probes = if i + LINEAR_PROBES <= mask { LINEAR_PROBES } else { 0 };
-            for j in 0..=probes {
-                match &self.t[i + j] {
-                    Slot::Empty => return None,
-                    Slot::Full(x, xh) if *xh == h && (same_obj(x, k) || eq(x, k).unwrap_or(false)) => return Some(i + j),
-                    _ => {}
-                }
-            }
-            perturb >>= 5;
-            i = (i.wrapping_mul(5).wrapping_add(1).wrapping_add(perturb as usize)) & mask;
-        }
-    }
-    pub fn contains(&self, k: &V) -> Result<bool, E> {
-        let h = hash_of(k)?;
-        Ok(self.find(k, h).is_some())
-    }
-    pub fn add(&mut self, k: V) -> Result<(), E> {
-        let h = hash_of(&k)?;
-        self.add_h(k, h);
-        Ok(())
-    }
-    pub fn add_h(&mut self, k: V, h: i64) {
-        let mask = self.mask();
-        let mut perturb = h as u64;
-        let mut i = (h as u64 as usize) & mask;
-        // CPython's set_add_entry remembers the first dummy slot seen on the probe path
-        // and inserts there, so an add after a discard keeps the deleted entry's place.
         let mut free: Option<usize> = None;
         loop {
             let probes = if i + LINEAR_PROBES <= mask { LINEAR_PROBES } else { 0 };
             for j in 0..=probes {
                 match &self.t[i + j] {
-                    Slot::Empty => {
-                        let (at, reuse) = match free.take() {
-                            Some(f) => (f, true),
-                            None => (i + j, false),
-                        };
-                        self.t[at] = Slot::Full(k, h);
-                        if !reuse {
-                            self.fill += 1;
-                        }
-                        self.used += 1;
-                        if !reuse && self.fill * 5 >= mask * 3 {
-                            self.resize(if self.used > 50000 { self.used * 2 } else { self.used * 4 });
-                        }
-                        return;
-                    }
+                    Slot::Empty => return Ok(match free {
+                        Some(f) => Probe::Absent(f, true),
+                        None => Probe::Absent(i + j, false),
+                    }),
                     Slot::Dummy => {
                         if free.is_none() {
                             free = Some(i + j);
                         }
                     }
-                    Slot::Full(x, xh) if *xh == h && (same_obj(x, &k) || eq(x, &k).unwrap_or(false)) => return,
+                    Slot::Full(x, xh) if *xh == h && (same_obj(x, k) || eq(x, k)?) => return Ok(Probe::Found(i + j)),
                     Slot::Full(..) => {}
                 }
             }
             perturb >>= 5;
             i = (i.wrapping_mul(5).wrapping_add(1).wrapping_add(perturb as usize)) & mask;
         }
+    }
+    // The probe for a set in a cell, which a user __eq__ may change (clear it, add to it): the borrow is let
+    // go while user code runs, and the probe starts over when the table changed meanwhile (CPython's
+    // restart). Returns the probe and the table version it is valid for.
+    pub fn probe_cell(c: &RefCell<PSet>, k: &V, h: i64) -> Result<(Probe, u64), E> {
+        let k_safe = key_eq_safe(k);
+        let mut restarts = 0;
+        'restart: loop {
+            let mut p = c.borrow();
+            let ver = p.ver;
+            let mut mask = p.mask();
+            let mut perturb = h as u64;
+            let mut i = (h as u64 as usize) & mask;
+            let mut free: Option<usize> = None;
+            loop {
+                let probes = if i + LINEAR_PROBES <= mask { LINEAR_PROBES } else { 0 };
+                for j in 0..=probes {
+                    let x = match &p.t[i + j] {
+                        Slot::Empty => {
+                            return Ok((
+                                match free {
+                                    Some(f) => Probe::Absent(f, true),
+                                    None => Probe::Absent(i + j, false),
+                                },
+                                ver,
+                            ))
+                        }
+                        Slot::Dummy => {
+                            if free.is_none() {
+                                free = Some(i + j);
+                            }
+                            continue;
+                        }
+                        Slot::Full(x, xh) if *xh == h => {
+                            if same_obj(x, k) {
+                                return Ok((Probe::Found(i + j), ver));
+                            }
+                            x.clone()
+                        }
+                        Slot::Full(..) => continue,
+                    };
+                    let hit = if k_safe && key_eq_safe(&x) {
+                        eq(&x, k)?
+                    } else {
+                        drop(p);
+                        let r = eq(&x, k)?;
+                        p = c.borrow();
+                        if p.ver != ver {
+                            restarts += 1;
+                            if restarts > LOOKUP_RESTARTS {
+                                return Err(set_restart_err());
+                            }
+                            continue 'restart;
+                        }
+                        mask = p.mask();
+                        r
+                    };
+                    if hit {
+                        return Ok((Probe::Found(i + j), ver));
+                    }
+                }
+                perturb >>= 5;
+                i = (i.wrapping_mul(5).wrapping_add(1).wrapping_add(perturb as usize)) & mask;
+            }
+        }
+    }
+    pub fn find(&self, k: &V, h: i64) -> Result<Option<usize>, E> {
+        Ok(match self.probe(k, h)? {
+            Probe::Found(i) => Some(i),
+            Probe::Absent(..) => None,
+        })
+    }
+    pub fn contains(&self, k: &V) -> Result<bool, E> {
+        let h = hash_of(k)?;
+        Ok(self.find(k, h)?.is_some())
+    }
+    pub fn add(&mut self, k: V) -> Result<(), E> {
+        let h = hash_of(&k)?;
+        self.add_h(k, h)
+    }
+    pub fn add_h(&mut self, k: V, h: i64) -> Result<(), E> {
+        if let Probe::Absent(at, reuse) = self.probe(&k, h)? {
+            self.insert_at(at, reuse, k, h);
+        }
+        Ok(())
+    }
+    // Put k in the slot a probe found for it (CPython's set_add_entry after its lookup).
+    pub fn insert_at(&mut self, at: usize, reuse: bool, k: V, h: i64) {
+        let mask = self.mask();
+        self.t[at] = Slot::Full(k, h);
+        self.ver = pset_ver();
+        self.hash.set(-1);
+        if !reuse {
+            self.fill += 1;
+        }
+        self.used += 1;
+        if !reuse && self.fill * 5 >= mask * 3 {
+            self.resize(if self.used > 50000 { self.used * 2 } else { self.used * 4 });
+        }
+    }
+    pub fn remove_at(&mut self, i: usize) {
+        self.t[i] = Slot::Dummy;
+        self.used -= 1;
+        self.ver = pset_ver();
+        self.hash.set(-1);
+    }
+    // ---- a set in a cell: no borrow is held while a user __eq__ runs ----
+    pub fn cell_contains(c: &RefCell<PSet>, k: &V) -> Result<bool, E> {
+        let h = set_key_hash(k)?;
+        Ok(matches!(PSet::probe_cell(c, &set_key(k), h)?.0, Probe::Found(_)))
+    }
+    pub fn cell_add(c: &RefCell<PSet>, k: V) -> Result<(), E> {
+        let h = hash_of(&k)?;
+        PSet::cell_add_h(c, k, h)
+    }
+    pub fn cell_add_h(c: &RefCell<PSet>, k: V, h: i64) -> Result<(), E> {
+        // no user code runs between the probe's end and the insert, so the slot it found is still right
+        if let (Probe::Absent(at, reuse), _) = PSet::probe_cell(c, &k, h)? {
+            c.borrow_mut().insert_at(at, reuse, k, h);
+        }
+        Ok(())
+    }
+    // remove / discard: a set key is looked up as the frozenset of its items, as CPython's are
+    pub fn cell_discard(c: &RefCell<PSet>, k: &V) -> Result<bool, E> {
+        let h = set_key_hash(k)?;
+        PSet::cell_discard_h(c, &set_key(k), h)
+    }
+    pub fn cell_discard_h(c: &RefCell<PSet>, k: &V, h: i64) -> Result<bool, E> {
+        match PSet::probe_cell(c, k, h)?.0 {
+            Probe::Found(i) => {
+                c.borrow_mut().remove_at(i);
+                Ok(true)
+            }
+            Probe::Absent(..) => Ok(false),
+        }
+    }
+    // set.update(other set) / |=: the table copy when this set is empty (no comparisons), else one insert
+    // per key of the other set's snapshot, with its stored hashes (CPython's set_merge)
+    pub fn cell_merge(c: &RefCell<PSet>, o: &PSet) -> Result<(), E> {
+        if o.used == 0 {
+            return Ok(());
+        }
+        {
+            let mut p = c.borrow_mut();
+            if (p.fill + o.used) * 5 >= p.mask() * 3 {
+                let n = (p.used + o.used) * 2;
+                p.resize(n);
+            }
+            if p.fill == 0 {
+                p.merge_into_empty(o);
+                return Ok(());
+            }
+        }
+        for (k, h) in o.keys_h() {
+            PSet::cell_add_h(c, k, h)?;
+        }
+        Ok(())
+    }
+    pub fn cell_update_dict(c: &RefCell<PSet>, keys: Vec<(V, i64)>) -> Result<(), E> {
+        {
+            let mut p = c.borrow_mut();
+            let n = keys.len();
+            if (p.fill + n) * 5 >= p.mask() * 3 {
+                let m = (p.used + n) * 2;
+                p.resize(m);
+            }
+        }
+        for (k, h) in keys {
+            PSet::cell_add_h(c, k, h)?;
+        }
+        Ok(())
+    }
+    pub fn cell_clear(c: &RefCell<PSet>) {
+        c.borrow_mut().clear();
+    }
+    pub fn cell_pop(c: &RefCell<PSet>) -> Option<V> {
+        c.borrow_mut().pop()
+    }
+    // replace a set's contents with a result computed from a snapshot
+    pub fn cell_replace(c: &RefCell<PSet>, mut r: PSet) {
+        r.ver = pset_ver();
+        r.hash.set(-1);
+        *c.borrow_mut() = r;
+    }
+    // frozenset hash: CPython's frozenset_hash over the stored hashes, cached
+    pub fn fset_hash(&self) -> i64 {
+        let c = self.hash.get();
+        if c != -1 {
+            return c;
+        }
+        let mut h: u64 = 0;
+        for s in &self.t {
+            if let Slot::Full(_, x) = s {
+                let x = *x as u64;
+                h ^= ((x ^ 89869747) ^ (x << 16)).wrapping_mul(3644798167);
+            }
+        }
+        h ^= (self.used as u64 + 1).wrapping_mul(1927868237);
+        h ^= (h >> 11) ^ (h >> 25);
+        h = h.wrapping_mul(69069).wrapping_add(907133923);
+        let h = h as i64;
+        let h = if h == -1 { 590923713 } else { h };
+        self.hash.set(h);
+        h
     }
     fn insert_clean(t: &mut Vec<Slot>, k: V, h: i64) {
         let mask = t.len() - 1;
@@ -2318,6 +2499,7 @@ impl PSet {
         }
         let old = std::mem::replace(&mut self.t, vec![Slot::Empty; n]);
         self.fill = self.used;
+        self.ver = pset_ver();
         for s in old {
             if let Slot::Full(k, h) = s {
                 PSet::insert_clean(&mut self.t, k, h);
@@ -2326,10 +2508,9 @@ impl PSet {
     }
     pub fn discard(&mut self, k: &V) -> Result<bool, E> {
         let h = py_hash(k)?;
-        match self.find(k, h) {
+        match self.find(k, h)? {
             Some(i) => {
-                self.t[i] = Slot::Dummy;
-                self.used -= 1;
+                self.remove_at(i);
                 Ok(true)
             }
             None => Ok(false),
@@ -2359,6 +2540,7 @@ impl PSet {
         let s = std::mem::replace(&mut self.t[i], Slot::Dummy);
         self.used -= 1;
         self.finger = i + 1;
+        self.ver = pset_ver();
         if let Slot::Full(k, _) = s {
             Some(k)
         } else {
@@ -2371,40 +2553,52 @@ impl PSet {
     // set(other_set) / s.copy(): CPython copies the table when the target is empty.
     pub fn copy(&self) -> PSet {
         let mut p = PSet::new();
-        p.merge(self);
+        p.merge_into_empty(self);
         p
     }
-    pub fn merge(&mut self, o: &PSet) {
+    // CPython's set_merge into a table with no entries and no dummies: a slot-for-slot copy when the
+    // tables are the same size, else clean inserts; no keys are compared.
+    fn merge_into_empty(&mut self, o: &PSet) {
         if o.used == 0 {
             return;
         }
         if (self.fill + o.used) * 5 >= self.mask() * 3 {
             self.resize((self.used + o.used) * 2);
         }
-        if self.fill == 0 && self.t.len() == o.t.len() {
-            // copy keeping positions (no dummies)
+        self.ver = pset_ver();
+        self.hash.set(-1);
+        if self.t.len() == o.t.len() {
             for (i, s) in o.t.iter().enumerate() {
                 if let Slot::Full(k, h) = s {
                     self.t[i] = Slot::Full(k.clone(), *h);
                 }
             }
-            self.fill = o.used;
-            self.used = o.used;
-            return;
-        }
-        if self.fill == 0 {
+        } else {
             for s in &o.t {
                 if let Slot::Full(k, h) = s {
                     PSet::insert_clean(&mut self.t, k.clone(), *h);
                 }
             }
-            self.fill = o.used;
-            self.used = o.used;
-            return;
+        }
+        self.fill = o.used;
+        self.used = o.used;
+    }
+    // merge into a set nobody else can reach (see probe); a set in a cell uses cell_merge
+    pub fn merge(&mut self, o: &PSet) -> Result<(), E> {
+        if o.used == 0 {
+            return Ok(());
+        }
+        if (self.fill + o.used) * 5 >= self.mask() * 3 {
+            self.resize((self.used + o.used) * 2);
+        }
+        if self.fill == 0 {
+            self.merge_into_empty(o);
+            return Ok(());
         }
         for (k, h) in o.keys_h() {
-            self.add_h(k, h);
+            self.add_h(k, h)?;
         }
+        Ok(())
     }
     pub fn from_iter(xs: Vec<V>) -> Result<PSet, E> {
         let mut p = PSet::new();
@@ -2417,19 +2611,45 @@ impl PSet {
     // hashes are reused, so the table order matches even for colliding keys.
     // Takes the dict's keys_h() rather than the dict: add_h may run a user __eq__, which may change the
     // dict, so the caller copies the keys out and releases its borrow first.
-    pub fn update_dict(&mut self, keys: Vec<(V, i64)>) {
+    pub fn update_dict(&mut self, keys: Vec<(V, i64)>) -> Result<(), E> {
         let n = keys.len();
         if (self.fill + n) * 5 >= self.mask() * 3 {
             self.resize((self.used + n) * 2);
         }
         for (k, h) in keys {
-            self.add_h(k, h);
+            self.add_h(k, h)?;
         }
+        Ok(())
     }
-    pub fn from_dict(keys: Vec<(V, i64)>) -> PSet {
+    pub fn from_dict(keys: Vec<(V, i64)>) -> Result<PSet, E> {
         let mut p = PSet::new();
-        p.update_dict(keys);
-        p
+        p.update_dict(keys)?;
+        Ok(p)
+    }
+}
+// A set used as a key of set.__contains__/remove/discard is looked up as a frozenset of its items (CPython
+// retries with a frozenset when hashing a set fails with TypeError).
+pub fn set_key(k: &V) -> V {
+    match k {
+        V::Set(s) => V::FSet(Rc::new(s.borrow().copy())),
+        V::Obj(o) if o.cls.lookup("__hash__").map_or(true, |h| matches!(h, V::None)) => match o.inner.borrow().as_deref() {
+            Some(V::Set(s)) => V::FSet(Rc::new(s.borrow().copy())),
+            _ => k.clone(),
+        },
+        _ => k.clone(),
+    }
+}
+pub fn set_key_hash(k: &V) -> Result<i64, E> {
+    match py_hash(k) {
+        Ok(h) => Ok(h),
+        Err(e) => {
+            let fk = set_key(k);
+            if matches!(fk, V::FSet(_)) && !matches!(k, V::FSet(_)) && is_exc(&e.0, "TypeError") {
+                py_hash(&fk)
+            } else {
+                Err(e)
+            }
+        }
     }
 }
 

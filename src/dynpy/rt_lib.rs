@@ -442,17 +442,10 @@ pub fn bi_set(a: Args) -> R {
     }
     match &a.p[0] {
         V::Set(_) | V::FSet(_) => Ok(V::Set(Rc::new(RefCell::new(set_of(&a.p[0]).unwrap().copy())))),
+        // CPython's set_update_dict: the dict's stored hashes, no key is hashed again
         V::Dict(d) => {
-            let ks = d.borrow().keys();
-            let mut p = PSet::new();
-            let n = ks.len();
-            if n > 0 && (p.fill + n) * 5 >= 7 * 3 {
-                p.resize(n * 2);
-            }
-            for k in ks {
-                p.add(k)?;
-            }
-            Ok(V::Set(Rc::new(RefCell::new(p))))
+            let ks = d.borrow().keys_h();
+            Ok(V::Set(Rc::new(RefCell::new(PSet::from_dict(ks)?))))
         }
         x => Ok(V::Set(Rc::new(RefCell::new(PSet::from_iter(to_vec(x)?)?)))),
     }
@@ -1817,6 +1810,30 @@ pub fn bi_id(a: Args) -> R {
         V::Str(o) => Rc::as_ptr(o) as *const u8 as i64,
         V::Tuple(o) => Tup::as_ptr(o) as *const u8 as i64,
         V::Int(i) => *i * 32 + 1,
+        // every other heap value is its allocation, as `is` compares them (heap pointers are 8-aligned, so
+        // they never meet the int ids above or the singletons below)
+        V::Set(o) => Rc::as_ptr(o) as *const u8 as i64,
+        V::FSet(o) => Rc::as_ptr(o) as *const u8 as i64,
+        V::Big(o) => Rc::as_ptr(o) as *const u8 as i64,
+        V::Cell(o) => Rc::as_ptr(o) as *const u8 as i64,
+        V::Func(o) => Rc::as_ptr(o) as *const u8 as i64,
+        V::Class(o) => Rc::as_ptr(o) as *const u8 as i64,
+        V::Bound(o) => Rc::as_ptr(o) as *const u8 as i64,
+        V::BMeth(o) => Rc::as_ptr(o) as *const u8 as i64,
+        V::Iter(o) => Rc::as_ptr(o) as *const u8 as i64,
+        V::Range(o) => Rc::as_ptr(o) as *const u8 as i64,
+        V::Slice(o) => Rc::as_ptr(o) as *const u8 as i64,
+        V::Deque(o) => Rc::as_ptr(o) as *const u8 as i64,
+        V::View(o) => Rc::as_ptr(o) as *const u8 as i64,
+        V::Prop(o) => Rc::as_ptr(o) as *const u8 as i64,
+        V::NTF(o) => Rc::as_ptr(o) as *const u8 as i64,
+        V::Ext(o) => ExtRc::as_ptr(o) as i64,
+        V::Module(m) => *m as *const ModName as *const u8 as i64,
+        V::None => 2,
+        V::Bool(false) => 6,
+        V::Bool(true) => 10,
+        V::Ellipsis => 14,
+        V::NotImpl => 18,
         _ => 1,
     }))
 }
@@ -3498,10 +3515,7 @@ pub fn set_method(o: &V, name: &str, a: Args) -> R {
     let others = |a: &Args| -> Result<Vec<PSet>, E> {
         let mut v = vec![];
         for x in &a.p {
-            v.push(match x {
-                V::Set(_) | V::FSet(_) => set_of(x).unwrap(),
-                _ => PSet::from_iter(to_vec(x)?)?,
-            });
+            v.push(pset_of_iterable(x)?);
         }
         Ok(v)
     };
@@ -3519,29 +3533,49 @@ pub fn set_method(o: &V, name: &str, a: Args) -> R {
         }
     };
     Ok(match name {
+        // set.__init__(iterable=()): empties the set, then adds the iterable's items
+        "__init__" if matches!(o, V::Set(_)) => {
+            if !a.k.is_empty() {
+                return type_err("set() takes no keyword arguments".into());
+            }
+            if a.p.len() > 1 {
+                return type_err(format!("set expected at most 1 argument, got {}", a.p.len()));
+            }
+            let m = mutable(o)?;
+            let items = match a.p.first() {
+                Some(x) => Some(pset_of_iterable(x)?),
+                None => None,
+            };
+            PSet::cell_clear(&m);
+            if let Some(p) = items {
+                PSet::cell_merge(&m, &p)?;
+            }
+            V::None
+        }
+        // No borrow of the set is held while a key's __eq__ runs (it may change this set).
         "add" => {
             let x = a1(&a, "add")?;
-            mutable(o)?.borrow_mut().add(x)?;
+            PSet::cell_add(&*mutable(o)?, x)?;
             V::None
         }
         "remove" => {
             let x = a1(&a, "remove")?;
-            if !mutable(o)?.borrow_mut().discard(&x)? {
+            if !PSet::cell_discard(&*mutable(o)?, &x)? {
                 return Err(exc_v("KeyError", x));
             }
             V::None
         }
         "discard" => {
             let x = a1(&a, "discard")?;
-            mutable(o)?.borrow_mut().discard(&x)?;
+            PSet::cell_discard(&*mutable(o)?, &x)?;
             V::None
         }
-        "pop" => match mutable(o)?.borrow_mut().pop() {
+        "pop" => match PSet::cell_pop(&*mutable(o)?) {
             Some(v) => v,
             None => return Err(exc("KeyError", "pop from an empty set".into())),
         },
         "clear" => {
-            mutable(o)?.borrow_mut().clear();
+            PSet::cell_clear(&*mutable(o)?);
             V::None
         }
         "copy" => wrap(me().copy()),
@@ -3566,6 +3600,7 @@ pub fn set_method(o: &V, name: &str, a: Args) -> R {
                 "difference_update" => "-",
                 _ => "^",
             };
+            // No borrow of m is held while a key's __eq__ runs: it may change m.
             if op == "|" {
                 for x in &a.p {
                     match x {
@@ -3573,11 +3608,16 @@ pub fn set_method(o: &V, name: &str, a: Args) -> R {
                         // insertion with the other set's own hashes.
                         V::Set(_) | V::FSet(_) => {
                             let p = set_of(x).unwrap();
-                            m.borrow_mut().merge(&p);
+                            PSet::cell_merge(&m, &p)?;
+                        }
+                        // set_update_dict: the dict's stored hashes
+                        V::Dict(d) if d.borrow().kind == 0 => {
+                            let ks = d.borrow().keys_h();
+                            PSet::cell_update_dict(&m, ks)?;
                         }
                         _ => {
-                            for (k, h) in PSet::from_iter(to_vec(x)?)?.keys_h() {
-                                m.borrow_mut().add_h(k, h);
+                            for k in to_vec(x)? {
+                                PSet::cell_add(&m, k)?;
                             }
                         }
                     }
@@ -3586,13 +3626,14 @@ pub fn set_method(o: &V, name: &str, a: Args) -> R {
                 for x in others(&a)? {
                     match op {
                         "-" => {
-                            for k in x.keys() {
-                                m.borrow_mut().discard(&k)?;
+                            for (k, h) in x.keys_h() {
+                                PSet::cell_discard_h(&m, &k, h)?;
                             }
                         }
                         _ => {
-                            let r = set_op(&m.borrow(), &x, op)?;
-                            *m.borrow_mut() = r;
+                            let cur = m.borrow().clone();
+                            let r = set_op(&cur, &x, op)?;
+                            PSet::cell_replace(&m, r);
                         }
                     }
                 }
@@ -3603,9 +3644,18 @@ pub fn set_method(o: &V, name: &str, a: Args) -> R {
             let x = others(&a)?.pop().unwrap_or_else(PSet::new);
             let me = me();
             V::Bool(match name {
-                "issubset" => me.keys().iter().all(|k| x.contains(k).unwrap_or(false)),
-                "issuperset" => x.keys().iter().all(|k| me.contains(k).unwrap_or(false)),
-                _ => !me.keys().iter().any(|k| x.contains(k).unwrap_or(false)),
+                "issubset" => pset_issubset(&me, &x)?,
+                "issuperset" => pset_issubset(&x, &me)?,
+                _ => {
+                    let mut hit = false;
+                    for (k, h) in me.keys_h() {
+                        if x.find(&k, h)?.is_some() {
+                            hit = true;
+                            break;
+                        }
+                    }
+                    !hit
+                }
             })
         }
         "__len__" => V::Int(match o {
@@ -3968,6 +4018,21 @@ pub fn builtin_method(o: &V, name: &str, a: Args) -> R {
             "__iter__" => Ok(o.clone()),
             "__reduce__" | "__reduce_ex__" => iter_reduce_v(o),
             "__setstate__" => iter_setstate_v(o, &a1(&a, name)?),
+            // CPython's setiter_len: the entries left, or 0 once the set's size changed
+            "__length_hint__" if matches!(&*it.it.borrow(), It::Set(..)) || matches!(it.kind, IterClass::Kind(ItKind::SetIter)) => {
+                no_args("set_iterator", name, &a)?;
+                Ok(V::Int(match &*it.it.borrow() {
+                    It::Set(s, i, n0) => {
+                        let s = s.borrow();
+                        if *n0 >= 0 && s.used as i64 == *n0 {
+                            s.t[(*i).min(s.t.len())..].iter().filter(|x| matches!(x, Slot::Full(..))).count() as i64
+                        } else {
+                            0
+                        }
+                    }
+                    _ => 0,
+                }))
+            }
             "send" => {
                 let c = match &*it.it.borrow() {
                     It::Coro(c) => c.clone(),

@@ -815,7 +815,13 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
     } else if bb != BT::Object && bb != BT::Other {
         // subclass of a builtin container: the instance wraps a builtin value
         let mut a0 = Args { p: vec![], k: vec![] };
-        if c.lookup("__init__").map_or(true, |f| is_builtin_init(&f)) {
+        // frozenset is made by its __new__, which takes the arguments whatever __init__ does
+        if bb == BT::FSet {
+            if !a.k.is_empty() && c.lookup("__init__").map_or(true, |f| is_builtin_init(&f)) {
+                return type_err(format!("{}() takes no keyword arguments", c.name));
+            }
+            a0 = Args { p: a.p.clone(), k: vec![] };
+        } else if c.lookup("__init__").map_or(true, |f| is_builtin_init(&f)) {
             a0 = Args { p: a.p.clone(), k: a.k.clone() };
         }
         if bb == BT::Counter && c.lookup("__init__").map_or(true, |f| is_builtin_init(&f)) {
@@ -916,6 +922,7 @@ fn builtin_of_bt(bt: BT) -> Rc<Class> {
         BT::List => "list",
         BT::Dict => "dict",
         BT::Set => "set",
+        BT::FSet => "frozenset",
         BT::Str => "str",
         BT::Int => "int",
         BT::Float => "float",
@@ -2098,7 +2105,7 @@ pub fn call_method1(o: &V, name: &str, x: V) -> R {
             Ok(V::None)
         }
         V::Set(st) if name == "add" => {
-            st.borrow_mut().add(x)?;
+            PSet::cell_add(st, x)?;
             Ok(V::None)
         }
         _ => call_method(o, name, Args::p(vec![x])),
@@ -2113,7 +2120,7 @@ pub fn call_method(o: &V, name: &str, mut a: Args) -> R {
                 return Ok(V::None);
             }
             (V::Set(st), "add") => {
-                st.borrow_mut().add(a.p.pop().unwrap())?;
+                PSet::cell_add(st, a.p.pop().unwrap())?;
                 return Ok(V::None);
             }
             _ => {}

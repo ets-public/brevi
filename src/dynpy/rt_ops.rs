@@ -272,7 +272,7 @@ pub fn eq(a: &V, b: &V) -> Result<bool, E> {
         }
         (V::Set(_) | V::FSet(_), V::Set(_) | V::FSet(_)) => {
             let (x, y) = (set_of(a).unwrap(), set_of(b).unwrap());
-            x.used == y.used && x.keys().iter().all(|k| y.contains(k).unwrap_or(false))
+            x.used == y.used && pset_issubset(&x, &y)?
         }
         (V::Range(x), V::Range(y)) => {
             let (lx, ly) = (range_len(a), range_len(b));
@@ -473,8 +473,8 @@ pub fn order(a: &V, b: &V, op: &str) -> Result<Option<std::cmp::Ordering>, E> {
         (V::Tuple(x), V::Tuple(y)) => seq_order(x, y, op)?,
         (V::Set(_) | V::FSet(_), V::Set(_) | V::FSet(_)) => {
             let (x, y) = (set_of(a).unwrap(), set_of(b).unwrap());
-            let sub = x.keys().iter().all(|k| y.contains(k).unwrap_or(false));
-            let sup = y.keys().iter().all(|k| x.contains(k).unwrap_or(false));
+            let sub = pset_issubset(&x, &y)?;
+            let sup = pset_issubset(&y, &x)?;
             match (sub, sup) {
                 (true, true) => Some(Equal),
                 (true, false) => Some(Less),
@@ -1154,17 +1154,17 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
                 V::View(v) if v.1 == 0 => match &v.0 {
                     V::Dict(d) if d.borrow().kind == 0 => {
                         let ks = d.borrow().keys_h();
-                        PSet::from_dict(ks)
+                        PSet::from_dict(ks)?
                     }
                     _ => PSet::from_iter(to_vec(a)?)?,
                 },
                 _ => PSet::from_iter(to_vec(a)?)?,
             };
             match b {
-                V::Set(_) | V::FSet(_) => r.merge(&set_of(b).unwrap()),
+                V::Set(_) | V::FSet(_) => r.merge(&set_of(b).unwrap())?,
                 V::Dict(d) if d.borrow().kind == 0 => {
                     let ks = d.borrow().keys_h();
-                    r.update_dict(ks)
+                    r.update_dict(ks)?
                 }
                 _ => {
                     for k in to_vec(b)? {
@@ -1362,27 +1362,28 @@ fn iop_slow(a: &V, b: &V, op: &str) -> R {
         (V::Set(s), "|" | "&" | "-" | "^") if matches!(b, V::Set(_) | V::FSet(_)) => {
             // In place and in time with the other set's size, as CPython's are (`seen |= new` in a loop
             // must not copy seen each time).
+            // No borrow of s is held while a key's __eq__ runs: it may change s (or b).
             let other = set_of(b).unwrap();
             match op {
-                "|" => s.borrow_mut().merge(&other),
+                "|" => PSet::cell_merge(s, &other)?,
                 "-" => {
-                    let mut me = s.borrow_mut();
-                    for k in other.keys() {
-                        me.discard(&k)?;
+                    for (k, h) in other.keys_h() {
+                        PSet::cell_discard_h(s, &k, h)?;
                     }
                 }
                 "&" => {
                     // remove the others (keeps table positions)
-                    let mut me = s.borrow_mut();
-                    for k in me.keys() {
-                        if !other.contains(&k)? {
-                            me.discard(&k)?;
+                    let mine = s.borrow().keys_h();
+                    for (k, h) in mine {
+                        if other.find(&k, h)?.is_none() {
+                            PSet::cell_discard_h(s, &k, h)?;
                         }
                     }
                 }
                 _ => {
-                    let r = set_op(&s.borrow(), &other, op)?;
-                    *s.borrow_mut() = r;
+                    let cur = s.borrow().clone();
+                    let r = set_op(&cur, &other, op)?;
+                    PSet::cell_replace(s, r);
                 }
             }
             return Ok(a.clone());
@@ -1464,6 +1465,18 @@ fn counter_unary(x: &Rc<RefCell<Dict>>, negate: bool) -> R {
     }
     Ok(V::Dict(Rc::new(RefCell::new(d))))
 }
+// a set's snapshot, a plain dict's keys with their stored hashes (CPython hashes neither again), or the
+// items of any other iterable
+pub fn pset_of_iterable(v: &V) -> Result<PSet, E> {
+    match v {
+        V::Set(_) | V::FSet(_) => Ok(set_of(v).unwrap()),
+        V::Dict(d) if d.borrow().kind == 0 => {
+            let ks = d.borrow().keys_h();
+            PSet::from_dict(ks)
+        }
+        _ => PSet::from_iter(to_vec(v)?),
+    }
+}
 pub fn set_of(v: &V) -> Option<PSet> {
     match v {
         V::Set(s) => Some(s.borrow().clone()),
@@ -1471,20 +1484,32 @@ pub fn set_of(v: &V) -> Option<PSet> {
         _ => None,
     }
 }
+// every key of x is in y (CPython's set_issubset; a key's __eq__ error is passed on)
+pub fn pset_issubset(x: &PSet, y: &PSet) -> Result<bool, E> {
+    if x.used > y.used {
+        return Ok(false);
+    }
+    for (k, h) in x.keys_h() {
+        if y.find(&k, h)?.is_none() {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
 // CPython's set algebra, so results come out in the same table order.
 pub fn set_op(a: &PSet, b: &PSet, op: &str) -> Result<PSet, E> {
     Ok(match op {
         "|" => {
             let mut r = a.copy();
-            r.merge(b);
+            r.merge(b)?;
             r
         }
         "&" => {
             let (small, big) = if a.used > b.used { (b, a) } else { (a, b) };
             let mut r = PSet::new();
             for (k, h) in small.keys_h() {
-                if big.find(&k, h).is_some() {
-                    r.add_h(k, h);
+                if big.find(&k, h)?.is_some() {
+                    r.add_h(k, h)?;
                 }
             }
             r
@@ -1499,8 +1524,8 @@ pub fn set_op(a: &PSet, b: &PSet, op: &str) -> Result<PSet, E> {
             } else {
                 let mut r = PSet::new();
                 for (k, h) in a.keys_h() {
-                    if b.find(&k, h).is_none() {
-                        r.add_h(k, h);
+                    if b.find(&k, h)?.is_none() {
+                        r.add_h(k, h)?;
                     }
                 }
                 r
@@ -1509,12 +1534,9 @@ pub fn set_op(a: &PSet, b: &PSet, op: &str) -> Result<PSet, E> {
         _ => {
             let mut r = a.copy();
             for (k, h) in b.keys_h() {
-                match r.find(&k, h) {
-                    Some(i) => {
-                        r.t[i] = Slot::Dummy;
-                        r.used -= 1;
-                    }
-                    None => r.add_h(k, h),
+                match r.probe(&k, h)? {
+                    Probe::Found(i) => r.remove_at(i),
+                    Probe::Absent(at, reuse) => r.insert_at(at, reuse, k, h),
                 }
             }
             r
@@ -1639,7 +1661,7 @@ pub fn contains(c: &V, x: &V) -> Result<bool, E> {
     }
     // `x in seen` for a set first: the special cases below are all for str containers
     if let V::Set(s) = c {
-        return s.borrow().contains(x);
+        return PSet::cell_contains(s, x);
     }
     // a library value standing for a str (numpy's np.str_) is that str here
     if let V::Ext(e) = x {
@@ -1683,8 +1705,8 @@ pub fn contains(c: &V, x: &V) -> Result<bool, E> {
             false
         }
         V::Dict(d) => Dict::contains_cell(d, x)?,
-        V::Set(s) => s.borrow().contains(x)?,
-        V::FSet(s) => s.contains(x)?,
+        V::Set(s) => PSet::cell_contains(s, x)?,
+        V::FSet(s) => s.find(&set_key(x), set_key_hash(x)?)?.is_some(),
         V::Range(r) => match x {
             V::Int(i) => {
                 let (a, b, st) = **r;
