@@ -9,8 +9,8 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 620,
-"refused": 7,
+"matched": 623,
+"refused": 4,
 "by_design": 4,
 "string_model": 1,
 "cpython_private": 6,
@@ -24,16 +24,16 @@
 "scored": 634,
 "matched_through_cpython": 1,
 "matched_silent": 34,
-"coverage": 0.9763,
+"coverage": 0.9811,
 "wrong": 0,
-"matched_asserting": 585,
-"assert_coverage": 0.9227,
+"matched_asserting": 588,
+"assert_coverage": 0.9274,
 "matched_typed": 18,
-"typed_share": 0.0291
+"typed_share": 0.0289
 },
 "dyn": {
-"matched": 619,
-"refused": 8,
+"matched": 622,
+"refused": 5,
 "by_design": 4,
 "string_model": 1,
 "cpython_private": 6,
@@ -47,10 +47,10 @@
 "scored": 634,
 "matched_through_cpython": 0,
 "matched_silent": 34,
-"coverage": 0.9763,
+"coverage": 0.9811,
 "wrong": 0,
-"matched_asserting": 585,
-"assert_coverage": 0.9227,
+"matched_asserting": 588,
+"assert_coverage": 0.9274,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -58,8 +58,8 @@
 "files": {
 "test_itertools": {
 "normal": {
-"matched": 116,
-"refused": 4,
+"matched": 119,
+"refused": 1,
 "by_design": 1,
 "string_model": 0,
 "cpython_private": 0,
@@ -73,16 +73,16 @@
 "scored": 120,
 "matched_through_cpython": 0,
 "matched_silent": 28,
-"coverage": 0.9667,
+"coverage": 0.9917,
 "wrong": 0,
-"matched_asserting": 88,
-"assert_coverage": 0.7333,
+"matched_asserting": 91,
+"assert_coverage": 0.7583,
 "matched_typed": 2,
-"typed_share": 0.0172
+"typed_share": 0.0168
 },
 "dyn": {
-"matched": 116,
-"refused": 4,
+"matched": 119,
+"refused": 1,
 "by_design": 1,
 "string_model": 0,
 "cpython_private": 0,
@@ -96,10 +96,10 @@
 "scored": 120,
 "matched_through_cpython": 0,
 "matched_silent": 28,
-"coverage": 0.9667,
+"coverage": 0.9917,
 "wrong": 0,
-"matched_asserting": 88,
-"assert_coverage": 0.7333,
+"matched_asserting": 91,
+"assert_coverage": 0.7583,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -347,14 +347,14 @@
 },
 "paths": {
 "normal": {
-"dynamic": 602,
+"dynamic": 605,
 "typed": 18,
-"refused": 17,
+"refused": 14,
 "pybridge": 1
 },
 "dyn": {
-"dynamic": 620,
-"refused": 18
+"dynamic": 623,
+"refused": 15
 }
 },
 "tests": [
@@ -985,12 +985,12 @@
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "pickle of a program that makes iterators: the typed build keeps iter() as the list itself, and this file cannot be built over dynamic values (case.py line 1: copy.deepcopy in a program that uses itert"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "copy.deepcopy in a program that uses itertools.tee is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1149,12 +1149,12 @@
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "except AssertionError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 54: operator.is_ is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "operator.is_ is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2163,12 +2163,12 @@
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found subclass"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "class subclass has a base chosen at run time in a program that uses builtin iterator types as values; subclassing zip, map, filter or an itertools type is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
