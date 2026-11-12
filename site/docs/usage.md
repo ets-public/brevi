@@ -335,7 +335,7 @@ Running `brevi check`, `build` or `run` again on files that did not change repla
 
 From v0.27.0, `brevi run` and `brevi test` after an edit don't wait for the optimised build. They build the program unoptimised (rustc opt-level 0), run it at once, and build the optimised binary (opt-level 1, the default) in the background into the cache. The next run of the unchanged program uses the optimised one. On a 200-line program, a run after an edit went from 0.82 s to 0.32 s on the typed path, and from 1.50 s to 0.50 s on the dynamic path. The unoptimised binary runs slower (often 2x to 5x slower on loops), so for a long computation use `--release`, or set `BREVI_TIERED=0`. `brevi build` always makes the optimised binary, and so does a run with `--no-cache`. The very first build after installing Brevi, or after a Rust update, also builds Brevi's runtime library once, which takes about 5 to 15 seconds.
 
-Write the plain, direct program. Brevi runs plain loops over ints and lists several times faster than CPython (1.7x to 39.5x, median 8.5x, on our 12 compute benchmarks), so code hand-tuned for CPython (bit tricks, packing values into big integers) is usually slower under Brevi, not faster.
+Write the plain, direct program. Brevi runs plain loops over ints and lists several times faster than CPython (1.6x to 37.9x, median 9.3x, on our 12 compute benchmarks), so code hand-tuned for CPython (bit tricks, packing values into big integers) is usually slower under Brevi, not faster.
 
 ## Environment variables
 

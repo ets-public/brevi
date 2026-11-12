@@ -1,0 +1,1 @@
+- CI, releases and the Docker image build with Rust 1.99.1 (pinned in `.github/rust-version`) instead of the latest stable. Rust 1.100 ships Unicode 18 tables, and Brevi refuses `re.IGNORECASE` on Unicode tables it has not checked against CPython, so every PR's checks failed the day it reached GitHub's runners. The daily toolchain run still tests the latest stable.

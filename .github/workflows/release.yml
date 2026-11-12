@@ -93,9 +93,14 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
-        with:
-          targets: ${{ matrix.targets }}
+      - name: Rust (pinned in .github/rust-version)
+        shell: bash
+        run: |
+          v=$(cat .github/rust-version)
+          rustup toolchain install "$v" --profile minimal --no-self-update
+          for t in ${{ matrix.targets }}; do rustup target add --toolchain "$v" "$t"; done
+          rustup default "$v"
+          rustc -V
       - name: Build
         shell: bash
         run: for t in ${{ matrix.targets }}; do cargo build --release --locked --target $t; done
@@ -166,7 +171,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           path: rebuilt-here
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - name: Rust (pinned in .github/rust-version)
+        shell: bash
+        run: |
+          v=$(cat rebuilt-here/.github/rust-version)
+          rustup toolchain install "$v" --profile minimal --no-self-update
+          rustup default "$v"
+          rustc -V
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: brevi-ubuntu-22.04
@@ -335,8 +346,14 @@ jobs:
           v=$(python3 -c 'import re;print(re.search(r"^version = \"([^\"]+)\"",open("Cargo.toml").read(),re.M)[1])')
           code=$(curl -s -o /dev/null -w '%{http_code}' -A 'brevi-release (github.com/ets-public/brevi)' "https://crates.io/api/v1/crates/brevi/$v")
           if [ "$code" = 200 ]; then echo "brevi $v is already on crates.io"; echo skip=true >> "$GITHUB_OUTPUT"; fi
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - name: Rust (pinned in .github/rust-version)
         if: ${{ steps.check.outputs.skip != 'true' }}
+        shell: bash
+        run: |
+          v=$(cat .github/rust-version)
+          rustup toolchain install "$v" --profile minimal --no-self-update
+          rustup default "$v"
+          rustc -V
       - uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
         if: ${{ steps.check.outputs.skip != 'true' }}
         id: auth

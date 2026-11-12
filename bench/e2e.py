@@ -117,7 +117,7 @@ GUIDE = ROOT / "BREVI.md"
 # What Brevi's skill, MCP server and llms.txt tell an agent: its plain code runs natively, so it need not
 # hand-optimise (on the speed set this halved Sonnet's output). pyb runs get it unless --no-hint. "pyh" is the
 # control: the Python prompt with the same line, checked with CPython, so a saving the line alone produces shows.
-NATIVE_HINT = "Your program is compiled to native code, which runs plain loops over ints and lists several times faster than CPython (1.7x to 39.5x, median 8.5x, on our 12 compute benchmarks). Write the plain, direct solution; do not hand-optimise it for speed."
+NATIVE_HINT = "Your program is compiled to native code, which runs plain loops over ints and lists several times faster than CPython (1.6x to 37.9x, median 9.3x, on our 12 compute benchmarks). Write the plain, direct solution; do not hand-optimise it for speed."
 HINT = True
 # --show-errors (pyb): a check whose files Brevi cannot build still runs them with CPython, as `brevi run` does, but the
 # model also sees why Brevi refused (the line `brevi run` prints on stderr). This is the loop an agent with stderr

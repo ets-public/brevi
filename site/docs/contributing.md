@@ -13,7 +13,7 @@ python3 tests/check_parallel.py   # tests/check.sh (sample programs and error ca
 sh tools/ci_local.sh      # the same checks a pull request runs, locally
 ```
 
-You need Rust stable and `python3` (the tests compare Brevi's output with CPython's).
+You need Rust (CI tests the version in `.github/rust-version`; `tools/ci_local.sh` requires it) and `python3` (the tests compare Brevi's output with CPython's).
 
 | Check | What it guards |
 | --- | --- |
