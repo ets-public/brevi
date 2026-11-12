@@ -2171,7 +2171,7 @@
 },
 "dyn": {
 "category": "refused",
-"detail": "a subclass of bytearray is not supported in dynamic builds"
+"detail": "bytearray or memoryview together with array is not supported in dynamic builds"
 }
 }
 },
