@@ -906,21 +906,6 @@ fn update_wrapper(wrapper: V, wrapped: V, assigned: V, updated: V) -> R {
     let mut it = iter(&updated)?;
     while let Some(x) = it.next()? {
         let n = wraps_name(&x)?;
-        // A function's __dict__ is its assigned attributes; update it directly (for any wrapped object with
-        // one: another function, a class, a callable instance, a partial, an lru_cache wrapper).
-        if n == "__dict__" && matches!(&wrapper, V::Func(_)) {
-            let other = match getattr(&wrapped, &n) {
-                Ok(v) => v,
-                Err(E(e)) if is_exc(&e, "AttributeError") => dict_new(),
-                Err(e) => return Err(e),
-            };
-            for (k, v) in dict_items_of(&other)? {
-                if let V::Str(ks) = &k {
-                    setattr(&wrapper, sym(&ks.s), v)?;
-                }
-            }
-            continue;
-        }
         let d = getattr(&wrapper, &n)?;
         let other = match getattr(&wrapped, &n) {
             Ok(v) => v,
@@ -3103,7 +3088,7 @@ fn cached_property_class() -> Rc<Class> {
 thread_local! {
     static PARTIALMETHOD: RefCell<Option<Rc<Class>>> = const { RefCell::new(None) };
 }
-fn is_partial_v(v: &V) -> bool {
+pub fn is_partial_v(v: &V) -> bool {
     matches!(v, V::Obj(o) if o.cls.is_sub(&partial_class()))
 }
 thread_local! {
@@ -3157,7 +3142,7 @@ fn partial_member(name: &'static str) -> V {
 }
 // functools.partial, as CPython 3.13's C type: func/args/keywords are read-only C fields, a partial of a
 // partial whose __dict__ was never made is flattened, and a program class may subclass it.
-fn partial_class() -> Rc<Class> {
+pub fn partial_class() -> Rc<Class> {
     PARTIAL.with(|slot| {
         if let Some(c) = slot.borrow().as_ref() {
             return c.clone();
@@ -3788,6 +3773,31 @@ fn namedtuple_with(mut a: Args, check_name: bool) -> R {
         let (x, y) = (inner_of(&a.p[0]).unwrap_or(a.p[0].clone()), inner_of(&a.p[1]).unwrap_or(a.p[1].clone()));
         Ok(V::Bool(lt(&y, &x)?))
     }));
+    // CPython's namedtuple makes the class with type(): its dict is the namespace in the order
+    // collections/__init__.py builds it, then __module__; __eq__, __hash__, __lt__ and __gt__ are Brevi's own
+    // (tuple's in CPython)
+    {
+        let mut order: Vec<Sym> = vec!["__doc__", "__slots__", "_fields", "_field_defaults", "__new__", "_make", "__replace__", "_replace", "__repr__", "_asdict", "__getnewargs__", "__match_args__"];
+        order.extend(fields.iter().copied());
+        order.push("__module__");
+        let mut a = c.attrs.borrow_mut();
+        let mut rest: Vec<(Sym, V)> = vec![];
+        let mut named: Vec<Option<V>> = vec![None; order.len()];
+        for (k, v) in a.drain(..) {
+            match order.iter().position(|n| *n == k) {
+                Some(i) => named[i] = Some(v),
+                None => rest.push((k, v)),
+            }
+        }
+        for (k, v) in order.iter().zip(named) {
+            if let Some(v) = v {
+                a.push((*k, v));
+            }
+        }
+        a.extend(rest);
+    }
+    class_changed();
+    tdict_typemade(&c, vec!["__bv_namedtuple__", "__eq__", "__hash__", "__lt__", "__gt__"]);
     Ok(V::Class(c))
 }
 
@@ -4131,7 +4141,7 @@ fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> Result<(), E> {
         let mut inherited: Vec<Sym> = vec![];
         for b in mro.iter().skip(1).filter(|b| b.bt != BT::Object) {
             if let Some(sv) = b.own("__slots__") {
-                slot_names(&sv, &mut inherited);
+                slot_names(b.name, &sv, &mut inherited);
             }
         }
         let mut seen: Vec<Sym> = vec![];

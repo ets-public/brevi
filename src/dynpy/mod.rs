@@ -2,6 +2,8 @@
 // dynamic value type (runtime in rt_*.rs), so mixed-type values work as they do in CPython.
 pub mod emit;
 pub mod parse;
+pub mod mangle;
+pub mod cpy_lines;
 pub mod pyd;
 pub mod tok;
 pub mod hf;
@@ -38,6 +40,8 @@ pub const RUNTIME: &str = concat!(
     include_str!("rt_call.rs"),
     include_str!("rt_lib.rs"),
     include_str!("rt_bdoc.rs"),
+    include_str!("rt_tdict_data.rs"),
+    include_str!("rt_tdict.rs"),
     include_str!("rt_mod.rs"),
     include_str!("rt_itred.rs"),
     include_str!("rt_itred_comb.rs"),

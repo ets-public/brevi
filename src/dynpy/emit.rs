@@ -271,13 +271,13 @@ fn hybrid_bridged(m: &str) -> bool {
 }
 // Python builtins dynamic builds do not have: refused when the program is built.
 fn is_missing_builtin(n: &str) -> bool {
-    matches!(n, "exec" | "eval" | "compile" | "__import__" | "complex" | "dir" | "help" | "breakpoint" | "open" | "__build_class__" | "globals" | "locals")
+    matches!(n, "exec" | "eval" | "compile" | "__import__" | "complex" | "help" | "breakpoint" | "open" | "__build_class__" | "globals" | "locals")
 }
 
 fn is_builtin_name(n: &str) -> bool {
     matches!(
         n,
-        "print" | "input" | "len" | "repr" | "ascii" | "abs" | "min" | "max" | "sum" | "sorted" | "reversed" | "enumerate" | "zip" | "map" | "filter" | "any" | "all" | "iter" | "next" | "isinstance" | "issubclass" | "hasattr" | "getattr" | "setattr" | "delattr" | "callable" | "ord" | "chr" | "hex" | "oct" | "bin" | "round" | "divmod" | "pow" | "hash" | "id" | "format" | "vars" | "exit" | "quit" | "staticmethod" | "classmethod" | "property" | "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "slice" | "super" | "NotImplemented" | "Ellipsis" | "__name__" | "bytes" | "bytearray" | "memoryview" | "__bytes_lit" | "aiter" | "anext" | "__brevi_aenter" | "__brevi_aexit" | "__brevi_eg_split" | "__brevi_eg_reraise"
+        "print" | "input" | "len" | "repr" | "ascii" | "abs" | "min" | "max" | "sum" | "sorted" | "reversed" | "enumerate" | "zip" | "map" | "filter" | "any" | "all" | "iter" | "next" | "isinstance" | "issubclass" | "hasattr" | "getattr" | "setattr" | "delattr" | "callable" | "ord" | "chr" | "hex" | "oct" | "bin" | "round" | "divmod" | "pow" | "hash" | "id" | "format" | "vars" | "dir" | "exit" | "quit" | "staticmethod" | "classmethod" | "property" | "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "slice" | "super" | "NotImplemented" | "Ellipsis" | "__name__" | "bytes" | "bytearray" | "memoryview" | "__bytes_lit" | "aiter" | "anext" | "__brevi_aenter" | "__brevi_aexit" | "__brevi_eg_split" | "__brevi_eg_reraise"
     ) || is_exc_name(n)
 }
 fn is_exc_name(n: &str) -> bool {
@@ -399,7 +399,10 @@ fn mentions_annotations(body: &[Stmt]) -> bool {
     let mut found = false;
     visit_any(body, &mut |e| {
         // read by name too: getattr(f, "__annotations__"), or through functools.WRAPPER_ASSIGNMENTS
+        // vars(C), C.__dict__ and dir(C) list a class's __annotations__ too
         if matches!(e, Ex::Attr(_, n) | Ex::Name(n) if n == "__annotations__" || n == "WRAPPER_ASSIGNMENTS")
+            || matches!(e, Ex::Name(n) if n == "vars" || n == "dir")
+            || matches!(e, Ex::Attr(_, n) if n == "__dict__")
             || matches!(e, Ex::Str(t) if t == "__annotations__")
         {
             found = true;
@@ -1704,6 +1707,9 @@ pub struct Em {
     re_names: HashSet<(String, String)>,
     // the program uses the warnings module: every statement says where it is, so a warning names its line
     track_warn: bool,
+    // the program uses a builtin iterator type (zip, map, filter, itertools.chain, ...) as a value: a class
+    // whose base is only known at run time may be built on one, which the dynamic build cannot subclass
+    iter_type_values: bool,
     // module -> the lines whose logical line runs over more than one line (None: the module did not lex)
     multi: HashMap<String, Option<HashSet<usize>>>,
     // the WMod statics written so far
@@ -2138,6 +2144,12 @@ impl Em {
                 b
             }
             Ex::Star(_) => return Err(err(line, "starred expression here is not supported")),
+            // Brevi's own module copies (pydantic, the MCP server, string, ...) read class namespaces for their
+            // own bookkeeping: they get the namespace even where the program's C.__dict__ refuses (rt_tdict.rs)
+            Ex::Attr(o, n) if n == "__dict__" && IN_COPY.with(|k| k.get()) => {
+                let ov = self.ex(o, line)?;
+                self.q(&format!("own_dict_of(&{ov})"))
+            }
             Ex::Attr(o, n) => {
                 // typing.ByteString stays refused: Brevi's typing does not give the collections.abc class, whose isinstance()
                 // and subclassing warn as CPython 3.13's metaclass does
@@ -2610,6 +2622,10 @@ impl Em {
                 }
                 return Err(err(line, "eval() of names this frame does not hold is not supported in dynamic builds"));
             }
+        }
+        // dir() of the current scope needs the frame's names as CPython orders them: refused (dir(x) is native)
+        if args.is_empty() && matches!(f, Ex::Name(n) if n == "dir") && self.lookup("dir").is_none() {
+            return Err(err(line, "dir() without an argument is not supported in dynamic builds"));
         }
         // locals() in a function: a snapshot dict of its bound names, in CPython's order
         if args.is_empty() && matches!(f, Ex::Name(n) if n == "locals") {
@@ -3634,6 +3650,22 @@ impl Em {
                 }
             }
             St::Class(c) => {
+                // a base that is a builtin iterator type (zip, map, filter, enumerate, reversed, itertools.chain, ...)
+                let iter_base = c.bases.iter().any(|b| match b {
+                    Ex::Name(n) => ITER_TYPES.contains(&n.as_str()) && match self.lookup(n) {
+                        None => matches!(n.as_str(), "zip" | "map" | "filter" | "enumerate" | "reversed"),
+                        Some(Var::Global(_)) => self.bridge.srcs.get(&self.module).is_some_and(|(_, src)| src.contains("itertools")),
+                        _ => false,
+                    },
+                    Ex::Attr(o, n) => ITER_TYPES.contains(&n.as_str()) && matches!(o.as_ref(), Ex::Name(m) if m == "itertools"),
+                    _ => false,
+                });
+                if iter_base && self.bridge.srcs.contains_key(&self.module) {
+                    return Err(err(line, &format!("class {} is built on a builtin iterator type; subclassing zip, map, filter or an itertools type is not supported in dynamic builds", c.name)));
+                }
+                if self.iter_type_values && c.bases.iter().any(|b| matches!(b, Ex::Name(n) if matches!(self.lookup(n), Some(Var::Local(_) | Var::Cell(_))))) {
+                    return Err(err(line, &format!("class {} has a base chosen at run time in a program that uses builtin iterator types as values; subclassing zip, map, filter or an itertools type is not supported in dynamic builds", c.name)));
+                }
                 if let Some(src) = self.bridge.classes.get(&(self.module.clone(), c.line)).cloned() {
                     let m = self.module.clone();
                     let imports = self.bridge.imports.get(&m).cloned().unwrap_or_default();
@@ -3837,13 +3869,14 @@ impl Em {
             return Err(err(d.line, "async functions are not supported in dynamic builds on this platform"));
         }
         self.next_async = d.is_async;
-        let qn = self.qualname_of(&d.name);
-        let v = self.closure(&d.name, &qn, &d.params, &d.body, d.line, true);
+        let own = d.disp.as_deref().unwrap_or(&d.name);
+        let qn = self.qualname_of(own);
+        let v = self.closure(own, &qn, &d.params, &d.body, d.line, true);
         self.next_async = false;
         let mut v = v?;
         v = format!("with_qualname({v}, {})", lit(&qn));
         if let Some(doc) = docstring(&d.body) {
-            v = format!("with_doc({v}, {})", lit(doc));
+            v = format!("with_doc({v}, {})", lit(&doc));
         }
         if self.module != "__main__" {
             v = format!("with_module({v}, {})", lit(&self.module));
@@ -4251,6 +4284,8 @@ impl Em {
         if setup {
             sc.locals.insert("__annotations__".into());
         }
+        let own_name = c.disp.clone().unwrap_or_else(|| c.name.clone());
+        let sattrs = c.static_attrs.iter().map(|n| lit(n)).collect::<Vec<_>>().join(", ");
         // A class body that calls locals() must run with its namespace as a dict: locals() returns that
         // dict, and every name load and store goes through it (CPython's LOAD_FROM_DICT_OR_DEREF / LOAD_NAME
         // and DELETE_NAME). Other classes keep the plain Rust locals exactly as before.
@@ -4282,7 +4317,21 @@ impl Em {
         let dict_mode = meta.is_some() || class_calls_locals(&c.body);
         let parent = self.fstack.last().unwrap();
         // CPython's __qualname__: `Outer.Inner` inside a class, `f.<locals>.C` inside a function.
-        let qualname = self.qualname_of(&c.name);
+        let qualname = self.qualname_of(&own_name);
+        // __firstlineno__ is the class statement's line; in Brevi's own copy of a CPython module, the line of
+        // the class in CPython's file. Why the dict cannot be CPython's, when it cannot ("" when it can):
+        let mut first = c.first;
+        let mut why = "";
+        if IN_COPY.with(|k| k.get()) {
+            match super::cpy_lines::CPY_CLASS_LINES.iter().find(|(m, q, _)| *m == self.module && *q == qualname) {
+                Some((_, _, l)) => first = *l,
+                None => why = "a class of Brevi's own copy of a module",
+            }
+        }
+        // a class whose annotations Brevi does not keep lacks the __annotations__ CPython's dict has
+        if !(setup || !c.body.iter().any(|s| matches!(s.st, St::AnnAssign(..)))) {
+            why = "annotations Brevi did not keep";
+        }
         let ns_var = format!("__ns{id}");
         let mut fr = Func { vars: HashMap::new(), frames: parent.frames.clone(), class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), qname: qualname.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![], ns: dict_mode.then_some(ns_var.clone()) };
         let ctx = format!("__auto_ctx{id}");
@@ -4297,7 +4346,6 @@ impl Em {
             write!(decls, "let __meta{id}: V = {mv}; ").unwrap();
             let prep = self.q(&format!("meta_prepare(&__meta{id}, {}, &tup(vec![{}]))", lit(&c.name), base_vars.iter().map(|v| format!("{v}.clone()")).collect::<Vec<_>>().join(", ")));
             write!(decls, "let mut {ns_var}: V = {prep}; ").unwrap();
-            let first = c.first_line;
             for (k, v) in [("__module__", format!("s({})", lit(if self.module == "__main__" { "__main__" } else { &self.module }))), ("__qualname__", format!("s({})", lit(&qualname))), ("__firstlineno__", format!("V::Int({first})"))] {
                 let set = self.q(&format!("setitem(&{ns_var}, &s(\"{k}\"), {v})"));
                 write!(decls, "{set}; ").unwrap();
@@ -4308,7 +4356,7 @@ impl Em {
                 write!(decls, "let {r}: V = {a}; ").unwrap();
             }
             if let Some(d) = docstring(&c.body) {
-                let set = self.q(&format!("setitem(&{ns_var}, &s(\"__doc__\"), s({}))", lit(d)));
+                let set = self.q(&format!("setitem(&{ns_var}, &s(\"__doc__\"), s({}))", lit(&d)));
                 write!(decls, "{set}; ").unwrap();
             }
             for n in sc.locals.iter() {
@@ -4316,6 +4364,12 @@ impl Em {
             }
         } else if dict_mode {
             write!(decls, "let mut {ns_var}: V = dict_new(); ").unwrap();
+            // the namespace starts as CPython's class body starts it: __module__, __qualname__, __firstlineno__
+            let modname = if self.module == "__main__" { "__main__".to_string() } else { self.module.clone() };
+            for (k, v) in [("__module__", format!("s({})", lit(&modname))), ("__qualname__", format!("s({})", lit(&qualname))), ("__firstlineno__", format!("V::Int({first})"))] {
+                let set = self.q(&format!("setitem(&{ns_var}, &s({}), {v})", lit(k)));
+                write!(decls, "{set}; ").unwrap();
+            }
             if setup {
                 // SETUP_ANNOTATIONS runs first, so __annotations__ is the namespace dict's first key; the
                 // alias here is the same dict the class body stores annotations into.
@@ -4416,22 +4470,24 @@ impl Em {
         let mut v = if dict_mode {
             // the namespace dict holds the class attributes in the order the body bound them; the doc is
             // added only now, as __build_class__ adds it after the body
-            let mut attrs = String::new();
             if meta.is_some() {
-                let sa: Vec<String> = static_attributes(&c.body).iter().map(|n| format!("s({})", lit(n))).collect();
+                let sa: Vec<String> = c.static_attrs.iter().map(|n| format!("s({})", lit(n))).collect();
                 let set = self.q(&format!("setitem(&{ns_var}, &s(\"__static_attributes__\"), tup(vec![{}]))", sa.join(", ")));
-                write!(attrs, "{set}; ").unwrap();
-                let mk = self.q(&format!("meta_build(&__meta{id}, {}, {}, {}, vec![{}], {ns_var}.clone(), vec![{}])", lit(&c.name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", ")));
-                format!("{{ {decls}\n{body}\n{attrs} {w} let __c = {mk}; __c }}")
+                let mk = self.q(&format!("meta_build(&__meta{id}, {}, {}, {}, vec![{}], {ns_var}.clone(), vec![{}])", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", ")));
+                format!("{{ {decls}\n{body}\n{set}; {w} let __c = {mk}; __c }}")
             } else {
-            if !sc.locals.contains("__doc__") {
-                let doc = docstring(&c.body).map_or("V::None".to_string(), |d| format!("s({})", lit(d)));
-                let set = self.q(&format!("setitem(&{ns_var}, &s(\"__doc__\"), {doc})"));
-                write!(attrs, "{set}; ").unwrap();
-            }
+            let attrs = String::new();
             let items = self.q(&format!("dict_sym_items(&{ns_var})"));
-            let mk = self.q(&format!("make_class_f({}, {}, {}, vec![{}], {items}, vec![{}])", lit(&c.name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", ")));
-            format!("{{ {decls}\n{body}\n{attrs} {w} let __c = {mk}; {abcm} __c }}")
+            let mk = self.q(&format!("make_class_s({}, {}, {}, vec![{}], {items}, vec![{}], {}, &[{}], {})", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", "), first, sattrs, lit(why)));
+            // a docstring is the body's first store (CPython's STORE_NAME __doc__), after SETUP_ANNOTATIONS
+            let doc_set = match docstring(&c.body) {
+                Some(d) => {
+                    let set = self.q(&format!("setitem(&{ns_var}, &s(\"__doc__\"), s({}))", lit(&d)));
+                    format!("{set}; ")
+                }
+                None => String::new(),
+            };
+            format!("{{ {decls}\n{doc_set}{body}\n{attrs} {w} let __c = {mk}; {abcm} __c }}")
             }
         } else {
             // class attributes in the order the body first binds them, as CPython's class namespace keeps them
@@ -4463,19 +4519,25 @@ impl Em {
                 let r = format!("a{id}___annotations__");
                 write!(attrs, "__at.push((\"__annotations__\", {r})); ").unwrap();
             }
+            // a docstring is the body's first store (CPython's STORE_NAME __doc__), after SETUP_ANNOTATIONS; a
+            // class without one gets __doc__ = None from make_class, after the names type_new adds
+            let doc = docstring(&c.body);
+            if let Some(d) = &doc {
+                if sc.locals.contains("__doc__") {
+                    let r = format!("a{id}___doc__");
+                    write!(attrs, "__at.push((\"__doc__\", if matches!({r}, V::Unbound) {{ s({}) }} else {{ {r} }})); ", lit(d)).unwrap();
+                } else {
+                    write!(attrs, "__at.push((\"__doc__\", s({}))); ", lit(d)).unwrap();
+                }
+            }
             for n in order {
-                if setup && n == "__annotations__" {
+                if setup && n == "__annotations__" || doc.is_some() && n == "__doc__" {
                     continue;
                 }
                 let r = format!("a{id}_{}", rust_ident(n));
                 write!(attrs, "if !matches!({r}, V::Unbound) {{ __at.push(({}, {r})); }} ", lit(n)).unwrap();
             }
-            // every class has its own __doc__ (None without a docstring), not its parent's
-            if !sc.locals.contains("__doc__") {
-                let doc = docstring(&c.body).map_or("V::None".to_string(), |d| format!("s({})", lit(d)));
-                write!(attrs, "__at.push((\"__doc__\", {doc})); ").unwrap();
-            }
-            let mk = self.q(&format!("make_class_f({}, {}, {}, vec![{}], __at, vec![{}])", lit(&c.name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", ")));
+            let mk = self.q(&format!("make_class_s({}, {}, {}, vec![{}], __at, vec![{}], {}, &[{}], {})", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", "), first, sattrs, lit(why)));
             format!("{{ {decls}\n{body}\nlet mut __at: Vec<(Sym, V)> = vec![]; {attrs} {w} let __c = {mk}; {abcm} __c }}")
         };
         for dec in c.decorators.iter().rev() {
@@ -4511,11 +4573,56 @@ fn ann_kind(a: &Ex) -> Option<&'static str> {
 }
 
 // The docstring of a def or class body.
-fn docstring(body: &[Stmt]) -> Option<&str> {
+// A def's or class's docstring as CPython 3.13 stores it: tabs expanded, the first line's leading spaces and the
+// common indentation of the later lines removed (_PyCompile_CleanDoc).
+fn docstring(body: &[Stmt]) -> Option<String> {
     match body.first().map(|s| &s.st) {
-        Some(St::Expr(Ex::Str(d))) => Some(d.as_str()),
+        Some(St::Expr(Ex::Str(d))) => Some(clean_doc(d)),
         _ => None,
     }
+}
+fn clean_doc(d: &str) -> String {
+    // str.expandtabs(8)
+    let mut t = String::with_capacity(d.len());
+    let mut col = 0usize;
+    for ch in d.chars() {
+        match ch {
+            '\t' => {
+                let n = 8 - col % 8;
+                t.extend(std::iter::repeat(' ').take(n));
+                col += n;
+            }
+            '\n' | '\r' => {
+                t.push(ch);
+                col = 0;
+            }
+            c => {
+                t.push(c);
+                col += 1;
+            }
+        }
+    }
+    let lines: Vec<&str> = t.split('\n').collect();
+    let margin = lines
+        .iter()
+        .skip(1)
+        .filter_map(|l| {
+            let n = l.len() - l.trim_start_matches(' ').len();
+            (n < l.len()).then_some(n)
+        })
+        .min()
+        .unwrap_or(0);
+    let mut out = String::with_capacity(t.len());
+    for (i, l) in lines.iter().enumerate() {
+        if i == 0 {
+            out.push_str(l.trim_start_matches(' '));
+        } else {
+            out.push('\n');
+            let lead = l.len() - l.trim_start_matches(' ').len();
+            out.push_str(&l[lead.min(margin)..]);
+        }
+    }
+    out
 }
 
 fn builtin_fast(n: &str) -> Option<String> {
@@ -4568,6 +4675,34 @@ pub fn ic_statics() -> String {
     }
     s
 }
+// Whether `src` names a builtin iterator type (zip, map, filter, enumerate, reversed, or an itertools one) other
+// than to call it or import it: `(repeat, args)`, `cls = chain`.
+const ITER_TYPES: [&str; 22] = ["zip", "map", "filter", "enumerate", "reversed", "repeat", "chain", "islice", "cycle", "compress", "starmap",
+        "takewhile", "dropwhile", "filterfalse", "accumulate", "zip_longest", "product", "permutations", "combinations", "groupby", "count", "pairwise"];
+fn iter_type_as_value(src: &str) -> bool {
+    const NAMES: [&str; 22] = ITER_TYPES;
+    let idc = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
+    for line in src.lines() {
+        let t = line.trim_start();
+        if t.starts_with("import ") || t.starts_with("from ") || t.starts_with('#') {
+            continue;
+        }
+        let lb = line.as_bytes();
+        for n in NAMES {
+            let mut from = 0;
+            while let Some(i) = line[from..].find(n).map(|i| i + from) {
+                from = i + n.len();
+                let before_ok = i == 0 || !(idc(lb[i - 1]) || lb[i - 1] == b'.');
+                let after = line[from..].trim_start();
+                let after_ok = from >= lb.len() || !idc(lb[from]);
+                if before_ok && after_ok && !after.starts_with('(') && !after.starts_with('=') && (after.starts_with(',') || after.starts_with(')') || after.starts_with(']') || after.is_empty()) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
 pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>), (String, usize, String)> {
     // the program (not Brevi's library copies) uses the warnings module
     // (or functools.partial, whose __get__ warns at the line that reads it from an instance, or
@@ -4578,6 +4713,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
             && b.contains("\"itertools\"")
             && ["\"pickle\"", "\"copy\"", "\"deepcopy\"", "\"__reduce__\"", "\"__reduce_ex__\"", "\"__setstate__\""].iter().any(|k| b.contains(k))
     });
+    let iter_type_values = mods.iter().any(|m| bridge.srcs.get(&m.name).is_some_and(|(_, src)| iter_type_as_value(src)));
     // copy.deepcopy of a tee iterator deep-copies its buffer and the iterator under it (tee.__reduce__), which
     // Brevi does not have; refused when the program is built rather than stopping when it runs
     if mods.iter().any(|m| {
@@ -4624,6 +4760,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         uses_re: false,
         re_names: HashSet::new(),
         track_warn,
+        iter_type_values,
         multi: HashMap::new(),
         wmods: HashSet::new(),
         lam_line: None,
@@ -4983,67 +5120,6 @@ fn eval_numbers(src: &str) -> Option<bool> {
     Some(plain)
 }
 
-// CPython 3.13's __static_attributes__ of a class body: the names stored as `self.NAME` (an assignment, augmented
-// or annotated assignment, for or with target) in any function nested in the body, nearest class first, sorted.
-fn static_attributes(body: &[Stmt]) -> Vec<String> {
-    fn tgt(t: &Ex, out: &mut BTreeSet<String>) {
-        match t {
-            Ex::Attr(o, a) if matches!(o.as_ref(), Ex::Name(n) if n == "self") => {
-                out.insert(a.clone());
-            }
-            Ex::Tuple(v) | Ex::List(v) => v.iter().for_each(|x| tgt(x, out)),
-            Ex::Star(x) => tgt(x, out),
-            _ => {}
-        }
-    }
-    fn walk(body: &[Stmt], in_fn: bool, out: &mut BTreeSet<String>) {
-        for s in body {
-            match &s.st {
-                St::Assign(ts, _) if in_fn => ts.iter().for_each(|t| tgt(t, out)),
-                St::AugAssign(t, _, _) | St::AnnAssign(t, _, _) if in_fn => tgt(t, out),
-                St::For(t, _, b, e) => {
-                    if in_fn {
-                        tgt(t, out);
-                    }
-                    walk(b, in_fn, out);
-                    if let Some(e) = e {
-                        walk(e, in_fn, out);
-                    }
-                }
-                St::With(items, b) => {
-                    if in_fn {
-                        items.iter().filter_map(|(_, t)| t.as_ref()).for_each(|t| tgt(t, out));
-                    }
-                    walk(b, in_fn, out);
-                }
-                St::While(_, b, e) => {
-                    walk(b, in_fn, out);
-                    if let Some(e) = e {
-                        walk(e, in_fn, out);
-                    }
-                }
-                St::If(arms, els) => {
-                    arms.iter().for_each(|(_, b)| walk(b, in_fn, out));
-                    if let Some(b) = els {
-                        walk(b, in_fn, out);
-                    }
-                }
-                St::Try(b, hs, e, f) => {
-                    walk(b, in_fn, out);
-                    hs.iter().for_each(|h| walk(&h.body, in_fn, out));
-                    for x in [e, f].into_iter().flatten() {
-                        walk(x, in_fn, out);
-                    }
-                }
-                St::Def(d) => walk(&d.body, true, out),
-                _ => {}
-            }
-        }
-    }
-    let mut out = BTreeSet::new();
-    walk(body, false, &mut out);
-    out.into_iter().collect()
-}
 
 // The special methods a metaclass may define (rt_call.rs keeps the same list and checks it at run time).
 const META_DUNDERS: &[&str] = &[

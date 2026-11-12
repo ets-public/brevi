@@ -340,23 +340,50 @@ pub fn make_class(name: Sym, module: Sym, bases: Vec<V>, attrs: Vec<(Sym, V)>) -
 // As make_class, with the names the class body annotates (dataclass and NamedTuple fields). `qualname` is
 // CPython's dotted __qualname__ (`outer.<locals>.Name` inside a function, `Outer.Inner` inside a class).
 pub fn make_class_f(name: Sym, qualname: Sym, module: Sym, bases: Vec<V>, attrs: Vec<(Sym, V)>, fields: Vec<Sym>) -> R {
-    // a base made by a program's metaclass: that metaclass makes the class, as __build_class__ has it do
     if let Some(m) = bases_meta(&bases)? {
-        if meta_lookup(&m, "__prepare__").is_some() {
-            return Err(unsupported("a metaclass's __prepare__ for a class that inherits the metaclass from a base"));
-        }
-        let ns = dict_new();
-        setitem(&ns, &s("__module__"), s(module))?;
-        setitem(&ns, &s("__qualname__"), s(qualname))?;
-        for (k, v) in attrs {
-            setitem(&ns, &s(k), v)?;
-        }
-        PENDING_FIELDS.with(|p| *p.borrow_mut() = Some(fields));
-        return meta_call(&m, Args::p(vec![s(name), tup(bases), ns]));
+        return meta_from_base(&m, name, qualname, module, bases, attrs, fields, None);
     }
-    make_class_m(name, qualname, module, bases, attrs, fields, None)
+    make_class_impl(name, qualname, module, bases, attrs, fields, None, None)
 }
-fn make_class_m(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, attrs: Vec<(Sym, V)>, fields: Vec<Sym>, meta: Option<Rc<Class>>) -> R {
+// A class statement's class: as make_class_f, with what CPython's compiler adds to the namespace
+// (__firstlineno__, __static_attributes__)
+// (and, when not "", why its dict cannot be CPython's: the compiler knows when it is not)
+pub fn make_class_s(name: Sym, qualname: Sym, module: Sym, bases: Vec<V>, attrs: Vec<(Sym, V)>, fields: Vec<Sym>, first: i64, sattrs: &[&'static str], why: &'static str) -> R {
+    let c = match bases_meta(&bases)? {
+        Some(m) => meta_from_base(&m, name, qualname, module, bases, attrs, fields, Some((first, sattrs)))?,
+        None => make_class_impl(name, qualname, module, bases, attrs, fields, Some((first, sattrs.to_vec())), None)?,
+    };
+    if !why.is_empty() {
+        if let V::Class(k) = &c {
+            tdict_inexact(k, why);
+        }
+    }
+    Ok(c)
+}
+// A base made by a program's metaclass: that metaclass makes the class, as __build_class__ has it do, from the
+// namespace the class body made (with a class statement's __firstlineno__ and __static_attributes__)
+#[allow(clippy::too_many_arguments)]
+fn meta_from_base(m: &Rc<Class>, name: Sym, qualname: Sym, module: Sym, bases: Vec<V>, attrs: Vec<(Sym, V)>, fields: Vec<Sym>, stmt: Option<(i64, &[&'static str])>) -> R {
+    if meta_lookup(m, "__prepare__").is_some() {
+        return Err(unsupported("a metaclass's __prepare__ for a class that inherits the metaclass from a base"));
+    }
+    let ns = dict_new();
+    setitem(&ns, &s("__module__"), s(module))?;
+    setitem(&ns, &s("__qualname__"), s(qualname))?;
+    if let Some((first, _)) = stmt {
+        setitem(&ns, &s("__firstlineno__"), V::Int(first))?;
+    }
+    for (k, v) in attrs {
+        setitem(&ns, &s(k), v)?;
+    }
+    if let Some((_, sa)) = stmt {
+        setitem(&ns, &s("__static_attributes__"), tup(sa.iter().map(|x| s(x)).collect()))?;
+    }
+    PENDING_FIELDS.with(|p| *p.borrow_mut() = Some(fields));
+    meta_call(m, Args::p(vec![s(name), tup(bases), ns]))
+}
+#[allow(clippy::too_many_arguments)]
+fn make_class_impl(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, attrs: Vec<(Sym, V)>, fields: Vec<Sym>, stmt: Option<(i64, Vec<Sym>)>, meta: Option<Rc<Class>>) -> R {
     if let Some(r) = typing_class(name, qualname, module, &mut bases, &attrs, &fields) {
         if meta.is_some() {
             return Err(unsupported("a metaclass for a NamedTuple or TypedDict class"));
@@ -383,7 +410,13 @@ fn make_class_m(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, attrs:
     c.abc.set(abc);
     *c.meta.borrow_mut() = meta;
     for (n, v) in attrs {
-        c.set(n, v);
+        c.set_exact(n, v);
+    }
+    // what type_new adds after the namespace: slot members, __dict__ and __weakref__ (rt_tdict.rs), then
+    // __doc__ (None without a docstring: every class has its own, not its parent's)
+    tdict_setup(&c, &c.bases, stmt);
+    if c.own("__doc__").is_none() {
+        c.set_exact("__doc__", V::None);
     }
     if is_metaclass(&c) {
         meta_class_check(&c)?;
@@ -391,15 +424,16 @@ fn make_class_m(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, attrs:
     // type.__new__: a class that defines __eq__ and no __hash__ gets __hash__ = None (unhashable, and so
     // not Hashable), which its subclasses inherit
     if c.own("__eq__").is_some() && c.own("__hash__").is_none() {
-        c.set("__hash__", V::None);
+        c.set_exact("__hash__", V::None);
     }
     if abc {
         abc_setup(&c)?;
     }
+    tdict_seal(&c);
     // a __slots__ name that the class body also binds is refused, as CPython refuses it
     if let Some(sv) = c.own("__slots__") {
         let mut own_slots = vec![];
-        slot_names(&sv, &mut own_slots);
+        slot_names(c.name, &sv, &mut own_slots);
         for n in own_slots {
             if n == "__dict__" || n == "__weakref__" {
                 continue;
@@ -497,22 +531,26 @@ fn abc_setup(c: &Rc<Class>) -> R {
     }
     names.sort();
     let abs = PSet::from_iter(names.iter().map(|n| s(n)).collect())?;
-    c.set("__abstractmethods__", V::FSet(Rc::new(abs)));
+    c.set_exact("__abstractmethods__", V::FSet(Rc::new(abs)));
+    // the Py_TPFLAGS_SEQUENCE/MAPPING bits, kept as Brevi's own __bv_flags__ (CPython keeps them in tp_flags,
+    // not the dict); _abc_init removes __abc_tpflags__ from the dict
     let mut flags: i64 = 0;
     for b in c.bases.iter() {
         if b.abc.get() {
-            if let Some(V::Int(f)) = b.own("__flags__") {
+            if let Some(V::Int(f)) = b.own("__bv_flags__") {
                 flags |= f;
             }
         }
     }
     if let Some(V::Int(f)) = c.own("__abc_tpflags__") {
         flags |= f;
+        c.del_exact("__abc_tpflags__");
     }
     if flags & 32 != 0 && flags & 64 != 0 {
         return Err(exc("TypeError", "__abc_tpflags__ cannot be both Py_TPFLAGS_SEQUENCE and Py_TPFLAGS_MAPPING".into()));
     }
-    c.set("__flags__", V::Int(flags));
+    c.set_exact("__bv_flags__", V::Int(flags));
+    c.set_exact("_abc_impl", V::Ext(ExtRc::new(AbcData)));
     Ok(V::None)
 }
 // A def's number of positional parameters, for Brevi's pydantic (which calls a validator with info only when
@@ -1339,6 +1377,28 @@ fn class_getattr(o: &V, c: &Rc<Class>, name: &str) -> R {
             }
         });
     }
+    // what only the type dict holds: __firstlineno__, __static_attributes__, slot members, __weakref__
+    if let Some(v) = tdict_attr(c, name) {
+        return Ok(v);
+    }
+    if c.abc.get() {
+        match name {
+            // ABCMeta's register(), a method of the metaclass bound to the class
+            "register" => {
+                let me = o.clone();
+                return Ok(builtin("register", move |a: Args| {
+                    let sub = a1(&a, "register")?;
+                    abc_register(Args::p(vec![me.clone(), sub]))
+                }));
+            }
+            "__flags__" => {
+                if let Some(v) = c.lookup("__bv_flags__") {
+                    return Ok(v);
+                }
+            }
+            _ => {}
+        }
+    }
     if c.name.contains('.') {
         if let Some(v) = ext_class_attr(c.name, name) {
             return Ok(v);
@@ -1394,19 +1454,8 @@ fn class_getattr(o: &V, c: &Rc<Class>, name: &str) -> R {
         "__type_params__" => Ok(tup(vec![])),
         // the class's own names in the order its body bound them (CPython's is a read-only view
         // with a few more dunder names)
-        "__dict__" => {
-            let mut d = Dict::new();
-            d.set(s("__module__"), s(c.module))?;
-            for (k, v) in c.attrs.borrow().iter() {
-                if !k.starts_with("__bv_") {
-                    d.set(s(k), v.clone())?;
-                }
-            }
-            if c.own("__doc__").is_none() {
-                d.set(s("__doc__"), V::None)?;
-            }
-            Ok(V::View(Rc::new((V::Dict(Rc::new(RefCell::new(d))), 3))))
-        }
+        // CPython's type dict, as a read-only view (rt_tdict.rs; refused where Brevi cannot give it exactly)
+        "__dict__" => class_dict_view(c),
         _ => {
             // methods of a builtin base (tuple's __getitem__ on a namedtuple class, list's
             // append on a list subclass) live on the builtin class in CPython, not on the subclass
@@ -1819,7 +1868,7 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
             if name == "__set__" || name == "__delete__" {
                 USER_DATA_DESC.store(true, std::sync::atomic::Ordering::Relaxed);
             }
-            c.set(name, v);
+            c.set_exact(name, v);
             Ok(())
         }
         // each namedtuple field descriptor keeps its own __doc__; nothing else may be set, as in CPython
@@ -1930,7 +1979,7 @@ pub fn delattr(o: &V, name: &str) -> Result<(), E> {
         V::Class(c) if c.meta.borrow().as_ref().is_some_and(|m| meta_lookup(m, name).is_some_and(|d| matches!(d, V::Prop(_)) || is_data_desc(&d))) => {
             Err(unsupported("deleting a class attribute its metaclass defines as a descriptor"))
         }
-        V::Class(c) if c.del(name) => Ok(()),
+        V::Class(c) if c.del_exact(name) => Ok(()),
         V::Class(c) => Err(exc("AttributeError", format!("type object '{}' has no attribute '{}'", c.name, name))),
         // a def's user attribute: from its __dict__ once that has been made, else from its attrs (as setattr stores it)
         V::Func(f) if !FUNC_SLOT_ATTRS.contains(&name) => {
@@ -2326,20 +2375,21 @@ pub fn type_new(mcls: &Rc<Class>, a: Args) -> R {
                 V::Str(x) => qualname = sym(&x.s),
                 x => return type_err(format!("type __qualname__ must be a str, not {}", tn(x))),
             },
+            // kept in the dict where the namespace has it, as type_new keeps it
             "__module__" => match &v {
-                V::Str(x) => module = sym(&x.s),
+                V::Str(x) => {
+                    module = sym(&x.s);
+                    attrs.push((k, v));
+                }
                 _ => return Err(unsupported("a class __module__ that is not a str")),
             },
             "__classcell__" => {}
             _ => attrs.push((k, v)),
         }
     }
-    if !attrs.iter().any(|(k, _)| *k == "__doc__") {
-        attrs.push(("__doc__", V::None));
-    }
     let fields = PENDING_FIELDS.with(|p| p.borrow_mut().take()).unwrap_or_default();
     let meta = if is_type_class(&winner) { None } else { Some(winner) };
-    make_class_m(name, qualname, module, bases, attrs, fields, meta)
+    make_class_impl(name, qualname, module, bases, attrs, fields, None, meta)
 }
 // Calling a metaclass: M.__new__ (its own, or type's), then M.__init__ when the result is an instance of M.
 pub fn meta_call(m: &Rc<Class>, a: Args) -> R {

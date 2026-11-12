@@ -1,0 +1,13 @@
+['__module__', '__qualname__', '__firstlineno__', 'x']
+['__module__', '__firstlineno__', '__doc__', 'x', '_A__y', '__init__', 'm', '__static_attributes__', '__dict__', '__weakref__']
+6 ('__c', 'a', 'b', 'z') 2 2
+['__module__', '__firstlineno__', '__slots__', '__eq__', '__static_attributes__', '_B__r', 'q', '__doc__', '__hash__'] <member 'q' of 'B' objects> None
+['__module__', '__firstlineno__', '__static_attributes__', '__weakref__', '__doc__'] ['__module__', '__firstlineno__', '__static_attributes__', '__dict__', '__doc__']
+['__module__', '__firstlineno__', '__doc__', '__slots__', '__setitem__', '__delitem__', '_MutableMapping__marker', 'pop', 'popitem', 'clear', 'update', 'setdefault', '__static_attributes__', '__abstractmethods__', '_abc_impl']
+['__weakref__', '__doc__', '__abstractmethods__', '_abc_impl'] 1121
+['__doc__', '__slots__', '_fields', '_field_defaults', '__new__', '_make', '__replace__', '_replace', '__repr__', '_asdict', '__getnewargs__', '__match_args__', 'x', 'y', '__module__']
+['__new__', '__repr__', '__hash__', '__getattribute__', '__lt__', '__le__'] 35 <method 'keys' of 'dict' objects> <slot wrapper '__add__' of 'str' objects>
+True True True
+['__weakref__', 'b', 'm', 'x'] False
+collections.abc.Iterable[int] <classmethod(<class 'types.GenericAlias'>)>
+refused

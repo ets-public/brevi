@@ -1957,8 +1957,18 @@ pub fn getitem(c: &V, i: &V) -> R {
         // collections.abc.Mapping[str, int] (or a subclass of an ABC): a types.GenericAlias, as
         // __class_getitem__ = classmethod(GenericAlias) makes it. Callable's alias flattens its arguments
         // (_CallableGenericAlias), which this one does not do, so Callable[...] is refused.
-        (V::Class(k), _) if k.abc.get() => {
-            if k.lookup("__class_getitem__").is_some() {
+        (V::Class(k), _) if k.abc.get() || tinfo(k).is_some() && k.lookup("__class_getitem__").is_some() => {
+            if let Some(g) = k.lookup("__class_getitem__") {
+                // classmethod(GenericAlias): the alias itself (Brevi's GenericAlias type is not callable)
+                if let V::Func(gf) = &g {
+                    if gf.kind.get() == 2 && matches!(gf.attrs.borrow().iter().find(|(n, _)| *n == "__func__"), Some((_, V::Class(t))) if t.name == "types.GenericAlias") {
+                        return Ok(class_alias(k, i));
+                    }
+                    // a plain def __class_getitem__ is an implicit classmethod (type_new wraps it)
+                    if gf.kind.get() == 0 {
+                        return call(&g, Args::p(vec![c.clone(), i.clone()]));
+                    }
+                }
                 let f = getattr(c, "__class_getitem__")?;
                 return call(&f, Args::p(vec![i.clone()]));
             }
