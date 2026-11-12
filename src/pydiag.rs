@@ -209,7 +209,7 @@ pub fn definite(diags: &[Diag], src: &str, dir: &std::path::Path) -> Vec<Diag> {
     for d in diags {
         let named = |pre: &str, post: &str| d.msg.strip_prefix(pre).and_then(|r| r.strip_suffix(post)).map(String::from);
         let line_code = code.lines().nth(d.line.wrapping_sub(1)).unwrap_or("");
-        if maybe_unreached(&code, d.line) {
+        if maybe_unreached(&code, d.line) || in_finalizer(&code, d.line) {
             continue;
         }
         let found = if let Some(n) = named("unknown function ", "()").or_else(|| named("unknown name '", "'")) {
@@ -370,6 +370,30 @@ fn maybe_unreached(code: &str, line: usize) -> bool {
             break;
         }
         want = ind;
+    }
+    false
+}
+
+// Whether `line` is in the body of a `__del__`. CPython prints an error raised there ("Exception ignored in")
+// and goes on, so it never stops the program: nothing about it is a sure mistake.
+fn in_finalizer(code: &str, line: usize) -> bool {
+    let lines: Vec<&str> = code.lines().collect();
+    let Some(l) = lines.get(line.wrapping_sub(1)) else { return false };
+    let indent = |s: &str| s.len() - s.trim_start().len();
+    let mut want = indent(l);
+    for h in lines[..line - 1].iter().rev() {
+        let t = h.trim_start();
+        if t.is_empty() || indent(h) >= want {
+            continue;
+        }
+        want = indent(h);
+        let t = t.strip_prefix("async ").unwrap_or(t);
+        if let Some(r) = t.strip_prefix("def ") {
+            return r.trim_start().starts_with("__del__(");
+        }
+        if want == 0 {
+            break;
+        }
     }
     false
 }
@@ -678,6 +702,17 @@ mod tests {
         assert!(sure("class A:\n    def uppr(self):\n        return 1\nprint(A().uppr())\n", "unknown method .uppr()", 4).is_empty());
         assert!(sure("import numpy as np\nprint(np.zeros(3).uppr())\n", "unknown method .uppr()", 2).is_empty());
         assert!(sure("import math\nprint(math.sqrtt(2))\n", "unknown method .sqrtt()", 2).len() == 1);
+        // A singledispatch function has .dispatch() and .register().
+        assert!(sure("import functools\n@functools.singledispatch\ndef g(x):\n    return 1\nprint(g.dispatch(int))\n", "unknown method .dispatch()", 5).is_empty());
+    }
+
+    #[test]
+    fn finalizer_errors_are_not_sure() {
+        // CPython reports an error in __del__ as ignored and goes on; elsewhere the same name is still sure.
+        let f = "class A:\n    def __del__(self):\n        cleanupp()\nA()\n";
+        assert!(sure(f, "unknown function cleanupp()", 3).is_empty());
+        let g = "class A:\n    def close(self):\n        cleanupp()\nA().close()\n";
+        assert_eq!(sure(g, "unknown function cleanupp()", 3).len(), 1);
     }
 
     #[test]

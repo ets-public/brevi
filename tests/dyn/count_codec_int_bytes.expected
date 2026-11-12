@@ -1,0 +1,87 @@
+15
+10 8
+3 5
+1.5 2.5
+argument for count() given by name ('start') and position (1)
+count() got an unexpected keyword argument 'foo'
+count() takes at most 2 arguments (3 given)
+123
+123
+291
+123
+1371
+12
+12
+18
+12
+38
+VE invalid literal for int() with base 10: b'123\x00'
+VE invalid literal for int() with base 10: b'123\x00'
+VE invalid literal for int() with base 16: b'123\x00'
+VE invalid literal for int() with base 0: b'123\x00'
+VE invalid literal for int() with base 36: b'123\x00'
+VE invalid literal for int() with base 10: b'123\xbd'
+VE invalid literal for int() with base 10: b'123\xbd'
+VE invalid literal for int() with base 16: b'123\xbd'
+VE invalid literal for int() with base 0: b'123\xbd'
+VE invalid literal for int() with base 36: b'123\xbd'
+42
+42
+66
+42
+146
+1000
+1000
+4096
+1000
+46656
+VE invalid literal for int() with base 10: b'0x1f'
+VE invalid literal for int() with base 10: b'0x1f'
+31
+31
+42819
+VE invalid literal for int() with base 10: b'\xd9\xa3'
+VE invalid literal for int() with base 10: b'\xd9\xa3'
+VE invalid literal for int() with base 16: b'\xd9\xa3'
+VE invalid literal for int() with base 0: b'\xd9\xa3'
+VE invalid literal for int() with base 36: b'\xd9\xa3'
+VE invalid literal for int() with base 10: b'\xc2\xa012'
+VE invalid literal for int() with base 10: b'\xc2\xa012'
+VE invalid literal for int() with base 16: b'\xc2\xa012'
+VE invalid literal for int() with base 0: b'\xc2\xa012'
+VE invalid literal for int() with base 36: b'\xc2\xa012'
+-7
+-7
+-7
+-7
+-7
+VE invalid literal for int() with base 10: b''
+VE invalid literal for int() with base 10: b''
+VE invalid literal for int() with base 16: b''
+VE invalid literal for int() with base 0: b''
+VE invalid literal for int() with base 36: b''
+VE invalid literal for int() with base 10: b'z'
+VE invalid literal for int() with base 10: b'z'
+VE invalid literal for int() with base 16: b'z'
+VE invalid literal for int() with base 0: b'z'
+35
+VE int() base must be >= 2 and <= 36, or 0
+VE int() base must be >= 2 and <= 36, or 0
+TE int() can't convert non-string with explicit base
+12
+ANSI_X3.4-1968 abc b'xyz'
+us abc b'xyz'
+US-ASCII abc b'xyz'
+iso646-us abc b'xyz'
+cp367 abc b'xyz'
+utf8_ucs4 abc b'xyz'
+U8 abc b'xyz'
+UTF 8 abc b'xyz'
+ utf-8  abc b'xyz'
+iso_8859_1:1987 abc b'xyz'
+Latin1 abc b'xyz'
+csISOLatin1 abc b'xyz'
+ibm819 abc b'xyz'
+iso-ir-100 abc b'xyz'
+ascii!! abc b'xyz'
+LE unknown encoding: nope

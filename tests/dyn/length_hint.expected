@@ -1,0 +1,36 @@
+5 5
+0 7
+0 7
+3 3
+2 2
+3 3
+1 1
+3 3
+1 1
+1 1
+5 5
+0 7
+0 7
+0 7
+0 7
+0 7
+0 7
+3 3
+0 7
+0 0
+2
+0
+0
+2
+4
+0
+1
+0
+ValueError __length_hint__() should return >= 0
+TypeError __length_hint__ must be an integer, not str
+ValueError boom
+TypeError 'str' object cannot be interpreted as an integer
+TypeError 'float' object cannot be interpreted as an integer
+TypeError 'NoneType' object cannot be interpreted as an integer
+0
+_operator.length_hint() takes no keyword arguments

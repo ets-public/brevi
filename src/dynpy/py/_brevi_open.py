@@ -5,14 +5,35 @@
 import _brevi_fs
 
 
+# CPython's codec lookup for the three codecs here: lower-case with spaces as '_', encodings.normalize_encoding,
+# then the codec's name or an alias from encodings.aliases (3.13), also with '.' as '_' (as rt_bytes.rs codec_alias).
+_ALIASES = {}
+for _c, _names in (("ascii", "ascii 646 ansi_x3.4_1968 ansi_x3.4_1986 ansi_x3_4_1968 cp367 csascii ibm367 iso646_us iso_646.irv_1991 iso_ir_6 us us_ascii"),
+                   ("utf-8", "utf_8 cp65001 u8 utf utf8 utf8_ucs2 utf8_ucs4"),
+                   ("latin-1", "latin_1 8859 cp819 csisolatin1 ibm819 iso8859 iso8859_1 iso_8859_1 iso_8859_1_1987 iso_ir_100 l1 latin latin1")):
+    for _n in _names.split():
+        _ALIASES[_n] = _c
+
+
 def _codec(encoding):
-    e = "utf-8" if encoding is None else encoding.lower().replace("_", "-")
-    if e in ("utf-8", "utf8", "u8"):
+    if encoding is None:
         return "utf-8"
-    if e in ("ascii", "us-ascii"):
-        return "ascii"
-    if e in ("latin-1", "latin1", "iso-8859-1", "iso8859-1", "l1"):
-        return "latin-1"
+    low = "".join("_" if c == " " else (c.lower() if c.isascii() else c) for c in encoding)
+    chars = []
+    punct = False
+    for c in low:
+        if c.isalnum() or c == ".":
+            if punct and chars:
+                chars.append("_")
+            if c.isascii():
+                chars.append(c)
+            punct = False
+        else:
+            punct = True
+    norm = "".join(chars)
+    for k in (norm, norm.replace(".", "_")):
+        if k in _ALIASES:
+            return _ALIASES[k]
     raise LookupError("unknown encoding: " + encoding)
 
 

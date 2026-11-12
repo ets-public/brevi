@@ -8,8 +8,8 @@ links to the artifact it came from, with the date, the Brevi version and the har
 
 | Metric | Value | Version, date | Source |
 |---|---:|---|---|
-| Conformance | 80.4% (250 of 311); stdlib slice 45.1% (250 of 554) | v0.27.0, 11 Nov 2026 | `bench/conformance/report.md`, `bench/conformance/stdlib/report.md` |
-| Known-wrong results | 8 tests, 16 test-mode pairs (7 and 13 on main); stdlib 20 tests, 39 pairs on main | v0.27.0, 11 Nov 2026 | `compat/conformance_known_wrong.txt`, `compat/conformance_stdlib_known_wrong.txt` |
+| Conformance | 93.1% (268 of 288) on main; stdlib slice 83.9% (540 of 644). At v0.27.0: 80.4% (250 of 311) and 45.1% (250 of 554) | main f6d97ed and v0.27.0, 11 Nov 2026 | `bench/conformance/report.md`, `bench/conformance/stdlib/report.md` |
+| Known-wrong results | 0 on main (8 tests, 16 test-mode pairs at v0.27.0); stdlib: 5 wrong on main | v0.27.0, 11 Nov 2026 | `compat/conformance_known_wrong.txt`, `compat/conformance_stdlib_known_wrong.txt` |
 | Crash or timeout | 0 of 311 tests (stdlib: 1) | v0.27.0, 11 Nov 2026 | `bench/conformance/report.md` |
 | `check --fast` p50 / p95 | 22.0 / 24.4 ms on main (16.1 / 18.2 at v0.26.0; 160.3 / 174.4 at v0.27.0, when the fixture built dynamic) | main d91ca4b, 11 Nov 2026 | `bench/latency-results/2026-11-11-main-d91ca4b.json` |
 | `check` p50 / p95 | 94.4 / 107.4 ms on main (93.6 / 113.6 ms at v0.26.0) | main d91ca4b, 11 Nov 2026 | same |

@@ -142,7 +142,7 @@ fn slice_bound(v: &V) -> Result<i64, E> {
 }
 
 // PyLong_AsSsize_t, as center/zfill/split parse their width/maxsplit arguments.
-fn ssize_arg(v: &V) -> Result<i64, E> {
+pub fn ssize_arg(v: &V) -> Result<i64, E> {
     match try_index(v)? {
         Some(V::Int(i)) => Ok(i),
         Some(V::Bool(b)) => Ok(b as i64),
@@ -265,16 +265,54 @@ fn arg_tn(x: &V) -> String {
     }
 }
 
+// The codec CPython's lookup finds for `name`, among the three Brevi has: the name lower-cased with spaces as
+// underscores (_PyCodec_Lookup), then encodings.normalize_encoding (each run of characters other than ASCII
+// letters, digits and '.' becomes one '_', none at the ends), then the codec's own name or an alias from
+// encodings.aliases (CPython 3.13's table for ascii, utf_8 and latin_1), tried also with '.' as '_'.
+fn codec_alias(name: &str) -> Option<&'static str> {
+    let low: String = name.chars().map(|c| if c == ' ' { '_' } else { c.to_ascii_lowercase() }).collect();
+    let mut norm = String::new();
+    let mut punct = false;
+    for c in low.chars() {
+        if c.is_alphanumeric() || c == '.' {
+            if punct && !norm.is_empty() {
+                norm.push('_');
+            }
+            if c.is_ascii() {
+                norm.push(c);
+            }
+            punct = false;
+        } else {
+            punct = true;
+        }
+    }
+    const ASCII: &[&str] = &["ascii", "646", "ansi_x3.4_1968", "ansi_x3.4_1986", "ansi_x3_4_1968", "cp367", "csascii", "ibm367", "iso646_us", "iso_646.irv_1991", "iso_ir_6", "us", "us_ascii"];
+    const UTF8: &[&str] = &["utf_8", "cp65001", "u8", "utf", "utf8", "utf8_ucs2", "utf8_ucs4"];
+    const LATIN1: &[&str] = &["latin_1", "8859", "cp819", "csisolatin1", "ibm819", "iso8859", "iso8859_1", "iso_8859_1", "iso_8859_1_1987", "iso_ir_100", "l1", "latin", "latin1"];
+    let alt = norm.replace('.', "_");
+    [norm.as_str(), alt.as_str()].iter().find_map(|k| {
+        if UTF8.contains(k) {
+            Some("utf-8")
+        } else if ASCII.contains(k) {
+            Some("ascii")
+        } else if LATIN1.contains(k) {
+            Some("latin-1")
+        } else {
+            None
+        }
+    })
+}
+
 fn codec_name(v: Option<&V>) -> Result<&'static str, E> {
     let n = match v {
         None => return Ok("utf-8"),
         Some(V::Str(s)) => s.s.to_lowercase().replace('_', "-"),
         Some(x) => return type_err(format!("decode() argument 'encoding' must be str, not {}", arg_tn(x))),
     };
+    if let Some(c) = codec_alias(&n) {
+        return Ok(c);
+    }
     Ok(match n.as_str() {
-        "utf-8" | "utf8" | "u8" | "utf" | "cp65001" => "utf-8",
-        "ascii" | "us-ascii" | "646" => "ascii",
-        "latin-1" | "latin1" | "iso-8859-1" | "iso8859-1" | "l1" | "8859" | "cp819" | "latin" => "latin-1",
         // a codec CPython has and Brevi does not: not "unknown"
         m if ["utf-16", "utf16", "utf-32", "utf32", "utf-7", "utf-8-sig", "cp", "iso-8859", "iso8859", "koi8", "mac-", "gb", "big5", "euc", "shift", "sjis", "latin-", "windows-", "idna", "punycode", "unicode-escape", "raw-unicode-escape", "hz", "johab", "ptcp", "tis"].iter().any(|p| m.starts_with(p)) => {
             return Err(unsupported(&format!("the {m} codec")))
