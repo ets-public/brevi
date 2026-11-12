@@ -15,6 +15,13 @@ pub static NP_NATIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicB
 pub static NP_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 // The program uses Brevi's pydantic: defs carry their number of positional parameters (src/dynpy/pyd.rs).
 pub static PYD_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+// With Brevi's pydantic, per module (pyd::rewrite): the model annotations' lines, which their descriptor
+// statement evaluates in place of the annotation, and the names holding descriptors or the pydantic copy, which
+// are not CPython's typing values (an annotation reading one is refused where CPython evaluates it).
+pub static PYD_ANN: std::sync::Mutex<Option<HashMap<String, (HashSet<usize>, HashSet<String>)>>> = std::sync::Mutex::new(None);
+// Set while the program is a .bv file in Brevi's own spellings, turned into Python (main.rs bv_as_py): its
+// annotations are Brevi's types, which may name a class defined further down, so none is evaluated.
+pub static BV_SPELLING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 pub fn np_native() -> bool {
     NP_NATIVE.load(std::sync::atomic::Ordering::Relaxed)
 }
@@ -1695,6 +1702,13 @@ pub struct Em {
     // otherwise annotations are dropped unevaluated as before, since an annotation the runtime cannot
     // evaluate (`int | None`, a forward name) must not stop a program that never looks at it
     keep_ann: bool,
+    // CPython evaluates the annotations of this module's module and class bodies and defs (no `from __future__
+    // import annotations`, not Brevi's own copy of a CPython module, which CPython evaluates without error, and
+    // not a .bv file in Brevi's own spellings, whose annotations are Brevi's types): each is evaluated as its
+    // statement or def runs, so `x: undefined` raises NameError as in CPython
+    eval_ann: bool,
+    // PEP 695 type parameters of the def whose own annotations are being evaluated: TypeVars there
+    ann_tvars: Vec<String>,
     // the classes of the program seen so far that subclass type
     metaclasses: BTreeSet<String>,
     // the def being built is an async def (read by closure)
@@ -2043,6 +2057,7 @@ impl Em {
     // ---- expressions ----
     fn ex(&mut self, e: &Ex, line: usize) -> ER<String> {
         Ok(match e {
+            Ex::Name(n) if self.ann_tvars.contains(n) => format!("pep695_typevar({})", lit(n)),
             Ex::Name(n) => self.load(n, line)?,
             Ex::Int(t) => {
                 let (body, base) = if let Some(r) = t.strip_prefix("0x") {
@@ -3234,6 +3249,37 @@ impl Em {
     // Where statement `s` is, said before it runs (a program using warnings).
     // An annotation with no value still evaluates its target's object: `o.a: T` evaluates o, and `o[i]: T`
     // evaluates o and i (CPython's compiler_annassign), with no attribute or item read; a name binds nothing.
+    // With Brevi's pydantic: whether to evaluate this annotation as CPython does (false: a model's, which its
+    // descriptor statement evaluates instead), or Err when it reads a descriptor or the pydantic copy, whose
+    // values are not CPython's typing objects.
+    fn pyd_ann(&self, ann: &Ex, line: usize, in_class: bool) -> Result<bool, (usize, String)> {
+        if !PYD_ON.load(std::sync::atomic::Ordering::Relaxed) {
+            return Ok(true);
+        }
+        let g = PYD_ANN.lock().unwrap();
+        let Some((lines, names)) = g.as_ref().and_then(|m| m.get(&self.module)) else { return Ok(true) };
+        if in_class && lines.contains(&line) {
+            return Ok(false);
+        }
+        // A bare name evaluates to what it holds whatever that is; inside a subscript, `|`, call or attribute, a
+        // descriptor would be checked as a typing value it is not.
+        if matches!(ann, Ex::Name(_)) {
+            return Ok(true);
+        }
+        let mut hit = None;
+        crate::typed_guard::walk_ex(ann, &mut |e| {
+            if let Ex::Name(n) = e {
+                if hit.is_none() && names.contains(n) {
+                    hit = Some(n.clone());
+                }
+            }
+        });
+        match hit {
+            Some(n) => Err(err(line, &format!("an annotation outside a model that subscripts or combines `{n}` (Brevi's pydantic holds no typing value there to evaluate) is not supported in dynamic builds"))),
+            None => Ok(true),
+        }
+    }
+
     fn ann_target_only(&mut self, t: &Ex, line: usize) -> Result<String, (usize, String)> {
         Ok(match t {
             Ex::Attr(o, _) => format!("{{ let _ = {}; }}", self.ex(o, line)?),
@@ -3316,13 +3362,23 @@ impl Em {
                 b.push('}');
                 b
             }
-            St::AnnAssign(t, v, _, _) => match v {
-                Some(v) => {
-                    let vv = self.ex(v, line)?;
-                    self.assign(t, &vv, line)?
+            St::AnnAssign(t, v, ann, _) => {
+                let mut code = match v {
+                    Some(v) => {
+                        let vv = self.ex(v, line)?;
+                        self.assign(t, &vv, line)?
+                    }
+                    None => self.ann_target_only(t, line)?,
+                };
+                // CPython (compiler_annassign) evaluates a module or class body's annotation after the value is
+                // stored (a function body's never); the class bodies that keep __annotations__ do it themselves
+                let fr = self.fstack.last().unwrap();
+                if self.eval_ann && (fr.is_module || fr.is_class) && self.pyd_ann(ann, line, fr.is_class)? {
+                    let av = self.ex(ann, line)?;
+                    code.push_str(&format!(" let _ = {av};"));
                 }
-                None => self.ann_target_only(t, line)?,
-            },
+                code
+            }
             St::AugAssign(t, op, v) => {
                 if *op == "@" && np_on() && np_narrow() && !np_f32_simd_here() {
                     return Err(err(line, "numpy: @= with float32 arrays (OpenBLAS sgemm) is not in Brevi's native numpy"));
@@ -3879,7 +3935,30 @@ impl Em {
         }
         // the def's annotations, evaluated now (after the defaults, as CPython does), while the program reads
         // __annotations__ somewhere: parameters in order, then "return"
-        if super::typing::ANN_DEFS.load(std::sync::atomic::Ordering::Relaxed) {
+        let anns = super::typing::ANN_DEFS.load(std::sync::atomic::Ordering::Relaxed);
+        if !anns && self.eval_ann && (!d.params.ann.is_empty() || d.ret.is_some()) {
+            for a in d.params.ann.iter().map(|(_, a)| a).chain(d.ret.iter()) {
+                self.pyd_ann(a, d.line, false)?;
+            }
+            // evaluated now and dropped, as CPython 3.13 evaluates them when the def runs; a PEP 695 parameter
+            // is the TypeVar CPython's annotation scope binds
+            self.ann_tvars = d.tparams.clone();
+            let mut evs = String::new();
+            let mut res = Ok(());
+            for a in d.params.ann.iter().map(|(_, a)| a).chain(d.ret.iter()) {
+                match self.ex(a, d.line) {
+                    Ok(x) => evs.push_str(&format!("let _ = {x}; ")),
+                    Err(e) => {
+                        res = Err(e);
+                        break;
+                    }
+                }
+            }
+            self.ann_tvars.clear();
+            res?;
+            v = format!("{{ let __fv = {v}; {evs}__fv }}");
+        }
+        if anns {
             let mut kv = vec![];
             for (pn, a) in d.params.ann.iter() {
                 kv.push(format!("(s({}), {})", lit(pn), self.ex(a, d.line)?));
@@ -3892,8 +3971,8 @@ impl Em {
         // PEP 695 `def f[T]`: the type parameters, set before the decorators run (as CPython's annotation scope
         // does). The names themselves are not bound, so a def that uses one is refused.
         if !d.tparams.is_empty() {
-            let anns = super::typing::ANN_DEFS.load(std::sync::atomic::Ordering::Relaxed);
-            if super::typing::tparams_used(d, &d.tparams, anns) {
+            // (the def's own evaluated annotations bind the parameters; a nested def's or class's do not here)
+            if super::typing::tparams_used(d, &d.tparams, anns) || (self.eval_ann && super::typing::tparams_in_nested_anns(&d.body, &d.tparams)) {
                 return Err(err(d.line, "a PEP 695 type parameter used inside its def (`def f[T]` with T in a default, the body or an evaluated annotation) is not supported in dynamic builds"));
             }
             let tv: Vec<String> = d.tparams.iter().map(|n| format!("pep695_typevar({})", lit(n))).collect();
@@ -4689,6 +4768,8 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         class_ctx: None,
         lazy: false,
         keep_ann: false,
+        eval_ann: false,
+        ann_tvars: vec![],
         metaclasses: BTreeSet::new(),
         next_async: false,
         direct_ok: HashSet::new(),
@@ -4829,6 +4910,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
             em.module = m.name.clone();
             em.lazy = future_annotations(&m.body);
             IN_COPY.with(|c| c.set(OWN_COPIES.lock().unwrap().contains(&m.name)));
+            em.eval_ann = !em.lazy && gi == 1 && !copies.contains(&m.name) && !BV_SPELLING.load(std::sync::atomic::Ordering::Relaxed);
             let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, qname: String::new(), exc_vars: vec![], is_module: true, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![], ns: None };
             for n in em.mod_names[&m.name].clone() {
                 let i = em.gslot(&m.name, &n);
@@ -4840,7 +4922,9 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
             em.fstack.pop();
             let ident = rust_ident(&m.name);
             let nm = lit(&m.name);
-            write!(inits, "thread_local! {{ static DONE_{ident}: Cell<bool> = Cell::new(false); }}\nfn init_{ident}() -> Result<(), E> {{ if DONE_{ident}.with(|d| d.replace(true)) {{ return Ok(()); }} gs({name_slot}, s({nm}));\n{body}\nOk(()) }}\n").unwrap();
+            // a copy's classes follow Brevi's copy, whose __class_getitem__s are not all CPython's (class_subscript)
+            let mark = if IN_COPY.with(|c| c.get()) || gi == 0 { format!("copy_module({nm}); ") } else { String::new() };
+            write!(inits, "thread_local! {{ static DONE_{ident}: Cell<bool> = Cell::new(false); }}\nfn init_{ident}() -> Result<(), E> {{ if DONE_{ident}.with(|d| d.replace(true)) {{ return Ok(()); }} {mark}gs({name_slot}, s({nm}));\n{body}\nOk(()) }}\n").unwrap();
         }
         if gi == 0 && !libs.is_empty() {
             lib_part.push_str(&std::mem::take(&mut em.items));

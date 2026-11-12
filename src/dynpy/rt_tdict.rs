@@ -213,6 +213,11 @@ fn tdesc(kind: u8, owner: &Rc<Class>, name: Sym) -> V {
     TDESCS.with(|m| m.borrow_mut().insert(key, v.clone()));
     v
 }
+// Whether CPython's own dict of the builtin type `c` holds `n` (None: Brevi has no table for the type), and
+// the type's tp_name, for subscripting a class (rt_typing.rs class_subscript).
+pub fn cpy_dict_has(c: &Class, n: &str) -> Option<(bool, &'static str)> {
+    trow(c).map(|r| (r.5.iter().any(|e| e.0 == n), r.2))
+}
 fn tname_of(c: &Class) -> String {
     match trow(c) {
         Some(r) => r.2.to_string(),
