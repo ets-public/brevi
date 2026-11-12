@@ -437,6 +437,7 @@ pub fn bi_tuple(a: Args) -> R {
     Ok(tup(to_vec(&a.p[0])?))
 }
 pub fn bi_set(a: Args) -> R {
+    set_args("set", &a)?;
     if a.p.is_empty() {
         return Ok(set_new());
     }
@@ -450,7 +451,18 @@ pub fn bi_set(a: Args) -> R {
         x => Ok(V::Set(Rc::new(RefCell::new(PSet::from_iter(to_vec(x)?)?)))),
     }
 }
+// set() and frozenset() take at most one argument, and none by keyword
+fn set_args(name: &str, a: &Args) -> Result<(), E> {
+    if !a.k.is_empty() {
+        return type_err(format!("{name}() takes no keyword arguments"));
+    }
+    if a.p.len() > 1 {
+        return type_err(format!("{name} expected at most 1 argument, got {}", a.p.len()));
+    }
+    Ok(())
+}
 pub fn bi_frozenset(a: Args) -> R {
+    set_args("frozenset", &a)?;
     if a.p.is_empty() {
         return Ok(V::FSet(Rc::new(PSet::new())));
     }
@@ -2182,14 +2194,37 @@ fn builtin_class_attr_raw(c: &Rc<Class>, name: &str) -> Option<V> {
         ("Counter", "fromkeys") => Some(builtin("fromkeys", |_a: Args| {
             Err(exc("NotImplementedError", "Counter.fromkeys() is undefined.  Use Counter(iterable) instead.".into()))
         })),
-        ("dict", "fromkeys") | ("OrderedDict", "fromkeys") => Some(builtin("fromkeys", |a: Args| {
-            let v = a.p.get(1).cloned().unwrap_or(V::None);
-            let mut d = Dict::new();
-            for k in to_vec(&a.p[0])? {
-                d.set(k, v.clone())?;
+        // a classmethod bound to its class: a class attribute holding it never binds (`ctor = dict.fromkeys`)
+        ("dict", "fromkeys") | ("OrderedDict", "fromkeys") => Some({
+            let f = builtin("fromkeys", |a: Args| {
+                a.want("fromkeys", 1, 2)?;
+                let v = a.p.get(1).cloned().unwrap_or(V::None);
+                let mut d = Dict::new();
+                // a set's or plain dict's keys keep their stored hashes (CPython's dict_fromkeys)
+                let known = match &a.p[0] {
+                    V::Set(_) | V::FSet(_) => Some(set_of(&a.p[0]).unwrap().keys_h()),
+                    V::Dict(x) if x.borrow().kind == 0 => Some(x.borrow().keys_h()),
+                    _ => None,
+                };
+                match known {
+                    Some(ks) => {
+                        for (k, h) in ks {
+                            d.set_h(k, v.clone(), h)?;
+                        }
+                    }
+                    None => {
+                        for k in to_vec(&a.p[0])? {
+                            d.set(k, v.clone())?;
+                        }
+                    }
+                }
+                Ok(V::Dict(Rc::new(RefCell::new(d))))
+            });
+            if let V::Func(ff) = &f {
+                ff.attrs.borrow_mut().push(("__bv_nobind__", V::Bool(true)));
             }
-            Ok(V::Dict(Rc::new(RefCell::new(d))))
-        })),
+            f
+        }),
         // only defaultdict has __missing__ (dict subclasses test `hasattr(dict, "__missing__")`)
         _ if name == "__missing__" && c.name != "defaultdict" => None,
         _ => {
@@ -2416,7 +2451,8 @@ pub fn has_method(o: &V, name: &str) -> bool {
         V::List(_) => &["append", "extend", "insert", "pop", "remove", "index", "count", "sort", "reverse", "copy", "clear"],
         V::Tuple(_) => &["count", "index"],
         V::Dict(_) => &["get", "setdefault", "pop", "popitem", "keys", "values", "items", "update", "copy", "clear", "most_common", "elements", "subtract", "total", "move_to_end", "fromkeys"],
-        V::Set(_) | V::FSet(_) => &["add", "remove", "discard", "pop", "union", "intersection", "difference", "symmetric_difference", "issubset", "issuperset", "isdisjoint", "update", "intersection_update", "difference_update", "symmetric_difference_update", "copy", "clear"],
+        V::FSet(_) => &["union", "intersection", "difference", "symmetric_difference", "issubset", "issuperset", "isdisjoint", "copy"],
+        V::Set(_) => &["add", "remove", "discard", "pop", "union", "intersection", "difference", "symmetric_difference", "issubset", "issuperset", "isdisjoint", "update", "intersection_update", "difference_update", "symmetric_difference_update", "copy", "clear"],
         V::Deque(_) => &["append", "appendleft", "pop", "popleft", "extend", "extendleft", "rotate", "clear", "copy", "count", "index", "remove", "reverse", "insert"],
         V::Int(_) | V::Big(_) | V::Bool(_) => &["bit_length", "to_bytes", "from_bytes", "conjugate", "bit_count", "as_integer_ratio", "is_integer"],
         V::Float(_) => &["is_integer", "as_integer_ratio", "hex", "conjugate"],

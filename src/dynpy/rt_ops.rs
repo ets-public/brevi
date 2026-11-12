@@ -1706,7 +1706,7 @@ pub fn contains(c: &V, x: &V) -> Result<bool, E> {
         }
         V::Dict(d) => Dict::contains_cell(d, x)?,
         V::Set(s) => PSet::cell_contains(s, x)?,
-        V::FSet(s) => s.find(&set_key(x), set_key_hash(x)?)?.is_some(),
+        V::FSet(s) => s.find(&as_set_key(x), set_key_hash(x)?)?.is_some(),
         V::Range(r) => match x {
             V::Int(i) => {
                 let (a, b, st) = **r;

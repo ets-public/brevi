@@ -769,11 +769,19 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
             let o = call(&nf, a2)?;
             if let V::Obj(ob) = &o {
                 if ob.cls.is_sub(c) {
-                    if let Some(init) = c.lookup("__init__") {
-                        if !is_builtin_init(&init) {
+                    match c.lookup("__init__") {
+                        Some(init) if !is_builtin_init(&init) => {
                             prepend(&mut a.p, o.clone());
                             call(&init, a)?;
                         }
+                        // set.__init__ runs after a subclass's own __new__: it refuses keywords, and
+                        // refills the set from the arguments
+                        _ if c.base_bt() == BT::Set => {
+                            if let Some(i @ V::Set(_)) = ob.inner() {
+                                set_method(&i, "__init__", a)?;
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -815,12 +823,17 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
     } else if bb != BT::Object && bb != BT::Other {
         // subclass of a builtin container: the instance wraps a builtin value
         let mut a0 = Args { p: vec![], k: vec![] };
-        // frozenset is made by its __new__, which takes the arguments whatever __init__ does
-        if bb == BT::FSet {
-            if !a.k.is_empty() && c.lookup("__init__").map_or(true, |f| is_builtin_init(&f)) {
+        // An immutable builtin is made by its __new__, which takes the arguments whatever __init__ does
+        // (HashCountingInt(int) with its own __init__ still wraps the int it was given). frozenset and
+        // tuple subclasses ignore keywords their own __init__ takes.
+        let own_init = c.lookup("__init__").is_some_and(|f| !is_builtin_init(&f));
+        if matches!(bb, BT::FSet | BT::Tuple) {
+            if !a.k.is_empty() && !own_init {
                 return type_err(format!("{}() takes no keyword arguments", c.name));
             }
             a0 = Args { p: a.p.clone(), k: vec![] };
+        } else if matches!(bb, BT::Int | BT::Float | BT::Str | BT::Bytes) {
+            a0 = Args { p: a.p.clone(), k: a.k.clone() };
         } else if c.lookup("__init__").map_or(true, |f| is_builtin_init(&f)) {
             a0 = Args { p: a.p.clone(), k: a.k.clone() };
         }

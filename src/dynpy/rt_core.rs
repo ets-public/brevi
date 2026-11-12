@@ -1711,6 +1711,11 @@ impl Dict {
         key_err()?;
         Ok(r)
     }
+    // set with a hash the caller already has (a set's or dict's stored hash, as CPython's
+    // dict.fromkeys reuses it instead of hashing the key again)
+    pub fn set_h(&mut self, k: V, v: V, h: i64) -> Result<(), E> {
+        self.set_key(K { h, v: k.clone() }, k, v)
+    }
     pub fn set(&mut self, k: V, v: V) -> Result<(), E> {
         let key = K { h: py_hash(&k)?, v: k.clone() };
         self.set_key(key, k, v)
@@ -2375,7 +2380,7 @@ impl PSet {
     // ---- a set in a cell: no borrow is held while a user __eq__ runs ----
     pub fn cell_contains(c: &RefCell<PSet>, k: &V) -> Result<bool, E> {
         let h = set_key_hash(k)?;
-        Ok(matches!(PSet::probe_cell(c, &set_key(k), h)?.0, Probe::Found(_)))
+        Ok(matches!(PSet::probe_cell(c, &as_set_key(k), h)?.0, Probe::Found(_)))
     }
     pub fn cell_add(c: &RefCell<PSet>, k: V) -> Result<(), E> {
         let h = hash_of(&k)?;
@@ -2391,7 +2396,7 @@ impl PSet {
     // remove / discard: a set key is looked up as the frozenset of its items, as CPython's are
     pub fn cell_discard(c: &RefCell<PSet>, k: &V) -> Result<bool, E> {
         let h = set_key_hash(k)?;
-        PSet::cell_discard_h(c, &set_key(k), h)
+        PSet::cell_discard_h(c, &as_set_key(k), h)
     }
     pub fn cell_discard_h(c: &RefCell<PSet>, k: &V, h: i64) -> Result<bool, E> {
         match PSet::probe_cell(c, k, h)?.0 {
@@ -2629,7 +2634,7 @@ impl PSet {
 }
 // A set used as a key of set.__contains__/remove/discard is looked up as a frozenset of its items (CPython
 // retries with a frozenset when hashing a set fails with TypeError).
-pub fn set_key(k: &V) -> V {
+pub fn as_set_key(k: &V) -> V {
     match k {
         V::Set(s) => V::FSet(Rc::new(s.borrow().copy())),
         V::Obj(o) if o.cls.lookup("__hash__").map_or(true, |h| matches!(h, V::None)) => match o.inner.borrow().as_deref() {
@@ -2643,7 +2648,7 @@ pub fn set_key_hash(k: &V) -> Result<i64, E> {
     match py_hash(k) {
         Ok(h) => Ok(h),
         Err(e) => {
-            let fk = set_key(k);
+            let fk = as_set_key(k);
             if matches!(fk, V::FSet(_)) && !matches!(k, V::FSet(_)) && is_exc(&e.0, "TypeError") {
                 py_hash(&fk)
             } else {
