@@ -87,7 +87,8 @@ pub fn bi_memoryview(a: Args) -> R {
         m.live()?;
         return Ok(mv_new(m.obj.clone(), m.start, m.step, m.len, m.readonly));
     }
-    if is_bytes_v(&x) {
+    // bytes, or an instance of a bytes subclass (the view's obj is the instance, as in CPython)
+    if is_bytes_v(&x) || matches!(&x, V::Obj(o) if o.cls.base_bt() == BT::Bytes) {
         let n = bytes_of(&x).map_or(0, |b| b.len());
         return Ok(mv_new(x, 0, 1, n, true));
     }

@@ -360,12 +360,15 @@ pub fn repr(v: &V) -> Result<String, E> {
                     });
                 }
             }
-            if let Some((n, step)) = x.it.try_borrow().ok().and_then(|it| match &*it {
-                It::Count(n, s) => Some((n.clone(), s.clone())),
+            // an iterator with CPython's own repr (itertools.count)
+            let red = x.it.try_borrow().ok().and_then(|it| match &*it {
+                It::Red(r) => Some(r.clone()),
                 _ => None,
-            }) {
-                // count_repr: the step is shown unless it is the int 1
-                return Ok(if matches!(step, V::Int(1)) { format!("count({})", repr(&n)?) } else { format!("count({}, {})", repr(&n)?, repr(&step)?) });
+            });
+            if let Some(r) = red {
+                if let Some(t) = r.repr() {
+                    return t;
+                }
             }
             // a generator (or genexpr) reprs with its dotted __qualname__, as in CPython; the cells are held
             // while the generator body runs, so read them only when free (the running generator's name is
@@ -1220,6 +1223,8 @@ pub fn to_float(v: &V) -> Result<f64, E> {
         V::Str(s) => parse_float(&s.s).ok_or_else(|| exc("ValueError", format!("could not convert string to float: {}", str_repr(&s.s)))),
         V::Obj(o) => match o.cls.lookup("__float__") {
             Some(f) => to_float(&call(&f, Args::p(vec![v.clone()]))?),
+            // a bytes subclass instance parses as its bytes do
+            None if o.cls.base_bt() == BT::Bytes => to_float(&o.inner().unwrap_or(V::None)),
             None => type_err(format!("float() argument must be a string or a real number, not '{}'", tn(v))),
         },
         // a memoryview counts when it gives a simple buffer (live and contiguous), as in CPython
@@ -1362,7 +1367,7 @@ pub fn to_int(v: &V) -> R {
                 return int_returned(call(&f, Args::p(vec![v.clone()]))?, "__int__");
             }
             // a subclass of int, float or str (IntEnum, StrEnum): int's own __int__ wins over a user __index__
-            if let Some(i) = inner_of(v).filter(|i| matches!(i, V::Int(_) | V::Big(_) | V::Bool(_) | V::Float(_) | V::Str(_))) {
+            if let Some(i) = inner_of(v).filter(|i| matches!(i, V::Int(_) | V::Big(_) | V::Bool(_) | V::Float(_) | V::Str(_)) || is_bytes_v(i)) {
                 return to_int(&i);
             }
             if let Some(f) = o.cls.lookup("__index__") {
@@ -1396,11 +1401,7 @@ pub fn to_int(v: &V) -> R {
             type_err(format!("int() argument must be a string, a bytes-like object or a real number, not '{}'", tn(v)))
         }
         // int(b"42"), as CPython reads ASCII digits from bytes
-        V::Ext(x) if x.any().is::<BytesV>() || x.any().is::<ByteArrayV>() || (x.any().is::<MemV>() && bytes_of(v).is_some()) => {
-            let b = bytes_of(v).unwrap_or_default();
-            let t = String::from_utf8_lossy(&b).into_owned();
-            parse_int(&t, 10).ok_or_else(|| exc("ValueError", format!("invalid literal for int() with base 10: {}", bytes_repr(&b))))
-        }
+        V::Ext(x) if x.any().is::<BytesV>() || x.any().is::<ByteArrayV>() || (x.any().is::<MemV>() && bytes_of(v).is_some()) => bytes_int(&bytes_of(v).unwrap_or_default(), 10),
         V::Ext(x) if x.any().is::<MemV>() => type_err("int() argument must be a string, a bytes-like object or a real number, not 'memoryview'".into()),
         V::Ext(x) => match x.method(v, "__int__", &mut Args::p(vec![])) {
             Some(r) => r,
@@ -1408,6 +1409,17 @@ pub fn to_int(v: &V) -> R {
         },
         _ => type_err(format!("int() argument must be a string, a bytes-like object or a real number, not '{}'", tn(v))),
     }
+}
+
+// int(b"42", base): CPython reads the bytes as ASCII text (PyLong_FromString on the raw buffer), so a byte past
+// 0x7f (a UTF-8 digit or space included) is never part of a number; the digit limit applies as for str.
+pub fn bytes_int(b: &[u8], base: u32) -> R {
+    let bad = || exc("ValueError", format!("invalid literal for int() with base {base}: {}", bytes_repr(b)));
+    if !b.is_ascii() {
+        return Err(bad());
+    }
+    let t = String::from_utf8_lossy(b);
+    int_text_limit(&t, base, parse_int(&t, base))?.ok_or_else(bad)
 }
 
 // What int() makes of `r`, the result of a user __int__ or __index__ (CPython's PyNumber_Long and

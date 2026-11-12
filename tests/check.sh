@@ -57,29 +57,6 @@ for f in tests/fallback/*.py; do
     echo "ok   $f"
   fi
 done
-# The dynamic build itself refuses catch_warnings(record=True) in a program that uses itertools and pickles or
-# copies (not only the typed build), so CPython runs it.
-if [ "$1" != "--update" ]; then
-  cw_dir=$(mktemp -d)
-  out=$(BREVI_DYN=1 $BREVI build tests/fallback/catch_warnings_record_itertools.py -o "$cw_dir/prog" 2>&1)
-  case "$out" in
-    *'catch_warnings(record=True) in a program that pickles or copies itertools iterators is not supported in dynamic builds'*) echo "ok   dynamic build refuses catch_warnings(record=True) with itertools pickling" ;;
-    *) echo "FAIL dynamic build refuses catch_warnings(record=True) with itertools pickling"; printf '%s\n' "$out" | tail -3; fail=1 ;;
-  esac
-  rm -rf "$cw_dir"
-fi
-# collections.abc.ByteString warns on isinstance() and subclassing through its metaclass in CPython 3.13: the
-# dynamic build refuses it rather than leave the warnings out.
-if [ "$1" != "--update" ]; then
-  bs_dir=$(mktemp -d)
-  printf 'from collections.abc import ByteString\nprint(isinstance(b"", ByteString))\n' > "$bs_dir/bs.py"
-  out=$(BREVI_DYN=1 $BREVI build "$bs_dir/bs.py" -o "$bs_dir/prog" 2>&1)
-  case "$out" in
-    *'collections.abc.ByteString is not supported in dynamic builds'*) echo "ok   dynamic build refuses collections.abc.ByteString" ;;
-    *) echo "FAIL dynamic build refuses collections.abc.ByteString"; printf '%s\n' "$out" | tail -3; fail=1 ;;
-  esac
-  rm -rf "$bs_dir"
-fi
 # A warning whose line the dynamic build does not know is refused, never placed wrong: stacklevel above 1 when
 # it builds, a call opening on a later line of its statement when it runs.
 if [ "$1" != "--update" ]; then

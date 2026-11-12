@@ -353,6 +353,9 @@ pub fn make_class_f(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, at
     if bs.is_empty() {
         bs.push(bclass("object"));
     }
+    if name != "ByteString" && bs.iter().any(|b| is_bytestring(b)) {
+        bytestring_warn()?;
+    }
     let bt = if bs.iter().any(|b| b.base_bt() == BT::Exc) { BT::Exc } else { BT::Other };
     // A collections.abc class, or one built on it, follows ABCMeta's rules.
     let abc = module == "collections.abc" || bs.iter().any(|b| b.abc.get());
@@ -577,6 +580,9 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
         if c.module == "itertools" && c.name == "_tee" {
             return tee_new(a);
         }
+        if let Some(r) = iter_class_call(c, a) {
+            return r;
+        }
         return Err(exc("NotImplementedError", format!("brevi: calling the {}.{} class is not supported in dynamic builds", c.module, c.name)));
     }
     if plain_new(c) {
@@ -781,6 +787,7 @@ fn builtin_of_bt(bt: BT) -> Rc<Class> {
         BT::Counter => "Counter",
         BT::OrderedDict => "OrderedDict",
         BT::Deque => "deque",
+        BT::Bytes => return ext_class("bytes"),
         _ => "object",
     })
 }
@@ -1437,6 +1444,17 @@ pub fn getattr(o: &V, name: &str) -> R {
                             return Ok(v);
                         }
                     }
+                    // a bytes subclass: maketrans is bytes' static method; fromhex is a classmethod that builds
+                    // the subclass from the bytes, as CPython's does (cls(bytes.fromhex(s)))
+                    if c.base_bt() == BT::Bytes {
+                        if name == "maketrans" {
+                            return Ok(builtin("maketrans", bytes_maketrans));
+                        }
+                        if name == "fromhex" {
+                            let k = V::Class(c.clone());
+                            return Ok(builtin("fromhex", move |a: Args| call(&k, Args::p(vec![bytes_fromhex(a)?]))));
+                        }
+                    }
                     // A base's builtin_class_attr answers any name (a generic unbound method), so a base other
                     // than object is asked only for a method that type really has.
                     for k in c.mro.borrow().iter().skip(1) {
@@ -1706,6 +1724,7 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
         }
         V::NTF(_) => Err(exc("AttributeError", format!("'collections._tuplegetter' object has no attribute '{}' and no __dict__ for setting new attributes", name))),
         V::Module(&ModName("decimal.context")) => decimal_context_set(name, &v),
+        V::Module(&ModName("sys")) if matches!(&*name.to_string(), "stdout" | "stderr" | "stdin") => sys_stream_assign(&name.to_string(), v),
         V::Ext(x) => match x.set_attr(o, name, v) {
             Some(r) => r,
             None => Err(exc("AttributeError", format!("'{}' object has no attribute '{}' and no __dict__ for setting new attributes", tn(o), name))),
