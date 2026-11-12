@@ -339,7 +339,22 @@ pub fn make_class(name: Sym, module: Sym, bases: Vec<V>, attrs: Vec<(Sym, V)>) -
 }
 // As make_class, with the names the class body annotates (dataclass and NamedTuple fields). `qualname` is
 // CPython's dotted __qualname__ (`outer.<locals>.Name` inside a function, `Outer.Inner` inside a class).
-pub fn make_class_f(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, attrs: Vec<(Sym, V)>, fields: Vec<Sym>) -> R {
+pub fn make_class_f(name: Sym, qualname: Sym, module: Sym, bases: Vec<V>, attrs: Vec<(Sym, V)>, fields: Vec<Sym>) -> R {
+    make_class_impl(name, qualname, module, bases, attrs, fields, None)
+}
+// A class statement's class: as make_class_f, with what CPython's compiler adds to the namespace
+// (__firstlineno__, __static_attributes__)
+// (and, when not "", why its dict cannot be CPython's: the compiler knows when it is not)
+pub fn make_class_s(name: Sym, qualname: Sym, module: Sym, bases: Vec<V>, attrs: Vec<(Sym, V)>, fields: Vec<Sym>, first: i64, sattrs: &[&'static str], why: &'static str) -> R {
+    let c = make_class_impl(name, qualname, module, bases, attrs, fields, Some((first, sattrs.to_vec())))?;
+    if !why.is_empty() {
+        if let V::Class(k) = &c {
+            tdict_inexact(k, why);
+        }
+    }
+    Ok(c)
+}
+fn make_class_impl(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, attrs: Vec<(Sym, V)>, fields: Vec<Sym>, stmt: Option<(i64, Vec<Sym>)>) -> R {
     if let Some(r) = typing_class(name, qualname, module, &mut bases, &attrs, &fields) {
         return r;
     }
@@ -359,20 +374,27 @@ pub fn make_class_f(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, at
     let c = Class::with_qualname(name, qualname, module, bs, bt);
     c.abc.set(abc);
     for (n, v) in attrs {
-        c.set(n, v);
+        c.set_exact(n, v);
+    }
+    // what type_new adds after the namespace: slot members, __dict__ and __weakref__ (rt_tdict.rs), then
+    // __doc__ (None without a docstring: every class has its own, not its parent's)
+    tdict_setup(&c, &c.bases, stmt);
+    if c.own("__doc__").is_none() {
+        c.set_exact("__doc__", V::None);
     }
     // type.__new__: a class that defines __eq__ and no __hash__ gets __hash__ = None (unhashable, and so
     // not Hashable), which its subclasses inherit
     if c.own("__eq__").is_some() && c.own("__hash__").is_none() {
-        c.set("__hash__", V::None);
+        c.set_exact("__hash__", V::None);
     }
     if abc {
         abc_setup(&c)?;
     }
+    tdict_seal(&c);
     // a __slots__ name that the class body also binds is refused, as CPython refuses it
     if let Some(sv) = c.own("__slots__") {
         let mut own_slots = vec![];
-        slot_names(&sv, &mut own_slots);
+        slot_names(c.name, &sv, &mut own_slots);
         for n in own_slots {
             if n == "__dict__" || n == "__weakref__" {
                 continue;
@@ -444,22 +466,26 @@ fn abc_setup(c: &Rc<Class>) -> R {
     }
     names.sort();
     let abs = PSet::from_iter(names.iter().map(|n| s(n)).collect())?;
-    c.set("__abstractmethods__", V::FSet(Rc::new(abs)));
+    c.set_exact("__abstractmethods__", V::FSet(Rc::new(abs)));
+    // the Py_TPFLAGS_SEQUENCE/MAPPING bits, kept as Brevi's own __bv_flags__ (CPython keeps them in tp_flags,
+    // not the dict); _abc_init removes __abc_tpflags__ from the dict
     let mut flags: i64 = 0;
     for b in c.bases.iter() {
         if b.abc.get() {
-            if let Some(V::Int(f)) = b.own("__flags__") {
+            if let Some(V::Int(f)) = b.own("__bv_flags__") {
                 flags |= f;
             }
         }
     }
     if let Some(V::Int(f)) = c.own("__abc_tpflags__") {
         flags |= f;
+        c.del_exact("__abc_tpflags__");
     }
     if flags & 32 != 0 && flags & 64 != 0 {
         return Err(exc("TypeError", "__abc_tpflags__ cannot be both Py_TPFLAGS_SEQUENCE and Py_TPFLAGS_MAPPING".into()));
     }
-    c.set("__flags__", V::Int(flags));
+    c.set_exact("__bv_flags__", V::Int(flags));
+    c.set_exact("_abc_impl", V::Ext(ExtRc::new(AbcData)));
     Ok(V::None)
 }
 // A def's number of positional parameters, for Brevi's pydantic (which calls a validator with info only when
@@ -1361,6 +1387,28 @@ pub fn getattr(o: &V, name: &str) -> R {
                     }
                 });
             }
+            // what only the type dict holds: __firstlineno__, __static_attributes__, slot members, __weakref__
+            if let Some(v) = tdict_attr(c, name) {
+                return Ok(v);
+            }
+            if c.abc.get() {
+                match name {
+                    // ABCMeta's register(), a method of the metaclass bound to the class
+                    "register" => {
+                        let me = o.clone();
+                        return Ok(builtin("register", move |a: Args| {
+                            let sub = a1(&a, "register")?;
+                            abc_register(Args::p(vec![me.clone(), sub]))
+                        }));
+                    }
+                    "__flags__" => {
+                        if let Some(v) = c.lookup("__bv_flags__") {
+                            return Ok(v);
+                        }
+                    }
+                    _ => {}
+                }
+            }
             if c.name.contains('.') {
                 if let Some(v) = ext_class_attr(c.name, name) {
                     return Ok(v);
@@ -1414,21 +1462,8 @@ pub fn getattr(o: &V, name: &str) -> R {
                 "__doc__" => Ok(V::None),
                 // a class that is not generic (Brevi has no `class C[T]`): CPython's empty tuple
                 "__type_params__" => Ok(tup(vec![])),
-                // the class's own names in the order its body bound them (CPython's is a read-only view
-                // with a few more dunder names)
-                "__dict__" => {
-                    let mut d = Dict::new();
-                    d.set(s("__module__"), s(c.module))?;
-                    for (k, v) in c.attrs.borrow().iter() {
-                        if !k.starts_with("__bv_") {
-                            d.set(s(k), v.clone())?;
-                        }
-                    }
-                    if c.own("__doc__").is_none() {
-                        d.set(s("__doc__"), V::None)?;
-                    }
-                    Ok(V::View(Rc::new((V::Dict(Rc::new(RefCell::new(d))), 3))))
-                }
+                // CPython's type dict, as a read-only view (rt_tdict.rs; refused where Brevi cannot give it exactly)
+                "__dict__" => class_dict_view(c),
                 _ => {
                     // methods of a builtin base (tuple's __getitem__ on a namedtuple class, list's
                     // append on a list subclass) live on the builtin class in CPython, not on the subclass
@@ -1696,7 +1731,7 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
             if name == "__set__" || name == "__delete__" {
                 USER_DATA_DESC.store(true, std::sync::atomic::Ordering::Relaxed);
             }
-            c.set(name, v);
+            c.set_exact(name, v);
             Ok(())
         }
         // each namedtuple field descriptor keeps its own __doc__; nothing else may be set, as in CPython
@@ -1799,7 +1834,7 @@ pub fn delattr(o: &V, name: &str) -> Result<(), E> {
             Ok(())
         }
         V::NTF(_) => Err(exc("AttributeError", format!("'collections._tuplegetter' object has no attribute '{}'", name))),
-        V::Class(c) if c.del(name) => Ok(()),
+        V::Class(c) if c.del_exact(name) => Ok(()),
         V::Class(c) => Err(exc("AttributeError", format!("type object '{}' has no attribute '{}'", c.name, name))),
         // a def's user attribute: from its __dict__ once that has been made, else from its attrs (as setattr stores it)
         V::Func(f) if !FUNC_SLOT_ATTRS.contains(&name) => {

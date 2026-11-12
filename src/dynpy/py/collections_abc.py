@@ -2,14 +2,15 @@
 # Copyright (c) 2001-2024 Python Software Foundation; All Rights Reserved. PSF License Version 2:
 # src/dynpy/py/LICENSE-PSF.txt. Changes from CPython's file: ABCMeta is Brevi's own _abc_meta (the dynamic
 # build has no general metaclasses), _check_methods and register are runtime builtins (abc._check_methods,
-# abc._abc_register), the typing GenericAlias helpers are left out, and the iterator/view types that Brevi's
+# abc._abc_register), Callable's _CallableGenericAlias is left out, and the iterator/view types that Brevi's
 # runtime does not keep distinct are not registered.
 import sys
 from abc import abstractmethod, _check_methods, _abc_register
 
+GenericAlias = type(list[int])
+
 
 def _abc_meta(cls):
-    cls.register = classmethod(_abc_register)
     return cls
 
 
@@ -44,6 +45,8 @@ class Awaitable:
         if cls is Awaitable:
             return _check_methods(C, "__await__")
         return NotImplemented
+
+    __class_getitem__ = classmethod(GenericAlias)
 
 
 Awaitable = _abc_meta(Awaitable)
@@ -95,6 +98,8 @@ class AsyncIterable:
         if cls is AsyncIterable:
             return _check_methods(C, "__aiter__")
         return NotImplemented
+
+    __class_getitem__ = classmethod(GenericAlias)
 
 
 AsyncIterable = _abc_meta(AsyncIterable)
@@ -169,6 +174,8 @@ class Iterable:
         if cls is Iterable:
             return _check_methods(C, "__iter__")
         return NotImplemented
+
+    __class_getitem__ = classmethod(GenericAlias)
 
 
 Iterable = _abc_meta(Iterable)
@@ -276,6 +283,8 @@ class Container:
         if cls is Container:
             return _check_methods(C, "__contains__")
         return NotImplemented
+
+    __class_getitem__ = classmethod(GenericAlias)
 
 
 Container = _abc_meta(Container)
@@ -568,6 +577,8 @@ class MappingView(Sized):
     def __repr__(self):
         return '{0.__class__.__name__}({0._mapping!r})'.format(self)
 
+    __class_getitem__ = classmethod(GenericAlias)
+
 
 class KeysView(MappingView, Set):
 
@@ -753,6 +764,14 @@ Sequence.register(memoryview)
 
 
 class ByteString(Sequence):
+    """Deprecated ABC serving as a common supertype of ``bytes`` and ``bytearray``.
+
+    This ABC is scheduled for removal in Python 3.17.
+    Use ``isinstance(obj, collections.abc.Buffer)`` to test if ``obj``
+    implements the buffer protocol at runtime. For use in type annotations,
+    either use ``Buffer`` or a union that explicitly specifies the types your
+    code supports (e.g., ``bytes | bytearray | memoryview``).
+    """
 
     __slots__ = ()
 

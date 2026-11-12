@@ -2317,6 +2317,8 @@ pub struct Class {
     pub abc_cache: RefCell<Vec<Rc<Class>>>,
     pub abc_neg_cache: RefCell<Vec<Rc<Class>>>,
     pub abc_neg_ver: Cell<u64>,
+    // what CPython's type_new added to this class's dict (rt_tdict.rs); None for Brevi's builtin classes
+    pub tinfo: RefCell<Option<Rc<TInfo>>>,
 }
 
 // ABCMeta._abc_invalidation_counter: every register() on any ABC moves it, clearing negative caches.
@@ -2352,7 +2354,7 @@ impl Class {
         Self::with_qualname(name, name, module, bases, bt)
     }
     pub fn with_qualname(name: Sym, qualname: Sym, module: Sym, bases: Vec<Rc<Class>>, bt: BT) -> Rc<Class> {
-        let c = Rc::new(Class { name, qualname: Cell::new(qualname), module, bases: bases.clone(), mro: RefCell::new(vec![]), subs: RefCell::new(vec![]), attrs: RefCell::new(vec![]), bt, fields: RefCell::new(vec![]), lcache: RefCell::new((0, HashMap::default())), fcache: RefCell::new((0, Default::default())), set_info: RefCell::new((0, false, vec![], None)), plain_new: Cell::new((0, false)), plain_hash: Cell::new((0, false)), abc: Cell::new(false), abc_registry: RefCell::new(vec![]), abc_cache: RefCell::new(vec![]), abc_neg_cache: RefCell::new(vec![]), abc_neg_ver: Cell::new(0) });
+        let c = Rc::new(Class { name, qualname: Cell::new(qualname), module, bases: bases.clone(), mro: RefCell::new(vec![]), subs: RefCell::new(vec![]), attrs: RefCell::new(vec![]), bt, fields: RefCell::new(vec![]), lcache: RefCell::new((0, HashMap::default())), fcache: RefCell::new((0, Default::default())), set_info: RefCell::new((0, false, vec![], None)), plain_new: Cell::new((0, false)), plain_hash: Cell::new((0, false)), abc: Cell::new(false), abc_registry: RefCell::new(vec![]), abc_cache: RefCell::new(vec![]), abc_neg_cache: RefCell::new(vec![]), abc_neg_ver: Cell::new(0), tinfo: RefCell::new(None) });
         // C3 linearization
         let mut seqs: Vec<Vec<Rc<Class>>> = bases.iter().map(|b| b.mro.borrow().clone()).collect();
         seqs.push(bases.clone());
@@ -2398,7 +2400,7 @@ impl Class {
             return v;
         }
         let d = dict_new();
-        self.set(sym("__annotations__"), d.clone());
+        self.set_exact(sym("__annotations__"), d.clone());
         d
     }
     pub fn lookup(&self, n: &str) -> Option<V> {
@@ -2465,7 +2467,7 @@ impl Class {
                     hook = true;
                 } else if *k == "__slots__" {
                     own_slots = true;
-                    slot_names(v, &mut own);
+                    slot_names(c.name, v, &mut own);
                 } else {
                     shadow.push(*k);
                     if (matches!(v, V::Prop(_) | V::NTF(_)) || is_data_desc(v)) && !props.contains(k) {
@@ -2557,7 +2559,12 @@ impl Class {
         }
         None
     }
+    // a change Brevi's runtime makes for itself (the program's own setattr is set_exact)
     pub fn set(&self, n: Sym, v: V) {
+        tdict_native_change(self);
+        self.set_exact(n, v)
+    }
+    pub fn set_exact(&self, n: Sym, v: V) {
         class_changed();
         let mut a = self.attrs.borrow_mut();
         match a.iter_mut().find(|(k, _)| *k == n) {
@@ -2566,6 +2573,13 @@ impl Class {
         }
     }
     pub fn del(&self, n: &str) -> bool {
+        tdict_native_change(self);
+        self.del_exact(n)
+    }
+    pub fn del_exact(&self, n: &str) -> bool {
+        if n == TNEW {
+            return false;
+        }
         let mut a = self.attrs.borrow_mut();
         let Some(i) = a.iter().position(|(k, _)| *k == n) else {
             return false;
@@ -2835,27 +2849,28 @@ fn bt_has_dict(bt: BT) -> bool {
 }
 // the names one __slots__ value spells out: a string is one name; a tuple, list or dict adds its string items
 // (or keys). Non-string members are ignored (CPython would have refused the class; the layout is fixed anyway).
-fn slot_names(v: &V, out: &mut Vec<Sym>) {
+// the __slots__ names of class `cls`, private names mangled as CPython's type_new mangles them
+fn slot_names(cls: &str, v: &V, out: &mut Vec<Sym>) {
     match v {
-        V::Str(x) => out.push(sym(&x.s)),
+        V::Str(x) => out.push(mangle_name(cls, &x.s)),
         V::Tuple(t) => {
             for x in t.iter() {
                 if let V::Str(x) = x {
-                    out.push(sym(&x.s));
+                    out.push(mangle_name(cls, &x.s));
                 }
             }
         }
         V::List(l) => {
             for x in l.borrow().iter() {
                 if let V::Str(x) = x {
-                    out.push(sym(&x.s));
+                    out.push(mangle_name(cls, &x.s));
                 }
             }
         }
         V::Dict(d) => {
             for k in d.borrow().keys() {
                 if let V::Str(k) = &k {
-                    out.push(sym(&k.s));
+                    out.push(mangle_name(cls, &k.s));
                 }
             }
         }
