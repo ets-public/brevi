@@ -41,6 +41,12 @@ fn trow(c: &Class) -> Option<&'static (&'static str, &'static str, &'static str,
     })
 }
 
+// whether CPython's builtin type `name` (or object, which it inherits from) has the attribute `attr`
+pub fn cpy_builtin_has(name: &str, attr: &str) -> bool {
+    let has = |n: &str| TYPE_DICTS.iter().any(|r| r.0 == "builtins" && r.1 == n && r.5.iter().any(|e| e.0 == attr));
+    has(name) || has("object")
+}
+
 pub fn tinfo(c: &Class) -> Option<Rc<TInfo>> {
     c.tinfo.borrow().clone()
 }

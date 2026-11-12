@@ -1219,7 +1219,8 @@ pub fn ptr_hash(p: usize) -> i64 {
 pub fn hash_of(v: &V) -> Result<i64, E> {
     if let V::Obj(o) = v {
         let (e, b) = o.cls.plain_hash.get();
-        if b && e == CLASS_EPOCH.with(|e| e.get()) {
+        // (an instance wrapping a builtin value, of a str or tuple subclass, hashes as that value: py_hash)
+        if b && e == CLASS_EPOCH.with(|e| e.get()) && o.inner.borrow().is_none() {
             return Ok(ptr_hash(Rc::as_ptr(o) as usize));
         }
     }
@@ -1277,6 +1278,9 @@ pub fn py_hash(v: &V) -> Result<i64, E> {
                     x => py_hash(&x)?,
                 }
             } else if o.cls.lookup("__eq__").is_some() {
+                return type_err(format!("unhashable type: '{}'", o.cls.name));
+            } else if o.cls.base_bt() == BT::ByteArray {
+                // bytearray is unhashable, and so is a subclass that adds no __hash__
                 return type_err(format!("unhashable type: '{}'", o.cls.name));
             } else if let Some(i) = o.inner.borrow().clone() {
                 // a subclass of str, int or tuple hashes as its value, so it finds the same dict slot
@@ -2295,6 +2299,8 @@ pub enum BT {
     Deque,
     // bytes (a library class in the dynamic build): a subclass instance wraps a bytes value
     Bytes,
+    // bytearray (a library class too): a subclass instance wraps a bytearray value, shared, so mutations show
+    ByteArray,
     Other,
 }
 

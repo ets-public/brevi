@@ -925,6 +925,7 @@ fn builtin_of_bt(bt: BT) -> Rc<Class> {
         BT::OrderedDict => "OrderedDict",
         BT::Deque => "deque",
         BT::Bytes => return ext_class("bytes"),
+        BT::ByteArray => return ext_class("bytearray"),
         _ => "object",
     })
 }
@@ -1514,12 +1515,16 @@ fn class_getattr(o: &V, c: &Rc<Class>, name: &str) -> R {
             }
             // a bytes subclass: maketrans is bytes' static method; fromhex is a classmethod that builds
             // the subclass from the bytes, as CPython's does (cls(bytes.fromhex(s)))
-            if c.base_bt() == BT::Bytes {
+            // (a bytearray subclass alike: cls(bytearray.fromhex(s)))
+            if matches!(c.base_bt(), BT::Bytes | BT::ByteArray) {
                 if name == "maketrans" {
                     return Ok(builtin("maketrans", bytes_maketrans));
                 }
                 if name == "fromhex" {
                     let k = V::Class(c.clone());
+                    if c.base_bt() == BT::ByteArray {
+                        return Ok(builtin("fromhex", move |a: Args| call(&k, Args::p(vec![bytearray_fromhex(a)?]))));
+                    }
                     return Ok(builtin("fromhex", move |a: Args| call(&k, Args::p(vec![bytes_fromhex(a)?]))));
                 }
             }
@@ -1658,6 +1663,16 @@ pub fn getattr(o: &V, name: &str) -> R {
             }
             if matches!(name, "update" | "subtract") && counter_inner(o).is_some() {
                 return Ok(V::BMeth(Rc::new((o.clone(), sym(name)))));
+            }
+            // a bytearray subclass instance's __iadd__ and __imul__ change it and give back the instance itself
+            if is_ba_sub(o) && matches!(name, "__iadd__" | "__imul__") {
+                let (me, op) = (o.clone(), if name == "__iadd__" { "+" } else { "*" });
+                return Ok(builtin(sym(name), move |a: Args| {
+                    if a.p.len() != 1 || !a.k.is_empty() {
+                        return type_err(format!("expected 1 argument, got {}", a.p.len() + a.k.len()));
+                    }
+                    bytearray_iop(&me, &a.p[0], op).unwrap_or_else(|| type_err("internal: bytearray in-place operation".into()))
+                }));
             }
             if let Some(inner) = inner_of(o) {
                 if has_method(&inner, name) {
@@ -2159,6 +2174,10 @@ pub fn call_method(o: &V, name: &str, mut a: Args) -> R {
             }
             if matches!(name, "update" | "subtract" | "__init__") && counter_inner(o).is_some() {
                 return if name == "__init__" { counter_obj_init(o, a) } else { counter_obj_method(o, name, a) };
+            }
+            // a bytearray subclass instance's __iadd__ and __imul__ give back the instance itself (getattr has the same)
+            if is_ba_sub(o) && matches!(name, "__iadd__" | "__imul__") {
+                return call(&getattr(o, name)?, a);
             }
             if let Some(inner) = inner_of(o) {
                 return call_method(&inner, name, a);
