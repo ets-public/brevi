@@ -4,8 +4,8 @@
 # classes (ChainMap, UserDict, UserList, UserString); Counter, OrderedDict, defaultdict, deque and namedtuple
 # are Brevi's own, re-exported from the native collections module. reprlib's _recursive_repr is inlined (Brevi
 # has no reprlib; the recursion marker is a module-level id() set). The __copy__ methods read object.__new__
-# directly (a Brevi class exposes __new__ only on object). UserString.__complex__ is left out (the dynamic
-# build has no complex()). _collections_abc is Brevi's collections.abc, bound as `abc` exactly as CPython binds
+# directly (a Brevi class exposes __new__ only on object). UserString.__complex__ refuses when called (the
+# dynamic build has no complex()). _collections_abc is Brevi's collections.abc, bound as `abc` exactly as CPython binds
 # its _collections_abc.
 
 __all__ = [
@@ -439,6 +439,10 @@ class UserString(_collections_abc.Sequence):
 
     def __float__(self):
         return float(self.data)
+
+    def __complex__(self):
+        # the dynamic build has no complex numbers: refused when called
+        raise NotImplementedError("brevi: complex() is not supported in dynamic builds")
 
     def __hash__(self):
         return hash(self.data)

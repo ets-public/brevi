@@ -271,13 +271,13 @@ fn hybrid_bridged(m: &str) -> bool {
 }
 // Python builtins dynamic builds do not have: refused when the program is built.
 fn is_missing_builtin(n: &str) -> bool {
-    matches!(n, "exec" | "eval" | "compile" | "__import__" | "complex" | "dir" | "help" | "breakpoint" | "open" | "__build_class__" | "globals" | "locals")
+    matches!(n, "exec" | "eval" | "compile" | "__import__" | "complex" | "help" | "breakpoint" | "open" | "__build_class__" | "globals" | "locals")
 }
 
 fn is_builtin_name(n: &str) -> bool {
     matches!(
         n,
-        "print" | "input" | "len" | "repr" | "ascii" | "abs" | "min" | "max" | "sum" | "sorted" | "reversed" | "enumerate" | "zip" | "map" | "filter" | "any" | "all" | "iter" | "next" | "isinstance" | "issubclass" | "hasattr" | "getattr" | "setattr" | "delattr" | "callable" | "ord" | "chr" | "hex" | "oct" | "bin" | "round" | "divmod" | "pow" | "hash" | "id" | "format" | "vars" | "exit" | "quit" | "staticmethod" | "classmethod" | "property" | "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "slice" | "super" | "NotImplemented" | "Ellipsis" | "__name__" | "bytes" | "bytearray" | "memoryview" | "__bytes_lit" | "aiter" | "anext" | "__brevi_aenter" | "__brevi_aexit" | "__brevi_eg_split" | "__brevi_eg_reraise"
+        "print" | "input" | "len" | "repr" | "ascii" | "abs" | "min" | "max" | "sum" | "sorted" | "reversed" | "enumerate" | "zip" | "map" | "filter" | "any" | "all" | "iter" | "next" | "isinstance" | "issubclass" | "hasattr" | "getattr" | "setattr" | "delattr" | "callable" | "ord" | "chr" | "hex" | "oct" | "bin" | "round" | "divmod" | "pow" | "hash" | "id" | "format" | "vars" | "dir" | "exit" | "quit" | "staticmethod" | "classmethod" | "property" | "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "slice" | "super" | "NotImplemented" | "Ellipsis" | "__name__" | "bytes" | "bytearray" | "memoryview" | "__bytes_lit" | "aiter" | "anext" | "__brevi_aenter" | "__brevi_aexit" | "__brevi_eg_split" | "__brevi_eg_reraise"
     ) || is_exc_name(n)
 }
 fn is_exc_name(n: &str) -> bool {
@@ -399,7 +399,10 @@ fn mentions_annotations(body: &[Stmt]) -> bool {
     let mut found = false;
     visit_any(body, &mut |e| {
         // read by name too: getattr(f, "__annotations__"), or through functools.WRAPPER_ASSIGNMENTS
+        // vars(C), C.__dict__ and dir(C) list a class's __annotations__ too
         if matches!(e, Ex::Attr(_, n) | Ex::Name(n) if n == "__annotations__" || n == "WRAPPER_ASSIGNMENTS")
+            || matches!(e, Ex::Name(n) if n == "vars" || n == "dir")
+            || matches!(e, Ex::Attr(_, n) if n == "__dict__")
             || matches!(e, Ex::Str(t) if t == "__annotations__")
         {
             found = true;
@@ -2130,6 +2133,12 @@ impl Em {
                 b
             }
             Ex::Star(_) => return Err(err(line, "starred expression here is not supported")),
+            // Brevi's own module copies (pydantic, the MCP server, string, ...) read class namespaces for their
+            // own bookkeeping: they get the namespace even where the program's C.__dict__ refuses (rt_tdict.rs)
+            Ex::Attr(o, n) if n == "__dict__" && IN_COPY.with(|k| k.get()) => {
+                let ov = self.ex(o, line)?;
+                self.q(&format!("own_dict_of(&{ov})"))
+            }
             Ex::Attr(o, n) => {
                 // typing.ByteString stays refused: Brevi's typing does not give the collections.abc class, whose isinstance()
                 // and subclassing warn as CPython 3.13's metaclass does
@@ -2602,6 +2611,10 @@ impl Em {
                 }
                 return Err(err(line, "eval() of names this frame does not hold is not supported in dynamic builds"));
             }
+        }
+        // dir() of the current scope needs the frame's names as CPython orders them: refused (dir(x) is native)
+        if args.is_empty() && matches!(f, Ex::Name(n) if n == "dir") && self.lookup("dir").is_none() {
+            return Err(err(line, "dir() without an argument is not supported in dynamic builds"));
         }
         // locals() in a function: a snapshot dict of its bound names, in CPython's order
         if args.is_empty() && matches!(f, Ex::Name(n) if n == "locals") {
@@ -3845,13 +3858,14 @@ impl Em {
             return Err(err(d.line, "async functions are not supported in dynamic builds on this platform"));
         }
         self.next_async = d.is_async;
-        let qn = self.qualname_of(&d.name);
-        let v = self.closure(&d.name, &qn, &d.params, &d.body, d.line, true);
+        let own = d.disp.as_deref().unwrap_or(&d.name);
+        let qn = self.qualname_of(own);
+        let v = self.closure(own, &qn, &d.params, &d.body, d.line, true);
         self.next_async = false;
         let mut v = v?;
         v = format!("with_qualname({v}, {})", lit(&qn));
         if let Some(doc) = docstring(&d.body) {
-            v = format!("with_doc({v}, {})", lit(doc));
+            v = format!("with_doc({v}, {})", lit(&doc));
         }
         if self.module != "__main__" {
             v = format!("with_module({v}, {})", lit(&self.module));
@@ -4228,13 +4242,29 @@ impl Em {
         if setup {
             sc.locals.insert("__annotations__".into());
         }
+        let own_name = c.disp.clone().unwrap_or_else(|| c.name.clone());
+        let sattrs = c.static_attrs.iter().map(|n| lit(n)).collect::<Vec<_>>().join(", ");
         // A class body that calls locals() must run with its namespace as a dict: locals() returns that
         // dict, and every name load and store goes through it (CPython's LOAD_FROM_DICT_OR_DEREF / LOAD_NAME
         // and DELETE_NAME). Other classes keep the plain Rust locals exactly as before.
         let dict_mode = class_calls_locals(&c.body);
         let parent = self.fstack.last().unwrap();
         // CPython's __qualname__: `Outer.Inner` inside a class, `f.<locals>.C` inside a function.
-        let qualname = self.qualname_of(&c.name);
+        let qualname = self.qualname_of(&own_name);
+        // __firstlineno__ is the class statement's line; in Brevi's own copy of a CPython module, the line of
+        // the class in CPython's file. Why the dict cannot be CPython's, when it cannot ("" when it can):
+        let mut first = c.first;
+        let mut why = "";
+        if IN_COPY.with(|k| k.get()) {
+            match super::cpy_lines::CPY_CLASS_LINES.iter().find(|(m, q, _)| *m == self.module && *q == qualname) {
+                Some((_, _, l)) => first = *l,
+                None => why = "a class of Brevi's own copy of a module",
+            }
+        }
+        // a class whose annotations Brevi does not keep lacks the __annotations__ CPython's dict has
+        if !(setup || !c.body.iter().any(|s| matches!(s.st, St::AnnAssign(..)))) {
+            why = "annotations Brevi did not keep";
+        }
         let ns_var = format!("__ns{id}");
         let mut fr = Func { vars: HashMap::new(), frames: parent.frames.clone(), class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), qname: qualname.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![], ns: dict_mode.then_some(ns_var.clone()) };
         let ctx = format!("__auto_ctx{id}");
@@ -4244,6 +4274,12 @@ impl Em {
         write!(decls, "let {ctx}: i64 = enum_auto_ctx(&[{}]); let mut {av}: Vec<V> = vec![]; ", base_vars.iter().map(|v| format!("&{v}")).collect::<Vec<_>>().join(", ")).unwrap();
         if dict_mode {
             write!(decls, "let mut {ns_var}: V = dict_new(); ").unwrap();
+            // the namespace starts as CPython's class body starts it: __module__, __qualname__, __firstlineno__
+            let modname = if self.module == "__main__" { "__main__".to_string() } else { self.module.clone() };
+            for (k, v) in [("__module__", format!("s({})", lit(&modname))), ("__qualname__", format!("s({})", lit(&qualname))), ("__firstlineno__", format!("V::Int({first})"))] {
+                let set = self.q(&format!("setitem(&{ns_var}, &s({}), {v})", lit(k)));
+                write!(decls, "{set}; ").unwrap();
+            }
             if setup {
                 // SETUP_ANNOTATIONS runs first, so __annotations__ is the namespace dict's first key; the
                 // alias here is the same dict the class body stores annotations into.
@@ -4344,15 +4380,18 @@ impl Em {
         let mut v = if dict_mode {
             // the namespace dict holds the class attributes in the order the body bound them; the doc is
             // added only now, as __build_class__ adds it after the body
-            let mut attrs = String::new();
-            if !sc.locals.contains("__doc__") {
-                let doc = docstring(&c.body).map_or("V::None".to_string(), |d| format!("s({})", lit(d)));
-                let set = self.q(&format!("setitem(&{ns_var}, &s(\"__doc__\"), {doc})"));
-                write!(attrs, "{set}; ").unwrap();
-            }
+            let attrs = String::new();
             let items = self.q(&format!("dict_sym_items(&{ns_var})"));
-            let mk = self.q(&format!("make_class_f({}, {}, {}, vec![{}], {items}, vec![{}])", lit(&c.name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", ")));
-            format!("{{ {decls}\n{body}\n{attrs} {w} let __c = {mk}; {abcm} __c }}")
+            let mk = self.q(&format!("make_class_s({}, {}, {}, vec![{}], {items}, vec![{}], {}, &[{}], {})", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", "), first, sattrs, lit(why)));
+            // a docstring is the body's first store (CPython's STORE_NAME __doc__), after SETUP_ANNOTATIONS
+            let doc_set = match docstring(&c.body) {
+                Some(d) => {
+                    let set = self.q(&format!("setitem(&{ns_var}, &s(\"__doc__\"), s({}))", lit(&d)));
+                    format!("{set}; ")
+                }
+                None => String::new(),
+            };
+            format!("{{ {decls}\n{doc_set}{body}\n{attrs} {w} let __c = {mk}; {abcm} __c }}")
         } else {
             // class attributes in the order the body first binds them, as CPython's class namespace keeps them
             // (Enum members and vars() follow it)
@@ -4383,19 +4422,25 @@ impl Em {
                 let r = format!("a{id}___annotations__");
                 write!(attrs, "__at.push((\"__annotations__\", {r})); ").unwrap();
             }
+            // a docstring is the body's first store (CPython's STORE_NAME __doc__), after SETUP_ANNOTATIONS; a
+            // class without one gets __doc__ = None from make_class, after the names type_new adds
+            let doc = docstring(&c.body);
+            if let Some(d) = &doc {
+                if sc.locals.contains("__doc__") {
+                    let r = format!("a{id}___doc__");
+                    write!(attrs, "__at.push((\"__doc__\", if matches!({r}, V::Unbound) {{ s({}) }} else {{ {r} }})); ", lit(d)).unwrap();
+                } else {
+                    write!(attrs, "__at.push((\"__doc__\", s({}))); ", lit(d)).unwrap();
+                }
+            }
             for n in order {
-                if setup && n == "__annotations__" {
+                if setup && n == "__annotations__" || doc.is_some() && n == "__doc__" {
                     continue;
                 }
                 let r = format!("a{id}_{}", rust_ident(n));
                 write!(attrs, "if !matches!({r}, V::Unbound) {{ __at.push(({}, {r})); }} ", lit(n)).unwrap();
             }
-            // every class has its own __doc__ (None without a docstring), not its parent's
-            if !sc.locals.contains("__doc__") {
-                let doc = docstring(&c.body).map_or("V::None".to_string(), |d| format!("s({})", lit(d)));
-                write!(attrs, "__at.push((\"__doc__\", {doc})); ").unwrap();
-            }
-            let mk = self.q(&format!("make_class_f({}, {}, {}, vec![{}], __at, vec![{}])", lit(&c.name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", ")));
+            let mk = self.q(&format!("make_class_s({}, {}, {}, vec![{}], __at, vec![{}], {}, &[{}], {})", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", "), first, sattrs, lit(why)));
             format!("{{ {decls}\n{body}\nlet mut __at: Vec<(Sym, V)> = vec![]; {attrs} {w} let __c = {mk}; {abcm} __c }}")
         };
         for dec in c.decorators.iter().rev() {
@@ -4431,11 +4476,56 @@ fn ann_kind(a: &Ex) -> Option<&'static str> {
 }
 
 // The docstring of a def or class body.
-fn docstring(body: &[Stmt]) -> Option<&str> {
+// A def's or class's docstring as CPython 3.13 stores it: tabs expanded, the first line's leading spaces and the
+// common indentation of the later lines removed (_PyCompile_CleanDoc).
+fn docstring(body: &[Stmt]) -> Option<String> {
     match body.first().map(|s| &s.st) {
-        Some(St::Expr(Ex::Str(d))) => Some(d.as_str()),
+        Some(St::Expr(Ex::Str(d))) => Some(clean_doc(d)),
         _ => None,
     }
+}
+fn clean_doc(d: &str) -> String {
+    // str.expandtabs(8)
+    let mut t = String::with_capacity(d.len());
+    let mut col = 0usize;
+    for ch in d.chars() {
+        match ch {
+            '\t' => {
+                let n = 8 - col % 8;
+                t.extend(std::iter::repeat(' ').take(n));
+                col += n;
+            }
+            '\n' | '\r' => {
+                t.push(ch);
+                col = 0;
+            }
+            c => {
+                t.push(c);
+                col += 1;
+            }
+        }
+    }
+    let lines: Vec<&str> = t.split('\n').collect();
+    let margin = lines
+        .iter()
+        .skip(1)
+        .filter_map(|l| {
+            let n = l.len() - l.trim_start_matches(' ').len();
+            (n < l.len()).then_some(n)
+        })
+        .min()
+        .unwrap_or(0);
+    let mut out = String::with_capacity(t.len());
+    for (i, l) in lines.iter().enumerate() {
+        if i == 0 {
+            out.push_str(l.trim_start_matches(' '));
+        } else {
+            out.push('\n');
+            let lead = l.len() - l.trim_start_matches(' ').len();
+            out.push_str(&l[lead.min(margin)..]);
+        }
+    }
+    out
 }
 
 fn builtin_fast(n: &str) -> Option<String> {

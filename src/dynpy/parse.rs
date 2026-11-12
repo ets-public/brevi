@@ -488,6 +488,8 @@ pub struct FuncDef {
     pub is_async: bool,
     // the return annotation
     pub ret: Option<Ex>,
+    // the def's own name (its __name__) when `name` is the private name mangled for the class it is in
+    pub disp: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -499,6 +501,13 @@ pub struct ClassDef {
     pub line: usize,
     // `total=False`, TypedDict's keyword (dynpy/typing.rs refuses it on any other class)
     pub kwargs: Vec<(String, Ex)>,
+    // the class's own name (its __name__) when `name` is the private name mangled for the class it is in
+    pub disp: Option<String>,
+    // the first line of the definition, decorators included (CPython's __firstlineno__)
+    pub first: usize,
+    // CPython 3.13's __static_attributes__: the names stored as `self.<name> = ...` in the body's functions,
+    // sorted (filled by the mangling pass, from the names as written)
+    pub static_attrs: Vec<String>,
     // `metaclass=ABCMeta`: the class follows ABCMeta's rules (abstract methods, register, isinstance)
     pub abc_meta: bool,
 }
@@ -750,6 +759,7 @@ impl P {
             "def" => St::Def(Box::new(self.funcdef(vec![])?)),
             "class" => St::Class(Box::new(self.classdef(vec![])?)),
             "@" => {
+                let first = self.line();
                 let mut decs = vec![];
                 while self.eat_op("@") {
                     decs.push(self.expr()?);
@@ -760,7 +770,9 @@ impl P {
                 if self.is_kw("def") {
                     St::Def(Box::new(self.funcdef(decs)?))
                 } else if self.is_kw("class") {
-                    St::Class(Box::new(self.classdef(decs)?))
+                    let mut c = self.classdef(decs)?;
+                    c.first = first;
+                    St::Class(Box::new(c))
                 } else if self.is_kw("async") {
                     self.next();
                     if !self.is_kw("def") {
@@ -1173,7 +1185,7 @@ impl P {
         self.expect_op(")")?;
         let ret = if self.eat_op("->") { Some(self.expr()?) } else { None };
         let body = self.block()?;
-        Ok(FuncDef { name, params, body, decorators, line, is_async: false, ret })
+        Ok(FuncDef { name, params, body, decorators, line, is_async: false, ret, disp: None })
     }
     fn params(&mut self, end: &str) -> PR<Params> {
         let mut p = Params::default();
@@ -1267,7 +1279,7 @@ impl P {
             self.expect_op(")")?;
         }
         let body = self.block()?;
-        Ok(ClassDef { name, bases, body, decorators, line, kwargs, abc_meta })
+        Ok(ClassDef { name, bases, body, decorators, line, kwargs, disp: None, first: line, static_attrs: vec![], abc_meta })
     }
 
     // ---- expressions ----
@@ -1935,7 +1947,9 @@ pub fn parse_fstring(body: &str, raw: bool, line: usize) -> PR<Vec<FPart>> {
 pub fn parse(src: &str) -> PR<Vec<Stmt>> {
     let lx = lex(src)?;
     let mut p = P { toks: lx.toks, i: 0, anon: 0 };
-    p.file()
+    let mut body = p.file()?;
+    super::mangle::module(&mut body)?;
+    Ok(body)
 }
 
 // A break, continue or return in this block that leaves it (not inside a nested loop or function).

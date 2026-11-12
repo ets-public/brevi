@@ -1479,6 +1479,14 @@ pub fn bi_classmethod(a: Args) -> R {
     Ok(match &f {
         V::Func(x) => rewrap(x, 2),
         V::Obj(_) => rewrap_obj(&f, 2),
+        // classmethod(GenericAlias) and other callable types: a classmethod that calls it with the class first
+        V::Class(_) | V::Ext(_) => {
+            let g = rewrap_obj(&f, 2);
+            if let V::Func(gf) = &g {
+                gf.attrs.borrow_mut().push(("__bv_repr__", st(format!("<classmethod({})>", repr(&f)?))));
+            }
+            g
+        }
         _ => f,
     })
 }
@@ -1574,6 +1582,7 @@ pub fn builtin_fn(name: &str) -> Option<fn(Args) -> R> {
         "id" => bi_id,
         "format" => bi_format,
         "vars" => bi_vars,
+        "dir" => bi_dir,
         "exit" | "quit" => bi_exit,
         "open" => bi_open,
         "staticmethod" => bi_staticmethod,
