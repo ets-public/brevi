@@ -577,6 +577,9 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
         if c.module == "itertools" && c.name == "_tee" {
             return tee_new(a);
         }
+        if let Some(r) = iter_class_call(c, a) {
+            return r;
+        }
         return Err(exc("NotImplementedError", format!("brevi: calling the {}.{} class is not supported in dynamic builds", c.module, c.name)));
     }
     if plain_new(c) {

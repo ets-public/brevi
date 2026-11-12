@@ -1697,9 +1697,6 @@ pub struct Em {
     re_names: HashSet<(String, String)>,
     // the program uses the warnings module: every statement says where it is, so a warning names its line
     track_warn: bool,
-    // the program imports itertools and pickles or copies something: its iterators do not pickle, and their
-    // copies miss CPython 3.13's DeprecationWarning, so catch_warnings(record=True) there is refused
-    iter_pickle: bool,
     // module -> the lines whose logical line runs over more than one line (None: the module did not lex)
     multi: HashMap<String, Option<HashSet<usize>>>,
     // the WMod statics written so far
@@ -2518,13 +2515,6 @@ impl Em {
         format!("gtab_{}", rust_ident(&self.module))
     }
     fn call(&mut self, f: &Ex, args: &[Arg], line: usize) -> ER<String> {
-        // warnings.catch_warnings(record=True) records what CPython would; in a program that pickles or copies
-        // and uses itertools it would record an itertools copy without its DeprecationWarning, so it is refused
-        if self.iter_pickle && (matches!(f, Ex::Name(n) if n == "catch_warnings") || matches!(f, Ex::Attr(_, n) if n == "catch_warnings")) {
-            if args.iter().any(|a| matches!(a, Arg::KwStar(_)) || matches!(a, Arg::Kw(k, v) if k == "record" && !matches!(v, Ex::False))) {
-                return Err(err(line, "warnings.catch_warnings(record=True) in a program that pickles or copies itertools iterators is not supported in dynamic builds"));
-            }
-        }
         // warnings.warn(..., stacklevel=2) in the program names a caller's line, which the dynamic build does
         // not keep: CPython runs it (a stacklevel it only learns at run time is refused there, see pyglue)
         if self.track_warn {
@@ -4416,16 +4406,18 @@ pub fn ic_statics() -> String {
 pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>), (String, usize, String)> {
     // the program (not Brevi's library copies) uses the warnings module
     // (or functools.partial, whose __get__ warns at the line that reads it from an instance)
-    let track_warn = mods.iter().any(|m| {
-        let b = format!("{:?}", m.body);
-        bridge.srcs.contains_key(&m.name) && (b.contains("\"warnings\"") || b.contains("\"functools\"") && b.contains("\"partial\""))
-    });
     let iter_pickle = mods.iter().any(|m| {
         let b = format!("{:?}", m.body);
         bridge.srcs.contains_key(&m.name)
             && b.contains("\"itertools\"")
             && ["\"pickle\"", "\"copy\"", "\"deepcopy\"", "\"__reduce__\"", "\"__reduce_ex__\"", "\"__setstate__\""].iter().any(|k| b.contains(k))
     });
+    // (or pickles or copies itertools iterators, whose __reduce__ and __setstate__ warn at the caller's line)
+    let track_warn = mods.iter().any(|m| {
+        let b = format!("{:?}", m.body);
+        bridge.srcs.contains_key(&m.name) && (b.contains("\"warnings\"") || b.contains("\"functools\"") && b.contains("\"partial\""))
+    }) || iter_pickle;
+
     let has_del = mods.iter().any(|m| format!("{:?}", m.body).contains("\"__del__\""));
     let has_closure = mods.iter().any(|m| format!("{:?}", m.body).contains("__closure__"));
     let mut em = Em {
@@ -4457,7 +4449,6 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         uses_re: false,
         re_names: HashSet::new(),
         track_warn,
-        iter_pickle,
         multi: HashMap::new(),
         wmods: HashSet::new(),
         warn_names: HashSet::new(),

@@ -2027,46 +2027,11 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
         // The iterator tools are lazy, as in CPython: they pull from their inputs one item at a time, so they work
         // on infinite inputs, see items added after they were made, and run callbacks in CPython's order.
         "chain" => {
+            a.no_kw("chain")?;
             let srcs = std::mem::take(&mut a.p);
-            let mut k = 0;
-            let mut cur: Option<It> = None;
-            gen_iter(ItKind::ItChain, move || loop {
-                if let Some(it) = &mut cur {
-                    if let Some(x) = it.next()? {
-                        return Ok(Some(x));
-                    }
-                    cur = None;
-                }
-                if k >= srcs.len() {
-                    return Ok(None);
-                }
-                k += 1;
-                cur = Some(iter(&srcs[k - 1])?);
-            })
+            chain_new(in_of_iterator(&new_iter(It::Tuple(Tup::from(srcs), 0), IterClass::Kind(ItKind::TupleIter)))?)
         }
-        "chain.from_iterable" => {
-            let mut outer = iter(&a1(&a, "from_iterable")?)?;
-            let mut cur: Option<It> = None;
-            let mut done = false;
-            gen_iter(ItKind::ItChain, move || loop {
-                if let Some(it) = &mut cur {
-                    if let Some(x) = it.next()? {
-                        return Ok(Some(x));
-                    }
-                    cur = None;
-                }
-                if done {
-                    return Ok(None);
-                }
-                match outer.next()? {
-                    Some(x) => cur = Some(iter(&x)?),
-                    None => {
-                        done = true;
-                        return Ok(None);
-                    }
-                }
-            })
-        }
+        "chain.from_iterable" => chain_new(get_iter(&a1(&a, "from_iterable")?)?),
         "accumulate" => {
             let init = a.kw("initial").filter(|x| !matches!(x, V::None));
             let f = a.p.get(1).cloned().or(a.kw("func")).filter(|f| !matches!(f, V::None));
@@ -2096,13 +2061,9 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             groupby_iter(it, key)
         }
         "count" => {
-            let mut n = a.p.first().cloned().unwrap_or(V::Int(0));
-            let st0 = a.p.get(1).cloned().unwrap_or(V::Int(1));
-            gen_iter(ItKind::ItCount, move || {
-                let v = n.clone();
-                n = add(&n, &st0)?;
-                Ok(Some(v))
-            })
+            let start = a.p.first().cloned().or(a.kw("start"));
+            let step = a.p.get(1).cloned().or(a.kw("step"));
+            count_new(start, step)?
         }
         "islice" => {
             if !a.k.is_empty() {
@@ -2132,25 +2093,8 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             if step < 1 {
                 return Err(exc("ValueError", ISLICE_STEP_MSG.into()));
             }
-            let mut it = iter(&src)?;
-            let mut i = 0i64;
-            let mut next_i = start;
-            gen_iter(ItKind::ItIslice, move || loop {
-                if i >= stop || next_i >= stop {
-                    return Ok(None);
-                }
-                match it.next()? {
-                    None => return Ok(None),
-                    Some(x) => {
-                        let cur = i;
-                        i += 1;
-                        if cur == next_i {
-                            next_i += step;
-                            return Ok(Some(x));
-                        }
-                    }
-                }
-            })
+            let none_stop = matches!(if n == 2 { &a.p[1] } else { &a.p[2] }, V::None);
+            islice_new(get_iter(&src)?, start, if none_stop { -1 } else { stop }, step)
         }
         "zip_longest" => {
             let fill = a.kw("fillvalue").unwrap_or(V::None);
@@ -2194,24 +2138,8 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             }
         }
         "cycle" => {
-            let mut it = Some(iter(&a1(&a, name)?)?);
-            let mut saved: Vec<V> = vec![];
-            let mut i = 0;
-            gen_iter(ItKind::ItCycle, move || {
-                if let Some(src) = &mut it {
-                    if let Some(x) = src.next()? {
-                        saved.push(x.clone());
-                        return Ok(Some(x));
-                    }
-                    it = None;
-                }
-                if saved.is_empty() {
-                    return Ok(None);
-                }
-                let v = saved[i % saved.len()].clone();
-                i += 1;
-                Ok(Some(v))
-            })
+            a.no_kw("cycle")?;
+            cycle_new(get_iter(&a1(&a, name)?)?)
         }
         "starmap" => {
             a.want(name, 2, 2)?;
@@ -2462,7 +2390,7 @@ pub fn shallow_copy(x: &V) -> R {
         }
         V::Iter(_) => match tee_copy_iter(x) {
             Some(v) => v,
-            None => x.clone(),
+            None => iter_copy(x, None)?,
         },
         _ => x.clone(),
     })
@@ -2475,6 +2403,7 @@ fn ptr_of(x: &V) -> Option<usize> {
         V::Obj(l) => Rc::as_ptr(l) as *const u8 as usize,
         V::Tuple(l) => Tup::as_ptr(l) as *const u8 as usize,
         V::Deque(l) => Rc::as_ptr(l) as *const u8 as usize,
+        V::Iter(l) => Rc::as_ptr(l) as *const u8 as usize,
         _ => return None,
     })
 }
@@ -2576,10 +2505,9 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
             }
             V::Obj(n)
         }
-        V::Iter(_) => match tee_copy_iter(x) {
-            Some(v) => v,
-            None => x.clone(),
-        },
+        // CPython deep-copies a tee's buffer and its source iterator (the _tee_dataobject's __reduce__)
+        V::Iter(_) if tee_pos_of(x).is_some() => return Err(unsupported("copy.deepcopy of an itertools.tee iterator")),
+        V::Iter(_) => iter_copy(x, Some(memo))?,
         _ => x.clone(),
     })
 }
