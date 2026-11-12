@@ -826,7 +826,7 @@ fn lru_cache_wrap(f: V, maxsize: V, typed: bool) -> R {
         let c3 = c2.clone();
         let h3 = hits.clone();
         let m3 = misses.clone();
-        wf.attrs.borrow_mut().push(("cache_clear", builtin("cache_clear", move |_a: Args| {
+        wf.attrs.borrow_mut().push(("cache_clear", with_qualname(builtin("cache_clear", move |_a: Args| {
             c3.borrow_mut().clear();
             let mut sl = s3.borrow_mut();
             sl.map.clear();
@@ -834,15 +834,15 @@ fn lru_cache_wrap(f: V, maxsize: V, typed: bool) -> R {
             h3.set(0);
             m3.set(0);
             Ok(V::None)
-        })));
+        }), "_lru_cache_wrapper.cache_clear")));
         let c4 = c2.clone();
         let h4 = hits.clone();
         let m4 = misses.clone();
         let ms4 = maxsize.clone();
         let info = cache_info_class()?;
-        wf.attrs.borrow_mut().push(("cache_info", builtin("cache_info", move |_a: Args| {
+        wf.attrs.borrow_mut().push(("cache_info", with_qualname(builtin("cache_info", move |_a: Args| {
             call(&info, Args::p(vec![V::Int(h4.get()), V::Int(m4.get()), ms4.clone(), V::Int(c4.borrow().n as i64)]))
-        })));
+        }), "_lru_cache_wrapper.cache_info")));
         let ms5 = maxsize.clone();
         wf.attrs.borrow_mut().push(("cache_parameters", func("cache_parameters", move |_a: Args| {
             let mut d = Dict::new();

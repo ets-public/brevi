@@ -169,6 +169,11 @@ pub fn ose_str(o: &Rc<Obj>, args: &V) -> Result<String, E> {
     })
 }
 pub fn repr(v: &V) -> Result<String, E> {
+    if let V::Ext(_) = v {
+        if let Some(r) = sig_str(v, true) {
+            return r;
+        }
+    }
     Ok(match v {
         V::None => "None".into(),
         V::Bool(b) => if *b { "True" } else { "False" }.into(),
@@ -498,6 +503,9 @@ fn join_repr(xs: &[V]) -> Result<String, E> {
     Ok(s)
 }
 pub fn to_str(v: &V) -> Result<String, E> {
+    if let Some(r) = sig_str(v, false) {
+        return r;
+    }
     if let Some(__p) = proxy_deref(v) {
         return to_str(&__p?);
     }

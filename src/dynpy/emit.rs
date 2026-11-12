@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 type ER<T> = Result<T, (usize, String)>;
 
-pub const BUILTIN_MODULES: [&str; 51] = ["_brevi_col", "_brevi_srv", "_brevi_proc", "importlib.metadata", "zoneinfo", "tzlocal", "atexit", "_brevi_async", "_brevi_net", "_brevi_fs", "_brevi_st", "_brevi_ort", "_brevi_sqlite", "_brevi_duckdb", "_brevi_stdio", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "re._constants", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading", "gc", "weakref"];
+pub const BUILTIN_MODULES: [&str; 52] = ["_brevi_col", "_brevi_srv", "_brevi_proc", "importlib.metadata", "zoneinfo", "tzlocal", "atexit", "_brevi_async", "_brevi_net", "_brevi_fs", "_brevi_st", "_brevi_ort", "_brevi_sqlite", "_brevi_duckdb", "_brevi_stdio", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "re._constants", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading", "gc", "weakref", "inspect"];
 
 
 // ---------- numpy, natively (rt_np*.rs) ----------
@@ -254,6 +254,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "zoneinfo" => &["ZoneInfo", "ZoneInfoNotFoundError", "available_timezones", "TZPATH", "reset_tzpath"],
         "gc" => &["collect"],
         "weakref" => &["ref", "proxy"],
+        "inspect" => &["Signature"],
         _ => return false,
     };
     names.contains(&n)
@@ -263,7 +264,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
 // native one was added. weakref's do not: CPython's proxy, WeakValueDictionary, finalize, ... would hold the
 // short-lived Python stand-in of a program value, not the value, so they are refused.
 fn hybrid_bridged(m: &str) -> bool {
-    m == "gc" && super::bridge_ok()
+    matches!(m, "gc" | "inspect") && super::bridge_ok()
 }
 // Python builtins dynamic builds do not have: refused when the program is built.
 fn is_missing_builtin(n: &str) -> bool {
@@ -2559,10 +2560,10 @@ impl Em {
                 return Ok(self.q(&rc));
             }
         }
-        // CPython's inspect cannot read a dynamic build's function objects (their code and annotations are
-        // not built), so Signature.from_callable on one would raise where CPython prints a signature.
-        if matches!(f, Ex::Attr(o, m) if m == "from_callable" && matches!(o.as_ref(), Ex::Name(n) if n == "Signature")) {
-            return Err(err(line, "Signature.from_callable is not supported in dynamic builds"));
+        // Signature.from_callable reads the parameters and annotations each def records (SIG_DEFS); a program
+        // whose annotations are not kept (`from __future__ import annotations`, a type expression) is refused.
+        if matches!(f, Ex::Attr(_, m) if m == "from_callable") && !super::typing::SIG_DEFS.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(err(line, "Signature.from_callable in a program whose def annotations are not kept is not supported in dynamic builds"));
         }
         // eval("literal text"): parsed when the program is built and run in place. Refused when a name in it
         // would resolve differently (CPython's eval sees this frame's locals and the globals, not enclosing cells).
@@ -3869,6 +3870,44 @@ impl Em {
     // A function value. Module-level functions (and methods of module-level classes) become plain Rust
     // functions plus a wrapper; nested ones are closures capturing the cells they use.
     fn closure(&mut self, name: &str, qualname: &str, p: &Params, body: &[Stmt], line: usize, is_def: bool) -> ER<String> {
+        if !super::typing::SIG_DEFS.load(std::sync::atomic::Ordering::Relaxed) {
+            return self.closure_body(name, qualname, p, body, line, is_def, None);
+        }
+        // the defaults are evaluated once, here, and both the function and its recorded signature hold them
+        let id = self.id();
+        let mut pre = String::new();
+        let mut pd = vec![];
+        let mut kd = vec![];
+        for (k, (_, dv)) in p.pos.iter().enumerate() {
+            pd.push(match dv {
+                Some(x) => {
+                    let c = self.ex(x, line)?;
+                    write!(pre, "let __sdp{id}_{k} = {c}; ").unwrap();
+                    format!("__sdp{id}_{k}.clone()")
+                }
+                None => "V::Unbound".into(),
+            });
+        }
+        for (k, (_, dv)) in p.kwonly.iter().enumerate() {
+            kd.push(match dv {
+                Some(x) => {
+                    let c = self.ex(x, line)?;
+                    write!(pre, "let __sdk{id}_{k} = {c}; ").unwrap();
+                    format!("__sdk{id}_{k}.clone()")
+                }
+                None => "V::Unbound".into(),
+            });
+        }
+        let v = self.closure_body(name, qualname, p, body, line, is_def, Some((pd.clone(), kd.clone())))?;
+        let names = |v: &[(String, Option<Ex>)]| v.iter().map(|(n, _)| lit(n)).collect::<Vec<_>>().join(", ");
+        let opt = |n: &Option<String>| n.as_ref().map_or("None".to_string(), |n| format!("Some({})", lit(n)));
+        Ok(format!(
+            "{{ {pre}with_sig({v}, &[{}], {}, {}, &[{}], {}, vec![{}], vec![{}]) }}",
+            names(&p.pos), p.posonly, opt(&p.star), names(&p.kwonly), opt(&p.kwstar), pd.join(", "), kd.join(", ")
+        ))
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn closure_body(&mut self, name: &str, qualname: &str, p: &Params, body: &[Stmt], line: usize, is_def: bool, dflt: Option<(Vec<String>, Vec<String>)>) -> ER<String> {
         let id = self.id();
         let is_async = std::mem::take(&mut self.next_async);
         let is_gen = has_yield(body);
@@ -3877,24 +3916,27 @@ impl Em {
         let inner_free = nested_free(body);
         let at_top = self.fstack.len() == 1;
         let in_class_top = self.class_ctx.is_some() && self.fstack.len() == 2 && self.fstack[0].is_module;
-        // defaults, evaluated now
-        let mut dflt_codes = vec![];
-        for (_, dv) in p.pos.iter() {
-            dflt_codes.push(match dv {
-                Some(x) => self.ex(x, line)?,
-                None => "V::Unbound".into(),
-            });
-        }
-        if p.star.is_some() {
-            // no default
-        }
-        let mut kwd = vec![];
-        for (_, dv) in p.kwonly.iter() {
-            kwd.push(match dv {
-                Some(x) => self.ex(x, line)?,
-                None => "V::Unbound".into(),
-            });
-        }
+        // defaults, evaluated now (or already, by closure, when the def records its signature)
+        let (dflt_codes, kwd) = match dflt {
+            Some(d) => d,
+            None => {
+                let mut dflt_codes = vec![];
+                for (_, dv) in p.pos.iter() {
+                    dflt_codes.push(match dv {
+                        Some(x) => self.ex(x, line)?,
+                        None => "V::Unbound".into(),
+                    });
+                }
+                let mut kwd = vec![];
+                for (_, dv) in p.kwonly.iter() {
+                    kwd.push(match dv {
+                        Some(x) => self.ex(x, line)?,
+                        None => "V::Unbound".into(),
+                    });
+                }
+                (dflt_codes, kwd)
+            }
+        };
         // signature: positional params, then kw-only params share the names list; bind() treats
         // kw-only as named params past npos.
         let mut names: Vec<String> = p.pos.iter().map(|x| x.0.clone()).collect();
