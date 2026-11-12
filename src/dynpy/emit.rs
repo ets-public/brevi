@@ -253,7 +253,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "importlib.metadata" => &["version", "PackageNotFoundError"],
         "zoneinfo" => &["ZoneInfo", "ZoneInfoNotFoundError", "available_timezones", "TZPATH", "reset_tzpath"],
         "gc" => &["collect"],
-        "weakref" => &["ref"],
+        "weakref" => &["ref", "proxy"],
         _ => return false,
     };
     names.contains(&n)
@@ -279,7 +279,7 @@ fn is_builtin_name(n: &str) -> bool {
 fn is_exc_name(n: &str) -> bool {
     matches!(
         n,
-        "BaseException" | "Exception" | "SystemExit" | "KeyboardInterrupt" | "GeneratorExit" | "ArithmeticError" | "ZeroDivisionError" | "OverflowError" | "FloatingPointError" | "LookupError" | "KeyError" | "IndexError" | "ValueError" | "UnicodeError" | "UnicodeDecodeError" | "UnicodeEncodeError" | "TypeError" | "AttributeError" | "NameError" | "UnboundLocalError" | "RuntimeError" | "RecursionError" | "NotImplementedError" | "StopIteration" | "StopAsyncIteration" | "TimeoutError" | "ConnectionError" | "ConnectionRefusedError" | "ConnectionResetError" | "ConnectionAbortedError" | "BrokenPipeError" | "BlockingIOError" | "ChildProcessError" | "InterruptedError" | "ProcessLookupError" | "BaseExceptionGroup" | "ExceptionGroup" | "AssertionError" | "SyntaxError" | "IndentationError" | "ImportError" | "ModuleNotFoundError" | "OSError" | "IOError" | "EnvironmentError" | "FileNotFoundError" | "PermissionError" | "IsADirectoryError" | "NotADirectoryError" | "FileExistsError" | "EOFError" | "MemoryError" | "BufferError" | "Warning" | "UserWarning" | "DeprecationWarning" | "SyntaxWarning" | "RuntimeWarning" | "FutureWarning" | "PendingDeprecationWarning" | "ImportWarning" | "UnicodeWarning" | "BytesWarning" | "ResourceWarning" | "EncodingWarning"
+        "BaseException" | "Exception" | "SystemExit" | "KeyboardInterrupt" | "GeneratorExit" | "ArithmeticError" | "ZeroDivisionError" | "OverflowError" | "FloatingPointError" | "LookupError" | "KeyError" | "IndexError" | "ValueError" | "UnicodeError" | "UnicodeDecodeError" | "UnicodeEncodeError" | "TypeError" | "AttributeError" | "NameError" | "UnboundLocalError" | "RuntimeError" | "RecursionError" | "NotImplementedError" | "StopIteration" | "StopAsyncIteration" | "TimeoutError" | "ConnectionError" | "ConnectionRefusedError" | "ConnectionResetError" | "ConnectionAbortedError" | "BrokenPipeError" | "BlockingIOError" | "ChildProcessError" | "InterruptedError" | "ProcessLookupError" | "BaseExceptionGroup" | "ExceptionGroup" | "AssertionError" | "SyntaxError" | "IndentationError" | "ImportError" | "ModuleNotFoundError" | "OSError" | "IOError" | "EnvironmentError" | "FileNotFoundError" | "PermissionError" | "IsADirectoryError" | "NotADirectoryError" | "FileExistsError" | "EOFError" | "MemoryError" | "BufferError" | "Warning" | "UserWarning" | "DeprecationWarning" | "SyntaxWarning" | "RuntimeWarning" | "FutureWarning" | "PendingDeprecationWarning" | "ImportWarning" | "UnicodeWarning" | "BytesWarning" | "ResourceWarning" | "EncodingWarning" | "ReferenceError"
     )
 }
 

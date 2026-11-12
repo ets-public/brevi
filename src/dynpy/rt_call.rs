@@ -1739,6 +1739,9 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
     }
 }
 pub fn delattr(o: &V, name: &str) -> Result<(), E> {
+    if let Some(p) = proxy_deref(o) {
+        return delattr(&p?, name);
+    }
     match o {
         V::Obj(ob) => {
             if let Some(da) = ob.cls.lookup("__delattr__") {

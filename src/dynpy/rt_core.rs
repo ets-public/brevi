@@ -3361,6 +3361,7 @@ pub fn init_builtin_classes() {
         ("BytesWarning", "Warning"),
         ("ResourceWarning", "Warning"),
         ("EncodingWarning", "Warning"),
+        ("ReferenceError", "Exception"),
         ("JSONDecodeError", "ValueError"),
         ("InvalidOperation", "ArithmeticError"),
         ("DivisionByZero", "ZeroDivisionError"),
@@ -3460,7 +3461,20 @@ pub fn tn(v: &V) -> String {
             2 => "Counter".into(),
             _ => "dict".into(),
         },
+        // a live weakref.proxy names its referent's type in errors, as CPython's proxy slots raise them
+        // from the referent; the few errors about the proxy itself use proxy_tn
+        V::Ext(_) => match proxy_deref(v) {
+            Some(Ok(r)) => tn(&r),
+            _ => type_name(v),
+        },
         _ => type_name(v),
+    }
+}
+// The type name of the value itself, a weakref.proxy's own type for a proxy.
+pub fn proxy_tn(v: &V) -> String {
+    match v {
+        V::Ext(x) => x.tname().into(),
+        _ => tn(v),
     }
 }
 
