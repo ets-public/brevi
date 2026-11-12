@@ -23,7 +23,7 @@ if [ "$mode" = pr ]; then
     changed=$( { git diff --name-only "$base"; git ls-files --others --exclude-standard; } )
     echo "$changed" | grep -qE '^(src/|Cargo\.(toml|lock)$|compat/baseline\.txt$|tools/compat\.py$|bench/(solutions|tasks|ref)/)' || compat=0
     echo "$changed" | grep -qE '^(compat/baseline\.txt$|tools/compat\.py$|bench/(solutions|tasks)/)' || kinds=brevi
-    # The stdlib slice (~6 min on 4 cores): GitHub runs it only after the merge (stdlib.yml), so check it here
+    # The stdlib slice (~6 min on 4 cores): GitHub runs it only after the merge (conformance-main.yml), so check it here
     # whenever the compiler or the slice's lists change. Merge origin/main first to see what
     # this branch does together with the PRs merged since it started.
     echo "$changed" | grep -qE '^(src/|Cargo\.(toml|lock)$|tools/conformance\.py$|compat/conformance_(stdlib_|by_design))' || stdlib=0
@@ -41,6 +41,7 @@ BREVI=./target/release/brevi node tests/sdk_node_test.mjs
 step "Guide budget"; python3 tools/guide_budget.py
 step "Package versions"; python3 tools/version_sync.py
 step "Changelog fragments"; python3 tools/changelog.py --check
+if [ "$mode" = pr ] && [ -n "$base" ]; then step "Conformance floors left to main"; python3 tools/floor_guard.py "$base"; fi
 if [ $grammar = 1 ]; then
   step "Grammar"; python3 -c "import lark" 2>/dev/null || python3 -m pip install --quiet -r tools/requirements-ci.txt
   python3 tools/lark_to_gbnf.py --check; python3 tools/grammar_check.py tests/run/*.bv

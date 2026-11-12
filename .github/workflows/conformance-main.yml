@@ -1,10 +1,14 @@
-# The stdlib conformance slice (tools/conformance.py --slice stdlib) on main, after every merge that can change it.
+# Both CPython conformance slices on main, after every merge that can change them, and the floors raised here.
 # Pull requests run only the core slice: the stdlib slice takes about 6 minutes more, which would push the PR tier
 # past 20 minutes. And two PRs that each pass on their own can still leave a wrong result once both are merged
 # (#468 and #471 did), which no per-PR run sees. This catches both within one run of the merge instead of at the
-# next daily run, for about 12 minutes per burst of merges: a newer merge cancels the run in progress, so a busy
+# next daily run, for about 14 minutes per burst of merges: a newer merge cancels the run in progress, so a busy
 # afternoon costs one run, not one per PR. A failure opens or updates a "conformance" issue.
-name: Stdlib conformance on main
+# When both ratchets hold, the floors (compat/conformance*_floor.json) go up to what the merged tree measures and
+# are committed to main. PRs never raise them (tools/floor_guard.py): when each PR raised the same two numbers,
+# every merge put every other open PR into conflict, and each one merged main, re-measured and re-ran CI.
+# A push made with the workflow's own token starts no workflow, so this commit never triggers itself.
+name: Conformance on main
 
 on:
   push:
@@ -14,21 +18,20 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "tools/conformance.py"
-      - "compat/conformance_stdlib_*"
-      - "compat/conformance_by_design.txt"
-      - ".github/workflows/stdlib.yml"
+      - "compat/conformance_*"
+      - ".github/workflows/conformance-main.yml"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   issues: write
 
 concurrency:
-  group: stdlib-conformance-main
+  group: conformance-main
   cancel-in-progress: true
 
 jobs:
-  stdlib:
+  conformance:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -55,26 +58,40 @@ jobs:
       - name: Build
         run: cargo build --release
 
-      - name: CPython conformance, stdlib slice (the score may not drop, the known-wrong list only shrinks)
+      - name: CPython conformance, both slices (the score may not drop, the known-wrong lists only shrink)
         run: |
           python3 -m pip install --quiet uv
           uv python install 3.13.13 --quiet
-          python3 tools/conformance.py --slice stdlib --check --python "$(uv python find 3.13.13)" --out conformance-stdlib
+          py="$(uv python find 3.13.13)"
+          python3 tools/conformance.py --check --raise-floor --python "$py" --out conformance-core
+          cat conformance-core/report.md >> "$GITHUB_STEP_SUMMARY"
+          python3 tools/conformance.py --slice stdlib --check --raise-floor --python "$py" --out conformance-stdlib
           cat conformance-stdlib/report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit the raised floors to main
+        run: |
+          git diff --quiet -- compat/ && { echo "floors unchanged"; exit 0; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -q -m "Raise the conformance floors to what main measures" -- compat/conformance_floor.json compat/conformance_stdlib_floor.json
+          # Only this job writes the floor files, so a newer merge never conflicts with this commit.
+          for i in 1 2 3; do git pull -q --rebase origin main && git push -q origin HEAD:main && exit 0; sleep 5; done
+          exit 1
 
       - name: Open or update an issue
         if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          title="Stdlib conformance dropped on main"
+          title="Conformance dropped on main"
           {
-            echo "The stdlib conformance slice failed on main after a merge. Each PR passed its own checks, so a merge (or two merges together) left a new wrong result or a lower score. Fix it before the next release: the release gate holds the stdlib slice to its floor."
+            echo "A CPython conformance slice failed on main after a merge. Each PR passed its own checks, so a merge (or two merges together) left a new wrong result or a lower score. Fix it before the next release: the release gate holds both slices to their floors."
             echo
             echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             echo "- Commit ${{ github.sha }}"
             echo
-            [ -f conformance-stdlib/report.md ] && sed -n '1,60p' conformance-stdlib/report.md || echo "Failed before the conformance run; see the run log."
+            for r in conformance-core conformance-stdlib; do [ -f $r/report.md ] && sed -n '1,40p' $r/report.md; done
+            echo "See the run log for the ratchet's own message."
           } > body.md
           gh label create conformance --color D93F0B --description "CPython conformance dropped" 2>/dev/null || true
           n=$(gh issue list --state open --label conformance --search "\"$title\" in:title" --json number,title --jq ".[] | select(.title == \"$title\") | .number" | head -1)

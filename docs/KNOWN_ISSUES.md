@@ -24,7 +24,7 @@ Things to know when reading these numbers:
 - Weak modules in the stdlib set: `test_string` 2.6%, `test_functools` 12.2%, `test_collections` 35.7%.
 - Tests that depend on CPython internals, or that cannot be cut into a standalone script, are left out of the score.
 - Known wrong results are listed in [compat/conformance_known_wrong.txt](../compat/conformance_known_wrong.txt) (core) and [compat/conformance_stdlib_known_wrong.txt](../compat/conformance_stdlib_known_wrong.txt). In core they are pickling of dict and list iterators and two `test_scope` cell cases. CI fails if a line stops being wrong or a new wrong result appears, so the lists only shrink.
-- The score floors are in [compat/conformance_floor.json](../compat/conformance_floor.json). The score can only go up.
+- The score floors are in [compat/conformance_floor.json](../compat/conformance_floor.json). The score can only go up: after each merge, main raises the floors to what the merged tree measures (`.github/workflows/conformance-main.yml`), and pull requests leave them alone (`tools/floor_guard.py`).
 - [compat/baseline.txt](../compat/baseline.txt) lists saved programs that once passed and must keep passing. It is a regression set, not a measure of how much Python works.
 
 Not built natively yet (README, Status): `match` statements, and `eval` of text known only at run time (`eval` of literal text works from v0.27.0). Classes built on a library's classes run in CPython as a whole.

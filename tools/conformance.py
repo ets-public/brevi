@@ -10,8 +10,8 @@ same stdout and exit with the same code. `brevi run` is never used: it falls bac
   python3 tools/conformance.py --check             the ratchet: exit 1 on a wrong result or crash not in the baseline, on a
                                                    baseline line that is no longer wrong (remove it), or on fewer matches
                                                    than compat/conformance_floor.json allows (CI runs this; see below)
-  python3 tools/conformance.py --write-baseline    make the baseline the wrong results and crashes of this run, and the
-                                                   floor this run's match counts
+  python3 tools/conformance.py --write-baseline    make the baseline the wrong results and crashes of this run, and lower
+                                                   the floor to this run's match counts where they are below it
   python3 tools/conformance.py --show ID           print one test's generated script and how to reproduce it
 
 Categories: matched, refused, by_design, string_model, cpython_private, wrong_output, wrong_exit, crash_or_timeout, not_extractable, unstable,
@@ -1719,8 +1719,9 @@ def main():
     ap.add_argument("--python", help=f"the CPython {PYTHON_VERSION} to compare with (default: python3.13 on PATH)")
     ap.add_argument("--out", type=Path, help="folder for report.json and report.md (default: the cache)")
     ap.add_argument("--check", action="store_true", help="exit 1 on a wrong result not in the baseline")
+    ap.add_argument("--raise-floor", action="store_true", help="with --check: when the ratchet holds, raise the slice's floor to this run's matches (main only)")
     ap.add_argument("--release-gate", action="store_true", help="exit 1 below the slice's release_gate (absolute coverage, zero wrong)")
-    ap.add_argument("--write-baseline", action="store_true", help="replace the slice's known-wrong list and floor with this run's results")
+    ap.add_argument("--write-baseline", action="store_true", help="replace the slice's known-wrong list with this run's results; the floor only goes down (main raises it)")
     ap.add_argument("--show", metavar="ID", help="print one test's generated script and stop")
     cfg = ap.parse_args()
     global BASELINE, FLOOR, SCOPE
@@ -1795,7 +1796,11 @@ def main():
     matched = {m: rep["totals"][m]["matched"] for m in ("normal", "dyn")}
     if cfg.write_baseline:
         BASELINE.write_text(baseline_text(bad, read_baseline()))
-        FLOOR.write_text(json.dumps({**read_floor(), "matched": matched}, indent=1) + "\n")
+        # Only ever lowers the floor (a regression accepted on purpose): main raises it after each merge (--raise-floor),
+        # so a PR that edits it conflicts with every other open PR.
+        old = read_floor().get("matched", {})
+        low = {m: min(n, old.get(m, n)) for m, n in matched.items()}
+        FLOOR.write_text(json.dumps({**read_floor(), "matched": low}, indent=1) + "\n")
     if cfg.check:
         # The ratchet: the score only goes up, and the list of known-wrong results only shrinks.
         known, floor, failed = read_baseline(), read_floor().get("matched", {}), False
@@ -1846,10 +1851,17 @@ def main():
                     print(f"{m} build: {n} tests match, below the floor of {floor[m]}; find the regression (or lower the floor on purpose)")
                     failed = True
                 elif m in floor and n > floor[m]:
-                    print(f"{m} build: {n} tests match, above the floor of {floor[m]}; raise it with --write-baseline")
+                    print(f"{m} build: {n} tests match, above the floor of {floor[m]}; main raises the floor after the merge (leave the floor file alone)")
         if failed:
             sys.exit(1)
         print(f"ratchet holds: no new wrong results ({len(bad)} known), matches {matched}")
+        if cfg.raise_floor and not cfg.filter and cfg.files == ",".join(SCOPE):
+            # Only main does this (.github/workflows/conformance-main.yml), after the ratchet held on the merged tree,
+            # so PRs never edit the floors and never conflict on them.
+            up = {m: max(n, floor.get(m, 0)) for m, n in matched.items()}
+            if up != floor:
+                FLOOR.write_text(json.dumps({**read_floor(), "matched": up}, indent=1) + "\n")
+                print(f"floor raised to {up} in {FLOOR.relative_to(ROOT)}")
     if cfg.release_gate:
         # The release bar: an absolute coverage floor and no known-wrong result at all (release_gate in the floor file).
         gate, n, problems = read_floor().get("release_gate", {}), rep["totals"]["normal"], []
