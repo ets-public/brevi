@@ -1,4 +1,4 @@
-// ---------- threading: threads, Lock, RLock, Event ----------
+// ---------- threading: threads, Lock, RLock, Event, Condition, Semaphore, Barrier ----------
 // A threading.Thread runs on a stack of its own, as a generator does (rt_gen.rs), on the program's one OS thread.
 // Threads take turns: the running one goes on until it waits (a lock another thread holds, Event.wait, join,
 // time.sleep while other threads are alive, ...) or ends, and then the thread that has been ready longest runs.
@@ -729,6 +729,598 @@ impl Ext for Event {
     }
 }
 
+// ---------- Condition ----------
+// CPython's threading.Condition, over a Lock or an RLock (the default). acquire/release/__enter__/__exit__ are
+// the lock's own; wait releases the lock fully (an RLock at any depth), waits in FIFO order, and takes the lock
+// back the way it was; notify(n) wakes the n longest waiting threads.
+pub struct Condition {
+    lock: V,
+    q: WaitQ,
+}
+impl Condition {
+    pub fn new_default() -> Condition {
+        Condition {
+            lock: V::Ext(ExtRc::new(RLock { owner: Cell::new(None), count: Cell::new(0), q: WaitQ::new() })),
+            q: WaitQ::new(),
+        }
+    }
+    fn new_plain() -> Condition {
+        Condition {
+            lock: V::Ext(ExtRc::new(Lock { held: Cell::new(false), q: WaitQ::new() })),
+            q: WaitQ::new(),
+        }
+    }
+    pub fn with_lock(lock: V) -> Condition {
+        Condition { lock, q: WaitQ::new() }
+    }
+    fn delegate(&self, n: &str, a: &mut Args) -> R {
+        match &self.lock {
+            V::Ext(x) => match x.method(&self.lock, n, a) {
+                Some(r) => r,
+                None => Err(exc("AttributeError", format!("'Condition' object has no attribute '{n}'"))),
+            },
+            _ => Err(unsupported("a Condition over a lock that is not a Lock or RLock")),
+        }
+    }
+    fn acquire_lock(&self) -> Result<(), E> {
+        let mut a = Args::p(vec![]);
+        self.delegate("acquire", &mut a).map(|_| ())
+    }
+    fn release_lock(&self) -> Result<(), E> {
+        let mut a = Args::p(vec![]);
+        self.delegate("release", &mut a).map(|_| ())
+    }
+    fn is_owned(&self) -> Result<bool, E> {
+        let V::Ext(x) = &self.lock else {
+            return Err(unsupported("a Condition over a lock that is not a Lock or RLock"));
+        };
+        if let Some(r) = x.any().downcast_ref::<RLock>() {
+            return Ok(r.owner.get() == Some(gt_cur()));
+        }
+        if let Some(l) = x.any().downcast_ref::<Lock>() {
+            // the default _is_owned: for a plain Lock CPython only asks whether it is locked at all
+            if l.acquire(false, None)? {
+                l.release()?;
+                return Ok(false);
+            }
+            return Ok(true);
+        }
+        Err(unsupported("a Condition over a lock that is not a Lock or RLock"))
+    }
+    fn release_save(&self) -> Result<RelState, E> {
+        let V::Ext(x) = &self.lock else {
+            return Err(unsupported("a Condition over a lock that is not a Lock or RLock"));
+        };
+        if let Some(r) = x.any().downcast_ref::<RLock>() {
+            if r.count.get() == 0 {
+                return Err(exc("RuntimeError", "cannot release un-acquired lock".into()));
+            }
+            let (c, o) = (r.count.get(), r.owner.get().unwrap_or(gt_cur()));
+            r.count.set(0);
+            r.owner.set(None);
+            r.q.wake_one();
+            return Ok(RelState::Rl { count: c, owner: o });
+        }
+        if let Some(l) = x.any().downcast_ref::<Lock>() {
+            l.release()?;
+            return Ok(RelState::Plain);
+        }
+        Err(unsupported("a Condition over a lock that is not a Lock or RLock"))
+    }
+    fn acquire_restore(&self, s: RelState) -> Result<(), E> {
+        let V::Ext(x) = &self.lock else {
+            return Err(unsupported("a Condition over a lock that is not a Lock or RLock"));
+        };
+        match s {
+            RelState::Plain => {
+                if let Some(l) = x.any().downcast_ref::<Lock>() {
+                    return l.acquire(true, None).map(|_| ());
+                }
+                Err(unsupported("a Condition over a lock that is not a Lock or RLock"))
+            }
+            RelState::Rl { count, owner: _ } => {
+                if let Some(r) = x.any().downcast_ref::<RLock>() {
+                    let me = gt_cur();
+                    loop {
+                        if r.owner.get().is_none() {
+                            r.owner.set(Some(me));
+                            r.count.set(count);
+                            return Ok(());
+                        }
+                        gt_wait(Some(&r.q), None)?;
+                    }
+                }
+                Err(unsupported("a Condition over a lock that is not a Lock or RLock"))
+            }
+        }
+    }
+    pub fn wait(&self, timeout: Option<V>) -> Result<bool, E> {
+        if !self.is_owned()? {
+            return Err(exc("RuntimeError", "cannot wait on un-acquired lock".into()));
+        }
+        let saved = self.release_save()?;
+        let r = (|| {
+            match timeout {
+                None | Some(V::None) => gt_wait(Some(&self.q), None),
+                Some(v) => {
+                    let t = to_float(&v)?;
+                    if t > 0.0 {
+                        gt_wait(Some(&self.q), gt_deadline(Some(t)))
+                    } else {
+                        Ok(false)
+                    }
+                }
+            }
+        })();
+        let e = self.acquire_restore(saved);
+        match (r, e) {
+            (Err(we), _) => Err(we),
+            (_, Err(re)) => Err(re),
+            (Ok(w), _) => Ok(w),
+        }
+    }
+    pub fn wait_for(&self, predicate: &V, timeout: Option<V>) -> Result<bool, E> {
+        let mut endtime: Option<f64> = None;
+        let mut waittime: Option<V> = timeout;
+        let mut result = truth(&call0(predicate)?)?;
+        while !result {
+            let wt = match &waittime {
+                None | Some(V::None) => None,
+                Some(tv) => {
+                    let tf = to_float(tv)?;
+                    if endtime.is_none() {
+                        endtime = Some(clock_ns(false) as f64 / 1e9 + tf);
+                        Some(tf)
+                    } else {
+                        let rem = endtime.unwrap() - clock_ns(false) as f64 / 1e9;
+                        if rem <= 0.0 {
+                            break;
+                        }
+                        Some(rem)
+                    }
+                }
+            };
+            waittime = wt.map(V::Float);
+            self.wait(waittime.clone())?;
+            result = truth(&call0(predicate)?)?;
+        }
+        Ok(result)
+    }
+    fn notify(&self, n: V) -> Result<(), E> {
+        if !self.is_owned()? {
+            return Err(exc("RuntimeError", "cannot notify on un-acquired lock".into()));
+        }
+        let mut n = n;
+        loop {
+            if self.q.len() == 0 {
+                return Ok(());
+            }
+            let f = to_float(&n)?;
+            if f <= 0.0 {
+                return Ok(());
+            }
+            self.q.wake_one();
+            n = V::Float(f - 1.0);
+        }
+    }
+    fn notify_all(&self) -> Result<(), E> {
+        self.notify(V::Int(self.q.len() as i64))
+    }
+}
+enum RelState {
+    Plain,
+    Rl { count: usize, owner: usize },
+}
+impl Ext for Condition {
+    fn tname(&self) -> &'static str {
+        "threading.Condition"
+    }
+    fn repr(&self) -> String {
+        format!("<Condition({}, {})>", repr(&self.lock).unwrap_or_default(), self.q.len())
+    }
+    fn any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn method(&self, _me: &V, n: &str, a: &mut Args) -> Option<R> {
+        Some(match n {
+            "acquire" | "release" | "__enter__" | "__exit__" => self.delegate(n, a),
+            "wait" => (|| {
+                let t = a.kw("timeout").or_else(|| a.p.first().cloned());
+                a.no_kw("wait")?;
+                self.wait(t).map(V::Bool)
+            })(),
+            "wait_for" => (|| {
+                let Some(p) = a.p.first().cloned() else {
+                    return type_err("wait_for() missing 1 required positional argument: 'predicate'".into());
+                };
+                let t = a.kw("timeout").or_else(|| a.p.get(1).cloned());
+                a.no_kw("wait_for")?;
+                self.wait_for(&p, t).map(V::Bool)
+            })(),
+            "notify" => (|| {
+                let n = a.kw("n").or_else(|| a.p.first().cloned()).unwrap_or(V::Int(1));
+                a.no_kw("notify")?;
+                self.notify(n).map(|_| V::None)
+            })(),
+            "notify_all" | "notifyAll" => (|| {
+                a.no_kw("notify_all")?;
+                self.notify_all().map(|_| V::None)
+            })(),
+            _ => Err(exc("AttributeError", format!("'Condition' object has no attribute '{n}'"))),
+        })
+    }
+}
+
+// ---------- Semaphore and BoundedSemaphore ----------
+pub struct Semaphore {
+    cond: Condition,
+    value: Cell<i64>,
+}
+// a semaphore count or release(n): an int (a float or bool count would print in repr as CPython keeps it)
+fn sem_int(v: &V, what: &str) -> Result<i64, E> {
+    match v {
+        V::Int(i) => Ok(*i),
+        _ => Err(unsupported(&format!("a {what} that is not an int"))),
+    }
+}
+impl Semaphore {
+    fn init(v: V) -> Result<Semaphore, E> {
+        let f = sem_int(&v, "semaphore value")?;
+        if f < 0 {
+            return Err(exc("ValueError", "semaphore initial value must be >= 0".into()));
+        }
+        Ok(Semaphore { cond: Condition::new_plain(), value: Cell::new(f) })
+    }
+    fn acquire(&self, blocking: bool, timeout: Option<V>) -> Result<bool, E> {
+        if !blocking && !matches!(timeout, None | Some(V::None)) {
+            return Err(exc("ValueError", "can't specify timeout for non-blocking acquire".into()));
+        }
+        self.cond.acquire_lock()?;
+        let r = (|| -> Result<bool, E> {
+            let mut endtime: Option<f64> = None;
+            let mut t = timeout;
+            loop {
+                if self.value.get() == 0 {
+                    if !blocking {
+                        return Ok(false);
+                    }
+                    let wt = match &t {
+                        None | Some(V::None) => None,
+                        Some(tv) => {
+                            let tf = to_float(tv)?;
+                            if endtime.is_none() {
+                                endtime = Some(clock_ns(false) as f64 / 1e9 + tf);
+                                Some(tf)
+                            } else {
+                                let rem = endtime.unwrap() - clock_ns(false) as f64 / 1e9;
+                                if rem <= 0.0 {
+                                    return Ok(false);
+                                }
+                                Some(rem)
+                            }
+                        }
+                    };
+                    t = wt.map(V::Float);
+                    self.cond.wait(t.clone())?;
+                } else {
+                    self.value.set(self.value.get() - 1);
+                    return Ok(true);
+                }
+            }
+        })();
+        let e = self.cond.release_lock();
+        match (r, e) {
+            (Err(we), _) => Err(we),
+            (_, Err(re)) => Err(re),
+            (Ok(v), _) => Ok(v),
+        }
+    }
+    fn release(&self, n: V) -> Result<(), E> {
+        self.release_lim(n, None)
+    }
+    fn release_lim(&self, n: V, limit: Option<i64>) -> Result<(), E> {
+        let nf = sem_int(&n, "release count")?;
+        if nf < 1 {
+            return Err(exc("ValueError", "n must be one or more".into()));
+        }
+        self.cond.acquire_lock()?;
+        let r = (|| -> Result<(), E> {
+            if let Some(lim) = limit {
+                if self.value.get().saturating_add(nf) > lim {
+                    return Err(exc("ValueError", "Semaphore released too many times".into()));
+                }
+            }
+            self.value.set(self.value.get().saturating_add(nf));
+            self.cond.notify(n)
+        })();
+        let e = self.cond.release_lock();
+        match (r, e) {
+            (Err(we), _) => Err(we),
+            (_, Err(re)) => Err(re),
+            (Ok(_), _) => Ok(()),
+        }
+    }
+}
+impl Ext for Semaphore {
+    fn tname(&self) -> &'static str {
+        "threading.Semaphore"
+    }
+    fn repr(&self) -> String {
+        format!("<threading.Semaphore: value={}>", self.value.get())
+    }
+    fn any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn method(&self, _me: &V, n: &str, a: &mut Args) -> Option<R> {
+        Some(match n {
+            "acquire" | "__enter__" => (|| -> R {
+                let blocking = match a.kw("blocking").or_else(|| a.p.first().cloned()) {
+                    None => true,
+                    Some(v) => truth(&v)?,
+                };
+                let timeout = a.kw("timeout").or_else(|| a.p.get(1).cloned());
+                a.no_kw("acquire")?;
+                self.acquire(blocking, timeout).map(V::Bool)
+            })(),
+            "release" => (|| {
+                let n = a.kw("n").or_else(|| a.p.first().cloned()).unwrap_or(V::Int(1));
+                a.no_kw("release")?;
+                self.release(n).map(|_| V::None)
+            })(),
+            "__exit__" => self.release(V::Int(1)).map(|_| V::None),
+            _ => Err(exc("AttributeError", format!("'Semaphore' object has no attribute '{n}'"))),
+        })
+    }
+}
+
+pub struct BoundedSemaphore {
+    sem: Semaphore,
+    initial: Cell<i64>,
+}
+impl Ext for BoundedSemaphore {
+    fn tname(&self) -> &'static str {
+        "threading.BoundedSemaphore"
+    }
+    fn repr(&self) -> String {
+        format!("<threading.BoundedSemaphore: value={}/{}>", self.sem.value.get(), self.initial.get())
+    }
+    fn any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn method(&self, _me: &V, n: &str, a: &mut Args) -> Option<R> {
+        Some(match n {
+            "acquire" | "__enter__" => (|| -> R {
+                let blocking = match a.kw("blocking").or_else(|| a.p.first().cloned()) {
+                    None => true,
+                    Some(v) => truth(&v)?,
+                };
+                let timeout = a.kw("timeout").or_else(|| a.p.get(1).cloned());
+                a.no_kw("acquire")?;
+                self.sem.acquire(blocking, timeout).map(V::Bool)
+            })(),
+            "release" => (|| {
+                let n = a.kw("n").or_else(|| a.p.first().cloned()).unwrap_or(V::Int(1));
+                a.no_kw("release")?;
+                self.sem.release_lim(n, Some(self.initial.get())).map(|_| V::None)
+            })(),
+            "__exit__" => self.sem.release_lim(V::Int(1), Some(self.initial.get())).map(|_| V::None),
+            _ => Err(exc("AttributeError", format!("'BoundedSemaphore' object has no attribute '{n}'"))),
+        })
+    }
+}
+
+// ---------- Barrier ----------
+// CPython's Barrier state machine (0 filling, 1 draining, -1 resetting, -2 broken) over a Condition on a plain
+// Lock, so reset() and abort() while threads wait behave as CPython's do.
+pub struct Barrier {
+    cond: Condition,
+    action: V,
+    timeout: V,
+    parties: V,
+    state: Cell<i32>,
+    count: Cell<i64>,
+}
+fn barrier_broken() -> E {
+    exc0("BrokenBarrierError")
+}
+impl Barrier {
+    fn init(parties: V, action: V, timeout: V) -> Result<Barrier, E> {
+        if sem_int(&parties, "Barrier parties count")? < 1 {
+            return Err(exc("ValueError", "parties must be >= 1".into()));
+        }
+        Ok(Barrier {
+            cond: Condition::new_plain(),
+            action,
+            timeout,
+            parties,
+            state: Cell::new(0),
+            count: Cell::new(0),
+        })
+    }
+    fn release(&self) -> Result<(), E> {
+        let r = (|| -> Result<(), E> {
+            if truth(&self.action)? {
+                call0(&self.action)?;
+            }
+            self.state.set(1);
+            self.cond.notify_all()?;
+            Ok(())
+        })();
+        if r.is_err() {
+            let _ = self.break_();
+        }
+        r
+    }
+    fn wait_rel(&self, timeout: V) -> Result<(), E> {
+        let mut endtime: Option<f64> = None;
+        let mut waittime: Option<V> = Some(timeout);
+        loop {
+            if self.state.get() != 0 {
+                break;
+            }
+            let wt = match &waittime {
+                None | Some(V::None) => None,
+                Some(tv) => {
+                    let tf = to_float(tv)?;
+                    if endtime.is_none() {
+                        endtime = Some(clock_ns(false) as f64 / 1e9 + tf);
+                        Some(tf)
+                    } else {
+                        let rem = endtime.unwrap() - clock_ns(false) as f64 / 1e9;
+                        if rem <= 0.0 {
+                            break;
+                        }
+                        Some(rem)
+                    }
+                }
+            };
+            waittime = wt.map(V::Float);
+            self.cond.wait(waittime.clone())?;
+        }
+        if self.state.get() == 0 {
+            self.break_()?;
+            return Err(barrier_broken());
+        }
+        if self.state.get() < 0 {
+            return Err(barrier_broken());
+        }
+        Ok(())
+    }
+    fn exit(&self) -> Result<(), E> {
+        if self.count.get() == 0 {
+            let st = self.state.get();
+            if st == -1 || st == 1 {
+                self.state.set(0);
+                return self.cond.notify_all();
+            }
+        }
+        Ok(())
+    }
+    fn break_(&self) -> Result<(), E> {
+        self.state.set(-2);
+        self.cond.notify_all()
+    }
+    fn wait_in(&self, timeout: V) -> Result<i64, E> {
+        loop {
+            let st = self.state.get();
+            if st == -1 || st == 1 {
+                self.cond.wait(None)?;
+            } else {
+                break;
+            }
+        }
+        if self.state.get() < 0 {
+            return Err(barrier_broken());
+        }
+        let index = self.count.get();
+        self.count.set(index + 1);
+        let r = (|| -> Result<i64, E> {
+            if index + 1 == sem_int(&self.parties, "Barrier parties count")? {
+                self.release()?;
+            } else {
+                self.wait_rel(timeout.clone())?;
+            }
+            Ok(index)
+        })();
+        self.count.set(self.count.get() - 1);
+        let e = self.exit();
+        match (r, e) {
+            (Err(we), _) => Err(we),
+            (_, Err(re)) => Err(re),
+            (Ok(v), _) => Ok(v),
+        }
+    }
+    pub fn wait(&self, timeout: Option<V>) -> Result<i64, E> {
+        let t = match timeout {
+            None | Some(V::None) => self.timeout.clone(),
+            Some(v) => v,
+        };
+        self.cond.acquire_lock()?;
+        let r = self.wait_in(t);
+        let e = self.cond.release_lock();
+        match (r, e) {
+            (Err(we), _) => Err(we),
+            (_, Err(re)) => Err(re),
+            (Ok(v), _) => Ok(v),
+        }
+    }
+    fn reset(&self) -> Result<(), E> {
+        self.cond.acquire_lock()?;
+        let r = (|| -> Result<(), E> {
+            if self.count.get() > 0 {
+                let st = self.state.get();
+                if st == 0 || st == -2 {
+                    self.state.set(-1);
+                }
+            } else {
+                self.state.set(0);
+            }
+            self.cond.notify_all()
+        })();
+        let e = self.cond.release_lock();
+        match (r, e) {
+            (Err(we), _) => Err(we),
+            (_, Err(re)) => Err(re),
+            (Ok(_), _) => Ok(()),
+        }
+    }
+    fn abort(&self) -> Result<(), E> {
+        self.cond.acquire_lock()?;
+        let r = self.break_();
+        let e = self.cond.release_lock();
+        match (r, e) {
+            (Err(we), _) => Err(we),
+            (_, Err(re)) => Err(re),
+            (Ok(_), _) => Ok(()),
+        }
+    }
+}
+impl Ext for Barrier {
+    fn tname(&self) -> &'static str {
+        "threading.Barrier"
+    }
+    fn repr(&self) -> String {
+        if self.state.get() == -2 {
+            "<threading.Barrier: broken>".to_string()
+        } else {
+            format!(
+                "<threading.Barrier: waiters={}/{}>",
+                if self.state.get() == 0 { self.count.get() } else { 0 },
+                to_str(&self.parties).unwrap_or_default()
+            )
+        }
+    }
+    fn any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn attr(&self, _me: &V, n: &str) -> Option<R> {
+        Some(Ok(match n {
+            "parties" => self.parties.clone(),
+            "n_waiting" => V::Int(if self.state.get() == 0 { self.count.get() } else { 0 }),
+            "broken" => V::Bool(self.state.get() == -2),
+            _ => return None,
+        }))
+    }
+    fn method(&self, _me: &V, n: &str, a: &mut Args) -> Option<R> {
+        Some(match n {
+            "wait" => (|| {
+                let t = a.kw("timeout").or_else(|| a.p.first().cloned());
+                a.no_kw("wait")?;
+                self.wait(t).map(V::Int)
+            })(),
+            "reset" => (|| {
+                a.no_kw("reset")?;
+                self.reset().map(|_| V::None)
+            })(),
+            "abort" => (|| {
+                a.no_kw("abort")?;
+                self.abort().map(|_| V::None)
+            })(),
+            _ => Err(exc("AttributeError", format!("'Barrier' object has no attribute '{n}'"))),
+        })
+    }
+}
+
 pub fn threading_fn(n: &str, mut a: Args) -> R {
     match n {
         "stack_size" => Ok(V::Int(0)),
@@ -765,6 +1357,37 @@ pub fn threading_fn(n: &str, mut a: Args) -> R {
         "Lock" => Ok(V::Ext(ExtRc::new(Lock { held: Cell::new(false), q: WaitQ::new() }))),
         "RLock" => Ok(V::Ext(ExtRc::new(RLock { owner: Cell::new(None), count: Cell::new(0), q: WaitQ::new() }))),
         "Event" => Ok(V::Ext(ExtRc::new(Event { flag: Cell::new(false), q: WaitQ::new() }))),
+        "Condition" => {
+            let lock = a.kw("lock").or_else(|| a.p.first().cloned());
+            a.no_kw("Condition")?;
+            let c = match lock {
+                None | Some(V::None) => Condition::new_default(),
+                Some(v) => Condition::with_lock(v),
+            };
+            Ok(V::Ext(ExtRc::new(c)))
+        }
+        "Semaphore" => {
+            let v = a.kw("value").or_else(|| a.p.first().cloned()).unwrap_or(V::Int(1));
+            a.no_kw("Semaphore")?;
+            Ok(V::Ext(ExtRc::new(Semaphore::init(v)?)))
+        }
+        "BoundedSemaphore" => {
+            let v = a.kw("value").or_else(|| a.p.first().cloned()).unwrap_or(V::Int(1));
+            a.no_kw("BoundedSemaphore")?;
+            let s = Semaphore::init(v)?;
+            let initial = s.value.get();
+            Ok(V::Ext(ExtRc::new(BoundedSemaphore { sem: s, initial: Cell::new(initial) })))
+        }
+        "Barrier" => {
+            let parties = match a.kw("parties").or_else(|| a.p.first().cloned()) {
+                Some(v) => v,
+                None => return type_err("Barrier.__init__() missing 1 required positional argument: 'parties'".into()),
+            };
+            let action = a.kw("action").or_else(|| a.p.get(1).cloned()).unwrap_or(V::None);
+            let timeout = a.kw("timeout").or_else(|| a.p.get(2).cloned()).unwrap_or(V::None);
+            a.no_kw("Barrier")?;
+            Ok(V::Ext(ExtRc::new(Barrier::init(parties, action, timeout)?)))
+        }
         "current_thread" | "main_thread" => Ok(V::None),
         "active_count" => {
             gt_init();

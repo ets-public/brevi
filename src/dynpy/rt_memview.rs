@@ -87,6 +87,10 @@ pub fn bi_memoryview(a: Args) -> R {
         m.live()?;
         return Ok(mv_new(m.obj.clone(), m.start, m.step, m.len, m.readonly));
     }
+    // a library object's buffer cannot be a view that writes through: copying it would show stale bytes
+    if matches!(&x, V::Ext(e) if e.is_py()) && bytes_of(&x).is_some() {
+        return Err(unsupported("memoryview of a library object"));
+    }
     // bytes, or an instance of a bytes subclass (the view's obj is the instance, as in CPython)
     if is_bytes_v(&x) || matches!(&x, V::Obj(o) if o.cls.base_bt() == BT::Bytes) {
         let n = bytes_of(&x).map_or(0, |b| b.len());

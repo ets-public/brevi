@@ -12,6 +12,9 @@ thread_local! {
     // The bytes of a buffer a Python library made (an array.array, ...): the dynamic build's bridge sets this
     // when CPython starts, and it answers None for a library value that has no buffer.
     pub static BUF_BRIDGE: Cell<Option<fn(&V) -> Option<Vec<u8>>>> = const { Cell::new(None) };
+    // CPython's builtin of that name (int, ...), for a library value whose conversion CPython must decide
+    // (__int__, __index__, then its buffer): set with BUF_BRIDGE.
+    pub static PY_BUILTIN: Cell<Option<fn(&str) -> R>> = const { Cell::new(None) };
 }
 // the bytes of a bytes-like value: bytes, a bytearray's current contents, or the buffer of a library's object
 // (CPython's buffer protocol)
@@ -1377,11 +1380,17 @@ impl Ext for BytesV {
         if let Some(m) = memview_of(o) {
             return m.eq(&bytesv(self.0.clone()));
         }
+        // a library buffer (array.array, ...) is left to its own comparison: bytes == array is False in CPython,
+        // as bytes.__eq__ does not take an arbitrary buffer
+        if matches!(o, V::Ext(x) if x.is_py()) {
+            return None;
+        }
         Some(bytes_of(o).is_some_and(|b| b == self.0))
     }
     fn cmp(&self, o: &V) -> Option<std::cmp::Ordering> {
-        // bytes order against bytes and bytearray only: `b'a' < memoryview(b'b')` is a TypeError, as in CPython
-        if memview_of(o).is_some() {
+        // bytes order against bytes and bytearray only: `b'a' < memoryview(b'b')` is a TypeError, as is any
+        // ordering next to a library buffer, in CPython
+        if memview_of(o).is_some() || matches!(o, V::Ext(x) if x.is_py()) {
             return None;
         }
         bytes_of(o).map(|b| self.0.as_slice().cmp(b.as_slice()))

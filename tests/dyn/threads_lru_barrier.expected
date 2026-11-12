@@ -1,0 +1,23 @@
+CacheInfo(hits=0, misses=0, maxsize=35, currsize=0)
+(0, 0, 35, 0)
+[(0, 0), (0, 0), (0, 0), (0, 0), (0, 0)]
+CacheInfo(hits=0, misses=5, maxsize=35, currsize=1)
+(0, 5, 35, 1)
+[(3, 3), (3, 3), (3, 3), (3, 3), (3, 3)]
+CacheInfo(hits=0, misses=10, maxsize=35, currsize=2)
+(0, 10, 35, 2)
+[(6, 6), (6, 6), (6, 6), (6, 6), (6, 6)]
+CacheInfo(hits=0, misses=15, maxsize=35, currsize=3)
+(0, 15, 35, 3)
+[(9, 9), (9, 9), (9, 9), (9, 9), (9, 9)]
+CacheInfo(hits=0, misses=20, maxsize=35, currsize=4)
+(0, 20, 35, 4)
+[(12, 12), (12, 12), (12, 12), (12, 12), (12, 12)]
+CacheInfo(hits=0, misses=25, maxsize=35, currsize=5)
+(0, 25, 35, 5)
+[(15, 15), (15, 15), (15, 15), (15, 15), (15, 15)]
+CacheInfo(hits=0, misses=30, maxsize=35, currsize=6)
+(0, 30, 35, 6)
+[(18, 18), (18, 18), (18, 18), (18, 18), (18, 18)]
+CacheInfo(hits=0, misses=35, maxsize=35, currsize=7)
+(0, 35, 35, 7)

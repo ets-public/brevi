@@ -1887,8 +1887,12 @@ impl RMatch {
         }
     }
     fn text_v(&self, g: usize) -> Option<V> {
-        // a bytearray subject is read as it is now, its span cut to its length (CPython, bpo-29444)
-        if bytearray_of(&self.sv).is_some() || memview_of(&self.sv).is_some() {
+        // a mutable bytes-like subject is read as it is now, its span cut to its length (CPython, bpo-29444):
+        // bytearray, memoryview and a library object's buffer (an array.array); bytes keeps its own text
+        let live = bytearray_of(&self.sv).is_some()
+            || memview_of(&self.sv).is_some()
+            || (self.prog.bytes && matches!(&self.sv, V::Ext(_)) && !is_bytes_v(&self.sv));
+        if live {
             let (a, z) = (self.caps[2 * g], self.caps[2 * g + 1]);
             if a == UNSET {
                 return None;
@@ -2193,6 +2197,10 @@ fn re_str(v: &V) -> Result<(Rc<Vec<char>>, V), E> {
             Ok((re_str(&inner)?.0, v.clone()))
         }
         V::Ext(e) if e.any().downcast_ref::<BytesV>().is_some() || e.any().downcast_ref::<ByteArrayV>().is_some() || e.any().downcast_ref::<MemV>().is_some() => {
+            type_err("cannot use a string pattern on a bytes-like object".into())
+        }
+        // a library object with a buffer (an array.array): a bytes-like subject, so a str pattern refuses it
+        V::Ext(_) if bytes_of(v).is_some() => {
             type_err("cannot use a string pattern on a bytes-like object".into())
         }
         _ => type_err(format!("expected string or bytes-like object, got '{}'", tn(v))),

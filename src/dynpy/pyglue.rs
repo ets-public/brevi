@@ -223,6 +223,10 @@ _d.pyclass = _pyclass
 _d._nt = _nt
 _d.atexit = _atexit
 _d.contains = lambda a, b: b in a
+import collections.abc as _cabc
+_d.is_array = lambda x: type(x).__module__ == "array" and type(x).__name__ == "array"
+_d.cabc_inst = lambda n, x: _b.isinstance(x, getattr(_cabc, n))
+_d.cabc_sub = lambda n, x: _b.issubclass(x, getattr(_cabc, n))
 _d.op = lambda n, a, b: getattr(_o, n)(a, b)
 _d.un = lambda n, a: getattr(_o, n)(a)
 _d.mro = lambda t: [(c.__name__, c.__module__) for c in t.__mro__]
@@ -276,6 +280,8 @@ fn pyd_api() -> &'static ax_pyffi::Api {
         unsafe { atexit(pyd_at_exit) };
         PY_DT.with(|h| h.set(Some(pyd_dt)));
         BUF_BRIDGE.with(|h| h.set(Some(pyd_buf)));
+        PY_BUILTIN.with(|h| h.set(Some(pyd_builtin)));
+        ABC_BRIDGE.with(|h| h.set(Some(pyd_abc)));
         Ok(a)
     }) {
         Ok(a) => a,
@@ -1948,6 +1954,30 @@ impl Ext for PyV {
         })
     }
     fn cmp_value(&self, me: &V, op: &str, o: &V, right: bool) -> Option<R> {
+        // an array.array next to a bytearray: array's comparison answers NotImplemented and bytearray's compares
+        // the two buffers (CPython); the bytearray itself cannot cross to CPython (a copy would not be the object)
+        if let Some(theirs) = bytearray_of(o).map(|_| bytes_of(o).unwrap_or_default()) {
+            let is_arr = {
+                let _g = PydGil::take();
+                matches!(unsafe { pyd_helper("is_array", &[self.p]) }, Ok(V::Bool(true)))
+            };
+            if is_arr {
+                if let Some(mine) = pyd_buf(me) {
+                    let (l, r) = if right { (theirs, mine) } else { (mine, theirs) };
+                    let c = l.cmp(&r);
+                    use std::cmp::Ordering::*;
+                    return Some(Ok(V::Bool(match op {
+                        "==" => c == Equal,
+                        "!=" => c != Equal,
+                        "<" => c == Less,
+                        "<=" => c != Greater,
+                        ">" => c == Greater,
+                        ">=" => c != Less,
+                        _ => return self.binop(me, op, o, right),
+                    })));
+                }
+            }
+        }
         self.binop(me, op, o, right)
     }
     fn try_truth(&self) -> Option<Result<bool, E>> {
@@ -2207,6 +2237,20 @@ pub fn pyd_from(m: &str, n: &str) -> R {
     }
 }
 // datetime.<cls>.<meth>(*a) run by CPython, for a tzinfo the native datetime lacks (rt_ext.rs py_dt).
+// isinstance / issubclass of a library class or value against CPython's collections.abc class `name`
+// (ABC_BRIDGE in rt_typing.rs): a bool, or the exception CPython raised.
+pub fn pyd_abc(name: &str, v: &V, sub: bool) -> Option<Result<bool, E>> {
+    let p = pyv_of(v)?;
+    let _g = PydGil::take();
+    let n = unsafe { pyd_str_obj(name) };
+    let r = unsafe { pyd_helper(if sub { "cabc_sub" } else { "cabc_inst" }, &[n, p.p]) };
+    unsafe { (pyd_api().DecRef)(n) };
+    Some(match r {
+        Ok(V::Bool(b)) => Ok(b),
+        Ok(x) => truth(&x),
+        Err(e) => Err(e),
+    })
+}
 // The bytes of a library object's buffer (memoryview(o).tobytes() in CPython), or None when it has none.
 fn pyd_buf(v: &V) -> Option<Vec<u8>> {
     let p = pyv_of(v)?;

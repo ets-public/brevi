@@ -155,9 +155,19 @@ fn items_view_rich(a: &Rc<RefCell<Dict>>, b: &Rc<RefCell<Dict>>, op: &str) -> Re
         _ => unreachable!(),
     })
 }
+// a library value next to a bytearray or memoryview: the library's comparison decides (pyglue's cmp_value
+// compares an array.array's buffer; anything else refuses the bytearray, which cannot cross as itself)
+fn py_next_to_buffer(a: &V, b: &V) -> bool {
+    let py = |x: &V| matches!(x, V::Ext(e) if e.is_py());
+    let buf = |x: &V| bytearray_of(x).is_some() || memview_of(x).is_some();
+    (py(a) && buf(b)) || (buf(a) && py(b))
+}
 pub fn eq(a: &V, b: &V) -> Result<bool, E> {
     if let Some(r) = meta_cmp(a, b, "==") {
         return truth(&r?);
+    }
+    if py_next_to_buffer(a, b) {
+        return truth(&cmp_v(a, b, "==")?);
     }
     if matches!(a, V::View(_)) || matches!(b, V::View(_)) {
         if let (Some(x), Some(y)) = (items_view_dict(a), items_view_dict(b)) {
@@ -389,6 +399,9 @@ pub fn ne(a: &V, b: &V) -> Result<bool, E> {
     if let Some(r) = meta_cmp(a, b, "!=") {
         return truth(&r?);
     }
+    if py_next_to_buffer(a, b) {
+        return truth(&cmp_v(a, b, "!=")?);
+    }
     if let Some(r) = obj_ne(a, b)? {
         return truth(&r);
     }
@@ -589,6 +602,9 @@ fn dunder(op: &str) -> &'static str {
 pub fn rich(a: &V, b: &V, op: &str) -> Result<bool, E> {
     if let Some(r) = meta_cmp(a, b, op) {
         return truth(&r?);
+    }
+    if py_next_to_buffer(a, b) {
+        return truth(&cmp_v(a, b, op)?);
     }
     if let (V::Int(x), V::Int(y)) = (a, b) {
         return Ok(match op {

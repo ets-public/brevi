@@ -2992,6 +2992,7 @@ pub fn ext_module_attr2(m: &str, n: &str) -> Option<V> {
         ("csv", "Error") => V::Class(exc_class("Error")),
         ("csv", "DictReader") => V::Class(csv_dictreader_class()),
         ("statistics", "StatisticsError") => V::Class(exc_class("StatisticsError")),
+        ("threading", "BrokenBarrierError") => V::Class(exc_class("BrokenBarrierError")),
         ("zoneinfo", n) => return zoneinfo_attr(n),
         ("importlib.metadata", "PackageNotFoundError") => V::Class(exc_class("PackageNotFoundError")),
         _ => return None,
