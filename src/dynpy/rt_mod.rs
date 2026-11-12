@@ -1912,93 +1912,13 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
                 Some(V::None) | None => pool.len(),
                 Some(x) => it_ssize(&x, "r must be non-negative")? as usize,
             };
-            let n = pool.len();
-            let mut out = vec![];
-            if r <= n {
-                let mut idx: Vec<usize> = (0..n).collect();
-                let mut cyc: Vec<usize> = (n - r + 1..=n).rev().collect();
-                out.push(tup(idx[..r].iter().map(|&i| pool[i].clone()).collect()));
-                'outer: loop {
-                    if n == 0 {
-                        break;
-                    }
-                    let mut i = r;
-                    loop {
-                        if i == 0 {
-                            break 'outer;
-                        }
-                        i -= 1;
-                        cyc[i] -= 1;
-                        if cyc[i] == 0 {
-                            let x = idx.remove(i);
-                            idx.push(x);
-                            cyc[i] = n - i;
-                        } else {
-                            let j = cyc[i];
-                            idx.swap(i, n - j);
-                            out.push(tup(idx[..r].iter().map(|&k| pool[k].clone()).collect()));
-                            break;
-                        }
-                    }
-                }
-            }
-            vec_iter(ItKind::ItPermutations, out)
+            permutations_new(pool, r)
         }
         "combinations" | "combinations_with_replacement" => {
             a.want(name, 2, 2)?;
             let pool = to_vec(&a.p[0])?;
             let r = it_ssize(&a.p[1], "r must be non-negative")? as usize;
-            let n = pool.len();
-            let mut out = vec![];
-            let rep = name != "combinations";
-            if rep {
-                if n > 0 || r == 0 {
-                    let mut idx = vec![0usize; r];
-                    out.push(tup(idx.iter().map(|&i| pool[i].clone()).collect()));
-                    loop {
-                        let mut i = r;
-                        let mut found = false;
-                        while i > 0 {
-                            i -= 1;
-                            if idx[i] != n - 1 {
-                                found = true;
-                                break;
-                            }
-                        }
-                        if !found {
-                            break;
-                        }
-                        let v = idx[i] + 1;
-                        for j in i..r {
-                            idx[j] = v;
-                        }
-                        out.push(tup(idx.iter().map(|&i| pool[i].clone()).collect()));
-                    }
-                }
-            } else if r <= n {
-                let mut idx: Vec<usize> = (0..r).collect();
-                out.push(tup(idx.iter().map(|&i| pool[i].clone()).collect()));
-                loop {
-                    let mut i = r;
-                    let mut found = false;
-                    while i > 0 {
-                        i -= 1;
-                        if idx[i] != i + n - r {
-                            found = true;
-                            break;
-                        }
-                    }
-                    if !found {
-                        break;
-                    }
-                    idx[i] += 1;
-                    for j in i + 1..r {
-                        idx[j] = idx[j - 1] + 1;
-                    }
-                    out.push(tup(idx.iter().map(|&i| pool[i].clone()).collect()));
-                }
-            }
-            vec_iter(if rep { ItKind::ItCombinationsWithReplacement } else { ItKind::ItCombinations }, out)
+            if name == "combinations" { combinations_new(pool, r) } else { cwr_new(pool, r) }
         }
         "product" => {
             let rep = match a.kw("repeat") {
@@ -2009,20 +1929,9 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             for x in &a.p {
                 pools.push(to_vec(x)?);
             }
+            let uniq = pools.len();
             let pools: Vec<Vec<V>> = (0..rep).flat_map(|_| pools.clone()).collect();
-            let mut res: Vec<Vec<V>> = vec![vec![]];
-            for p in &pools {
-                let mut nr = vec![];
-                for r in &res {
-                    for x in p {
-                        let mut y = r.clone();
-                        y.push(x.clone());
-                        nr.push(y);
-                    }
-                }
-                res = nr;
-            }
-            vec_iter(ItKind::ItProduct, res.into_iter().map(tup).collect())
+            product_new(pools, uniq)
         }
         // The iterator tools are lazy, as in CPython: they pull from their inputs one item at a time, so they work
         // on infinite inputs, see items added after they were made, and run callbacks in CPython's order.
