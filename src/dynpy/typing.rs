@@ -121,6 +121,10 @@ pub static OWN_PYDANTIC: std::sync::atomic::AtomicBool = std::sync::atomic::Atom
 // (a type expression such as `int | None` or `list[int]` has no runtime object here). Each def then evaluates its
 // annotations when it is made, as CPython 3.13 does; otherwise a read of a def's __annotations__ is refused.
 pub static ANN_DEFS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+// Set while the program names `from_callable` (inspect.Signature.from_callable) and its defs keep their
+// annotations (ANN_DEFS, which the use turns on under the same conditions): every def and lambda then records its
+// parameters and defaults (with_sig in rt_sig.rs). Without ANN_DEFS a from_callable call is refused at build time.
+pub static SIG_DEFS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
     let mut names: HashMap<String, Names> = HashMap::new();
@@ -145,10 +149,16 @@ pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
         });
         r
     });
-    let defs = reads
+    let sig = mods.iter().any(|(_, b)| {
+        let mut r = false;
+        walk_all(b, &mut |e, _| r |= matches!(e, Ex::Attr(_, a) if a == "from_callable") || matches!(e, Ex::Str(t) if t == "from_callable"));
+        r
+    });
+    let defs = (reads || sig)
         && !OWN_PYDANTIC.load(std::sync::atomic::Ordering::Relaxed)
         && mods.iter().all(|(m, b)| !names[*m].lazy && !odd_def_annotation(b) && !typing_def_annotation(b, &names[*m]));
     ANN_DEFS.store(defs, std::sync::atomic::Ordering::Relaxed);
+    SIG_DEFS.store(sig && defs, std::sync::atomic::Ordering::Relaxed);
     for (m, body) in mods {
         let nm = &names[*m];
         stmts(body, nm).map_err(|(l, w)| (m.to_string(), l, w))?;

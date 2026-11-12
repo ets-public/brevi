@@ -78,8 +78,11 @@ const NP_NARROW_FUNCS: &[&str] = &[
 // false: `string` is CPython's Lib/string.py compiled in (py/string.py), for Template and Formatter; true (the
 // default): the native module, constants only, which builds and starts much faster
 pub static STRING_NATIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+// inspect is Brevi's own while the program uses only its Signature (Signature.from_callable, rt_sig.rs); a program
+// using anything else of inspect is built again with CPython's inspect through the bridge.
+pub static INSPECT_NATIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 pub fn builtin_mod(m: &str) -> bool {
-    (BUILTIN_MODULES.contains(&m) && (m != "string" || STRING_NATIVE.load(std::sync::atomic::Ordering::Relaxed))) || m == "typing_extensions" || (matches!(m, "numpy" | "numpy.random" | "numpy.linalg") && np_native())
+    (m == "inspect" && INSPECT_NATIVE.load(std::sync::atomic::Ordering::Relaxed)) || (BUILTIN_MODULES.contains(&m) && (m != "string" || STRING_NATIVE.load(std::sync::atomic::Ordering::Relaxed))) || m == "typing_extensions" || (matches!(m, "numpy" | "numpy.random" | "numpy.linalg") && np_native())
 }
 // The numpy functions and attributes the native numpy has, with the keyword arguments each takes.
 const NP_FUNCS: &[(&str, &[&str])] = &[
@@ -238,7 +241,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "_brevi_mt" => &["new", "seed", "next", "random", "bits", "below", "shuffle"],
         "collections" => &["defaultdict", "Counter", "OrderedDict", "deque", "namedtuple", "abc"],
         "dataclasses" => &["asdict", "astuple", "dataclass", "field", "fields", "replace", "is_dataclass", "MISSING", "KW_ONLY", "InitVar", "Field", "FrozenInstanceError"],
-        "re" => &["compile", "escape", "findall", "finditer", "fullmatch", "match", "purge", "search", "split", "sub", "subn", "IGNORECASE", "I", "LOCALE", "L", "MULTILINE", "M", "DOTALL", "S", "VERBOSE", "X", "ASCII", "A", "NOFLAG", "UNICODE", "U", "DEBUG", "RegexFlag", "error", "PatternError", "Pattern", "Match"],
+        "re" => &["compile", "escape", "findall", "finditer", "fullmatch", "match", "purge", "search", "split", "sub", "subn", "IGNORECASE", "I", "LOCALE", "L", "MULTILINE", "M", "DOTALL", "S", "VERBOSE", "X", "ASCII", "A", "NOFLAG", "UNICODE", "U", "DEBUG", "RegexFlag", "error", "PatternError", "Pattern", "Match", "Scanner"],
         "re._constants" => &["MAXGROUPS", "MAXREPEAT"],
         "json" => &["dump", "dumps", "load", "loads", "JSONDecodeError", "JSONDecoder", "JSONEncoder"],
         "json.decoder" => &["scanstring", "JSONDecoder", "JSONDecodeError"],
@@ -253,7 +256,8 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "importlib.metadata" => &["version", "PackageNotFoundError"],
         "zoneinfo" => &["ZoneInfo", "ZoneInfoNotFoundError", "available_timezones", "TZPATH", "reset_tzpath"],
         "gc" => &["collect"],
-        "weakref" => &["ref"],
+        "weakref" => &["ref", "proxy"],
+        "inspect" => &["Signature"],
         _ => return false,
     };
     names.contains(&n)
@@ -279,7 +283,7 @@ fn is_builtin_name(n: &str) -> bool {
 fn is_exc_name(n: &str) -> bool {
     matches!(
         n,
-        "BaseException" | "Exception" | "SystemExit" | "KeyboardInterrupt" | "GeneratorExit" | "ArithmeticError" | "ZeroDivisionError" | "OverflowError" | "FloatingPointError" | "LookupError" | "KeyError" | "IndexError" | "ValueError" | "UnicodeError" | "UnicodeDecodeError" | "UnicodeEncodeError" | "TypeError" | "AttributeError" | "NameError" | "UnboundLocalError" | "RuntimeError" | "RecursionError" | "NotImplementedError" | "SystemError" | "StopIteration" | "StopAsyncIteration" | "TimeoutError" | "ConnectionError" | "ConnectionRefusedError" | "ConnectionResetError" | "ConnectionAbortedError" | "BrokenPipeError" | "BlockingIOError" | "ChildProcessError" | "InterruptedError" | "ProcessLookupError" | "BaseExceptionGroup" | "ExceptionGroup" | "AssertionError" | "SyntaxError" | "IndentationError" | "ImportError" | "ModuleNotFoundError" | "OSError" | "IOError" | "EnvironmentError" | "FileNotFoundError" | "PermissionError" | "IsADirectoryError" | "NotADirectoryError" | "FileExistsError" | "EOFError" | "MemoryError" | "BufferError" | "Warning" | "UserWarning" | "DeprecationWarning" | "SyntaxWarning" | "RuntimeWarning" | "FutureWarning" | "PendingDeprecationWarning" | "ImportWarning" | "UnicodeWarning" | "BytesWarning" | "ResourceWarning" | "EncodingWarning"
+        "BaseException" | "Exception" | "SystemExit" | "KeyboardInterrupt" | "GeneratorExit" | "ArithmeticError" | "ZeroDivisionError" | "OverflowError" | "FloatingPointError" | "LookupError" | "KeyError" | "IndexError" | "ValueError" | "UnicodeError" | "UnicodeDecodeError" | "UnicodeEncodeError" | "TypeError" | "AttributeError" | "NameError" | "UnboundLocalError" | "RuntimeError" | "RecursionError" | "NotImplementedError" | "SystemError" | "StopIteration" | "StopAsyncIteration" | "TimeoutError" | "ConnectionError" | "ConnectionRefusedError" | "ConnectionResetError" | "ConnectionAbortedError" | "BrokenPipeError" | "BlockingIOError" | "ChildProcessError" | "InterruptedError" | "ProcessLookupError" | "BaseExceptionGroup" | "ExceptionGroup" | "AssertionError" | "SyntaxError" | "IndentationError" | "ImportError" | "ModuleNotFoundError" | "OSError" | "IOError" | "EnvironmentError" | "FileNotFoundError" | "PermissionError" | "IsADirectoryError" | "NotADirectoryError" | "FileExistsError" | "EOFError" | "MemoryError" | "BufferError" | "Warning" | "UserWarning" | "DeprecationWarning" | "SyntaxWarning" | "RuntimeWarning" | "FutureWarning" | "PendingDeprecationWarning" | "ImportWarning" | "UnicodeWarning" | "BytesWarning" | "ResourceWarning" | "EncodingWarning" | "ReferenceError"
     )
 }
 
@@ -2558,10 +2562,14 @@ impl Em {
                 return Ok(self.q(&rc));
             }
         }
-        // CPython's inspect cannot read a dynamic build's function objects (their code and annotations are
-        // not built), so Signature.from_callable on one would raise where CPython prints a signature.
-        if matches!(f, Ex::Attr(o, m) if m == "from_callable" && matches!(o.as_ref(), Ex::Name(n) if n == "Signature")) {
-            return Err(err(line, "Signature.from_callable is not supported in dynamic builds"));
+        // Signature.from_callable reads the parameters and annotations each def records (SIG_DEFS); a program
+        // whose annotations are not kept (`from __future__ import annotations`, a type expression) is refused.
+        // With CPython's inspect (the program uses more of it than Signature), its Signature cannot read a
+        // dynamic build's functions either.
+        if matches!(f, Ex::Attr(_, m) if m == "from_callable")
+            && (!super::typing::SIG_DEFS.load(std::sync::atomic::Ordering::Relaxed) || !INSPECT_NATIVE.load(std::sync::atomic::Ordering::Relaxed))
+        {
+            return Err(err(line, "Signature.from_callable in a program whose def annotations are not kept is not supported in dynamic builds"));
         }
         // eval("literal text"): parsed when the program is built and run in place. Refused when a name in it
         // would resolve differently (CPython's eval sees this frame's locals and the globals, not enclosing cells).
@@ -3827,9 +3835,6 @@ impl Em {
 
     // ---- functions and classes ----
     fn def(&mut self, d: &FuncDef) -> ER<String> {
-        if d.decorators.iter().any(|x| is_dec_name(x, "singledispatchmethod")) && d.decorators.iter().any(|x| is_dec_name(x, "abstractmethod")) {
-            return Err(err(d.line, "singledispatchmethod with abstractmethod is not supported in dynamic builds"));
-        }
         if has_yield(&d.body) && !d.is_async {
             if !GEN_OK {
                 return Err(err(d.line, "generators (yield) are not supported in dynamic builds on this platform"));
@@ -3883,6 +3888,44 @@ impl Em {
     // A function value. Module-level functions (and methods of module-level classes) become plain Rust
     // functions plus a wrapper; nested ones are closures capturing the cells they use.
     fn closure(&mut self, name: &str, qualname: &str, p: &Params, body: &[Stmt], line: usize, is_def: bool) -> ER<String> {
+        if !super::typing::SIG_DEFS.load(std::sync::atomic::Ordering::Relaxed) {
+            return self.closure_body(name, qualname, p, body, line, is_def, None);
+        }
+        // the defaults are evaluated once, here, and both the function and its recorded signature hold them
+        let id = self.id();
+        let mut pre = String::new();
+        let mut pd = vec![];
+        let mut kd = vec![];
+        for (k, (_, dv)) in p.pos.iter().enumerate() {
+            pd.push(match dv {
+                Some(x) => {
+                    let c = self.ex(x, line)?;
+                    write!(pre, "let __sdp{id}_{k} = {c}; ").unwrap();
+                    format!("__sdp{id}_{k}.clone()")
+                }
+                None => "V::Unbound".into(),
+            });
+        }
+        for (k, (_, dv)) in p.kwonly.iter().enumerate() {
+            kd.push(match dv {
+                Some(x) => {
+                    let c = self.ex(x, line)?;
+                    write!(pre, "let __sdk{id}_{k} = {c}; ").unwrap();
+                    format!("__sdk{id}_{k}.clone()")
+                }
+                None => "V::Unbound".into(),
+            });
+        }
+        let v = self.closure_body(name, qualname, p, body, line, is_def, Some((pd.clone(), kd.clone())))?;
+        let names = |v: &[(String, Option<Ex>)]| v.iter().map(|(n, _)| lit(n)).collect::<Vec<_>>().join(", ");
+        let opt = |n: &Option<String>| n.as_ref().map_or("None".to_string(), |n| format!("Some({})", lit(n)));
+        Ok(format!(
+            "{{ {pre}with_sig({v}, &[{}], {}, {}, &[{}], {}, vec![{}], vec![{}]) }}",
+            names(&p.pos), p.posonly, opt(&p.star), names(&p.kwonly), opt(&p.kwstar), pd.join(", "), kd.join(", ")
+        ))
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn closure_body(&mut self, name: &str, qualname: &str, p: &Params, body: &[Stmt], line: usize, is_def: bool, dflt: Option<(Vec<String>, Vec<String>)>) -> ER<String> {
         let id = self.id();
         let is_async = std::mem::take(&mut self.next_async);
         let is_gen = has_yield(body);
@@ -3891,24 +3934,27 @@ impl Em {
         let inner_free = nested_free(body);
         let at_top = self.fstack.len() == 1;
         let in_class_top = self.class_ctx.is_some() && self.fstack.len() == 2 && self.fstack[0].is_module;
-        // defaults, evaluated now
-        let mut dflt_codes = vec![];
-        for (_, dv) in p.pos.iter() {
-            dflt_codes.push(match dv {
-                Some(x) => self.ex(x, line)?,
-                None => "V::Unbound".into(),
-            });
-        }
-        if p.star.is_some() {
-            // no default
-        }
-        let mut kwd = vec![];
-        for (_, dv) in p.kwonly.iter() {
-            kwd.push(match dv {
-                Some(x) => self.ex(x, line)?,
-                None => "V::Unbound".into(),
-            });
-        }
+        // defaults, evaluated now (or already, by closure, when the def records its signature)
+        let (dflt_codes, kwd) = match dflt {
+            Some(d) => d,
+            None => {
+                let mut dflt_codes = vec![];
+                for (_, dv) in p.pos.iter() {
+                    dflt_codes.push(match dv {
+                        Some(x) => self.ex(x, line)?,
+                        None => "V::Unbound".into(),
+                    });
+                }
+                let mut kwd = vec![];
+                for (_, dv) in p.kwonly.iter() {
+                    kwd.push(match dv {
+                        Some(x) => self.ex(x, line)?,
+                        None => "V::Unbound".into(),
+                    });
+                }
+                (dflt_codes, kwd)
+            }
+        };
         // signature: positional params, then kw-only params share the names list; bind() treats
         // kw-only as named params past npos.
         let mut names: Vec<String> = p.pos.iter().map(|x| x.0.clone()).collect();
@@ -4294,6 +4340,7 @@ impl Em {
         res?;
         // the class is made at the class statement's line
         let w = self.wsite(c.line, c.decorators.is_empty());
+        let abcm = if c.abc_meta { format!("let __c = {};", self.q("abc_meta(__c)")) } else { String::new() };
         let mut v = if dict_mode {
             // the namespace dict holds the class attributes in the order the body bound them; the doc is
             // added only now, as __build_class__ adds it after the body
@@ -4305,7 +4352,7 @@ impl Em {
             }
             let items = self.q(&format!("dict_sym_items(&{ns_var})"));
             let mk = self.q(&format!("make_class_f({}, {}, {}, vec![{}], {items}, vec![{}])", lit(&c.name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", ")));
-            format!("{{ {decls}\n{body}\n{attrs} {w} let __c = {mk}; __c }}")
+            format!("{{ {decls}\n{body}\n{attrs} {w} let __c = {mk}; {abcm} __c }}")
         } else {
             // class attributes in the order the body first binds them, as CPython's class namespace keeps them
             // (Enum members and vars() follow it)
@@ -4349,7 +4396,7 @@ impl Em {
                 write!(attrs, "__at.push((\"__doc__\", {doc})); ").unwrap();
             }
             let mk = self.q(&format!("make_class_f({}, {}, {}, vec![{}], __at, vec![{}])", lit(&c.name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", ")));
-            format!("{{ {decls}\n{body}\nlet mut __at: Vec<(Sym, V)> = vec![]; {attrs} {w} let __c = {mk}; __c }}")
+            format!("{{ {decls}\n{body}\nlet mut __at: Vec<(Sym, V)> = vec![]; {attrs} {w} let __c = {mk}; {abcm} __c }}")
         };
         for dec in c.decorators.iter().rev() {
             let dd = self.ex(dec, c.line)?;
@@ -4480,6 +4527,14 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
             && ["\"pickle\"", "\"copy\"", "\"deepcopy\"", "\"__reduce__\"", "\"__reduce_ex__\"", "\"__setstate__\""].iter().any(|k| b.contains(k))
     });
     let iter_type_values = mods.iter().any(|m| bridge.srcs.get(&m.name).is_some_and(|(_, src)| iter_type_as_value(src)));
+    // copy.deepcopy of a tee iterator deep-copies its buffer and the iterator under it (tee.__reduce__), which
+    // Brevi does not have; refused when the program is built rather than stopping when it runs
+    if mods.iter().any(|m| {
+        let b = format!("{:?}", m.body);
+        bridge.srcs.contains_key(&m.name) && b.contains("\"tee\"") && b.contains("\"deepcopy\"")
+    }) {
+        return Err((mods[0].name.clone(), 1, "copy.deepcopy in a program that uses itertools.tee is not supported in dynamic builds".into()));
+    }
     // (or pickles or copies itertools iterators, whose __reduce__ and __setstate__ warn at the caller's line)
     let track_warn = mods.iter().any(|m| {
         let b = format!("{:?}", m.body);
