@@ -1,3 +1,4 @@
+// The syntax tree the parser builds and inference, the typed emitter and the passes in main.rs read.
 #[derive(Debug, Clone)]
 pub enum Ty {
     Named(String),       // int, f64, bool, str, or a user type

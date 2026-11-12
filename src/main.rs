@@ -1,3 +1,4 @@
+// The brevi command: argument handling, the build pipeline (join, parse, infer, typed or dynamic build, rustc), autofix and the CPython fallback. See docs/ARCHITECTURE.md.
 mod alias;
 mod bvpy;
 mod records;
