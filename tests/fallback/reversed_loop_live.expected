@@ -1,0 +1,5 @@
+{"path":"dynamic","line":4,"why":"`a` is changed (an item set) while a loop walks over it; the typed build walks a copy, so the typed build would differ from CPython"}
+3
+2
+9
+native exit 0

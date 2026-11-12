@@ -640,6 +640,29 @@ pub fn bi_reversed(a: Args) -> R {
         let n = l.borrow().len();
         return Ok(new_iter(It::RevList(l.clone(), n), IterClass::Kind(kind)));
     }
+    // a dict (not an OrderedDict, whose reverse iterator is its own), its views, or a dict subclass instance:
+    // live, as CPython's dict reverse iterators
+    let dict_of = match &x {
+        V::Dict(d) => Some((d.clone(), 0u8)),
+        V::View(v) if v.1 <= 3 => match &v.0 {
+            V::Dict(d) => Some((d.clone(), v.1)),
+            _ => None,
+        },
+        V::Obj(_) => match inner_of(&x) {
+            Some(V::Dict(d)) => Some((d.clone(), 0)),
+            _ => None,
+        },
+        _ => None,
+    };
+    if let Some((d, vk)) = dict_of {
+        let (n, used, ver, odict) = {
+            let b = d.borrow();
+            (b.ents.len(), b.n as i64, b.ver, b.kind == 3)
+        };
+        if !odict && matches!(kind, ItKind::DictReverseKeys | ItKind::DictReverseValues | ItKind::DictReverseItems) {
+            return Ok(new_iter(It::RevDict(d, n, vk, used, ver), IterClass::Kind(kind)));
+        }
+    }
     if matches!(x, V::Dict(_) | V::List(_) | V::Tuple(_) | V::Str(_) | V::Deque(_) | V::View(_)) || inner_of(&x).is_some() {
         let mut v = to_vec(&x)?;
         v.reverse();

@@ -2019,7 +2019,8 @@ impl<'p, 'a> KCx<'p, 'a> {
                             pos.iter().fold(K::S, |a, b| a.join(b))
                         }
                     }
-                    "iter" => k0,
+                    // reversed(xs) is live in Python (it reads xs as it goes), as iter(xs) is: the same object (#459)
+                    "iter" | "reversed" => k0,
                     "map" => match args.first() {
                         Some(Arg::Pos(Ex::Name(f))) if BUILTIN_SCALAR.contains(&f.as_str()) && self.scope_of(f) == MODULE && !self.p.module_names.contains(f) => K::list(K::S),
                         _ => K::U,
@@ -3039,6 +3040,12 @@ impl<'p, 'a> Cx<'p, 'a> {
                 };
                 (self.place_of(inner), srcs.clone(), keys)
             }
+            // `for x in reversed(xs)` / `for x in iter(xs)`: Python's iterator reads xs as the loop goes, so the
+            // loop walks xs itself (#459)
+            Ex::Call(f, args) if matches!(f.as_ref(), Ex::Name(n) if (n == "reversed" || n == "iter") && self.place(n) == Pl::G(n.clone()) && !self.p.module_names.contains(n)) && args.len() == 1 && matches!(&args[0], Arg::Pos(_)) => {
+                let Arg::Pos(inner) = &args[0] else { unreachable!() };
+                (self.place_of(inner), srcs.clone(), vec![])
+            }
             Ex::Call(f, args) if matches!(f.as_ref(), Ex::Attr(_, m) if m == "items" || m == "keys" || m == "values") && args.is_empty() => {
                 let Ex::Call(f, _) = it else { unreachable!() };
                 let Ex::Attr(o, m) = f.as_ref() else { unreachable!() };
@@ -3541,7 +3548,7 @@ impl<'p, 'a> Cx<'p, 'a> {
                         }
                         v
                     }
-                    "iter" => s0,
+                    "iter" | "reversed" => s0,
                     "map" if matches!(args.first(), Some(Arg::Pos(Ex::Name(f))) if BUILTIN_SCALAR.contains(&f.as_str()) && matches!(self.place(f), Pl::G(_)) && !self.p.module_names.contains(f)) => vec![],
                     "map" => {
                         // map(f, xs): f's value for each item, which may be the item

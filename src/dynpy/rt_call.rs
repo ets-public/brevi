@@ -1509,6 +1509,10 @@ fn class_getattr(o: &V, c: &Rc<Class>, name: &str) -> R {
             // methods of a builtin base (tuple's __getitem__ on a namedtuple class, list's
             // append on a list subclass) live on the builtin class in CPython, not on the subclass
             if c.module == "builtins" || c.module == "collections" {
+                // a builtin type has only what CPython's type dicts hold (hasattr(int, "zzz") is False)
+                if cpy_type_has(c, name) == Some(false) {
+                    return Err(exc("AttributeError", format!("type object '{}' has no attribute '{}'", if c.module == "builtins" { c.name.to_string() } else { format!("{}.{}", c.module, c.name) }, name)));
+                }
                 if let Some(v) = builtin_class_attr(c, name) {
                     return Ok(v);
                 }
