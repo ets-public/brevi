@@ -758,7 +758,7 @@ fn learn(body: &[Stmt], func: Option<&str>, g: &mut G) {
     for s in body {
         match &s.st {
             St::Assign(ts, v) => ts.iter().for_each(|t| bind(t, v, g)),
-            St::AnnAssign(t, Some(v), _) => bind(t, v, g),
+            St::AnnAssign(t, Some(v), _, _) => bind(t, v, g),
             St::For(t, it, _, _) => {
                 if is_holder(it, g) {
                     match t {
@@ -887,7 +887,7 @@ pub(crate) fn walk_st(st: &St, f: &mut dyn FnMut(&Ex)) {
             go(t);
             go(v);
         }
-        St::AnnAssign(t, v, _) => {
+        St::AnnAssign(t, v, _, _) => {
             go(t);
             if let Some(v) = v {
                 go(v);
@@ -1611,7 +1611,7 @@ fn changes_of(d: &FuncDef, known: &HashMap<String, Changes>) -> Changes {
                 }
                 St::Global(v) | St::Nonlocal(v) => sc.outer.extend(v.iter().cloned()),
                 St::Assign(ts, v) => ts.iter().for_each(|t| bind(t, v, sc)),
-                St::AnnAssign(t, Some(v), _) => bind(t, v, sc),
+                St::AnnAssign(t, Some(v), _, _) => bind(t, v, sc),
                 St::For(t, it, ..) => bind(t, it, sc),
                 St::With(items, _) => items.iter().for_each(|(e, t)| {
                     if let Some(t) = t {
@@ -2162,7 +2162,7 @@ fn default_reads(body: &[Stmt]) -> Option<(usize, String)> {
                 dds.insert(k, ok);
             });
         }
-        St::AnnAssign(t, Some(v), _) if is_dd(v) => {
+        St::AnnAssign(t, Some(v), _, _) if is_dd(v) => {
             if let Some(k) = key(t) {
                 let ok = match v {
                     Ex::Call(_, args) => match args.first() {

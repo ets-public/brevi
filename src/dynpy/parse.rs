@@ -490,6 +490,9 @@ pub struct FuncDef {
     pub is_async: bool,
     // the return annotation
     pub ret: Option<Ex>,
+    // PEP 695 type parameters (`def f[T, U]`): plain names only (a bound, constraints, a default, `*Ts` and `**P`
+    // are refused when parsed)
+    pub tparams: Vec<String>,
     // the def's own name (its __name__) when `name` is the private name mangled for the class it is in
     pub disp: Option<String>,
 }
@@ -501,7 +504,7 @@ pub struct ClassDef {
     pub body: Vec<Stmt>,
     pub decorators: Vec<Ex>,
     pub line: usize,
-    // `total=False`, TypedDict's keyword (dynpy/typing.rs refuses it on any other class)
+    // `total=False`, TypedDict's keyword (dynpy/typing.rs refuses it on any other class), and `metaclass=M`
     pub kwargs: Vec<(String, Ex)>,
     // the class's own name (its __name__) when `name` is the private name mangled for the class it is in
     pub disp: Option<String>,
@@ -520,7 +523,9 @@ pub enum St {
     Assign(Vec<Ex>, Ex),
     AugAssign(Ex, &'static str, Ex),
     // target, value, annotation (never evaluated; dataclasses read ClassVar, InitVar and KW_ONLY off it)
-    AnnAssign(Ex, Option<Ex>, Box<Ex>),
+    // target, value, annotation, simple: the target is a bare name, not in parentheses (CPython's `simple`,
+    // which decides whether the name is stored in __annotations__ and, with no value, bound as a local)
+    AnnAssign(Ex, Option<Ex>, Box<Ex>, bool),
     Pass,
     Break,
     Continue,
@@ -810,6 +815,10 @@ impl P {
                     return Err(err(line, "expected def, for or with after async"));
                 }
             }
+            // `type X = ...` (PEP 695): `type` is a soft keyword there
+            "type" if matches!(self.toks.get(self.i + 1).map(|t| &t.0), Some(Tok::Name(_))) && matches!(self.toks.get(self.i + 2).map(|t| &t.0), Some(Tok::Op("=") | Tok::Op("["))) => {
+                return Err(err(line, "the type statement (PEP 695 type aliases) is not supported in dynamic builds"))
+            }
             "match" if self.is_match_stmt() => return Err(err(line, "match statements are not supported")),
             _ => return self.simple_line(),
         };
@@ -989,6 +998,7 @@ impl P {
             }
         }
         // expression statement or assignment
+        let paren = matches!(self.peek(), Tok::Op("("));
         let first = self.exprlist_star()?;
         if self.is_op(":") {
             // annotated assignment
@@ -996,7 +1006,8 @@ impl P {
             let ann = self.expr()?;
             let v = if self.eat_op("=") { Some(self.exprlist_star_or_yield()?) } else { None };
             check_target(&first, line)?;
-            return Ok(St::AnnAssign(first, v, Box::new(ann)));
+            let simple = !paren && matches!(first, Ex::Name(_));
+            return Ok(St::AnnAssign(first, v, Box::new(ann), simple));
         }
         for op in ["+=", "-=", "*=", "/=", "//=", "%=", "**=", "&=", "|=", "^=", ">>=", "<<=", "@="] {
             if self.is_op(op) {
@@ -1182,12 +1193,41 @@ impl P {
         let line = self.line();
         self.expect_kw("def")?;
         let name = self.name()?;
+        let tparams = if self.is_op("[") { self.type_params()? } else { vec![] };
         self.expect_op("(")?;
         let params = self.params(")")?;
         self.expect_op(")")?;
         let ret = if self.eat_op("->") { Some(self.expr()?) } else { None };
         let body = self.block()?;
-        Ok(FuncDef { name, params, body, decorators, line, is_async: false, ret, disp: None })
+        Ok(FuncDef { name, params, body, decorators, line, is_async: false, ret, tparams, disp: None })
+    }
+    // `[T, U]` after a def's name (PEP 695). Only plain type variables are taken: the others need CPython's lazily
+    // evaluated bounds and defaults, or TypeVarTuple and ParamSpec objects, which this build does not have.
+    fn type_params(&mut self) -> PR<Vec<String>> {
+        let line = self.line();
+        self.expect_op("[")?;
+        let mut out: Vec<String> = vec![];
+        while !self.is_op("]") {
+            if self.is_op("*") || self.is_op("**") {
+                return Err(err(line, "a `*Ts` or `**P` type parameter (PEP 695) is not supported in dynamic builds"));
+            }
+            let n = self.name()?;
+            if self.is_op(":") || self.is_op("=") {
+                return Err(err(line, "a type parameter with a bound, constraints or a default (PEP 695) is not supported in dynamic builds"));
+            }
+            if out.contains(&n) {
+                return Err(err(line, &format!("duplicate type parameter '{n}'")));
+            }
+            out.push(n);
+            if !self.eat_op(",") {
+                break;
+            }
+        }
+        self.expect_op("]")?;
+        if out.is_empty() {
+            return Err(err(line, "Type parameter list cannot be empty"));
+        }
+        Ok(out)
     }
     fn params(&mut self, end: &str) -> PR<Params> {
         let mut p = Params::default();
@@ -1239,6 +1279,9 @@ impl P {
         let line = self.line();
         self.expect_kw("class")?;
         let name = self.name()?;
+        if self.is_op("[") {
+            return Err(err(line, "a generic class (`class C[T]`, PEP 695) is not supported in dynamic builds"));
+        }
         let mut bases = vec![];
         let mut kwargs = vec![];
         let mut abc_meta = false;
@@ -1247,14 +1290,16 @@ impl P {
                 if let Tok::Name(n) = self.peek().clone() {
                     if matches!(self.toks.get(self.i + 1).map(|t| &t.0), Some(Tok::Op("="))) {
                         if n == "metaclass" {
-                            // ABCMeta is harmless; others are refused
+                            // ABCMeta is the abc module's own (collections.abc's rules); any other is called
+                            // as CPython's __build_class__ calls it (dynpy/emit.rs, meta_build)
                             self.next();
                             self.next();
                             let m = self.expr()?;
                             if !matches!(&m, Ex::Name(x) if x == "ABCMeta") && !matches!(&m, Ex::Attr(_, x) if x == "ABCMeta") {
-                                return Err(err(line, "metaclasses are not supported"));
+                                kwargs.push(("metaclass".to_string(), m));
+                            } else {
+                                abc_meta = true;
                             }
-                            abc_meta = true;
                             if !self.eat_op(",") {
                                 break;
                             }

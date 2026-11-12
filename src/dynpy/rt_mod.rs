@@ -1018,13 +1018,42 @@ fn sd_register_ann(st: &Rc<SDState>, f: V) -> R {
     st.cache.borrow_mut().clear();
     Ok(f)
 }
+// a union whose arguments are all classes (`int | str`, typing.Union[int, str]): its arguments, as CPython 3.13's
+// register() takes them
+fn sd_union_classes(v: &V) -> Option<Vec<V>> {
+    let args = union_args_of(v)?;
+    if args.iter().all(|a| matches!(a, V::Class(_))) {
+        Some(args)
+    } else {
+        None
+    }
+}
 fn sd_register_type(st: &Rc<SDState>, cls: &V, func: V) -> R {
+    if let Some(args) = sd_union_classes(cls) {
+        for a in &args {
+            if matches!(a, V::Class(k) if k.module == "typing" || k.abc.get()) {
+                return Err(unsupported("singledispatch on a union with an ABC or typing form"));
+            }
+        }
+        {
+            let mut reg = st.registry.borrow_mut();
+            for a in args {
+                reg.set(a, func.clone())?;
+            }
+        }
+        st.cache.borrow_mut().clear();
+        return Ok(func);
+    }
     match cls {
         V::Class(k) if k.module == "typing" => {
             // typing's forms are not classes CPython's singledispatch can dispatch on
             return Err(unsupported(&format!("singledispatch on this ABC ({})", k.name)));
         }
         V::Class(_) => {}
+        // a subscripted typing form, or a union with one in it: CPython's "not a class or union type"
+        V::Ext(x) if matches!(x.tname(), "typing._GenericAlias" | "typing._UnionGenericAlias" | "types.UnionType") => {
+            return Err(sd_invalid_first(cls));
+        }
         V::Ext(x) if x.subclasscheck(&V::None).is_some() => {
             return Err(unsupported(&format!("singledispatch on this ABC ({})", x.tname())));
         }
@@ -1042,7 +1071,7 @@ fn sd_register(st: Rc<SDState>, mut a: Args) -> R {
     if let Some(func) = a.kw("func").or_else(|| a.p.first().cloned()) {
         return sd_register_type(&st, &first, func);
     }
-    if matches!(first, V::Class(_)) {
+    if matches!(first, V::Class(_)) || sd_union_classes(&first).is_some() {
         let st2 = st.clone();
         let c = first.clone();
         return Ok(builtin("register", move |b: Args| sd_register_type(&st2, &c, a1(&b, "register")?)));
@@ -2957,6 +2986,7 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         }
         ("dataclasses", "MISSING" | "KW_ONLY" | "InitVar" | "Field" | "FrozenInstanceError") => dataclass_attr(name).unwrap(),
         ("abc", "ABC") => V::Class(abc_class()),
+        ("abc", "ABCMeta") => V::Class(abc_meta_class()),
         ("re._constants", "MAXREPEAT") => V::Int(0xFFFF_FFFE),
         ("re._constants", "MAXGROUPS") => V::Int(0x3FFF_FFFF),
         ("functools", "cached_property") => V::Class(cached_property_class()),

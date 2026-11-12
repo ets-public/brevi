@@ -9,8 +9,8 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 596,
-"refused": 31,
+"matched": 606,
+"refused": 21,
 "by_design": 4,
 "string_model": 1,
 "cpython_private": 6,
@@ -24,16 +24,16 @@
 "scored": 634,
 "matched_through_cpython": 1,
 "matched_silent": 34,
-"coverage": 0.9385,
+"coverage": 0.9543,
 "wrong": 0,
-"matched_asserting": 561,
-"assert_coverage": 0.8849,
+"matched_asserting": 571,
+"assert_coverage": 0.9006,
 "matched_typed": 18,
-"typed_share": 0.0303
+"typed_share": 0.0298
 },
 "dyn": {
-"matched": 595,
-"refused": 32,
+"matched": 605,
+"refused": 22,
 "by_design": 4,
 "string_model": 1,
 "cpython_private": 6,
@@ -47,10 +47,10 @@
 "scored": 634,
 "matched_through_cpython": 0,
 "matched_silent": 34,
-"coverage": 0.9385,
+"coverage": 0.9543,
 "wrong": 0,
-"matched_asserting": 561,
-"assert_coverage": 0.8849,
+"matched_asserting": 571,
+"assert_coverage": 0.9006,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -250,8 +250,8 @@
 },
 "test_functools": {
 "normal": {
-"matched": 167,
-"refused": 11,
+"matched": 177,
+"refused": 1,
 "by_design": 0,
 "string_model": 0,
 "cpython_private": 3,
@@ -265,16 +265,16 @@
 "scored": 181,
 "matched_through_cpython": 0,
 "matched_silent": 3,
-"coverage": 0.9227,
+"coverage": 0.9779,
 "wrong": 0,
-"matched_asserting": 164,
-"assert_coverage": 0.9061,
+"matched_asserting": 174,
+"assert_coverage": 0.9613,
 "matched_typed": 0,
 "typed_share": 0.0
 },
 "dyn": {
-"matched": 167,
-"refused": 11,
+"matched": 177,
+"refused": 1,
 "by_design": 0,
 "string_model": 0,
 "cpython_private": 3,
@@ -288,10 +288,10 @@
 "scored": 181,
 "matched_through_cpython": 0,
 "matched_silent": 3,
-"coverage": 0.9227,
+"coverage": 0.9779,
 "wrong": 0,
-"matched_asserting": 164,
-"assert_coverage": 0.9061,
+"matched_asserting": 174,
+"assert_coverage": 0.9613,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -347,14 +347,14 @@
 },
 "paths": {
 "normal": {
-"dynamic": 578,
-"refused": 41,
+"dynamic": 588,
+"refused": 31,
 "typed": 18,
 "pybridge": 1
 },
 "dyn": {
-"dynamic": 596,
-"refused": 42
+"dynamic": 606,
+"refused": 32
 }
 },
 "tests": [
@@ -7793,12 +7793,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected a name, found **"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "abc.ABCMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -7961,12 +7961,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected '(', found ["
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "expected '(', found Op(\"[\")"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -7975,12 +7975,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected '(', found ["
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "expected '(', found Op(\"[\")"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -8059,12 +8059,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected '(', found ["
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "expected '(', found Op(\"[\")"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -8073,12 +8073,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected '(', found ["
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "expected '(', found Op(\"[\")"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -8391,12 +8391,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found SortableMeta"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "metaclasses are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -8896,7 +8896,7 @@
 "id": "test_functools.TestLRUC.test_lru_recursion",
 "file": "test_functools",
 "category": "excluded",
-"detail": "measures the recursion depth with _testinternalcapi (CPython's C internals)"
+"detail": "skipped by CPython: get_c_recursion_limit() requires _testcapi, which the reference build lacks"
 },
 {
 "id": "test_functools.TestLRUC.test_lru_reentrancy_with_len",
@@ -9217,12 +9217,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found MetaA"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "metaclasses are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -9405,12 +9405,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`f` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 18: typing: a subscripted typing form used as a value needs CPython's typing)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "typing: a subscripted typing form used as a value needs CPython's typing"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -9433,12 +9433,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`f` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 18: typing: a subscripted typing form used as a value needs CPython's typing)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "typing: a subscripted typing form used as a value needs CPython's typing"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -9657,12 +9657,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found MyMeta"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "metaclasses are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },

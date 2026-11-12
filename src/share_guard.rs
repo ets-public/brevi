@@ -566,7 +566,7 @@ fn collect<'a>(body: &'a [Stmt], parent: Option<usize>, class: Option<&str>, p: 
                 p.classes.entry(c.name.clone()).or_insert(None);
                 let mut fields = vec![];
                 for st in &c.body {
-                    if let St::AnnAssign(Ex::Name(n), _, _) = &st.st {
+                    if let St::AnnAssign(Ex::Name(n), _, _, _) = &st.st {
                         fields.push(n.clone());
                     }
                 }
@@ -763,10 +763,10 @@ fn only_bound_to(body: &[Stmt], is_dict: &dyn Fn(&Ex) -> bool) -> HashSet<String
     fn walk(b: &[Stmt], yes: &mut HashSet<String>, no: &mut HashSet<String>, is_dict: &dyn Fn(&Ex) -> bool) {
         for st in b {
             match &st.st {
-                St::Assign(_, v) | St::AnnAssign(_, Some(v), _) => {
+                St::Assign(_, v) | St::AnnAssign(_, Some(v), _, _) => {
                     let ts: Vec<&Ex> = match &st.st {
                         St::Assign(ts, _) => ts.iter().collect(),
-                        St::AnnAssign(t, _, _) => vec![t],
+                        St::AnnAssign(t, _, _, _) => vec![t],
                         _ => vec![],
                     };
                     for t in ts {
@@ -973,11 +973,11 @@ fn assigned(body: &[Stmt], out: &mut HashSet<String>, globals: &mut HashSet<Stri
                 ts.iter().for_each(|t| target_names(t, out));
                 walrus(v, out);
             }
-            St::AugAssign(t, _, v) | St::AnnAssign(t, Some(v), _) => {
+            St::AugAssign(t, _, v) | St::AnnAssign(t, Some(v), _, _) => {
                 target_names(t, out);
                 walrus(v, out);
             }
-            St::AnnAssign(t, None, _) => target_names(t, out),
+            St::AnnAssign(t, None, _, _) => target_names(t, out),
             St::For(t, it, _, _) => {
                 target_names(t, out);
                 walrus(it, out);
@@ -1122,7 +1122,7 @@ fn mentioned_stmt(s: &Stmt, out: &mut HashSet<String>) {
             mentioned(t, out);
             mentioned(v, out);
         }
-        St::AnnAssign(t, v, _) => {
+        St::AnnAssign(t, v, _, _) => {
             mentioned(t, out);
             if let Some(v) = v {
                 mentioned(v, out);
@@ -1266,7 +1266,7 @@ fn kinds(body: &[Stmt], p: &mut Prog) {
                 };
                 match &s.st {
                     St::Assign(ts, _) => ts.iter().for_each(|t| put(t)),
-                    St::AugAssign(t, _, _) | St::AnnAssign(t, _, _) => put(t),
+                    St::AugAssign(t, _, _) | St::AnnAssign(t, _, _, _) => put(t),
                     St::For(t, _, _, _) => put(t),
                     _ => {}
                 }
@@ -1304,7 +1304,7 @@ fn kinds(body: &[Stmt], p: &mut Prog) {
                                 out.insert(n.clone());
                             }
                         }),
-                        St::AnnAssign(Ex::Name(n), _, _) => {
+                        St::AnnAssign(Ex::Name(n), _, _, _) => {
                             out.insert(n.clone());
                         }
                         _ => {}
@@ -1473,7 +1473,7 @@ fn each_expr_block(b: &[Stmt], f: &mut dyn FnMut(&Ex)) {
                 f(t);
                 f(v);
             }
-            St::AnnAssign(t, v, _) => {
+            St::AnnAssign(t, v, _, _) => {
                 f(t);
                 if let Some(v) = v {
                     f(v);
@@ -1680,7 +1680,7 @@ impl<'p, 'a> KCx<'p, 'a> {
                     let k = self.kind(v);
                     ts.iter().for_each(|t| self.assign(t, k.clone()));
                 }
-                St::AnnAssign(t, Some(v), _) => {
+                St::AnnAssign(t, Some(v), _, _) => {
                     let k = self.kind(v);
                     self.assign(t, k);
                 }
@@ -1733,7 +1733,7 @@ impl<'p, 'a> KCx<'p, 'a> {
                                     }
                                 }
                             }
-                            St::AnnAssign(Ex::Name(n), v, _) => {
+                            St::AnnAssign(Ex::Name(n), v, _, _) => {
                                 // a dataclass field: its value comes from the constructor's arguments (see call)
                                 let k = v.as_ref().map_or(K::S, |v| self.kind(v));
                                 self.set_field(n, k);
@@ -2779,7 +2779,7 @@ impl<'p, 'a> Cx<'p, 'a> {
                     self.assign_target(t, srcs.clone(), &rebound);
                 }
             }
-            St::AnnAssign(t, Some(v), _) => {
+            St::AnnAssign(t, Some(v), _, _) => {
                 let srcs = self.eval(v);
                 let mut rebound = HashSet::new();
                 target_names(t, &mut rebound);

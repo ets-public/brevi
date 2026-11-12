@@ -198,7 +198,7 @@ fn targets(e: &Ex, out: &mut BTreeSet<String>) {
 fn assigned(s: &Stmt, out: &mut BTreeSet<String>) {
     match &s.st {
         St::Assign(ts, _) => ts.iter().for_each(|t| targets(t, out)),
-        St::AugAssign(t, _, _) | St::AnnAssign(t, _, _) => targets(t, out),
+        St::AugAssign(t, _, _) | St::AnnAssign(t, _, _, _) => targets(t, out),
         St::For(t, _, b, e) => {
             targets(t, out);
             b.iter().chain(e.iter().flatten()).for_each(|x| assigned(x, out));

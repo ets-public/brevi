@@ -704,6 +704,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         let user: Vec<(&str, &[parse::Stmt])> = mods.iter().filter(|m| !own_mods.contains(&m.name)).map(|m| (m.name.as_str(), m.body.as_slice())).collect();
         typing::OWN_PYDANTIC.store(own_mods.contains("pydantic"), Ordering::Relaxed);
         if let Err((m, l, why)) = typing::check(&user) {
+            let (m, l, why) = typing::string_as_code(&user).unwrap_or((m, l, why));
             let f = texts.get(&m).map_or(file.to_string(), |t| t.0.clone());
             return Err((f, l, why));
         }

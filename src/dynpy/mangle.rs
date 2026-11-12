@@ -78,7 +78,7 @@ fn stmt(s: &mut Stmt, cls: Option<&str>) -> PR<()> {
             ex(t, cls);
             ex(v, cls);
         }
-        St::AnnAssign(t, v, a) => {
+        St::AnnAssign(t, v, a, _) => {
             ex(t, cls);
             if let Some(v) = v {
                 ex(v, cls);
@@ -447,7 +447,7 @@ fn sa_block(body: &[Stmt], unit: Unit, flag: bool, out: &mut std::collections::B
                 sa_ex(t, unit, flag, out);
                 sa_ex(v, unit, flag, out);
             }
-            St::AnnAssign(t, v, a) => {
+            St::AnnAssign(t, v, a, _) => {
                 if let Some(v) = v {
                     sa_ex(v, unit, flag, out);
                     sa_target(t, flag, out);

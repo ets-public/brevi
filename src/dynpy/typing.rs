@@ -214,7 +214,7 @@ pub fn walk_all(body: &[Stmt], f: &mut dyn FnMut(&Ex, usize)) {
             }
         }
         if let St::Class(c) = &s.st {
-            for x in c.decorators.iter().chain(c.bases.iter()) {
+            for x in c.decorators.iter().chain(c.bases.iter()).chain(c.kwargs.iter().map(|(_, x)| x)) {
                 crate::typed_guard::walk_ex(x, &mut |e| f(e, line));
             }
         }
@@ -321,8 +321,10 @@ fn odd_class_annotation(body: &[Stmt], in_class: bool) -> bool {
         }
     }
     body.iter().any(|s| match &s.st {
-        St::AnnAssign(_, _, ann) if in_class => !plain(ann),
+        St::AnnAssign(_, _, ann, _) if in_class => !plain(ann),
         St::Class(c) => odd_class_annotation(&c.body, true),
+        // a def's own annotated statements are not evaluated (a function body keeps no annotations)
+        St::Def(d) => odd_class_annotation(&d.body, false),
         st => {
             let mut odd = false;
             blocks(st, &mut |b| odd |= odd_class_annotation(b, in_class));
@@ -419,7 +421,7 @@ fn collect(body: &[Stmt], nm: &mut Names, all: &HashMap<String, Names>, top: boo
                     nm.forms.insert(n.clone(), (String::new(), made.into()));
                 }
             }
-            St::AnnAssign(Ex::Name(n), Some(v), _) if top && nm.typing_expr(v) => {
+            St::AnnAssign(Ex::Name(n), Some(v), _, _) if top && nm.typing_expr(v) => {
                 nm.forms.insert(n.clone(), (String::new(), String::new()));
             }
             St::Class(c) => {
@@ -471,7 +473,7 @@ fn stmt(st: &St, line: usize, nm: &Names) -> Result<(), Er> {
             let alias = ts.len() == 1 && matches!(&ts[0], Ex::Name(n) if nm.forms.contains_key(n));
             expr(v, alias, line, nm)?;
         }
-        St::AnnAssign(t, v, _) => {
+        St::AnnAssign(t, v, _, _) => {
             if !matches!(t, Ex::Name(_)) {
                 ex(t)?;
             }
@@ -589,6 +591,14 @@ fn class(c: &ClassDef, nm: &Names) -> Result<(), Er> {
     decorators(&c.decorators, c.line, nm)?;
     let td = nm.tdicts.contains(&c.name);
     for (k, v) in &c.kwargs {
+        if k == "metaclass" {
+            expr(v, false, c.line, nm)?;
+            // the metaclass sees the namespace, so the class's annotations are made: a typing form there is a value
+            if c.body.iter().any(|s| matches!(&s.st, St::AnnAssign(_, _, a, _) if nm.typing_expr(a))) {
+                return Err((c.line, "typing: an annotation naming a typing form in a class with a metaclass needs CPython's typing".into()));
+            }
+            continue;
+        }
         if !td || k != "total" || !matches!(v, Ex::True | Ex::False) {
             return Err((c.line, "class keyword arguments are not supported".into()));
         }
@@ -676,6 +686,10 @@ fn expr(e: &Ex, ok: bool, line: usize, nm: &Names) -> Result<(), Er> {
         }
         Ex::Index(o, i) => {
             if nm.typing_expr(o) && !nm.generic_class(o) {
+                // typing.List[int], typing.Optional[X], ...: values the runtime makes (rt_typing.rs TAlias, TUnion)
+                if !ok && value_form(e, nm) {
+                    return expr(i, true, line, nm);
+                }
                 if !ok {
                     return Err(err(line, "a subscripted typing form used as a value"));
                 }
@@ -693,6 +707,10 @@ fn expr(e: &Ex, ok: bool, line: usize, nm: &Names) -> Result<(), Er> {
             go(i)
         }
         Ex::Bin("|", a, b) if nm.typing_expr(e) => {
+            if !ok && union_safe(e, nm) {
+                expr(a, true, line, nm)?;
+                return expr(b, true, line, nm);
+            }
             if !ok {
                 return Err(err(line, "a typing union used as a value"));
             }
@@ -832,4 +850,110 @@ fn fparts(parts: &[FPart], line: usize, nm: &Names) -> Result<(), Er> {
         }
     }
     Ok(())
+}
+
+// Whether a PEP 695 def (`def f[T](...)`) uses one of its type parameters' names anywhere CPython would look
+// them up in the def's annotation scope: its defaults, its body (nested defs, lambdas and classes too) and, when
+// `anns` (annotations are evaluated: ANN_DEFS), its annotations. Brevi makes the TypeVar objects for
+// __type_params__ but does not bind the names, so such a def is refused.
+pub fn tparams_used(d: &super::parse::FuncDef, names: &[String], anns: bool) -> bool {
+    let mut hit = false;
+    let mut look = |e: &Ex| {
+        crate::typed_guard::walk_ex(e, &mut |x| match x {
+            Ex::Name(n) => hit |= names.contains(n),
+            Ex::Lambda(ps, _) => {
+                for (_, dv) in ps.pos.iter().chain(ps.kwonly.iter()) {
+                    if let Some(dv) = dv {
+                        crate::typed_guard::walk_ex(dv, &mut |y| hit |= matches!(y, Ex::Name(n) if names.contains(n)));
+                    }
+                }
+            }
+            _ => {}
+        })
+    };
+    fn params_of(p: &Params, ret: &Option<Ex>, anns: bool, look: &mut dyn FnMut(&Ex)) {
+        for (_, dv) in p.pos.iter().chain(p.kwonly.iter()) {
+            if let Some(dv) = dv {
+                look(dv);
+            }
+        }
+        if anns {
+            p.ann.iter().for_each(|(_, a)| look(a));
+            if let Some(r) = ret {
+                look(r);
+            }
+        }
+    }
+    fn nested(body: &[Stmt], anns: bool, look: &mut dyn FnMut(&Ex)) {
+        for s in body {
+            if let St::Def(d) = &s.st {
+                params_of(&d.params, &d.ret, anns, look);
+            }
+            if let St::AnnAssign(_, _, a, _) = &s.st {
+                if anns {
+                    look(a);
+                }
+            }
+            blocks(&s.st, &mut |b| nested(b, anns, look));
+        }
+    }
+    params_of(&d.params, &d.ret, anns, &mut look);
+    nested(&d.body, anns, &mut look);
+    walk_all(&d.body, &mut |e, _| look(e));
+    hit
+}
+
+// The first use of exec() or compile(), or of eval() on anything but a string literal, in modules that do not bind
+// that name: a program that runs a string as code, which the dynamic build refuses on purpose (emit.rs). When the
+// typing check refuses such a program too, this is the refusal reported: the program could not be built either way,
+// and it is the one that holds by design.
+pub fn string_as_code(mods: &[(&str, &[Stmt])]) -> Option<(String, usize, String)> {
+    fn binds(body: &[Stmt], n: &str) -> bool {
+        body.iter().any(|s| {
+            let here = match &s.st {
+                St::Def(d) => d.name == n,
+                St::Class(c) => c.name == n,
+                St::Assign(ts, _) => ts.iter().any(|t| matches!(t, Ex::Name(x) if x == n)),
+                St::Import(v) => v.iter().any(|(m, a)| a.as_deref().unwrap_or(m.split('.').next().unwrap_or("")) == n),
+                St::ImportFrom(_, v) => v.iter().any(|(m, a)| a.as_deref().unwrap_or(m) == n || m == "*"),
+                St::Global(_) => false,
+                _ => false,
+            };
+            let mut inner = false;
+            blocks(&s.st, &mut |b| inner |= binds(b, n));
+            here || inner
+        })
+    }
+    for (m, body) in mods {
+        let mut found: Option<(usize, String)> = None;
+        walk_all(body, &mut |e, line| {
+            if found.is_some() {
+                return;
+            }
+            match e {
+                Ex::Name(n) if (n == "exec" || n == "compile") && !binds(body, n) => found = Some((line, n.clone())),
+                Ex::Call(f, args) if matches!(f.as_ref(), Ex::Name(n) if n == "eval") && !matches!(args.as_slice(), [Arg::Pos(Ex::Str(_))]) && !binds(body, "eval") => {
+                    found = Some((line, "eval".into()))
+                }
+                _ => {}
+            }
+        });
+        if let Some((l, n)) = found {
+            return Some((m.to_string(), l, format!("{n}() is not supported in dynamic builds")));
+        }
+    }
+    None
+}
+
+// A subscripted typing form the runtime makes as a value, with CPython's repr, == and isinstance (rt_typing.rs).
+fn value_form(e: &Ex, nm: &Names) -> bool {
+    let Ex::Index(o, _) = e else { return false };
+    matches!(nm.form(o), Some((m, n)) if typing_mod(&m) && matches!(n.as_str(), "List" | "Dict" | "Set" | "FrozenSet" | "Tuple" | "Type" | "Union" | "Optional"))
+}
+// `a | b` whose sides are plain values, such typing values, or unions of them (a bare typing name is not)
+fn union_safe(e: &Ex, nm: &Names) -> bool {
+    match e {
+        Ex::Bin("|", a, b) => union_safe(a, nm) && union_safe(b, nm),
+        _ => !nm.typing_expr(e) || value_form(e, nm),
+    }
 }
