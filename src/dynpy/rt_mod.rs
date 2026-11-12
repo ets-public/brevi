@@ -3476,7 +3476,11 @@ fn abc_class() -> Rc<Class> {
     ABC.with(|a| {
         let mut a = a.borrow_mut();
         if a.is_none() {
-            *a = Some(Class::new("ABC", "abc", vec![bclass("object")], BT::Other));
+            // abc.ABC is made by ABCMeta: its subclasses follow ABCMeta's rules (abstract methods are enforced)
+            let c = Class::new("ABC", "abc", vec![bclass("object")], BT::Other);
+            c.abc.set(true);
+            c.set("__abstractmethods__", V::FSet(Rc::new(PSet::new())));
+            *a = Some(c);
         }
         a.clone().unwrap()
     })
