@@ -1,0 +1,1 @@
+- Tests: the fallback tests no longer depend on how rustc words its first error, and the DeepSeek end-to-end test skips with a reason, instead of failing, where the model box cannot run (any non-root run). Local CI on a non-root machine is now clean.
