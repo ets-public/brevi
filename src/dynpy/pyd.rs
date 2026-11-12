@@ -378,10 +378,11 @@ pub fn rewrite(body: &mut [Stmt], classes: &HashSet<String>, models: &HashSet<St
     let mut names = cv.aliases.clone();
     for s in body.iter() {
         match &s.st {
-            // a class of the copy is a class in CPython's pydantic too; its other names may hold descriptors
+            // the copy's classes and functions are what CPython's pydantic has (Field(...) a FieldInfo); its
+            // module constants (StrictStr, PositiveInt) and the functions that return a descriptor are not
             St::ImportFrom(m, v) if m == "pydantic" || m.starts_with("pydantic.") => {
-                let classes: HashSet<&str> = include_str!("py/pydantic.py").lines().filter_map(|l| l.strip_prefix("class ")).map(|l| l.split(|c: char| c == '(' || c == ':').next().unwrap_or("").trim()).collect();
-                names.extend(v.iter().filter(|(n, _)| !classes.contains(n.as_str())).map(|(n, a)| a.clone().unwrap_or_else(|| n.clone())));
+                let held = descriptor_names();
+                names.extend(v.iter().filter(|(n, _)| held.contains(n.as_str()) || n == "*").map(|(n, a)| a.clone().unwrap_or_else(|| n.clone())));
             }
             St::Import(v) => {
                 for (m, a) in v {
@@ -423,6 +424,32 @@ pub fn rewrite(body: &mut [Stmt], classes: &HashSet<String>, models: &HashSet<St
         }
     });
     (lines, names)
+}
+
+// Names of Brevi's pydantic that hold a descriptor, not CPython's value: module-level `Name = ...` and the
+// defs that return a descriptor tuple (`return ("...`).
+fn descriptor_names() -> HashSet<&'static str> {
+    let mut out = HashSet::new();
+    let mut def: Option<&str> = None;
+    for l in include_str!("py/pydantic.py").lines() {
+        if let Some(r) = l.strip_prefix("def ") {
+            def = r.split('(').next();
+            continue;
+        }
+        if !l.is_empty() && !l.starts_with(char::is_whitespace) {
+            def = None;
+            if let Some((n, _)) = l.split_once(" = ") {
+                if n.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                    out.insert(n);
+                }
+            }
+        } else if let Some(d) = def {
+            if l.trim_start().starts_with("return (\"") {
+                out.insert(d);
+            }
+        }
+    }
+    out
 }
 
 thread_local! {
