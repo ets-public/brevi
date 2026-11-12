@@ -489,6 +489,21 @@ fn main() {
     let (src, segs) = match modules::expand(&file, &src) {
         Ok(x) => x,
         Err(e) => {
+            // A Python module the typed build cannot join (top-level statements, which CPython runs on import)
+            // goes to the dynamic build, which runs it as a module; only if that refuses too is this the error.
+            if is_py(&file) && matches!(cmd, "build" | "run" | "check") {
+                refuse_sure(&file, pydiag::scan);
+                let field = |k: &str| e.split_once(&format!("\"{k}\":")).map(|(_, r)| r.trim_start());
+                let wfile = field("file").and_then(|r| r.strip_prefix('"')?.split_once('"')).map_or(String::new(), |(f, _)| f.to_string());
+                let line: usize = field("line").map_or(0, |r| r.chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse().unwrap_or(0));
+                let msg = field("msg").and_then(|r| r.strip_prefix('"')?.split_once('"')).map_or(String::new(), |(m, _)| m.to_string());
+                let gsrc = if wfile.is_empty() { String::new() } else { crate::read_src(Path::new(&file).parent().unwrap_or(Path::new(".")).join(&wfile)).unwrap_or_default() };
+                let why = if msg.starts_with("a used file holds only") { "this module runs statements when it is imported, which the typed build does not take".to_string() } else { msg };
+                if dyn_fallback(cmd, &file, &argv, (wfile, line, enclosing_def(&gsrc, line), why, String::new(), false)) {
+                    exit(0);
+                }
+                dyn_blocked_note();
+            }
             println!("{e}");
             exit(1);
         }
