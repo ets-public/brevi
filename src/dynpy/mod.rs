@@ -458,6 +458,18 @@ pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
 // The native `string` module has only the constants; a program using anything else from it (Template,
 // Formatter, capwords) is built again with CPython's string.py compiled in.
 fn to_rust_np(file: &str) -> Result<String, (String, usize, String)> {
+    emit::INSPECT_NATIVE.store(true, Ordering::Relaxed);
+    let r = to_rust_np1(file);
+    if matches!(&r, Err((_, _, m)) if m.starts_with("inspect.") && m.ends_with(" is not supported in dynamic builds")) && bridge_ok() {
+        emit::INSPECT_NATIVE.store(false, Ordering::Relaxed);
+        let r = to_rust_np1(file);
+        emit::INSPECT_NATIVE.store(true, Ordering::Relaxed);
+        return r;
+    }
+    r
+}
+
+fn to_rust_np1(file: &str) -> Result<String, (String, usize, String)> {
     emit::STRING_NATIVE.store(true, Ordering::Relaxed);
     let r = to_rust_np2(file);
     if matches!(&r, Err((_, _, m)) if m.starts_with("string.") && m.ends_with(" is not supported in dynamic builds")) {
@@ -1421,7 +1433,7 @@ fn lib_classes(mods: &[emit::Module], texts: &HashMap<String, (String, String)>,
                         }
                         let bind = a.clone().unwrap_or_else(|| name.split('.').next().unwrap().to_string());
                         imported.insert(bind.clone());
-                        if bridge.has(name) && !emit::BUILTIN_MODULES.contains(&name.as_str()) {
+                        if bridge.has(name) && !emit::BUILTIN_MODULES.contains(&name.as_str()) && !(name == "inspect" && emit::builtin_mod(name)) {
                             libnames.insert(bind);
                         }
                         lines.push(match a {
@@ -1434,7 +1446,7 @@ fn lib_classes(mods: &[emit::Module], texts: &HashMap<String, (String, String)>,
                     if users.contains(name) || name.starts_with('.') {
                         continue;
                     }
-                    let lib = bridge.has(name) && !emit::BUILTIN_MODULES.contains(&name.as_str());
+                    let lib = bridge.has(name) && !emit::BUILTIN_MODULES.contains(&name.as_str()) && !(name == "inspect" && emit::builtin_mod(name));
                     let mut parts = vec![];
                     for (n, a) in v {
                         let bind = a.clone().unwrap_or_else(|| n.clone());

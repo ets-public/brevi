@@ -2319,8 +2319,8 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             if n < 0 {
                 return Err(exc("ValueError", "n must be >= 0".into()));
             }
-            // CPython: it = iter(iterable); when `it` has __copy__, the result is `it` itself followed by
-            // n - 1 copies of it; otherwise a new group over `it`.
+            // CPython 3.13: it = iter(iterable); a tee input gives new members at its position (gh-123884),
+            // anything else a new group over `it` (an iterator's own __copy__ is not used).
             let it = iter_v(&a.p[0])?;
             if n == 0 {
                 return Ok(tup(vec![]));
@@ -2329,13 +2329,6 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             if let Some((data, pos)) = tee_pos_of(&it) {
                 // CPython 3.13 makes every member new for a tee input (gh-123884), at its position
                 out = (0..n).map(|_| tee_member(&data, pos)).collect();
-            } else if let Some(copy) = match &it {
-                V::Obj(o) if o.cls.lookup("__copy__").is_some() => Some(getattr(&it, "__copy__")?),
-                _ => None,
-            } {
-                for _ in 1..n {
-                    out.push(call(&copy, Args::p(vec![]))?);
-                }
             } else {
                 let src = shared_input(&it)?;
                 let data = Rc::new(TeeData { it: src, vals: RefCell::new(Default::default()), base: Cell::new(0), members: RefCell::new(vec![]), active: Cell::new(false) });

@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 type ER<T> = Result<T, (usize, String)>;
 
-pub const BUILTIN_MODULES: [&str; 52] = ["_brevi_col", "_brevi_srv", "_brevi_proc", "importlib.metadata", "zoneinfo", "tzlocal", "atexit", "_brevi_async", "_brevi_net", "_brevi_fs", "_brevi_st", "_brevi_ort", "_brevi_sqlite", "_brevi_duckdb", "_brevi_stdio", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "re._constants", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading", "gc", "weakref", "inspect"];
+pub const BUILTIN_MODULES: [&str; 51] = ["_brevi_col", "_brevi_srv", "_brevi_proc", "importlib.metadata", "zoneinfo", "tzlocal", "atexit", "_brevi_async", "_brevi_net", "_brevi_fs", "_brevi_st", "_brevi_ort", "_brevi_sqlite", "_brevi_duckdb", "_brevi_stdio", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "re._constants", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading", "gc", "weakref"];
 
 
 // ---------- numpy, natively (rt_np*.rs) ----------
@@ -78,8 +78,11 @@ const NP_NARROW_FUNCS: &[&str] = &[
 // false: `string` is CPython's Lib/string.py compiled in (py/string.py), for Template and Formatter; true (the
 // default): the native module, constants only, which builds and starts much faster
 pub static STRING_NATIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+// inspect is Brevi's own while the program uses only its Signature (Signature.from_callable, rt_sig.rs); a program
+// using anything else of inspect is built again with CPython's inspect through the bridge.
+pub static INSPECT_NATIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 pub fn builtin_mod(m: &str) -> bool {
-    (BUILTIN_MODULES.contains(&m) && (m != "string" || STRING_NATIVE.load(std::sync::atomic::Ordering::Relaxed))) || m == "typing_extensions" || (matches!(m, "numpy" | "numpy.random" | "numpy.linalg") && np_native())
+    (m == "inspect" && INSPECT_NATIVE.load(std::sync::atomic::Ordering::Relaxed)) || (BUILTIN_MODULES.contains(&m) && (m != "string" || STRING_NATIVE.load(std::sync::atomic::Ordering::Relaxed))) || m == "typing_extensions" || (matches!(m, "numpy" | "numpy.random" | "numpy.linalg") && np_native())
 }
 // The numpy functions and attributes the native numpy has, with the keyword arguments each takes.
 const NP_FUNCS: &[(&str, &[&str])] = &[
@@ -264,7 +267,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
 // native one was added. weakref's do not: CPython's proxy, WeakValueDictionary, finalize, ... would hold the
 // short-lived Python stand-in of a program value, not the value, so they are refused.
 fn hybrid_bridged(m: &str) -> bool {
-    matches!(m, "gc" | "inspect") && super::bridge_ok()
+    m == "gc" && super::bridge_ok()
 }
 // Python builtins dynamic builds do not have: refused when the program is built.
 fn is_missing_builtin(n: &str) -> bool {
@@ -2562,7 +2565,11 @@ impl Em {
         }
         // Signature.from_callable reads the parameters and annotations each def records (SIG_DEFS); a program
         // whose annotations are not kept (`from __future__ import annotations`, a type expression) is refused.
-        if matches!(f, Ex::Attr(_, m) if m == "from_callable") && !super::typing::SIG_DEFS.load(std::sync::atomic::Ordering::Relaxed) {
+        // With CPython's inspect (the program uses more of it than Signature), its Signature cannot read a
+        // dynamic build's functions either.
+        if matches!(f, Ex::Attr(_, m) if m == "from_callable")
+            && (!super::typing::SIG_DEFS.load(std::sync::atomic::Ordering::Relaxed) || !INSPECT_NATIVE.load(std::sync::atomic::Ordering::Relaxed))
+        {
             return Err(err(line, "Signature.from_callable in a program whose def annotations are not kept is not supported in dynamic builds"));
         }
         // eval("literal text"): parsed when the program is built and run in place. Refused when a name in it
