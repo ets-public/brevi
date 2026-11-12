@@ -843,7 +843,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         crate::pybridge::set_file(file);
         rust.push_str(&crate::pybridge::dyn_runtime());
         rust.push_str(GLUE);
-        rust = rust.replacen("fn main() { ", "fn main() { ax_pyb_early(); ", 1);
+        rust = rust.replacen("fn main() { ", "fn main() { ax_pyb_early(); set_bridged(); ", 1);
         *BRIDGED.lock().unwrap() = used;
     }
     if let Some(b) = &tok_files {

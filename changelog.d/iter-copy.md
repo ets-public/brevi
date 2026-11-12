@@ -1,0 +1,1 @@
+- Dynamic build: `copy.copy()` and `copy.deepcopy()` of a list, tuple, str, range or reversed-list iterator give a new iterator at the same place, as CPython's do. They used to return the same iterator, so advancing the copy advanced the original. Copying a `map`, `zip`, itertools, dict or set iterator is refused for now rather than shared.
