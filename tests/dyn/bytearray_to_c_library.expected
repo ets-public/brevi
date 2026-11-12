@@ -1,0 +1,12 @@
+array('B', [97, 98, 99])
+array('B', [120, 121])
+array('B', [97, 98, 99, 122])
+bytearray(b'\x07\x00\x00\x00\xff\xff\xff\xff') True
+(7, -1) (-1,)
+(258,)
+bytearray(b'\x07\x00\x01\x02\xff\xff\xff\xff')
+907060870 b'hi'
+error: pack_into requires a buffer of at least 10 bytes for packing 4 bytes at offset 6 (actual buffer size is 8) bytearray(b'\x07\x00\x01\x02\xff\xff\xff\xff')
+array('B', [120, 121])
+CB(b'\x05\x00\x00\x00') CB
+array('B', [97, 98, 99, 122, 113])

@@ -235,6 +235,24 @@ _d.atexit = _atexit
 _d.contains = lambda a, b: b in a
 import collections.abc as _cabc
 _d.is_array = lambda x: type(x).__module__ == "array" and type(x).__name__ == "array"
+# A bytearray of the program goes to a library as a copy, its changes copied back (see pyd_args): only into the
+# C code of array, struct and zlib, which reads or writes the buffer and runs no Python code of its own. A class
+# with Python code in it (a library's subclass) does not count.
+def _native(t):
+    return t.__module__ in ("array", "_struct", "zlib") and not any(
+        isinstance(v, (_t.FunctionType, classmethod, staticmethod, property)) for c in t.__mro__ for v in vars(c).values())
+def _ba_ok(f):
+    if isinstance(f, type):
+        return _native(f)
+    if not isinstance(f, _t.BuiltinFunctionType):  # PyCMethod (array.extend) is a subclass
+        return False
+    s = getattr(f, "__self__", None)
+    if isinstance(s, _t.ModuleType):
+        return s.__name__ in ("array", "_struct", "zlib")
+    return _native(type(s))
+_d.ba_ok = _ba_ok
+_d.rc = _s.getrefcount
+_d.babytes = _b.bytes
 _d.cabc_inst = lambda n, x: _b.isinstance(x, getattr(_cabc, n))
 _d.cabc_sub = lambda n, x: _b.issubclass(x, getattr(_cabc, n))
 _d.op = lambda n, a, b: getattr(_o, n)(a, b)
@@ -1665,6 +1683,9 @@ struct PydArgs {
     t: P,
     kw: P,
     back: Vec<(V, P, Vec<P>)>,
+    // a bytearray of the program handed over as a copy: (the program's bytearray, the copy, the copy's refcount
+    // once the arguments hold it); see pyd_ba_sync
+    ba: Vec<(V, P, i64)>,
 }
 impl Drop for PydArgs {
     fn drop(&mut self) {
@@ -1675,6 +1696,9 @@ impl Drop for PydArgs {
                 (a.DecRef)(self.kw);
             }
             for (_, p, _) in &self.back {
+                (a.DecRef)(*p);
+            }
+            for (_, p, _) in &self.ba {
                 (a.DecRef)(*p);
             }
         }
@@ -1699,11 +1723,108 @@ unsafe fn pyd_snapshot(p: P) -> Vec<P> {
     out
 }
 
-unsafe fn pyd_args(pre: &[V], args: &Args) -> Result<PydArgs, E> {
+// A bytearray goes to CPython as a copy, so a library's changes would not reach the program's bytearray, and
+// the program's later changes would not reach the library. Only for a call into the C code of array, struct or
+// zlib (_brevi_dyn.ba_ok) whose other arguments are plain values, so no code of the program runs while the copy
+// is out, a bytearray goes as a copy whose changes are copied back after the call (pyd_ba_sync), and the call
+// stops if the library kept a reference to the copy. Anything else stays refused (pyd_to_new).
+// A bytearray, or an instance of a bytearray subclass whose classes hold only plain values (no methods, so the
+// C code, which sees only the buffer, cannot tell it from its bytearray): the bytearray it shares its bytes with.
+fn ba_plain(x: &V) -> Option<V> {
+    let data = |v: &V| matches!(v, V::None | V::Bool(_) | V::Int(_) | V::Str(_)) || matches!(v, V::Tuple(t) if t.as_slice().iter().all(|e| matches!(e, V::Str(_))));
+    match x {
+        V::Ext(_) if bytearray_of(x).is_some() => Some(x.clone()),
+        V::Obj(o) if is_ba_sub(x) && o.cls.mro.borrow().iter().all(|c| c.module == "builtins" || c.attrs.borrow().iter().all(|(_, v)| data(v))) => ba_val(x),
+        _ => None,
+    }
+}
+
+unsafe fn pyd_ba_call(f: P, pre: &[V], args: &Args) -> bool {
+    let all = || pre.iter().chain(args.p.iter()).chain(args.k.iter().map(|(_, x)| x));
+    let bas: Vec<V> = all().filter_map(ba_plain).collect();
+    if bas.is_empty() {
+        return false;
+    }
+    let plain = |x: &V| matches!(x, V::None | V::Bool(_) | V::Int(_) | V::Big(_) | V::Float(_) | V::Str(_)) || is_bytes_v(x) || ba_plain(x).is_some();
+    if !all().all(plain) {
+        return false;
+    }
+    // the same bytes twice would go as two copies
+    let ds: Vec<_> = bas.iter().map(|b| bytearray_of(b).unwrap().d.clone()).collect();
+    if ds.iter().enumerate().any(|(i, d)| ds[..i].iter().any(|e| Rc::ptr_eq(d, e))) {
+        return false;
+    }
+    matches!(pyd_helper("ba_ok", &[f]), Ok(V::Bool(true)))
+}
+
+unsafe fn pyd_ba_copy(x: &V, out: &mut Vec<(V, P, i64)>) -> Result<P, E> {
+    let a = pyd_api();
+    let x = &ba_plain(x).unwrap();
+    let b = bytearray_of(x).unwrap().d.borrow().clone();
+    let bs = pyd_own((a.BytesFrom)(b.as_ptr() as *const c_char, b.len() as isize))?;
+    let k = pyd_builtins_attr("bytearray");
+    let k = match k {
+        Ok(k) => k,
+        Err(e) => {
+            (a.DecRef)(bs);
+            return Err(e);
+        }
+    };
+    let p = pyd_call_raw(k, &[bs]);
+    (a.DecRef)(k);
+    (a.DecRef)(bs);
+    let p = p?;
+    (a.IncRef)(p); // one for the arguments, one held in PydArgs.ba
+    out.push((x.clone(), p, 0));
+    Ok(p)
+}
+
+unsafe fn pyd_refcount(p: P) -> Result<i64, E> {
+    match pyd_helper("rc", &[p])? {
+        V::Int(n) => Ok(n),
+        _ => Err(exc("SystemError", "refcount".into())),
+    }
+}
+
+// After a call that took bytearray copies: stop if the library still holds one (it would no longer be the
+// program's bytearray), else copy the library's changes back into the program's bytearray.
+unsafe fn pyd_ba_sync(args: &PydArgs) -> Result<(), E> {
+    for (v, p, rc) in &args.ba {
+        if pyd_refcount(*p)? != *rc {
+            return Err(unsupported("a bytearray that a library CPython runs keeps after the call"));
+        }
+        let nb = bytes_of(&pyd_helper("babytes", &[*p])?).unwrap_or_default();
+        let ba = bytearray_of(v).unwrap();
+        if *ba.d.borrow() == nb {
+            continue;
+        }
+        // CPython would raise BufferError resizing an exported bytearray; the copy was not exported
+        if ba.d.borrow().len() != nb.len() && ba.ex.get() > 0 {
+            return Err(unsupported("a library CPython runs resizing an exported bytearray"));
+        }
+        *ba.d.borrow_mut() = nb;
+    }
+    Ok(())
+}
+
+unsafe fn pyd_args(f: P, pre: &[V], args: &Args) -> Result<PydArgs, E> {
     let a = pyd_api();
     let n = pre.len() + args.p.len();
-    let mut out = PydArgs { t: (a.TupleNew)(n as isize), kw: std::ptr::null_mut(), back: vec![] };
+    let mut out = PydArgs { t: (a.TupleNew)(n as isize), kw: std::ptr::null_mut(), back: vec![], ba: vec![] };
+    let ba_call = pyd_ba_call(f, pre, args);
+    // the copies, released if building the arguments fails part way
+    struct Hold(Vec<(V, P, i64)>);
+    impl Drop for Hold {
+        fn drop(&mut self) {
+            self.0.iter().for_each(|(_, p, _)| unsafe { (pyd_api().DecRef)(*p) });
+        }
+    }
+    let mut hold = Hold(vec![]);
+    let ba = &mut hold.0;
     let mut one = |x: &V, back: &mut Vec<(V, P, Vec<P>)>| -> Result<P, E> {
+        if ba_call && ba_plain(x).is_some() {
+            return pyd_ba_copy(x, ba);
+        }
         let p = pyd_to(x)?;
         if matches!(x, V::List(_) | V::Dict(_)) {
             (a.IncRef)(p);
@@ -1727,6 +1848,11 @@ unsafe fn pyd_args(pre: &[V], args: &Args) -> Result<PydArgs, E> {
             (a.DecRef)(p);
         }
     }
+    // what each copy's refcount is while only the arguments and PydArgs hold it
+    for e in hold.0.iter_mut() {
+        e.2 = pyd_refcount(e.1)?;
+    }
+    out.ba = std::mem::take(&mut hold.0);
     Ok(out)
 }
 
@@ -1760,7 +1886,7 @@ unsafe fn pyd_invoke(f: P, pre: &[V], args: &Args, deep: bool) -> R {
     let a = pyd_api();
     out_flush();
     to_memo_enter();
-    let pa = pyd_args(pre, args);
+    let pa = pyd_args(f, pre, args);
     let r = match &pa {
         Ok(pa) => (a.Call)(f, pa.t, pa.kw),
         Err(_) => std::ptr::null_mut(),
@@ -1768,7 +1894,13 @@ unsafe fn pyd_invoke(f: P, pre: &[V], args: &Args, deep: bool) -> R {
     to_memo_exit();
     let pa = pa?;
     if r.is_null() {
-        return Err(pyd_err());
+        let e = pyd_err();
+        pyd_ba_sync(&pa)?;
+        return Err(e);
+    }
+    if let Err(e) = pyd_ba_sync(&pa) {
+        (a.DecRef)(r);
+        return Err(e);
     }
     pyd_write_back(&pa)?;
     pyd_wrap(r, deep)
