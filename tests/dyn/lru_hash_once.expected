@@ -1,0 +1,25 @@
+1 1
+1 2
+1 2 1
+1 3 1
+1 2
+CacheInfo(hits=1, misses=4, maxsize=1, currsize=1)
+2 1
+2 2
+2 2 1
+2 3 1
+2 2
+CacheInfo(hits=2, misses=3, maxsize=2, currsize=2)
+None 1
+None 2
+None 2 1
+None 3 1
+None 2
+CacheInfo(hits=2, misses=3, maxsize=None, currsize=3)
+0 0
+0 0
+0 0 0
+0 0 0
+0 0
+CacheInfo(hits=0, misses=5, maxsize=0, currsize=0)
+2
