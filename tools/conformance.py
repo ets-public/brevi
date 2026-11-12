@@ -1689,6 +1689,21 @@ def markdown(rep, results):
     return "\n".join(lines) + "\n"
 
 
+CANDIDATES = ROOT / "tools" / "conformance_candidates.json"
+
+
+def use_candidates(slice_name):
+    """Pin the candidate files (and the extra pure-Python imports they need) for a measuring run; returns the slice's files.
+    A candidate never replaces a pinned source, so a published slice measures the same files with or without it."""
+    data = json.loads(CANDIDATES.read_text())
+    for name, (path, sha) in data["sources"].items():
+        if name in SOURCES and SOURCES[name] != (path, sha):
+            sys.exit(f"{CANDIDATES.name}: {name} differs from its pin in SOURCES")
+        SOURCES[name] = (path, sha)
+    ALLOWED_IMPORTS.update(data["imports"])
+    return data["slices"][slice_name]
+
+
 def extract_all(universe, names, pattern):
     cases = []
     for name in names:
@@ -1738,9 +1753,19 @@ def main():
     ap.add_argument("--release-gate", action="store_true", help="exit 1 below the slice's release_gate (absolute coverage, zero wrong)")
     ap.add_argument("--write-baseline", action="store_true", help="replace the slice's known-wrong list with this run's results; the floor only goes down (main raises it)")
     ap.add_argument("--show", metavar="ID", help="print one test's generated script and stop")
+    ap.add_argument("--candidates", action="store_true", help=f"measure the slice's candidate files in {CANDIDATES.name} "
+                    "instead (needs --out; never scored: refuses --check, --raise-floor, --release-gate, --write-baseline)")
     cfg = ap.parse_args()
     global BASELINE, FLOOR, SCOPE
     SCOPE, BASELINE, FLOOR = SLICES[cfg.slice]
+    if cfg.candidates:
+        if cfg.check or cfg.raise_floor or cfg.release_gate or cfg.write_baseline:
+            sys.exit("--candidates only measures: it never checks, gates, or writes a floor or a baseline")
+        if not cfg.out:
+            sys.exit("--candidates needs --out (a folder outside bench/conformance)")
+        if (ROOT / "bench" / "conformance").resolve() in [cfg.out.resolve(), *cfg.out.resolve().parents]:
+            sys.exit("--candidates never writes into bench/conformance (main publishes those reports)")
+        SCOPE = use_candidates(cfg.slice)
     cfg.files = cfg.files or ",".join(SCOPE)
     names = cfg.files.split(",")
     unknown = [n for n in names if "test." + n not in SOURCES]
