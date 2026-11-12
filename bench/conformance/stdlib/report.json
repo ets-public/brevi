@@ -9,8 +9,8 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 592,
-"refused": 35,
+"matched": 596,
+"refused": 31,
 "by_design": 4,
 "string_model": 1,
 "cpython_private": 6,
@@ -24,16 +24,16 @@
 "scored": 634,
 "matched_through_cpython": 1,
 "matched_silent": 34,
-"coverage": 0.9322,
+"coverage": 0.9385,
 "wrong": 0,
-"matched_asserting": 557,
-"assert_coverage": 0.8785,
+"matched_asserting": 561,
+"assert_coverage": 0.8849,
 "matched_typed": 18,
-"typed_share": 0.0305
+"typed_share": 0.0303
 },
 "dyn": {
-"matched": 591,
-"refused": 36,
+"matched": 595,
+"refused": 32,
 "by_design": 4,
 "string_model": 1,
 "cpython_private": 6,
@@ -47,10 +47,10 @@
 "scored": 634,
 "matched_through_cpython": 0,
 "matched_silent": 34,
-"coverage": 0.9322,
+"coverage": 0.9385,
 "wrong": 0,
-"matched_asserting": 557,
-"assert_coverage": 0.8785,
+"matched_asserting": 561,
+"assert_coverage": 0.8849,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -106,8 +106,8 @@
 },
 "test_collections": {
 "normal": {
-"matched": 69,
-"refused": 15,
+"matched": 73,
+"refused": 11,
 "by_design": 2,
 "string_model": 0,
 "cpython_private": 1,
@@ -121,16 +121,16 @@
 "scored": 85,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.8118,
+"coverage": 0.8588,
 "wrong": 0,
-"matched_asserting": 69,
-"assert_coverage": 0.8118,
+"matched_asserting": 73,
+"assert_coverage": 0.8588,
 "matched_typed": 0,
 "typed_share": 0.0
 },
 "dyn": {
-"matched": 69,
-"refused": 15,
+"matched": 73,
+"refused": 11,
 "by_design": 2,
 "string_model": 0,
 "cpython_private": 1,
@@ -144,10 +144,10 @@
 "scored": 85,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.8118,
+"coverage": 0.8588,
 "wrong": 0,
-"matched_asserting": 69,
-"assert_coverage": 0.8118,
+"matched_asserting": 73,
+"assert_coverage": 0.8588,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -347,14 +347,14 @@
 },
 "paths": {
 "normal": {
-"dynamic": 574,
-"refused": 45,
+"dynamic": 578,
+"refused": 41,
 "typed": 18,
 "pybridge": 1
 },
 "dyn": {
-"dynamic": 592,
-"refused": 46
+"dynamic": 596,
+"refused": 42
 }
 },
 "tests": [
@@ -2229,12 +2229,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "the UserDict class (from collections) runs in the dynamic build, and this file cannot be built over dynamic values (case.py line 7: dir() is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "dir() is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2257,12 +2257,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "the UserList class (from collections) runs in the dynamic build, and this file cannot be built over dynamic values (case.py line 7: dir() is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "dir() is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2271,12 +2271,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "the UserString class (from collections) runs in the dynamic build, and this file cannot be built over dynamic values (case.py line 7: dir() is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "dir() is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2513,12 +2513,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected an expression, found **"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "dir() is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
