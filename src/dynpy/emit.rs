@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 type ER<T> = Result<T, (usize, String)>;
 
-pub const BUILTIN_MODULES: [&str; 51] = ["_brevi_col", "_brevi_srv", "_brevi_proc", "importlib.metadata", "zoneinfo", "tzlocal", "atexit", "_brevi_async", "_brevi_net", "_brevi_fs", "_brevi_st", "_brevi_ort", "_brevi_sqlite", "_brevi_duckdb", "_brevi_stdio", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "re._constants", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading", "gc", "weakref"];
+pub const BUILTIN_MODULES: [&str; 52] = ["_brevi_col", "_brevi_srv", "_brevi_proc", "importlib.metadata", "zoneinfo", "tzlocal", "atexit", "_brevi_async", "_brevi_net", "_brevi_fs", "_brevi_st", "_brevi_ort", "_brevi_sqlite", "_brevi_duckdb", "_brevi_stdio", "_brevi_tok", "_brevi_hf", "_brevi_mt", "_brevi_term", "hashlib", "base64", "binascii", "json.decoder", "enum", "sys", "math", "collections", "heapq", "bisect", "functools", "itertools", "copy", "operator", "string", "time", "typing", "dataclasses", "abc", "re", "re._constants", "re._compiler", "json", "__future__", "decimal", "fractions", "datetime", "csv", "html", "statistics", "threading", "gc", "weakref"];
 
 
 // ---------- numpy, natively (rt_np*.rs) ----------
@@ -212,7 +212,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "atexit" => &["register", "unregister", "_run_exitfuncs", "_clear", "_ncallbacks"],
         "heapq" => &["heapify", "heappop", "heappush", "heappushpop", "heapreplace", "merge", "nlargest", "nsmallest"],
         "bisect" => &["bisect", "bisect_left", "bisect_right", "insort", "insort_left", "insort_right"],
-        "functools" => &["RLock", "WRAPPER_ASSIGNMENTS", "WRAPPER_UPDATES", "_CacheInfo", "cache", "cached_property", "cmp_to_key", "lru_cache", "partial", "partialmethod", "reduce", "singledispatch", "singledispatchmethod", "total_ordering", "update_wrapper", "wraps"],
+        "functools" => &["RLock", "WRAPPER_ASSIGNMENTS", "WRAPPER_UPDATES", "_CacheInfo", "_c3_mro", "_compose_mro", "_find_impl", "cache", "cached_property", "cmp_to_key", "lru_cache", "partial", "partialmethod", "reduce", "singledispatch", "singledispatchmethod", "total_ordering", "update_wrapper", "wraps"],
         "itertools" => &["accumulate", "batched", "chain", "combinations", "combinations_with_replacement", "compress", "count", "cycle", "dropwhile", "filterfalse", "groupby", "islice", "pairwise", "permutations", "product", "repeat", "starmap", "takewhile", "tee", "zip_longest"],
         "copy" => &["copy", "deepcopy"],
         "operator" => &["add", "and_", "attrgetter", "contains", "eq", "floordiv", "ge", "getitem", "gt", "index", "is_", "is_not", "itemgetter", "le", "length_hint", "lshift", "lt", "methodcaller", "mod", "mul", "ne", "neg", "not_", "or_", "pow", "rshift", "sub", "truediv", "truth", "xor", "__lt__", "__le__", "__gt__", "__ge__", "__eq__", "__ne__", "__and__", "__or__", "__xor__", "__sub__"],
@@ -246,10 +246,11 @@ pub fn module_has(m: &str, n: &str) -> bool {
         ],
         "_brevi_col" => &["fsum", "cmp", "farith", "iarith", "take", "mask", "group1", "infer"],
         "_brevi_mt" => &["new", "seed", "next", "random", "bits", "below", "shuffle"],
-        "collections" => &["defaultdict", "Counter", "OrderedDict", "deque", "namedtuple", "abc"],
+        "collections" => &["defaultdict", "Counter", "OrderedDict", "deque", "namedtuple", "abc", "_count_elements"],
         "dataclasses" => &["asdict", "astuple", "dataclass", "field", "fields", "replace", "is_dataclass", "MISSING", "KW_ONLY", "InitVar", "Field", "FrozenInstanceError"],
-        "re" => &["compile", "escape", "findall", "finditer", "fullmatch", "match", "purge", "search", "split", "sub", "subn", "IGNORECASE", "I", "LOCALE", "L", "MULTILINE", "M", "DOTALL", "S", "VERBOSE", "X", "ASCII", "A", "NOFLAG", "UNICODE", "U", "DEBUG", "RegexFlag", "error", "PatternError", "Pattern", "Match", "Scanner"],
+        "re" => &["compile", "_compile", "escape", "findall", "finditer", "fullmatch", "match", "purge", "search", "split", "sub", "subn", "IGNORECASE", "I", "LOCALE", "L", "MULTILINE", "M", "DOTALL", "S", "VERBOSE", "X", "ASCII", "A", "NOFLAG", "UNICODE", "U", "DEBUG", "RegexFlag", "error", "PatternError", "Pattern", "Match", "Scanner"],
         "re._constants" => &["MAXGROUPS", "MAXREPEAT"],
+        "re._compiler" => &["_generate_overlap_table"],
         "json" => &["dump", "dumps", "load", "loads", "JSONDecodeError", "JSONDecoder", "JSONEncoder"],
         "json.decoder" => &["scanstring", "JSONDecoder", "JSONDecodeError"],
         "decimal" => &["Decimal", "getcontext", "InvalidOperation", "DivisionByZero", "DecimalException", "ROUND_HALF_EVEN", "ROUND_HALF_UP", "ROUND_HALF_DOWN", "ROUND_UP", "ROUND_DOWN", "ROUND_CEILING", "ROUND_FLOOR", "ROUND_05UP"],

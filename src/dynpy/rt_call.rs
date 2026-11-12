@@ -818,6 +818,11 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
         if c.lookup("__init__").map_or(true, |f| is_builtin_init(&f)) {
             a0 = Args { p: a.p.clone(), k: a.k.clone() };
         }
+        if bb == BT::Counter && c.lookup("__init__").map_or(true, |f| is_builtin_init(&f)) {
+            // Counter's __init__ is self.update(...): through the subclass's overrides
+            counter_obj_init(&me, a)?;
+            return Ok(me);
+        }
         let base = builtin_of_bt(bb);
         let inner = match builtin_type_call(&base, &mut a0) {
             Some(r) => r?,
@@ -1015,6 +1020,9 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
                 let me2 = me.clone();
                 return Ok(builtin("__init__", move |mut a: Args| {
                     if let V::Obj(o) = &me2 {
+                        if o.cls.base_bt() == BT::Counter {
+                            return counter_obj_init(&me2, a);
+                        }
                         let bb = o.cls.base_bt();
                         let base = builtin_of_bt(bb);
                         if let Some(r) = builtin_type_call(&base, &mut a) {
@@ -1079,6 +1087,12 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
     if name == "__setattr__" {
         let me2 = me.clone();
         return Ok(builtin("__setattr__", move |a: Args| object_setattr(&me2, &a.p)));
+    }
+    // Counter's own update/subtract (Counter.update(self, ...), super().update(...)): through self's overrides
+    if matches!(name, "update" | "subtract") && counter_inner(me).is_some() {
+        let me2 = me.clone();
+        let n = sym(name);
+        return Ok(builtin(n, move |a: Args| counter_obj_method(&me2, n, a)));
     }
     if let Some(inner) = inner_of(me) {
         return getattr(&inner, name);
@@ -1647,6 +1661,9 @@ pub fn getattr(o: &V, name: &str) -> R {
             if let Some(ga) = ob.cls.lookup("__getattr__") {
                 return call(&ga, Args::p(vec![o.clone(), s(name)]));
             }
+            if matches!(name, "update" | "subtract") && counter_inner(o).is_some() {
+                return Ok(V::BMeth(Rc::new((o.clone(), sym(name)))));
+            }
             // a bytearray subclass instance's __iadd__ and __imul__ change it and give back the instance itself
             if is_ba_sub(o) && matches!(name, "__iadd__" | "__imul__") {
                 let (me, op) = (o.clone(), if name == "__iadd__" { "+" } else { "*" });
@@ -1927,6 +1944,10 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
         }
         V::NTF(_) => Err(exc("AttributeError", format!("'collections._tuplegetter' object has no attribute '{}' and no __dict__ for setting new attributes", name))),
         V::Module(&ModName("decimal.context")) => decimal_context_set(name, &v),
+        V::Module(m) if mod_assignable(m.0, name) => {
+            mod_assign(m.0, &name.to_string(), Some(v));
+            Ok(())
+        }
         V::Module(&ModName("sys")) if matches!(&*name.to_string(), "stdout" | "stderr" | "stdin") => sys_stream_assign(&name.to_string(), v),
         V::Ext(x) => match x.set_attr(o, name, v) {
             Some(r) => r,
@@ -1963,6 +1984,15 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
 pub fn delattr(o: &V, name: &str) -> Result<(), E> {
     if let Some(p) = proxy_deref(o) {
         return delattr(&p?, name);
+    }
+    if let V::Module(m) = o {
+        if mod_assignable(m.0, name) {
+            if matches!(mod_assigned(m.0, name), Some(None)) {
+                return Err(exc("AttributeError", format!("module '{}' has no attribute '{name}'", m.0)));
+            }
+            mod_assign(m.0, name, None);
+            return Ok(());
+        }
     }
     match o {
         V::Obj(ob) => {
@@ -2141,6 +2171,9 @@ pub fn call_method(o: &V, name: &str, mut a: Args) -> R {
                     no.set_inner(Some(inner));
                     return Ok(V::Obj(no));
                 }
+            }
+            if matches!(name, "update" | "subtract" | "__init__") && counter_inner(o).is_some() {
+                return if name == "__init__" { counter_obj_init(o, a) } else { counter_obj_method(o, name, a) };
             }
             // a bytearray subclass instance's __iadd__ and __imul__ give back the instance itself (getattr has the same)
             if is_ba_sub(o) && matches!(name, "__iadd__" | "__imul__") {
