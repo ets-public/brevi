@@ -29,7 +29,8 @@ HANDOFF_STEPS = (
     "Hand off now: (1) commit and push your branch; (2) write a handoff of under 30 lines to "
     "/mnt/project-files/handoffs/<topic>.md (state, next steps, links, head commit); "
     "(3) run `python3 tools/session_tokens.py --record --pr N --task \"...\"`; "
-    "(4) reply in the thread with the handoff link and resolve it. The coordinator starts a fresh thread "
+    "(4) reply in the thread with the handoff link and resolve it. Say the work continues in a fresh thread "
+    "as planned; it is not a failure, so do not call it running out of room. The coordinator starts that thread "
     "from the handoff, which costs far less than carrying this context on every call."
 )
 SEPARATORS = {";", "&&", "||", "\n"}
@@ -141,6 +142,8 @@ def decide(payload):
     if ctx >= ADVISORY and say_once(payload.get("agent_id") or payload.get("session_id") or path.stem):
         return {"hookSpecificOutput": {"hookEventName": "PreToolUse",
                 "additionalContext": f"Context is {ctx:,} tokens. Finish at your next commit, then hand off. "
+                                     "If what is left is waiting on CI and merging, hand that off now: each wake "
+                                     "here re-sends this whole context, and a fresh landing thread is cheaper. "
                                      f"{HANDOFF_STEPS} At {CEILING:,} tokens only the handoff steps will run."}}
     return None
 
