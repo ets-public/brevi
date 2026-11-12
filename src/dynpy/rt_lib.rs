@@ -10,6 +10,33 @@ thread_local! {
     pub static STDIN: RefCell<Option<std::io::BufReader<std::io::Stdin>>> = RefCell::new(None);
     pub static ARGV: RefCell<Vec<String>> = RefCell::new(vec![]);
 }
+// sys.stdout as the program set it (`sys.stdout = io.StringIO()`, as test.support.captured_output does): None while
+// it is the real stream. print() and input() write to it, and reading sys.stdout gives it back, as in CPython.
+// Only for programs that run nothing in CPython: a bridged library would still print to the real stream.
+thread_local! {
+    pub static STDOUT_SET: RefCell<Option<V>> = const { RefCell::new(None) };
+}
+static BRIDGED_RUN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub fn set_bridged() {
+    BRIDGED_RUN.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+pub fn stdout_set() -> Option<V> {
+    STDOUT_SET.with(|s| s.borrow().clone())
+}
+pub fn sys_stream_assign(name: &str, v: V) -> Result<(), E> {
+    match name {
+        "stdout" => {
+            if BRIDGED_RUN.load(std::sync::atomic::Ordering::Relaxed) {
+                return Err(unsupported("assigning sys.stdout in a program that runs a library in CPython"));
+            }
+            out_flush();
+            let real = matches!(v, V::Module(&ModName("sys.stdout")));
+            STDOUT_SET.with(|s| *s.borrow_mut() = if real { None } else { Some(v) });
+            Ok(())
+        }
+        _ => Err(unsupported(&format!("assigning sys.{name}"))),
+    }
+}
 pub fn out_write(t: &str) {
     // CPython's text streams on Windows write CRLF; match them (every LF, as its TextIOWrapper does).
     #[cfg(windows)]
@@ -131,9 +158,31 @@ pub fn bi_print(mut a: Args) -> R {
         Some(V::Str(x)) => x.s.clone(),
         Some(x) => return type_err(format!("end must be None or a string, not {}", tn(&x))),
     };
-    let file = a.kw("file").unwrap_or(V::None);
+    let file = match a.kw("file").unwrap_or(V::None) {
+        V::None => stdout_set().unwrap_or(V::None),
+        f => f,
+    };
     let flush = a.kw("flush").map(|f| truth(&f).unwrap_or(false)).unwrap_or(false);
     a.no_kw("print")?;
+    // a file object: one write() per piece and then flush(), in CPython's order (an error in str() of a later
+    // argument comes after the earlier pieces were written)
+    if file_target(&file)? == 3 {
+        let w = |t: String| call_method(&file, "write", Args::p(vec![st(t)])).map(|_| ());
+        for (i, x) in a.p.iter().enumerate() {
+            if i > 0 {
+                w(sep.clone())?;
+            }
+            w(match x {
+                V::Str(x) => x.s.clone(),
+                _ => to_str(x)?,
+            })?;
+        }
+        w(end)?;
+        if flush {
+            call_method(&file, "flush", Args::p(vec![]))?;
+        }
+        return Ok(V::None);
+    }
     let mut t = String::new();
     for (i, x) in a.p.iter().enumerate() {
         if i > 0 {
@@ -160,10 +209,18 @@ pub fn bi_print(mut a: Args) -> R {
     Ok(V::None)
 }
 pub fn bi_input(a: Args) -> R {
-    if let Some(p) = a.p.first() {
-        out_write(&to_str(p)?);
+    // a replaced sys.stdout gets the prompt and a flush, as CPython's input() falls back to it
+    if let Some(o) = stdout_set() {
+        if let Some(p) = a.p.first() {
+            call_method(&o, "write", Args::p(vec![st(to_str(p)?)]))?;
+        }
+        call_method(&o, "flush", Args::p(vec![]))?;
+    } else {
+        if let Some(p) = a.p.first() {
+            out_write(&to_str(p)?);
+        }
+        out_flush();
     }
-    out_flush();
     match read_line() {
         None => Err(exc("EOFError", "EOF when reading a line".into())),
         Some(mut l) => {
@@ -245,7 +302,13 @@ pub fn bi_int(mut a: Args) -> R {
             }
             int_text_limit(&x.s, b as u32, parse_int(&x.s, b as u32))?.ok_or_else(|| exc("ValueError", format!("invalid literal for int() with base {}: {}", b, str_repr(&x.s))))
         }
-        (Some(_), x) => type_err("int() can't convert non-string with explicit base".into()),
+        (Some(b), V::Ext(x)) if x.any().is::<BytesV>() || x.any().is::<ByteArrayV>() => {
+            if b != 0 && !(2..=36).contains(&b) {
+                return val_err("int() base must be >= 2 and <= 36, or 0".into());
+            }
+            bytes_int(&bytes_of(&a.p[0]).unwrap_or_default(), b as u32)
+        }
+        (Some(_), _) => type_err("int() can't convert non-string with explicit base".into()),
     }
 }
 // IntEnum and IntFlag members given to a numeric builtin (round, abs, range, ...): their int.
