@@ -14,7 +14,7 @@ Each measure links to where its number comes from. Notes on the marked numbers a
 | Measure | Now | In 90 days | In 12 months |
 |---|---|---|---|
 | [CPython conformance](https://github.com/ets-public/brevi/blob/main/bench/conformance/report.md): tests whose output matches CPython's | **93.1%** (268/288)<sup>5</sup> | 70% | 90% |
-| [Wrong answers](https://github.com/ets-public/brevi/blob/main/compat/conformance_known_wrong.txt): built, but answered differently | **0 tests**<sup>5</sup> | ≤ 25 | 0 |
+| [Wrong answers](https://github.com/ets-public/brevi/tree/main/compat/conformance_known_wrong): built, but answered differently | **0 tests**<sup>5</sup> | ≤ 25 | 0 |
 
 ### Waiting on each edit (median)
 

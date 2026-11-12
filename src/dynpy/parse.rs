@@ -86,7 +86,8 @@ fn unescape(body: &str, line: usize) -> Result<String, (usize, String)> {
                 };
                 let h: String = cs[i..(i + k).min(cs.len())].iter().collect();
                 let v = u32::from_str_radix(&h, 16).map_err(|_| err(line, "bad escape in string"))?;
-                out.push(char::from_u32(v).ok_or_else(|| err(line, "bad escape in string"))?);
+                // U+D800..U+DFFF: a str CPython can hold and a Rust string cannot (the string model, #450)
+                out.push(char::from_u32(v).ok_or_else(|| err(line, if (0xD800..=0xDFFF).contains(&v) { "a lone surrogate (U+D800..U+DFFF) in a string literal is not supported" } else { "bad escape in string" }))?);
                 i += k;
             }
             '0'..='7' => {
@@ -507,6 +508,8 @@ pub struct ClassDef {
     // CPython 3.13's __static_attributes__: the names stored as `self.<name> = ...` in the body's functions,
     // sorted (filled by the mangling pass, from the names as written)
     pub static_attrs: Vec<String>,
+    // `metaclass=ABCMeta`: the class follows ABCMeta's rules (abstract methods, register, isinstance)
+    pub abc_meta: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -1236,6 +1239,7 @@ impl P {
         let name = self.name()?;
         let mut bases = vec![];
         let mut kwargs = vec![];
+        let mut abc_meta = false;
         if self.eat_op("(") {
             while !self.is_op(")") {
                 if let Tok::Name(n) = self.peek().clone() {
@@ -1248,6 +1252,7 @@ impl P {
                             if !matches!(&m, Ex::Name(x) if x == "ABCMeta") && !matches!(&m, Ex::Attr(_, x) if x == "ABCMeta") {
                                 return Err(err(line, "metaclasses are not supported"));
                             }
+                            abc_meta = true;
                             if !self.eat_op(",") {
                                 break;
                             }
@@ -1274,7 +1279,7 @@ impl P {
             self.expect_op(")")?;
         }
         let body = self.block()?;
-        Ok(ClassDef { name, bases, body, decorators, line, kwargs, disp: None, first: line, static_attrs: vec![] })
+        Ok(ClassDef { name, bases, body, decorators, line, kwargs, disp: None, first: line, static_attrs: vec![], abc_meta })
     }
 
     // ---- expressions ----

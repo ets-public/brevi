@@ -24,6 +24,9 @@ enum Wt {
     WBMeth(std::rc::Weak<(V, Sym)>),
     WSet(std::rc::Weak<RefCell<PSet>>),
     WFSet(std::rc::Weak<PSet>),
+    // a compiled re.Pattern (CPython's Pattern type takes weak references; Match and the other library
+    // values do not)
+    WExt(std::rc::Weak<Box<dyn Ext>>),
     // a generator or an itertools.tee iterator (the iterators CPython gives a weakref list)
     WIter(std::rc::Weak<IterCell>),
 }
@@ -38,6 +41,7 @@ impl Wt {
             Wt::WBMeth(w) => w.upgrade().map(V::BMeth),
             Wt::WSet(w) => w.upgrade().map(V::Set),
             Wt::WFSet(w) => w.upgrade().map(V::FSet),
+            Wt::WExt(w) => w.upgrade().map(|r| V::Ext(ExtRc(r))),
             Wt::WIter(w) => w.upgrade().map(V::Iter),
         }
     }
@@ -102,18 +106,7 @@ pub fn weakref_fn(n: &str, a: Args) -> R {
             }
             a.want("ref", 1, 2)?;
             let cb = if a.p.len() == 2 { a.p[1].clone() } else { V::None };
-            let x = &a.p[0];
-            let w = match x {
-                V::Obj(o) => Wt::WObj(Rc::downgrade(o)),
-                V::Class(c) => Wt::WClass(Rc::downgrade(c)),
-                V::Func(f) => Wt::WFunc(Rc::downgrade(f)),
-                V::Bound(b) => Wt::WBound(Rc::downgrade(b)),
-                V::BMeth(b) => Wt::WBMeth(Rc::downgrade(b)),
-                V::Set(s) => Wt::WSet(Rc::downgrade(s)),
-                V::FSet(s) => Wt::WFSet(Rc::downgrade(s)),
-                V::Iter(c) if matches!(c.kind, IterClass::Kind(ItKind::Generator | ItKind::ItTee)) => Wt::WIter(Rc::downgrade(c)),
-                _ => return type_err(format!("cannot create weak reference to '{}' object", tn(x))),
-            };
+            let w = weak_target(&a.p[0])?;
             let r = ExtRc::new(WeakRefV { w, cb: RefCell::new(if matches!(cb, V::None) { None } else { Some(cb) }) });
             WEAKREFS.with(|ws| {
                 let mut ws = ws.borrow_mut();
@@ -122,7 +115,154 @@ pub fn weakref_fn(n: &str, a: Args) -> R {
             });
             Ok(V::Ext(r))
         }
+        "proxy" => {
+            let mut a = a;
+            if !a.k.is_empty() {
+                return type_err("proxy() takes no keyword arguments".into());
+            }
+            a.want("proxy", 1, 2)?;
+            let w = weak_target(&a.p[0])?;
+            // CPython calls a proxy's callback the moment its referent is freed; Brevi frees by reference count
+            // and has no hook at that moment, so a callback is refused rather than called late or never.
+            if a.p.len() == 2 && !matches!(a.p[1], V::None) {
+                return Err(unsupported("weakref.proxy with a callback"));
+            }
+            // CPython's proxy converts through the referent's __index__/__int__/__float__/__complex__ in every
+            // builtin that takes a number (hex, range, chr, math, ...); those Brevi builtins read the object's
+            // class directly, so a proxy of such an object is refused instead of failing where CPython converts.
+            if let V::Obj(o) = &a.p[0] {
+                if let Some(d) = ["__index__", "__int__", "__float__", "__complex__"].into_iter().find(|d| o.cls.lookup(d).is_some()) {
+                    return Err(unsupported(&format!("weakref.proxy of an object with {d}")));
+                }
+            }
+            let callable = truth(&bi_callable(Args::p(vec![a.p[0].clone()]))?)?;
+            Ok(V::Ext(ExtRc::new(ProxyV { w, callable })))
+        }
         _ => Err(unsupported(&format!("weakref.{n}"))),
+    }
+}
+
+// The weak target for ref() and proxy(): every Brevi value CPython takes a weak reference to.
+fn weak_target(x: &V) -> Result<Wt, E> {
+    Ok(match x {
+        V::Obj(o) => Wt::WObj(Rc::downgrade(o)),
+        V::Class(c) => Wt::WClass(Rc::downgrade(c)),
+        V::Func(f) => Wt::WFunc(Rc::downgrade(f)),
+        V::Bound(b) => Wt::WBound(Rc::downgrade(b)),
+        V::BMeth(b) => Wt::WBMeth(Rc::downgrade(b)),
+        V::Set(s) => Wt::WSet(Rc::downgrade(s)),
+        V::FSet(s) => Wt::WFSet(Rc::downgrade(s)),
+        V::Ext(e) if e.tname() == "re.Pattern" => Wt::WExt(ExtRc::downgrade(e)),
+        V::Iter(c) if matches!(c.kind, IterClass::Kind(ItKind::Generator | ItKind::ItTee)) => Wt::WIter(Rc::downgrade(c)),
+        _ => return type_err(format!("cannot create weak reference to '{}' object", proxy_tn(x))),
+    })
+}
+
+// weakref.proxy(x): CPython's ProxyType / CallableProxyType. Every operation goes to the referent while it
+// lives (attributes, calls, str, truth, len, iteration, items, numbers, comparisons) and raises ReferenceError
+// once it is gone; its own are its type, its repr, identity, and hash (a proxy is unhashable). The runtime's
+// generic operations unwrap a proxy through proxy_deref where an Ext hook could not carry the error.
+pub struct ProxyV {
+    w: Wt,
+    callable: bool,
+}
+
+impl ProxyV {
+    fn get(&self) -> R {
+        self.w.upgrade().ok_or_else(|| exc("ReferenceError", "weakly-referenced object no longer exists".into()))
+    }
+}
+
+// The referent of a weakref.proxy (ReferenceError when it is gone); None for any other value.
+pub fn proxy_deref(v: &V) -> Option<R> {
+    if let V::Ext(x) = v {
+        if let Some(p) = x.any().downcast_ref::<ProxyV>() {
+            return Some(p.get());
+        }
+    }
+    None
+}
+// A proxy operand of a binary operation or comparison is its referent, as CPython's proxy slots unwrap both.
+fn proxy_arg(v: &V) -> R {
+    match proxy_deref(v) {
+        Some(r) => r,
+        None => Ok(v.clone()),
+    }
+}
+
+impl Ext for ProxyV {
+    fn tname(&self) -> &'static str {
+        if self.callable { "weakref.CallableProxyType" } else { "weakref.ProxyType" }
+    }
+    fn repr(&self) -> String {
+        let me = self as *const ProxyV as usize;
+        match self.w.upgrade() {
+            Some(v) => format!("<weakproxy at {:#x}; to '{}' at {:#x}>", me, tn(&v), gc_id(&v).unwrap_or(me)),
+            None => format!("<weakproxy at {:#x}; dead>", me),
+        }
+    }
+    fn any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn attr(&self, _me: &V, n: &str) -> Option<R> {
+        Some(self.get().and_then(|v| getattr(&v, n)))
+    }
+    fn set_attr(&self, _me: &V, n: &str, v: V) -> Option<Result<(), E>> {
+        Some(self.get().and_then(|t| setattr(&t, sym(n), v)))
+    }
+    fn method(&self, _me: &V, n: &str, a: &mut Args) -> Option<R> {
+        let a = std::mem::replace(a, Args::p(vec![]));
+        if n == "__call__" && !self.callable {
+            return Some(type_err(format!("'{}' object is not callable", self.tname())));
+        }
+        Some(self.get().and_then(|t| if n == "__call__" { call(&t, a) } else { call_method(&t, n, a) }))
+    }
+    fn binop(&self, _me: &V, op: &str, o: &V, right: bool) -> Option<R> {
+        Some(self.get().and_then(|t| match op {
+            "neg" => neg(&t),
+            "pos" => pos(&t),
+            "invert" => invert(&t),
+            _ => {
+                let o = proxy_arg(o)?;
+                if right { binop(&o, &t, op) } else { binop(&t, &o, op) }
+            }
+        }))
+    }
+    fn eq_rich(&self, _me: &V, o: &V, right: bool) -> Option<Result<bool, E>> {
+        Some(self.get().and_then(|t| {
+            let o = proxy_arg(o)?;
+            if right { eq(&o, &t) } else { eq(&t, &o) }
+        }))
+    }
+    fn rich(&self, _me: &V, op: &str, o: &V, right: bool) -> Option<Result<bool, E>> {
+        Some(self.get().and_then(|t| {
+            let o = proxy_arg(o)?;
+            match op {
+                "==" | "!=" | "<" | ">" | "<=" | ">=" => if right { cmp_op(&o, &t, op) } else { cmp_op(&t, &o, op) },
+                _ => if right { rich(&o, &t, op) } else { rich(&t, &o, op) },
+            }
+        }))
+    }
+    fn cmp_value(&self, _me: &V, op: &str, o: &V, right: bool) -> Option<R> {
+        Some(self.get().and_then(|t| {
+            let o = proxy_arg(o)?;
+            if right { cmp_v(&o, &t, op) } else { cmp_v(&t, &o, op) }
+        }))
+    }
+    fn try_truth(&self) -> Option<Result<bool, E>> {
+        Some(self.get().and_then(|t| truth(&t)))
+    }
+    fn lazy_iter(&self) -> Option<Result<It, E>> {
+        Some(self.get().and_then(|t| iter(&t)))
+    }
+    fn next_item(&self) -> Option<R> {
+        Some(self.get().and_then(|t| bi_next(Args::p(vec![t]))))
+    }
+    fn fmt(&self, spec: &str) -> Option<R> {
+        if !spec.is_empty() {
+            return Some(type_err(format!("unsupported format string passed to {}.__format__", self.tname())));
+        }
+        Some(self.get().and_then(|t| to_str(&t)).map(|x| st(x)))
     }
 }
 

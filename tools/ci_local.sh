@@ -13,7 +13,7 @@ step() { printf '\n== %s  (%s)\n' "$1" "$(date +%H:%M:%S)"; }
 export BREVI_CACHE_MB="${BREVI_CACHE_MB:-6144}"
 mode=${1:-pr}
 fast=
-compat=1; kinds=brevi,python,rust; grammar=1
+compat=1; kinds=brevi,python,rust; grammar=1; stdlib=1
 if [ "$mode" = --quick ]; then compat=0; fi
 if [ "$mode" = pr ]; then
   # The same rules as toolchains.yml's "Does this PR change the compiler or the baseline?" step.
@@ -23,6 +23,10 @@ if [ "$mode" = pr ]; then
     changed=$( { git diff --name-only "$base"; git ls-files --others --exclude-standard; } )
     echo "$changed" | grep -qE '^(src/|Cargo\.(toml|lock)$|compat/baseline\.txt$|tools/compat\.py$|bench/(solutions|tasks|ref)/)' || compat=0
     echo "$changed" | grep -qE '^(compat/baseline\.txt$|tools/compat\.py$|bench/(solutions|tasks)/)' || kinds=brevi
+    # The stdlib slice (~6 min on 4 cores): GitHub runs it only after the merge (conformance-main.yml), so check it here
+    # whenever the compiler or the slice's lists change. Merge origin/main first to see what
+    # this branch does together with the PRs merged since it started.
+    echo "$changed" | grep -qE '^(src/|Cargo\.(toml|lock)$|tools/conformance\.py$|compat/conformance_(stdlib_|by_design))' || stdlib=0
     echo "$changed" | grep -qE '^(grammar/|tests/run/|bench/solutions/|compat/baseline\.txt$|tools/(grammar_check|lark_to_gbnf)\.py$|tools/requirements-ci\.txt$)' || grammar=0
   fi
 fi
@@ -37,6 +41,7 @@ BREVI=./target/release/brevi node tests/sdk_node_test.mjs
 step "Guide budget"; python3 tools/guide_budget.py
 step "Package versions"; python3 tools/version_sync.py
 step "Changelog fragments"; python3 tools/changelog.py --check
+if [ "$mode" = pr ] && [ -n "$base" ]; then step "Conformance floors left to main"; python3 tools/floor_guard.py "$base"; fi
 if [ $grammar = 1 ]; then
   step "Grammar"; python3 -c "import lark" 2>/dev/null || python3 -m pip install --quiet -r tools/requirements-ci.txt
   python3 tools/lark_to_gbnf.py --check; python3 tools/grammar_check.py tests/run/*.bv
@@ -54,6 +59,12 @@ if [ $compat = 1 ] || [ "$mode" = --full ]; then
   step "CPython conformance ratchet (CPython 3.13.13 via uv; ~10 min)"
   if command -v uv >/dev/null 2>&1 && uv python install 3.13.13 --quiet 2>/dev/null; then
     python3 tools/conformance.py --check --python "$(uv python find 3.13.13)" --out /tmp/brevi-conformance
+    if [ $stdlib = 1 ]; then
+      step "CPython conformance ratchet, stdlib slice (~6 min)"
+      python3 tools/conformance.py --slice stdlib --check --python "$(uv python find 3.13.13)" --out /tmp/brevi-conformance-stdlib
+    else
+      echo "(stdlib slice skipped: nothing here can change it; main runs it after the merge)"
+    fi
   else
     echo "skipped: uv not installed (https://docs.astral.sh/uv/), so no CPython 3.13.13 to compare with"
   fi

@@ -9,7 +9,8 @@
 # they themselves changed), and reuse the build cache the daily run saved, so test programs whose
 # generated Rust didn't change aren't recompiled. The daily run always starts cold and runs everything.
 # The release (release.yml) calls this workflow with release: true on the commit it ships: the same checks as the
-# daily run, never skipped as already tested, plus the stdlib conformance slice.
+# daily run, never skipped as already tested, plus the stdlib conformance slice (which main also runs after each
+# merge that can change it: conformance-main.yml).
 # The daily run and the release also run the duckdb, onnxruntime and mcp sections on CPython 3.13 with the real
 # packages (tests/requirements-native.txt), where a native-copy check that cannot run fails instead of skipping.
 # Run tools/ci_local.sh before merging.
@@ -198,6 +199,11 @@ jobs:
           if echo "$changed" | grep -qE '^(grammar/|tests/run/|bench/solutions/|compat/baseline\.txt$|tools/(grammar_check|lark_to_gbnf)\.py$|tools/requirements-ci\.txt$)'; then
             echo "grammar=true" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: The conformance floors are left to main (pull requests)
+        # conformance-main.yml raises them after each merge; PRs that raised them conflicted with every other open PR.
+        if: github.event_name == 'pull_request'
+        run: python3 tools/floor_guard.py HEAD^1
 
       - name: Unit tests
         if: steps.seen.outputs.cache-hit != 'true'

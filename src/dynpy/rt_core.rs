@@ -1286,6 +1286,7 @@ pub fn py_hash(v: &V) -> Result<i64, E> {
         V::Ext(x) => match x.hash() {
             Some(h) => h,
             None if memview_of(v).is_some() => return memview_hash(v).unwrap(),
+            None if x.any().is::<SigV>() => return Err(unsupported("hash() of an inspect.Signature")),
             None => return type_err(format!("unhashable type: '{}'", x.tname())),
         },
         V::Range(r) => hash_tuple(&[V::Int(r.0), V::Int(r.1), V::Int(r.2)])?,
@@ -2152,7 +2153,7 @@ pub type FnBox = Box<dyn Fn(Args) -> R>;
 pub const FUNC_SLOT_ATTRS: &[&str] = &[
     "__name__", "__qualname__", "__module__", "__doc__", "__annotations__", "__code__", "__defaults__",
     "__kwdefaults__", "__type_params__", "__closure__", "__globals__", "__builtins__", "__bv_np__", "__bv_kind__", "__bv_repr__",
-    "__bv_dict__", "__bv_wrapped__", "__bv_partial__", "__brevi_sd_ann__", "__func__", "__bv_mod__", "__bv_nobind__",
+    "__bv_dict__", "__bv_sig__", "__bv_textsig__", "__bv_wrapped__", "__bv_partial__", "__brevi_sd_ann__", "__func__", "__bv_mod__", "__bv_nobind__",
     // lru_cache's methods live on the wrapper's class in CPython, not in its __dict__
     "cache_clear", "cache_info",
 ];
@@ -2275,6 +2276,8 @@ pub enum BT {
     Counter,
     OrderedDict,
     Deque,
+    // bytes (a library class in the dynamic build): a subclass instance wraps a bytes value
+    Bytes,
     Other,
 }
 
@@ -3385,6 +3388,7 @@ pub fn init_builtin_classes() {
         ("BytesWarning", "Warning"),
         ("ResourceWarning", "Warning"),
         ("EncodingWarning", "Warning"),
+        ("ReferenceError", "Exception"),
         ("JSONDecodeError", "ValueError"),
         ("InvalidOperation", "ArithmeticError"),
         ("DivisionByZero", "ZeroDivisionError"),
@@ -3484,7 +3488,20 @@ pub fn tn(v: &V) -> String {
             2 => "Counter".into(),
             _ => "dict".into(),
         },
+        // a live weakref.proxy names its referent's type in errors, as CPython's proxy slots raise them
+        // from the referent; the few errors about the proxy itself use proxy_tn
+        V::Ext(_) => match proxy_deref(v) {
+            Some(Ok(r)) => tn(&r),
+            _ => type_name(v),
+        },
         _ => type_name(v),
+    }
+}
+// The type name of the value itself, a weakref.proxy's own type for a proxy.
+pub fn proxy_tn(v: &V) -> String {
+    match v {
+        V::Ext(x) => x.tname().into(),
+        _ => tn(v),
     }
 }
 

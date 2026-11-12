@@ -1,0 +1,2 @@
+brevi: weakref.proxy of an object with __index__ is not supported in dynamic builds
+brevi: weakref.proxy with a callback is not supported in dynamic builds

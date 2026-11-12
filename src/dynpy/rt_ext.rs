@@ -3045,6 +3045,7 @@ pub fn ext_module_attr2(m: &str, n: &str) -> Option<V> {
         ("decimal.context", "rounding") => s(ROUNDINGS[DROUND.with(|r| r.get()) as usize]),
         ("fractions", "Fraction") => V::Class(ext_class("fractions.Fraction")),
         ("re", "Pattern") => V::Class(ext_class("re.Pattern")),
+        ("inspect", "Signature") => V::Class(sig_class()),
         ("re", "Match") => V::Class(ext_class("re.Match")),
         ("datetime", "date") => V::Class(ext_class("datetime.date")),
         ("datetime", "datetime") => V::Class(ext_class("datetime.datetime")),

@@ -1,0 +1,10 @@
+raises Can't instantiate abstract class P without an implementation for abstract method 'f'
+raises Can't instantiate abstract class M without an implementation for abstract method 'f'
+frozenset({'f'}) frozenset({'f'})
+True
+True
+raises TypeError Can't instantiate abstract class Abstract without an implementation for abstract method 'add'
+raises Can't instantiate abstract class P without an implementation for abstract methods 'c', 'x'
+['c', 'x']
+1 2
+True False False

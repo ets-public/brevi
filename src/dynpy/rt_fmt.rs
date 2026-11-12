@@ -169,6 +169,11 @@ pub fn ose_str(o: &Rc<Obj>, args: &V) -> Result<String, E> {
     })
 }
 pub fn repr(v: &V) -> Result<String, E> {
+    if let V::Ext(_) = v {
+        if let Some(r) = sig_str(v, true) {
+            return r;
+        }
+    }
     Ok(match v {
         V::None => "None".into(),
         V::Bool(b) => if *b { "True" } else { "False" }.into(),
@@ -508,6 +513,12 @@ fn join_repr(xs: &[V]) -> Result<String, E> {
     Ok(s)
 }
 pub fn to_str(v: &V) -> Result<String, E> {
+    if let Some(r) = sig_str(v, false) {
+        return r;
+    }
+    if let Some(__p) = proxy_deref(v) {
+        return to_str(&__p?);
+    }
     Ok(match v {
         V::Str(s) => s.s.clone(),
         V::Float(f) => float_repr(*f),
@@ -1170,6 +1181,9 @@ pub fn percent_format(f: &str, args: &V) -> Result<String, E> {
 // ---------- numbers from values ----------
 
 pub fn to_float(v: &V) -> Result<f64, E> {
+    if let Some(__p) = proxy_deref(v) {
+        return to_float(&__p?);
+    }
     match v {
         V::Float(f) => Ok(*f),
         V::Int(i) => Ok(*i as f64),
@@ -1184,6 +1198,8 @@ pub fn to_float(v: &V) -> Result<f64, E> {
         V::Str(s) => parse_float(&s.s).ok_or_else(|| exc("ValueError", format!("could not convert string to float: {}", str_repr(&s.s)))),
         V::Obj(o) => match o.cls.lookup("__float__") {
             Some(f) => to_float(&call(&f, Args::p(vec![v.clone()]))?),
+            // a bytes subclass instance parses as its bytes do
+            None if o.cls.base_bt() == BT::Bytes => to_float(&o.inner().unwrap_or(V::None)),
             None => type_err(format!("float() argument must be a string or a real number, not '{}'", tn(v))),
         },
         // a memoryview counts when it gives a simple buffer (live and contiguous), as in CPython
@@ -1303,6 +1319,9 @@ pub fn parse_int(t: &str, base: u32) -> Option<V> {
     Some(if neg { b.neg() } else { b }.norm())
 }
 pub fn to_int(v: &V) -> R {
+    if let Some(__p) = proxy_deref(v) {
+        return to_int(&__p?);
+    }
     match v {
         V::Int(_) | V::Big(_) => Ok(v.clone()),
         V::Bool(b) => Ok(V::Int(*b as i64)),
@@ -1326,7 +1345,7 @@ pub fn to_int(v: &V) -> R {
                 return int_returned(call(&f, Args::p(vec![v.clone()]))?, "__int__");
             }
             // a subclass of int, float or str (IntEnum, StrEnum): int's own __int__ wins over a user __index__
-            if let Some(i) = inner_of(v).filter(|i| matches!(i, V::Int(_) | V::Big(_) | V::Bool(_) | V::Float(_) | V::Str(_))) {
+            if let Some(i) = inner_of(v).filter(|i| matches!(i, V::Int(_) | V::Big(_) | V::Bool(_) | V::Float(_) | V::Str(_)) || is_bytes_v(i)) {
                 return to_int(&i);
             }
             if let Some(f) = o.cls.lookup("__index__") {

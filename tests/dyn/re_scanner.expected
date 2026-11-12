@@ -1,0 +1,12 @@
+True
+(['sum', 'op=', 3, 'op*', 'foo', 'op+', 312.5, 'op+', 'bar'], '')
+(['x', 'op=', 1], '; y')
+None re.compile(None) 0 Match 1
+(['h', ('o', 'é'), 'llo', 'w', ('o', 'ö'), 'rld', ('o', '٣')], '') 0 re.compile(None)
+(['héllo'], '') 32
+([('o', 'É'), 'é', ('o', 'E')], '') 2 re.compile(None, re.IGNORECASE)
+([1, 1], ' c')
+(['A', 'D', 'A'], '!')
+([], 'yy')
+err missing ), unterminated subpattern at position 0
+10

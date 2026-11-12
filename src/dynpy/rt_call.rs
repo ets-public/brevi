@@ -441,17 +441,39 @@ fn make_class_impl(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, att
     }
     Ok(V::Class(c))
 }
-fn is_abstract_method(v: &V) -> bool {
+// ABCMeta's test: getattr(value, "__isabstractmethod__", False) is true. A def has it when @abstractmethod set
+// it; a property, classmethod, partialmethod or singledispatchmethod answers for what it wraps.
+fn is_abstract_method(v: &V) -> Result<bool, E> {
     match v {
-        V::Func(f) => f.attrs.borrow().iter().any(|(k, _)| *k == "__isabstractmethod__"),
-        _ => false,
+        V::Func(f) => {
+            let a = f.attrs.borrow().iter().find(|(k, _)| *k == "__isabstractmethod__").map(|(_, x)| x.clone());
+            a.map_or(Ok(false), |x| truth(&x))
+        }
+        V::None | V::Bool(_) | V::Int(_) | V::Big(_) | V::Float(_) | V::Str(_) | V::Tuple(_) | V::List(_) | V::Dict(_) => Ok(false),
+        _ => match getattr(v, "__isabstractmethod__") {
+            Ok(x) => truth(&x),
+            Err(e) if is_exc(&e.0, "AttributeError") => Ok(false),
+            Err(e) => Err(e),
+        },
     }
+}
+// A class made with metaclass=ABCMeta: ABCMeta.__new__ runs type.__new__ (with __set_name__ and
+// __init_subclass__) and then its own setup, so the class takes ABCMeta's rules here, after it is made.
+pub fn abc_meta(c: V) -> R {
+    if let V::Class(k) = &c {
+        if !k.abc.get() {
+            k.abc.set(true);
+            abc_setup(k)?;
+        }
+    }
+    Ok(c)
 }
 // ABCMeta.__new__'s class setup: __abstractmethods__, __flags__ and the flag conflict check.
 fn abc_setup(c: &Rc<Class>) -> R {
     let mut names: Vec<Sym> = vec![];
-    for (n, v) in c.attrs.borrow().iter() {
-        if is_abstract_method(v) && !names.contains(n) {
+    let own: Vec<(Sym, V)> = c.attrs.borrow().iter().map(|(n, v)| (*n, v.clone())).collect();
+    for (n, v) in own.iter() {
+        if is_abstract_method(v)? && !names.contains(n) {
             names.push(*n);
         }
     }
@@ -460,7 +482,11 @@ fn abc_setup(c: &Rc<Class>) -> R {
             if let V::FSet(p) = &fs {
                 for k in p.keys() {
                     let n = to_str(&k).unwrap_or_default();
-                    if !names.iter().any(|x| same_name(x, &n)) && c.lookup(&n).as_ref().is_some_and(is_abstract_method) {
+                    let abs = match c.lookup(&n) {
+                        Some(v) => is_abstract_method(&v)?,
+                        None => false,
+                    };
+                    if !names.iter().any(|x| same_name(x, &n)) && abs {
                         names.push(sym(&n));
                     }
                 }
@@ -813,6 +839,7 @@ fn builtin_of_bt(bt: BT) -> Rc<Class> {
         BT::Counter => "Counter",
         BT::OrderedDict => "OrderedDict",
         BT::Deque => "deque",
+        BT::Bytes => return ext_class("bytes"),
         _ => "object",
     })
 }
@@ -1478,6 +1505,17 @@ pub fn getattr(o: &V, name: &str) -> R {
                             return Ok(v);
                         }
                     }
+                    // a bytes subclass: maketrans is bytes' static method; fromhex is a classmethod that builds
+                    // the subclass from the bytes, as CPython's does (cls(bytes.fromhex(s)))
+                    if c.base_bt() == BT::Bytes {
+                        if name == "maketrans" {
+                            return Ok(builtin("maketrans", bytes_maketrans));
+                        }
+                        if name == "fromhex" {
+                            let k = V::Class(c.clone());
+                            return Ok(builtin("fromhex", move |a: Args| call(&k, Args::p(vec![bytes_fromhex(a)?]))));
+                        }
+                    }
                     // A base's builtin_class_attr answers any name (a generic unbound method), so a base other
                     // than object is asked only for a method that type really has.
                     for k in c.mro.borrow().iter().skip(1) {
@@ -1588,6 +1626,8 @@ pub fn getattr(o: &V, name: &str) -> R {
                 }
                 None => V::None,
             }),
+            // a staticmethod or classmethod answers for the function it wraps (False when that is not abstract)
+            "__isabstractmethod__" if matches!(f.kind.get(), 1 | 2) => Ok(func_user_attr(f, name)?.unwrap_or(V::Bool(false))),
             _ => {
                 if let Some(v) = func_user_attr(f, name)? {
                     return Ok(v);
@@ -1635,6 +1675,8 @@ pub fn getattr(o: &V, name: &str) -> R {
             _ => sl.2.clone(),
         }),
         V::Prop(p) if name == "fget" => Ok(p.0.clone()),
+        // property.__isabstractmethod__: whether its getter or setter is abstract
+        V::Prop(p) if name == "__isabstractmethod__" => Ok(V::Bool(is_abstract_method(&p.0)? || is_abstract_method(&p.1)?)),
         V::Prop(p) if name == "fset" => Ok(p.1.clone()),
         V::Prop(p) if matches!(name, "setter" | "getter" | "deleter") => {
             let p = p.clone();
@@ -1781,6 +1823,9 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
     }
 }
 pub fn delattr(o: &V, name: &str) -> Result<(), E> {
+    if let Some(p) = proxy_deref(o) {
+        return delattr(&p?, name);
+    }
     match o {
         V::Obj(ob) => {
             if let Some(da) = ob.cls.lookup("__delattr__") {
