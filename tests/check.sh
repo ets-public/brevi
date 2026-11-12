@@ -57,18 +57,19 @@ for f in tests/fallback/*.py; do
     echo "ok   $f"
   fi
 done
-# A class built on a builtin iterator type (zip, map, filter, an itertools type) is refused by the dynamic build,
-# never built on a function: directly, and through a base chosen at run time from such types used as values.
+# A class built on a builtin iterator type (zip, map, filter, an itertools type) builds over dynamic values and
+# prints what python3 prints: directly, and through a base chosen at run time from such types used as values.
 if [ "$1" != "--update" ]; then
   it_dir=$(mktemp -d)
-  printf 'from itertools import chain\nclass C(chain):\n    pass\nprint(list(C([1], [2])))\n' > "$it_dir/a.py"
-  printf 'from itertools import repeat\ndef f():\n    for cls in (repeat, zip):\n        class S(cls):\n            pass\n        print(S)\nf()\n' > "$it_dir/b.py"
+  printf 'from itertools import chain\nclass C(chain):\n    pass\nprint(list(C([1], [2])), type(C([])).__name__)\n' > "$it_dir/a.py"
+  printf 'from itertools import repeat\ndef f():\n    for cls in (repeat, zip):\n        class S(cls):\n            pass\n        print(S.__name__, S.__mro__[1].__name__, issubclass(S, cls))\nf()\n' > "$it_dir/b.py"
   for p in a b; do
-    out=$(BREVI_DYN=1 $BREVI build "$it_dir/$p.py" -o "$it_dir/prog" 2>&1)
-    case "$out" in
-      *'subclassing zip, map, filter or an itertools type is not supported in dynamic builds'*) echo "ok   dynamic build refuses a class on an iterator type ($p)" ;;
-      *) echo "FAIL dynamic build refuses a class on an iterator type ($p)"; printf '%s\n' "$out" | tail -3; fail=1 ;;
-    esac
+    out=$(BREVI_DYN=1 $BREVI build "$it_dir/$p.py" -o "$it_dir/prog" 2>&1 && "$it_dir/prog" 2>&1)
+    if [ "$out" = "$(python3 "$it_dir/$p.py" 2>&1)" ]; then
+      echo "ok   dynamic build subclasses an iterator type ($p)"
+    else
+      echo "FAIL dynamic build subclasses an iterator type ($p)"; printf '%s\n' "$out" | tail -3; fail=1
+    fi
   done
   rm -rf "$it_dir"
 fi

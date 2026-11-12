@@ -22,6 +22,8 @@ use ax_pyffi::P;
 static PYD_API: std::sync::OnceLock<Result<ax_pyffi::Api, String>> = std::sync::OnceLock::new();
 // the type of _brevi_dyn's _BrIt, once one has been made
 static PYD_BRIT: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+// the type of _brevi_dyn's _BrRed (a value of the program that Python sees only to pickle it), once one has been made
+static PYD_BRRED: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_MAIN: std::sync::OnceLock<std::thread::ThreadId> = std::sync::OnceLock::new();
 const PYD_CAP: &std::ffi::CStr = c"brevi.dyn.callable";
 
@@ -35,6 +37,10 @@ class _BrIt:
     def __next__(s): return s.f()
     def __reduce__(s): return s.r()
     def __setstate__(s, state): return _d.setstate(s.b, state)
+class _BrRed:
+    __slots__ = ('r', 'b')
+    def __init__(s, r, b): s.r = r; s.b = b
+    def __reduce__(s): return s.r()
 def _pyclass(mod, imports, src, name, file):
     m = _s.modules.get(mod) if mod == '__main__' else _d.mods.get(mod)
     if m is None:
@@ -179,6 +185,7 @@ def _install_warn(site):
     _w._showwarnmsg = _showwarnmsg
 _d.install_warn = _install_warn
 _d.it = _BrIt
+_d.red = _BrRed
 # The program's own `pickle` module: CPython's, except that a pickle naming an itertools class loads as the
 # program's itertools iterator (as pickles the program makes do), not CPython's, whose __setstate__ warns from C
 # code with no frame to name. Libraries keep CPython's pickle.
@@ -720,7 +727,7 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
         (a.DecRef)(p);
         return made;
     }
-    if t == PYD_BRIT.load(std::sync::atomic::Ordering::Relaxed) {
+    if t == PYD_BRIT.load(std::sync::atomic::Ordering::Relaxed) || t == PYD_BRRED.load(std::sync::atomic::Ordering::Relaxed) {
         // an iterator of the program that went into Python (a library returned it, or types.coroutine)
         let b = (a.GetAttr)(p, c"b".as_ptr());
         if !b.is_null() {
@@ -1251,6 +1258,13 @@ fn iter_reduce(v: &V) -> R {
             out[0] = pyd_builtin(name)?;
         }
     }
+    // `reversed` is a class now (it_class): its reduce names that class, which pickles as CPython's
+    // reversed too, so a reversed list iterator loads as CPython's list_reverseiterator, as before
+    if let Some(V::Class(c)) = out.first() {
+        if Rc::ptr_eq(c, &it_class(ItKind::Reversed)?) {
+            out[0] = pyd_builtin("reversed")?;
+        }
+    }
     Ok(tup(out))
 }
 
@@ -1270,6 +1284,8 @@ fn memo_key(v: &V) -> Option<usize> {
         V::Dict(d) => Some(Rc::as_ptr(d) as *const u8 as usize),
         V::Set(x) => Some(Rc::as_ptr(x) as *const u8 as usize),
         V::FSet(x) => Some(Rc::as_ptr(x) as *const u8 as usize),
+        // a tee link: one Python object per pickle, so tees that share it share it again when loaded
+        V::Ext(_) => teedata_of(v).map(|l| Rc::as_ptr(&l) as *const u8 as usize),
         _ => None,
     }
 }
@@ -1450,6 +1466,22 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
             if let Some(p) = x.any().downcast_ref::<PyV>() {
                 (a.IncRef)(p.p);
                 return Ok(p.p);
+            }
+            // an itertools._tee_dataobject (in a tee's __reduce__ state): pickled through its own __reduce__,
+            // and the program's own value again when it comes back
+            if let Some(l) = teedata_of(v) {
+                let red = func(sym("__reduce__"), move |_a: Args| teedata_reduce(&l));
+                let r = pyd_callable(&red)?;
+                let b = pyd_callable(v)?;
+                let o = pyd_mod_call("_brevi_dyn", "red", &[r, b]);
+                (a.DecRef)(r);
+                (a.DecRef)(b);
+                let o = o?;
+                to_memo_put(v, o);
+                let t = (a.Type)(o);
+                (a.DecRef)(t);
+                PYD_BRRED.store(t, std::sync::atomic::Ordering::Relaxed);
+                return Ok(o);
             }
             // a bytearray would arrive as a copy, so the library's changes would not reach the program's
             if bytearray_of(v).is_some() || memview_of(v).is_some() {
