@@ -928,7 +928,7 @@ pub fn abc_register(a: Args) -> R {
     ABC_TOKEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     Ok(a.p[1].clone())
 }
-fn abc_meta_class() -> Rc<Class> {
+pub fn abc_meta_class() -> Rc<Class> {
     thread_local! {
         static META: RefCell<Option<Rc<Class>>> = const { RefCell::new(None) };
     }

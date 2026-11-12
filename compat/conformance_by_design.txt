@@ -10,6 +10,7 @@ test_grammar.GrammarTests.test_assert_warning_promotes_to_syntax_error  compile
 test_grammar.GrammarTests.test_del_stmt  compile
 test_grammar.GrammarTests.test_expr_stmt  compile
 test_grammar.GrammarTests.test_former_statements_refer_to_builtins  exec
+test_grammar.GrammarTests.test_funcdef  compile
 test_grammar.GrammarTests.test_genexps  compile
 test_grammar.GrammarTests.test_lambdef  compile
 test_grammar.GrammarTests.test_listcomps  compile
@@ -18,6 +19,7 @@ test_grammar.GrammarTests.test_try  compile
 test_grammar.GrammarTests.test_try_star  compile
 test_grammar.GrammarTests.test_var_annot_custom_maps  exec
 test_grammar.GrammarTests.test_var_annot_refleak  exec
+test_grammar.GrammarTests.test_var_annot_rhs  exec
 test_grammar.GrammarTests.test_var_annot_simple_exec  exec
 test_grammar.GrammarTests.test_var_annot_syntax_errors  compile
 test_grammar.GrammarTests.test_yield  compile

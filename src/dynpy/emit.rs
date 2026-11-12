@@ -208,7 +208,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "operator" => &["add", "and_", "attrgetter", "contains", "eq", "floordiv", "ge", "getitem", "gt", "index", "itemgetter", "le", "lshift", "lt", "methodcaller", "mod", "mul", "ne", "neg", "not_", "or_", "pow", "rshift", "sub", "truediv", "truth", "xor", "__lt__", "__le__", "__gt__", "__ge__", "__eq__", "__ne__", "__and__", "__or__", "__xor__", "__sub__"],
         "string" => &["ascii_lowercase", "ascii_uppercase", "ascii_letters", "digits", "hexdigits", "octdigits", "punctuation", "whitespace", "printable"],
         "time" => &["time", "perf_counter", "monotonic", "process_time", "sleep", "time_ns", "perf_counter_ns", "monotonic_ns", "process_time_ns", "gmtime", "strftime"],
-        "abc" => &["ABC", "abstractmethod", "_abc_register", "_check_methods"],
+        "abc" => &["ABC", "ABCMeta", "abstractmethod", "_abc_register", "_check_methods"],
         "enum" => &["Enum", "IntEnum", "StrEnum", "Flag", "IntFlag", "auto", "unique"],
         "_brevi_term" => &["columns"],
         "hashlib" => &["new", "md5", "sha1", "sha224", "sha256", "sha384", "sha512"],
@@ -1686,6 +1686,8 @@ pub struct Em {
     // otherwise annotations are dropped unevaluated as before, since an annotation the runtime cannot
     // evaluate (`int | None`, a forward name) must not stop a program that never looks at it
     keep_ann: bool,
+    // the classes of the program seen so far that subclass type
+    metaclasses: BTreeSet<String>,
     // the def being built is an async def (read by closure)
     next_async: bool,
     direct_ok: HashSet<(String, String)>,
@@ -1929,6 +1931,14 @@ impl Em {
     }
     fn load_named(&mut self, name: &str, line: usize) -> ER<String> {
         match self.lookup(name) {
+            // a class body's own name not bound yet: LOAD_NAME goes on to the globals and builtins
+            Some(Var::Local(r)) if self.fstack.last().unwrap().is_class => {
+                let fb = match self.fstack[0].vars.get(name).cloned() {
+                    Some(Var::Global(i)) => self.q(&format!("gl({i}, {})", lit(name))),
+                    _ => self.load_missing(name, line)?,
+                };
+                Ok(format!("(if matches!({r}, V::Unbound) {{ {fb} }} else {{ {r}.clone() }})"))
+            }
             Some(Var::Local(r)) => Ok(self.q(&format!("ld(&{r}, {})", lit(name)))),
             Some(Var::Cell(r)) => {
                 let own = !self.f().cells.is_empty() && r.starts_with(&self.f().cells);
@@ -4162,6 +4172,13 @@ impl Em {
         // getattr in rt_call lazily makes.)
         let mut sc = scope_of(&c.body, &[]);
         let has_meta = c.kwargs.iter().any(|(k, _)| k == "metaclass");
+        // CPython stores a private name's annotation mangled (`__x` in class C is `_C__x`); this build does not
+        // mangle names, so a class whose annotations are kept and name one is refused
+        if !self.lazy && (self.keep_ann || has_meta) && c.name.trim_start_matches('_') != "" {
+            if let Some(s) = c.body.iter().find(|s| matches!(&s.st, St::AnnAssign(Ex::Name(n), _, _) if n.starts_with("__") && !n.ends_with("__"))) {
+                return Err(err(s.line, "an annotated private name (`__x`, which CPython mangles) in a class body whose annotations are read is not supported in dynamic builds"));
+            }
+        }
         // a metaclass sees the namespace, so with one the class's annotations are always made, as CPython makes them
         let setup = !self.lazy && (self.keep_ann || has_meta) && c.body.iter().any(|s| matches!(s.st, St::AnnAssign(..)));
         if has_meta && c.body.iter().any(|s| matches!(s.st, St::AnnAssign(..))) {
@@ -4182,6 +4199,22 @@ impl Em {
         // A class body that calls locals() must run with its namespace as a dict: locals() returns that
         // dict, and every name load and store goes through it (CPython's LOAD_FROM_DICT_OR_DEREF / LOAD_NAME
         // and DELETE_NAME). Other classes keep the plain Rust locals exactly as before.
+        // a metaclass (`class M(type)`, or built on another class of this module that is one) may define only the
+        // special methods the runtime asks it for (META_DUNDERS in rt_call.rs, which also checks at run time)
+        if c.bases.iter().any(|b| matches!(b, Ex::Name(n) if (n == "type" && self.lookup("type").is_none()) || self.metaclasses.contains(n))) {
+            self.metaclasses.insert(c.name.clone());
+            for s in &c.body {
+                let names: Vec<&String> = match &s.st {
+                    St::Def(d) => vec![&d.name],
+                    St::Assign(ts, _) => ts.iter().filter_map(|t| if let Ex::Name(n) = t { Some(n) } else { None }).collect(),
+                    St::AnnAssign(Ex::Name(n), _, _) => vec![n],
+                    _ => vec![],
+                };
+                if let Some(n) = names.into_iter().find(|n| n.len() > 4 && n.starts_with("__") && n.ends_with("__") && !META_DUNDERS.contains(&n.as_str())) {
+                    return Err(err(s.line, &format!("a metaclass defining {n} is not supported in dynamic builds")));
+                }
+            }
+        }
         // `metaclass=M`: the body runs in M.__prepare__'s namespace dict, and M(name, bases, ns) makes the class
         let meta = c.kwargs.iter().find(|(k, _)| k == "metaclass").map(|(_, e)| e);
         if meta.is_some() && c.body.iter().any(|s| {
@@ -4516,6 +4549,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         class_ctx: None,
         lazy: false,
         keep_ann: false,
+        metaclasses: BTreeSet::new(),
         next_async: false,
         direct_ok: HashSet::new(),
         bridge,
@@ -4943,3 +4977,9 @@ fn static_attributes(body: &[Stmt]) -> Vec<String> {
     walk(body, false, &mut out);
     out.into_iter().collect()
 }
+
+// The special methods a metaclass may define (rt_call.rs keeps the same list and checks it at run time).
+const META_DUNDERS: &[&str] = &[
+    "__module__", "__qualname__", "__doc__", "__new__", "__init__", "__prepare__", "__lt__", "__le__", "__gt__", "__ge__", "__eq__", "__ne__",
+    "__hash__", "__len__", "__bool__", "__repr__", "__str__", "__annotations__", "__init_subclass__", "__weakref__", "__dict__",
+];

@@ -2095,9 +2095,13 @@ const META_DUNDERS: &[&str] = &[
 pub fn meta_dunder_ok(n: &str) -> bool {
     !(n.len() > 4 && n.starts_with("__") && n.ends_with("__")) || META_DUNDERS.contains(&n)
 }
+fn is_abc_meta_sub(c: &Rc<Class>) -> bool {
+    c.mro.borrow().iter().any(|k| k.module == "abc" && k.name == "ABCMeta")
+}
 fn meta_class_check(c: &Rc<Class>) -> Result<(), E> {
-    if c.mro.borrow().iter().any(|k| k.module == "abc" && k.name == "ABCMeta") {
-        return Err(unsupported("a subclass of abc.ABCMeta"));
+    // a subclass of abc.ABCMeta may be defined and read; making a class with it is refused (meta_call, type_new)
+    if is_abc_meta_sub(c) {
+        return Ok(());
     }
     if c.meta.borrow().is_some() {
         return Err(unsupported("a metaclass whose own type is a metaclass"));
@@ -2246,6 +2250,9 @@ pub fn type_new(mcls: &Rc<Class>, a: Args) -> R {
         x => return type_err(format!("type.__new__() argument 3 must be dict, not {}", tn(x))),
     };
     let mut winner = mcls.clone();
+    if is_abc_meta_sub(mcls) {
+        return Err(unsupported("a class made by a subclass of abc.ABCMeta"));
+    }
     if let Some(bm) = bases_meta(&bases)? {
         if bm.is_sub(&winner) {
             winner = bm;
@@ -2284,6 +2291,9 @@ pub fn type_new(mcls: &Rc<Class>, a: Args) -> R {
 }
 // Calling a metaclass: M.__new__ (its own, or type's), then M.__init__ when the result is an instance of M.
 pub fn meta_call(m: &Rc<Class>, a: Args) -> R {
+    if is_abc_meta_sub(m) {
+        return Err(unsupported("a class made by a subclass of abc.ABCMeta"));
+    }
     if m.meta.borrow().is_some() {
         return Err(unsupported("a metaclass whose own type is a metaclass"));
     }
