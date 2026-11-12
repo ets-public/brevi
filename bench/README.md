@@ -215,10 +215,12 @@ python3 tests/conformance_test.py                              # the extractor's
 | `wrong_output` | Built, exit code right, stdout differs |
 | `wrong_exit` | Built, exit code differs (usually an exception CPython does not raise) |
 | `crash_or_timeout` | Build or program panicked, died on a signal, or hit the time or memory limit |
-| `not_extractable` | No faithful script could be made, or the script fails under CPython. Stays in the total |
+| `not_extractable` | No faithful script could be made, or the script fails under CPython. Stays in the total (none left in either slice on main) |
 | `unstable` | CPython's own output changes with the hash seed or between runs. Left out of the total, with a count |
 | `by_design` | Refused because the test runs a string as code (`compile`, `exec`, `eval`), which a sandboxed native binary refuses on purpose. Named in `compat/conformance_by_design.txt` (reviewed); `--check` fails on one not listed, or a listed one no longer refused that way. Left out of the total, with its count beside every score |
-| `excluded` | Tests CPython's internals (`cpython_only`, the C API, reference counts). Left out of the total, each with a reason |
+| `string_model` | Stops in both builds on a str holding a lone surrogate, which Brevi's strings cannot hold yet. Named in `compat/conformance_needs_string_model.txt` with an issue. Stays in the total as not matched |
+| `cpython_private` | Both builds refuse it because it calls a CPython-private module helper (`re._compile`, `functools._c3_mro`). Named in `compat/conformance_cpython_private.txt` with an issue; `--check` fails on a stale line or one without an issue. Stays in the total as not matched |
+| `excluded` | Tests CPython's internals (`cpython_only`, the C API, reference counts, `_testinternalcapi`, a CPython crash check run in a subprocess, `multiprocessing`), or is skipped by CPython itself on the reference build (a skip decorator, or `self.skipTest()` at run time, such as a missing locale). Left out of the total, each with a reason |
 
 **coverage** is `matched` / (all - `unstable` - `excluded` - `by_design`), not counting matches where library calls ran in CPython (`pybridge`). **wrong** is `wrong_output` + `wrong_exit`. The headline is the normal build; `BREVI_DYN=1` is reported beside it.
 

@@ -14,13 +14,16 @@ same stdout and exit with the same code. `brevi run` is never used: it falls bac
                                                    floor this run's match counts
   python3 tools/conformance.py --show ID           print one test's generated script and how to reproduce it
 
-Categories: matched, refused, by_design, string_model, wrong_output, wrong_exit, crash_or_timeout, not_extractable, unstable,
+Categories: matched, refused, by_design, string_model, cpython_private, wrong_output, wrong_exit, crash_or_timeout, not_extractable, unstable,
 and excluded (CPython internals, each with a reason). by_design is a test the build refuses because it runs a string
 as code (compile/exec/eval), which a sandboxed native binary refuses on purpose; each one is listed by name in
 compat/conformance_by_design.txt and printed beside the score. string_model is a listed test (compat/
 conformance_needs_string_model.txt, each with an issue) that stops in both builds because it needs a str holding a lone
-surrogate; it is printed beside the score and counts as not matched. coverage = matched / (all - unstable - excluded -
-by_design); wrong = wrong_output + wrong_exit among programs that built.
+surrogate; it is printed beside the score and counts as not matched. cpython_private is a listed test (compat/
+conformance_cpython_private.txt, each with an issue) that both builds refuse because it calls a CPython-private module
+helper (re._compile, functools._c3_mro); it is printed beside the score and counts as not matched. A test that calls
+self.skipTest() under the reference CPython is excluded as skipped by CPython, like a skip decorator.
+coverage = matched / (all - unstable - excluded - by_design); wrong = wrong_output + wrong_exit among programs that built.
 
 The test files are fetched once from the pinned tag into a cache outside git (not vendored: nothing of
 CPython's lands in this repository, so no PSF notice has to travel with it, and a new pin is one edit).
@@ -46,6 +49,12 @@ BY_DESIGN_REFUSAL = re.compile(r"^(compile|exec|eval)\(\) is not supported in dy
 STRING_MODEL_FILE = ROOT / "compat" / "conformance_needs_string_model.txt"
 STRING_MODEL_STOP = re.compile(r"^exit 1, expected 0: NotImplementedError: brevi: chr\(\) of a lone surrogate \(U\+D800\.\.U\+DFFF\) "
                                r"is not supported in dynamic builds$")
+# Tests that call a CPython-private helper (a module attribute starting with `_`, such as re._compile or
+# functools._c3_mro) that Brevi refuses: reviewed, each tied to an open issue, printed beside every score. Matched only
+# when the dynamic build refuses exactly such a private name, the normal build refuses too, and the id is listed; the
+# tests stay in the denominator as not matched.
+PRIVATE_FILE = ROOT / "compat" / "conformance_cpython_private.txt"
+PRIVATE_REFUSAL = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*\._[A-Za-z0-9]\w* is not supported in dynamic builds$")
 BAD = ("wrong_output", "wrong_exit", "crash_or_timeout")  # built, but did not do what CPython does
 TAG = "v3.13.13"
 PYTHON_VERSION = "3.13.13"
@@ -61,6 +70,7 @@ SLICES = {
 # Module name -> (path under Lib/, SHA-256). The helpers are only read for the definitions tests use.
 SOURCES = {
     "test.support": ("test/support/__init__.py", "79347b3f68109a2a1315bba9c7769acc631908ade382ddeef473bfb72aa75ca9"),
+    "test.support.warnings_helper": ("test/support/warnings_helper.py", "515c10201568a2fcb868d1c34ffe9d7f04e3f617a2cb61d587167359a83b09ec"),
     "test.support.numbers": ("test/support/numbers.py", "fd9c8f35ef65c32612599a89a3ff8fe320268bd139a1c1a773cdfdd44096202c"),
     "test.seq_tests": ("test/seq_tests.py", "030efe9c5f9b5a7cbe06ab7a5d590e9ec7a6b2b54a22b92183f95b8503f6c19c"),
     "test.list_tests": ("test/list_tests.py", "229ac95acf5e22e24795a69a464da4bde446176df297d1782f4c87e535d80f2f"),
@@ -76,15 +86,28 @@ SOURCES = {
     "test.test_textwrap": ("test/test_textwrap.py", "1f16be769aa2aa32028b821bca3e90c3bdfabb37ffdbafa20db09ee627009214"),
     "test.test_functools": ("test/test_functools.py", "ec00d729ddde2de6412237b3f8f4196bc0777ce9d0bf99fd69071fb44ce72fd5"),
     "test.test_string": ("test/test_string.py", "defe67cc39c2a4737f1dad3a6c7877cb4eb96df6c331966214b77548f6b2c6a6"),
+    "test.re_tests": ("test/re_tests.py", "33033dc23d20a6924391819395e7bdd3c16d11cf3bb79eedb6298e79f65bb4e8"),  # data for test_re.ExternalTests
+}
+# Modules some tests import as modules (test_grammar reads their __annotations__): copied as they are next to the
+# generated script, so the reference and the build import the same pinned files. Never parsed for definitions.
+COMPANIONS = {
+    "test": ("test/__init__.py", "836cdb388117cf81e78d9fa2a141cca1b14b0179733322e710067749a1b16fe9"),
+    "test.typinganndata": ("test/typinganndata/__init__.py", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+    "test.typinganndata.ann_module": ("test/typinganndata/ann_module.py", "14c92d11f7e53a1d315e9125458a68105097d152dbee27cd063c9f6664c7453c"),
+    "test.typinganndata.ann_module2": ("test/typinganndata/ann_module2.py", "2f1214af1113c659b37ff02aa9727f3341812e066c82524c471e4325bcde6f72"),
+    "test.typinganndata.ann_module3": ("test/typinganndata/ann_module3.py", "c72c7dfa54f5af1bb9ad263964adf130597666ae1e5cd125f5a435b565d6c15f"),
 }
 
 # A generated script may import only these: nothing that reaches files, processes or the network.
 ALLOWED_IMPORTS = {
     "__future__", "abc", "array", "bisect", "builtins", "cmath", "collections", "contextlib", "copy", "dataclasses",
     "decimal", "enum", "fractions", "functools", "gc", "heapq", "inspect", "itertools", "json", "math", "numbers",
-    "operator", "pickle", "random", "re", "string", "struct", "sys", "textwrap", "time", "types", "typing",
-    "unicodedata", "warnings", "weakref",
+    "locale", "operator", "pickle", "random", "re", "string", "struct", "sys", "textwrap", "threading", "time", "types",
+    "typing", "unicodedata", "warnings", "weakref",
 }
+# Modules a generated script may use only in part: each name it reads from them must be in the set (io.open or
+# io.FileIO would reach files; unittest is allowed only for unittest.mock).
+RESTRICTED_IMPORTS = {"io": {"StringIO", "BytesIO"}, "unittest": {"mock"}}
 @functools.lru_cache(None)
 def star_names(module):
     """The names `from module import *` binds, for an allowed stdlib module."""
@@ -103,7 +126,7 @@ EXCLUDED_DECORATORS = {
 }
 # Names a skip condition may read, and what each is under the reference run (no -O, a normal build). Anything else
 # in a condition leaves the test not_extractable: only a condition we can evaluate the way CPython would is decided.
-CONDITION_PRELUDE = """import sys, re, sysconfig
+CONDITION_PRELUDE = """import os, sys, re, sysconfig
 is_emscripten = sys.platform == "emscripten"
 is_wasi = sys.platform == "wasi"
 class support:
@@ -121,6 +144,13 @@ CONDITION_NAMES = {"sys", "re", "hasattr", "is_emscripten", "is_wasi", "support"
 # support.requires_docstrings is skipUnless(HAVE_DOCSTRINGS, ...); with no -O, HAVE_DOCSTRINGS is `not MISSING_C_DOCSTRINGS`
 # (Lib/test/support/__init__.py: MISSING_C_DOCSTRINGS = check_impl_detail() and platform != 'win32' and no WITH_DOC_STRINGS).
 DOCSTRINGS_CONDITION = 'not (sys.platform != "win32" and not sysconfig.get_config_var("WITH_DOC_STRINGS"))'
+# support.MISSING_C_DOCSTRINGS itself, for `@unittest.skipIf(support.MISSING_C_DOCSTRINGS, ...)`
+MISSING_DOCSTRINGS_CONDITION = f"not ({DOCSTRINGS_CONDITION})"
+# threading_helper.requires_working_threading() is skipUnless(can_start_thread); support._can_start_thread() is False
+# only on WASI and on Emscripten without pthreads.
+THREADS_CONDITION = 'sys.platform != "wasi" and (sys.platform != "emscripten" or sys._emscripten_info.pthreads)'
+# support.skip_on_s390x is skipIf(is_s390x), with is_s390x = hasattr(os, 'uname') and os.uname().machine == 's390x'
+S390X_CONDITION = 'hasattr(os, "uname") and os.uname().machine == "s390x"'
 # What a decorator that wraps a test does, as helper code the generated script carries when it is used. All of it
 # mirrors CPython's definitions: pickle_deprecated is in Lib/test/test_itertools.py (runs the test three times), the
 # others are unittest's assertWarns and Lib/test/support/warnings_helper.py's ignore_warnings.
@@ -176,10 +206,87 @@ HELPERS = {
     "_conf_search": """def _conf_search(text, regex):
     print(repr(text))
     print(re.search(regex, text) is not None)""",
+    # unittest's assertRaises as a context manager, for a `with` that holds more than one manager
+    # (`with self.assertRaises(E), self.assertWarns(W):`), where the one-manager try/except rewrite cannot reach
+    "_conf_Raises": """class _conf_Raises:
+    def __init__(self, category, regex=None):
+        self.category, self.regex = category, regex
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if exc_type is None:
+            print('NO-RAISE')
+            return False
+        if not issubclass(exc_type, self.category):
+            return False
+        print('raises', exc_type.__name__, *([str(exc)] if self.regex is not None else []))
+        return True""",
+    # self.skipTest() inside a test: the reference run prints the marker, and the scorer then leaves the test out
+    # as skipped by CPython (run_case), the same as a skip decorator that is evaluated before the run
+    "_conf_Skip": """class _conf_Skip(Exception):
+    pass""",
+    "_conf_cleanups": """_conf_cleanups = []""",
+    "_conf_run": """def _conf_run(test):
+    try:
+        test()
+    except _conf_Skip as _s:
+        print('""" + "_conf_skipped:" + """', _s)""",
+    # Lib/test/support/threading_helper.py's start_threads, without its verbose prints and faulthandler dump
+    "_conf_start_threads": """@contextlib.contextmanager
+def _conf_start_threads(threads, unlock=None):
+    threads = list(threads)
+    started = []
+    try:
+        for t in threads:
+            t.start()
+            started.append(t)
+        yield
+    finally:
+        try:
+            if unlock:
+                unlock()
+            endtime = time.monotonic()
+            for timeout in range(1, 16):
+                endtime += 60
+                for t in started:
+                    t.join(max(endtime - time.monotonic(), 0.01))
+                started = [t for t in started if t.is_alive()]
+                if not started:
+                    break
+        finally:
+            started = [t for t in started if t.is_alive()]
+            if started:
+                raise AssertionError('Unable to join %d threads' % len(started))""",
+    # The base of a test whose assertions sit inside a string it runs as code (exec), where they cannot be rewritten
+    "_conf_TestCase": """class _conf_TestCase:
+    def setUp(self):
+        pass
+
+    def tearDown(self):
+        pass
+
+    def assertEqual(self, first, second, msg=None):
+        print(repr(first))
+        print(repr(second))
+
+    def assertTrue(self, expr, msg=None):
+        print(repr(bool(expr)))
+
+    def assertFalse(self, expr, msg=None):
+        print(repr(bool(expr)))
+
+    def fail(self, msg=None):
+        raise AssertionError(msg)""",
 }
+EXEC_SHIM = {"assertEqual", "assertTrue", "assertFalse", "fail"}  # the methods _conf_TestCase has
+SKIPPED = b"_conf_skipped:"  # what _conf_run prints when the test called skipTest
 HELPER_IMPORTS = {"_conf_Warns": ["import re", "import warnings"], "_conf_pickle_deprecated": ["import warnings"],
-                  "_conf_ignore_warnings": ["import warnings"], "_conf_search": ["import re"]}
-HELPER_NEEDS = {"_conf_pickle_deprecated": ["_conf_Warns"]}
+                  "_conf_ignore_warnings": ["import warnings"], "_conf_search": ["import re"], "_conf_Raises": [],
+                  "_conf_Skip": [], "_conf_cleanups": [], "_conf_run": [], "_conf_TestCase": [],
+                  "_conf_start_threads": ["import contextlib", "import time"]}
+HELPER_NEEDS = {"_conf_pickle_deprecated": ["_conf_Warns"], "_conf_run": ["_conf_Skip"]}
 EXCLUDED_CLASSES = {
     "PyLongModuleTests": "tests _pylong, a private CPython module",
     "CAPITest": "tests the C API",
@@ -190,6 +297,9 @@ EXCLUDED_SOURCE = [
     (r"\bsys\.getsizeof\b|\b__sizeof__\b", "depends on object sizes"),
     (r"\bgc\.is_tracked\b|\bcheck_impl_detail\b|\brun_in_subinterp\b", "tests CPython internals"),
     (r"\bCPUStopwatch\b", "measures CPU time"),
+    (r"\bassert_python_(ok|failure)\b|\bspawn_python\b", "runs a fresh CPython in a subprocess (a CPython crash regression)"),
+    (r"\bmultiprocessing\.Process\b", "starts a child process"),
+    (r"\bsre_(compile|constants|parse)\b", "tests CPython's deprecated sre_* modules"),
 ]
 RECEIVERS = {"self", "testcase"}
 SAME_AS_EQUAL = {"assertEqual", "assertListEqual", "assertTupleEqual", "assertDictEqual", "assertSetEqual",
@@ -356,14 +466,29 @@ class Rewriter(ast.NodeVisitor):
         if node.attr == "exception" and v.id in self.caught:
             self.m.edit(*self.m.span(node), v.id + "_exception")
         kind = self.m.imports.get(v.id)
+        if kind == ("from", "test.support", "threading_helper") and node.attr == "start_threads":
+            self.m.edit(*self.m.span(node), "_conf_start_threads")
+            return
         if kind and kind[0] == "from" and f"{kind[1]}.{kind[2]}" in self.helpers:
             self.m.imports.setdefault(node.attr, ("from", f"{kind[1]}.{kind[2]}", node.attr))
             self.m.edit(*self.m.span(node), node.attr)
+
+    def visit_ImportFrom(self, node):
+        # `from test.re_tests import tests` inside a test: the names come from that fetched module like any other
+        if node.col_offset and node.module in self.helpers and node.level == 0 and self.m.alone(node):
+            for a in node.names:
+                self.m.imports.setdefault(a.asname or a.name, ("from", node.module, a.name))
+            self.m.edit(*self.m.span(node), "pass")
 
     def visit_Assign(self, node):
         self.generic_visit(node)
         if any(a is node for a in self.alias.values()):
             self.m.edit(*self.m.span(node), "pass")
+        fresh = fresh_module(node)
+        if fresh and node.col_offset and fresh[1] in COMPANIONS and len(node.value.args) == 1 and not node.value.keywords and self.m.alone(node):
+            # `m = import_helper.import_fresh_module("test.typinganndata.ann_module3")` in a test: a generated script
+            # is a fresh process, so its first import of the module is fresh
+            self.m.edit(*self.m.span(node), f"import {fresh[1]} as {fresh[0]}")
 
     def visit_Expr(self, node):
         self.generic_visit(node)
@@ -383,6 +508,14 @@ class Rewriter(ast.NodeVisitor):
             return
         if isinstance(f, ast.Attribute) and f.attr == "__init__" and "TestCase" in ast.dump(f.value):
             self.m.edit(*self.m.span(node), "pass")
+        elif (isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id in RECEIVERS and f.attr == "skipTest"
+              and len(call.args) <= 1 and not call.keywords):
+            self.m.edit(*self.m.span(node), "raise _conf_Skip(" + "".join(self.m.expr(a) for a in call.args) + ")")
+        elif (isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id in RECEIVERS and f.attr == "addCleanup"
+              and call.args and not call.keywords and not any(isinstance(a, ast.Starred) for a in call.args)):
+            # unittest calls each cleanup after tearDown, last added first; the arguments are taken now
+            fn, *rest = [self.m.expr(a) for a in call.args]
+            self.m.edit(*self.m.span(node), f"_conf_cleanups.append(({fn}, ({''.join(r + ', ' for r in rest)})))")
         elif isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id in RECEIVERS:
             lines = rewrite_assertion(self.m, node, f.attr, call)
             if lines:
@@ -394,6 +527,7 @@ class Rewriter(ast.NodeVisitor):
     def visit_With(self, node):
         self.generic_visit(node)
         if len(node.items) != 1:
+            self.visit_multi_with(node)
             return
         item = node.items[0]
         c = item.context_expr
@@ -421,6 +555,36 @@ class Rewriter(ast.NodeVisitor):
             self.m.edit(start, header_end, "try:")
             end = self.m.off(node.end_lineno, node.end_col_offset)
             self.m.edit(end, end, "".join("\n" + ind + ln for ln in lines))
+
+    def visit_multi_with(self, node):
+        """`with self.subTest(x), self.assertRaises(E):` and the like: subTest is dropped (a failure stops the
+        extracted test either way), and each assertRaises or assertWarns becomes the matching context manager."""
+        def receiver_call(item):
+            c = item.context_expr
+            return (c.func.attr if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute) and isinstance(c.func.value, ast.Name)
+                    and c.func.value.id in RECEIVERS else None)
+        kinds = [receiver_call(i) for i in node.items]
+        if not any(kinds):
+            return
+        new = []
+        for item, k in zip(node.items, kinds):
+            c = item.context_expr
+            if k == "subTest":
+                continue
+            if k in ("assertRaises", "assertRaisesRegex") and item.optional_vars is None and not c.keywords and len(c.args) == (2 if k == "assertRaisesRegex" else 1):
+                new.append("_conf_Raises(" + ", ".join(self.m.expr(a) for a in c.args) + ")")
+            elif k in ("assertWarns", "assertWarnsRegex") and item.optional_vars is None and not c.keywords and len(c.args) == (2 if k == "assertWarnsRegex" else 1):
+                new.append("_conf_Warns(" + ", ".join(self.m.expr(a) for a in c.args) + ")")
+            elif k is None:
+                new.append(self.m.expr(c) + (" as " + self.m.expr(item.optional_vars) if item.optional_vars is not None else ""))
+            else:
+                return  # not understood: left for the final check
+        first, last = node.items[0], node.items[-1]
+        end = last.optional_vars or last.context_expr
+        start = self.m.off(first.context_expr.lineno, first.context_expr.col_offset)
+        stop = self.m.off(end.end_lineno, end.end_col_offset)
+        if new:
+            self.m.edit(start, stop, ", ".join(new))
 
     def fix_uses(self, node, name):
         """`cm.exception` read inside the with body itself, before the name was known."""
@@ -540,6 +704,7 @@ class Universe:
             Rewriter(m, names).visit(m.tree)
         self.order = list(sources)
         self.python = None  # the reference interpreter, set before tests are cut out: skip conditions are evaluated by it
+        self.companions, self.last_files = {}, {}  # COMPANIONS' contents; the companion files of the last extracted test
 
     def chain(self, mod, cls):
         """The class and its bases, nearest first, ending before unittest.TestCase; None if not a test."""
@@ -640,26 +805,39 @@ class Universe:
                 raise Excluded(why)
         if isinstance(fn, ast.AsyncFunctionDef):
             raise CantExtract("async test")
-        if [a.arg for a in fn.args.args] != ["self"] or fn.args.vararg or fn.args.kwarg or fn.args.kwonlyargs:
+        # unittest calls a test with no arguments, so any beyond self must have a default (`def test_x(self, step=1)`)
+        if (fn.args.args[:1] == [] or fn.args.args[0].arg != "self" or len(fn.args.args) - 1 > len(fn.args.defaults)
+                or fn.args.posonlyargs or fn.args.vararg or fn.args.kwarg or None in fn.args.kw_defaults):
             raise CantExtract("test method takes extra arguments")
 
         script = Script(self)
         script.test_fn = fn
         body = owner.bare(fn)
         names, attrs = uses(body)
-        plain = (not self_used(body) and "super" not in names and not has_mangled(body)
+        # exec("... self.assertEqual(...) ...") keeps its assertions in a string, out of the rewriter's reach: the class
+        # gets a base with those methods (the build refuses exec either way; the reference run shows the script works)
+        # (or hands them to it: `exec(code, {'fail': self.fail})`)
+        script.exec_self = any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in ("exec", "eval", "compile")
+                               and any(isinstance(a, ast.Constant) and isinstance(a.value, str) and "self." in a.value
+                                       or isinstance(a, ast.Attribute) and isinstance(a.value, ast.Name) and a.value.id == "self"
+                                       and a.attr in EXEC_SHIM for arg in n.args for a in ast.walk(arg))
+                               for n in ast.walk(fn))
+        plain = (not script.exec_self and not self_used(body) and "super" not in names and not has_mangled(body)
                  and not any(n.name in ("setUp", "tearDown") for _, c in chain for n in c.body if isinstance(n, ast.FunctionDef)))
         if plain:
             text = dedent(body, fn.col_offset)
-            text = re.sub(r"^def (\w+)\(self\)", r"def \1()", text, count=1)
+            text = re.sub(r"^def (\w+)\(self(?:, |\))", lambda mo: f"def {mo.group(1)}(" + ("" if mo.group(0).endswith(", ") else ")"), text, count=1)
             for n in names:
                 script.need(owner, n)
-            tail = f"{text}\n\n{wrapped_call(wrappers, method)}\n"
+            script.call = wrapped_call(wrappers, method)
+            tail = f"{text}\n\n{script.call}\n"
         else:
             tail = script.class_shape(chain, cls_name, method, wrappers)
         header = f"# Extracted by tools/conformance.py from CPython {TAG} Lib/test/{name}.py, {cls_name}.{method}\n"
         header += "# (CPython's test suite is under the PSF licence: https://docs.python.org/3/license.html)\n"
-        return script.finish(header, tail)
+        out = script.finish(header, tail)
+        self.last_files = {COMPANIONS[m][0]: self.companions[m] for m in sorted(script.companions)}
+        return out
 
 
 SKIPS = {"skipIf": False, "skipUnless": True}  # unittest decorator -> the value of the condition that lets the test run
@@ -712,6 +890,10 @@ def decorator_plan(py, mod, node):
         try:
             if last in EXCLUDED_DECORATORS:
                 excluded = excluded or EXCLUDED_DECORATORS[last]
+            elif (dotted == "unittest.skipIf" and len(args) == 2 and not kws and ast.unparse(args[0]) == "support.MISSING_C_DOCSTRINGS"
+                  and mod.imports.get("support") == ("from", "test", "support")):
+                if condition_value(py, mod, ast.parse(MISSING_DOCSTRINGS_CONDITION, mode="eval").body, trusted=True):
+                    excluded = excluded or "skipped by CPython: " + ast.literal_eval(args[1])
             elif dotted in ("unittest.skipIf", "unittest.skipUnless") and args and not kws:
                 if condition_value(py, mod, args[0]) != SKIPS[last]:
                     why = ast.literal_eval(args[1]) if len(args) > 1 and isinstance(args[1], ast.Constant) else ast.unparse(args[0])
@@ -719,6 +901,13 @@ def decorator_plan(py, mod, node):
             elif dotted == "support.requires_docstrings" and mod.imports.get("support") == ("from", "test", "support"):
                 if not condition_value(py, mod, ast.parse(DOCSTRINGS_CONDITION, mode="eval").body, trusted=True):
                     excluded = excluded or "skipped by CPython: test requires docstrings"
+            elif (dotted == "threading_helper.requires_working_threading" and isinstance(d, ast.Call) and not args and not kws
+                  and mod.imports.get("threading_helper") == ("from", "test.support", "threading_helper")):
+                if not condition_value(py, mod, ast.parse(THREADS_CONDITION, mode="eval").body, trusted=True):
+                    excluded = excluded or "skipped by CPython: requires threading support"
+            elif dotted == "support.skip_on_s390x" and not isinstance(d, ast.Call) and mod.imports.get("support") == ("from", "test", "support"):
+                if condition_value(py, mod, ast.parse(S390X_CONDITION, mode="eval").body, trusted=True):
+                    excluded = excluded or "skipped by CPython: skipped on s390x"
             elif dotted == "support.skip_if_pgo_task" and mod.imports.get("support") == ("from", "test", "support"):
                 pass  # support.PGO is False outside the PGO build task, so this is the identity
             elif dotted == "support.impl_detail" and not kws and mod.imports.get("support") == ("from", "test", "support"):
@@ -787,17 +976,54 @@ def flat_body(mod, body):
             yield node
 
 
+@functools.lru_cache(None)
+def reference_has(py, module):
+    """Whether the reference CPython can import a module (its C test modules are optional in a build)."""
+    if py is None:
+        raise CantExtract(f"whether CPython has {module} cannot be decided without the reference interpreter")
+    return subprocess.run([py, "-I", "-c", f"import {module}"], capture_output=True, timeout=30).returncode == 0
+
+
+def support_special(py, name):
+    """(text, imports) standing in for a test.support helper whose own code reaches CPython internals, or None for the
+    helpers copied as they are. Raises Excluded where CPython itself skips the test or measures its C internals."""
+    if name == "get_c_recursion_limit":
+        # support: `import _testcapi; return _testcapi.Py_C_RECURSION_LIMIT`, else raise unittest.SkipTest
+        if reference_has(py, "_testcapi"):
+            raise CantExtract("get_c_recursion_limit() reads _testcapi")
+        raise Excluded("skipped by CPython: get_c_recursion_limit() requires _testcapi, which the reference build lacks")
+    if name in ("infinite_recursion", "get_recursion_depth"):
+        if reference_has(py, "_testinternalcapi"):
+            raise Excluded("measures the recursion depth with _testinternalcapi (CPython's C internals)")
+        raise CantExtract(f"{name}() without _testinternalcapi")
+    if name == "setswitchinterval":
+        # support's version only raises the interval on an old Android emulator
+        return "def setswitchinterval(interval):\n    return sys.setswitchinterval(interval)", ["import sys"]
+    return None
+
+
 class Script:
     """The definitions one test needs, gathered by following names from the test outward."""
 
     def __init__(self, universe):
         self.u, self.seen, self.nodes, self.lines, self.test_fn = universe, set(), {}, set(), None
+        self.exec_self, self.call, self.companions = False, None, set()
 
     def need(self, mod, name):
         if (mod.name, name) in self.seen:
             return
         self.seen.add((mod.name, name))
+        special = support_special(self.u.python, name) if mod.name == "test.support" else None
+        if special:
+            self.nodes[(-1, len(self.nodes))] = special[0]
+            self.lines.update(special[1])
+            return
         kind = mod.imports.get(name)
+        companion = kind and (kind[1] if kind[0] == "import" else f"{kind[1]}.{kind[2]}")
+        if companion in COMPANIONS and name not in mod.defs:
+            self.lines.add(f"import {kind[1]}" + (f" as {kind[2]}" if kind[2] else "") if kind[0] == "import"
+                           else f"from {kind[1]} import {kind[2]}" + (f" as {name}" if kind[2] != name else ""))
+            return
         if name in mod.defs:
             for node in mod.defs[name]:
                 self.include(mod, node)
@@ -842,7 +1068,9 @@ class Script:
                         self.need(mod, n)
                     todo += sorted(attrs | names)
         out, base = [], ""
-        if any("super()" in t for ms in picked.values() for t in ms.values()):
+        if self.exec_self:
+            base = "(_conf_TestCase)"
+        elif any("super()" in t for ms in picked.values() for t in ms.values()):
             out.append("class _Case:\n    def setUp(self):\n        pass\n\n    def tearDown(self):\n        pass\n")
             base = "(_Case)"
         for i in range(len(chain) - 1, -1, -1):
@@ -858,7 +1086,8 @@ class Script:
         calls = [f"{leaf}.setUpClass()"] if has("setUpClass") else []
         calls.append(f"_t = {leaf}()")
         calls += ["_t.setUp()"] if has("setUp") else []
-        calls.append(wrapped_call(wrappers, f"_t.{method}"))
+        self.call = wrapped_call(wrappers, f"_t.{method}")
+        calls.append(self.call)
         calls += ["_t.tearDown()"] if has("tearDown") else []
         calls += [f"{leaf}.tearDownClass()"] if has("tearDownClass") else []
         return "\n".join(out) + "\n" + "\n".join(calls) + "\n"
@@ -870,6 +1099,11 @@ class Script:
             return None if text is None else "\n".join(ln[4:] if ln.startswith("    ") else ln for ln in text.split("\n"))
         if node is self.test_fn:
             return mod.bare(node)  # its decorators were dealt with (decorator_plan)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name and node.name.startswith("test") and node.decorator_list:
+            # another test the test calls (`self.test_count_threading(step=5)`): skip decorators that let it run under
+            # the reference CPython are the identity there; one that would skip it skips the caller too (Excluded)
+            if not decorator_plan(self.u.python, mod, node):
+                return mod.bare(node)
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == name:
             return mod.block(node)
         if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
@@ -886,6 +1120,13 @@ class Script:
 
     def finish(self, header, tail):
         text = "\n".join(list(self.nodes.values()) + [tail])
+        if re.search(r"\b_conf_(Skip|cleanups)\b", text):
+            # skipTest ends the test where it is called; the cleanups run after it (and after tearDown), last first
+            head, sep, rest = tail.rpartition(self.call)
+            tail = head + f"_conf_run(lambda: {self.call})" + rest
+            if "_conf_cleanups" in text:
+                tail += "for _f, _a in reversed(_conf_cleanups):\n    _f(*_a)\n"
+            text = "\n".join(list(self.nodes.values()) + [tail])
         used = [h for h in HELPERS if re.search(rf"\b{h}\b", text)]
         used += [d for h in used for d in HELPER_NEEDS.get(h, []) if d not in used]
         self.lines.update(i for h in used for i in HELPER_IMPORTS[h])
@@ -895,6 +1136,14 @@ class Script:
                  + [self.nodes[k] for k in sorted(self.nodes)] + [tail])
         script = "\n\n".join(p for p in parts if p.strip())
         validate(script)
+        for n in ast.walk(parse(script)):
+            # each companion module the script imports, and each package above it, travels with the script
+            mods = ([a.name for a in n.names] if isinstance(n, ast.Import)
+                    else [f"{n.module}.{a.name}" for a in n.names] + [n.module] if isinstance(n, ast.ImportFrom) else [])
+            for m in mods:
+                parts = m.split(".")
+                if m in COMPANIONS:
+                    self.companions.update(".".join(parts[:i]) for i in range(1, len(parts) + 1))
         return script
 
 
@@ -905,16 +1154,33 @@ def validate(script):
     except SyntaxError as e:
         raise CantExtract(f"generated script does not parse: {e.msg}")
     defined = {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+    # the attribute reads of a restricted module that are allowed: `io.StringIO`, `unittest.mock`
+    allowed_reads = {id(n.value) for n in ast.walk(tree) if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)
+                     and n.attr in RESTRICTED_IMPORTS.get(n.value.id, ())}
     for n in ast.walk(tree):
+        roots = []
         if isinstance(n, ast.Import):
-            roots = [a.name.split(".")[0] for a in n.names]
+            for a in n.names:
+                root, _, rest = a.name.partition(".")
+                if a.name in COMPANIONS:
+                    continue
+                if root in RESTRICTED_IMPORTS and not a.asname and (not rest or rest in RESTRICTED_IMPORTS[root]):
+                    continue  # `import io`, `import unittest.mock`: every read of the name is checked below
+                roots.append(root if root not in RESTRICTED_IMPORTS else a.name)
         elif isinstance(n, ast.ImportFrom):
-            roots = [(n.module or "").split(".")[0]]
-        else:
-            roots = []
+            root, _, rest = (n.module or "").partition(".")
+            if n.level == 0 and n.module in COMPANIONS and all(f"{n.module}.{a.name}" in COMPANIONS for a in n.names):
+                pass
+            elif root in RESTRICTED_IMPORTS and n.level == 0:
+                if not (rest in RESTRICTED_IMPORTS[root] or not rest and all(a.name in RESTRICTED_IMPORTS[root] for a in n.names)):
+                    roots.append(n.module)
+            else:
+                roots.append(root)
         for r in roots:
             if r not in ALLOWED_IMPORTS:
                 raise CantExtract(f"imports {r}")
+        if isinstance(n, ast.Name) and n.id in RESTRICTED_IMPORTS and id(n) not in allowed_reads and isinstance(n.ctx, ast.Load):
+            raise CantExtract(f"uses {n.id} beyond {', '.join(sorted(RESTRICTED_IMPORTS[n.id]))}")
         if isinstance(n, ast.Name) and n.id in FORBIDDEN_NAMES and isinstance(n.ctx, ast.Load):
             raise CantExtract(f"uses {n.id}()")
         if (isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id in RECEIVERS
@@ -930,10 +1196,10 @@ def cache_dir():
     return (Path(base) if base else Path.home() / ".cache" / "brevi").resolve() / "conformance"
 
 
-def load_sources(cache):
+def load_sources(cache, pinned=None):
     """Every pinned file, from the cache if it is there, else from GitHub; each must match its hash."""
     out = {}
-    for name, (path, sha) in SOURCES.items():
+    for name, (path, sha) in (SOURCES if pinned is None else pinned).items():
         f = cache / "cpython" / TAG / path
         data = f.read_bytes() if f.exists() else None
         if data is None or hashlib.sha256(data).hexdigest() != sha:
@@ -1080,7 +1346,9 @@ def masked(run):
 
 
 def reference(py, script, folder, seed, cfg):
-    return masked(run_limited([py, "-B", "-s", "-P", str(script)], str(folder), run_env(folder, seed), cfg.timeout, cfg.mem_mb, cfg.sandbox))
+    # -P keeps the script's folder off sys.path, unless the test's companion modules (COMPANIONS) are there to import
+    safe = [] if (folder / "test").is_dir() else ["-P"]
+    return masked(run_limited([py, "-B", "-s", *safe, str(script)], str(folder), run_env(folder, seed), cfg.timeout, cfg.mem_mb, cfg.sandbox))
 
 
 def last_line(data):
@@ -1155,6 +1423,9 @@ def run_case(case, cfg):
     folder.mkdir(parents=True)
     script = folder / "case.py"
     script.write_text(case["script"], encoding="utf-8")
+    for rel, data in case.get("files", {}).items():
+        (folder / rel).parent.mkdir(parents=True, exist_ok=True)
+        (folder / rel).write_bytes(data)
     a, b = (reference(cfg.python, script, folder, seed, cfg) for seed in (1, 2))
     if (a.rc, a.out) != (b.rc, b.out):
         return {**case, "category": "unstable", "detail": "CPython's output changes with PYTHONHASHSEED"}
@@ -1163,6 +1434,10 @@ def run_case(case, cfg):
         return {**case, "category": "not_extractable", "detail": f"generated script fails under CPython: {why}"}
     if NO_RAISE.encode() in a.out:
         return {**case, "category": "not_extractable", "detail": "assertRaises saw no exception in the extracted test"}
+    if SKIPPED in a.out:
+        # the test called skipTest under the reference CPython (a locale this machine lacks, say): CPython skips it
+        why = a.out[a.out.index(SKIPPED) + len(SKIPPED):].split(b"\n")[0].decode("utf-8", "replace").strip()
+        return {**case, "category": "excluded", "detail": f"skipped by CPython at run time: {why}"}
     modes = {}
     for mode in ("normal", "dyn"):
         exe, path, why, crashed = build(script, folder, mode, cfg)
@@ -1179,7 +1454,7 @@ def run_case(case, cfg):
     return {**case, "modes": modes}
 
 
-CATEGORIES = ["matched", "refused", "by_design", "string_model", "wrong_output", "wrong_exit", "crash_or_timeout", "not_extractable", "unstable", "excluded"]
+CATEGORIES = ["matched", "refused", "by_design", "string_model", "cpython_private", "wrong_output", "wrong_exit", "crash_or_timeout", "not_extractable", "unstable", "excluded"]
 # A native program that dies on one of these may be memory-unsafe, which SECURITY.md asks to report privately:
 # the public report only counts them; the test names go to private_signals.json in the cache.
 PRIVATE_SIGNALS = ("SIGSEGV", "SIGBUS", "SIGILL", "SIGABRT", "SIGFPE", "SIGTRAP")
@@ -1237,6 +1512,21 @@ def string_model_stop(r):
     """Whether both builds stopped on the lone-surrogate refusal and on nothing else."""
     return "modes" in r and all(x["category"] in ("wrong_exit", "string_model") and bool(STRING_MODEL_STOP.match(x["detail"] or ""))
                                 for x in r["modes"].values())
+
+
+def read_private():
+    """{test id: issue} from the reviewed CPython-private-helper list: `test-id  issue=#N`, `#` comments."""
+    if not PRIVATE_FILE.exists():
+        return {}
+    rows = [ln.split() for ln in PRIVATE_FILE.read_text().splitlines() if ln.strip() and not ln.startswith("#")]
+    return {r[0]: next((t[len("issue="):] for t in r[1:] if t.startswith("issue=#")), "") for r in rows}
+
+
+def private_refusal(r):
+    """Whether the dynamic build refused exactly a CPython-private module attribute and the normal build refused too."""
+    return ("modes" in r and r["modes"]["dyn"]["category"] in ("refused", "cpython_private")
+            and bool(PRIVATE_REFUSAL.match(r["modes"]["dyn"]["detail"] or ""))
+            and r["modes"]["normal"]["category"] in ("refused", "cpython_private"))
 
 
 def bad_ids(results):
@@ -1331,6 +1621,8 @@ def markdown(rep, results):
              "native binary refuses on purpose. They are left out of the coverage denominator and listed by name below.", "",
              f"**Need the string model: {n['string_model']}** tests stop on a str holding a lone surrogate, which Brevi's "
              "strings cannot hold yet. They count as not matched and are listed by name below.", "",
+             f"**Call CPython-private helpers: {n['cpython_private']}** tests call a private module function (such as "
+             "re._compile or functools._c3_mro) that Brevi refuses. They count as not matched and are listed by name below.", "",
              "## Normal build", ""] + table("normal") + ["", "## Forced dynamic build", ""] + table("dyn")
     lines += ["", "## Paths taken", "", "| Build | " + " | ".join(rep["paths"]["normal"]) + " |",
               "| --- | " + " | ".join("---:" for _ in rep["paths"]["normal"]) + " |",
@@ -1347,7 +1639,12 @@ def markdown(rep, results):
               f"Reviewed list: [compat/{STRING_MODEL_FILE.name}](../../compat/{STRING_MODEL_FILE.name}), each tied to an issue.", ""]
     lines += [f"- `{r['id']}` ({sm.get(r['id'], '')}): {r['modes']['normal']['detail']}" for r in results
               if "modes" in r and r["modes"]["normal"]["category"] == "string_model"]
-    lines += ["", "## Excluded (CPython internals)", ""]
+    pv = read_private()
+    lines += ["", "## Call CPython-private helpers", "",
+              f"Reviewed list: [compat/{PRIVATE_FILE.name}](../../compat/{PRIVATE_FILE.name}), each tied to an issue.", ""]
+    lines += [f"- `{r['id']}` ({pv.get(r['id'], '')}): {r['modes']['dyn']['detail']}" for r in results
+              if "modes" in r and r["modes"]["normal"]["category"] == "cpython_private"]
+    lines += ["", "## Excluded (CPython internals, and tests CPython itself skips)", ""]
     why = collections.Counter(r["detail"] for r in results if r.get("category") == "excluded")
     lines += [f"- {w}: {c}" for w, c in why.most_common()]
     for title, cat in (("Why tests are not extractable", "not_extractable"),):
@@ -1387,6 +1684,8 @@ def extract_all(universe, names, pattern):
             case = {"id": cid, "file": name}
             try:
                 case["script"] = universe.extract(name, cls, method)
+                if universe.last_files:
+                    case["files"] = universe.last_files
             except Excluded as e:
                 case.update(category="excluded", detail=str(e))
             except CantExtract as e:
@@ -1402,6 +1701,8 @@ def show(cases, cid, cfg):
     if "script" not in case:
         sys.exit(f"{cid}: {case['category']}: {case['detail']}")
     print(case["script"])
+    for rel in case.get("files", {}):
+        print(f"# needs {rel} from CPython {TAG} Lib/ next to case.py (in the cache under cpython/{TAG}/{rel})")
     print(f"# Save this as case.py, then:\n#   {cfg.python} case.py\n#   BREVI_PATH=1 {cfg.brevi} build case.py -o prog && ./prog\n"
           "#   BREVI_PATH=1 BREVI_DYN=1 ... the same, for the forced dynamic build")
 
@@ -1431,6 +1732,7 @@ def main():
         sys.exit(f"not pinned in SOURCES: {', '.join(unknown)}")
     cache = cache_dir()
     universe = Universe(load_sources(cache))
+    universe.companions = load_sources(cache, COMPANIONS)
     cfg.python = find_python(cfg.python)
     cfg.brevi = str(Path(os.environ.get("BREVI", ROOT / "target" / "release" / ("brevi.exe" if WINDOWS else "brevi"))).resolve())
     universe.python = cfg.python
@@ -1453,6 +1755,7 @@ def main():
     results = [futures[c["id"]].result() if "script" in c else c for c in cases]
     for r in results:
         r.pop("script", None)
+        r.pop("files", None)
     reviewed = read_by_design()
     for r in results:
         if r["id"] in reviewed and by_design_refusal(r):
@@ -1464,6 +1767,12 @@ def main():
         if r["id"] in string_model and string_model_stop(r):
             for x in r["modes"].values():
                 x["category"] = "string_model"
+    private_list = read_private()
+    for r in results:
+        if r["id"] in private_list and private_refusal(r):
+            for x in r["modes"].values():
+                if x["category"] == "refused":
+                    x["category"] = "cpython_private"
     version = subprocess.run([cfg.brevi, "--version"], capture_output=True, text=True).stdout.strip()
     rep = {"brevi": version, "python": PYTHON_VERSION, "tag": TAG, "date": time.strftime("%Y-%m-%d"), "platform": sys.platform,
            "sandboxed": cfg.sandbox, "timeout_s": cfg.timeout, "mem_mb": cfg.mem_mb,
@@ -1480,7 +1789,8 @@ def main():
     n = rep["totals"]["normal"]
     print(f"coverage {n['coverage'] * 100:.1f}%, wrong {n['wrong']} ({n['wrong_output']} output, {n['wrong_exit']} exit), "
           f"{n['by_design']} refused by design (strings run as code, not counted), "
-          f"{n['string_model']} need the string model (counted as not matched); report in {out}")
+          f"{n['string_model']} need the string model, {n['cpython_private']} call CPython-private helpers "
+          f"(both counted as not matched); report in {out}")
     bad = set(bad_ids(results))
     matched = {m: rep["totals"][m]["matched"] for m in ("normal", "dyn")}
     if cfg.write_baseline:
@@ -1510,6 +1820,15 @@ def main():
             failed = True
         if sm_untied:
             print(f"{len(sm_untied)} lines in {STRING_MODEL_FILE.relative_to(ROOT)} have no issue=#N:\n  " + "\n  ".join(sm_untied))
+            failed = True
+        pv_stale = sorted(i for i in private_list if i in ran and not any(r["id"] == i and private_refusal(r) for r in results))
+        pv_untied = sorted(i for i, issue in private_list.items() if not re.fullmatch(r"#\d+", issue))
+        if pv_stale:
+            print(f"{len(pv_stale)} tests in {PRIVATE_FILE.relative_to(ROOT)} are no longer refused for a CPython-private helper "
+                  "in both builds; remove them:\n  " + "\n  ".join(pv_stale))
+            failed = True
+        if pv_untied:
+            print(f"{len(pv_untied)} lines in {PRIVATE_FILE.relative_to(ROOT)} have no issue=#N:\n  " + "\n  ".join(pv_untied))
             failed = True
         if unowned:
             print(f"{len(unowned)} known-wrong lines lack a tracking issue, owner or live expiry ({BASELINE.relative_to(ROOT)}):\n  "
@@ -1543,7 +1862,7 @@ def main():
         if problems:
             print("release gate FAILS:\n  " + "\n  ".join(problems)); sys.exit(1)
         print(f"release gate holds: coverage {n['coverage'] * 100:.1f}%, no wrong results, {n['by_design']} refused by design, "
-              f"{n['string_model']} need the string model")
+              f"{n['string_model']} need the string model, {n['cpython_private']} call CPython-private helpers")
 
 
 if __name__ == "__main__":
