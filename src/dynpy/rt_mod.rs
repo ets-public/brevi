@@ -2033,32 +2033,15 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
         }
         "chain.from_iterable" => chain_new(get_iter(&a1(&a, "from_iterable")?)?),
         "accumulate" => {
-            let init = a.kw("initial").filter(|x| !matches!(x, V::None));
+            let init = a.kw("initial").unwrap_or(V::None);
             let f = a.p.get(1).cloned().or(a.kw("func")).filter(|f| !matches!(f, V::None));
-            let mut it = iter(&a.p.first().cloned().or(a.kw("iterable")).ok_or_else(|| exc("TypeError", "accumulate() missing required argument 'iterable' (pos 1)".into()))?)?;
-            let mut acc: Option<V> = None;
-            let mut first = init;
-            gen_iter(ItKind::ItAccumulate, move || {
-                if let Some(i) = first.take() {
-                    acc = Some(i.clone());
-                    return Ok(Some(i));
-                }
-                let Some(x) = it.next()? else { return Ok(None) };
-                let v = match acc.take() {
-                    None => x,
-                    Some(p) => match &f {
-                        Some(f) => call(f, Args::p(vec![p, x]))?,
-                        None => add(&p, &x)?,
-                    },
-                };
-                acc = Some(v.clone());
-                Ok(Some(v))
-            })
+            let it = get_iter(&a.p.first().cloned().or(a.kw("iterable")).ok_or_else(|| exc("TypeError", "accumulate() missing required argument 'iterable' (pos 1)".into()))?)?;
+            accumulate_new(it, f, init)
         }
         "groupby" => {
-            let key = a.p.get(1).cloned().or(a.kw("key")).filter(|k| !matches!(k, V::None));
-            let it = shared_input(&a.p.first().cloned().or(a.kw("iterable")).ok_or_else(|| exc("TypeError", "groupby() missing required argument 'iterable'".into()))?)?;
-            groupby_iter(it, key)
+            let key = a.p.get(1).cloned().or(a.kw("key")).unwrap_or(V::None);
+            let it = get_iter(&a.p.first().cloned().or(a.kw("iterable")).ok_or_else(|| exc("TypeError", "groupby() missing required argument 'iterable'".into()))?)?;
+            groupby_new(it, key)
         }
         "count" => {
             let start = a.p.first().cloned().or(a.kw("start"));
@@ -2098,37 +2081,11 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
         }
         "zip_longest" => {
             let fill = a.kw("fillvalue").unwrap_or(V::None);
-            let mut its: Vec<Option<It>> = vec![];
+            let mut its = vec![];
             for x in &a.p {
-                its.push(Some(iter(x)?));
+                its.push(get_iter(x)?);
             }
-            let mut active = its.len();
-            gen_iter(ItKind::ItZipLongest, move || {
-                if active == 0 {
-                    return Ok(None);
-                }
-                let mut row = Vec::with_capacity(its.len());
-                for slot in its.iter_mut() {
-                    let got = match slot {
-                        Some(it) => it.next()?,
-                        None => None,
-                    };
-                    match got {
-                        Some(x) => row.push(x),
-                        None => {
-                            if slot.take().is_some() {
-                                active -= 1;
-                                if active == 0 {
-                                    its.clear();
-                                    return Ok(None);
-                                }
-                            }
-                            row.push(fill.clone());
-                        }
-                    }
-                }
-                Ok(Some(tup(row)))
-            })
+            zip_longest_new(its, fill)
         }
         "repeat" => {
             let x = a.p[0].clone();
@@ -2143,38 +2100,11 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
         }
         "starmap" => {
             a.want(name, 2, 2)?;
-            let f = a.p[0].clone();
-            let mut it = iter(&a.p[1])?;
-            gen_iter(ItKind::ItStarmap, move || match it.next()? {
-                Some(x) => Ok(Some(call(&f, Args::p(to_vec(&x)?))?)),
-                None => Ok(None),
-            })
+            starmap_new(a.p[0].clone(), get_iter(&a.p[1])?)
         }
         "takewhile" | "dropwhile" => {
             a.want(name, 2, 2)?;
-            let f = a.p[0].clone();
-            let mut it = iter(&a.p[1])?;
-            let take = name == "takewhile";
-            let mut flag = false;
-            gen_iter(if take { ItKind::ItTakewhile } else { ItKind::ItDropwhile }, move || loop {
-                if take && flag {
-                    return Ok(None);
-                }
-                let Some(x) = it.next()? else { return Ok(None) };
-                if !take && flag {
-                    return Ok(Some(x));
-                }
-                let t = truth(&call(&f, Args::p(vec![x.clone()]))?)?;
-                if take {
-                    if t {
-                        return Ok(Some(x));
-                    }
-                    flag = true;
-                } else if !t {
-                    flag = true;
-                    return Ok(Some(x));
-                }
-            })
+            while_new(name == "takewhile", a.p[0].clone(), get_iter(&a.p[1])?)
         }
         "pairwise" => {
             // CPython's order, which re-entrant inputs can observe: the first item, then each next one
@@ -2213,27 +2143,12 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
         "compress" => {
             let data = a.p.first().cloned().or(a.kw("data")).ok_or_else(|| exc("TypeError", "compress() missing required argument 'data' (pos 1)".into()))?;
             let sel = a.p.get(1).cloned().or(a.kw("selectors")).ok_or_else(|| exc("TypeError", "compress() missing required argument 'selectors' (pos 2)".into()))?;
-            let mut xs = iter(&data)?;
-            let mut ss = iter(&sel)?;
-            gen_iter(ItKind::ItCompress, move || loop {
-                let Some(x) = xs.next()? else { return Ok(None) };
-                let Some(s0) = ss.next()? else { return Ok(None) };
-                if truth(&s0)? {
-                    return Ok(Some(x));
-                }
-            })
+            let d = get_iter(&data)?;
+            compress_new(d, get_iter(&sel)?)
         }
         "filterfalse" => {
             a.want(name, 2, 2)?;
-            let f = a.p[0].clone();
-            let mut it = iter(&a.p[1])?;
-            gen_iter(ItKind::ItFilterfalse, move || loop {
-                let Some(x) = it.next()? else { return Ok(None) };
-                let t = if matches!(f, V::None) { truth(&x)? } else { truth(&call(&f, Args::p(vec![x.clone()]))?)? };
-                if !t {
-                    return Ok(Some(x));
-                }
-            })
+            filterfalse_new(a.p[0].clone(), get_iter(&a.p[1])?)
         }
         "tee" => {
             if !a.k.is_empty() {

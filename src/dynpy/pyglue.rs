@@ -891,10 +891,6 @@ fn pickle_ref(a: Args) -> R {
     match &v {
         V::Func(f) if f.kind.get() != 3 => {}
         V::Class(_) => {}
-        // a builtin of the program (abs, len, ...): by reference to builtins, as CPython pickles its own
-        V::Func(f) if builtin_value(f.name.get()).is_some_and(|b| is(&b, &v)) => {
-            return Ok(tup(vec![V::Int(0), s("builtins"), s(f.name.get())]));
-        }
         V::Func(_) => return Err(unsupported("pickling a builtin function")),
         V::Bound(_) | V::BMeth(_) => return Err(unsupported("pickling a bound method")),
         _ => return Ok(V::None),

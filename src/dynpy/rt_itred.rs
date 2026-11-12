@@ -21,6 +21,10 @@ pub trait RedIt {
     fn repr(&self) -> Option<Result<String, E>> {
         None
     }
+    // the shared state of a groupby iterator, which itertools._grouper(parent, key) needs
+    fn groupby_state(&self) -> Option<Rc<GbState>> {
+        None
+    }
 }
 
 pub fn red_iter(kind: ItKind, r: impl RedIt + 'static) -> V {
@@ -748,7 +752,358 @@ impl RedIt for EnumIt {
     }
 }
 
-// itertools._grouper(parent, tgtkey): see groupby
-pub fn grouper_new(_a: Args) -> R {
-    Err(unsupported("calling the itertools._grouper class"))
+// itertools._grouper(parent, tgtkey), as __reduce__ names it: a grouper that becomes the parent's current one
+pub fn grouper_new(a: Args) -> R {
+    if !a.k.is_empty() {
+        return type_err("_grouper() takes no keyword arguments".into());
+    }
+    if a.p.len() != 2 {
+        return type_err(format!("_grouper expected 2 arguments, got {}", a.p.len()));
+    }
+    let st = match &a.p[0] {
+        V::Iter(c) => red_of(c).and_then(|r| r.groupby_state()),
+        _ => None,
+    };
+    let Some(st) = st else {
+        return type_err(format!("_grouper() argument 1 must be itertools.groupby, not {}", tn(&a.p[0])));
+    };
+    Ok(grouper_make(st, a.p[0].clone(), a.p[1].clone()))
+}
+
+// itertools.accumulate: CPython's accumulateobject (it, binop, total, initial). `total` None is NULL (nothing
+// summed yet); Some(None) is a running total that is the value None.
+pub struct AccumulateIt {
+    it: In,
+    binop: Option<V>,
+    total: RefCell<Option<V>>,
+    initial: RefCell<V>,
+}
+pub fn accumulate_new(it: In, binop: Option<V>, initial: V) -> V {
+    red_iter(ItKind::ItAccumulate, AccumulateIt { it, binop, total: RefCell::new(None), initial: RefCell::new(initial) })
+}
+impl RedIt for AccumulateIt {
+    fn step(&self) -> Result<Option<V>, E> {
+        let init = self.initial.borrow().clone();
+        if !matches!(init, V::None) {
+            *self.total.borrow_mut() = Some(init.clone());
+            *self.initial.borrow_mut() = V::None;
+            return Ok(Some(init));
+        }
+        let Some(x) = self.it.next()? else { return Ok(None) };
+        let total = self.total.borrow().clone();
+        let Some(total) = total else {
+            *self.total.borrow_mut() = Some(x.clone());
+            return Ok(Some(x));
+        };
+        let n = match &self.binop {
+            None => add(&total, &x)?,
+            Some(f) => call(f, Args::p(vec![total, x]))?,
+        };
+        *self.total.borrow_mut() = Some(n.clone());
+        Ok(Some(n))
+    }
+    fn reduce(&self, cls: V) -> R {
+        let binop = self.binop.clone().unwrap_or(V::None);
+        let init = self.initial.borrow().clone();
+        if !matches!(init, V::None) {
+            // accumulate(chain((initial,), it), binop) with no total
+            let it = chain_new(in_of_iterator(&new_iter(It::Tuple(Tup::from(vec![tup(vec![init]), self.it.obj.clone()]), 0), IterClass::Kind(ItKind::TupleIter)))?);
+            return Ok(tup(vec![cls, tup(vec![it, binop]), V::None]));
+        }
+        let total = self.total.borrow().clone();
+        if let Some(V::None) = total {
+            // a running total of None: islice(accumulate(chain((None,), it), binop), 1, None)
+            let it = chain_new(in_of_iterator(&new_iter(It::Tuple(Tup::from(vec![tup(vec![V::None]), self.it.obj.clone()]), 0), IterClass::Kind(ItKind::TupleIter)))?);
+            let acc = accumulate_new(in_of_iterator(&it)?, self.binop.clone(), V::None);
+            return Ok(tup(vec![V::Class(it_class(ItKind::ItIslice)?), tup(vec![acc, V::Int(1), V::None])]));
+        }
+        Ok(tup(vec![cls, tup(vec![self.it.obj.clone(), binop]), total.unwrap_or(V::None)]))
+    }
+    fn setstate(&self, st: &V) -> Option<Result<(), E>> {
+        *self.total.borrow_mut() = Some(st.clone());
+        Some(Ok(()))
+    }
+}
+
+// itertools.starmap: (func, it); each item is the argument tuple.
+pub struct StarmapIt {
+    func: V,
+    it: In,
+}
+pub fn starmap_new(func: V, it: In) -> V {
+    red_iter(ItKind::ItStarmap, StarmapIt { func, it })
+}
+impl RedIt for StarmapIt {
+    fn step(&self) -> Result<Option<V>, E> {
+        let Some(x) = self.it.next()? else { return Ok(None) };
+        Ok(Some(call(&self.func, Args::p(to_vec(&x)?))?))
+    }
+    fn reduce(&self, cls: V) -> R {
+        Ok(tup(vec![cls, tup(vec![self.func.clone(), self.it.obj.clone()])]))
+    }
+}
+
+// itertools.takewhile (`flag` is CPython's stop) and dropwhile (`flag` is start).
+pub struct WhileIt {
+    func: V,
+    it: In,
+    flag: Cell<bool>,
+    take: bool,
+}
+pub fn while_new(take: bool, func: V, it: In) -> V {
+    red_iter(if take { ItKind::ItTakewhile } else { ItKind::ItDropwhile }, WhileIt { func, it, flag: Cell::new(false), take })
+}
+impl RedIt for WhileIt {
+    fn step(&self) -> Result<Option<V>, E> {
+        if self.take {
+            if self.flag.get() {
+                return Ok(None);
+            }
+            let Some(x) = self.it.next()? else { return Ok(None) };
+            if truth(&call(&self.func, Args::p(vec![x.clone()]))?)? {
+                return Ok(Some(x));
+            }
+            self.flag.set(true);
+            return Ok(None);
+        }
+        loop {
+            let Some(x) = self.it.next()? else { return Ok(None) };
+            if self.flag.get() {
+                return Ok(Some(x));
+            }
+            if !truth(&call(&self.func, Args::p(vec![x.clone()]))?)? {
+                self.flag.set(true);
+                return Ok(Some(x));
+            }
+        }
+    }
+    fn reduce(&self, cls: V) -> R {
+        Ok(tup(vec![cls, tup(vec![self.func.clone(), self.it.obj.clone()]), V::Int(self.flag.get() as i64)]))
+    }
+    fn setstate(&self, st: &V) -> Option<Result<(), E>> {
+        Some(truth(st).map(|t| self.flag.set(t)))
+    }
+}
+
+// itertools.compress: (data, selectors), stepped data first.
+pub struct CompressIt {
+    data: In,
+    sel: In,
+}
+pub fn compress_new(data: In, sel: In) -> V {
+    red_iter(ItKind::ItCompress, CompressIt { data, sel })
+}
+impl RedIt for CompressIt {
+    fn step(&self) -> Result<Option<V>, E> {
+        loop {
+            let Some(x) = self.data.next()? else { return Ok(None) };
+            let Some(s) = self.sel.next()? else { return Ok(None) };
+            if truth(&s)? {
+                return Ok(Some(x));
+            }
+        }
+    }
+    fn reduce(&self, cls: V) -> R {
+        Ok(tup(vec![cls, tup(vec![self.data.obj.clone(), self.sel.obj.clone()])]))
+    }
+}
+
+// itertools.filterfalse: (func, it); func None (or bool) tests the item itself.
+pub struct FilterfalseIt {
+    func: V,
+    it: In,
+}
+pub fn filterfalse_new(func: V, it: In) -> V {
+    red_iter(ItKind::ItFilterfalse, FilterfalseIt { func, it })
+}
+impl RedIt for FilterfalseIt {
+    fn step(&self) -> Result<Option<V>, E> {
+        loop {
+            let Some(x) = self.it.next()? else { return Ok(None) };
+            let t = if matches!(self.func, V::None) || matches!(&self.func, V::Class(c) if c.module == "builtins" && c.name == "bool") {
+                truth(&x)?
+            } else {
+                truth(&call(&self.func, Args::p(vec![x.clone()]))?)?
+            };
+            if !t {
+                return Ok(Some(x));
+            }
+        }
+    }
+    fn reduce(&self, cls: V) -> R {
+        Ok(tup(vec![cls, tup(vec![self.func.clone(), self.it.obj.clone()])]))
+    }
+}
+
+// itertools.zip_longest: CPython's ziplongestobject (ittuple with exhausted slots cleared, numactive, fillvalue).
+pub struct ZipLongestIt {
+    its: RefCell<Vec<Option<In>>>,
+    active: Cell<usize>,
+    fill: RefCell<V>,
+}
+pub fn zip_longest_new(its: Vec<In>, fill: V) -> V {
+    let n = its.len();
+    red_iter(ItKind::ItZipLongest, ZipLongestIt { its: RefCell::new(its.into_iter().map(Some).collect()), active: Cell::new(n), fill: RefCell::new(fill) })
+}
+impl RedIt for ZipLongestIt {
+    fn step(&self) -> Result<Option<V>, E> {
+        let n = self.its.borrow().len();
+        if n == 0 || self.active.get() == 0 {
+            return Ok(None);
+        }
+        let mut row = Vec::with_capacity(n);
+        for i in 0..n {
+            let slot = self.its.borrow()[i].clone();
+            let item = match slot {
+                None => self.fill.borrow().clone(),
+                Some(it) => match it.next() {
+                    Ok(Some(x)) => x,
+                    r => {
+                        self.active.set(self.active.get() - 1);
+                        if self.active.get() == 0 || r.is_err() {
+                            self.active.set(0);
+                            return r.map(|_| None);
+                        }
+                        self.its.borrow_mut()[i] = None;
+                        self.fill.borrow().clone()
+                    }
+                },
+            };
+            row.push(item);
+        }
+        Ok(Some(tup(row)))
+    }
+    fn reduce(&self, cls: V) -> R {
+        let args = self.its.borrow().iter().map(|s| match s {
+            Some(i) => i.obj.clone(),
+            None => tup(vec![]),
+        }).collect();
+        Ok(tup(vec![cls, tup(args), self.fill.borrow().clone()]))
+    }
+    fn setstate(&self, st: &V) -> Option<Result<(), E>> {
+        *self.fill.borrow_mut() = st.clone();
+        Some(Ok(()))
+    }
+}
+
+// itertools.groupby and its _grouper: CPython's groupbyobject (it, keyfunc, tgtkey, currkey, currvalue, and
+// the current grouper, which only that grouper may read from).
+pub struct GbState {
+    it: In,
+    keyfunc: V,
+    tgtkey: RefCell<Option<V>>,
+    currkey: RefCell<Option<V>>,
+    currvalue: RefCell<Option<V>>,
+    // the id of the current grouper (0: none) and the last id given
+    curr: Cell<u64>,
+    ids: Cell<u64>,
+}
+pub struct GroupbyIt {
+    st: Rc<GbState>,
+    // the groupby iterator itself, which its groupers name as their parent; set right after it is made
+    me: RefCell<Option<std::rc::Weak<IterCell>>>,
+}
+pub fn groupby_new(it: In, keyfunc: V) -> V {
+    let st = Rc::new(GbState { it, keyfunc, tgtkey: RefCell::new(None), currkey: RefCell::new(None), currvalue: RefCell::new(None), curr: Cell::new(0), ids: Cell::new(0) });
+    let g = Rc::new(GroupbyIt { st, me: RefCell::new(None) });
+    let v = new_iter(It::Red(g.clone()), IterClass::Kind(ItKind::ItGroupby));
+    if let V::Iter(c) = &v {
+        *g.me.borrow_mut() = Some(Rc::downgrade(c));
+    }
+    v
+}
+fn gb_step(st: &GbState) -> Result<bool, E> {
+    let Some(v) = st.it.next()? else { return Ok(false) };
+    let k = if matches!(st.keyfunc, V::None) { v.clone() } else { call(&st.keyfunc, Args::p(vec![v.clone()]))? };
+    *st.currvalue.borrow_mut() = Some(v);
+    *st.currkey.borrow_mut() = Some(k);
+    Ok(true)
+}
+impl RedIt for GroupbyIt {
+    fn step(&self) -> Result<Option<V>, E> {
+        let st = &self.st;
+        st.curr.set(0);
+        loop {
+            let cur = st.currkey.borrow().clone();
+            let tgt = st.tgtkey.borrow().clone();
+            match (cur, tgt) {
+                (None, _) => {}
+                (Some(_), None) => break,
+                (Some(c), Some(t)) => {
+                    if !same_or_eq(&t, &c)? {
+                        break;
+                    }
+                }
+            }
+            if !gb_step(st)? {
+                return Ok(None);
+            }
+        }
+        let k = st.currkey.borrow().clone().unwrap_or(V::None);
+        *st.tgtkey.borrow_mut() = Some(k.clone());
+        let parent = self.me.borrow().as_ref().and_then(|w| w.upgrade()).map(V::Iter).unwrap_or(V::None);
+        let g = grouper_make(st.clone(), parent, k.clone());
+        Ok(Some(tup(vec![k, g])))
+    }
+    fn reduce(&self, cls: V) -> R {
+        let st = &self.st;
+        let (t, c, v) = (st.tgtkey.borrow().clone(), st.currkey.borrow().clone(), st.currvalue.borrow().clone());
+        Ok(match (t, c, v) {
+            (Some(t), Some(c), Some(v)) => tup(vec![cls, tup(vec![st.it.obj.clone(), st.keyfunc.clone()]), tup(vec![c, v, t])]),
+            _ => tup(vec![cls, tup(vec![st.it.obj.clone(), st.keyfunc.clone()])]),
+        })
+    }
+    fn setstate(&self, st: &V) -> Option<Result<(), E>> {
+        Some((|| {
+            let V::Tuple(t) = st else {
+                return type_err("state is not a tuple".into());
+            };
+            if t.len() != 3 {
+                return type_err(format!("function takes exactly 3 arguments ({} given)", t.len()));
+            }
+            *self.st.currkey.borrow_mut() = Some(t[0].clone());
+            *self.st.currvalue.borrow_mut() = Some(t[1].clone());
+            *self.st.tgtkey.borrow_mut() = Some(t[2].clone());
+            Ok(())
+        })())
+    }
+    fn groupby_state(&self) -> Option<Rc<GbState>> {
+        Some(self.st.clone())
+    }
+}
+pub struct GrouperIt {
+    st: Rc<GbState>,
+    parent: V,
+    tgtkey: V,
+    id: u64,
+}
+fn grouper_make(st: Rc<GbState>, parent: V, tgtkey: V) -> V {
+    let id = st.ids.get() + 1;
+    st.ids.set(id);
+    st.curr.set(id);
+    red_iter(ItKind::ItGrouper, GrouperIt { st, parent, tgtkey, id })
+}
+impl RedIt for GrouperIt {
+    fn step(&self) -> Result<Option<V>, E> {
+        let st = &self.st;
+        if st.curr.get() != self.id {
+            return Ok(None);
+        }
+        if st.currvalue.borrow().is_none() && !gb_step(st)? {
+            return Ok(None);
+        }
+        let c = st.currkey.borrow().clone().unwrap_or(V::None);
+        if !same_or_eq(&self.tgtkey, &c)? {
+            return Ok(None);
+        }
+        let r = st.currvalue.borrow_mut().take();
+        *st.currkey.borrow_mut() = None;
+        Ok(r)
+    }
+    fn reduce(&self, cls: V) -> R {
+        if self.st.curr.get() != self.id {
+            return Ok(tup(vec![bv("iter"), tup(vec![tup(vec![])])]));
+        }
+        Ok(tup(vec![cls, tup(vec![self.parent.clone(), self.tgtkey.clone()])]))
+    }
 }
