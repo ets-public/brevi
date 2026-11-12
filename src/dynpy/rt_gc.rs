@@ -24,6 +24,8 @@ enum Wt {
     WBMeth(std::rc::Weak<(V, Sym)>),
     WSet(std::rc::Weak<RefCell<PSet>>),
     WFSet(std::rc::Weak<PSet>),
+    // a generator or an itertools.tee iterator (the iterators CPython gives a weakref list)
+    WIter(std::rc::Weak<IterCell>),
 }
 
 impl Wt {
@@ -36,6 +38,7 @@ impl Wt {
             Wt::WBMeth(w) => w.upgrade().map(V::BMeth),
             Wt::WSet(w) => w.upgrade().map(V::Set),
             Wt::WFSet(w) => w.upgrade().map(V::FSet),
+            Wt::WIter(w) => w.upgrade().map(V::Iter),
         }
     }
 }
@@ -108,6 +111,7 @@ pub fn weakref_fn(n: &str, a: Args) -> R {
                 V::BMeth(b) => Wt::WBMeth(Rc::downgrade(b)),
                 V::Set(s) => Wt::WSet(Rc::downgrade(s)),
                 V::FSet(s) => Wt::WFSet(Rc::downgrade(s)),
+                V::Iter(c) if matches!(c.kind, IterClass::Kind(ItKind::Generator | ItKind::ItTee)) => Wt::WIter(Rc::downgrade(c)),
                 _ => return type_err(format!("cannot create weak reference to '{}' object", tn(x))),
             };
             let r = ExtRc::new(WeakRefV { w, cb: RefCell::new(if matches!(cb, V::None) { None } else { Some(cb) }) });

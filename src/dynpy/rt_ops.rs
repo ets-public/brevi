@@ -2142,6 +2142,10 @@ pub enum It {
     // one iterator of an itertools.tee: its state (position) and the shared source live in TeePos/TeeData,
     // stepped through tee_step so re-entrant calls are seen there, as CPython's tee sees them
     Tee(Rc<TeePos>),
+    // an iterator whose state CPython pickles and copies (most of itertools, map, filter, zip, enumerate):
+    // the state lives behind its own cells, so stepping holds no borrow while it calls user code, and
+    // __reduce__/__setstate__ read and write the same state (see rt_itred.rs)
+    Red(Rc<dyn RedIt>),
     Done,
 }
 pub struct Iter {
@@ -2302,6 +2306,7 @@ impl It {
             It::Obj(o) => obj_next(o),
             It::Ref(r) => iter_step(r),
             It::Shared(f) => f(),
+            It::Red(r) => r.step(),
             It::Tee(p) => tee_step(p),
             It::Done => Ok(None),
         }
@@ -2595,6 +2600,11 @@ pub fn iter_step(it: &Rc<RefCell<It>>) -> Result<Option<V>, E> {
             let p = p.clone();
             drop(g);
             tee_step(&p)
+        }
+        It::Red(r) => {
+            let r = r.clone();
+            drop(g);
+            r.step()
         }
         _ => g.next(),
     }
