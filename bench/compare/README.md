@@ -14,6 +14,28 @@ Corpora: `speed/` (12 programs with big inputs: the 4 from `bench/perf` plus n-b
 
 Tools: `brevi` is `brevi build --release`, `brevi-dev` is `brevi build` (what `brevi run` uses), `codon` is `codon build -release -exe`, `nuitka` is `python -m nuitka --follow-imports` (with ccache).
 
+## Brevi vs CPython, 12 Nov 2026
+
+Brevi main b1004c2 (brevi 0.27.1), rustc 1.99.1, CPython 3.13.13, on a Ryzen 9 5950X (32 threads), WSL2 Ubuntu 24.04, run alone. `--corpus speed`, best of 5, one at a time. Every program printed what CPython prints (12/12 typed, 12/12 dynamic). Codon and Nuitka were not rerun.
+
+| Program | CPython | Brevi default | Brevi --release | Dynamic (`BREVI_DYN=1`, --release) |
+| --- | --- | --- | --- | --- |
+| objects | 1.29 s | 0.03 s (37.9x) | 0.03 s (38.8x) | 0.90 s (1.4x) |
+| spectral | 1.87 s | 0.06 s (31.0x) | 0.05 s (34.2x) | 2.17 s (0.9x) |
+| dp_lcs | 1.12 s | 0.04 s (28.9x) | 0.04 s (31.4x) | 1.67 s (0.7x) |
+| nbody | 2.00 s | 0.09 s (22.5x) | 0.08 s (26.4x) | 3.70 s (0.5x) |
+| set_bfs | 0.79 s | 0.06 s (12.9x) | 0.06 s (14.2x) | 0.75 s (1.0x) |
+| sieve | 0.49 s | 0.04 s (12.0x) | 0.04 s (11.7x) | 0.46 s (1.1x) |
+| trees | 3.05 s | 0.46 s (6.6x) | 0.39 s (7.8x) | 2.45 s (1.2x) |
+| graph | 1.24 s | 0.19 s (6.4x) | 0.18 s (7.0x) | 1.24 s (1.0x) |
+| words | 0.23 s | 0.04 s (5.3x) | 0.05 s (5.0x) | 0.32 s (0.7x) |
+| fannkuch | 3.55 s | 1.29 s (2.8x) | 1.01 s (3.5x) | 8.00 s (0.5x) |
+| strings | 1.36 s | 0.69 s (2.0x) | 0.53 s (2.6x) | 1.68 s (0.8x) |
+| records | 0.45 s | 0.27 s (1.6x) | 0.21 s (2.1x) | 0.84 s (0.5x) |
+| **Median** | | **9.3x** (1.6x-37.9x) | **9.8x** (2.1x-38.8x) | **0.85x** (0.5x-1.4x) |
+
+Median cold build: 0.2 s default, 1.1 s --release, 0.3 s dynamic. The dynamic column's CPython times come from its own run (within 4% of those shown). The 3 Nov figures below came from a 4-core container, so the two runs are not like for like.
+
 ## Results (3 Nov 2026)
 
 Brevi main d7fe346 (after #127 and #128), Codon 0.20.6, Nuitka 4.3.4, CPython 3.13, rustc 1.97, on a 4-core Linux container. Codon and Nuitka figures are from the first run (main 2413e64), against CPython timed in that run.
@@ -50,7 +72,7 @@ Every built speed program printed what CPython prints. Nuitka ran slower than CP
 ## What it shows
 
 - **Correctness.** Brevi and Nuitka run every agent-written program exactly as CPython does. Codon builds about a third of them, and of those, 1 in 6 prints something else, often silently (64-bit ints wrap, `json` and dict-of-mixed-value programs print 0, `print` output is lost when the program crashes, exceptions print without quotes).
-- **Speed.** Even `brevi run`'s default build beats CPython on all 12 programs (1.7x to 40x); `--release` is level with Codon where Codon builds, and also runs object-heavy code Codon refuses. Nuitka stays near CPython.
+- **Speed.** Even `brevi run`'s default build beats CPython on all 12 programs (1.7x to 40x on 3 Nov; 1.6x to 37.9x on 12 Nov, another machine); `--release` is level with Codon where Codon builds, and also runs object-heavy code Codon refuses. Nuitka stays near CPython.
 - **Big ints:** the gap this comparison found (a big int that grows inside a function and is returned stopped with an overflow error) is closed by #131 and #133, along with `//` and `%` on big ints and growing values shared between functions.
 
 History: the first run (main 2413e64) found six Brevi bugs, four of them silent wrong answers, fixed in #127; its follow-ups (fast default build, typed slice assignment, big-int growth, generators in dynamic builds, faster small objects and strings, csv.DictReader, `__file__`) landed in #128. Before them, the default build was slower than CPython on 5 of 12 programs and Brevi matched 588 of 591 solutions and 17 of 18 huge-set programs.
