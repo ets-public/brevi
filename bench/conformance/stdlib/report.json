@@ -9,10 +9,10 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 633,
+"matched": 634,
 "refused": 0,
 "by_design": 4,
-"string_model": 1,
+"string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
@@ -24,18 +24,18 @@
 "scored": 634,
 "matched_through_cpython": 0,
 "matched_silent": 34,
-"coverage": 0.9984,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 599,
-"assert_coverage": 0.9448,
+"matched_asserting": 600,
+"assert_coverage": 0.9464,
 "matched_typed": 18,
 "typed_share": 0.0284
 },
 "dyn": {
-"matched": 633,
+"matched": 634,
 "refused": 0,
 "by_design": 4,
-"string_model": 1,
+"string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
@@ -47,10 +47,10 @@
 "scored": 634,
 "matched_through_cpython": 0,
 "matched_silent": 34,
-"coverage": 0.9984,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 599,
-"assert_coverage": 0.9448,
+"matched_asserting": 600,
+"assert_coverage": 0.9464,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -154,10 +154,10 @@
 },
 "test_re": {
 "normal": {
-"matched": 143,
+"matched": 144,
 "refused": 0,
 "by_design": 1,
-"string_model": 1,
+"string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
@@ -169,18 +169,18 @@
 "scored": 144,
 "matched_through_cpython": 0,
 "matched_silent": 3,
-"coverage": 0.9931,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 140,
-"assert_coverage": 0.9722,
+"matched_asserting": 141,
+"assert_coverage": 0.9792,
 "matched_typed": 16,
-"typed_share": 0.1119
+"typed_share": 0.1111
 },
 "dyn": {
-"matched": 143,
+"matched": 144,
 "refused": 0,
 "by_design": 1,
-"string_model": 1,
+"string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
@@ -192,10 +192,10 @@
 "scored": 144,
 "matched_through_cpython": 0,
 "matched_silent": 3,
-"coverage": 0.9931,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 140,
-"assert_coverage": 0.9722,
+"matched_asserting": 141,
+"assert_coverage": 0.9792,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -3656,14 +3656,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "string_model",
-"path": "dynamic",
-"detail": "exit 1, expected 0: NotImplementedError: brevi: this operation on a str with a lone surrogate (U+D800..U+DFFF) is not supported in dynamic builds yet (runtime line 15063)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "string_model",
-"path": "dynamic",
-"detail": "exit 1, expected 0: NotImplementedError: brevi: this operation on a str with a lone surrogate (U+D800..U+DFFF) is not supported in dynamic builds yet (runtime line 15063)"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -8895,7 +8893,7 @@
 "id": "test_functools.TestLRUC.test_lru_recursion",
 "file": "test_functools",
 "category": "excluded",
-"detail": "measures the recursion depth with _testinternalcapi (CPython's C internals)"
+"detail": "skipped by CPython: get_c_recursion_limit() requires _testcapi, which the reference build lacks"
 },
 {
 "id": "test_functools.TestLRUC.test_lru_reentrancy_with_len",
