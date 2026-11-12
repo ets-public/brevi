@@ -5,6 +5,9 @@
 // namedtuple and dict classes and drops Generic and Protocol.
 thread_local! {
     static TYPING_FORMS: RefCell<Vec<Rc<Class>>> = RefCell::new(vec![]);
+    // CPython's isinstance / issubclass against the collections.abc class of the same name, for a library class
+    // or value (array.array, say). The bridge sets this when CPython starts; None keeps the runtime's own check.
+    pub static ABC_BRIDGE: Cell<Option<fn(&str, &V, bool) -> Option<Result<bool, E>>>> = const { Cell::new(None) };
 }
 pub fn typing_form(n: &str) -> Rc<Class> {
     TYPING_FORMS.with(|t| {

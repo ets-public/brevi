@@ -52,6 +52,7 @@ pub const RUNTIME: &str = concat!(
     include_str!("rt_gc.rs"),
     include_str!("rt_sig.rs"),
     include_str!("rt_gen.rs"),
+    include_str!("rt_thread.rs"),
     include_str!("rt_async.rs"),
     include_str!("rt_enum.rs"),
     include_str!("rt_typing.rs"),

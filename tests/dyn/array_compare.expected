@@ -1,0 +1,36 @@
+0 False
+1 False
+2 True
+3 True
+4 True
+5 TypeError '<' not supported between instances of 'bytes' and 'array.array'
+6 b'\x01\x00\x02\x00'
+7 bytearray(b'\x01\x00\x02\x00')
+8 bytearray(b'xAB')
+9 b'ab-c'
+10 b'x42'
+11 bytearray(b'x42')
+12 1
+13 True
+14 True
+15 True
+16 True
+17 False
+18 True
+19 True
+20 False
+21 b'42'
+22 False
+23 bytearray(b'42')
+24 b'aXc'
+25 True
+26 [52, 50]
+27 True
+28 True
+eq1
+eq2
+ne
+le
+lt
+[True, True, False, True]
+True True

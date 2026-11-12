@@ -258,7 +258,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "datetime" => &["date", "datetime", "time", "timedelta", "timezone", "UTC", "MINYEAR", "MAXYEAR"],
         "csv" => &["DictReader", "DictWriter", "reader", "writer", "QUOTE_MINIMAL", "QUOTE_ALL", "QUOTE_NONNUMERIC", "QUOTE_NONE", "Error"],
         "statistics" => &["fmean", "mean", "median", "median_high", "median_low", "mode", "multimode", "pstdev", "pvariance", "stdev", "variance", "StatisticsError"],
-        "threading" => &["Lock", "RLock", "Thread", "active_count", "current_thread", "main_thread", "stack_size"],
+        "threading" => &["Barrier", "BoundedSemaphore", "BrokenBarrierError", "Condition", "Event", "Lock", "RLock", "Semaphore", "Thread", "active_count", "current_thread", "main_thread", "stack_size"],
         "html" => &["escape", "unescape"],
         "tzlocal" => &["get_localzone_name", "get_localzone"],
         "importlib.metadata" => &["version", "PackageNotFoundError"],
@@ -4999,19 +4999,20 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     let _ = &em.out;
     // a program using warnings: each function puts its caller's line back when it returns (or raises)
     let out = if em.track_warn { out.replace("let __depth = Depth::new()?;", "let __depth = Depth::new()?; let __wg = warn_guard();") } else { out };
-    // CPython's re matches any buffer (array.array, mmap, ctypes arrays) as bytes, and slices the object
-    // itself for groups; Brevi's re takes str and bytes only. weakref would be handed Brevi's Pattern and
-    // Match values, which a bridged library cannot hold. CPython runs such a program.
+    // CPython's re matches any buffer (array.array, mmap, ctypes arrays) as bytes; Brevi's re takes a
+    // library object's buffer for array.array, but an mmap's buffer changes under the match and ctypes was
+    // not checked. weakref would be handed Brevi's Pattern and Match values, which a bridged library
+    // cannot hold. CPython runs such a program.
     if em.uses_re {
-        if let Some(m) = em.bridged_used.iter().find(|m| matches!(m.as_str(), "array" | "mmap" | "ctypes" | "weakref")) {
+        if let Some(m) = em.bridged_used.iter().find(|m| matches!(m.as_str(), "mmap" | "ctypes" | "weakref")) {
             return Err((mods[0].name.clone(), 1, format!("re together with {m} is not supported in dynamic builds")));
         }
     }
-    // array.array, mmap and ctypes arrays are buffers CPython's bytearray and memoryview take (memoryview(arr),
-    // ba.extend(arr), arr.frombytes(ba)), and array.array is a sequence collections.abc knows; Brevi's bytearray
-    // and memoryview see a bridged object, not a buffer.
+    // mmap and ctypes arrays are buffers CPython's bytearray and memoryview take (memoryview(x), ba.extend(x),
+    // x.write(ba)); array.array is one too, but its buffer is read through the bridge (rt_bytes::bytes_of) and a
+    // memoryview of it is refused at run time, so bytearray and memoryview may appear together with array.
     if em.bridge.srcs.values().any(|(_, t)| t.contains("bytearray") || t.contains("memoryview")) {
-        if let Some(m) = em.bridged_used.iter().find(|m| matches!(m.as_str(), "array" | "mmap" | "ctypes")) {
+        if let Some(m) = em.bridged_used.iter().find(|m| matches!(m.as_str(), "mmap" | "ctypes")) {
             return Err((mods[0].name.clone(), 1, format!("bytearray or memoryview together with {m} is not supported in dynamic builds")));
         }
     }

@@ -1,0 +1,11 @@
+b'\x01\x00\x02\x00\x02\x01' bytearray(b'\x01\x00\x02\x00\x02\x01') 6
+bytearray(b'xyzwA')
+bytearray(b'abcd') b'abcd'
+True 2
+array('b', [104, 105]) b'hi' bytearray(b'hi')
+True True True
+True False
+False False False True b'abc-'
+b'\x01\x00\x02\x00' bytearray(b'\x01\x02')
+bytearray(b'0xy3') True abc
+True True

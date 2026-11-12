@@ -290,6 +290,19 @@ pub fn bi_int(mut a: Args) -> R {
         }
         return Ok(V::Int(0));
     }
+    // int(a library value): CPython's int decides (its __int__ or __index__ first, then its buffer, as for
+    // int(array('B', b'42')), and "can't convert non-string with explicit base" with a base)
+    if let V::Ext(x) = &a.p[0] {
+        if x.is_py() {
+            if let Some(f) = PY_BUILTIN.with(|h| h.get()) {
+                let mut p = a.p.clone();
+                if let (1, Some(b)) = (p.len(), &base) {
+                    p.push(b.clone());
+                }
+                return call(&f("int")?, Args::p(p));
+            }
+        }
+    }
     let base = match (a.p.get(1).cloned(), base) {
         // `int("0", base=2 ** 234)`: out of range, as any base past 36.
         (Some(V::Big(_)), _) | (None, Some(V::Big(_))) => Some(i64::MAX),
@@ -341,6 +354,15 @@ pub fn bi_float(a: Args) -> R {
     a.no_kw("float")?;
     if a.p.is_empty() {
         return Ok(V::Float(0.0));
+    }
+    // float(a library value): CPython's float decides, with its own errors (a buffer that is not a number is a
+    // ValueError there)
+    if let V::Ext(x) = &a.p[0] {
+        if x.is_py() {
+            if let Some(f) = PY_BUILTIN.with(|h| h.get()) {
+                return call(&f("float")?, Args::p(a.p.clone()));
+            }
+        }
     }
     Ok(V::Float(to_float(&a.p[0])?))
 }
@@ -810,6 +832,18 @@ pub fn bi_isinstance(a: Args) -> R {
     a.want("isinstance", 2, 2)?;
     Ok(V::Bool(isinstance(&a.p[0], &a.p[1])?))
 }
+// A library class or value (a bridged array.array, say) checked against one of Brevi's collections.abc ABCs:
+// CPython's own collections.abc class of the same name answers, as Brevi's ABC cannot see a library class's
+// methods. None for any other value or class.
+pub fn abc_bridge(k: &Rc<Class>, x: &V, sub: bool) -> Option<Result<bool, E>> {
+    if !(k.module == "collections.abc" && k.abc.get()) {
+        return None;
+    }
+    if !matches!(x, V::Ext(e) if e.is_py()) {
+        return None;
+    }
+    ABC_BRIDGE.with(|h| h.get()).and_then(|f| f(&k.name, x, sub))
+}
 pub fn isinstance(x: &V, c: &V) -> Result<bool, E> {
     // a proxy is an instance of its own type and of its referent's class (CPython checks __class__ too)
     if let Some(__p) = proxy_deref(x).filter(|_| !matches!(c, V::Tuple(_))) {
@@ -832,6 +866,9 @@ pub fn isinstance(x: &V, c: &V) -> Result<bool, E> {
         V::Class(k) => {
             if k.name == "object" && k.module == "builtins" {
                 return Ok(true);
+            }
+            if let Some(r) = abc_bridge(k, x, false) {
+                return r;
             }
             if k.abc.get() {
                 // CPython's exact-type shortcut comes before the metaclass's __instancecheck__
@@ -903,6 +940,14 @@ pub fn abc_subclasscheck(cls: &Rc<Class>, sub: &Rc<Class>) -> Result<bool, E> {
         }
     }
     if sub.is_sub(cls) {
+        if !abc_has(&cls.abc_cache.borrow(), sub) {
+            cls.abc_cache.borrow_mut().push(sub.clone());
+        }
+        return Ok(true);
+    }
+    // collections registers deque as a MutableSequence (CPython's collections/__init__.py); Brevi's deque is the
+    // runtime's own class, which a program can import without Brevi's collections module ever running
+    if cls.module == "collections.abc" && cls.name == "MutableSequence" && sub.is_sub(&tclass(16, "deque")) {
         if !abc_has(&cls.abc_cache.borrow(), sub) {
             cls.abc_cache.borrow_mut().push(sub.clone());
         }
@@ -1434,19 +1479,27 @@ pub fn bi_type(a: Args) -> R {
 pub fn bi_issubclass(a: Args) -> R {
     a.want("issubclass", 2, 2)?;
     let sub = match &a.p[0] {
-        V::Class(c) => c.clone(),
+        V::Class(c) => Some(c.clone()),
+        V::Ext(e) if e.is_py() => None,
         _ => return type_err("issubclass() arg 1 must be a class".into()),
     };
     let check = |k: &V| -> Result<bool, E> {
         match k {
             V::Class(k) => {
+                // a library class (array.array) against a collections.abc ABC: CPython answers
+                if let Some(r) = abc_bridge(k, &a.p[0], true) {
+                    return r;
+                }
+                let Some(sub) = &sub else {
+                    return type_err("issubclass() arg 1 must be a class".into());
+                };
                 if k.abc.get() {
-                    abc_subclasscheck(k, &sub)
+                    abc_subclasscheck(k, sub)
                 } else {
                     Ok(sub.is_sub(k))
                 }
             }
-            V::Ext(e) => match e.subclasscheck(&V::Class(sub.clone())) {
+            V::Ext(e) => match e.subclasscheck(&V::Class(sub.clone().ok_or_else(|| exc("TypeError", "issubclass() arg 1 must be a class".into()))?)) {
                 Some(r) => r,
                 None => type_err("issubclass() arg 2 must be a class, a tuple of classes, or a union".into()),
             },

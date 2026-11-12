@@ -473,9 +473,7 @@ impl Ext for ByteArrayV {
         Some(bytes_of(o).is_some_and(|b| b == *self.d.borrow()))
     }
     fn cmp(&self, o: &V) -> Option<std::cmp::Ordering> {
-        if memview_of(o).is_some() {
-            return None;
-        }
+        // bytearray orders against any buffer CPython takes, memoryview and array.array included
         bytes_of(o).map(|b| self.d.borrow().as_slice().cmp(b.as_slice()))
     }
     fn truth(&self) -> bool {

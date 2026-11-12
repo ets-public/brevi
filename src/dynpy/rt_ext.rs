@@ -2885,76 +2885,6 @@ fn statistics_fn(n: &str, a: Args) -> R {
         _ => Err(unsupported(&format!("statistics.{n}"))),
     }
 }
-pub struct Thread {
-    target: V,
-    args: V,
-    kwargs: V,
-}
-impl Ext for Thread {
-    fn tname(&self) -> &'static str {
-        "threading.Thread"
-    }
-    fn repr(&self) -> String {
-        "<Thread>".into()
-    }
-    fn any(&self) -> &dyn std::any::Any {
-        self
-    }
-    fn method(&self, _me: &V, n: &str, _a: &mut Args) -> Option<R> {
-        Some(match n {
-            "start" | "run" => (|| {
-                if matches!(self.target, V::None) {
-                    return Ok(V::None);
-                }
-                let mut a = Args::p(to_vec(&self.args)?);
-                if !matches!(self.kwargs, V::None) {
-                    star_kwargs(&mut a, &self.kwargs)?;
-                }
-                call(&self.target, a)?;
-                Ok(V::None)
-            })(),
-            "join" | "setDaemon" => Ok(V::None),
-            "is_alive" => Ok(V::Bool(false)),
-            _ => Err(exc("AttributeError", format!("'Thread' object has no attribute '{n}'"))),
-        })
-    }
-}
-pub struct Lock;
-impl Ext for Lock {
-    fn tname(&self) -> &'static str {
-        "_thread.lock"
-    }
-    fn repr(&self) -> String {
-        "<unlocked _thread.lock object>".into()
-    }
-    fn any(&self) -> &dyn std::any::Any {
-        self
-    }
-    fn method(&self, _me: &V, n: &str, _a: &mut Args) -> Option<R> {
-        Some(Ok(match n {
-            "acquire" | "__enter__" => V::Bool(true),
-            "release" | "__exit__" => V::None,
-            "locked" => V::Bool(false),
-            _ => return Some(Err(exc("AttributeError", format!("'lock' object has no attribute '{n}'")))),
-        }))
-    }
-}
-pub fn threading_fn(n: &str, mut a: Args) -> R {
-    match n {
-        "stack_size" => Ok(V::Int(0)),
-        "Thread" => {
-            let target = a.kw("target").unwrap_or(V::None);
-            let args = a.kw("args").unwrap_or(tup(vec![]));
-            let kwargs = a.kw("kwargs").unwrap_or(V::None);
-            Ok(V::Ext(ExtRc::new(Thread { target, args, kwargs })))
-        }
-        "Lock" | "RLock" => Ok(V::Ext(ExtRc::new(Lock))),
-        "current_thread" | "main_thread" => Ok(V::None),
-        "active_count" => Ok(V::Int(1)),
-        _ => Err(unsupported(&format!("threading.{n}"))),
-    }
-}
-
 // ---------- dispatch ----------
 
 pub fn ext_construct(cls: &str, a: Args) -> Option<R> {
@@ -3062,6 +2992,7 @@ pub fn ext_module_attr2(m: &str, n: &str) -> Option<V> {
         ("csv", "Error") => V::Class(exc_class("Error")),
         ("csv", "DictReader") => V::Class(csv_dictreader_class()),
         ("statistics", "StatisticsError") => V::Class(exc_class("StatisticsError")),
+        ("threading", "BrokenBarrierError") => V::Class(exc_class("BrokenBarrierError")),
         ("zoneinfo", n) => return zoneinfo_attr(n),
         ("importlib.metadata", "PackageNotFoundError") => V::Class(exc_class("PackageNotFoundError")),
         _ => return None,
