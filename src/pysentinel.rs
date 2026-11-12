@@ -154,7 +154,7 @@ fn safe(body: &[Stmt], n: &str) -> bool {
                     }
                 }
             }
-            St::AugAssign(t, _, _) | St::AnnAssign(t, _, _) | St::For(t, ..) if mentions(t, n) => ok = false,
+            St::AugAssign(t, _, _) | St::AnnAssign(t, _, _, _) | St::For(t, ..) if mentions(t, n) => ok = false,
             St::Global(v) | St::Nonlocal(v) if v.iter().any(|x| x == n) => ok = false,
             St::Def(d) => {
                 if d.name == n || d.params.pos.iter().chain(&d.params.kwonly).any(|p| p.0 == n) {
@@ -280,7 +280,7 @@ fn sent_safe(body: &[Stmt], n: &str) -> bool {
                     }
                 }
             }
-            St::AugAssign(t, _, _) | St::AnnAssign(t, _, _) | St::For(t, ..) if mentions(t, n) => ok = false,
+            St::AugAssign(t, _, _) | St::AnnAssign(t, _, _, _) | St::For(t, ..) if mentions(t, n) => ok = false,
             St::Global(v) | St::Nonlocal(v) if v.iter().any(|x| x == n) => ok = false,
             St::Def(d) => {
                 if d.name == n || d.params.pos.iter().chain(&d.params.kwonly).any(|p| p.0 == n) {
@@ -482,7 +482,7 @@ fn stmt_ok(st: &St, n: &str, carriers: &HashSet<String>, g: &HashSet<String>) ->
         St::Expr(x) | St::Return(Some(x)) | St::Assert(x, _) => e(x),
         St::Assign(ts, v) => ts.iter().all(e) && e(v),
         St::AugAssign(t, _, v) => e(t) && e(v),
-        St::AnnAssign(t, v, _) => e(t) && v.as_ref().map_or(true, e),
+        St::AnnAssign(t, v, _, _) => e(t) && v.as_ref().map_or(true, e),
         St::For(t, it, _, _) => e(t) && e(it),
         St::If(arms, _) => arms.iter().all(|(c, _)| e(c)),
         St::While(c, _, _) => e(c),
@@ -579,7 +579,7 @@ fn block_ok(stmts: &[Stmt], n: &str, carriers: &HashSet<String>, guarded: &HashS
         let mut post = pre;
         match &s.st {
             St::Assign(ts, _) => ts.iter().for_each(|t| names_in(t, &mut post)),
-            St::AugAssign(t, _, _) | St::AnnAssign(t, _, _) => names_in(t, &mut post),
+            St::AugAssign(t, _, _) | St::AnnAssign(t, _, _, _) => names_in(t, &mut post),
             _ => {}
         }
         // `if v is MISSING or ...: return`: after the statement v is not the sentinel.

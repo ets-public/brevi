@@ -321,7 +321,7 @@ fn odd_class_annotation(body: &[Stmt], in_class: bool) -> bool {
         }
     }
     body.iter().any(|s| match &s.st {
-        St::AnnAssign(_, _, ann) if in_class => !plain(ann),
+        St::AnnAssign(_, _, ann, _) if in_class => !plain(ann),
         St::Class(c) => odd_class_annotation(&c.body, true),
         // a def's own annotated statements are not evaluated (a function body keeps no annotations)
         St::Def(d) => odd_class_annotation(&d.body, false),
@@ -421,7 +421,7 @@ fn collect(body: &[Stmt], nm: &mut Names, all: &HashMap<String, Names>, top: boo
                     nm.forms.insert(n.clone(), (String::new(), made.into()));
                 }
             }
-            St::AnnAssign(Ex::Name(n), Some(v), _) if top && nm.typing_expr(v) => {
+            St::AnnAssign(Ex::Name(n), Some(v), _, _) if top && nm.typing_expr(v) => {
                 nm.forms.insert(n.clone(), (String::new(), String::new()));
             }
             St::Class(c) => {
@@ -473,7 +473,7 @@ fn stmt(st: &St, line: usize, nm: &Names) -> Result<(), Er> {
             let alias = ts.len() == 1 && matches!(&ts[0], Ex::Name(n) if nm.forms.contains_key(n));
             expr(v, alias, line, nm)?;
         }
-        St::AnnAssign(t, v, _) => {
+        St::AnnAssign(t, v, _, _) => {
             if !matches!(t, Ex::Name(_)) {
                 ex(t)?;
             }
@@ -594,7 +594,7 @@ fn class(c: &ClassDef, nm: &Names) -> Result<(), Er> {
         if k == "metaclass" {
             expr(v, false, c.line, nm)?;
             // the metaclass sees the namespace, so the class's annotations are made: a typing form there is a value
-            if c.body.iter().any(|s| matches!(&s.st, St::AnnAssign(_, _, a) if nm.typing_expr(a))) {
+            if c.body.iter().any(|s| matches!(&s.st, St::AnnAssign(_, _, a, _) if nm.typing_expr(a))) {
                 return Err((c.line, "typing: an annotation naming a typing form in a class with a metaclass needs CPython's typing".into()));
             }
             continue;
@@ -889,7 +889,7 @@ pub fn tparams_used(d: &super::parse::FuncDef, names: &[String], anns: bool) -> 
             if let St::Def(d) = &s.st {
                 params_of(&d.params, &d.ret, anns, look);
             }
-            if let St::AnnAssign(_, _, a) = &s.st {
+            if let St::AnnAssign(_, _, a, _) = &s.st {
                 if anns {
                     look(a);
                 }

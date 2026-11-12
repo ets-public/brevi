@@ -1,0 +1,9 @@
+10
+3
+mk h
+idx
+NameError name 'undefined_name' is not defined
+NameError name 'z' is not defined
+mk top
+mk c
+{'r': <class 'int'>} 5 False

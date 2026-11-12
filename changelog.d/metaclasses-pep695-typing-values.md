@@ -2,3 +2,4 @@
 - Dynamic build: PEP 695 `def f[T]`, with `TypeVar` objects in `__type_params__`. Generic classes, the `type` statement, bounds and defaults are refused at build time.
 - Dynamic build: typing forms as values. `int | str` (`types.UnionType`), `typing.List[int]` and the other subscripted aliases, and `typing.Union`/`Optional` have CPython's reprs, equality and errors, and `functools.singledispatch.register` takes class unions and rejects subscripted forms with CPython's message.
 - Fixed a wrong answer: `super().__new__(cls)` in a class's `__new__` passed `cls` twice.
+- Dynamic build: annotated assignments follow CPython's compiler: `(x): int` with no value binds nothing (before, it made `x` a local), and `o.a: int` / `o[i]: int` with no value evaluate `o` and `i` (before, nothing was evaluated).

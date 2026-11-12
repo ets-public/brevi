@@ -474,7 +474,7 @@ fn stmt_exprs<'a>(body: &'a [Stmt], out: &mut Vec<&'a Ex>) {
                 out.push(t);
                 out.push(v);
             }
-            St::AnnAssign(t, v, _) => {
+            St::AnnAssign(t, v, _, _) => {
                 out.push(t);
                 if let Some(v) = v {
                     out.push(v);
@@ -801,7 +801,9 @@ fn scope_of(body: &[Stmt], params: &[String]) -> Scope {
         for s in body {
             match &s.st {
                 St::Assign(ts, _) => ts.iter().for_each(|t| target_names(t, &mut sc.locals)),
-                St::AugAssign(t, _, _) | St::AnnAssign(t, _, _) => target_names(t, &mut sc.locals),
+                St::AugAssign(t, _, _) => target_names(t, &mut sc.locals),
+                // a name in parentheses with no value (`(x): int`) binds nothing
+                St::AnnAssign(t, v, _, simple) if *simple || v.is_some() => target_names(t, &mut sc.locals),
                 St::For(t, _, b, e) => {
                     target_names(t, &mut sc.locals);
                     walk(b, sc);
@@ -1387,7 +1389,7 @@ pub fn async_crosses_bridge(mods: &[&[Stmt]], bridged: &dyn Fn(&str) -> bool) ->
         for s in &stmts {
             match &s.st {
                 St::Assign(ts, v) if refers(v, &names, &attrs) => ts.iter().for_each(|t| grew |= bind(t, &mut names, &mut attrs)),
-                St::AnnAssign(t, Some(v), _) if refers(v, &names, &attrs) => grew |= bind(t, &mut names, &mut attrs),
+                St::AnnAssign(t, Some(v), _, _) if refers(v, &names, &attrs) => grew |= bind(t, &mut names, &mut attrs),
                 St::For(t, i, _, _) if refers(i, &names, &attrs) => grew |= bind(t, &mut names, &mut attrs),
                 St::With(items, _) => {
                     for (e, t) in items {
@@ -3233,6 +3235,19 @@ impl Em {
         Ok(b)
     }
     // Where statement `s` is, said before it runs (a program using warnings).
+    // An annotation with no value still evaluates its target's object: `o.a: T` evaluates o, and `o[i]: T`
+    // evaluates o and i (CPython's compiler_annassign), with no attribute or item read; a name binds nothing.
+    fn ann_target_only(&mut self, t: &Ex, line: usize) -> Result<String, (usize, String)> {
+        Ok(match t {
+            Ex::Attr(o, _) => format!("{{ let _ = {}; }}", self.ex(o, line)?),
+            Ex::Index(o, i) => {
+                let oo = self.ex(o, line)?;
+                let ii = self.ex(i, line)?;
+                format!("{{ let _ = {oo}; let _ = {ii}; }}")
+            }
+            _ => String::new(),
+        })
+    }
     fn stmt_site(&mut self, s: &Stmt) -> String {
         if !self.track_warn {
             return String::new();
@@ -3304,12 +3319,12 @@ impl Em {
                 b.push('}');
                 b
             }
-            St::AnnAssign(t, v, _) => match v {
+            St::AnnAssign(t, v, _, _) => match v {
                 Some(v) => {
                     let vv = self.ex(v, line)?;
                     self.assign(t, &vv, line)?
                 }
-                None => String::new(),
+                None => self.ann_target_only(t, line)?,
             },
             St::AugAssign(t, op, v) => {
                 if *op == "@" && np_on() && np_narrow() && !np_f32_simd_here() {
@@ -4260,13 +4275,6 @@ impl Em {
         // getattr in rt_call lazily makes.)
         let mut sc = scope_of(&c.body, &[]);
         let has_meta = c.kwargs.iter().any(|(k, _)| k == "metaclass");
-        // CPython stores a private name's annotation mangled (`__x` in class C is `_C__x`); this build does not
-        // mangle names, so a class whose annotations are kept and name one is refused
-        if !self.lazy && (self.keep_ann || has_meta) && c.name.trim_start_matches('_') != "" {
-            if let Some(s) = c.body.iter().find(|s| matches!(&s.st, St::AnnAssign(Ex::Name(n), _, _) if n.starts_with("__") && !n.ends_with("__"))) {
-                return Err(err(s.line, "an annotated private name (`__x`, which CPython mangles) in a class body whose annotations are read is not supported in dynamic builds"));
-            }
-        }
         // a metaclass sees the namespace, so with one the class's annotations are always made, as CPython makes them
         let setup = !self.lazy && (self.keep_ann || has_meta) && c.body.iter().any(|s| matches!(s.st, St::AnnAssign(..)));
         if has_meta && c.body.iter().any(|s| matches!(s.st, St::AnnAssign(..))) {
@@ -4277,7 +4285,7 @@ impl Em {
                     _ => false,
                 }
             }
-            if self.lazy || c.body.iter().any(|s| matches!(&s.st, St::AnnAssign(_, _, a) if !plain(a))) {
+            if self.lazy || c.body.iter().any(|s| matches!(&s.st, St::AnnAssign(_, _, a, _) if !plain(a))) {
                 return Err(err(c.line, "a class with a metaclass annotated with a type expression (such as list[int]), or under `from __future__ import annotations`, is not supported in dynamic builds"));
             }
         }
@@ -4297,7 +4305,7 @@ impl Em {
                 let names: Vec<&String> = match &s.st {
                     St::Def(d) => vec![&d.name],
                     St::Assign(ts, _) => ts.iter().filter_map(|t| if let Ex::Name(n) = t { Some(n) } else { None }).collect(),
-                    St::AnnAssign(Ex::Name(n), _, _) => vec![n],
+                    St::AnnAssign(Ex::Name(n), v, _, simple) if *simple || v.is_some() => vec![n],
                     _ => vec![],
                 };
                 if let Some(n) = names.into_iter().find(|n| n.len() > 4 && n.starts_with("__") && n.ends_with("__") && !META_DUNDERS.contains(&n.as_str())) {
@@ -4391,7 +4399,7 @@ impl Em {
         fr.enum_cnv = Some((av, ctx));
         let mut fields = vec![];
         for s in &c.body {
-            if let St::AnnAssign(Ex::Name(n), _, ann) = &s.st {
+            if let St::AnnAssign(Ex::Name(n), _, ann, true) = &s.st {
                 // dataclasses: a ClassVar is no field; InitVar and KW_ONLY are marked
                 match ann_kind(ann) {
                     Some("ClassVar") => {}
@@ -4406,48 +4414,31 @@ impl Em {
         let mut res = Ok(());
         for s in &c.body {
             let mut code = self.stmt_site(s);
-            if let (true, St::AnnAssign(t, v, ann)) = (setup, &s.st) {
+            if let (true, St::AnnAssign(t, v, ann, simple)) = (setup, &s.st) {
                 let line = s.line;
-                // CPython evaluates the value first, then the annotation, then stores both.
-                let mut have_val = None;
-                if let Some(v) = v {
-                    let vv = match self.ex(v, line) {
-                        Ok(x) => x,
-                        Err(e) => {
-                            res = Err(e);
-                            break;
-                        }
-                    };
-                    code.push_str(&format!("let __val = {vv}; "));
-                    have_val = Some(self.assign(t, "__val", line));
-                }
-                if !self.lazy {
-                    // The annotation is evaluated as the statement runs, and a simple name's is stored in
-                    // the class's __annotations__ (CPython's STORE_ANNOTATION).
-                    let av = match self.ex(ann, line) {
-                        Ok(x) => x,
-                        Err(e) => {
-                            res = Err(e);
-                            break;
-                        }
-                    };
-                    if let Ex::Name(n) = t {
+                // CPython (compiler_annassign) stores the value first, or with no value evaluates the target's
+                // object; then it evaluates the annotation, and stores a simple name's in the class's
+                // __annotations__ (setup implies annotations are not lazy).
+                let first = match v {
+                    Some(v) => self.ex(v, line).and_then(|vv| Ok(format!("{{ let __val = {vv}; {} }} ", self.assign(t, "__val", line)?))),
+                    None => self.ann_target_only(t, line),
+                };
+                let av = first.and_then(|f| Ok((f, self.ex(ann, line)?)));
+                let (f, av) = match av {
+                    Ok(x) => x,
+                    Err(e) => {
+                        res = Err(e);
+                        break;
+                    }
+                };
+                code.push_str(&f);
+                match t {
+                    Ex::Name(n) if *simple => {
                         let r = format!("a{id}_{}", rust_ident("__annotations__"));
                         let set = self.q(&format!("setitem(&{r}, &__k, __av)"));
                         code.push_str(&format!("let __av = {av}; let __k = s({}); {set}; ", lit(n)));
-                    } else {
-                        code.push_str(&format!("let _ = {av}; "));
                     }
-                }
-                if let Some(a) = have_val {
-                    let a = match a {
-                        Ok(x) => x,
-                        Err(e) => {
-                            res = Err(e);
-                            break;
-                        }
-                    };
-                    code.push_str(&a);
+                    _ => code.push_str(&format!("let _ = {av}; ")),
                 }
             } else {
                 match self.stmt(s) {
@@ -4496,7 +4487,7 @@ impl Em {
             for s in &c.body {
                 let names: Vec<&String> = match &s.st {
                     St::Assign(ts, _) => ts.iter().filter_map(|t| if let Ex::Name(n) = t { Some(n) } else { None }).collect(),
-                    St::AnnAssign(Ex::Name(n), _, _) => vec![n],
+                    St::AnnAssign(Ex::Name(n), v, _, simple) if *simple || v.is_some() => vec![n],
                     St::Def(d) => vec![&d.name],
                     St::Class(k) => vec![&k.name],
                     _ => vec![],

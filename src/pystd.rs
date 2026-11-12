@@ -281,7 +281,7 @@ fn bound_names(st: &St, out: &mut HashSet<String>) {
             out.insert(c.name.clone());
         }
         St::Assign(ts, _) => ts.iter().for_each(|t| targets(t, out)),
-        St::AugAssign(t, _, _) | St::AnnAssign(t, _, _) => targets(t, out),
+        St::AugAssign(t, _, _) | St::AnnAssign(t, _, _, _) => targets(t, out),
         St::For(t, _, _, _) => targets(t, out),
         _ => {}
     }

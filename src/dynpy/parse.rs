@@ -521,7 +521,9 @@ pub enum St {
     Assign(Vec<Ex>, Ex),
     AugAssign(Ex, &'static str, Ex),
     // target, value, annotation (never evaluated; dataclasses read ClassVar, InitVar and KW_ONLY off it)
-    AnnAssign(Ex, Option<Ex>, Box<Ex>),
+    // target, value, annotation, simple: the target is a bare name, not in parentheses (CPython's `simple`,
+    // which decides whether the name is stored in __annotations__ and, with no value, bound as a local)
+    AnnAssign(Ex, Option<Ex>, Box<Ex>, bool),
     Pass,
     Break,
     Continue,
@@ -994,6 +996,7 @@ impl P {
             }
         }
         // expression statement or assignment
+        let paren = matches!(self.peek(), Tok::Op("("));
         let first = self.exprlist_star()?;
         if self.is_op(":") {
             // annotated assignment
@@ -1001,7 +1004,8 @@ impl P {
             let ann = self.expr()?;
             let v = if self.eat_op("=") { Some(self.exprlist_star_or_yield()?) } else { None };
             check_target(&first, line)?;
-            return Ok(St::AnnAssign(first, v, Box::new(ann)));
+            let simple = !paren && matches!(first, Ex::Name(_));
+            return Ok(St::AnnAssign(first, v, Box::new(ann), simple));
         }
         for op in ["+=", "-=", "*=", "/=", "//=", "%=", "**=", "&=", "|=", "^=", ">>=", "<<=", "@="] {
             if self.is_op(op) {

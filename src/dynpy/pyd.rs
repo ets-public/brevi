@@ -411,7 +411,7 @@ fn stmts_mut(body: &mut [Stmt], f: &mut dyn FnMut(&mut Ex)) {
                 ex_mut(t, f);
                 ex_mut(v, f);
             }
-            St::AnnAssign(t, v, _) => {
+            St::AnnAssign(t, v, _, _) => {
                 ex_mut(t, f);
                 if let Some(v) = v {
                     ex_mut(v, f);
@@ -588,7 +588,7 @@ fn class(c: &mut ClassDef, cv: &Conv) {
     }
     let mut pairs = vec![];
     for s in &c.body {
-        if let St::AnnAssign(Ex::Name(n), _, ann) = &s.st {
+        if let St::AnnAssign(Ex::Name(n), _, ann, _) = &s.st {
             let d = cv
                 .desc(ann)
                 .unwrap_or_else(|why| tup(vec![tag("?"), Ex::Str(why)]));
@@ -743,7 +743,7 @@ pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
                                     (d.first(), d.get(1))
                                 {
                                     if t == "?" {
-                                        let line = c.body.iter().find(|x| matches!(&x.st, St::AnnAssign(Ex::Name(n), _, _) if n == name)).map_or(c.line, |x| x.line);
+                                        let line = c.body.iter().find(|x| matches!(&x.st, St::AnnAssign(Ex::Name(n), _, _, _) if n == name)).map_or(c.line, |x| x.line);
                                         return refuse(
                                             line,
                                             format!("{why} (field {name} of {})", c.name),
