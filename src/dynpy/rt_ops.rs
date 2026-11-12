@@ -2216,6 +2216,10 @@ pub enum It {
     Str(Rc<S>, usize),
     Range(i64, i64, i64),
     Dict(Rc<RefCell<Dict>>, usize, u8, u64, usize),
+    // reversed() of a dict or one of its views, live like CPython's dict reverse iterators: the next entry
+    // index plus one (0: none left), the view kind, the dict's size when it began (-1 once a size change was
+    // seen, so later next() calls raise too, as CPython's di_used = -1) and its key version then
+    RevDict(Rc<RefCell<Dict>>, usize, u8, i64, u64),
     Set(Rc<RefCell<PSet>>, usize, i64),
     Gen(Box<dyn FnMut() -> Result<Option<V>, E>>),
     // A generator expression: like Gen, but an error escapes to the caller once and then the iterator is
@@ -2362,6 +2366,38 @@ impl It {
                     }
                 }
                 Ok(None)
+            }
+            It::RevDict(d, i, kind, used, ver0) => {
+                let item = {
+                    let d = d.borrow();
+                    // CPython checks the size before anything else, so a change after the last item still raises
+                    if *used < 0 || d.n as i64 != *used {
+                        *used = -1;
+                        return Err(exc("RuntimeError", "dictionary changed size during iteration".into()));
+                    }
+                    // A key deleted and another added (same size): CPython goes on reading its entry table, so
+                    // what comes next depends on when its table was compacted, which Brevi's dict does not copy.
+                    if d.ver != *ver0 {
+                        return Err(unsupported("reversed() of a dict whose keys changed during iteration"));
+                    }
+                    let mut got = None;
+                    while *i > 0 {
+                        *i -= 1;
+                        if let Some((k, v)) = &d.ents[*i] {
+                            got = Some(match kind {
+                                0 | 3 => k.clone(),
+                                1 => v.clone(),
+                                _ => tup(vec![k.clone(), v.clone()]),
+                            });
+                            break;
+                        }
+                    }
+                    got
+                };
+                if item.is_none() {
+                    *self = It::Done;
+                }
+                Ok(item)
             }
             It::Set(s, i, n0) => {
                 let s = s.borrow();

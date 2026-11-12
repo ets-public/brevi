@@ -176,6 +176,15 @@ pub fn iter_reduce_v(v: &V) -> R {
             It::Str(s, i) => Plan::At(st(s.s.clone()), s.s[..*i].chars().count()),
             It::Range(a, b, st) => Plan::Range(*a, *b, *st),
             It::Dict(d, i, kind, ver, n0) => Plan::Dict(d.clone(), *i, *kind, *ver, *n0),
+            // reversed() of a dict or its views: CPython pickles it as iter(list of the rest)
+            It::RevDict(d, i, kind, used, ver) => {
+                let mut sim = It::RevDict(d.clone(), *i, *kind, *used, *ver);
+                let mut out = vec![];
+                while let Some(x) = sim.next()? {
+                    out.push(x);
+                }
+                Plan::Seq(out)
+            }
             It::Set(s, i, n0) => Plan::Set(s.clone(), *i, *n0),
             It::Repeat(x, n) => Plan::Repeat(x.clone(), *n),
             It::Done if matches!(cell.kind, IterClass::Kind(ItKind::ListReverseIter)) => Plan::Rev(V::None, -1),

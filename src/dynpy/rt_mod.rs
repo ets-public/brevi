@@ -2613,7 +2613,12 @@ fn length_hint(mut a: Args) -> R {
                 (ListIter, It::List(l, i)) => left(l.borrow().len(), *i),
                 (TupleIter, It::Tuple(t, i)) => left(t.len(), *i),
                 (ListReverseIter, It::RevList(l, n)) => Ok(V::Int(if l.borrow().len() >= *n { *n as i64 } else { 0 })),
-                (ListIter | TupleIter | ListReverseIter | ItRepeat, It::Done) => Ok(V::Int(0)),
+                // CPython's dictiter_len: the items left, or 0 once the dict's size changed
+                (DictReverseKeys | DictReverseValues | DictReverseItems, It::RevDict(d, i, _, used, _)) => {
+                    let d = d.borrow();
+                    Ok(V::Int(if d.n as i64 == *used { d.ents[..*i].iter().filter(|e| e.is_some()).count() as i64 } else { 0 }))
+                }
+                (ListIter | TupleIter | ListReverseIter | ItRepeat | DictReverseKeys | DictReverseValues | DictReverseItems, It::Done) => Ok(V::Int(0)),
                 (Map | Filter | Zip | Enumerate | Generator | CallableIterator | ItCount | ItChain | ItIslice | ItCycle | ItAccumulate | ItZipLongest | ItStarmap | ItTakewhile
                 | ItDropwhile | ItPairwise | ItCompress | ItFilterfalse | ItGroupby | ItGrouper | ItProduct | ItPermutations | ItCombinations
                 | ItCombinationsWithReplacement | ItTee | ItBatched, _) => Ok(default),

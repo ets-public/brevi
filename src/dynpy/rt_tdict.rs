@@ -218,6 +218,17 @@ fn tdesc(kind: u8, owner: &Rc<Class>, name: Sym) -> V {
 pub fn cpy_dict_has(c: &Class, n: &str) -> Option<(bool, &'static str)> {
     trow(c).map(|r| (r.5.iter().any(|e| e.0 == n), r.2))
 }
+// Whether CPython's type lookup finds `n` on the builtin type `c` (#470): in the dict of a class on its MRO, or
+// on `type`, its metaclass. None when a class on the MRO has no table, so Brevi cannot tell.
+pub fn cpy_type_has(c: &Rc<Class>, n: &str) -> Option<bool> {
+    for k in c.mro.borrow().iter() {
+        if trow(k)?.5.iter().any(|e| e.0 == n) {
+            return Some(true);
+        }
+    }
+    let ty = TYPE_DICTS.iter().find(|r| r.0 == "builtins" && r.1 == "type")?;
+    Some(ty.5.iter().any(|e| e.0 == n))
+}
 fn tname_of(c: &Class) -> String {
     match trow(c) {
         Some(r) => r.2.to_string(),
