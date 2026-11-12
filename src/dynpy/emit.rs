@@ -2127,6 +2127,12 @@ impl Em {
                 b
             }
             Ex::Star(_) => return Err(err(line, "starred expression here is not supported")),
+            // Brevi's own module copies (pydantic, the MCP server, string, ...) read class namespaces for their
+            // own bookkeeping: they get the namespace even where the program's C.__dict__ refuses (rt_tdict.rs)
+            Ex::Attr(o, n) if n == "__dict__" && IN_COPY.with(|k| k.get()) => {
+                let ov = self.ex(o, line)?;
+                self.q(&format!("own_dict_of(&{ov})"))
+            }
             Ex::Attr(o, n) => {
                 if n == "ByteString" && self.bridge.srcs.contains_key(&self.module) {
                     let m = match o.as_ref() {

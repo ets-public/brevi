@@ -341,9 +341,32 @@ impl Ext for TDesc {
 
 // The entries of c.__dict__, in CPython's order, or the refusal.
 pub fn class_dict(c: &Rc<Class>) -> Result<Vec<(Sym, V)>, E> {
+    class_dict_with(c, true)
+}
+// x.__dict__ as Brevi's own module copies read it: a class's namespace as Brevi keeps it, never refused
+pub fn own_dict_of(x: &V) -> R {
+    let V::Class(c) = x else { return getattr(x, "__dict__") };
+    let items = match class_dict_with(c, false) {
+        Ok(v) => v,
+        Err(_) => {
+            let mut v: Vec<(Sym, V)> = vec![("__module__", s(c.module))];
+            v.extend(c.attrs.borrow().iter().filter(|(k, _)| !k.starts_with("__bv_")).cloned());
+            if c.own("__doc__").is_none() {
+                v.push(("__doc__", V::None));
+            }
+            v
+        }
+    };
+    let mut d = Dict::new();
+    for (k, v) in items {
+        d.set(s(k), v)?;
+    }
+    Ok(V::View(Rc::new((V::Dict(Rc::new(RefCell::new(d))), 3))))
+}
+fn class_dict_with(c: &Rc<Class>, strict: bool) -> Result<Vec<(Sym, V)>, E> {
     let qn = c.qualname.get();
     if let Some(t) = tinfo(c) {
-        if let Some(why) = t.inexact.get() {
+        if let Some(why) = t.inexact.get().filter(|_| strict) {
             return Err(unsupported(&format!("the __dict__ of class {qn} ({why})")));
         }
         let mut out: Vec<(Sym, V)> = vec![];

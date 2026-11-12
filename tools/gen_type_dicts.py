@@ -216,8 +216,8 @@ with open(path, "w") as f:
 print(f"wrote {len(rows)} types to src/dynpy/rt_tdict_data.rs")
 
 # Brevi's module copies whose classes are CPython's own, class body for class body (src/dynpy/py/collections.py,
-# collections_abc.py): module -> the CPython file. A class whose dict Brevi's copy cannot match is left out.
-COPIES = {"collections.abc": "_collections_abc.py", "collections": "collections/__init__.py"}
+# collections_abc.py, string.py): module -> the CPython file. A class whose dict Brevi's copy cannot match is left out.
+COPIES = {"collections.abc": "_collections_abc.py", "collections": "collections/__init__.py", "string": "string.py"}
 LEFT_OUT = {
     ("collections.abc", "Callable"): "its __class_getitem__ is _CallableGenericAlias, which Brevi does not have",
 }

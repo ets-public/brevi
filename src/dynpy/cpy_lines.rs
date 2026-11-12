@@ -38,4 +38,6 @@ pub static CPY_CLASS_LINES: &[(&str, &str, usize)] = &[
     ("collections", "UserDict", 1121),
     ("collections", "UserList", 1218),
     ("collections", "UserString", 1351),
+    ("string", "Template", 57),
+    ("string", "Formatter", 188),
 ];

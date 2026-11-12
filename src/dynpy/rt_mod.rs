@@ -903,21 +903,6 @@ fn update_wrapper(wrapper: V, wrapped: V, assigned: V, updated: V) -> R {
     let mut it = iter(&updated)?;
     while let Some(x) = it.next()? {
         let n = wraps_name(&x)?;
-        // A function's __dict__ is its assigned attributes; update it directly (for any wrapped object with
-        // one: another function, a class, a callable instance, a partial, an lru_cache wrapper).
-        if n == "__dict__" && matches!(&wrapper, V::Func(_)) {
-            let other = match getattr(&wrapped, &n) {
-                Ok(v) => v,
-                Err(E(e)) if is_exc(&e, "AttributeError") => dict_new(),
-                Err(e) => return Err(e),
-            };
-            for (k, v) in dict_items_of(&other)? {
-                if let V::Str(ks) = &k {
-                    setattr(&wrapper, sym(&ks.s), v)?;
-                }
-            }
-            continue;
-        }
         let d = getattr(&wrapper, &n)?;
         let other = match getattr(&wrapped, &n) {
             Ok(v) => v,
