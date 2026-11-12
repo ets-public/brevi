@@ -12,7 +12,5 @@ test_itertools.SubclassWithKwargsTest.test_keywords_in_subclass dyn issue=#398 o
 test_itertools.SubclassWithKwargsTest.test_keywords_in_subclass normal issue=#398 owner=ets-public expires=2026-12-11
 test_itertools.TestBasicOps.test_bug_7244 dyn issue=#479 owner=ets-public expires=2026-12-11
 test_itertools.TestBasicOps.test_bug_7244 normal issue=#479 owner=ets-public expires=2026-12-11
-test_itertools.TestBasicOps.test_count_with_step_threading dyn issue=#477 owner=ets-public expires=2026-12-11
-test_itertools.TestBasicOps.test_count_with_step_threading normal issue=#477 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_locale_flag dyn issue=#478 owner=ets-public expires=2026-12-11
 test_re.ReTests.test_locale_flag normal issue=#478 owner=ets-public expires=2026-12-11
