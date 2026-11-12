@@ -197,7 +197,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "numpy" => return np_func_kw(n).is_some() && (!np_narrow() || NP_NARROW_FUNCS.contains(&n) || (NP_F32_SIMD.contains(&n) && np_f32_simd_here()) || (matches!(n, "dot" | "matmul") && np_f32_simd_here())),
         "numpy.random" => return np_rand_kw(n).is_some(),
         "numpy.linalg" => return np_linalg_kw(n).is_some() && (!np_narrow() || n == "norm"),
-        "sys" => &["exit", "setrecursionlimit", "getrecursionlimit", "getsizeof", "intern", "set_int_max_str_digits", "get_int_max_str_digits", "stdin", "stdout", "stderr", "argv", "maxsize", "platform", "byteorder", "version_info", "flags", "version", "modules", "path", "exception", "exc_info"],
+        "sys" => &["exit", "setrecursionlimit", "getrecursionlimit", "getsizeof", "intern", "set_int_max_str_digits", "get_int_max_str_digits", "stdin", "stdout", "stderr", "__stdin__", "__stdout__", "__stderr__", "argv", "maxsize", "platform", "byteorder", "version_info", "flags", "version", "modules", "path", "exception", "exc_info"],
         "math" => &["acos", "asin", "atan", "atan2", "ceil", "comb", "copysign", "cos", "cosh", "degrees", "dist", "exp", "fabs", "factorial", "floor", "fmod", "frexp", "fsum", "gcd", "hypot", "isclose", "isfinite", "isinf", "isnan", "isqrt", "lcm", "ldexp", "log", "log10", "log1p", "log2", "modf", "perm", "pow", "prod", "radians", "remainder", "sin", "sinh", "sqrt", "tan", "tanh", "trunc", "pi", "e", "tau", "inf", "nan"],
         "atexit" => &["register", "unregister", "_run_exitfuncs", "_clear", "_ncallbacks"],
         "heapq" => &["heapify", "heappop", "heappush", "heappushpop", "heapreplace", "merge", "nlargest", "nsmallest"],
@@ -205,7 +205,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "functools" => &["RLock", "WRAPPER_ASSIGNMENTS", "WRAPPER_UPDATES", "_CacheInfo", "cache", "cached_property", "cmp_to_key", "lru_cache", "partial", "partialmethod", "reduce", "singledispatch", "singledispatchmethod", "total_ordering", "update_wrapper", "wraps"],
         "itertools" => &["accumulate", "batched", "chain", "combinations", "combinations_with_replacement", "compress", "count", "cycle", "dropwhile", "filterfalse", "groupby", "islice", "pairwise", "permutations", "product", "repeat", "starmap", "takewhile", "tee", "zip_longest"],
         "copy" => &["copy", "deepcopy"],
-        "operator" => &["add", "and_", "attrgetter", "contains", "eq", "floordiv", "ge", "getitem", "gt", "index", "itemgetter", "le", "lshift", "lt", "methodcaller", "mod", "mul", "ne", "neg", "not_", "or_", "pow", "rshift", "sub", "truediv", "truth", "xor", "__lt__", "__le__", "__gt__", "__ge__", "__eq__", "__ne__", "__and__", "__or__", "__xor__", "__sub__"],
+        "operator" => &["add", "and_", "attrgetter", "contains", "eq", "floordiv", "ge", "getitem", "gt", "index", "itemgetter", "le", "length_hint", "lshift", "lt", "methodcaller", "mod", "mul", "ne", "neg", "not_", "or_", "pow", "rshift", "sub", "truediv", "truth", "xor", "__lt__", "__le__", "__gt__", "__ge__", "__eq__", "__ne__", "__and__", "__or__", "__xor__", "__sub__"],
         "string" => &["ascii_lowercase", "ascii_uppercase", "ascii_letters", "digits", "hexdigits", "octdigits", "punctuation", "whitespace", "printable"],
         "time" => &["time", "perf_counter", "monotonic", "process_time", "sleep", "time_ns", "perf_counter_ns", "monotonic_ns", "process_time_ns", "gmtime", "strftime"],
         "abc" => &["ABC", "abstractmethod", "_abc_register", "_check_methods"],
@@ -279,7 +279,7 @@ fn is_builtin_name(n: &str) -> bool {
 fn is_exc_name(n: &str) -> bool {
     matches!(
         n,
-        "BaseException" | "Exception" | "SystemExit" | "KeyboardInterrupt" | "GeneratorExit" | "ArithmeticError" | "ZeroDivisionError" | "OverflowError" | "FloatingPointError" | "LookupError" | "KeyError" | "IndexError" | "ValueError" | "UnicodeError" | "UnicodeDecodeError" | "UnicodeEncodeError" | "TypeError" | "AttributeError" | "NameError" | "UnboundLocalError" | "RuntimeError" | "RecursionError" | "NotImplementedError" | "StopIteration" | "StopAsyncIteration" | "TimeoutError" | "ConnectionError" | "ConnectionRefusedError" | "ConnectionResetError" | "ConnectionAbortedError" | "BrokenPipeError" | "BlockingIOError" | "ChildProcessError" | "InterruptedError" | "ProcessLookupError" | "BaseExceptionGroup" | "ExceptionGroup" | "AssertionError" | "SyntaxError" | "IndentationError" | "ImportError" | "ModuleNotFoundError" | "OSError" | "IOError" | "EnvironmentError" | "FileNotFoundError" | "PermissionError" | "IsADirectoryError" | "NotADirectoryError" | "FileExistsError" | "EOFError" | "MemoryError" | "BufferError" | "Warning" | "UserWarning" | "DeprecationWarning" | "SyntaxWarning" | "RuntimeWarning" | "FutureWarning" | "PendingDeprecationWarning" | "ImportWarning" | "UnicodeWarning" | "BytesWarning" | "ResourceWarning" | "EncodingWarning"
+        "BaseException" | "Exception" | "SystemExit" | "KeyboardInterrupt" | "GeneratorExit" | "ArithmeticError" | "ZeroDivisionError" | "OverflowError" | "FloatingPointError" | "LookupError" | "KeyError" | "IndexError" | "ValueError" | "UnicodeError" | "UnicodeDecodeError" | "UnicodeEncodeError" | "TypeError" | "AttributeError" | "NameError" | "UnboundLocalError" | "RuntimeError" | "RecursionError" | "NotImplementedError" | "SystemError" | "StopIteration" | "StopAsyncIteration" | "TimeoutError" | "ConnectionError" | "ConnectionRefusedError" | "ConnectionResetError" | "ConnectionAbortedError" | "BrokenPipeError" | "BlockingIOError" | "ChildProcessError" | "InterruptedError" | "ProcessLookupError" | "BaseExceptionGroup" | "ExceptionGroup" | "AssertionError" | "SyntaxError" | "IndentationError" | "ImportError" | "ModuleNotFoundError" | "OSError" | "IOError" | "EnvironmentError" | "FileNotFoundError" | "PermissionError" | "IsADirectoryError" | "NotADirectoryError" | "FileExistsError" | "EOFError" | "MemoryError" | "BufferError" | "Warning" | "UserWarning" | "DeprecationWarning" | "SyntaxWarning" | "RuntimeWarning" | "FutureWarning" | "PendingDeprecationWarning" | "ImportWarning" | "UnicodeWarning" | "BytesWarning" | "ResourceWarning" | "EncodingWarning"
     )
 }
 
@@ -1700,13 +1700,12 @@ pub struct Em {
     re_names: HashSet<(String, String)>,
     // the program uses the warnings module: every statement says where it is, so a warning names its line
     track_warn: bool,
-    // the program imports itertools and pickles or copies something: its iterators do not pickle, and their
-    // copies miss CPython 3.13's DeprecationWarning, so catch_warnings(record=True) there is refused
-    iter_pickle: bool,
     // module -> the lines whose logical line runs over more than one line (None: the module did not lex)
     multi: HashMap<String, Option<HashSet<usize>>>,
     // the WMod statics written so far
     wmods: HashSet<String>,
+    // while a lambda whose body is on one line is emitted: that line, known even in a statement over several
+    lam_line: Option<usize>,
     // (module, name) bound by `import warnings`
     warn_names: HashSet<(String, String)>,
     // module + value set -> the first display's items in source order (CPython's constant merging)
@@ -2134,11 +2133,10 @@ impl Em {
                 self.q(&format!("own_dict_of(&{ov})"))
             }
             Ex::Attr(o, n) => {
+                // typing.ByteString stays refused: Brevi's typing does not give the collections.abc class, whose isinstance()
+                // and subclassing warn as CPython 3.13's metaclass does
                 if n == "ByteString" && self.bridge.srcs.contains_key(&self.module) {
-                    let m = match o.as_ref() {
-                        Ex::Attr(c, a) if a == "abc" && matches!(c.as_ref(), Ex::Name(x) if x == "collections") => Some("collections.abc".to_string()),
-                        _ => self.static_module(o).filter(|m| m == "collections.abc" || m == "typing"),
-                    };
+                    let m = self.static_module(o).filter(|m| m == "typing");
                     if let Some(m) = m {
                         return Err(err(line, &format!("{m}.ByteString is not supported in dynamic builds")));
                     }
@@ -2242,9 +2240,14 @@ impl Em {
                 format!("(if {cc} {{ {aa} }} else {{ {bb} }})")
             }
             Ex::Lambda(p, body) => {
-                let ret = Stmt { line, st: St::Return(Some((**body).clone())) };
+                // a body all on one line runs at that line, even in a statement over several lines
+                let bl = if p.line != 0 { p.line } else { line };
+                let ret = Stmt { line: bl, st: St::Return(Some((**body).clone())) };
                 let qn = self.qualname_of("<lambda>");
-                let f = self.closure("<lambda>", &qn, p, &[ret], line, false)?;
+                let saved = std::mem::replace(&mut self.lam_line, if p.line != 0 { Some(p.line) } else { None });
+                let f = self.closure("<lambda>", &qn, p, &[ret], line, false);
+                self.lam_line = saved;
+                let f = f?;
                 let mut f = format!("with_qualname({f}, {})", lit(&qn));
                 // a lambda has no annotations: its __annotations__ is {} (kept like a def's, see ANN_DEFS)
                 if super::typing::ANN_DEFS.load(std::sync::atomic::Ordering::Relaxed) {
@@ -2392,7 +2395,7 @@ impl Em {
         // a statement over several lines: which of them the call is on is not known, so no line is named
         // (the module is still known: line 0 says so, and a warning the filters turn into an error is exact there)
         let site = match self.wmod() {
-            Some(m) if !self.multi_line(line) => format!("re_site({line}, &{m});"),
+            Some(m) if self.lam_line == Some(line) || !self.multi_line(line) => format!("re_site({line}, &{m});"),
             Some(m) => format!("re_site(0, &{m});"),
             None => "re_site_clear();".to_string(),
         };
@@ -2450,7 +2453,7 @@ impl Em {
         if !self.track_warn {
             return String::new();
         }
-        let known = known && line != 0 && !self.multi_line(line);
+        let known = known && line != 0 && (self.lam_line == Some(line) || !self.multi_line(line));
         // Brevi's own library copies have no lines of CPython's to name; line 0 is this module at a line not known
         match self.wmod() {
             Some(m) => format!("re_site({}, &{m});", if known { line } else { 0 }),
@@ -2536,13 +2539,6 @@ impl Em {
         format!("gtab_{}", rust_ident(&self.module))
     }
     fn call(&mut self, f: &Ex, args: &[Arg], line: usize) -> ER<String> {
-        // warnings.catch_warnings(record=True) records what CPython would; in a program that pickles or copies
-        // and uses itertools it would record an itertools copy without its DeprecationWarning, so it is refused
-        if self.iter_pickle && (matches!(f, Ex::Name(n) if n == "catch_warnings") || matches!(f, Ex::Attr(_, n) if n == "catch_warnings")) {
-            if args.iter().any(|a| matches!(a, Arg::KwStar(_)) || matches!(a, Arg::Kw(k, v) if k == "record" && !matches!(v, Ex::False))) {
-                return Err(err(line, "warnings.catch_warnings(record=True) in a program that pickles or copies itertools iterators is not supported in dynamic builds"));
-            }
-        }
         // warnings.warn(..., stacklevel=2) in the program names a caller's line, which the dynamic build does
         // not keep: CPython runs it (a stacklevel it only learns at run time is refused there, see pyglue)
         if self.track_warn {
@@ -3489,9 +3485,8 @@ impl Em {
                 if m == "__future__" {
                     return Ok(b);
                 }
-                // ByteString warns on isinstance() and subclassing through its own metaclass in CPython 3.13,
-                // which the dynamic build has no counterpart for: refused rather than silent
-                if (m == "collections.abc" || m == "typing") && names.iter().any(|(n, _)| n == "ByteString") && self.bridge.srcs.contains_key(&self.module) {
+                // typing.ByteString stays refused (see Ex::Attr above); collections.abc's warns as CPython's does
+                if m == "typing" && names.iter().any(|(n, _)| n == "ByteString") && self.bridge.srcs.contains_key(&self.module) {
                     return Err(err(line, &format!("{m}.ByteString is not supported in dynamic builds")));
                 }
                 let user = self.user_modules.contains(m);
@@ -4519,17 +4514,20 @@ pub fn ic_statics() -> String {
 }
 pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>), (String, usize, String)> {
     // the program (not Brevi's library copies) uses the warnings module
-    // (or functools.partial, whose __get__ warns at the line that reads it from an instance)
-    let track_warn = mods.iter().any(|m| {
-        let b = format!("{:?}", m.body);
-        bridge.srcs.contains_key(&m.name) && (b.contains("\"warnings\"") || b.contains("\"functools\"") && b.contains("\"partial\""))
-    });
+    // (or functools.partial, whose __get__ warns at the line that reads it from an instance, or
+    // collections.abc.ByteString, whose metaclass warns at the isinstance or class statement)
     let iter_pickle = mods.iter().any(|m| {
         let b = format!("{:?}", m.body);
         bridge.srcs.contains_key(&m.name)
             && b.contains("\"itertools\"")
             && ["\"pickle\"", "\"copy\"", "\"deepcopy\"", "\"__reduce__\"", "\"__reduce_ex__\"", "\"__setstate__\""].iter().any(|k| b.contains(k))
     });
+    // (or pickles or copies itertools iterators, whose __reduce__ and __setstate__ warn at the caller's line)
+    let track_warn = mods.iter().any(|m| {
+        let b = format!("{:?}", m.body);
+        bridge.srcs.contains_key(&m.name) && (b.contains("\"warnings\"") || b.contains("\"functools\"") && b.contains("\"partial\"") || b.contains("\"ByteString\""))
+    }) || iter_pickle;
+
     let has_del = mods.iter().any(|m| format!("{:?}", m.body).contains("\"__del__\""));
     let has_closure = mods.iter().any(|m| format!("{:?}", m.body).contains("__closure__"));
     let mut em = Em {
@@ -4561,9 +4559,9 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         uses_re: false,
         re_names: HashSet::new(),
         track_warn,
-        iter_pickle,
         multi: HashMap::new(),
         wmods: HashSet::new(),
+        lam_line: None,
         warn_names: HashSet::new(),
         set_lits: HashMap::new(),
     };

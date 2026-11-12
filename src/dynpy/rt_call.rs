@@ -368,6 +368,9 @@ fn make_class_impl(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, att
     if bs.is_empty() {
         bs.push(bclass("object"));
     }
+    if name != "ByteString" && bs.iter().any(|b| is_bytestring(b)) {
+        bytestring_warn()?;
+    }
     let bt = if bs.iter().any(|b| b.base_bt() == BT::Exc) { BT::Exc } else { BT::Other };
     // A collections.abc class, or one built on it, follows ABCMeta's rules.
     let abc = module == "collections.abc" || bs.iter().any(|b| b.abc.get());
@@ -602,6 +605,9 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
     if c.module != "__main__" && is_iter_class(c) {
         if c.module == "itertools" && c.name == "_tee" {
             return tee_new(a);
+        }
+        if let Some(r) = iter_class_call(c, a) {
+            return r;
         }
         return Err(exc("NotImplementedError", format!("brevi: calling the {}.{} class is not supported in dynamic builds", c.module, c.name)));
     }
@@ -1741,6 +1747,7 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
         }
         V::NTF(_) => Err(exc("AttributeError", format!("'collections._tuplegetter' object has no attribute '{}' and no __dict__ for setting new attributes", name))),
         V::Module(&ModName("decimal.context")) => decimal_context_set(name, &v),
+        V::Module(&ModName("sys")) if matches!(&*name.to_string(), "stdout" | "stderr" | "stdin") => sys_stream_assign(&name.to_string(), v),
         V::Ext(x) => match x.set_attr(o, name, v) {
             Some(r) => r,
             None => Err(exc("AttributeError", format!("'{}' object has no attribute '{}' and no __dict__ for setting new attributes", tn(o), name))),
