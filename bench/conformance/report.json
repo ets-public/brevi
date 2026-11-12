@@ -1,228 +1,311 @@
 {
-"brevi": "brevi 0.27.0",
+"brevi": "brevi 0.27.1",
 "python": "3.13.13",
 "tag": "v3.13.13",
-"date": "2026-11-11",
+"date": "2026-11-12",
 "platform": "linux",
 "sandboxed": false,
 "timeout_s": 20,
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 250,
-"refused": 38,
+"matched": 271,
+"refused": 7,
+"by_design": 32,
+"string_model": 0,
+"cpython_private": 0,
 "wrong_output": 0,
-"wrong_exit": 8,
+"wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 15,
-"unstable": 9,
-"excluded": 37,
+"not_extractable": 0,
+"unstable": 7,
+"excluded": 40,
 "total": 357,
-"scored": 311,
-"matched_through_cpython": 0,
-"matched_silent": 46,
-"coverage": 0.8039,
-"wrong": 8
-},
-"dyn": {
-"matched": 251,
-"refused": 37,
-"wrong_output": 0,
-"wrong_exit": 8,
-"crash_or_timeout": 0,
-"not_extractable": 15,
-"unstable": 9,
-"excluded": 37,
-"total": 357,
-"scored": 311,
+"scored": 278,
 "matched_through_cpython": 0,
 "matched_silent": 47,
-"coverage": 0.8071,
-"wrong": 8
+"coverage": 0.9748,
+"wrong": 0,
+"matched_asserting": 224,
+"assert_coverage": 0.8058,
+"matched_typed": 25,
+"typed_share": 0.0923
+},
+"dyn": {
+"matched": 271,
+"refused": 7,
+"by_design": 32,
+"string_model": 0,
+"cpython_private": 0,
+"wrong_output": 0,
+"wrong_exit": 0,
+"crash_or_timeout": 0,
+"not_extractable": 0,
+"unstable": 7,
+"excluded": 40,
+"total": 357,
+"scored": 278,
+"matched_through_cpython": 0,
+"matched_silent": 47,
+"coverage": 0.9748,
+"wrong": 0,
+"matched_asserting": 224,
+"assert_coverage": 0.8058,
+"matched_typed": 0,
+"typed_share": 0.0
 }
 },
 "files": {
 "test_grammar": {
 "normal": {
-"matched": 47,
-"refused": 25,
+"matched": 50,
+"refused": 5,
+"by_design": 24,
+"string_model": 0,
+"cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 7,
+"not_extractable": 0,
 "unstable": 0,
 "excluded": 0,
 "total": 79,
-"scored": 79,
+"scored": 55,
 "matched_through_cpython": 0,
 "matched_silent": 25,
-"coverage": 0.5949,
-"wrong": 0
+"coverage": 0.9091,
+"wrong": 0,
+"matched_asserting": 25,
+"assert_coverage": 0.4545,
+"matched_typed": 17,
+"typed_share": 0.34
 },
 "dyn": {
-"matched": 47,
-"refused": 25,
+"matched": 50,
+"refused": 5,
+"by_design": 24,
+"string_model": 0,
+"cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 7,
+"not_extractable": 0,
 "unstable": 0,
 "excluded": 0,
 "total": 79,
-"scored": 79,
+"scored": 55,
 "matched_through_cpython": 0,
 "matched_silent": 25,
-"coverage": 0.5949,
-"wrong": 0
+"coverage": 0.9091,
+"wrong": 0,
+"matched_asserting": 25,
+"assert_coverage": 0.4545,
+"matched_typed": 0,
+"typed_share": 0.0
 }
 },
 "test_scope": {
 "normal": {
-"matched": 27,
-"refused": 6,
+"matched": 32,
+"refused": 0,
+"by_design": 6,
+"string_model": 0,
+"cpython_private": 0,
 "wrong_output": 0,
-"wrong_exit": 2,
+"wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 3,
+"not_extractable": 0,
 "unstable": 0,
 "excluded": 3,
 "total": 41,
-"scored": 38,
-"matched_through_cpython": 0,
-"matched_silent": 3,
-"coverage": 0.7105,
-"wrong": 2
-},
-"dyn": {
-"matched": 28,
-"refused": 5,
-"wrong_output": 0,
-"wrong_exit": 2,
-"crash_or_timeout": 0,
-"not_extractable": 3,
-"unstable": 0,
-"excluded": 3,
-"total": 41,
-"scored": 38,
+"scored": 32,
 "matched_through_cpython": 0,
 "matched_silent": 4,
-"coverage": 0.7368,
-"wrong": 2
+"coverage": 1.0,
+"wrong": 0,
+"matched_asserting": 28,
+"assert_coverage": 0.875,
+"matched_typed": 2,
+"typed_share": 0.0625
+},
+"dyn": {
+"matched": 32,
+"refused": 0,
+"by_design": 6,
+"string_model": 0,
+"cpython_private": 0,
+"wrong_output": 0,
+"wrong_exit": 0,
+"crash_or_timeout": 0,
+"not_extractable": 0,
+"unstable": 0,
+"excluded": 3,
+"total": 41,
+"scored": 32,
+"matched_through_cpython": 0,
+"matched_silent": 4,
+"coverage": 1.0,
+"wrong": 0,
+"matched_asserting": 28,
+"assert_coverage": 0.875,
+"matched_typed": 0,
+"typed_share": 0.0
 }
 },
 "test_int": {
 "normal": {
-"matched": 26,
-"refused": 4,
+"matched": 29,
+"refused": 2,
+"by_design": 1,
+"string_model": 0,
+"cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 2,
+"not_extractable": 0,
 "unstable": 0,
 "excluded": 15,
 "total": 47,
-"scored": 32,
+"scored": 31,
 "matched_through_cpython": 0,
 "matched_silent": 4,
-"coverage": 0.8125,
-"wrong": 0
+"coverage": 0.9355,
+"wrong": 0,
+"matched_asserting": 25,
+"assert_coverage": 0.8065,
+"matched_typed": 2,
+"typed_share": 0.069
 },
 "dyn": {
-"matched": 26,
-"refused": 4,
+"matched": 29,
+"refused": 2,
+"by_design": 1,
+"string_model": 0,
+"cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 2,
+"not_extractable": 0,
 "unstable": 0,
 "excluded": 15,
 "total": 47,
-"scored": 32,
+"scored": 31,
 "matched_through_cpython": 0,
 "matched_silent": 4,
-"coverage": 0.8125,
-"wrong": 0
+"coverage": 0.9355,
+"wrong": 0,
+"matched_asserting": 25,
+"assert_coverage": 0.8065,
+"matched_typed": 0,
+"typed_share": 0.0
 }
 },
 "test_list": {
 "normal": {
-"matched": 59,
+"matched": 61,
 "refused": 0,
+"by_design": 0,
+"string_model": 0,
+"cpython_private": 0,
 "wrong_output": 0,
-"wrong_exit": 2,
+"wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 2,
+"not_extractable": 0,
 "unstable": 2,
-"excluded": 2,
+"excluded": 4,
 "total": 67,
-"scored": 63,
+"scored": 61,
 "matched_through_cpython": 0,
 "matched_silent": 1,
-"coverage": 0.9365,
-"wrong": 2
+"coverage": 1.0,
+"wrong": 0,
+"matched_asserting": 60,
+"assert_coverage": 0.9836,
+"matched_typed": 1,
+"typed_share": 0.0164
 },
 "dyn": {
-"matched": 59,
+"matched": 61,
 "refused": 0,
+"by_design": 0,
+"string_model": 0,
+"cpython_private": 0,
 "wrong_output": 0,
-"wrong_exit": 2,
+"wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 2,
+"not_extractable": 0,
 "unstable": 2,
-"excluded": 2,
+"excluded": 4,
 "total": 67,
-"scored": 63,
+"scored": 61,
 "matched_through_cpython": 0,
 "matched_silent": 1,
-"coverage": 0.9365,
-"wrong": 2
+"coverage": 1.0,
+"wrong": 0,
+"matched_asserting": 60,
+"assert_coverage": 0.9836,
+"matched_typed": 0,
+"typed_share": 0.0
 }
 },
 "test_dict": {
 "normal": {
-"matched": 91,
-"refused": 3,
+"matched": 99,
+"refused": 0,
+"by_design": 1,
+"string_model": 0,
+"cpython_private": 0,
 "wrong_output": 0,
-"wrong_exit": 4,
+"wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 1,
-"unstable": 7,
-"excluded": 17,
+"not_extractable": 0,
+"unstable": 5,
+"excluded": 18,
 "total": 123,
 "scored": 99,
 "matched_through_cpython": 0,
 "matched_silent": 13,
-"coverage": 0.9192,
-"wrong": 4
+"coverage": 1.0,
+"wrong": 0,
+"matched_asserting": 86,
+"assert_coverage": 0.8687,
+"matched_typed": 3,
+"typed_share": 0.0303
 },
 "dyn": {
-"matched": 91,
-"refused": 3,
+"matched": 99,
+"refused": 0,
+"by_design": 1,
+"string_model": 0,
+"cpython_private": 0,
 "wrong_output": 0,
-"wrong_exit": 4,
+"wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 1,
-"unstable": 7,
-"excluded": 17,
+"not_extractable": 0,
+"unstable": 5,
+"excluded": 18,
 "total": 123,
 "scored": 99,
 "matched_through_cpython": 0,
 "matched_silent": 13,
-"coverage": 0.9192,
-"wrong": 4
+"coverage": 1.0,
+"wrong": 0,
+"matched_asserting": 86,
+"assert_coverage": 0.8687,
+"matched_typed": 0,
+"typed_share": 0.0
 }
 }
 },
 "paths": {
 "normal": {
-"dynamic": 231,
-"refused": 38,
-"typed": 25,
-"pybridge": 2
+"dynamic": 246,
+"refused": 39,
+"typed": 25
 },
 "dyn": {
-"dynamic": 259,
-"refused": 37
+"dynamic": 271,
+"refused": 39
 }
 },
 "tests": [
@@ -245,11 +328,11 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "by_design",
 "detail": "no field check_synterror on type TokenTests: unknown field"
 },
 "dyn": {
-"category": "refused",
+"category": "by_design",
 "detail": "compile() is not supported in dynamic builds"
 }
 }
@@ -271,19 +354,27 @@
 {
 "id": "test_grammar.TokenTests.test_end_of_numerical_literals",
 "file": "test_grammar",
-"category": "not_extractable",
-"detail": "imports test"
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "`statement` and a value kept elsewhere name the same list in Python, and `statement` is changed (by check_syntax_error()) while a value kept elsewhere is still used; the typed build would change only "
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
 },
 {
 "id": "test_grammar.TokenTests.test_eof_error",
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "by_design",
 "detail": "unknown function compile()"
 },
 "dyn": {
-"category": "refused",
+"category": "by_design",
 "detail": "compile() is not supported in dynamic builds"
 }
 }
@@ -335,11 +426,11 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "by_design",
 "detail": "except OverflowError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 31: eval() is not supported in dynamic builds)"
 },
 "dyn": {
-"category": "refused",
+"category": "by_design",
 "detail": "eval() is not supported in dynamic builds"
 }
 }
@@ -363,11 +454,11 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "by_design",
 "detail": "unknown function eval()"
 },
 "dyn": {
-"category": "refused",
+"category": "by_design",
 "detail": "eval() is not supported in dynamic builds"
 }
 }
@@ -391,12 +482,12 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found A"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "typing: .__annotations__ needs CPython's typing"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -417,25 +508,41 @@
 {
 "id": "test_grammar.GrammarTests.test_assert_failures",
 "file": "test_grammar",
-"category": "not_extractable",
-"detail": "decorator @unittest.skipUnless"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_grammar.GrammarTests.test_assert_syntax_warnings",
 "file": "test_grammar",
-"category": "not_extractable",
-"detail": "imports test"
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "`check_no_warnings` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 13: compile() is not supported in dynamic builds)"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
 },
 {
 "id": "test_grammar.GrammarTests.test_assert_warning_promotes_to_syntax_error",
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "by_design",
 "detail": "unknown name 'SyntaxWarning'"
 },
 "dyn": {
-"category": "refused",
+"category": "by_design",
 "detail": "compile() is not supported in dynamic builds"
 }
 }
@@ -597,8 +704,16 @@
 {
 "id": "test_grammar.GrammarTests.test_comparison_is_literal",
 "file": "test_grammar",
-"category": "not_extractable",
-"detail": "imports test"
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "`statement` and a value kept elsewhere name the same list in Python, and `statement` is changed (by check_syntax_error()) while a value kept elsewhere is still used; the typed build would change only "
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
 },
 {
 "id": "test_grammar.GrammarTests.test_complex_lambda",
@@ -675,11 +790,11 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "by_design",
 "detail": "expected end of line, found ,"
 },
 "dyn": {
-"category": "refused",
+"category": "by_design",
 "detail": "compile() is not supported in dynamic builds"
 }
 }
@@ -717,11 +832,11 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "by_design",
 "detail": "expected end of line, found ,"
 },
 "dyn": {
-"category": "refused",
+"category": "by_design",
 "detail": "compile() is not supported in dynamic builds"
 }
 }
@@ -745,11 +860,11 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "by_design",
 "detail": "expected end of line, found ,"
 },
 "dyn": {
-"category": "refused",
+"category": "by_design",
 "detail": "exec() is not supported in dynamic builds"
 }
 }
@@ -773,11 +888,11 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "by_design",
 "detail": "g holds [[int]] (set on line 28) but is set to [int] here"
 },
 "dyn": {
-"category": "refused",
+"category": "by_design",
 "detail": "compile() is not supported in dynamic builds"
 }
 }
@@ -843,11 +958,11 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "by_design",
 "detail": "expected ':', found *"
 },
 "dyn": {
-"category": "refused",
+"category": "by_design",
 "detail": "compile() is not supported in dynamic builds"
 }
 }
@@ -857,11 +972,11 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "by_design",
 "detail": "function 'test_listcomps_test_in_func' is defined twice"
 },
 "dyn": {
-"category": "refused",
+"category": "by_design",
 "detail": "compile() is not supported in dynamic builds"
 }
 }
@@ -955,11 +1070,11 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "by_design",
 "detail": "expected an expression, found *"
 },
 "dyn": {
-"category": "refused",
+"category": "by_design",
 "detail": "compile() is not supported in dynamic builds"
 }
 }
@@ -1053,11 +1168,11 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "by_design",
 "detail": "except EOFError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 27: compile() is not supported in dynamic builds)"
 },
 "dyn": {
-"category": "refused",
+"category": "by_design",
 "detail": "compile() is not supported in dynamic builds"
 }
 }
@@ -1067,11 +1182,11 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "by_design",
 "detail": "unknown function compile()"
 },
 "dyn": {
-"category": "refused",
+"category": "by_design",
 "detail": "compile() is not supported in dynamic builds"
 }
 }
@@ -1100,7 +1215,7 @@
 },
 "dyn": {
 "category": "refused",
-"detail": "typing: .__annotations__ needs CPython's typing"
+"detail": "typing: .__annotations__ of a class annotated with a type expression (such as int | None or list[int]) needs CPython's typing"
 }
 }
 },
@@ -1123,11 +1238,11 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "by_design",
 "detail": "`nonlocal nonloc_ns` sets a list or dict of the enclosing function, and this file cannot be built over dynamic values (case.py line 16: exec() is not supported in dynamic builds)"
 },
 "dyn": {
-"category": "refused",
+"category": "by_design",
 "detail": "exec() is not supported in dynamic builds"
 }
 }
@@ -1135,8 +1250,16 @@
 {
 "id": "test_grammar.GrammarTests.test_var_annot_in_module",
 "file": "test_grammar",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'import_helper' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_grammar.GrammarTests.test_var_annot_metaclass_semantics",
@@ -1155,19 +1278,27 @@
 {
 "id": "test_grammar.GrammarTests.test_var_annot_module_semantics",
 "file": "test_grammar",
-"category": "not_extractable",
-"detail": "imports test"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "a used file holds only fn, type, enum and test items and NAME = value lines"
+},
+"dyn": {
+"category": "refused",
+"detail": "typing: a subscripted typing form used as a value needs CPython's typing"
+}
+}
 },
 {
 "id": "test_grammar.GrammarTests.test_var_annot_refleak",
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "by_design",
 "detail": "`nonlocal nonloc_ns` sets a list or dict of the enclosing function, and this file cannot be built over dynamic values (case.py line 27: exec() is not supported in dynamic builds)"
 },
 "dyn": {
-"category": "refused",
+"category": "by_design",
 "detail": "exec() is not supported in dynamic builds"
 }
 }
@@ -1191,11 +1322,11 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "by_design",
 "detail": "except KeyError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 7: exec() is not supported in dynamic builds)"
 },
 "dyn": {
-"category": "refused",
+"category": "by_design",
 "detail": "exec() is not supported in dynamic builds"
 }
 }
@@ -1205,11 +1336,11 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "by_design",
 "detail": "unknown function compile()"
 },
 "dyn": {
-"category": "refused",
+"category": "by_design",
 "detail": "compile() is not supported in dynamic builds"
 }
 }
@@ -1217,8 +1348,16 @@
 {
 "id": "test_grammar.GrammarTests.test_warn_missed_comma",
 "file": "test_grammar",
-"category": "not_extractable",
-"detail": "imports test"
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "`statement` and a value kept elsewhere name the same list in Python, and `statement` is changed (by check_syntax_error()) while a value kept elsewhere is still used; the typed build would change only "
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
 },
 {
 "id": "test_grammar.GrammarTests.test_while",
@@ -1253,11 +1392,11 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "by_design",
 "detail": "the typed build runs a generator to the end at its first use, where CPython runs it step by step with its caller, and this file cannot be built over dynamic values (case.py line 7: compile() is not su"
 },
 "dyn": {
-"category": "refused",
+"category": "by_design",
 "detail": "compile() is not supported in dynamic builds"
 }
 }
@@ -1267,11 +1406,11 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "by_design",
 "detail": "expected ')', found 1"
 },
 "dyn": {
-"category": "refused",
+"category": "by_design",
 "detail": "compile() is not supported in dynamic builds"
 }
 }
@@ -1295,14 +1434,12 @@
 "file": "test_scope",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'function' object has no attribute '__closure__'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'function' object has no attribute '__closure__'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1325,14 +1462,12 @@
 "file": "test_scope",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'function' object has no attribute '__closure__'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: 'function' object has no attribute '__closure__'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1345,20 +1480,28 @@
 {
 "id": "test_scope.ScopeTests.testClassAndGlobal",
 "file": "test_scope",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'self' is not defined"
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "cannot work out the type of msg in _conf_TestCase_fail"
+},
+"dyn": {
+"category": "by_design",
+"detail": "exec() is not supported in dynamic builds"
+}
+}
 },
 {
 "id": "test_scope.ScopeTests.testClassNamespaceOverridesClosure",
 "file": "test_scope",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found X"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "locals() is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1381,11 +1524,11 @@
 "file": "test_scope",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "by_design",
 "detail": "`.__code__` and a value kept elsewhere name the same list in Python, and `.__code__` is changed (by a function the proof does not follow) while a value kept elsewhere is still used; the typed build wo"
 },
 "dyn": {
-"category": "refused",
+"category": "by_design",
 "detail": "eval() is not supported in dynamic builds"
 }
 }
@@ -1437,8 +1580,8 @@
 "file": "test_scope",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "name 'nestedcell_get' is not defined"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
 "category": "matched",
@@ -1451,11 +1594,11 @@
 "file": "test_scope",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "by_design",
 "detail": "unknown function exec()"
 },
 "dyn": {
-"category": "refused",
+"category": "by_design",
 "detail": "exec() is not supported in dynamic builds"
 }
 }
@@ -1513,12 +1656,12 @@
 "file": "test_scope",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found C"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "locals() is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1699,8 +1842,16 @@
 {
 "id": "test_scope.ScopeTests.testScopeOfGlobalStmt",
 "file": "test_scope",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'self' is not defined"
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "cannot work out the type of msg in _conf_TestCase_fail"
+},
+"dyn": {
+"category": "by_design",
+"detail": "exec() is not supported in dynamic builds"
+}
+}
 },
 {
 "id": "test_scope.ScopeTests.testSimpleAndRebinding",
@@ -1775,19 +1926,27 @@
 {
 "id": "test_scope.ScopeTests.testUnboundLocal_AugAssign",
 "file": "test_scope",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: AttributeError: 'ScopeTests' object has no attribute 'fail'"
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "cannot work out the type of msg in _conf_TestCase_fail"
+},
+"dyn": {
+"category": "by_design",
+"detail": "exec() is not supported in dynamic builds"
+}
+}
 },
 {
 "id": "test_scope.ScopeTests.testUnoptimizedNamespaces",
 "file": "test_scope",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "by_design",
 "detail": "unknown function compile()"
 },
 "dyn": {
-"category": "refused",
+"category": "by_design",
 "detail": "compile() is not supported in dynamic builds"
 }
 }
@@ -1881,20 +2040,28 @@
 "file": "test_int",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected ')', found \"123\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "memoryview() is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
 {
 "id": "test_int.IntTestCases.test_int_returns_int_subclass",
 "file": "test_int",
-"category": "not_extractable",
-"detail": "unittest API assertWarns"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_int.IntTestCases.test_int_subclass_with_index",
@@ -1927,8 +2094,16 @@
 {
 "id": "test_int.IntTestCases.test_intconversion",
 "file": "test_int",
-"category": "not_extractable",
-"detail": "unittest API assertWarns"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_int.IntTestCases.test_invalid_signs",
@@ -1996,7 +2171,7 @@
 },
 "dyn": {
 "category": "refused",
-"detail": "bytearray() is not supported in dynamic builds"
+"detail": "a subclass of bytearray is not supported in dynamic builds"
 }
 }
 },
@@ -2025,11 +2200,11 @@
 "file": "test_int",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "by_design",
 "detail": "expected ')', found \"1_00\""
 },
 "dyn": {
-"category": "refused",
+"category": "by_design",
 "detail": "eval() is not supported in dynamic builds"
 }
 }
@@ -2555,8 +2730,8 @@
 {
 "id": "test_list.ListTest.test_deopt_from_append_list",
 "file": "test_list",
-"category": "not_extractable",
-"detail": "imports test"
+"category": "excluded",
+"detail": "runs a fresh CPython in a subprocess (a CPython crash regression)"
 },
 {
 "id": "test_list.ListTest.test_empty_slice",
@@ -2771,14 +2946,12 @@
 "file": "test_list",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: a class that defines __slots__ without defining __getstate__ cannot be pickled"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: a class that defines __slots__ without defining __getstate__ cannot be pickled"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2993,8 +3166,8 @@
 {
 "id": "test_list.ListTest.test_repr_deep",
 "file": "test_list",
-"category": "not_extractable",
-"detail": "imports unittest"
+"category": "excluded",
+"detail": "skipped by CPython: get_c_recursion_limit() requires _testcapi, which the reference build lacks"
 },
 {
 "id": "test_list.ListTest.test_repr_large",
@@ -3057,14 +3230,12 @@
 "file": "test_list",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: a class that defines __slots__ without defining __getstate__ cannot be pickled"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: a class that defines __slots__ without defining __getstate__ cannot be pickled"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3227,11 +3398,11 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "by_design",
 "detail": "expected end of line, found CustomException"
 },
 "dyn": {
-"category": "refused",
+"category": "by_design",
 "detail": "exec() is not supported in dynamic builds"
 }
 }
@@ -3639,8 +3810,16 @@
 {
 "id": "test_dict.DictTest.test_hash_collision_remove_add",
 "file": "test_dict",
-"category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_dict.DictTest.test_init_use_after_free",
@@ -3689,12 +3868,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "isinstance with a typing name, and this file cannot be built over dynamic values (case.py line 18: collections.abc is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "collections.abc is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3723,14 +3902,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: a class that defines __slots__ without defining __getstate__ cannot be pickled"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: a class that defines __slots__ without defining __getstate__ cannot be pickled"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3875,8 +4052,16 @@
 {
 "id": "test_dict.DictTest.test_mutating_lookup",
 "file": "test_dict",
-"category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_dict.DictTest.test_object_set_item_single_instance_non_str_key",
@@ -3979,8 +4164,8 @@
 {
 "id": "test_dict.DictTest.test_repr_deep",
 "file": "test_dict",
-"category": "not_extractable",
-"detail": "imports unittest"
+"category": "excluded",
+"detail": "skipped by CPython: get_c_recursion_limit() requires _testcapi, which the reference build lacks"
 },
 {
 "id": "test_dict.DictTest.test_resize1",
@@ -4057,12 +4242,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "isinstance with a typing name, and this file cannot be built over dynamic values (case.py line 18: collections.abc is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "collections.abc is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4071,14 +4256,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: a class that defines __slots__ without defining __getstate__ cannot be pickled"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: a class that defines __slots__ without defining __getstate__ cannot be pickled"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4087,14 +4270,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "pybridge",
-"detail": "exit 1, expected 0: {\"e\":\"runtime\",\"line\":16,\"type\":\"TypeError\",\"msg\":\"'list' object is not an iterator\"}"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: a class that defines __slots__ without defining __getstate__ cannot be pickled"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4329,14 +4510,12 @@
 "file": "test_dict",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "pybridge",
-"detail": "exit 1, expected 0: {\"e\":\"runtime\",\"line\":16,\"type\":\"TypeError\",\"msg\":\"'list' object is not an iterator\"}"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: a class that defines __slots__ without defining __getstate__ cannot be pickled"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },

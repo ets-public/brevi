@@ -401,6 +401,24 @@ pub fn bi_dict(mut a: Args) -> R {
 pub fn bi_range(a: Args) -> R {
     let a = enum_nums(a);
     a.no_kw("range")?;
+    if (1..=3).contains(&a.p.len()) && a.p.iter().any(|x| matches!(x, V::Big(_))) {
+        let mut bs = Vec::new();
+        for x in &a.p {
+            match big_of(x) {
+                Some(b) => bs.push(b),
+                None => return type_err(format!("'{}' object cannot be interpreted as an integer", tn(x))),
+            }
+        }
+        let (s0, e, st) = match bs.len() {
+            1 => (Big::from_i64(0), bs[0].clone(), Big::from_i64(1)),
+            2 => (bs[0].clone(), bs[1].clone(), Big::from_i64(1)),
+            _ => (bs[0].clone(), bs[1].clone(), bs[2].clone()),
+        };
+        if st.is_zero() {
+            return val_err("range() arg 3 must not be zero".into());
+        }
+        return Ok(bigrange_v(s0, e, st));
+    }
     let g = |i: usize| -> Result<i64, E> {
         match &a.p[i] {
             V::Int(x) => Ok(*x),
@@ -572,10 +590,18 @@ pub fn bi_reversed(a: Args) -> R {
             return call(&f, Args::p(vec![x.clone()]));
         }
     }
+    if bigrange_of(&x).is_some() {
+        return call_method(&x, "__reversed__", Args::p(vec![]));
+    }
     if let V::Range(r) = &x {
         let n = range_len(&x) as i64;
         let last = r.0 + (n - 1) * r.2;
-        return Ok(new_iter(It::Range(last, r.0 - r.2, -r.2), IterClass::Kind(ItKind::RangeIter)));
+        // CPython falls back to its long range iterator when start - step leaves the C long range
+        let (Some(stop), Some(neg)) = (r.0.checked_sub(r.2), r.2.checked_neg()) else {
+            let b = bigrange_v(Big::from_i64(r.0), Big::from_i64(r.1), Big::from_i64(r.2));
+            return call_method(&b, "__reversed__", Args::p(vec![]));
+        };
+        return Ok(new_iter(It::Range(last, stop, neg), IterClass::Kind(ItKind::RangeIter)));
     }
     // list, dict and dict views have their own reverse iterators; every other reversible sequence gets
     // the generic `reversed` object, as in CPython.
@@ -1026,6 +1052,7 @@ pub fn type_of(x: &V) -> Result<Rc<Class>, E> {
         V::Slice(_) => ext_class("slice"),
         V::Ellipsis => ext_class("ellipsis"),
         V::NotImpl => ext_class("NotImplementedType"),
+        V::Ext(e) if e.tname() == "range" => tclass(15, "range"),
         V::Ext(e) => ext_class(e.tname()),
         V::Iter(it) => return iter_type_of(it),
         V::NTF(_) => ext_class("collections._tuplegetter"),

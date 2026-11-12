@@ -1540,6 +1540,10 @@ pub fn len(v: &V) -> Result<usize, E> {
         V::Ext(x) => match x.len() {
             Some(n) => n,
             None if memview_of(v).is_some() => return Err(exc("ValueError", "operation forbidden on released memoryview object".into())),
+            None if bigrange_of(v).is_some() => match call_method(v, "__len__", Args::p(vec![]))? {
+                V::Int(i) => i as usize,
+                _ => return type_err("'__len__' returned a bad value".into()),
+            },
             None => return type_err(format!("object of type '{}' has no len()", tn(v))),
         },
         _ => return type_err(format!("object of type '{}' has no len()", tn(v))),
@@ -2248,7 +2252,8 @@ impl It {
             It::Range(a, b, st) => {
                 if (*st > 0 && *a < *b) || (*st < 0 && *a > *b) {
                     let v = *a;
-                    *a += *st;
+                    // a step past the i64 range is past stop too: the range is done
+                    *a = a.checked_add(*st).unwrap_or(*b);
                     Ok(Some(V::Int(v)))
                 } else {
                     Ok(None)

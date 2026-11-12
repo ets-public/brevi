@@ -191,7 +191,10 @@ pub fn iter_reduce_v(v: &V) -> R {
         // CPython: (iter, (range(start, start + len * step, step),), None)
         Plan::Range(a, b, step) => {
             let n = range_len(&V::Range(Rc::new((a, b, step)))) as i64;
-            tup(vec![iter_f, tup(vec![V::Range(Rc::new((a, a + n * step, step)))]), V::None])
+            let Some(stop) = n.checked_mul(step).and_then(|d| a.checked_add(d)) else {
+                return Err(unsupported("pickling a range iterator whose stop is past 64 bits"));
+            };
+            tup(vec![iter_f, tup(vec![V::Range(Rc::new((a, stop, step)))]), V::None])
         }
         Plan::Dict(d, i, kind, ver, n0) => {
             let mut sim = It::Dict(d, i, kind, ver, n0);
@@ -284,7 +287,7 @@ pub fn iter_setstate_v(v: &V, st: &V) -> R {
         It::Range(a, b, step) => {
             let n = range_len(&V::Range(Rc::new((*a, *b, *step)))) as i64;
             let k = idx.clamp(0, n);
-            *a += k * *step;
+            *a = k.checked_mul(*step).and_then(|d| a.checked_add(d)).unwrap_or(*b);
         }
         _ => {}
     }
