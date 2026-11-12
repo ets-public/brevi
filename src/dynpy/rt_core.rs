@@ -2284,6 +2284,8 @@ pub enum BT {
     Counter,
     OrderedDict,
     Deque,
+    // bytes (a library class in the dynamic build): a subclass instance wraps a bytes value
+    Bytes,
     Other,
 }
 
@@ -3343,6 +3345,7 @@ pub fn init_builtin_classes() {
         ("RuntimeError", "Exception"),
         ("RecursionError", "RuntimeError"),
         ("NotImplementedError", "RuntimeError"),
+        ("SystemError", "Exception"),
         ("StopIteration", "Exception"),
         ("StopAsyncIteration", "Exception"),
         ("AssertionError", "Exception"),

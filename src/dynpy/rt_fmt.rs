@@ -361,6 +361,16 @@ pub fn repr(v: &V) -> Result<String, E> {
                     });
                 }
             }
+            // an iterator with CPython's own repr (itertools.count)
+            let red = x.it.try_borrow().ok().and_then(|it| match &*it {
+                It::Red(r) => Some(r.clone()),
+                _ => None,
+            });
+            if let Some(r) = red {
+                if let Some(t) = r.repr() {
+                    return t;
+                }
+            }
             // a generator (or genexpr) reprs with its dotted __qualname__, as in CPython; the cells are held
             // while the generator body runs, so read them only when free (the running generator's name is
             // remembered elsewhere for that case)
@@ -1176,6 +1186,8 @@ pub fn to_float(v: &V) -> Result<f64, E> {
         V::Str(s) => parse_float(&s.s).ok_or_else(|| exc("ValueError", format!("could not convert string to float: {}", str_repr(&s.s)))),
         V::Obj(o) => match o.cls.lookup("__float__") {
             Some(f) => to_float(&call(&f, Args::p(vec![v.clone()]))?),
+            // a bytes subclass instance parses as its bytes do
+            None if o.cls.base_bt() == BT::Bytes => to_float(&o.inner().unwrap_or(V::None)),
             None => type_err(format!("float() argument must be a string or a real number, not '{}'", tn(v))),
         },
         // a memoryview counts when it gives a simple buffer (live and contiguous), as in CPython
@@ -1318,7 +1330,7 @@ pub fn to_int(v: &V) -> R {
                 return int_returned(call(&f, Args::p(vec![v.clone()]))?, "__int__");
             }
             // a subclass of int, float or str (IntEnum, StrEnum): int's own __int__ wins over a user __index__
-            if let Some(i) = inner_of(v).filter(|i| matches!(i, V::Int(_) | V::Big(_) | V::Bool(_) | V::Float(_) | V::Str(_))) {
+            if let Some(i) = inner_of(v).filter(|i| matches!(i, V::Int(_) | V::Big(_) | V::Bool(_) | V::Float(_) | V::Str(_)) || is_bytes_v(i)) {
                 return to_int(&i);
             }
             if let Some(f) = o.cls.lookup("__index__") {

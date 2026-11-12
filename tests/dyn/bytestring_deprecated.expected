@@ -1,0 +1,5 @@
+True True False
+DeprecationWarning 10 'collections.abc.ByteString' is deprecated and slated for removal in Python 3.17
+DeprecationWarning 12 'collections.abc.ByteString' is deprecated and slated for removal in Python 3.17
+DeprecationWarning 18 'collections.abc.ByteString' is deprecated and slated for removal in Python 3.17
+DeprecationWarning 20 'collections.abc.ByteString' is deprecated and slated for removal in Python 3.17

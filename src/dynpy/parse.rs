@@ -465,6 +465,8 @@ pub struct Params {
     pub posonly: usize,
     // each annotated parameter's annotation (read by the MCP signature pass, mcpsig.rs; nothing else uses them)
     pub ann: Vec<(String, Ex)>,
+    // a lambda's body line, when the whole body is on that one line (0 otherwise, and for a def)
+    pub line: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -1381,9 +1383,12 @@ impl P {
     pub fn expr(&mut self) -> PR<Ex> {
         if self.is_kw("lambda") {
             self.next();
-            let p = self.params(":")?;
+            let mut p = self.params(":")?;
             self.expect_op(":")?;
+            let l0 = self.toks.get(self.i).map_or(0, |t| t.1);
             let b = self.expr()?;
+            let l1 = self.i.checked_sub(1).and_then(|k| self.toks.get(k)).map_or(0, |t| t.1);
+            p.line = if l0 == l1 { l0 } else { 0 };
             return Ok(Ex::Lambda(Box::new(p), Box::new(b)));
         }
         if let (Tok::Name(n), Some(Tok::Op(":="))) = (self.peek().clone(), self.toks.get(self.i + 1).map(|t| t.0.clone())) {

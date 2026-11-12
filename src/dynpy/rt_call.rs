@@ -373,6 +373,9 @@ fn make_class_m(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, attrs:
     if bs.is_empty() {
         bs.push(bclass("object"));
     }
+    if name != "ByteString" && bs.iter().any(|b| is_bytestring(b)) {
+        bytestring_warn()?;
+    }
     let bt = if bs.iter().any(|b| b.base_bt() == BT::Exc) { BT::Exc } else { BT::Other };
     // A collections.abc class, or one built on it, follows ABCMeta's rules.
     let abc = module == "collections.abc" || bs.iter().any(|b| b.abc.get());
@@ -611,6 +614,9 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
         if c.module == "itertools" && c.name == "_tee" {
             return tee_new(a);
         }
+        if let Some(r) = iter_class_call(c, a) {
+            return r;
+        }
         return Err(exc("NotImplementedError", format!("brevi: calling the {}.{} class is not supported in dynamic builds", c.module, c.name)));
     }
     if plain_new(c) {
@@ -815,6 +821,7 @@ fn builtin_of_bt(bt: BT) -> Rc<Class> {
         BT::Counter => "Counter",
         BT::OrderedDict => "OrderedDict",
         BT::Deque => "deque",
+        BT::Bytes => return ext_class("bytes"),
         _ => "object",
     })
 }
@@ -1380,6 +1387,17 @@ fn class_getattr(o: &V, c: &Rc<Class>, name: &str) -> R {
             if c.module == "builtins" || c.module == "collections" {
                 if let Some(v) = builtin_class_attr(c, name) {
                     return Ok(v);
+                }
+            }
+            // a bytes subclass: maketrans is bytes' static method; fromhex is a classmethod that builds
+            // the subclass from the bytes, as CPython's does (cls(bytes.fromhex(s)))
+            if c.base_bt() == BT::Bytes {
+                if name == "maketrans" {
+                    return Ok(builtin("maketrans", bytes_maketrans));
+                }
+                if name == "fromhex" {
+                    let k = V::Class(c.clone());
+                    return Ok(builtin("fromhex", move |a: Args| call(&k, Args::p(vec![bytes_fromhex(a)?]))));
                 }
             }
             // A base's builtin_class_attr answers any name (a generic unbound method), so a base other
