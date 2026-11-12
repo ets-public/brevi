@@ -70,7 +70,8 @@ pub fn in_of_iterator(v: &V) -> Result<In, E> {
 }
 // PyObject_GetIter(x) as an input.
 pub fn get_iter(x: &V) -> Result<In, E> {
-    if is_iterator(x) {
+    // an object of the program goes through its __iter__ (one with __next__ and no __iter__ is not iterable)
+    if matches!(x, V::Iter(_)) || (matches!(x, V::Ext(_)) && is_iterator(x)) {
         return in_of_iterator(x);
     }
     let v = iter_v(x)?;
@@ -1000,15 +1001,18 @@ pub struct GbState {
 }
 pub struct GroupbyIt {
     st: Rc<GbState>,
-    // the groupby iterator itself, which its groupers name as their parent; set right after it is made
+    // the groupby iterator itself, which its groupers name as their parent (set right after it is made), and
+    // its state cell: a `for` loop keeps only the cell, so the parent is remade around it when the first is gone
     me: RefCell<Option<std::rc::Weak<IterCell>>>,
+    cell: RefCell<std::rc::Weak<RefCell<It>>>,
 }
 pub fn groupby_new(it: In, keyfunc: V) -> V {
     let st = Rc::new(GbState { it, keyfunc, tgtkey: RefCell::new(None), currkey: RefCell::new(None), currvalue: RefCell::new(None), curr: Cell::new(0), ids: Cell::new(0) });
-    let g = Rc::new(GroupbyIt { st, me: RefCell::new(None) });
+    let g = Rc::new(GroupbyIt { st, me: RefCell::new(None), cell: RefCell::new(std::rc::Weak::new()) });
     let v = new_iter(It::Red(g.clone()), IterClass::Kind(ItKind::ItGroupby));
     if let V::Iter(c) = &v {
         *g.me.borrow_mut() = Some(Rc::downgrade(c));
+        *g.cell.borrow_mut() = Rc::downgrade(&c.it);
     }
     v
 }
@@ -1041,7 +1045,18 @@ impl RedIt for GroupbyIt {
         }
         let k = st.currkey.borrow().clone().unwrap_or(V::None);
         *st.tgtkey.borrow_mut() = Some(k.clone());
-        let parent = self.me.borrow().as_ref().and_then(|w| w.upgrade()).map(V::Iter).unwrap_or(V::None);
+        let alive = self.me.borrow().as_ref().and_then(|w| w.upgrade());
+        let parent = match alive {
+            Some(c) => V::Iter(c),
+            None => match self.cell.borrow().upgrade() {
+                Some(it) => {
+                    let c = Rc::new(IterCell { kind: IterClass::Kind(ItKind::ItGroupby), it });
+                    *self.me.borrow_mut() = Some(Rc::downgrade(&c));
+                    V::Iter(c)
+                }
+                None => V::None,
+            },
+        };
         let g = grouper_make(st.clone(), parent, k.clone());
         Ok(Some(tup(vec![k, g])))
     }

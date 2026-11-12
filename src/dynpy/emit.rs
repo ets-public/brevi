@@ -279,7 +279,7 @@ fn is_builtin_name(n: &str) -> bool {
 fn is_exc_name(n: &str) -> bool {
     matches!(
         n,
-        "BaseException" | "Exception" | "SystemExit" | "KeyboardInterrupt" | "GeneratorExit" | "ArithmeticError" | "ZeroDivisionError" | "OverflowError" | "FloatingPointError" | "LookupError" | "KeyError" | "IndexError" | "ValueError" | "UnicodeError" | "UnicodeDecodeError" | "UnicodeEncodeError" | "TypeError" | "AttributeError" | "NameError" | "UnboundLocalError" | "RuntimeError" | "RecursionError" | "NotImplementedError" | "StopIteration" | "StopAsyncIteration" | "TimeoutError" | "ConnectionError" | "ConnectionRefusedError" | "ConnectionResetError" | "ConnectionAbortedError" | "BrokenPipeError" | "BlockingIOError" | "ChildProcessError" | "InterruptedError" | "ProcessLookupError" | "BaseExceptionGroup" | "ExceptionGroup" | "AssertionError" | "SyntaxError" | "IndentationError" | "ImportError" | "ModuleNotFoundError" | "OSError" | "IOError" | "EnvironmentError" | "FileNotFoundError" | "PermissionError" | "IsADirectoryError" | "NotADirectoryError" | "FileExistsError" | "EOFError" | "MemoryError" | "BufferError" | "Warning" | "UserWarning" | "DeprecationWarning" | "SyntaxWarning" | "RuntimeWarning" | "FutureWarning" | "PendingDeprecationWarning" | "ImportWarning" | "UnicodeWarning" | "BytesWarning" | "ResourceWarning" | "EncodingWarning"
+        "BaseException" | "Exception" | "SystemExit" | "KeyboardInterrupt" | "GeneratorExit" | "ArithmeticError" | "ZeroDivisionError" | "OverflowError" | "FloatingPointError" | "LookupError" | "KeyError" | "IndexError" | "ValueError" | "UnicodeError" | "UnicodeDecodeError" | "UnicodeEncodeError" | "TypeError" | "AttributeError" | "NameError" | "UnboundLocalError" | "RuntimeError" | "RecursionError" | "NotImplementedError" | "SystemError" | "StopIteration" | "StopAsyncIteration" | "TimeoutError" | "ConnectionError" | "ConnectionRefusedError" | "ConnectionResetError" | "ConnectionAbortedError" | "BrokenPipeError" | "BlockingIOError" | "ChildProcessError" | "InterruptedError" | "ProcessLookupError" | "BaseExceptionGroup" | "ExceptionGroup" | "AssertionError" | "SyntaxError" | "IndentationError" | "ImportError" | "ModuleNotFoundError" | "OSError" | "IOError" | "EnvironmentError" | "FileNotFoundError" | "PermissionError" | "IsADirectoryError" | "NotADirectoryError" | "FileExistsError" | "EOFError" | "MemoryError" | "BufferError" | "Warning" | "UserWarning" | "DeprecationWarning" | "SyntaxWarning" | "RuntimeWarning" | "FutureWarning" | "PendingDeprecationWarning" | "ImportWarning" | "UnicodeWarning" | "BytesWarning" | "ResourceWarning" | "EncodingWarning"
     )
 }
 
@@ -1701,6 +1701,8 @@ pub struct Em {
     multi: HashMap<String, Option<HashSet<usize>>>,
     // the WMod statics written so far
     wmods: HashSet<String>,
+    // while a lambda whose body is on one line is emitted: that line, known even in a statement over several
+    lam_line: Option<usize>,
     // (module, name) bound by `import warnings`
     warn_names: HashSet<(String, String)>,
     // module + value set -> the first display's items in source order (CPython's constant merging)
@@ -2221,9 +2223,14 @@ impl Em {
                 format!("(if {cc} {{ {aa} }} else {{ {bb} }})")
             }
             Ex::Lambda(p, body) => {
-                let ret = Stmt { line, st: St::Return(Some((**body).clone())) };
+                // a body all on one line runs at that line, even in a statement over several lines
+                let bl = if p.line != 0 { p.line } else { line };
+                let ret = Stmt { line: bl, st: St::Return(Some((**body).clone())) };
                 let qn = self.qualname_of("<lambda>");
-                let f = self.closure("<lambda>", &qn, p, &[ret], line, false)?;
+                let saved = std::mem::replace(&mut self.lam_line, if p.line != 0 { Some(p.line) } else { None });
+                let f = self.closure("<lambda>", &qn, p, &[ret], line, false);
+                self.lam_line = saved;
+                let f = f?;
                 let mut f = format!("with_qualname({f}, {})", lit(&qn));
                 // a lambda has no annotations: its __annotations__ is {} (kept like a def's, see ANN_DEFS)
                 if super::typing::ANN_DEFS.load(std::sync::atomic::Ordering::Relaxed) {
@@ -2371,7 +2378,7 @@ impl Em {
         // a statement over several lines: which of them the call is on is not known, so no line is named
         // (the module is still known: line 0 says so, and a warning the filters turn into an error is exact there)
         let site = match self.wmod() {
-            Some(m) if !self.multi_line(line) => format!("re_site({line}, &{m});"),
+            Some(m) if self.lam_line == Some(line) || !self.multi_line(line) => format!("re_site({line}, &{m});"),
             Some(m) => format!("re_site(0, &{m});"),
             None => "re_site_clear();".to_string(),
         };
@@ -2429,7 +2436,7 @@ impl Em {
         if !self.track_warn {
             return String::new();
         }
-        let known = known && line != 0 && !self.multi_line(line);
+        let known = known && line != 0 && (self.lam_line == Some(line) || !self.multi_line(line));
         // Brevi's own library copies have no lines of CPython's to name; line 0 is this module at a line not known
         match self.wmod() {
             Some(m) => format!("re_site({}, &{m});", if known { line } else { 0 }),
@@ -4451,6 +4458,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         track_warn,
         multi: HashMap::new(),
         wmods: HashSet::new(),
+        lam_line: None,
         warn_names: HashSet::new(),
         set_lits: HashMap::new(),
     };
