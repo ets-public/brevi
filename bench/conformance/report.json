@@ -9,8 +9,8 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 275,
-"refused": 1,
+"matched": 276,
+"refused": 0,
 "by_design": 34,
 "string_model": 0,
 "cpython_private": 0,
@@ -24,16 +24,16 @@
 "scored": 276,
 "matched_through_cpython": 0,
 "matched_silent": 47,
-"coverage": 0.9964,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 228,
-"assert_coverage": 0.8261,
+"matched_asserting": 229,
+"assert_coverage": 0.8297,
 "matched_typed": 25,
-"typed_share": 0.0909
+"typed_share": 0.0906
 },
 "dyn": {
-"matched": 275,
-"refused": 1,
+"matched": 276,
+"refused": 0,
 "by_design": 34,
 "string_model": 0,
 "cpython_private": 0,
@@ -47,10 +47,10 @@
 "scored": 276,
 "matched_through_cpython": 0,
 "matched_silent": 47,
-"coverage": 0.9964,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 228,
-"assert_coverage": 0.8261,
+"matched_asserting": 229,
+"assert_coverage": 0.8297,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -154,8 +154,8 @@
 },
 "test_int": {
 "normal": {
-"matched": 30,
-"refused": 1,
+"matched": 31,
+"refused": 0,
 "by_design": 1,
 "string_model": 0,
 "cpython_private": 0,
@@ -169,16 +169,16 @@
 "scored": 31,
 "matched_through_cpython": 0,
 "matched_silent": 4,
-"coverage": 0.9677,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 26,
-"assert_coverage": 0.8387,
+"matched_asserting": 27,
+"assert_coverage": 0.871,
 "matched_typed": 2,
-"typed_share": 0.0667
+"typed_share": 0.0645
 },
 "dyn": {
-"matched": 30,
-"refused": 1,
+"matched": 31,
+"refused": 0,
 "by_design": 1,
 "string_model": 0,
 "cpython_private": 0,
@@ -192,10 +192,10 @@
 "scored": 31,
 "matched_through_cpython": 0,
 "matched_silent": 4,
-"coverage": 0.9677,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 26,
-"assert_coverage": 0.8387,
+"matched_asserting": 27,
+"assert_coverage": 0.871,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -299,13 +299,13 @@
 },
 "paths": {
 "normal": {
-"dynamic": 250,
-"refused": 35,
+"dynamic": 251,
+"refused": 34,
 "typed": 25
 },
 "dyn": {
-"dynamic": 275,
-"refused": 35
+"dynamic": 276,
+"refused": 34
 }
 },
 "tests": [
@@ -1984,12 +1984,12 @@
 "file": "test_int",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected ')', found \"123\u0000\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "a lone surrogate (U+D800..U+DFFF) in a string literal is not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
