@@ -122,8 +122,8 @@ Brevi must never fall behind Rust or Python, and code that once passed must neve
 - **Toolchains** (`.github/workflows/toolchains.yml`): builds Brevi and reruns `tests/check.sh` plus `tools/compat.py check`
   (all 1,900+ saved Brevi, Python and Rust solutions that once passed). Daily on Rust stable with the newest and the next
   Python pre-release; Mondays also on Rust beta and nightly, where nightly reports deprecation and future-incompatibility
-  warnings in generated Rust and the newest edition, about 6 to 12 weeks before they reach stable. PRs test Rust stable
-  only, skip drafts and docs-only changes, and rerun the old solutions only when the compiler or baseline changed.
+  warnings in generated Rust and the newest edition, about 6 to 12 weeks before they reach stable. PRs test only the Rust
+  pinned in `.github/rust-version` (as do releases and the other workflows; the daily run tests the latest stable), skip drafts and docs-only changes, and rerun the old solutions only when the compiler or baseline changed.
   A toolchain already tested at the same commit is skipped. Failures open a `toolchain` issue. To save Actions minutes,
   run `sh tools/ci_local.sh` (the same checks) before merging.
 - **Upstream releases** (`upstream.yml`, twice a week): one `upstream` issue per new Rust stable, Python release or

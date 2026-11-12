@@ -129,9 +129,17 @@ jobs:
           fetch-depth: 2
 
       - name: Install Rust ${{ matrix.rust }}
+        # "stable" means the pinned version in .github/rust-version, so a new Rust release can't turn every PR red
+        # (Rust 1.100's Unicode 18 tables did: re.IGNORECASE is refused until they are checked against CPython).
+        # Only the daily schedule tests the real latest stable, so the watch still reports a new release.
         run: |
-          rustup toolchain install ${{ matrix.rust }} --profile minimal --no-self-update
-          rustup default ${{ matrix.rust }}
+          v=${{ matrix.rust }}
+          pin=$(cat .github/rust-version)
+          grep -qx "ARG RUST_VERSION=$pin" Dockerfile || { echo "::error::Dockerfile's RUST_VERSION differs from .github/rust-version ($pin)"; exit 1; }
+          if [ "$v" = stable ] && [ "${{ github.event_name }}" != schedule ]; then v=$pin; fi
+          rustup toolchain install "$v" --profile minimal --no-self-update
+          rustup default "$v"
+          rustc -V
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         id: python
