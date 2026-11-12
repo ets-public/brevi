@@ -213,5 +213,68 @@ class Classify(unittest.TestCase):
         self.assertEqual(c.bad_ids([both]), [])
 
 
+class Reach(unittest.TestCase):
+    """The forms that used to leave a test not extractable."""
+
+    def test_threading_and_locale_import_but_io_only_for_string_buffers(self):
+        self.assertIn("import threading", cut("    def test_a(self):\n        import threading\n        threading.Thread\n"))
+        self.assertIn("io.StringIO()", cut("    def test_a(self):\n        import io\n        io.StringIO()\n"))
+        with self.assertRaisesRegex(c.CantExtract, "uses io beyond"):
+            cut("    def test_a(self):\n        import io\n        io.open('x')\n")
+        with self.assertRaisesRegex(c.CantExtract, "imports io"):
+            cut("    def test_a(self):\n        from io import FileIO\n")
+        with self.assertRaisesRegex(c.CantExtract, "unittest"):
+            cut("    def test_a(self):\n        unittest.main()\n")
+        self.assertIn("import unittest.mock", cut("    def test_a(self):\n        m = unittest.mock.Mock()\n",
+                                                  head="import unittest\nimport unittest.mock\n" + HEAD.split("\n", 1)[1]))
+
+    def test_subtest_and_assert_raises_in_one_with(self):
+        s = cut("    def test_a(self):\n        with self.subTest('x'), self.assertRaises(TypeError):\n            1 + 'a'\n")
+        self.assertEqual(run(s).stdout, "raises TypeError\n")
+        s = cut("    def test_a(self):\n        import warnings\n        with self.assertRaises(KeyError), self.assertWarns(UserWarning):\n"
+                "            warnings.warn('w')\n            {}['k']\n")
+        self.assertEqual(run(s).stdout, "raises KeyError\n")
+        s = cut("    def test_a(self):\n        with self.assertRaises(KeyError), self.subTest(1):\n            pass\n")
+        self.assertEqual(run(s).stdout, "NO-RAISE\n")
+
+    def test_skip_test_is_marked_and_cleanups_run_last_first(self):
+        s = cut("    def test_a(self):\n        self.addCleanup(print, 'one')\n        self.addCleanup(print, 'two')\n"
+                "        self.skipTest('no locale')\n        print('after')\n")
+        out = run(s).stdout
+        self.assertEqual(out, "_conf_skipped: no locale\ntwo\none\n")
+        self.assertIn(c.SKIPPED, out.encode())
+
+    def test_a_test_with_default_arguments_runs_with_its_defaults(self):
+        s = cut("    def test_a(self, step=2):\n        self.assertEqual(step, 2)\n")
+        self.assertEqual(run(s).stdout, "2\n")
+        with self.assertRaisesRegex(c.CantExtract, "extra arguments"):
+            cut("    def test_a(self, step):\n        pass\n")
+
+    def test_exec_with_self_inside_the_string_gets_assertion_methods(self):
+        s = cut('    def test_a(self):\n        exec("self.assertEqual(1, 1)")\n')
+        self.assertIn("(_conf_TestCase)", s)
+        self.assertEqual(run(s).stdout, "1\n1\n")
+
+    def test_a_subprocess_cpython_test_is_excluded(self):
+        with self.assertRaisesRegex(c.Excluded, "subprocess"):
+            cut("    def test_a(self):\n        assert_python_ok('-c', 'pass')\n")
+
+
+class Private(unittest.TestCase):
+    def test_only_a_private_helper_refusal_in_the_dynamic_build_counts(self):
+        refused = lambda d: {"category": "refused", "path": None, "detail": d, "silent": False}
+        priv = {"id": "t.A.p", "modes": {"normal": refused("x"), "dyn": refused("functools._c3_mro is not supported in dynamic builds")}}
+        public = {"id": "t.A.q", "modes": {"normal": refused("x"), "dyn": refused("weakref.proxy is not supported in dynamic builds")}}
+        built = {"id": "t.A.r", "modes": {"normal": {"category": "matched", "path": "typed", "detail": "", "silent": False},
+                                          "dyn": refused("re._compiler is not supported in dynamic builds")}}
+        self.assertTrue(c.private_refusal(priv))
+        self.assertFalse(c.private_refusal(public))
+        self.assertFalse(c.private_refusal(built))
+        for x in priv["modes"].values():
+            x["category"] = "cpython_private"
+        t = c.tally([priv, public], "normal")
+        self.assertEqual((t["cpython_private"], t["scored"], t["coverage"]), (1, 2, 0.0))
+
+
 if __name__ == "__main__":
     unittest.main()
