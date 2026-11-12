@@ -4247,10 +4247,10 @@ impl Em {
     fn class(&mut self, c: &ClassDef) -> ER<String> {
         let id = self.id();
         let mut bases = vec![];
-        // a subclass of bytearray or memoryview has no wrapped value here (bytes, str, int and the containers do)
+        // a subclass of memoryview has no wrapped value here (bytes, bytearray, str, int and the containers do)
         for b in &c.bases {
             if let Ex::Name(n) = b {
-                if matches!(n.as_str(), "bytearray" | "memoryview") && self.lookup(n).is_none() {
+                if n == "memoryview" && self.lookup(n).is_none() {
                     return Err(err(c.line, &format!("a subclass of {n} is not supported in dynamic builds")));
                 }
             }

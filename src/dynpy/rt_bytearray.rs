@@ -20,6 +20,19 @@ pub fn bytearray_of(v: &V) -> Option<&ByteArrayV> {
     }
 }
 
+// an instance of a bytearray subclass (class BA(bytearray)): it wraps a bytearray value
+pub fn is_ba_sub(v: &V) -> bool {
+    matches!(v, V::Obj(o) if o.cls.base_bt() == BT::ByteArray)
+}
+// a bytearray, or the bytearray an instance of a bytearray subclass wraps (the same buffer: changes show in both)
+pub fn ba_val(v: &V) -> Option<V> {
+    match v {
+        V::Ext(_) if bytearray_of(v).is_some() => Some(v.clone()),
+        V::Obj(o) if o.cls.base_bt() == BT::ByteArray => o.inner().filter(|i| bytearray_of(i).is_some()),
+        _ => None,
+    }
+}
+
 // A held export of a bytearray's buffer: while one lives, the bytearray cannot change size.
 pub struct BufHold(Rc<Cell<usize>>);
 impl BufHold {
@@ -29,7 +42,8 @@ impl BufHold {
         BufHold(c)
     }
     pub fn of(v: &V) -> Option<BufHold> {
-        bytearray_of(v).map(|b| {
+        let v = ba_val(v)?;
+        bytearray_of(&v).map(|b| {
             b.ex.set(b.ex.get() + 1);
             BufHold(b.ex.clone())
         })
@@ -392,6 +406,11 @@ impl ByteArrayV {
                 Ok(V::Int(self.d.borrow()[k] as i64))
             }
             "__len__" => Ok(V::Int(self.d.borrow().len() as i64)),
+            // x.__iadd__(y) and x.__imul__(n) as x += y and x *= n: they change x and give it back
+            "__iadd__" | "__imul__" => {
+                want(a, 1, 1)?;
+                bytearray_iop(me, &a.p[0], if n == "__iadd__" { "+" } else { "*" }).unwrap_or_else(|| type_err("internal: bytearray in-place operation".into()))
+            }
             "__alloc__" => Ok(V::Int(self.d.borrow().capacity() as i64 + 1)),
             _ if BA_NOT_BYTES.contains(&n) => Err(exc("AttributeError", format!("'bytearray' object has no attribute '{n}'"))),
             _ => {
@@ -435,7 +454,7 @@ impl Ext for ByteArrayV {
         "bytearray"
     }
     fn repr(&self) -> String {
-        format!("bytearray({})", bytes_repr(&self.d.borrow()))
+        format!("bytearray({})", bytes_repr_q(&self.d.borrow(), true))
     }
     fn any(&self) -> &dyn std::any::Any {
         self
@@ -535,13 +554,26 @@ impl Ext for ByteArrayV {
 }
 
 // x += y and x *= n on a bytearray change it in place
+// (a bytearray subclass instance too, unless its class defines __iadd__ or __imul__; x stays the instance)
 pub fn bytearray_iop(a: &V, b: &V, op: &str) -> Option<R> {
-    let x = bytearray_of(a)?;
+    let held = ba_val(a)?;
+    if let V::Obj(o) = a {
+        let own = match op {
+            "+" => "__iadd__",
+            "*" => "__imul__",
+            _ => return None,
+        };
+        if o.cls.lookup(own).is_some() {
+            return None;
+        }
+    }
+    let x = bytearray_of(&held)?;
+    let other = ba_val(b);
     Some(match op {
         "+" => match bytes_of(b) {
             Some(add) => {
                 // CPython holds the other operand's buffer while it resizes, so `x += x` cannot grow x
-                if !add.is_empty() && bytearray_of(b).is_some_and(|o| Rc::ptr_eq(&o.d, &x.d)) {
+                if !add.is_empty() && other.as_ref().and_then(bytearray_of).is_some_and(|o| Rc::ptr_eq(&o.d, &x.d)) {
                     return Some(Err(exc("BufferError", "Existing exports of data: object cannot be re-sized".into())));
                 }
                 if !add.is_empty() {
@@ -552,7 +584,7 @@ pub fn bytearray_iop(a: &V, b: &V, op: &str) -> Option<R> {
                 x.d.borrow_mut().extend(add);
                 Ok(a.clone())
             }
-            None => type_err(format!("can't concat {} to bytearray", tn(b))),
+            None => type_err(format!("can't concat {} to {}", tn(b), tn(a))),
         },
         "*" => match b {
             V::Big(_) => Err(exc("OverflowError", "cannot fit 'int' into an index-sized integer".into())),

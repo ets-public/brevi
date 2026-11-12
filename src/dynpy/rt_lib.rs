@@ -294,7 +294,17 @@ pub fn bi_int(mut a: Args) -> R {
         (Some(b), _) | (None, Some(b)) => Some(idx_of(&b)?),
         _ => None,
     };
-    match (base, &a.p[0]) {
+    // with a base, an instance of a str, bytes or bytearray subclass is read as its value (CPython never
+    // calls its __int__ or __index__ then)
+    let x0 = match &a.p[0] {
+        V::Obj(o) if base.is_some() => match o.inner() {
+            Some(i @ V::Str(_)) => i,
+            Some(i) if matches!(o.cls.base_bt(), BT::Bytes | BT::ByteArray) => i,
+            _ => a.p[0].clone(),
+        },
+        x => x.clone(),
+    };
+    match (base, &x0) {
         (None, x) => to_int(x),
         (Some(b), V::Str(x)) => {
             if b != 0 && !(2..=36).contains(&b) {
@@ -306,7 +316,7 @@ pub fn bi_int(mut a: Args) -> R {
             if b != 0 && !(2..=36).contains(&b) {
                 return val_err("int() base must be >= 2 and <= 36, or 0".into());
             }
-            bytes_int(&bytes_of(&a.p[0]).unwrap_or_default(), b as u32)
+            bytes_int(&bytes_of(&x0).unwrap_or_default(), b as u32)
         }
         (Some(_), _) => type_err("int() can't convert non-string with explicit base".into()),
     }
@@ -1123,7 +1133,11 @@ pub fn ext_class(n: &'static str) -> Rc<Class> {
     // datetime.datetime is a subclass of datetime.date, as in CPython (isinstance, issubclass, __mro__)
     let base = if n == "datetime.datetime" { ext_class("datetime.date") } else { bclass("object") };
     // bytes is the library class a user class may subclass: its instances wrap a bytes value
-    let c = Class::new(n, "builtins", vec![base], if n == "bytes" { BT::Bytes } else { BT::Other });
+    let c = Class::new(n, "builtins", vec![base], match n {
+        "bytes" => BT::Bytes,
+        "bytearray" => BT::ByteArray,
+        _ => BT::Other,
+    });
     EXT_CLASSES.with(|m| m.borrow_mut().insert(n, c.clone()));
     c
 }
@@ -1937,6 +1951,10 @@ pub fn has_method(o: &V, name: &str) -> bool {
         V::Int(_) | V::Big(_) | V::Bool(_) => &["bit_length", "to_bytes", "from_bytes", "conjugate", "bit_count", "as_integer_ratio", "is_integer"],
         V::Float(_) => &["is_integer", "as_integer_ratio", "hex", "conjugate"],
         V::Iter(_) => &["__next__", "__iter__", "send", "throw", "close"],
+        // bytes, bytearray and memoryview have exactly CPython's attributes (b''.append is an AttributeError)
+        V::Ext(x) if matches!(x.tname(), "bytes" | "bytearray" | "memoryview") && (x.any().is::<BytesV>() || x.any().is::<ByteArrayV>() || x.any().is::<MemV>()) => {
+            return cpy_builtin_has(x.tname(), name)
+        }
         V::Ext(_) => return true,
         _ => &[],
     };

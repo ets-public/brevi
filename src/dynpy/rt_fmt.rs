@@ -335,6 +335,12 @@ pub fn repr(v: &V) -> Result<String, E> {
                         return counter_repr(d, o.cls.name);
                     }
                 }
+                // bytearray's repr names the instance's type, as CPython's does: BA(b'..')
+                if o.cls.base_bt() == BT::ByteArray {
+                    if let Some(b) = bytes_of(&i) {
+                        return Ok(format!("{}({})", o.cls.name, bytes_repr_q(&b, true)));
+                    }
+                }
                 return repr(&i);
             }
             // object.__repr__ leaves out the module for builtins (`<object object at 0x...>`)
@@ -576,7 +582,8 @@ pub fn to_str(v: &V) -> Result<String, E> {
             if let Some(i @ V::Str(_)) = inner_of(v) {
                 return to_str(&i);
             }
-            if o.cls.lookup("__repr__").is_some() {
+            // bytearray has no __str__ of its own: object's gives the repr, which names the subclass
+            if o.cls.lookup("__repr__").is_some() || o.cls.base_bt() == BT::ByteArray {
                 return repr(v);
             }
             if let Some(i) = inner_of(v) {
@@ -1200,14 +1207,18 @@ pub fn to_float(v: &V) -> Result<f64, E> {
         V::Str(s) => parse_float(&s.s).ok_or_else(|| exc("ValueError", format!("could not convert string to float: {}", str_repr(&s.s)))),
         V::Obj(o) => match o.cls.lookup("__float__") {
             Some(f) => to_float(&call(&f, Args::p(vec![v.clone()]))?),
-            // a bytes subclass instance parses as its bytes do
-            None if o.cls.base_bt() == BT::Bytes => to_float(&o.inner().unwrap_or(V::None)),
+            // a bytes or bytearray subclass instance parses as its bytes do
+            None if matches!(o.cls.base_bt(), BT::Bytes | BT::ByteArray) => {
+                let b = o.inner().and_then(|i| bytes_of(&i)).unwrap_or_default();
+                parse_float(&String::from_utf8_lossy(&b)).ok_or_else(|| exc("ValueError", format!("could not convert string to float: {}", repr(v).unwrap_or_default())))
+            }
             None => type_err(format!("float() argument must be a string or a real number, not '{}'", tn(v))),
         },
         // a memoryview counts when it gives a simple buffer (live and contiguous), as in CPython
         V::Ext(x) if x.any().is::<BytesV>() || x.any().is::<ByteArrayV>() || (x.any().is::<MemV>() && bytes_of(v).is_some()) => {
             let b = bytes_of(v).unwrap_or_default();
-            parse_float(&String::from_utf8_lossy(&b)).ok_or_else(|| exc("ValueError", format!("could not convert string to float: {}", bytes_repr(&b))))
+            // (the message shows the object's repr, as CPython's %R does: bytearray(b'x'))
+            parse_float(&String::from_utf8_lossy(&b)).ok_or_else(|| exc("ValueError", format!("could not convert string to float: {}", repr(v).unwrap_or_default())))
         }
         V::Ext(x) if x.any().is::<MemV>() => type_err("float() argument must be a string or a real number, not 'memoryview'".into()),
         V::Ext(x) => x.to_f64().ok_or_else(|| exc("TypeError", format!("float() argument must be a string or a real number, not '{}'", tn(v)))),
@@ -1347,7 +1358,7 @@ pub fn to_int(v: &V) -> R {
                 return int_returned(call(&f, Args::p(vec![v.clone()]))?, "__int__");
             }
             // a subclass of int, float or str (IntEnum, StrEnum): int's own __int__ wins over a user __index__
-            if let Some(i) = inner_of(v).filter(|i| matches!(i, V::Int(_) | V::Big(_) | V::Bool(_) | V::Float(_) | V::Str(_)) || is_bytes_v(i)) {
+            if let Some(i) = inner_of(v).filter(|i| matches!(i, V::Int(_) | V::Big(_) | V::Bool(_) | V::Float(_) | V::Str(_)) || is_bytes_v(i) || bytearray_of(i).is_some()) {
                 return to_int(&i);
             }
             if let Some(f) = o.cls.lookup("__index__") {

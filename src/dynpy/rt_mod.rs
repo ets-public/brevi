@@ -2242,6 +2242,8 @@ pub fn copy_fn(name: &str, a: Args) -> R {
 }
 pub fn shallow_copy(x: &V) -> R {
     Ok(match x {
+        // copy.copy and copy.deepcopy of a bytearray make a new one, with its own bytes
+        V::Ext(_) if bytearray_of(x).is_some() => bytearrayv(bytes_of(x).unwrap_or_default()),
         V::List(l) => list(l.borrow().clone()),
         V::Dict(d) => V::Dict(Rc::new(RefCell::new(d.borrow().copy()))),
         V::Set(s0) => V::Set(Rc::new(RefCell::new(s0.borrow().copy()))),
@@ -2291,6 +2293,8 @@ fn ptr_of(x: &V) -> Option<usize> {
         V::Tuple(l) => Tup::as_ptr(l) as *const u8 as usize,
         V::Deque(l) => Rc::as_ptr(l) as *const u8 as usize,
         V::Iter(l) => Rc::as_ptr(l) as *const u8 as usize,
+        // a bytearray: its buffer (so [b, b] deep-copies to two references to one new bytearray)
+        V::Ext(_) if bytearray_of(x).is_some() => Rc::as_ptr(&bytearray_of(x).unwrap().d) as *const u8 as usize,
         _ => return None,
     })
 }
@@ -2302,6 +2306,11 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
         }
     }
     Ok(match x {
+        V::Ext(_) if bytearray_of(x).is_some() => {
+            let n = bytearrayv(bytes_of(x).unwrap_or_default());
+            memo.push((p.unwrap(), n.clone()));
+            n
+        }
         V::List(l) => {
             let n = Rc::new(RefCell::new(vec![]));
             memo.push((p.unwrap(), V::List(n.clone())));

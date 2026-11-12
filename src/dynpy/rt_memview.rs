@@ -92,7 +92,8 @@ pub fn bi_memoryview(a: Args) -> R {
         let n = bytes_of(&x).map_or(0, |b| b.len());
         return Ok(mv_new(x, 0, 1, n, true));
     }
-    if let Some(b) = bytearray_of(&x) {
+    // a bytearray, or an instance of a bytearray subclass (writes through the view reach its buffer)
+    if let Some(b) = ba_val(&x).as_ref().and_then(bytearray_of) {
         let n = b.d.borrow().len();
         return Ok(mv_new(x, 0, 1, n, false));
     }
@@ -191,7 +192,8 @@ impl MemV {
                     return type_err("cannot modify read-only memory".into());
                 }
                 let (i, v) = (a.p[0].clone(), a.p[1].clone());
-                let Some(b) = bytearray_of(&self.obj) else { return type_err("cannot modify read-only memory".into()) };
+                let held = ba_val(&self.obj);
+                let Some(b) = held.as_ref().and_then(bytearray_of) else { return type_err("cannot modify read-only memory".into()) };
                 if let V::Slice(sl) = &i {
                     let src = match buf_full(&v)? {
                         Some(s) => s,

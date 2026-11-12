@@ -1,0 +1,172 @@
+BA(b'ab') BA(b'abc') BA 1
+BA(b'ab') BA(b'abd') BA 1
+N(b'q') True
+True add 42
+iadd
+7 1
+TypeError can't concat int to BA
+TypeError unsupported operand type(s) for +: 'int' and 'BA'
+TypeError can't multiply sequence by non-int of type 'str'
+TypeError can't multiply sequence by non-int of type 'BA'
+TypeError unsupported operand type(s) for -: 'BA' and 'int'
+TypeError '<' not supported between instances of 'BA' and 'int'
+TypeError 'str' object cannot be interpreted as an integer
+IndexError bytearray index out of range
+AttributeError 'BA' object has no attribute 'foo'
+LookupError unknown encoding: zz
+int 5
+ValueError negative count
+TypeError string argument without an encoding
+TypeError can only concatenate list (not "BA") to list
+TypeError can only concatenate str (not "BA") to str
+TypeError can only concatenate tuple (not "BA") to tuple
+bytearray bytearray(b'ab')
+OverflowError cannot fit 'int' into an index-sized integer
+bool True
+bool False
+str 'BA'
+bool False
+bool False
+BA BA(b'k')
+tuple (<class 'bytearray'>,)
+str '61:62:63'
+BA BA(b'mv')
+bytes b'xy'
+bytes b'yx'
+int 0
+str "BA(b'a')"
+str "BA(b'a')"
+str "BA(b'a')"
+BA(b'pr')
+NoneType None
+list [BA(b'l')]
+tuple (BA(b't'),)
+dict {'k': BA(b'd')}
+str "BA(b'\\xff')"
+str 'BA(b"\\\'")'
+bytearray bytearray(b'')
+int 12
+int 3
+int 10
+ValueError could not convert string to float: BA(b'x')
+ValueError invalid literal for int() with base 10: b''
+bool True
+int 3
+list [97, 98]
+dict {97: None, 98: None}
+bytearray bytearray(b'ac')
+BA BA(b'\x00\x01\x02')
+bytearray bytearray(b'00a')
+list [bytearray(b'a'), bytearray(b'b')]
+BA(b'Abc')
+BufferError Existing exports of data: object cannot be re-sized
+BA(b'Abc\x01')
+5 7
+bytearray(b'aa') bytearray(b'bb')
+bytearray(b'aa') bytearray(b'cc')
+BA BA(b'rrr')
+BA True BA(b'ab')
+BA True BA(b'abab')
+True bytearray(b'qr')
+can't concat int to bytearray
+bytearray(b'a') bytearray(b'a\x01') bytearray(b'a\x02') False
+bytearray(b'a')
+True True
+1 True True
+True {(1,)}
+bytearray(b"\'") bytearray(b'"\'')
+'bytearray' object has no attribute 'foo'
+could not convert string to float: bytearray(b'x')
+'<' not supported between instances of 'bytearray' and 'int'
+'bytes' object has no attribute 'foo'
+False True False False
+'bytearray' object has no attribute 'foo'
+False True True False
+'memoryview' object has no attribute 'foo'
+False False False True
+BA True True BA(b'100') BA(b'100') 3 49 bytearray(b'00') [49, 48, 48]
+100 4 100.0
+ValueError invalid literal for int() with base 10: b'AAAAAAAAAAAAAAAA'
+C(b'xy') q bytearray(b'XY!') C
+BA(b'100A')
+BA(b'100Azz') 6
+BA(b'B00Azz')
+BA(b'00Azz')
+BA BA(b'00Azz!')
+BA BA(b'00Azz!00Azz!')
+b'00Azz!00Azz!' True
+bool True
+bool True
+bool True
+TypeError unhashable type: 'BA'
+bytearray bytearray(b'abc')
+bytes b'cab'
+bytearray bytearray(b'abab')
+bytearray bytearray(b'AB')
+bytearray bytearray(b'ab')
+bytearray bytearray(b'ba')
+list [97, 98]
+bool True
+bool True
+int 1
+bytes b'ab'
+bytearray bytearray(b'ab')
+str 'ab'
+str "BA(b'ab')"
+str '6162'
+str "BA(b'ab') BA(b'ab')"
+bool False
+BA BA(b'')
+BA BA(b'\x00\x00\x00')
+BA BA(b'AB')
+BA BA(b'\xc3\xa9')
+BA BA(b'ab')
+type <class '__main__.BA'>
+bool True
+list [BA(b'ab'), BA(b'b')]
+list [bytearray(b''), bytearray(b'b')]
+bytes b'abc'
+bytearray bytearray(b'1ab2')
+int 98
+BA BA(b'a')
+BA BA(b'xa')
+BA BA(b'a')
+BA BA(b'a')
+BA BA(b'')
+int 1
+dict {'k': 1}
+tuple (<class '__main__.BA'>, <class 'bytearray'>, <class 'object'>)
+bool False
+bool True
+int 3
+bytearray bytearray(b'A')
+int 122
+bytearray bytearray(b'zb')
+int 98
+list [98, 97]
+TypeError unhashable type: 'BA'
+int 3
+list [bytearray(b'a'), bytearray(b'b')]
+int 12
+int 255
+int 31
+float 1.5
+int 121
+bytearray bytearray(b'z')
+int 97
+bool False
+bool True
+bool True
+bool True
+bytes b'zbc'
+bytes b'ab'
+bytearray bytearray(b'abc')
+bytearray bytearray(b'')
+bytearray bytearray(b'aa')
+BA BA(b'ab')
+int 1
+int 2
+BA(b'XYZc')
+BA(b'1Y2c')
+True BA(b'qr')
+b'a' [b'a', b'b'] b'zz'
