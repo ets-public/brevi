@@ -2124,6 +2124,14 @@ impl Em {
             }
             Ex::Star(_) => return Err(err(line, "starred expression here is not supported")),
             Ex::Attr(o, n) => {
+                // typing.ByteString stays refused: Brevi's typing does not give the collections.abc class, whose isinstance()
+                // and subclassing warn as CPython 3.13's metaclass does
+                if n == "ByteString" && self.bridge.srcs.contains_key(&self.module) {
+                    let m = self.static_module(o).filter(|m| m == "typing");
+                    if let Some(m) = m {
+                        return Err(err(line, &format!("{m}.ByteString is not supported in dynamic builds")));
+                    }
+                }
                 if let Some(m) = self.static_module(o) {
                     if m == "collections" && n == "abc" && self.user_modules.iter().any(|u| u == "collections.abc") {
                         let init = self.q(&format!("init_{}()", rust_ident("collections.abc")));
@@ -3463,6 +3471,10 @@ impl Em {
                 let mut b = String::new();
                 if m == "__future__" {
                     return Ok(b);
+                }
+                // typing.ByteString stays refused (see Ex::Attr above); collections.abc's warns as CPython's does
+                if m == "typing" && names.iter().any(|(n, _)| n == "ByteString") && self.bridge.srcs.contains_key(&self.module) {
+                    return Err(err(line, &format!("{m}.ByteString is not supported in dynamic builds")));
                 }
                 let user = self.user_modules.contains(m);
                 // Brevi's own `collections` module reads the native classes through its own name
