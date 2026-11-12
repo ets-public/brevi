@@ -54,7 +54,7 @@ match CPython on their own tests, and do so on the first check. Fast, correct an
 |---|---:|---:|---:|---|
 | ANER (real agent code) | not measured | 60% | 90% | opt-in alpha traffic sample |
 | Conformance (CPython 3.13.13 slice) | 93.1% (268/288) on main, from the next release; 80.4% (250/311) at v0.27.0 | ≥70% | ≥90% | `tools/conformance.py` |
-| Known-wrong allowlist | 0 on main; 8 tests, 16 test-mode pairs at v0.27.0 (44 and 88 at v0.26.0) | ≤25 tests | 0 | `compat/conformance_known_wrong.txt` |
+| Known-wrong allowlist | 0 on main; 8 tests, 16 test-mode pairs at v0.27.0 (44 and 88 at v0.26.0) | ≤25 tests | 0 | `compat/conformance_known_wrong/` |
 | Crash or timeout (conformance) | 0 of 311 tests at v0.27.0 | 0 on fuzz corpus | 0 on fuzz corpus | fuzz harness (WS1) |
 | `brevi check --fast` p50 / p95 | 22 / 24 ms on main (d91ca4b; ships in the next release); 160 / 174 ms at v0.27.0, when a false refusal sent the fixture dynamic; 16 / 18 ms at v0.26.0 | ≤20 ms p50 | ≤10 ms p50 | `bench/latency.py` |
 | `brevi check` p50 / p95 | 94 / 107 ms on main; 160 / 209 ms at v0.27.0; 94 / 114 ms at v0.26.0 | ≤50 / ≤150 ms | ≤30 / ≤80 ms | `bench/latency.py` |
