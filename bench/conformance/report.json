@@ -1989,7 +1989,7 @@
 },
 "dyn": {
 "category": "refused",
-"detail": "bad escape in string"
+"detail": "a lone surrogate (U+D800..U+DFFF) in a string literal is not supported"
 }
 }
 },
