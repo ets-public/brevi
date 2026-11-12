@@ -2,6 +2,8 @@
 
 Brevi is a language for AI models that compiles to Rust. The guide models read is BREVI.md; the compiler is in src/ (lexer, parser, infer, emit, prelude).
 
+**Scheduling rule:** all scheduled or autonomous development work that consumes DeepSeek API capacity (agent sessions, batch AI-assisted edits/reviews, benchmark/release runs that call DeepSeek models, background jobs) must run only during DeepSeek off-peak hours. Peak is 01:00–04:00 and 06:00–10:00 UTC, Monday–Friday, excluding Chinese public holidays; every other hour is off-peak. Compute the next occurrence in UTC and record it when creating a schedule; if unsure, treat the time as peak and defer. See `docs/SCHEDULING.md` for the current source, local-time examples and exceptions.
+
 - Build: `cargo build --release`. Unit tests: `cargo test --release`.
 - Language tests: `BREVI=./target/release/brevi python3 tests/check_parallel.py` runs `tests/check.sh` in parallel, one job per CPU (every file in tests/run and tests/errors must match its .expected; `sh tests/check.sh` runs it one test at a time). A new section of check.sh starts with a `#== NAME` line (`#== NAME split` runs its first `for f in` loop one job per file, so those tests must not share files or ports). The runner warns when one job takes over 300 s or a run over 30 min: speed up the slow test, don't raise the budget.
 - Compatibility: `bench/verify.sh OLD_BREVI NEW_BREVI` re-runs every past bench solution. No change may alter the output of a program that worked before.
