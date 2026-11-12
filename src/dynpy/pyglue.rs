@@ -751,11 +751,17 @@ unsafe fn pyd_list_iter(p: P, t: P) -> Result<Option<V>, E> {
     let text = pyd_text(name).ok();
     (a.DecRef)(name);
     let name = text;
-    let rev = match name.as_deref() {
-        Some("list_iterator") => false,
-        Some("list_reverseiterator") => true,
+    // 0 list, 1 reversed list, 2 tuple, 3 range, 4 str (ASCII), 5 str
+    let kind = match name.as_deref() {
+        Some("list_iterator") => 0,
+        Some("list_reverseiterator") => 1,
+        Some("tuple_iterator") => 2,
+        Some("range_iterator") => 3,
+        Some("str_ascii_iterator") => 4,
+        Some("str_iterator") => 5,
         _ => return Ok(None),
     };
+    let rev = kind == 1;
     let red = (a.GetAttr)(p, c"__reduce__".as_ptr());
     if red.is_null() {
         (a.ErrClear)();
@@ -781,10 +787,44 @@ unsafe fn pyd_list_iter(p: P, t: P) -> Result<Option<V>, E> {
             return Ok(None);
         }
         let seq = (a.TupleGet)(args, 0);
+        let ik = [ItKind::ListIter, ItKind::ListReverseIter, ItKind::TupleIter, ItKind::RangeIter, ItKind::StrAsciiIter, ItKind::StrIter][kind];
+        // a range iterator: (iter, (range(next, stop, step),), None)
+        if kind == 3 {
+            let mut parts = [0i64; 3];
+            for (k, n) in [c"start", c"stop", c"step"].iter().enumerate() {
+                let x = (a.GetAttr)(seq, n.as_ptr());
+                if x.is_null() || !pyd_type_is(x, a.TLong) {
+                    if x.is_null() { (a.ErrClear)(); } else { (a.DecRef)(x); }
+                    return Ok(None);
+                }
+                let mut over = 0;
+                parts[k] = (a.LongAs)(x, &mut over);
+                (a.DecRef)(x);
+                if over != 0 {
+                    return Ok(None);
+                }
+            }
+            return Ok(Some(new_iter(It::Range(parts[0], parts[1], parts[2]), IterClass::Kind(ik))));
+        }
         if (a.TupleSize)(red) == 2 {
-            return Ok(Some(new_iter(It::Done, IterClass::Kind(if rev { ItKind::ListReverseIter } else { ItKind::ListIter }))));
+            return Ok(Some(new_iter(It::Done, IterClass::Kind(ik))));
         }
         let idx = (a.TupleGet)(red, 2);
+        if kind >= 2 {
+            if !pyd_type_is(idx, a.TLong) {
+                return Ok(None);
+            }
+            let i = (a.LongAs)(idx, &mut 0).max(0) as usize;
+            (a.IncRef)(seq);
+            return Ok(match pyd_wrap(seq, true)? {
+                V::Tuple(t) if kind == 2 => Some(new_iter(It::Tuple(t.clone(), i.min(t.len())), IterClass::Kind(ik))),
+                V::Str(x) if kind >= 4 => {
+                    let b = x.s.char_indices().nth(i).map_or(x.s.len(), |(b, _)| b);
+                    Some(new_iter(It::Str(x.clone(), b), IterClass::Kind(ik)))
+                }
+                _ => None,
+            });
+        }
         if !pyd_type_is(seq, a.TList) || !pyd_type_is(idx, a.TLong) {
             return Ok(None);
         }

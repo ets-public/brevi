@@ -1,0 +1,87 @@
+chain [(True, False, ['a', 'b', 'c', 1]), (True, False, ['b', 'c', 1, 2]), (True, False, [1, 2])]
+from_iterable [(True, False, ['a', 'b', 'c', 'd']), (True, False, ['b', 'c', 'd']), (True, False, ['d'])]
+cycle [(True, True, ['a', 'b', 'c', 'a']), (True, False, ['b', 'c', 'a', 'b']), (True, True, ['a', 'b', 'c', 'a'])]
+count [(True, True, [5, 6, 7, 8]), (True, True, [6, 7, 8, 9]), (True, True, [8, 9, 10, 11])]
+count step [(True, True, [1.5, 2.0, 2.5, 3.0]), (True, True, [2.0, 2.5, 3.0, 3.5]), (True, True, [3.0, 3.5, 4.0, 4.5])]
+repeat [(True, True, ['x', 'x', 'x']), (True, True, ['x', 'x']), (True, True, [])]
+islice [(True, False, [2, 5, 8, 11]), (True, False, [5, 8, 11, 14]), (True, False, [11, 14])]
+accumulate [(True, False, [0, 1, 3, 6]), (True, False, [1, 3, 6, 10]), (True, False, [6, 10, 15])]
+accumulate initial [(True, False, [10, 10, 20, 60]), (True, False, [10, 20, 60]), (True, False, [60])]
+starmap [(True, False, [8, 9, 4]), (True, False, [9, 4]), (True, True, [])]
+takewhile [(True, False, [2, 4]), (True, False, [4]), (True, True, [])]
+dropwhile [(True, False, [5, 6]), (True, False, [6]), (True, True, [])]
+compress [(True, False, ['a', 'c', 'e', 'f']), (True, False, ['c', 'e', 'f']), (True, False, ['f'])]
+filterfalse [(True, False, [1, 3, 5, 7]), (True, False, [3, 5, 7]), (True, False, [7])]
+zip_longest [(True, False, [('a', 'd'), ('b', '-'), ('c', '-')]), (True, False, [('b', '-'), ('c', '-')]), (True, True, [])]
+groupby [[(0, [0, 1, 2]), (1, [3, 4, 5]), (2, [6, 7, 8])], [(1, [3, 4, 5]), (2, [6, 7, 8])], [(2, [6, 7, 8])]]
+map [(True, False, [True, False, True, False]), (True, False, [False, True, False, True]), (True, False, [False, True])]
+filter [(True, False, [0, 2, 4, 6]), (True, False, [2, 4, 6, 8]), (True, False, [6, 8])]
+zip [(True, False, [('a', 0), ('b', 1), ('c', 2)]), (True, False, [('b', 1), ('c', 2)]), (True, True, [])]
+enumerate [(True, False, [(10, 'a'), (11, 'b'), (12, 'c')]), (True, False, [(11, 'b'), (12, 'c')]), (True, True, [])]
+list_iterator [(True, True, [1, 2, 3, 4]), (True, True, [2, 3, 4, 5]), (True, True, [4, 5])]
+range_iterator [(True, True, [3, 4, 5, 6]), (True, True, [4, 5, 6, 7]), (True, True, [6, 7, 8])]
+product [(True, True, [('a', 0, 'a', 0), ('a', 0, 'a', 1), ('a', 0, 'a', 2), ('a', 0, 'b', 0)]), (True, True, [('a', 0, 'a', 1), ('a', 0, 'a', 2), ('a', 0, 'b', 0), ('a', 0, 'b', 1)]), (True, True, [('a', 0, 'b', 0), ('a', 0, 'b', 1), ('a', 0, 'b', 2), ('a', 1, 'a', 0)])]
+combinations [(True, True, [('a', 'b', 'c'), ('a', 'b', 'd'), ('a', 'b', 'e'), ('a', 'c', 'd')]), (True, True, [('a', 'b', 'd'), ('a', 'b', 'e'), ('a', 'c', 'd'), ('a', 'c', 'e')]), (True, True, [('a', 'c', 'd'), ('a', 'c', 'e'), ('a', 'd', 'e'), ('b', 'c', 'd')])]
+cwr [(True, True, [('a', 'a'), ('a', 'b'), ('a', 'c'), ('b', 'b')]), (True, True, [('a', 'b'), ('a', 'c'), ('b', 'b'), ('b', 'c')]), (True, True, [('b', 'b'), ('b', 'c'), ('c', 'c')])]
+permutations [(True, True, [('a', 'b'), ('a', 'c'), ('a', 'd'), ('b', 'a')]), (True, True, [('a', 'c'), ('a', 'd'), ('b', 'a'), ('b', 'c')]), (True, True, [('b', 'a'), ('b', 'c'), ('b', 'd'), ('c', 'a')])]
+<class 'itertools.chain'> () ['tuple_iterator', 'str_ascii_iterator']
+<class 'itertools.cycle'> (['a'], False)
+(<class 'itertools.count'>, (3,)) (<class 'itertools.count'>, (2.0, 3)) count(1180591620717411303424, 3)
+(<class 'itertools.repeat'>, (7, 2)) (<class 'itertools.repeat'>, (7,))
+<class 'itertools.islice'> (3, None, 2) 2
+True 4
+<class 'itertools.accumulate'>
+<class 'itertools.islice'> [None, None]
+(<class 'itertools.permutations'>, (('a', 'b', 'c'), 3), ((0, 2, 1), (3, 1, 1))) (<class 'itertools.combinations'>, (('a', 'b'), 3)) (<class 'itertools.product'>, (('a', 'b'), ()))
+['x', 'y', 'a', 'b', 'c', 'd', 'e']
+['d', 'e', 'f', 'g', 'a', 'b', 'c', 'd', 'e']
+TypeError function takes at least 1 argument (0 given)
+TypeError state is not a tuple
+TypeError state is not a tuple
+TypeError Arguments must be iterators.
+TypeError Arguments must be iterators.
+TypeError state is not a tuple
+TypeError argument 1 must be list, not tuple
+TypeError 'str' object cannot be interpreted as an integer
+TypeError function takes exactly 2 arguments (0 given)
+[3, 4]
+[7, 8, 9]
+1 [2, 3, 4]
+[(1, 3), (2, 4)] [(1, 3), (2, 4)]
+TypeError cannot pickle 'generator' object
+TypeError cannot pickle 'generator' object
+TypeError cannot pickle 'itertools.pairwise' object
+TypeError cannot pickle 'itertools.pairwise' object
+TypeError cannot pickle 'itertools.batched' object
+TypeError cannot pickle 'itertools.batched' object
+<class 'itertools.cycle'> [2, 3, 1, 2, 3, 1, 2]
+True
+DeprecationWarning itertools_pickle.py 150 Pickle, copy, and deepcopy support will be removed from itertools in Python 3.14.
+DeprecationWarning copy.py copy.py Pickle, copy, and deepcopy support will be removed from itertools in Python 3.14.
+DeprecationWarning copy.py copy.py Pickle, copy, and deepcopy support will be removed from itertools in Python 3.14.
+DeprecationWarning copy.py copy.py Pickle, copy, and deepcopy support will be removed from itertools in Python 3.14.
+DeprecationWarning copy.py copy.py Pickle, copy, and deepcopy support will be removed from itertools in Python 3.14.
+DeprecationWarning itertools_pickle.py 154 Pickle, copy, and deepcopy support will be removed from itertools in Python 3.14.
+raised Pickle, copy, and deepcopy support will be removed from itertools in Python 3.14.
+raised Pickle, copy, and deepcopy support will be removed from itertools in Python 3.14.
+raised Pickle, copy, and deepcopy support will be removed from itertools in Python 3.14.
+TypeError permutations() takes at most 2 arguments (3 given)
+[('a',), ('b',)]
+TypeError permutations() got an unexpected keyword argument 'x'
+TypeError groupby() takes at most 2 arguments (3 given)
+TypeError argument for groupby() given by name ('iterable') and position (1)
+[('a', 'b'), ('a', 'c'), ('b', 'c')]
+TypeError combinations() missing required argument 'r' (pos 2)
+[('a',), ('b',)]
+TypeError accumulate() takes at most 2 positional arguments (3 given)
+[2, 3]
+TypeError accumulate() got an unexpected keyword argument 'foo'
+TypeError count() takes at most 2 arguments (3 given)
+[3, 4, 5, 6]
+['a']
+TypeError product() takes at most 1 keyword argument (2 given)
+TypeError product() got an unexpected keyword argument 'x'
+TypeError zip_longest() got an unexpected keyword argument
+TypeError starmap() takes no keyword arguments
+TypeError takewhile() takes no keyword arguments
+TypeError cycle() takes no keyword arguments

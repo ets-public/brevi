@@ -673,6 +673,15 @@ pub fn isinstance(x: &V, c: &V) -> Result<bool, E> {
                 return Ok(true);
             }
             if k.abc.get() {
+                // CPython's exact-type shortcut comes before the metaclass's __instancecheck__
+                if let V::Obj(o) = x {
+                    if Rc::ptr_eq(&o.cls, k) {
+                        return Ok(true);
+                    }
+                }
+                if is_bytestring(k) {
+                    bytestring_warn()?;
+                }
                 return abc_instancecheck(k, x);
             }
             if let V::Obj(o) = x {
@@ -762,6 +771,14 @@ pub fn abc_subclasscheck(cls: &Rc<Class>, sub: &Rc<Class>) -> Result<bool, E> {
         cls.abc_neg_cache.borrow_mut().push(sub.clone());
     }
     Ok(false)
+}
+// collections.abc.ByteString and its subclasses have CPython 3.13's _DeprecateByteStringMeta, which warns
+// (stacklevel 3: at the program's line) on isinstance and when a subclass is made.
+pub fn is_bytestring(k: &Class) -> bool {
+    k.abc.get() && k.mro.borrow().iter().any(|c| c.name == "ByteString" && c.module == "collections.abc")
+}
+pub fn bytestring_warn() -> Result<(), E> {
+    re_warn("DeprecationWarning", "'collections.abc.ByteString' is deprecated and slated for removal in Python 3.17".into())
 }
 // ABCMeta.__instancecheck__ (the C _abc_instancecheck).
 fn abc_instancecheck(cls: &Rc<Class>, x: &V) -> Result<bool, E> {

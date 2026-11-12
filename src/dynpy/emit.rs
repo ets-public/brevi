@@ -4412,7 +4412,8 @@ pub fn ic_statics() -> String {
 }
 pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>), (String, usize, String)> {
     // the program (not Brevi's library copies) uses the warnings module
-    // (or functools.partial, whose __get__ warns at the line that reads it from an instance)
+    // (or functools.partial, whose __get__ warns at the line that reads it from an instance, or
+    // collections.abc.ByteString, whose metaclass warns at the isinstance or class statement)
     let iter_pickle = mods.iter().any(|m| {
         let b = format!("{:?}", m.body);
         bridge.srcs.contains_key(&m.name)
@@ -4422,7 +4423,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     // (or pickles or copies itertools iterators, whose __reduce__ and __setstate__ warn at the caller's line)
     let track_warn = mods.iter().any(|m| {
         let b = format!("{:?}", m.body);
-        bridge.srcs.contains_key(&m.name) && (b.contains("\"warnings\"") || b.contains("\"functools\"") && b.contains("\"partial\""))
+        bridge.srcs.contains_key(&m.name) && (b.contains("\"warnings\"") || b.contains("\"functools\"") && b.contains("\"partial\"") || b.contains("\"ByteString\""))
     }) || iter_pickle;
 
     let has_del = mods.iter().any(|m| format!("{:?}", m.body).contains("\"__del__\""));

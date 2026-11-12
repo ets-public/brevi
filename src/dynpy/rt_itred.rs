@@ -122,8 +122,17 @@ fn red_of(c: &IterCell) -> Option<Rc<dyn RedIt>> {
 fn bv(name: &str) -> V {
     builtin_value(name).unwrap_or(V::None)
 }
+// CPython's copyreg error, naming the type as `module.name` (just `name` for builtins)
 fn cannot_pickle(v: &V) -> E {
-    exc("TypeError", format!("cannot pickle '{}' object", tn(v)))
+    let name = match v {
+        V::Iter(c) => match cls_of(c) {
+            Ok(V::Class(k)) if k.module == "builtins" => k.name.to_string(),
+            Ok(V::Class(k)) => format!("{}.{}", k.module, k.name),
+            _ => tn(v),
+        },
+        _ => tn(v),
+    };
+    exc("TypeError", format!("cannot pickle '{name}' object"))
 }
 
 // `x.__reduce__()` (and `__reduce_ex__(protocol)`, the same for every type here) of an iterator of the program:

@@ -353,6 +353,9 @@ pub fn make_class_f(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, at
     if bs.is_empty() {
         bs.push(bclass("object"));
     }
+    if name != "ByteString" && bs.iter().any(|b| is_bytestring(b)) {
+        bytestring_warn()?;
+    }
     let bt = if bs.iter().any(|b| b.base_bt() == BT::Exc) { BT::Exc } else { BT::Other };
     // A collections.abc class, or one built on it, follows ABCMeta's rules.
     let abc = module == "collections.abc" || bs.iter().any(|b| b.abc.get());

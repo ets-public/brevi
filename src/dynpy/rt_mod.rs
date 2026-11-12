@@ -1904,24 +1904,56 @@ fn tee_pos_of(v: &V) -> Option<(Rc<TeeData>, usize)> {
 fn tee_copy_iter(v: &V) -> Option<V> {
     tee_pos_of(v).map(|(d, pos)| tee_member(&d, pos))
 }
+// Binds an itertools constructor's arguments as CPython's argument clinic does: `names` are positional-or-keyword
+// up to a "*", keyword-only after it; too many positionals, an unknown keyword or one given twice raise TypeError.
+fn it_sig<const N: usize>(a: &mut Args, f: &str, names: &[&str]) -> Result<[Option<V>; N], E> {
+    let npos = names.iter().position(|n| *n == "*").unwrap_or(names.len());
+    if a.p.len() > npos {
+        let what = if npos < names.len() { "positional argument" } else { "argument" };
+        return type_err(format!("{f}() takes at most {npos} {what}{} ({} given)", if npos == 1 { "" } else { "s" }, a.p.len()));
+    }
+    let mut out: Vec<Option<V>> = a.p.drain(..).map(Some).collect();
+    let fields: Vec<&str> = names.iter().copied().filter(|n| *n != "*").collect();
+    out.resize(fields.len(), None);
+    for (k, v) in std::mem::take(&mut a.k) {
+        let Some(i) = fields.iter().position(|n| *n == k) else {
+            return type_err(format!("{f}() got an unexpected keyword argument '{k}'"));
+        };
+        if out[i].is_some() {
+            return type_err(format!("argument for {f}() given by name ('{k}') and position ({})", i + 1));
+        }
+        out[i] = Some(v);
+    }
+    Ok(std::array::from_fn(|i| out[i].take()))
+}
 pub fn itertools_fn(name: &str, mut a: Args) -> R {
     Ok(match name {
         "permutations" => {
-            let pool = to_vec(a.p.first().ok_or_else(|| exc("TypeError", "permutations() missing iterable".into()))?)?;
-            let r = match a.p.get(1).cloned().or(a.kw("r")) {
+            let [it, r] = it_sig(&mut a, name, &["iterable", "r"])?;
+            let pool = to_vec(&it.ok_or_else(|| exc("TypeError", "permutations() missing required argument 'iterable' (pos 1)".into()))?)?;
+            let r = match r {
                 Some(V::None) | None => pool.len(),
                 Some(x) => it_ssize(&x, "r must be non-negative")? as usize,
             };
             permutations_new(pool, r)
         }
         "combinations" | "combinations_with_replacement" => {
-            a.want(name, 2, 2)?;
-            let pool = to_vec(&a.p[0])?;
-            let r = it_ssize(&a.p[1], "r must be non-negative")? as usize;
+            let [it, r] = it_sig(&mut a, name, &["iterable", "r"])?;
+            let (Some(it), Some(r)) = (it.clone(), r) else {
+                let (n, i) = if it.is_none() { ("iterable", 1) } else { ("r", 2) };
+                return type_err(format!("{name}() missing required argument '{n}' (pos {i})"));
+            };
+            let pool = to_vec(&it)?;
+            let r = it_ssize(&r, "r must be non-negative")? as usize;
             if name == "combinations" { combinations_new(pool, r) } else { cwr_new(pool, r) }
         }
         "product" => {
-            let rep = match a.kw("repeat") {
+            if a.k.len() > 1 {
+                return type_err(format!("product() takes at most 1 keyword argument ({} given)", a.k.len()));
+            }
+            let rep = a.kw("repeat");
+            a.no_kw("product")?;
+            let rep = match rep {
                 Some(x) => it_ssize(&x, "repeat argument cannot be negative")? as usize,
                 None => 1,
             };
@@ -1942,19 +1974,20 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
         }
         "chain.from_iterable" => chain_new(get_iter(&a1(&a, "from_iterable")?)?),
         "accumulate" => {
-            let init = a.kw("initial").unwrap_or(V::None);
-            let f = a.p.get(1).cloned().or(a.kw("func")).filter(|f| !matches!(f, V::None));
-            let it = get_iter(&a.p.first().cloned().or(a.kw("iterable")).ok_or_else(|| exc("TypeError", "accumulate() missing required argument 'iterable' (pos 1)".into()))?)?;
+            let [it, f, init] = it_sig(&mut a, name, &["iterable", "func", "*", "initial"])?;
+            let init = init.unwrap_or(V::None);
+            let f = f.filter(|f| !matches!(f, V::None));
+            let it = get_iter(&it.ok_or_else(|| exc("TypeError", "accumulate() missing required argument 'iterable' (pos 1)".into()))?)?;
             accumulate_new(it, f, init)
         }
         "groupby" => {
-            let key = a.p.get(1).cloned().or(a.kw("key")).unwrap_or(V::None);
-            let it = get_iter(&a.p.first().cloned().or(a.kw("iterable")).ok_or_else(|| exc("TypeError", "groupby() missing required argument 'iterable'".into()))?)?;
+            let [it, key] = it_sig(&mut a, name, &["iterable", "key"])?;
+            let key = key.unwrap_or(V::None);
+            let it = get_iter(&it.ok_or_else(|| exc("TypeError", "groupby() missing required argument 'iterable'".into()))?)?;
             groupby_new(it, key)
         }
         "count" => {
-            let start = a.p.first().cloned().or(a.kw("start"));
-            let step = a.p.get(1).cloned().or(a.kw("step"));
+            let [start, step] = it_sig(&mut a, name, &["start", "step"])?;
             count_new(start, step)?
         }
         "islice" => {
@@ -1990,6 +2023,9 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
         }
         "zip_longest" => {
             let fill = a.kw("fillvalue").unwrap_or(V::None);
+            if !a.k.is_empty() {
+                return type_err("zip_longest() got an unexpected keyword argument".into());
+            }
             let mut its = vec![];
             for x in &a.p {
                 its.push(get_iter(x)?);
@@ -2004,14 +2040,22 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             }
         }
         "cycle" => {
-            a.no_kw("cycle")?;
+            if !a.k.is_empty() {
+                return type_err("cycle() takes no keyword arguments".into());
+            }
             cycle_new(get_iter(&a1(&a, name)?)?)
         }
         "starmap" => {
+            if !a.k.is_empty() {
+                return type_err(format!("{name}() takes no keyword arguments"));
+            }
             a.want(name, 2, 2)?;
             starmap_new(a.p[0].clone(), get_iter(&a.p[1])?)
         }
         "takewhile" | "dropwhile" => {
+            if !a.k.is_empty() {
+                return type_err(format!("{name}() takes no keyword arguments"));
+            }
             a.want(name, 2, 2)?;
             while_new(name == "takewhile", a.p[0].clone(), get_iter(&a.p[1])?)
         }
@@ -2050,12 +2094,16 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             })
         }
         "compress" => {
-            let data = a.p.first().cloned().or(a.kw("data")).ok_or_else(|| exc("TypeError", "compress() missing required argument 'data' (pos 1)".into()))?;
-            let sel = a.p.get(1).cloned().or(a.kw("selectors")).ok_or_else(|| exc("TypeError", "compress() missing required argument 'selectors' (pos 2)".into()))?;
+            let [data, sel] = it_sig(&mut a, name, &["data", "selectors"])?;
+            let data = data.ok_or_else(|| exc("TypeError", "compress() missing required argument 'data' (pos 1)".into()))?;
+            let sel = sel.ok_or_else(|| exc("TypeError", "compress() missing required argument 'selectors' (pos 2)".into()))?;
             let d = get_iter(&data)?;
             compress_new(d, get_iter(&sel)?)
         }
         "filterfalse" => {
+            if !a.k.is_empty() {
+                return type_err(format!("{name}() takes no keyword arguments"));
+            }
             a.want(name, 2, 2)?;
             filterfalse_new(a.p[0].clone(), get_iter(&a.p[1])?)
         }
