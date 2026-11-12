@@ -653,7 +653,7 @@ pub fn bi_zip(mut a: Args) -> R {
         None => false,
     };
     if let Some((k, _)) = a.k.first() {
-        return type_err(format!("'{k}' is an invalid keyword argument for zip()"));
+        return type_err(format!("zip() got an unexpected keyword argument '{k}'"));
     }
     let mut its = vec![];
     for x in &a.p {

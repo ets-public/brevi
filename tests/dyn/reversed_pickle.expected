@@ -1,0 +1,7 @@
+(<class 'reversed'>, ([4, 5, 6, 7],), 2)
+<class 'list_reverseiterator'> [6, 5, 4]
+(<class 'reversed'>, ([],))
+[]
+stop
+(<class 'reversed'>, ([],))
+[]

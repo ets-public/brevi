@@ -1,0 +1,11 @@
+import pickle
+o=[4,5,6,7]; it=reversed(o); next(it)
+print(it.__reduce__())
+it2,a=pickle.loads(pickle.dumps((it,o),2)); print(type(it2), list(it2))
+for _ in range(3): next(it)
+print(it.__reduce__())
+it2,a=pickle.loads(pickle.dumps((it,o),2)); print(list(it2))
+try: next(it)
+except StopIteration: print('stop')
+print(it.__reduce__())
+it2,a=pickle.loads(pickle.dumps((it,o),2)); print(list(it2))

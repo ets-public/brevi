@@ -1258,6 +1258,13 @@ fn iter_reduce(v: &V) -> R {
             out[0] = pyd_builtin(name)?;
         }
     }
+    // `reversed` is a class now (it_class): its reduce names that class, which pickles as CPython's
+    // reversed too, so a reversed list iterator loads as CPython's list_reverseiterator, as before
+    if let Some(V::Class(c)) = out.first() {
+        if Rc::ptr_eq(c, &it_class(ItKind::Reversed)?) {
+            out[0] = pyd_builtin("reversed")?;
+        }
+    }
     Ok(tup(out))
 }
 

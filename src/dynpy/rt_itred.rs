@@ -178,6 +178,7 @@ pub fn iter_reduce_v(v: &V) -> R {
             It::Dict(d, i, kind, ver, n0) => Plan::Dict(d.clone(), *i, *kind, *ver, *n0),
             It::Set(s, i, n0) => Plan::Set(s.clone(), *i, *n0),
             It::Repeat(x, n) => Plan::Repeat(x.clone(), *n),
+            It::Done if matches!(cell.kind, IterClass::Kind(ItKind::ListReverseIter)) => Plan::Rev(V::None, -1),
             It::Done if !matches!(cell.kind, IterClass::Kind(ItKind::Generator)) && !is_itertools_kind(cell) => Plan::Seq(vec![]),
             // reversed() of a dict or its views keeps the rest as It::Vec; CPython pickles those iterators as
             // iter(list of the rest), as here
@@ -193,6 +194,8 @@ pub fn iter_reduce_v(v: &V) -> R {
     let iter_f = bv("iter");
     Ok(match plan {
         Plan::At(whole, i) => tup(vec![iter_f, tup(vec![whole]), V::Int(i as i64)]),
+        // CPython 3.13 listreviter_reduce: once the index is below 0 (every item given, said or not), reversed([])
+        Plan::Rev(_, i) if i < 0 => tup(vec![bv("reversed"), tup(vec![list(vec![])])]),
         Plan::Rev(whole, i) => tup(vec![bv("reversed"), tup(vec![whole]), V::Int(i)]),
         Plan::Seq(xs) => tup(vec![iter_f, tup(vec![list(xs)])]),
         // CPython: (iter, (range(start, start + len * step, step),), None)
