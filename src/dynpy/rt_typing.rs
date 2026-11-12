@@ -69,6 +69,9 @@ pub fn typing_call(n: &str, mut a: Args) -> R {
 // with typing's Generic and Protocol taken out of its bases). `qualname` is the class statement's dotted
 // __qualname__; `module` is where the class is defined.
 pub fn typing_class(name: Sym, qualname: Sym, module: Sym, bases: &mut Vec<V>, attrs: &[(Sym, V)], fields: &[Sym]) -> Option<R> {
+    // the compiler's dataclasses marks ("ClassVar:x"): every annotated name is a NamedTuple or TypedDict key
+    let plain: Vec<Sym> = fields.iter().map(|f| f.split_once(':').map_or(*f, |(_, n)| sym(n))).collect();
+    let fields = &plain[..];
     let (mut nt, mut td) = (false, false);
     bases.retain(|b| match b {
         V::Class(k) if k.module == "typing" => {

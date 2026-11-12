@@ -4481,9 +4481,8 @@ impl Em {
         let mut fields = vec![];
         for s in &c.body {
             if let St::AnnAssign(Ex::Name(n), _, ann, true) = &s.st {
-                // dataclasses: a ClassVar is no field; InitVar and KW_ONLY are marked
+                // dataclasses: ClassVar, InitVar and KW_ONLY are marked
                 match ann_kind(ann) {
-                    Some("ClassVar") => {}
                     Some(k) => fields.push(lit(&format!("{k}:{n}"))),
                     None => fields.push(lit(n)),
                 }
@@ -4817,9 +4816,11 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     let mut inits = String::new();
     // Only the program's own modules decide (Brevi's copies never keep class annotations: their Rust must not
     // depend on the program), and never with Brevi's pydantic, which gives classes descriptor annotations (pyd.rs).
+    // dataclasses reads a class's __annotations__ (field types, __doc__, classes made by type()), so importing it
+    // keeps them too.
     let copies = OWN_COPIES.lock().unwrap().clone();
     let users_read_ann = !PYD_ON.load(std::sync::atomic::Ordering::Relaxed)
-        && users.iter().any(|m| !copies.contains(&m.name) && mentions_annotations(&m.body));
+        && users.iter().any(|m| !copies.contains(&m.name) && (mentions_annotations(&m.body) || super::typing::imports(&m.body, "dataclasses")));
     for (gi, group) in [libs.clone(), users].into_iter().enumerate() {
         em.keep_ann = gi == 1 && users_read_ann;
     // module-level names, import aliases and directly callable defs
