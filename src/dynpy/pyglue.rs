@@ -23,6 +23,9 @@ static PYD_API: std::sync::OnceLock<Result<ax_pyffi::Api, String>> = std::sync::
 // the type of _brevi_dyn's _BrIt, once one has been made
 static PYD_BRIT: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 // the type of _brevi_dyn's _BrRed (a value of the program that Python sees only to pickle it), once one has been made
+// CPython's re.Pattern type, once a program's compiled pattern has gone into Python: patterns of that type come
+// back as the program's own (pickle.loads of a pickled pattern)
+static PYD_REPAT: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_BRRED: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_MAIN: std::sync::OnceLock<std::thread::ThreadId> = std::sync::OnceLock::new();
 const PYD_CAP: &std::ffi::CStr = c"brevi.dyn.callable";
@@ -740,6 +743,19 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
         } else {
             (a.ErrClear)();
         }
+    }
+    if t == PYD_REPAT.load(std::sync::atomic::Ordering::Relaxed) {
+        // CPython's compiled pattern: the program's re.compile(pattern, flags)
+        let part = |n: &std::ffi::CStr| -> R {
+            let x = (a.GetAttr)(p, n.as_ptr());
+            pyd_wrap(pyd_own(x)?, false)
+        };
+        let r = part(c"pattern").and_then(|pv| part(c"flags").map(|fv| (pv, fv))).and_then(|(pv, fv)| re_fn("compile", Args::p(vec![pv, fv])));
+        if let Ok(v) = &r {
+            from_memo_put(p, v);
+        }
+        (a.DecRef)(p);
+        return r;
     }
     if t == a.TCFunction {
         if let Some(v) = pyd_callable_v(p) {
@@ -1530,6 +1546,26 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
                     let r = pyd_mod_call("datetime", "timezone", &[off]);
                     (a.DecRef)(off);
                     r?
+                }
+                // a compiled pattern goes in as CPython's re.compile(pattern, flags), which is what it pickles as
+                "Pattern" if x.tname() == "re.Pattern" => {
+                    let pat = pyd_to(&getattr(v, "pattern")?)?;
+                    let fl = match pyd_to(&getattr(v, "flags")?) {
+                        Ok(f) => f,
+                        Err(e) => {
+                            (a.DecRef)(pat);
+                            return Err(e);
+                        }
+                    };
+                    let r = pyd_mod_call("re", "compile", &[pat, fl]);
+                    (a.DecRef)(pat);
+                    (a.DecRef)(fl);
+                    let o = r?;
+                    to_memo_put(v, o);
+                    let t = (a.Type)(o);
+                    (a.DecRef)(t);
+                    PYD_REPAT.store(t, std::sync::atomic::Ordering::Relaxed);
+                    o
                 }
                 t => return type_err(format!("brevi: a {t} value cannot be passed to a Python library in a dynamic build")),
             }

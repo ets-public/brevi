@@ -917,6 +917,34 @@ fn update_wrapper(wrapper: V, wrapped: V, assigned: V, updated: V) -> R {
     setattr(&wrapper, sym("__wrapped__"), wrapped)?;
     Ok(wrapper)
 }
+// collections._count_elements(mapping, iterable, /), as CPython's C helper (Modules/_collectionsmodule.c): the
+// iterable is taken first, then each element is counted with mapping.get(elem, 0) + 1 and mapping[elem] = ....
+// A builtin dict (dict, Counter, OrderedDict, defaultdict: none overrides get or __setitem__) is counted in place.
+fn count_elements(a: Args) -> R {
+    if !a.k.is_empty() {
+        return type_err("_collections._count_elements() takes no keyword arguments".into());
+    }
+    if a.p.len() != 2 {
+        return type_err(format!("_count_elements expected 2 arguments, got {}", a.p.len()));
+    }
+    let (mapping, iterable) = (&a.p[0], &a.p[1]);
+    let mut it = iter(iterable)?;
+    if let V::Dict(d) = mapping {
+        while let Some(x) = it.next()? {
+            let cur = Dict::get_cell(d, &x)?.unwrap_or(V::Int(0));
+            let n = binop(&cur, &V::Int(1), "+")?;
+            Dict::set_cell(d, x, n)?;
+        }
+        return Ok(V::None);
+    }
+    let get = getattr(mapping, "get")?;
+    while let Some(x) = it.next()? {
+        let cur = call(&get, Args::p(vec![x.clone(), V::Int(0)]))?;
+        let n = binop(&cur, &V::Int(1), "+")?;
+        setitem(mapping, &x, n)?;
+    }
+    Ok(V::None)
+}
 // ---------- functools.singledispatch / singledispatchmethod ----------
 // CPython 3.13's pure-Python implementation, over the dynamic runtime's values. The registry is a dict of
 // type keys (exposed read-only as its mappingproxy view); the dispatch cache keys by the concrete class, as
@@ -925,10 +953,44 @@ fn update_wrapper(wrapper: V, wrapped: V, assigned: V, updated: V) -> R {
 // annotation itself.
 struct SDState {
     registry: Rc<RefCell<Dict>>,
-    // keyed by the class's address; each entry holds its class, so the address stays that class's while cached
-    cache: RefCell<std::collections::HashMap<usize, (V, Option<V>)>>,
-    // the ABC cache token the cache was filled under
+    cache: SDCache,
+    // the ABC cache token the cache was filled under: none (u64::MAX) until an ABC is registered, as in CPython,
+    // whose dispatch() only compares tokens once register() has seen a class with __abstractmethods__
     token: Cell<u64>,
+}
+// The dispatch cache: CPython's weakref.WeakKeyDictionary() (keyed by the concrete class; each entry here holds
+// its class, so the address stays that class's while cached), or what weakref.WeakKeyDictionary was assigned
+// when singledispatch ran (functools reads the module attribute then): used as a mapping, as CPython uses it.
+enum SDCache {
+    Native(RefCell<std::collections::HashMap<usize, (V, Option<V>)>>),
+    Obj(V),
+}
+fn sd_new_state() -> Result<Rc<SDState>, E> {
+    let cache = match mod_assigned("weakref", "WeakKeyDictionary") {
+        None => SDCache::Native(RefCell::new(std::collections::HashMap::new())),
+        Some(Some(f)) => SDCache::Obj(call(&f, Args::p(vec![]))?),
+        Some(None) => return Err(exc("AttributeError", "module 'weakref' has no attribute 'WeakKeyDictionary'".into())),
+    };
+    Ok(Rc::new(SDState { registry: Rc::new(RefCell::new(Dict::new())), cache, token: Cell::new(u64::MAX) }))
+}
+fn sd_clear(st: &SDState) -> Result<(), E> {
+    match &st.cache {
+        SDCache::Native(c) => c.borrow_mut().clear(),
+        SDCache::Obj(o) => {
+            call_method(o, "clear", Args::p(vec![]))?;
+        }
+    }
+    Ok(())
+}
+// register()'s `if cache_token is None and hasattr(cls, '__abstractmethods__'): cache_token = get_cache_token()`
+fn sd_note_abc(st: &SDState, cls: &V) {
+    if st.token.get() == u64::MAX {
+        if let V::Class(k) = cls {
+            if k.lookup("__abstractmethods__").is_some() {
+                st.token.set(ABC_TOKEN.load(std::sync::atomic::Ordering::Relaxed));
+            }
+        }
+    }
 }
 fn sd_registry_view(st: &Rc<SDState>) -> V {
     V::View(Rc::new((V::Dict(st.registry.clone()), 3)))
@@ -1009,13 +1071,18 @@ fn sd_register_ann(st: &Rc<SDState>, f: V) -> R {
         _ => return Err(unsupported("a singledispatch annotation")),
     };
     let classes = sd_ann_classes(&arg, &desc, None)?;
+    // a union registers each of its classes, and is itself no ABC
+    let single = if classes.len() == 1 && !matches!(sd_desc_at(&desc, 0).map(|t| to_str(&t).unwrap_or_default()).as_deref(), Some("union")) { Some(classes[0].clone()) } else { None };
     {
         let mut reg = st.registry.borrow_mut();
         for c in classes {
             reg.set(c, f.clone())?;
         }
     }
-    st.cache.borrow_mut().clear();
+    if let Some(c) = single {
+        sd_note_abc(st, &c);
+    }
+    sd_clear(st)?;
     Ok(f)
 }
 // a union whose arguments are all classes (`int | str`, typing.Union[int, str]): its arguments, as CPython 3.13's
@@ -1041,7 +1108,7 @@ fn sd_register_type(st: &Rc<SDState>, cls: &V, func: V) -> R {
                 reg.set(a, func.clone())?;
             }
         }
-        st.cache.borrow_mut().clear();
+        sd_clear(st)?;
         return Ok(func);
     }
     match cls {
@@ -1062,7 +1129,8 @@ fn sd_register_type(st: &Rc<SDState>, cls: &V, func: V) -> R {
         _ => return Err(sd_invalid_first(cls)),
     }
     st.registry.borrow_mut().set(cls.clone(), func.clone())?;
-    st.cache.borrow_mut().clear();
+    sd_note_abc(st, cls);
+    sd_clear(st)?;
     Ok(func)
 }
 fn sd_register(st: Rc<SDState>, mut a: Args) -> R {
@@ -1117,7 +1185,9 @@ fn sd_c3_merge(mut seqs: Vec<Vec<Rc<Class>>>) -> Result<Vec<Rc<Class>>, E> {
         }
     }
 }
-fn sd_c3_mro(cls: &Rc<Class>, abcs: &mut Vec<Rc<Class>>) -> Result<Vec<Rc<Class>>, E> {
+fn sd_c3_mro(cls: &Rc<Class>, abcs_in: &[Rc<Class>]) -> Result<Vec<Rc<Class>>, E> {
+    // CPython copies the list (`abcs = list(abcs)`): what one base's MRO removes never reaches its siblings
+    let mut abcs = abcs_in.to_vec();
     let bases = &cls.bases;
     let mut boundary = 0;
     for (i, b) in bases.iter().enumerate().rev() {
@@ -1143,11 +1213,16 @@ fn sd_c3_mro(cls: &Rc<Class>, abcs: &mut Vec<Rc<Class>>) -> Result<Vec<Rc<Class>
             }
         }
     }
-    abcs.retain(|x| !sd_has(&abstract_bases, x));
+    // abcs.remove(base): the first equal entry, once per abstract base
+    for b in &abstract_bases {
+        if let Some(i) = abcs.iter().position(|x| Rc::ptr_eq(x, b)) {
+            abcs.remove(i);
+        }
+    }
     let mut seqs = vec![vec![cls.clone()]];
     for group in [&explicit, &abstract_bases, &other] {
         for b in group.iter() {
-            seqs.push(sd_c3_mro(b, abcs)?);
+            seqs.push(sd_c3_mro(b, &abcs)?);
         }
     }
     seqs.push(explicit);
@@ -1187,28 +1262,90 @@ fn sd_compose_mro(cls: &Rc<Class>, types: Vec<Rc<Class>>) -> Result<Vec<Rc<Class
             }
         }
     }
-    sd_c3_mro(cls, &mut mro)
+    sd_c3_mro(cls, &mro)
+}
+// _find_impl's loop over the composed MRO: the first registered type, or CPython's "Ambiguous dispatch" error
+fn sd_find_match(c: &Rc<Class>, keys: Vec<Rc<Class>>, has: &dyn Fn(&Rc<Class>) -> Result<bool, E>) -> Result<Option<Rc<Class>>, E> {
+    let mro = sd_compose_mro(c, keys)?;
+    let cmro = c.mro.borrow().clone();
+    let mut found: Option<Rc<Class>> = None;
+    for t in &mro {
+        if let Some(m) = &found {
+            if has(t)? && !sd_has(&cmro, t) && !sd_has(&cmro, m) && !sd_issub(m, t)? {
+                return Err(exc("RuntimeError", format!("Ambiguous dispatch: {} or {}", repr(&V::Class(m.clone()))?, repr(&V::Class(t.clone()))?)));
+            }
+            break;
+        }
+        if has(t)? {
+            found = Some(t.clone());
+        }
+    }
+    Ok(found)
 }
 fn sd_find_impl(cls: &V, reg: &Rc<RefCell<Dict>>) -> Result<Option<V>, E> {
     let V::Class(c) = cls else { return Ok(None) };
     let items = reg.borrow().items();
     let keys: Vec<Rc<Class>> = items.iter().filter_map(|(k, _)| if let V::Class(k) = k { Some(k.clone()) } else { None }).collect();
-    let mro = sd_compose_mro(c, keys)?;
-    let cmro = c.mro.borrow().clone();
     let get = |t: &Rc<Class>| items.iter().find(|(k, _)| matches!(k, V::Class(x) if Rc::ptr_eq(x, t))).map(|(_, v)| v.clone());
-    let mut found: Option<Rc<Class>> = None;
-    for t in &mro {
-        if let Some(m) = &found {
-            if get(t).is_some() && !sd_has(&cmro, t) && !sd_has(&cmro, m) && !sd_issub(m, t)? {
-                return Err(exc("RuntimeError", format!("Ambiguous dispatch: {} or {}", repr(&V::Class(m.clone()))?, repr(&V::Class(t.clone()))?)));
-            }
-            break;
-        }
-        if get(t).is_some() {
-            found = Some(t.clone());
+    let found = sd_find_match(c, keys, &|t| Ok(get(t).is_some()))?;
+    Ok(found.and_then(|m| get(&m)))
+}
+// functools._c3_mro(cls, abcs=None), _compose_mro(cls, types) and _find_impl(cls, registry), called directly:
+// the same code singledispatch runs, with CPython's argument binding. `registry` may be any mapping.
+fn sd_bind_args(name: &'static str, params: &'static [Sym], dflt: &[V], a: Args) -> Result<Vec<V>, E> {
+    let sig = Sig { name: sym(name), params, npos: params.len(), npo: 0, star: false, kwstar: false };
+    bind(&sig, dflt, a)
+}
+fn sd_class_arg(v: &V, attr: &str) -> Result<Rc<Class>, E> {
+    match v {
+        V::Class(c) => Ok(c.clone()),
+        _ => {
+            getattr(v, attr)?;
+            Err(unsupported(&format!("functools helpers on a class-like {} object", tn(v))))
         }
     }
-    Ok(found.and_then(|m| get(&m)))
+}
+fn sd_abc_list(v: &V) -> Result<Vec<Rc<Class>>, E> {
+    if !truth(v)? {
+        return Ok(vec![]);
+    }
+    let mut out = vec![];
+    for x in to_vec(v)? {
+        match x {
+            V::Class(c) => out.push(c),
+            _ => return type_err("issubclass() arg 2 must be a class, a tuple of classes, or a union".into()),
+        }
+    }
+    Ok(out)
+}
+fn sd_class_list(v: Vec<Rc<Class>>) -> V {
+    list(v.into_iter().map(V::Class).collect())
+}
+pub fn functools_private(name: &str, a: Args) -> R {
+    match name {
+        "_c3_mro" => {
+            let v = sd_bind_args("_c3_mro", &["cls", "abcs"], &[V::Unbound, V::None], a)?;
+            let c = sd_class_arg(&v[0], "__bases__")?;
+            let abcs = sd_abc_list(&v[1])?;
+            Ok(sd_class_list(sd_c3_mro(&c, &abcs)?))
+        }
+        "_compose_mro" => {
+            let v = sd_bind_args("_compose_mro", &["cls", "types"], &[V::Unbound, V::Unbound], a)?;
+            let c = sd_class_arg(&v[0], "__mro__")?;
+            // is_related: only classes (a value with no __mro__ is skipped, as is a GenericAlias)
+            let types = to_vec(&v[1])?.into_iter().filter_map(|t| if let V::Class(k) = t { Some(k) } else { None }).collect();
+            Ok(sd_class_list(sd_compose_mro(&c, types)?))
+        }
+        "_find_impl" => {
+            let v = sd_bind_args("_find_impl", &["cls", "registry"], &[V::Unbound, V::Unbound], a)?;
+            let reg = v[1].clone();
+            let c = sd_class_arg(&v[0], "__mro__")?;
+            let keys = to_vec(&reg)?.into_iter().filter_map(|t| if let V::Class(k) = t { Some(k) } else { None }).collect();
+            let found = sd_find_match(&c, keys, &|t| contains(&reg, &V::Class(t.clone())))?;
+            call_method(&reg, "get", Args::p(vec![found.map(V::Class).unwrap_or(V::None)]))
+        }
+        _ => Err(unsupported(&format!("functools.{name}"))),
+    }
 }
 fn sd_key(cls: &V) -> usize {
     match cls {
@@ -1217,22 +1354,37 @@ fn sd_key(cls: &V) -> usize {
     }
 }
 fn sd_dispatch_impl(st: &Rc<SDState>, cls: &V) -> R {
-    // CPython drops the dispatch cache when abc.get_cache_token() moves (a register() on any ABC)
-    let token = ABC_TOKEN.load(std::sync::atomic::Ordering::Relaxed);
-    if st.token.get() != token {
-        st.token.set(token);
-        st.cache.borrow_mut().clear();
-    }
-    {
-        if let Some((_, v)) = st.cache.borrow().get(&sd_key(cls)) {
-            return Ok(v.clone().unwrap_or(V::None));
+    // CPython drops the dispatch cache when abc.get_cache_token() moves (a register() on any ABC), once an ABC
+    // has been registered with this function
+    if st.token.get() != u64::MAX {
+        let token = ABC_TOKEN.load(std::sync::atomic::Ordering::Relaxed);
+        if st.token.get() != token {
+            sd_clear(st)?;
+            st.token.set(token);
         }
+    }
+    match &st.cache {
+        SDCache::Native(c) => {
+            if let Some((_, v)) = c.borrow().get(&sd_key(cls)) {
+                return Ok(v.clone().unwrap_or(V::None));
+            }
+        }
+        SDCache::Obj(o) => match getitem(o, cls) {
+            Ok(v) => return Ok(v),
+            Err(E(e)) if is_exc(&e, "KeyError") => {}
+            Err(e) => return Err(e),
+        },
     }
     let found = match Dict::get_cell(&st.registry, cls)? {
         Some(v) => Some(v),
         None => sd_find_impl(cls, &st.registry)?,
     };
-    st.cache.borrow_mut().insert(sd_key(cls), (cls.clone(), found.clone()));
+    match &st.cache {
+        SDCache::Native(c) => {
+            c.borrow_mut().insert(sd_key(cls), (cls.clone(), found.clone()));
+        }
+        SDCache::Obj(o) => setitem(o, cls, found.clone().unwrap_or(V::None))?,
+    }
     Ok(found.unwrap_or(V::None))
 }
 fn sd_make_wrapper(st: &Rc<SDState>, f: V) -> R {
@@ -1262,10 +1414,14 @@ fn sd_make_wrapper(st: &Rc<SDState>, f: V) -> R {
                 _ => type_err(format!("dispatch() argument must be a class, not '{}'", tn(&c))),
             }
         });
-        let clear = builtin("_clear_cache", move |_a: Args| {
-            st3.cache.borrow_mut().clear();
-            Ok(V::None)
-        });
+        // wrapper._clear_cache = dispatch_cache.clear
+        let clear = match &st3.cache {
+            SDCache::Obj(o) => getattr(o, "clear")?,
+            SDCache::Native(_) => builtin("_clear_cache", move |_a: Args| {
+                sd_clear(&st3)?;
+                Ok(V::None)
+            }),
+        };
         wf.attrs.borrow_mut().push(("register", reg));
         wf.attrs.borrow_mut().push(("dispatch", disp));
         wf.attrs.borrow_mut().push(("_clear_cache", clear));
@@ -1274,7 +1430,7 @@ fn sd_make_wrapper(st: &Rc<SDState>, f: V) -> R {
     update_wrapper(w, f, wraps_assigned(), wraps_updated())
 }
 fn singledispatch_impl(f: V) -> R {
-    let st = Rc::new(SDState { registry: Rc::new(RefCell::new(Dict::new())), cache: RefCell::new(std::collections::HashMap::new()), token: Cell::new(u64::MAX) });
+    let st = sd_new_state()?;
     sd_make_wrapper(&st, f)
 }
 fn sd_is_abstract(v: &V) -> bool {
@@ -1378,7 +1534,7 @@ fn singledispatchmethod_impl(f: V) -> R {
         let r = repr(&f).unwrap_or_else(|_| "<object>".into());
         return type_err(format!("{r} is not callable or a descriptor"));
     }
-    let st = Rc::new(SDState { registry: Rc::new(RefCell::new(Dict::new())), cache: RefCell::new(std::collections::HashMap::new()), token: Cell::new(u64::MAX) });
+    let st = sd_new_state()?;
     let dispatcher = sd_make_wrapper(&st, f.clone())?;
     Ok(V::Ext(ExtRc::new(SDMethod { st, dispatcher, func: f })))
 }
@@ -1483,6 +1639,7 @@ pub fn functools_fn(name: &str, mut a: Args) -> R {
             c
         }
         "singledispatch" => singledispatch_impl(a1(&a, name)?)?,
+        "_c3_mro" | "_compose_mro" | "_find_impl" => return functools_private(name, a),
         "singledispatchmethod" => singledispatchmethod_impl(a1(&a, name)?)?,
         _ => return Err(unsupported(&format!("functools.{name}"))),
     })
@@ -2947,6 +3104,7 @@ pub fn module_call(m: &str, n: &str, a: Args) -> R {
         "heapq" => heapq_fn(n, a),
         "bisect" => bisect_fn(n, a),
         "functools" => functools_fn(n, a),
+        "re._compiler" => re_compiler_fn(n, a),
         "itertools" => itertools_fn(n, a),
         "copy" => copy_fn(n, a),
         "operator" => operator_fn(n, a),
@@ -2958,6 +3116,7 @@ pub fn module_call(m: &str, n: &str, a: Args) -> R {
             "deque" => col_deque(a),
             "OrderedDict" => instantiate(&bclass("OrderedDict"), a),
             "namedtuple" => namedtuple(a),
+            "_count_elements" => count_elements(a),
             _ => Err(unsupported(&format!("collections.{n}"))),
         },
         "string" => Err(unsupported(&format!("string.{n}"))),
@@ -3097,7 +3256,30 @@ fn sys_flags() -> V {
         V::Obj(o)
     })
 }
+// Assignment to a builtin module's attribute, for the names whose only native readers follow it as CPython's do:
+// weakref.WeakKeyDictionary (functools.singledispatch reads it when it runs). Some(None) is a deleted name.
+pub fn mod_assignable(m: &str, n: &str) -> bool {
+    matches!((m, n), ("weakref", "WeakKeyDictionary"))
+}
+thread_local! {
+    static MOD_ASSIGNED: RefCell<Vec<(&'static str, String, Option<V>)>> = const { RefCell::new(Vec::new()) };
+}
+pub fn mod_assigned(m: &str, n: &str) -> Option<Option<V>> {
+    MOD_ASSIGNED.with(|t| t.borrow().iter().find(|(a, b, _)| *a == m && *b == n).map(|(_, _, v)| v.clone()))
+}
+pub fn mod_assign(m: &'static str, n: &str, v: Option<V>) {
+    MOD_ASSIGNED.with(|t| {
+        let mut t = t.borrow_mut();
+        t.retain(|(a, b, _)| !(*a == m && *b == n));
+        t.push((m, n.to_string(), v));
+    });
+}
 pub fn module_attr(m: &'static str, name: &str) -> R {
+    if mod_assignable(m, name) {
+        if let Some(v) = mod_assigned(m, name) {
+            return v.ok_or_else(|| exc("AttributeError", format!("module '{m}' has no attribute '{name}'")));
+        }
+    }
     let v = match (m, name) {
         ("sys", "stdin") => V::Module(&ModName("sys.stdin")),
         ("sys", "stdout") => stdout_set().unwrap_or(V::Module(&ModName("sys.stdout"))),

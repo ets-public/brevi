@@ -63,7 +63,9 @@ pub fn out_write(t: &str) {
     });
 }
 pub fn out_flush() {
-    OUT.with(|o| {
+    // try_with: a library value dropped by another thread-local's destructor at thread exit (a module CPython
+    // runs, kept in sys.modules) flushes after OUT itself is gone, when there is nothing left to flush
+    let _ = OUT.try_with(|o| {
         let mut o = o.borrow_mut();
         let b = std::mem::take(&mut o.buf);
         std::io::stdout().write_all(&b).ok();
@@ -2166,6 +2168,72 @@ fn counter_update_pair(d: &Rc<RefCell<Dict>>, k: V, v: V, add: bool, mapping: bo
         binop(&cur, &v, "-")?
     };
     Dict::set_cell(d, k, n)?;
+    Ok(V::None)
+}
+// A Counter subclass instance's __init__, update and subtract, as CPython's Python Counter runs them: through the
+// instance's own update, get, __setitem__ and truth, so a subclass that overrides them is called (the native
+// paths above work on the wrapped dict and see no override).
+pub fn counter_inner(me: &V) -> Option<Rc<RefCell<Dict>>> {
+    match me {
+        V::Obj(o) => match o.inner() {
+            Some(V::Dict(d)) if d.borrow().kind == 2 => Some(d),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+pub fn counter_obj_init(me: &V, a: Args) -> R {
+    // Counter.__init__(self, iterable=None, /, **kwds): super().__init__(); self.update(iterable, **kwds)
+    if a.p.len() > 1 {
+        return type_err(format!("Counter.__init__() takes from 1 to 2 positional arguments but {} were given", a.p.len() + 1));
+    }
+    if let V::Obj(o) = me {
+        let mut d = Dict::new();
+        d.kind = 2;
+        o.set_inner(Some(V::Dict(Rc::new(RefCell::new(d)))));
+    }
+    call_method(me, "update", a)?;
+    Ok(V::None)
+}
+pub fn counter_obj_method(me: &V, name: &str, mut a: Args) -> R {
+    let add = name == "update";
+    let Some(d) = counter_inner(me) else {
+        return Ok(V::None);
+    };
+    a.want(if add { "Counter.update" } else { "Counter.subtract" }, 0, 1)?;
+    if let Some(src) = a.p.first().cloned() {
+        if !matches!(src, V::None) {
+            if is_counter_mapping(&src) {
+                if add && !truth(me)? {
+                    // super().update(iterable): dict.update stores into the dict itself
+                    counter_update_pairs(&d, dict_items_of(&src)?, true)?;
+                } else {
+                    let get = getattr(me, "get")?;
+                    for (k, c) in dict_items_of(&src)? {
+                        let cur = call(&get, Args::p(vec![k.clone(), V::Int(0)]))?;
+                        let n = if add { binop(&c, &cur, "+")? } else { binop(&cur, &c, "-")? };
+                        setitem(me, &k, n)?;
+                    }
+                }
+            } else if add {
+                module_call("collections", "_count_elements", Args::p(vec![me.clone(), src]))?;
+            } else {
+                let get = getattr(me, "get")?;
+                let mut it = iter(&src)?;
+                while let Some(k) = it.next()? {
+                    let cur = call(&get, Args::p(vec![k.clone(), V::Int(0)]))?;
+                    setitem(me, &k, binop(&cur, &V::Int(1), "-")?)?;
+                }
+            }
+        }
+    }
+    if !a.k.is_empty() {
+        let mut kw = Dict::new();
+        for (n, v) in a.k.drain(..) {
+            kw.set(s(n), v)?;
+        }
+        call_method(me, name, Args::p(vec![V::Dict(Rc::new(RefCell::new(kw)))]))?;
+    }
     Ok(V::None)
 }
 pub fn col_deque(mut a: Args) -> R {
