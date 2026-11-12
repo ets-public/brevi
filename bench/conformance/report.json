@@ -9,8 +9,8 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 274,
-"refused": 2,
+"matched": 275,
+"refused": 1,
 "by_design": 34,
 "string_model": 0,
 "cpython_private": 0,
@@ -24,12 +24,12 @@
 "scored": 276,
 "matched_through_cpython": 0,
 "matched_silent": 47,
-"coverage": 0.9928,
+"coverage": 0.9964,
 "wrong": 0,
-"matched_asserting": 227,
-"assert_coverage": 0.8225,
+"matched_asserting": 228,
+"assert_coverage": 0.8261,
 "matched_typed": 25,
-"typed_share": 0.0912
+"typed_share": 0.0909
 },
 "dyn": {
 "matched": 275,
@@ -58,8 +58,8 @@
 "files": {
 "test_grammar": {
 "normal": {
-"matched": 52,
-"refused": 1,
+"matched": 53,
+"refused": 0,
 "by_design": 26,
 "string_model": 0,
 "cpython_private": 0,
@@ -73,12 +73,12 @@
 "scored": 53,
 "matched_through_cpython": 0,
 "matched_silent": 25,
-"coverage": 0.9811,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 27,
-"assert_coverage": 0.5094,
+"matched_asserting": 28,
+"assert_coverage": 0.5283,
 "matched_typed": 17,
-"typed_share": 0.3269
+"typed_share": 0.3208
 },
 "dyn": {
 "matched": 53,
@@ -299,8 +299,8 @@
 },
 "paths": {
 "normal": {
-"dynamic": 249,
-"refused": 36,
+"dynamic": 250,
+"refused": 35,
 "typed": 25
 },
 "dyn": {
@@ -1280,8 +1280,8 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "a used file holds only fn, type, enum and test items and NAME = value lines"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
 "category": "matched",

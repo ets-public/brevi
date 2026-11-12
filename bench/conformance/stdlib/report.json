@@ -9,7 +9,7 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 632,
+"matched": 633,
 "refused": 0,
 "by_design": 4,
 "string_model": 1,
@@ -18,21 +18,21 @@
 "wrong_exit": 0,
 "crash_or_timeout": 0,
 "not_extractable": 0,
-"unstable": 16,
+"unstable": 15,
 "excluded": 150,
 "total": 803,
-"scored": 633,
+"scored": 634,
 "matched_through_cpython": 1,
 "matched_silent": 34,
 "coverage": 0.9968,
 "wrong": 0,
-"matched_asserting": 597,
-"assert_coverage": 0.9431,
+"matched_asserting": 598,
+"assert_coverage": 0.9432,
 "matched_typed": 18,
 "typed_share": 0.0285
 },
 "dyn": {
-"matched": 631,
+"matched": 632,
 "refused": 1,
 "by_design": 4,
 "string_model": 1,
@@ -41,16 +41,16 @@
 "wrong_exit": 0,
 "crash_or_timeout": 0,
 "not_extractable": 0,
-"unstable": 16,
+"unstable": 15,
 "excluded": 150,
 "total": 803,
-"scored": 633,
+"scored": 634,
 "matched_through_cpython": 0,
 "matched_silent": 34,
 "coverage": 0.9968,
 "wrong": 0,
-"matched_asserting": 597,
-"assert_coverage": 0.9431,
+"matched_asserting": 598,
+"assert_coverage": 0.9432,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -250,7 +250,7 @@
 },
 "test_functools": {
 "normal": {
-"matched": 180,
+"matched": 181,
 "refused": 0,
 "by_design": 0,
 "string_model": 0,
@@ -259,21 +259,21 @@
 "wrong_exit": 0,
 "crash_or_timeout": 0,
 "not_extractable": 0,
-"unstable": 3,
+"unstable": 2,
 "excluded": 105,
 "total": 288,
-"scored": 180,
+"scored": 181,
 "matched_through_cpython": 0,
 "matched_silent": 3,
 "coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 177,
-"assert_coverage": 0.9833,
+"matched_asserting": 178,
+"assert_coverage": 0.9834,
 "matched_typed": 0,
 "typed_share": 0.0
 },
 "dyn": {
-"matched": 180,
+"matched": 181,
 "refused": 0,
 "by_design": 0,
 "string_model": 0,
@@ -282,16 +282,16 @@
 "wrong_exit": 0,
 "crash_or_timeout": 0,
 "not_extractable": 0,
-"unstable": 3,
+"unstable": 2,
 "excluded": 105,
 "total": 288,
-"scored": 180,
+"scored": 181,
 "matched_through_cpython": 0,
 "matched_silent": 3,
 "coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 177,
-"assert_coverage": 0.9833,
+"matched_asserting": 178,
+"assert_coverage": 0.9834,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -347,13 +347,13 @@
 },
 "paths": {
 "normal": {
-"dynamic": 614,
+"dynamic": 615,
 "typed": 18,
 "refused": 4,
 "pybridge": 1
 },
 "dyn": {
-"dynamic": 632,
+"dynamic": 633,
 "refused": 5
 }
 },
@@ -8819,8 +8819,16 @@
 {
 "id": "test_functools.TestLRUC.test_lru_cache_threaded3",
 "file": "test_functools",
-"category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_functools.TestLRUC.test_lru_cache_typed_is_not_recursive",
