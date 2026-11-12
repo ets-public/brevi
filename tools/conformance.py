@@ -47,8 +47,10 @@ BY_DESIGN_REFUSAL = re.compile(r"^(compile|exec|eval)\(\) is not supported in dy
 # reviewed, each tied to an open issue, printed beside every score. Matched only by this exact run-time stop, in both
 # builds, and only for a listed id: no other run-time refusal counts, and the tests stay in the denominator.
 STRING_MODEL_FILE = ROOT / "compat" / "conformance_needs_string_model.txt"
-STRING_MODEL_STOP = re.compile(r"^exit 1, expected 0: NotImplementedError: brevi: chr\(\) of a lone surrogate \(U\+D800\.\.U\+DFFF\) "
-                               r"is not supported in dynamic builds$")
+# The stop is the runtime's gate (S::text() in src/dynpy/rt_core.rs): a str holding one reached code not yet written
+# for it (handoffs/string-model-design.md).
+STRING_MODEL_STOP = re.compile(r"^exit 1, expected 0: NotImplementedError: brevi: this operation on a str with a lone surrogate "
+                               r"\(U\+D800\.\.U\+DFFF\) is not supported in dynamic builds yet \(runtime line \d+\)$")
 # Tests that call a CPython-private helper (a module attribute starting with `_`, such as re._compile or
 # functools._c3_mro) that Brevi refuses: reviewed, each tied to an open issue, printed beside every score. Matched only
 # when the dynamic build refuses exactly such a private name, the normal build refuses too, and the id is listed; the

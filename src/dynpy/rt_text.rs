@@ -1859,7 +1859,7 @@ pub struct RScanner {
 impl RMatch {
     fn group_idx(&self, g: &V) -> Result<usize, E> {
         let n = match g {
-            V::Str(n) => return self.prog.names.iter().find(|x| x.0 == n.s).map(|x| x.1).ok_or_else(|| exc("IndexError", "no such group".into())),
+            V::Str(n) => return self.prog.names.iter().find(|x| x.0 == n.text()).map(|x| x.1).ok_or_else(|| exc("IndexError", "no such group".into())),
             V::Obj(o) => {
                 if let Some(f) = o.cls.lookup("__index__") {
                     let r = call(&f, Args::p(vec![g.clone()]))?;
@@ -2017,7 +2017,7 @@ impl Ext for RMatch {
                         let V::Str(t) = &a.p[0] else {
                             return type_err(format!("decoding to str: need a bytes-like object, {} found", tn(&a.p[0])));
                         };
-                        let pieces = compile_template(&t.s, &self.prog, None)?;
+                        let pieces = compile_template(&t.text(), &self.prog, None)?;
                         let mut out = String::new();
                         for p in &pieces {
                             match p {
@@ -2186,7 +2186,7 @@ fn re_str(v: &V) -> Result<(Rc<Vec<char>>, V), E> {
             if let Some(c) = LAST.with(|l| l.borrow().as_ref().filter(|(k, _)| Rc::ptr_eq(k, x)).map(|(_, c)| c.clone())) {
                 return Ok((c, v.clone()));
             }
-            let c: Rc<Vec<char>> = Rc::new(x.s.chars().collect());
+            let c: Rc<Vec<char>> = Rc::new(x.text().chars().collect());
             LAST.with(|l| *l.borrow_mut() = Some((x.clone(), c.clone())));
             Ok((c, v.clone()))
         }
@@ -2622,7 +2622,7 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
                             }
                         } else {
                             match &r {
-                                V::Str(x) => out.push_str(&x.s),
+                                V::Str(x) => out.push_str(&x.text()),
                                 _ => return type_err(format!("sequence item 0: expected str instance, {} found", tn(&r))),
                             }
                         }
@@ -2668,7 +2668,7 @@ fn flags_arg(a: &mut Args, i: usize) -> Result<i64, E> {
 }
 fn pat_of(v: &V, flags: i64) -> Result<Rc<Prog>, E> {
     match v {
-        V::Str(x) => re_compile(&x.s, flags),
+        V::Str(x) => re_compile(&x.text(), flags),
         V::Ext(x) => match x.any().downcast_ref::<RPat>() {
             Some(p) => {
                 if flags != 0 {
@@ -2701,11 +2701,11 @@ fn re_error_new(mut a: Args) -> R {
         return type_err("PatternError() takes at most 3 arguments".into());
     }
     let Some(V::Str(msg)) = msg else { return Err(unsupported("re.error with a msg that is not a str")) };
-    let msg = msg.s.to_string();
+    let msg = msg.text().to_string();
     match (pattern.unwrap_or(V::None), pos.unwrap_or(V::None)) {
         (pat, V::Int(p)) if !matches!(pat, V::None) && p >= 0 => {
             let src = match &pat {
-                V::Str(s) => s.s.to_string(),
+                V::Str(s) => s.text().to_string(),
                 v => match bytes_src(v) {
                     Some((b, _)) => b,
                     None => return Err(unsupported("re.error with a pattern that is not str or bytes")),
@@ -2756,7 +2756,7 @@ fn re_scanner_new(mut a: Args) -> R {
         let V::Str(ph) = &pair[0] else {
             return Err(unsupported("re.Scanner with a phrase that is not a str"));
         };
-        let t = &ph.s;
+        let t = &ph.text();
         let bad = t.contains("(?P=") || t.contains("(?(") || t.as_bytes().windows(2).any(|w| w[0] == b'\\' && w[1].is_ascii_digit())
             || t.match_indices("(?").any(|(i, _)| t[i + 2..].chars().next().is_some_and(|c| "aiLmsux-".contains(c)));
         if bad || re_compile(t, flags)?.ngroups > 0 {
@@ -3393,7 +3393,7 @@ fn json_dump_inner(v: &V, o: &JOpts, depth: usize, out: &mut String) -> Result<(
         V::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
         V::Int(_) | V::Big(_) => out.push_str(&repr(v)?),
         V::Float(f) => out.push_str(&json_float(*f, o)?),
-        V::Str(x) => json_str(&x.s, o.ascii, out),
+        V::Str(x) => json_str(&x.text(), o.ascii, out),
         V::List(_) | V::Tuple(_) => {
             let items = to_vec(v)?;
             if items.is_empty() {
@@ -3446,18 +3446,18 @@ fn json_dump_inner(v: &V, o: &JOpts, depth: usize, out: &mut String) -> Result<(
             let mut keyed = vec![];
             for (k, x) in items.drain(..) {
                 let ks = match &k {
-                    V::Str(x) => x.s.clone(),
+                    V::Str(x) => x.text().to_string(),
                     V::Int(_) | V::Big(_) => repr(&k)?,
                     V::Float(f) => json_float(*f, o)?,
                     V::Bool(b) => (if *b { "true" } else { "false" }).into(),
                     V::None => "null".into(),
                     V::Ext(e) if matches!(e.native(), Some(Ok(V::Str(_)))) => match e.native() {
-                        Some(Ok(V::Str(x))) => x.s.clone(),
+                        Some(Ok(V::Str(x))) => x.text().to_string(),
                         _ => unreachable!(),
                     },
                     // a str or int subclass (StrEnum, IntEnum): its str or int
                     V::Obj(_) if matches!(inner_of(&k), Some(V::Str(_) | V::Int(_) | V::Big(_) | V::Float(_))) => match inner_of(&k).unwrap() {
-                        V::Str(x) => x.s.clone(),
+                        V::Str(x) => x.text().to_string(),
                         V::Float(f) => json_float(f, o)?,
                         i => repr(&i)?,
                     },
@@ -3519,7 +3519,7 @@ fn json_opts(a: &mut Args) -> Result<JOpts, E> {
     }
     let indent = match a.kw("indent") {
         None | Some(V::None) => None,
-        Some(V::Str(x)) => Some(x.s.clone()),
+        Some(V::Str(x)) => Some(x.text().to_string()),
         Some(V::Int(n)) => Some(" ".repeat(n.max(0) as usize)),
         Some(V::Bool(b)) => Some(" ".repeat(b as usize)),
         Some(x) => return type_err(format!("can't multiply sequence by non-int of type '{}'", tn(&x))),
@@ -3556,7 +3556,7 @@ fn json_enc_opts(enc: &V) -> Result<JOpts, E> {
     let g = |n: &str| getattr(enc, n);
     let indent = match g("indent")? {
         V::None => None,
-        V::Str(x) => Some(x.s.clone()),
+        V::Str(x) => Some(x.text().to_string()),
         V::Int(n) => Some(" ".repeat(n.max(0) as usize)),
         V::Bool(b) => Some(" ".repeat(b as usize)),
         x => return type_err(format!("can't multiply sequence by non-int of type '{}'", tn(&x))),
@@ -3601,11 +3601,11 @@ fn json_encode(v: &V, a: &mut Args, dump: bool) -> Result<String, E> {
 // The text loads takes: str, or bytes in the encoding json.detect_encoding names.
 fn json_source(v: &V) -> Result<String, E> {
     if let V::Str(x) = v {
-        if x.s.starts_with('\u{feff}') {
-            let c: Vec<char> = x.s.chars().collect();
+        if x.text().starts_with('\u{feff}') {
+            let c: Vec<char> = x.text().chars().collect();
             return json_err("Unexpected UTF-8 BOM (decode using utf-8-sig)", &c, 0);
         }
-        return Ok(x.s.clone());
+        return Ok(x.text().to_string());
     }
     let Some(b) = bytes_of(v) else {
         return type_err(format!("the JSON object must be str, bytes or bytearray, not {}", tn(v)));
@@ -3739,7 +3739,7 @@ fn json_index(a: &Args, k: usize, n: usize) -> Result<usize, E> {
 }
 pub fn json_scanstring(a: Args) -> R {
     let t = match a.p.first() {
-        Some(V::Str(x)) => x.s.clone(),
+        Some(V::Str(x)) => x.text().to_string(),
         _ => return type_err("first argument must be a string".into()),
     };
     let c: Vec<char> = t.chars().collect();
@@ -3796,7 +3796,7 @@ pub fn json_decoder_class() -> Rc<Class> {
             c.set("raw_decode", builtin("raw_decode", |mut a: Args| {
                 let idx_kw = a.kw("idx");
                 let t = match a.p.get(1) {
-                    Some(V::Str(x)) => x.s.clone(),
+                    Some(V::Str(x)) => x.text().to_string(),
                     Some(x) => return type_err(format!("first argument must be a string, not {}", tn(x))),
                     None => return type_err("JSONDecoder.raw_decode() missing 1 required positional argument: 's'".into()),
                 };
@@ -3819,7 +3819,7 @@ pub fn json_decoder_class() -> Rc<Class> {
             c.set("decode", builtin("decode", |a: Args| {
                 let me = a.p[0].clone();
                 let t = match a.p.get(1) {
-                    Some(V::Str(x)) => x.s.clone(),
+                    Some(V::Str(x)) => x.text().to_string(),
                     Some(x) => return type_err(format!("expected string or bytes-like object, got '{}'", tn(x))),
                     None => return type_err("JSONDecoder.decode() missing 1 required positional argument: 's'".into()),
                 };

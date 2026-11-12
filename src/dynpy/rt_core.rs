@@ -212,17 +212,189 @@ pub trait Ext {
     }
 }
 
-pub struct S {
-    pub s: String,
-    pub ascii: bool,
-}
-impl S {
-    pub fn nchars(&self) -> usize {
-        if self.ascii {
-            self.s.len()
-        } else {
-            self.s.chars().count()
+pub use strmodel::S;
+// The dynamic build's str (#450, handoffs/string-model-design.md). CPython's str is any sequence of code points,
+// lone surrogates (U+D800..U+DFFF) included, and a Rust String cannot hold those. So a str is UTF-8 text, or, when
+// it holds a lone surrogate, its code points. The fields are private: every reader picks text() (UTF-8 only: a
+// str with a lone surrogate stops the program there, uncatchably) or a code-point reader for a path that handles
+// both. A path not yet written for lone surrogates therefore stops instead of answering wrong.
+mod strmodel {
+    enum Repr {
+        Utf8(String),
+        // at least one surrogate, always: from_cps keeps every other string as Utf8, so a Lone never equals a Utf8
+        Lone(Box<[u32]>),
+    }
+    pub struct S {
+        r: Repr,
+        ascii: bool,
+    }
+    pub fn is_surrogate(c: u32) -> bool {
+        (0xD800..=0xDFFF).contains(&c)
+    }
+    impl S {
+        #[inline]
+        pub fn new(s: String) -> S {
+            let ascii = s.is_ascii();
+            S { r: Repr::Utf8(s), ascii }
         }
+        #[inline]
+        pub fn new_ascii(s: String) -> S {
+            debug_assert!(s.is_ascii());
+            S { r: Repr::Utf8(s), ascii: true }
+        }
+        // `ascii` must be the truth about `s`: a caller that knows it saves the scan.
+        #[inline]
+        pub fn with_ascii(s: String, ascii: bool) -> S {
+            debug_assert_eq!(s.is_ascii(), ascii);
+            S { r: Repr::Utf8(s), ascii }
+        }
+        pub fn from_cps(v: Vec<u32>) -> S {
+            if v.iter().any(|&c| is_surrogate(c)) {
+                return S { r: Repr::Lone(v.into_boxed_slice()), ascii: false };
+            }
+            S::new(v.into_iter().map(|c| char::from_u32(c).unwrap()).collect())
+        }
+        // The text, for code that handles only strings without a lone surrogate.
+        #[inline]
+        #[track_caller]
+        pub fn text(&self) -> &str {
+            match &self.r {
+                Repr::Utf8(s) => s,
+                Repr::Lone(_) => super::lone_stop(std::panic::Location::caller()),
+            }
+        }
+        // The String itself, for code that takes it apart or appends in place; the same rule as text().
+        #[inline]
+        #[track_caller]
+        pub fn into_text(self) -> String {
+            match self.r {
+                Repr::Utf8(s) => s,
+                Repr::Lone(_) => super::lone_stop(std::panic::Location::caller()),
+            }
+        }
+        #[inline]
+        pub fn ascii(&self) -> bool {
+            self.ascii
+        }
+        #[inline]
+        pub fn is_lone(&self) -> bool {
+            matches!(self.r, Repr::Lone(_))
+        }
+        // The code points, lone surrogates or not.
+        pub fn cps(&self) -> Vec<u32> {
+            match &self.r {
+                Repr::Utf8(s) => s.chars().map(|c| c as u32).collect(),
+                Repr::Lone(v) => v.to_vec(),
+            }
+        }
+        // Some(code points) for a str with a lone surrogate, None for UTF-8 text.
+        #[inline]
+        pub fn lone(&self) -> Option<&[u32]> {
+            match &self.r {
+                Repr::Utf8(_) => None,
+                Repr::Lone(v) => Some(v),
+            }
+        }
+        pub fn nchars(&self) -> usize {
+            match &self.r {
+                Repr::Utf8(s) if self.ascii => s.len(),
+                Repr::Utf8(s) => s.chars().count(),
+                Repr::Lone(v) => v.len(),
+            }
+        }
+        // The text with each lone surrogate replaced by `sub`: for code that only needs to know that a lone
+        // surrogate is not some other character (int() reads one as CPython's '?', which no number holds).
+        pub fn text_sub(&self, sub: char) -> std::borrow::Cow<'_, str> {
+            match &self.r {
+                Repr::Utf8(s) => std::borrow::Cow::Borrowed(s),
+                Repr::Lone(v) => std::borrow::Cow::Owned(v.iter().map(|&c| char::from_u32(c).unwrap_or(sub)).collect()),
+            }
+        }
+        // Equal code points. A Lone never equals a Utf8 (from_cps's invariant).
+        pub fn same(&self, o: &S) -> bool {
+            match (&self.r, &o.r) {
+                (Repr::Utf8(a), Repr::Utf8(b)) => a == b,
+                (Repr::Lone(a), Repr::Lone(b)) => a == b,
+                _ => false,
+            }
+        }
+        // Code point order, as CPython compares strs (UTF-8 byte order is code point order).
+        pub fn order(&self, o: &S) -> std::cmp::Ordering {
+            match (&self.r, &o.r) {
+                (Repr::Utf8(a), Repr::Utf8(b)) => a.cmp(b),
+                _ => self.cps().cmp(&o.cps()),
+            }
+        }
+        // `n in self`, as code points.
+        pub fn has(&self, n: &S) -> bool {
+            match (&self.r, &n.r) {
+                (Repr::Utf8(a), Repr::Utf8(b)) => a.contains(b.as_str()),
+                // text without a surrogate never holds one that has one
+                (Repr::Utf8(_), Repr::Lone(_)) => false,
+                (Repr::Lone(a), _) => {
+                    let b = n.cps();
+                    b.is_empty() || a.windows(b.len()).any(|w| w == &b[..])
+                }
+            }
+        }
+        // self + o
+        pub fn concat(&self, o: &S) -> S {
+            match (&self.r, &o.r) {
+                (Repr::Utf8(a), Repr::Utf8(b)) => {
+                    let mut s = String::with_capacity(a.len() + b.len());
+                    s.push_str(a);
+                    s.push_str(b);
+                    S::with_ascii(s, self.ascii && o.ascii)
+                }
+                _ => {
+                    let mut v = self.cps();
+                    v.extend(o.cps());
+                    S::from_cps(v)
+                }
+            }
+        }
+        // A hash for a str with a lone surrogate: it never equals a Utf8 str, so any stable hash will do.
+        pub fn lone_hash(v: &[u32]) -> u64 {
+            let mut h: u64 = 0xcbf29ce484222325;
+            for &c in v {
+                for b in c.to_le_bytes() {
+                    h ^= b as u64;
+                    h = h.wrapping_mul(0x100000001b3);
+                }
+            }
+            h
+        }
+        pub fn is_empty(&self) -> bool {
+            match &self.r {
+                Repr::Utf8(s) => s.is_empty(),
+                Repr::Lone(_) => false,
+            }
+        }
+    }
+}
+// A str with a lone surrogate reached runtime code written only for UTF-8 text. CPython would go on; Brevi stops,
+// with process::exit so that no `except` (nor a generator's catch_unwind) can turn the stop into a different answer.
+#[cold]
+pub fn lone_stop(at: &std::panic::Location) -> ! {
+    out_flush();
+    err_write(&format!(
+        "NotImplementedError: brevi: this operation on a str with a lone surrogate (U+D800..U+DFFF) is not supported in dynamic builds yet (runtime line {})\n",
+        at.line()
+    ));
+    std::process::exit(1)
+}
+// A str from code points, which may hold lone surrogates.
+pub fn st_cps(v: Vec<u32>) -> V {
+    V::Str(Rc::new(S::from_cps(v)))
+}
+// A str literal with a lone surrogate, from the code points in hex the parser wrote (space separated).
+pub fn lone_lit(hex: &str) -> V {
+    st_cps(hex.split(' ').map(|h| u32::from_str_radix(h, 16).unwrap()).collect())
+}
+pub fn bi___brevi_lone_str(a: Args) -> R {
+    match a.p.first() {
+        Some(V::Str(h)) => Ok(lone_lit(h.text())),
+        _ => Err(unsupported("__brevi_lone_str")),
     }
 }
 
@@ -238,7 +410,7 @@ thread_local! {
 }
 
 pub fn s(x: &str) -> V {
-    V::Str(Rc::new(S { s: x.to_string(), ascii: x.is_ascii() }))
+    V::Str(Rc::new(S::new(x.to_string())))
 }
 // The one str object for an interned name (a Sym): reads of a def's __name__, __qualname__ or __module__ give the
 // same object every time, as CPython's interned identifiers are.
@@ -250,7 +422,7 @@ pub fn s_sym(x: Sym) -> V {
 }
 pub fn st(x: String) -> V {
     let ascii = x.is_ascii();
-    V::Str(Rc::new(S { s: x, ascii }))
+    V::Str(Rc::new(S::with_ascii(x, ascii)))
 }
 pub fn ch1(c: char) -> V {
     if (c as u32) < 128 {
@@ -258,7 +430,7 @@ pub fn ch1(c: char) -> V {
             let mut cc = cc.borrow_mut();
             if cc.is_empty() {
                 for i in 0..128u8 {
-                    cc.push(V::Str(Rc::new(S { s: (i as char).to_string(), ascii: true })));
+                    cc.push(V::Str(Rc::new(S::new_ascii((i as char).to_string()))));
                 }
             }
             cc[c as usize].clone()
@@ -1233,7 +1405,13 @@ pub fn py_hash(v: &V) -> Result<i64, E> {
         V::Int(i) => hash_int(*i),
         V::Big(b) => hash_big(b),
         V::Float(f) => hash_float(*f),
-        V::Str(x) => hash_str(&x.s),
+        V::Str(x) => match x.lone() {
+            None => hash_str(x.text()),
+            Some(v) => {
+                let h = (S::lone_hash(v) >> 1) as i64;
+                if h == -1 { -2 } else { h }
+            }
+        },
         V::Tuple(xs) => hash_tuple(xs)?,
         V::FSet(p) => {
             // frozenset hash (CPython's algorithm)
@@ -2892,25 +3070,25 @@ fn bt_has_dict(bt: BT) -> bool {
 // the __slots__ names of class `cls`, private names mangled as CPython's type_new mangles them
 fn slot_names(cls: &str, v: &V, out: &mut Vec<Sym>) {
     match v {
-        V::Str(x) => out.push(mangle_name(cls, &x.s)),
+        V::Str(x) => out.push(mangle_name(cls, &x.text())),
         V::Tuple(t) => {
             for x in t.iter() {
                 if let V::Str(x) = x {
-                    out.push(mangle_name(cls, &x.s));
+                    out.push(mangle_name(cls, &x.text()));
                 }
             }
         }
         V::List(l) => {
             for x in l.borrow().iter() {
                 if let V::Str(x) = x {
-                    out.push(mangle_name(cls, &x.s));
+                    out.push(mangle_name(cls, &x.text()));
                 }
             }
         }
         V::Dict(d) => {
             for k in d.borrow().keys() {
                 if let V::Str(k) = &k {
-                    out.push(mangle_name(cls, &k.s));
+                    out.push(mangle_name(cls, &k.text()));
                 }
             }
         }
@@ -3546,7 +3724,7 @@ pub fn truth(v: &V) -> Result<bool, E> {
         V::Int(i) => *i != 0,
         V::Big(b) => !b.is_zero(),
         V::Float(f) => *f != 0.0,
-        V::Str(x) => !x.s.is_empty(),
+        V::Str(x) => !x.is_empty(),
         V::List(l) => !l.borrow().is_empty(),
         V::Tuple(t) => !t.is_empty(),
         V::Dict(d) => d.borrow().n > 0,

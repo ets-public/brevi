@@ -152,12 +152,12 @@ fn file_target(f: &V) -> Result<u8, E> {
 pub fn bi_print(mut a: Args) -> R {
     let sep = match a.kw("sep") {
         Some(V::None) | None => " ".to_string(),
-        Some(V::Str(x)) => x.s.clone(),
+        Some(V::Str(x)) => x.text().to_string(),
         Some(x) => return type_err(format!("sep must be None or a string, not {}", tn(&x))),
     };
     let end = match a.kw("end") {
         Some(V::None) | None => "\n".to_string(),
-        Some(V::Str(x)) => x.s.clone(),
+        Some(V::Str(x)) => x.text().to_string(),
         Some(x) => return type_err(format!("end must be None or a string, not {}", tn(&x))),
     };
     let file = match a.kw("file").unwrap_or(V::None) {
@@ -175,7 +175,7 @@ pub fn bi_print(mut a: Args) -> R {
                 w(sep.clone())?;
             }
             w(match x {
-                V::Str(x) => x.s.clone(),
+                V::Str(x) => x.text().to_string(),
                 _ => to_str(x)?,
             })?;
         }
@@ -191,7 +191,7 @@ pub fn bi_print(mut a: Args) -> R {
             t.push_str(&sep);
         }
         match x {
-            V::Str(x) => t.push_str(&x.s),
+            V::Str(x) => t.push_str(&x.text()),
             _ => t.push_str(&to_str(x)?),
         }
     }
@@ -325,7 +325,8 @@ pub fn bi_int(mut a: Args) -> R {
             if b != 0 && !(2..=36).contains(&b) {
                 return val_err("int() base must be >= 2 and <= 36, or 0".into());
             }
-            int_text_limit(&x.s, b as u32, parse_int(&x.s, b as u32))?.ok_or_else(|| exc("ValueError", format!("invalid literal for int() with base {}: {}", b, str_repr(&x.s))))
+            let t = x.text_sub('?');
+            int_text_limit(&t, b as u32, parse_int(&t, b as u32))?.ok_or_else(|| exc("ValueError", format!("invalid literal for int() with base {}: {}", b, repr_s(x))))
         }
         (Some(b), V::Ext(x)) if x.any().is::<BytesV>() || x.any().is::<ByteArrayV>() => {
             if b != 0 && !(2..=36).contains(&b) {
@@ -1560,7 +1561,7 @@ pub fn bi_callable(a: Args) -> R {
 }
 pub fn bi_ord(a: Args) -> R {
     match &a1(&a, "ord")? {
-        V::Str(x) if x.nchars() == 1 => Ok(V::Int(x.s.chars().next().unwrap() as i64)),
+        V::Str(x) if x.nchars() == 1 => Ok(V::Int(x.cps()[0] as i64)),
         V::Str(x) => type_err(format!("ord() expected a character, but string of length {} found", x.nchars())),
         x => type_err(format!("ord() expected string of length 1, but {} found", tn(x))),
     }
@@ -1589,15 +1590,15 @@ fn chr_of(x: &V) -> R {
         }
     }
 }
-// chr() of an int that fits: out of range is CPython's ValueError; a lone surrogate (U+D800..U+DFFF) is a str in
-// CPython that a Rust string cannot hold, so it stops as unsupported instead of giving a different string.
+// chr() of an int that fits: out of range is CPython's ValueError; a lone surrogate (U+D800..U+DFFF) is a str of
+// code points (S::from_cps).
 fn chr_code(i: i64) -> R {
     if !(0..=0x10FFFF).contains(&i) {
         return val_err("chr() arg not in range(0x110000)".into());
     }
     match char::from_u32(i as u32) {
         Some(c) => Ok(ch1(c)),
-        None => Err(unsupported("chr() of a lone surrogate (U+D800..U+DFFF)")),
+        None => Ok(st_cps(vec![i as u32])),
     }
 }
 fn radix(a: Args, f: &str, r: u32, p: &str) -> R {
@@ -2101,18 +2102,18 @@ fn builtin_class_attr_raw(c: &Rc<Class>, name: &str) -> Option<V> {
             };
             match o {
                 V::Obj(ob) => {
-                    if n.s == "__dict__" && ob.cls.lookup(&n.s).is_none() && ob.cls.has_dict() {
+                    if n.text() == "__dict__" && ob.cls.lookup(&n.text()).is_none() && ob.cls.has_dict() {
                         return ob.dict();
                     }
-                    if let Some(v) = ob.get_attr(&n.s)? {
+                    if let Some(v) = ob.get_attr(&n.text())? {
                         return Ok(v);
                     }
-                    if ob.cls.lookup(&n.s).is_some() || n.s == "__class__" || n.s == "__dict__" {
-                        return getattr(o, &n.s);
+                    if ob.cls.lookup(&n.text()).is_some() || n.text() == "__class__" || n.text() == "__dict__" {
+                        return getattr(o, &n.text());
                     }
-                    Err(exc("AttributeError", format!("'{}' object has no attribute '{}'", ob.cls.name, n.s)))
+                    Err(exc("AttributeError", format!("'{}' object has no attribute '{}'", ob.cls.name, n.text())))
                 }
-                _ => getattr(o, &n.s),
+                _ => getattr(o, &n.text()),
             }
         })),
         // Counter.fromkeys is defined only to refuse: initializing counts to a constant has no clear meaning.
@@ -2427,17 +2428,17 @@ fn char_range(st: &S, a: Option<i64>, b: Option<i64>) -> (usize, usize) {
     (s0, e0)
 }
 fn byte_at(st: &S, ci: usize) -> usize {
-    if st.ascii {
-        ci.min(st.s.len())
+    if st.ascii() {
+        ci.min(st.text().len())
     } else {
-        st.s.char_indices().nth(ci).map(|(b, _)| b).unwrap_or(st.s.len())
+        st.text().char_indices().nth(ci).map(|(b, _)| b).unwrap_or(st.text().len())
     }
 }
 fn char_at_byte(st: &S, b: usize) -> usize {
-    if st.ascii {
+    if st.ascii() {
         b
     } else {
-        st.s[..b].chars().count()
+        st.text()[..b].chars().count()
     }
 }
 fn py_split_ws(t: &str, maxsplit: i64) -> Vec<V> {
@@ -2512,11 +2513,11 @@ fn py_title(t: &str) -> String {
 fn strip_set(a: &Args, f: &str) -> Result<Option<Vec<char>>, E> {
     match a.p.first() {
         None | Some(V::None) => Ok(None),
-        Some(x) => Ok(Some(arg_str(x, f)?.s.chars().collect())),
+        Some(x) => Ok(Some(arg_str(x, f)?.text().chars().collect())),
     }
 }
 pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
-    let t = me.s.as_str();
+    let t = me.text();
     // str subclasses (StrEnum members) as arguments: their str
     for x in a.p.iter_mut().chain(a.k.iter_mut().map(|(_, v)| v)) {
         if let V::Obj(_) = x {
@@ -2535,15 +2536,15 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             match sep {
                 V::None => list(if name == "split" { py_split_ws(t, maxsplit) } else { py_rsplit_ws(t, maxsplit) }),
                 V::Str(sep) => {
-                    if sep.s.is_empty() {
+                    if sep.text().is_empty() {
                         return val_err("empty separator".into());
                     }
                     let parts: Vec<V> = if maxsplit < 0 {
-                        t.split(sep.s.as_str()).map(s).collect()
+                        t.split(sep.text()).map(s).collect()
                     } else if name == "split" {
-                        t.splitn(maxsplit as usize + 1, sep.s.as_str()).map(s).collect()
+                        t.splitn(maxsplit as usize + 1, sep.text()).map(s).collect()
                     } else {
-                        let mut v: Vec<V> = t.rsplitn(maxsplit as usize + 1, sep.s.as_str()).map(s).collect();
+                        let mut v: Vec<V> = t.rsplitn(maxsplit as usize + 1, sep.text()).map(s).collect();
                         v.reverse();
                         v
                     };
@@ -2576,17 +2577,17 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
                     out.push_str(t);
                 }
                 match x {
-                    V::Str(y) => out.push_str(&y.s),
+                    V::Str(y) => out.push_str(&y.text()),
                     // a library str (numpy's np.str_)
                     V::Ext(e) if matches!(e.native(), Some(Ok(V::Str(_)))) => {
                         if let Some(Ok(V::Str(y))) = e.native() {
-                            out.push_str(&y.s);
+                            out.push_str(&y.text());
                         }
                     }
                     // a str subclass (StrEnum)
                     V::Obj(_) if matches!(inner_of(x), Some(V::Str(_))) => {
                         if let Some(V::Str(y)) = inner_of(x) {
-                            out.push_str(&y.s);
+                            out.push_str(&y.text());
                         }
                     }
                     y => return type_err(format!("sequence item {i}: expected str instance, {} found", tn(y))),
@@ -2599,18 +2600,18 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             let (old, new) = (arg_str(&a.p[0], "replace")?, arg_str(&a.p[1], "replace")?);
             let count = opt_idx(&a, 2)?.unwrap_or(-1);
             if count < 0 {
-                if old.s.is_empty() {
-                    let mut out = new.s.clone();
+                if old.text().is_empty() {
+                    let mut out = new.text().to_string();
                     for c in t.chars() {
                         out.push(c);
-                        out.push_str(&new.s);
+                        out.push_str(&new.text());
                     }
                     st(out)
                 } else {
-                    st(t.replace(old.s.as_str(), &new.s))
+                    st(t.replace(old.text(), &new.text()))
                 }
             } else {
-                st(t.replacen(old.s.as_str(), &new.s, count as usize))
+                st(t.replacen(old.text(), &new.text(), count as usize))
             }
         }
         "find" | "rfind" | "index" | "rindex" | "count" => {
@@ -2622,12 +2623,12 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             let (bs, be) = (byte_at(me, cs), byte_at(me, ce));
             let hay = &t[bs..be];
             if name == "count" {
-                if sub.s.is_empty() {
+                if sub.text().is_empty() {
                     return Ok(V::Int((ce - cs + 1) as i64));
                 }
-                return Ok(V::Int(hay.matches(sub.s.as_str()).count() as i64));
+                return Ok(V::Int(hay.matches(sub.text()).count() as i64));
             }
-            let r = if name.starts_with('r') { hay.rfind(sub.s.as_str()) } else { hay.find(sub.s.as_str()) };
+            let r = if name.starts_with('r') { hay.rfind(sub.text()) } else { hay.find(sub.text()) };
             match r {
                 Some(b) => V::Int(char_at_byte(me, bs + b) as i64),
                 None => {
@@ -2655,7 +2656,7 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
                 if cs > ce {
                     continue;
                 }
-                if if name == "startswith" { hay.starts_with(p.s.as_str()) } else { hay.ends_with(p.s.as_str()) } {
+                if if name == "startswith" { hay.starts_with(p.text()) } else { hay.ends_with(p.text()) } {
                     r = true;
                     break;
                 }
@@ -2690,7 +2691,7 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             a.want(name, 1, 2)?;
             let w = idx_of(&a.p[0])?.max(0) as usize;
             let fill = match a.p.get(1) {
-                Some(V::Str(f)) if f.nchars() == 1 => f.s.chars().next().unwrap(),
+                Some(V::Str(f)) if f.nchars() == 1 => f.text().chars().next().unwrap(),
                 Some(_) => return type_err("The fill character must be exactly one character long".into()),
                 None => ' ',
             };
@@ -2720,12 +2721,12 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
         }
         "partition" | "rpartition" => {
             let sep = arg_str(&a1(&a, name)?, name)?;
-            if sep.s.is_empty() {
+            if sep.text().is_empty() {
                 return val_err("empty separator".into());
             }
-            let r = if name == "partition" { t.find(sep.s.as_str()) } else { t.rfind(sep.s.as_str()) };
+            let r = if name == "partition" { t.find(sep.text()) } else { t.rfind(sep.text()) };
             match r {
-                Some(i) => tup(vec![s(&t[..i]), V::Str(sep.clone()), s(&t[i + sep.s.len()..])]),
+                Some(i) => tup(vec![s(&t[..i]), V::Str(sep.clone()), s(&t[i + sep.text().len()..])]),
                 None => {
                     if name == "partition" {
                         tup(vec![o.clone(), s(""), s("")])
@@ -2770,15 +2771,15 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
         }
         "removeprefix" => {
             let p = arg_str(&a1(&a, name)?, name)?;
-            match t.strip_prefix(p.s.as_str()) {
+            match t.strip_prefix(p.text()) {
                 Some(r) => s(r),
                 None => o.clone(),
             }
         }
         "removesuffix" => {
             let p = arg_str(&a1(&a, name)?, name)?;
-            match t.strip_suffix(p.s.as_str()) {
-                Some(r) if !p.s.is_empty() => s(r),
+            match t.strip_suffix(p.text()) {
+                Some(r) if !p.text().is_empty() => s(r),
                 _ => o.clone(),
             }
         }
@@ -2819,7 +2820,7 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
                     None => out.push(c),
                     Some(V::None) => {}
                     Some(V::Int(i)) => out.push(char::from_u32(i as u32).unwrap_or('?')),
-                    Some(V::Str(x)) => out.push_str(&x.s),
+                    Some(V::Str(x)) => out.push_str(&x.text()),
                     Some(x) => return type_err(format!("character mapping must return integer, None or str")),
                 }
             }
@@ -2831,7 +2832,7 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             let enc = a.kw("encoding").or_else(|| a.p.first().cloned());
             let errs = a.kw("errors").or_else(|| a.p.get(1).cloned());
             a.no_kw("encode")?;
-            str_encode(&me.s, enc.as_ref(), errs.as_ref())?
+            str_encode(&me.text(), enc.as_ref(), errs.as_ref())?
         }
         "__len__" => V::Int(me.nchars() as i64),
         "__contains__" => V::Bool(contains(o, &a1(&a, name)?)?),
@@ -2870,7 +2871,7 @@ fn str_maketrans(a: &Args) -> R {
             for (k, v) in dict_items_of(&a.p[0])? {
                 let k = match as_str(&k) {
                     Some(x) => {
-                        let mut cs = x.s.chars();
+                        let mut cs = x.text().chars();
                         match cs.next() {
                             Some(c) if cs.next().is_none() => V::Int(c as i64),
                             _ => return val_err("string keys in translate table must be of length 1".into()),
@@ -2894,7 +2895,7 @@ fn str_maketrans(a: &Args) -> R {
             if x.nchars() != y.nchars() {
                 return val_err("the first two maketrans arguments must have equal length".into());
             }
-            for (p, q) in x.s.chars().zip(y.s.chars()) {
+            for (p, q) in x.text().chars().zip(y.text().chars()) {
                 d.set(V::Int(p as i64), V::Int(q as i64))?;
             }
             if let Some(z) = a.p.get(2) {
@@ -2902,7 +2903,7 @@ fn str_maketrans(a: &Args) -> R {
                     Some(z) => z,
                     None => return type_err(format!("maketrans() argument 3 must be str, not {}", tn(z))),
                 };
-                for p in z.s.chars() {
+                for p in z.text().chars() {
                     d.set(V::Int(p as i64), V::None)?;
                 }
             }
@@ -3596,7 +3597,7 @@ fn to_bytes_len(v: &V) -> Result<i64, E> {
 // True means little-endian, as _PyLong_ByteOrder parses.
 fn byteorder_arg(f: &str, v: &V) -> Result<bool, E> {
     match v {
-        V::Str(x) => match x.s.as_str() {
+        V::Str(x) => match x.text() {
             "big" => Ok(false),
             "little" => Ok(true),
             _ => val_err("byteorder must be either 'little' or 'big'".into()),

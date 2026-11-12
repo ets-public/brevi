@@ -553,7 +553,7 @@ impl AxFromPy for bool {
 impl AxFromPy for String {
     fn ax_from_py(p: &AxPy) -> R<Self> {
         match &p.0 {
-            brevi_dyn::V::Str(s) => Ok(s.s.clone()),
+            brevi_dyn::V::Str(s) => Ok(s.text().to_string()),
             x => Err(AxErr(format!("\u{1}TypeError,Exception,BaseException\u{1}expected str, got {}", brevi_dyn::type_name(x)))),
         }
     }

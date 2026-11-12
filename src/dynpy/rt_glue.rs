@@ -245,13 +245,13 @@ pub fn range_int(v: &V) -> Result<i64, E> {
 fn glob_slot(tab: fn(&str) -> Option<usize>, k: &V) -> Result<Option<usize>, E> {
     match k {
         V::Str(x) => {
-            if let Some(i) = tab(&x.s) {
+            if let Some(i) = tab(&x.text()) {
                 return Ok(match gref(i) {
                     V::Unbound => None,
                     _ => Some(i),
                 });
             }
-            let n = &x.s;
+            let n = &x.text();
             if n.len() > 4 && n.starts_with("__") && n.ends_with("__") {
                 return Err(unsupported(&format!("globals() lookup of '{n}'")));
             }

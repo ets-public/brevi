@@ -681,7 +681,7 @@ impl Ext for DecV {
 fn decimal_new(mut a: Args) -> R {
     let v = a.kw("value").or_else(|| a.p.first().cloned()).unwrap_or(V::Int(0));
     let d = match &v {
-        V::Str(x) => Dec::parse(&x.s).ok_or_else(|| dec_err("ConversionSyntax"))?,
+        V::Str(x) => Dec::parse(&x.text()).ok_or_else(|| dec_err("ConversionSyntax"))?,
         V::Float(f) => Dec::from_f64(*f),
         V::Tuple(t) if t.len() == 3 => {
             let neg = truth(&t[0])?;
@@ -966,7 +966,7 @@ fn fraction_new(a: Args) -> R {
     }
     let f = match &x {
         V::Str(t) => {
-            let t = t.s.trim();
+            let t = t.text().trim();
             let bad = || exc("ValueError", format!("Invalid literal for Fraction: {}", str_repr(t)));
             if let Some((p, q)) = t.split_once('/') {
                 let p = Big::parse(p.trim(), 10).ok_or_else(bad)?;
@@ -1216,7 +1216,7 @@ fn time_iso(h: i64, mi: i64, s: i64, us: i64, spec: &str) -> Result<String, E> {
 fn timespec_arg(v: Option<V>) -> Result<String, E> {
     match v {
         None => Ok("auto".into()),
-        Some(V::Str(x)) => Ok(x.s.to_string()),
+        Some(V::Str(x)) => Ok(x.text().to_string()),
         Some(x) => type_err(format!("isoformat() argument 'timespec' must be str, not {}", tn(&x))),
     }
 }
@@ -2106,7 +2106,7 @@ impl Ext for DTV {
             Ok(match n {
                 "isoformat" => {
                     let sep = match a.kw("sep").or_else(|| a.p.first().cloned()) {
-                        Some(V::Str(x)) => x.s.chars().next().unwrap_or('T'),
+                        Some(V::Str(x)) => x.text().chars().next().unwrap_or('T'),
                         _ => 'T',
                     };
                     let spec = timespec_arg(a.kw("timespec").or_else(|| a.p.get(1).cloned()))?;
@@ -2303,7 +2303,7 @@ fn csv_dialect(a: &mut Args, dialect: V) -> Result<CsvDialect, E> {
     let mut quoting_d = 0;
     match dialect {
         V::None => {}
-        V::Str(x) => match x.s.as_str() {
+        V::Str(x) => match x.text() {
             "excel" => {}
             "excel-tab" => delim = '\t',
             // csv.unix_dialect: '\n' line ends and every field quoted
@@ -2319,7 +2319,7 @@ fn csv_dialect(a: &mut Args, dialect: V) -> Result<CsvDialect, E> {
     let ch = |v: Option<V>, d: char| -> Result<char, E> {
         match v {
             None => Ok(d),
-            Some(V::Str(x)) if x.s.chars().count() == 1 => Ok(x.s.chars().next().unwrap()),
+            Some(V::Str(x)) if x.text().chars().count() == 1 => Ok(x.text().chars().next().unwrap()),
             Some(_) => type_err("\"delimiter\" must be a 1-character string".into()),
         }
     };
@@ -2408,7 +2408,7 @@ fn csv_record(next: &mut dyn FnMut() -> Result<Option<V>, E>, d: &CsvDialect) ->
 fn csv_field(v: &V, d: &CsvDialect) -> Result<String, E> {
     let t = match v {
         V::None => String::new(),
-        V::Str(x) => x.s.clone(),
+        V::Str(x) => x.text().to_string(),
         V::Float(f) => float_repr(*f),
         _ => to_str(v)?,
     };

@@ -515,7 +515,7 @@ pub fn np_parse_f(s: &str) -> Option<f64> {
     parse_float(s)
 }
 pub fn np_parse_i(s: &str) -> Option<i64> {
-    match to_int(&V::Str(Rc::new(S { s: s.to_string(), ascii: s.is_ascii() }))) {
+    match to_int(&V::Str(Rc::new(S::new(s.to_string())))) {
         Ok(V::Int(i)) => Some(i),
         _ => None,
     }
@@ -956,7 +956,7 @@ pub fn np_dtype_arg(v: &V) -> Result<Option<NT>, E> {
     let name = match v {
         V::None => return Ok(None),
         V::Class(c) => c.name.to_string(),
-        V::Str(s) => s.s.clone(),
+        V::Str(s) => s.text().to_string(),
         _ => return type_err(format!("Cannot interpret '{}' as a data type", repr(v)?)),
     };
     Ok(Some(match name.as_str() {
@@ -1046,7 +1046,7 @@ fn np_walk(v: &V, depth: usize, shape: &mut Vec<usize>, out: &mut Vec<Sc>) -> Re
         Some(s) => out.push(s),
         None if matches!(v, V::Str(_)) => {
             let V::Str(x) = v else { unreachable!() };
-            out.push(Sc::U(np_sid(&x.s)));
+            out.push(Sc::U(np_sid(&x.text())));
         }
         None => {
             return Err(match v {
@@ -1217,7 +1217,7 @@ pub fn np_opnd(v: &V) -> Result<Option<Opnd>, E> {
         return Ok(Some(Opnd { a: NdArr::new(Buf::from_sc(s.dt(), &[s]), vec![]), weak: true, scalar: true }));
     }
     if let V::Str(x) = v {
-        let i = np_sid(&x.s);
+        let i = np_sid(&x.text());
         return Ok(Some(Opnd { a: NdArr::new(Buf::fill(Sc::U(i), 1), vec![]), weak: true, scalar: true }));
     }
     if seq_items(v).is_some() {

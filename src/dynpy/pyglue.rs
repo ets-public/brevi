@@ -868,7 +868,7 @@ unsafe fn pyd_list_iter(p: P, t: P) -> Result<Option<V>, E> {
             return Ok(match pyd_wrap(seq, true)? {
                 V::Tuple(t) if kind == 2 => Some(new_iter(It::Tuple(t.clone(), i.min(t.len())), IterClass::Kind(ik))),
                 V::Str(x) if kind >= 4 => {
-                    let b = x.s.char_indices().nth(i).map_or(x.s.len(), |(b, _)| b);
+                    let b = x.text().char_indices().nth(i).map_or(x.text().len(), |(b, _)| b);
                     Some(new_iter(It::Str(x.clone(), b), IterClass::Kind(ik)))
                 }
                 _ => None,
@@ -1023,8 +1023,8 @@ fn pickle_ref(a: Args) -> R {
             let m = f.attrs.borrow().iter().find(|(k, _)| *k == "__bv_mod__").map(|(_, x)| x.clone()).unwrap_or(V::None);
             let V::Str(m) = m else { return Err(unsupported("pickling a builtin function")) };
             let n = f.name.get();
-            return match modfn_cached(&m.s, n) {
-                Some(found) if is(&found, &v) => Ok(tup(vec![V::Int(0), st(m.s.to_string()), s(n)])),
+            return match modfn_cached(m.text(), n) {
+                Some(found) if is(&found, &v) => Ok(tup(vec![V::Int(0), st(m.text().to_string()), s(n)])),
                 _ => Err(unsupported("pickling a builtin function")),
             };
         }
@@ -1034,7 +1034,7 @@ fn pickle_ref(a: Args) -> R {
     }
     let text = |x: R| -> Result<Option<String>, E> {
         Ok(match x? {
-            V::Str(t) => Some(t.s.to_string()),
+            V::Str(t) => Some(t.text().to_string()),
             _ => None,
         })
     };
@@ -1081,7 +1081,7 @@ fn pickle_rebuild(a: Args) -> R {
 }
 fn pickle_lookup_fn(a: Args) -> R {
     let t = |i: usize| match a.p.get(i) {
-        Some(V::Str(x)) => Ok(x.s.to_string()),
+        Some(V::Str(x)) => Ok(x.text().to_string()),
         _ => type_err("_glob() takes a module name and a qualified name".into()),
     };
     pickle_lookup(&t(0)?, &t(1)?)
@@ -1380,7 +1380,7 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
             pyd_own((a.LongFromStr)(c.as_ptr(), std::ptr::null_mut(), 10))?
         }
         V::Float(f) => (a.FloatFrom)(*f),
-        V::Str(x) => pyd_own(pyd_str_obj(&x.s))?,
+        V::Str(x) => pyd_own(pyd_str_obj(x.text()))?,
         V::Tuple(t) => {
             let p = (a.TupleNew)(t.len() as isize);
             for (i, x) in t.iter().enumerate() {

@@ -166,18 +166,18 @@ fn format_ann(a: &V) -> Result<String, E> {
         V::Str(_) | V::None | V::Int(_) | V::Bool(_) | V::Float(_) => repr(a),
         V::Class(_) => {
             let m = getattr(a, "__module__")?;
-            if matches!(&m, V::Str(x) if x.s == "typing") {
+            if matches!(&m, V::Str(x) if x.text() == "typing") {
                 return Err(unsupported("Signature.from_callable with a typing annotation"));
             }
             let q = to_str(&getattr(a, "__qualname__")?)?;
             match &m {
-                V::Str(x) if x.s == "builtins" => Ok(q),
+                V::Str(x) if x.text() == "builtins" => Ok(q),
                 _ => Ok(format!("{}.{}", to_str(&m)?, q)),
             }
         }
         V::Obj(_) => {
             if let Ok(V::Str(x)) = getattr(a, "__module__") {
-                if x.s == "typing" {
+                if x.text() == "typing" {
                     return Err(unsupported("Signature.from_callable with a typing annotation"));
                 }
             }
@@ -336,7 +336,7 @@ fn sig_of(obj: &V, depth: usize) -> Result<SigV, E> {
                 return one("mycmp");
             }
             if let Some((_, V::Str(t))) = ff.attrs.borrow().iter().find(|(k, _)| *k == "__bv_textsig__") {
-                return one(&t.s);
+                return one(&t.text());
             }
         }
     }

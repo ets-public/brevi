@@ -117,7 +117,7 @@ pub fn bi_bytearray(a: Args) -> R {
         if enc.is_none() {
             return type_err("string argument without an encoding".into());
         }
-        let b = str_encode(&s.s, enc.as_ref(), errs.as_ref())?;
+        let b = str_encode(&s.text(), enc.as_ref(), errs.as_ref())?;
         return Ok(bytearrayv(bytes_of(&b).unwrap_or_default()));
     }
     if enc.is_some() {
@@ -171,8 +171,8 @@ fn ba_msg(e: E) -> E {
     if let V::Obj(o) = &e.0 {
         if let Some(V::Tuple(t)) = o.get("args") {
             if let [V::Str(m)] = &t[..] {
-                let fixed = m.s.replace("bytes.", "bytearray.").replace("'bytes' object", "'bytearray' object").replace("to bytes", "to bytearray");
-                if fixed != m.s.as_str() {
+                let fixed = m.text().replace("bytes.", "bytearray.").replace("'bytes' object", "'bytearray' object").replace("to bytes", "to bytearray");
+                if fixed != m.text() {
                     o.set("args", tup(vec![st(fixed)]));
                 }
             }

@@ -180,10 +180,10 @@ fn np_sort_kind_stable(k: Option<V>) -> Result<bool, E> {
     Ok(match k {
         None | Some(V::None) => false,
         // numpy reads the first letter
-        Some(V::Str(k)) => match k.s.as_bytes().first() {
+        Some(V::Str(k)) => match k.text().as_bytes().first() {
             Some(b's' | b'm') => true,
             Some(b'q' | b'h') => false,
-            _ => return val_err(format!("sort kind must be one of 'quick', 'heap', or 'stable' (got '{}')", k.s)),
+            _ => return val_err(format!("sort kind must be one of 'quick', 'heap', or 'stable' (got '{}')", k.text())),
         },
         Some(v) => return type_err(format!("sort kind must be str, not {}", tn(&v))),
     })
@@ -2591,7 +2591,7 @@ impl Ext for NpScal {
     fn eq(&self, o: &V) -> Option<bool> {
         if let Sc::U(i) = self.0 {
             return Some(match (o, as_npsc(o)) {
-                (V::Str(x), _) => *np_sget(i) == *x.s,
+                (V::Str(x), _) => *np_sget(i) == *x.text(),
                 (_, Some(Sc::U(j))) => i == j,
                 _ => false,
             });
@@ -2605,7 +2605,7 @@ impl Ext for NpScal {
     fn cmp(&self, o: &V) -> Option<std::cmp::Ordering> {
         if let Sc::U(i) = self.0 {
             let y = match (o, as_npsc(o)) {
-                (V::Str(x), _) => x.s.clone(),
+                (V::Str(x), _) => x.text().to_string(),
                 (_, Some(Sc::U(j))) => np_sget(j).to_string(),
                 _ => return None,
             };

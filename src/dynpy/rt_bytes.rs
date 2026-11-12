@@ -324,7 +324,7 @@ fn codec_alias(name: &str) -> Option<&'static str> {
 fn codec_name(v: Option<&V>) -> Result<&'static str, E> {
     let n = match v {
         None => return Ok("utf-8"),
-        Some(V::Str(s)) => s.s.to_lowercase().replace('_', "-"),
+        Some(V::Str(s)) => s.text().to_lowercase().replace('_', "-"),
         Some(x) => return type_err(format!("decode() argument 'encoding' must be str, not {}", arg_tn(x))),
     };
     if let Some(c) = codec_alias(&n) {
@@ -335,14 +335,14 @@ fn codec_name(v: Option<&V>) -> Result<&'static str, E> {
         m if ["utf-16", "utf16", "utf-32", "utf32", "utf-7", "utf-8-sig", "cp", "iso-8859", "iso8859", "koi8", "mac-", "gb", "big5", "euc", "shift", "sjis", "latin-", "windows-", "idna", "punycode", "unicode-escape", "raw-unicode-escape", "hz", "johab", "ptcp", "tis"].iter().any(|p| m.starts_with(p)) => {
             return Err(unsupported(&format!("the {m} codec")))
         }
-        _ => return Err(exc("LookupError", format!("unknown encoding: {}", match v { Some(V::Str(s)) => s.s.clone(), _ => n }))),
+        _ => return Err(exc("LookupError", format!("unknown encoding: {}", match v { Some(V::Str(s)) => s.text().to_string(), _ => n }))),
     })
 }
 
 fn errors_name(v: Option<&V>) -> Result<String, E> {
     match v {
         None => Ok("strict".into()),
-        Some(V::Str(s)) => Ok(s.s.clone()),
+        Some(V::Str(s)) => Ok(s.text().to_string()),
         Some(x) => type_err(format!("decode() argument 'errors' must be str, not {}", arg_tn(x))),
     }
 }
@@ -506,7 +506,7 @@ pub fn bi_bytes(a: Args) -> R {
         if enc.is_none() {
             return type_err("string argument without an encoding".into());
         }
-        return str_encode(&s.s, enc.as_ref(), errs.as_ref());
+        return str_encode(&s.text(), enc.as_ref(), errs.as_ref());
     }
     if enc.is_some() {
         return type_err("encoding without a string argument".into());
@@ -545,14 +545,14 @@ pub fn bi_bytes(a: Args) -> R {
 // b"..." in the program: its bytes are the chars (all below 256) of the str the parser made.
 pub fn bi___bytes_lit(a: Args) -> R {
     match a.p.first() {
-        Some(V::Str(s)) => Ok(bytesv(s.s.chars().map(|c| c as u32 as u8).collect())),
+        Some(V::Str(s)) => Ok(bytesv(s.text().chars().map(|c| c as u32 as u8).collect())),
         _ => Ok(bytesv(vec![])),
     }
 }
 
 pub fn bytes_fromhex(a: Args) -> R {
     let s = match a.p.first() {
-        Some(V::Str(s)) => s.s.clone(),
+        Some(V::Str(s)) => s.text().to_string(),
         Some(x) => return type_err(format!("fromhex() argument must be str, not {}", arg_tn(x))),
         None => return type_err("fromhex() takes exactly one argument (0 given)".into()),
     };
@@ -802,7 +802,7 @@ impl BytesV {
                         // no separator: CPython's default is an empty separator, so the output is plain hex
                         None => return Ok(st(hex_of(b))),
                         Some(V::Str(sd)) => {
-                            let mut cs = sd.s.chars();
+                            let mut cs = sd.text().chars();
                             match (cs.next(), cs.next()) {
                                 (Some(c), None) if (c as u32) < 128 => c as u32 as u8,
                                 (Some(_), None) => return val_err("sep must be ASCII.".into()),
@@ -1715,7 +1715,7 @@ pub fn hashlib_fn(n: &str, a: Args) -> R {
     let data = a.kw("data").or_else(|| a.kw("string"));
     let (name, data) = if n == "new" {
         let nm = match a.p.first() {
-            Some(V::Str(s)) => s.s.clone(),
+            Some(V::Str(s)) => s.text().to_string(),
             Some(x) => return type_err(format!("new() argument 'name' must be str, not {}", arg_tn(x))),
             None => return type_err("new() missing required argument 'name' (pos 1)".into()),
         };
@@ -1847,10 +1847,10 @@ fn b64_decode(d: &[u8], strict: bool) -> Result<Vec<u8>, E> {
 fn b64_arg(v: Option<&V>) -> Result<Vec<u8>, E> {
     match v {
         Some(V::Str(s)) => {
-            if !s.s.is_ascii() {
+            if !s.text().is_ascii() {
                 return val_err("string argument should contain only ASCII characters".into());
             }
-            Ok(s.s.as_bytes().to_vec())
+            Ok(s.text().as_bytes().to_vec())
         }
         Some(x) => bytes_of(x).ok_or_else(|| exc("TypeError", format!("argument should be a bytes-like object or ASCII string, not '{}'", tn(x)))),
         None => type_err("missing required argument 's' (pos 1)".into()),

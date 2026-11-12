@@ -179,7 +179,7 @@ pub fn eq(a: &V, b: &V) -> Result<bool, E> {
     }
     Ok(match (a, b) {
         (V::Int(x), V::Int(y)) => x == y,
-        (V::Str(x), V::Str(y)) => Rc::ptr_eq(x, y) || x.s == y.s,
+        (V::Str(x), V::Str(y)) => Rc::ptr_eq(x, y) || x.same(y),
         (V::None, V::None) => true,
         (V::None, _) | (_, V::None)
             if !matches!(a, V::Obj(_))
@@ -429,7 +429,8 @@ pub fn is(a: &V, b: &V) -> bool {
                 x.to_bits() == y.to_bits()
             }
         }
-        (V::Str(x), V::Str(y)) => Rc::ptr_eq(x, y) || (x.s == y.s && x.s.len() <= 1),
+        // CPython keeps one object for each 1-char latin-1 str; a lone surrogate is not one of them
+        (V::Str(x), V::Str(y)) => Rc::ptr_eq(x, y) || (!x.is_lone() && !y.is_lone() && x.text() == y.text() && x.text().len() <= 1),
         (V::List(x), V::List(y)) => Rc::ptr_eq(x, y),
         (V::Tuple(x), V::Tuple(y)) => Tup::ptr_eq(x, y) || (x.is_empty() && y.is_empty()),
         (V::Dict(x), V::Dict(y)) => Rc::ptr_eq(x, y),
@@ -458,7 +459,7 @@ pub fn order(a: &V, b: &V, op: &str) -> Result<Option<std::cmp::Ordering>, E> {
     Ok(match (a, b) {
         (V::Int(x), V::Int(y)) => Some(x.cmp(y)),
         (V::Float(x), V::Float(y)) => x.partial_cmp(y),
-        (V::Str(x), V::Str(y)) => Some(x.s.cmp(&y.s)),
+        (V::Str(x), V::Str(y)) => Some(x.order(y)),
         (x, y) if is_intlike(x) && is_intlike(y) => match (ival(x), ival(y)) {
             (Some(p), Some(q)) => Some(p.cmp(&q)),
             _ => Some(big_of(x).unwrap().cmp(&big_of(y).unwrap())),
@@ -1084,12 +1085,7 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
             }
             return float_op(fx, fy, op, a, b);
         }
-        (V::Str(x), V::Str(y)) if op == "+" => {
-            let mut s = String::with_capacity(x.s.len() + y.s.len());
-            s.push_str(&x.s);
-            s.push_str(&y.s);
-            return Ok(V::Str(Rc::new(S { s, ascii: x.ascii && y.ascii })));
-        }
+        (V::Str(x), V::Str(y)) if op == "+" => return Ok(V::Str(Rc::new(x.concat(y)))),
         (V::List(x), V::List(y)) if op == "+" => {
             let mut v = x.borrow().clone();
             v.extend(y.borrow().iter().cloned());
@@ -1104,7 +1100,7 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
             let (sq, n) = if is_intlike(a) { (b, a) } else { (a, b) };
             let k = ival(n).unwrap_or(0).max(0) as usize;
             let len = match sq {
-                V::Str(x) => x.s.len(),
+                V::Str(x) => x.text().len(),
                 V::List(x) => x.borrow().len(),
                 V::Tuple(x) => x.len(),
                 _ => 0,
@@ -1114,7 +1110,7 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
                 return Err(exc("MemoryError", String::new()));
             }
             return Ok(match sq {
-                V::Str(x) => V::Str(Rc::new(S { s: x.s.repeat(k), ascii: x.ascii })),
+                V::Str(x) => V::Str(Rc::new(S::with_ascii(x.text().repeat(k), x.ascii()))),
                 V::List(x) => {
                     let x = x.borrow();
                     let mut v = Vec::with_capacity(x.len() * k);
@@ -1138,7 +1134,7 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
         (V::Str(_) | V::List(_) | V::Tuple(_), _) if op == "*" && (bytes_of(b).is_some() || !matches!(b, V::Obj(_) | V::Ext(_))) => {
             return type_err(format!("can't multiply sequence by non-int of type '{}'", tn(b)));
         }
-        (V::Str(f), _) if op == "%" => return Ok(st(percent_format(&f.s, b)?)),
+        (V::Str(f), _) if op == "%" => return Ok(st(percent_format(&f.text(), b)?)),
         (V::Set(_) | V::FSet(_), V::Set(_) | V::FSet(_)) if matches!(op, "|" | "&" | "-" | "^") => {
             let r = set_op(&set_of(a).unwrap(), &set_of(b).unwrap(), op)?;
             return Ok(if matches!(a, V::FSet(_)) { V::FSet(Rc::new(r)) } else { V::Set(Rc::new(RefCell::new(r))) });
@@ -1664,7 +1660,7 @@ pub fn contains(c: &V, x: &V) -> Result<bool, E> {
             None => false,
         },
         V::Str(s) => match x {
-            V::Str(n) => s.s.contains(n.s.as_str()),
+            V::Str(n) => s.has(n),
             _ => return type_err(format!("'in <string>' requires string as left operand, not {}", tn(x))),
         },
         V::List(l) => {
@@ -1831,7 +1827,7 @@ fn slice_positions(sl: &(V, V, V), n: usize) -> Result<Vec<usize>, E> {
     Ok(out)
 }
 pub fn str_chars(s: &S) -> Vec<char> {
-    s.s.chars().collect()
+    s.text().chars().collect()
 }
 // A class subscripted in a dynamic build (list[int], a namedtuple's Group[int, list[int]]): the origin
 // class, the args, and the few attributes CPython's types.GenericAlias exposes.
@@ -1940,21 +1936,21 @@ pub fn getitem(c: &V, i: &V) -> R {
             return Err(exc_v("KeyError", i.clone()));
         }
         (V::Str(s), V::Int(k)) => {
-            if s.ascii {
-                let j = norm_idx(*k, s.s.len(), "string")?;
-                return Ok(ch1(s.s.as_bytes()[j] as char));
+            if s.ascii() {
+                let j = norm_idx(*k, s.text().len(), "string")?;
+                return Ok(ch1(s.text().as_bytes()[j] as char));
             }
             let n = s.nchars();
             let j = norm_idx(*k, n, "string")?;
-            return Ok(ch1(s.s.chars().nth(j).unwrap()));
+            return Ok(ch1(s.text().chars().nth(j).unwrap()));
         }
         (V::Str(sx), V::Slice(sl)) => {
-            if sx.ascii {
-                let b = sx.s.as_bytes();
+            if sx.ascii() {
+                let b = sx.text().as_bytes();
                 let (a, e, stp) = slice_idx(sl, b.len())?;
                 if stp == 1 {
                     let (a, e) = (a.max(0) as usize, e.max(0) as usize);
-                    return Ok(if a >= e { s("") } else { st_ascii(&sx.s[a..e]) });
+                    return Ok(if a >= e { s("") } else { st_ascii(&sx.text()[a..e]) });
                 }
                 let ps = slice_positions(sl, b.len())?;
                 return Ok(st(ps.iter().map(|&p| b[p] as char).collect()));
@@ -2084,7 +2080,7 @@ fn st_ascii(x: &str) -> V {
     if x.len() == 1 {
         return ch1(x.as_bytes()[0] as char);
     }
-    V::Str(Rc::new(S { s: x.to_string(), ascii: true }))
+    V::Str(Rc::new(S::new_ascii(x.to_string())))
 }
 pub fn setitem(c: &V, i: &V, v: V) -> Result<(), E> {
     if let Some(__p) = proxy_deref(c) {
@@ -2390,14 +2386,14 @@ impl It {
                 None => Ok(Some(x.clone())),
             },
             It::Str(s, i) => {
-                if *i >= s.s.len() {
+                if *i >= s.text().len() {
                     return Ok(None);
                 }
-                if s.ascii {
+                if s.ascii() {
                     *i += 1;
-                    return Ok(Some(ch1(s.s.as_bytes()[*i - 1] as char)));
+                    return Ok(Some(ch1(s.text().as_bytes()[*i - 1] as char)));
                 }
-                let c = s.s[*i..].chars().next().unwrap();
+                let c = s.text()[*i..].chars().next().unwrap();
                 *i += c.len_utf8();
                 Ok(Some(ch1(c)))
             }
@@ -2603,7 +2599,7 @@ fn iter_kind(v: &V) -> ItKind {
     match v {
         V::List(_) => ItKind::ListIter,
         V::Tuple(_) => ItKind::TupleIter,
-        V::Str(s) => if s.ascii { ItKind::StrAsciiIter } else { ItKind::StrIter },
+        V::Str(s) => if s.ascii() { ItKind::StrAsciiIter } else { ItKind::StrIter },
         V::Range(_) => ItKind::RangeIter,
         V::Dict(_) => ItKind::DictKeys,
         // view kinds 0, 1, 2, 3: keys, values, items, mappingproxy (which iterates keys too)
@@ -2767,7 +2763,7 @@ pub fn dict_sym_items(v: &V) -> Result<Vec<(Sym, V)>, E> {
     let mut out = vec![];
     for (k, x) in dict_items_of(v)? {
         match k {
-            V::Str(sv) => out.push((sym(&sv.s), x)),
+            V::Str(sv) => out.push((sym(&sv.text()), x)),
             _ => return type_err("__build_class__: keys must be strings".into()),
         }
     }

@@ -590,7 +590,7 @@ pub fn zoneinfo_new(mut a: Args) -> R {
         None => return type_err("ZoneInfo.__new__() missing required argument 'key' (pos 1)".into()),
     };
     let key = match &k {
-        V::Str(x) => x.s.to_string(),
+        V::Str(x) => x.text().to_string(),
         x => return type_err(format!("expected str, bytes or os.PathLike object, not {}", tn(x))),
     };
     if let Some(v) = ZONES.with(|z| z.borrow().by_key.get(&key).map(|&i| z.borrow().vals[i as usize].clone())) {
@@ -1029,7 +1029,7 @@ pub fn metadata_fn(n: &str, a: Args) -> R {
     match n {
         "version" => {
             let name = match a.p.first() {
-                Some(V::Str(x)) if a.p.len() == 1 && a.k.is_empty() => x.s.to_string(),
+                Some(V::Str(x)) if a.p.len() == 1 && a.k.is_empty() => x.text().to_string(),
                 _ => return type_err("version() takes one str argument, the distribution name".into()),
             };
             let k = dist_norm(&name);

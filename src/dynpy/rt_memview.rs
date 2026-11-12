@@ -156,7 +156,7 @@ impl MemV {
                 if let Some(o) = &order {
                     match o {
                         V::None => {}
-                        V::Str(s) if matches!(s.s.as_str(), "C" | "F" | "A") => {}
+                        V::Str(s) if matches!(s.text(), "C" | "F" | "A") => {}
                         V::Str(_) => return val_err("order must be 'C', 'F' or 'A'".into()),
                         o => return type_err(format!("tobytes() argument 'order' must be str or None, not {}", tn(o))),
                     }

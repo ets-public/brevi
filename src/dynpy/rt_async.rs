@@ -460,8 +460,8 @@ fn is_cancelled(e: &V) -> bool {
 // the task's _state, which sits on Future's class until the future finishes
 fn future_pending(o: &Obj) -> bool {
     match o.get("_state") {
-        Some(v) => matches!(&v, V::Str(s) if s.s == "PENDING"),
-        None => matches!(&o.cls.lookup("_state").unwrap_or(V::None), V::Str(s) if s.s == "PENDING"),
+        Some(v) => matches!(&v, V::Str(s) if s.text() == "PENDING"),
+        None => matches!(&o.cls.lookup("_state").unwrap_or(V::None), V::Str(s) if s.text() == "PENDING"),
     }
 }
 // o.name if the object (or its class) has it, None otherwise; getattr without the AttributeError
@@ -794,7 +794,7 @@ fn fut_state_is(f: &V, want: &str) -> bool {
     match f {
         V::Obj(o) => {
             let st = o.get("_state").unwrap_or_else(|| o.cls.lookup("_state").unwrap_or(V::None));
-            matches!(&st, V::Str(s) if s.s == want)
+            matches!(&st, V::Str(s) if s.text() == want)
         }
         _ => false,
     }
