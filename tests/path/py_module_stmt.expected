@@ -1,0 +1,3 @@
+{"path":"dynamic","file":"_setup.py","line":3,"why":"this module runs statements when it is imported, which the typed build does not take"}
+{"path":"dynamic","file":"_setup.py","line":3,"why":"this module runs statements when it is imported, which the typed build does not take"}
+{"path":"dynamic","file":"_setup.py","line":3,"why":"this module runs statements when it is imported, which the typed build does not take"}
