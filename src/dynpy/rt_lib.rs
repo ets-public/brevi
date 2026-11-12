@@ -980,6 +980,7 @@ pub fn type_of(x: &V) -> Result<Rc<Class>, E> {
         V::Slice(_) => ext_class("slice"),
         V::Ellipsis => ext_class("ellipsis"),
         V::NotImpl => ext_class("NotImplementedType"),
+        V::Ext(e) if e.tname() == "typing.TypeVar" => ext_class_mod("typing", "TypeVar"),
         V::Ext(e) => ext_class(e.tname()),
         V::Iter(it) => return iter_type_of(it),
         V::NTF(_) => ext_class("collections._tuplegetter"),

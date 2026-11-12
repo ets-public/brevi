@@ -489,6 +489,13 @@ pub fn with_ann(f: V, kv: Vec<(V, V)>) -> R {
     }
     Ok(f)
 }
+// A PEP 695 def's __type_params__ (one tuple, so every read is the same object).
+pub fn with_tparams(f: V, t: V) -> V {
+    if let V::Func(ff) = &f {
+        ff.attrs.borrow_mut().push(("__type_params__", t));
+    }
+    f
+}
 // The private first-annotation descriptor a def carries when it is decorated with a bare `@register`
 // (functools.singledispatch reads it; see sd_ann_desc in emit.rs). Classmethod and staticmethod copy it with
 // the def's other attributes.
@@ -1471,14 +1478,16 @@ pub fn getattr(o: &V, name: &str) -> R {
             module_attr(m, name)
         }
         V::Func(f) => match name {
-            "__name__" => Ok(s(f.name.get())),
-            "__qualname__" => Ok(s(f.qualname.get())),
+            // one str object per name, as CPython's def keeps its interned __name__ and __qualname__ (so
+            // `f.__name__ is f.__name__`, and update_wrapper's copies are the same object)
+            "__name__" => Ok(s_sym(f.name.get())),
+            "__qualname__" => Ok(s_sym(f.qualname.get())),
             "__module__" => Ok(f.attrs
                 .borrow()
                 .iter()
                 .find(|(k, _)| *k == "__module__")
                 .map(|(_, v)| v.clone())
-                .unwrap_or_else(|| s(if f.kind.get() == 3 { "builtins" } else { "__main__" }))),
+                .unwrap_or_else(|| s_sym(if f.kind.get() == 3 { "builtins" } else { "__main__" }))),
             // Brevi doesn't evaluate annotations (the typing pass refuses a written `.__annotations__` when the
             // program is built); one assigned to the def reads back, any other read is refused
             "__annotations__" => match f.attrs.borrow().iter().find(|(k, _)| *k == "__annotations__").map(|(_, v)| v.clone()) {

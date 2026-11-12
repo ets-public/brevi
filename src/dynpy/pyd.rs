@@ -916,7 +916,7 @@ fn lambda_hoist(e: &mut Ex, cv: &Conv, line: usize, n: &mut usize, out: &mut Vec
                 };
                 if hands && k == 0 {
                     if let Ex::Lambda(ps, _) = v {
-                        let d = FuncDef { name: "<lambda>".into(), params: (**ps).clone(), body: vec![], decorators: vec![], line, is_async: false, ret: None };
+                        let d = FuncDef { name: "<lambda>".into(), params: (**ps).clone(), body: vec![], decorators: vec![], line, is_async: false, ret: None, tparams: vec![] };
                         let sig = signature(&d, cv).map_err(|why| (line, format!("mcp: the signature of a lambda: {why}")))?;
                         let name = format!("__brevi_mcp_lambda_{line}_{n}");
                         *n += 1;

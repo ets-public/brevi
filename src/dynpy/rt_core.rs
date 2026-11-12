@@ -240,6 +240,14 @@ thread_local! {
 pub fn s(x: &str) -> V {
     V::Str(Rc::new(S { s: x.to_string(), ascii: x.is_ascii() }))
 }
+// The one str object for an interned name (a Sym): reads of a def's __name__, __qualname__ or __module__ give the
+// same object every time, as CPython's interned identifiers are.
+thread_local! {
+    static SYM_STRS: RefCell<HashMap<Sym, V>> = RefCell::new(HashMap::new());
+}
+pub fn s_sym(x: Sym) -> V {
+    SYM_STRS.with(|m| m.borrow_mut().entry(x).or_insert_with(|| s(x)).clone())
+}
 pub fn st(x: String) -> V {
     let ascii = x.is_ascii();
     V::Str(Rc::new(S { s: x, ascii }))

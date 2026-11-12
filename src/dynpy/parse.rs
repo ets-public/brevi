@@ -485,6 +485,9 @@ pub struct FuncDef {
     pub is_async: bool,
     // the return annotation
     pub ret: Option<Ex>,
+    // PEP 695 type parameters (`def f[T, U]`): plain names only (a bound, constraints, a default, `*Ts` and `**P`
+    // are refused when parsed)
+    pub tparams: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -790,6 +793,10 @@ impl P {
                 } else {
                     return Err(err(line, "expected def, for or with after async"));
                 }
+            }
+            // `type X = ...` (PEP 695): `type` is a soft keyword there
+            "type" if matches!(self.toks.get(self.i + 1).map(|t| &t.0), Some(Tok::Name(_))) && matches!(self.toks.get(self.i + 2).map(|t| &t.0), Some(Tok::Op("=") | Tok::Op("["))) => {
+                return Err(err(line, "the type statement (PEP 695 type aliases) is not supported in dynamic builds"))
             }
             "match" if self.is_match_stmt() => return Err(err(line, "match statements are not supported")),
             _ => return self.simple_line(),
@@ -1163,12 +1170,41 @@ impl P {
         let line = self.line();
         self.expect_kw("def")?;
         let name = self.name()?;
+        let tparams = if self.is_op("[") { self.type_params()? } else { vec![] };
         self.expect_op("(")?;
         let params = self.params(")")?;
         self.expect_op(")")?;
         let ret = if self.eat_op("->") { Some(self.expr()?) } else { None };
         let body = self.block()?;
-        Ok(FuncDef { name, params, body, decorators, line, is_async: false, ret })
+        Ok(FuncDef { name, params, body, decorators, line, is_async: false, ret, tparams })
+    }
+    // `[T, U]` after a def's name (PEP 695). Only plain type variables are taken: the others need CPython's lazily
+    // evaluated bounds and defaults, or TypeVarTuple and ParamSpec objects, which this build does not have.
+    fn type_params(&mut self) -> PR<Vec<String>> {
+        let line = self.line();
+        self.expect_op("[")?;
+        let mut out: Vec<String> = vec![];
+        while !self.is_op("]") {
+            if self.is_op("*") || self.is_op("**") {
+                return Err(err(line, "a `*Ts` or `**P` type parameter (PEP 695) is not supported in dynamic builds"));
+            }
+            let n = self.name()?;
+            if self.is_op(":") || self.is_op("=") {
+                return Err(err(line, "a type parameter with a bound, constraints or a default (PEP 695) is not supported in dynamic builds"));
+            }
+            if out.contains(&n) {
+                return Err(err(line, &format!("duplicate type parameter '{n}'")));
+            }
+            out.push(n);
+            if !self.eat_op(",") {
+                break;
+            }
+        }
+        self.expect_op("]")?;
+        if out.is_empty() {
+            return Err(err(line, "Type parameter list cannot be empty"));
+        }
+        Ok(out)
     }
     fn params(&mut self, end: &str) -> PR<Params> {
         let mut p = Params::default();
@@ -1220,6 +1256,9 @@ impl P {
         let line = self.line();
         self.expect_kw("class")?;
         let name = self.name()?;
+        if self.is_op("[") {
+            return Err(err(line, "a generic class (`class C[T]`, PEP 695) is not supported in dynamic builds"));
+        }
         let mut bases = vec![];
         let mut kwargs = vec![];
         if self.eat_op("(") {

@@ -3835,6 +3835,16 @@ impl Em {
             }
             v = self.q(&format!("with_ann({v}, vec![{}])", kv.join(", ")));
         }
+        // PEP 695 `def f[T]`: the type parameters, set before the decorators run (as CPython's annotation scope
+        // does). The names themselves are not bound, so a def that uses one is refused.
+        if !d.tparams.is_empty() {
+            let anns = super::typing::ANN_DEFS.load(std::sync::atomic::Ordering::Relaxed);
+            if super::typing::tparams_used(d, &d.tparams, anns) {
+                return Err(err(d.line, "a PEP 695 type parameter used inside its def (`def f[T]` with T in a default, the body or an evaluated annotation) is not supported in dynamic builds"));
+            }
+            let tv: Vec<String> = d.tparams.iter().map(|n| format!("pep695_typevar({})", lit(n))).collect();
+            v = format!("with_tparams({v}, tup(vec![{}]))", tv.join(", "));
+        }
         if PYD_ON.load(std::sync::atomic::Ordering::Relaxed) {
             let n = if d.params.star.is_some() { 99 } else { d.params.pos.len() };
             v = format!("with_np({v}, {n})");

@@ -823,3 +823,54 @@ fn fparts(parts: &[FPart], line: usize, nm: &Names) -> Result<(), Er> {
     }
     Ok(())
 }
+
+// Whether a PEP 695 def (`def f[T](...)`) uses one of its type parameters' names anywhere CPython would look
+// them up in the def's annotation scope: its defaults, its body (nested defs, lambdas and classes too) and, when
+// `anns` (annotations are evaluated: ANN_DEFS), its annotations. Brevi makes the TypeVar objects for
+// __type_params__ but does not bind the names, so such a def is refused.
+pub fn tparams_used(d: &super::parse::FuncDef, names: &[String], anns: bool) -> bool {
+    let mut hit = false;
+    let mut look = |e: &Ex| {
+        crate::typed_guard::walk_ex(e, &mut |x| match x {
+            Ex::Name(n) => hit |= names.contains(n),
+            Ex::Lambda(ps, _) => {
+                for (_, dv) in ps.pos.iter().chain(ps.kwonly.iter()) {
+                    if let Some(dv) = dv {
+                        crate::typed_guard::walk_ex(dv, &mut |y| hit |= matches!(y, Ex::Name(n) if names.contains(n)));
+                    }
+                }
+            }
+            _ => {}
+        })
+    };
+    fn params_of(p: &Params, ret: &Option<Ex>, anns: bool, look: &mut dyn FnMut(&Ex)) {
+        for (_, dv) in p.pos.iter().chain(p.kwonly.iter()) {
+            if let Some(dv) = dv {
+                look(dv);
+            }
+        }
+        if anns {
+            p.ann.iter().for_each(|(_, a)| look(a));
+            if let Some(r) = ret {
+                look(r);
+            }
+        }
+    }
+    fn nested(body: &[Stmt], anns: bool, look: &mut dyn FnMut(&Ex)) {
+        for s in body {
+            if let St::Def(d) = &s.st {
+                params_of(&d.params, &d.ret, anns, look);
+            }
+            if let St::AnnAssign(_, _, a) = &s.st {
+                if anns {
+                    look(a);
+                }
+            }
+            blocks(&s.st, &mut |b| nested(b, anns, look));
+        }
+    }
+    params_of(&d.params, &d.ret, anns, &mut look);
+    nested(&d.body, anns, &mut look);
+    walk_all(&d.body, &mut |e, _| look(e));
+    hit
+}
