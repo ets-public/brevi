@@ -15,6 +15,8 @@ Brevi's aim is that a build prints what CPython prints, or is refused. Two outco
 | --- | ---: | ---: | ---: | ---: |
 | Core: `test_grammar`, `test_scope`, `test_int`, `test_list`, `test_dict` ([report](../bench/conformance/report.md)) | 250 of 311 (80.4%) | 38 | 8, all exit status | 0 |
 | Stdlib: `itertools`, `collections`, `re`, `textwrap`, `functools`, `string` ([report](../bench/conformance/stdlib/report.md)) | 250 of 554 (45.1%) | 170 | 22 (3 output, 19 exit status) | 1 |
+| Core on main, 11 November (from the next release; 25 by-design refusals left out) | 268 of 288 (93.1%) | 7 | 0 | 0 |
+| Stdlib on main, 11 November (from the next release) | 540 of 644 (83.9%) | 73 | 5 (1 output, 4 exit status) | 1 |
 
 Things to know when reading these numbers:
 
@@ -38,6 +40,7 @@ Windows builds, runs and verifies programs natively, including library calls thr
 - Windows' own SQLite can be a different version from CPython's, so version-specific output may differ.
 - DuckDB and ONNX Runtime need their libraries installed (`pip install duckdb`, onnxruntime 1.16 or later).
 - Only x86-64 is built. There is no Windows arm64 build.
+- In v0.27.x, dynamic builds on Windows use POSIX path rules (`os.path.basename("C:\\a\\b.txt")` gives the whole path) and report `sys.platform` as `linux`. From the next release `os.path` is `ntpath`, `sys.platform` is `win32`, and `pathlib` runs in CPython.
 
 Tests: [tests/windows/check.ps1](../tests/windows/check.ps1).
 

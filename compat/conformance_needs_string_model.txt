@@ -1,0 +1,7 @@
+# Tests that NEED THE STRING MODEL: each builds a str holding a lone surrogate (U+D800..U+DFFF), which CPython allows
+# and a Rust string cannot hold, so the program stops with Brevi's NotImplementedError instead of giving a wrong answer.
+# tools/conformance.py counts these as not matched (they stay in the coverage denominator), not as wrong, and prints
+# their count and names beside every score. A test counts only when it is listed here AND both builds stop on that
+# exact refusal; `--check` fails on a line that no longer does, and on a line without `issue=#N`. Any other run-time
+# stop is still a wrong exit. Format: `test-id  issue=#N`.
+test_re.ReTests.test_bigcharset  issue=#450
