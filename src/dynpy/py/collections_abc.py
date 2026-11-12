@@ -833,6 +833,10 @@ class MutableSequence(Sequence):
 
 MutableSequence.register(list)
 MutableSequence.register(bytearray)
+# CPython's collections/__init__.py registers deque (Brevi's deque is the runtime's own class)
+from collections import deque as _deque
+MutableSequence.register(_deque)
+del _deque
 
 
 __all__ = ["Awaitable", "Coroutine",
