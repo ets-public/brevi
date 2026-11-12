@@ -824,6 +824,23 @@ fn group_num(body: &str, sp: &Spec) -> String {
         }
     }
 }
+// Where a format spec's 'z' option is, if it has one: after an optional fill-and-align (or align) and sign.
+fn z_option_at(spec: &str) -> Option<usize> {
+    if !spec.contains('z') {
+        return None;
+    }
+    let c: Vec<(usize, char)> = spec.char_indices().collect();
+    let mut i = 0;
+    if c.len() >= 2 && matches!(c[1].1, '<' | '>' | '^' | '=') {
+        i = 2;
+    } else if !c.is_empty() && matches!(c[0].1, '<' | '>' | '^' | '=') {
+        i = 1;
+    }
+    if i < c.len() && matches!(c[i].1, '+' | '-' | ' ') {
+        i += 1;
+    }
+    (i < c.len() && c[i].1 == 'z').then(|| c[i].0)
+}
 pub fn format_spec(v: &V, spec: &str) -> Result<String, E> {
     match v {
         V::Obj(o) => {
@@ -854,6 +871,26 @@ pub fn format_spec(v: &V, spec: &str) -> Result<String, E> {
             }
         }
         _ => {}
+    }
+    // the 'z' option (negative zero coercion): after the fill, align and sign, as CPython parses it
+    if let Some(k) = z_option_at(spec) {
+        let mut rest = spec.to_string();
+        rest.remove(k);
+        let ty = rest.chars().last().filter(|c| c.is_ascii_alphabetic() || *c == '%');
+        let floaty = matches!(ty, Some('e' | 'E' | 'f' | 'F' | 'g' | 'G' | '%' | 'n'));
+        match v {
+            V::Float(x) => {
+                let r = format_spec(v, &rest)?;
+                if x.is_sign_negative() && !x.is_nan() && r == format_spec(&V::Float(-0.0), &rest)? {
+                    return format_spec(&V::Float(0.0), &rest);
+                }
+                return Ok(r);
+            }
+            V::Int(_) | V::Big(_) | V::Bool(_) if floaty && ty != Some('n') => return format_spec(v, &rest),
+            V::Int(_) | V::Big(_) | V::Bool(_) => return val_err("Negative zero coercion (z) not allowed in integer format specifier".into()),
+            V::Str(_) => return val_err("Negative zero coercion (z) not allowed in string format specifier".into()),
+            _ => {}
+        }
     }
     if spec.is_empty() {
         return to_str(v);
@@ -1133,6 +1170,7 @@ pub fn percent_format(f: &str, args: &V) -> Result<String, E> {
                         Big::from_f64(*x).norm()
                     }
                     V::Int(_) | V::Big(_) | V::Bool(_) => v.clone(),
+                    V::Ext(_) if cplx_of(&v).is_some() => return type_err(format!("%{ty} format: a real number is required, not complex")),
                     V::Ext(_) => to_int(&v)?,
                     // an int subclass (IntEnum): its int
                     V::Obj(_) if matches!(inner_of(&v), Some(V::Int(_) | V::Big(_) | V::Bool(_))) => inner_of(&v).unwrap(),
@@ -1165,6 +1203,7 @@ pub fn percent_format(f: &str, args: &V) -> Result<String, E> {
             'e' | 'E' | 'f' | 'F' | 'g' | 'G' => {
                 let x = match &v {
                     V::Str(_) | V::None | V::List(_) | V::Tuple(_) | V::Dict(_) => return type_err(format!("must be real number, not {}", tn(&v))),
+                    _ if cplx_of(&v).is_some() => return type_err("must be real number, not complex".into()),
                     _ => V::Float(to_float(&v)?),
                 };
                 format_spec(&x, &format!("{spec}.{}{ty}", prec.unwrap_or(6)))?

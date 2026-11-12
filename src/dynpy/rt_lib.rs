@@ -411,6 +411,24 @@ pub fn bi_dict(mut a: Args) -> R {
 pub fn bi_range(a: Args) -> R {
     let a = enum_nums(a);
     a.no_kw("range")?;
+    if (1..=3).contains(&a.p.len()) && a.p.iter().any(|x| matches!(x, V::Big(_))) {
+        let mut bs = Vec::new();
+        for x in &a.p {
+            match big_of(x) {
+                Some(b) => bs.push(b),
+                None => return type_err(format!("'{}' object cannot be interpreted as an integer", tn(x))),
+            }
+        }
+        let (s0, e, st) = match bs.len() {
+            1 => (Big::from_i64(0), bs[0].clone(), Big::from_i64(1)),
+            2 => (bs[0].clone(), bs[1].clone(), Big::from_i64(1)),
+            _ => (bs[0].clone(), bs[1].clone(), bs[2].clone()),
+        };
+        if st.is_zero() {
+            return val_err("range() arg 3 must not be zero".into());
+        }
+        return Ok(bigrange_v(s0, e, st));
+    }
     let g = |i: usize| -> Result<i64, E> {
         match &a.p[i] {
             V::Int(x) => Ok(*x),
@@ -585,10 +603,18 @@ pub fn bi_reversed(a: Args) -> R {
             return call(&f, Args::p(vec![x.clone()]));
         }
     }
+    if bigrange_of(&x).is_some() {
+        return call_method(&x, "__reversed__", Args::p(vec![]));
+    }
     if let V::Range(r) = &x {
         let n = range_len(&x) as i64;
         let last = r.0 + (n - 1) * r.2;
-        return Ok(new_iter(It::Range(last, r.0 - r.2, -r.2), IterClass::Kind(ItKind::RangeIter)));
+        // CPython falls back to its long range iterator when start - step leaves the C long range
+        let (Some(stop), Some(neg)) = (r.0.checked_sub(r.2), r.2.checked_neg()) else {
+            let b = bigrange_v(Big::from_i64(r.0), Big::from_i64(r.1), Big::from_i64(r.2));
+            return call_method(&b, "__reversed__", Args::p(vec![]));
+        };
+        return Ok(new_iter(It::Range(last, stop, neg), IterClass::Kind(ItKind::RangeIter)));
     }
     // list, dict and dict views have their own reverse iterators; every other reversible sequence gets
     // the generic `reversed` object, as in CPython.
@@ -631,7 +657,14 @@ pub fn bi_enumerate(mut a: Args) -> R {
 }
 // zip and map hold no borrow while they step their inputs, so a callback may re-enter them, as in CPython
 pub fn bi_zip(mut a: Args) -> R {
-    let strict = a.kw("strict").map(|x| truth(&x).unwrap_or(false)).unwrap_or(false);
+    // zip_new parses "|$p:zip": strict is the only keyword, and a truth test that fails raises
+    let strict = match a.kw("strict") {
+        Some(x) => truth(&x)?,
+        None => false,
+    };
+    if let Some((k, _)) = a.k.first() {
+        return type_err(format!("zip() got an unexpected keyword argument '{k}'"));
+    }
     let mut its = vec![];
     for x in &a.p {
         its.push(get_iter(x)?);
@@ -684,7 +717,25 @@ pub fn bi_iter(a: Args) -> R {
             }
         }));
     }
-    iter_v(&a1(&a, "iter")?)
+    let v = a1(&a, "iter")?;
+    // iter(x) is what x.__iter__() returned when that is an iterator of the program's own (an iterator's
+    // __iter__ returning self keeps `iter(it) is it`, as in CPython)
+    if let V::Obj(o) = &v {
+        if let Some(f) = o.cls.lookup("__iter__") {
+            let r = call(&f, Args::p(vec![v.clone()]))?;
+            if let V::Obj(ro) = &r {
+                if ro.cls.lookup("__next__").is_none() {
+                    return type_err(format!("iter() returned non-iterator of type '{}'", tn(&r)));
+                }
+                return Ok(r);
+            }
+            if !matches!(r, V::Iter(_) | V::Ext(_)) {
+                return type_err(format!("iter() returned non-iterator of type '{}'", tn(&r)));
+            }
+            return iter_v(&r);
+        }
+    }
+    iter_v(&v)
 }
 pub fn bi_next(a: Args) -> R {
     a.want("next", 1, 2)?;
@@ -1031,8 +1082,10 @@ pub fn type_of(x: &V) -> Result<Rc<Class>, E> {
         V::Slice(_) => ext_class("slice"),
         V::Ellipsis => ext_class("ellipsis"),
         V::NotImpl => ext_class("NotImplementedType"),
+        V::Ext(e) if e.tname() == "range" => tclass(15, "range"),
         V::Ext(e) if e.tname() == "typing.TypeVar" => ext_class_mod("typing", "TypeVar"),
         V::Ext(e) if e.any().is::<SigV>() => sig_class(),
+        V::Ext(e) if e.any().is::<TeeDataV>() => teedata_class(),
         V::Ext(e) => ext_class(e.tname()),
         V::Iter(it) => return iter_type_of(it),
         V::NTF(_) => ext_class("collections._tuplegetter"),
@@ -1103,8 +1156,194 @@ pub fn it_class(k: ItKind) -> Result<Rc<Class>, E> {
         }
         let k = Class::new(name, module, vec![bclass("object")], BT::Other);
         c.borrow_mut()[i] = Some(k.clone());
+        if iter_kind_subclassable(k_kind(k.name, k.module)) {
+            iter_base_attrs(&k);
+        }
         Ok(k)
     })
+}
+fn k_kind(name: &str, module: &str) -> Option<ItKind> {
+    match (module, name) {
+        ("builtins", "zip") => Some(ItKind::Zip),
+        ("builtins", "map") => Some(ItKind::Map),
+        ("builtins", "filter") => Some(ItKind::Filter),
+        ("builtins", "enumerate") => Some(ItKind::Enumerate),
+        ("builtins", "reversed") => Some(ItKind::Reversed),
+        ("itertools", n) => itertools_kind(n),
+        _ => None,
+    }
+}
+// The iterator types a class may be built on (CPython's Py_TPFLAGS_BASETYPE): zip, map, filter, enumerate,
+// reversed and every public itertools type. The others (list_iterator, generator, itertools._tee, ...) are
+// refused as bases, with CPython's message.
+fn iter_kind_subclassable(k: Option<ItKind>) -> bool {
+    k.is_some()
+}
+pub fn iter_base_of(c: &Rc<Class>) -> Option<Rc<Class>> {
+    c.mro.borrow().iter().find(|k| is_iter_class(k)).cloned()
+}
+// CPython's tp_name of one of Brevi's iterator classes, as "type '...' is not an acceptable base type" prints it
+pub fn iter_tp_name(k: &Class) -> String {
+    match k.module {
+        "builtins" => k.name.to_string(),
+        "collections" => format!("_collections.{}", k.name),
+        m => format!("{m}.{}", k.name),
+    }
+}
+pub fn iter_base_check(bases: &[Rc<Class>]) -> Result<(), E> {
+    for b in bases {
+        if is_iter_class(b) && !iter_kind_subclassable(k_kind(b.name, b.module)) {
+            return type_err(format!("type '{}' is not an acceptable base type", iter_tp_name(b)));
+        }
+    }
+    Ok(())
+}
+// The base's __new__(cls, *args, **kw) for a class built on an iterator type: the iterator the base makes
+// from the arguments, wrapped in an instance of cls. The types whose C constructor takes no keyword arguments
+// refuse them only when cls keeps the base's __init__ (CPython's `type->tp_init == base->tp_init` test), and
+// otherwise ignore them; the others parse them as the base does. reversed() of a sequence with __reversed__
+// returns that result itself, not an instance of cls, as CPython's does.
+fn iter_base_new(base: &Rc<Class>, mut a: Args) -> R {
+    let Some(V::Class(cls)) = a.p.first().cloned() else {
+        return type_err(format!("{}.__new__(): not enough arguments", base.name));
+    };
+    a.p.remove(0);
+    if !cls.is_sub(base) {
+        return type_err(format!("{}.__new__({}): {} is not a subtype of {}", iter_tp_name(base), cls.name, cls.name, iter_tp_name(base)));
+    }
+    if Rc::ptr_eq(&cls, base) {
+        return match iter_class_call(base, a) {
+            Some(r) => r,
+            None => type_err(format!("cannot create '{}' instances", iter_tp_name(base))),
+        };
+    }
+    let no_kw = matches!(
+        (base.module, base.name),
+        ("builtins", "map" | "filter") | ("itertools", "chain" | "islice" | "cycle" | "dropwhile" | "takewhile" | "starmap" | "filterfalse" | "pairwise")
+    );
+    if no_kw && !a.k.is_empty() {
+        let own_init = cls.lookup("__init__").is_some_and(|f| !matches!(&f, V::Func(x) if x.kind.get() == 3 && x.name.get() == "__init__"));
+        if !own_init {
+            return type_err(format!("{}() takes no keyword arguments", base.name));
+        }
+        a.k.clear();
+    }
+    let inner = match iter_class_call(base, a) {
+        Some(r) => r?,
+        None => return type_err(format!("cannot create '{}' instances", iter_tp_name(base))),
+    };
+    match type_of(&inner) {
+        Ok(t) if Rc::ptr_eq(&t, base) => {}
+        _ => return Ok(inner),
+    }
+    let o = Obj::new(cls.clone());
+    o.set_inner(Some(inner));
+    Ok(V::Obj(o))
+}
+// The iterator an instance of a class built on an iterator type wraps (or the iterator itself)
+fn iter_self(v: &V, base: &Class, what: &str) -> R {
+    match v {
+        V::Iter(_) => Ok(v.clone()),
+        V::Obj(_) => match inner_of(v) {
+            Some(i @ V::Iter(_)) => Ok(i),
+            _ => type_err(format!("descriptor '{what}' for '{}' objects doesn't apply to a '{}' object", iter_tp_name(base), tn(v))),
+        },
+        _ => type_err(format!("descriptor '{what}' for '{}' objects doesn't apply to a '{}' object", iter_tp_name(base), tn(v))),
+    }
+}
+// What a class built on an iterator type inherits: __new__, __iter__ and __next__ (stepping the wrapped
+// iterator, so iter(x) is x), the __repr__ of count and repeat (with the subclass's name, as CPython's
+// _PyType_Name), __length_hint__ of repeat and reversed, chain.from_iterable making the subclass, and
+// __reduce__/__setstate__, which are refused for a subclass instance (CPython rebuilds it from its class and
+// the base's arguments, which Brevi does not model).
+fn iter_base_attrs(k: &Rc<Class>) {
+    let w = Rc::downgrade(k);
+    let base = move || w.upgrade().expect("iterator class");
+    let b = base.clone();
+    k.set_exact("__new__", builtin("__new__", move |a: Args| iter_base_new(&b(), a)));
+    let b = base.clone();
+    k.set_exact("__iter__", builtin("__iter__", move |a: Args| {
+        a.want("__iter__", 1, 1)?;
+        iter_self(&a.p[0], &b(), "__iter__")?;
+        Ok(a.p[0].clone())
+    }));
+    let b = base.clone();
+    k.set_exact("__next__", builtin("__next__", move |a: Args| {
+        a.want("__next__", 1, 1)?;
+        let it = iter_self(&a.p[0], &b(), "__next__")?;
+        bi_next(Args::p(vec![it]))
+    }));
+    if matches!(k.name, "count" | "repeat") && k.module == "itertools" {
+        let b = base.clone();
+        k.set_exact("__repr__", builtin("__repr__", move |a: Args| {
+            a.want("__repr__", 1, 1)?;
+            let it = iter_self(&a.p[0], &b(), "__repr__")?;
+            let r = repr(&it)?;
+            Ok(match &a.p[0] {
+                V::Obj(o) => st(format!("{}{}", o.cls.name, &r[b().name.len()..])),
+                _ => st(r),
+            })
+        }));
+    }
+    if (k.module, k.name) == ("itertools", "repeat") || (k.module, k.name) == ("builtins", "reversed") {
+        let b = base.clone();
+        k.set_exact("__length_hint__", builtin("__length_hint__", move |a: Args| {
+            a.want("__length_hint__", 1, 1)?;
+            let it = iter_self(&a.p[0], &b(), "__length_hint__")?;
+            call_method(&it, "__length_hint__", Args::p(vec![]))
+        }));
+    }
+    let b = base.clone();
+    k.set_exact("__reduce__", builtin("__reduce__", move |a: Args| {
+        a.want("__reduce__", 1, 1)?;
+        let it = iter_self(&a.p[0], &b(), "__reduce__")?;
+        if let V::Obj(o) = &a.p[0] {
+            return Err(unsupported(&format!("pickling or copying an instance of {}, a subclass of {}", o.cls.name, iter_tp_name(&b()))));
+        }
+        iter_reduce_v(&it)
+    }));
+    let b = base.clone();
+    k.set_exact("__setstate__", builtin("__setstate__", move |a: Args| {
+        a.want("__setstate__", 2, 2)?;
+        let it = iter_self(&a.p[0], &b(), "__setstate__")?;
+        if let V::Obj(o) = &a.p[0] {
+            return Err(unsupported(&format!("__setstate__ of an instance of {}, a subclass of {}", o.cls.name, iter_tp_name(&b()))));
+        }
+        iter_setstate_v(&it, &a.p[1])
+    }));
+    if (k.module, k.name) == ("itertools", "chain") {
+        k.set_exact("from_iterable", chain_from_iterable_for(k));
+    }
+    // the methods are the class's own and read as builtin methods (not bound to an instance's class)
+    for n in ["__new__", "__iter__", "__next__", "__repr__", "__length_hint__", "__reduce__", "__setstate__"] {
+        if let Some(V::Func(f)) = k.own(n) {
+            f.qualname.set(sym(&format!("{}.{n}", k.name)));
+        }
+    }
+}
+// chain.from_iterable for class k (chain or a subclass of it): a classmethod in CPython, so C.from_iterable(x)
+// makes a C without calling its __init__.
+pub fn chain_from_iterable_for(k: &Rc<Class>) -> V {
+    let w = Rc::downgrade(k);
+    let f = builtin("from_iterable", move |a: Args| {
+        let src = get_iter(&a1(&a, "from_iterable")?)?;
+        let inner = chain_new(src);
+        let k = w.upgrade().expect("chain class");
+        if k.module == "itertools" {
+            return Ok(inner);
+        }
+        let o = Obj::new(k);
+        o.set_inner(Some(inner));
+        Ok(V::Obj(o))
+    });
+    if let V::Func(ff) = &f {
+        ff.attrs.borrow_mut().push(("__bv_nobind__", V::Bool(true)));
+        ff.attrs.borrow_mut().push(("__bv_chain_fi__", V::Bool(true)));
+    }
+    f
+}
+pub fn is_chain_fi(f: &V) -> bool {
+    matches!(f, V::Func(x) if x.attrs.borrow().iter().any(|(k, _)| *k == "__bv_chain_fi__"))
 }
 thread_local! {
     // type_of's builtin classes, filled on first use (init_builtin_classes empties it)
@@ -1376,6 +1615,9 @@ pub fn bi_round(a: Args) -> R {
 pub fn bi_divmod(a: Args) -> R {
     let a = enum_nums(a);
     a.want("divmod", 2, 2)?;
+    if cplx_of(&a.p[0]).is_some() || cplx_of(&a.p[1]).is_some() {
+        return Err(op_err("divmod()", &a.p[0], &a.p[1]));
+    }
     let q = binop(&a.p[0], &a.p[1], "//")?;
     let r = binop(&a.p[0], &a.p[1], "%")?;
     Ok(tup(vec![q, r]))
@@ -1411,6 +1653,9 @@ pub fn bi_pow(a: Args) -> R {
     let a = enum_nums(a);
     a.want("pow", 2, 3)?;
     if a.p.len() == 3 && !matches!(a.p[2], V::None) {
+        if let Some(r) = complex_pow3(&a.p[0], &a.p[1], &a.p[2]) {
+            return r;
+        }
         let (b, e, m) = (big_of(&a.p[0]), big_of(&a.p[1]), big_of(&a.p[2]));
         let (mut b, mut e, m) = match (b, e, m) {
             (Some(b), Some(e), Some(m)) => (b, e, m),
@@ -1649,11 +1894,26 @@ pub fn builtin_value(name: &str) -> Option<V> {
     if name == "memoryview" {
         return Some(V::Class(ext_class("memoryview")));
     }
+    if name == "complex" {
+        return Some(V::Class(ext_class("complex")));
+    }
     if builtin_type_name(name) && name != "slice" {
         return Some(V::Class(bclass(name)));
     }
     if name == "slice" {
         return Some(builtin("slice", bi_slice));
+    }
+    // the builtin iterator types are classes, as in CPython (type(zip()) is zip, subclassing zip)
+    let kind = match name {
+        "zip" => Some(ItKind::Zip),
+        "map" => Some(ItKind::Map),
+        "filter" => Some(ItKind::Filter),
+        "enumerate" => Some(ItKind::Enumerate),
+        "reversed" => Some(ItKind::Reversed),
+        _ => None,
+    };
+    if let Some(k) = kind {
+        return it_class(k).ok().map(V::Class);
     }
     if let Some(f) = builtin_fn(name) {
         let n: Sym = sym(name);
@@ -1679,6 +1939,9 @@ pub fn builtin_type_call(c: &Rc<Class>, a: &mut Args) -> Option<R> {
     }
     if c.name == "bytearray" && c.module == "builtins" {
         return Some(bi_bytearray(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));
+    }
+    if c.name == "complex" && c.module == "builtins" {
+        return Some(bi_complex(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));
     }
     if c.name == "memoryview" && c.module == "builtins" {
         return Some(bi_memoryview(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));

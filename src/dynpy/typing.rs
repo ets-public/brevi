@@ -903,6 +903,30 @@ pub fn tparams_used(d: &super::parse::FuncDef, names: &[String], anns: bool) -> 
     hit
 }
 
+// Whether a def or class inside `body` (at any depth) has an annotation CPython evaluates that names one of
+// `names` (PEP 695 parameters of an enclosing def, which its body does not bind here). A function body's own
+// annotated statements are never evaluated; a class body's are.
+pub fn tparams_in_nested_anns(body: &[Stmt], names: &[String]) -> bool {
+    fn names_one(e: &Ex, names: &[String]) -> bool {
+        let mut hit = false;
+        crate::typed_guard::walk_ex(e, &mut |x| hit |= matches!(x, Ex::Name(n) if names.contains(n)));
+        hit
+    }
+    fn go(body: &[Stmt], in_class: bool, names: &[String]) -> bool {
+        body.iter().any(|s| match &s.st {
+            St::Def(d) => d.params.ann.iter().any(|(_, a)| names_one(a, names)) || d.ret.as_ref().is_some_and(|r| names_one(r, names)) || go(&d.body, false, names),
+            St::Class(c) => go(&c.body, true, names),
+            St::AnnAssign(_, _, a, _) if in_class => names_one(a, names),
+            st => {
+                let mut hit = false;
+                blocks(st, &mut |b| hit |= go(b, in_class, names));
+                hit
+            }
+        })
+    }
+    go(body, false, names)
+}
+
 // The first use of exec() or compile(), or of eval() on anything but a string literal, in modules that do not bind
 // that name: a program that runs a string as code, which the dynamic build refuses on purpose (emit.rs). When the
 // typing check refuses such a program too, this is the refusal reported: the program could not be built either way,

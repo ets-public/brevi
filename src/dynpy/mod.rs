@@ -59,6 +59,8 @@ pub const RUNTIME: &str = concat!(
     include_str!("rt_bytes.rs"),
     include_str!("rt_bytearray.rs"),
     include_str!("rt_memview.rs"),
+    include_str!("rt_complex.rs"),
+    include_str!("rt_bigrange.rs"),
     include_str!("rt_np.rs"),
     include_str!("rt_npsort.rs"),
     include_str!("rt_npfmt.rs"),
@@ -565,6 +567,7 @@ pub fn has_source(file: &str) -> bool {
 
 fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, String)> {
     let given = SOURCE.lock().unwrap().as_ref().filter(|(f, _)| f == file).map(|(_, t)| t.clone());
+    emit::BV_SPELLING.store(given.is_some(), Ordering::Relaxed);
     let src = match given {
         Some(t) => t,
         None => crate::read_src(file).map_err(|e| (file.to_string(), 0, e.to_string()))?,
@@ -790,9 +793,11 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
             let user: Vec<(&str, &[parse::Stmt])> = mods.iter().filter(|m| !own_mods.contains(&m.name)).map(|m| (m.name.as_str(), m.body.as_slice())).collect();
             (pyd::class_names(&user), pyd::models(&user))
         };
+        let mut seen = std::collections::HashMap::new();
         for m in mods.iter_mut().filter(|m| !own_mods.contains(&m.name)) {
-            pyd::rewrite(&mut m.body, &classes, &models);
+            seen.insert(m.name.clone(), pyd::rewrite(&mut m.body, &classes, &models));
         }
+        *emit::PYD_ANN.lock().unwrap() = Some(seen);
         let user: Vec<(&str, &[parse::Stmt])> = mods.iter().filter(|m| !own_mods.contains(&m.name)).map(|m| (m.name.as_str(), m.body.as_slice())).collect();
         if let Err((m, l, why)) = pyd::check(&user) {
             if std::env::var("BREVI_PYD_DEBUG").is_ok() {

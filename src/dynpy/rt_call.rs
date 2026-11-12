@@ -384,6 +384,32 @@ fn meta_from_base(m: &Rc<Class>, name: Sym, qualname: Sym, module: Sym, bases: V
 }
 #[allow(clippy::too_many_arguments)]
 fn make_class_impl(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, attrs: Vec<(Sym, V)>, fields: Vec<Sym>, stmt: Option<(i64, Vec<Sym>)>, meta: Option<Rc<Class>>) -> R {
+    // a class on Generic, Protocol or a typing alias (which typing_class takes out of the bases), or on such a class
+    // (Class.made: 2 when how its subscript goes is not worked out here, 3 for none of its own type parameters, as
+    // with `class B(G)` or `class P(Protocol)`, 10 + n for `class G(Generic[T, ...])` with n of them)
+    let made = {
+        let (mut own, mut unknown, mut family) = (None, false, false);
+        for b in &bases {
+            match b {
+                V::Class(k) if k.module == "typing" && k.name == "Protocol" => family = true,
+                V::Class(k) if k.module == "typing" && k.name == "Generic" => unknown = true,
+                V::Class(k) if k.made.get() >= 2 && k.made.get() != 5 => family = true,
+                V::Ext(e) => match e.any().downcast_ref::<TForm>() {
+                    Some(f) if matches!(f.name, "Generic" | "Protocol") && own.is_none() => own = Some(f.params),
+                    _ if matches!(e.tname(), "typing._GenericAlias" | "typing._UnionGenericAlias") => unknown = true,
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
+        match own {
+            _ if unknown => 2,
+            Some(n) if n < 200 => 10 + n as u8,
+            Some(_) => 2,
+            None if family => 3,
+            None => 1,
+        }
+    };
     if let Some(r) = typing_class(name, qualname, module, &mut bases, &attrs, &fields) {
         if meta.is_some() {
             return Err(unsupported("a metaclass for a NamedTuple or TypedDict class"));
@@ -400,6 +426,7 @@ fn make_class_impl(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, att
     if bs.is_empty() {
         bs.push(bclass("object"));
     }
+    iter_base_check(&bs)?;
     if name != "ByteString" && bs.iter().any(|b| is_bytestring(b)) {
         bytestring_warn()?;
     }
@@ -408,6 +435,7 @@ fn make_class_impl(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, att
     let abc = module == "collections.abc" || bs.iter().any(|b| b.abc.get());
     let c = Class::with_qualname(name, qualname, module, bs, bt);
     c.abc.set(abc);
+    c.made.set(made);
     *c.meta.borrow_mut() = meta;
     for (n, v) in attrs {
         c.set_exact(n, v);
@@ -430,6 +458,15 @@ fn make_class_impl(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, att
         abc_setup(&c)?;
     }
     tdict_seal(&c);
+    // chain.from_iterable is a classmethod: C.from_iterable(x) makes a C
+    if let Some(base) = iter_base_of(&c) {
+        if (base.module, base.name) == ("itertools", "chain") {
+            // unless a class of the program defines its own from_iterable before chain in the MRO
+            if c.lookup("from_iterable").is_some_and(|f| is_chain_fi(&f)) {
+                c.set_exact("from_iterable", chain_from_iterable_for(&c));
+            }
+        }
+    }
     // a __slots__ name that the class body also binds is refused, as CPython refuses it
     if let Some(sv) = c.own("__slots__") {
         let mut own_slots = vec![];
@@ -672,12 +709,9 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
             }
         }
     }
-    // the classes of Brevi's own iterators: only itertools._tee can be called here; for the others a plain
-    // object would be silently wrong
+    // the classes of Brevi's own iterators (and itertools._tee_dataobject): the builtin or itertools function of the
+    // same name; for the others a plain object would be silently wrong
     if c.module != "__main__" && is_iter_class(c) {
-        if c.module == "itertools" && c.name == "_tee" {
-            return tee_new(a);
-        }
         if let Some(r) = iter_class_call(c, a) {
             return r;
         }
