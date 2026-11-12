@@ -968,7 +968,7 @@ pub fn abc_register(a: Args) -> R {
     ABC_TOKEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     Ok(a.p[1].clone())
 }
-fn abc_meta_class() -> Rc<Class> {
+pub fn abc_meta_class() -> Rc<Class> {
     thread_local! {
         static META: RefCell<Option<Rc<Class>>> = const { RefCell::new(None) };
     }
@@ -1003,6 +1003,7 @@ pub fn type_of(x: &V) -> Result<Rc<Class>, E> {
         V::FSet(_) => tclass(11, "frozenset"),
         V::None => tclass(12, "NoneType"),
         // a collections.abc class (or a subclass of one) is made by abc.ABCMeta, a subclass of type
+        V::Class(k) if k.meta.borrow().is_some() => k.meta.borrow().clone().unwrap(),
         V::Class(k) if k.abc.get() => abc_meta_class(),
         V::Class(_) => tclass(13, "type"),
         V::Func(f) if f.kind.get() == 3 => ext_class("builtin_function_or_method"),
@@ -1020,6 +1021,7 @@ pub fn type_of(x: &V) -> Result<Rc<Class>, E> {
         V::Slice(_) => ext_class("slice"),
         V::Ellipsis => ext_class("ellipsis"),
         V::NotImpl => ext_class("NotImplementedType"),
+        V::Ext(e) if e.tname() == "typing.TypeVar" => ext_class_mod("typing", "TypeVar"),
         V::Ext(e) if e.any().is::<SigV>() => sig_class(),
         V::Ext(e) => ext_class(e.tname()),
         V::Iter(it) => return iter_type_of(it),
@@ -3459,7 +3461,7 @@ pub fn builtin_method(o: &V, name: &str, a: Args) -> R {
                 let m = V::View(Rc::new((v.0.clone(), 3)));
                 call(&m, a)
             }
-            "get" | "copy" if v.1 == 3 => call_method(&v.0, name, a),
+            "get" | "copy" | "__contains__" | "__getitem__" if v.1 == 3 => call_method(&v.0, name, a),
             "keys" if v.1 == 3 => Ok(V::View(Rc::new((v.0.clone(), 0)))),
             "values" if v.1 == 3 => Ok(V::View(Rc::new((v.0.clone(), 1)))),
             "items" if v.1 == 3 => Ok(V::View(Rc::new((v.0.clone(), 2)))),

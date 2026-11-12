@@ -156,6 +156,9 @@ fn items_view_rich(a: &Rc<RefCell<Dict>>, b: &Rc<RefCell<Dict>>, op: &str) -> Re
     })
 }
 pub fn eq(a: &V, b: &V) -> Result<bool, E> {
+    if let Some(r) = meta_cmp(a, b, "==") {
+        return truth(&r?);
+    }
     if matches!(a, V::View(_)) || matches!(b, V::View(_)) {
         if let (Some(x), Some(y)) = (items_view_dict(a), items_view_dict(b)) {
             return items_view_eq(&x, &y);
@@ -383,6 +386,9 @@ pub fn obj_ne(a: &V, b: &V) -> Result<Option<V>, E> {
     Ok(Some(V::Bool(!is(a, b))))
 }
 pub fn ne(a: &V, b: &V) -> Result<bool, E> {
+    if let Some(r) = meta_cmp(a, b, "!=") {
+        return truth(&r?);
+    }
     if let Some(r) = obj_ne(a, b)? {
         return truth(&r);
     }
@@ -581,6 +587,9 @@ fn dunder(op: &str) -> &'static str {
 }
 // a OP b for the four ordering operators, with __lt__ & co. on objects.
 pub fn rich(a: &V, b: &V, op: &str) -> Result<bool, E> {
+    if let Some(r) = meta_cmp(a, b, op) {
+        return truth(&r?);
+    }
     if let (V::Int(x), V::Int(y)) = (a, b) {
         return Ok(match op {
             "<" => x < y,
@@ -832,6 +841,12 @@ pub fn binop(a: &V, b: &V, op: &str) -> R {
 }
 #[inline(never)]
 fn binop_slow(a: &V, b: &V, op: &str) -> R {
+    // `int | str`, `list[int] | None`, `typing.List[int] | str`: a union of types
+    if op == "|" && (matches!(a, V::Class(_) | V::Ext(_) | V::None) && matches!(b, V::Class(_) | V::Ext(_) | V::None)) {
+        if let Some(r) = union_or(a, b) {
+            return r;
+        }
+    }
     // fast paths
     if let (V::Int(x), V::Int(y)) = (a, b) {
         let (x, y) = (*x, *y);
@@ -1510,6 +1525,7 @@ pub fn len(v: &V) -> Result<usize, E> {
         return len(&__p?);
     }
     Ok(match v {
+        V::Class(c) if c.meta.borrow().is_some() => return meta_len(c, v),
         V::Class(c) if is_enum(c) => match enum_members(c) {
             V::List(l) => l.borrow().len(),
             _ => 0,
@@ -1783,8 +1799,21 @@ impl Ext for GAlias {
             "__origin__" => Ok(V::Class(self.origin.clone())),
             "__args__" => Ok(tup(self.args.clone())),
             "__parameters__" => Ok(tup(vec![])),
-            _ => Err(exc("AttributeError", format!("'types.GenericAlias' object has no attribute '{n}'"))),
+            "__class__" => return None,
+            // CPython's ga_getattro keeps these on the alias; every other name is the origin class's
+            "__unpacked__" | "__typing_unpacked_tuple_args__" | "__mro_entries__" | "__reduce_ex__" | "__reduce__" | "__copy__" | "__deepcopy__" => {
+                Err(unsupported(&format!("types.GenericAlias.{n}")))
+            }
+            _ => getattr(&V::Class(self.origin.clone()), n),
         })
+    }
+    fn eq(&self, o: &V) -> Option<bool> {
+        let V::Ext(e) = o else { return Some(false) };
+        let Some(b) = e.any().downcast_ref::<GAlias>() else { return Some(false) };
+        Some(Rc::ptr_eq(&self.origin, &b.origin) && self.args.len() == b.args.len() && self.args.iter().zip(&b.args).all(|(x, y)| eq(x, y).unwrap_or(false)))
+    }
+    fn hash(&self) -> Option<i64> {
+        Some(py_hash(&V::Class(self.origin.clone())).ok()? ^ py_hash(&tup(self.args.clone())).ok()?)
     }
     fn method(&self, _me: &V, n: &str, a: &mut Args) -> Option<R> {
         if n == "__call__" {
@@ -1951,6 +1980,12 @@ pub fn getitem(c: &V, i: &V) -> R {
                 other => vec![other.clone()],
             };
             return Ok(V::Ext(ExtRc::new(GAlias { origin: k.clone(), args })));
+        }
+        (V::Class(k), _) if k.module == "typing" => {
+            if let Some(r) = typing_subscript(k, i) {
+                return r;
+            }
+            return Ok(c.clone());
         }
         (V::Class(_), _) => return Ok(c.clone()), // typing: list[int]
         (V::Ext(x), _) => {

@@ -240,6 +240,14 @@ thread_local! {
 pub fn s(x: &str) -> V {
     V::Str(Rc::new(S { s: x.to_string(), ascii: x.is_ascii() }))
 }
+// The one str object for an interned name (a Sym): reads of a def's __name__, __qualname__ or __module__ give the
+// same object every time, as CPython's interned identifiers are.
+thread_local! {
+    static SYM_STRS: RefCell<HashMap<Sym, V>> = RefCell::new(HashMap::new());
+}
+pub fn s_sym(x: Sym) -> V {
+    SYM_STRS.with(|m| m.borrow_mut().entry(x).or_insert_with(|| s(x)).clone())
+}
 pub fn st(x: String) -> V {
     let ascii = x.is_ascii();
     V::Str(Rc::new(S { s: x, ascii }))
@@ -1277,6 +1285,7 @@ pub fn py_hash(v: &V) -> Result<i64, E> {
                 ptr_hash(Rc::as_ptr(o) as usize)
             }
         }
+        V::Class(c) if c.meta.borrow().is_some() => return meta_hash(c, v),
         V::Class(c) => (Rc::as_ptr(c) as usize >> 4) as i64,
         V::Func(f) => (Rc::as_ptr(f) as usize >> 4) as i64,
         // iterators and generators hash by identity, as in CPython
@@ -2328,6 +2337,9 @@ pub struct Class {
     pub abc_cache: RefCell<Vec<Rc<Class>>>,
     pub abc_neg_cache: RefCell<Vec<Rc<Class>>>,
     pub abc_neg_ver: Cell<u64>,
+    // the class's metaclass when a program's subclass of type made it (`class C(metaclass=M)`, or a base made
+    // by M); None for every class whose type is type (or abc.ABCMeta, which `abc` marks)
+    pub meta: RefCell<Option<Rc<Class>>>,
     // what CPython's type_new added to this class's dict (rt_tdict.rs); None for Brevi's builtin classes
     pub tinfo: RefCell<Option<Rc<TInfo>>>,
 }
@@ -2365,7 +2377,7 @@ impl Class {
         Self::with_qualname(name, name, module, bases, bt)
     }
     pub fn with_qualname(name: Sym, qualname: Sym, module: Sym, bases: Vec<Rc<Class>>, bt: BT) -> Rc<Class> {
-        let c = Rc::new(Class { name, qualname: Cell::new(qualname), module, bases: bases.clone(), mro: RefCell::new(vec![]), subs: RefCell::new(vec![]), attrs: RefCell::new(vec![]), bt, fields: RefCell::new(vec![]), lcache: RefCell::new((0, HashMap::default())), fcache: RefCell::new((0, Default::default())), set_info: RefCell::new((0, false, vec![], None)), plain_new: Cell::new((0, false)), plain_hash: Cell::new((0, false)), abc: Cell::new(false), abc_registry: RefCell::new(vec![]), abc_cache: RefCell::new(vec![]), abc_neg_cache: RefCell::new(vec![]), abc_neg_ver: Cell::new(0), tinfo: RefCell::new(None) });
+        let c = Rc::new(Class { name, qualname: Cell::new(qualname), module, bases: bases.clone(), mro: RefCell::new(vec![]), subs: RefCell::new(vec![]), attrs: RefCell::new(vec![]), bt, fields: RefCell::new(vec![]), lcache: RefCell::new((0, HashMap::default())), fcache: RefCell::new((0, Default::default())), set_info: RefCell::new((0, false, vec![], None)), plain_new: Cell::new((0, false)), plain_hash: Cell::new((0, false)), abc: Cell::new(false), abc_registry: RefCell::new(vec![]), abc_cache: RefCell::new(vec![]), abc_neg_cache: RefCell::new(vec![]), abc_neg_ver: Cell::new(0), tinfo: RefCell::new(None), meta: RefCell::new(None) });
         // C3 linearization
         let mut seqs: Vec<Vec<Rc<Class>>> = bases.iter().map(|b| b.mro.borrow().clone()).collect();
         seqs.push(bases.clone());
@@ -3459,7 +3471,10 @@ pub fn type_name(v: &V) -> String {
         V::Set(_) => "set".into(),
         V::FSet(_) => "frozenset".into(),
         V::Func(f) => if f.kind.get() == 3 { "builtin_function_or_method".into() } else { "function".into() },
-        V::Class(_) => "type".into(),
+        V::Class(c) => match c.meta.borrow().as_ref() {
+            Some(m) => m.name.into(),
+            None => "type".into(),
+        },
         V::Obj(o) => o.cls.name.into(),
         V::Bound(_) | V::BMeth(_) => "method".into(),
         V::Iter(_) => "iterator".into(),
@@ -3521,6 +3536,7 @@ pub fn truth(v: &V) -> Result<bool, E> {
         V::Deque(d) => !d.borrow().v.is_empty(),
         V::Range(_) => range_len(v) > 0,
         V::View(_) => len(v)? > 0,
+        V::Class(c) if c.meta.borrow().is_some() => return meta_truth(c, v),
         V::Obj(o) => {
             if let Some(f) = o.cls.lookup("__bool__") {
                 return truth(&call(&f, Args::p(vec![v.clone()]))?);
