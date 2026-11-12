@@ -41,11 +41,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Rust stable
+      - name: Rust (pinned in .github/rust-version)
         id: fp
         run: |
-          rustup toolchain install stable --profile minimal --no-self-update
-          rustup default stable
+          v=$(cat .github/rust-version)
+          rustup toolchain install "$v" --profile minimal --no-self-update
+          rustup default "$v"
           echo "rustc_hash=$(rustc -vV | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
 
       - name: Reuse the daily run's build cache (read only)

@@ -31,6 +31,10 @@ if [ "$mode" = pr ]; then
   fi
 fi
 step "Toolchain"; rustc -V; python3 -V
+# The same Rust as GitHub CI (.github/rust-version), or results differ: a newer rustc's Unicode tables change what
+# re.IGNORECASE accepts. Fix with: rustup toolchain install X && rustup default X
+pin=$(cat .github/rust-version)
+case "$(rustc -V)" in "rustc $pin "*) ;; *) echo "ci_local: rustc must be $pin, as in GitHub CI (rustup default $pin)" >&2; exit 1;; esac
 step "Build"; cargo build --release -q
 # The MCP checks compare Brevi's servers with CPython running the real mcp, so they need the same mcp stack as GitHub
 # (tests/requirements-native.txt without duckdb and onnxruntime): with another pydantic, CPython's own session ends

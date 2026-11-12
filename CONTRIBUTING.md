@@ -30,7 +30,9 @@ httpx, pydantic, tiktoken, tokenizers, the anthropic and openai SDKs). Bots open
 
 - Dependabot (`.github/dependabot.yml`): Cargo, GitHub Actions, CI's Python tools and the Docker base image, one
   grouped PR per ecosystem each Saturday.
-- `toolchains.yml` (daily): Rust stable and the newest Python; Rust beta and nightly on Mondays.
+- `toolchains.yml` (daily): Rust stable and the newest Python; Rust beta and nightly on Mondays. PRs, releases,
+  `conformance-main.yml`, `windows.yml`, the Docker image and `tools/ci_local.sh` use the Rust pinned in
+  `.github/rust-version` instead, so a new Rust release can't turn every PR red; lift the pin once the new release passes.
 - `upstream.yml` (Monday, Thursday, Saturday): new Rust, Python, crate and MCP specification releases
   (`tools/upstream_watch.py`); new releases of the mirrored libraries, with a CPython run of their tests on the
   pinned and the new version (`tools/parity_drift.py`, pins in `tools/upstream_pins.json`); OSV security
