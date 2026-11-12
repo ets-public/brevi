@@ -74,7 +74,7 @@ pub fn math_fn(name: &str, a: Args) -> R {
                 V::Ext(e) => match e.method(&x, &format!("__{name}__"), &mut Args::p(vec![])) {
                     Some(r) => r?,
                     None => fl_int({
-                        let f = to_float(&x)?;
+                        let f = to_float(&x).map_err(|_| exc("TypeError", format!("must be real number, not {}", tn(&x))))?;
                         match name {
                             "floor" => f.floor(),
                             "ceil" => f.ceil(),
@@ -2096,13 +2096,27 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             groupby_iter(it, key)
         }
         "count" => {
-            let mut n = a.p.first().cloned().unwrap_or(V::Int(0));
-            let st0 = a.p.get(1).cloned().unwrap_or(V::Int(1));
-            gen_iter(ItKind::ItCount, move || {
-                let v = n.clone();
-                n = add(&n, &st0)?;
-                Ok(Some(v))
-            })
+            if a.p.len() > 2 {
+                return type_err(format!("count() takes at most 2 arguments ({} given)", a.p.len()));
+            }
+            let start = a.kw("start");
+            let step = a.kw("step");
+            if let Some((k, _)) = a.k.first() {
+                return type_err(format!("count() got an unexpected keyword argument '{k}'"));
+            }
+            let n = a.p.first().cloned().or(start).unwrap_or(V::Int(0));
+            let st0 = a.p.get(1).cloned().or(step).unwrap_or(V::Int(1));
+            // PyNumber_Check: an int, float or complex, or a value with __index__, __int__ or __float__
+            let number = |v: &V| match v {
+                V::Bool(_) | V::Int(_) | V::Big(_) | V::Float(_) => true,
+                V::Ext(x) => cplx_of(v).is_some() || x.to_f64().is_some(),
+                V::Obj(o) => ["__index__", "__int__", "__float__", "__complex__"].iter().any(|m| o.cls.lookup(m).is_some()) || inner_of(v).is_some_and(|i| matches!(i, V::Bool(_) | V::Int(_) | V::Big(_) | V::Float(_))),
+                _ => false,
+            };
+            if !number(&n) || !number(&st0) {
+                return type_err("a number is required".into());
+            }
+            new_iter(It::Count(n, st0), IterClass::Kind(ItKind::ItCount))
         }
         "islice" => {
             if !a.k.is_empty() {

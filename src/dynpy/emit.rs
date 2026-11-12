@@ -267,13 +267,13 @@ fn hybrid_bridged(m: &str) -> bool {
 }
 // Python builtins dynamic builds do not have: refused when the program is built.
 fn is_missing_builtin(n: &str) -> bool {
-    matches!(n, "exec" | "eval" | "compile" | "__import__" | "complex" | "dir" | "help" | "breakpoint" | "open" | "__build_class__" | "globals" | "locals")
+    matches!(n, "exec" | "eval" | "compile" | "__import__" | "dir" | "help" | "breakpoint" | "open" | "__build_class__" | "globals" | "locals")
 }
 
 fn is_builtin_name(n: &str) -> bool {
     matches!(
         n,
-        "print" | "input" | "len" | "repr" | "ascii" | "abs" | "min" | "max" | "sum" | "sorted" | "reversed" | "enumerate" | "zip" | "map" | "filter" | "any" | "all" | "iter" | "next" | "isinstance" | "issubclass" | "hasattr" | "getattr" | "setattr" | "delattr" | "callable" | "ord" | "chr" | "hex" | "oct" | "bin" | "round" | "divmod" | "pow" | "hash" | "id" | "format" | "vars" | "exit" | "quit" | "staticmethod" | "classmethod" | "property" | "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "slice" | "super" | "NotImplemented" | "Ellipsis" | "__name__" | "bytes" | "bytearray" | "memoryview" | "__bytes_lit" | "aiter" | "anext" | "__brevi_aenter" | "__brevi_aexit" | "__brevi_eg_split" | "__brevi_eg_reraise"
+        "print" | "input" | "len" | "repr" | "ascii" | "abs" | "min" | "max" | "sum" | "sorted" | "reversed" | "enumerate" | "zip" | "map" | "filter" | "any" | "all" | "iter" | "next" | "isinstance" | "issubclass" | "hasattr" | "getattr" | "setattr" | "delattr" | "callable" | "ord" | "chr" | "hex" | "oct" | "bin" | "round" | "divmod" | "pow" | "hash" | "id" | "format" | "vars" | "exit" | "quit" | "staticmethod" | "classmethod" | "property" | "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "slice" | "super" | "NotImplemented" | "Ellipsis" | "__name__" | "bytes" | "bytearray" | "memoryview" | "__bytes_lit" | "complex" | "__complex_lit" | "aiter" | "anext" | "__brevi_aenter" | "__brevi_aexit" | "__brevi_eg_split" | "__brevi_eg_reraise"
     ) || is_exc_name(n)
 }
 fn is_exc_name(n: &str) -> bool {
@@ -4126,7 +4126,7 @@ impl Em {
         // a subclass of bytes, bytearray or memoryview has no wrapped value here (str, int and the containers do)
         for b in &c.bases {
             if let Ex::Name(n) = b {
-                if matches!(n.as_str(), "bytes" | "bytearray" | "memoryview") && self.lookup(n).is_none() {
+                if matches!(n.as_str(), "bytes" | "bytearray" | "memoryview" | "complex") && self.lookup(n).is_none() {
                     return Err(err(c.line, &format!("a subclass of {n} is not supported in dynamic builds")));
                 }
             }

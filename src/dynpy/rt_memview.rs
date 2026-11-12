@@ -235,6 +235,10 @@ impl Ext for MemV {
             format!("<memory at {at:#x}>")
         }
     }
+    // type(iter(x)): CPython's memory_iterator class, one shared class
+    fn iter_class(&self, _me: &V) -> Option<Rc<Class>> {
+        Some(ext_class_mod("builtins", "memory_iterator"))
+    }
     fn any(&self) -> &dyn std::any::Any {
         self
     }

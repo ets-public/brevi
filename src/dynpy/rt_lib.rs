@@ -660,7 +660,25 @@ pub fn bi_iter(a: Args) -> R {
             }
         }));
     }
-    iter_v(&a1(&a, "iter")?)
+    let v = a1(&a, "iter")?;
+    // iter(x) is what x.__iter__() returned when that is an iterator of the program's own (an iterator's
+    // __iter__ returning self keeps `iter(it) is it`, as in CPython)
+    if let V::Obj(o) = &v {
+        if let Some(f) = o.cls.lookup("__iter__") {
+            let r = call(&f, Args::p(vec![v.clone()]))?;
+            if let V::Obj(ro) = &r {
+                if ro.cls.lookup("__next__").is_none() {
+                    return type_err(format!("iter() returned non-iterator of type '{}'", tn(&r)));
+                }
+                return Ok(r);
+            }
+            if !matches!(r, V::Iter(_) | V::Ext(_)) {
+                return type_err(format!("iter() returned non-iterator of type '{}'", tn(&r)));
+            }
+            return iter_v(&r);
+        }
+    }
+    iter_v(&v)
 }
 pub fn bi_next(a: Args) -> R {
     a.want("next", 1, 2)?;
@@ -1313,6 +1331,9 @@ pub fn bi_round(a: Args) -> R {
 pub fn bi_divmod(a: Args) -> R {
     let a = enum_nums(a);
     a.want("divmod", 2, 2)?;
+    if cplx_of(&a.p[0]).is_some() || cplx_of(&a.p[1]).is_some() {
+        return Err(op_err("divmod()", &a.p[0], &a.p[1]));
+    }
     let q = binop(&a.p[0], &a.p[1], "//")?;
     let r = binop(&a.p[0], &a.p[1], "%")?;
     Ok(tup(vec![q, r]))
@@ -1348,6 +1369,9 @@ pub fn bi_pow(a: Args) -> R {
     let a = enum_nums(a);
     a.want("pow", 2, 3)?;
     if a.p.len() == 3 && !matches!(a.p[2], V::None) {
+        if let Some(r) = complex_pow3(&a.p[0], &a.p[1], &a.p[2]) {
+            return r;
+        }
         let (b, e, m) = (big_of(&a.p[0]), big_of(&a.p[1]), big_of(&a.p[2]));
         let (mut b, mut e, m) = match (b, e, m) {
             (Some(b), Some(e), Some(m)) => (b, e, m),
@@ -1577,6 +1601,9 @@ pub fn builtin_value(name: &str) -> Option<V> {
     if name == "memoryview" {
         return Some(V::Class(ext_class("memoryview")));
     }
+    if name == "complex" {
+        return Some(V::Class(ext_class("complex")));
+    }
     if builtin_type_name(name) && name != "slice" {
         return Some(V::Class(bclass(name)));
     }
@@ -1607,6 +1634,9 @@ pub fn builtin_type_call(c: &Rc<Class>, a: &mut Args) -> Option<R> {
     }
     if c.name == "bytearray" && c.module == "builtins" {
         return Some(bi_bytearray(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));
+    }
+    if c.name == "complex" && c.module == "builtins" {
+        return Some(bi_complex(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));
     }
     if c.name == "memoryview" && c.module == "builtins" {
         return Some(bi_memoryview(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));

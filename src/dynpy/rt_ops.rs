@@ -1187,7 +1187,11 @@ fn float_op(x: f64, y: f64, op: &str, a: &V, b: &V) -> R {
                 return Err(exc("ZeroDivisionError", "0.0 cannot be raised to a negative power".into()));
             }
             if x < 0.0 && y.fract() != 0.0 {
-                return Err(unsupported("complex numbers"));
+                // float_pow: a negative number to a fractional power is complex_pow's
+                if x.is_finite() && y.is_finite() {
+                    return c_pow((x, 0.0), (y, 0.0));
+                }
+                return Err(unsupported("a negative float to an infinite or NaN power"));
             }
             let r = x.powf(y);
             if r.is_infinite() && x.is_finite() && y.is_finite() {
@@ -2124,6 +2128,8 @@ pub enum It {
     // itertools.repeat: the element and the calls left (None = forever), so repr() shows CPython's
     // remaining count even after the iterator is exhausted.
     Repeat(V, Option<i64>),
+    // itertools.count: the next value and the step, kept so repr() shows CPython's count(...)
+    Count(V, V),
     Str(Rc<S>, usize),
     Range(i64, i64, i64),
     Dict(Rc<RefCell<Dict>>, usize, u8, u64, usize),
@@ -2217,6 +2223,11 @@ impl It {
                 }
             }
             It::Vec(v) => Ok(v.next()),
+            It::Count(n, step) => {
+                let v = n.clone();
+                *n = add(n, step)?;
+                Ok(Some(v))
+            }
             It::Repeat(x, n) => match n {
                 Some(k) if *k == 0 => Ok(None),
                 Some(k) => {
@@ -2455,6 +2466,9 @@ pub fn iter_v(v: &V) -> R {
                 }
                 let cls = ro.cls.clone();
                 return Ok(new_iter(It::Obj(r), IterClass::Class(cls)));
+            }
+            if !matches!(r, V::Iter(_) | V::Ext(_)) {
+                return type_err(format!("iter() returned non-iterator of type '{}'", tn(&r)));
             }
             return iter_v(&r);
         }

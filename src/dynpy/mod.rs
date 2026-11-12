@@ -52,6 +52,7 @@ pub const RUNTIME: &str = concat!(
     include_str!("rt_bytes.rs"),
     include_str!("rt_bytearray.rs"),
     include_str!("rt_memview.rs"),
+    include_str!("rt_complex.rs"),
     include_str!("rt_np.rs"),
     include_str!("rt_npsort.rs"),
     include_str!("rt_npfmt.rs"),
