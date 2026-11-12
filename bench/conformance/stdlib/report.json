@@ -1,262 +1,360 @@
 {
-"brevi": "brevi 0.27.0",
+"brevi": "brevi 0.27.1",
 "python": "3.13.13",
 "tag": "v3.13.13",
-"date": "2026-11-11",
+"date": "2026-11-12",
 "platform": "linux",
 "sandboxed": false,
 "timeout_s": 20,
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 257,
-"refused": 170,
-"wrong_output": 3,
-"wrong_exit": 19,
-"crash_or_timeout": 1,
-"not_extractable": 104,
-"unstable": 22,
-"excluded": 29,
-"total": 605,
-"scored": 554,
-"matched_through_cpython": 7,
-"matched_silent": 28,
-"coverage": 0.4513,
-"wrong": 22
+"matched": 580,
+"refused": 44,
+"by_design": 4,
+"string_model": 1,
+"cpython_private": 6,
+"wrong_output": 0,
+"wrong_exit": 3,
+"crash_or_timeout": 0,
+"not_extractable": 0,
+"unstable": 15,
+"excluded": 150,
+"total": 803,
+"scored": 634,
+"matched_through_cpython": 1,
+"matched_silent": 34,
+"coverage": 0.9132,
+"wrong": 3,
+"matched_asserting": 545,
+"assert_coverage": 0.8596,
+"matched_typed": 18,
+"typed_share": 0.0311
 },
 "dyn": {
-"matched": 251,
-"refused": 178,
-"wrong_output": 2,
-"wrong_exit": 18,
-"crash_or_timeout": 1,
-"not_extractable": 104,
-"unstable": 22,
-"excluded": 29,
-"total": 605,
-"scored": 554,
+"matched": 579,
+"refused": 45,
+"by_design": 4,
+"string_model": 1,
+"cpython_private": 6,
+"wrong_output": 0,
+"wrong_exit": 3,
+"crash_or_timeout": 0,
+"not_extractable": 0,
+"unstable": 15,
+"excluded": 150,
+"total": 803,
+"scored": 634,
 "matched_through_cpython": 0,
-"matched_silent": 28,
-"coverage": 0.4531,
-"wrong": 20
+"matched_silent": 34,
+"coverage": 0.9132,
+"wrong": 3,
+"matched_asserting": 545,
+"assert_coverage": 0.8596,
+"matched_typed": 0,
+"typed_share": 0.0
 }
 },
 "files": {
 "test_itertools": {
 "normal": {
-"matched": 77,
-"refused": 9,
-"wrong_output": 1,
-"wrong_exit": 3,
+"matched": 111,
+"refused": 8,
+"by_design": 1,
+"string_model": 0,
+"cpython_private": 0,
+"wrong_output": 0,
+"wrong_exit": 1,
 "crash_or_timeout": 0,
-"not_extractable": 44,
-"unstable": 0,
-"excluded": 11,
+"not_extractable": 0,
+"unstable": 1,
+"excluded": 23,
 "total": 145,
-"scored": 134,
-"matched_through_cpython": 2,
-"matched_silent": 26,
-"coverage": 0.5597,
-"wrong": 4
+"scored": 120,
+"matched_through_cpython": 0,
+"matched_silent": 28,
+"coverage": 0.925,
+"wrong": 1,
+"matched_asserting": 83,
+"assert_coverage": 0.6917,
+"matched_typed": 2,
+"typed_share": 0.018
 },
 "dyn": {
-"matched": 75,
-"refused": 11,
-"wrong_output": 1,
-"wrong_exit": 3,
+"matched": 111,
+"refused": 8,
+"by_design": 1,
+"string_model": 0,
+"cpython_private": 0,
+"wrong_output": 0,
+"wrong_exit": 1,
 "crash_or_timeout": 0,
-"not_extractable": 44,
-"unstable": 0,
-"excluded": 11,
+"not_extractable": 0,
+"unstable": 1,
+"excluded": 23,
 "total": 145,
-"scored": 134,
+"scored": 120,
 "matched_through_cpython": 0,
-"matched_silent": 26,
-"coverage": 0.5597,
-"wrong": 4
+"matched_silent": 28,
+"coverage": 0.925,
+"wrong": 1,
+"matched_asserting": 83,
+"assert_coverage": 0.6917,
+"matched_typed": 0,
+"typed_share": 0.0
 }
 },
 "test_collections": {
 "normal": {
-"matched": 32,
-"refused": 40,
-"wrong_output": 1,
-"wrong_exit": 7,
+"matched": 69,
+"refused": 15,
+"by_design": 2,
+"string_model": 0,
+"cpython_private": 1,
+"wrong_output": 0,
+"wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 4,
-"unstable": 13,
+"not_extractable": 0,
+"unstable": 10,
 "excluded": 4,
 "total": 101,
-"scored": 84,
-"matched_through_cpython": 2,
-"matched_silent": 0,
-"coverage": 0.3571,
-"wrong": 8
-},
-"dyn": {
-"matched": 30,
-"refused": 43,
-"wrong_output": 1,
-"wrong_exit": 6,
-"crash_or_timeout": 0,
-"not_extractable": 4,
-"unstable": 13,
-"excluded": 4,
-"total": 101,
-"scored": 84,
+"scored": 85,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.3571,
-"wrong": 7
+"coverage": 0.8118,
+"wrong": 0,
+"matched_asserting": 69,
+"assert_coverage": 0.8118,
+"matched_typed": 0,
+"typed_share": 0.0
+},
+"dyn": {
+"matched": 69,
+"refused": 15,
+"by_design": 2,
+"string_model": 0,
+"cpython_private": 1,
+"wrong_output": 0,
+"wrong_exit": 0,
+"crash_or_timeout": 0,
+"not_extractable": 0,
+"unstable": 10,
+"excluded": 4,
+"total": 101,
+"scored": 85,
+"matched_through_cpython": 0,
+"matched_silent": 0,
+"coverage": 0.8118,
+"wrong": 0,
+"matched_asserting": 69,
+"assert_coverage": 0.8118,
+"matched_typed": 0,
+"typed_share": 0.0
 }
 },
 "test_re": {
 "normal": {
-"matched": 74,
-"refused": 46,
-"wrong_output": 1,
-"wrong_exit": 6,
-"crash_or_timeout": 1,
-"not_extractable": 22,
+"matched": 138,
+"refused": 3,
+"by_design": 1,
+"string_model": 1,
+"cpython_private": 2,
+"wrong_output": 0,
+"wrong_exit": 0,
+"crash_or_timeout": 0,
+"not_extractable": 0,
 "unstable": 2,
-"excluded": 13,
+"excluded": 18,
 "total": 165,
-"scored": 150,
-"matched_through_cpython": 2,
-"matched_silent": 2,
-"coverage": 0.48,
-"wrong": 7
+"scored": 144,
+"matched_through_cpython": 1,
+"matched_silent": 3,
+"coverage": 0.9514,
+"wrong": 0,
+"matched_asserting": 134,
+"assert_coverage": 0.9306,
+"matched_typed": 16,
+"typed_share": 0.1168
 },
 "dyn": {
-"matched": 73,
-"refused": 48,
+"matched": 137,
+"refused": 4,
+"by_design": 1,
+"string_model": 1,
+"cpython_private": 2,
 "wrong_output": 0,
-"wrong_exit": 6,
-"crash_or_timeout": 1,
-"not_extractable": 22,
+"wrong_exit": 0,
+"crash_or_timeout": 0,
+"not_extractable": 0,
 "unstable": 2,
-"excluded": 13,
+"excluded": 18,
 "total": 165,
-"scored": 150,
+"scored": 144,
 "matched_through_cpython": 0,
-"matched_silent": 2,
-"coverage": 0.4867,
-"wrong": 6
+"matched_silent": 3,
+"coverage": 0.9514,
+"wrong": 0,
+"matched_asserting": 134,
+"assert_coverage": 0.9306,
+"matched_typed": 0,
+"typed_share": 0.0
 }
 },
 "test_textwrap": {
 "normal": {
-"matched": 62,
+"matched": 66,
 "refused": 0,
+"by_design": 0,
+"string_model": 0,
+"cpython_private": 0,
 "wrong_output": 0,
-"wrong_exit": 2,
+"wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 2,
+"not_extractable": 0,
 "unstable": 0,
 "excluded": 0,
 "total": 66,
 "scored": 66,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.9394,
-"wrong": 2
+"coverage": 1.0,
+"wrong": 0,
+"matched_asserting": 66,
+"assert_coverage": 1.0,
+"matched_typed": 0,
+"typed_share": 0.0
 },
 "dyn": {
-"matched": 62,
+"matched": 66,
 "refused": 0,
+"by_design": 0,
+"string_model": 0,
+"cpython_private": 0,
 "wrong_output": 0,
-"wrong_exit": 2,
+"wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 2,
+"not_extractable": 0,
 "unstable": 0,
 "excluded": 0,
 "total": 66,
 "scored": 66,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.9394,
-"wrong": 2
+"coverage": 1.0,
+"wrong": 0,
+"matched_asserting": 66,
+"assert_coverage": 1.0,
+"matched_typed": 0,
+"typed_share": 0.0
 }
 },
 "test_functools": {
 "normal": {
-"matched": 10,
-"refused": 50,
+"matched": 158,
+"refused": 18,
+"by_design": 0,
+"string_model": 0,
+"cpython_private": 3,
 "wrong_output": 0,
-"wrong_exit": 1,
+"wrong_exit": 2,
 "crash_or_timeout": 0,
-"not_extractable": 21,
-"unstable": 7,
-"excluded": 1,
-"total": 90,
-"scored": 82,
+"not_extractable": 0,
+"unstable": 2,
+"excluded": 105,
+"total": 288,
+"scored": 181,
 "matched_through_cpython": 0,
-"matched_silent": 0,
-"coverage": 0.122,
-"wrong": 1
+"matched_silent": 3,
+"coverage": 0.8729,
+"wrong": 2,
+"matched_asserting": 155,
+"assert_coverage": 0.8564,
+"matched_typed": 0,
+"typed_share": 0.0
 },
 "dyn": {
-"matched": 10,
-"refused": 50,
+"matched": 158,
+"refused": 18,
+"by_design": 0,
+"string_model": 0,
+"cpython_private": 3,
 "wrong_output": 0,
-"wrong_exit": 1,
+"wrong_exit": 2,
 "crash_or_timeout": 0,
-"not_extractable": 21,
-"unstable": 7,
-"excluded": 1,
-"total": 90,
-"scored": 82,
+"not_extractable": 0,
+"unstable": 2,
+"excluded": 105,
+"total": 288,
+"scored": 181,
 "matched_through_cpython": 0,
-"matched_silent": 0,
-"coverage": 0.122,
-"wrong": 1
+"matched_silent": 3,
+"coverage": 0.8729,
+"wrong": 2,
+"matched_asserting": 155,
+"assert_coverage": 0.8564,
+"matched_typed": 0,
+"typed_share": 0.0
 }
 },
 "test_string": {
 "normal": {
-"matched": 2,
-"refused": 25,
+"matched": 38,
+"refused": 0,
+"by_design": 0,
+"string_model": 0,
+"cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 11,
-"unstable": 0,
-"excluded": 0,
-"total": 38,
-"scored": 38,
-"matched_through_cpython": 1,
-"matched_silent": 0,
-"coverage": 0.0263,
-"wrong": 0
-},
-"dyn": {
-"matched": 1,
-"refused": 26,
-"wrong_output": 0,
-"wrong_exit": 0,
-"crash_or_timeout": 0,
-"not_extractable": 11,
+"not_extractable": 0,
 "unstable": 0,
 "excluded": 0,
 "total": 38,
 "scored": 38,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.0263,
-"wrong": 0
+"coverage": 1.0,
+"wrong": 0,
+"matched_asserting": 38,
+"assert_coverage": 1.0,
+"matched_typed": 0,
+"typed_share": 0.0
+},
+"dyn": {
+"matched": 38,
+"refused": 0,
+"by_design": 0,
+"string_model": 0,
+"cpython_private": 0,
+"wrong_output": 0,
+"wrong_exit": 0,
+"crash_or_timeout": 0,
+"not_extractable": 0,
+"unstable": 0,
+"excluded": 0,
+"total": 38,
+"scored": 38,
+"matched_through_cpython": 0,
+"matched_silent": 0,
+"coverage": 1.0,
+"wrong": 0,
+"matched_asserting": 38,
+"assert_coverage": 1.0,
+"matched_typed": 0,
+"typed_share": 0.0
 }
 }
 },
 "paths": {
 "normal": {
-"dynamic": 254,
-"refused": 170,
+"dynamic": 565,
+"refused": 54,
 "typed": 18,
-"pybridge": 8
+"pybridge": 1
 },
 "dyn": {
-"dynamic": 272,
-"refused": 178
+"dynamic": 583,
+"refused": 55
 }
 },
 "tests": [
@@ -265,40 +363,56 @@
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown function zip()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "itertools.tee is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
 {
 "id": "test_itertools.TestBasicOps.test_accumulate",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @pickle_deprecated"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "except AssertionError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 105: complex() is not supported in dynamic builds)"
+},
+"dyn": {
+"category": "refused",
+"detail": "complex() is not supported in dynamic builds"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_batched",
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "repr() of a one-item tuple shows (x,), which the typed build keeps as a list, and this file cannot be built over dynamic values (case.py line 3: itertools.batched is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "itertools.batched is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
 {
 "id": "test_itertools.TestBasicOps.test_bug_7244",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "imports io"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_chain",
@@ -331,26 +445,50 @@
 {
 "id": "test_itertools.TestBasicOps.test_chain_reducible",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @pickle_deprecated"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_chain_setstate",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @pickle_deprecated"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_combinations",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @pickle_deprecated"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_combinations_overflow",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @support.bigaddrspacetest"
+"category": "excluded",
+"detail": "needs gigabytes of memory"
 },
 {
 "id": "test_itertools.TestBasicOps.test_combinations_result_gc",
@@ -361,20 +499,28 @@
 {
 "id": "test_itertools.TestBasicOps.test_combinations_tuple_reuse",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @support.impl_detail"
+"category": "excluded",
+"detail": "tests CPython internals"
 },
 {
 "id": "test_itertools.TestBasicOps.test_combinations_with_replacement",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @pickle_deprecated"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_combinations_with_replacement_overflow",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @support.bigaddrspacetest"
+"category": "excluded",
+"detail": "needs gigabytes of memory"
 },
 {
 "id": "test_itertools.TestBasicOps.test_combinations_with_replacement_result_gc",
@@ -385,8 +531,8 @@
 {
 "id": "test_itertools.TestBasicOps.test_combinations_with_replacement_tuple_reuse",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @support.impl_detail"
+"category": "excluded",
+"detail": "tests CPython internals"
 },
 {
 "id": "test_itertools.TestBasicOps.test_combinatorics",
@@ -405,32 +551,72 @@
 {
 "id": "test_itertools.TestBasicOps.test_compress",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @pickle_deprecated"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_count",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @pickle_deprecated"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found ="
+},
+"dyn": {
+"category": "refused",
+"detail": "complex numbers are not supported"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_count_threading",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @threading_helper.requires_working_threading"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_count_with_step",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @pickle_deprecated"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found ="
+},
+"dyn": {
+"category": "refused",
+"detail": "complex numbers are not supported"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_count_with_step_threading",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "imports threading"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_cycle",
@@ -449,54 +635,100 @@
 {
 "id": "test_itertools.TestBasicOps.test_cycle_copy_pickle",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @pickle_deprecated"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_cycle_setstate",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @pickle_deprecated"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_cycle_unpickle_compat",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @pickle_deprecated"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_dropwhile",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @pickle_deprecated"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_filter",
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: a class that defines __slots__ without defining __getstate__ cannot be pickled"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: a class that defines __slots__ without defining __getstate__ cannot be pickled"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
 {
 "id": "test_itertools.TestBasicOps.test_filterfalse",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @pickle_deprecated"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_groupby",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @pickle_deprecated"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_groupby_reentrant_eq_does_not_crash",
@@ -535,20 +767,44 @@
 {
 "id": "test_itertools.TestBasicOps.test_islice",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @pickle_deprecated"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_map",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @pickle_deprecated"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_pairwise",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "unittest API assertEqual"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_pairwise_reenter",
@@ -587,14 +843,22 @@
 {
 "id": "test_itertools.TestBasicOps.test_permutations",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @pickle_deprecated"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_permutations_overflow",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @support.bigaddrspacetest"
+"category": "excluded",
+"detail": "needs gigabytes of memory"
 },
 {
 "id": "test_itertools.TestBasicOps.test_permutations_result_gc",
@@ -605,32 +869,48 @@
 {
 "id": "test_itertools.TestBasicOps.test_permutations_tuple_reuse",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @support.impl_detail"
+"category": "excluded",
+"detail": "tests CPython internals"
 },
 {
 "id": "test_itertools.TestBasicOps.test_product",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'prod' is not defined"
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
 },
 {
 "id": "test_itertools.TestBasicOps.test_product_issue_25021",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @pickle_deprecated"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_product_overflow",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @support.bigaddrspacetest"
+"category": "excluded",
+"detail": "needs gigabytes of memory"
 },
 {
 "id": "test_itertools.TestBasicOps.test_product_pickling",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @pickle_deprecated"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_product_result_gc",
@@ -641,77 +921,81 @@
 {
 "id": "test_itertools.TestBasicOps.test_product_tuple_reuse",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @support.impl_detail"
+"category": "excluded",
+"detail": "tests CPython internals"
 },
 {
 "id": "test_itertools.TestBasicOps.test_repeat",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @pickle_deprecated"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found ="
+},
+"dyn": {
+"category": "refused",
+"detail": "complex numbers are not supported"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_repeat_with_negative_times",
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected '\"repeat(\\'a\\', 0)\"', got \"'<iterator object>'\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected '\"repeat(\\'a\\', 0)\"', got \"'<iterator object>'\""
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
 {
 "id": "test_itertools.TestBasicOps.test_starmap",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @pickle_deprecated"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_takewhile",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @pickle_deprecated"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_tee",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @pickle_deprecated"
-},
-{
-"id": "test_itertools.TestBasicOps.test_tee_concurrent",
-"file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @threading_helper.requires_working_threading"
-},
-{
-"id": "test_itertools.TestBasicOps.test_tee_dealloc_segfault",
-"file": "test_itertools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'script_helper' is not defined"
-},
-{
-"id": "test_itertools.TestBasicOps.test_tee_del_backward",
-"file": "test_itertools",
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "del takes m[k] or xs[i]"
+"detail": "pickle of a program that makes iterators: the typed build keeps iter() as the list itself, and this file cannot be built over dynamic values (case.py line 268: weakref.proxy is not supported in dynami"
 },
 "dyn": {
 "category": "refused",
-"detail": "itertools.tee is not supported in dynamic builds"
+"detail": "weakref.proxy is not supported in dynamic builds"
 }
 }
 },
 {
-"id": "test_itertools.TestBasicOps.test_tee_reenter",
+"id": "test_itertools.TestBasicOps.test_tee_concurrent",
 "file": "test_itertools",
 "modes": {
 "normal": {
@@ -720,7 +1004,41 @@
 },
 "dyn": {
 "category": "refused",
-"detail": "itertools.tee is not supported in dynamic builds"
+"detail": "threading.Event is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_itertools.TestBasicOps.test_tee_dealloc_segfault",
+"file": "test_itertools",
+"category": "excluded",
+"detail": "runs a fresh CPython in a subprocess (a CPython crash regression)"
+},
+{
+"id": "test_itertools.TestBasicOps.test_tee_del_backward",
+"file": "test_itertools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_itertools.TestBasicOps.test_tee_reenter",
+"file": "test_itertools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -755,8 +1073,16 @@
 {
 "id": "test_itertools.TestBasicOps.test_zip_longest_pickling",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @pickle_deprecated"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestBasicOps.test_zip_longest_result_gc",
@@ -767,25 +1093,25 @@
 {
 "id": "test_itertools.TestBasicOps.test_zip_longest_tuple_reuse",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @support.impl_detail"
+"category": "excluded",
+"detail": "tests CPython internals"
 },
 {
 "id": "test_itertools.TestBasicOps.test_zip_tuple_reuse",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @support.impl_detail"
+"category": "excluded",
+"detail": "tests CPython internals"
 },
 {
 "id": "test_itertools.TestBasicOps.test_ziplongest",
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "by_design",
 "detail": "repr() of tuple(...) shows a tuple, which the typed build keeps as a list, and this file cannot be built over dynamic values (case.py line 59: eval() is not supported in dynamic builds)"
 },
 "dyn": {
-"category": "refused",
+"category": "by_design",
 "detail": "eval() is not supported in dynamic builds"
 }
 }
@@ -807,14 +1133,30 @@
 {
 "id": "test_itertools.TestExamples.test_accumulate_reducible",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @pickle_deprecated"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_itertools.TestExamples.test_accumulate_reducible_none",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @pickle_deprecated"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "except AssertionError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 54: operator.is_ is not supported in dynamic builds)"
+},
+"dyn": {
+"category": "refused",
+"detail": "operator.is_ is not supported in dynamic builds"
+}
+}
 },
 {
 "id": "test_itertools.TestExamples.test_chain",
@@ -1101,12 +1443,12 @@
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "the typed build runs a generator to the end at its first use, where CPython runs it step by step with its caller, and this file cannot be built over dynamic values (case.py line 3: itertools.batched i"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "itertools.batched is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1129,14 +1471,12 @@
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: StopIteration"
+"category": "refused",
+"detail": "`link` and `.link` name the same list in Python, and `link` is changed (an item set) while `.link` is still used; the typed build would change only a copy, and this file cannot be built over dynamic v"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: StopIteration"
+"category": "refused",
+"detail": "weakref.proxy is not supported in dynamic builds"
 }
 }
 },
@@ -1159,12 +1499,12 @@
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "del takes m[k] or xs[i]"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "itertools.batched is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1495,12 +1835,12 @@
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "the typed build runs a generator to the end at its first use, where CPython runs it step by step with its caller, and this file cannot be built over dynamic values (case.py line 3: itertools.batched i"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "itertools.batched is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1691,12 +2031,12 @@
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`s` and a value kept elsewhere name the same list in Python, and `s` is changed (by a function the proof does not follow) while a value kept elsewhere is still used; the typed build would change only "
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "itertools.tee is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1734,11 +2074,11 @@
 "modes": {
 "normal": {
 "category": "matched",
-"path": "pybridge"
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "operator.length_hint is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1748,11 +2088,11 @@
 "modes": {
 "normal": {
 "category": "matched",
-"path": "pybridge"
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "operator.length_hint is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1787,8 +2127,8 @@
 {
 "id": "test_itertools.RegressionTests.test_long_chain_of_empty_iterables",
 "file": "test_itertools",
-"category": "not_extractable",
-"detail": "decorator @support.skip_if_pgo_task"
+"category": "excluded",
+"detail": "needs an opt-in test resource"
 },
 {
 "id": "test_itertools.RegressionTests.test_sf_793826",
@@ -1863,12 +2203,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "copy.copy() shares the items it copies, and this file cannot be built over dynamic values (case.py line 3: collections.UserDict is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "collections.UserDict is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1877,12 +2217,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found A"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "collections.UserDict is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1892,11 +2232,11 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "unknown function dir()"
+"detail": "the UserDict class (from collections) runs in the dynamic build, and this file cannot be built over dynamic values (case.py line 7: dir() is not supported in dynamic builds)"
 },
 "dyn": {
 "category": "refused",
-"detail": "collections.UserDict is not supported in dynamic builds"
+"detail": "dir() is not supported in dynamic builds"
 }
 }
 },
@@ -1905,12 +2245,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "copy.copy() shares the items it copies, and this file cannot be built over dynamic values (case.py line 3: collections.UserList is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "collections.UserList is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1920,11 +2260,11 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "unknown function dir()"
+"detail": "the UserList class (from collections) runs in the dynamic build, and this file cannot be built over dynamic values (case.py line 7: dir() is not supported in dynamic builds)"
 },
 "dyn": {
 "category": "refused",
-"detail": "collections.UserList is not supported in dynamic builds"
+"detail": "dir() is not supported in dynamic builds"
 }
 }
 },
@@ -1934,11 +2274,11 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "unknown function dir()"
+"detail": "the UserString class (from collections) runs in the dynamic build, and this file cannot be built over dynamic values (case.py line 7: dir() is not supported in dynamic builds)"
 },
 "dyn": {
 "category": "refused",
-"detail": "collections.UserString is not supported in dynamic builds"
+"detail": "dir() is not supported in dynamic builds"
 }
 }
 },
@@ -1947,12 +2287,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "copy.copy() shares the items it copies, and this file cannot be built over dynamic values (case.py line 3: collections.ChainMap is not supported in dynamic builds)"
+"category": "by_design",
+"detail": "the ChainMap class (from collections) runs in the dynamic build, and this file cannot be built over dynamic values (case.py line 61: eval() is not supported in dynamic builds)"
 },
 "dyn": {
-"category": "refused",
-"detail": "collections.ChainMap is not supported in dynamic builds"
+"category": "by_design",
+"detail": "eval() is not supported in dynamic builds"
 }
 }
 },
@@ -1962,11 +2302,11 @@
 "modes": {
 "normal": {
 "category": "matched",
-"path": "pybridge"
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "collections.ChainMap is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1975,12 +2315,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "type annotations needed: cannot infer type of the type parameter K declared on the struct AxM"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "collections.ChainMap is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1989,12 +2329,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown function dict()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "collections.ChainMap is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2003,12 +2343,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found DictWithGetItem"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "collections.ChainMap is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2017,12 +2357,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "except KeyError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 3: collections.ChainMap is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "collections.ChainMap is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2031,12 +2371,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found lowerdict"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "collections.ChainMap is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2045,13 +2385,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "pybridge",
-"detail": "exit 1, expected 0: {\"e\":\"runtime\",\"line\":17,\"type\":\"AttributeError\",\"msg\":\"'ChainMap' object has no attribute 'join'\"}"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "collections.ChainMap is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2061,11 +2400,11 @@
 "modes": {
 "normal": {
 "category": "matched",
-"path": "pybridge"
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "collections.ChainMap is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2074,12 +2413,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected for after *x"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "collections.ChainMap is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2128,8 +2467,16 @@
 {
 "id": "test_collections.TestNamedTuple.test_factory_doc_attr",
 "file": "test_collections",
-"category": "not_extractable",
-"detail": "decorator @unittest.skipIf"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_collections.TestNamedTuple.test_field_descriptor",
@@ -2140,8 +2487,16 @@
 {
 "id": "test_collections.TestNamedTuple.test_field_doc",
 "file": "test_collections",
-"category": "not_extractable",
-"detail": "decorator @unittest.skipIf"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_collections.TestNamedTuple.test_field_doc_reuse",
@@ -2208,14 +2563,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected \"<module 'collections' from '/root/.local/share/uv/python/cpython-3.13.13-linux-x86_64-gnu/lib/python3.13/collections/__i\", got \"<module 'collections'>\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_output",
-"path": "dynamic",
-"detail": "line 1: expected \"<module 'collections' from '/root/.local/share/uv/python/cpython-3.13.13-linux-x86_64-gnu/lib/python3.13/collections/__i\", got \"<module 'collections'>\""
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2370,14 +2723,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: module 'builtins' has no attribute 'NoneType'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: module 'builtins' has no attribute 'NoneType'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2386,14 +2737,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: module 'builtins' has no attribute 'NoneType'"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: AttributeError: module 'builtins' has no attribute 'NoneType'"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2402,12 +2751,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "isinstance with a typing name, and this file cannot be built over dynamic values (case.py line 65: class MinimalCoro is built on a library class inside a function or block, which dynamic builds leave "
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "class MinimalCoro is built on a library class inside a function or block, which dynamic builds leave to CPython"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2458,12 +2807,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "isinstance with a typing name, and this file cannot be built over dynamic values (case.py line 50: class MinimalCoro is built on a library class inside a function or block, which dynamic builds leave "
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "class MinimalCoro is built on a library class inside a function or block, which dynamic builds leave to CPython"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2487,11 +2836,11 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "isinstance with a typing name, and this file cannot be built over dynamic values (case.py line 68: class H is built on a library class inside a function or block, which dynamic builds leave to CPython"
+"detail": "isinstance with a typing name, and this file cannot be built over dynamic values (case.py line 52: complex() is not supported in dynamic builds)"
 },
 "dyn": {
 "category": "refused",
-"detail": "class H is built on a library class inside a function or block, which dynamic builds leave to CPython"
+"detail": "complex() is not supported in dynamic builds"
 }
 }
 },
@@ -2556,14 +2905,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: bases must be types"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: bases must be types"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2572,14 +2919,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: Can only register classes"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: Can only register classes"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2588,32 +2933,40 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "isinstance with a typing name, and this file cannot be built over dynamic values (case.py line 27: bytearray() is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "bytearray() is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
 {
 "id": "test_collections.TestCollectionABCs.test_ByteString",
 "file": "test_collections",
-"category": "not_extractable",
-"detail": "unittest API assertWarns"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_collections.TestCollectionABCs.test_Mapping",
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "isinstance with a typing name, and this file cannot be built over dynamic values (case.py line 62: class MyMapping is built on a library class inside a function or block, which dynamic builds leave to"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "class MyMapping is built on a library class inside a function or block, which dynamic builds leave to CPython"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2622,14 +2975,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: bases must be types"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: bases must be types"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2645,11 +2996,11 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "isinstance with a typing name, and this file cannot be built over dynamic values (case.py line 32: bytearray() is not supported in dynamic builds)"
+"detail": "isinstance with a typing name, and this file cannot be built over dynamic values (case.py line 1: bytearray or memoryview together with array is not supported in dynamic builds)"
 },
 "dyn": {
 "category": "refused",
-"detail": "bytearray() is not supported in dynamic builds"
+"detail": "bytearray or memoryview together with array is not supported in dynamic builds"
 }
 }
 },
@@ -2658,12 +3009,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found MutableSequenceSubclass"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "class MutableSequenceSubclass is built on a library class inside a function or block, which dynamic builds leave to CPython"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2672,14 +3023,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: bases must be types"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: bases must be types"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2688,12 +3037,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "isinstance with a typing name, and this file cannot be built over dynamic values (case.py line 32: memoryview() is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "memoryview() is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2708,20 +3057,28 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "isinstance with a typing name, and this file cannot be built over dynamic values (case.py line 62: class MySet is built on a library class inside a function or block, which dynamic builds leave to CPy"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "class MySet is built on a library class inside a function or block, which dynamic builds leave to CPython"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
 {
 "id": "test_collections.TestCollectionABCs.test_Set_from_iterable",
 "file": "test_collections",
-"category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_collections.TestCollectionABCs.test_Set_hash_matches_frozenset",
@@ -2732,32 +3089,48 @@
 {
 "id": "test_collections.TestCollectionABCs.test_Set_interoperability_with_real_sets",
 "file": "test_collections",
-"category": "not_extractable",
-"detail": "unittest API assertSameSet"
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
 },
 {
 "id": "test_collections.TestCollectionABCs.test_arithmetic_Set",
 "file": "test_collections",
-"category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_collections.TestCollectionABCs.test_equality_Set",
 "file": "test_collections",
-"category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_collections.TestCollectionABCs.test_hash_Set",
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found OneTwoThreeSet"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "class OneTwoThreeSet is built on a library class inside a function or block, which dynamic builds leave to CPython"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2766,12 +3139,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found Both"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "class Both is built on a library class inside a function or block, which dynamic builds leave to CPython"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2780,12 +3153,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found MySet"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "class MySet is built on a library class inside a function or block, which dynamic builds leave to CPython"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2794,12 +3167,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found MyComparableSet"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "class MyComparableSet is built on a library class inside a function or block, which dynamic builds leave to CPython"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2808,32 +3181,40 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found CustomSequence"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "class CustomSequence is built on a library class inside a function or block, which dynamic builds leave to CPython"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
 {
 "id": "test_collections.TestCollectionABCs.test_issue8750",
 "file": "test_collections",
-"category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_collections.TestCollectionABCs.test_issue_4920",
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "iter() of a set takes CPython's hash order, and this file cannot be built over dynamic values (case.py line 8: class MySet is built on a library class inside a function or block, which dynamic builds "
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "class MySet is built on a library class inside a function or block, which dynamic builds leave to CPython"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2882,11 +3263,11 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "by_design",
 "detail": "copy.copy() shares the items it copies, and this file cannot be built over dynamic values (case.py line 22: eval() is not supported in dynamic builds)"
 },
 "dyn": {
-"category": "refused",
+"category": "by_design",
 "detail": "eval() is not supported in dynamic builds"
 }
 }
@@ -2938,11 +3319,11 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "cpython_private",
 "detail": "expected a name, found **"
 },
 "dyn": {
-"category": "refused",
+"category": "cpython_private",
 "detail": "collections._count_elements is not supported in dynamic builds"
 }
 }
@@ -3208,12 +3589,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "repr() of a re match shows a Match object or None, and this file cannot be built over dynamic values (case.py line 22: re with a bytes pattern is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re with a bytes pattern is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3236,20 +3617,28 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown function type()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.PatternError is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
 {
 "id": "test_re.ReTests.test_basic_re_sub",
 "file": "test_re",
-"category": "not_extractable",
-"detail": "unittest API assertTypedEqual"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_re.ReTests.test_big_codesize",
@@ -3270,12 +3659,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_exit",
+"category": "string_model",
 "path": "dynamic",
 "detail": "exit 1, expected 0: NotImplementedError: brevi: chr() of a lone surrogate (U+D800..U+DFFF) is not supported in dynamic builds"
 },
 "dyn": {
-"category": "wrong_exit",
+"category": "string_model",
 "path": "dynamic",
 "detail": "exit 1, expected 0: NotImplementedError: brevi: chr() of a lone surrogate (U+D800..U+DFFF) is not supported in dynamic builds"
 }
@@ -3384,9 +3773,8 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_output",
-"path": "typed",
-"detail": "line 3: expected \"''\", got \"'xyy'\""
+"category": "matched",
+"path": "typed"
 },
 "dyn": {
 "category": "matched",
@@ -3399,12 +3787,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected ')', found \"abcdefgh\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "bytearray() is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3553,12 +3941,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected ')', found \"b\\1\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re with a bytes pattern is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3609,14 +3997,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: first argument must be string or compiled pattern"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: first argument must be string or compiled pattern"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3639,12 +4025,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected ')', found \"bug_926075\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re with a bytes pattern is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3709,12 +4095,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected ')', found \".\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re with a bytes pattern is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3751,12 +4137,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown function type()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.PatternError is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3779,12 +4165,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected ')', found \"#x\na\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re with a bytes pattern is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3793,12 +4179,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "a compiled pattern shown or passed to a builtin, which the typed build keeps as a plain string, and this file cannot be built over dynamic values (case.py line 8: re.Pattern is not supported in dynami"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.Pattern is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3808,11 +4194,11 @@
 "modes": {
 "normal": {
 "category": "matched",
-"path": "pybridge"
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.L is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3847,8 +4233,16 @@
 {
 "id": "test_re.ReTests.test_empty_array",
 "file": "test_re",
-"category": "not_extractable",
-"detail": "decorator @warnings_helper.ignore_warnings"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "`a` and a value kept elsewhere name the same list in Python, and `a` is changed (by a function the proof does not follow) while a value kept elsewhere is still used; the typed build would change only "
+},
+"dyn": {
+"category": "refused",
+"detail": "re together with array is not supported in dynamic builds"
+}
+}
 },
 {
 "id": "test_re.ReTests.test_enum",
@@ -3869,12 +4263,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "a regex with an unbalanced parenthesis is not in the typed build"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.PatternError is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3883,12 +4277,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "? operator has incompatible types: expected bool, found AxPy"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.PatternError is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3967,12 +4361,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected ')', found \"^pattern$\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.L is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4037,12 +4431,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown function type()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.PatternError is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4065,12 +4459,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected ')', found \"abc\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re with a bytes pattern is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4079,12 +4473,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "repr() of a re match shows a Match object or None, and this file cannot be built over dynamic values (case.py line 9: re with a bytes pattern is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re with a bytes pattern is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4093,12 +4487,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "repr() of a re match shows a Match object or None, and this file cannot be built over dynamic values (case.py line 10: re with a bytes pattern is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re with a bytes pattern is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4107,14 +4501,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: NotImplementedError: brevi: re with a bytes pattern is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: NotImplementedError: brevi: re with a bytes pattern is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4123,12 +4515,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected ')', found \"A(?i)\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.PatternError is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4137,14 +4529,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: NotImplementedError: brevi: re with a bytes pattern is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: NotImplementedError: brevi: re with a bytes pattern is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4153,12 +4543,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected ')', found \"x\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "bytearray() is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4191,34 +4581,40 @@
 {
 "id": "test_re.ReTests.test_locale_caching",
 "file": "test_re",
-"category": "not_extractable",
-"detail": "decorator @unittest.skipIf"
+"category": "excluded",
+"detail": "skipped by CPython at run time: test needs en_US.iso88591 locale"
 },
 {
 "id": "test_re.ReTests.test_locale_compiled",
 "file": "test_re",
-"category": "not_extractable",
-"detail": "decorator @unittest.skipIf"
+"category": "excluded",
+"detail": "skipped by CPython at run time: test needs en_US.iso88591 locale"
 },
 {
 "id": "test_re.ReTests.test_locale_flag",
 "file": "test_re",
-"category": "not_extractable",
-"detail": "imports locale"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_re.ReTests.test_look_behind_overflow",
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "crash_or_timeout",
-"path": "dynamic",
-"detail": "timeout"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "crash_or_timeout",
-"path": "dynamic",
-"detail": "timeout"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4241,12 +4637,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "repr() of a re match shows a Match object or None, and this file cannot be built over dynamic values (case.py line 22: re.PatternError is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.PatternError is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4267,46 +4663,62 @@
 {
 "id": "test_re.ReTests.test_match_repr",
 "file": "test_re",
-"category": "not_extractable",
-"detail": "unittest API assertRegex"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_re.ReTests.test_memory_leaks",
 "file": "test_re",
-"category": "not_extractable",
-"detail": "decorator @unittest.skipUnless"
+"category": "excluded",
+"detail": "skipped by CPython: requires debug build"
 },
 {
 "id": "test_re.ReTests.test_misc_errors",
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown function type()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.PatternError is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
 {
 "id": "test_re.ReTests.test_misuse_flags",
 "file": "test_re",
-"category": "not_extractable",
-"detail": "unittest API assertWarns"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_re.ReTests.test_multiple_repeat",
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected '{', found ,"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.PatternError is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4315,12 +4727,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "repr() of a re match shows a Match object or None, and this file cannot be built over dynamic values (case.py line 7: re.PatternError is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.PatternError is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4343,12 +4755,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected '{', found ,"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.PatternError is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4357,12 +4769,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "repr() of a re match shows a Match object or None, and this file cannot be built over dynamic values (case.py line 7: re.PatternError is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.PatternError is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4383,11 +4795,11 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "cpython_private",
 "detail": "a compiled pattern shown or passed to a builtin, which the typed build keeps as a plain string, and this file cannot be built over dynamic values (case.py line 14: re._compile is not supported in dyna"
 },
 "dyn": {
-"category": "refused",
+"category": "cpython_private",
 "detail": "re._compile is not supported in dynamic builds"
 }
 }
@@ -4409,62 +4821,126 @@
 {
 "id": "test_re.ReTests.test_possible_set_operations",
 "file": "test_re",
-"category": "not_extractable",
-"detail": "unittest API assertWarnsRegex"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_re.ReTests.test_qualified_re_split",
 "file": "test_re",
-"category": "not_extractable",
-"detail": "unittest API assertWarns"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_re.ReTests.test_qualified_re_sub",
 "file": "test_re",
-"category": "not_extractable",
-"detail": "unittest API assertWarns"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_re.ReTests.test_re_escape",
 "file": "test_re",
-"category": "not_extractable",
-"detail": "unittest API assertMatch"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_re.ReTests.test_re_escape_bytes",
 "file": "test_re",
-"category": "not_extractable",
-"detail": "unittest API assertMatch"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_re.ReTests.test_re_escape_non_ascii",
 "file": "test_re",
-"category": "not_extractable",
-"detail": "unittest API assertMatch"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_re.ReTests.test_re_escape_non_ascii_bytes",
 "file": "test_re",
-"category": "not_extractable",
-"detail": "unittest API assertMatch"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_re.ReTests.test_re_findall",
 "file": "test_re",
-"category": "not_extractable",
-"detail": "unittest API assertTypedEqual"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_re.ReTests.test_re_fullmatch",
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "repr() of a re match shows a Match object or None, and this file cannot be built over dynamic values (case.py line 20: bytearray() is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "bytearray() is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4473,12 +4949,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "repr() of tuple(...) shows a tuple, which the typed build keeps as a list, and this file cannot be built over dynamic values (case.py line 7: re.PatternError is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.PatternError is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4501,12 +4977,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown function type()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.PatternError is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4529,12 +5005,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown function type()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.PatternError is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4543,44 +5019,60 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "repr() of tuple(...) shows a tuple, which the typed build keeps as a list, and this file cannot be built over dynamic values (case.py line 23: bytearray() is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "bytearray() is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
 {
 "id": "test_re.ReTests.test_re_split",
 "file": "test_re",
-"category": "not_extractable",
-"detail": "unittest API assertTypedEqual"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_re.ReTests.test_re_subn",
 "file": "test_re",
-"category": "not_extractable",
-"detail": "unittest API assertWarns"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_re.ReTests.test_regression_gh94675",
 "file": "test_re",
-"category": "not_extractable",
-"detail": "decorator @unittest.skipIf"
+"category": "excluded",
+"detail": "starts a child process"
 },
 {
 "id": "test_re.ReTests.test_repeat_minmax",
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "repr() of a re match shows a Match object or None, and this file cannot be built over dynamic values (case.py line 7: re.PatternError is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.PatternError is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4617,12 +5109,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "repr() of a re match shows a Match object or None, and this file cannot be built over dynamic values (case.py line 7: re.PatternError is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.PatternError is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4679,12 +5171,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "repr() of a re match shows a Match object or None, and this file cannot be built over dynamic values (case.py line 23: re with a bytes pattern is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re with a bytes pattern is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4693,12 +5185,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown function type()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.PatternError is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4707,12 +5199,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected ')', found \"0\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.PatternError is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4721,12 +5213,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown function type()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.PatternError is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4735,12 +5227,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "a regex with this escape is not in the typed build"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.PatternError is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4763,12 +5255,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown function type()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.PatternError is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4777,12 +5269,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "a regex with this group syntax is not in the typed build"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re with a bytes pattern is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4791,12 +5283,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected ')', found \"(?P<\u00c2\u00b5>x)\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.PatternError is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4805,12 +5297,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "a regex with this group syntax is not in the typed build"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re with a bytes pattern is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4819,12 +5311,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "a regex with this group syntax is not in the typed build"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.PatternError is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4847,14 +5339,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: brevi: a Pattern value cannot be passed to a Python library in a dynamic build"
+"category": "refused",
+"detail": "re.findall with two or more groups gives tuples (or a pattern the typed build cannot see), and this file cannot be built over dynamic values (case.py line 3: weakref.proxy is not supported in dynamic "
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: brevi: a Pattern value cannot be passed to a Python library in a dynamic build"
+"category": "refused",
+"detail": "weakref.proxy is not supported in dynamic builds"
 }
 }
 },
@@ -4863,12 +5353,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "re.findall with two or more groups gives tuples (or a pattern the typed build cannot see), and this file cannot be built over dynamic values (case.py line 11: re with a bytes pattern is not supported "
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re with a bytes pattern is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4915,14 +5405,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: NotImplementedError: brevi: re with a bytes pattern is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: NotImplementedError: brevi: re with a bytes pattern is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4959,12 +5447,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "a compiled pattern shown or passed to a builtin, which the typed build keeps as a plain string, and this file cannot be built over dynamic values (case.py line 11: re.L is not supported in dynamic bui"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re.L is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -5081,8 +5569,8 @@
 {
 "id": "test_re.ImplementationTest.test_deprecated_modules",
 "file": "test_re",
-"category": "not_extractable",
-"detail": "unittest API assertWarns"
+"category": "excluded",
+"detail": "tests CPython's deprecated sre_* modules"
 },
 {
 "id": "test_re.ImplementationTest.test_disallow_instantiation",
@@ -5101,11 +5589,11 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "type annotations needed: cannot infer type for type parameter T"
+"category": "cpython_private",
+"detail": "type annotations needed: cannot infer type"
 },
 "dyn": {
-"category": "refused",
+"category": "cpython_private",
 "detail": "re._compiler is not supported in dynamic builds"
 }
 }
@@ -5139,14 +5627,30 @@
 {
 "id": "test_re.ExternalTests.test_re_benchmarks",
 "file": "test_re",
-"category": "not_extractable",
-"detail": "imports test"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_re.ExternalTests.test_re_tests",
 "file": "test_re",
-"category": "not_extractable",
-"detail": "imports test"
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "repr() of a re match shows a Match object or None, and this file cannot be built over dynamic values (case.py line 562: eval() is not supported in dynamic builds)"
+},
+"dyn": {
+"category": "by_design",
+"detail": "eval() is not supported in dynamic builds"
+}
+}
 },
 {
 "id": "test_textwrap.WrapTestCase.test_bad_width",
@@ -5335,14 +5839,12 @@
 "file": "test_textwrap",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: NotImplementedError: brevi: textwrap fix_sentence_endings is not supported in native builds"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: NotImplementedError: brevi: textwrap fix_sentence_endings is not supported in native builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -5519,14 +6021,12 @@
 "file": "test_textwrap",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: NotImplementedError: brevi: textwrap fix_sentence_endings is not supported in native builds"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: NotImplementedError: brevi: textwrap fix_sentence_endings is not supported in native builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -5785,8 +6285,16 @@
 {
 "id": "test_textwrap.DedentTestCase.test_dedent_nomargin",
 "file": "test_textwrap",
-"category": "not_extractable",
-"detail": "unittest API assertUnchanged"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_textwrap.DedentTestCase.test_dedent_preserve_internal_tabs",
@@ -5805,8 +6313,16 @@
 {
 "id": "test_textwrap.DedentTestCase.test_dedent_preserve_margin_tabs",
 "file": "test_textwrap",
-"category": "not_extractable",
-"detail": "unittest API assertUnchanged"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_textwrap.DedentTestCase.test_dedent_uneven",
@@ -6061,22 +6577,1222 @@
 }
 },
 {
+"id": "test_functools.TestPartialC.test_arg_combinations",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialC.test_argument_checking",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialC.test_attributes",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
 "id": "test_functools.TestPartialC.test_attributes_unwritable",
 "file": "test_functools",
-"category": "not_extractable",
-"detail": "more than one base class"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialC.test_basic_examples",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialC.test_copy",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialC.test_deepcopy",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialC.test_error_propagation",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_functools.TestPartialC.test_keystr_replaces_value",
 "file": "test_functools",
-"category": "not_extractable",
-"detail": "more than one base class"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialC.test_keyword",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialC.test_kw_combinations",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialC.test_kwargs_copy",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_functools.TestPartialC.test_manually_adding_non_string_keyword",
 "file": "test_functools",
-"category": "not_extractable",
-"detail": "more than one base class"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialC.test_nested_optimization",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialC.test_nested_optimization_bug",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialC.test_nested_partial_with_attribute",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialC.test_no_side_effects",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialC.test_partial_as_method",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialC.test_partial_genericalias",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialC.test_pickle",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: TypeError: cannot pickle 'PyCapsule' object"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: TypeError: cannot pickle 'PyCapsule' object"
+}
+}
+},
+{
+"id": "test_functools.TestPartialC.test_positional",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialC.test_protection_of_callers_dict_argument",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialC.test_recursive_pickle",
+"file": "test_functools",
+"category": "excluded",
+"detail": "measures the recursion depth with _testinternalcapi (CPython's C internals)"
+},
+{
+"id": "test_functools.TestPartialC.test_recursive_repr",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialC.test_repr",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialC.test_repr_safety_against_reentrant_mutation",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialC.test_setstate",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialC.test_setstate_errors",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialC.test_setstate_refcount",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialC.test_setstate_subclasses",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialC.test_weakref",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "unknown method .partial()"
+},
+"dyn": {
+"category": "refused",
+"detail": "weakref.proxy is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_functools.TestPartialC.test_with_bound_and_unbound_methods",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialPy.test_arg_combinations",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPy.test_argument_checking",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPy.test_attributes",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPy.test_basic_examples",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPy.test_copy",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPy.test_deepcopy",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPy.test_error_propagation",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPy.test_keyword",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPy.test_kw_combinations",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPy.test_kwargs_copy",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPy.test_nested_optimization",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPy.test_nested_optimization_bug",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPy.test_nested_partial_with_attribute",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPy.test_no_side_effects",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPy.test_partial_as_method",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPy.test_partial_genericalias",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPy.test_pickle",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPy.test_positional",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPy.test_protection_of_callers_dict_argument",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPy.test_recursive_pickle",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPy.test_recursive_repr",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPy.test_repr",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPy.test_repr_safety_against_reentrant_mutation",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPy.test_setstate",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPy.test_setstate_errors",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPy.test_setstate_refcount",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPy.test_setstate_subclasses",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPy.test_weakref",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPy.test_with_bound_and_unbound_methods",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_arg_combinations",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_argument_checking",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_attributes",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_attributes_unwritable",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_basic_examples",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_copy",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_deepcopy",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_error_propagation",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_keystr_replaces_value",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_keyword",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_kw_combinations",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_kwargs_copy",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_manually_adding_non_string_keyword",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_nested_optimization_bug",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_nested_partial_with_attribute",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_no_side_effects",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_partial_as_method",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_partial_genericalias",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_pickle",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: TypeError: cannot pickle 'PyCapsule' object"
+},
+"dyn": {
+"category": "wrong_exit",
+"path": "dynamic",
+"detail": "exit 1, expected 0: TypeError: cannot pickle 'PyCapsule' object"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_positional",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_protection_of_callers_dict_argument",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_recursive_pickle",
+"file": "test_functools",
+"category": "excluded",
+"detail": "measures the recursion depth with _testinternalcapi (CPython's C internals)"
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_recursive_repr",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_repr",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_repr_safety_against_reentrant_mutation",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_setstate",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_setstate_errors",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_setstate_refcount",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_setstate_subclasses",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_weakref",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found CPartialSubclass"
+},
+"dyn": {
+"category": "refused",
+"detail": "weakref.proxy is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_functools.TestPartialCSubclass.test_with_bound_and_unbound_methods",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_arg_combinations",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_argument_checking",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_attributes",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_basic_examples",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_copy",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_deepcopy",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_error_propagation",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_keyword",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_kw_combinations",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_kwargs_copy",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_nested_optimization",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_nested_optimization_bug",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_nested_partial_with_attribute",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_no_side_effects",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_partial_as_method",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_partial_genericalias",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_pickle",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_positional",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_protection_of_callers_dict_argument",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_recursive_pickle",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_recursive_repr",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_repr",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_repr_safety_against_reentrant_mutation",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_setstate",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_setstate_errors",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_setstate_refcount",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_setstate_subclasses",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_weakref",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestPartialPySubclass.test_with_bound_and_unbound_methods",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
 },
 {
 "id": "test_functools.TestPartialMethod.test_abstract",
@@ -6088,27 +7804,35 @@
 },
 "dyn": {
 "category": "refused",
-"detail": "functools.partialmethod is not supported in dynamic builds"
+"detail": "abc.ABCMeta is not supported in dynamic builds"
 }
 }
 },
 {
 "id": "test_functools.TestPartialMethod.test_arg_combinations",
 "file": "test_functools",
-"category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_functools.TestPartialMethod.test_bound_method_introspection",
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected a name, found **"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.partialmethod is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6117,12 +7841,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "repr() of a one-item tuple shows (x,), which the typed build keeps as a list, and this file cannot be built over dynamic values (case.py line 11: functools.partialmethod is not supported in dynamic bu"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.partialmethod is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6131,32 +7855,56 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected a name, found **"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.partialmethod is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
 {
 "id": "test_functools.TestPartialMethod.test_nested",
 "file": "test_functools",
-"category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_functools.TestPartialMethod.test_over_partial",
 "file": "test_functools",
-"category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_functools.TestPartialMethod.test_overriding_keywords",
 "file": "test_functools",
-"category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_functools.TestPartialMethod.test_positional_only",
@@ -6175,28 +7923,44 @@
 {
 "id": "test_functools.TestPartialMethod.test_repr",
 "file": "test_functools",
-"category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_functools.TestPartialMethod.test_unbound_method_retrieval",
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected a name, found **"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.partialmethod is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
 {
 "id": "test_functools.TestUpdateWrapper.test_builtin_update",
 "file": "test_functools",
-"category": "not_extractable",
-"detail": "decorator @support.requires_docstrings"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_functools.TestUpdateWrapper.test_default_update",
@@ -6215,8 +7979,16 @@
 {
 "id": "test_functools.TestUpdateWrapper.test_default_update_doc",
 "file": "test_functools",
-"category": "not_extractable",
-"detail": "decorator @unittest.skipIf"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected '(', found ["
+},
+"dyn": {
+"category": "refused",
+"detail": "expected '(', found Op(\"[\")"
+}
+}
 },
 {
 "id": "test_functools.TestUpdateWrapper.test_missing_attributes",
@@ -6237,12 +8009,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "function 'test_no_update_f' is defined twice"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "typing: .__annotations__ needs CPython's typing"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6251,12 +8023,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "function 'test_selective_update_f' is defined twice"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.WRAPPER_ASSIGNMENTS is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6265,20 +8037,28 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "cannot work out the type of args in test_update_type_wrapper_wrapper"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "typing: .__annotations__ needs CPython's typing"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
 {
 "id": "test_functools.TestWraps.test_builtin_update",
 "file": "test_functools",
-"category": "not_extractable",
-"detail": "decorator @support.requires_docstrings"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_functools.TestWraps.test_default_update",
@@ -6297,8 +8077,16 @@
 {
 "id": "test_functools.TestWraps.test_default_update_doc",
 "file": "test_functools",
-"category": "not_extractable",
-"detail": "decorator @unittest.skipIf"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected '(', found ["
+},
+"dyn": {
+"category": "refused",
+"detail": "expected '(', found Op(\"[\")"
+}
+}
 },
 {
 "id": "test_functools.TestWraps.test_missing_attributes",
@@ -6319,12 +8107,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`wrapper` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 36: typing: .__annotations__ needs CPython's typing)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "typing: .__annotations__ needs CPython's typing"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6333,12 +8121,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`wrapper` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 6: functools.WRAPPER_ASSIGNMENTS is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.WRAPPER_ASSIGNMENTS is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6347,20 +8135,220 @@
 "file": "test_functools",
 "modes": {
 "normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestReduceC.test_iterator_usage",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestReduceC.test_reduce",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestReducePy.test_iterator_usage",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestReducePy.test_reduce",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestCmpToKeyC.test_bad_cmp",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestCmpToKeyC.test_cmp_to_key",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestCmpToKeyC.test_cmp_to_key_arguments",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestCmpToKeyC.test_cmp_to_signature",
+"file": "test_functools",
+"modes": {
+"normal": {
 "category": "refused",
-"detail": "cannot work out the type of args in test_update_type_wrapper_wrapper"
+"detail": "cannot work out the type of x in test_cmp_to_signature_mycmp"
 },
 "dyn": {
 "category": "refused",
-"detail": "typing: .__annotations__ needs CPython's typing"
+"detail": "Signature.from_callable is not supported in dynamic builds"
 }
 }
 },
 {
 "id": "test_functools.TestCmpToKeyC.test_disallow_instantiation",
 "file": "test_functools",
-"category": "not_extractable",
-"detail": "more than one base class"
+"category": "excluded",
+"detail": "marked cpython_only"
+},
+{
+"id": "test_functools.TestCmpToKeyC.test_hash",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestCmpToKeyC.test_obj_field",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestCmpToKeyC.test_sort_int",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestCmpToKeyC.test_sort_int_str",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestCmpToKeyPy.test_bad_cmp",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestCmpToKeyPy.test_cmp_to_key",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestCmpToKeyPy.test_cmp_to_key_arguments",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestCmpToKeyPy.test_cmp_to_signature",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestCmpToKeyPy.test_hash",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestCmpToKeyPy.test_obj_field",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestCmpToKeyPy.test_sort_int",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestCmpToKeyPy.test_sort_int_str",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
 },
 {
 "id": "test_functools.TestTotalOrdering.test_no_operations_defined",
@@ -6395,14 +8383,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: cannot pickle 'PyCapsule' object"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "wrong_exit",
-"path": "dynamic",
-"detail": "exit 1, expected 0: TypeError: cannot pickle 'PyCapsule' object"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6493,8 +8479,584 @@
 {
 "id": "test_functools.TestTotalOrdering.test_type_error_when_not_implemented",
 "file": "test_functools",
-"category": "not_extractable",
-"detail": "unittest API subTest"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestCachePy.test_cache",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestCacheC.test_cache",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestLRUPy.test_common_signatures",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUPy.test_copy",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUPy.test_deepcopy",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUPy.test_kwargs_order",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUPy.test_lru",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUPy.test_lru_bug_35780",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUPy.test_lru_bug_36650",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUPy.test_lru_cache_decoration",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUPy.test_lru_cache_parameters",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUPy.test_lru_cache_threaded",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUPy.test_lru_cache_threaded2",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUPy.test_lru_cache_threaded3",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUPy.test_lru_cache_typed_is_not_recursive",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUPy.test_lru_cache_weakrefable",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUPy.test_lru_hash_only_once",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUPy.test_lru_method",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUPy.test_lru_no_args",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUPy.test_lru_recursion",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUPy.test_lru_reentrancy_with_len",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUPy.test_lru_star_arg_handling",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUPy.test_lru_type_error",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUPy.test_lru_with_exceptions",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUPy.test_lru_with_keyword_args",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUPy.test_lru_with_keyword_args_maxsize_none",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUPy.test_lru_with_maxsize_negative",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUPy.test_lru_with_maxsize_none",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUPy.test_lru_with_types",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUPy.test_need_for_rlock",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUPy.test_pickle",
+"file": "test_functools",
+"category": "excluded",
+"detail": "the pure-Python copy of a module CPython also tests in C (Brevi has one copy)"
+},
+{
+"id": "test_functools.TestLRUC.test_common_signatures",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "`.cache_clear` and a value kept elsewhere name the same list in Python, and `.cache_clear` is changed (by test_common_signatures()) while a value kept elsewhere is still used; the typed build would ch"
+},
+"dyn": {
+"category": "refused",
+"detail": "Signature.from_callable is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_functools.TestLRUC.test_copy",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestLRUC.test_deepcopy",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestLRUC.test_kwargs_order",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestLRUC.test_lru",
+"file": "test_functools",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_functools.TestLRUC.test_lru_bug_35780",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestLRUC.test_lru_bug_36650",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestLRUC.test_lru_cache_decoration",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestLRUC.test_lru_cache_parameters",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestLRUC.test_lru_cache_threaded",
+"file": "test_functools",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_functools.TestLRUC.test_lru_cache_threaded2",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "`_conf_start_threads` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 38: threading.Barrier is not supported in dynamic builds)"
+},
+"dyn": {
+"category": "refused",
+"detail": "threading.Barrier is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_functools.TestLRUC.test_lru_cache_threaded3",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestLRUC.test_lru_cache_typed_is_not_recursive",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestLRUC.test_lru_cache_weakrefable",
+"file": "test_functools",
+"category": "excluded",
+"detail": "tests CPython's immortal objects"
+},
+{
+"id": "test_functools.TestLRUC.test_lru_hash_only_once",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestLRUC.test_lru_method",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestLRUC.test_lru_no_args",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestLRUC.test_lru_recursion",
+"file": "test_functools",
+"category": "excluded",
+"detail": "measures the recursion depth with _testinternalcapi (CPython's C internals)"
+},
+{
+"id": "test_functools.TestLRUC.test_lru_reentrancy_with_len",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestLRUC.test_lru_star_arg_handling",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestLRUC.test_lru_type_error",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestLRUC.test_lru_with_exceptions",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestLRUC.test_lru_with_keyword_args",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestLRUC.test_lru_with_keyword_args_maxsize_none",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestLRUC.test_lru_with_maxsize_negative",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestLRUC.test_lru_with_maxsize_none",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestLRUC.test_lru_with_types",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestLRUC.test_need_for_rlock",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_functools.TestLRUC.test_pickle",
+"file": "test_functools",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_functools.TestSingleDispatch.test_abstractmethod_register",
@@ -6502,31 +9064,39 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "`add` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 11: functools.singledispatchmethod is not supported in dynamic builds)"
+"detail": "`add` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 11: singledispatchmethod with abstractmethod is not supported in dynamic builds)"
 },
 "dyn": {
 "category": "refused",
-"detail": "functools.singledispatchmethod is not supported in dynamic builds"
+"detail": "singledispatchmethod with abstractmethod is not supported in dynamic builds"
 }
 }
 },
 {
 "id": "test_functools.TestSingleDispatch.test_annotations",
 "file": "test_functools",
-"category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_functools.TestSingleDispatch.test_assignment_behavior",
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`t` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 9: functools.singledispatchmethod is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.singledispatchmethod is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6535,38 +9105,46 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`C` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 8: collections.abc is not supported in dynamic builds)"
+"category": "cpython_private",
+"detail": "`C` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 9: functools._c3_mro is not supported in dynamic builds)"
 },
 "dyn": {
-"category": "refused",
-"detail": "collections.abc is not supported in dynamic builds"
+"category": "cpython_private",
+"detail": "functools._c3_mro is not supported in dynamic builds"
 }
 }
 },
 {
 "id": "test_functools.TestSingleDispatch.test_c_classes",
 "file": "test_functools",
-"category": "not_extractable",
-"detail": "decorator @unittest.skipUnless"
+"category": "excluded",
+"detail": "marked cpython_only"
 },
 {
 "id": "test_functools.TestSingleDispatch.test_cache_invalidation",
 "file": "test_functools",
-"category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"modes": {
+"normal": {
+"category": "cpython_private",
+"detail": "`swap_attr` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 109: functools._find_impl is not supported in dynamic builds)"
+},
+"dyn": {
+"category": "cpython_private",
+"detail": "functools._find_impl is not supported in dynamic builds"
+}
+}
 },
 {
 "id": "test_functools.TestSingleDispatch.test_callable_register",
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`t` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 12: functools.singledispatchmethod is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.singledispatchmethod is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6575,12 +9153,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`t` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 12: functools.singledispatchmethod is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.singledispatchmethod is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6589,12 +9167,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`go` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 10: functools.singledispatchmethod is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.singledispatchmethod is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6603,12 +9181,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`t` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 12: functools.singledispatchmethod is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.singledispatchmethod is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6617,12 +9195,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`haystack` and `.Mapping` name the same list in Python, and `haystack` is changed (by a function the proof does not follow) while `.Mapping` is still used; the typed build would change only a copy, an"
+"category": "cpython_private",
+"detail": "the ChainMap class (from collections) runs in the dynamic build, and this file cannot be built over dynamic values (case.py line 10: functools._compose_mro is not supported in dynamic builds)"
 },
 "dyn": {
-"category": "refused",
-"detail": "collections.abc is not supported in dynamic builds"
+"category": "cpython_private",
+"detail": "functools._compose_mro is not supported in dynamic builds"
 }
 }
 },
@@ -6631,12 +9209,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`wrapper` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 89: typing: .__annotations__ needs CPython's typing)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "typing: .__annotations__ needs CPython's typing"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6659,12 +9237,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`f` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 7: functools.singledispatch is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.singledispatch is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6673,12 +9251,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`t` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 8: functools.singledispatchmethod is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.singledispatchmethod is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6687,12 +9265,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`i` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 13: functools.singledispatch is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.singledispatch is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6701,12 +9279,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`t` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 12: functools.singledispatchmethod is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.singledispatchmethod is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6715,12 +9293,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`t` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 13: functools.singledispatchmethod is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.singledispatchmethod is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6735,12 +9313,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`t` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 8: functools.singledispatchmethod is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.singledispatchmethod is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6750,11 +9328,11 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "`func` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 9: functools.singledispatchmethod is not supported in dynamic builds)"
+"detail": "`func` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 33: Signature.from_callable is not supported in dynamic builds)"
 },
 "dyn": {
 "category": "refused",
-"detail": "functools.singledispatchmethod is not supported in dynamic builds"
+"detail": "Signature.from_callable is not supported in dynamic builds"
 }
 }
 },
@@ -6763,12 +9341,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`func` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 43: typing: .__annotations__ needs CPython's typing)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "typing: .__annotations__ needs CPython's typing"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6777,12 +9355,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`g` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 7: functools.singledispatch is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.singledispatch is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6791,12 +9369,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`g` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 7: collections.abc is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "collections.abc is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6805,12 +9383,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`g` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 7: collections.abc is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "collections.abc is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6819,12 +9397,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "no Python type has a method .dispatch()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.singledispatch is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6847,12 +9425,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`f` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 8: functools.singledispatch is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.singledispatch is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6876,11 +9454,11 @@
 "modes": {
 "normal": {
 "category": "refused",
-"detail": "`func` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 8: functools.singledispatch is not supported in dynamic builds)"
+"detail": "`func` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 14: Signature.from_callable is not supported in dynamic builds)"
 },
 "dyn": {
 "category": "refused",
-"detail": "functools.singledispatch is not supported in dynamic builds"
+"detail": "Signature.from_callable is not supported in dynamic builds"
 }
 }
 },
@@ -6889,12 +9467,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`g` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 7: functools.singledispatch is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.singledispatch is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6903,12 +9481,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`go` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 9: functools.singledispatchmethod is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.singledispatchmethod is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6917,12 +9495,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`t` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 9: functools.singledispatchmethod is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.singledispatchmethod is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6931,12 +9509,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`t` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 10: functools.singledispatchmethod is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.singledispatchmethod is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6945,12 +9523,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`t` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 9: functools.singledispatchmethod is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.singledispatchmethod is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6959,12 +9537,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`t` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 8: functools.singledispatchmethod is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.singledispatchmethod is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6973,12 +9551,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`f` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 8: functools.singledispatch is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.singledispatch is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6987,12 +9565,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`typing_union` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 8: functools.singledispatch is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.singledispatch is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -7001,12 +9579,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`f` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 8: functools.singledispatch is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.singledispatch is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -7015,80 +9593,168 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`g` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 8: functools.singledispatch is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "functools.singledispatch is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
 {
 "id": "test_functools.TestCachedProperty.test_access_from_class",
 "file": "test_functools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'import_helper' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_functools.TestCachedProperty.test_cached",
 "file": "test_functools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'import_helper' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_functools.TestCachedProperty.test_cached_attribute_name_differs_from_func_name",
 "file": "test_functools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'import_helper' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_functools.TestCachedProperty.test_doc",
 "file": "test_functools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'import_helper' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_functools.TestCachedProperty.test_immutable_dict",
 "file": "test_functools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'import_helper' is not defined"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found MyMeta"
+},
+"dyn": {
+"category": "refused",
+"detail": "metaclasses are not supported"
+}
+}
 },
 {
 "id": "test_functools.TestCachedProperty.test_module",
 "file": "test_functools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'import_helper' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_functools.TestCachedProperty.test_object_with_slots",
 "file": "test_functools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'import_helper' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_functools.TestCachedProperty.test_reuse_different_names",
 "file": "test_functools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'import_helper' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_functools.TestCachedProperty.test_reuse_same_name",
 "file": "test_functools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'import_helper' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_functools.TestCachedProperty.test_set_name_not_called",
 "file": "test_functools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'import_helper' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_functools.TestCachedProperty.test_subclass_with___set__",
 "file": "test_functools",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'import_helper' is not defined"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_string.ModuleTest.test_attrs",
@@ -7109,12 +9775,12 @@
 "file": "test_string",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown method .format()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "string.Formatter is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -7123,12 +9789,12 @@
 "file": "test_string",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown function type()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "string.Formatter is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -7138,11 +9804,11 @@
 "modes": {
 "normal": {
 "category": "matched",
-"path": "pybridge"
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "string.capwords is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -7151,12 +9817,12 @@
 "file": "test_string",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found CheckAllUsedFormatter"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "string.Formatter is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -7165,12 +9831,12 @@
 "file": "test_string",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown function type()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "string.Formatter is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -7179,12 +9845,12 @@
 "file": "test_string",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "except KeyError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 6: string.Formatter is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "string.Formatter is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -7193,12 +9859,12 @@
 "file": "test_string",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "except KeyError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 6: string.Formatter is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "string.Formatter is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -7207,12 +9873,12 @@
 "file": "test_string",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found AnyAttr"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "string.Formatter is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -7221,12 +9887,12 @@
 "file": "test_string",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found XFormatter"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "string.Formatter is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -7235,12 +9901,12 @@
 "file": "test_string",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found CallFormatter"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "string.Formatter is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -7249,12 +9915,12 @@
 "file": "test_string",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "except KeyError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 6: string.Formatter is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "string.Formatter is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -7263,12 +9929,12 @@
 "file": "test_string",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "the typed build runs a generator to the end at its first use, where CPython runs it step by step with its caller, and this file cannot be built over dynamic values (case.py line 6: string.Formatter is"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "string.Formatter is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -7277,32 +9943,40 @@
 "file": "test_string",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown function dict()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "string.Formatter is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
 {
 "id": "test_string.TestTemplate.test_SafeTemplate",
 "file": "test_string",
-"category": "not_extractable",
-"detail": "unittest API assertEqual"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_string.TestTemplate.test_braced_override",
 "file": "test_string",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "except KeyError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 3: string.Template is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "string.Template is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -7311,58 +9985,82 @@
 "file": "test_string",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found MyTemplate"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "string.Template is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
 {
 "id": "test_string.TestTemplate.test_delimiter_override",
 "file": "test_string",
-"category": "not_extractable",
-"detail": "unittest API assertEqual"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_string.TestTemplate.test_escapes",
 "file": "test_string",
-"category": "not_extractable",
-"detail": "unittest API assertEqual"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_string.TestTemplate.test_flags_override",
 "file": "test_string",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`d` and a value kept elsewhere name the same list in Python, and `d` is changed (by a function the proof does not follow) while a value kept elsewhere is still used; the typed build would change only "
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "string.Template is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
 {
 "id": "test_string.TestTemplate.test_get_identifiers",
 "file": "test_string",
-"category": "not_extractable",
-"detail": "unittest API assertEqual"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_string.TestTemplate.test_idpattern_override",
 "file": "test_string",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found PathPattern"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "string.Template is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -7371,12 +10069,12 @@
 "file": "test_string",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found MyPattern"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "string.Template is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -7385,84 +10083,124 @@
 "file": "test_string",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`m` and a value kept elsewhere name the same list in Python, and `m` is changed (by a function the proof does not follow) while a value kept elsewhere is still used; the typed build would change only "
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "string.Template is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
 {
 "id": "test_string.TestTemplate.test_invalid_placeholders",
 "file": "test_string",
-"category": "not_extractable",
-"detail": "unittest API assertRaises"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_string.TestTemplate.test_invalid_with_no_lines",
 "file": "test_string",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found MyTemplate"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "string.Template is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
 {
 "id": "test_string.TestTemplate.test_is_valid",
 "file": "test_string",
-"category": "not_extractable",
-"detail": "unittest API assertEqual"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_string.TestTemplate.test_keyword_arguments",
 "file": "test_string",
-"category": "not_extractable",
-"detail": "unittest API assertEqual"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_string.TestTemplate.test_keyword_arguments_safe",
 "file": "test_string",
-"category": "not_extractable",
-"detail": "unittest API assertEqual"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_string.TestTemplate.test_pattern_override",
 "file": "test_string",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found MyPattern"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "string.Template is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
 {
 "id": "test_string.TestTemplate.test_percents",
 "file": "test_string",
-"category": "not_extractable",
-"detail": "unittest API assertEqual"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_string.TestTemplate.test_regular_templates",
 "file": "test_string",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "except KeyError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 3: string.Template is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "string.Template is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -7471,12 +10209,12 @@
 "file": "test_string",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "except KeyError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 3: string.Template is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "string.Template is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -7485,12 +10223,12 @@
 "file": "test_string",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown function dict()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "string.Template is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -7499,38 +10237,54 @@
 "file": "test_string",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown function dict()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "string.Template is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
 {
 "id": "test_string.TestTemplate.test_stringification",
 "file": "test_string",
-"category": "not_extractable",
-"detail": "unittest API assertEqual"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_string.TestTemplate.test_tupleargs",
 "file": "test_string",
-"category": "not_extractable",
-"detail": "unittest API assertEqual"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_string.TestTemplate.test_unicode_values",
 "file": "test_string",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown function dict()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "string.Template is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 }

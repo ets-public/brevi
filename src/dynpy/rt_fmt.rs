@@ -169,6 +169,11 @@ pub fn ose_str(o: &Rc<Obj>, args: &V) -> Result<String, E> {
     })
 }
 pub fn repr(v: &V) -> Result<String, E> {
+    if let V::Ext(_) = v {
+        if let Some(r) = sig_str(v, true) {
+            return r;
+        }
+    }
     Ok(match v {
         V::None => "None".into(),
         V::Bool(b) => if *b { "True" } else { "False" }.into(),
@@ -509,6 +514,12 @@ fn join_repr(xs: &[V]) -> Result<String, E> {
     Ok(s)
 }
 pub fn to_str(v: &V) -> Result<String, E> {
+    if let Some(r) = sig_str(v, false) {
+        return r;
+    }
+    if let Some(__p) = proxy_deref(v) {
+        return to_str(&__p?);
+    }
     Ok(match v {
         V::Class(c) if meta_has(c, "__str__") || meta_has(c, "__repr__") => return meta_str(c, v, if meta_has(c, "__str__") { "__str__" } else { "__repr__" }),
         V::Str(s) => s.s.clone(),
@@ -1172,6 +1183,9 @@ pub fn percent_format(f: &str, args: &V) -> Result<String, E> {
 // ---------- numbers from values ----------
 
 pub fn to_float(v: &V) -> Result<f64, E> {
+    if let Some(__p) = proxy_deref(v) {
+        return to_float(&__p?);
+    }
     match v {
         V::Float(f) => Ok(*f),
         V::Int(i) => Ok(*i as f64),
@@ -1307,6 +1321,9 @@ pub fn parse_int(t: &str, base: u32) -> Option<V> {
     Some(if neg { b.neg() } else { b }.norm())
 }
 pub fn to_int(v: &V) -> R {
+    if let Some(__p) = proxy_deref(v) {
+        return to_int(&__p?);
+    }
     match v {
         V::Int(_) | V::Big(_) => Ok(v.clone()),
         V::Bool(b) => Ok(V::Int(*b as i64)),
