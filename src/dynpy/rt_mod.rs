@@ -3322,6 +3322,11 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         ("math", "nan") => V::Float(math_nan()),
         ("collections", "defaultdict" | "Counter" | "OrderedDict" | "deque") => V::Class(bclass(name)),
         ("collections", "abc") => V::Module(&ModName("collections.abc")),
+        // submodules the package imports, so CPython has them as attributes after `import re` (read at run time
+        // when the name is not a static module alias, as after `import re` then `import re._compiler`)
+        ("re", "_constants") => V::Module(&ModName("re._constants")),
+        ("re", "_compiler") => V::Module(&ModName("re._compiler")),
+        ("json", "decoder") => V::Module(&ModName("json.decoder")),
         ("string", "ascii_lowercase") => s("abcdefghijklmnopqrstuvwxyz"),
         ("string", "ascii_uppercase") => s("ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
         ("string", "ascii_letters") => s("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"),
@@ -3337,8 +3342,9 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         ("dataclasses", "MISSING" | "KW_ONLY" | "InitVar" | "Field" | "FrozenInstanceError") => dataclass_attr(name).unwrap(),
         ("abc", "ABC") => V::Class(abc_class()),
         ("abc", "ABCMeta") => V::Class(abc_meta_class()),
-        ("re._constants", "MAXREPEAT") => V::Int(0xFFFF_FFFE),
-        ("re._constants", "MAXGROUPS") => V::Int(0x3FFF_FFFF),
+        // CPython's re._compiler imports both from re._constants: the same objects
+        ("re._constants" | "re._compiler", "MAXREPEAT") => re_maxrepeat(),
+        ("re._constants" | "re._compiler", "MAXGROUPS") => V::Int(0x3FFF_FFFF),
         ("functools", "cached_property") => V::Class(cached_property_class()),
         ("functools", "partialmethod") => V::Class(partialmethod_class()),
         ("functools", "partial") => V::Class(partial_class()),
