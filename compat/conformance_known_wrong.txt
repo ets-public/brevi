@@ -1,4 +1,0 @@
-# Known wrong results and crashes of tools/conformance.py: `test-id mode issue=#N owner=LOGIN expires=YYYY-MM-DD`.
-# `--check` fails on a wrong result not here, on a line here that is no longer wrong (so this list only shrinks),
-# and on a line without a tracking issue, an owner and an expiry date, or past its expiry. `--write-baseline`
-# keeps the metadata of lines already here and writes new ones with `?`, which --check refuses until filled in.

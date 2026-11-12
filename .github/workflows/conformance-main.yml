@@ -19,7 +19,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "tools/conformance.py"
-      - "compat/conformance_*"
+      - "compat/conformance_**"
       - ".github/workflows/conformance-main.yml"
   workflow_dispatch:
 
