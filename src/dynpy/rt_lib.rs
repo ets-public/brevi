@@ -945,6 +945,14 @@ pub fn abc_subclasscheck(cls: &Rc<Class>, sub: &Rc<Class>) -> Result<bool, E> {
         }
         return Ok(true);
     }
+    // collections registers deque as a MutableSequence (CPython's collections/__init__.py); Brevi's deque is the
+    // runtime's own class, which a program can import without Brevi's collections module ever running
+    if cls.module == "collections.abc" && cls.name == "MutableSequence" && sub.is_sub(&tclass(16, "deque")) {
+        if !abc_has(&cls.abc_cache.borrow(), sub) {
+            cls.abc_cache.borrow_mut().push(sub.clone());
+        }
+        return Ok(true);
+    }
     let registered = cls.abc_registry.borrow().clone();
     for r in registered {
         let ok = if r.abc.get() { abc_subclasscheck(&r, sub)? } else { sub.is_sub(&r) };
