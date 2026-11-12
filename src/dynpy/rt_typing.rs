@@ -601,6 +601,8 @@ pub struct TForm {
     pub name: Sym,
     // Generic[T, ...] and Protocol[T, ...]: how many type parameters (a class made on one takes as many)
     pub params: usize,
+    // G[int] of a class the program made on Generic: G, which calling the alias makes an instance of
+    pub origin: Option<Rc<Class>>,
 }
 impl Ext for TForm {
     fn tname(&self) -> &'static str {
@@ -621,7 +623,16 @@ impl Ext for TForm {
         }
         Some(Err(unsupported(&format!("typing.{}[...].{n}", self.name))))
     }
-    fn method(&self, _me: &V, n: &str, _a: &mut Args) -> Option<R> {
+    fn method(&self, me: &V, n: &str, a: &mut Args) -> Option<R> {
+        // typing._BaseGenericAlias.__call__: an instance of the class, with __orig_class__ set to the alias where
+        // the instance takes it (CPython ignores the Exception setting it raises)
+        if let (Some(k), "__call__") = (&self.origin, n) {
+            let r = call(&V::Class(k.clone()), Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) });
+            return Some(r.and_then(|o| match setattr(&o, sym("__orig_class__"), me.clone()) {
+                Err(e) if !swallowed(&e) => Err(e),
+                _ => Ok(o),
+            }));
+        }
         Some(Err(unsupported(&format!("typing.{}[...].{n}", self.name))))
     }
     fn instancecheck(&self, _x: &V) -> Option<Result<bool, E>> {
@@ -634,8 +645,13 @@ impl Ext for TForm {
         Some(Err(unsupported(&format!("setting typing.{}[...].{n}", self.name))))
     }
 }
+// `except Exception: pass` around setting __orig_class__, but never over a refusal of Brevi's own
+fn swallowed(e: &E) -> bool {
+    let is = |n: &str| exc_match(&e.0, &V::Class(exc_class(n))).unwrap_or(false);
+    is("Exception") && !(is("NotImplementedError") && to_str(&e.0).is_ok_and(|m| m.contains("is not supported in dynamic builds")))
+}
 fn tform(n: Sym) -> R {
-    Ok(V::Ext(ExtRc::new(TForm { name: n, params: 0 })))
+    Ok(V::Ext(ExtRc::new(TForm { name: n, params: 0, origin: None })))
 }
 // a typing form of the runtime's own (typing_form), not a TypeVar or another class of module "typing"
 fn is_form(k: &Rc<Class>) -> bool {
@@ -805,7 +821,7 @@ pub fn typing_getitem(k: &Rc<Class>, i: &V) -> R {
                     }
                 }
             }
-            Ok(V::Ext(ExtRc::new(TForm { name: n, params: args.len() })))
+            Ok(V::Ext(ExtRc::new(TForm { name: n, params: args.len(), origin: None })))
         }
         "Self" | "NoReturn" | "Never" | "LiteralString" | "TypeAlias" => type_err(format!("typing.{n} is not subscriptable")),
         "Any" => type_err("type 'Any' is not subscriptable".into()),
@@ -842,7 +858,7 @@ pub fn class_subscript(k: &Rc<Class>, i: &V) -> R {
             if got < want {
                 return type_err(format!("Too few arguments for {kr}; actual {got}, expected at least {}", got + 1));
             }
-            return tform(k.name);
+            return Ok(V::Ext(ExtRc::new(TForm { name: k.name, params: 0, origin: Some(k.clone()) })));
         }
         _ => {}
     }

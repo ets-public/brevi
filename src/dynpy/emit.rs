@@ -15,6 +15,10 @@ pub static NP_NATIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicB
 pub static NP_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 // The program uses Brevi's pydantic: defs carry their number of positional parameters (src/dynpy/pyd.rs).
 pub static PYD_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+// With Brevi's pydantic, per module (pyd::rewrite): the model annotations' lines, which their descriptor
+// statement evaluates in place of the annotation, and the names holding descriptors or the pydantic copy, which
+// are not CPython's typing values (an annotation reading one is refused where CPython evaluates it).
+pub static PYD_ANN: std::sync::Mutex<Option<HashMap<String, (HashSet<usize>, HashSet<String>)>>> = std::sync::Mutex::new(None);
 // Set while the program is a .bv file in Brevi's own spellings, turned into Python (main.rs bv_as_py): its
 // annotations are Brevi's types, which may name a class defined further down, so none is evaluated.
 pub static BV_SPELLING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -3248,6 +3252,37 @@ impl Em {
     // Where statement `s` is, said before it runs (a program using warnings).
     // An annotation with no value still evaluates its target's object: `o.a: T` evaluates o, and `o[i]: T`
     // evaluates o and i (CPython's compiler_annassign), with no attribute or item read; a name binds nothing.
+    // With Brevi's pydantic: whether to evaluate this annotation as CPython does (false: a model's, which its
+    // descriptor statement evaluates instead), or Err when it reads a descriptor or the pydantic copy, whose
+    // values are not CPython's typing objects.
+    fn pyd_ann(&self, ann: &Ex, line: usize, in_class: bool) -> Result<bool, (usize, String)> {
+        if !PYD_ON.load(std::sync::atomic::Ordering::Relaxed) {
+            return Ok(true);
+        }
+        let g = PYD_ANN.lock().unwrap();
+        let Some((lines, names)) = g.as_ref().and_then(|m| m.get(&self.module)) else { return Ok(true) };
+        if in_class && lines.contains(&line) {
+            return Ok(false);
+        }
+        // A bare name evaluates to what it holds whatever that is; inside a subscript, `|`, call or attribute, a
+        // descriptor would be checked as a typing value it is not.
+        if matches!(ann, Ex::Name(_)) {
+            return Ok(true);
+        }
+        let mut hit = None;
+        crate::typed_guard::walk_ex(ann, &mut |e| {
+            if let Ex::Name(n) = e {
+                if hit.is_none() && names.contains(n) {
+                    hit = Some(n.clone());
+                }
+            }
+        });
+        match hit {
+            Some(n) => Err(err(line, &format!("an annotation outside a model that subscripts or combines `{n}` (Brevi's pydantic holds no typing value there to evaluate) is not supported in dynamic builds"))),
+            None => Ok(true),
+        }
+    }
+
     fn ann_target_only(&mut self, t: &Ex, line: usize) -> Result<String, (usize, String)> {
         Ok(match t {
             Ex::Attr(o, _) => format!("{{ let _ = {}; }}", self.ex(o, line)?),
@@ -3341,7 +3376,7 @@ impl Em {
                 // CPython (compiler_annassign) evaluates a module or class body's annotation after the value is
                 // stored (a function body's never); the class bodies that keep __annotations__ do it themselves
                 let fr = self.fstack.last().unwrap();
-                if self.eval_ann && (fr.is_module || fr.is_class) {
+                if self.eval_ann && (fr.is_module || fr.is_class) && self.pyd_ann(ann, line, fr.is_class)? {
                     let av = self.ex(ann, line)?;
                     code.push_str(&format!(" let _ = {av};"));
                 }
@@ -3921,6 +3956,9 @@ impl Em {
         // __annotations__ somewhere: parameters in order, then "return"
         let anns = super::typing::ANN_DEFS.load(std::sync::atomic::Ordering::Relaxed);
         if !anns && self.eval_ann && (!d.params.ann.is_empty() || d.ret.is_some()) {
+            for a in d.params.ann.iter().map(|(_, a)| a).chain(d.ret.iter()) {
+                self.pyd_ann(a, d.line, false)?;
+            }
             // evaluated now and dropped, as CPython 3.13 evaluates them when the def runs; a PEP 695 parameter
             // is the TypeVar CPython's annotation scope binds
             self.ann_tvars = d.tparams.clone();

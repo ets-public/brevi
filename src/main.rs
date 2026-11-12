@@ -25,6 +25,7 @@ mod parser;
 mod pybridge;
 mod pydiag;
 mod patch;
+mod ann_guard;
 mod share_guard;
 mod typed_guard;
 mod unicode_names;

@@ -791,9 +791,11 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
             let user: Vec<(&str, &[parse::Stmt])> = mods.iter().filter(|m| !own_mods.contains(&m.name)).map(|m| (m.name.as_str(), m.body.as_slice())).collect();
             (pyd::class_names(&user), pyd::models(&user))
         };
+        let mut seen = std::collections::HashMap::new();
         for m in mods.iter_mut().filter(|m| !own_mods.contains(&m.name)) {
-            pyd::rewrite(&mut m.body, &classes, &models);
+            seen.insert(m.name.clone(), pyd::rewrite(&mut m.body, &classes, &models));
         }
+        *emit::PYD_ANN.lock().unwrap() = Some(seen);
         let user: Vec<(&str, &[parse::Stmt])> = mods.iter().filter(|m| !own_mods.contains(&m.name)).map(|m| (m.name.as_str(), m.body.as_slice())).collect();
         if let Err((m, l, why)) = pyd::check(&user) {
             if std::env::var("BREVI_PYD_DEBUG").is_ok() {
