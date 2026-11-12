@@ -1360,11 +1360,7 @@ pub fn to_int(v: &V) -> R {
             type_err(format!("int() argument must be a string, a bytes-like object or a real number, not '{}'", tn(v)))
         }
         // int(b"42"), as CPython reads ASCII digits from bytes
-        V::Ext(x) if x.any().is::<BytesV>() || x.any().is::<ByteArrayV>() || (x.any().is::<MemV>() && bytes_of(v).is_some()) => {
-            let b = bytes_of(v).unwrap_or_default();
-            let t = String::from_utf8_lossy(&b).into_owned();
-            parse_int(&t, 10).ok_or_else(|| exc("ValueError", format!("invalid literal for int() with base 10: {}", bytes_repr(&b))))
-        }
+        V::Ext(x) if x.any().is::<BytesV>() || x.any().is::<ByteArrayV>() || (x.any().is::<MemV>() && bytes_of(v).is_some()) => bytes_int(&bytes_of(v).unwrap_or_default(), 10),
         V::Ext(x) if x.any().is::<MemV>() => type_err("int() argument must be a string, a bytes-like object or a real number, not 'memoryview'".into()),
         V::Ext(x) => match x.method(v, "__int__", &mut Args::p(vec![])) {
             Some(r) => r,
@@ -1372,6 +1368,17 @@ pub fn to_int(v: &V) -> R {
         },
         _ => type_err(format!("int() argument must be a string, a bytes-like object or a real number, not '{}'", tn(v))),
     }
+}
+
+// int(b"42", base): CPython reads the bytes as ASCII text (PyLong_FromString on the raw buffer), so a byte past
+// 0x7f (a UTF-8 digit or space included) is never part of a number; the digit limit applies as for str.
+pub fn bytes_int(b: &[u8], base: u32) -> R {
+    let bad = || exc("ValueError", format!("invalid literal for int() with base {base}: {}", bytes_repr(b)));
+    if !b.is_ascii() {
+        return Err(bad());
+    }
+    let t = String::from_utf8_lossy(b);
+    int_text_limit(&t, base, parse_int(&t, base))?.ok_or_else(bad)
 }
 
 // What int() makes of `r`, the result of a user __int__ or __index__ (CPython's PyNumber_Long and

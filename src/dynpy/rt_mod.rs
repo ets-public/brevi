@@ -713,7 +713,7 @@ pub fn bisect_fn(name: &str, mut a: Args) -> R {
 // a bounded lru_cache's results by slot: (key, value, last use), and the slots by last use
 struct LruSlots {
     tick: u64,
-    map: std::collections::HashMap<i64, (V, V, u64)>,
+    map: std::collections::HashMap<i64, (V, V, u64, i64)>,
     order: std::collections::BTreeMap<u64, i64>,
 }
 fn lru_cache_wrap(f: V, maxsize: V, typed: bool) -> R {
@@ -759,11 +759,14 @@ fn lru_cache_wrap(f: V, maxsize: V, typed: bool) -> R {
             parts.push(tup(types));
         }
         let key = tup(parts);
+        // CPython hashes the key once per call (a key's __hash__ runs once for each use of an argument): the
+        // lookup, the insert after the call and a later eviction all reuse this hash.
+        let kh = if bound == Some(0) { 0 } else { py_hash(&key)? };
         // A bounded cache's dict maps each key to a slot number; the slots and their recency live outside the
         // dict, so a hit (which only moves a result to most recently used) never changes the dict, as in
         // CPython, where the order is a linked list: a key's __eq__ may call the cached function again.
         if bound != Some(0) {
-            if let Some(v) = Dict::get_cell(&cache, &key)? {
+            if let Some(v) = Dict::get_cell_h(&cache, &key, kh)? {
                 h2.set(h2.get() + 1);
                 if bound.is_none() {
                     return Ok(v);
@@ -790,35 +793,35 @@ fn lru_cache_wrap(f: V, maxsize: V, typed: bool) -> R {
         match bound {
             Some(0) => {}
             Some(n) => {
-                if Dict::get_cell(&cache, &key)?.is_none() {
+                if Dict::get_cell_h(&cache, &key, kh)?.is_none() {
                     let id = {
                         let mut sl = slots.borrow_mut();
                         sl.tick += 1;
                         let t = sl.tick;
-                        sl.map.insert(t as i64, (key.clone(), r.clone(), t));
+                        sl.map.insert(t as i64, (key.clone(), r.clone(), t, kh));
                         sl.order.insert(t, t as i64);
                         t as i64
                     };
-                    Dict::set_cell(&cache, key, V::Int(id))?;
+                    Dict::set_cell_h(&cache, key, V::Int(id), kh)?;
                     while cache.borrow().n > n {
                         let oldest = {
                             let mut sl = slots.borrow_mut();
                             let first = sl.order.iter().next().map(|(t, id)| (*t, *id));
                             first.and_then(|(t, id)| {
                                 sl.order.remove(&t);
-                                sl.map.remove(&id).map(|e| e.0)
+                                sl.map.remove(&id).map(|e| (e.0, e.3))
                             })
                         };
                         match oldest {
-                            Some(k) => {
-                                Dict::del_cell(&cache, &k)?;
+                            Some((k, h)) => {
+                                Dict::del_cell_h(&cache, &k, h)?;
                             }
                             None => break,
                         }
                     }
                 }
             }
-            None => Dict::set_cell(&cache, key, r.clone())?,
+            None => Dict::set_cell_h(&cache, key, r.clone(), kh)?,
         }
         Ok(r)
     });
@@ -2383,6 +2386,75 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
         _ => x.clone(),
     })
 }
+// operator.length_hint(obj, default=0), as CPython's PyObject_LengthHint: len() when the type has __len__, else
+// the type's __length_hint__ (NotImplemented or a TypeError from it gives the default; a result that is not an
+// int is a TypeError, a negative one a ValueError), else the default. Brevi's own iterators answer as CPython's
+// do where their state shows the count (list, tuple, reversed list, itertools.repeat) and give the default where
+// CPython's type has no __length_hint__ (map, zip, generators, most of itertools); any other iterator, or a value
+// from a bridged library, is refused rather than guessed.
+fn length_hint(mut a: Args) -> R {
+    if !a.k.is_empty() {
+        return type_err("_operator.length_hint() takes no keyword arguments".into());
+    }
+    a.want("length_hint", 1, 2)?;
+    let default = match a.p.get(1) {
+        None => V::Int(0),
+        Some(d @ (V::Int(_) | V::Big(_))) => d.clone(),
+        Some(d) => V::Int(ssize_arg(d)?),
+    };
+    let o = a.p[0].clone();
+    match &o {
+        V::Str(_) | V::List(_) | V::Tuple(_) | V::Dict(_) | V::Set(_) | V::FSet(_) | V::Range(_) | V::Deque(_) => return Ok(V::Int(len(&o)? as i64)),
+        V::Obj(ob) => {
+            let sized = inner_of(&o).is_some_and(|i| matches!(i, V::Str(_) | V::List(_) | V::Tuple(_) | V::Dict(_) | V::Set(_) | V::FSet(_) | V::Range(_) | V::Deque(_)));
+            if sized || ob.cls.lookup("__len__").is_some() {
+                return Ok(V::Int(len(&o)? as i64));
+            }
+            let Some(f) = ob.cls.lookup("__length_hint__") else {
+                if inner_of(&o).is_some_and(|i| !matches!(i, V::Int(_) | V::Big(_) | V::Bool(_) | V::Float(_))) {
+                    return Err(unsupported("operator.length_hint of an instance of a subclass of a built-in type"));
+                }
+                return Ok(default);
+            };
+            let r = match call(&f, Args::p(vec![o.clone()])) {
+                Ok(r) => r,
+                Err(e) if is_exc(&e.0, "TypeError") => return Ok(default),
+                Err(e) => return Err(e),
+            };
+            return match &r {
+                V::NotImpl => Ok(default),
+                V::Int(n) if *n < 0 => val_err("__length_hint__() should return >= 0".into()),
+                V::Int(_) => Ok(r),
+                V::Bool(b) => Ok(V::Int(*b as i64)),
+                V::Big(_) => Err(exc("OverflowError", "cannot fit 'int' into an index-sized integer".into())),
+                _ => type_err(format!("__length_hint__ must be an integer, not {}", tn(&r))),
+            };
+        }
+        V::Iter(c) => {
+            let IterClass::Kind(k) = &c.kind else {
+                return Err(unsupported("operator.length_hint of this iterator"));
+            };
+            use ItKind::*;
+            let left = |n: usize, i: usize| Ok(V::Int(n.saturating_sub(i) as i64));
+            return match (k, &*c.it.borrow()) {
+                (ItRepeat, It::Repeat(_, Some(n))) => Ok(V::Int((*n).max(0))),
+                // an endless repeat: its __length_hint__ raises TypeError, which gives the default
+                (ItRepeat, It::Repeat(_, None)) => Ok(default),
+                (ListIter, It::List(l, i)) => left(l.borrow().len(), *i),
+                (TupleIter, It::Tuple(t, i)) => left(t.len(), *i),
+                (ListReverseIter, It::RevList(l, n)) => Ok(V::Int(if l.borrow().len() >= *n { *n as i64 } else { 0 })),
+                (ListIter | TupleIter | ListReverseIter | ItRepeat, It::Done) => Ok(V::Int(0)),
+                (Map | Filter | Zip | Enumerate | Generator | CallableIterator | ItCount | ItChain | ItIslice | ItCycle | ItAccumulate | ItZipLongest | ItStarmap | ItTakewhile
+                | ItDropwhile | ItPairwise | ItCompress | ItFilterfalse | ItGroupby | ItGrouper | ItProduct | ItPermutations | ItCombinations
+                | ItCombinationsWithReplacement | ItTee | ItBatched, _) => Ok(default),
+                _ => Err(unsupported("operator.length_hint of this iterator")),
+            };
+        }
+        V::None | V::Bool(_) | V::Int(_) | V::Big(_) | V::Float(_) | V::Func(_) | V::Class(_) | V::Module(_) | V::NotImpl | V::Ellipsis => Ok(default),
+        _ => Err(unsupported(&format!("operator.length_hint of a {} value", tn(&o)))),
+    }
+}
+
 pub fn operator_fn(name: &str, a: Args) -> R {
     match name {
         "itemgetter" => {
@@ -2420,6 +2492,7 @@ pub fn operator_fn(name: &str, a: Args) -> R {
                 Ok(tup(v))
             }))
         }
+        "length_hint" => length_hint(a),
         "methodcaller" => {
             let mut p = a.p.clone();
             let n = sym(&to_str(&p.remove(0))?);
@@ -2853,7 +2926,10 @@ fn sys_flags() -> V {
 pub fn module_attr(m: &'static str, name: &str) -> R {
     let v = match (m, name) {
         ("sys", "stdin") => V::Module(&ModName("sys.stdin")),
-        ("sys", "stdout") => V::Module(&ModName("sys.stdout")),
+        ("sys", "stdout") => stdout_set().unwrap_or(V::Module(&ModName("sys.stdout"))),
+        ("sys", "__stdout__") => V::Module(&ModName("sys.stdout")),
+        ("sys", "__stderr__") => V::Module(&ModName("sys.stderr")),
+        ("sys", "__stdin__") => V::Module(&ModName("sys.stdin")),
         ("sys", "stderr") => V::Module(&ModName("sys.stderr")),
         ("sys", "argv") => list(ARGV.with(|a| a.borrow().iter().map(|x| s(x)).collect())),
         ("sys", "maxsize") => V::Int(i64::MAX),

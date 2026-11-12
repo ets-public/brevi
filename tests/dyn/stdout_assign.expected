@@ -1,0 +1,4 @@
+shown 'hidden\nx-y\nw\n'
+True True
+'inner\n'
+['a', ' ', '1', '!', 'b', '\n', '<f>']
