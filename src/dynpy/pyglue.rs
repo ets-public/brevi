@@ -1090,6 +1090,15 @@ unsafe extern "C" fn pyd_tramp(me: P, args: P, kw: P) -> P {
         return std::ptr::null_mut();
     }
     let f = (*f).clone();
+    // CPython's frames are under this call: the program's threads may not switch stacks until it returns
+    GT_CB.with(|c| c.set(c.get() + 1));
+    struct CbGuard;
+    impl Drop for CbGuard {
+        fn drop(&mut self) {
+            GT_CB.with(|c| c.set(c.get() - 1));
+        }
+    }
+    let _cb = CbGuard;
     // a program using warnings: where this library call reached the program (see _install_warn)
     let warn_on = PYD_WARN_ON.load(std::sync::atomic::Ordering::Relaxed);
     if warn_on {

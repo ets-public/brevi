@@ -2821,7 +2821,7 @@ pub fn module_call(m: &str, n: &str, a: Args) -> R {
                 if secs < 0.0 {
                     return Err(exc("ValueError", "sleep length must be non-negative".into()));
                 }
-                std::thread::sleep(std::time::Duration::from_secs_f64(secs.min(1e9)));
+                gt_sleep(secs)?;
                 Ok(V::None)
             }
             "gmtime" => time_gmtime(a),
@@ -4547,6 +4547,7 @@ pub fn run_main(f: fn() -> Result<(), E>) {
                 }
             }
         };
+        gt_shutdown();
         atexit_run();
         unsafe { fin_exit(&*std::ptr::addr_of!(GL)) };
         close_live_gens();

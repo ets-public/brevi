@@ -19,16 +19,21 @@ unsafe extern "C" fn brevi_ctx_switch(_from: *mut *mut u8, _to: *mut u8) {
 unsafe extern "C" fn brevi_coro_stub() {
     core::arch::naked_asm!("mov rdi, r12", "and rsp, -16", "call {m}", "ud2", m = sym coro_main)
 }
-#[cfg(all(target_arch = "x86_64", not(windows)))]
+#[cfg(not(windows))]
 unsafe fn coro_init_stack(top: *mut u8, arg: *mut Coro) -> *mut u8 {
+    ctx_init_stack(top, arg as usize, brevi_coro_stub as usize)
+}
+// A fresh stack that starts in `stub` with `arg` in r12 (x86_64) or x19 (aarch64): generators and threads.
+#[cfg(all(target_arch = "x86_64", not(windows)))]
+unsafe fn ctx_init_stack(top: *mut u8, arg: usize, stub: usize) -> *mut u8 {
     // Popped by brevi_ctx_switch: r15 r14 r13 r12 rbx rbp, then the return address (the stub).
     let r = ((top as usize - 16) & !15) as *mut usize;
-    *r = brevi_coro_stub as usize;
+    *r = stub;
     let regs = r.sub(6);
     for k in 0..6 {
         *regs.add(k) = 0;
     }
-    *regs.add(3) = arg as usize; // r12
+    *regs.add(3) = arg; // r12
     regs as *mut u8
 }
 
@@ -54,13 +59,13 @@ unsafe extern "C" fn brevi_coro_stub() {
     core::arch::naked_asm!("mov x0, x19", "bl {m}", "brk #0", m = sym coro_main)
 }
 #[cfg(all(target_arch = "aarch64", not(windows)))]
-unsafe fn coro_init_stack(top: *mut u8, arg: *mut Coro) -> *mut u8 {
+unsafe fn ctx_init_stack(top: *mut u8, arg: usize, stub: usize) -> *mut u8 {
     let sp = (((top as usize) & !15) - 160) as *mut usize;
     for k in 0..20 {
         *sp.add(k) = 0;
     }
-    *sp = arg as usize; // x19
-    *sp.add(11) = brevi_coro_stub as usize; // x30
+    *sp = arg; // x19
+    *sp.add(11) = stub; // x30
     sp as *mut u8
 }
 
@@ -230,7 +235,8 @@ pub fn close_live_gens() {
     for (c, i, _) in live {
         // a finally block closed (and possibly dropped) this generator while an earlier one was shutting down
         let still = CORO_LIVE.with(|l| l.borrow().get(i) == Some(&c));
-        if still {
+        // one running in a thread that is still waiting (a daemon) is left as CPython leaves that thread's frames
+        if still && !unsafe { (*c).running } {
             unsafe {
                 if let Err(E(e)) = (*c).close_py() {
                     gen_unraisable(&e);
