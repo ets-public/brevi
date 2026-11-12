@@ -1009,7 +1009,7 @@ pub fn format_spec(v: &V, spec: &str) -> Result<String, E> {
     }
 }
 pub fn fmt_v(v: &V, spec: &str) -> R {
-    Ok(st(format_spec(v, spec)?))
+    Ok(V::Str(Rc::new(fmt_s(v, spec)?)))
 }
 
 // The one-conversion, no-flags cases ("%d" % n, "%s" % name, "%f" % x): the general parser below walks the
@@ -1052,6 +1052,7 @@ fn percent_simple(f: &str, args: &V) -> Option<Result<String, E>> {
             _ => return None,
         },
         's' => match v {
+            V::Str(s) if s.is_lone() => return None,
             V::Str(s) => s.text().to_string(),
             _ => return None,
         },
@@ -1069,17 +1070,25 @@ fn percent_simple(f: &str, args: &V) -> Option<Result<String, E>> {
 }
 
 // '%5.2f' % x
-pub fn percent_format(f: &str, args: &V) -> Result<String, E> {
-    if let Some(r) = percent_simple(f, args) {
-        return r;
+pub fn percent_format(fs: &S, args: &V) -> Result<S, E> {
+    if !fs.is_lone() {
+        if let Some(r) = percent_simple(fs.text(), args) {
+            return r.map(S::new);
+        }
     }
+    // the template as chars, with each lone surrogate as U+FFFD (it can only be literal text: a surrogate in a
+    // key or a conversion stops), and its code points to copy literal text from
+    let orig = fs.lone();
+    let sur = |i: usize| orig.is_some_and(|o| i < o.len() && is_surrogate(o[i]));
+    let f = fs.text_sub('\u{fffd}');
+    let f: &str = &f;
     let (items, dict): (Vec<V>, Option<V>) = match args {
         V::Tuple(t) => (t.to_vec(), None),
         V::Dict(_) => (vec![args.clone()], Some(args.clone())),
         x => (vec![x.clone()], None),
     };
     let c: Vec<char> = f.chars().collect();
-    let mut out = String::new();
+    let mut out = Txt::new();
     let mut i = 0;
     let mut k = 0;
     let next = |k: &mut usize| -> Result<V, E> {
@@ -1089,7 +1098,10 @@ pub fn percent_format(f: &str, args: &V) -> Result<String, E> {
     };
     while i < c.len() {
         if c[i] != '%' {
-            out.push(c[i]);
+            match orig {
+                Some(o) => out.push_cp(o[i]),
+                None => out.push(c[i]),
+            }
             i += 1;
             continue;
         }
@@ -1107,6 +1119,9 @@ pub fn percent_format(f: &str, args: &V) -> Result<String, E> {
             let st = i + 1;
             while i < c.len() && c[i] != ')' {
                 i += 1;
+            }
+            if (st..i.min(c.len())).any(sur) {
+                lone_stop(std::panic::Location::caller());
             }
             key = Some(c[st..i].iter().collect::<String>());
             i += 1;
@@ -1145,6 +1160,9 @@ pub fn percent_format(f: &str, args: &V) -> Result<String, E> {
         if i >= c.len() {
             return val_err("incomplete format".into());
         }
+        if sur(i) {
+            lone_stop(std::panic::Location::caller());
+        }
         let ty = c[i];
         i += 1;
         let v = match &key {
@@ -1173,6 +1191,24 @@ pub fn percent_format(f: &str, args: &V) -> Result<String, E> {
         }
         spec.push_str(&width);
         let piece = match ty {
+            's' if matches!(&v, V::Str(x) if x.is_lone()) => {
+                let V::Str(x) = &v else { unreachable!() };
+                let x = match prec {
+                    Some(p) => V::Str(Rc::new(S::from_cps(x.cps().into_iter().take(p).collect()))),
+                    None => v.clone(),
+                };
+                out.push_s(&fmt_s(&x, &spec)?);
+                continue;
+            }
+            'c' if matches!(&v, V::Int(i) if (0xD800..=0xDFFF).contains(i)) || matches!(&v, V::Str(x) if x.is_lone()) => {
+                let x = match &v {
+                    V::Int(i) => st_cps(vec![*i as u32]),
+                    _ if nchars_of(&v) == 1 => v.clone(),
+                    _ => return type_err("%c requires int or char".into()),
+                };
+                out.push_s(&fmt_s(&x, &spec)?);
+                continue;
+            }
             's' | 'r' | 'a' => {
                 let mut t = if ty == 's' { to_str(&v)? } else { repr(&v)? };
                 if let Some(p) = prec {
@@ -1229,8 +1265,13 @@ pub fn percent_format(f: &str, args: &V) -> Result<String, E> {
             }
             'c' => {
                 let t = match &v {
-                    V::Int(i) => char::from_u32(*i as u32).unwrap_or('?').to_string(),
-                    V::Str(x) => x.text().to_string(),
+                    V::Int(i) => match u32::try_from(*i).ok().and_then(char::from_u32) {
+                        Some(c) => c.to_string(),
+                        None => return Err(exc("OverflowError", "%c arg not in range(0x110000)".into())),
+                    },
+                    V::Str(x) if x.nchars() == 1 => x.text().to_string(),
+                    V::Bool(b) => (*b as u8 as char).to_string(),
+                    V::Big(_) => return Err(exc("OverflowError", "%c arg not in range(0x110000)".into())),
                     _ => return type_err("%c requires int or char".into()),
                 };
                 format_spec(&st(t), &spec)?
@@ -1242,7 +1283,25 @@ pub fn percent_format(f: &str, args: &V) -> Result<String, E> {
     if k < items.len() && dict.is_none() {
         return type_err("not all arguments converted during string formatting".into());
     }
-    Ok(out)
+    Ok(out.finish())
+}
+fn nchars_of(v: &V) -> usize {
+    if let V::Str(x) = v {
+        x.nchars()
+    } else {
+        0
+    }
+}
+// format(v, spec) as a str: a str with a lone surrogate goes through Swap (a str's format only cuts and pads).
+pub fn fmt_s(v: &V, spec: &str) -> Result<S, E> {
+    if let V::Str(x) = v {
+        if x.is_lone() {
+            let Some(sw) = Swap::plan(&[x], &[spec]) else { lone_stop(std::panic::Location::caller()) };
+            let r = format_spec(&V::Str(Rc::new(sw.to(x))), spec)?;
+            return Ok(sw.back_str(&r));
+        }
+    }
+    Ok(S::new(format_spec(v, spec)?))
 }
 
 // ---------- numbers from values ----------

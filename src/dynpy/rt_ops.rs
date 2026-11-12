@@ -1100,6 +1100,7 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
             let (sq, n) = if is_intlike(a) { (b, a) } else { (a, b) };
             let k = ival(n).unwrap_or(0).max(0) as usize;
             let len = match sq {
+                V::Str(x) if x.is_lone() => x.nchars() * 4,
                 V::Str(x) => x.text().len(),
                 V::List(x) => x.borrow().len(),
                 V::Tuple(x) => x.len(),
@@ -1110,6 +1111,7 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
                 return Err(exc("MemoryError", String::new()));
             }
             return Ok(match sq {
+                V::Str(x) if x.is_lone() => st_cps(x.lone().unwrap().repeat(k)),
                 V::Str(x) => V::Str(Rc::new(S::with_ascii(x.text().repeat(k), x.ascii()))),
                 V::List(x) => {
                     let x = x.borrow();
@@ -1134,7 +1136,7 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
         (V::Str(_) | V::List(_) | V::Tuple(_), _) if op == "*" && (bytes_of(b).is_some() || !matches!(b, V::Obj(_) | V::Ext(_))) => {
             return type_err(format!("can't multiply sequence by non-int of type '{}'", tn(b)));
         }
-        (V::Str(f), _) if op == "%" => return Ok(st(percent_format(&f.text(), b)?)),
+        (V::Str(f), _) if op == "%" => return Ok(V::Str(Rc::new(percent_format(f, b)?))),
         (V::Set(_) | V::FSet(_), V::Set(_) | V::FSet(_)) if matches!(op, "|" | "&" | "-" | "^") => {
             let r = set_op(&set_of(a).unwrap(), &set_of(b).unwrap(), op)?;
             return Ok(if matches!(a, V::FSet(_)) { V::FSet(Rc::new(r)) } else { V::Set(Rc::new(RefCell::new(r))) });
@@ -1935,6 +1937,16 @@ pub fn getitem(c: &V, i: &V) -> R {
             }
             return Err(exc_v("KeyError", i.clone()));
         }
+        (V::Str(s), V::Int(k)) if s.is_lone() => {
+            let v = s.lone().unwrap();
+            let j = norm_idx(*k, v.len(), "string")?;
+            return Ok(cp1(v[j]));
+        }
+        (V::Str(sx), V::Slice(sl)) if sx.is_lone() => {
+            let v = sx.lone().unwrap();
+            let ps = slice_positions(sl, v.len())?;
+            return Ok(st_cps(ps.iter().map(|&p| v[p]).collect()));
+        }
         (V::Str(s), V::Int(k)) => {
             if s.ascii() {
                 let j = norm_idx(*k, s.text().len(), "string")?;
@@ -2385,6 +2397,15 @@ impl It {
                 }
                 None => Ok(Some(x.clone())),
             },
+            // a str with a lone surrogate: `i` counts code points
+            It::Str(s, i) if s.is_lone() => {
+                let v = s.lone().unwrap();
+                if *i >= v.len() {
+                    return Ok(None);
+                }
+                *i += 1;
+                Ok(Some(cp1(v[*i - 1])))
+            }
             It::Str(s, i) => {
                 if *i >= s.text().len() {
                     return Ok(None);
