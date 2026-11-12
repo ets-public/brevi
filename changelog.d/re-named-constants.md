@@ -1,0 +1,1 @@
+- Dynamic build: `re._compiler.MAXREPEAT` and `re._compiler.MAXGROUPS` are supported, and `re._constants.MAXREPEAT` now matches CPython. It is a `_NamedIntConstant` with the value 4294967295 whose `str` and `repr` are `MAXREPEAT`, and it is the same object in both modules. Before, `re._constants.MAXREPEAT` was the plain int 4294967294, a silent wrong answer.

@@ -731,3 +731,47 @@ pub fn re_flag(n: &str) -> Option<V> {
     }
     re_flag_class().lookup(n)
 }
+// ---------- re._constants._NamedIntConstant ----------
+// re._constants.MAXREPEAT (also re._compiler's and re._parser's) is a _NamedIntConstant, as in CPython: an int
+// (4294967295, _sre.MAXREPEAT) whose str and repr are its name. One instance, so `is` holds across modules.
+thread_local! {
+    static NAMED_INT: RefCell<Option<(Rc<Class>, V)>> = RefCell::new(None);
+}
+fn named_int_new(a: Args) -> R {
+    let sig = Sig { name: sym("__new__"), params: &["cls", "value", "name"], npos: 3, npo: 0, star: false, kwstar: false };
+    let v = bind(&sig, &[V::Unbound, V::Unbound, V::Unbound], a)?;
+    // only the class itself or a subclass: CPython's other outcomes (an int with no name slot) are not modelled
+    let cls = match &v[0] {
+        V::Class(c) if c.is_sub(&named_int_class()) => c.clone(),
+        _ => return Err(unsupported("re._constants._NamedIntConstant.__new__ on another class")),
+    };
+    let iv = builtin_type_call(&bclass("int"), &mut Args::p(vec![v[1].clone()])).unwrap()?;
+    Ok(named_int_make(cls, iv, v[2].clone()))
+}
+fn named_int_make(cls: Rc<Class>, iv: V, name: V) -> V {
+    let o = Obj::new(cls);
+    o.set_inner(Some(iv));
+    o.set("name", name);
+    V::Obj(o)
+}
+pub fn named_int_class() -> Rc<Class> {
+    if let Some((c, _)) = NAMED_INT.with(|r| r.borrow().clone()) {
+        return c;
+    }
+    let c = Class::new("_NamedIntConstant", "re._constants", vec![bclass("int")], BT::Other);
+    c.set("__new__", builtin("__new__", named_int_new));
+    let name = builtin("__repr__", |a: Args| match a.p.first() {
+        Some(me) => getattr(me, "name"),
+        None => type_err("descriptor '__repr__' of '_NamedIntConstant' object needs an argument".into()),
+    });
+    c.set("__repr__", name.clone());
+    c.set("__str__", name);
+    let m = named_int_make(c.clone(), V::Int(0xFFFF_FFFF), s("MAXREPEAT"));
+    NAMED_INT.with(|r| *r.borrow_mut() = Some((c.clone(), m)));
+    c
+}
+// re._constants.MAXREPEAT: the one _NamedIntConstant instance
+pub fn re_maxrepeat() -> V {
+    named_int_class();
+    NAMED_INT.with(|r| r.borrow().as_ref().unwrap().1.clone())
+}
