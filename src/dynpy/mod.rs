@@ -717,11 +717,6 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
             }
         }
     }
-    // CPython's ByteString warns (DeprecationWarning) on isinstance and on subclassing, through a metaclass the
-    // dynamic build does not have: a program that names it is refused rather than run without the warnings
-    if own_mods.iter().any(|m| m == "collections.abc") && user_src().any(|t| t.contains("ByteString")) {
-        return Err((file.to_string(), 0, "collections.abc.ByteString (deprecated; its DeprecationWarnings) is not supported in dynamic builds".into()));
-    }
     if user_src().any(|t| t.contains("bytearray") || t.contains("memoryview")) {
         const BA_OK: &[&str] = &["argparse", "asyncio", "asyncio_subprocess", "collections", "collections.abc", "contextlib", "io", "logging", "ntpath", "os", "pathlib", "posixpath", "random", "string", "_string", "textwrap"];
         if let Some(m) = own_mods.iter().find(|m| !BA_OK.contains(&m.as_str())) {
