@@ -39,6 +39,8 @@ pub const RUNTIME: &str = concat!(
     include_str!("rt_lib.rs"),
     include_str!("rt_bdoc.rs"),
     include_str!("rt_mod.rs"),
+    include_str!("rt_itred.rs"),
+    include_str!("rt_itred_comb.rs"),
     include_str!("rt_text.rs"),
     include_str!("rt_ext.rs"),
     include_str!("rt_zone.rs"),
@@ -851,7 +853,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         crate::pybridge::set_file(file);
         rust.push_str(&crate::pybridge::dyn_runtime());
         rust.push_str(GLUE);
-        rust = rust.replacen("fn main() { ", "fn main() { ax_pyb_early(); ", 1);
+        rust = rust.replacen("fn main() { ", "fn main() { ax_pyb_early(); set_bridged(); ", 1);
         *BRIDGED.lock().unwrap() = used;
     }
     if let Some(b) = &tok_files {

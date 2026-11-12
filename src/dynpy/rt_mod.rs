@@ -713,7 +713,7 @@ pub fn bisect_fn(name: &str, mut a: Args) -> R {
 // a bounded lru_cache's results by slot: (key, value, last use), and the slots by last use
 struct LruSlots {
     tick: u64,
-    map: std::collections::HashMap<i64, (V, V, u64)>,
+    map: std::collections::HashMap<i64, (V, V, u64, i64)>,
     order: std::collections::BTreeMap<u64, i64>,
 }
 fn lru_cache_wrap(f: V, maxsize: V, typed: bool) -> R {
@@ -759,11 +759,14 @@ fn lru_cache_wrap(f: V, maxsize: V, typed: bool) -> R {
             parts.push(tup(types));
         }
         let key = tup(parts);
+        // CPython hashes the key once per call (a key's __hash__ runs once for each use of an argument): the
+        // lookup, the insert after the call and a later eviction all reuse this hash.
+        let kh = if bound == Some(0) { 0 } else { py_hash(&key)? };
         // A bounded cache's dict maps each key to a slot number; the slots and their recency live outside the
         // dict, so a hit (which only moves a result to most recently used) never changes the dict, as in
         // CPython, where the order is a linked list: a key's __eq__ may call the cached function again.
         if bound != Some(0) {
-            if let Some(v) = Dict::get_cell(&cache, &key)? {
+            if let Some(v) = Dict::get_cell_h(&cache, &key, kh)? {
                 h2.set(h2.get() + 1);
                 if bound.is_none() {
                     return Ok(v);
@@ -790,35 +793,35 @@ fn lru_cache_wrap(f: V, maxsize: V, typed: bool) -> R {
         match bound {
             Some(0) => {}
             Some(n) => {
-                if Dict::get_cell(&cache, &key)?.is_none() {
+                if Dict::get_cell_h(&cache, &key, kh)?.is_none() {
                     let id = {
                         let mut sl = slots.borrow_mut();
                         sl.tick += 1;
                         let t = sl.tick;
-                        sl.map.insert(t as i64, (key.clone(), r.clone(), t));
+                        sl.map.insert(t as i64, (key.clone(), r.clone(), t, kh));
                         sl.order.insert(t, t as i64);
                         t as i64
                     };
-                    Dict::set_cell(&cache, key, V::Int(id))?;
+                    Dict::set_cell_h(&cache, key, V::Int(id), kh)?;
                     while cache.borrow().n > n {
                         let oldest = {
                             let mut sl = slots.borrow_mut();
                             let first = sl.order.iter().next().map(|(t, id)| (*t, *id));
                             first.and_then(|(t, id)| {
                                 sl.order.remove(&t);
-                                sl.map.remove(&id).map(|e| e.0)
+                                sl.map.remove(&id).map(|e| (e.0, e.3))
                             })
                         };
                         match oldest {
-                            Some(k) => {
-                                Dict::del_cell(&cache, &k)?;
+                            Some((k, h)) => {
+                                Dict::del_cell_h(&cache, &k, h)?;
                             }
                             None => break,
                         }
                     }
                 }
             }
-            None => Dict::set_cell(&cache, key, r.clone())?,
+            None => Dict::set_cell_h(&cache, key, r.clone(), kh)?,
         }
         Ok(r)
     });
@@ -1904,104 +1907,56 @@ fn tee_pos_of(v: &V) -> Option<(Rc<TeeData>, usize)> {
 fn tee_copy_iter(v: &V) -> Option<V> {
     tee_pos_of(v).map(|(d, pos)| tee_member(&d, pos))
 }
+// Binds an itertools constructor's arguments as CPython's argument clinic does: `names` are positional-or-keyword
+// up to a "*", keyword-only after it; too many positionals, an unknown keyword or one given twice raise TypeError.
+fn it_sig<const N: usize>(a: &mut Args, f: &str, names: &[&str]) -> Result<[Option<V>; N], E> {
+    let npos = names.iter().position(|n| *n == "*").unwrap_or(names.len());
+    if a.p.len() > npos {
+        let what = if npos < names.len() { "positional argument" } else { "argument" };
+        return type_err(format!("{f}() takes at most {npos} {what}{} ({} given)", if npos == 1 { "" } else { "s" }, a.p.len()));
+    }
+    let mut out: Vec<Option<V>> = a.p.drain(..).map(Some).collect();
+    let fields: Vec<&str> = names.iter().copied().filter(|n| *n != "*").collect();
+    out.resize(fields.len(), None);
+    for (k, v) in std::mem::take(&mut a.k) {
+        let Some(i) = fields.iter().position(|n| *n == k) else {
+            return type_err(format!("{f}() got an unexpected keyword argument '{k}'"));
+        };
+        if out[i].is_some() {
+            return type_err(format!("argument for {f}() given by name ('{k}') and position ({})", i + 1));
+        }
+        out[i] = Some(v);
+    }
+    Ok(std::array::from_fn(|i| out[i].take()))
+}
 pub fn itertools_fn(name: &str, mut a: Args) -> R {
     Ok(match name {
         "permutations" => {
-            let pool = to_vec(a.p.first().ok_or_else(|| exc("TypeError", "permutations() missing iterable".into()))?)?;
-            let r = match a.p.get(1).cloned().or(a.kw("r")) {
+            let [it, r] = it_sig(&mut a, name, &["iterable", "r"])?;
+            let pool = to_vec(&it.ok_or_else(|| exc("TypeError", "permutations() missing required argument 'iterable' (pos 1)".into()))?)?;
+            let r = match r {
                 Some(V::None) | None => pool.len(),
                 Some(x) => it_ssize(&x, "r must be non-negative")? as usize,
             };
-            let n = pool.len();
-            let mut out = vec![];
-            if r <= n {
-                let mut idx: Vec<usize> = (0..n).collect();
-                let mut cyc: Vec<usize> = (n - r + 1..=n).rev().collect();
-                out.push(tup(idx[..r].iter().map(|&i| pool[i].clone()).collect()));
-                'outer: loop {
-                    if n == 0 {
-                        break;
-                    }
-                    let mut i = r;
-                    loop {
-                        if i == 0 {
-                            break 'outer;
-                        }
-                        i -= 1;
-                        cyc[i] -= 1;
-                        if cyc[i] == 0 {
-                            let x = idx.remove(i);
-                            idx.push(x);
-                            cyc[i] = n - i;
-                        } else {
-                            let j = cyc[i];
-                            idx.swap(i, n - j);
-                            out.push(tup(idx[..r].iter().map(|&k| pool[k].clone()).collect()));
-                            break;
-                        }
-                    }
-                }
-            }
-            vec_iter(ItKind::ItPermutations, out)
+            permutations_new(pool, r)
         }
         "combinations" | "combinations_with_replacement" => {
-            a.want(name, 2, 2)?;
-            let pool = to_vec(&a.p[0])?;
-            let r = it_ssize(&a.p[1], "r must be non-negative")? as usize;
-            let n = pool.len();
-            let mut out = vec![];
-            let rep = name != "combinations";
-            if rep {
-                if n > 0 || r == 0 {
-                    let mut idx = vec![0usize; r];
-                    out.push(tup(idx.iter().map(|&i| pool[i].clone()).collect()));
-                    loop {
-                        let mut i = r;
-                        let mut found = false;
-                        while i > 0 {
-                            i -= 1;
-                            if idx[i] != n - 1 {
-                                found = true;
-                                break;
-                            }
-                        }
-                        if !found {
-                            break;
-                        }
-                        let v = idx[i] + 1;
-                        for j in i..r {
-                            idx[j] = v;
-                        }
-                        out.push(tup(idx.iter().map(|&i| pool[i].clone()).collect()));
-                    }
-                }
-            } else if r <= n {
-                let mut idx: Vec<usize> = (0..r).collect();
-                out.push(tup(idx.iter().map(|&i| pool[i].clone()).collect()));
-                loop {
-                    let mut i = r;
-                    let mut found = false;
-                    while i > 0 {
-                        i -= 1;
-                        if idx[i] != i + n - r {
-                            found = true;
-                            break;
-                        }
-                    }
-                    if !found {
-                        break;
-                    }
-                    idx[i] += 1;
-                    for j in i + 1..r {
-                        idx[j] = idx[j - 1] + 1;
-                    }
-                    out.push(tup(idx.iter().map(|&i| pool[i].clone()).collect()));
-                }
-            }
-            vec_iter(if rep { ItKind::ItCombinationsWithReplacement } else { ItKind::ItCombinations }, out)
+            let [it, r] = it_sig(&mut a, name, &["iterable", "r"])?;
+            let (Some(it), Some(r)) = (it.clone(), r) else {
+                let (n, i) = if it.is_none() { ("iterable", 1) } else { ("r", 2) };
+                return type_err(format!("{name}() missing required argument '{n}' (pos {i})"));
+            };
+            let pool = to_vec(&it)?;
+            let r = it_ssize(&r, "r must be non-negative")? as usize;
+            if name == "combinations" { combinations_new(pool, r) } else { cwr_new(pool, r) }
         }
         "product" => {
-            let rep = match a.kw("repeat") {
+            if a.k.len() > 1 {
+                return type_err(format!("product() takes at most 1 keyword argument ({} given)", a.k.len()));
+            }
+            let rep = a.kw("repeat");
+            a.no_kw("product")?;
+            let rep = match rep {
                 Some(x) => it_ssize(&x, "repeat argument cannot be negative")? as usize,
                 None => 1,
             };
@@ -2009,100 +1964,34 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             for x in &a.p {
                 pools.push(to_vec(x)?);
             }
+            let uniq = pools.len();
             let pools: Vec<Vec<V>> = (0..rep).flat_map(|_| pools.clone()).collect();
-            let mut res: Vec<Vec<V>> = vec![vec![]];
-            for p in &pools {
-                let mut nr = vec![];
-                for r in &res {
-                    for x in p {
-                        let mut y = r.clone();
-                        y.push(x.clone());
-                        nr.push(y);
-                    }
-                }
-                res = nr;
-            }
-            vec_iter(ItKind::ItProduct, res.into_iter().map(tup).collect())
+            product_new(pools, uniq)
         }
         // The iterator tools are lazy, as in CPython: they pull from their inputs one item at a time, so they work
         // on infinite inputs, see items added after they were made, and run callbacks in CPython's order.
         "chain" => {
+            a.no_kw("chain")?;
             let srcs = std::mem::take(&mut a.p);
-            let mut k = 0;
-            let mut cur: Option<It> = None;
-            gen_iter(ItKind::ItChain, move || loop {
-                if let Some(it) = &mut cur {
-                    if let Some(x) = it.next()? {
-                        return Ok(Some(x));
-                    }
-                    cur = None;
-                }
-                if k >= srcs.len() {
-                    return Ok(None);
-                }
-                k += 1;
-                cur = Some(iter(&srcs[k - 1])?);
-            })
+            chain_new(in_of_iterator(&new_iter(It::Tuple(Tup::from(srcs), 0), IterClass::Kind(ItKind::TupleIter)))?)
         }
-        "chain.from_iterable" => {
-            let mut outer = iter(&a1(&a, "from_iterable")?)?;
-            let mut cur: Option<It> = None;
-            let mut done = false;
-            gen_iter(ItKind::ItChain, move || loop {
-                if let Some(it) = &mut cur {
-                    if let Some(x) = it.next()? {
-                        return Ok(Some(x));
-                    }
-                    cur = None;
-                }
-                if done {
-                    return Ok(None);
-                }
-                match outer.next()? {
-                    Some(x) => cur = Some(iter(&x)?),
-                    None => {
-                        done = true;
-                        return Ok(None);
-                    }
-                }
-            })
-        }
+        "chain.from_iterable" => chain_new(get_iter(&a1(&a, "from_iterable")?)?),
         "accumulate" => {
-            let init = a.kw("initial").filter(|x| !matches!(x, V::None));
-            let f = a.p.get(1).cloned().or(a.kw("func")).filter(|f| !matches!(f, V::None));
-            let mut it = iter(&a.p.first().cloned().or(a.kw("iterable")).ok_or_else(|| exc("TypeError", "accumulate() missing required argument 'iterable' (pos 1)".into()))?)?;
-            let mut acc: Option<V> = None;
-            let mut first = init;
-            gen_iter(ItKind::ItAccumulate, move || {
-                if let Some(i) = first.take() {
-                    acc = Some(i.clone());
-                    return Ok(Some(i));
-                }
-                let Some(x) = it.next()? else { return Ok(None) };
-                let v = match acc.take() {
-                    None => x,
-                    Some(p) => match &f {
-                        Some(f) => call(f, Args::p(vec![p, x]))?,
-                        None => add(&p, &x)?,
-                    },
-                };
-                acc = Some(v.clone());
-                Ok(Some(v))
-            })
+            let [it, f, init] = it_sig(&mut a, name, &["iterable", "func", "*", "initial"])?;
+            let init = init.unwrap_or(V::None);
+            let f = f.filter(|f| !matches!(f, V::None));
+            let it = get_iter(&it.ok_or_else(|| exc("TypeError", "accumulate() missing required argument 'iterable' (pos 1)".into()))?)?;
+            accumulate_new(it, f, init)
         }
         "groupby" => {
-            let key = a.p.get(1).cloned().or(a.kw("key")).filter(|k| !matches!(k, V::None));
-            let it = shared_input(&a.p.first().cloned().or(a.kw("iterable")).ok_or_else(|| exc("TypeError", "groupby() missing required argument 'iterable'".into()))?)?;
-            groupby_iter(it, key)
+            let [it, key] = it_sig(&mut a, name, &["iterable", "key"])?;
+            let key = key.unwrap_or(V::None);
+            let it = get_iter(&it.ok_or_else(|| exc("TypeError", "groupby() missing required argument 'iterable'".into()))?)?;
+            groupby_new(it, key)
         }
         "count" => {
-            let mut n = a.p.first().cloned().unwrap_or(V::Int(0));
-            let st0 = a.p.get(1).cloned().unwrap_or(V::Int(1));
-            gen_iter(ItKind::ItCount, move || {
-                let v = n.clone();
-                n = add(&n, &st0)?;
-                Ok(Some(v))
-            })
+            let [start, step] = it_sig(&mut a, name, &["start", "step"])?;
+            count_new(start, step)?
         }
         "islice" => {
             if !a.k.is_empty() {
@@ -2132,59 +2021,19 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             if step < 1 {
                 return Err(exc("ValueError", ISLICE_STEP_MSG.into()));
             }
-            let mut it = iter(&src)?;
-            let mut i = 0i64;
-            let mut next_i = start;
-            gen_iter(ItKind::ItIslice, move || loop {
-                if i >= stop || next_i >= stop {
-                    return Ok(None);
-                }
-                match it.next()? {
-                    None => return Ok(None),
-                    Some(x) => {
-                        let cur = i;
-                        i += 1;
-                        if cur == next_i {
-                            next_i += step;
-                            return Ok(Some(x));
-                        }
-                    }
-                }
-            })
+            let none_stop = matches!(if n == 2 { &a.p[1] } else { &a.p[2] }, V::None);
+            islice_new(get_iter(&src)?, start, if none_stop { -1 } else { stop }, step)
         }
         "zip_longest" => {
             let fill = a.kw("fillvalue").unwrap_or(V::None);
-            let mut its: Vec<Option<It>> = vec![];
-            for x in &a.p {
-                its.push(Some(iter(x)?));
+            if !a.k.is_empty() {
+                return type_err("zip_longest() got an unexpected keyword argument".into());
             }
-            let mut active = its.len();
-            gen_iter(ItKind::ItZipLongest, move || {
-                if active == 0 {
-                    return Ok(None);
-                }
-                let mut row = Vec::with_capacity(its.len());
-                for slot in its.iter_mut() {
-                    let got = match slot {
-                        Some(it) => it.next()?,
-                        None => None,
-                    };
-                    match got {
-                        Some(x) => row.push(x),
-                        None => {
-                            if slot.take().is_some() {
-                                active -= 1;
-                                if active == 0 {
-                                    its.clear();
-                                    return Ok(None);
-                                }
-                            }
-                            row.push(fill.clone());
-                        }
-                    }
-                }
-                Ok(Some(tup(row)))
-            })
+            let mut its = vec![];
+            for x in &a.p {
+                its.push(get_iter(x)?);
+            }
+            zip_longest_new(its, fill)
         }
         "repeat" => {
             let x = a.p[0].clone();
@@ -2194,59 +2043,24 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             }
         }
         "cycle" => {
-            let mut it = Some(iter(&a1(&a, name)?)?);
-            let mut saved: Vec<V> = vec![];
-            let mut i = 0;
-            gen_iter(ItKind::ItCycle, move || {
-                if let Some(src) = &mut it {
-                    if let Some(x) = src.next()? {
-                        saved.push(x.clone());
-                        return Ok(Some(x));
-                    }
-                    it = None;
-                }
-                if saved.is_empty() {
-                    return Ok(None);
-                }
-                let v = saved[i % saved.len()].clone();
-                i += 1;
-                Ok(Some(v))
-            })
+            if !a.k.is_empty() {
+                return type_err("cycle() takes no keyword arguments".into());
+            }
+            cycle_new(get_iter(&a1(&a, name)?)?)
         }
         "starmap" => {
+            if !a.k.is_empty() {
+                return type_err(format!("{name}() takes no keyword arguments"));
+            }
             a.want(name, 2, 2)?;
-            let f = a.p[0].clone();
-            let mut it = iter(&a.p[1])?;
-            gen_iter(ItKind::ItStarmap, move || match it.next()? {
-                Some(x) => Ok(Some(call(&f, Args::p(to_vec(&x)?))?)),
-                None => Ok(None),
-            })
+            starmap_new(a.p[0].clone(), get_iter(&a.p[1])?)
         }
         "takewhile" | "dropwhile" => {
+            if !a.k.is_empty() {
+                return type_err(format!("{name}() takes no keyword arguments"));
+            }
             a.want(name, 2, 2)?;
-            let f = a.p[0].clone();
-            let mut it = iter(&a.p[1])?;
-            let take = name == "takewhile";
-            let mut flag = false;
-            gen_iter(if take { ItKind::ItTakewhile } else { ItKind::ItDropwhile }, move || loop {
-                if take && flag {
-                    return Ok(None);
-                }
-                let Some(x) = it.next()? else { return Ok(None) };
-                if !take && flag {
-                    return Ok(Some(x));
-                }
-                let t = truth(&call(&f, Args::p(vec![x.clone()]))?)?;
-                if take {
-                    if t {
-                        return Ok(Some(x));
-                    }
-                    flag = true;
-                } else if !t {
-                    flag = true;
-                    return Ok(Some(x));
-                }
-            })
+            while_new(name == "takewhile", a.p[0].clone(), get_iter(&a.p[1])?)
         }
         "pairwise" => {
             // CPython's order, which re-entrant inputs can observe: the first item, then each next one
@@ -2283,29 +2097,18 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             })
         }
         "compress" => {
-            let data = a.p.first().cloned().or(a.kw("data")).ok_or_else(|| exc("TypeError", "compress() missing required argument 'data' (pos 1)".into()))?;
-            let sel = a.p.get(1).cloned().or(a.kw("selectors")).ok_or_else(|| exc("TypeError", "compress() missing required argument 'selectors' (pos 2)".into()))?;
-            let mut xs = iter(&data)?;
-            let mut ss = iter(&sel)?;
-            gen_iter(ItKind::ItCompress, move || loop {
-                let Some(x) = xs.next()? else { return Ok(None) };
-                let Some(s0) = ss.next()? else { return Ok(None) };
-                if truth(&s0)? {
-                    return Ok(Some(x));
-                }
-            })
+            let [data, sel] = it_sig(&mut a, name, &["data", "selectors"])?;
+            let data = data.ok_or_else(|| exc("TypeError", "compress() missing required argument 'data' (pos 1)".into()))?;
+            let sel = sel.ok_or_else(|| exc("TypeError", "compress() missing required argument 'selectors' (pos 2)".into()))?;
+            let d = get_iter(&data)?;
+            compress_new(d, get_iter(&sel)?)
         }
         "filterfalse" => {
+            if !a.k.is_empty() {
+                return type_err(format!("{name}() takes no keyword arguments"));
+            }
             a.want(name, 2, 2)?;
-            let f = a.p[0].clone();
-            let mut it = iter(&a.p[1])?;
-            gen_iter(ItKind::ItFilterfalse, move || loop {
-                let Some(x) = it.next()? else { return Ok(None) };
-                let t = if matches!(f, V::None) { truth(&x)? } else { truth(&call(&f, Args::p(vec![x.clone()]))?)? };
-                if !t {
-                    return Ok(Some(x));
-                }
-            })
+            filterfalse_new(a.p[0].clone(), get_iter(&a.p[1])?)
         }
         "tee" => {
             if !a.k.is_empty() {
@@ -2453,59 +2256,11 @@ pub fn shallow_copy(x: &V) -> R {
             });
             V::Obj(n)
         }
-        V::Iter(_) => return iter_copy(x, None),
+        V::Iter(_) => match tee_copy_iter(x) {
+            Some(v) => v,
+            None => iter_copy(x, None)?,
+        },
         _ => x.clone(),
-    })
-}
-// copy.copy / copy.deepcopy of an iterator (memo given: deep), as CPython's go through __reduce__: a new
-// iterator at the same place, over the same sequence (a shallow copy) or a deep copy of it. A tee copies as its
-// __copy__ does; a generator is CPython's TypeError. Others (map, zip, itertools, dict and set iterators) are
-// refused: CPython rebuilds each its own way, and handing back the same iterator would share its state.
-fn iter_copy(x: &V, memo: Option<&mut Vec<(usize, V)>>) -> R {
-    if let Some(v) = tee_copy_iter(x) {
-        return Ok(v);
-    }
-    let V::Iter(cell) = x else { return Ok(x.clone()) };
-    let kind = match &cell.kind {
-        IterClass::Kind(k) => IterClass::Kind(*k),
-        IterClass::Class(c) => IterClass::Class(c.clone()),
-    };
-    let Ok(it) = cell.it.try_borrow() else {
-        return Err(exc("ValueError", "iterator already executing".into()));
-    };
-    let list = |l: &Rc<RefCell<Vec<V>>>, memo: Option<&mut Vec<(usize, V)>>| -> Result<Rc<RefCell<Vec<V>>>, E> {
-        Ok(match memo {
-            None => l.clone(),
-            Some(m) => match deepcopy(&V::List(l.clone()), m)? {
-                V::List(nl) => nl,
-                _ => unreachable!(),
-            },
-        })
-    };
-    Ok(match &*it {
-        It::List(l, i) => new_iter(It::List(list(l, memo)?, *i), kind),
-        It::RevList(l, i) => new_iter(It::RevList(list(l, memo)?, *i), kind),
-        It::Tuple(t, i) => {
-            let t = match memo {
-                None => t.clone(),
-                Some(m) => {
-                    let mut v = vec![];
-                    for y in t.iter() {
-                        v.push(deepcopy(y, m)?);
-                    }
-                    match tup(v) {
-                        V::Tuple(nt) => nt,
-                        _ => unreachable!(),
-                    }
-                }
-            };
-            new_iter(It::Tuple(t, *i), kind)
-        }
-        It::Str(s, i) => new_iter(It::Str(s.clone(), *i), kind),
-        It::Range(a, b, st) => new_iter(It::Range(*a, *b, *st), kind),
-        It::Done => new_iter(It::Done, kind),
-        It::Coro(_) | It::GenExp(..) => return Err(exc("TypeError", "cannot pickle 'generator' object".into())),
-        _ => return Err(unsupported(&format!("copying a '{}' iterator", tn(x)))),
     })
 }
 fn ptr_of(x: &V) -> Option<usize> {
@@ -2516,6 +2271,7 @@ fn ptr_of(x: &V) -> Option<usize> {
         V::Obj(l) => Rc::as_ptr(l) as *const u8 as usize,
         V::Tuple(l) => Tup::as_ptr(l) as *const u8 as usize,
         V::Deque(l) => Rc::as_ptr(l) as *const u8 as usize,
+        V::Iter(l) => Rc::as_ptr(l) as *const u8 as usize,
         _ => return None,
     })
 }
@@ -2617,10 +2373,81 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
             }
             V::Obj(n)
         }
-        V::Iter(_) => return iter_copy(x, Some(memo)),
+        // CPython deep-copies a tee's buffer and its source iterator (the _tee_dataobject's __reduce__)
+        V::Iter(_) if tee_pos_of(x).is_some() => return Err(unsupported("copy.deepcopy of an itertools.tee iterator")),
+        V::Iter(_) => iter_copy(x, Some(memo))?,
         _ => x.clone(),
     })
 }
+// operator.length_hint(obj, default=0), as CPython's PyObject_LengthHint: len() when the type has __len__, else
+// the type's __length_hint__ (NotImplemented or a TypeError from it gives the default; a result that is not an
+// int is a TypeError, a negative one a ValueError), else the default. Brevi's own iterators answer as CPython's
+// do where their state shows the count (list, tuple, reversed list, itertools.repeat) and give the default where
+// CPython's type has no __length_hint__ (map, zip, generators, most of itertools); any other iterator, or a value
+// from a bridged library, is refused rather than guessed.
+fn length_hint(mut a: Args) -> R {
+    if !a.k.is_empty() {
+        return type_err("_operator.length_hint() takes no keyword arguments".into());
+    }
+    a.want("length_hint", 1, 2)?;
+    let default = match a.p.get(1) {
+        None => V::Int(0),
+        Some(d @ (V::Int(_) | V::Big(_))) => d.clone(),
+        Some(d) => V::Int(ssize_arg(d)?),
+    };
+    let o = a.p[0].clone();
+    match &o {
+        V::Str(_) | V::List(_) | V::Tuple(_) | V::Dict(_) | V::Set(_) | V::FSet(_) | V::Range(_) | V::Deque(_) => return Ok(V::Int(len(&o)? as i64)),
+        V::Obj(ob) => {
+            let sized = inner_of(&o).is_some_and(|i| matches!(i, V::Str(_) | V::List(_) | V::Tuple(_) | V::Dict(_) | V::Set(_) | V::FSet(_) | V::Range(_) | V::Deque(_)));
+            if sized || ob.cls.lookup("__len__").is_some() {
+                return Ok(V::Int(len(&o)? as i64));
+            }
+            let Some(f) = ob.cls.lookup("__length_hint__") else {
+                if inner_of(&o).is_some_and(|i| !matches!(i, V::Int(_) | V::Big(_) | V::Bool(_) | V::Float(_))) {
+                    return Err(unsupported("operator.length_hint of an instance of a subclass of a built-in type"));
+                }
+                return Ok(default);
+            };
+            let r = match call(&f, Args::p(vec![o.clone()])) {
+                Ok(r) => r,
+                Err(e) if is_exc(&e.0, "TypeError") => return Ok(default),
+                Err(e) => return Err(e),
+            };
+            return match &r {
+                V::NotImpl => Ok(default),
+                V::Int(n) if *n < 0 => val_err("__length_hint__() should return >= 0".into()),
+                V::Int(_) => Ok(r),
+                V::Bool(b) => Ok(V::Int(*b as i64)),
+                V::Big(_) => Err(exc("OverflowError", "cannot fit 'int' into an index-sized integer".into())),
+                _ => type_err(format!("__length_hint__ must be an integer, not {}", tn(&r))),
+            };
+        }
+        V::Iter(c) => {
+            let IterClass::Kind(k) = &c.kind else {
+                return Err(unsupported("operator.length_hint of this iterator"));
+            };
+            use ItKind::*;
+            let left = |n: usize, i: usize| Ok(V::Int(n.saturating_sub(i) as i64));
+            return match (k, &*c.it.borrow()) {
+                (ItRepeat, It::Repeat(_, Some(n))) => Ok(V::Int((*n).max(0))),
+                // an endless repeat: its __length_hint__ raises TypeError, which gives the default
+                (ItRepeat, It::Repeat(_, None)) => Ok(default),
+                (ListIter, It::List(l, i)) => left(l.borrow().len(), *i),
+                (TupleIter, It::Tuple(t, i)) => left(t.len(), *i),
+                (ListReverseIter, It::RevList(l, n)) => Ok(V::Int(if l.borrow().len() >= *n { *n as i64 } else { 0 })),
+                (ListIter | TupleIter | ListReverseIter | ItRepeat, It::Done) => Ok(V::Int(0)),
+                (Map | Filter | Zip | Enumerate | Generator | CallableIterator | ItCount | ItChain | ItIslice | ItCycle | ItAccumulate | ItZipLongest | ItStarmap | ItTakewhile
+                | ItDropwhile | ItPairwise | ItCompress | ItFilterfalse | ItGroupby | ItGrouper | ItProduct | ItPermutations | ItCombinations
+                | ItCombinationsWithReplacement | ItTee | ItBatched, _) => Ok(default),
+                _ => Err(unsupported("operator.length_hint of this iterator")),
+            };
+        }
+        V::None | V::Bool(_) | V::Int(_) | V::Big(_) | V::Float(_) | V::Func(_) | V::Class(_) | V::Module(_) | V::NotImpl | V::Ellipsis => Ok(default),
+        _ => Err(unsupported(&format!("operator.length_hint of a {} value", tn(&o)))),
+    }
+}
+
 pub fn operator_fn(name: &str, a: Args) -> R {
     match name {
         "itemgetter" => {
@@ -2658,6 +2485,7 @@ pub fn operator_fn(name: &str, a: Args) -> R {
                 Ok(tup(v))
             }))
         }
+        "length_hint" => length_hint(a),
         "methodcaller" => {
             let mut p = a.p.clone();
             let n = sym(&to_str(&p.remove(0))?);
@@ -2878,6 +2706,10 @@ thread_local! {
     // V::Func per read would also cost a hot call site on every call, so modfn caches them
     static MODFNS: RefCell<HashMap<(&'static str, Sym), V>> = RefCell::new(HashMap::new());
 }
+// A module function the program has read already (operator.pow), as pickle finds it again by module and name.
+pub fn modfn_cached(m: &str, n: &str) -> Option<V> {
+    MODFNS.with(|c| c.borrow().iter().find(|((cm, cn), _)| *cm == m && *cn == n).map(|(_, v)| v.clone()))
+}
 fn modfn(m: &'static str, n: &str) -> V {
     let n: Sym = sym(n);
     if let Some(v) = MODFNS.with(|c| c.borrow().get(&(m, n)).cloned()) {
@@ -3087,7 +2919,10 @@ fn sys_flags() -> V {
 pub fn module_attr(m: &'static str, name: &str) -> R {
     let v = match (m, name) {
         ("sys", "stdin") => V::Module(&ModName("sys.stdin")),
-        ("sys", "stdout") => V::Module(&ModName("sys.stdout")),
+        ("sys", "stdout") => stdout_set().unwrap_or(V::Module(&ModName("sys.stdout"))),
+        ("sys", "__stdout__") => V::Module(&ModName("sys.stdout")),
+        ("sys", "__stderr__") => V::Module(&ModName("sys.stderr")),
+        ("sys", "__stdin__") => V::Module(&ModName("sys.stdin")),
         ("sys", "stderr") => V::Module(&ModName("sys.stderr")),
         ("sys", "argv") => list(ARGV.with(|a| a.borrow().iter().map(|x| s(x)).collect())),
         ("sys", "maxsize") => V::Int(i64::MAX),

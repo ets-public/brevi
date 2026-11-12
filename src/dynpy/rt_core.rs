@@ -1582,7 +1582,10 @@ impl Dict {
         exc("RuntimeError", "dict mutated during lookup".into())
     }
     pub fn get_cell(d: &Rc<RefCell<Dict>>, k: &V) -> Result<Option<V>, E> {
-        let h = py_hash(k)?;
+        Self::get_cell_h(d, k, py_hash(k)?)
+    }
+    // with the key's hash already taken (lru_cache hashes each key once per call, as CPython's does)
+    pub fn get_cell_h(d: &Rc<RefCell<Dict>>, k: &V, h: i64) -> Result<Option<V>, E> {
         let key = K { h, v: k.clone() };
         if key_eq_safe(k) && d.borrow().unsafe_eq == 0 {
             return d.borrow().get_key(&key);
@@ -1625,6 +1628,9 @@ impl Dict {
     }
     pub fn set_cell(d: &Rc<RefCell<Dict>>, k: V, v: V) -> Result<(), E> {
         let h = py_hash(&k)?;
+        Self::set_cell_h(d, k, v, h)
+    }
+    pub fn set_cell_h(d: &Rc<RefCell<Dict>>, k: V, v: V, h: i64) -> Result<(), E> {
         let key = K { h, v: k.clone() };
         if key_eq_safe(&k) && d.borrow().unsafe_eq == 0 {
             return d.borrow_mut().set_key(key, k, v);
@@ -1712,7 +1718,9 @@ impl Dict {
         }
     }
     pub fn del_cell(d: &Rc<RefCell<Dict>>, k: &V) -> Result<Option<V>, E> {
-        let h = py_hash(k)?;
+        Self::del_cell_h(d, k, py_hash(k)?)
+    }
+    pub fn del_cell_h(d: &Rc<RefCell<Dict>>, k: &V, h: i64) -> Result<Option<V>, E> {
         let key = K { h, v: k.clone() };
         if key_eq_safe(k) && d.borrow().unsafe_eq == 0 {
             return d.borrow_mut().del_key(&key);
@@ -2268,6 +2276,8 @@ pub enum BT {
     Counter,
     OrderedDict,
     Deque,
+    // bytes (a library class in the dynamic build): a subclass instance wraps a bytes value
+    Bytes,
     Other,
 }
 
@@ -3324,6 +3334,7 @@ pub fn init_builtin_classes() {
         ("RuntimeError", "Exception"),
         ("RecursionError", "RuntimeError"),
         ("NotImplementedError", "RuntimeError"),
+        ("SystemError", "Exception"),
         ("StopIteration", "Exception"),
         ("StopAsyncIteration", "Exception"),
         ("AssertionError", "Exception"),

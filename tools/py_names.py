@@ -26,6 +26,8 @@ names|=set(dir(g()))
 # functools.lru_cache / cache wrappers (cache_info, cache_clear, cache_parameters)
 import functools as _ft
 names|=set(dir(_ft.lru_cache(lambda: 0)))
+# functools.singledispatch wrappers (dispatch, register, registry)
+names|=set(dir(_ft.singledispatch(lambda x: 0)))
 names={n for n in names if not n.startswith('_')}
 import os
 D = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'src', 'pynames')
