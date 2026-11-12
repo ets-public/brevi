@@ -4481,6 +4481,14 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
             && b.contains("\"itertools\"")
             && ["\"pickle\"", "\"copy\"", "\"deepcopy\"", "\"__reduce__\"", "\"__reduce_ex__\"", "\"__setstate__\""].iter().any(|k| b.contains(k))
     });
+    // copy.deepcopy of a tee iterator deep-copies its buffer and the iterator under it (tee.__reduce__), which
+    // Brevi does not have; refused when the program is built rather than stopping when it runs
+    if mods.iter().any(|m| {
+        let b = format!("{:?}", m.body);
+        bridge.srcs.contains_key(&m.name) && b.contains("\"tee\"") && b.contains("\"deepcopy\"")
+    }) {
+        return Err((mods[0].name.clone(), 1, "copy.deepcopy in a program that uses itertools.tee is not supported in dynamic builds".into()));
+    }
     // (or pickles or copies itertools iterators, whose __reduce__ and __setstate__ warn at the caller's line)
     let track_warn = mods.iter().any(|m| {
         let b = format!("{:?}", m.body);

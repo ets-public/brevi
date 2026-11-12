@@ -325,9 +325,19 @@ fn sig_of(obj: &V, depth: usize) -> Result<SigV, E> {
                 return Ok(SigV { params, ret: ann_of("return")? });
             }
         }
-        // lru_cache's cache_info() and cache_clear(): CPython's text signature ($self, /), bound
-        if ff.kind.get() == 3 && matches!(&*ff.qualname.get(), "_lru_cache_wrapper.cache_info" | "_lru_cache_wrapper.cache_clear") {
-            return Ok(SigV { params: vec![], ret: None });
+        // builtins whose CPython text signature Brevi knows: lru_cache's cache_info() and cache_clear() ($self, /,
+        // bound), functools.cmp_to_key ($module, /, mycmp) and the key type it returns (obj)
+        if ff.kind.get() == 3 {
+            if matches!(&*ff.qualname.get(), "_lru_cache_wrapper.cache_info" | "_lru_cache_wrapper.cache_clear") {
+                return Ok(SigV { params: vec![], ret: None });
+            }
+            let one = |n: &str| Ok(SigV { params: vec![Param { name: n.to_string(), kind: P_POS, default: None, ann: None }], ret: None });
+            if &*ff.name.get() == "cmp_to_key" {
+                return one("mycmp");
+            }
+            if let Some((_, V::Str(t))) = ff.attrs.borrow().iter().find(|(k, _)| *k == "__bv_textsig__") {
+                return one(&t.s);
+            }
         }
     }
     Err(unsupported(&format!("Signature.from_callable of a '{}' object", tn(&f))))

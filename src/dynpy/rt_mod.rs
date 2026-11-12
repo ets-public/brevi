@@ -1418,10 +1418,15 @@ pub fn functools_fn(name: &str, mut a: Args) -> R {
                 }
             }
             let f = one(a, name, "mycmp")?;
-            builtin("K", move |a: Args| {
+            let k = builtin("K", move |a: Args| {
                 let x = one(a, "K", "obj")?;
                 Ok(V::Ext(ExtRc::new(CmpKey { f: f.clone(), v: x })))
-            })
+            });
+            // CPython's KeyWrapper type takes one argument, obj (Signature.from_callable reads it)
+            if let V::Func(kf) = &k {
+                kf.attrs.borrow_mut().push(("__bv_textsig__", s("obj")));
+            }
+            k
         }
         "partial" => return call(&V::Class(partial_class()), a),
         "update_wrapper" => {
