@@ -50,6 +50,9 @@ pub struct Prog {
     flags: i64,
     src: String,
     bytes: bool,
+    // a re.Scanner's combined pattern: Some(the flags it was given). CPython builds it from parsed phrases, so its
+    // .pattern is None and its flags are the raw ones (no UNICODE added); see re_scanner_new.
+    scan_flags: Option<i64>,
 }
 const F_I: i64 = 2;
 const F_L: i64 = 4;
@@ -1478,7 +1481,7 @@ fn re_compile3(src: &str, flags: i64, pat: Option<V>, warns: &RefCell<Vec<(&'sta
         e.set("args", tup(vec![st(msg.to_string())]));
         return Err(E(V::Obj(e)));
     }
-    let prog = Rc::new(Prog { alts, ngroups: p.ngroups, names: p.names, flags: p.flags, src: src.to_string(), bytes: p.bytes });
+    let prog = Rc::new(Prog { alts, ngroups: p.ngroups, names: p.names, flags: p.flags, src: src.to_string(), bytes: p.bytes, scan_flags: None });
     CACHE.with(|c| c.borrow_mut().insert((src.to_string(), key), prog.clone()));
     Ok(prog)
 }
@@ -2065,6 +2068,12 @@ impl Ext for RPat {
         "re.Pattern"
     }
     fn repr(&self) -> String {
+        if let Some(f) = self.prog.scan_flags {
+            return match if f & (F_L | 32 | F_A) == 32 { f & !32 } else { f } {
+                0 => "re.compile(None)".into(),
+                f => format!("re.compile(None, {})", re_flag_names(f)),
+            };
+        }
         // CPython's: the pattern's repr cut to 200 characters, then the flags other than the implied UNICODE
         let r = if self.prog.bytes {
             let b: Vec<u8> = self.prog.src.chars().map(|c| c as u8).collect();
@@ -2093,6 +2102,8 @@ impl Ext for RPat {
     }
     fn attr(&self, _me: &V, n: &str) -> Option<R> {
         Some(Ok(match n {
+            "pattern" if self.prog.scan_flags.is_some() => V::None,
+            "flags" if self.prog.scan_flags.is_some() => V::Int(self.prog.scan_flags.unwrap_or(0)),
             "pattern" => {
                 if self.prog.bytes {
                     bytesv(self.prog.src.chars().map(|c| c as u8).collect())
@@ -2677,7 +2688,131 @@ fn re_error_new(mut a: Args) -> R {
         }
     }
 }
+// re.Scanner(lexicon, flags=0), CPython's pure-Python lexer in re/__init__.py: one pattern made of a group per
+// phrase, tried in order, whose scan(string) calls each match's action (or keeps a non-callable one) until no
+// phrase matches or a match is empty. CPython parses the phrases on their own and compiles the whole with the raw
+// flags, so without re.UNICODE \w, \d, \s and IGNORECASE are ASCII-only: Brevi compiles it with re.ASCII then.
+// A phrase whose meaning would change inside the combined pattern (its own groups, which CPython numbers
+// apart from the phrase groups, backreferences, inline flags, conditionals) and a bytes lexicon are refused.
+fn re_scanner_new(mut a: Args) -> R {
+    let lexicon = a.kw("lexicon").or_else(|| if a.p.is_empty() { None } else { Some(a.p.remove(0)) }).ok_or_else(|| exc("TypeError", "Scanner.__init__() missing 1 required positional argument: 'lexicon'".into()))?;
+    let flags = flags_arg(&mut a, 0)?;
+    a.no_kw("Scanner")?;
+    if !a.p.is_empty() {
+        return type_err(format!("Scanner.__init__() takes from 2 to 3 positional arguments but {} were given", a.p.len() + 3));
+    }
+    let mut src = String::new();
+    let mut n = 0;
+    for item in to_vec(&lexicon)? {
+        let pair = to_vec(&item)?;
+        if pair.len() != 2 {
+            return val_err(format!("{} values to unpack (expected 2)", if pair.len() > 2 { "too many" } else { "not enough" }));
+        }
+        let V::Str(ph) = &pair[0] else {
+            return Err(unsupported("re.Scanner with a phrase that is not a str"));
+        };
+        let t = &ph.s;
+        let bad = t.contains("(?P=") || t.contains("(?(") || t.as_bytes().windows(2).any(|w| w[0] == b'\\' && w[1].is_ascii_digit())
+            || t.match_indices("(?").any(|(i, _)| t[i + 2..].chars().next().is_some_and(|c| "aiLmsux-".contains(c)));
+        if bad || re_compile(t, flags)?.ngroups > 0 {
+            return Err(unsupported("re.Scanner with a phrase holding groups, backreferences or inline flags"));
+        }
+        if n > 0 {
+            src.push('|');
+        }
+        src.push('(');
+        src.push_str(t);
+        src.push_str(if flags & F_X != 0 { "\n)" } else { ")" });
+        n += 1;
+    }
+    if n == 0 {
+        return Err(unsupported("re.Scanner with an empty lexicon"));
+    }
+    let run = if flags & (32 | F_A) == 0 { flags | F_A } else { flags };
+    let base = re_compile(&src, run)?;
+    let prog = Rc::new(Prog { alts: base.alts.clone(), ngroups: base.ngroups, names: base.names.clone(), flags: base.flags, src: base.src.clone(), bytes: false, scan_flags: Some(flags) });
+    let attrs = vec![("lexicon".to_string(), lexicon), ("scanner".to_string(), V::Ext(ExtRc::new(RPat { prog })))];
+    Ok(V::Ext(ExtRc::new(RLexer { attrs: RefCell::new(attrs) })))
+}
+pub struct RLexer {
+    attrs: RefCell<Vec<(String, V)>>,
+}
+impl RLexer {
+    fn get(&self, n: &str) -> Option<V> {
+        self.attrs.borrow().iter().find(|(k, _)| k == n).map(|(_, v)| v.clone())
+    }
+    fn scan(&self, me: &V, string: V) -> R {
+        let need = |n: &str| self.get(n).ok_or_else(|| exc("AttributeError", format!("'Scanner' object has no attribute '{n}'")));
+        let sc = call_method(&need("scanner")?, "scanner", Args::p(vec![string.clone()]))?;
+        let mut out = vec![];
+        let mut i = V::Int(0);
+        loop {
+            let m = call_method(&sc, "match", Args::p(vec![]))?;
+            if !truth(&m)? {
+                break;
+            }
+            let j = call_method(&m, "end", Args::p(vec![]))?;
+            if eq(&i, &j)? {
+                break;
+            }
+            let li = getattr(&m, "lastindex")?;
+            let mut action = getitem(&getitem(&need("lexicon")?, &sub(&li, &V::Int(1))?)?, &V::Int(1))?;
+            if truth(&bi_callable(Args::p(vec![action.clone()]))?)? {
+                self.set("match", m.clone());
+                action = call(&action, Args::p(vec![me.clone(), call_method(&m, "group", Args::p(vec![]))?]))?;
+            }
+            if !matches!(action, V::None) {
+                out.push(action);
+            }
+            i = j;
+        }
+        Ok(tup(vec![list(out), getitem(&string, &V::Slice(Rc::new((i, V::None, V::None))))?]))
+    }
+    fn set(&self, n: &str, v: V) {
+        let mut a = self.attrs.borrow_mut();
+        match a.iter_mut().find(|(k, _)| k == n) {
+            Some(e) => e.1 = v,
+            None => a.push((n.to_string(), v)),
+        }
+    }
+}
+impl Ext for RLexer {
+    fn tname(&self) -> &'static str {
+        "re.Scanner"
+    }
+    fn repr(&self) -> String {
+        format!("<re.Scanner object at {:#x}>", self as *const RLexer as usize)
+    }
+    fn any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn hash(&self) -> Option<i64> {
+        Some((self as *const RLexer as usize >> 4) as i64)
+    }
+    fn eq(&self, o: &V) -> Option<bool> {
+        Some(matches!(o, V::Ext(e) if std::ptr::eq(e.any() as *const dyn std::any::Any as *const u8, self as *const RLexer as *const u8)))
+    }
+    fn attr(&self, _me: &V, n: &str) -> Option<R> {
+        self.get(n).map(Ok)
+    }
+    fn set_attr(&self, _me: &V, n: &str, v: V) -> Option<Result<(), E>> {
+        self.set(n, v);
+        Some(Ok(()))
+    }
+    fn method(&self, me: &V, n: &str, a: &mut Args) -> Option<R> {
+        if n != "scan" || self.get("scan").is_some() {
+            return None;
+        }
+        Some(match (a.p.len(), a.k.is_empty()) {
+            (1, true) => self.scan(me, a.p[0].clone()),
+            _ => type_err(format!("Scanner.scan() takes 2 positional arguments but {} were given", a.p.len() + 1)),
+        })
+    }
+}
 pub fn re_fn(n: &str, mut a: Args) -> R {
+    if n == "Scanner" {
+        return re_scanner_new(a);
+    }
     if n == "Pattern" || n == "Match" {
         return type_err(format!("cannot create 're.{n}' instances"));
     }
