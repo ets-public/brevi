@@ -47,7 +47,11 @@ pub fn typing_call(n: &str, mut a: Args) -> R {
         "NewType" => Ok(builtin("NewType", |a: Args| Ok(a.p.first().cloned().unwrap_or(V::None)))),
         "TypeVar" | "ParamSpec" | "TypeVarTuple" => {
             a.k.clear();
-            Ok(V::Class(Class::new(sym(&to_str(&first).unwrap_or_default()), "typing", vec![bclass("object")], BT::Other)))
+            let c = Class::new(sym(&to_str(&first).unwrap_or_default()), "typing", vec![bclass("object")], BT::Other);
+            if n != "TypeVar" {
+                c.made.set(5);
+            }
+            Ok(V::Class(c))
         }
         // NamedTuple("Point", [("x", int), ("y", int)])
         "NamedTuple" => {
@@ -74,7 +78,7 @@ pub fn typing_class(name: Sym, qualname: Sym, module: Sym, bases: &mut Vec<V>, a
             false
         }
         // typing.List[int] and the like as a base: dropped, as the typing classes they came from were
-        V::Ext(e) if e.any().downcast_ref::<TAlias>().is_some() || e.any().downcast_ref::<TUnion>().is_some() => false,
+        V::Ext(e) if e.any().downcast_ref::<TAlias>().is_some() || e.any().downcast_ref::<TUnion>().is_some() || e.any().downcast_ref::<TForm>().is_some() => false,
         _ => true,
     });
     if td {
@@ -557,4 +561,348 @@ pub fn typing_subscript(k: &Rc<Class>, i: &V) -> Option<R> {
     let args: Vec<V> = args.into_iter().map(|a| if matches!(a, V::None) { none_class() } else { a }).collect();
     let opaque = !args.iter().all(typing_arg_known) || (k.name != "Tuple" && args.iter().any(|a| matches!(a, V::Ellipsis)));
     Some(Ok(V::Ext(ExtRc::new(TAlias { name: k.name, origin, args, opaque }))))
+}
+
+// ---------- subscripts of typing forms and classes, as CPython 3.13 checks them ----------
+// An annotation is evaluated when its statement or def runs, so `x: Dict[str]` raises where CPython raises.
+// What is made here is CPython's value where this runtime has one (typing_subscript above) and an opaque
+// TForm otherwise; what CPython would refuse raises its TypeError, and a check this runtime cannot make
+// exactly stops with "not supported" rather than passing.
+
+thread_local! {
+    // the modules that are Brevi's copies of CPython modules (emit.rs marks each as its init runs)
+    static COPY_MODS: RefCell<Vec<Sym>> = const { RefCell::new(vec![]) };
+}
+// CPython 3.13's classes (module, qualname) whose own dict holds __class_getitem__, every stdlib module imported
+// (typing.Generic aside, which typing_getitem answers)
+const OWN_CLASS_GETITEM: &[(&str, &str)] = &[
+    ("_asyncio", "Future"), ("_asyncio", "Task"), ("_contextvars", "ContextVar"), ("_contextvars", "Token"), ("_ctypes", "Array"),
+    ("_queue", "SimpleQueue"), ("_weakrefset", "WeakSet"), ("array", "array"), ("asyncio.queues", "Queue"),
+    ("builtins", "BaseExceptionGroup"), ("builtins", "async_generator"), ("builtins", "coroutine"), ("builtins", "dict"),
+    ("builtins", "enumerate"), ("builtins", "frozenset"), ("builtins", "generator"), ("builtins", "list"), ("builtins", "mappingproxy"),
+    ("builtins", "set"), ("builtins", "tuple"), ("collections", "defaultdict"), ("collections", "deque"),
+    ("collections.abc", "AsyncIterable"), ("collections.abc", "Awaitable"), ("collections.abc", "Callable"), ("collections.abc", "Container"),
+    ("collections.abc", "Iterable"), ("collections.abc", "MappingView"), ("contextlib", "AbstractAsyncContextManager"),
+    ("contextlib", "AbstractContextManager"), ("csv", "DictReader"), ("csv", "DictWriter"), ("ctypes", "LibraryLoader"),
+    ("dataclasses", "Field"), ("dataclasses", "InitVar"), ("difflib", "SequenceMatcher"), ("filecmp", "dircmp"),
+    ("fileinput", "FileInput"), ("functools", "cached_property"), ("functools", "partial"), ("functools", "partialmethod"),
+    ("graphlib", "TopologicalSorter"), ("itertools", "chain"), ("logging", "LoggerAdapter"), ("logging", "StreamHandler"),
+    ("mailbox", "Mailbox"), ("mailbox", "_ProxyFile"), ("os", "PathLike"), ("posix", "DirEntry"), ("queue", "Queue"),
+    ("queue", "_PySimpleQueue"), ("re", "Match"), ("re", "Pattern"), ("subprocess", "CompletedProcess"), ("subprocess", "Popen"),
+    ("tempfile", "SpooledTemporaryFile"), ("tempfile", "TemporaryDirectory"), ("weakref", "ReferenceType"),
+];
+pub fn copy_module(m: &str) {
+    COPY_MODS.with(|c| c.borrow_mut().push(sym(m)));
+}
+// typing.Literal["a"], typing.Callable[[int], str], typing.Iterator[int] and the like: a typing value whose
+// CPython repr and attributes this runtime does not make. It can stand in an annotation, an alias or a union;
+// reading it stops.
+pub struct TForm {
+    pub name: Sym,
+    // Generic[T, ...] and Protocol[T, ...]: how many type parameters (a class made on one takes as many)
+    pub params: usize,
+}
+impl Ext for TForm {
+    fn tname(&self) -> &'static str {
+        "typing._GenericAlias"
+    }
+    fn repr(&self) -> String {
+        format!("typing.{}[...]", self.name)
+    }
+    fn any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn eq(&self, o: &V) -> Option<bool> {
+        Some(matches!(o, V::Ext(e) if e.any().downcast_ref::<TForm>().is_some_and(|b| std::ptr::eq(self, b))))
+    }
+    fn attr(&self, _me: &V, n: &str) -> Option<R> {
+        if n == "__class__" {
+            return None;
+        }
+        Some(Err(unsupported(&format!("typing.{}[...].{n}", self.name))))
+    }
+    fn method(&self, _me: &V, n: &str, _a: &mut Args) -> Option<R> {
+        Some(Err(unsupported(&format!("typing.{}[...].{n}", self.name))))
+    }
+    fn instancecheck(&self, _x: &V) -> Option<Result<bool, E>> {
+        Some(Err(unsupported(&format!("isinstance() with typing.{}[...]", self.name))))
+    }
+    fn subclasscheck(&self, _x: &V) -> Option<Result<bool, E>> {
+        Some(Err(unsupported(&format!("issubclass() with typing.{}[...]", self.name))))
+    }
+    fn set_attr(&self, _me: &V, n: &str, _v: V) -> Option<Result<(), E>> {
+        Some(Err(unsupported(&format!("setting typing.{}[...].{n}", self.name))))
+    }
+}
+fn tform(n: Sym) -> R {
+    Ok(V::Ext(ExtRc::new(TForm { name: n, params: 0 })))
+}
+// a typing form of the runtime's own (typing_form), not a TypeVar or another class of module "typing"
+fn is_form(k: &Rc<Class>) -> bool {
+    TYPING_FORMS.with(|t| t.borrow().iter().any(|c| Rc::ptr_eq(c, k)))
+}
+// old-style TypeVar("T") (a class of module "typing" that is no form, and no ParamSpec or TypeVarTuple, which
+// typing_call marks made = 5) or a PEP 695 one
+fn is_typevar(v: &V) -> bool {
+    match v {
+        V::Class(k) => k.module == "typing" && !is_form(k) && k.made.get() != 5,
+        V::Ext(e) => e.any().downcast_ref::<TypeVarV>().is_some(),
+        _ => false,
+    }
+}
+// generic aliases (typing._SpecialGenericAlias): (parameters, how many of them have defaults); 0 parameters:
+// "is not a generic class"
+fn alias_params(n: &str) -> Option<(usize, usize)> {
+    Some(match n {
+        "List" | "Set" | "FrozenSet" | "Type" | "Iterable" | "Iterator" | "Sequence" | "MutableSequence" | "MutableSet" | "AbstractSet"
+        | "Collection" | "Container" | "Reversible" | "Awaitable" | "AsyncIterator" | "AsyncIterable" | "KeysView" | "ValuesView"
+        | "MappingView" | "Counter" | "Deque" | "Pattern" | "Match" => (1, 0),
+        "Dict" | "Mapping" | "MutableMapping" | "ItemsView" | "DefaultDict" | "OrderedDict" | "ChainMap" => (2, 0),
+        "Coroutine" => (3, 0),
+        "Generator" => (3, 2),
+        "AsyncGenerator" | "ContextManager" | "AsyncContextManager" => (2, 1),
+        "Hashable" | "Sized" => (0, 0),
+        _ => return None,
+    })
+}
+// typing._type_check on one argument: Ok when CPython takes it as it is. A string must be a forward reference
+// CPython compiles (only dotted names are known to be); a tuple, a bare special form, ClassVar[...] or Final[...]
+// inside another form, an instance (whose == CPython would call) and anything else unknown stop here.
+fn type_arg_ok(v: &V, what: &str) -> Result<(), E> {
+    let ok = match v {
+        V::None | V::Int(_) | V::Big(_) | V::Float(_) | V::Bool(_) | V::Ellipsis | V::Func(_) => true,
+        V::Str(t) => {
+            let t = t.s.as_str();
+            !t.is_empty() && t.split('.').all(|p| p.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_') && p.chars().all(|c| c.is_alphanumeric() || c == '_')) && !matches!(t, "None" | "True" | "False") && !is_py_keyword(t)
+        }
+        V::Class(k) if k.module != "typing" || !is_form(k) => true,
+        V::Class(k) => alias_params(k.name).is_some() || matches!(k.name, "Any" | "Tuple" | "Callable" | "NoReturn" | "Never" | "Self" | "LiteralString" | "TypeAlias" | "Text" | "AnyStr"),
+        V::Ext(e) => {
+            let a = e.any();
+            a.downcast_ref::<TAlias>().is_some() || a.downcast_ref::<TUnion>().is_some() || a.downcast_ref::<UnionT>().is_some() || a.downcast_ref::<TypeVarV>().is_some()
+                || e.tname() == "types.GenericAlias"
+                || a.downcast_ref::<TForm>().is_some_and(|f| !matches!(f.name, "ClassVar" | "Final"))
+        }
+        _ => false,
+    };
+    if ok {
+        Ok(())
+    } else {
+        Err(unsupported(&format!("{what} with an argument Brevi cannot check as CPython's typing does")))
+    }
+}
+fn is_py_keyword(t: &str) -> bool {
+    matches!(
+        t,
+        "and" | "as" | "assert" | "async" | "await" | "break" | "class" | "continue" | "def" | "del" | "elif" | "else" | "except" | "finally" | "for"
+            | "from" | "global" | "if" | "import" | "in" | "is" | "lambda" | "nonlocal" | "not" | "or" | "pass" | "raise" | "return" | "try"
+            | "while" | "with" | "yield"
+    )
+}
+fn arg_repr100(i: &V) -> Result<String, E> {
+    let r = repr(i)?;
+    Ok(if r.chars().count() > 100 { r.chars().take(100).collect() } else { r })
+}
+// form[i] for a typing form of the runtime (`k`)
+pub fn typing_getitem(k: &Rc<Class>, i: &V) -> R {
+    let n = k.name;
+    if !is_form(k) {
+        return Err(unsupported("subscripting a TypeVar or another typing object"));
+    }
+    let args: Vec<V> = match i {
+        V::Tuple(t) => t.to_vec(),
+        other => vec![other.clone()],
+    };
+    let what = format!("typing.{n}[...]");
+    if let Some((np, nd)) = alias_params(n) {
+        for a in &args {
+            type_arg_ok(a, &what)?;
+        }
+        let got = args.len();
+        if got > np || got + nd < np {
+            if np == 0 {
+                return type_err(format!("typing.{n} is not a generic class"));
+            }
+            let expected = if nd > 0 { format!("at least {}", np - nd) } else { np.to_string() };
+            return type_err(format!("Too {} arguments for typing.{n}; actual {got}, expected {expected}", if got > np { "many" } else { "few" }));
+        }
+        return match typing_subscript(k, i) {
+            Some(r) => r,
+            None => tform(n),
+        };
+    }
+    match n {
+        "Tuple" => {
+            let body = if args.len() >= 2 && matches!(args.last(), Some(V::Ellipsis)) { &args[..args.len() - 1] } else { &args[..] };
+            for a in body {
+                type_arg_ok(a, &what)?;
+            }
+            typing_subscript(k, i).unwrap_or_else(|| tform(n))
+        }
+        "Union" => {
+            if args.is_empty() {
+                return type_err("Cannot take a Union of no types.".into());
+            }
+            for a in &args {
+                type_arg_ok(a, &what)?;
+            }
+            typing_union(&args)
+        }
+        "Optional" => {
+            if let V::Tuple(_) = i {
+                return type_err(format!("typing.Optional requires a single type. Got {}.", arg_repr100(i)?));
+            }
+            type_arg_ok(i, &what)?;
+            typing_union(&[i.clone(), V::None])
+        }
+        "ClassVar" | "Final" | "TypeGuard" | "TypeIs" | "Unpack" | "Required" | "NotRequired" | "ReadOnly" => {
+            if let V::Tuple(_) = i {
+                let head = if matches!(n, "Required" | "NotRequired" | "ReadOnly") { format!("{n} accepts only a single type.") } else { format!("typing.{n} accepts only single type.") };
+                return type_err(format!("{head} Got {}.", arg_repr100(i)?));
+            }
+            type_arg_ok(i, &what)?;
+            tform(n)
+        }
+        "Literal" => tform(n),
+        "Annotated" => {
+            if !matches!(i, V::Tuple(t) if t.len() >= 2) {
+                return type_err("Annotated[...] should be used with at least two arguments (a type and an annotation).".into());
+            }
+            type_arg_ok(&args[0], &what)?;
+            tform(n)
+        }
+        "Callable" => {
+            if !matches!(i, V::Tuple(t) if t.len() == 2) {
+                return type_err("Callable must be used as Callable[[arg, ...], result].".into());
+            }
+            match &args[0] {
+                V::List(l) => {
+                    for a in l.borrow().iter() {
+                        type_arg_ok(a, &what)?;
+                    }
+                }
+                V::Ellipsis => {}
+                a => type_arg_ok(a, &what)?,
+            }
+            type_arg_ok(&args[1], &what)?;
+            tform(n)
+        }
+        // Generic[T, ...] and Protocol[T, ...] as bases: make_class drops them
+        "Generic" | "Protocol" => {
+            if args.is_empty() {
+                return type_err(format!("Parameter list to {n}[...] cannot be empty"));
+            }
+            if args.iter().any(|a| matches!(a, V::Class(c) if c.module != "typing")) {
+                return type_err(format!("Parameters to {n}[...] must all be type variables or parameter specification variables."));
+            }
+            if !args.iter().all(is_typevar) {
+                return Err(unsupported(&format!("{n}[...] of anything but TypeVars")));
+            }
+            for (j, a) in args.iter().enumerate() {
+                for b in &args[..j] {
+                    if eq(a, b)? {
+                        return type_err(format!("Parameters to {n}[...] must all be unique"));
+                    }
+                }
+            }
+            Ok(V::Ext(ExtRc::new(TForm { name: n, params: args.len() })))
+        }
+        "Self" | "NoReturn" | "Never" | "LiteralString" | "TypeAlias" => type_err(format!("typing.{n} is not subscriptable")),
+        "Any" => type_err("type 'Any' is not subscriptable".into()),
+        "Text" => type_err("type 'str' is not subscriptable".into()),
+        "AnyStr" => type_err("'typing.TypeVar' object is not subscriptable".into()),
+        _ => Err(unsupported(&what)),
+    }
+}
+// cls[i] for a class with no __class_getitem__ of its own or inherited that the runtime found: CPython's
+// "type 'X' is not subscriptable" when that is sure (a program class on plain classes whose CPython dicts
+// Brevi has); otherwise it stops.
+pub fn class_subscript(k: &Rc<Class>, i: &V) -> R {
+    match k.made.get() {
+        2 => return Err(unsupported("subscripting a class made on typing's Generic or Protocol")),
+        // typing's _generic_class_getitem on a class with no type parameters
+        3 => return type_err(format!("{} is not a generic class", repr(&V::Class(k.clone()))?)),
+        m if m >= 10 => {
+            let want = (m - 10) as usize;
+            let args: Vec<V> = match i {
+                V::Tuple(t) => t.to_vec(),
+                other => vec![other.clone()],
+            };
+            // _type_convert: a string becomes a ForwardRef, which CPython compiles
+            for a in &args {
+                if let V::Str(_) = a {
+                    type_arg_ok(a, "a generic class subscript")?;
+                }
+            }
+            let got = args.len();
+            let kr = repr(&V::Class(k.clone()))?;
+            if got > want {
+                return type_err(format!("Too many arguments for {kr}; actual {got}, expected {want}"));
+            }
+            if got < want {
+                return type_err(format!("Too few arguments for {kr}; actual {got}, expected at least {}", got + 1));
+            }
+            return tform(k.name);
+        }
+        _ => {}
+    }
+    if k.meta.borrow().is_some() {
+        return Err(unsupported("subscripting a class with a metaclass"));
+    }
+    // CPython's PyObject_GetItem makes type[...] itself
+    if k.module == "builtins" && k.name == "type" {
+        return Ok(class_alias(k, i));
+    }
+    // collections.abc.Callable[[int], str] (Brevi's copy has no __class_getitem__ for it): _CallableGenericAlias's
+    // checks, then an opaque value
+    if k.mro.borrow().iter().any(|b| b.module == "collections.abc" && b.name == "Callable" && b.made.get() == 1) {
+        if !matches!(i, V::Tuple(t) if t.len() == 2) {
+            return type_err("Callable must be used as Callable[[arg, ...], result].".into());
+        }
+        let V::Tuple(t) = i else { unreachable!() };
+        return match &t[0] {
+            V::Tuple(_) | V::List(_) | V::Ellipsis => tform(sym("Callable")),
+            a @ (V::Class(_) | V::Int(_) | V::None | V::Bool(_) | V::Float(_)) if !matches!(a, V::Class(c) if c.module == "typing") => {
+                type_err(format!("Expected a list of types, an ellipsis, ParamSpec, or Concatenate. Got {}", to_str(a)?))
+            }
+            _ => Err(unsupported("collections.abc.Callable[...] of a ParamSpec, Concatenate or another value")),
+        };
+    }
+    let mut tp_name = k.name;
+    for (j, b) in k.mro.borrow().iter().enumerate() {
+        if b.made.get() == 1 && !COPY_MODS.with(|m| m.borrow().contains(&b.module)) {
+            if b.own("__class_getitem__").is_some() {
+                return Err(unsupported("a __class_getitem__ Brevi did not find"));
+            }
+            continue;
+        }
+        // a builtin type answers from CPython's own dict; a class of Brevi's runtime or of its copy of a module, from
+        // the list of CPython's classes that define __class_getitem__ (a copy's class that lookup did not find it on
+        // has lost it)
+        let own = match cpy_dict_has(b, "__class_getitem__") {
+            Some((own, tn)) => {
+                if j == 0 {
+                    tp_name = tn;
+                }
+                own
+            }
+            None if OWN_CLASS_GETITEM.contains(&(b.module, b.qualname.get())) => {
+                if b.made.get() == 1 {
+                    return Err(unsupported(&format!("subscripting class {}", k.name)));
+                }
+                true
+            }
+            None => {
+                if j == 0 && b.made.get() == 0 && b.module != "builtins" {
+                    tp_name = sym(&format!("{}.{}", b.module, b.name));
+                }
+                false
+            }
+        };
+        // types.GenericAlias, as `__class_getitem__ = classmethod(GenericAlias)` makes it for the builtin types
+        if own {
+            return Ok(class_alias(k, i));
+        }
+    }
+    type_err(format!("type '{tp_name}' is not subscriptable"))
 }

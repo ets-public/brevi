@@ -1050,6 +1050,8 @@ fn sd_register_type(st: &Rc<SDState>, cls: &V, func: V) -> R {
             return Err(unsupported(&format!("singledispatch on this ABC ({})", k.name)));
         }
         V::Class(_) => {}
+        // a typing value whose CPython repr the error would show and this runtime does not make
+        V::Ext(x) if x.any().downcast_ref::<TForm>().is_some() => return Err(unsupported("singledispatch on a typing value")),
         // a subscripted typing form, or a union with one in it: CPython's "not a class or union type"
         V::Ext(x) if matches!(x.tname(), "typing._GenericAlias" | "typing._UnionGenericAlias" | "types.UnionType") => {
             return Err(sd_invalid_first(cls));

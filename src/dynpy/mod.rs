@@ -565,6 +565,7 @@ pub fn has_source(file: &str) -> bool {
 
 fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, String)> {
     let given = SOURCE.lock().unwrap().as_ref().filter(|(f, _)| f == file).map(|(_, t)| t.clone());
+    emit::BV_SPELLING.store(given.is_some(), Ordering::Relaxed);
     let src = match given {
         Some(t) => t,
         None => crate::read_src(file).map_err(|e| (file.to_string(), 0, e.to_string()))?,
