@@ -1,0 +1,1 @@
+- Dynamic build: `filter` objects copy, deepcopy and pickle as CPython's `filter.__reduce__` gives, `(filter, (function, input))`. A shallow copy shares the input iterator, and a deep copy or a pickle round trip does not (#396).

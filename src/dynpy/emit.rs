@@ -1700,6 +1700,9 @@ pub struct Em {
     // the program imports itertools and pickles or copies something: its iterators do not pickle, and their
     // copies miss CPython 3.13's DeprecationWarning, so catch_warnings(record=True) there is refused
     iter_pickle: bool,
+    // the program uses a builtin iterator type (zip, map, filter, itertools.chain, ...) as a value: a class
+    // whose base is only known at run time may be built on one, which the dynamic build cannot subclass
+    iter_type_values: bool,
     // module -> the lines whose logical line runs over more than one line (None: the module did not lex)
     multi: HashMap<String, Option<HashSet<usize>>>,
     // the WMod statics written so far
@@ -3620,6 +3623,22 @@ impl Em {
                 }
             }
             St::Class(c) => {
+                // a base that is a builtin iterator type (zip, map, filter, enumerate, reversed, itertools.chain, ...)
+                let iter_base = c.bases.iter().any(|b| match b {
+                    Ex::Name(n) => ITER_TYPES.contains(&n.as_str()) && match self.lookup(n) {
+                        None => matches!(n.as_str(), "zip" | "map" | "filter" | "enumerate" | "reversed"),
+                        Some(Var::Global(_)) => self.bridge.srcs.get(&self.module).is_some_and(|(_, src)| src.contains("itertools")),
+                        _ => false,
+                    },
+                    Ex::Attr(o, n) => ITER_TYPES.contains(&n.as_str()) && matches!(o.as_ref(), Ex::Name(m) if m == "itertools"),
+                    _ => false,
+                });
+                if iter_base && self.bridge.srcs.contains_key(&self.module) {
+                    return Err(err(line, &format!("class {} is built on a builtin iterator type; subclassing zip, map, filter or an itertools type is not supported in dynamic builds", c.name)));
+                }
+                if self.iter_type_values && c.bases.iter().any(|b| matches!(b, Ex::Name(n) if matches!(self.lookup(n), Some(Var::Local(_) | Var::Cell(_))))) {
+                    return Err(err(line, &format!("class {} has a base chosen at run time in a program that uses builtin iterator types as values; subclassing zip, map, filter or an itertools type is not supported in dynamic builds", c.name)));
+                }
                 if let Some(src) = self.bridge.classes.get(&(self.module.clone(), c.line)).cloned() {
                     let m = self.module.clone();
                     let imports = self.bridge.imports.get(&m).cloned().unwrap_or_default();
@@ -4427,6 +4446,34 @@ pub fn ic_statics() -> String {
     }
     s
 }
+// Whether `src` names a builtin iterator type (zip, map, filter, enumerate, reversed, or an itertools one) other
+// than to call it or import it: `(repeat, args)`, `cls = chain`.
+const ITER_TYPES: [&str; 22] = ["zip", "map", "filter", "enumerate", "reversed", "repeat", "chain", "islice", "cycle", "compress", "starmap",
+        "takewhile", "dropwhile", "filterfalse", "accumulate", "zip_longest", "product", "permutations", "combinations", "groupby", "count", "pairwise"];
+fn iter_type_as_value(src: &str) -> bool {
+    const NAMES: [&str; 22] = ITER_TYPES;
+    let idc = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
+    for line in src.lines() {
+        let t = line.trim_start();
+        if t.starts_with("import ") || t.starts_with("from ") || t.starts_with('#') {
+            continue;
+        }
+        let lb = line.as_bytes();
+        for n in NAMES {
+            let mut from = 0;
+            while let Some(i) = line[from..].find(n).map(|i| i + from) {
+                from = i + n.len();
+                let before_ok = i == 0 || !(idc(lb[i - 1]) || lb[i - 1] == b'.');
+                let after = line[from..].trim_start();
+                let after_ok = from >= lb.len() || !idc(lb[from]);
+                if before_ok && after_ok && !after.starts_with('(') && !after.starts_with('=') && (after.starts_with(',') || after.starts_with(')') || after.starts_with(']') || after.is_empty()) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
 pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>), (String, usize, String)> {
     // the program (not Brevi's library copies) uses the warnings module
     // (or functools.partial, whose __get__ warns at the line that reads it from an instance)
@@ -4440,6 +4487,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
             && b.contains("\"itertools\"")
             && ["\"pickle\"", "\"copy\"", "\"deepcopy\"", "\"__reduce__\"", "\"__reduce_ex__\"", "\"__setstate__\""].iter().any(|k| b.contains(k))
     });
+    let iter_type_values = mods.iter().any(|m| bridge.srcs.get(&m.name).is_some_and(|(_, src)| iter_type_as_value(src)));
     let has_del = mods.iter().any(|m| format!("{:?}", m.body).contains("\"__del__\""));
     let has_closure = mods.iter().any(|m| format!("{:?}", m.body).contains("__closure__"));
     let mut em = Em {
@@ -4472,6 +4520,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         re_names: HashSet::new(),
         track_warn,
         iter_pickle,
+        iter_type_values,
         multi: HashMap::new(),
         wmods: HashSet::new(),
         warn_names: HashSet::new(),

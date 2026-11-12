@@ -2480,6 +2480,17 @@ fn iter_copy(x: &V, memo: Option<&mut Vec<(usize, V)>>) -> R {
     let Ok(it) = cell.it.try_borrow() else {
         return Err(exc("ValueError", "iterator already executing".into()));
     };
+    // filter's __reduce__ is (filter, (function, input)): a shallow copy shares the input iterator, a deep copy
+    // reads a deep copy of it
+    if let It::Filter(p) = &*it {
+        let p = p.clone();
+        drop(it);
+        let src = match memo {
+            None => p.1.clone(),
+            Some(m) => iter_copy(&p.1, Some(m))?,
+        };
+        return Ok(new_iter(It::Filter(Rc::new((p.0.clone(), src))), kind));
+    }
     let list = |l: &Rc<RefCell<Vec<V>>>, memo: Option<&mut Vec<(usize, V)>>| -> Result<Rc<RefCell<Vec<V>>>, E> {
         Ok(match memo {
             None => l.clone(),
@@ -3240,7 +3251,7 @@ fn cached_property_class() -> Rc<Class> {
 thread_local! {
     static PARTIALMETHOD: RefCell<Option<Rc<Class>>> = const { RefCell::new(None) };
 }
-fn is_partial_v(v: &V) -> bool {
+pub fn is_partial_v(v: &V) -> bool {
     matches!(v, V::Obj(o) if o.cls.is_sub(&partial_class()))
 }
 thread_local! {
@@ -3294,7 +3305,7 @@ fn partial_member(name: &'static str) -> V {
 }
 // functools.partial, as CPython 3.13's C type: func/args/keywords are read-only C fields, a partial of a
 // partial whose __dict__ was never made is flattened, and a program class may subclass it.
-fn partial_class() -> Rc<Class> {
+pub fn partial_class() -> Rc<Class> {
     PARTIAL.with(|slot| {
         if let Some(c) = slot.borrow().as_ref() {
             return c.clone();

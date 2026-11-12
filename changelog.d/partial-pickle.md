@@ -1,0 +1,1 @@
+- Dynamic build: a `functools.partial` (or an instance of a subclass of it) pickles through its own `__reduce__` and loads back as the program's own partial, with its arguments, keywords and `__dict__` (#446). It used to fail with "cannot pickle 'PyCapsule' object".

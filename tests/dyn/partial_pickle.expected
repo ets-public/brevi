@@ -1,0 +1,13 @@
+True True (['x'],) {'bar': [True]} {'attr': [1]} True
+True True (['x'],) {'bar': [True]} {'attr': [1]} True
+True True (['x'],) {'bar': [True]} {'attr': [1]} True
+True True (['x'],) {'bar': [True]} {'attr': [1]} True
+True True (['x'],) {'bar': [True]} {'attr': [1]} True
+True True (['x'],) {'bar': [True]} {'attr': [1]} True
+True True (['x'],) {'bar': [True]} {'attr': [1]} True
+True True (['x'],) {'bar': [True]} {'attr': [1]} True
+True True (['x'],) {'bar': [True]} {'attr': [1]} True
+True True (['x'],) {'bar': [True]} {'attr': [1]} True
+True True (['x'],) {'bar': [True]} {'attr': [1]} True
+True True (['x'],) {'bar': [True]} {'attr': [1]} True
+refused PicklingError

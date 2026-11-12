@@ -2142,6 +2142,9 @@ pub enum It {
     // one iterator of an itertools.tee: its state (position) and the shared source live in TeePos/TeeData,
     // stepped through tee_step so re-entrant calls are seen there, as CPython's tee sees them
     Tee(Rc<TeePos>),
+    // filter(function, iterable): the function and the input iterator, kept apart so that copy, deepcopy and
+    // pickle rebuild it as CPython's filter.__reduce__ does, (filter, (function, input))
+    Filter(Rc<(V, V)>),
     Done,
 }
 pub struct Iter {
@@ -2303,6 +2306,7 @@ impl It {
             It::Ref(r) => iter_step(r),
             It::Shared(f) => f(),
             It::Tee(p) => tee_step(p),
+            It::Filter(p) => filter_step(p),
             It::Done => Ok(None),
         }
     }
@@ -2596,7 +2600,27 @@ pub fn iter_step(it: &Rc<RefCell<It>>) -> Result<Option<V>, E> {
             drop(g);
             tee_step(&p)
         }
+        It::Filter(p) => {
+            let p = p.clone();
+            drop(g);
+            filter_step(&p)
+        }
         _ => g.next(),
+    }
+}
+pub fn filter_step(p: &Rc<(V, V)>) -> Result<Option<V>, E> {
+    let (f, src) = &**p;
+    let V::Iter(c) = src else { return Ok(None) };
+    loop {
+        match iter_step(&c.it)? {
+            Some(x) => {
+                let keep = if matches!(f, V::None) { truth(&x)? } else { truth(&call(f, Args::p(vec![x.clone()]))?)? };
+                if keep {
+                    return Ok(Some(x));
+                }
+            }
+            None => return Ok(None),
+        }
     }
 }
 pub fn shared_iter(kind: ItKind, f: impl Fn() -> Result<Option<V>, E> + 'static) -> V {

@@ -616,18 +616,8 @@ pub fn bi_map(a: Args) -> R {
 pub fn bi_filter(a: Args) -> R {
     a.want("filter", 2, 2)?;
     let f = a.p[0].clone();
-    let mut it = iter(&a.p[1])?;
-    Ok(gen_iter(ItKind::Filter, move || loop {
-        match it.next()? {
-            Some(x) => {
-                let keep = if matches!(f, V::None) { truth(&x)? } else { truth(&call(&f, Args::p(vec![x.clone()]))?)? };
-                if keep {
-                    return Ok(Some(x));
-                }
-            }
-            None => return Ok(None),
-        }
-    }))
+    let src = iter_v(&a.p[1])?;
+    Ok(new_iter(It::Filter(Rc::new((f, src))), IterClass::Kind(ItKind::Filter)))
 }
 pub fn bi_any(a: Args) -> R {
     let mut it = iter(&a1(&a, "any")?)?;

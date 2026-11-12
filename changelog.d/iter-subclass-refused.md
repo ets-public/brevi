@@ -1,0 +1,1 @@
+- Dynamic build: a class built on a builtin iterator type (`zip`, `map`, `filter`, `enumerate`, `reversed`, or an itertools type such as `chain` or `repeat`) is refused at build time. This includes a base chosen at run time in a program that uses those types as values. It used to stop at run time with "bases must be types" (#398).
