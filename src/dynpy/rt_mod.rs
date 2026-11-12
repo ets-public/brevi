@@ -2683,6 +2683,10 @@ thread_local! {
     // V::Func per read would also cost a hot call site on every call, so modfn caches them
     static MODFNS: RefCell<HashMap<(&'static str, Sym), V>> = RefCell::new(HashMap::new());
 }
+// A module function the program has read already (operator.pow), as pickle finds it again by module and name.
+pub fn modfn_cached(m: &str, n: &str) -> Option<V> {
+    MODFNS.with(|c| c.borrow().iter().find(|((cm, cn), _)| *cm == m && *cn == n).map(|(_, v)| v.clone()))
+}
 fn modfn(m: &'static str, n: &str) -> V {
     let n: Sym = sym(n);
     if let Some(v) = MODFNS.with(|c| c.borrow().get(&(m, n)).cloned()) {

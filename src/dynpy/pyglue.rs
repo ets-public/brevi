@@ -179,6 +179,38 @@ def _install_warn(site):
     _w._showwarnmsg = _showwarnmsg
 _d.install_warn = _install_warn
 _d.it = _BrIt
+# The program's own `pickle` module: CPython's, except that a pickle naming an itertools class loads as the
+# program's itertools iterator (as pickles the program makes do), not CPython's, whose __setstate__ warns from C
+# code with no frame to name. Libraries keep CPython's pickle.
+def _pmod():
+    m = _d.__dict__.get('_pm')
+    if m is not None:
+        return m
+    import pickle as _p, io as _io
+    m = _t.ModuleType('pickle')
+    m.__dict__.update(_p.__dict__)
+    class Unpickler(_p.Unpickler):
+        def find_class(self, module, name):
+            obj = super().find_class(module, name)
+            if isinstance(obj, type) and obj.__module__ == 'itertools':
+                try:
+                    return _d._lookup('itertools', obj.__name__)
+                except Exception:
+                    pass
+            return obj
+    Unpickler.__module__ = '_pickle'
+    Unpickler.__qualname__ = Unpickler.__name__ = 'Unpickler'
+    def load(file, *, fix_imports=True, encoding="ASCII", errors="strict", buffers=None):
+        return Unpickler(file, fix_imports=fix_imports, encoding=encoding, errors=errors, buffers=buffers).load()
+    def loads(data, /, *, fix_imports=True, encoding="ASCII", errors="strict", buffers=None):
+        if isinstance(data, str):
+            raise TypeError("a bytes-like object is required, not 'str'")
+        return Unpickler(_io.BytesIO(data), fix_imports=fix_imports, encoding=encoding, errors=errors, buffers=buffers).load()
+    load.__module__ = loads.__module__ = '_pickle'
+    m.Unpickler, m.load, m.loads = Unpickler, load, loads
+    _d._pm = m
+    return m
+_d.pmod = _pmod
 _d.pyclass = _pyclass
 _d._nt = _nt
 _d.atexit = _atexit
@@ -891,6 +923,16 @@ fn pickle_ref(a: Args) -> R {
     match &v {
         V::Func(f) if f.kind.get() != 3 => {}
         V::Class(_) => {}
+        // a module's function (operator.pow): by reference to that module, as CPython pickles its own
+        V::Func(f) if matches!(f.attrs.borrow().iter().find(|(k, _)| *k == "__bv_mod__"), Some((_, V::Str(_)))) => {
+            let m = f.attrs.borrow().iter().find(|(k, _)| *k == "__bv_mod__").map(|(_, x)| x.clone()).unwrap_or(V::None);
+            let V::Str(m) = m else { return Err(unsupported("pickling a builtin function")) };
+            let n = f.name.get();
+            return match modfn_cached(&m.s, n) {
+                Some(found) if is(&found, &v) => Ok(tup(vec![V::Int(0), st(m.s.to_string()), s(n)])),
+                _ => Err(unsupported("pickling a builtin function")),
+            };
+        }
         V::Func(_) => return Err(unsupported("pickling a builtin function")),
         V::Bound(_) | V::BMeth(_) => return Err(unsupported("pickling a bound method")),
         _ => return Ok(V::None),
@@ -930,6 +972,9 @@ fn pickle_lookup(m: &str, q: &str) -> R {
     }
     if let Some(c) = iter_class_named(m, q) {
         return Ok(c);
+    }
+    if let Some(f) = modfn_cached(m, q) {
+        return Ok(f);
     }
     let mut parts = q.split('.');
     let first = parts.next().unwrap_or("");
@@ -2017,6 +2062,9 @@ pub fn pyd_import(m: &str, top: bool) -> R {
     let a = pyd_api();
     let _g = PydGil::take();
     unsafe {
+        if m == "pickle" {
+            return pyv_ok(pyd_mod_call("_brevi_dyn", "pmod", &[]));
+        }
         let c = CString::new(m).unwrap();
         let p = pyd_own((a.Import)(c.as_ptr()))?;
         if top && m.contains('.') {
@@ -2031,6 +2079,13 @@ pub fn pyd_from(m: &str, n: &str) -> R {
     let a = pyd_api();
     let _g = PydGil::take();
     unsafe {
+        if m == "pickle" && matches!(n, "load" | "loads" | "Unpickler") {
+            let pm = pyd_mod_call("_brevi_dyn", "pmod", &[])?;
+            let cn = CString::new(n).unwrap();
+            let x = (a.GetAttr)(pm, cn.as_ptr());
+            (a.DecRef)(pm);
+            return pyd_wrap(pyd_own(x)?, false);
+        }
         let c = CString::new(m).unwrap();
         let p = pyd_own((a.Import)(c.as_ptr()))?;
         let cn = CString::new(n).unwrap();
