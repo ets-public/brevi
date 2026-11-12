@@ -25,7 +25,8 @@ import argparse, atexit, http.client, json, os, re, shlex, subprocess, sys, time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-BASELINE = ROOT / "compat" / "conformance_known_wrong.txt"
+BASELINE = ROOT / "compat" / "conformance_known_wrong"  # one file per entry, `test-id.mode` (tools/conformance.py)
+KNOWN_DIRS = (BASELINE, ROOT / "compat" / "conformance_stdlib_known_wrong")
 BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 # $ per million tokens: input (cache miss), cache hit, output. Peak prices; off-peak is half.
 PRICES = {"deepseek-v4-pro": (1.32, 0.044, 3.96), "deepseek-flash": (0.30, 0.006, 1.20)}
@@ -138,7 +139,8 @@ def safe_path(p, write=False):
     rel = q.relative_to(ROOT).parts
     if rel and rel[0] in (".git", "target"):
         raise ValueError("that folder is off limits")
-    if q == (ROOT / "tools" / "conformance.py").resolve() or q == BASELINE.resolve() or q == Path(__file__).resolve():
+    if q == (ROOT / "tools" / "conformance.py").resolve() or q == Path(__file__).resolve() or any(
+            q == d.resolve() or d.resolve() in q.parents for d in KNOWN_DIRS):
         raise ValueError("this file is part of the test harness and must not be edited")
     if q in PROTECT:
         raise ValueError("this file is part of the task's check and must not be edited")
@@ -369,7 +371,7 @@ def cost(model, u):
 
 
 def baseline_ids():
-    return sorted({l.split()[0] for l in BASELINE.read_text().splitlines() if l.strip() and not l.startswith("#")})
+    return sorted({f.name.rpartition(".")[0] for f in BASELINE.iterdir() if f.name != "README.md" and not f.name.startswith(".")})
 
 
 def boxed_main(cmd):
@@ -495,8 +497,8 @@ def main():
     print(json.dumps(result, indent=2))
     if a.branch and diff and fixed and not broke and built:
         if not task_mode:
-            lines = [l for l in BASELINE.read_text().splitlines() if not any(l.split()[:2] == [a.test_id, b] for b in fixed)]
-            BASELINE.write_text("\n".join(lines) + "\n")
+            for b in fixed:
+                (BASELINE / f"{a.test_id}.{b}").unlink(missing_ok=True)
         git("checkout", "-b", a.branch)
         git("add", "-A", "src", "tests", "compat", "docs")
         head = f"task: {a.id}" if task_mode else f"conformance: fix {a.test_id}"
