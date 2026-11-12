@@ -1,0 +1,1 @@
+- `tools/ci_local.sh` runs the MCP checks against the same pinned mcp stack as GitHub CI (a cached venv over the local Python, made once per pin set), so a container with another pydantic no longer reports `brevi verify` "differs" on correct servers.

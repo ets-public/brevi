@@ -32,6 +32,23 @@ if [ "$mode" = pr ]; then
 fi
 step "Toolchain"; rustc -V; python3 -V
 step "Build"; cargo build --release -q
+# The MCP checks compare Brevi's servers with CPython running the real mcp, so they need the same mcp stack as GitHub
+# (tests/requirements-native.txt without duckdb and onnxruntime): with another pydantic, CPython's own session ends
+# differently and `brevi verify` reports "differs" on correct code. A venv over this Python's own packages holds the
+# pins, made once per pin set, and goes first on PATH for the rest of the run.
+if command -v uv >/dev/null 2>&1; then
+  pins=$(grep -vE '^(#|duckdb==|onnxruntime==)' tests/requirements-native.txt | grep .)
+  venv="${BREVI_CACHE:-$HOME/.cache/brevi}/ci-venv-$( { python3 -VV; echo "$pins"; } | sha256sum | cut -c1-12)"
+  if [ ! -x "$venv/bin/python3" ]; then
+    step "Pinned mcp stack for the MCP checks (once per pin set)"
+    uv venv -q --python "$(command -v python3)" --system-site-packages "$venv.tmp" &&
+      echo "$pins" | uv pip install -q --python "$venv.tmp/bin/python" -r /dev/stdin && mv "$venv.tmp" "$venv" ||
+      { rm -rf "$venv.tmp"; echo "could not make $venv"; exit 1; }
+  fi
+  PATH="$venv/bin:$PATH"; export PATH
+else
+  echo "warning: uv not installed (https://docs.astral.sh/uv/): the MCP checks compare against this Python's own mcp and pydantic, not the pinned ones"
+fi
 step "Unit tests"; cargo test --release -q
 step "Language tests"; BREVI=./target/release/brevi python3 tests/check_parallel.py --quiet $fast
 step "MCP server"; python3 tests/mcp_test.py && python3 tests/mcp_http_test.py
