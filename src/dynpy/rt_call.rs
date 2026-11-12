@@ -787,6 +787,7 @@ fn builtin_of_bt(bt: BT) -> Rc<Class> {
         BT::Counter => "Counter",
         BT::OrderedDict => "OrderedDict",
         BT::Deque => "deque",
+        BT::Bytes => return ext_class("bytes"),
         _ => "object",
     })
 }
@@ -1441,6 +1442,17 @@ pub fn getattr(o: &V, name: &str) -> R {
                     if c.module == "builtins" || c.module == "collections" {
                         if let Some(v) = builtin_class_attr(c, name) {
                             return Ok(v);
+                        }
+                    }
+                    // a bytes subclass: maketrans is bytes' static method; fromhex is a classmethod that builds
+                    // the subclass from the bytes, as CPython's does (cls(bytes.fromhex(s)))
+                    if c.base_bt() == BT::Bytes {
+                        if name == "maketrans" {
+                            return Ok(builtin("maketrans", bytes_maketrans));
+                        }
+                        if name == "fromhex" {
+                            let k = V::Class(c.clone());
+                            return Ok(builtin("fromhex", move |a: Args| call(&k, Args::p(vec![bytes_fromhex(a)?]))));
                         }
                     }
                     // A base's builtin_class_attr answers any name (a generic unbound method), so a base other

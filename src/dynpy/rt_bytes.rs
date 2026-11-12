@@ -18,6 +18,8 @@ pub fn bytes_of(v: &V) -> Option<Vec<u8>> {
                 None => x.any().downcast_ref::<MemV>().and_then(mv_simple),
             },
         },
+        // an instance of a bytes subclass: its bytes value
+        V::Obj(o) if o.cls.base_bt() == BT::Bytes => o.inner().and_then(|i| bytes_of(&i)),
         _ => None,
     }
 }

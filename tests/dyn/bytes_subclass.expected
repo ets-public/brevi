@@ -1,0 +1,61 @@
+B True True b'abc' b'abc' 3 97 b'bc' [97, 98, 99]
+True True True b'abcd' bytes b'abcabc' b'ABC' bytes
+True True 2 b'abc' bytes abc b'abc' 616263
+b'xy' q b'XY!' C
+<re.Match object; span=(0, 2), match=b'ab'> b'b' [b'a', b'b']
+b'x' B
+1 [b'a', b'b'] True bytearray(b'abc') [b'a', b'c'] b'' b'\x00\x00\x00' b'AB'
+b'ab' B
+b'zz' [b'a', b'b']
+bytes b'ab'
+B2 b'ab'
+bytearray bytearray(b'ab')
+bytes b'abc'
+bytes b'xaby'
+bytes b'abc'
+bytes b'ba'
+bytes b''
+list [97, 98]
+set {b'ab'}
+bool True
+bool True
+bool True
+list [b'ab', b'b']
+str "b'ab'"
+str "b'ab' b'ab'"
+bool False
+bool True
+bool False
+R R!
+bool True
+str 'mine'
+bytes b'z'
+list [R!]
+int 2
+int 2
+bytes b'AB'
+str 'ab'
+int 12
+int 0
+bool True
+bool True
+B2 b'\xc3\xa9'
+B2 b'\x00\x01\x02'
+bool True
+tuple (<class '__main__.B2'>, <class 'bytes'>, <class 'object'>)
+int 0
+int 1
+dict {'x': 1}
+dict {'x': 1}
+int 98
+int 1
+int 98
+bytes b'zb'
+bool True
+bool True
+bool True
+str '61:62'
+list [98, 97]
+'xaz' b'xaz'
+bytes
+0
