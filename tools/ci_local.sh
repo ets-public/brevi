@@ -56,9 +56,11 @@ step "Model box"; python3 tests/modelbox_test.py
 step "Python SDK and brevi-python"; BREVI=./target/release/brevi python3 tests/sdk_test.py
 BREVI=./target/release/brevi node tests/sdk_node_test.mjs
 step "Guide budget"; python3 tools/guide_budget.py
+step "Code map summaries and agent hooks"; python3 tools/code_map.py --check && python3 tests/agent_hooks_test.py
 step "Package versions"; python3 tools/version_sync.py
 step "Changelog fragments"; python3 tools/changelog.py --check
 if [ "$mode" = pr ] && [ -n "$base" ]; then step "Conformance floors left to main"; python3 tools/floor_guard.py "$base"; fi
+if [ "$mode" = pr ] && [ -n "$base" ]; then step "CHANGELOG.md and published scores left alone"; PR_TITLE="$(git log -1 --format=%s)" python3 tools/pr_guard.py "$base"; fi
 if [ $grammar = 1 ]; then
   step "Grammar"; python3 -c "import lark" 2>/dev/null || python3 -m pip install --quiet -r tools/requirements-ci.txt
   python3 tools/lark_to_gbnf.py --check; python3 tools/grammar_check.py tests/run/*.bv

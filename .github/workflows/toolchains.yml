@@ -77,6 +77,8 @@ jobs:
         run: python3 tools/no_binaries.py
       - name: The --limit platform claims (MCP schema, docs) match the code
         run: python3 tools/limits_check.py
+      - name: Every src file says what it holds (tools/code_map.py), and the agent hooks hold
+        run: python3 tools/code_map.py --check && python3 tests/agent_hooks_test.py
       - id: py
         name: Find the next Python release (pre-release)
         # Never blocks the matrix: if the lookup fails, fall back to a guess.
@@ -204,6 +206,13 @@ jobs:
         # conformance-main.yml raises them after each merge; PRs that raised them conflicted with every other open PR.
         if: github.event_name == 'pull_request'
         run: python3 tools/floor_guard.py HEAD^1
+
+      - name: CHANGELOG.md and the published scores are left alone (pull requests)
+        # Only the release PR writes CHANGELOG.md, and only the docs thread ("[scores]" PRs) the score lines.
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: python3 tools/pr_guard.py HEAD^1
 
       - name: Unit tests
         if: steps.seen.outputs.cache-hit != 'true'
