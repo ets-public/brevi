@@ -8,14 +8,23 @@ pub fn bytesv(b: Vec<u8>) -> V {
     V::Ext(ExtRc::new(BytesV(b)))
 }
 
-// the bytes of a bytes-like value: bytes, or a bytearray's current contents (CPython's buffer protocol)
+thread_local! {
+    // The bytes of a buffer a Python library made (an array.array, ...): the dynamic build's bridge sets this
+    // when CPython starts, and it answers None for a library value that has no buffer.
+    pub static BUF_BRIDGE: Cell<Option<fn(&V) -> Option<Vec<u8>>>> = const { Cell::new(None) };
+}
+// the bytes of a bytes-like value: bytes, a bytearray's current contents, or the buffer of a library's object
+// (CPython's buffer protocol)
 pub fn bytes_of(v: &V) -> Option<Vec<u8>> {
     match v {
         V::Ext(x) => match x.any().downcast_ref::<BytesV>() {
             Some(b) => Some(b.0.clone()),
             None => match x.any().downcast_ref::<ByteArrayV>() {
                 Some(b) => Some(b.d.borrow().clone()),
-                None => x.any().downcast_ref::<MemV>().and_then(mv_simple),
+                None => match x.any().downcast_ref::<MemV>() {
+                    Some(m) => mv_simple(m),
+                    None => BUF_BRIDGE.with(|h| h.get()).and_then(|f| f(v)),
+                },
             },
         },
         // an instance of a bytes subclass: its bytes value

@@ -179,6 +179,14 @@ def _install_warn(site):
     _w._showwarnmsg = _showwarnmsg
 _d.install_warn = _install_warn
 _d.it = _BrIt
+def _buf(o):
+    try:
+        m = memoryview(o)
+    except TypeError:
+        return None
+    with m:
+        return m.tobytes()
+_d.buf = _buf
 # The program's own `pickle` module: CPython's, except that a pickle naming an itertools class loads as the
 # program's itertools iterator (as pickles the program makes do), not CPython's, whose __setstate__ warns from C
 # code with no frame to name. Libraries keep CPython's pickle.
@@ -267,6 +275,7 @@ fn pyd_api() -> &'static ax_pyffi::Api {
         }
         unsafe { atexit(pyd_at_exit) };
         PY_DT.with(|h| h.set(Some(pyd_dt)));
+        BUF_BRIDGE.with(|h| h.set(Some(pyd_buf)));
         Ok(a)
     }) {
         Ok(a) => a,
@@ -2198,6 +2207,15 @@ pub fn pyd_from(m: &str, n: &str) -> R {
     }
 }
 // datetime.<cls>.<meth>(*a) run by CPython, for a tzinfo the native datetime lacks (rt_ext.rs py_dt).
+// The bytes of a library object's buffer (memoryview(o).tobytes() in CPython), or None when it has none.
+fn pyd_buf(v: &V) -> Option<Vec<u8>> {
+    let p = pyv_of(v)?;
+    let _g = PydGil::take();
+    match unsafe { pyd_helper("buf", &[p.p]) } {
+        Ok(b) => bytes_of(&b),
+        Err(_) => None,
+    }
+}
 fn pyd_dt(cls: &str, meth: &str, a: Args) -> R {
     let c = pyd_from("datetime", cls)?;
     let f = if meth.is_empty() { c } else { getattr(&c, meth)? };
