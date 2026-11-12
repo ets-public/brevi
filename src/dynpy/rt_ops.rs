@@ -644,6 +644,11 @@ pub fn rich(a: &V, b: &V, op: &str) -> Result<bool, E> {
                 }
             }
         }
+        // a bytearray subclass instance orders against a bytes-like value only; the error names the subclass
+        let not_buf = |x: &V| bytes_of(x).is_none() || memview_of(x).is_some();
+        if (is_ba_sub(a) && not_buf(b)) || (is_ba_sub(b) && not_buf(a)) {
+            return Err(cmp_err(op, a, b));
+        }
         let (ia, ib) = (inner_of(a), inner_of(b));
         if ia.is_some() || ib.is_some() {
             return rich(&ia.unwrap_or(a.clone()), &ib.unwrap_or(b.clone()), op);
@@ -742,6 +747,41 @@ fn obj_binop(a: &V, b: &V, op: &str) -> Option<R> {
             }
         }
     }
+    // a bytearray subclass instance (no method of its own answered): bytearray's + and * on its value, so
+    // the result is a bytearray, as CPython's is (before bytes' reflected + could make it bytes)
+    if is_ba_sub(a) || is_ba_sub(b) {
+        // the count of a repeat: an int, or what __index__ gives (an int subclass, a class with __index__)
+        fn count(v: &V) -> Option<R> {
+            match v {
+                V::Int(_) | V::Bool(_) | V::Big(_) => Some(Ok(v.clone())),
+                // an int subclass is its value (PyNumber_Index never calls its __index__)
+                V::Obj(o) if matches!(o.inner(), Some(V::Int(_) | V::Bool(_) | V::Big(_))) => o.inner().map(Ok),
+                V::Obj(o) if !is_ba_sub(v) => {
+                    let f = o.cls.lookup("__index__")?;
+                    Some(call(&f, Args::p(vec![v.clone()])).and_then(|r| match &r {
+                        V::Int(_) | V::Bool(_) | V::Big(_) => Ok(r),
+                        V::Obj(k) if matches!(k.inner(), Some(V::Int(_) | V::Bool(_) | V::Big(_))) => Ok(k.inner().unwrap()),
+                        _ => type_err(format!("__index__ returned non-int (type {})", tn(&r))),
+                    }))
+                }
+                _ => None,
+            }
+        }
+        match op {
+            "+" if is_ba_sub(a) && bytes_of(b).is_some() => return Some(binop(&ba_val(a).unwrap(), b, op)),
+            "*" if is_ba_sub(a) => {
+                if let Some(n) = count(b) {
+                    return Some(n.and_then(|n| binop(&ba_val(a).unwrap(), &n, op)));
+                }
+            }
+            "*" if is_ba_sub(b) => {
+                if let Some(n) = count(a) {
+                    return Some(n.and_then(|n| binop(&n, &ba_val(b).unwrap(), op)));
+                }
+            }
+            _ => {}
+        }
+    }
     if let V::Ext(x) = a {
         if let Some(r) = x.binop(a, op, b, false) {
             return Some(r);
@@ -751,6 +791,16 @@ fn obj_binop(a: &V, b: &V, op: &str) -> Option<R> {
         if let Some(r) = x.binop(b, op, a, true) {
             return Some(r);
         }
+    }
+    // nothing else takes a bytearray subclass instance: CPython's errors, naming the subclass
+    if is_ba_sub(a) || is_ba_sub(b) {
+        // (other operators: binop's own errors, which do not unwrap the instance)
+        return match op {
+            "+" if is_ba_sub(a) => Some(type_err(format!("can't concat {} to {}", tn(b), tn(a)))),
+            "*" if is_ba_sub(a) => Some(type_err(format!("can't multiply sequence by non-int of type '{}'", tn(b)))),
+            "*" => Some(type_err(format!("can't multiply sequence by non-int of type '{}'", tn(a)))),
+            _ => None,
+        };
     }
     None
 }
@@ -1144,7 +1194,8 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
         return r;
     }
     let (ia, ib) = (inner_of(a), inner_of(b));
-    if ia.is_some() || ib.is_some() {
+    // (a bytearray subclass instance is not unwrapped: obj_binop took what bytearray takes, and errors name the subclass)
+    if (ia.is_some() || ib.is_some()) && !is_ba_sub(a) && !is_ba_sub(b) {
         return binop(&ia.unwrap_or(a.clone()), &ib.unwrap_or(b.clone()), op);
     }
     if op == "+" && matches!((a, b), (V::Str(_), _) | (_, V::Str(_))) {

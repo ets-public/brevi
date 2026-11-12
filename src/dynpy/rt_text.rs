@@ -1888,7 +1888,7 @@ impl RMatch {
     }
     fn text_v(&self, g: usize) -> Option<V> {
         // a bytearray subject is read as it is now, its span cut to its length (CPython, bpo-29444)
-        if bytearray_of(&self.sv).is_some() || memview_of(&self.sv).is_some() {
+        if ba_val(&self.sv).is_some() || memview_of(&self.sv).is_some() {
             let (a, z) = (self.caps[2 * g], self.caps[2 * g + 1]);
             if a == UNSET {
                 return None;
@@ -2529,7 +2529,7 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
             let len = sc.len();
             let pos = opt_pos(a, 1, "pos", len)?.unwrap_or(0);
             let endpos = opt_pos(a, 2, "endpos", len)?.unwrap_or(len);
-            if n == "finditer" && (bytearray_of(&sv).is_some() || memview_of(&sv).is_some()) {
+            if n == "finditer" && (ba_val(&sv).is_some() || memview_of(&sv).is_some()) {
                 return Ok(ba_finditer(prog, sv, pos, endpos));
             }
             let ms = all_matches(prog, &sc, pos, endpos, usize::MAX);
@@ -2585,7 +2585,7 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
                 return type_err(format!("decoding to str: need a bytes-like object, {} found", tn(&repl)));
             };
             let (sc, sv) = re_subject(&sv, prog.bytes)?;
-            if callable && (bytearray_of(&sv).is_some() || memview_of(&sv).is_some()) {
+            if callable && (ba_val(&sv).is_some() || memview_of(&sv).is_some()) {
                 return ba_sub_call(prog, &repl, sv, count, n == "subn");
             }
             let ms = all_matches(prog, &sc, 0, sc.len(), count);
