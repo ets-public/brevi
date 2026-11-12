@@ -829,7 +829,7 @@ fn lru_cache_wrap(f: V, maxsize: V, typed: bool) -> R {
         let c3 = c2.clone();
         let h3 = hits.clone();
         let m3 = misses.clone();
-        wf.attrs.borrow_mut().push(("cache_clear", builtin("cache_clear", move |_a: Args| {
+        wf.attrs.borrow_mut().push(("cache_clear", with_qualname(builtin("cache_clear", move |_a: Args| {
             c3.borrow_mut().clear();
             let mut sl = s3.borrow_mut();
             sl.map.clear();
@@ -837,15 +837,15 @@ fn lru_cache_wrap(f: V, maxsize: V, typed: bool) -> R {
             h3.set(0);
             m3.set(0);
             Ok(V::None)
-        })));
+        }), "_lru_cache_wrapper.cache_clear")));
         let c4 = c2.clone();
         let h4 = hits.clone();
         let m4 = misses.clone();
         let ms4 = maxsize.clone();
         let info = cache_info_class()?;
-        wf.attrs.borrow_mut().push(("cache_info", builtin("cache_info", move |_a: Args| {
+        wf.attrs.borrow_mut().push(("cache_info", with_qualname(builtin("cache_info", move |_a: Args| {
             call(&info, Args::p(vec![V::Int(h4.get()), V::Int(m4.get()), ms4.clone(), V::Int(c4.borrow().n as i64)]))
-        })));
+        }), "_lru_cache_wrapper.cache_info")));
         let ms5 = maxsize.clone();
         wf.attrs.borrow_mut().push(("cache_parameters", func("cache_parameters", move |_a: Args| {
             let mut d = Dict::new();
@@ -1418,10 +1418,15 @@ pub fn functools_fn(name: &str, mut a: Args) -> R {
                 }
             }
             let f = one(a, name, "mycmp")?;
-            builtin("K", move |a: Args| {
+            let k = builtin("K", move |a: Args| {
                 let x = one(a, "K", "obj")?;
                 Ok(V::Ext(ExtRc::new(CmpKey { f: f.clone(), v: x })))
-            })
+            });
+            // CPython's KeyWrapper type takes one argument, obj (Signature.from_callable reads it)
+            if let V::Func(kf) = &k {
+                kf.attrs.borrow_mut().push(("__bv_textsig__", s("obj")));
+            }
+            k
         }
         "partial" => return call(&V::Class(partial_class()), a),
         "update_wrapper" => {
@@ -2122,8 +2127,8 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             if n < 0 {
                 return Err(exc("ValueError", "n must be >= 0".into()));
             }
-            // CPython: it = iter(iterable); when `it` has __copy__, the result is `it` itself followed by
-            // n - 1 copies of it; otherwise a new group over `it`.
+            // CPython 3.13: it = iter(iterable); a tee input gives new members at its position (gh-123884),
+            // anything else a new group over `it` (an iterator's own __copy__ is not used).
             let it = iter_v(&a.p[0])?;
             if n == 0 {
                 return Ok(tup(vec![]));
@@ -2132,13 +2137,6 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             if let Some((data, pos)) = tee_pos_of(&it) {
                 // CPython 3.13 makes every member new for a tee input (gh-123884), at its position
                 out = (0..n).map(|_| tee_member(&data, pos)).collect();
-            } else if let Some(copy) = match &it {
-                V::Obj(o) if o.cls.lookup("__copy__").is_some() => Some(getattr(&it, "__copy__")?),
-                _ => None,
-            } {
-                for _ in 1..n {
-                    out.push(call(&copy, Args::p(vec![]))?);
-                }
             } else {
                 let src = shared_input(&it)?;
                 let data = Rc::new(TeeData { it: src, vals: RefCell::new(Default::default()), base: Cell::new(0), members: RefCell::new(vec![]), active: Cell::new(false) });

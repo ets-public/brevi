@@ -1506,6 +1506,9 @@ pub fn invert(a: &V) -> R {
 // ---------- len, contains, indexing ----------
 
 pub fn len(v: &V) -> Result<usize, E> {
+    if let Some(__p) = proxy_deref(v) {
+        return len(&__p?);
+    }
     Ok(match v {
         V::Class(c) if is_enum(c) => match enum_members(c) {
             V::List(l) => l.borrow().len(),
@@ -1542,6 +1545,9 @@ pub fn len(v: &V) -> Result<usize, E> {
     })
 }
 pub fn contains(c: &V, x: &V) -> Result<bool, E> {
+    if let Some(__p) = proxy_deref(c) {
+        return contains(&__p?, x);
+    }
     // `x in seen` for a set first: the special cases below are all for str containers
     if let V::Set(s) = c {
         return s.borrow().contains(x);
@@ -1647,6 +1653,11 @@ pub fn contains(c: &V, x: &V) -> Result<bool, E> {
 }
 
 pub fn idx_of(i: &V) -> Result<i64, E> {
+    // a proxy's referent never has __index__ (weakref.proxy refuses one that does), so CPython's
+    // PyNumber_Index of the referent raises
+    if let Some(__p) = proxy_deref(i) {
+        return type_err(format!("'{}' object cannot be interpreted as an integer", tn(&__p?)));
+    }
     match i {
         V::Int(i) => Ok(*i),
         V::Bool(b) => Ok(*b as i64),
@@ -1787,6 +1798,14 @@ impl Ext for GAlias {
 }
 
 pub fn getitem(c: &V, i: &V) -> R {
+    if let Some(__p) = proxy_deref(c) {
+        return getitem(&__p?, i);
+    }
+    if matches!(c, V::List(_) | V::Tuple(_) | V::Str(_) | V::Range(_)) {
+        if proxy_deref(i).is_some() {
+            idx_of(i)?;
+        }
+    }
     match (c, i) {
         (V::List(l), V::Int(k)) => {
             let l = l.borrow();
@@ -1947,6 +1966,14 @@ fn st_ascii(x: &str) -> V {
     V::Str(Rc::new(S { s: x.to_string(), ascii: true }))
 }
 pub fn setitem(c: &V, i: &V, v: V) -> Result<(), E> {
+    if let Some(__p) = proxy_deref(c) {
+        return setitem(&__p?, i, v);
+    }
+    if matches!(c, V::List(_)) {
+        if proxy_deref(i).is_some() {
+            idx_of(i)?;
+        }
+    }
     match (c, i) {
         (V::List(l), V::Int(k)) => {
             let mut l = l.borrow_mut();
@@ -2002,6 +2029,14 @@ pub fn setitem(c: &V, i: &V, v: V) -> Result<(), E> {
     }
 }
 pub fn delitem(c: &V, i: &V) -> Result<(), E> {
+    if let Some(__p) = proxy_deref(c) {
+        return delitem(&__p?, i);
+    }
+    if matches!(c, V::List(_)) {
+        if proxy_deref(i).is_some() {
+            idx_of(i)?;
+        }
+    }
     match (c, i) {
         (V::List(l), V::Int(k)) => {
             let mut l = l.borrow_mut();
@@ -2448,6 +2483,9 @@ fn iter_class_of(v: &V) -> IterClass {
     IterClass::Kind(iter_kind(v))
 }
 pub fn iter_v(v: &V) -> R {
+    if let Some(p) = proxy_deref(v) {
+        return iter_v(&p?);
+    }
     if let V::Iter(_) = v {
         return Ok(v.clone());
     }
@@ -2458,8 +2496,8 @@ pub fn iter_v(v: &V) -> R {
                 if ro.cls.lookup("__next__").is_none() {
                     return type_err(format!("iter() returned non-iterator of type '{}'", tn(&r)));
                 }
-                let cls = ro.cls.clone();
-                return Ok(new_iter(It::Obj(r), IterClass::Class(cls)));
+                // the object __iter__ returned, itself (`iter(it) is it` for an iterator class, as in CPython)
+                return Ok(r);
             }
             return iter_v(&r);
         }
@@ -2526,6 +2564,9 @@ pub fn unpack_star(v: &V, before: usize, after: usize) -> Result<Vec<V>, E> {
     Ok(out)
 }
 pub fn dict_items_of(v: &V) -> Result<Vec<(V, V)>, E> {
+    if let Some(p) = proxy_deref(v) {
+        return dict_items_of(&p?);
+    }
     if let V::Ext(x) = v {
         if let Some(n) = x.native() {
             return dict_items_of(&n?);

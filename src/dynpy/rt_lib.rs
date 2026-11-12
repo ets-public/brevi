@@ -424,6 +424,9 @@ pub fn bi_range(a: Args) -> R {
 pub fn bi_abs(a: Args) -> R {
     let a = enum_nums(a);
     let x = a1(&a, "abs")?;
+    if let Some(p) = proxy_deref(&x) {
+        return bi_abs(Args::p(vec![p?]));
+    }
     match &x {
         V::Int(i) => Ok(match i.checked_abs() {
             Some(r) => V::Int(r),
@@ -604,7 +607,7 @@ pub fn bi_reversed(a: Args) -> R {
         v.reverse();
         return Ok(vec_iter(kind, v));
     }
-    type_err(format!("'{}' object is not reversible", tn(&x)))
+    type_err(format!("'{}' object is not reversible", proxy_tn(&x)))
 }
 pub fn bi_enumerate(mut a: Args) -> R {
     let start = a.kw("start");
@@ -722,6 +725,15 @@ pub fn bi_isinstance(a: Args) -> R {
     Ok(V::Bool(isinstance(&a.p[0], &a.p[1])?))
 }
 pub fn isinstance(x: &V, c: &V) -> Result<bool, E> {
+    // a proxy is an instance of its own type and of its referent's class (CPython checks __class__ too)
+    if let Some(__p) = proxy_deref(x).filter(|_| !matches!(c, V::Tuple(_))) {
+        if let (V::Class(k), V::Ext(e)) = (c, x) {
+            if Rc::ptr_eq(k, &ext_class(e.tname())) {
+                return Ok(true);
+            }
+        }
+        return isinstance(&__p?, c);
+    }
     match c {
         V::Tuple(t) => {
             for k in t.iter() {
@@ -1008,6 +1020,7 @@ pub fn type_of(x: &V) -> Result<Rc<Class>, E> {
         V::Slice(_) => ext_class("slice"),
         V::Ellipsis => ext_class("ellipsis"),
         V::NotImpl => ext_class("NotImplementedType"),
+        V::Ext(e) if e.any().is::<SigV>() => sig_class(),
         V::Ext(e) => ext_class(e.tname()),
         V::Iter(it) => return iter_type_of(it),
         V::NTF(_) => ext_class("collections._tuplegetter"),
@@ -1208,6 +1221,7 @@ pub fn bi_callable(a: Args) -> R {
     Ok(V::Bool(match &x {
         V::Func(_) | V::Bound(_) | V::BMeth(_) | V::Class(_) => true,
         V::Obj(o) => o.cls.lookup("__call__").is_some(),
+        V::Ext(e) => e.any().downcast_ref::<ProxyV>().is_some_and(|p| p.callable),
         _ => false,
     }))
 }
@@ -1286,12 +1300,16 @@ pub fn bi_round(a: Args) -> R {
             return call(&f, Args::p(args));
         }
     }
+    // round() looks __round__ up on the type, and a proxy's type has none
+    if proxy_deref(&x).is_some() {
+        return type_err(format!("type {} doesn't define __round__ method", proxy_tn(&x)));
+    }
     if let V::Ext(e) = &x {
         let mut args = Args::p(nd.into_iter().collect());
         if let Some(r) = e.method(&x, "__round__", &mut args) {
             return r;
         }
-        return type_err(format!("type {} doesn't define __round__ method", tn(&x)));
+        return type_err(format!("type {} doesn't define __round__ method", proxy_tn(&x)));
     }
     match (&x, nd) {
         (V::Int(_) | V::Big(_) | V::Bool(_), None) => to_int(&x),
@@ -1336,7 +1354,7 @@ pub fn bi_round(a: Args) -> R {
                 Ok(V::Float(y))
             }
         }
-        _ => type_err(format!("type {} doesn't define __round__ method", tn(&x))),
+        _ => type_err(format!("type {} doesn't define __round__ method", proxy_tn(&x))),
     }
 }
 pub fn bi_divmod(a: Args) -> R {
