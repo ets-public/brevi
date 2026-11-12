@@ -1839,6 +1839,9 @@ pub fn np_unary(v: &V, op: &str) -> R {
 
 // a OP b for comparisons, as a value: arrays compare elementwise.
 pub fn cmp_v(a: &V, b: &V, op: &str) -> R {
+    if let Some(r) = meta_cmp(a, b, op) {
+        return r;
+    }
     if matches!(a, V::Obj(_)) || matches!(b, V::Obj(_)) {
         if let Some(r) = obj_cmp(a, b, op) {
             return r;

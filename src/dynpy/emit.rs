@@ -547,6 +547,7 @@ fn stmt_exprs<'a>(body: &'a [Stmt], out: &mut Vec<&'a Ex>) {
             St::Class(c) => {
                 c.decorators.iter().for_each(|x| out.push(x));
                 c.bases.iter().for_each(|x| out.push(x));
+                c.kwargs.iter().for_each(|(_, x)| out.push(x));
             }
             _ => {}
         }
@@ -4160,14 +4161,37 @@ impl Em {
         // and a class with no annotations has no __annotations__ of its own until one is read, which
         // getattr in rt_call lazily makes.)
         let mut sc = scope_of(&c.body, &[]);
-        let setup = !self.lazy && self.keep_ann && c.body.iter().any(|s| matches!(s.st, St::AnnAssign(..)));
+        let has_meta = c.kwargs.iter().any(|(k, _)| k == "metaclass");
+        // a metaclass sees the namespace, so with one the class's annotations are always made, as CPython makes them
+        let setup = !self.lazy && (self.keep_ann || has_meta) && c.body.iter().any(|s| matches!(s.st, St::AnnAssign(..)));
+        if has_meta && c.body.iter().any(|s| matches!(s.st, St::AnnAssign(..))) {
+            fn plain(e: &Ex) -> bool {
+                match e {
+                    Ex::Name(_) | Ex::Str(_) | Ex::NoneV => true,
+                    Ex::Attr(o, _) => plain(o),
+                    _ => false,
+                }
+            }
+            if self.lazy || c.body.iter().any(|s| matches!(&s.st, St::AnnAssign(_, _, a) if !plain(a))) {
+                return Err(err(c.line, "a class with a metaclass annotated with a type expression (such as list[int]), or under `from __future__ import annotations`, is not supported in dynamic builds"));
+            }
+        }
         if setup {
             sc.locals.insert("__annotations__".into());
         }
         // A class body that calls locals() must run with its namespace as a dict: locals() returns that
         // dict, and every name load and store goes through it (CPython's LOAD_FROM_DICT_OR_DEREF / LOAD_NAME
         // and DELETE_NAME). Other classes keep the plain Rust locals exactly as before.
-        let dict_mode = class_calls_locals(&c.body);
+        // `metaclass=M`: the body runs in M.__prepare__'s namespace dict, and M(name, bases, ns) makes the class
+        let meta = c.kwargs.iter().find(|(k, _)| k == "metaclass").map(|(_, e)| e);
+        if meta.is_some() && c.body.iter().any(|s| {
+            let mut hit = false;
+            crate::typed_guard::walk_st(&s.st, &mut |e| hit |= matches!(e, Ex::Name(n) if n == "__annotations__"));
+            hit
+        }) {
+            return Err(err(c.line, "a class with a metaclass whose body names __annotations__ is not supported in dynamic builds"));
+        }
+        let dict_mode = meta.is_some() || class_calls_locals(&c.body);
         let parent = self.fstack.last().unwrap();
         // CPython's __qualname__: `Outer.Inner` inside a class, `f.<locals>.C` inside a function.
         let qualname = self.qualname_of(&c.name);
@@ -4178,7 +4202,31 @@ impl Em {
         let mut decls = String::new();
         write!(decls, "{base_decls}").unwrap();
         write!(decls, "let {ctx}: i64 = enum_auto_ctx(&[{}]); let mut {av}: Vec<V> = vec![]; ", base_vars.iter().map(|v| format!("&{v}")).collect::<Vec<_>>().join(", ")).unwrap();
-        if dict_mode {
+        if let Some(mx) = meta {
+            // as __build_class__: the metaclass after the bases, then its __prepare__, then the body's own first
+            // stores (__module__, __qualname__, __firstlineno__, SETUP_ANNOTATIONS, the docstring)
+            let mv = self.ex(mx, c.line)?;
+            write!(decls, "let __meta{id}: V = {mv}; ").unwrap();
+            let prep = self.q(&format!("meta_prepare(&__meta{id}, {}, &tup(vec![{}]))", lit(&c.name), base_vars.iter().map(|v| format!("{v}.clone()")).collect::<Vec<_>>().join(", ")));
+            write!(decls, "let mut {ns_var}: V = {prep}; ").unwrap();
+            let first = c.first_line;
+            for (k, v) in [("__module__", format!("s({})", lit(if self.module == "__main__" { "__main__" } else { &self.module }))), ("__qualname__", format!("s({})", lit(&qualname))), ("__firstlineno__", format!("V::Int({first})"))] {
+                let set = self.q(&format!("setitem(&{ns_var}, &s(\"{k}\"), {v})"));
+                write!(decls, "{set}; ").unwrap();
+            }
+            if setup {
+                let r = format!("a{id}___annotations__");
+                let a = self.q(&format!("ns_annotations(&{ns_var})"));
+                write!(decls, "let {r}: V = {a}; ").unwrap();
+            }
+            if let Some(d) = docstring(&c.body) {
+                let set = self.q(&format!("setitem(&{ns_var}, &s(\"__doc__\"), s({}))", lit(d)));
+                write!(decls, "{set}; ").unwrap();
+            }
+            for n in sc.locals.iter() {
+                fr.vars.insert(n.clone(), Var::NS(ns_var.clone()));
+            }
+        } else if dict_mode {
             write!(decls, "let mut {ns_var}: V = dict_new(); ").unwrap();
             if setup {
                 // SETUP_ANNOTATIONS runs first, so __annotations__ is the namespace dict's first key; the
@@ -4280,6 +4328,13 @@ impl Em {
             // the namespace dict holds the class attributes in the order the body bound them; the doc is
             // added only now, as __build_class__ adds it after the body
             let mut attrs = String::new();
+            if meta.is_some() {
+                let sa: Vec<String> = static_attributes(&c.body).iter().map(|n| format!("s({})", lit(n))).collect();
+                let set = self.q(&format!("setitem(&{ns_var}, &s(\"__static_attributes__\"), tup(vec![{}]))", sa.join(", ")));
+                write!(attrs, "{set}; ").unwrap();
+                let mk = self.q(&format!("meta_build(&__meta{id}, {}, {}, {}, vec![{}], {ns_var}.clone(), vec![{}])", lit(&c.name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", ")));
+                format!("{{ {decls}\n{body}\n{attrs} {w} let __c = {mk}; __c }}")
+            } else {
             if !sc.locals.contains("__doc__") {
                 let doc = docstring(&c.body).map_or("V::None".to_string(), |d| format!("s({})", lit(d)));
                 let set = self.q(&format!("setitem(&{ns_var}, &s(\"__doc__\"), {doc})"));
@@ -4288,6 +4343,7 @@ impl Em {
             let items = self.q(&format!("dict_sym_items(&{ns_var})"));
             let mk = self.q(&format!("make_class_f({}, {}, {}, vec![{}], {items}, vec![{}])", lit(&c.name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", ")));
             format!("{{ {decls}\n{body}\n{attrs} {w} let __c = {mk}; __c }}")
+            }
         } else {
             // class attributes in the order the body first binds them, as CPython's class namespace keeps them
             // (Enum members and vars() follow it)
@@ -4824,4 +4880,66 @@ fn eval_numbers(src: &str) -> Option<bool> {
         i = j;
     }
     Some(plain)
+}
+
+// CPython 3.13's __static_attributes__ of a class body: the names stored as `self.NAME` (an assignment, augmented
+// or annotated assignment, for or with target) in any function nested in the body, nearest class first, sorted.
+fn static_attributes(body: &[Stmt]) -> Vec<String> {
+    fn tgt(t: &Ex, out: &mut BTreeSet<String>) {
+        match t {
+            Ex::Attr(o, a) if matches!(o.as_ref(), Ex::Name(n) if n == "self") => {
+                out.insert(a.clone());
+            }
+            Ex::Tuple(v) | Ex::List(v) => v.iter().for_each(|x| tgt(x, out)),
+            Ex::Star(x) => tgt(x, out),
+            _ => {}
+        }
+    }
+    fn walk(body: &[Stmt], in_fn: bool, out: &mut BTreeSet<String>) {
+        for s in body {
+            match &s.st {
+                St::Assign(ts, _) if in_fn => ts.iter().for_each(|t| tgt(t, out)),
+                St::AugAssign(t, _, _) | St::AnnAssign(t, _, _) if in_fn => tgt(t, out),
+                St::For(t, _, b, e) => {
+                    if in_fn {
+                        tgt(t, out);
+                    }
+                    walk(b, in_fn, out);
+                    if let Some(e) = e {
+                        walk(e, in_fn, out);
+                    }
+                }
+                St::With(items, b) => {
+                    if in_fn {
+                        items.iter().filter_map(|(_, t)| t.as_ref()).for_each(|t| tgt(t, out));
+                    }
+                    walk(b, in_fn, out);
+                }
+                St::While(_, b, e) => {
+                    walk(b, in_fn, out);
+                    if let Some(e) = e {
+                        walk(e, in_fn, out);
+                    }
+                }
+                St::If(arms, els) => {
+                    arms.iter().for_each(|(_, b)| walk(b, in_fn, out));
+                    if let Some(b) = els {
+                        walk(b, in_fn, out);
+                    }
+                }
+                St::Try(b, hs, e, f) => {
+                    walk(b, in_fn, out);
+                    hs.iter().for_each(|h| walk(&h.body, in_fn, out));
+                    for x in [e, f].into_iter().flatten() {
+                        walk(x, in_fn, out);
+                    }
+                }
+                St::Def(d) => walk(&d.body, true, out),
+                _ => {}
+            }
+        }
+    }
+    let mut out = BTreeSet::new();
+    walk(body, false, &mut out);
+    out.into_iter().collect()
 }

@@ -963,6 +963,7 @@ pub fn type_of(x: &V) -> Result<Rc<Class>, E> {
         V::FSet(_) => tclass(11, "frozenset"),
         V::None => tclass(12, "NoneType"),
         // a collections.abc class (or a subclass of one) is made by abc.ABCMeta, a subclass of type
+        V::Class(k) if k.meta.borrow().is_some() => k.meta.borrow().clone().unwrap(),
         V::Class(k) if k.abc.get() => abc_meta_class(),
         V::Class(_) => tclass(13, "type"),
         V::Func(f) if f.kind.get() == 3 => ext_class("builtin_function_or_method"),
@@ -3402,7 +3403,7 @@ pub fn builtin_method(o: &V, name: &str, a: Args) -> R {
                 let m = V::View(Rc::new((v.0.clone(), 3)));
                 call(&m, a)
             }
-            "get" | "copy" if v.1 == 3 => call_method(&v.0, name, a),
+            "get" | "copy" | "__contains__" | "__getitem__" if v.1 == 3 => call_method(&v.0, name, a),
             "keys" if v.1 == 3 => Ok(V::View(Rc::new((v.0.clone(), 0)))),
             "values" if v.1 == 3 => Ok(V::View(Rc::new((v.0.clone(), 1)))),
             "items" if v.1 == 3 => Ok(V::View(Rc::new((v.0.clone(), 2)))),

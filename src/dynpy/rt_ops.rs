@@ -156,6 +156,9 @@ fn items_view_rich(a: &Rc<RefCell<Dict>>, b: &Rc<RefCell<Dict>>, op: &str) -> Re
     })
 }
 pub fn eq(a: &V, b: &V) -> Result<bool, E> {
+    if let Some(r) = meta_cmp(a, b, "==") {
+        return truth(&r?);
+    }
     if matches!(a, V::View(_)) || matches!(b, V::View(_)) {
         if let (Some(x), Some(y)) = (items_view_dict(a), items_view_dict(b)) {
             return items_view_eq(&x, &y);
@@ -383,6 +386,9 @@ pub fn obj_ne(a: &V, b: &V) -> Result<Option<V>, E> {
     Ok(Some(V::Bool(!is(a, b))))
 }
 pub fn ne(a: &V, b: &V) -> Result<bool, E> {
+    if let Some(r) = meta_cmp(a, b, "!=") {
+        return truth(&r?);
+    }
     if let Some(r) = obj_ne(a, b)? {
         return truth(&r);
     }
@@ -581,6 +587,9 @@ fn dunder(op: &str) -> &'static str {
 }
 // a OP b for the four ordering operators, with __lt__ & co. on objects.
 pub fn rich(a: &V, b: &V, op: &str) -> Result<bool, E> {
+    if let Some(r) = meta_cmp(a, b, op) {
+        return truth(&r?);
+    }
     if let (V::Int(x), V::Int(y)) = (a, b) {
         return Ok(match op {
             "<" => x < y,
@@ -1507,6 +1516,7 @@ pub fn invert(a: &V) -> R {
 
 pub fn len(v: &V) -> Result<usize, E> {
     Ok(match v {
+        V::Class(c) if c.meta.borrow().is_some() => return meta_len(c, v),
         V::Class(c) if is_enum(c) => match enum_members(c) {
             V::List(l) => l.borrow().len(),
             _ => 0,

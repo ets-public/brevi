@@ -204,7 +204,7 @@ pub fn walk_all(body: &[Stmt], f: &mut dyn FnMut(&Ex, usize)) {
             }
         }
         if let St::Class(c) = &s.st {
-            for x in c.decorators.iter().chain(c.bases.iter()) {
+            for x in c.decorators.iter().chain(c.bases.iter()).chain(c.kwargs.iter().map(|(_, x)| x)) {
                 crate::typed_guard::walk_ex(x, &mut |e| f(e, line));
             }
         }
@@ -579,6 +579,14 @@ fn class(c: &ClassDef, nm: &Names) -> Result<(), Er> {
     decorators(&c.decorators, c.line, nm)?;
     let td = nm.tdicts.contains(&c.name);
     for (k, v) in &c.kwargs {
+        if k == "metaclass" {
+            expr(v, false, c.line, nm)?;
+            // the metaclass sees the namespace, so the class's annotations are made: a typing form there is a value
+            if c.body.iter().any(|s| matches!(&s.st, St::AnnAssign(_, _, a) if nm.typing_expr(a))) {
+                return Err((c.line, "typing: an annotation naming a typing form in a class with a metaclass needs CPython's typing".into()));
+            }
+            continue;
+        }
         if !td || k != "total" || !matches!(v, Ex::True | Ex::False) {
             return Err((c.line, "class keyword arguments are not supported".into()));
         }

@@ -285,6 +285,7 @@ pub fn repr(v: &V) -> Result<String, E> {
                 format!("<function {} at 0x{:x}>", f.qualname.get(), Rc::as_ptr(f) as *const u8 as usize)
             }
         }
+        V::Class(c) if meta_has(c, "__repr__") => return meta_str(c, v, "__repr__"),
         V::Class(c) => {
             if is_enum(c) {
                 format!("<{} '{}'>", if c.lookup("_flag_mask_").is_some() { "flag" } else { "enum" }, c.name)
@@ -499,6 +500,7 @@ fn join_repr(xs: &[V]) -> Result<String, E> {
 }
 pub fn to_str(v: &V) -> Result<String, E> {
     Ok(match v {
+        V::Class(c) if meta_has(c, "__str__") || meta_has(c, "__repr__") => return meta_str(c, v, if meta_has(c, "__str__") { "__str__" } else { "__repr__" }),
         V::Str(s) => s.s.clone(),
         V::Float(f) => float_repr(*f),
         V::Int(i) => i.to_string(),

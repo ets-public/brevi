@@ -497,8 +497,10 @@ pub struct ClassDef {
     pub body: Vec<Stmt>,
     pub decorators: Vec<Ex>,
     pub line: usize,
-    // `total=False`, TypedDict's keyword (dynpy/typing.rs refuses it on any other class)
+    // `total=False`, TypedDict's keyword (dynpy/typing.rs refuses it on any other class), and `metaclass=M`
     pub kwargs: Vec<(String, Ex)>,
+    // the statement's first line: its first decorator's, else the class keyword's (CPython's __firstlineno__)
+    pub first_line: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -758,7 +760,9 @@ impl P {
                 if self.is_kw("def") {
                     St::Def(Box::new(self.funcdef(decs)?))
                 } else if self.is_kw("class") {
-                    St::Class(Box::new(self.classdef(decs)?))
+                    let mut c = self.classdef(decs)?;
+                    c.first_line = line;
+                    St::Class(Box::new(c))
                 } else if self.is_kw("async") {
                     self.next();
                     if !self.is_kw("def") {
@@ -1266,12 +1270,13 @@ impl P {
                 if let Tok::Name(n) = self.peek().clone() {
                     if matches!(self.toks.get(self.i + 1).map(|t| &t.0), Some(Tok::Op("="))) {
                         if n == "metaclass" {
-                            // ABCMeta is harmless; others are refused
+                            // ABCMeta is the abc module's own (collections.abc's rules); any other is called
+                            // as CPython's __build_class__ calls it (dynpy/emit.rs, meta_build)
                             self.next();
                             self.next();
                             let m = self.expr()?;
                             if !matches!(&m, Ex::Name(x) if x == "ABCMeta") && !matches!(&m, Ex::Attr(_, x) if x == "ABCMeta") {
-                                return Err(err(line, "metaclasses are not supported"));
+                                kwargs.push(("metaclass".to_string(), m));
                             }
                             if !self.eat_op(",") {
                                 break;
@@ -1299,7 +1304,7 @@ impl P {
             self.expect_op(")")?;
         }
         let body = self.block()?;
-        Ok(ClassDef { name, bases, body, decorators, line, kwargs })
+        Ok(ClassDef { name, bases, body, decorators, line, kwargs, first_line: line })
     }
 
     // ---- expressions ----
