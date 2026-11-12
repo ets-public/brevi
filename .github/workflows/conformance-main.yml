@@ -4,9 +4,10 @@
 # (#468 and #471 did), which no per-PR run sees. This catches both within one run of the merge instead of at the
 # next daily run, for about 14 minutes per burst of merges: a newer merge cancels the run in progress, so a busy
 # afternoon costs one run, not one per PR. A failure opens or updates a "conformance" issue.
-# When both ratchets hold, the floors (compat/conformance*_floor.json) go up to what the merged tree measures and
-# are committed to main. PRs never raise them (tools/floor_guard.py): when each PR raised the same two numbers,
-# every merge put every other open PR into conflict, and each one merged main, re-measured and re-ran CI.
+# When both ratchets hold, the floors (compat/conformance*_floor.json) go up to what the merged tree measures, and
+# they and the published reports (bench/conformance/) are committed to main. PRs never touch either
+# (tools/floor_guard.py): when each PR raised the same numbers and rewrote the same reports, every merge put every
+# other open PR into conflict, and each one merged main, re-measured and re-ran CI.
 # A push made with the workflow's own token starts no workflow, so this commit never triggers itself.
 name: Conformance on main
 
@@ -63,18 +64,18 @@ jobs:
           python3 -m pip install --quiet uv
           uv python install 3.13.13 --quiet
           py="$(uv python find 3.13.13)"
-          python3 tools/conformance.py --check --raise-floor --python "$py" --out conformance-core
-          cat conformance-core/report.md >> "$GITHUB_STEP_SUMMARY"
-          python3 tools/conformance.py --slice stdlib --check --raise-floor --python "$py" --out conformance-stdlib
-          cat conformance-stdlib/report.md >> "$GITHUB_STEP_SUMMARY"
+          python3 tools/conformance.py --check --raise-floor --python "$py" --out bench/conformance
+          cat bench/conformance/report.md >> "$GITHUB_STEP_SUMMARY"
+          python3 tools/conformance.py --slice stdlib --check --raise-floor --python "$py" --out bench/conformance/stdlib
+          cat bench/conformance/stdlib/report.md >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Commit the raised floors to main
+      - name: Commit the raised floors and the current reports to main
         run: |
-          git diff --quiet -- compat/ && { echo "floors unchanged"; exit 0; }
+          git diff --quiet -- compat/ bench/conformance/ && { echo "floors and reports unchanged"; exit 0; }
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -q -m "Raise the conformance floors to what main measures" -- compat/conformance_floor.json compat/conformance_stdlib_floor.json
-          # Only this job writes the floor files, so a newer merge never conflicts with this commit.
+          git commit -q -m "Conformance floors and reports: what main measures" -- compat/conformance_floor.json compat/conformance_stdlib_floor.json bench/conformance/
+          # Only this job writes these files, so a newer merge never conflicts with this commit.
           for i in 1 2 3; do git pull -q --rebase origin main && git push -q origin HEAD:main && exit 0; sleep 5; done
           exit 1
 
@@ -90,7 +91,7 @@ jobs:
             echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             echo "- Commit ${{ github.sha }}"
             echo
-            for r in conformance-core conformance-stdlib; do [ -f $r/report.md ] && sed -n '1,40p' $r/report.md; done
+            for r in bench/conformance bench/conformance/stdlib; do git diff --quiet -- $r/report.md || sed -n '1,40p' $r/report.md; done
             echo "See the run log for the ratchet's own message."
           } > body.md
           gh label create conformance --color D93F0B --description "CPython conformance dropped" 2>/dev/null || true
