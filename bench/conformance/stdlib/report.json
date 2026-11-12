@@ -9,8 +9,8 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 606,
-"refused": 21,
+"matched": 620,
+"refused": 7,
 "by_design": 4,
 "string_model": 1,
 "cpython_private": 6,
@@ -24,16 +24,16 @@
 "scored": 634,
 "matched_through_cpython": 1,
 "matched_silent": 34,
-"coverage": 0.9543,
+"coverage": 0.9763,
 "wrong": 0,
-"matched_asserting": 571,
-"assert_coverage": 0.9006,
+"matched_asserting": 585,
+"assert_coverage": 0.9227,
 "matched_typed": 18,
-"typed_share": 0.0298
+"typed_share": 0.0291
 },
 "dyn": {
-"matched": 605,
-"refused": 22,
+"matched": 619,
+"refused": 8,
 "by_design": 4,
 "string_model": 1,
 "cpython_private": 6,
@@ -47,10 +47,10 @@
 "scored": 634,
 "matched_through_cpython": 0,
 "matched_silent": 34,
-"coverage": 0.9543,
+"coverage": 0.9763,
 "wrong": 0,
-"matched_asserting": 571,
-"assert_coverage": 0.9006,
+"matched_asserting": 585,
+"assert_coverage": 0.9227,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -58,8 +58,8 @@
 "files": {
 "test_itertools": {
 "normal": {
-"matched": 112,
-"refused": 8,
+"matched": 116,
+"refused": 4,
 "by_design": 1,
 "string_model": 0,
 "cpython_private": 0,
@@ -73,16 +73,16 @@
 "scored": 120,
 "matched_through_cpython": 0,
 "matched_silent": 28,
-"coverage": 0.9333,
+"coverage": 0.9667,
 "wrong": 0,
-"matched_asserting": 84,
-"assert_coverage": 0.7,
+"matched_asserting": 88,
+"assert_coverage": 0.7333,
 "matched_typed": 2,
-"typed_share": 0.0179
+"typed_share": 0.0172
 },
 "dyn": {
-"matched": 112,
-"refused": 8,
+"matched": 116,
+"refused": 4,
 "by_design": 1,
 "string_model": 0,
 "cpython_private": 0,
@@ -96,18 +96,18 @@
 "scored": 120,
 "matched_through_cpython": 0,
 "matched_silent": 28,
-"coverage": 0.9333,
+"coverage": 0.9667,
 "wrong": 0,
-"matched_asserting": 84,
-"assert_coverage": 0.7,
+"matched_asserting": 88,
+"assert_coverage": 0.7333,
 "matched_typed": 0,
 "typed_share": 0.0
 }
 },
 "test_collections": {
 "normal": {
-"matched": 73,
-"refused": 11,
+"matched": 83,
+"refused": 1,
 "by_design": 2,
 "string_model": 0,
 "cpython_private": 1,
@@ -121,16 +121,16 @@
 "scored": 85,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.8588,
+"coverage": 0.9765,
 "wrong": 0,
-"matched_asserting": 73,
-"assert_coverage": 0.8588,
+"matched_asserting": 83,
+"assert_coverage": 0.9765,
 "matched_typed": 0,
 "typed_share": 0.0
 },
 "dyn": {
-"matched": 73,
-"refused": 11,
+"matched": 83,
+"refused": 1,
 "by_design": 2,
 "string_model": 0,
 "cpython_private": 1,
@@ -144,10 +144,10 @@
 "scored": 85,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.8588,
+"coverage": 0.9765,
 "wrong": 0,
-"matched_asserting": 73,
-"assert_coverage": 0.8588,
+"matched_asserting": 83,
+"assert_coverage": 0.9765,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -347,14 +347,14 @@
 },
 "paths": {
 "normal": {
-"dynamic": 588,
-"refused": 31,
+"dynamic": 602,
 "typed": 18,
+"refused": 17,
 "pybridge": 1
 },
 "dyn": {
-"dynamic": 606,
-"refused": 32
+"dynamic": 620,
+"refused": 18
 }
 },
 "tests": [
@@ -377,12 +377,12 @@
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "except AssertionError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 105: complex() is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "complex() is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -567,12 +567,12 @@
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found ="
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "complex numbers are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -595,12 +595,12 @@
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found ="
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "complex numbers are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -929,12 +929,12 @@
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found ="
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "complex numbers are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2707,12 +2707,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected ':', found *"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "complex numbers are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2763,12 +2763,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected an expression, found end of line"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "complex numbers are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2777,12 +2777,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected an expression, found end of line"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "complex numbers are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2791,12 +2791,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected an expression, found end of line"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "complex numbers are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2819,12 +2819,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected ':', found *"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "complex numbers are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2833,12 +2833,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "isinstance with a typing name, and this file cannot be built over dynamic values (case.py line 52: complex() is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "complex() is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2847,12 +2847,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected an expression, found end of line"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "complex numbers are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2861,12 +2861,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected an expression, found end of line"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "complex numbers are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2875,12 +2875,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected an expression, found end of line"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "complex numbers are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2889,12 +2889,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected an expression, found end of line"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "complex numbers are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
