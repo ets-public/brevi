@@ -46,13 +46,19 @@ for f in tests/errors/*.py; do
   fi
 done
 #== fallback split
+no_rustc_words='s/\(Rust did not compile\) ([^"]*)/\1 (rustc: ...)/'
 # brevi run on a .py file: runs with python3 when Brevi cannot build it (with a note), unless --native.
 for f in tests/fallback/*.py; do
   exp="${f%.py}.expected"
   out=$($BREVI run "$f" 2>&1; $BREVI run "$f" --native >/dev/null 2>&1; echo "native exit $?")
   if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
-  if [ "$out" != "$(cat "$exp")" ]; then
-    echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
+  # The note quotes rustc's first error, whose wording (how it prints a type, e.g. `Vec<_>` or `Vec<Vec<i64>>`)
+  # is rustc's, not Brevi's: compare everything but that quote, so the test holds on any rustc.
+  out=$(printf '%s\n' "$out" | sed "$no_rustc_words")
+  want=$(sed "$no_rustc_words" "$exp")
+  if [ "$out" != "$want" ]; then
+    w=$(mktemp); printf '%s\n' "$want" > "$w"
+    echo "FAIL $f"; printf '%s\n' "$out" | diff "$w" - ; rm -f "$w"; fail=1
   else
     echo "ok   $f"
   fi
