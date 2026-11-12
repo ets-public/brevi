@@ -1,0 +1,16 @@
+(a, /, b, c=True) () ()
+(item, arg: int) -> str
+(self, item, arg: int) -> str
+(self, item, arg: int) -> str
+(cls, item, arg: int) -> str
+(item, arg: int) -> str
+(self, x, *a, k=3, **kw) -> None
+(x, *a, k=3, **kw) -> None
+(y: 'A' = None)
+(y: 'A' = None)
+(*, z)
+(a, b: __main__.A = 1, *args: int, c: float = 2.5, d, **e: str) -> 'x' <Signature (a, b: __main__.A = 1, *args: int, c: float = 2.5, d, **e: str) -> 'x'>
+(x, y=2)
+True <class 'inspect.Signature'> (a, b: __main__.A = 1, *args: int, c: float = 2.5, d, **e: str) -> 'x' True
+(*a, **k) 
+(a, /, b, c=True)
