@@ -2142,9 +2142,10 @@ pub enum It {
     // one iterator of an itertools.tee: its state (position) and the shared source live in TeePos/TeeData,
     // stepped through tee_step so re-entrant calls are seen there, as CPython's tee sees them
     Tee(Rc<TeePos>),
-    // filter(function, iterable): the function and the input iterator, kept apart so that copy, deepcopy and
-    // pickle rebuild it as CPython's filter.__reduce__ does, (filter, (function, input))
-    Filter(Rc<(V, V)>),
+    // an iterator whose state CPython pickles and copies (most of itertools, map, filter, zip, enumerate):
+    // the state lives behind its own cells, so stepping holds no borrow while it calls user code, and
+    // __reduce__/__setstate__ read and write the same state (see rt_itred.rs)
+    Red(Rc<dyn RedIt>),
     Done,
 }
 pub struct Iter {
@@ -2305,8 +2306,8 @@ impl It {
             It::Obj(o) => obj_next(o),
             It::Ref(r) => iter_step(r),
             It::Shared(f) => f(),
+            It::Red(r) => r.step(),
             It::Tee(p) => tee_step(p),
-            It::Filter(p) => filter_step(p),
             It::Done => Ok(None),
         }
     }
@@ -2600,27 +2601,12 @@ pub fn iter_step(it: &Rc<RefCell<It>>) -> Result<Option<V>, E> {
             drop(g);
             tee_step(&p)
         }
-        It::Filter(p) => {
-            let p = p.clone();
+        It::Red(r) => {
+            let r = r.clone();
             drop(g);
-            filter_step(&p)
+            r.step()
         }
         _ => g.next(),
-    }
-}
-pub fn filter_step(p: &Rc<(V, V)>) -> Result<Option<V>, E> {
-    let (f, src) = &**p;
-    let V::Iter(c) = src else { return Ok(None) };
-    loop {
-        match iter_step(&c.it)? {
-            Some(x) => {
-                let keep = if matches!(f, V::None) { truth(&x)? } else { truth(&call(f, Args::p(vec![x.clone()]))?)? };
-                if keep {
-                    return Ok(Some(x));
-                }
-            }
-            None => return Ok(None),
-        }
     }
 }
 pub fn shared_iter(kind: ItKind, f: impl Fn() -> Result<Option<V>, E> + 'static) -> V {

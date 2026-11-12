@@ -608,79 +608,37 @@ pub fn bi_reversed(a: Args) -> R {
 }
 pub fn bi_enumerate(mut a: Args) -> R {
     let start = a.kw("start");
-    let mut k = match a.p.get(1).cloned().or(start) {
-        Some(x) => idx_of(&x)?,
-        None => 0,
+    let k = match a.p.get(1).cloned().or(start) {
+        Some(x @ V::Big(_)) => x,
+        Some(x) => V::Int(idx_of(&x)?),
+        None => V::Int(0),
     };
-    let mut it = iter(a.p.first().ok_or_else(|| exc("TypeError", "enumerate() missing required argument 'iterable'".into()))?)?;
-    Ok(gen_iter(ItKind::Enumerate, move || {
-        Ok(match it.next()? {
-            Some(x) => {
-                k += 1;
-                Some(tup(vec![V::Int(k - 1), x]))
-            }
-            None => None,
-        })
-    }))
+    let it = get_iter(a.p.first().ok_or_else(|| exc("TypeError", "enumerate() missing required argument 'iterable'".into()))?)?;
+    Ok(enumerate_new(it, k))
 }
 // zip and map hold no borrow while they step their inputs, so a callback may re-enter them, as in CPython
 pub fn bi_zip(mut a: Args) -> R {
     let strict = a.kw("strict").map(|x| truth(&x).unwrap_or(false)).unwrap_or(false);
-    let mut its: Vec<Rc<RefCell<It>>> = vec![];
+    let mut its = vec![];
     for x in &a.p {
-        its.push(shared_input(x)?);
+        its.push(get_iter(x)?);
     }
-    if its.is_empty() {
-        return Ok(vec_iter(ItKind::Zip, vec![]));
-    }
-    Ok(shared_iter(ItKind::Zip, move || {
-        let mut row = Vec::with_capacity(its.len());
-        for (i, it) in its.iter().enumerate() {
-            match iter_step(it)? {
-                Some(x) => row.push(x),
-                None => {
-                    if strict && i > 0 {
-                        return val_err(format!("zip() argument {} is shorter than argument 1", i + 1));
-                    }
-                    if strict {
-                        for (j, rest) in its.iter().enumerate().skip(1) {
-                            if iter_step(rest)?.is_some() {
-                                return val_err(format!("zip() argument {} is longer than argument 1", j + 1));
-                            }
-                        }
-                    }
-                    return Ok(None);
-                }
-            }
-        }
-        Ok(Some(tup(row)))
-    }))
+    Ok(zip_new(its, strict))
 }
 pub fn bi_map(a: Args) -> R {
     if a.p.len() < 2 {
         return type_err("map() must have at least two arguments.".into());
     }
     let f = a.p[0].clone();
-    let mut its: Vec<Rc<RefCell<It>>> = vec![];
+    let mut its = vec![];
     for x in &a.p[1..] {
-        its.push(shared_input(x)?);
+        its.push(get_iter(x)?);
     }
-    Ok(shared_iter(ItKind::Map, move || {
-        let mut args = Vec::with_capacity(its.len());
-        for it in its.iter() {
-            match iter_step(it)? {
-                Some(x) => args.push(x),
-                None => return Ok(None),
-            }
-        }
-        Ok(Some(call(&f, Args::p(args))?))
-    }))
+    Ok(map_new(f, its))
 }
 pub fn bi_filter(a: Args) -> R {
     a.want("filter", 2, 2)?;
-    let f = a.p[0].clone();
-    let src = iter_v(&a.p[1])?;
-    Ok(new_iter(It::Filter(Rc::new((f, src))), IterClass::Kind(ItKind::Filter)))
+    Ok(filter_new(a.p[0].clone(), get_iter(&a.p[1])?))
 }
 pub fn bi_any(a: Args) -> R {
     let mut it = iter(&a1(&a, "any")?)?;
@@ -778,6 +736,15 @@ pub fn isinstance(x: &V, c: &V) -> Result<bool, E> {
                 return Ok(true);
             }
             if k.abc.get() {
+                // CPython's exact-type shortcut comes before the metaclass's __instancecheck__
+                if let V::Obj(o) = x {
+                    if Rc::ptr_eq(&o.cls, k) {
+                        return Ok(true);
+                    }
+                }
+                if is_bytestring(k) {
+                    bytestring_warn()?;
+                }
                 return abc_instancecheck(k, x);
             }
             if let V::Obj(o) = x {
@@ -867,6 +834,14 @@ pub fn abc_subclasscheck(cls: &Rc<Class>, sub: &Rc<Class>) -> Result<bool, E> {
         cls.abc_neg_cache.borrow_mut().push(sub.clone());
     }
     Ok(false)
+}
+// collections.abc.ByteString and its subclasses have CPython 3.13's _DeprecateByteStringMeta, which warns
+// (stacklevel 3: at the program's line) on isinstance and when a subclass is made.
+pub fn is_bytestring(k: &Class) -> bool {
+    k.abc.get() && k.mro.borrow().iter().any(|c| c.name == "ByteString" && c.module == "collections.abc")
+}
+pub fn bytestring_warn() -> Result<(), E> {
+    re_warn("DeprecationWarning", "'collections.abc.ByteString' is deprecated and slated for removal in Python 3.17".into())
 }
 // ABCMeta.__instancecheck__ (the C _abc_instancecheck).
 fn abc_instancecheck(cls: &Rc<Class>, x: &V) -> Result<bool, E> {
@@ -3395,6 +3370,8 @@ pub fn builtin_method(o: &V, name: &str, a: Args) -> R {
         V::Iter(it) => match name {
             "__next__" => bi_next(Args::p(vec![o.clone()])),
             "__iter__" => Ok(o.clone()),
+            "__reduce__" | "__reduce_ex__" => iter_reduce_v(o),
+            "__setstate__" => iter_setstate_v(o, &a1(&a, name)?),
             "send" => {
                 let c = match &*it.it.borrow() {
                     It::Coro(c) => c.clone(),

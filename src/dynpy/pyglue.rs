@@ -34,6 +34,7 @@ class _BrIt:
     def __iter__(s): return s
     def __next__(s): return s.f()
     def __reduce__(s): return s.r()
+    def __setstate__(s, state): return _d.setstate(s.b, state)
 def _pyclass(mod, imports, src, name, file):
     m = _s.modules.get(mod) if mod == '__main__' else _d.mods.get(mod)
     if m is None:
@@ -75,6 +76,9 @@ def _nt(cls, name, fields, values):
 # warnings.warn would from that frame: one registry per module, like each module's __warningregistry__.
 def _warn_at(msg, cat, file, line, module):
     import warnings
+    if file == '<copy>':
+        import copy
+        file = copy.__file__
     if line == 0:
         return _at_unknown(msg, getattr(_b, cat), module)
     warnings.warn_explicit(msg, getattr(_b, cat), file, line, module, _d.regs.setdefault(module, {}))
@@ -175,6 +179,38 @@ def _install_warn(site):
     _w._showwarnmsg = _showwarnmsg
 _d.install_warn = _install_warn
 _d.it = _BrIt
+# The program's own `pickle` module: CPython's, except that a pickle naming an itertools class loads as the
+# program's itertools iterator (as pickles the program makes do), not CPython's, whose __setstate__ warns from C
+# code with no frame to name. Libraries keep CPython's pickle.
+def _pmod():
+    m = _d.__dict__.get('_pm')
+    if m is not None:
+        return m
+    import pickle as _p, io as _io
+    m = _t.ModuleType('pickle')
+    m.__dict__.update(_p.__dict__)
+    class Unpickler(_p.Unpickler):
+        def find_class(self, module, name):
+            obj = super().find_class(module, name)
+            if isinstance(obj, type) and obj.__module__ == 'itertools':
+                try:
+                    return _d._lookup('itertools', obj.__name__)
+                except Exception:
+                    pass
+            return obj
+    Unpickler.__module__ = '_pickle'
+    Unpickler.__qualname__ = Unpickler.__name__ = 'Unpickler'
+    def load(file, *, fix_imports=True, encoding="ASCII", errors="strict", buffers=None):
+        return Unpickler(file, fix_imports=fix_imports, encoding=encoding, errors=errors, buffers=buffers).load()
+    def loads(data, /, *, fix_imports=True, encoding="ASCII", errors="strict", buffers=None):
+        if isinstance(data, str):
+            raise TypeError("a bytes-like object is required, not 'str'")
+        return Unpickler(_io.BytesIO(data), fix_imports=fix_imports, encoding=encoding, errors=errors, buffers=buffers).load()
+    load.__module__ = loads.__module__ = '_pickle'
+    m.Unpickler, m.load, m.loads = Unpickler, load, loads
+    _d._pm = m
+    return m
+_d.pmod = _pmod
 _d.pyclass = _pyclass
 _d._nt = _nt
 _d.atexit = _atexit
@@ -722,11 +758,17 @@ unsafe fn pyd_list_iter(p: P, t: P) -> Result<Option<V>, E> {
     let text = pyd_text(name).ok();
     (a.DecRef)(name);
     let name = text;
-    let rev = match name.as_deref() {
-        Some("list_iterator") => false,
-        Some("list_reverseiterator") => true,
+    // 0 list, 1 reversed list, 2 tuple, 3 range, 4 str (ASCII), 5 str
+    let kind = match name.as_deref() {
+        Some("list_iterator") => 0,
+        Some("list_reverseiterator") => 1,
+        Some("tuple_iterator") => 2,
+        Some("range_iterator") => 3,
+        Some("str_ascii_iterator") => 4,
+        Some("str_iterator") => 5,
         _ => return Ok(None),
     };
+    let rev = kind == 1;
     let red = (a.GetAttr)(p, c"__reduce__".as_ptr());
     if red.is_null() {
         (a.ErrClear)();
@@ -752,10 +794,44 @@ unsafe fn pyd_list_iter(p: P, t: P) -> Result<Option<V>, E> {
             return Ok(None);
         }
         let seq = (a.TupleGet)(args, 0);
+        let ik = [ItKind::ListIter, ItKind::ListReverseIter, ItKind::TupleIter, ItKind::RangeIter, ItKind::StrAsciiIter, ItKind::StrIter][kind];
+        // a range iterator: (iter, (range(next, stop, step),), None)
+        if kind == 3 {
+            let mut parts = [0i64; 3];
+            for (k, n) in [c"start", c"stop", c"step"].iter().enumerate() {
+                let x = (a.GetAttr)(seq, n.as_ptr());
+                if x.is_null() || !pyd_type_is(x, a.TLong) {
+                    if x.is_null() { (a.ErrClear)(); } else { (a.DecRef)(x); }
+                    return Ok(None);
+                }
+                let mut over = 0;
+                parts[k] = (a.LongAs)(x, &mut over);
+                (a.DecRef)(x);
+                if over != 0 {
+                    return Ok(None);
+                }
+            }
+            return Ok(Some(new_iter(It::Range(parts[0], parts[1], parts[2]), IterClass::Kind(ik))));
+        }
         if (a.TupleSize)(red) == 2 {
-            return Ok(Some(new_iter(It::Done, IterClass::Kind(if rev { ItKind::ListReverseIter } else { ItKind::ListIter }))));
+            return Ok(Some(new_iter(It::Done, IterClass::Kind(ik))));
         }
         let idx = (a.TupleGet)(red, 2);
+        if kind >= 2 {
+            if !pyd_type_is(idx, a.TLong) {
+                return Ok(None);
+            }
+            let i = (a.LongAs)(idx, &mut 0).max(0) as usize;
+            (a.IncRef)(seq);
+            return Ok(match pyd_wrap(seq, true)? {
+                V::Tuple(t) if kind == 2 => Some(new_iter(It::Tuple(t.clone(), i.min(t.len())), IterClass::Kind(ik))),
+                V::Str(x) if kind >= 4 => {
+                    let b = x.s.char_indices().nth(i).map_or(x.s.len(), |(b, _)| b);
+                    Some(new_iter(It::Str(x.clone(), b), IterClass::Kind(ik)))
+                }
+                _ => None,
+            });
+        }
         if !pyd_type_is(seq, a.TList) || !pyd_type_is(idx, a.TLong) {
             return Ok(None);
         }
@@ -860,7 +936,11 @@ unsafe fn pyd_register(a: &ax_pyffi::Api) -> bool {
     let g = (a.GilEnsure)();
     let m = (a.Import)(c"_brevi_dyn".as_ptr());
     let mut ok = !m.is_null();
-    for (n, f) in [(c"_ref", func(sym("_ref"), pickle_ref)), (c"_lookup", func(sym("_lookup"), pickle_lookup_fn)), (c"_rebuild_obj", func(sym("_rebuild_obj"), pickle_rebuild))] {
+    let setstate = func(sym("__setstate__"), |a: Args| match (a.p.first(), a.p.get(1)) {
+        (Some(it), Some(st)) => iter_setstate_v(it, st),
+        _ => type_err("__setstate__() takes exactly one argument".into()),
+    });
+    for (n, f) in [(c"_ref", func(sym("_ref"), pickle_ref)), (c"_lookup", func(sym("_lookup"), pickle_lookup_fn)), (c"setstate", setstate), (c"_rebuild_obj", func(sym("_rebuild_obj"), pickle_rebuild))] {
         if !ok {
             break;
         }
@@ -896,6 +976,16 @@ fn pickle_ref(a: Args) -> R {
     match &v {
         V::Func(f) if f.kind.get() != 3 => {}
         V::Class(_) => {}
+        // a module's function (operator.pow): by reference to that module, as CPython pickles its own
+        V::Func(f) if matches!(f.attrs.borrow().iter().find(|(k, _)| *k == "__bv_mod__"), Some((_, V::Str(_)))) => {
+            let m = f.attrs.borrow().iter().find(|(k, _)| *k == "__bv_mod__").map(|(_, x)| x.clone()).unwrap_or(V::None);
+            let V::Str(m) = m else { return Err(unsupported("pickling a builtin function")) };
+            let n = f.name.get();
+            return match modfn_cached(&m.s, n) {
+                Some(found) if is(&found, &v) => Ok(tup(vec![V::Int(0), st(m.s.to_string()), s(n)])),
+                _ => Err(unsupported("pickling a builtin function")),
+            };
+        }
         V::Func(_) => return Err(unsupported("pickling a builtin function")),
         V::Bound(_) | V::BMeth(_) => return Err(unsupported("pickling a bound method")),
         _ => return Ok(V::None),
@@ -961,6 +1051,12 @@ fn pickle_lookup(m: &str, q: &str) -> R {
     let missing = || exc("AttributeError", format!("Can't get attribute '{q}' on <module '{m}'>"));
     if q.split('.').any(|p| p == "<locals>") {
         return Err(exc("AttributeError", format!("Can't get local attribute '{q}' on <module '{m}'>")));
+    }
+    if let Some(c) = iter_class_named(m, q) {
+        return Ok(c);
+    }
+    if let Some(f) = modfn_cached(m, q) {
+        return Ok(f);
     }
     let mut parts = q.split('.');
     let first = parts.next().unwrap_or("");
@@ -1136,82 +1232,22 @@ unsafe fn pyd_namedtuple(v: &V) -> Result<P, E> {
     r
 }
 
-// What pickle should save for an iterator of the program. CPython's own iterators over lists, tuples, strings,
-// ranges, dicts and sets serialize as the source they have left (`iter` of the rest of the list, tuple, ...),
-// so the program's iterator does the same. The callback runs at pickle time, so it sees the iterator's position
-// then, not when the value was handed to the library.
-enum ItPlan {
-    // CPython's exact form for list, tuple and str iterators: `(iter, (whole,), index)`, then __setstate__(index).
-    At(V, usize),
-    // CPython's form for a list's reverse iterator: `(reversed, (whole,), index)`, then __setstate__(index).
-    Rev(V, i64),
-    Seq(Vec<V>),
-    Range(i64, i64, i64),
-    Dict(Rc<RefCell<Dict>>, usize, u8, u64, usize),
-    Set(Rc<RefCell<PSet>>, usize, i64),
-}
+// What pickle saves for an iterator of the program: its __reduce__ (rt_itred.rs), with Brevi's `iter` and
+// `reversed` swapped for CPython's (a list iterator loads as CPython's list iterator, as before). The classes it
+// names (itertools.chain, map, ...) pickle by reference to the program's own (pickle_ref), so the pickle loads
+// as Brevi's iterator again. The callback runs at pickle time, so it sees the iterator's position then, not
+// when the value was handed to the library, and its DeprecationWarning names the line that called pickle.
 fn iter_reduce(v: &V) -> R {
-    let V::Iter(cell) = v else {
-        return Err(exc("TypeError", format!("cannot pickle '{}' object", tn(v))));
-    };
-    let plan = {
-        let Ok(it) = cell.it.try_borrow() else {
-            return Err(exc("ValueError", "iterator already executing".into()));
-        };
-        if let It::Filter(p) = &*it {
-            // CPython's filter.__reduce__: (filter, (function, input iterator))
-            let p = p.clone();
-            drop(it);
-            return Ok(tup(vec![pyd_builtin("filter")?, tup(vec![p.0.clone(), p.1.clone()])]));
+    let r = iter_reduce_v(v)?;
+    let V::Tuple(t) = &r else { return Ok(r) };
+    let mut out = t.to_vec();
+    if let Some(V::Func(f)) = out.first() {
+        let name = f.name.get();
+        if f.kind.get() == 3 && matches!(name, "iter" | "reversed") {
+            out[0] = pyd_builtin(name)?;
         }
-        match &*it {
-            It::List(l, i) => ItPlan::At(V::List(l.clone()), *i),
-            // -1 once it has given every item but not yet said so, as CPython's index reads then
-            It::RevList(l, i) => ItPlan::Rev(V::List(l.clone()), *i as i64 - 1),
-            It::Tuple(t, i) => ItPlan::At(tup(t.to_vec()), *i),
-            // It::Vec holds the rest of reversed(), map(), zip() and others: CPython pickles each of those its own
-            // way (`reversed`, `map(f, it)`, ...), so it is refused rather than saved as a plain list iterator.
-            // the iterator keeps a byte offset; CPython's index counts characters
-            It::Str(s, i) => ItPlan::At(st(s.s.clone()), s.s[..*i].chars().count()),
-            It::Range(a, b, st) => ItPlan::Range(*a, *b, *st),
-            It::Dict(d, i, kind, ver, n0) => ItPlan::Dict(d.clone(), *i, *kind, *ver, *n0),
-            It::Set(s, i, n0) => ItPlan::Set(s.clone(), *i, *n0),
-            It::Done => ItPlan::Seq(vec![]),
-            // reversed() of a dict or its views keeps the rest as It::Vec; CPython pickles those iterators as
-            // iter(list of the rest), as here
-            It::Vec(rest) if matches!(cell.kind, IterClass::Kind(ItKind::DictReverseKeys | ItKind::DictReverseValues | ItKind::DictReverseItems)) => {
-                ItPlan::Seq(rest.as_slice().to_vec())
-            }
-            It::Coro(_) | It::GenExp(..) => {
-                return Err(exc("TypeError", "cannot pickle 'generator' object".into()))
-            }
-            _ => return Err(exc("TypeError", format!("cannot pickle '{}' object", tn(v)))),
-        }
-    };
-    let f = pyd_builtin("iter")?;
-    let base = match plan {
-        ItPlan::At(whole, i) => return Ok(tup(vec![f, tup(vec![whole]), V::Int(i as i64)])),
-        ItPlan::Rev(whole, i) => return Ok(tup(vec![pyd_builtin("reversed")?, tup(vec![whole]), V::Int(i)])),
-        ItPlan::Seq(xs) => V::List(Rc::new(RefCell::new(xs))),
-        ItPlan::Range(a, b, st) => V::Range(Rc::new((a, b, st))),
-        ItPlan::Dict(d, i, kind, ver, n0) => {
-            let mut sim = It::Dict(d, i, kind, ver, n0);
-            let mut out = vec![];
-            while let Some(x) = sim.next()? {
-                out.push(x);
-            }
-            V::List(Rc::new(RefCell::new(out)))
-        }
-        ItPlan::Set(s, i, n0) => {
-            let mut sim = It::Set(s, i, n0);
-            let mut out = vec![];
-            while let Some(x) = sim.next()? {
-                out.push(x);
-            }
-            V::List(Rc::new(RefCell::new(out)))
-        }
-    };
-    Ok(tup(vec![f, tup(vec![base])]))
+    }
+    Ok(tup(out))
 }
 
 // One conversion's memo, both directions: a list, dict or set reached twice (`[a, a]`, a cycle) becomes one
@@ -2109,6 +2145,9 @@ pub fn pyd_import(m: &str, top: bool) -> R {
     let a = pyd_api();
     let _g = PydGil::take();
     unsafe {
+        if m == "pickle" {
+            return pyv_ok(pyd_mod_call("_brevi_dyn", "pmod", &[]));
+        }
         let c = CString::new(m).unwrap();
         let p = pyd_own((a.Import)(c.as_ptr()))?;
         if top && m.contains('.') {
@@ -2123,6 +2162,13 @@ pub fn pyd_from(m: &str, n: &str) -> R {
     let a = pyd_api();
     let _g = PydGil::take();
     unsafe {
+        if m == "pickle" && matches!(n, "load" | "loads" | "Unpickler") {
+            let pm = pyd_mod_call("_brevi_dyn", "pmod", &[])?;
+            let cn = CString::new(n).unwrap();
+            let x = (a.GetAttr)(pm, cn.as_ptr());
+            (a.DecRef)(pm);
+            return pyd_wrap(pyd_own(x)?, false);
+        }
         let c = CString::new(m).unwrap();
         let p = pyd_own((a.Import)(c.as_ptr()))?;
         let cn = CString::new(n).unwrap();
