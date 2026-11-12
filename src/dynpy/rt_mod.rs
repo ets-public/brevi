@@ -829,7 +829,7 @@ fn lru_cache_wrap(f: V, maxsize: V, typed: bool) -> R {
         let c3 = c2.clone();
         let h3 = hits.clone();
         let m3 = misses.clone();
-        wf.attrs.borrow_mut().push(("cache_clear", builtin("cache_clear", move |_a: Args| {
+        wf.attrs.borrow_mut().push(("cache_clear", with_qualname(builtin("cache_clear", move |_a: Args| {
             c3.borrow_mut().clear();
             let mut sl = s3.borrow_mut();
             sl.map.clear();
@@ -837,15 +837,15 @@ fn lru_cache_wrap(f: V, maxsize: V, typed: bool) -> R {
             h3.set(0);
             m3.set(0);
             Ok(V::None)
-        })));
+        }), "_lru_cache_wrapper.cache_clear")));
         let c4 = c2.clone();
         let h4 = hits.clone();
         let m4 = misses.clone();
         let ms4 = maxsize.clone();
         let info = cache_info_class()?;
-        wf.attrs.borrow_mut().push(("cache_info", builtin("cache_info", move |_a: Args| {
+        wf.attrs.borrow_mut().push(("cache_info", with_qualname(builtin("cache_info", move |_a: Args| {
             call(&info, Args::p(vec![V::Int(h4.get()), V::Int(m4.get()), ms4.clone(), V::Int(c4.borrow().n as i64)]))
-        })));
+        }), "_lru_cache_wrapper.cache_info")));
         let ms5 = maxsize.clone();
         wf.attrs.borrow_mut().push(("cache_parameters", func("cache_parameters", move |_a: Args| {
             let mut d = Dict::new();
@@ -906,21 +906,6 @@ fn update_wrapper(wrapper: V, wrapped: V, assigned: V, updated: V) -> R {
     let mut it = iter(&updated)?;
     while let Some(x) = it.next()? {
         let n = wraps_name(&x)?;
-        // A function's __dict__ is its assigned attributes; update it directly (for any wrapped object with
-        // one: another function, a class, a callable instance, a partial, an lru_cache wrapper).
-        if n == "__dict__" && matches!(&wrapper, V::Func(_)) {
-            let other = match getattr(&wrapped, &n) {
-                Ok(v) => v,
-                Err(E(e)) if is_exc(&e, "AttributeError") => dict_new(),
-                Err(e) => return Err(e),
-            };
-            for (k, v) in dict_items_of(&other)? {
-                if let V::Str(ks) = &k {
-                    setattr(&wrapper, sym(&ks.s), v)?;
-                }
-            }
-            continue;
-        }
         let d = getattr(&wrapper, &n)?;
         let other = match getattr(&wrapped, &n) {
             Ok(v) => v,
@@ -1418,10 +1403,15 @@ pub fn functools_fn(name: &str, mut a: Args) -> R {
                 }
             }
             let f = one(a, name, "mycmp")?;
-            builtin("K", move |a: Args| {
+            let k = builtin("K", move |a: Args| {
                 let x = one(a, "K", "obj")?;
                 Ok(V::Ext(ExtRc::new(CmpKey { f: f.clone(), v: x })))
-            })
+            });
+            // CPython's KeyWrapper type takes one argument, obj (Signature.from_callable reads it)
+            if let V::Func(kf) = &k {
+                kf.attrs.borrow_mut().push(("__bv_textsig__", s("obj")));
+            }
+            k
         }
         "partial" => return call(&V::Class(partial_class()), a),
         "update_wrapper" => {
@@ -2123,8 +2113,8 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             if n < 0 {
                 return Err(exc("ValueError", "n must be >= 0".into()));
             }
-            // CPython: it = iter(iterable); when `it` has __copy__, the result is `it` itself followed by
-            // n - 1 copies of it; otherwise a new group over `it`.
+            // CPython 3.13: it = iter(iterable); a tee input gives new members at its position (gh-123884),
+            // anything else a new group over `it` (an iterator's own __copy__ is not used).
             let it = iter_v(&a.p[0])?;
             if n == 0 {
                 return Ok(tup(vec![]));
@@ -2133,13 +2123,6 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             if let Some((data, pos)) = tee_pos_of(&it) {
                 // CPython 3.13 makes every member new for a tee input (gh-123884), at its position
                 out = (0..n).map(|_| tee_member(&data, pos)).collect();
-            } else if let Some(copy) = match &it {
-                V::Obj(o) if o.cls.lookup("__copy__").is_some() => Some(getattr(&it, "__copy__")?),
-                _ => None,
-            } {
-                for _ in 1..n {
-                    out.push(call(&copy, Args::p(vec![]))?);
-                }
             } else {
                 let src = shared_input(&it)?;
                 let data = Rc::new(TeeData { it: src, vals: RefCell::new(Default::default()), base: Cell::new(0), members: RefCell::new(vec![]), active: Cell::new(false) });
@@ -3076,7 +3059,7 @@ fn cached_property_class() -> Rc<Class> {
 thread_local! {
     static PARTIALMETHOD: RefCell<Option<Rc<Class>>> = const { RefCell::new(None) };
 }
-fn is_partial_v(v: &V) -> bool {
+pub fn is_partial_v(v: &V) -> bool {
     matches!(v, V::Obj(o) if o.cls.is_sub(&partial_class()))
 }
 thread_local! {
@@ -3130,7 +3113,7 @@ fn partial_member(name: &'static str) -> V {
 }
 // functools.partial, as CPython 3.13's C type: func/args/keywords are read-only C fields, a partial of a
 // partial whose __dict__ was never made is flattened, and a program class may subclass it.
-fn partial_class() -> Rc<Class> {
+pub fn partial_class() -> Rc<Class> {
     PARTIAL.with(|slot| {
         if let Some(c) = slot.borrow().as_ref() {
             return c.clone();
@@ -3479,7 +3462,11 @@ fn abc_class() -> Rc<Class> {
     ABC.with(|a| {
         let mut a = a.borrow_mut();
         if a.is_none() {
-            *a = Some(Class::new("ABC", "abc", vec![bclass("object")], BT::Other));
+            // abc.ABC is made by ABCMeta: its subclasses follow ABCMeta's rules (abstract methods are enforced)
+            let c = Class::new("ABC", "abc", vec![bclass("object")], BT::Other);
+            c.abc.set(true);
+            c.set("__abstractmethods__", V::FSet(Rc::new(PSet::new())));
+            *a = Some(c);
         }
         a.clone().unwrap()
     })
@@ -3757,6 +3744,31 @@ fn namedtuple_with(mut a: Args, check_name: bool) -> R {
         let (x, y) = (inner_of(&a.p[0]).unwrap_or(a.p[0].clone()), inner_of(&a.p[1]).unwrap_or(a.p[1].clone()));
         Ok(V::Bool(lt(&y, &x)?))
     }));
+    // CPython's namedtuple makes the class with type(): its dict is the namespace in the order
+    // collections/__init__.py builds it, then __module__; __eq__, __hash__, __lt__ and __gt__ are Brevi's own
+    // (tuple's in CPython)
+    {
+        let mut order: Vec<Sym> = vec!["__doc__", "__slots__", "_fields", "_field_defaults", "__new__", "_make", "__replace__", "_replace", "__repr__", "_asdict", "__getnewargs__", "__match_args__"];
+        order.extend(fields.iter().copied());
+        order.push("__module__");
+        let mut a = c.attrs.borrow_mut();
+        let mut rest: Vec<(Sym, V)> = vec![];
+        let mut named: Vec<Option<V>> = vec![None; order.len()];
+        for (k, v) in a.drain(..) {
+            match order.iter().position(|n| *n == k) {
+                Some(i) => named[i] = Some(v),
+                None => rest.push((k, v)),
+            }
+        }
+        for (k, v) in order.iter().zip(named) {
+            if let Some(v) = v {
+                a.push((*k, v));
+            }
+        }
+        a.extend(rest);
+    }
+    class_changed();
+    tdict_typemade(&c, vec!["__bv_namedtuple__", "__eq__", "__hash__", "__lt__", "__gt__"]);
     Ok(V::Class(c))
 }
 
@@ -4100,7 +4112,7 @@ fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> Result<(), E> {
         let mut inherited: Vec<Sym> = vec![];
         for b in mro.iter().skip(1).filter(|b| b.bt != BT::Object) {
             if let Some(sv) = b.own("__slots__") {
-                slot_names(&sv, &mut inherited);
+                slot_names(b.name, &sv, &mut inherited);
             }
         }
         let mut seen: Vec<Sym> = vec![];

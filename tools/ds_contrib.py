@@ -21,14 +21,32 @@ Spend is counted from the API's own usage numbers at the prices below and the ru
 Every request, reply and tool result is logged as JSON lines to --log (default bench/logs/ds_contrib/ID.jsonl)
 so the run can be read afterwards. Needs DEEPSEEK_API_KEY; stdlib only.
 """
-import argparse, atexit, http.client, json, os, re, shlex, subprocess, sys, time, urllib.error, urllib.request
+import argparse, atexit, datetime, http.client, json, os, re, shlex, subprocess, sys, time, urllib.error, urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-BASELINE = ROOT / "compat" / "conformance_known_wrong.txt"
+BASELINE = ROOT / "compat" / "conformance_known_wrong"  # one file per entry, `test-id.mode` (tools/conformance.py)
+KNOWN_DIRS = (BASELINE, ROOT / "compat" / "conformance_stdlib_known_wrong")
 BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 # $ per million tokens: input (cache miss), cache hit, output. Peak prices; off-peak is half.
 PRICES = {"deepseek-v4-pro": (1.32, 0.044, 3.96), "deepseek-flash": (0.30, 0.006, 1.20)}
+# DeepSeek's peak hours, from its pricing page (checked 2026-11-12): 01:00-04:00 and 06:00-10:00 UTC, Monday to
+# Friday; every other hour is off-peak at half price. Runs start only off-peak and stop when peak begins (Adam's
+# standing rule); --allow-peak is for a run Adam has explicitly approved. Chinese public holidays are off-peak too,
+# but are not known here, so they count as peak: the check errs towards waiting, never towards paying double.
+PEAK_UTC = ((1, 4), (6, 10))
+
+
+def is_peak(now=None):
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    return now.weekday() < 5 and any(a <= now.hour < b for a, b in PEAK_UTC)
+
+
+def next_off_peak(now=None):
+    t = (now or datetime.datetime.now(datetime.timezone.utc)).replace(minute=0, second=0, microsecond=0)
+    while is_peak(t):
+        t += datetime.timedelta(hours=1)
+    return t.strftime("%H:%M UTC")
 MAX_OUT = 14000  # characters of one tool result sent back to the model
 
 SYSTEM = """You are contributing a fix to Brevi, a compiler written in Rust that takes plain Python and emits a native
@@ -138,7 +156,8 @@ def safe_path(p, write=False):
     rel = q.relative_to(ROOT).parts
     if rel and rel[0] in (".git", "target"):
         raise ValueError("that folder is off limits")
-    if q == (ROOT / "tools" / "conformance.py").resolve() or q == BASELINE.resolve() or q == Path(__file__).resolve():
+    if q == (ROOT / "tools" / "conformance.py").resolve() or q == Path(__file__).resolve() or any(
+            q == d.resolve() or d.resolve() in q.parents for d in KNOWN_DIRS):
         raise ValueError("this file is part of the test harness and must not be edited")
     if q in PROTECT:
         raise ValueError("this file is part of the task's check and must not be edited")
@@ -361,15 +380,15 @@ def chat(model, messages, tools, effort="max"):
             raise
 
 
-def cost(model, u):
-    pin, phit, pout = PRICES[model]
+def cost(model, u, peak=True):
+    pin, phit, pout = (p if peak else p / 2 for p in PRICES[model])
     hit = u.get("prompt_cache_hit_tokens", 0) or 0
     miss = u.get("prompt_cache_miss_tokens", max(0, u.get("prompt_tokens", 0) - hit))
     return (miss * pin + hit * phit + u.get("completion_tokens", 0) * pout) / 1e6
 
 
 def baseline_ids():
-    return sorted({l.split()[0] for l in BASELINE.read_text().splitlines() if l.strip() and not l.startswith("#")})
+    return sorted({f.name.rpartition(".")[0] for f in BASELINE.iterdir() if f.name != "README.md" and not f.name.startswith(".")})
 
 
 def boxed_main(cmd):
@@ -392,6 +411,7 @@ def main():
     ap.add_argument("--python", default=os.environ.get("CONFORMANCE_PYTHON", "python3.13"))
     ap.add_argument("--branch", help="commit a successful fix on this new branch (default: no commit)")
     ap.add_argument("--log", type=Path)
+    ap.add_argument("--allow-peak", action="store_true", help="run in DeepSeek's peak hours too (only with Adam's explicit go-ahead)")
     ap.add_argument("--note", help="review feedback on an earlier attempt, added to the task (text, or @file)")
     ap.add_argument("--task", type=Path, help="task mode: the brief, a text or markdown file")
     ap.add_argument("--id", help="task mode: a short name for the task (log file and commit message)")
@@ -409,6 +429,9 @@ def main():
         a.test_id = a.id
     elif not a.test_id:
         ap.error("give a test id (see --list), or --task")
+    if is_peak() and not a.allow_peak:
+        sys.exit(f"DeepSeek peak hours (01:00-04:00 and 06:00-10:00 UTC, Mon-Fri, double price): queue this run for "
+                 f"{next_off_peak()} or later. --allow-peak only with Adam's explicit go-ahead.")
     if git("status", "--porcelain", "--untracked-files=no")[1].strip():
         sys.exit("the working tree has changes: start from a clean checkout")
     box_init()
@@ -441,9 +464,13 @@ def main():
     for step in range(a.steps):
         if spent >= a.budget:
             print(f"[ds] budget ${a.budget:.2f} reached", flush=True); break
+        if is_peak() and not a.allow_peak:
+            print(f"[ds] DeepSeek peak hours began: stopping; resume from {next_off_peak()} with --note", flush=True)
+            note(event="peak_stop", step=step); break
+        peak = is_peak()
         resp = chat(a.model, messages, tools, a.effort)
         u = resp.get("usage", {})
-        spent += cost(a.model, u)
+        spent += cost(a.model, u, peak)
         m = resp["choices"][0]["message"]
         msg = {"role": "assistant", "content": m.get("content") or ""}
         if m.get("reasoning_content"):
@@ -495,8 +522,8 @@ def main():
     print(json.dumps(result, indent=2))
     if a.branch and diff and fixed and not broke and built:
         if not task_mode:
-            lines = [l for l in BASELINE.read_text().splitlines() if not any(l.split()[:2] == [a.test_id, b] for b in fixed)]
-            BASELINE.write_text("\n".join(lines) + "\n")
+            for b in fixed:
+                (BASELINE / f"{a.test_id}.{b}").unlink(missing_ok=True)
         git("checkout", "-b", a.branch)
         git("add", "-A", "src", "tests", "compat", "docs")
         head = f"task: {a.id}" if task_mode else f"conformance: fix {a.test_id}"

@@ -1,0 +1,103 @@
+# Both CPython conformance slices on main, after every merge that can change them, and the floors raised here.
+# Pull requests run only the core slice: the stdlib slice takes about 6 minutes more, which would push the PR tier
+# past 20 minutes. And two PRs that each pass on their own can still leave a wrong result once both are merged
+# (#468 and #471 did), which no per-PR run sees. This catches both within one run of the merge instead of at the
+# next daily run, for about 14 minutes per burst of merges: a newer merge cancels the run in progress, so a busy
+# afternoon costs one run, not one per PR. A failure opens or updates a "conformance" issue.
+# When both ratchets hold, the floors (compat/conformance*_floor.json) go up to what the merged tree measures, and
+# they and the published reports (bench/conformance/) are committed to main. PRs never touch either
+# (tools/floor_guard.py): when each PR raised the same numbers and rewrote the same reports, every merge put every
+# other open PR into conflict, and each one merged main, re-measured and re-ran CI.
+# A push made with the workflow's own token starts no workflow, so this commit never triggers itself.
+name: Conformance on main
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "tools/conformance.py"
+      - "compat/conformance_**"
+      - ".github/workflows/conformance-main.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: conformance-main
+  cancel-in-progress: true
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BREVI_CACHE_MB: "6144"
+      BREVI_TIERED: "0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Rust stable
+        id: fp
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          echo "rustc_hash=$(rustc -vV | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+
+      - name: Reuse the daily run's build cache (read only)
+        # The same entry pull requests reuse; this workflow never saves one.
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/brevi
+          key: brevi-build-${{ steps.fp.outputs.rustc_hash }}-${{ github.run_id }}
+          restore-keys: brevi-build-${{ steps.fp.outputs.rustc_hash }}-
+
+      - name: Build
+        run: cargo build --release
+
+      - name: CPython conformance, both slices (the score may not drop, the known-wrong lists only shrink)
+        run: |
+          python3 -m pip install --quiet uv
+          uv python install 3.13.13 --quiet
+          py="$(uv python find 3.13.13)"
+          python3 tools/conformance.py --check --raise-floor --python "$py" --out bench/conformance
+          cat bench/conformance/report.md >> "$GITHUB_STEP_SUMMARY"
+          python3 tools/conformance.py --slice stdlib --check --raise-floor --python "$py" --out bench/conformance/stdlib
+          cat bench/conformance/stdlib/report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit the raised floors and the current reports to main
+        run: |
+          git diff --quiet -- compat/ bench/conformance/ && { echo "floors and reports unchanged"; exit 0; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -q -m "Conformance floors and reports: what main measures" -- compat/conformance_floor.json compat/conformance_stdlib_floor.json bench/conformance/
+          # Only this job writes these files, so a newer merge never conflicts with this commit.
+          for i in 1 2 3; do git pull -q --rebase origin main && git push -q origin HEAD:main && exit 0; sleep 5; done
+          exit 1
+
+      - name: Open or update an issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Conformance dropped on main"
+          {
+            echo "A CPython conformance slice failed on main after a merge. Each PR passed its own checks, so a merge (or two merges together) left a new wrong result or a lower score. Fix it before the next release: the release gate holds both slices to their floors."
+            echo
+            echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo "- Commit ${{ github.sha }}"
+            echo
+            for r in bench/conformance bench/conformance/stdlib; do git diff --quiet -- $r/report.md || sed -n '1,40p' $r/report.md; done
+            echo "See the run log for the ratchet's own message."
+          } > body.md
+          gh label create conformance --color D93F0B --description "CPython conformance dropped" 2>/dev/null || true
+          n=$(gh issue list --state open --label conformance --search "\"$title\" in:title" --json number,title --jq ".[] | select(.title == \"$title\") | .number" | head -1)
+          if [ -n "$n" ]; then
+            gh issue comment "$n" --body-file body.md
+          else
+            gh issue create --title "$title" --label conformance --body-file body.md
+          fi

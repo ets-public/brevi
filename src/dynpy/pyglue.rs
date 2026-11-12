@@ -225,6 +225,10 @@ def _glob(m, q):
     return _d._lookup(m, q)
 _glob.__module__ = '_brevi_dyn'
 _d._glob = _glob
+def _rebuild(cls, args, state):
+    return _d._rebuild_obj(cls, args, state)
+_rebuild.__module__ = '_brevi_dyn'
+_d._rebuild = _rebuild
 def _bf_reduce(f):
     r = _d._ref(f)
     if r is None:
@@ -234,6 +238,9 @@ def _bf_reduce(f):
         raise pickle.PicklingError(r[1])
     if r[0] == 2:
         raise AttributeError(r[1])
+    if r[0] == 3:
+        t = r[1]
+        return (_rebuild, (t[0], t[1], t[2] if len(t) > 2 else None))
     return (_glob, (r[1], r[2]))
 import copyreg as _cr
 _cr.dispatch_table[type(len)] = _bf_reduce
@@ -937,7 +944,7 @@ unsafe fn pyd_register(a: &ax_pyffi::Api) -> bool {
         (Some(it), Some(st)) => iter_setstate_v(it, st),
         _ => type_err("__setstate__() takes exactly one argument".into()),
     });
-    for (n, f) in [(c"_ref", func(sym("_ref"), pickle_ref)), (c"_lookup", func(sym("_lookup"), pickle_lookup_fn)), (c"setstate", setstate)] {
+    for (n, f) in [(c"_ref", func(sym("_ref"), pickle_ref)), (c"_lookup", func(sym("_lookup"), pickle_lookup_fn)), (c"setstate", setstate), (c"_rebuild_obj", func(sym("_rebuild_obj"), pickle_rebuild))] {
         if !ok {
             break;
         }
@@ -964,6 +971,12 @@ unsafe fn pyd_register(a: &ax_pyffi::Api) -> bool {
 // error CPython raises: (1, msg) a PicklingError, (2, msg) an AttributeError (a def local to a function).
 fn pickle_ref(a: Args) -> R {
     let v = a.p.first().cloned().unwrap_or(V::None);
+    // a functools.partial (or an instance of a subclass of it): its own __reduce__, (class, (func,), state),
+    // rebuilt by _brevi_dyn._rebuild in the loading program as the program's own partial again
+    if is_partial_v(&v) {
+        let r = call_method(&v, "__reduce__", Args::p(vec![]))?;
+        return Ok(tup(vec![V::Int(3), r]));
+    }
     match &v {
         V::Func(f) if f.kind.get() != 3 => {}
         V::Class(_) => {}
@@ -999,6 +1012,35 @@ fn pickle_ref(a: Args) -> R {
         Err(_) => Ok(tup(vec![V::Int(1), st(format!("Can't pickle {}: it's not found as {m}.{q}", repr(&v)?))])),
     }
 }
+// _brevi_dyn._rebuild(cls, args, state): cls(*args), then its __setstate__(state), as pickle rebuilds an
+// object from (cls, args, state); the object stays the program's own.
+fn pickle_rebuild(a: Args) -> R {
+    // a list, dict or set pickle made is Python's, handed over live: the program's own copy is what it keeps
+    let native = |v: &V| -> R {
+        match pyv_of(v) {
+            Some(py) if unsafe { py.exact() } => unsafe {
+                (pyd_api().IncRef)(py.p);
+                pyd_wrap(py.p, true)
+            },
+            _ => Ok(v.clone()),
+        }
+    };
+    let cls = a.p.first().cloned().unwrap_or(V::None);
+    let args = match a.p.get(1) {
+        Some(V::Tuple(t)) => t.iter().map(native).collect::<Result<Vec<_>, E>>()?,
+        _ => vec![],
+    };
+    let state = match a.p.get(2) {
+        Some(V::Tuple(t)) => Some(tup(t.iter().map(native).collect::<Result<Vec<_>, E>>()?)),
+        Some(V::None) | None => None,
+        Some(x) => Some(native(x)?),
+    };
+    let o = call(&cls, Args::p(args))?;
+    if let Some(st) = state {
+        call_method(&o, "__setstate__", Args::p(vec![st]))?;
+    }
+    Ok(o)
+}
 fn pickle_lookup_fn(a: Args) -> R {
     let t = |i: usize| match a.p.get(i) {
         Some(V::Str(x)) => Ok(x.s.to_string()),
@@ -1027,6 +1069,7 @@ fn pickle_lookup(m: &str, q: &str) -> R {
             Some(tab) => glob_item(tab, &st(first.to_string())).map_err(|_| missing())?,
             None => return Err(missing()),
         },
+        "functools" if first == "partial" => V::Class(partial_class()),
         "functools" => total_ordering_helper_named(first).ok_or_else(missing)?,
         "builtins" => builtin_value(first).ok_or_else(missing)?,
         _ => match USER_MOD.with(|u| u.get()).and_then(|f| f(m, first)) {

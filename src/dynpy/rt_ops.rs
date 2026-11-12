@@ -1510,6 +1510,9 @@ pub fn invert(a: &V) -> R {
 // ---------- len, contains, indexing ----------
 
 pub fn len(v: &V) -> Result<usize, E> {
+    if let Some(__p) = proxy_deref(v) {
+        return len(&__p?);
+    }
     Ok(match v {
         V::Class(c) if is_enum(c) => match enum_members(c) {
             V::List(l) => l.borrow().len(),
@@ -1550,6 +1553,9 @@ pub fn len(v: &V) -> Result<usize, E> {
     })
 }
 pub fn contains(c: &V, x: &V) -> Result<bool, E> {
+    if let Some(__p) = proxy_deref(c) {
+        return contains(&__p?, x);
+    }
     // `x in seen` for a set first: the special cases below are all for str containers
     if let V::Set(s) = c {
         return s.borrow().contains(x);
@@ -1655,6 +1661,11 @@ pub fn contains(c: &V, x: &V) -> Result<bool, E> {
 }
 
 pub fn idx_of(i: &V) -> Result<i64, E> {
+    // a proxy's referent never has __index__ (weakref.proxy refuses one that does), so CPython's
+    // PyNumber_Index of the referent raises
+    if let Some(__p) = proxy_deref(i) {
+        return type_err(format!("'{}' object cannot be interpreted as an integer", tn(&__p?)));
+    }
     match i {
         V::Int(i) => Ok(*i),
         V::Bool(b) => Ok(*b as i64),
@@ -1795,6 +1806,14 @@ impl Ext for GAlias {
 }
 
 pub fn getitem(c: &V, i: &V) -> R {
+    if let Some(__p) = proxy_deref(c) {
+        return getitem(&__p?, i);
+    }
+    if matches!(c, V::List(_) | V::Tuple(_) | V::Str(_) | V::Range(_)) {
+        if proxy_deref(i).is_some() {
+            idx_of(i)?;
+        }
+    }
     match (c, i) {
         (V::List(l), V::Int(k)) => {
             let l = l.borrow();
@@ -1917,8 +1936,18 @@ pub fn getitem(c: &V, i: &V) -> R {
         // collections.abc.Mapping[str, int] (or a subclass of an ABC): a types.GenericAlias, as
         // __class_getitem__ = classmethod(GenericAlias) makes it. Callable's alias flattens its arguments
         // (_CallableGenericAlias), which this one does not do, so Callable[...] is refused.
-        (V::Class(k), _) if k.abc.get() => {
-            if k.lookup("__class_getitem__").is_some() {
+        (V::Class(k), _) if k.abc.get() || tinfo(k).is_some() && k.lookup("__class_getitem__").is_some() => {
+            if let Some(g) = k.lookup("__class_getitem__") {
+                // classmethod(GenericAlias): the alias itself (Brevi's GenericAlias type is not callable)
+                if let V::Func(gf) = &g {
+                    if gf.kind.get() == 2 && matches!(gf.attrs.borrow().iter().find(|(n, _)| *n == "__func__"), Some((_, V::Class(t))) if t.name == "types.GenericAlias") {
+                        return Ok(class_alias(k, i));
+                    }
+                    // a plain def __class_getitem__ is an implicit classmethod (type_new wraps it)
+                    if gf.kind.get() == 0 {
+                        return call(&g, Args::p(vec![c.clone(), i.clone()]));
+                    }
+                }
                 let f = getattr(c, "__class_getitem__")?;
                 return call(&f, Args::p(vec![i.clone()]));
             }
@@ -1955,6 +1984,14 @@ fn st_ascii(x: &str) -> V {
     V::Str(Rc::new(S { s: x.to_string(), ascii: true }))
 }
 pub fn setitem(c: &V, i: &V, v: V) -> Result<(), E> {
+    if let Some(__p) = proxy_deref(c) {
+        return setitem(&__p?, i, v);
+    }
+    if matches!(c, V::List(_)) {
+        if proxy_deref(i).is_some() {
+            idx_of(i)?;
+        }
+    }
     match (c, i) {
         (V::List(l), V::Int(k)) => {
             let mut l = l.borrow_mut();
@@ -2010,6 +2047,14 @@ pub fn setitem(c: &V, i: &V, v: V) -> Result<(), E> {
     }
 }
 pub fn delitem(c: &V, i: &V) -> Result<(), E> {
+    if let Some(__p) = proxy_deref(c) {
+        return delitem(&__p?, i);
+    }
+    if matches!(c, V::List(_)) {
+        if proxy_deref(i).is_some() {
+            idx_of(i)?;
+        }
+    }
     match (c, i) {
         (V::List(l), V::Int(k)) => {
             let mut l = l.borrow_mut();
@@ -2457,6 +2502,9 @@ fn iter_class_of(v: &V) -> IterClass {
     IterClass::Kind(iter_kind(v))
 }
 pub fn iter_v(v: &V) -> R {
+    if let Some(p) = proxy_deref(v) {
+        return iter_v(&p?);
+    }
     if let V::Iter(_) = v {
         return Ok(v.clone());
     }
@@ -2467,8 +2515,8 @@ pub fn iter_v(v: &V) -> R {
                 if ro.cls.lookup("__next__").is_none() {
                     return type_err(format!("iter() returned non-iterator of type '{}'", tn(&r)));
                 }
-                let cls = ro.cls.clone();
-                return Ok(new_iter(It::Obj(r), IterClass::Class(cls)));
+                // the object __iter__ returned, itself (`iter(it) is it` for an iterator class, as in CPython)
+                return Ok(r);
             }
             if !matches!(r, V::Iter(_) | V::Ext(_)) {
                 return type_err(format!("iter() returned non-iterator of type '{}'", tn(&r)));
@@ -2538,6 +2586,9 @@ pub fn unpack_star(v: &V, before: usize, after: usize) -> Result<Vec<V>, E> {
     Ok(out)
 }
 pub fn dict_items_of(v: &V) -> Result<Vec<(V, V)>, E> {
+    if let Some(p) = proxy_deref(v) {
+        return dict_items_of(&p?);
+    }
     if let V::Ext(x) = v {
         if let Some(n) = x.native() {
             return dict_items_of(&n?);

@@ -1,3 +1,4 @@
+// The lexer: source text to tokens (Tok) with line numbers, for parser.rs.
 use crate::diag::Diag;
 
 #[derive(Debug, Clone, PartialEq)]

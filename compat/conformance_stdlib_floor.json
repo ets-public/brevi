@@ -1,9 +1,9 @@
 {
  "matched": {
-  "normal": 580,
-  "dyn": 579
+  "normal": 596,
+  "dyn": 595
  },
- "note": "tools/conformance.py --check fails below these; --write-baseline raises them",
+ "note": "tools/conformance.py --check fails below these; main raises them after each merge (conformance-main.yml), PRs never do",
  "release_gate": {
   "coverage": 0.8,
   "wrong": 0,

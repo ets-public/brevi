@@ -23,7 +23,7 @@ if [ "$mode" = pr ]; then
     changed=$( { git diff --name-only "$base"; git ls-files --others --exclude-standard; } )
     echo "$changed" | grep -qE '^(src/|Cargo\.(toml|lock)$|compat/baseline\.txt$|tools/compat\.py$|bench/(solutions|tasks|ref)/)' || compat=0
     echo "$changed" | grep -qE '^(compat/baseline\.txt$|tools/compat\.py$|bench/(solutions|tasks)/)' || kinds=brevi
-    # The stdlib slice (~6 min on 4 cores): GitHub runs it only after the merge (stdlib.yml), so check it here
+    # The stdlib slice (~6 min on 4 cores): GitHub runs it only after the merge (conformance-main.yml), so check it here
     # whenever the compiler or the slice's lists change. Merge origin/main first to see what
     # this branch does together with the PRs merged since it started.
     echo "$changed" | grep -qE '^(src/|Cargo\.(toml|lock)$|tools/conformance\.py$|compat/conformance_(stdlib_|by_design))' || stdlib=0
@@ -32,6 +32,23 @@ if [ "$mode" = pr ]; then
 fi
 step "Toolchain"; rustc -V; python3 -V
 step "Build"; cargo build --release -q
+# The MCP checks compare Brevi's servers with CPython running the real mcp, so they need the same mcp stack as GitHub
+# (tests/requirements-native.txt without duckdb and onnxruntime): with another pydantic, CPython's own session ends
+# differently and `brevi verify` reports "differs" on correct code. A venv over this Python's own packages holds the
+# pins, made once per pin set, and goes first on PATH for the rest of the run.
+if command -v uv >/dev/null 2>&1; then
+  pins=$(grep -vE '^(#|duckdb==|onnxruntime==)' tests/requirements-native.txt | grep .)
+  venv="${BREVI_CACHE:-$HOME/.cache/brevi}/ci-venv-$( { python3 -VV; echo "$pins"; } | sha256sum | cut -c1-12)"
+  if [ ! -x "$venv/bin/python3" ]; then
+    step "Pinned mcp stack for the MCP checks (once per pin set)"
+    uv venv -q --python "$(command -v python3)" --system-site-packages "$venv.tmp" &&
+      echo "$pins" | uv pip install -q --python "$venv.tmp/bin/python" -r /dev/stdin && mv "$venv.tmp" "$venv" ||
+      { rm -rf "$venv.tmp"; echo "could not make $venv"; exit 1; }
+  fi
+  PATH="$venv/bin:$PATH"; export PATH
+else
+  echo "warning: uv not installed (https://docs.astral.sh/uv/): the MCP checks compare against this Python's own mcp and pydantic, not the pinned ones"
+fi
 step "Unit tests"; cargo test --release -q
 step "Language tests"; BREVI=./target/release/brevi python3 tests/check_parallel.py --quiet $fast
 step "MCP server"; python3 tests/mcp_test.py && python3 tests/mcp_http_test.py
@@ -39,8 +56,11 @@ step "Model box"; python3 tests/modelbox_test.py
 step "Python SDK and brevi-python"; BREVI=./target/release/brevi python3 tests/sdk_test.py
 BREVI=./target/release/brevi node tests/sdk_node_test.mjs
 step "Guide budget"; python3 tools/guide_budget.py
+step "Code map summaries and agent hooks"; python3 tools/code_map.py --check && python3 tests/agent_hooks_test.py
 step "Package versions"; python3 tools/version_sync.py
 step "Changelog fragments"; python3 tools/changelog.py --check
+if [ "$mode" = pr ] && [ -n "$base" ]; then step "Conformance floors left to main"; python3 tools/floor_guard.py "$base"; fi
+if [ "$mode" = pr ] && [ -n "$base" ]; then step "CHANGELOG.md and published scores left alone"; PR_TITLE="$(git log -1 --format=%s)" python3 tools/pr_guard.py "$base"; fi
 if [ $grammar = 1 ]; then
   step "Grammar"; python3 -c "import lark" 2>/dev/null || python3 -m pip install --quiet -r tools/requirements-ci.txt
   python3 tools/lark_to_gbnf.py --check; python3 tools/grammar_check.py tests/run/*.bv

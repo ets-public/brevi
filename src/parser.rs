@@ -1,3 +1,4 @@
+// The parser: tokens from lexer.rs to the syntax tree in ast.rs, for .bv and Python-style source.
 use std::collections::HashMap;
 use crate::ast::*;
 use crate::diag::Diag;

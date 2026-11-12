@@ -1,0 +1,63 @@
+<class 'weakref.CallableProxyType'> <class 'weakref.ProxyType'> <class 'weakref.ReferenceType'>
+5 ('add', 1) ('radd', 1) (1, 2) False [1, 2] 6 eq lt STR True neg STR abs
+set 1 2
+del 4
+falsy
+TypeError unsupported format string passed to weakref.CallableProxyType.__format__
+TypeError float() argument must be a string or a real number, not 'A'
+TypeError int() argument must be a string, a bytes-like object or a real number, not 'A'
+TypeError 'weakref.CallableProxyType' object is not reversible
+TypeError type weakref.CallableProxyType doesn't define __round__ method
+TypeError 'A' object cannot be interpreted as an integer
+TypeError cannot convert dictionary update sequence element #0 to a sequence
+[1, 2]
+3
+'1-2'
+5
+TypeError 'A' object cannot be interpreted as an integer
+TypeError 'A' object cannot be interpreted as an integer
+TypeError unsupported operand type(s) for *: 'A' and 'int'
+AttributeError 'A' object has no attribute '__index__'
+TypeError unhashable type: 'weakref.CallableProxyType'
+TypeError 'A' object cannot be interpreted as an integer
+TypeError 'A' object cannot be interpreted as an integer
+False
+True
+True
+True
+<class '__main__.A'>
+{'v': 3}
+3
+TypeError cannot create weak reference to 'weakref.CallableProxyType' object
+TypeError cannot create weak reference to 'weakref.CallableProxyType' object
+True
+'eq'
+False
+TypeError unhashable type: 'weakref.CallableProxyType'
+'<weakproxy'
+'CallableProxyType'
+4
+False
+False 2 True
+'weakref.ProxyType' object is not callable
+True ['aa', 'a']
+cannot create weak reference to 're.Match' object
+cannot create weak reference to 'int' object
+2 True [1, 2]
+ReferenceError weakly-referenced object no longer exists
+ReferenceError weakly-referenced object no longer exists
+ReferenceError weakly-referenced object no longer exists
+ReferenceError weakly-referenced object no longer exists
+ReferenceError weakly-referenced object no longer exists
+ReferenceError weakly-referenced object no longer exists
+ReferenceError weakly-referenced object no longer exists
+ReferenceError weakly-referenced object no longer exists
+ReferenceError weakly-referenced object no longer exists
+ReferenceError weakly-referenced object no longer exists
+ReferenceError weakly-referenced object no longer exists
+ReferenceError weakly-referenced object no longer exists
+'CallableProxyType'
+'<weakproxy at 0'
+TypeError unhashable type: 'weakref.CallableProxyType'
+dead weakly-referenced object no longer exists
+True ReferenceError

@@ -78,8 +78,11 @@ const NP_NARROW_FUNCS: &[&str] = &[
 // false: `string` is CPython's Lib/string.py compiled in (py/string.py), for Template and Formatter; true (the
 // default): the native module, constants only, which builds and starts much faster
 pub static STRING_NATIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+// inspect is Brevi's own while the program uses only its Signature (Signature.from_callable, rt_sig.rs); a program
+// using anything else of inspect is built again with CPython's inspect through the bridge.
+pub static INSPECT_NATIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 pub fn builtin_mod(m: &str) -> bool {
-    (BUILTIN_MODULES.contains(&m) && (m != "string" || STRING_NATIVE.load(std::sync::atomic::Ordering::Relaxed))) || m == "typing_extensions" || (matches!(m, "numpy" | "numpy.random" | "numpy.linalg") && np_native())
+    (m == "inspect" && INSPECT_NATIVE.load(std::sync::atomic::Ordering::Relaxed)) || (BUILTIN_MODULES.contains(&m) && (m != "string" || STRING_NATIVE.load(std::sync::atomic::Ordering::Relaxed))) || m == "typing_extensions" || (matches!(m, "numpy" | "numpy.random" | "numpy.linalg") && np_native())
 }
 // The numpy functions and attributes the native numpy has, with the keyword arguments each takes.
 const NP_FUNCS: &[(&str, &[&str])] = &[
@@ -238,7 +241,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "_brevi_mt" => &["new", "seed", "next", "random", "bits", "below", "shuffle"],
         "collections" => &["defaultdict", "Counter", "OrderedDict", "deque", "namedtuple", "abc"],
         "dataclasses" => &["asdict", "astuple", "dataclass", "field", "fields", "replace", "is_dataclass", "MISSING", "KW_ONLY", "InitVar", "Field", "FrozenInstanceError"],
-        "re" => &["compile", "escape", "findall", "finditer", "fullmatch", "match", "purge", "search", "split", "sub", "subn", "IGNORECASE", "I", "LOCALE", "L", "MULTILINE", "M", "DOTALL", "S", "VERBOSE", "X", "ASCII", "A", "NOFLAG", "UNICODE", "U", "DEBUG", "RegexFlag", "error", "PatternError", "Pattern", "Match"],
+        "re" => &["compile", "escape", "findall", "finditer", "fullmatch", "match", "purge", "search", "split", "sub", "subn", "IGNORECASE", "I", "LOCALE", "L", "MULTILINE", "M", "DOTALL", "S", "VERBOSE", "X", "ASCII", "A", "NOFLAG", "UNICODE", "U", "DEBUG", "RegexFlag", "error", "PatternError", "Pattern", "Match", "Scanner"],
         "re._constants" => &["MAXGROUPS", "MAXREPEAT"],
         "json" => &["dump", "dumps", "load", "loads", "JSONDecodeError", "JSONDecoder", "JSONEncoder"],
         "json.decoder" => &["scanstring", "JSONDecoder", "JSONDecodeError"],
@@ -253,7 +256,8 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "importlib.metadata" => &["version", "PackageNotFoundError"],
         "zoneinfo" => &["ZoneInfo", "ZoneInfoNotFoundError", "available_timezones", "TZPATH", "reset_tzpath"],
         "gc" => &["collect"],
-        "weakref" => &["ref"],
+        "weakref" => &["ref", "proxy"],
+        "inspect" => &["Signature"],
         _ => return false,
     };
     names.contains(&n)
@@ -267,19 +271,19 @@ fn hybrid_bridged(m: &str) -> bool {
 }
 // Python builtins dynamic builds do not have: refused when the program is built.
 fn is_missing_builtin(n: &str) -> bool {
-    matches!(n, "exec" | "eval" | "compile" | "__import__" | "dir" | "help" | "breakpoint" | "open" | "__build_class__" | "globals" | "locals")
+    matches!(n, "exec" | "eval" | "compile" | "__import__" | "help" | "breakpoint" | "open" | "__build_class__" | "globals" | "locals")
 }
 
 fn is_builtin_name(n: &str) -> bool {
     matches!(
         n,
-        "print" | "input" | "len" | "repr" | "ascii" | "abs" | "min" | "max" | "sum" | "sorted" | "reversed" | "enumerate" | "zip" | "map" | "filter" | "any" | "all" | "iter" | "next" | "isinstance" | "issubclass" | "hasattr" | "getattr" | "setattr" | "delattr" | "callable" | "ord" | "chr" | "hex" | "oct" | "bin" | "round" | "divmod" | "pow" | "hash" | "id" | "format" | "vars" | "exit" | "quit" | "staticmethod" | "classmethod" | "property" | "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "slice" | "super" | "NotImplemented" | "Ellipsis" | "__name__" | "bytes" | "bytearray" | "memoryview" | "__bytes_lit" | "complex" | "__complex_lit" | "aiter" | "anext" | "__brevi_aenter" | "__brevi_aexit" | "__brevi_eg_split" | "__brevi_eg_reraise"
+        "print" | "input" | "len" | "repr" | "ascii" | "abs" | "min" | "max" | "sum" | "sorted" | "reversed" | "enumerate" | "zip" | "map" | "filter" | "any" | "all" | "iter" | "next" | "isinstance" | "issubclass" | "hasattr" | "getattr" | "setattr" | "delattr" | "callable" | "ord" | "chr" | "hex" | "oct" | "bin" | "round" | "divmod" | "pow" | "hash" | "id" | "format" | "vars" | "dir" | "exit" | "quit" | "staticmethod" | "classmethod" | "property" | "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "slice" | "super" | "NotImplemented" | "Ellipsis" | "__name__" | "bytes" | "bytearray" | "memoryview" | "__bytes_lit" | "complex" | "__complex_lit" | "aiter" | "anext" | "__brevi_aenter" | "__brevi_aexit" | "__brevi_eg_split" | "__brevi_eg_reraise"
     ) || is_exc_name(n)
 }
 fn is_exc_name(n: &str) -> bool {
     matches!(
         n,
-        "BaseException" | "Exception" | "SystemExit" | "KeyboardInterrupt" | "GeneratorExit" | "ArithmeticError" | "ZeroDivisionError" | "OverflowError" | "FloatingPointError" | "LookupError" | "KeyError" | "IndexError" | "ValueError" | "UnicodeError" | "UnicodeDecodeError" | "UnicodeEncodeError" | "TypeError" | "AttributeError" | "NameError" | "UnboundLocalError" | "RuntimeError" | "RecursionError" | "NotImplementedError" | "SystemError" | "StopIteration" | "StopAsyncIteration" | "TimeoutError" | "ConnectionError" | "ConnectionRefusedError" | "ConnectionResetError" | "ConnectionAbortedError" | "BrokenPipeError" | "BlockingIOError" | "ChildProcessError" | "InterruptedError" | "ProcessLookupError" | "BaseExceptionGroup" | "ExceptionGroup" | "AssertionError" | "SyntaxError" | "IndentationError" | "ImportError" | "ModuleNotFoundError" | "OSError" | "IOError" | "EnvironmentError" | "FileNotFoundError" | "PermissionError" | "IsADirectoryError" | "NotADirectoryError" | "FileExistsError" | "EOFError" | "MemoryError" | "BufferError" | "Warning" | "UserWarning" | "DeprecationWarning" | "SyntaxWarning" | "RuntimeWarning" | "FutureWarning" | "PendingDeprecationWarning" | "ImportWarning" | "UnicodeWarning" | "BytesWarning" | "ResourceWarning" | "EncodingWarning"
+        "BaseException" | "Exception" | "SystemExit" | "KeyboardInterrupt" | "GeneratorExit" | "ArithmeticError" | "ZeroDivisionError" | "OverflowError" | "FloatingPointError" | "LookupError" | "KeyError" | "IndexError" | "ValueError" | "UnicodeError" | "UnicodeDecodeError" | "UnicodeEncodeError" | "TypeError" | "AttributeError" | "NameError" | "UnboundLocalError" | "RuntimeError" | "RecursionError" | "NotImplementedError" | "SystemError" | "StopIteration" | "StopAsyncIteration" | "TimeoutError" | "ConnectionError" | "ConnectionRefusedError" | "ConnectionResetError" | "ConnectionAbortedError" | "BrokenPipeError" | "BlockingIOError" | "ChildProcessError" | "InterruptedError" | "ProcessLookupError" | "BaseExceptionGroup" | "ExceptionGroup" | "AssertionError" | "SyntaxError" | "IndentationError" | "ImportError" | "ModuleNotFoundError" | "OSError" | "IOError" | "EnvironmentError" | "FileNotFoundError" | "PermissionError" | "IsADirectoryError" | "NotADirectoryError" | "FileExistsError" | "EOFError" | "MemoryError" | "BufferError" | "Warning" | "UserWarning" | "DeprecationWarning" | "SyntaxWarning" | "RuntimeWarning" | "FutureWarning" | "PendingDeprecationWarning" | "ImportWarning" | "UnicodeWarning" | "BytesWarning" | "ResourceWarning" | "EncodingWarning" | "ReferenceError"
     )
 }
 
@@ -395,7 +399,10 @@ fn mentions_annotations(body: &[Stmt]) -> bool {
     let mut found = false;
     visit_any(body, &mut |e| {
         // read by name too: getattr(f, "__annotations__"), or through functools.WRAPPER_ASSIGNMENTS
+        // vars(C), C.__dict__ and dir(C) list a class's __annotations__ too
         if matches!(e, Ex::Attr(_, n) | Ex::Name(n) if n == "__annotations__" || n == "WRAPPER_ASSIGNMENTS")
+            || matches!(e, Ex::Name(n) if n == "vars" || n == "dir")
+            || matches!(e, Ex::Attr(_, n) if n == "__dict__")
             || matches!(e, Ex::Str(t) if t == "__annotations__")
         {
             found = true;
@@ -1697,6 +1704,9 @@ pub struct Em {
     re_names: HashSet<(String, String)>,
     // the program uses the warnings module: every statement says where it is, so a warning names its line
     track_warn: bool,
+    // the program uses a builtin iterator type (zip, map, filter, itertools.chain, ...) as a value: a class
+    // whose base is only known at run time may be built on one, which the dynamic build cannot subclass
+    iter_type_values: bool,
     // module -> the lines whose logical line runs over more than one line (None: the module did not lex)
     multi: HashMap<String, Option<HashSet<usize>>>,
     // the WMod statics written so far
@@ -2123,6 +2133,12 @@ impl Em {
                 b
             }
             Ex::Star(_) => return Err(err(line, "starred expression here is not supported")),
+            // Brevi's own module copies (pydantic, the MCP server, string, ...) read class namespaces for their
+            // own bookkeeping: they get the namespace even where the program's C.__dict__ refuses (rt_tdict.rs)
+            Ex::Attr(o, n) if n == "__dict__" && IN_COPY.with(|k| k.get()) => {
+                let ov = self.ex(o, line)?;
+                self.q(&format!("own_dict_of(&{ov})"))
+            }
             Ex::Attr(o, n) => {
                 // typing.ByteString stays refused: Brevi's typing does not give the collections.abc class, whose isinstance()
                 // and subclassing warn as CPython 3.13's metaclass does
@@ -2555,10 +2571,14 @@ impl Em {
                 return Ok(self.q(&rc));
             }
         }
-        // CPython's inspect cannot read a dynamic build's function objects (their code and annotations are
-        // not built), so Signature.from_callable on one would raise where CPython prints a signature.
-        if matches!(f, Ex::Attr(o, m) if m == "from_callable" && matches!(o.as_ref(), Ex::Name(n) if n == "Signature")) {
-            return Err(err(line, "Signature.from_callable is not supported in dynamic builds"));
+        // Signature.from_callable reads the parameters and annotations each def records (SIG_DEFS); a program
+        // whose annotations are not kept (`from __future__ import annotations`, a type expression) is refused.
+        // With CPython's inspect (the program uses more of it than Signature), its Signature cannot read a
+        // dynamic build's functions either.
+        if matches!(f, Ex::Attr(_, m) if m == "from_callable")
+            && (!super::typing::SIG_DEFS.load(std::sync::atomic::Ordering::Relaxed) || !INSPECT_NATIVE.load(std::sync::atomic::Ordering::Relaxed))
+        {
+            return Err(err(line, "Signature.from_callable in a program whose def annotations are not kept is not supported in dynamic builds"));
         }
         // eval("literal text"): parsed when the program is built and run in place. Refused when a name in it
         // would resolve differently (CPython's eval sees this frame's locals and the globals, not enclosing cells).
@@ -2591,6 +2611,10 @@ impl Em {
                 }
                 return Err(err(line, "eval() of names this frame does not hold is not supported in dynamic builds"));
             }
+        }
+        // dir() of the current scope needs the frame's names as CPython orders them: refused (dir(x) is native)
+        if args.is_empty() && matches!(f, Ex::Name(n) if n == "dir") && self.lookup("dir").is_none() {
+            return Err(err(line, "dir() without an argument is not supported in dynamic builds"));
         }
         // locals() in a function: a snapshot dict of its bound names, in CPython's order
         if args.is_empty() && matches!(f, Ex::Name(n) if n == "locals") {
@@ -3615,6 +3639,22 @@ impl Em {
                 }
             }
             St::Class(c) => {
+                // a base that is a builtin iterator type (zip, map, filter, enumerate, reversed, itertools.chain, ...)
+                let iter_base = c.bases.iter().any(|b| match b {
+                    Ex::Name(n) => ITER_TYPES.contains(&n.as_str()) && match self.lookup(n) {
+                        None => matches!(n.as_str(), "zip" | "map" | "filter" | "enumerate" | "reversed"),
+                        Some(Var::Global(_)) => self.bridge.srcs.get(&self.module).is_some_and(|(_, src)| src.contains("itertools")),
+                        _ => false,
+                    },
+                    Ex::Attr(o, n) => ITER_TYPES.contains(&n.as_str()) && matches!(o.as_ref(), Ex::Name(m) if m == "itertools"),
+                    _ => false,
+                });
+                if iter_base && self.bridge.srcs.contains_key(&self.module) {
+                    return Err(err(line, &format!("class {} is built on a builtin iterator type; subclassing zip, map, filter or an itertools type is not supported in dynamic builds", c.name)));
+                }
+                if self.iter_type_values && c.bases.iter().any(|b| matches!(b, Ex::Name(n) if matches!(self.lookup(n), Some(Var::Local(_) | Var::Cell(_))))) {
+                    return Err(err(line, &format!("class {} has a base chosen at run time in a program that uses builtin iterator types as values; subclassing zip, map, filter or an itertools type is not supported in dynamic builds", c.name)));
+                }
                 if let Some(src) = self.bridge.classes.get(&(self.module.clone(), c.line)).cloned() {
                     let m = self.module.clone();
                     let imports = self.bridge.imports.get(&m).cloned().unwrap_or_default();
@@ -3808,9 +3848,6 @@ impl Em {
 
     // ---- functions and classes ----
     fn def(&mut self, d: &FuncDef) -> ER<String> {
-        if d.decorators.iter().any(|x| is_dec_name(x, "singledispatchmethod")) && d.decorators.iter().any(|x| is_dec_name(x, "abstractmethod")) {
-            return Err(err(d.line, "singledispatchmethod with abstractmethod is not supported in dynamic builds"));
-        }
         if has_yield(&d.body) && !d.is_async {
             if !GEN_OK {
                 return Err(err(d.line, "generators (yield) are not supported in dynamic builds on this platform"));
@@ -3821,13 +3858,14 @@ impl Em {
             return Err(err(d.line, "async functions are not supported in dynamic builds on this platform"));
         }
         self.next_async = d.is_async;
-        let qn = self.qualname_of(&d.name);
-        let v = self.closure(&d.name, &qn, &d.params, &d.body, d.line, true);
+        let own = d.disp.as_deref().unwrap_or(&d.name);
+        let qn = self.qualname_of(own);
+        let v = self.closure(own, &qn, &d.params, &d.body, d.line, true);
         self.next_async = false;
         let mut v = v?;
         v = format!("with_qualname({v}, {})", lit(&qn));
         if let Some(doc) = docstring(&d.body) {
-            v = format!("with_doc({v}, {})", lit(doc));
+            v = format!("with_doc({v}, {})", lit(&doc));
         }
         if self.module != "__main__" {
             v = format!("with_module({v}, {})", lit(&self.module));
@@ -3864,6 +3902,44 @@ impl Em {
     // A function value. Module-level functions (and methods of module-level classes) become plain Rust
     // functions plus a wrapper; nested ones are closures capturing the cells they use.
     fn closure(&mut self, name: &str, qualname: &str, p: &Params, body: &[Stmt], line: usize, is_def: bool) -> ER<String> {
+        if !super::typing::SIG_DEFS.load(std::sync::atomic::Ordering::Relaxed) {
+            return self.closure_body(name, qualname, p, body, line, is_def, None);
+        }
+        // the defaults are evaluated once, here, and both the function and its recorded signature hold them
+        let id = self.id();
+        let mut pre = String::new();
+        let mut pd = vec![];
+        let mut kd = vec![];
+        for (k, (_, dv)) in p.pos.iter().enumerate() {
+            pd.push(match dv {
+                Some(x) => {
+                    let c = self.ex(x, line)?;
+                    write!(pre, "let __sdp{id}_{k} = {c}; ").unwrap();
+                    format!("__sdp{id}_{k}.clone()")
+                }
+                None => "V::Unbound".into(),
+            });
+        }
+        for (k, (_, dv)) in p.kwonly.iter().enumerate() {
+            kd.push(match dv {
+                Some(x) => {
+                    let c = self.ex(x, line)?;
+                    write!(pre, "let __sdk{id}_{k} = {c}; ").unwrap();
+                    format!("__sdk{id}_{k}.clone()")
+                }
+                None => "V::Unbound".into(),
+            });
+        }
+        let v = self.closure_body(name, qualname, p, body, line, is_def, Some((pd.clone(), kd.clone())))?;
+        let names = |v: &[(String, Option<Ex>)]| v.iter().map(|(n, _)| lit(n)).collect::<Vec<_>>().join(", ");
+        let opt = |n: &Option<String>| n.as_ref().map_or("None".to_string(), |n| format!("Some({})", lit(n)));
+        Ok(format!(
+            "{{ {pre}with_sig({v}, &[{}], {}, {}, &[{}], {}, vec![{}], vec![{}]) }}",
+            names(&p.pos), p.posonly, opt(&p.star), names(&p.kwonly), opt(&p.kwstar), pd.join(", "), kd.join(", ")
+        ))
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn closure_body(&mut self, name: &str, qualname: &str, p: &Params, body: &[Stmt], line: usize, is_def: bool, dflt: Option<(Vec<String>, Vec<String>)>) -> ER<String> {
         let id = self.id();
         let is_async = std::mem::take(&mut self.next_async);
         let is_gen = has_yield(body);
@@ -3872,24 +3948,27 @@ impl Em {
         let inner_free = nested_free(body);
         let at_top = self.fstack.len() == 1;
         let in_class_top = self.class_ctx.is_some() && self.fstack.len() == 2 && self.fstack[0].is_module;
-        // defaults, evaluated now
-        let mut dflt_codes = vec![];
-        for (_, dv) in p.pos.iter() {
-            dflt_codes.push(match dv {
-                Some(x) => self.ex(x, line)?,
-                None => "V::Unbound".into(),
-            });
-        }
-        if p.star.is_some() {
-            // no default
-        }
-        let mut kwd = vec![];
-        for (_, dv) in p.kwonly.iter() {
-            kwd.push(match dv {
-                Some(x) => self.ex(x, line)?,
-                None => "V::Unbound".into(),
-            });
-        }
+        // defaults, evaluated now (or already, by closure, when the def records its signature)
+        let (dflt_codes, kwd) = match dflt {
+            Some(d) => d,
+            None => {
+                let mut dflt_codes = vec![];
+                for (_, dv) in p.pos.iter() {
+                    dflt_codes.push(match dv {
+                        Some(x) => self.ex(x, line)?,
+                        None => "V::Unbound".into(),
+                    });
+                }
+                let mut kwd = vec![];
+                for (_, dv) in p.kwonly.iter() {
+                    kwd.push(match dv {
+                        Some(x) => self.ex(x, line)?,
+                        None => "V::Unbound".into(),
+                    });
+                }
+                (dflt_codes, kwd)
+            }
+        };
         // signature: positional params, then kw-only params share the names list; bind() treats
         // kw-only as named params past npos.
         let mut names: Vec<String> = p.pos.iter().map(|x| x.0.clone()).collect();
@@ -4163,13 +4242,29 @@ impl Em {
         if setup {
             sc.locals.insert("__annotations__".into());
         }
+        let own_name = c.disp.clone().unwrap_or_else(|| c.name.clone());
+        let sattrs = c.static_attrs.iter().map(|n| lit(n)).collect::<Vec<_>>().join(", ");
         // A class body that calls locals() must run with its namespace as a dict: locals() returns that
         // dict, and every name load and store goes through it (CPython's LOAD_FROM_DICT_OR_DEREF / LOAD_NAME
         // and DELETE_NAME). Other classes keep the plain Rust locals exactly as before.
         let dict_mode = class_calls_locals(&c.body);
         let parent = self.fstack.last().unwrap();
         // CPython's __qualname__: `Outer.Inner` inside a class, `f.<locals>.C` inside a function.
-        let qualname = self.qualname_of(&c.name);
+        let qualname = self.qualname_of(&own_name);
+        // __firstlineno__ is the class statement's line; in Brevi's own copy of a CPython module, the line of
+        // the class in CPython's file. Why the dict cannot be CPython's, when it cannot ("" when it can):
+        let mut first = c.first;
+        let mut why = "";
+        if IN_COPY.with(|k| k.get()) {
+            match super::cpy_lines::CPY_CLASS_LINES.iter().find(|(m, q, _)| *m == self.module && *q == qualname) {
+                Some((_, _, l)) => first = *l,
+                None => why = "a class of Brevi's own copy of a module",
+            }
+        }
+        // a class whose annotations Brevi does not keep lacks the __annotations__ CPython's dict has
+        if !(setup || !c.body.iter().any(|s| matches!(s.st, St::AnnAssign(..)))) {
+            why = "annotations Brevi did not keep";
+        }
         let ns_var = format!("__ns{id}");
         let mut fr = Func { vars: HashMap::new(), frames: parent.frames.clone(), class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), qname: qualname.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![], ns: dict_mode.then_some(ns_var.clone()) };
         let ctx = format!("__auto_ctx{id}");
@@ -4179,6 +4274,12 @@ impl Em {
         write!(decls, "let {ctx}: i64 = enum_auto_ctx(&[{}]); let mut {av}: Vec<V> = vec![]; ", base_vars.iter().map(|v| format!("&{v}")).collect::<Vec<_>>().join(", ")).unwrap();
         if dict_mode {
             write!(decls, "let mut {ns_var}: V = dict_new(); ").unwrap();
+            // the namespace starts as CPython's class body starts it: __module__, __qualname__, __firstlineno__
+            let modname = if self.module == "__main__" { "__main__".to_string() } else { self.module.clone() };
+            for (k, v) in [("__module__", format!("s({})", lit(&modname))), ("__qualname__", format!("s({})", lit(&qualname))), ("__firstlineno__", format!("V::Int({first})"))] {
+                let set = self.q(&format!("setitem(&{ns_var}, &s({}), {v})", lit(k)));
+                write!(decls, "{set}; ").unwrap();
+            }
             if setup {
                 // SETUP_ANNOTATIONS runs first, so __annotations__ is the namespace dict's first key; the
                 // alias here is the same dict the class body stores annotations into.
@@ -4275,18 +4376,22 @@ impl Em {
         res?;
         // the class is made at the class statement's line
         let w = self.wsite(c.line, c.decorators.is_empty());
+        let abcm = if c.abc_meta { format!("let __c = {};", self.q("abc_meta(__c)")) } else { String::new() };
         let mut v = if dict_mode {
             // the namespace dict holds the class attributes in the order the body bound them; the doc is
             // added only now, as __build_class__ adds it after the body
-            let mut attrs = String::new();
-            if !sc.locals.contains("__doc__") {
-                let doc = docstring(&c.body).map_or("V::None".to_string(), |d| format!("s({})", lit(d)));
-                let set = self.q(&format!("setitem(&{ns_var}, &s(\"__doc__\"), {doc})"));
-                write!(attrs, "{set}; ").unwrap();
-            }
+            let attrs = String::new();
             let items = self.q(&format!("dict_sym_items(&{ns_var})"));
-            let mk = self.q(&format!("make_class_f({}, {}, {}, vec![{}], {items}, vec![{}])", lit(&c.name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", ")));
-            format!("{{ {decls}\n{body}\n{attrs} {w} let __c = {mk}; __c }}")
+            let mk = self.q(&format!("make_class_s({}, {}, {}, vec![{}], {items}, vec![{}], {}, &[{}], {})", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", "), first, sattrs, lit(why)));
+            // a docstring is the body's first store (CPython's STORE_NAME __doc__), after SETUP_ANNOTATIONS
+            let doc_set = match docstring(&c.body) {
+                Some(d) => {
+                    let set = self.q(&format!("setitem(&{ns_var}, &s(\"__doc__\"), s({}))", lit(&d)));
+                    format!("{set}; ")
+                }
+                None => String::new(),
+            };
+            format!("{{ {decls}\n{doc_set}{body}\n{attrs} {w} let __c = {mk}; {abcm} __c }}")
         } else {
             // class attributes in the order the body first binds them, as CPython's class namespace keeps them
             // (Enum members and vars() follow it)
@@ -4317,20 +4422,26 @@ impl Em {
                 let r = format!("a{id}___annotations__");
                 write!(attrs, "__at.push((\"__annotations__\", {r})); ").unwrap();
             }
+            // a docstring is the body's first store (CPython's STORE_NAME __doc__), after SETUP_ANNOTATIONS; a
+            // class without one gets __doc__ = None from make_class, after the names type_new adds
+            let doc = docstring(&c.body);
+            if let Some(d) = &doc {
+                if sc.locals.contains("__doc__") {
+                    let r = format!("a{id}___doc__");
+                    write!(attrs, "__at.push((\"__doc__\", if matches!({r}, V::Unbound) {{ s({}) }} else {{ {r} }})); ", lit(d)).unwrap();
+                } else {
+                    write!(attrs, "__at.push((\"__doc__\", s({}))); ", lit(d)).unwrap();
+                }
+            }
             for n in order {
-                if setup && n == "__annotations__" {
+                if setup && n == "__annotations__" || doc.is_some() && n == "__doc__" {
                     continue;
                 }
                 let r = format!("a{id}_{}", rust_ident(n));
                 write!(attrs, "if !matches!({r}, V::Unbound) {{ __at.push(({}, {r})); }} ", lit(n)).unwrap();
             }
-            // every class has its own __doc__ (None without a docstring), not its parent's
-            if !sc.locals.contains("__doc__") {
-                let doc = docstring(&c.body).map_or("V::None".to_string(), |d| format!("s({})", lit(d)));
-                write!(attrs, "__at.push((\"__doc__\", {doc})); ").unwrap();
-            }
-            let mk = self.q(&format!("make_class_f({}, {}, {}, vec![{}], __at, vec![{}])", lit(&c.name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", ")));
-            format!("{{ {decls}\n{body}\nlet mut __at: Vec<(Sym, V)> = vec![]; {attrs} {w} let __c = {mk}; __c }}")
+            let mk = self.q(&format!("make_class_s({}, {}, {}, vec![{}], __at, vec![{}], {}, &[{}], {})", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", "), first, sattrs, lit(why)));
+            format!("{{ {decls}\n{body}\nlet mut __at: Vec<(Sym, V)> = vec![]; {attrs} {w} let __c = {mk}; {abcm} __c }}")
         };
         for dec in c.decorators.iter().rev() {
             let dd = self.ex(dec, c.line)?;
@@ -4365,11 +4476,56 @@ fn ann_kind(a: &Ex) -> Option<&'static str> {
 }
 
 // The docstring of a def or class body.
-fn docstring(body: &[Stmt]) -> Option<&str> {
+// A def's or class's docstring as CPython 3.13 stores it: tabs expanded, the first line's leading spaces and the
+// common indentation of the later lines removed (_PyCompile_CleanDoc).
+fn docstring(body: &[Stmt]) -> Option<String> {
     match body.first().map(|s| &s.st) {
-        Some(St::Expr(Ex::Str(d))) => Some(d.as_str()),
+        Some(St::Expr(Ex::Str(d))) => Some(clean_doc(d)),
         _ => None,
     }
+}
+fn clean_doc(d: &str) -> String {
+    // str.expandtabs(8)
+    let mut t = String::with_capacity(d.len());
+    let mut col = 0usize;
+    for ch in d.chars() {
+        match ch {
+            '\t' => {
+                let n = 8 - col % 8;
+                t.extend(std::iter::repeat(' ').take(n));
+                col += n;
+            }
+            '\n' | '\r' => {
+                t.push(ch);
+                col = 0;
+            }
+            c => {
+                t.push(c);
+                col += 1;
+            }
+        }
+    }
+    let lines: Vec<&str> = t.split('\n').collect();
+    let margin = lines
+        .iter()
+        .skip(1)
+        .filter_map(|l| {
+            let n = l.len() - l.trim_start_matches(' ').len();
+            (n < l.len()).then_some(n)
+        })
+        .min()
+        .unwrap_or(0);
+    let mut out = String::with_capacity(t.len());
+    for (i, l) in lines.iter().enumerate() {
+        if i == 0 {
+            out.push_str(l.trim_start_matches(' '));
+        } else {
+            out.push('\n');
+            let lead = l.len() - l.trim_start_matches(' ').len();
+            out.push_str(&l[lead.min(margin)..]);
+        }
+    }
+    out
 }
 
 fn builtin_fast(n: &str) -> Option<String> {
@@ -4422,6 +4578,34 @@ pub fn ic_statics() -> String {
     }
     s
 }
+// Whether `src` names a builtin iterator type (zip, map, filter, enumerate, reversed, or an itertools one) other
+// than to call it or import it: `(repeat, args)`, `cls = chain`.
+const ITER_TYPES: [&str; 22] = ["zip", "map", "filter", "enumerate", "reversed", "repeat", "chain", "islice", "cycle", "compress", "starmap",
+        "takewhile", "dropwhile", "filterfalse", "accumulate", "zip_longest", "product", "permutations", "combinations", "groupby", "count", "pairwise"];
+fn iter_type_as_value(src: &str) -> bool {
+    const NAMES: [&str; 22] = ITER_TYPES;
+    let idc = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
+    for line in src.lines() {
+        let t = line.trim_start();
+        if t.starts_with("import ") || t.starts_with("from ") || t.starts_with('#') {
+            continue;
+        }
+        let lb = line.as_bytes();
+        for n in NAMES {
+            let mut from = 0;
+            while let Some(i) = line[from..].find(n).map(|i| i + from) {
+                from = i + n.len();
+                let before_ok = i == 0 || !(idc(lb[i - 1]) || lb[i - 1] == b'.');
+                let after = line[from..].trim_start();
+                let after_ok = from >= lb.len() || !idc(lb[from]);
+                if before_ok && after_ok && !after.starts_with('(') && !after.starts_with('=') && (after.starts_with(',') || after.starts_with(')') || after.starts_with(']') || after.is_empty()) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
 pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>), (String, usize, String)> {
     // the program (not Brevi's library copies) uses the warnings module
     // (or functools.partial, whose __get__ warns at the line that reads it from an instance, or
@@ -4432,6 +4616,15 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
             && b.contains("\"itertools\"")
             && ["\"pickle\"", "\"copy\"", "\"deepcopy\"", "\"__reduce__\"", "\"__reduce_ex__\"", "\"__setstate__\""].iter().any(|k| b.contains(k))
     });
+    let iter_type_values = mods.iter().any(|m| bridge.srcs.get(&m.name).is_some_and(|(_, src)| iter_type_as_value(src)));
+    // copy.deepcopy of a tee iterator deep-copies its buffer and the iterator under it (tee.__reduce__), which
+    // Brevi does not have; refused when the program is built rather than stopping when it runs
+    if mods.iter().any(|m| {
+        let b = format!("{:?}", m.body);
+        bridge.srcs.contains_key(&m.name) && b.contains("\"tee\"") && b.contains("\"deepcopy\"")
+    }) {
+        return Err((mods[0].name.clone(), 1, "copy.deepcopy in a program that uses itertools.tee is not supported in dynamic builds".into()));
+    }
     // (or pickles or copies itertools iterators, whose __reduce__ and __setstate__ warn at the caller's line)
     let track_warn = mods.iter().any(|m| {
         let b = format!("{:?}", m.body);
@@ -4469,6 +4662,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         uses_re: false,
         re_names: HashSet::new(),
         track_warn,
+        iter_type_values,
         multi: HashMap::new(),
         wmods: HashSet::new(),
         lam_line: None,
