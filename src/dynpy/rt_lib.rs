@@ -708,6 +708,9 @@ pub fn bi_reversed(a: Args) -> R {
         let n = l.borrow().len();
         return Ok(new_iter(It::RevList(l.clone(), n), IterClass::Kind(kind)));
     }
+    if let V::Deque(d) = &x {
+        return Ok(new_iter(deque_iter(d, true), IterClass::Kind(kind)));
+    }
     // a dict (not an OrderedDict, whose reverse iterator is its own), its views, or a dict subclass instance:
     // live, as CPython's dict reverse iterators
     let dict_of = match &x {
@@ -1817,7 +1820,11 @@ pub fn bi_id(a: Args) -> R {
         V::Str(o) => Rc::as_ptr(o) as *const u8 as i64,
         V::Tuple(o) => Tup::as_ptr(o) as *const u8 as i64,
         V::Int(i) => *i * 32 + 1,
-        _ => 1,
+        // every other heap value (a deque, a set, an iterator, a function, ...): its own address
+        _ => match gc_id(&x) {
+            Some(p) => p as i64,
+            None => 1,
+        },
     }))
 }
 pub fn bi_format(a: Args) -> R {
@@ -2372,25 +2379,6 @@ pub fn counter_obj_method(me: &V, name: &str, mut a: Args) -> R {
     }
     Ok(V::None)
 }
-pub fn col_deque(mut a: Args) -> R {
-    let max = match a.kw("maxlen").or_else(|| a.p.get(1).cloned()) {
-        Some(V::None) | None => None,
-        Some(m) => Some(idx_of(&m)? as usize),
-    };
-    let mut v = VecDeque::new();
-    if let Some(x) = a.p.first() {
-        for y in to_vec(x)? {
-            v.push_back(y);
-            if let Some(m) = max {
-                if v.len() > m {
-                    v.pop_front();
-                }
-            }
-        }
-    }
-    Ok(V::Deque(Rc::new(RefCell::new(Deq { v, max }))))
-}
-
 // ---------- methods of builtin types ----------
 
 pub fn has_method(o: &V, name: &str) -> bool {
@@ -3615,102 +3603,6 @@ pub fn set_method(o: &V, name: &str, a: Args) -> R {
         } as i64),
         "__contains__" => V::Bool(contains(o, &a1(&a, name)?)?),
         "__iter__" => iter_v(o)?,
-        _ => return bad_method(o, name),
-    })
-}
-pub fn deque_method(d: &Rc<RefCell<Deq>>, o: &V, name: &str, a: Args) -> R {
-    let push = |d: &mut Deq, x: V, left: bool| {
-        if left {
-            d.v.push_front(x);
-            if let Some(m) = d.max {
-                if d.v.len() > m {
-                    d.v.pop_back();
-                }
-            }
-        } else {
-            d.v.push_back(x);
-            if let Some(m) = d.max {
-                if d.v.len() > m {
-                    d.v.pop_front();
-                }
-            }
-        }
-    };
-    Ok(match name {
-        "append" | "appendleft" => {
-            let x = a1(&a, name)?;
-            push(&mut d.borrow_mut(), x, name == "appendleft");
-            V::None
-        }
-        "extend" | "extendleft" => {
-            let xs = to_vec(&a1(&a, name)?)?;
-            let mut d = d.borrow_mut();
-            for x in xs {
-                push(&mut d, x, name == "extendleft");
-            }
-            V::None
-        }
-        "pop" => match d.borrow_mut().v.pop_back() {
-            Some(v) => v,
-            None => return Err(exc("IndexError", "pop from an empty deque".into())),
-        },
-        "popleft" => match d.borrow_mut().v.pop_front() {
-            Some(v) => v,
-            None => return Err(exc("IndexError", "pop from an empty deque".into())),
-        },
-        "rotate" => {
-            let n = opt_idx(&a, 0)?.unwrap_or(1);
-            let mut d = d.borrow_mut();
-            let len = d.v.len() as i64;
-            if len > 0 {
-                let k = n.rem_euclid(len) as usize;
-                d.v.rotate_right(k);
-            }
-            V::None
-        }
-        "clear" => {
-            d.borrow_mut().v.clear();
-            V::None
-        }
-        "copy" => V::Deque(Rc::new(RefCell::new(Deq { v: d.borrow().v.clone(), max: d.borrow().max }))),
-        "reverse" => {
-            let mut d = d.borrow_mut();
-            let v: VecDeque<V> = d.v.drain(..).rev().collect();
-            d.v = v;
-            V::None
-        }
-        "count" | "index" | "remove" => {
-            let x = a1(&a, name)?;
-            let v: Vec<V> = d.borrow().v.iter().cloned().collect();
-            let mut k = 0;
-            for (i, y) in v.iter().enumerate() {
-                if eq(y, &x)? {
-                    match name {
-                        "index" => return Ok(V::Int(i as i64)),
-                        "remove" => {
-                            d.borrow_mut().v.remove(i);
-                            return Ok(V::None);
-                        }
-                        _ => k += 1,
-                    }
-                }
-            }
-            match name {
-                "count" => V::Int(k),
-                "index" => return val_err(format!("{} is not in deque", repr(&x)?)),
-                _ => return val_err("deque.remove(x): x not in deque".into()),
-            }
-        }
-        "insert" => {
-            a.want("insert", 2, 2)?;
-            let i = idx_of(&a.p[0])?;
-            let mut d = d.borrow_mut();
-            let n = d.v.len() as i64;
-            let j = if i < 0 { (i + n).max(0) } else { i.min(n) } as usize;
-            d.v.insert(j, a.p[1].clone());
-            V::None
-        }
-        "__len__" => V::Int(d.borrow().v.len() as i64),
         _ => return bad_method(o, name),
     })
 }

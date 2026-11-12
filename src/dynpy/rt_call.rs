@@ -2176,6 +2176,12 @@ pub fn call_method(o: &V, name: &str, mut a: Args) -> R {
                     return Ok(V::Obj(no));
                 }
             }
+            // a deque subclass's copy() and __copy__() return the subclass: type(d)(d[, maxlen])
+            if matches!(name, "copy" | "__copy__") && ob.cls.own(name).is_none() {
+                if let Some(r) = deque_sub_copy(o) {
+                    return r;
+                }
+            }
             if matches!(name, "update" | "subtract" | "__init__") && counter_inner(o).is_some() {
                 return if name == "__init__" { counter_obj_init(o, a) } else { counter_obj_method(o, name, a) };
             }

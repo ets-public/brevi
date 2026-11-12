@@ -1,0 +1,3 @@
+- Dynamic builds: `collections.deque` follows CPython's rules: iterators, `in`, `count`, `index` and `remove` raise when the deque changes under them; `+`, `*` and `*=` keep `maxlen`; `<`/`<=`/`>`/`>=` compare deques; `insert` into a full deque raises `IndexError`; `index` takes start and stop; `__init__`, `__getitem__`, `__copy__` and the other dunders exist; argument errors match CPython's.
+- Dynamic builds: a deque holding itself prints `[...]` instead of overflowing the stack; a deque subclass prints its own class name; `deque` reports module `collections`; `id()` of a deque, set, iterator or function is its own address (it was 1 for all of them); deques take weak references.
+- Typed builds: `insert` on a queue clamps an index past either end, as `list.insert` does.

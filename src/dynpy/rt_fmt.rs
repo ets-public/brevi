@@ -354,6 +354,14 @@ pub fn repr(v: &V) -> Result<String, E> {
                         return counter_repr(d, o.cls.name);
                     }
                 }
+                // a deque subclass's repr names the instance's type, as CPython's deque_repr does: D([...])
+                if let V::Deque(_) = &i {
+                    let r = repr(&i)?;
+                    return Ok(match r.strip_prefix("deque") {
+                        Some(rest) => format!("{}{}", o.cls.name, rest),
+                        None => r,
+                    });
+                }
                 // bytearray's repr names the instance's type, as CPython's does: BA(b'..')
                 if o.cls.base_bt() == BT::ByteArray {
                     if let Some(b) = bytes_of(&i) {
@@ -424,10 +432,18 @@ pub fn repr(v: &V) -> Result<String, E> {
         }
         V::Slice(s) => format!("slice({}, {}, {})", repr(&s.0)?, repr(&s.1)?, repr(&s.2)?),
         V::Deque(d) => {
+            // a deque holding itself shows it as [...], as CPython's deque_repr (Py_ReprEnter)
+            let p = Rc::as_ptr(d) as *const u8 as usize;
+            if !guard(p) {
+                return Ok("[...]".into());
+            }
             let v: Vec<V> = d.borrow().v.iter().cloned().collect();
+            let items = join_repr(&v);
+            unguard();
+            let items = items?;
             match d.borrow().max {
-                Some(m) => format!("deque([{}], maxlen={})", join_repr(&v)?, m),
-                None => format!("deque([{}])", join_repr(&v)?),
+                Some(m) => format!("deque([{}], maxlen={})", items, m),
+                None => format!("deque([{}])", items),
             }
         }
         V::Module(m) => format!("<module '{}'>", m),

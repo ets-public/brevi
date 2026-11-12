@@ -5971,12 +5971,11 @@ impl<T: Clone + PartialEq> AxQueue<T> {
         let j = ax_idx(i, self.0.len());
         self.0.remove(j).unwrap()
     }
+    // as list.insert and deque.insert: an index past either end is clamped to that end
     pub fn ax_insert(&mut self, i: i64, x: T) {
-        if i == 0 {
-            return self.0.push_front(x);
-        }
-        let j = if i == self.0.len() as i64 { self.0.len() } else { ax_idx(i, self.0.len()) };
-        self.0.insert(j, x)
+        let n = self.0.len() as i64;
+        let j = if i < 0 { (i + n).max(0) } else { i.min(n) };
+        self.0.insert(j as usize, x)
     }
     pub fn ax_len(&self) -> i64 {
         self.0.len() as i64

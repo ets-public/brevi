@@ -524,6 +524,8 @@ pub fn bi___brevi_lone_str(a: Args) -> R {
 pub struct Deq {
     pub v: VecDeque<V>,
     pub max: Option<usize>,
+    // bumped by every change of length or order but d[i] = x and reverse(), as CPython's deque->state
+    pub state: u64,
 }
 
 pub struct E(pub V);
@@ -3643,11 +3645,11 @@ pub fn init_builtin_classes() {
         ("type", BT::Type),
         ("function", BT::Func),
         ("range", BT::Range),
-        ("deque", BT::Deque),
         ("mappingproxy", BT::Other),
     ] {
         m.insert(n, Class::new(n, "builtins", vec![object.clone()], bt));
     }
+    m.insert("deque", Class::new("deque", "collections", vec![object.clone()], BT::Deque));
     let int = m["int"].clone();
     m.insert("bool", Class::new("bool", "builtins", vec![int], BT::Bool));
     let dict = m["dict"].clone();
