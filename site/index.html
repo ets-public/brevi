@@ -23,7 +23,7 @@ __HEADER__
       <div>
         <p class="eyebrow">A compiler for AI coding agents</p>
         <h1>Run the Python your agent writes as a native binary</h1>
-        <p class="lede">Your agent keeps writing ordinary Python. Brevi compiles it through Rust into a native binary that runs <strong>1.7x to 39.5x faster</strong> than CPython (median 8.5x) on our compute benchmarks.</p>
+        <p class="lede">Your agent keeps writing ordinary Python. Brevi compiles it through Rust into a native binary that runs <strong>1.6x to 37.9x faster</strong> than CPython (median 9.3x) on our compute benchmarks.</p>
         <div class="install" aria-label="Install command"><span class="p">$</span><code>curl -fsSL https://raw.githubusercontent.com/ets-public/brevi/main/install.sh | sh</code><button class="copy" type="button" data-copy>Copy</button></div>
         <div class="actions">
           <a class="btn primary" href="/docs/install">Get started</a>
@@ -52,7 +52,7 @@ cat: 1</pre>
     </div>
     <div class="wrap">
       <div class="stats">
-        <div class="stat"><span class="num">8.5x</span><span class="lab">Median speed over CPython</span><span class="sub">1.7x to 39.5x on 12 compute benchmarks, default build</span></div>
+        <div class="stat"><span class="num">9.3x</span><span class="lab">Median speed over CPython</span><span class="sub">1.6x to 37.9x on 12 compute benchmarks, default build</span></div>
         <div class="stat"><span class="num">250 of 311</span><span class="lab">CPython 3.13 tests matched</span><span class="sub">80% in v__VERSION__. <a href="/docs/compatibility#in-numbers">All the numbers</a></span></div>
         <div class="stat"><span class="num">591 of 591</span><span class="lab">Saved agent programs still match</span><span class="sub">A regression check, not a measure of Python coverage</span></div>
         <div class="stat"><span class="num">1 line</span><span class="lab">Per error, as JSON</span><span class="sub">With the line number and, where it can, a fix</span></div>
@@ -188,7 +188,7 @@ IndexError: list index out of range</pre>
               </tbody>
             </table>
           </div>
-          <p class="note">3 November 2026, one 4-core Linux machine (Codon 0.20.6, Nuitka 4.3.4, CPython 3.13). Without <code>--release</code>, Brevi's default build is 1.7x to 39.5x faster than CPython on these 12 programs, median 8.5x. Codon and Nuitka were timed in an earlier session on the same machine. These are compute-heavy programs on Brevi's typed build; programs on its dynamic build run much closer to CPython's speed.</p>
+          <p class="note">3 November 2026, one 4-core Linux machine (Codon 0.20.6, Nuitka 4.3.4, CPython 3.13). Without <code>--release</code>, Brevi's default build is 1.7x to 39.5x faster than CPython on these 12 programs, median 8.5x. Codon and Nuitka were timed in an earlier session on the same machine. Re-measured on 12 November 2026 on a Ryzen 9 5950X (WSL2, CPython 3.13.13), the default build is 1.6x to 37.9x faster, median 9.3x, and <code>--release</code> 2.1x to 38.8x, median 9.8x. These are compute-heavy programs on Brevi's typed build; programs on its dynamic build run much closer to CPython's speed.</p>
         </div>
         <div>
           <div class="table-wrap">

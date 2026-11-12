@@ -116,7 +116,7 @@ build after an edit ≤500 ms; `bench/latency.py` in CI with a p50/p95 non-regre
 
 The typed path is the speed, and whole-program demotion is the enemy: 70% of our agent corpus builds typed, but only
 25 of the 230 conformance tests that built took the typed path, and the review measured the dynamic path at roughly
-1.3x CPython.
+1.3x CPython. On the 12 compute benchmarks (12 Nov 2026) the dynamic build runs at 0.5x to 1.4x CPython, median 0.85x.
 
 - `brevi check --explain` over real agent code (alpha users, with permission) and a published refusal-reason
   histogram; work down the top 20.
