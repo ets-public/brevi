@@ -676,12 +676,18 @@ done
 # A str with a lone surrogate on a path not yet written for one stops the program, even inside try/except: never a
 # different answer (handoffs/string-model-design.md).
 t=$(mktemp -d)
-printf 'try:\n    print(chr(0xd800).encode())\nexcept BaseException:\n    print("caught")\nprint("after")\n' > "$t/s.py"
+printf 'import json\ntry:\n    print(json.loads(chr(34) + chr(0xd800) + chr(34)))\nexcept BaseException:\n    print("caught")\nprint("after")\n' > "$t/s.py"
 o=$(BREVI_DYN=1 $BREVI run "$t/s.py" 2>&1); c=$?
 case "$c:$o" in "1:NotImplementedError: brevi: this operation on a str with a lone surrogate (U+D800..U+DFFF) is not supported in dynamic builds yet"*) echo "ok   a lone surrogate on an unwritten path stops the program" ;; *) echo "FAIL a lone surrogate on an unwritten path ($c)"; printf '%s\n' "$o"; fail=1 ;; esac
 printf 'def f():\n    "\\ud800"\n' > "$t/d.py"
 o=$(BREVI_DYN=1 $BREVI run "$t/d.py" 2>&1)
 case "$o" in *"a docstring with a lone surrogate (U+D800..U+DFFF) is not supported"*) echo "ok   a docstring with a lone surrogate is refused" ;; *) echo "FAIL a docstring with a lone surrogate"; printf '%s\n' "$o"; fail=1 ;; esac
+# python3's stdout under the C locale is UTF-8 with surrogateescape: \udc80 is written as the byte 0x80, and \ud800
+# still raises (the same answer both builds give: compare bytes with python3's).
+printf 'import sys\nprint("a" + chr(0xdc80) + "b")\nsys.stdout.write(chr(0xdcff) + "\\n")\ntry:\n    print(chr(0xd800))\nexcept UnicodeEncodeError as e:\n    print(e)\n' > "$t/c.py"
+want=$(env -u LANG -u LC_ALL -u LC_CTYPE -u PYTHONIOENCODING -u PYTHONUTF8 python3 "$t/c.py" 2>&1 | od -An -tx1)
+got=$(env -u LANG -u LC_ALL -u LC_CTYPE -u PYTHONIOENCODING -u PYTHONUTF8 BREVI_DYN=1 $BREVI run "$t/c.py" 2>&1 | od -An -tx1)
+if [ -n "$want" ] && [ "$got" = "$want" ]; then echo "ok   a lone surrogate on stdout under the C locale"; else echo "FAIL a lone surrogate on stdout under the C locale"; echo "want $want"; echo "got  $got"; fail=1; fi
 rm -rf "$t"
 #== bridge split
 # Python libraries the dynamic build lacks (tests/bridge/brlib stands in for a third-party one) run in CPython

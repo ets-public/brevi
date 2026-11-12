@@ -117,7 +117,7 @@ pub fn bi_bytearray(a: Args) -> R {
         if enc.is_none() {
             return type_err("string argument without an encoding".into());
         }
-        let b = str_encode(&s.text(), enc.as_ref(), errs.as_ref())?;
+        let b = str_encode(s, enc.as_ref(), errs.as_ref())?;
         return Ok(bytearrayv(bytes_of(&b).unwrap_or_default()));
     }
     if enc.is_some() {

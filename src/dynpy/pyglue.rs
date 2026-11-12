@@ -507,6 +507,34 @@ unsafe fn pyd_text(p: P) -> Result<String, E> {
     Ok(String::from_utf8_lossy(std::slice::from_raw_parts(c as *const u8, n as usize)).into_owned())
 }
 
+// A str for CPython: UTF-8 text, or for a str with lone surrogates its code points (PyUnicode_4BYTE_KIND).
+unsafe fn pyd_s_obj(x: &S) -> P {
+    match x.lone() {
+        None => pyd_str_obj(x.text()),
+        Some(cps) => (pyd_api().UniFromKind)(4, cps.as_ptr() as *const std::ffi::c_void, cps.len() as isize),
+    }
+}
+
+// A CPython str as the program's str: a str with lone surrogates has no UTF-8 form (AsUTF8 raises), so it is read
+// as its code points instead.
+unsafe fn pyd_s(p: P) -> R {
+    let a = pyd_api();
+    let mut n: isize = 0;
+    let c = (a.UniAs)(p, &mut n);
+    if !c.is_null() {
+        return Ok(st(String::from_utf8_lossy(std::slice::from_raw_parts(c as *const u8, n as usize)).into_owned()));
+    }
+    (a.ErrClear)();
+    let len = (a.UniLen)(p);
+    let u = (a.UniUcs4)(p);
+    if u.is_null() || len < 0 {
+        return Err(pyd_err());
+    }
+    let v = std::slice::from_raw_parts(u, len as usize).to_vec();
+    (a.MemFree)(u as *mut std::ffi::c_void);
+    Ok(st_cps(v))
+}
+
 // A function of _brevi_dyn called with borrowed arguments; its result as the program's value (copied).
 unsafe fn pyd_helper(name: &str, args: &[P]) -> R {
     let a = pyd_api();
@@ -676,9 +704,9 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
         return done(cplx(re, im));
     }
     if t == a.TUni {
-        let s = pyd_text(p);
+        let s = pyd_s(p);
         (a.DecRef)(p);
-        return Ok(st(s?));
+        return s;
     }
     if t == a.TBytes {
         let (mut b, mut n): (*mut c_char, isize) = (std::ptr::null_mut(), 0);
@@ -1398,7 +1426,7 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
             pyd_own((a.LongFromStr)(c.as_ptr(), std::ptr::null_mut(), 10))?
         }
         V::Float(f) => (a.FloatFrom)(*f),
-        V::Str(x) => pyd_own(pyd_str_obj(x.text()))?,
+        V::Str(x) => pyd_own(pyd_s_obj(x))?,
         V::Tuple(t) => {
             let p = (a.TupleNew)(t.len() as isize);
             for (i, x) in t.iter().enumerate() {

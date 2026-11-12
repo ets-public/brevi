@@ -149,15 +149,80 @@ fn file_target(f: &V) -> Result<u8, E> {
         _ => Err(unsupported("print(file=...) to this file")),
     }
 }
+// What stderr shows for a str: CPython's stderr writes a lone surrogate with errors='backslashreplace'.
+pub fn err_text(x: &S) -> std::borrow::Cow<'_, str> {
+    if !x.is_lone() {
+        return std::borrow::Cow::Borrowed(x.text());
+    }
+    let b = str_encode(x, None, Some(&s("backslashreplace"))).ok().and_then(|b| bytes_of(&b)).unwrap_or_default();
+    std::borrow::Cow::Owned(String::from_utf8(b).unwrap_or_default())
+}
+// The error handler python3's stdout would encode with, when Brevi can name it: CPython's stdout is UTF-8 with
+// 'surrogateescape' under the C/POSIX locale, the coerced C.UTF-8 one or UTF-8 mode, 'strict' under another
+// UTF-8 locale. None (a lone surrogate then stops) for what Brevi does not model: Windows (the ANSI code page),
+// PYTHONIOENCODING, a locale whose codeset is not UTF-8.
+fn stdout_errors() -> Option<&'static str> {
+    static ERRS: std::sync::OnceLock<Option<&'static str>> = std::sync::OnceLock::new();
+    *ERRS.get_or_init(|| {
+        if cfg!(windows) || std::env::var_os("PYTHONIOENCODING").is_some_and(|v| !v.is_empty()) {
+            return None;
+        }
+        if std::env::var("PYTHONUTF8").is_ok_and(|v| v == "1") {
+            return Some("surrogateescape");
+        }
+        let name = ctype_locale()?;
+        let up = name.to_ascii_uppercase().replace('-', "");
+        if name == "C" || name == "POSIX" || up == "C.UTF8" || up == "UTF8" {
+            Some("surrogateescape")
+        } else if up.ends_with(".UTF8") || up.contains(".UTF8@") {
+            Some("strict")
+        } else {
+            None
+        }
+    })
+}
+// The LC_CTYPE locale the environment selects (setlocale(LC_CTYPE, "") as python3 does at startup; restored after).
+#[cfg(unix)]
+fn ctype_locale() -> Option<String> {
+    use std::ffi::{c_char, c_int, CStr};
+    extern "C" {
+        fn setlocale(cat: c_int, loc: *const c_char) -> *mut c_char;
+    }
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))]
+    const LC_CTYPE: c_int = 2;
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd")))]
+    const LC_CTYPE: c_int = 0;
+    unsafe {
+        let old = setlocale(LC_CTYPE, std::ptr::null());
+        let old = (!old.is_null()).then(|| CStr::from_ptr(old).to_owned());
+        let p = setlocale(LC_CTYPE, b"\0".as_ptr() as *const c_char);
+        let name = (!p.is_null()).then(|| CStr::from_ptr(p).to_string_lossy().into_owned());
+        if let Some(o) = &old {
+            setlocale(LC_CTYPE, o.as_ptr());
+        }
+        Some(name.unwrap_or_else(|| "C".into()))
+    }
+}
+#[cfg(not(unix))]
+fn ctype_locale() -> Option<String> {
+    None
+}
+// print/sys.stdout.write of a str with a lone surrogate: python3's stdout encodes it (stdout_errors) and raises
+// UnicodeEncodeError if it cannot; Ok(bytes) are written as they are (surrogateescape gives back raw bytes).
+pub fn out_lone(x: &S) -> Result<Vec<u8>, E> {
+    let Some(errs) = stdout_errors() else { lone_stop(std::panic::Location::caller()) };
+    let b = str_encode(x, None, Some(&s(errs)))?;
+    Ok(bytes_of(&b).unwrap_or_default())
+}
 pub fn bi_print(mut a: Args) -> R {
     let sep = match a.kw("sep") {
-        Some(V::None) | None => " ".to_string(),
-        Some(V::Str(x)) => x.text().to_string(),
+        Some(V::None) | None => s(" "),
+        Some(x @ V::Str(_)) => x,
         Some(x) => return type_err(format!("sep must be None or a string, not {}", tn(&x))),
     };
     let end = match a.kw("end") {
-        Some(V::None) | None => "\n".to_string(),
-        Some(V::Str(x)) => x.text().to_string(),
+        Some(V::None) | None => s("\n"),
+        Some(x @ V::Str(_)) => x,
         Some(x) => return type_err(format!("end must be None or a string, not {}", tn(&x))),
     };
     let file = match a.kw("file").unwrap_or(V::None) {
@@ -166,47 +231,68 @@ pub fn bi_print(mut a: Args) -> R {
     };
     let flush = a.kw("flush").map(|f| truth(&f).unwrap_or(false)).unwrap_or(false);
     a.no_kw("print")?;
-    // a file object: one write() per piece and then flush(), in CPython's order (an error in str() of a later
-    // argument comes after the earlier pieces were written)
-    if file_target(&file)? == 3 {
-        let w = |t: String| call_method(&file, "write", Args::p(vec![st(t)])).map(|_| ());
-        for (i, x) in a.p.iter().enumerate() {
-            if i > 0 {
-                w(sep.clone())?;
-            }
-            w(match x {
-                V::Str(x) => x.text().to_string(),
-                _ => to_str(x)?,
-            })?;
+    // the pieces in CPython's order (arg, sep, arg, ..., end), each str() taken only when it is reached, so an error
+    // in str() of a later argument (or a lone surrogate stdout cannot encode) comes after the earlier pieces
+    let n = a.p.len();
+    // k = 0, 2, 4, ...: the arguments; the odd k between them: sep; the last k: end
+    let piece = |k: usize| -> R {
+        if k + 1 == (2 * n).max(1) {
+            return Ok(end.clone());
         }
-        w(end)?;
+        if k % 2 == 1 {
+            return Ok(sep.clone());
+        }
+        match &a.p[k / 2] {
+            x @ V::Str(_) => Ok(x.clone()),
+            x => Ok(st(to_str(x)?)),
+        }
+    };
+    let ks = 0..(2 * n).max(1);
+    let target = file_target(&file)?;
+    // a file object: one write() per piece and then flush()
+    if target == 3 {
+        for k in ks {
+            call_method(&file, "write", Args::p(vec![piece(k)?]))?;
+        }
         if flush {
             call_method(&file, "flush", Args::p(vec![]))?;
         }
         return Ok(V::None);
     }
     let mut t = String::new();
-    for (i, x) in a.p.iter().enumerate() {
-        if i > 0 {
-            t.push_str(&sep);
-        }
-        match x {
-            V::Str(x) => t.push_str(&x.text()),
-            _ => t.push_str(&to_str(x)?),
+    for k in ks {
+        let p = piece(k);
+        let p = match p {
+            Ok(p) => p,
+            Err(e) => {
+                if target == 1 {
+                    out_write(&t);
+                }
+                return Err(e);
+            }
+        };
+        let V::Str(x) = &p else { unreachable!() };
+        if x.is_lone() {
+            match target {
+                1 => {
+                    out_write(&t);
+                    t.clear();
+                    out_write_bytes(&out_lone(x)?);
+                }
+                _ => t.push_str(&err_text(x)),
+            }
+        } else {
+            t.push_str(x.text());
         }
     }
-    t.push_str(&end);
-    match file_target(&file)? {
+    match target {
         1 => {
             out_write(&t);
             if flush {
                 out_flush();
             }
         }
-        2 => err_write(&t),
-        _ => {
-            call_method(&file, "write", Args::p(vec![st(t)]))?;
-        }
+        _ => err_write(&t),
     }
     Ok(V::None)
 }
@@ -2632,6 +2718,13 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             }
         }
     }
+    // encode reads code points itself (str_encode), so a str with lone surrogates goes there as it is
+    if name == "encode" {
+        let enc = a.kw("encoding").or_else(|| a.p.first().cloned());
+        let errs = a.kw("errors").or_else(|| a.p.get(1).cloned());
+        a.no_kw("encode")?;
+        return str_encode(me, enc.as_ref(), errs.as_ref());
+    }
     if me.is_lone() || a.p.iter().chain(a.k.iter().map(|(_, v)| v)).any(arg_lone) {
         return str_method_lone(me, o, name, a);
     }
@@ -2912,13 +3005,6 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             st(out)
         }
         "maketrans" => str_maketrans(&a)?,
-        "encode" => {
-            let mut a = a;
-            let enc = a.kw("encoding").or_else(|| a.p.first().cloned());
-            let errs = a.kw("errors").or_else(|| a.p.get(1).cloned());
-            a.no_kw("encode")?;
-            str_encode(&me.text(), enc.as_ref(), errs.as_ref())?
-        }
         "__len__" => V::Int(me.nchars() as i64),
         "__contains__" => V::Bool(contains(o, &a1(&a, name)?)?),
         "__getitem__" => getitem(o, &a1(&a, name)?)?,

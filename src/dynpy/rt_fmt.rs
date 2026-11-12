@@ -583,6 +583,11 @@ pub fn to_str(v: &V) -> Result<String, E> {
                             });
                         }
                     }
+                    if t.len() == 5 && o.cls.is_sub(&exc_class("UnicodeEncodeError")) {
+                        if let (V::Str(e), V::Str(ob), V::Int(a), V::Int(z), V::Str(r)) = (&t[0], &t[1], &t[2], &t[3], &t[4]) {
+                            return Ok(uenc_msg(e.text(), &ob.cps(), *a, *z, r.text()));
+                        }
+                    }
                 }
                 return Ok(match &args {
                     V::Tuple(t) if t.is_empty() => String::new(),
