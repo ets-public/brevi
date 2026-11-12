@@ -1298,7 +1298,15 @@ pub fn py_hash(v: &V) -> Result<i64, E> {
             None if x.any().is::<SigV>() => return Err(unsupported("hash() of an inspect.Signature")),
             None => return type_err(format!("unhashable type: '{}'", x.tname())),
         },
-        V::Range(r) => hash_tuple(&[V::Int(r.0), V::Int(r.1), V::Int(r.2)])?,
+        // range_hash: hash((len, start, step)), start and step None when empty, step None for one item
+        V::Range(r) => {
+            let n = range_len(v) as i64;
+            match n {
+                0 => hash_tuple(&[V::Int(0), V::None, V::None])?,
+                1 => hash_tuple(&[V::Int(1), V::Int(r.0), V::None])?,
+                _ => hash_tuple(&[V::Int(n), V::Int(r.0), V::Int(r.2)])?,
+            }
+        }
         V::Module(m) => hash_str(m),
         V::Ellipsis | V::NotImpl => 7,
         _ => return type_err(format!("unhashable type: '{}'", type_name(v))),

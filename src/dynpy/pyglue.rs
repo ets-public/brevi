@@ -628,6 +628,10 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
         let f = (a.FloatAs)(p);
         return done(V::Float(f));
     }
+    if t == a.TComplex {
+        let (re, im) = ((a.ComplexReal)(p), (a.ComplexImag)(p));
+        return done(cplx(re, im));
+    }
     if t == a.TUni {
         let s = pyd_text(p);
         (a.DecRef)(p);
@@ -1453,6 +1457,9 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
             }
             if let Some(b) = bytes_of(v) {
                 return pyd_own((a.BytesFrom)(b.as_ptr() as *const c_char, b.len() as isize));
+            }
+            if let Some((re, im)) = cplx_of(v) {
+                return pyd_own((a.ComplexFrom)(re, im));
             }
             match x.tname().rsplit('.').next().unwrap_or("") {
                 "Decimal" => pyd_str_arg("decimal", "Decimal", &to_str(v)?)?,

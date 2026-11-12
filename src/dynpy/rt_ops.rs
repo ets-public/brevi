@@ -1202,7 +1202,11 @@ fn float_op(x: f64, y: f64, op: &str, a: &V, b: &V) -> R {
                 return Err(exc("ZeroDivisionError", "0.0 cannot be raised to a negative power".into()));
             }
             if x < 0.0 && y.fract() != 0.0 {
-                return Err(unsupported("complex numbers"));
+                // float_pow: a negative number to a fractional power is complex_pow's
+                if x.is_finite() && y.is_finite() {
+                    return c_pow((x, 0.0), (y, 0.0));
+                }
+                return Err(unsupported("a negative float to an infinite or NaN power"));
             }
             let r = x.powf(y);
             if r.is_infinite() && x.is_finite() && y.is_finite() {
@@ -1555,6 +1559,10 @@ pub fn len(v: &V) -> Result<usize, E> {
         V::Ext(x) => match x.len() {
             Some(n) => n,
             None if memview_of(v).is_some() => return Err(exc("ValueError", "operation forbidden on released memoryview object".into())),
+            None if bigrange_of(v).is_some() => match call_method(v, "__len__", Args::p(vec![]))? {
+                V::Int(i) => i as usize,
+                _ => return type_err("'__len__' returned a bad value".into()),
+            },
             None => return type_err(format!("object of type '{}' has no len()", tn(v))),
         },
         _ => return type_err(format!("object of type '{}' has no len()", tn(v))),
@@ -2324,7 +2332,8 @@ impl It {
             It::Range(a, b, st) => {
                 if (*st > 0 && *a < *b) || (*st < 0 && *a > *b) {
                     let v = *a;
-                    *a += *st;
+                    // a step past the i64 range is past stop too: the range is done
+                    *a = a.checked_add(*st).unwrap_or(*b);
                     Ok(Some(V::Int(v)))
                 } else {
                     Ok(None)
@@ -2543,6 +2552,9 @@ pub fn iter_v(v: &V) -> R {
                 }
                 // the object __iter__ returned, itself (`iter(it) is it` for an iterator class, as in CPython)
                 return Ok(r);
+            }
+            if !matches!(r, V::Iter(_) | V::Ext(_)) {
+                return type_err(format!("iter() returned non-iterator of type '{}'", tn(&r)));
             }
             return iter_v(&r);
         }

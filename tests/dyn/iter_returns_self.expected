@@ -1,0 +1,5 @@
+True It [1, 2, 3] [1, 2, 3] 1
+It [1, 2, 3] [3, 2, 1]
+[1, 2] generator
+iter() returned non-iterator of type 'int'
+iter() returned non-iterator of type 'NoNext'

@@ -74,7 +74,7 @@ pub fn math_fn(name: &str, a: Args) -> R {
                 V::Ext(e) => match e.method(&x, &format!("__{name}__"), &mut Args::p(vec![])) {
                     Some(r) => r?,
                     None => fl_int({
-                        let f = to_float(&x)?;
+                        let f = to_float(&x).map_err(|_| exc("TypeError", format!("must be real number, not {}", tn(&x))))?;
                         match name {
                             "floor" => f.floor(),
                             "ceil" => f.ceil(),
@@ -2055,8 +2055,9 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             zip_longest_new(its, fill)
         }
         "repeat" => {
-            let x = a.p[0].clone();
-            match a.p.get(1).cloned().or(a.kw("times")) {
+            let [x, times] = it_sig(&mut a, name, &["object", "times"])?;
+            let x = x.ok_or_else(|| exc("TypeError", "repeat() missing required argument 'object' (pos 1)".into()))?;
+            match times {
                 Some(n) => new_iter(It::Repeat(x, Some(idx_of(&n)?.max(0))), IterClass::Kind(ItKind::ItRepeat)),
                 None => new_iter(It::Repeat(x, None), IterClass::Kind(ItKind::ItRepeat)),
             }

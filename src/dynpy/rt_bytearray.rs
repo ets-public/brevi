@@ -437,6 +437,10 @@ impl Ext for ByteArrayV {
     fn repr(&self) -> String {
         format!("bytearray({})", bytes_repr(&self.d.borrow()))
     }
+    // type(iter(x)): CPython's bytearray_iterator class, one shared class
+    fn iter_class(&self, _me: &V) -> Option<Rc<Class>> {
+        Some(ext_class_mod("builtins", "bytearray_iterator"))
+    }
     fn any(&self) -> &dyn std::any::Any {
         self
     }

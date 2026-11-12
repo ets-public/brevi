@@ -1,0 +1,805 @@
+0j 0j 0.0 0.0 False -0j 0.0
+0
+1j 1j 0.0 1.0 True -1j 1.0
+1000003
+(-0-1j) (-0-1j) -0.0 -1.0 True (-0+1j) 1.0
+-2000006
+(1+2j) (1+2j) 1.0 2.0 True (1-2j) 2.23606797749979
+2000007
+(-1.5-2.25j) (-1.5-2.25j) -1.5 -2.25 True (-1.5+2.25j) 2.704163456597992
+-2882303761519117447
+(3.25-4j) (3.25-4j) 3.25 -4.0 True (3.25+4j) 5.153882032022076
+576460752299423479
+-0j -0j 0.0 -0.0 False 0j 0.0
+0
+(-0+0j) (-0+0j) -0.0 0.0 False (-0-0j) 0.0
+0
+(1e+300+1e+300j) (1e+300+1e+300j) 1e+300 1e+300 True (1e+300-1e+300j) big
+7229033979992872944
+(1e-320+5j) (1e-320+5j) 1e-320 5.0 True (1e-320-5j) 5.0
+33962085199
+(inf+1j) (inf+1j) inf 1.0 True (inf-1j) big
+1314162
+(1-infj) (1-infj) 1.0 -inf True (1+infj) big
+-314159942476
+(nan+0j) (nan+0j) nan 0.0 True (nan-0j) big
+nan
+(2+nanj) (2+nanj) 2.0 nan True (2+nanj) big
+nan
+1e+16j 1e+16j 0.0 1e+16 True -1e+16j 1e+16
+1894712049423024128
+(100+0j) (100+0j) 100.0 0.0 True (100-0j) 100.0
+100
+10j 10j 0.0 10.0 True -10j 10.0
+10000030
+1000j 1000j 0.0 1000.0 True -1000j 1000.0
+1000003000
+7j 7j 0.0 7.0 True -7j 7.0
+7000021
+0.5j 0.5j 0.0 0.5 True -0.5j 0.5
+3458764513820540928
+0j complex
+0j complex
+0j complex
+0j complex
+0j complex
+0j complex
+raises ZeroDivisionError complex division by zero
+raises ZeroDivisionError complex division by zero
+(1+0j) complex
+(1+0j) complex
+True bool
+True bool
+False bool
+(-3+0j) complex
+(-3+0j) complex
+(3+0j) complex
+(-3+0j) complex
+(-0+0j) complex
+(-0+0j) complex
+(-0-0j) complex
+raises ZeroDivisionError complex division by zero
+raises ZeroDivisionError 0.0 to a negative or complex power
+(1+0j) complex
+False bool
+False bool
+True bool
+(2.5+0j) complex
+(2.5+0j) complex
+(-2.5+0j) complex
+(2.5+0j) complex
+0j complex
+0j complex
+0j complex
+raises ZeroDivisionError complex division by zero
+0j complex
+(1+0j) complex
+False bool
+False bool
+True bool
+0j complex
+0j complex
+0j complex
+(-0+0j) complex
+(-0+0j) complex
+(-0+0j) complex
+raises ZeroDivisionError complex division by zero
+raises ZeroDivisionError complex division by zero
+(1+0j) complex
+(1+0j) complex
+True bool
+True bool
+False bool
+(1+0j) complex
+(1+0j) complex
+(-1+0j) complex
+(1+0j) complex
+0j complex
+0j complex
+0j complex
+raises ZeroDivisionError complex division by zero
+0j complex
+(1+0j) complex
+False bool
+False bool
+True bool
+(1+1j) complex
+(1+1j) complex
+(-1-1j) complex
+(1+1j) complex
+0j complex
+0j complex
+0j complex
+raises ZeroDivisionError complex division by zero
+raises ZeroDivisionError 0.0 to a negative or complex power
+(1+0j) complex
+False bool
+False bool
+True bool
+0j complex
+0j complex
+0j complex
+0j complex
+0j complex
+0j complex
+raises ZeroDivisionError complex division by zero
+raises ZeroDivisionError complex division by zero
+(1+0j) complex
+(1+0j) complex
+True bool
+True bool
+False bool
+(1e+20+0j) complex
+(1e+20+0j) complex
+(-1e+20+0j) complex
+(1e+20+0j) complex
+0j complex
+0j complex
+0j complex
+raises ZeroDivisionError complex division by zero
+0j complex
+(1+0j) complex
+False bool
+False bool
+True bool
+1j complex
+1j complex
+1j complex
+-1j complex
+0j complex
+0j complex
+raises ZeroDivisionError complex division by zero
+0j complex
+(1+0j) complex
+raises ZeroDivisionError 0.0 to a negative or complex power
+False bool
+False bool
+True bool
+(-3+1j) complex
+(-3+1j) complex
+(3+1j) complex
+(-3-1j) complex
+(-0-3j) complex
+(-0-3j) complex
+(-0-0.3333333333333333j) complex
+3j complex
+(-0+1j) complex
+(0.019655091143742615+0.03848532348622212j) complex
+False bool
+False bool
+True bool
+(2.5+1j) complex
+(2.5+1j) complex
+(-2.5+1j) complex
+(2.5-1j) complex
+2.5j complex
+2.5j complex
+0.4j complex
+-2.5j complex
+(-0.7071067811865477-0.7071067811865475j) complex
+(0.6087670819712999+0.793349002588488j) complex
+False bool
+False bool
+True bool
+1j complex
+1j complex
+1j complex
+(-0-1j) complex
+(-0+0j) complex
+(-0+0j) complex
+raises ZeroDivisionError complex division by zero
+0j complex
+(1+0j) complex
+raises ZeroDivisionError 0.0 to a negative or complex power
+False bool
+False bool
+True bool
+(1+1j) complex
+(1+1j) complex
+(-1+1j) complex
+(1-1j) complex
+1j complex
+1j complex
+1j complex
+-1j complex
+1j complex
+(1+0j) complex
+False bool
+False bool
+True bool
+(1+2j) complex
+(1+2j) complex
+(-1+0j) complex
+(1+0j) complex
+(-1+1j) complex
+(-1+1j) complex
+(0.5+0.5j) complex
+(1-1j) complex
+(1.272895288930342e-17+0.20787957635076193j) complex
+(0.4288290062943678+0.15487175246424678j) complex
+False bool
+False bool
+True bool
+1j complex
+1j complex
+1j complex
+-1j complex
+0j complex
+0j complex
+raises ZeroDivisionError complex division by zero
+0j complex
+(1+0j) complex
+raises ZeroDivisionError 0.0 to a negative or complex power
+False bool
+False bool
+True bool
+(1e+20+1j) complex
+(1e+20+1j) complex
+(-1e+20+1j) complex
+(1e+20-1j) complex
+1e+20j complex
+1e+20j complex
+1e-20j complex
+-1e+20j complex
+(-0.9795611306275517+0.2011466911576539j) complex
+(-0.47820381580893195+0.878248888724476j) complex
+False bool
+False bool
+True bool
+-1j complex
+-1j complex
+(-0-1j) complex
+1j complex
+-0j complex
+-0j complex
+raises ZeroDivisionError complex division by zero
+(-0-0j) complex
+(1+0j) complex
+raises ZeroDivisionError 0.0 to a negative or complex power
+False bool
+False bool
+True bool
+(-3-1j) complex
+(-3-1j) complex
+(3-1j) complex
+(-3+1j) complex
+3j complex
+3j complex
+(-0+0.3333333333333333j) complex
+(-0-3j) complex
+-1j complex
+(10.525137296052872-20.60856958704319j) complex
+False bool
+False bool
+True bool
+(2.5-1j) complex
+(2.5-1j) complex
+(-2.5-1j) complex
+(2.5+1j) complex
+-2.5j complex
+-2.5j complex
+(-0-0.4j) complex
+(-0+2.5j) complex
+(-0.7071067811865477+0.7071067811865475j) complex
+(0.6087670819712999-0.793349002588488j) complex
+False bool
+False bool
+True bool
+(-0-1j) complex
+(-0-1j) complex
+-1j complex
+1j complex
+0j complex
+0j complex
+raises ZeroDivisionError complex division by zero
+(-0-0j) complex
+(1+0j) complex
+raises ZeroDivisionError 0.0 to a negative or complex power
+False bool
+False bool
+True bool
+(1-1j) complex
+(1-1j) complex
+(-1-1j) complex
+(1+1j) complex
+-1j complex
+-1j complex
+(-0-1j) complex
+(-0+1j) complex
+-1j complex
+(1-0j) complex
+False bool
+False bool
+True bool
+(1+0j) complex
+(1+0j) complex
+(-1-2j) complex
+(1+2j) complex
+(1-1j) complex
+(1-1j) complex
+(-0.5-0.5j) complex
+(-1+1j) complex
+(2.94556786348498e-16-4.810477380965351j) complex
+(2.0628722350809046-0.745007062179724j) complex
+False bool
+False bool
+True bool
+-1j complex
+-1j complex
+(-0-1j) complex
+1j complex
+-0j complex
+-0j complex
+raises ZeroDivisionError complex division by zero
+(-0-0j) complex
+(1+0j) complex
+raises ZeroDivisionError 0.0 to a negative or complex power
+False bool
+False bool
+True bool
+(1e+20-1j) complex
+(1e+20-1j) complex
+(-1e+20-1j) complex
+(1e+20+1j) complex
+-1e+20j complex
+-1e+20j complex
+(-0-1e-20j) complex
+(-0+1e+20j) complex
+(-0.9795611306275517-0.2011466911576539j) complex
+(-0.47820381580893195-0.878248888724476j) complex
+False bool
+False bool
+True bool
+(1+2j) complex
+(1+2j) complex
+(1+2j) complex
+(-1-2j) complex
+0j complex
+0j complex
+raises ZeroDivisionError complex division by zero
+0j complex
+(1+0j) complex
+raises ZeroDivisionError 0.0 to a negative or complex power
+False bool
+False bool
+True bool
+(-2+2j) complex
+(-2+2j) complex
+(4+2j) complex
+(-4-2j) complex
+(-3-6j) complex
+(-3-6j) complex
+(-0.3333333333333333-0.6666666666666666j) complex
+(-0.6+1.2j) complex
+(-0.08800000000000001+0.016j) complex
+(0.003284392547910993-0.004538595244908683j) complex
+False bool
+False bool
+True bool
+(3.5+2j) complex
+(3.5+2j) complex
+(-1.5+2j) complex
+(1.5-2j) complex
+(2.5+5j) complex
+(2.5+5j) complex
+(0.4+0.8j) complex
+(0.5-1j) complex
+(-6.960664459571901+2.7296244647840084j) complex
+(-0.647013199540743+2.414823786453175j) complex
+False bool
+False bool
+True bool
+(1+2j) complex
+(1+2j) complex
+(1+2j) complex
+(-1-2j) complex
+(-0+0j) complex
+(-0+0j) complex
+raises ZeroDivisionError complex division by zero
+0j complex
+(1+0j) complex
+raises ZeroDivisionError 0.0 to a negative or complex power
+False bool
+False bool
+True bool
+(2+2j) complex
+(2+2j) complex
+2j complex
+-2j complex
+(1+2j) complex
+(1+2j) complex
+(1+2j) complex
+(0.2-0.4j) complex
+(1+2j) complex
+(1+0j) complex
+False bool
+False bool
+True bool
+(2+3j) complex
+(2+3j) complex
+1j complex
+-1j complex
+(-1+3j) complex
+(-1+3j) complex
+(1.5+0.5j) complex
+(0.6-0.2j) complex
+(-0.24720004426291722+0.6964504870825432j) complex
+(0.02708205750344752+0.2927360563526887j) complex
+False bool
+False bool
+True bool
+(1+2j) complex
+(1+2j) complex
+(1+2j) complex
+(-1-2j) complex
+0j complex
+0j complex
+raises ZeroDivisionError complex division by zero
+0j complex
+(1+0j) complex
+raises ZeroDivisionError 0.0 to a negative or complex power
+False bool
+False bool
+True bool
+(1e+20+2j) complex
+(1e+20+2j) complex
+(-1e+20+2j) complex
+(1e+20-2j) complex
+(1e+20+2e+20j) complex
+(1e+20+2e+20j) complex
+(1e-20+2e-20j) complex
+(2e+19-4e+19j) complex
+raises OverflowError complex exponentiation
+(-5.426422210915543e+19-8.39963939635997e+19j) complex
+False bool
+False bool
+True bool
+(-1.5-2.25j) complex
+(-1.5-2.25j) complex
+(-1.5-2.25j) complex
+(1.5+2.25j) complex
+-0j complex
+-0j complex
+raises ZeroDivisionError complex division by zero
+(-0-0j) complex
+(1+0j) complex
+raises ZeroDivisionError 0.0 to a negative or complex power
+False bool
+False bool
+True bool
+(-4.5-2.25j) complex
+(-4.5-2.25j) complex
+(1.5-2.25j) complex
+(-1.5+2.25j) complex
+(4.5+6.75j) complex
+(4.5+6.75j) complex
+(0.5+0.75j) complex
+(0.6153846153846154-0.9230769230769231j) complex
+(0.049629966789730105+0.009710210893642848j) complex
+(140.31058670610074-177.20672859237422j) complex
+False bool
+False bool
+True bool
+(1-2.25j) complex
+(1-2.25j) complex
+(-4-2.25j) complex
+(4+2.25j) complex
+(-3.75-5.625j) complex
+(-3.75-5.625j) complex
+(-0.6-0.9j) complex
+(-0.5128205128205128+0.7692307692307693j) complex
+(7.604197231906733+9.315309303331707j) complex
+(-0.11925141262919756-0.2231123048734445j) complex
+False bool
+False bool
+True bool
+(-1.5-2.25j) complex
+(-1.5-2.25j) complex
+(-1.5-2.25j) complex
+(1.5+2.25j) complex
+0j complex
+0j complex
+raises ZeroDivisionError complex division by zero
+(-0-0j) complex
+(1+0j) complex
+raises ZeroDivisionError 0.0 to a negative or complex power
+False bool
+False bool
+True bool
+(-0.5-2.25j) complex
+(-0.5-2.25j) complex
+(-2.5-2.25j) complex
+(2.5+2.25j) complex
+(-1.5-2.25j) complex
+(-1.5-2.25j) complex
+(-1.5-2.25j) complex
+(-0.20512820512820512+0.3076923076923077j) complex
+(-1.5-2.25j) complex
+(1-0j) complex
+False bool
+False bool
+True bool
+(-0.5-1.25j) complex
+(-0.5-1.25j) complex
+(-2.5-3.25j) complex
+(2.5+3.25j) complex
+(0.75-3.75j) complex
+(0.75-3.75j) complex
+(-1.875-0.375j) complex
+(-0.5128205128205128+0.10256410256410257j) complex
+(9.266445969400898-21.508851011872416j) complex
+(-1.3140212020403437-3.223334028614959j) complex
+False bool
+False bool
+True bool
+(-1.5-2.25j) complex
+(-1.5-2.25j) complex
+(-1.5-2.25j) complex
+(1.5+2.25j) complex
+-0j complex
+-0j complex
+raises ZeroDivisionError complex division by zero
+(-0-0j) complex
+(1+0j) complex
+raises ZeroDivisionError 0.0 to a negative or complex power
+False bool
+False bool
+True bool
+(1e+20-2.25j) complex
+(1e+20-2.25j) complex
+(-1e+20-2.25j) complex
+(1e+20+2.25j) complex
+(-1.5e+20-2.25e+20j) complex
+(-1.5e+20-2.25e+20j) complex
+(-1.5e-20-2.25e-20j) complex
+(-2.051282051282051e+19+3.076923076923077e+19j) complex
+raises OverflowError complex exponentiation
+(-9.98419600883912e-31-5.619875951309023e-32j) complex
+False bool
+False bool
+True bool
+(3.25-4j) complex
+(3.25-4j) complex
+(3.25-4j) complex
+(-3.25+4j) complex
+0j complex
+0j complex
+raises ZeroDivisionError complex division by zero
+(-0+0j) complex
+(1+0j) complex
+raises ZeroDivisionError 0.0 to a negative or complex power
+False bool
+False bool
+True bool
+(0.25-4j) complex
+(0.25-4j) complex
+(6.25-4j) complex
+(-6.25+4j) complex
+(-9.75+12j) complex
+(-9.75+12j) complex
+(-1.0833333333333333+1.3333333333333333j) complex
+(-0.36705882352941177-0.45176470588235296j) complex
+(-0.0064920724608182375+0.0033481652757989012j) complex
+(9096263.883501481-4591544.110014247j) complex
+False bool
+False bool
+True bool
+(5.75-4j) complex
+(5.75-4j) complex
+(0.75-4j) complex
+(-0.75+4j) complex
+(8.125-10j) complex
+(8.125-10j) complex
+(1.3-1.6j) complex
+(0.3058823529411765+0.3764705882352941j) complex
+(-36.51367445138029-47.99122421473412j) complex
+(-17.015425198761445+9.82321370498865j) complex
+False bool
+False bool
+True bool
+(3.25-4j) complex
+(3.25-4j) complex
+(3.25-4j) complex
+(-3.25+4j) complex
+0j complex
+0j complex
+raises ZeroDivisionError complex division by zero
+(-0-0j) complex
+(1+0j) complex
+raises ZeroDivisionError 0.0 to a negative or complex power
+False bool
+False bool
+True bool
+(4.25-4j) complex
+(4.25-4j) complex
+(2.25-4j) complex
+(-2.25+4j) complex
+(3.25-4j) complex
+(3.25-4j) complex
+(3.25-4j) complex
+(0.1223529411764706+0.15058823529411763j) complex
+(3.25-4j) complex
+(1+0j) complex
+False bool
+False bool
+True bool
+(4.25-3j) complex
+(4.25-3j) complex
+(2.25-5j) complex
+(-2.25+5j) complex
+(7.25-0.75j) complex
+(7.25-0.75j) complex
+(-0.375-3.625j) complex
+(-0.02823529411764706+0.27294117647058824j) complex
+(9.15815776140564+8.553465794132988j) complex
+(28.093603568519704+65.61427689712012j) complex
+False bool
+False bool
+True bool
+(3.25-4j) complex
+(3.25-4j) complex
+(3.25-4j) complex
+(-3.25+4j) complex
+0j complex
+0j complex
+raises ZeroDivisionError complex division by zero
+(-0+0j) complex
+(1+0j) complex
+raises ZeroDivisionError 0.0 to a negative or complex power
+False bool
+False bool
+True bool
+(1e+20-4j) complex
+(1e+20-4j) complex
+(-1e+20-4j) complex
+(1e+20+4j) complex
+(3.25e+20-4e+20j) complex
+(3.25e+20-4e+20j) complex
+(3.25e-20-4e-20j) complex
+(1.2235294117647059e+19+1.5058823529411764e+19j) complex
+raises OverflowError complex exponentiation
+(-4.110788397776496e+64-9.115997956817792e+64j) complex
+False bool
+False bool
+True bool
+(1+0j) complex
+(1+0j) complex
+(1+0j) complex
+1 int
+1.0 float
+(1+0j) complex
+(1+0j) complex
+1j complex
+(1+1j) complex
+0j complex
+2 int
+-2.5 float
+(0.5-0.5j) complex
+1e+200j complex
+(-1+0j) complex
+2j complex
+0j complex
+4 int
+6.25 float
+-0.5j complex
+raises OverflowError complex exponentiation
+(-0-1j) complex
+(-2+2j) complex
+0j complex
+8 int
+-15.625 float
+(-0.25-0.25j) complex
+raises OverflowError complex exponentiation
+-1j complex
+(0.5-0.5j) complex
+raises ZeroDivisionError 0.0 to a negative or complex power
+0.5 float
+-0.4 float
+(1+1j) complex
+-1e-200j complex
+(-1-0j) complex
+-0.5j complex
+raises ZeroDivisionError 0.0 to a negative or complex power
+0.25 float
+0.16 float
+(-0+2j) complex
+(nan+nanj) complex
+(0.7071067811865476+0.7071067811865475j) complex
+(1.0986841134678098+0.45508986056222733j) complex
+0j complex
+1.4142135623730951 float
+(9.681683036350969e-17+1.5811388300841898j) complex
+(0.7768869870150187-0.32179712645279135j) complex
+(7.071067811865476e+99+7.071067811865475e+99j) complex
+(-0.7071067811865477-0.7071067811865475j) complex
+(-0.9101797211244547+2.19736822693562j) complex
+0j complex
+5.656854249492381 float
+(3.025525948859678e-15+9.882117688026186j) complex
+(-0.16089856322639567-0.3884434935075094j) complex
+raises OverflowError complex exponentiation
+(0.20787957635076193+0j) complex
+(0.4288290062943678+0.15487175246424678j) complex
+raises ZeroDivisionError 0.0 to a negative or complex power
+(0.7692389013639721+0.6389612763136348j) complex
+(0.0263072109219829+0.034283718952504164j) complex
+(2.0628722350809046-0.7450070621797238j) complex
+(-0.056187894332331706+0.2001420465426268j) complex
+(1.272895288930342e-17+0.20787957635076193j) complex
+(0.2739572538301211+0.5837007587586147j) complex
+raises ZeroDivisionError 0.0 to a negative or complex power
+(1.5384778027279442+1.2779225526272695j) complex
+(-0.06576802730495726-0.08570929738126039j) complex
+(0.6589325864505904-1.4039396486303144j) complex
+(-2.001420465426271e+199-5.618789433233062e+198j) complex
+(2.1932800507380152-0j) complex
+(1.4587927004579713-0.2553505587002998j) complex
+raises ZeroDivisionError 0.0 to a negative or complex power
+(0.9405421046832438-0.3396771251026685j) complex
+(4.314393616815175-2.1276043692293305j) complex
+(0.6651192126455092+0.1164240556578158j) complex
+(-1.3248114183795712+1.7479565459977715j) complex
+(4.408109496293883e-15+1j) complex
+(-1125899906842634.5-1125899906842629.5j) complex
+0j complex
+2535301200456458802993406410752 int
+-1.5557538194652854e+40 float
+(-4.440892098500668e-16+4.440892098500648e-16j) complex
+raises OverflowError complex exponentiation
+(1+0j) complex
+(-1125899906842624+0j) complex
+0j complex
+1267650600228229401496703205376 int
+6.223015277861142e+39 float
+(-8.881784197001252e-16-0j) complex
+(nan+nanj) complex
+(1+0j) complex
+(-8.881784197001252e-16-0j) complex
+raises ZeroDivisionError 0.0 to a negative or complex power
+7.888609052210118e-31 float
+1.6069380442589903e-40 float
+(-1125899906842624-0j) complex
+(nan+nanj) complex
+(0.9999999999993732-1.1196813809786636e-06j) complex
+raises OverflowError complex exponentiation
+0j complex
+raises OverflowError (34, 'Numerical result out of range')
+raises OverflowError (34, 'Numerical result out of range')
+0j complex
+raises OverflowError complex exponentiation
+(1.7319121124709868e-16+2.8284271247461903j) complex
+(1.0000000000000002+1.7320508075688772j) complex
+(-5.19573633741296e-16-2.8284271247461903j) complex
+(6.123233995736766e-17+1j) complex
+raises TypeError '<' not supported between instances of 'complex' and 'complex'
+raises TypeError '>' not supported between instances of 'complex' and 'int'
+raises TypeError '<' not supported between instances of 'int' and 'complex'
+raises TypeError '>' not supported between instances of 'complex' and 'complex'
+raises TypeError unsupported operand type(s) for //: 'complex' and 'int'
+raises TypeError unsupported operand type(s) for %: 'complex' and 'int'
+raises TypeError unsupported operand type(s) for divmod(): 'complex' and 'int'
+raises TypeError unsupported operand type(s) for //: 'int' and 'complex'
+raises TypeError type complex doesn't define __round__ method
+raises TypeError bad operand type for unary ~: 'complex'
+raises TypeError int() argument must be a string, a bytes-like object or a real number, not 'complex'
+raises TypeError float() argument must be a string or a real number, not 'complex'
+raises TypeError must be real number, not complex
+raises TypeError must be real number, not complex
+raises ValueError complex modulo
+raises ValueError complex modulo
+raises TypeError pow() 3rd argument not allowed unless all arguments are integers
+raises ValueError complex modulo
+(-1+0j) complex
+raises ZeroDivisionError complex division by zero
+raises ZeroDivisionError complex division by zero
+raises ZeroDivisionError 0.0 to a negative or complex power
+raises ZeroDivisionError 0.0 to a negative or complex power
+(1+0j) complex
+raises OverflowError complex exponentiation
+(nan+infj) complex
+1.4142135623730951e+308 float
+inf float
+5.0 float
+(-1-2j) complex
+(1+2j) complex
+(-0-0j) complex

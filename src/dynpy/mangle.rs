@@ -16,7 +16,7 @@ pub fn mangled(cls: &str, n: &str) -> Option<String> {
         return None;
     }
     // the parser's and emitter's own hidden names never change
-    if n.starts_with("__brevi_") || n.starts_with("__bv_") || n == "__bytes_lit" {
+    if n.starts_with("__brevi_") || n.starts_with("__bv_") || n == "__bytes_lit" || n == "__complex_lit" {
         return None;
     }
     let c = cls.trim_start_matches('_');

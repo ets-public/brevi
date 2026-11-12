@@ -7,7 +7,7 @@ pub enum Tok {
     Name(String),
     Int(String),
     Float(f64),
-    Imag,
+    Imag(f64),
     Str(String, bool),
     FStr(String, bool),
     Bytes(String),
@@ -354,7 +354,9 @@ pub fn lex(src: &str) -> Result<Lexed, (usize, String)> {
                 }
             }
             if j < cs.len() && (cs[j] == 'j' || cs[j] == 'J') {
-                toks.push((Tok::Imag, line));
+                // an imaginary literal: its digits read as a float (`1_0j`, `1e3j`, `07j`)
+                let t: String = cs[i..j].iter().filter(|c| **c != '_').collect();
+                toks.push((Tok::Imag(t.parse().map_err(|_| err(line, "bad number"))?), line));
                 i = j + 1;
                 continue;
             }
@@ -1658,7 +1660,7 @@ impl P {
             },
             Tok::Int(t) => Ok(Ex::Int(t)),
             Tok::Float(f) => Ok(Ex::Float(f)),
-            Tok::Imag => Err(err(line, "complex numbers are not supported")),
+            Tok::Imag(f) => Ok(Ex::Call(Box::new(Ex::Name("__complex_lit".into())), vec![Arg::Pos(Ex::Float(f))])),
             Tok::Bytes(b0) => {
                 // adjacent literals concatenate; b'...' 'x' mixes kinds, a SyntaxError in Python
                 let mut b = b0;

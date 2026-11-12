@@ -401,6 +401,24 @@ pub fn bi_dict(mut a: Args) -> R {
 pub fn bi_range(a: Args) -> R {
     let a = enum_nums(a);
     a.no_kw("range")?;
+    if (1..=3).contains(&a.p.len()) && a.p.iter().any(|x| matches!(x, V::Big(_))) {
+        let mut bs = Vec::new();
+        for x in &a.p {
+            match big_of(x) {
+                Some(b) => bs.push(b),
+                None => return type_err(format!("'{}' object cannot be interpreted as an integer", tn(x))),
+            }
+        }
+        let (s0, e, st) = match bs.len() {
+            1 => (Big::from_i64(0), bs[0].clone(), Big::from_i64(1)),
+            2 => (bs[0].clone(), bs[1].clone(), Big::from_i64(1)),
+            _ => (bs[0].clone(), bs[1].clone(), bs[2].clone()),
+        };
+        if st.is_zero() {
+            return val_err("range() arg 3 must not be zero".into());
+        }
+        return Ok(bigrange_v(s0, e, st));
+    }
     let g = |i: usize| -> Result<i64, E> {
         match &a.p[i] {
             V::Int(x) => Ok(*x),
@@ -575,10 +593,18 @@ pub fn bi_reversed(a: Args) -> R {
             return call(&f, Args::p(vec![x.clone()]));
         }
     }
+    if bigrange_of(&x).is_some() {
+        return call_method(&x, "__reversed__", Args::p(vec![]));
+    }
     if let V::Range(r) = &x {
         let n = range_len(&x) as i64;
         let last = r.0 + (n - 1) * r.2;
-        return Ok(new_iter(It::Range(last, r.0 - r.2, -r.2), IterClass::Kind(ItKind::RangeIter)));
+        // CPython falls back to its long range iterator when start - step leaves the C long range
+        let (Some(stop), Some(neg)) = (r.0.checked_sub(r.2), r.2.checked_neg()) else {
+            let b = bigrange_v(Big::from_i64(r.0), Big::from_i64(r.1), Big::from_i64(r.2));
+            return call_method(&b, "__reversed__", Args::p(vec![]));
+        };
+        return Ok(new_iter(It::Range(last, stop, neg), IterClass::Kind(ItKind::RangeIter)));
     }
     // list, dict and dict views have their own reverse iterators; every other reversible sequence gets
     // the generic `reversed` object, as in CPython.
@@ -674,7 +700,25 @@ pub fn bi_iter(a: Args) -> R {
             }
         }));
     }
-    iter_v(&a1(&a, "iter")?)
+    let v = a1(&a, "iter")?;
+    // iter(x) is what x.__iter__() returned when that is an iterator of the program's own (an iterator's
+    // __iter__ returning self keeps `iter(it) is it`, as in CPython)
+    if let V::Obj(o) = &v {
+        if let Some(f) = o.cls.lookup("__iter__") {
+            let r = call(&f, Args::p(vec![v.clone()]))?;
+            if let V::Obj(ro) = &r {
+                if ro.cls.lookup("__next__").is_none() {
+                    return type_err(format!("iter() returned non-iterator of type '{}'", tn(&r)));
+                }
+                return Ok(r);
+            }
+            if !matches!(r, V::Iter(_) | V::Ext(_)) {
+                return type_err(format!("iter() returned non-iterator of type '{}'", tn(&r)));
+            }
+            return iter_v(&r);
+        }
+    }
+    iter_v(&v)
 }
 pub fn bi_next(a: Args) -> R {
     a.want("next", 1, 2)?;
@@ -1021,6 +1065,7 @@ pub fn type_of(x: &V) -> Result<Rc<Class>, E> {
         V::Slice(_) => ext_class("slice"),
         V::Ellipsis => ext_class("ellipsis"),
         V::NotImpl => ext_class("NotImplementedType"),
+        V::Ext(e) if e.tname() == "range" => tclass(15, "range"),
         V::Ext(e) if e.tname() == "typing.TypeVar" => ext_class_mod("typing", "TypeVar"),
         V::Ext(e) if e.any().is::<SigV>() => sig_class(),
         V::Ext(e) => ext_class(e.tname()),
@@ -1362,6 +1407,9 @@ pub fn bi_round(a: Args) -> R {
 pub fn bi_divmod(a: Args) -> R {
     let a = enum_nums(a);
     a.want("divmod", 2, 2)?;
+    if cplx_of(&a.p[0]).is_some() || cplx_of(&a.p[1]).is_some() {
+        return Err(op_err("divmod()", &a.p[0], &a.p[1]));
+    }
     let q = binop(&a.p[0], &a.p[1], "//")?;
     let r = binop(&a.p[0], &a.p[1], "%")?;
     Ok(tup(vec![q, r]))
@@ -1397,6 +1445,9 @@ pub fn bi_pow(a: Args) -> R {
     let a = enum_nums(a);
     a.want("pow", 2, 3)?;
     if a.p.len() == 3 && !matches!(a.p[2], V::None) {
+        if let Some(r) = complex_pow3(&a.p[0], &a.p[1], &a.p[2]) {
+            return r;
+        }
         let (b, e, m) = (big_of(&a.p[0]), big_of(&a.p[1]), big_of(&a.p[2]));
         let (mut b, mut e, m) = match (b, e, m) {
             (Some(b), Some(e), Some(m)) => (b, e, m),
@@ -1635,6 +1686,9 @@ pub fn builtin_value(name: &str) -> Option<V> {
     if name == "memoryview" {
         return Some(V::Class(ext_class("memoryview")));
     }
+    if name == "complex" {
+        return Some(V::Class(ext_class("complex")));
+    }
     if builtin_type_name(name) && name != "slice" {
         return Some(V::Class(bclass(name)));
     }
@@ -1665,6 +1719,9 @@ pub fn builtin_type_call(c: &Rc<Class>, a: &mut Args) -> Option<R> {
     }
     if c.name == "bytearray" && c.module == "builtins" {
         return Some(bi_bytearray(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));
+    }
+    if c.name == "complex" && c.module == "builtins" {
+        return Some(bi_complex(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));
     }
     if c.name == "memoryview" && c.module == "builtins" {
         return Some(bi_memoryview(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));
