@@ -2854,7 +2854,9 @@ fn re_scanner_new(mut a: Args) -> R {
     if !a.p.is_empty() {
         return type_err(format!("Scanner.__init__() takes from 2 to 3 positional arguments but {} were given", a.p.len() + 3));
     }
-    let mut src = String::new();
+    // the combined pattern's code points: a phrase with lone surrogates keeps them (compiled by re_compile_lone)
+    let mut src: Vec<u32> = vec![];
+    let mut any_lone = false;
     let mut n = 0;
     for item in to_vec(&lexicon)? {
         let pair = to_vec(&item)?;
@@ -2864,26 +2866,41 @@ fn re_scanner_new(mut a: Args) -> R {
         let V::Str(ph) = &pair[0] else {
             return Err(unsupported("re.Scanner with a phrase that is not a str"));
         };
-        let t = &ph.text();
+        // the checks read placeholder text for a lone phrase: the placeholders are not ASCII, so they see the same
+        let lone_t: Option<String> = ph.lone().map(|cps| cps.iter().map(|&c| char::from_u32(if is_surrogate(c) { c - 0xD800 + LONE_PH } else { c }).unwrap_or('\u{fffd}')).collect());
+        let t: &str = match &lone_t {
+            Some(x) => x,
+            None => ph.text(),
+        };
         let bad = t.contains("(?P=") || t.contains("(?(") || t.as_bytes().windows(2).any(|w| w[0] == b'\\' && w[1].is_ascii_digit())
             || t.match_indices("(?").any(|(i, _)| t[i + 2..].chars().next().is_some_and(|c| "aiLmsux-".contains(c)));
-        if bad || re_compile(t, flags)?.ngroups > 0 {
+        let ng = match ph.lone() {
+            Some(cps) => re_compile_lone(cps, &pair[0], flags)?.ngroups,
+            None => re_compile(t, flags)?.ngroups,
+        };
+        if bad || ng > 0 {
             return Err(unsupported("re.Scanner with a phrase holding groups, backreferences or inline flags"));
         }
         if n > 0 {
-            src.push('|');
+            src.push('|' as u32);
         }
-        src.push('(');
-        src.push_str(t);
-        src.push_str(if flags & F_X != 0 { "\n)" } else { ")" });
+        src.push('(' as u32);
+        any_lone |= ph.is_lone();
+        src.extend(ph.cps());
+        src.extend((if flags & F_X != 0 { "\n)" } else { ")" }).chars().map(|c| c as u32));
         n += 1;
     }
     if n == 0 {
         return Err(unsupported("re.Scanner with an empty lexicon"));
     }
     let run = if flags & (32 | F_A) == 0 { flags | F_A } else { flags };
-    let base = re_compile(&src, run)?;
-    let prog = Rc::new(Prog { alts: base.alts.clone(), ngroups: base.ngroups, names: base.names.clone(), flags: base.flags, src: base.src.clone(), bytes: false, scan_flags: Some(flags), orig: None, lone: base.lone });
+    let base = if any_lone {
+        re_compile_lone(&src, &st_cps(src.clone()), run)?
+    } else {
+        re_compile(&src.iter().map(|&c| char::from_u32(c).unwrap()).collect::<String>(), run)?
+    };
+    let orig = if base.lone { base.orig.clone() } else { None };
+    let prog = Rc::new(Prog { alts: base.alts.clone(), ngroups: base.ngroups, names: base.names.clone(), flags: base.flags, src: base.src.clone(), bytes: false, scan_flags: Some(flags), orig, lone: base.lone });
     let attrs = vec![("lexicon".to_string(), lexicon), ("scanner".to_string(), V::Ext(ExtRc::new(RPat { prog })))];
     Ok(V::Ext(ExtRc::new(RLexer { attrs: RefCell::new(attrs) })))
 }
@@ -3051,6 +3068,19 @@ pub fn re_fn(n: &str, mut a: Args) -> R {
                     out.push(c);
                 }
                 return Ok(bytesv(out));
+            }
+            // a str with lone surrogates: they are not special, so they pass through as they are
+            if let V::Str(x) = &pv {
+                if let Some(cps) = x.lone() {
+                    let mut out = Txt::new();
+                    for &c in cps {
+                        if char::from_u32(c).is_some_and(|c| "()[]{}?*+-|^$\\.&~# \t\n\r\x0b\x0c".contains(c)) {
+                            out.push('\\');
+                        }
+                        out.push_cp(c);
+                    }
+                    return Ok(txt_v(out));
+                }
             }
             let t = to_str(&pv)?;
             let mut out = String::new();
@@ -3418,10 +3448,14 @@ struct JOpts {
     allow_nan: bool,
     // check_circular: the ids of the containers (and objects handed to default) being encoded
     markers: Option<RefCell<Vec<usize>>>,
+    // ensure_ascii=False: a lone surrogate was written as its placeholder (LONE_PH), and whether the text also
+    // holds a real character in the placeholder range (then the output cannot be told apart: it stops)
+    lone: std::cell::Cell<bool>,
+    pua: std::cell::Cell<bool>,
 }
 impl Default for JOpts {
     fn default() -> Self {
-        JOpts { indent: None, item_sep: ", ".into(), key_sep: ": ".into(), sort_keys: false, ascii: true, default: None, skipkeys: false, allow_nan: true, markers: Some(RefCell::new(vec![])) }
+        JOpts { indent: None, item_sep: ", ".into(), key_sep: ": ".into(), sort_keys: false, ascii: true, default: None, skipkeys: false, allow_nan: true, markers: Some(RefCell::new(vec![])), lone: Default::default(), pua: Default::default() }
     }
 }
 fn json_mark(o: &JOpts, v: &V) -> Result<Option<usize>, E> {
@@ -3451,8 +3485,30 @@ fn json_str(t: &str, ascii: bool, out: &mut String) {
     }
     out.push('"');
 }
-// A str with lone surrogates under ensure_ascii: each surrogate is a \uXXXX escape, as CPython writes it.
-// (ensure_ascii=False would put the surrogate itself in the output: that goes through text() and stops.)
+// A str, lone surrogates or not. Under ensure_ascii each surrogate is a \uXXXX escape, as CPython writes it;
+// without it the surrogate itself goes into the output, written as its placeholder until json_text maps it back.
+fn json_str_s(x: &S, o: &JOpts, out: &mut String) {
+    match x.lone() {
+        None => {
+            if !o.ascii && x.text().chars().any(|c| (LONE_PH..LONE_PH + 0x800).contains(&(c as u32))) {
+                o.pua.set(true);
+            }
+            json_str(x.text(), o.ascii, out)
+        }
+        Some(cps) if o.ascii => json_str_lone(cps, out),
+        Some(cps) => {
+            o.lone.set(true);
+            out.push('"');
+            for &c in cps {
+                match char::from_u32(c) {
+                    Some(ch) => json_char(ch, false, out),
+                    None => out.push(char::from_u32(LONE_PH + c - 0xD800).unwrap()),
+                }
+            }
+            out.push('"');
+        }
+    }
+}
 fn json_str_lone(cps: &[u32], out: &mut String) {
     out.push('"');
     for &c in cps {
@@ -3520,10 +3576,7 @@ fn json_dump_inner(v: &V, o: &JOpts, depth: usize, out: &mut String) -> Result<(
         V::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
         V::Int(_) | V::Big(_) => out.push_str(&repr(v)?),
         V::Float(f) => out.push_str(&json_float(*f, o)?),
-        V::Str(x) => match x.lone() {
-            Some(cps) if o.ascii => json_str_lone(cps, out),
-            _ => json_str(x.text(), o.ascii, out),
-        },
+        V::Str(x) => json_str_s(x, o, out),
         V::List(_) | V::Tuple(_) => {
             let items = to_vec(v)?;
             if items.is_empty() {
@@ -3575,21 +3628,22 @@ fn json_dump_inner(v: &V, o: &JOpts, depth: usize, out: &mut String) -> Result<(
             }
             let mut keyed = vec![];
             for (k, x) in items.drain(..) {
-                let ks = match &k {
-                    V::Str(x) => x.text().to_string(),
-                    V::Int(_) | V::Big(_) => repr(&k)?,
-                    V::Float(f) => json_float(*f, o)?,
-                    V::Bool(b) => (if *b { "true" } else { "false" }).into(),
-                    V::None => "null".into(),
+                let sk = |x: String| Rc::new(S::new(x));
+                let ks: Rc<S> = match &k {
+                    V::Str(x) => x.clone(),
+                    V::Int(_) | V::Big(_) => sk(repr(&k)?),
+                    V::Float(f) => sk(json_float(*f, o)?),
+                    V::Bool(b) => sk((if *b { "true" } else { "false" }).into()),
+                    V::None => sk("null".into()),
                     V::Ext(e) if matches!(e.native(), Some(Ok(V::Str(_)))) => match e.native() {
-                        Some(Ok(V::Str(x))) => x.text().to_string(),
+                        Some(Ok(V::Str(x))) => x.clone(),
                         _ => unreachable!(),
                     },
                     // a str or int subclass (StrEnum, IntEnum): its str or int
                     V::Obj(_) if matches!(inner_of(&k), Some(V::Str(_) | V::Int(_) | V::Big(_) | V::Float(_))) => match inner_of(&k).unwrap() {
-                        V::Str(x) => x.text().to_string(),
-                        V::Float(f) => json_float(f, o)?,
-                        i => repr(&i)?,
+                        V::Str(x) => x.clone(),
+                        V::Float(f) => sk(json_float(f, o)?),
+                        i => sk(repr(&i)?),
                     },
                     _ => {
                         if o.skipkeys {
@@ -3606,7 +3660,7 @@ fn json_dump_inner(v: &V, o: &JOpts, depth: usize, out: &mut String) -> Result<(
                     out.push_str(&o.item_sep);
                 }
                 nl(out, depth + 1);
-                json_str(ks, o.ascii, out);
+                json_str_s(ks, o, out);
                 out.push_str(&o.key_sep);
                 json_dump(x, o, depth + 1, out)?;
             }
@@ -3677,6 +3731,8 @@ fn json_opts(a: &mut Args) -> Result<JOpts, E> {
         skipkeys: flag("skipkeys", false)?,
         allow_nan: flag("allow_nan", true)?,
         markers: if flag("check_circular", true)? { Some(RefCell::new(vec![])) } else { None },
+        lone: Default::default(),
+        pua: Default::default(),
     };
     a.no_kw("JSONEncoder.__init__")?;
     Ok(o)
@@ -3701,18 +3757,29 @@ fn json_enc_opts(enc: &V) -> Result<JOpts, E> {
         skipkeys: truth(&g("skipkeys")?)?,
         allow_nan: truth(&g("allow_nan")?)?,
         markers: if truth(&g("check_circular")?)? { Some(RefCell::new(vec![])) } else { None },
+        lone: Default::default(),
+        pua: Default::default(),
     })
 }
-fn json_text(v: &V, o: &JOpts) -> Result<String, E> {
+// The encoded text as a str: placeholders written for lone surrogates become the surrogates again.
+fn json_text(v: &V, o: &JOpts) -> R {
     let mut out = String::new();
     json_dump(v, o, 0, &mut out)?;
-    Ok(out)
+    if !o.lone.get() {
+        return Ok(st(out));
+    }
+    let ph = LONE_PH..LONE_PH + 0x800;
+    let has_ph = |x: &str| x.chars().any(|c| ph.contains(&(c as u32)));
+    if o.pua.get() || has_ph(&o.item_sep) || has_ph(&o.key_sep) || o.indent.as_deref().is_some_and(has_ph) {
+        lone_stop(std::panic::Location::caller());
+    }
+    Ok(st_cps(out.chars().map(|c| c as u32).map(|u| if ph.contains(&u) { u - LONE_PH + 0xD800 } else { u }).collect()))
 }
 // dumps/dump's keywords for the encoder (cls), CPython's order
 const JENC_KW: [&str; 8] = ["skipkeys", "ensure_ascii", "check_circular", "allow_nan", "indent", "separators", "default", "sort_keys"];
 const JDEC_KW: [&str; 5] = ["object_hook", "parse_float", "parse_int", "parse_constant", "object_pairs_hook"];
 // The text dumps(v, **a) makes: with cls, cls(**options).encode(v) (dump: the encoder's own options).
-fn json_encode(v: &V, a: &mut Args, dump: bool) -> Result<String, E> {
+fn json_encode(v: &V, a: &mut Args, dump: bool) -> R {
     match a.kw("cls").filter(|c| !matches!(c, V::None)) {
         None => {
             let o = json_opts(a)?;
@@ -3723,7 +3790,10 @@ fn json_encode(v: &V, a: &mut Args, dump: bool) -> Result<String, E> {
             if dump {
                 json_text(v, &json_enc_opts(&enc)?)
             } else {
-                to_str(&call_method(&enc, "encode", Args::p(vec![v.clone()]))?)
+                match call_method(&enc, "encode", Args::p(vec![v.clone()]))? {
+                    x @ V::Str(_) => Ok(x),
+                    x => Ok(st(to_str(&x)?)),
+                }
             }
         }
     }
@@ -3830,7 +3900,7 @@ pub fn json_fn(n: &str, mut a: Args) -> R {
                 return type_err(format!("dumps() takes 1 positional argument but {} were given", a.p.len()));
             }
             a.p.clear();
-            Ok(st(json_encode(&v, &mut a, false)?))
+            json_encode(&v, &mut a, false)
         }
         "dump" => {
             let v = a.p.first().cloned().or_else(|| a.kw("obj")).unwrap_or(V::None);
@@ -3840,14 +3910,17 @@ pub fn json_fn(n: &str, mut a: Args) -> R {
             }
             a.p.clear();
             let out = json_encode(&v, &mut a, true)?;
+            let V::Str(ou) = &out else { unreachable!() };
             match &f {
-                V::Module(&ModName("sys.stdout")) => out_write(&out),
+                // CPython writes dump's chunks one by one and stdout fails at the first with a lone surrogate:
+                // which chunks came first is not modelled, so that stops (lone_stop through text())
+                V::Module(&ModName("sys.stdout")) => out_write(ou.text()),
                 V::Module(&ModName("sys.stderr")) => {
                     out_flush();
-                    err_write(&out)
+                    err_write(&err_text(ou))
                 }
                 _ => {
-                    call_method(&f, "write", Args::p(vec![st(out)]))?;
+                    call_method(&f, "write", Args::p(vec![out.clone()]))?;
                 }
             }
             Ok(V::None)
@@ -4018,7 +4091,7 @@ pub fn json_encoder_class() -> Rc<Class> {
                 let me = a.p[0].clone();
                 let v = a.p.get(1).cloned().ok_or_else(|| exc("TypeError", "JSONEncoder.encode() missing 1 required positional argument: 'o'".into()))?;
                 let o = json_enc_opts(&me)?;
-                Ok(st(json_text(&v, &o)?))
+                json_text(&v, &o)
             }));
             *j = Some(c);
         }

@@ -381,6 +381,56 @@ fn sandbox_module(m: &str) -> Option<&'static str> {
     })
 }
 
+// The error handler python3's stdout encodes with (rt_lib.rs STDOUT_ERRS), outside the sandbox: UTF-8 with
+// 'surrogateescape' under the C/POSIX locale, the coerced C.UTF-8 one or UTF-8 mode (PYTHONUTF8=1), 'strict'
+// under another UTF-8 locale; None (a lone surrogate at stdout then stops) for what Brevi does not model:
+// Windows (the ANSI code page), PYTHONIOENCODING, a locale whose codeset is not UTF-8.
+const STDOUT_ERRS_FN: &str = r#"
+fn __stdout_errs() -> Option<&'static str> {
+    if cfg!(windows) || std::env::var_os("PYTHONIOENCODING").is_some_and(|v| !v.is_empty()) {
+        return None;
+    }
+    if std::env::var("PYTHONUTF8").is_ok_and(|v| v == "1") {
+        return Some("surrogateescape");
+    }
+    let name = __ctype_locale()?;
+    let up = name.to_ascii_uppercase().replace('-', "");
+    if name == "C" || name == "POSIX" || up == "C.UTF8" || up == "UTF8" {
+        Some("surrogateescape")
+    } else if up.ends_with(".UTF8") || up.contains(".UTF8@") {
+        Some("strict")
+    } else {
+        None
+    }
+}
+// The LC_CTYPE locale the environment selects (setlocale(LC_CTYPE, "") as python3 does at startup; restored after).
+#[cfg(unix)]
+fn __ctype_locale() -> Option<String> {
+    use std::ffi::{c_char, c_int, CStr};
+    extern "C" {
+        fn setlocale(cat: c_int, loc: *const c_char) -> *mut c_char;
+    }
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))]
+    const LC_CTYPE: c_int = 2;
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd")))]
+    const LC_CTYPE: c_int = 0;
+    unsafe {
+        let old = setlocale(LC_CTYPE, std::ptr::null());
+        let old = (!old.is_null()).then(|| CStr::from_ptr(old).to_owned());
+        let p = setlocale(LC_CTYPE, b"\0".as_ptr() as *const c_char);
+        let name = (!p.is_null()).then(|| CStr::from_ptr(p).to_string_lossy().into_owned());
+        if let Some(o) = &old {
+            setlocale(LC_CTYPE, o.as_ptr());
+        }
+        Some(name.unwrap_or_else(|| "C".into()))
+    }
+}
+#[cfg(not(unix))]
+fn __ctype_locale() -> Option<String> {
+    None
+}
+"#;
+
 // shutil.get_terminal_size().columns, for argparse's help outside the sandbox: $COLUMNS when it is a positive
 // int, else the width of the terminal on stdout, else 80.
 const TERM_COLS_FN: &str = r#"
@@ -945,6 +995,11 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
             rust.push_str(LIBPIN);
         }
         rust.push_str(include_str!("ortglue.rs"));
+    }
+    // reading the environment for stdout's error handler is the program's, never the runtime's (caps.rs)
+    if !crate::pybridge::no_native() {
+        rust = rust.replacen("fn main() { ", "fn main() { STDOUT_ERRS.set(__stdout_errs).ok(); ", 1);
+        rust.push_str(STDOUT_ERRS_FN);
     }
     if mods.iter().any(|m| m.name == "argparse") && crate::pybridge::py_allowed("argparse") {
         rust = rust.replacen("run_main(__run); }", "TERM_COLS.set(__term_cols).ok(); run_main(__run); }", 1);

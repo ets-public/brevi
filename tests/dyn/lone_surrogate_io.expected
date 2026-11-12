@@ -1,0 +1,443 @@
+'a\ud800\udfffb' utf-8 strict UnicodeEncodeError: 'utf-8' codec can't encode characters in position 1-2: surrogates not allowed | utf-8 'a\ud800\udfffb' 1 3 surrogates not allowed
+'a\ud800\udfffb' utf-8 surrogatepass b'a\xed\xa0\x80\xed\xbf\xbfb'
+'a\ud800\udfffb' utf-8 surrogateescape UnicodeEncodeError: 'utf-8' codec can't encode characters in position 1-2: surrogates not allowed | utf-8 'a\ud800\udfffb' 1 3 surrogates not allowed
+'a\ud800\udfffb' utf-8 backslashreplace b'a\\ud800\\udfffb'
+'a\ud800\udfffb' utf-8 xmlcharrefreplace b'a&#55296;&#57343;b'
+'a\ud800\udfffb' utf-8 replace b'a??b'
+'a\ud800\udfffb' utf-8 ignore b'ab'
+'a\ud800\udfffb' ascii strict UnicodeEncodeError: 'ascii' codec can't encode characters in position 1-2: ordinal not in range(128) | ascii 'a\ud800\udfffb' 1 3 ordinal not in range(128)
+'a\ud800\udfffb' ascii surrogatepass UnicodeEncodeError: 'ascii' codec can't encode characters in position 1-2: ordinal not in range(128) | ascii 'a\ud800\udfffb' 1 3 ordinal not in range(128)
+'a\ud800\udfffb' ascii surrogateescape UnicodeEncodeError: 'ascii' codec can't encode characters in position 1-2: ordinal not in range(128) | ascii 'a\ud800\udfffb' 1 3 ordinal not in range(128)
+'a\ud800\udfffb' ascii backslashreplace b'a\\ud800\\udfffb'
+'a\ud800\udfffb' ascii xmlcharrefreplace b'a&#55296;&#57343;b'
+'a\ud800\udfffb' ascii replace b'a??b'
+'a\ud800\udfffb' ascii ignore b'ab'
+'a\ud800\udfffb' latin-1 strict UnicodeEncodeError: 'latin-1' codec can't encode characters in position 1-2: ordinal not in range(256) | latin-1 'a\ud800\udfffb' 1 3 ordinal not in range(256)
+'a\ud800\udfffb' latin-1 surrogatepass UnicodeEncodeError: 'latin-1' codec can't encode characters in position 1-2: ordinal not in range(256) | latin-1 'a\ud800\udfffb' 1 3 ordinal not in range(256)
+'a\ud800\udfffb' latin-1 surrogateescape UnicodeEncodeError: 'latin-1' codec can't encode characters in position 1-2: ordinal not in range(256) | latin-1 'a\ud800\udfffb' 1 3 ordinal not in range(256)
+'a\ud800\udfffb' latin-1 backslashreplace b'a\\ud800\\udfffb'
+'a\ud800\udfffb' latin-1 xmlcharrefreplace b'a&#55296;&#57343;b'
+'a\ud800\udfffb' latin-1 replace b'a??b'
+'a\ud800\udfffb' latin-1 ignore b'ab'
+'a\ud800\udfffb' UTF8 strict UnicodeEncodeError: 'utf-8' codec can't encode characters in position 1-2: surrogates not allowed | utf-8 'a\ud800\udfffb' 1 3 surrogates not allowed
+'a\ud800\udfffb' UTF8 surrogatepass b'a\xed\xa0\x80\xed\xbf\xbfb'
+'a\ud800\udfffb' UTF8 surrogateescape UnicodeEncodeError: 'utf-8' codec can't encode characters in position 1-2: surrogates not allowed | utf-8 'a\ud800\udfffb' 1 3 surrogates not allowed
+'a\ud800\udfffb' UTF8 backslashreplace b'a\\ud800\\udfffb'
+'a\ud800\udfffb' UTF8 xmlcharrefreplace b'a&#55296;&#57343;b'
+'a\ud800\udfffb' UTF8 replace b'a??b'
+'a\ud800\udfffb' UTF8 ignore b'ab'
+'a\ud800\udfffb' us-ascii strict UnicodeEncodeError: 'ascii' codec can't encode characters in position 1-2: ordinal not in range(128) | ascii 'a\ud800\udfffb' 1 3 ordinal not in range(128)
+'a\ud800\udfffb' us-ascii surrogatepass UnicodeEncodeError: 'ascii' codec can't encode characters in position 1-2: ordinal not in range(128) | ascii 'a\ud800\udfffb' 1 3 ordinal not in range(128)
+'a\ud800\udfffb' us-ascii surrogateescape UnicodeEncodeError: 'ascii' codec can't encode characters in position 1-2: ordinal not in range(128) | ascii 'a\ud800\udfffb' 1 3 ordinal not in range(128)
+'a\ud800\udfffb' us-ascii backslashreplace b'a\\ud800\\udfffb'
+'a\ud800\udfffb' us-ascii xmlcharrefreplace b'a&#55296;&#57343;b'
+'a\ud800\udfffb' us-ascii replace b'a??b'
+'a\ud800\udfffb' us-ascii ignore b'ab'
+'x\udc80\udcffy' utf-8 strict UnicodeEncodeError: 'utf-8' codec can't encode characters in position 1-2: surrogates not allowed | utf-8 'x\udc80\udcffy' 1 3 surrogates not allowed
+'x\udc80\udcffy' utf-8 surrogatepass b'x\xed\xb2\x80\xed\xb3\xbfy'
+'x\udc80\udcffy' utf-8 surrogateescape b'x\x80\xffy'
+'x\udc80\udcffy' utf-8 backslashreplace b'x\\udc80\\udcffy'
+'x\udc80\udcffy' utf-8 xmlcharrefreplace b'x&#56448;&#56575;y'
+'x\udc80\udcffy' utf-8 replace b'x??y'
+'x\udc80\udcffy' utf-8 ignore b'xy'
+'x\udc80\udcffy' ascii strict UnicodeEncodeError: 'ascii' codec can't encode characters in position 1-2: ordinal not in range(128) | ascii 'x\udc80\udcffy' 1 3 ordinal not in range(128)
+'x\udc80\udcffy' ascii surrogatepass UnicodeEncodeError: 'ascii' codec can't encode characters in position 1-2: ordinal not in range(128) | ascii 'x\udc80\udcffy' 1 3 ordinal not in range(128)
+'x\udc80\udcffy' ascii surrogateescape b'x\x80\xffy'
+'x\udc80\udcffy' ascii backslashreplace b'x\\udc80\\udcffy'
+'x\udc80\udcffy' ascii xmlcharrefreplace b'x&#56448;&#56575;y'
+'x\udc80\udcffy' ascii replace b'x??y'
+'x\udc80\udcffy' ascii ignore b'xy'
+'x\udc80\udcffy' latin-1 strict UnicodeEncodeError: 'latin-1' codec can't encode characters in position 1-2: ordinal not in range(256) | latin-1 'x\udc80\udcffy' 1 3 ordinal not in range(256)
+'x\udc80\udcffy' latin-1 surrogatepass UnicodeEncodeError: 'latin-1' codec can't encode characters in position 1-2: ordinal not in range(256) | latin-1 'x\udc80\udcffy' 1 3 ordinal not in range(256)
+'x\udc80\udcffy' latin-1 surrogateescape b'x\x80\xffy'
+'x\udc80\udcffy' latin-1 backslashreplace b'x\\udc80\\udcffy'
+'x\udc80\udcffy' latin-1 xmlcharrefreplace b'x&#56448;&#56575;y'
+'x\udc80\udcffy' latin-1 replace b'x??y'
+'x\udc80\udcffy' latin-1 ignore b'xy'
+'x\udc80\udcffy' UTF8 strict UnicodeEncodeError: 'utf-8' codec can't encode characters in position 1-2: surrogates not allowed | utf-8 'x\udc80\udcffy' 1 3 surrogates not allowed
+'x\udc80\udcffy' UTF8 surrogatepass b'x\xed\xb2\x80\xed\xb3\xbfy'
+'x\udc80\udcffy' UTF8 surrogateescape b'x\x80\xffy'
+'x\udc80\udcffy' UTF8 backslashreplace b'x\\udc80\\udcffy'
+'x\udc80\udcffy' UTF8 xmlcharrefreplace b'x&#56448;&#56575;y'
+'x\udc80\udcffy' UTF8 replace b'x??y'
+'x\udc80\udcffy' UTF8 ignore b'xy'
+'x\udc80\udcffy' us-ascii strict UnicodeEncodeError: 'ascii' codec can't encode characters in position 1-2: ordinal not in range(128) | ascii 'x\udc80\udcffy' 1 3 ordinal not in range(128)
+'x\udc80\udcffy' us-ascii surrogatepass UnicodeEncodeError: 'ascii' codec can't encode characters in position 1-2: ordinal not in range(128) | ascii 'x\udc80\udcffy' 1 3 ordinal not in range(128)
+'x\udc80\udcffy' us-ascii surrogateescape b'x\x80\xffy'
+'x\udc80\udcffy' us-ascii backslashreplace b'x\\udc80\\udcffy'
+'x\udc80\udcffy' us-ascii xmlcharrefreplace b'x&#56448;&#56575;y'
+'x\udc80\udcffy' us-ascii replace b'x??y'
+'x\udc80\udcffy' us-ascii ignore b'xy'
+'\xe9\udc80' utf-8 strict UnicodeEncodeError: 'utf-8' codec can't encode character '\udc80' in position 1: surrogates not allowed | utf-8 '\xe9\udc80' 1 2 surrogates not allowed
+'\xe9\udc80' utf-8 surrogatepass b'\xc3\xa9\xed\xb2\x80'
+'\xe9\udc80' utf-8 surrogateescape b'\xc3\xa9\x80'
+'\xe9\udc80' utf-8 backslashreplace b'\xc3\xa9\\udc80'
+'\xe9\udc80' utf-8 xmlcharrefreplace b'\xc3\xa9&#56448;'
+'\xe9\udc80' utf-8 replace b'\xc3\xa9?'
+'\xe9\udc80' utf-8 ignore b'\xc3\xa9'
+'\xe9\udc80' ascii strict UnicodeEncodeError: 'ascii' codec can't encode characters in position 0-1: ordinal not in range(128) | ascii '\xe9\udc80' 0 2 ordinal not in range(128)
+'\xe9\udc80' ascii surrogatepass UnicodeEncodeError: 'ascii' codec can't encode characters in position 0-1: ordinal not in range(128) | ascii '\xe9\udc80' 0 2 ordinal not in range(128)
+'\xe9\udc80' ascii surrogateescape UnicodeEncodeError: 'ascii' codec can't encode characters in position 0-1: ordinal not in range(128) | ascii '\xe9\udc80' 0 2 ordinal not in range(128)
+'\xe9\udc80' ascii backslashreplace b'\\xe9\\udc80'
+'\xe9\udc80' ascii xmlcharrefreplace b'&#233;&#56448;'
+'\xe9\udc80' ascii replace b'??'
+'\xe9\udc80' ascii ignore b''
+'\xe9\udc80' latin-1 strict UnicodeEncodeError: 'latin-1' codec can't encode character '\udc80' in position 1: ordinal not in range(256) | latin-1 '\xe9\udc80' 1 2 ordinal not in range(256)
+'\xe9\udc80' latin-1 surrogatepass UnicodeEncodeError: 'latin-1' codec can't encode character '\udc80' in position 1: ordinal not in range(256) | latin-1 '\xe9\udc80' 1 2 ordinal not in range(256)
+'\xe9\udc80' latin-1 surrogateescape b'\xe9\x80'
+'\xe9\udc80' latin-1 backslashreplace b'\xe9\\udc80'
+'\xe9\udc80' latin-1 xmlcharrefreplace b'\xe9&#56448;'
+'\xe9\udc80' latin-1 replace b'\xe9?'
+'\xe9\udc80' latin-1 ignore b'\xe9'
+'\xe9\udc80' UTF8 strict UnicodeEncodeError: 'utf-8' codec can't encode character '\udc80' in position 1: surrogates not allowed | utf-8 '\xe9\udc80' 1 2 surrogates not allowed
+'\xe9\udc80' UTF8 surrogatepass b'\xc3\xa9\xed\xb2\x80'
+'\xe9\udc80' UTF8 surrogateescape b'\xc3\xa9\x80'
+'\xe9\udc80' UTF8 backslashreplace b'\xc3\xa9\\udc80'
+'\xe9\udc80' UTF8 xmlcharrefreplace b'\xc3\xa9&#56448;'
+'\xe9\udc80' UTF8 replace b'\xc3\xa9?'
+'\xe9\udc80' UTF8 ignore b'\xc3\xa9'
+'\xe9\udc80' us-ascii strict UnicodeEncodeError: 'ascii' codec can't encode characters in position 0-1: ordinal not in range(128) | ascii '\xe9\udc80' 0 2 ordinal not in range(128)
+'\xe9\udc80' us-ascii surrogatepass UnicodeEncodeError: 'ascii' codec can't encode characters in position 0-1: ordinal not in range(128) | ascii '\xe9\udc80' 0 2 ordinal not in range(128)
+'\xe9\udc80' us-ascii surrogateescape UnicodeEncodeError: 'ascii' codec can't encode characters in position 0-1: ordinal not in range(128) | ascii '\xe9\udc80' 0 2 ordinal not in range(128)
+'\xe9\udc80' us-ascii backslashreplace b'\\xe9\\udc80'
+'\xe9\udc80' us-ascii xmlcharrefreplace b'&#233;&#56448;'
+'\xe9\udc80' us-ascii replace b'??'
+'\xe9\udc80' us-ascii ignore b''
+'\udc80\xe9' utf-8 strict UnicodeEncodeError: 'utf-8' codec can't encode character '\udc80' in position 0: surrogates not allowed | utf-8 '\udc80\xe9' 0 1 surrogates not allowed
+'\udc80\xe9' utf-8 surrogatepass b'\xed\xb2\x80\xc3\xa9'
+'\udc80\xe9' utf-8 surrogateescape b'\x80\xc3\xa9'
+'\udc80\xe9' utf-8 backslashreplace b'\\udc80\xc3\xa9'
+'\udc80\xe9' utf-8 xmlcharrefreplace b'&#56448;\xc3\xa9'
+'\udc80\xe9' utf-8 replace b'?\xc3\xa9'
+'\udc80\xe9' utf-8 ignore b'\xc3\xa9'
+'\udc80\xe9' ascii strict UnicodeEncodeError: 'ascii' codec can't encode characters in position 0-1: ordinal not in range(128) | ascii '\udc80\xe9' 0 2 ordinal not in range(128)
+'\udc80\xe9' ascii surrogatepass UnicodeEncodeError: 'ascii' codec can't encode characters in position 0-1: ordinal not in range(128) | ascii '\udc80\xe9' 0 2 ordinal not in range(128)
+'\udc80\xe9' ascii surrogateescape UnicodeEncodeError: 'ascii' codec can't encode character '\xe9' in position 1: ordinal not in range(128) | ascii '\udc80\xe9' 1 2 ordinal not in range(128)
+'\udc80\xe9' ascii backslashreplace b'\\udc80\\xe9'
+'\udc80\xe9' ascii xmlcharrefreplace b'&#56448;&#233;'
+'\udc80\xe9' ascii replace b'??'
+'\udc80\xe9' ascii ignore b''
+'\udc80\xe9' latin-1 strict UnicodeEncodeError: 'latin-1' codec can't encode character '\udc80' in position 0: ordinal not in range(256) | latin-1 '\udc80\xe9' 0 1 ordinal not in range(256)
+'\udc80\xe9' latin-1 surrogatepass UnicodeEncodeError: 'latin-1' codec can't encode character '\udc80' in position 0: ordinal not in range(256) | latin-1 '\udc80\xe9' 0 1 ordinal not in range(256)
+'\udc80\xe9' latin-1 surrogateescape b'\x80\xe9'
+'\udc80\xe9' latin-1 backslashreplace b'\\udc80\xe9'
+'\udc80\xe9' latin-1 xmlcharrefreplace b'&#56448;\xe9'
+'\udc80\xe9' latin-1 replace b'?\xe9'
+'\udc80\xe9' latin-1 ignore b'\xe9'
+'\udc80\xe9' UTF8 strict UnicodeEncodeError: 'utf-8' codec can't encode character '\udc80' in position 0: surrogates not allowed | utf-8 '\udc80\xe9' 0 1 surrogates not allowed
+'\udc80\xe9' UTF8 surrogatepass b'\xed\xb2\x80\xc3\xa9'
+'\udc80\xe9' UTF8 surrogateescape b'\x80\xc3\xa9'
+'\udc80\xe9' UTF8 backslashreplace b'\\udc80\xc3\xa9'
+'\udc80\xe9' UTF8 xmlcharrefreplace b'&#56448;\xc3\xa9'
+'\udc80\xe9' UTF8 replace b'?\xc3\xa9'
+'\udc80\xe9' UTF8 ignore b'\xc3\xa9'
+'\udc80\xe9' us-ascii strict UnicodeEncodeError: 'ascii' codec can't encode characters in position 0-1: ordinal not in range(128) | ascii '\udc80\xe9' 0 2 ordinal not in range(128)
+'\udc80\xe9' us-ascii surrogatepass UnicodeEncodeError: 'ascii' codec can't encode characters in position 0-1: ordinal not in range(128) | ascii '\udc80\xe9' 0 2 ordinal not in range(128)
+'\udc80\xe9' us-ascii surrogateescape UnicodeEncodeError: 'ascii' codec can't encode character '\xe9' in position 1: ordinal not in range(128) | ascii '\udc80\xe9' 1 2 ordinal not in range(128)
+'\udc80\xe9' us-ascii backslashreplace b'\\udc80\\xe9'
+'\udc80\xe9' us-ascii xmlcharrefreplace b'&#56448;&#233;'
+'\udc80\xe9' us-ascii replace b'??'
+'\udc80\xe9' us-ascii ignore b''
+'a\ud800\xe9' utf-8 strict UnicodeEncodeError: 'utf-8' codec can't encode character '\ud800' in position 1: surrogates not allowed | utf-8 'a\ud800\xe9' 1 2 surrogates not allowed
+'a\ud800\xe9' utf-8 surrogatepass b'a\xed\xa0\x80\xc3\xa9'
+'a\ud800\xe9' utf-8 surrogateescape UnicodeEncodeError: 'utf-8' codec can't encode character '\ud800' in position 1: surrogates not allowed | utf-8 'a\ud800\xe9' 1 2 surrogates not allowed
+'a\ud800\xe9' utf-8 backslashreplace b'a\\ud800\xc3\xa9'
+'a\ud800\xe9' utf-8 xmlcharrefreplace b'a&#55296;\xc3\xa9'
+'a\ud800\xe9' utf-8 replace b'a?\xc3\xa9'
+'a\ud800\xe9' utf-8 ignore b'a\xc3\xa9'
+'a\ud800\xe9' ascii strict UnicodeEncodeError: 'ascii' codec can't encode characters in position 1-2: ordinal not in range(128) | ascii 'a\ud800\xe9' 1 3 ordinal not in range(128)
+'a\ud800\xe9' ascii surrogatepass UnicodeEncodeError: 'ascii' codec can't encode characters in position 1-2: ordinal not in range(128) | ascii 'a\ud800\xe9' 1 3 ordinal not in range(128)
+'a\ud800\xe9' ascii surrogateescape UnicodeEncodeError: 'ascii' codec can't encode characters in position 1-2: ordinal not in range(128) | ascii 'a\ud800\xe9' 1 3 ordinal not in range(128)
+'a\ud800\xe9' ascii backslashreplace b'a\\ud800\\xe9'
+'a\ud800\xe9' ascii xmlcharrefreplace b'a&#55296;&#233;'
+'a\ud800\xe9' ascii replace b'a??'
+'a\ud800\xe9' ascii ignore b'a'
+'a\ud800\xe9' latin-1 strict UnicodeEncodeError: 'latin-1' codec can't encode character '\ud800' in position 1: ordinal not in range(256) | latin-1 'a\ud800\xe9' 1 2 ordinal not in range(256)
+'a\ud800\xe9' latin-1 surrogatepass UnicodeEncodeError: 'latin-1' codec can't encode character '\ud800' in position 1: ordinal not in range(256) | latin-1 'a\ud800\xe9' 1 2 ordinal not in range(256)
+'a\ud800\xe9' latin-1 surrogateescape UnicodeEncodeError: 'latin-1' codec can't encode character '\ud800' in position 1: ordinal not in range(256) | latin-1 'a\ud800\xe9' 1 2 ordinal not in range(256)
+'a\ud800\xe9' latin-1 backslashreplace b'a\\ud800\xe9'
+'a\ud800\xe9' latin-1 xmlcharrefreplace b'a&#55296;\xe9'
+'a\ud800\xe9' latin-1 replace b'a?\xe9'
+'a\ud800\xe9' latin-1 ignore b'a\xe9'
+'a\ud800\xe9' UTF8 strict UnicodeEncodeError: 'utf-8' codec can't encode character '\ud800' in position 1: surrogates not allowed | utf-8 'a\ud800\xe9' 1 2 surrogates not allowed
+'a\ud800\xe9' UTF8 surrogatepass b'a\xed\xa0\x80\xc3\xa9'
+'a\ud800\xe9' UTF8 surrogateescape UnicodeEncodeError: 'utf-8' codec can't encode character '\ud800' in position 1: surrogates not allowed | utf-8 'a\ud800\xe9' 1 2 surrogates not allowed
+'a\ud800\xe9' UTF8 backslashreplace b'a\\ud800\xc3\xa9'
+'a\ud800\xe9' UTF8 xmlcharrefreplace b'a&#55296;\xc3\xa9'
+'a\ud800\xe9' UTF8 replace b'a?\xc3\xa9'
+'a\ud800\xe9' UTF8 ignore b'a\xc3\xa9'
+'a\ud800\xe9' us-ascii strict UnicodeEncodeError: 'ascii' codec can't encode characters in position 1-2: ordinal not in range(128) | ascii 'a\ud800\xe9' 1 3 ordinal not in range(128)
+'a\ud800\xe9' us-ascii surrogatepass UnicodeEncodeError: 'ascii' codec can't encode characters in position 1-2: ordinal not in range(128) | ascii 'a\ud800\xe9' 1 3 ordinal not in range(128)
+'a\ud800\xe9' us-ascii surrogateescape UnicodeEncodeError: 'ascii' codec can't encode characters in position 1-2: ordinal not in range(128) | ascii 'a\ud800\xe9' 1 3 ordinal not in range(128)
+'a\ud800\xe9' us-ascii backslashreplace b'a\\ud800\\xe9'
+'a\ud800\xe9' us-ascii xmlcharrefreplace b'a&#55296;&#233;'
+'a\ud800\xe9' us-ascii replace b'a??'
+'a\ud800\xe9' us-ascii ignore b'a'
+'\ud800\udc80' utf-8 strict UnicodeEncodeError: 'utf-8' codec can't encode characters in position 0-1: surrogates not allowed | utf-8 '\ud800\udc80' 0 2 surrogates not allowed
+'\ud800\udc80' utf-8 surrogatepass b'\xed\xa0\x80\xed\xb2\x80'
+'\ud800\udc80' utf-8 surrogateescape UnicodeEncodeError: 'utf-8' codec can't encode characters in position 0-1: surrogates not allowed | utf-8 '\ud800\udc80' 0 2 surrogates not allowed
+'\ud800\udc80' utf-8 backslashreplace b'\\ud800\\udc80'
+'\ud800\udc80' utf-8 xmlcharrefreplace b'&#55296;&#56448;'
+'\ud800\udc80' utf-8 replace b'??'
+'\ud800\udc80' utf-8 ignore b''
+'\ud800\udc80' ascii strict UnicodeEncodeError: 'ascii' codec can't encode characters in position 0-1: ordinal not in range(128) | ascii '\ud800\udc80' 0 2 ordinal not in range(128)
+'\ud800\udc80' ascii surrogatepass UnicodeEncodeError: 'ascii' codec can't encode characters in position 0-1: ordinal not in range(128) | ascii '\ud800\udc80' 0 2 ordinal not in range(128)
+'\ud800\udc80' ascii surrogateescape UnicodeEncodeError: 'ascii' codec can't encode characters in position 0-1: ordinal not in range(128) | ascii '\ud800\udc80' 0 2 ordinal not in range(128)
+'\ud800\udc80' ascii backslashreplace b'\\ud800\\udc80'
+'\ud800\udc80' ascii xmlcharrefreplace b'&#55296;&#56448;'
+'\ud800\udc80' ascii replace b'??'
+'\ud800\udc80' ascii ignore b''
+'\ud800\udc80' latin-1 strict UnicodeEncodeError: 'latin-1' codec can't encode characters in position 0-1: ordinal not in range(256) | latin-1 '\ud800\udc80' 0 2 ordinal not in range(256)
+'\ud800\udc80' latin-1 surrogatepass UnicodeEncodeError: 'latin-1' codec can't encode characters in position 0-1: ordinal not in range(256) | latin-1 '\ud800\udc80' 0 2 ordinal not in range(256)
+'\ud800\udc80' latin-1 surrogateescape UnicodeEncodeError: 'latin-1' codec can't encode characters in position 0-1: ordinal not in range(256) | latin-1 '\ud800\udc80' 0 2 ordinal not in range(256)
+'\ud800\udc80' latin-1 backslashreplace b'\\ud800\\udc80'
+'\ud800\udc80' latin-1 xmlcharrefreplace b'&#55296;&#56448;'
+'\ud800\udc80' latin-1 replace b'??'
+'\ud800\udc80' latin-1 ignore b''
+'\ud800\udc80' UTF8 strict UnicodeEncodeError: 'utf-8' codec can't encode characters in position 0-1: surrogates not allowed | utf-8 '\ud800\udc80' 0 2 surrogates not allowed
+'\ud800\udc80' UTF8 surrogatepass b'\xed\xa0\x80\xed\xb2\x80'
+'\ud800\udc80' UTF8 surrogateescape UnicodeEncodeError: 'utf-8' codec can't encode characters in position 0-1: surrogates not allowed | utf-8 '\ud800\udc80' 0 2 surrogates not allowed
+'\ud800\udc80' UTF8 backslashreplace b'\\ud800\\udc80'
+'\ud800\udc80' UTF8 xmlcharrefreplace b'&#55296;&#56448;'
+'\ud800\udc80' UTF8 replace b'??'
+'\ud800\udc80' UTF8 ignore b''
+'\ud800\udc80' us-ascii strict UnicodeEncodeError: 'ascii' codec can't encode characters in position 0-1: ordinal not in range(128) | ascii '\ud800\udc80' 0 2 ordinal not in range(128)
+'\ud800\udc80' us-ascii surrogatepass UnicodeEncodeError: 'ascii' codec can't encode characters in position 0-1: ordinal not in range(128) | ascii '\ud800\udc80' 0 2 ordinal not in range(128)
+'\ud800\udc80' us-ascii surrogateescape UnicodeEncodeError: 'ascii' codec can't encode characters in position 0-1: ordinal not in range(128) | ascii '\ud800\udc80' 0 2 ordinal not in range(128)
+'\ud800\udc80' us-ascii backslashreplace b'\\ud800\\udc80'
+'\ud800\udc80' us-ascii xmlcharrefreplace b'&#55296;&#56448;'
+'\ud800\udc80' us-ascii replace b'??'
+'\ud800\udc80' us-ascii ignore b''
+'\udc80\ud800' utf-8 strict UnicodeEncodeError: 'utf-8' codec can't encode characters in position 0-1: surrogates not allowed | utf-8 '\udc80\ud800' 0 2 surrogates not allowed
+'\udc80\ud800' utf-8 surrogatepass b'\xed\xb2\x80\xed\xa0\x80'
+'\udc80\ud800' utf-8 surrogateescape UnicodeEncodeError: 'utf-8' codec can't encode character '\ud800' in position 1: surrogates not allowed | utf-8 '\udc80\ud800' 1 2 surrogates not allowed
+'\udc80\ud800' utf-8 backslashreplace b'\\udc80\\ud800'
+'\udc80\ud800' utf-8 xmlcharrefreplace b'&#56448;&#55296;'
+'\udc80\ud800' utf-8 replace b'??'
+'\udc80\ud800' utf-8 ignore b''
+'\udc80\ud800' ascii strict UnicodeEncodeError: 'ascii' codec can't encode characters in position 0-1: ordinal not in range(128) | ascii '\udc80\ud800' 0 2 ordinal not in range(128)
+'\udc80\ud800' ascii surrogatepass UnicodeEncodeError: 'ascii' codec can't encode characters in position 0-1: ordinal not in range(128) | ascii '\udc80\ud800' 0 2 ordinal not in range(128)
+'\udc80\ud800' ascii surrogateescape UnicodeEncodeError: 'ascii' codec can't encode character '\ud800' in position 1: ordinal not in range(128) | ascii '\udc80\ud800' 1 2 ordinal not in range(128)
+'\udc80\ud800' ascii backslashreplace b'\\udc80\\ud800'
+'\udc80\ud800' ascii xmlcharrefreplace b'&#56448;&#55296;'
+'\udc80\ud800' ascii replace b'??'
+'\udc80\ud800' ascii ignore b''
+'\udc80\ud800' latin-1 strict UnicodeEncodeError: 'latin-1' codec can't encode characters in position 0-1: ordinal not in range(256) | latin-1 '\udc80\ud800' 0 2 ordinal not in range(256)
+'\udc80\ud800' latin-1 surrogatepass UnicodeEncodeError: 'latin-1' codec can't encode characters in position 0-1: ordinal not in range(256) | latin-1 '\udc80\ud800' 0 2 ordinal not in range(256)
+'\udc80\ud800' latin-1 surrogateescape UnicodeEncodeError: 'latin-1' codec can't encode character '\ud800' in position 1: ordinal not in range(256) | latin-1 '\udc80\ud800' 1 2 ordinal not in range(256)
+'\udc80\ud800' latin-1 backslashreplace b'\\udc80\\ud800'
+'\udc80\ud800' latin-1 xmlcharrefreplace b'&#56448;&#55296;'
+'\udc80\ud800' latin-1 replace b'??'
+'\udc80\ud800' latin-1 ignore b''
+'\udc80\ud800' UTF8 strict UnicodeEncodeError: 'utf-8' codec can't encode characters in position 0-1: surrogates not allowed | utf-8 '\udc80\ud800' 0 2 surrogates not allowed
+'\udc80\ud800' UTF8 surrogatepass b'\xed\xb2\x80\xed\xa0\x80'
+'\udc80\ud800' UTF8 surrogateescape UnicodeEncodeError: 'utf-8' codec can't encode character '\ud800' in position 1: surrogates not allowed | utf-8 '\udc80\ud800' 1 2 surrogates not allowed
+'\udc80\ud800' UTF8 backslashreplace b'\\udc80\\ud800'
+'\udc80\ud800' UTF8 xmlcharrefreplace b'&#56448;&#55296;'
+'\udc80\ud800' UTF8 replace b'??'
+'\udc80\ud800' UTF8 ignore b''
+'\udc80\ud800' us-ascii strict UnicodeEncodeError: 'ascii' codec can't encode characters in position 0-1: ordinal not in range(128) | ascii '\udc80\ud800' 0 2 ordinal not in range(128)
+'\udc80\ud800' us-ascii surrogatepass UnicodeEncodeError: 'ascii' codec can't encode characters in position 0-1: ordinal not in range(128) | ascii '\udc80\ud800' 0 2 ordinal not in range(128)
+'\udc80\ud800' us-ascii surrogateescape UnicodeEncodeError: 'ascii' codec can't encode character '\ud800' in position 1: ordinal not in range(128) | ascii '\udc80\ud800' 1 2 ordinal not in range(128)
+'\udc80\ud800' us-ascii backslashreplace b'\\udc80\\ud800'
+'\udc80\ud800' us-ascii xmlcharrefreplace b'&#56448;&#55296;'
+'\udc80\ud800' us-ascii replace b'??'
+'\udc80\ud800' us-ascii ignore b''
+'plain' utf-8 strict b'plain'
+'plain' utf-8 surrogatepass b'plain'
+'plain' utf-8 surrogateescape b'plain'
+'plain' utf-8 backslashreplace b'plain'
+'plain' utf-8 xmlcharrefreplace b'plain'
+'plain' utf-8 replace b'plain'
+'plain' utf-8 ignore b'plain'
+'plain' ascii strict b'plain'
+'plain' ascii surrogatepass b'plain'
+'plain' ascii surrogateescape b'plain'
+'plain' ascii backslashreplace b'plain'
+'plain' ascii xmlcharrefreplace b'plain'
+'plain' ascii replace b'plain'
+'plain' ascii ignore b'plain'
+'plain' latin-1 strict b'plain'
+'plain' latin-1 surrogatepass b'plain'
+'plain' latin-1 surrogateescape b'plain'
+'plain' latin-1 backslashreplace b'plain'
+'plain' latin-1 xmlcharrefreplace b'plain'
+'plain' latin-1 replace b'plain'
+'plain' latin-1 ignore b'plain'
+'plain' UTF8 strict b'plain'
+'plain' UTF8 surrogatepass b'plain'
+'plain' UTF8 surrogateescape b'plain'
+'plain' UTF8 backslashreplace b'plain'
+'plain' UTF8 xmlcharrefreplace b'plain'
+'plain' UTF8 replace b'plain'
+'plain' UTF8 ignore b'plain'
+'plain' us-ascii strict b'plain'
+'plain' us-ascii surrogatepass b'plain'
+'plain' us-ascii surrogateescape b'plain'
+'plain' us-ascii backslashreplace b'plain'
+'plain' us-ascii xmlcharrefreplace b'plain'
+'plain' us-ascii replace b'plain'
+'plain' us-ascii ignore b'plain'
+'\xe9t' utf-8 strict b'\xc3\xa9t'
+'\xe9t' utf-8 surrogatepass b'\xc3\xa9t'
+'\xe9t' utf-8 surrogateescape b'\xc3\xa9t'
+'\xe9t' utf-8 backslashreplace b'\xc3\xa9t'
+'\xe9t' utf-8 xmlcharrefreplace b'\xc3\xa9t'
+'\xe9t' utf-8 replace b'\xc3\xa9t'
+'\xe9t' utf-8 ignore b'\xc3\xa9t'
+'\xe9t' ascii strict UnicodeEncodeError: 'ascii' codec can't encode character '\xe9' in position 0: ordinal not in range(128) | ascii '\xe9t' 0 1 ordinal not in range(128)
+'\xe9t' ascii surrogatepass UnicodeEncodeError: 'ascii' codec can't encode character '\xe9' in position 0: ordinal not in range(128) | ascii '\xe9t' 0 1 ordinal not in range(128)
+'\xe9t' ascii surrogateescape UnicodeEncodeError: 'ascii' codec can't encode character '\xe9' in position 0: ordinal not in range(128) | ascii '\xe9t' 0 1 ordinal not in range(128)
+'\xe9t' ascii backslashreplace b'\\xe9t'
+'\xe9t' ascii xmlcharrefreplace b'&#233;t'
+'\xe9t' ascii replace b'?t'
+'\xe9t' ascii ignore b't'
+'\xe9t' latin-1 strict b'\xe9t'
+'\xe9t' latin-1 surrogatepass b'\xe9t'
+'\xe9t' latin-1 surrogateescape b'\xe9t'
+'\xe9t' latin-1 backslashreplace b'\xe9t'
+'\xe9t' latin-1 xmlcharrefreplace b'\xe9t'
+'\xe9t' latin-1 replace b'\xe9t'
+'\xe9t' latin-1 ignore b'\xe9t'
+'\xe9t' UTF8 strict b'\xc3\xa9t'
+'\xe9t' UTF8 surrogatepass b'\xc3\xa9t'
+'\xe9t' UTF8 surrogateescape b'\xc3\xa9t'
+'\xe9t' UTF8 backslashreplace b'\xc3\xa9t'
+'\xe9t' UTF8 xmlcharrefreplace b'\xc3\xa9t'
+'\xe9t' UTF8 replace b'\xc3\xa9t'
+'\xe9t' UTF8 ignore b'\xc3\xa9t'
+'\xe9t' us-ascii strict UnicodeEncodeError: 'ascii' codec can't encode character '\xe9' in position 0: ordinal not in range(128) | ascii '\xe9t' 0 1 ordinal not in range(128)
+'\xe9t' us-ascii surrogatepass UnicodeEncodeError: 'ascii' codec can't encode character '\xe9' in position 0: ordinal not in range(128) | ascii '\xe9t' 0 1 ordinal not in range(128)
+'\xe9t' us-ascii surrogateescape UnicodeEncodeError: 'ascii' codec can't encode character '\xe9' in position 0: ordinal not in range(128) | ascii '\xe9t' 0 1 ordinal not in range(128)
+'\xe9t' us-ascii backslashreplace b'\\xe9t'
+'\xe9t' us-ascii xmlcharrefreplace b'&#233;t'
+'\xe9t' us-ascii replace b'?t'
+'\xe9t' us-ascii ignore b't'
+b'\xed\xa0\x80z' bytearray(b'\x80')
+b'\\ud800q' b'\xed\xa0\x80q'
+bytes() 'utf-8' codec can't encode character '\ud800' in position 0: surrogates not allowed (0, 1, 'surrogates not allowed')
+b'a\x80b' utf-8 surrogateescape 'a\udc80b' 3
+b'a\x80b' utf-8 surrogatepass UnicodeDecodeError: 'utf-8' codec can't decode byte 0x80 in position 1: invalid start byte
+b'a\x80b' utf-8 strict UnicodeDecodeError: 'utf-8' codec can't decode byte 0x80 in position 1: invalid start byte
+b'a\x80b' ascii surrogateescape 'a\udc80b' 3
+b'a\x80b' ascii surrogatepass UnicodeDecodeError: 'ascii' codec can't decode byte 0x80 in position 1: ordinal not in range(128)
+b'a\x80b' ascii strict UnicodeDecodeError: 'ascii' codec can't decode byte 0x80 in position 1: ordinal not in range(128)
+b'a\x80b' latin-1 surrogateescape 'a\x80b' 3
+b'a\x80b' latin-1 surrogatepass 'a\x80b' 3
+b'a\x80b' latin-1 strict 'a\x80b' 3
+b'\xed\xa0\x80' utf-8 surrogateescape '\udced\udca0\udc80' 3
+b'\xed\xa0\x80' utf-8 surrogatepass '\ud800' 1
+b'\xed\xa0\x80' utf-8 strict UnicodeDecodeError: 'utf-8' codec can't decode byte 0xed in position 0: invalid continuation byte
+b'\xed\xa0\x80' ascii surrogateescape '\udced\udca0\udc80' 3
+b'\xed\xa0\x80' ascii surrogatepass UnicodeDecodeError: 'ascii' codec can't decode byte 0xed in position 0: ordinal not in range(128)
+b'\xed\xa0\x80' ascii strict UnicodeDecodeError: 'ascii' codec can't decode byte 0xed in position 0: ordinal not in range(128)
+b'\xed\xa0\x80' latin-1 surrogateescape '\xed\xa0\x80' 3
+b'\xed\xa0\x80' latin-1 surrogatepass '\xed\xa0\x80' 3
+b'\xed\xa0\x80' latin-1 strict '\xed\xa0\x80' 3
+b'\xed\xa0\x80\xed\xb2\x80x' utf-8 surrogateescape '\udced\udca0\udc80\udced\udcb2\udc80x' 7
+b'\xed\xa0\x80\xed\xb2\x80x' utf-8 surrogatepass '\ud800\udc80x' 3
+b'\xed\xa0\x80\xed\xb2\x80x' utf-8 strict UnicodeDecodeError: 'utf-8' codec can't decode byte 0xed in position 0: invalid continuation byte
+b'\xed\xa0\x80\xed\xb2\x80x' ascii surrogateescape '\udced\udca0\udc80\udced\udcb2\udc80x' 7
+b'\xed\xa0\x80\xed\xb2\x80x' ascii surrogatepass UnicodeDecodeError: 'ascii' codec can't decode byte 0xed in position 0: ordinal not in range(128)
+b'\xed\xa0\x80\xed\xb2\x80x' ascii strict UnicodeDecodeError: 'ascii' codec can't decode byte 0xed in position 0: ordinal not in range(128)
+b'\xed\xa0\x80\xed\xb2\x80x' latin-1 surrogateescape '\xed\xa0\x80\xed\xb2\x80x' 7
+b'\xed\xa0\x80\xed\xb2\x80x' latin-1 surrogatepass '\xed\xa0\x80\xed\xb2\x80x' 7
+b'\xed\xa0\x80\xed\xb2\x80x' latin-1 strict '\xed\xa0\x80\xed\xb2\x80x' 7
+b'\xed\xa0' utf-8 surrogateescape '\udced\udca0' 2
+b'\xed\xa0' utf-8 surrogatepass UnicodeDecodeError: 'utf-8' codec can't decode byte 0xed in position 0: invalid continuation byte
+b'\xed\xa0' utf-8 strict UnicodeDecodeError: 'utf-8' codec can't decode byte 0xed in position 0: invalid continuation byte
+b'\xed\xa0' ascii surrogateescape '\udced\udca0' 2
+b'\xed\xa0' ascii surrogatepass UnicodeDecodeError: 'ascii' codec can't decode byte 0xed in position 0: ordinal not in range(128)
+b'\xed\xa0' ascii strict UnicodeDecodeError: 'ascii' codec can't decode byte 0xed in position 0: ordinal not in range(128)
+b'\xed\xa0' latin-1 surrogateescape '\xed\xa0' 2
+b'\xed\xa0' latin-1 surrogatepass '\xed\xa0' 2
+b'\xed\xa0' latin-1 strict '\xed\xa0' 2
+b'\xe9A' utf-8 surrogateescape '\udce9A' 2
+b'\xe9A' utf-8 surrogatepass UnicodeDecodeError: 'utf-8' codec can't decode byte 0xe9 in position 0: invalid continuation byte
+b'\xe9A' utf-8 strict UnicodeDecodeError: 'utf-8' codec can't decode byte 0xe9 in position 0: invalid continuation byte
+b'\xe9A' ascii surrogateescape '\udce9A' 2
+b'\xe9A' ascii surrogatepass UnicodeDecodeError: 'ascii' codec can't decode byte 0xe9 in position 0: ordinal not in range(128)
+b'\xe9A' ascii strict UnicodeDecodeError: 'ascii' codec can't decode byte 0xe9 in position 0: ordinal not in range(128)
+b'\xe9A' latin-1 surrogateescape '\xe9A' 2
+b'\xe9A' latin-1 surrogatepass '\xe9A' 2
+b'\xe9A' latin-1 strict '\xe9A' 2
+b'\xf0\x9f\x98' utf-8 surrogateescape '\udcf0\udc9f\udc98' 3
+b'\xf0\x9f\x98' utf-8 surrogatepass UnicodeDecodeError: 'utf-8' codec can't decode bytes in position 0-2: unexpected end of data
+b'\xf0\x9f\x98' utf-8 strict UnicodeDecodeError: 'utf-8' codec can't decode bytes in position 0-2: unexpected end of data
+b'\xf0\x9f\x98' ascii surrogateescape '\udcf0\udc9f\udc98' 3
+b'\xf0\x9f\x98' ascii surrogatepass UnicodeDecodeError: 'ascii' codec can't decode byte 0xf0 in position 0: ordinal not in range(128)
+b'\xf0\x9f\x98' ascii strict UnicodeDecodeError: 'ascii' codec can't decode byte 0xf0 in position 0: ordinal not in range(128)
+b'\xf0\x9f\x98' latin-1 surrogateescape '\xf0\x9f\x98' 3
+b'\xf0\x9f\x98' latin-1 surrogatepass '\xf0\x9f\x98' 3
+b'\xf0\x9f\x98' latin-1 strict '\xf0\x9f\x98' 3
+b'\xff\xfe' utf-8 surrogateescape '\udcff\udcfe' 2
+b'\xff\xfe' utf-8 surrogatepass UnicodeDecodeError: 'utf-8' codec can't decode byte 0xff in position 0: invalid start byte
+b'\xff\xfe' utf-8 strict UnicodeDecodeError: 'utf-8' codec can't decode byte 0xff in position 0: invalid start byte
+b'\xff\xfe' ascii surrogateescape '\udcff\udcfe' 2
+b'\xff\xfe' ascii surrogatepass UnicodeDecodeError: 'ascii' codec can't decode byte 0xff in position 0: ordinal not in range(128)
+b'\xff\xfe' ascii strict UnicodeDecodeError: 'ascii' codec can't decode byte 0xff in position 0: ordinal not in range(128)
+b'\xff\xfe' latin-1 surrogateescape '\xff\xfe' 2
+b'\xff\xfe' latin-1 surrogatepass '\xff\xfe' 2
+b'\xff\xfe' latin-1 strict '\xff\xfe' 2
+b'\xed\xa0A' utf-8 surrogateescape '\udced\udca0A' 3
+b'\xed\xa0A' utf-8 surrogatepass UnicodeDecodeError: 'utf-8' codec can't decode byte 0xed in position 0: invalid continuation byte
+b'\xed\xa0A' utf-8 strict UnicodeDecodeError: 'utf-8' codec can't decode byte 0xed in position 0: invalid continuation byte
+b'\xed\xa0A' ascii surrogateescape '\udced\udca0A' 3
+b'\xed\xa0A' ascii surrogatepass UnicodeDecodeError: 'ascii' codec can't decode byte 0xed in position 0: ordinal not in range(128)
+b'\xed\xa0A' ascii strict UnicodeDecodeError: 'ascii' codec can't decode byte 0xed in position 0: ordinal not in range(128)
+b'\xed\xa0A' latin-1 surrogateescape '\xed\xa0A' 3
+b'\xed\xa0A' latin-1 surrogatepass '\xed\xa0A' 3
+b'\xed\xa0A' latin-1 strict '\xed\xa0A' 3
+b'\xc3' utf-8 surrogateescape '\udcc3' 1
+b'\xc3' utf-8 surrogatepass UnicodeDecodeError: 'utf-8' codec can't decode byte 0xc3 in position 0: unexpected end of data
+b'\xc3' utf-8 strict UnicodeDecodeError: 'utf-8' codec can't decode byte 0xc3 in position 0: unexpected end of data
+b'\xc3' ascii surrogateescape '\udcc3' 1
+b'\xc3' ascii surrogatepass UnicodeDecodeError: 'ascii' codec can't decode byte 0xc3 in position 0: ordinal not in range(128)
+b'\xc3' ascii strict UnicodeDecodeError: 'ascii' codec can't decode byte 0xc3 in position 0: ordinal not in range(128)
+b'\xc3' latin-1 surrogateescape '\xc3' 1
+b'\xc3' latin-1 surrogatepass '\xc3' 1
+b'\xc3' latin-1 strict '\xc3' 1
+b'ok' utf-8 surrogateescape 'ok' 2
+b'ok' utf-8 surrogatepass 'ok' 2
+b'ok' utf-8 strict 'ok' 2
+b'ok' ascii surrogateescape 'ok' 2
+b'ok' ascii surrogatepass 'ok' 2
+b'ok' ascii strict 'ok' 2
+b'ok' latin-1 surrogateescape 'ok' 2
+b'ok' latin-1 surrogatepass 'ok' 2
+b'ok' latin-1 strict 'ok' 2
+b'\xed\xbf\xbf' utf-8 surrogateescape '\udced\udcbf\udcbf' 3
+b'\xed\xbf\xbf' utf-8 surrogatepass '\udfff' 1
+b'\xed\xbf\xbf' utf-8 strict UnicodeDecodeError: 'utf-8' codec can't decode byte 0xed in position 0: invalid continuation byte
+b'\xed\xbf\xbf' ascii surrogateescape '\udced\udcbf\udcbf' 3
+b'\xed\xbf\xbf' ascii surrogatepass UnicodeDecodeError: 'ascii' codec can't decode byte 0xed in position 0: ordinal not in range(128)
+b'\xed\xbf\xbf' ascii strict UnicodeDecodeError: 'ascii' codec can't decode byte 0xed in position 0: ordinal not in range(128)
+b'\xed\xbf\xbf' latin-1 surrogateescape '\xed\xbf\xbf' 3
+b'\xed\xbf\xbf' latin-1 surrogatepass '\xed\xbf\xbf' 3
+b'\xed\xbf\xbf' latin-1 strict '\xed\xbf\xbf' 3
+132 True '|}~\x7f\udc80\udc81\udc82\udc83'
+'\ud800\udfffk' True
+'utf-8' codec can't encode character '\ud800' in position 1: surrogates not allowed 'a\ud800' (1, 2, 'surrogates not allowed')
+'ascii' codec can't encode characters in position 0-2: nope
+
+print raised: 'utf-8' codec can't encode character '\ud800' in position 0: surrogates not allowed 0 1 '\ud800'
+before 
+print raised: 'utf-8' codec can't encode character '\ud800' in position 0: surrogates not allowed 0 1 '\ud800'
+ok 1
+x|end raised: 'utf-8' codec can't encode character '\ud800' in position 0: surrogates not allowed
+p|sep raised: 'utf-8' codec can't encode character '\ud800' in position 0: surrogates not allowed
+write raised: 'utf-8' codec can't encode character '\ud800' in position 1: surrogates not allowed
+to stderr: \ud800z
+err\udc80
+stderr wrote 5
+["'a'", "'\\udc80'", "'\\ud800'", "'\\udfff'"]
+{"k\ud800": "v\udc80", "n": ["\udfff", "\u00e9", 1]}
+'{"k\ud800": "v\udc80", "n": ["\udfff", "\xe9", 1]}'
+'{\n "k\ud800": "v\udc80",\n "n": [\n  "\udfff",\n  "\xe9",\n  1\n ]\n}'
+'"\ud800"' 3
+True
+'["\udc80"]'
+'{"\ud800": 1}'
+'a\\.b\ud800\\*\udc80'
+True
+([('w', 'ab'), ('L', 2), ('w', 'cd')], '\udc00')

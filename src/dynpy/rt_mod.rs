@@ -2986,6 +2986,10 @@ pub fn stream_fn(stream: &str, name: &str, a: Args) -> R {
         ("sys.stdin", "fileno") => Ok(V::Int(0)),
         ("sys.stdout", "write") => {
             let t = match &a1(&a, "write")? {
+                V::Str(x) if x.is_lone() => {
+                    out_write_bytes(&out_lone(x)?);
+                    return Ok(V::Int(x.nchars() as i64));
+                }
                 V::Str(x) => x.text().to_string(),
                 x => return type_err(format!("write() argument must be str, not {}", tn(x))),
             };
@@ -2993,7 +2997,13 @@ pub fn stream_fn(stream: &str, name: &str, a: Args) -> R {
             Ok(V::Int(t.chars().count() as i64))
         }
         ("sys.stderr", "write") => {
-            let t = to_str(&a1(&a, "write")?)?;
+            let t = match &a1(&a, "write")? {
+                V::Str(x) if x.is_lone() => {
+                    err_write(&err_text(x));
+                    return Ok(V::Int(x.nchars() as i64));
+                }
+                x => to_str(x)?,
+            };
             err_write(&t);
             Ok(V::Int(t.chars().count() as i64))
         }
