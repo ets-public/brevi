@@ -378,6 +378,18 @@ pub fn chain_new(source: In) -> V {
 impl RedIt for ChainIt {
     fn step(&self) -> Result<Option<V>, E> {
         loop {
+            // the common case: an item from the active input (only its cell is held, so a re-entrant
+            // __setstate__ from the input's own code can replace `active`)
+            let cur = self.active.borrow().as_ref().map(|a| a.it.clone());
+            if let Some(it) = cur {
+                match iter_step(&it) {
+                    Ok(Some(x)) => return Ok(Some(x)),
+                    Ok(None) => {}
+                    Err(E(e)) if is_exc(&e, "StopIteration") => {}
+                    Err(e) => return Err(e),
+                }
+                *self.active.borrow_mut() = None;
+            }
             let Some(src) = self.source.borrow().clone() else { return Ok(None) };
             let act = self.active.borrow().clone();
             let act = match act {
