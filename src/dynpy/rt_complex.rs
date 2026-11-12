@@ -293,7 +293,7 @@ impl Ext for CplxV {
                 "__format__" => {
                     let s = one(a)?;
                     let V::Str(s) = s else { return type_err(format!("complex.__format__() argument must be str, not {}", tn(&s))) };
-                    self.fmt(&s.s).unwrap()?
+                    self.fmt(&s.text()).unwrap()?
                 }
                 "__eq__" | "__ne__" => {
                     let o = one(a)?;
@@ -407,7 +407,7 @@ pub fn bi_complex(mut a: Args) -> R {
         if imag.is_some() {
             return type_err("complex() can't take second arg if first is a string".into());
         }
-        return complex_from_str(&s.s);
+        return complex_from_str(&s.text());
     }
     if let Some(V::Str(_)) = &imag {
         return type_err("complex() second arg can't be a string".into());

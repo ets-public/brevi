@@ -67,31 +67,50 @@ pub fn float_repr(x: f64) -> String {
     }
     out
 }
+// repr() of a str, lone surrogates included (each is \udXXX: CPython's isprintable() rejects it).
+pub fn repr_s(s: &S) -> String {
+    let Some(v) = s.lone() else { return str_repr(s.text()) };
+    let has = |c: char| v.contains(&(c as u32));
+    let q = if has('\'') && !has('"') { '"' } else { '\'' };
+    let mut out = String::with_capacity(v.len() + 2);
+    out.push(q);
+    for &u in v {
+        match char::from_u32(u) {
+            Some(c) => repr_char(&mut out, c, q),
+            None => out.push_str(&format!("\\u{u:04x}")),
+        }
+    }
+    out.push(q);
+    out
+}
 pub fn str_repr(s: &str) -> String {
     let q = if s.contains('\'') && !s.contains('"') { '"' } else { '\'' };
     let mut out = String::with_capacity(s.len() + 2);
     out.push(q);
     for c in s.chars() {
-        match c {
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if c == q => {
-                out.push('\\');
-                out.push(c);
-            }
-            c if (c as u32) < 0x20 || c as u32 == 0x7f => out.push_str(&format!("\\x{:02x}", c as u32)),
-            // what str.isprintable() rejects: \xNN, \uNNNN or \UNNNNNNNN, as CPython's repr
-            c if !c.is_ascii() && tab_has(PY_NOPRINT, c) => {
-                let u = c as u32;
-                out.push_str(&if u < 0x100 { format!("\\x{u:02x}") } else if u < 0x10000 { format!("\\u{u:04x}") } else { format!("\\U{u:08x}") })
-            }
-            c => out.push(c),
-        }
+        repr_char(&mut out, c, q);
     }
     out.push(q);
     out
+}
+fn repr_char(out: &mut String, c: char, q: char) {
+    match c {
+        '\\' => out.push_str("\\\\"),
+        '\n' => out.push_str("\\n"),
+        '\r' => out.push_str("\\r"),
+        '\t' => out.push_str("\\t"),
+        c if c == q => {
+            out.push('\\');
+            out.push(c);
+        }
+        c if (c as u32) < 0x20 || c as u32 == 0x7f => out.push_str(&format!("\\x{:02x}", c as u32)),
+        // what str.isprintable() rejects: \xNN, \uNNNN or \UNNNNNNNN, as CPython's repr
+        c if !c.is_ascii() && tab_has(PY_NOPRINT, c) => {
+            let u = c as u32;
+            out.push_str(&if u < 0x100 { format!("\\x{u:02x}") } else if u < 0x10000 { format!("\\u{u:04x}") } else { format!("\\U{u:08x}") })
+        }
+        c => out.push(c),
+    }
 }
 thread_local! {
     static REPR_DEPTH: RefCell<Vec<usize>> = RefCell::new(Vec::new());
@@ -187,7 +206,7 @@ pub fn repr(v: &V) -> Result<String, E> {
             s
         }
         V::Float(f) => float_repr(*f),
-        V::Str(s) => str_repr(&s.s),
+        V::Str(s) => repr_s(s),
         V::List(l) => {
             let p = Rc::as_ptr(l) as usize;
             if !guard(p) {
@@ -282,7 +301,7 @@ pub fn repr(v: &V) -> Result<String, E> {
         }
         V::Func(f) => {
             if let Some(V::Str(r)) = f.attrs.borrow().iter().find(|(k, _)| *k == "__bv_repr__").map(|(_, v)| v.clone()) {
-                return Ok(r.s.clone());
+                return Ok(r.text().to_string());
             }
             if f.kind.get() == 3 {
                 format!("<built-in function {}>", f.name.get())
@@ -317,7 +336,7 @@ pub fn repr(v: &V) -> Result<String, E> {
                     _ => call(&getattr(v, "__repr__")?, Args::p(vec![]))?,
                 };
                 return match r {
-                    V::Str(s) => Ok(s.s.clone()),
+                    V::Str(s) => Ok(s.text().to_string()),
                     x => type_err(format!("__repr__ returned non-string (type {})", tn(&x))),
                 };
             }
@@ -528,7 +547,7 @@ pub fn to_str(v: &V) -> Result<String, E> {
     }
     Ok(match v {
         V::Class(c) if meta_has(c, "__str__") || meta_has(c, "__repr__") => return meta_str(c, v, if meta_has(c, "__str__") { "__str__" } else { "__repr__" }),
-        V::Str(s) => s.s.clone(),
+        V::Str(s) => s.text().to_string(),
         V::Float(f) => float_repr(*f),
         V::Int(i) => i.to_string(),
         V::Obj(o) => {
@@ -544,7 +563,7 @@ pub fn to_str(v: &V) -> Result<String, E> {
             }
             if let Some(f) = o.cls.lookup("__str__") {
                 return match call(&f, Args::p(vec![v.clone()]))? {
-                    V::Str(s) => Ok(s.s.clone()),
+                    V::Str(s) => Ok(s.text().to_string()),
                     x => type_err(format!("__str__ returned non-string (type {})", tn(&x))),
                 };
             }
@@ -558,9 +577,9 @@ pub fn to_str(v: &V) -> Result<String, E> {
                     if t.len() == 5 && o.cls.is_sub(&exc_class("UnicodeDecodeError")) {
                         if let (V::Str(e), Some(b), V::Int(a), V::Int(z), V::Str(r)) = (&t[0], bytes_of(&t[1]), &t[2], &t[3], &t[4]) {
                             return Ok(if *z == *a + 1 && (*a as usize) < b.len() {
-                                format!("'{}' codec can't decode byte 0x{:02x} in position {a}: {}", e.s, b[*a as usize], r.s)
+                                format!("'{}' codec can't decode byte 0x{:02x} in position {a}: {}", e.text(), b[*a as usize], r.text())
                             } else {
-                                format!("'{}' codec can't decode bytes in position {a}-{}: {}", e.s, z - 1, r.s)
+                                format!("'{}' codec can't decode bytes in position {a}-{}: {}", e.text(), z - 1, r.text())
                             });
                         }
                     }
@@ -910,8 +929,8 @@ pub fn format_spec(v: &V, spec: &str) -> Result<String, E> {
                 return val_err("'=' alignment not allowed in string format specifier".into());
             }
             let body: String = match sp.prec {
-                Some(p) => x.s.chars().take(p).collect(),
-                None => x.s.clone(),
+                Some(p) => x.text().chars().take(p).collect(),
+                None => x.text().to_string(),
             };
             Ok(pad(body, "", &sp, false))
         }
@@ -1033,7 +1052,7 @@ fn percent_simple(f: &str, args: &V) -> Option<Result<String, E>> {
             _ => return None,
         },
         's' => match v {
-            V::Str(s) => s.s.clone(),
+            V::Str(s) => s.text().to_string(),
             _ => return None,
         },
         'f' => match v {
@@ -1211,7 +1230,7 @@ pub fn percent_format(f: &str, args: &V) -> Result<String, E> {
             'c' => {
                 let t = match &v {
                     V::Int(i) => char::from_u32(*i as u32).unwrap_or('?').to_string(),
-                    V::Str(x) => x.s.clone(),
+                    V::Str(x) => x.text().to_string(),
                     _ => return type_err("%c requires int or char".into()),
                 };
                 format_spec(&st(t), &spec)?
@@ -1243,7 +1262,7 @@ pub fn to_float(v: &V) -> Result<f64, E> {
             }
             Ok(f)
         }
-        V::Str(s) => parse_float(&s.s).ok_or_else(|| exc("ValueError", format!("could not convert string to float: {}", str_repr(&s.s)))),
+        V::Str(s) => parse_float(&s.text()).ok_or_else(|| exc("ValueError", format!("could not convert string to float: {}", str_repr(&s.text())))),
         V::Obj(o) => match o.cls.lookup("__float__") {
             Some(f) => to_float(&call(&f, Args::p(vec![v.clone()]))?),
             // a bytes or bytearray subclass instance parses as its bytes do
@@ -1391,7 +1410,11 @@ pub fn to_int(v: &V) -> R {
                 Ok(Big::from_f64(t).norm())
             }
         }
-        V::Str(s) => int_text_limit(&s.s, 10, parse_int(&s.s, 10))?.ok_or_else(|| exc("ValueError", format!("invalid literal for int() with base 10: {}", str_repr(&s.s)))),
+        // a lone surrogate reads as CPython's '?' (_PyUnicode_TransformDecimalAndSpaceToASCII): never a digit
+        V::Str(s) => {
+            let t = s.text_sub('?');
+            int_text_limit(&t, 10, parse_int(&t, 10))?.ok_or_else(|| exc("ValueError", format!("invalid literal for int() with base 10: {}", repr_s(s))))
+        }
         V::Obj(o) => {
             if let Some(f) = o.cls.lookup("__int__") {
                 return int_returned(call(&f, Args::p(vec![v.clone()]))?, "__int__");
@@ -1531,7 +1554,7 @@ pub fn sort_values(v: &mut Vec<V>, key: Option<&V>, reverse: bool) -> Result<(),
     if all_int {
         keyed.sort_by(|a, b| if let (V::Int(x), V::Int(y)) = (&a.0, &b.0) { x.cmp(y) } else { std::cmp::Ordering::Equal });
     } else if all_str {
-        keyed.sort_by(|a, b| if let (V::Str(x), V::Str(y)) = (&a.0, &b.0) { x.s.cmp(&y.s) } else { std::cmp::Ordering::Equal });
+        keyed.sort_by(|a, b| if let (V::Str(x), V::Str(y)) = (&a.0, &b.0) { x.order(y) } else { std::cmp::Ordering::Equal });
     } else {
         merge_sort(&mut keyed, &mut |a: &(V, V), b: &(V, V)| {
             if err.is_some() {

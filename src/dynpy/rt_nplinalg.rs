@@ -634,7 +634,7 @@ fn np_norm(a: &Args) -> R {
     if xa.dt() == NT::F32 {
         let ord = npa(a, 1, "ord").filter(|v| !matches!(v, V::None));
         let axis = npa(a, 2, "axis").filter(|v| !matches!(v, V::None));
-        let ord_s = ord.as_ref().and_then(|v| if let V::Str(s) = v { Some(s.s.clone()) } else { None });
+        let ord_s = ord.as_ref().and_then(|v| if let V::Str(s) = v { Some(s.text().to_string()) } else { None });
         let ord_f = match (&ord, &ord_s) {
             (Some(v), None) => Some(np_f_arg(v)?),
             _ => None,
@@ -653,7 +653,7 @@ fn np_norm(a: &Args) -> R {
     let ord = npa(a, 1, "ord").filter(|v| !matches!(v, V::None));
     let axis = npa(a, 2, "axis").filter(|v| !matches!(v, V::None));
     let keepdims = npa(a, 3, "keepdims").map_or(Ok(false), |v| truth(&v))?;
-    let ord_s = ord.as_ref().and_then(|v| if let V::Str(s) = v { Some(s.s.clone()) } else { None });
+    let ord_s = ord.as_ref().and_then(|v| if let V::Str(s) = v { Some(s.text().to_string()) } else { None });
     let ord_f = match (&ord, &ord_s) {
         (Some(v), None) => Some(np_f_arg(v)?),
         _ => None,

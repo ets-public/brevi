@@ -197,11 +197,13 @@ class Classify(unittest.TestCase):
         self.assertEqual(c.masked(c.Run(0, b"0x7f1a2b3c\n", b"", "")).out, b"0x7f1a2b3c\n")
 
     def test_only_the_lone_surrogate_stop_in_both_builds_needs_the_string_model(self):
-        stop = "exit 1, expected 0: NotImplementedError: brevi: chr() of a lone surrogate (U+D800..U+DFFF) is not supported in dynamic builds"
+        stop = ("exit 1, expected 0: NotImplementedError: brevi: this operation on a str with a lone surrogate (U+D800..U+DFFF) "
+                "is not supported in dynamic builds yet (runtime line 9744)")
         ex = lambda d: {"category": "wrong_exit", "path": "dynamic", "detail": d, "silent": False}
         both = {"id": "t.A.sur", "modes": {"normal": ex(stop), "dyn": ex(stop)}}
         one = {"id": "t.A.one", "modes": {"normal": ex(stop), "dyn": ex("exit 1, expected 0: ValueError: x")}}
-        other = {"id": "t.A.oth", "modes": {"normal": ex(stop.replace("chr()", "json")), "dyn": ex(stop.replace("chr()", "json"))}}
+        json = "exit 1, expected 0: NotImplementedError: brevi: json: a lone surrogate \\u escape is not supported in dynamic builds"
+        other = {"id": "t.A.oth", "modes": {"normal": ex(json), "dyn": ex(json)}}
         self.assertTrue(c.string_model_stop(both))
         self.assertFalse(c.string_model_stop(one))
         self.assertFalse(c.string_model_stop(other))

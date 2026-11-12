@@ -673,6 +673,16 @@ for f in tests/dyn/*.py; do
     echo "ok   $f"
   fi
 done
+# A str with a lone surrogate on a path not yet written for one stops the program, even inside try/except: never a
+# different answer (handoffs/string-model-design.md).
+t=$(mktemp -d)
+printf 'try:\n    print(chr(0xd800).upper())\nexcept BaseException:\n    print("caught")\nprint("after")\n' > "$t/s.py"
+o=$(BREVI_DYN=1 $BREVI run "$t/s.py" 2>&1); c=$?
+case "$c:$o" in "1:NotImplementedError: brevi: this operation on a str with a lone surrogate (U+D800..U+DFFF) is not supported in dynamic builds yet"*) echo "ok   a lone surrogate on an unwritten path stops the program" ;; *) echo "FAIL a lone surrogate on an unwritten path ($c)"; printf '%s\n' "$o"; fail=1 ;; esac
+printf 'def f():\n    "\\ud800"\n' > "$t/d.py"
+o=$(BREVI_DYN=1 $BREVI run "$t/d.py" 2>&1)
+case "$o" in *"a docstring with a lone surrogate (U+D800..U+DFFF) is not supported"*) echo "ok   a docstring with a lone surrogate is refused" ;; *) echo "FAIL a docstring with a lone surrogate"; printf '%s\n' "$o"; fail=1 ;; esac
+rm -rf "$t"
 #== bridge split
 # Python libraries the dynamic build lacks (tests/bridge/brlib stands in for a third-party one) run in CPython
 # inside a dynamic build: output must match python3, the path line must name them, and nothing may run fully

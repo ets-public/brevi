@@ -691,7 +691,7 @@ fn type_arg_ok(v: &V, what: &str) -> Result<(), E> {
     let ok = match v {
         V::None | V::Int(_) | V::Big(_) | V::Float(_) | V::Bool(_) | V::Ellipsis | V::Func(_) => true,
         V::Str(t) => {
-            let t = t.s.as_str();
+            let t = t.text();
             !t.is_empty() && t.split('.').all(|p| p.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_') && p.chars().all(|c| c.is_alphanumeric() || c == '_')) && !matches!(t, "None" | "True" | "False") && !is_py_keyword(t)
         }
         V::Class(k) if k.module != "typing" || !is_form(k) => true,

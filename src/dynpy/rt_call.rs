@@ -293,7 +293,7 @@ pub fn star_args(a: &mut Args, v: &V) -> Result<(), E> {
 pub fn star_kwargs(a: &mut Args, v: &V) -> Result<(), E> {
     for (k, x) in dict_items_of(v)? {
         match &k {
-            V::Str(n) => a.k.push((sym(&n.s), x)),
+            V::Str(n) => a.k.push((sym(&n.text()), x)),
             _ => return type_err("keywords must be strings".into()),
         }
     }
@@ -1111,7 +1111,7 @@ pub fn object_setattr(me: &V, a: &[V]) -> R {
     let V::Obj(o) = me else {
         return Ok(V::None);
     };
-    let name = sym(&n.s);
+    let name = sym(&n.text());
     if o.cls.is_prop(name) {
         if let Some(V::Prop(p)) = o.cls.lookup(name) {
             if matches!(p.1, V::None) {
@@ -1967,7 +1967,7 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
                 let V::Str(t) = &v else {
                     return type_err(format!("{name} must be set to a string object"));
                 };
-                if name == "__name__" { f.name.set(sym(&t.s)) } else { f.qualname.set(sym(&t.s)) }
+                if name == "__name__" { f.name.set(sym(&t.text())) } else { f.qualname.set(sym(&t.text())) }
                 return Ok(());
             }
             if !FUNC_SLOT_ATTRS.contains(&name) {
@@ -2428,7 +2428,7 @@ pub fn type_new(mcls: &Rc<Class>, a: Args) -> R {
         return Err(unsupported("keyword arguments to type.__new__ (for __init_subclass__)"));
     }
     let name = match &a.p[0] {
-        V::Str(x) => sym(&x.s),
+        V::Str(x) => sym(&x.text()),
         x => return type_err(format!("type.__new__() argument 1 must be str, not {}", tn(x))),
     };
     let bases = match &a.p[1] {
@@ -2462,13 +2462,13 @@ pub fn type_new(mcls: &Rc<Class>, a: Args) -> R {
     for (k, v) in dict_sym_items(&ns)? {
         match k {
             "__qualname__" => match &v {
-                V::Str(x) => qualname = sym(&x.s),
+                V::Str(x) => qualname = sym(&x.text()),
                 x => return type_err(format!("type __qualname__ must be a str, not {}", tn(x))),
             },
             // kept in the dict where the namespace has it, as type_new keeps it
             "__module__" => match &v {
                 V::Str(x) => {
-                    module = sym(&x.s);
+                    module = sym(&x.text());
                     attrs.push((k, v));
                 }
                 _ => return Err(unsupported("a class __module__ that is not a str")),
@@ -2604,7 +2604,7 @@ fn meta_hash(c: &Rc<Class>, v: &V) -> Result<i64, E> {
 fn meta_str(c: &Rc<Class>, v: &V, which: &str) -> Result<String, E> {
     let (m, f) = meta_method(c, which).unwrap();
     match call(&bind_meta(f, v, &m), Args::p(vec![]))? {
-        V::Str(x) => Ok(x.s.clone()),
+        V::Str(x) => Ok(x.text().to_string()),
         x => type_err(format!("{which} returned non-string (type {})", tn(&x))),
     }
 }

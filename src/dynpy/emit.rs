@@ -285,7 +285,7 @@ fn is_missing_builtin(n: &str) -> bool {
 fn is_builtin_name(n: &str) -> bool {
     matches!(
         n,
-        "print" | "input" | "len" | "repr" | "ascii" | "abs" | "min" | "max" | "sum" | "sorted" | "reversed" | "enumerate" | "zip" | "map" | "filter" | "any" | "all" | "iter" | "next" | "isinstance" | "issubclass" | "hasattr" | "getattr" | "setattr" | "delattr" | "callable" | "ord" | "chr" | "hex" | "oct" | "bin" | "round" | "divmod" | "pow" | "hash" | "id" | "format" | "vars" | "dir" | "exit" | "quit" | "staticmethod" | "classmethod" | "property" | "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "slice" | "super" | "NotImplemented" | "Ellipsis" | "__name__" | "bytes" | "bytearray" | "memoryview" | "__bytes_lit" | "complex" | "__complex_lit" | "aiter" | "anext" | "__brevi_aenter" | "__brevi_aexit" | "__brevi_eg_split" | "__brevi_eg_reraise"
+        "print" | "input" | "len" | "repr" | "ascii" | "abs" | "min" | "max" | "sum" | "sorted" | "reversed" | "enumerate" | "zip" | "map" | "filter" | "any" | "all" | "iter" | "next" | "isinstance" | "issubclass" | "hasattr" | "getattr" | "setattr" | "delattr" | "callable" | "ord" | "chr" | "hex" | "oct" | "bin" | "round" | "divmod" | "pow" | "hash" | "id" | "format" | "vars" | "dir" | "exit" | "quit" | "staticmethod" | "classmethod" | "property" | "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "slice" | "super" | "NotImplemented" | "Ellipsis" | "__name__" | "bytes" | "bytearray" | "memoryview" | "__bytes_lit" | "__brevi_lone_str" | "complex" | "__complex_lit" | "aiter" | "anext" | "__brevi_aenter" | "__brevi_aexit" | "__brevi_eg_split" | "__brevi_eg_reraise"
     ) || is_exc_name(n)
 }
 fn is_exc_name(n: &str) -> bool {
@@ -1687,6 +1687,8 @@ pub struct Em {
     nglobals: usize,
     consts: Vec<String>,
     const_idx: HashMap<String, usize>,
+    // str constants with a lone surrogate: hex code points -> slot in consts (whose text there is unused)
+    lone_idx: HashMap<String, usize>,
     fstack: Vec<Func>,
     module: String,
     user_modules: Vec<String>,
@@ -1882,6 +1884,20 @@ impl Em {
                 let i = self.consts.len();
                 self.consts.push(s.to_string());
                 self.const_idx.insert(s.to_string(), i);
+                i
+            }
+        };
+        format!("kc({i})")
+    }
+    // A str literal with a lone surrogate (the parser's __brevi_lone_str call): one constant per distinct value,
+    // as CPython keeps one object for equal constants.
+    fn konst_lone(&mut self, hex: &str) -> String {
+        let i = match self.lone_idx.get(hex) {
+            Some(&i) => i,
+            None => {
+                let i = self.consts.len();
+                self.consts.push(String::new());
+                self.lone_idx.insert(hex.to_string(), i);
                 i
             }
         };
@@ -2083,6 +2099,10 @@ impl Em {
                 }
             }
             Ex::Str(s) => self.konst(s),
+            Ex::Call(f, a) if matches!((f.as_ref(), &a[..]), (Ex::Name(n), [Arg::Pos(Ex::Str(_))]) if n == "__brevi_lone_str") => {
+                let [Arg::Pos(Ex::Str(hex))] = &a[..] else { unreachable!() };
+                self.konst_lone(hex)
+            }
             Ex::NoneV => "V::None".into(),
             Ex::True => "V::Bool(true)".into(),
             Ex::False => "V::Bool(false)".into(),
@@ -2361,7 +2381,7 @@ impl Em {
                     };
                     if spec.is_empty() {
                         let t = self.q(&format!("to_str(&__x)"));
-                        write!(b, "{{ let __x = {v}; if let V::Str(__y) = &__x {{ __s.push_str(&__y.s); }} else {{ __s.push_str(&{t}); }} }} ").unwrap();
+                        write!(b, "{{ let __x = {v}; if let V::Str(__y) = &__x {{ __s.push_str(__y.text()); }} else {{ __s.push_str(&{t}); }} }} ").unwrap();
                     } else {
                         let sp = self.fparts(spec, line)?;
                         let fs = self.q("format_spec(&__x, &__spec)");
@@ -4760,6 +4780,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         nglobals: 0,
         consts: vec![],
         const_idx: HashMap::new(),
+        lone_idx: HashMap::new(),
         fstack: vec![],
         module: String::new(),
         user_modules: mods.iter().skip(1).map(|m| m.name.clone()).collect(),
@@ -4957,7 +4978,11 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     for m in mods.iter().filter(|m| !libs.iter().any(|l| l.name == m.name)) {
         out.push_str(&gtab(&em, &m.name));
     }
-    let consts: Vec<String> = em.consts.iter().map(|c| format!("s({})", lit(c))).collect();
+    let lone: HashMap<usize, &String> = em.lone_idx.iter().map(|(h, &i)| (i, h)).collect();
+    let consts: Vec<String> = em.consts.iter().enumerate().map(|(i, c)| match lone.get(&i) {
+        Some(h) => format!("lone_lit({})", lit(h)),
+        None => format!("s({})", lit(c)),
+    }).collect();
     // re's \N{NAME}: the name table goes into programs whose source may hold such a pattern
     let uname = em.uses_re && em.bridge.srcs.values().any(|(_, t)| t.contains("\\N{"));
     // At exit CPython finalizes __main__'s globals in the order they were first set; the slots are in name order,

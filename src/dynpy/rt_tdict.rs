@@ -123,12 +123,12 @@ fn best_base(bases: &[Rc<Class>]) -> Option<Rc<Class>> {
 fn slot_list(v: &V) -> Vec<Sym> {
     let mut out = vec![];
     match v {
-        V::Str(x) => out.push(sym(&x.s)),
+        V::Str(x) => out.push(sym(&x.text())),
         V::Tuple(_) | V::List(_) | V::Dict(_) => {
             if let Ok(xs) = to_vec(v) {
                 for x in xs {
                     if let V::Str(x) = x {
-                        out.push(sym(&x.s));
+                        out.push(sym(&x.text()));
                     }
                 }
             }

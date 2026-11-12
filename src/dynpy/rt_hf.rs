@@ -150,7 +150,7 @@ fn hf_core_of(v: &V) -> Result<ExtRc, E> {
 fn hf_input(v: &V, pretok: bool) -> Result<HInput, E> {
     if !pretok {
         return match v {
-            V::Str(x) => Ok(HInput::Raw(x.s.to_string())),
+            V::Str(x) => Ok(HInput::Raw(x.text().to_string())),
             _ => type_err("TextInputSequence must be str".into()),
         };
     }
@@ -159,7 +159,7 @@ fn hf_input(v: &V, pretok: bool) -> Result<HInput, E> {
             let mut ws = vec![];
             for x in to_vec(v)? {
                 match &x {
-                    V::Str(s) => ws.push(s.s.to_string()),
+                    V::Str(s) => ws.push(s.text().to_string()),
                     _ => return type_err("PreTokenizedInputSequence must be Union[List[str], Tuple[str]]".into()),
                 }
             }
@@ -202,13 +202,13 @@ pub fn brevi_hf_fn(n: &str, a: Args) -> R {
         let V::Str(x) = &j else {
             return type_err(format!("'{}' object is not an instance of 'str'", tn(&j)));
         };
-        return Ok(hf_new(hf_load(&x.s).map_err(hf_err)?));
+        return Ok(hf_new(hf_load(&x.text()).map_err(hf_err)?));
     }
     if n == "load_built" {
         // a tokenizer.json the compiler built into the program, by key ("file:<path>", "hub:<id>@<revision>")
         let k = arg(0);
         let key = match &k {
-            V::Str(x) => x.s.to_string(),
+            V::Str(x) => x.text().to_string(),
             _ => return type_err("expected a str".into()),
         };
         let text = HF_DATA.get().and_then(|d| d.iter().find(|(k, _)| *k == key)).map(|(_, t)| *t);
@@ -219,7 +219,7 @@ pub fn brevi_hf_fn(n: &str, a: Args) -> R {
     }
     if n == "lacks" {
         let w = arg(0);
-        return Err(unsupported(&format!("tokenizers {}", if let V::Str(x) = &w { x.s.to_string() } else { "?".into() })));
+        return Err(unsupported(&format!("tokenizers {}", if let V::Str(x) = &w { x.text().to_string() } else { "?".into() })));
     }
     let core = hf_core_of(&arg(0))?;
     let cell = &core.any().downcast_ref::<HfCore>().unwrap().0;
@@ -272,7 +272,7 @@ pub fn brevi_hf_fn(n: &str, a: Args) -> R {
             let V::Str(x) = &tv else {
                 return type_err(format!("'{}' object is not an instance of 'str'", tn(&tv)));
             };
-            Ok(cell.borrow().token_to_id(&x.s).map_or(V::None, |i| V::Int(i as i64)))
+            Ok(cell.borrow().token_to_id(&x.text()).map_or(V::None, |i| V::Int(i as i64)))
         }
         "id_to_token" => {
             let id = hf_u32(&arg(1))?;
@@ -299,16 +299,16 @@ pub fn brevi_hf_fn(n: &str, a: Args) -> R {
             let max_length = hf_usize(&arg(1))?;
             let stride = hf_usize(&arg(2))?;
             let strategy = match &arg(3) {
-                V::Str(x) if &*x.s == "longest_first" => "longest_first",
-                V::Str(x) if &*x.s == "only_first" => "only_first",
-                V::Str(x) if &*x.s == "only_second" => "only_second",
-                V::Str(x) => return val_err(format!("Unknown `strategy`: `{}`. Use one of `longest_first`, `only_first`, or `only_second`", x.s)),
+                V::Str(x) if &*x.text() == "longest_first" => "longest_first",
+                V::Str(x) if &*x.text() == "only_first" => "only_first",
+                V::Str(x) if &*x.text() == "only_second" => "only_second",
+                V::Str(x) => return val_err(format!("Unknown `strategy`: `{}`. Use one of `longest_first`, `only_first`, or `only_second`", x.text())),
                 v => return type_err(format!("'{}' object is not an instance of 'str'", tn(v))),
             };
             let left = match &arg(4) {
-                V::Str(x) if &*x.s == "left" => true,
-                V::Str(x) if &*x.s == "right" => false,
-                V::Str(x) => return val_err(format!("Unknown `direction`: `{}`. Use one of `left` or `right`.", x.s)),
+                V::Str(x) if &*x.text() == "left" => true,
+                V::Str(x) if &*x.text() == "right" => false,
+                V::Str(x) => return val_err(format!("Unknown `direction`: `{}`. Use one of `left` or `right`.", x.text())),
                 v => return type_err(format!("'{}' object is not an instance of 'str'", tn(v))),
             };
             let n = t.added_tokens(false);
@@ -357,7 +357,7 @@ pub fn brevi_hf_fn(n: &str, a: Args) -> R {
                 V::None => None,
                 v => Some(hf_usize(&v)?),
             };
-            t.pad = Some(HPad { fixed, left, multiple, pad_id, pad_type, pad_token: tok.s.to_string() });
+            t.pad = Some(HPad { fixed, left, multiple, pad_id, pad_type, pad_token: tok.text().to_string() });
             Ok(V::None)
         }
         "padding" => {
@@ -383,7 +383,7 @@ pub fn brevi_hf_fn(n: &str, a: Args) -> R {
                     return type_err("Input must be a List[Union[str, AddedToken]]".into());
                 };
                 toks.push(HAddedTok {
-                    content: c.s.to_string(),
+                    content: c.text().to_string(),
                     single_word: truth(&f[1])?,
                     lstrip: truth(&f[2])?,
                     rstrip: truth(&f[3])?,

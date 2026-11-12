@@ -879,7 +879,7 @@ fn wraps_updated() -> V {
 }
 fn wraps_name(x: &V) -> Result<Sym, E> {
     match x {
-        V::Str(s) => Ok(sym(&s.s)),
+        V::Str(s) => Ok(sym(&s.text())),
         _ => type_err(format!("attribute name must be string, not '{}'", tn(x))),
     }
 }
@@ -1389,7 +1389,7 @@ fn sd_dispatch_impl(st: &Rc<SDState>, cls: &V) -> R {
 }
 fn sd_make_wrapper(st: &Rc<SDState>, f: V) -> R {
     let funcname = match getattr(&f, "__name__") {
-        Ok(V::Str(x)) => x.s.clone(),
+        Ok(V::Str(x)) => x.text().to_string(),
         _ => "singledispatch function".into(),
     };
     let stw = st.clone();
@@ -1452,7 +1452,7 @@ fn sd_bind_impl(implv: &V, obj: &V, cls: &V) -> R {
 }
 fn sd_method_get(md: &SDMethod, obj: V, cls: V) -> R {
     let funcname = match getattr(&md.func, "__name__") {
-        Ok(V::Str(x)) => x.s.clone(),
+        Ok(V::Str(x)) => x.text().to_string(),
         _ => "singledispatchmethod method".into(),
     };
     let st = md.st.clone();
@@ -2986,7 +2986,7 @@ pub fn stream_fn(stream: &str, name: &str, a: Args) -> R {
         ("sys.stdin", "fileno") => Ok(V::Int(0)),
         ("sys.stdout", "write") => {
             let t = match &a1(&a, "write")? {
-                V::Str(x) => x.s.clone(),
+                V::Str(x) => x.text().to_string(),
                 x => return type_err(format!("write() argument must be str, not {}", tn(x))),
             };
             out_write(&t);
@@ -3253,7 +3253,7 @@ fn sys_flags() -> V {
         }
         let c = Class::new("flags", "sys", vec![bclass("object")], BT::Other);
         c.set("__getattr__", func("__getattr__", |a: Args| {
-            let n = match a.p.get(1) { Some(V::Str(n)) => n.s.clone(), _ => String::new() };
+            let n = match a.p.get(1) { Some(V::Str(n)) => n.text().to_string(), _ => String::new() };
             Err(unsupported(&format!("sys.flags.{n}")))
         }));
         for m in ["__repr__", "__len__", "__iter__", "__getitem__", "__eq__", "__hash__"] {
@@ -3674,7 +3674,7 @@ fn kw_syms(v: &V) -> Result<Vec<(Sym, V)>, E> {
     let mut out = vec![];
     for (k, v) in dict_items_of(v)? {
         match &k {
-            V::Str(t) => out.push((sym(&t.s), v)),
+            V::Str(t) => out.push((sym(&t.text()), v)),
             _ => return type_err("keywords must be strings".into()),
         }
     }
@@ -3900,7 +3900,7 @@ fn namedtuple_with(mut a: Args, check_name: bool) -> R {
     a.want("namedtuple", 2, 2)?;
     let name = sym(&to_str(&a.p[0])?);
     let mut fields: Vec<Sym> = match &a.p[1] {
-        V::Str(x) => x.s.replace(',', " ").split_whitespace().map(sym).collect(),
+        V::Str(x) => x.text().replace(',', " ").split_whitespace().map(sym).collect(),
         x => {
             let mut out = vec![];
             for f in to_vec(x)? {
@@ -4333,13 +4333,13 @@ fn fget(f: &V, k: &str) -> V {
 }
 fn field_name(f: &V) -> Sym {
     match fget(f, "name") {
-        V::Str(x) => sym(&x.s),
+        V::Str(x) => sym(&x.text()),
         _ => "",
     }
 }
 fn field_kind(f: &V) -> String {
     match fget(f, "_field_type") {
-        V::Str(x) => x.s.clone(),
+        V::Str(x) => x.text().to_string(),
         _ => String::new(),
     }
 }

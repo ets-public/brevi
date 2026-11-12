@@ -82,7 +82,7 @@ pub fn is_enum(c: &Rc<Class>) -> bool {
 fn enum_text(v: &V, rep: bool) -> R {
     let V::Obj(o) = v else { return type_err("descriptor needs an Enum member".into()) };
     let name = match o.get("_name_") {
-        Some(V::Str(n)) => n.s.clone(),
+        Some(V::Str(n)) => n.text().to_string(),
         _ => String::new(),
     };
     Ok(s(&if rep {
@@ -528,7 +528,7 @@ fn flag_methods(fl: &Rc<Class>) {
         let V::Obj(o) = &a.p[0] else { return Ok(s("")) };
         let v = repr(&o.get("_value_").unwrap_or(V::None))?;
         Ok(st(match o.get("_name_") {
-            Some(V::Str(n)) => format!("<{}.{}: {v}>", c.name, n.s),
+            Some(V::Str(n)) => format!("<{}.{}: {v}>", c.name, n.text()),
             _ => format!("<{}: {v}>", c.name),
         }))
     }));
@@ -536,7 +536,7 @@ fn flag_methods(fl: &Rc<Class>) {
         let c = me_cls(&a)?;
         let V::Obj(o) = &a.p[0] else { return Ok(s("")) };
         Ok(st(match o.get("_name_") {
-            Some(V::Str(n)) => format!("{}.{}", c.name, n.s),
+            Some(V::Str(n)) => format!("{}.{}", c.name, n.text()),
             _ => format!("{}({})", c.name, repr(&o.get("_value_").unwrap_or(V::None))?),
         }))
     }));
@@ -639,8 +639,8 @@ pub fn enum_fn(n: &str, a: Args) -> R {
                     for (name, m) in d.borrow().items() {
                         if let (V::Str(name), V::Obj(o)) = (&name, &m) {
                             if let Some(V::Str(real)) = o.get("_name_") {
-                                if real.s != name.s && ms.iter().any(|x| is(x, &m)) {
-                                    dups.push(format!("{} -> {}", name.s, real.s));
+                                if real.text() != name.text() && ms.iter().any(|x| is(x, &m)) {
+                                    dups.push(format!("{} -> {}", name.text(), real.text()));
                                 }
                             }
                         }

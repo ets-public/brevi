@@ -92,7 +92,7 @@ fn ort_err((code, m): (i64, String)) -> E {
 
 fn ort_s(v: &V) -> String {
     match v {
-        V::Str(x) => x.s.clone(),
+        V::Str(x) => x.text().to_string(),
         _ => String::new(),
     }
 }
