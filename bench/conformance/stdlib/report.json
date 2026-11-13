@@ -9,48 +9,48 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 655,
+"matched": 726,
 "refused": 0,
-"by_design": 4,
+"by_design": 5,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
 "not_extractable": 0,
-"unstable": 15,
-"excluded": 151,
-"total": 825,
-"scored": 655,
-"matched_through_cpython": 1,
-"matched_silent": 34,
-"coverage": 0.9985,
+"unstable": 20,
+"excluded": 154,
+"total": 905,
+"scored": 726,
+"matched_through_cpython": 2,
+"matched_silent": 43,
+"coverage": 0.9972,
 "wrong": 0,
-"matched_asserting": 620,
-"assert_coverage": 0.9466,
-"matched_typed": 18,
-"typed_share": 0.0275
+"matched_asserting": 682,
+"assert_coverage": 0.9394,
+"matched_typed": 23,
+"typed_share": 0.0318
 },
 "dyn": {
-"matched": 655,
+"matched": 726,
 "refused": 0,
-"by_design": 4,
+"by_design": 5,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
 "not_extractable": 0,
-"unstable": 15,
-"excluded": 151,
-"total": 825,
-"scored": 655,
+"unstable": 20,
+"excluded": 154,
+"total": 905,
+"scored": 726,
 "matched_through_cpython": 0,
-"matched_silent": 34,
+"matched_silent": 43,
 "coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 621,
-"assert_coverage": 0.9481,
+"matched_asserting": 683,
+"assert_coverage": 0.9408,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -439,18 +439,66 @@
 "matched_typed": 0,
 "typed_share": 0.0
 }
+},
+"test_deque": {
+"normal": {
+"matched": 71,
+"refused": 0,
+"by_design": 1,
+"string_model": 0,
+"cpython_private": 0,
+"wrong_output": 0,
+"wrong_exit": 0,
+"crash_or_timeout": 0,
+"not_extractable": 0,
+"unstable": 5,
+"excluded": 3,
+"total": 80,
+"scored": 71,
+"matched_through_cpython": 1,
+"matched_silent": 9,
+"coverage": 0.9859,
+"wrong": 0,
+"matched_asserting": 62,
+"assert_coverage": 0.8732,
+"matched_typed": 5,
+"typed_share": 0.0714
+},
+"dyn": {
+"matched": 71,
+"refused": 0,
+"by_design": 1,
+"string_model": 0,
+"cpython_private": 0,
+"wrong_output": 0,
+"wrong_exit": 0,
+"crash_or_timeout": 0,
+"not_extractable": 0,
+"unstable": 5,
+"excluded": 3,
+"total": 80,
+"scored": 71,
+"matched_through_cpython": 0,
+"matched_silent": 9,
+"coverage": 1.0,
+"wrong": 0,
+"matched_asserting": 62,
+"assert_coverage": 0.8732,
+"matched_typed": 0,
+"typed_share": 0.0
+}
 }
 },
 "paths": {
 "normal": {
-"dynamic": 636,
-"typed": 18,
-"refused": 4,
-"pybridge": 1
+"dynamic": 701,
+"typed": 23,
+"refused": 5,
+"pybridge": 2
 },
 "dyn": {
-"dynamic": 655,
-"refused": 4
+"dynamic": 726,
+"refused": 5
 }
 },
 "tests": [
@@ -8990,7 +9038,7 @@
 "id": "test_functools.TestLRUC.test_lru_recursion",
 "file": "test_functools",
 "category": "excluded",
-"detail": "skipped by CPython: get_c_recursion_limit() requires _testcapi, which the reference build lacks"
+"detail": "measures the recursion depth with _testinternalcapi (CPython's C internals)"
 },
 {
 "id": "test_functools.TestLRUC.test_lru_reentrancy_with_len",
@@ -10665,6 +10713,1062 @@
 {
 "id": "test_colorsys.ColorsysTest.test_yiq_values",
 "file": "test_colorsys",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_add",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_basics",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_big_queue_popleft",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_big_queue_popright",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_big_stack_left",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_big_stack_right",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_clear",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_comparisons",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_container_iterator",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_contains",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_contains_count_index_stop_crashes",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_copy",
+"file": "test_deque",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_deque.TestBasic.test_copy_method",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_count",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_deepcopy",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_delitem",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_extend",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_extendleft",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_gc_doesnt_blowup",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "pybridge"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_getitem",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_hash",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_iadd",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_imul",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_index",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_index_bug_24913",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_init",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_insert",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_insert_bug_26194",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_iterator_pickle",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_len",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_long_steadystate_queue_popleft",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_long_steadystate_queue_popright",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_maxlen",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_maxlen_attribute",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_maxlen_zero",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_mul",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_pickle",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_pickle_recursive",
+"file": "test_deque",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_deque.TestBasic.test_remove",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_repr",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function eval()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "eval() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_reverse",
+"file": "test_deque",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_deque.TestBasic.test_reversed",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_reversed_new",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_rotate",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_roundtrip_iter_init",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_setitem",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestBasic.test_sizeof",
+"file": "test_deque",
+"category": "excluded",
+"detail": "marked cpython_only"
+},
+{
+"id": "test_deque.TestBasic.test_underflow",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestVariousIteratorArgs.test_constructor",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestVariousIteratorArgs.test_iter_with_altered_data",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestVariousIteratorArgs.test_runtime_error_on_empty_deque",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestSubclass.test_basics",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestSubclass.test_bug_31608",
+"file": "test_deque",
+"category": "excluded",
+"detail": "marked cpython_only"
+},
+{
+"id": "test_deque.TestSubclass.test_copy_pickle",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestSubclass.test_pickle_recursive",
+"file": "test_deque",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_deque.TestSubclass.test_strange_subclass",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestSubclass.test_weakref",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestSubclassWithKwargs.test_subclass_with_kwargs",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestSequence.test_add",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestSequence.test_bigrepeat",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestSequence.test_cmp",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestSequence.test_constructors",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestSequence.test_contains",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestSequence.test_contains_fake",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestSequence.test_contains_order",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestSequence.test_count",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestSequence.test_free_after_iterating",
+"file": "test_deque",
+"category": "excluded",
+"detail": "skipped by CPython at run time: Exhausted deque iterator doesn't free a deque"
+},
+{
+"id": "test_deque.TestSequence.test_getitem",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestSequence.test_getitemoverwriteiter",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestSequence.test_getslice",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestSequence.test_iadd",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestSequence.test_imul",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestSequence.test_index",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestSequence.test_len",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestSequence.test_minmax",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestSequence.test_mul",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestSequence.test_pickle",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestSequence.test_repeat",
+"file": "test_deque",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_deque.TestSequence.test_subscript",
+"file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "typed"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_deque.TestSequence.test_truth",
+"file": "test_deque",
 "modes": {
 "normal": {
 "category": "matched",
