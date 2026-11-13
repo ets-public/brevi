@@ -5,6 +5,7 @@
 # so this list changes only by a reviewed edit. Format: `test-id  function`.
 test_collections.TestChainMap.test_basics  eval
 test_collections.TestCounter.test_copying  eval
+test_deque.TestBasic.test_repr  eval
 test_dict.DictTest.test_bad_key  exec
 test_grammar.GrammarTests.test_assert_syntax_warnings  compile
 test_grammar.GrammarTests.test_assert_warning_promotes_to_syntax_error  compile
