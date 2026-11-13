@@ -49,7 +49,7 @@ Please report security problems privately, as described in the repository's `SEC
 ## Pull requests
 
 - Keep each change focused, with a test in `tests/` that fails before it and passes after.
-- Run `sh tools/ci_local.sh` before opening the pull request.
+- Run `sh tools/ci_local.sh` before opening the pull request. A pull request that changes only docs, the site or the conformance lists gets no GitHub run and merges on that local run alone.
 - Add a file in `changelog.d/` (for example `changelog.d/my-change.md`) with one `- ` line describing the change in plain words, rather than editing `CHANGELOG.md`, so PRs don't conflict on it. Merged changes ship in the next weekly release (Mondays), after the release test passes.
 
 ## License

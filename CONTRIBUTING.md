@@ -16,7 +16,7 @@ A program where Brevi prints a different answer from CPython is the most serious
 
 1. Build with `cargo build --release` (needs `rustc` on the PATH).
 2. Add a test: a program and its expected output under `tests/run/`, or an error case under `tests/errors/`.
-3. Run `sh tools/ci_local.sh` before you open the PR. It runs the same checks as CI. CI minutes are limited and every push to an open PR runs CI again, so batch your fixes into one push where you can, or keep the PR as a draft (drafts skip CI) until it's ready.
+3. Run `sh tools/ci_local.sh` before you open the PR. It runs the same checks as CI. CI minutes are limited and every push to an open PR runs CI again, so batch your fixes into one push where you can, or keep the PR as a draft (drafts skip CI) until it's ready. A PR that changes only docs, the site or the conformance lists gets no GitHub run at all and merges on a passing `ci_local.sh`.
 4. Keep each PR to one change, and add your changelog entry as a new file in [changelog.d/](changelog.d/README.md) (for example `changelog.d/my-change.md`, one `- ` line in plain words) rather than editing CHANGELOG.md, so PRs don't conflict on it. Merged changes ship in the next weekly release (Mondays). Your entry ends with your PR and `thanks @your-handle`, and each release's notes list everyone who contributed to it.
 
 [AGENTS.md](AGENTS.md) explains how the compiler is laid out and the rules for working on it, and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) shows how a file becomes a native program. Never remove a line from `compat/baseline.txt` to make a check pass.
