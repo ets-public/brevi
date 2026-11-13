@@ -2210,6 +2210,9 @@ fn builtin_class_attr_raw(c: &Rc<Class>, name: &str) -> Option<V> {
             Ok(V::None)
         })),
         ("object", "__init_subclass__") => Some(builtin("__init_subclass__", |_a: Args| Ok(V::None))),
+        // a class method: C.__subclasshook__(sub) is NotImplemented for any class that does not define its own
+        // (ABCMeta's issubclass calls it and then goes on to the registry and subclasses)
+        ("object", "__subclasshook__") => Some(builtin("__subclasshook__", |_a: Args| Ok(V::NotImpl))),
         // the lookup without the class's __getattr__ fallback
         ("object", "__getattribute__") => Some(builtin("__getattribute__", |a: Args| {
             let (Some(o), Some(V::Str(n))) = (a.p.first(), a.p.get(1)) else {
