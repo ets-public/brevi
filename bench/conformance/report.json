@@ -9,48 +9,48 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 300,
+"matched": 659,
 "refused": 0,
-"by_design": 34,
+"by_design": 39,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 2,
-"unstable": 8,
-"excluded": 40,
-"total": 384,
-"scored": 302,
+"not_extractable": 24,
+"unstable": 244,
+"excluded": 44,
+"total": 1010,
+"scored": 683,
 "matched_through_cpython": 0,
-"matched_silent": 47,
-"coverage": 0.9934,
+"matched_silent": 98,
+"coverage": 0.9649,
 "wrong": 0,
-"matched_asserting": 253,
-"assert_coverage": 0.8377,
+"matched_asserting": 561,
+"assert_coverage": 0.8214,
 "matched_typed": 27,
-"typed_share": 0.09
+"typed_share": 0.041
 },
 "dyn": {
-"matched": 300,
+"matched": 659,
 "refused": 0,
-"by_design": 34,
+"by_design": 39,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 2,
-"unstable": 8,
-"excluded": 40,
-"total": 384,
-"scored": 302,
+"not_extractable": 24,
+"unstable": 244,
+"excluded": 44,
+"total": 1010,
+"scored": 683,
 "matched_through_cpython": 0,
-"matched_silent": 47,
-"coverage": 0.9934,
+"matched_silent": 98,
+"coverage": 0.9649,
 "wrong": 0,
-"matched_asserting": 253,
-"assert_coverage": 0.8377,
+"matched_asserting": 561,
+"assert_coverage": 0.8214,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -439,17 +439,65 @@
 "matched_typed": 0,
 "typed_share": 0.0
 }
+},
+"test_set": {
+"normal": {
+"matched": 359,
+"refused": 0,
+"by_design": 5,
+"string_model": 0,
+"cpython_private": 0,
+"wrong_output": 0,
+"wrong_exit": 0,
+"crash_or_timeout": 0,
+"not_extractable": 22,
+"unstable": 236,
+"excluded": 4,
+"total": 626,
+"scored": 381,
+"matched_through_cpython": 0,
+"matched_silent": 51,
+"coverage": 0.9423,
+"wrong": 0,
+"matched_asserting": 308,
+"assert_coverage": 0.8084,
+"matched_typed": 0,
+"typed_share": 0.0
+},
+"dyn": {
+"matched": 359,
+"refused": 0,
+"by_design": 5,
+"string_model": 0,
+"cpython_private": 0,
+"wrong_output": 0,
+"wrong_exit": 0,
+"crash_or_timeout": 0,
+"not_extractable": 22,
+"unstable": 236,
+"excluded": 4,
+"total": 626,
+"scored": 381,
+"matched_through_cpython": 0,
+"matched_silent": 51,
+"coverage": 0.9423,
+"wrong": 0,
+"matched_asserting": 308,
+"assert_coverage": 0.8084,
+"matched_typed": 0,
+"typed_share": 0.0
+}
 }
 },
 "paths": {
 "normal": {
-"dynamic": 273,
-"refused": 34,
+"dynamic": 758,
+"refused": 39,
 "typed": 27
 },
 "dyn": {
-"dynamic": 300,
-"refused": 34
+"dynamic": 785,
+"refused": 39
 }
 },
 "tests": [
@@ -5418,6 +5466,7934 @@
 {
 "id": "test_richcmp.ListTest.test_goodentry",
 "file": "test_richcmp",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_add",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSet.test_and",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSet.test_badcmp",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_clear",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_constructor_identity",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_container_iterator",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_contains",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_copy",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSet.test_cyclical_repr",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_deepcopy",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_difference",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSet.test_difference_update",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSet.test_discard",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_do_not_rehash_dict_keys",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_equality",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSet.test_free_after_iterating",
+"file": "test_set",
+"category": "excluded",
+"detail": "depends on reference counts"
+},
+{
+"id": "test_set.TestSet.test_gc",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_hash",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_hash_collision_remove_add",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_iand",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_init",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSet.test_inplace_on_self",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSet.test_intersection",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSet.test_intersection_update",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSet.test_ior",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_isdisjoint",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_isub",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_iterator_pickling",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSet.test_ixor",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_len",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_new_or_init",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_or",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSet.test_pickling",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSet.test_pop",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_remove",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_remove_keyerror_set",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_remove_keyerror_unpacking",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_rich_compare",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_setOfFrozensets",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_set_literal",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_set_literal_evaluation_order",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_set_literal_insertion_order",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_set_membership",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_sub",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED=3"
+},
+{
+"id": "test_set.TestSet.test_sub_and_super",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_subclass_with_custom_hash",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_symmetric_difference",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSet.test_symmetric_difference_update",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSet.test_union",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSet.test_uniquification",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSet.test_update",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSet.test_weakref",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSet.test_xor",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSetSubclass.test_add",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSetSubclass.test_and",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSetSubclass.test_badcmp",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_clear",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_constructor_identity",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_container_iterator",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_contains",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_copy",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSetSubclass.test_cyclical_repr",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_deepcopy",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_difference",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSetSubclass.test_difference_update",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSetSubclass.test_discard",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_do_not_rehash_dict_keys",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_equality",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSetSubclass.test_free_after_iterating",
+"file": "test_set",
+"category": "excluded",
+"detail": "depends on reference counts"
+},
+{
+"id": "test_set.TestSetSubclass.test_gc",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_hash",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_hash_collision_remove_add",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_iand",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_init",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSetSubclass.test_inplace_on_self",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSetSubclass.test_intersection",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSetSubclass.test_intersection_update",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSetSubclass.test_ior",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_isdisjoint",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_isub",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_iterator_pickling",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSetSubclass.test_ixor",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_keywords_in_subclass",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_len",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_new_or_init",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_or",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSetSubclass.test_pickling",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSetSubclass.test_pop",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_remove",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_remove_keyerror_set",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_remove_keyerror_unpacking",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_rich_compare",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_setOfFrozensets",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_set_literal",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_set_literal_evaluation_order",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_set_literal_insertion_order",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_set_membership",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_sub",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED=3"
+},
+{
+"id": "test_set.TestSetSubclass.test_sub_and_super",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_subclass_with_custom_hash",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_symmetric_difference",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSetSubclass.test_symmetric_difference_update",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSetSubclass.test_union",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSetSubclass.test_uniquification",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetSubclass.test_update",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSetSubclass.test_weakref",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSetSubclass.test_xor",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSet.test_and",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSet.test_badcmp",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSet.test_constructor_identity",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSet.test_container_iterator",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSet.test_contains",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSet.test_copy",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSet.test_cyclical_repr",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSet.test_deepcopy",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSet.test_difference",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSet.test_do_not_rehash_dict_keys",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSet.test_equality",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSet.test_free_after_iterating",
+"file": "test_set",
+"category": "excluded",
+"detail": "depends on reference counts"
+},
+{
+"id": "test_set.TestFrozenSet.test_frozen_as_dictkey",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSet.test_gc",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSet.test_hash",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSet.test_hash_caching",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSet.test_hash_effectiveness",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSet.test_init",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSet.test_intersection",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSet.test_isdisjoint",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSet.test_iterator_pickling",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSet.test_len",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSet.test_new_or_init",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSet.test_or",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSet.test_pickling",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSet.test_setOfFrozensets",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSet.test_sub",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED=3"
+},
+{
+"id": "test_set.TestFrozenSet.test_sub_and_super",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSet.test_subclass_with_custom_hash",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSet.test_symmetric_difference",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSet.test_union",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSet.test_uniquification",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSet.test_xor",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_and",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_badcmp",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_constructor_identity",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_container_iterator",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_contains",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_copy",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_cyclical_repr",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_deepcopy",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_difference",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_do_not_rehash_dict_keys",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_equality",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_free_after_iterating",
+"file": "test_set",
+"category": "excluded",
+"detail": "depends on reference counts"
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_frozen_as_dictkey",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_gc",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_hash",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_hash_caching",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_hash_effectiveness",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_init",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_intersection",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_isdisjoint",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_iterator_pickling",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_keywords_in_subclass",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_len",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_nested_empty_constructor",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_new_or_init",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_or",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_pickling",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_setOfFrozensets",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_singleton_empty_frozenset",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_sub",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED=3"
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_sub_and_super",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_subclass_with_custom_hash",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_symmetric_difference",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_union",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_uniquification",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestFrozenSetSubclass.test_xor",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestBasicOpsEmpty.test_copy",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsEmpty.test_empty_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsEmpty.test_empty_difference_rev",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsEmpty.test_empty_intersection",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsEmpty.test_empty_isdisjoint",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsEmpty.test_empty_symmetric_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsEmpty.test_empty_union",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsEmpty.test_equivalent_equality",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsEmpty.test_intersection_empty",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsEmpty.test_isdisjoint_empty",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsEmpty.test_issue_37219",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsEmpty.test_iteration",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsEmpty.test_length",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsEmpty.test_pickling",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsEmpty.test_repr",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsEmpty.test_self_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsEmpty.test_self_equality",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsEmpty.test_self_intersection",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsEmpty.test_self_isdisjoint",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsEmpty.test_self_symmetric_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsEmpty.test_self_union",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsEmpty.test_union_empty",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsSingleton.test_copy",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsSingleton.test_empty_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsSingleton.test_empty_difference_rev",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsSingleton.test_empty_intersection",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsSingleton.test_empty_isdisjoint",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsSingleton.test_empty_symmetric_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsSingleton.test_empty_union",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsSingleton.test_equivalent_equality",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsSingleton.test_in",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsSingleton.test_intersection_empty",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsSingleton.test_isdisjoint_empty",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsSingleton.test_issue_37219",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsSingleton.test_iteration",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsSingleton.test_length",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsSingleton.test_not_in",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsSingleton.test_pickling",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsSingleton.test_repr",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsSingleton.test_self_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsSingleton.test_self_equality",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsSingleton.test_self_intersection",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsSingleton.test_self_isdisjoint",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsSingleton.test_self_symmetric_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsSingleton.test_self_union",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsSingleton.test_union_empty",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTuple.test_copy",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTuple.test_empty_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTuple.test_empty_difference_rev",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTuple.test_empty_intersection",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTuple.test_empty_isdisjoint",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTuple.test_empty_symmetric_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTuple.test_empty_union",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTuple.test_equivalent_equality",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTuple.test_in",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTuple.test_intersection_empty",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTuple.test_isdisjoint_empty",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTuple.test_issue_37219",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTuple.test_iteration",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTuple.test_length",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTuple.test_not_in",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTuple.test_pickling",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTuple.test_repr",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTuple.test_self_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTuple.test_self_equality",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTuple.test_self_intersection",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTuple.test_self_isdisjoint",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTuple.test_self_symmetric_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTuple.test_self_union",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTuple.test_union_empty",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTriple.test_copy",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED=3"
+},
+{
+"id": "test_set.TestBasicOpsTriple.test_empty_difference",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestBasicOpsTriple.test_empty_difference_rev",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTriple.test_empty_intersection",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTriple.test_empty_isdisjoint",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTriple.test_empty_symmetric_difference",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestBasicOpsTriple.test_empty_union",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED=3"
+},
+{
+"id": "test_set.TestBasicOpsTriple.test_equivalent_equality",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED=3"
+},
+{
+"id": "test_set.TestBasicOpsTriple.test_intersection_empty",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTriple.test_isdisjoint_empty",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTriple.test_issue_37219",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTriple.test_iteration",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTriple.test_length",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTriple.test_pickling",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTriple.test_repr",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTriple.test_self_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTriple.test_self_equality",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED=3"
+},
+{
+"id": "test_set.TestBasicOpsTriple.test_self_intersection",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED=3"
+},
+{
+"id": "test_set.TestBasicOpsTriple.test_self_isdisjoint",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTriple.test_self_symmetric_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsTriple.test_self_union",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED=3"
+},
+{
+"id": "test_set.TestBasicOpsTriple.test_union_empty",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED=3"
+},
+{
+"id": "test_set.TestBasicOpsString.test_copy",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestBasicOpsString.test_empty_difference",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestBasicOpsString.test_empty_difference_rev",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsString.test_empty_intersection",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsString.test_empty_isdisjoint",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsString.test_empty_symmetric_difference",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestBasicOpsString.test_empty_union",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestBasicOpsString.test_equivalent_equality",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestBasicOpsString.test_intersection_empty",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsString.test_isdisjoint_empty",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsString.test_issue_37219",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsString.test_iteration",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsString.test_length",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsString.test_pickling",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsString.test_repr",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsString.test_self_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsString.test_self_equality",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestBasicOpsString.test_self_intersection",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestBasicOpsString.test_self_isdisjoint",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsString.test_self_symmetric_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsString.test_self_union",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestBasicOpsString.test_union_empty",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestBasicOpsBytes.test_copy",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestBasicOpsBytes.test_empty_difference",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestBasicOpsBytes.test_empty_difference_rev",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsBytes.test_empty_intersection",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsBytes.test_empty_isdisjoint",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsBytes.test_empty_symmetric_difference",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestBasicOpsBytes.test_empty_union",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestBasicOpsBytes.test_equivalent_equality",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestBasicOpsBytes.test_intersection_empty",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsBytes.test_isdisjoint_empty",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsBytes.test_issue_37219",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsBytes.test_iteration",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsBytes.test_length",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsBytes.test_pickling",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsBytes.test_repr",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsBytes.test_self_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsBytes.test_self_equality",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestBasicOpsBytes.test_self_intersection",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestBasicOpsBytes.test_self_isdisjoint",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsBytes.test_self_symmetric_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBasicOpsBytes.test_self_union",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestBasicOpsBytes.test_union_empty",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestBasicOpsMixedStringBytes.test_copy",
+"file": "test_set",
+"category": "not_extractable",
+"detail": "unittest API enterContext"
+},
+{
+"id": "test_set.TestBasicOpsMixedStringBytes.test_empty_difference",
+"file": "test_set",
+"category": "not_extractable",
+"detail": "unittest API enterContext"
+},
+{
+"id": "test_set.TestBasicOpsMixedStringBytes.test_empty_difference_rev",
+"file": "test_set",
+"category": "not_extractable",
+"detail": "unittest API enterContext"
+},
+{
+"id": "test_set.TestBasicOpsMixedStringBytes.test_empty_intersection",
+"file": "test_set",
+"category": "not_extractable",
+"detail": "unittest API enterContext"
+},
+{
+"id": "test_set.TestBasicOpsMixedStringBytes.test_empty_isdisjoint",
+"file": "test_set",
+"category": "not_extractable",
+"detail": "unittest API enterContext"
+},
+{
+"id": "test_set.TestBasicOpsMixedStringBytes.test_empty_symmetric_difference",
+"file": "test_set",
+"category": "not_extractable",
+"detail": "unittest API enterContext"
+},
+{
+"id": "test_set.TestBasicOpsMixedStringBytes.test_empty_union",
+"file": "test_set",
+"category": "not_extractable",
+"detail": "unittest API enterContext"
+},
+{
+"id": "test_set.TestBasicOpsMixedStringBytes.test_equivalent_equality",
+"file": "test_set",
+"category": "not_extractable",
+"detail": "unittest API enterContext"
+},
+{
+"id": "test_set.TestBasicOpsMixedStringBytes.test_intersection_empty",
+"file": "test_set",
+"category": "not_extractable",
+"detail": "unittest API enterContext"
+},
+{
+"id": "test_set.TestBasicOpsMixedStringBytes.test_isdisjoint_empty",
+"file": "test_set",
+"category": "not_extractable",
+"detail": "unittest API enterContext"
+},
+{
+"id": "test_set.TestBasicOpsMixedStringBytes.test_issue_37219",
+"file": "test_set",
+"category": "not_extractable",
+"detail": "unittest API enterContext"
+},
+{
+"id": "test_set.TestBasicOpsMixedStringBytes.test_iteration",
+"file": "test_set",
+"category": "not_extractable",
+"detail": "unittest API enterContext"
+},
+{
+"id": "test_set.TestBasicOpsMixedStringBytes.test_length",
+"file": "test_set",
+"category": "not_extractable",
+"detail": "unittest API enterContext"
+},
+{
+"id": "test_set.TestBasicOpsMixedStringBytes.test_pickling",
+"file": "test_set",
+"category": "not_extractable",
+"detail": "unittest API enterContext"
+},
+{
+"id": "test_set.TestBasicOpsMixedStringBytes.test_repr",
+"file": "test_set",
+"category": "not_extractable",
+"detail": "unittest API enterContext"
+},
+{
+"id": "test_set.TestBasicOpsMixedStringBytes.test_self_difference",
+"file": "test_set",
+"category": "not_extractable",
+"detail": "unittest API enterContext"
+},
+{
+"id": "test_set.TestBasicOpsMixedStringBytes.test_self_equality",
+"file": "test_set",
+"category": "not_extractable",
+"detail": "unittest API enterContext"
+},
+{
+"id": "test_set.TestBasicOpsMixedStringBytes.test_self_intersection",
+"file": "test_set",
+"category": "not_extractable",
+"detail": "unittest API enterContext"
+},
+{
+"id": "test_set.TestBasicOpsMixedStringBytes.test_self_isdisjoint",
+"file": "test_set",
+"category": "not_extractable",
+"detail": "unittest API enterContext"
+},
+{
+"id": "test_set.TestBasicOpsMixedStringBytes.test_self_symmetric_difference",
+"file": "test_set",
+"category": "not_extractable",
+"detail": "unittest API enterContext"
+},
+{
+"id": "test_set.TestBasicOpsMixedStringBytes.test_self_union",
+"file": "test_set",
+"category": "not_extractable",
+"detail": "unittest API enterContext"
+},
+{
+"id": "test_set.TestBasicOpsMixedStringBytes.test_union_empty",
+"file": "test_set",
+"category": "not_extractable",
+"detail": "unittest API enterContext"
+},
+{
+"id": "test_set.TestExceptionPropagation.test_changingSizeWhileIterating",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestExceptionPropagation.test_instanceWithException",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestExceptionPropagation.test_instancesWithoutException",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestSetOfSets.test_constructor",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOps.test_eq",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOps.test_intersection_non_overlap",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOps.test_intersection_overlap",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOps.test_intersection_subset",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOps.test_intersection_superset",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOps.test_isdisjoint_non_overlap",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOps.test_isdisjoint_overlap",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOps.test_isdisjoint_subset",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOps.test_isdisjoint_superset",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOps.test_sym_difference_non_overlap",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOps.test_sym_difference_overlap",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOps.test_sym_difference_subset",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOps.test_sym_difference_superset",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOps.test_union_non_overlap",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOps.test_union_overlap",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOps.test_union_subset",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOps.test_union_superset",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestUpdateOps.test_difference_method_call",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestUpdateOps.test_difference_non_overlap",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestUpdateOps.test_difference_overlap",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestUpdateOps.test_difference_subset",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestUpdateOps.test_difference_superset",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestUpdateOps.test_intersection_method_call",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestUpdateOps.test_intersection_non_overlap",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestUpdateOps.test_intersection_overlap",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestUpdateOps.test_intersection_subset",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestUpdateOps.test_intersection_superset",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestUpdateOps.test_sym_difference_method_call",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestUpdateOps.test_sym_difference_non_overlap",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestUpdateOps.test_sym_difference_overlap",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestUpdateOps.test_sym_difference_subset",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestUpdateOps.test_sym_difference_superset",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestUpdateOps.test_union_method_call",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestUpdateOps.test_union_non_overlap",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestUpdateOps.test_union_overlap",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestUpdateOps.test_union_subset",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestUpdateOps.test_union_superset",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestMutate.test_add_absent",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestMutate.test_add_present",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestMutate.test_add_until_full",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestMutate.test_clear",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestMutate.test_discard_absent",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestMutate.test_discard_present",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestMutate.test_pop",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestMutate.test_remove_absent",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestMutate.test_remove_present",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestMutate.test_remove_until_empty",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestMutate.test_update_empty_tuple",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestMutate.test_update_unit_tuple_non_overlap",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestMutate.test_update_unit_tuple_overlap",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestSubsetEqualEmpty.test_issubset",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "`x` and `.left` name the same list in Python, and `x` is changed (by a function the proof does not follow) while `.left` is still used; the typed build would change only a copy, and this file cannot b"
+},
+"dyn": {
+"category": "by_design",
+"detail": "eval() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_set.TestSubsetEqualNonEmpty.test_issubset",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "`x` and `.left` name the same list in Python, and `x` is changed (by a function the proof does not follow) while `.left` is still used; the typed build would change only a copy, and this file cannot b"
+},
+"dyn": {
+"category": "by_design",
+"detail": "eval() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_set.TestSubsetEmptyNonEmpty.test_issubset",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "`x` and `.left` name the same list in Python, and `x` is changed (by a function the proof does not follow) while `.left` is still used; the typed build would change only a copy, and this file cannot b"
+},
+"dyn": {
+"category": "by_design",
+"detail": "eval() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_set.TestSubsetPartial.test_issubset",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "`x` and `.left` name the same list in Python, and `x` is changed (by a function the proof does not follow) while `.left` is still used; the typed build would change only a copy, and this file cannot b"
+},
+"dyn": {
+"category": "by_design",
+"detail": "eval() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_set.TestSubsetNonOverlap.test_issubset",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "`x` and `.left` name the same list in Python, and `x` is changed (by a function the proof does not follow) while `.left` is still used; the typed build would change only a copy, and this file cannot b"
+},
+"dyn": {
+"category": "by_design",
+"detail": "eval() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsNumeric.test_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsNumeric.test_difference_update",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsNumeric.test_difference_update_operator",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsNumeric.test_eq_ne",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsNumeric.test_ge_gt_le_lt",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsNumeric.test_intersection",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsNumeric.test_intersection_update",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsNumeric.test_intersection_update_operator",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsNumeric.test_sym_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsNumeric.test_sym_difference_update",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsNumeric.test_sym_difference_update_operator",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsNumeric.test_union",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsNumeric.test_update",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsNumeric.test_update_operator",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsDict.test_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsDict.test_difference_update",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsDict.test_difference_update_operator",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsDict.test_eq_ne",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsDict.test_ge_gt_le_lt",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsDict.test_intersection",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsDict.test_intersection_update",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsDict.test_intersection_update_operator",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsDict.test_sym_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsDict.test_sym_difference_update",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsDict.test_sym_difference_update_operator",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsDict.test_union",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsDict.test_update",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsDict.test_update_operator",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsOperator.test_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsOperator.test_difference_update",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsOperator.test_difference_update_operator",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsOperator.test_eq_ne",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsOperator.test_ge_gt_le_lt",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsOperator.test_intersection",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsOperator.test_intersection_update",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsOperator.test_intersection_update_operator",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsOperator.test_sym_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsOperator.test_sym_difference_update",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsOperator.test_sym_difference_update_operator",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsOperator.test_union",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsOperator.test_update",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsOperator.test_update_operator",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsTuple.test_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsTuple.test_difference_update",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsTuple.test_difference_update_operator",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsTuple.test_eq_ne",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsTuple.test_ge_gt_le_lt",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsTuple.test_intersection",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsTuple.test_intersection_update",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsTuple.test_intersection_update_operator",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsTuple.test_sym_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsTuple.test_sym_difference_update",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsTuple.test_sym_difference_update_operator",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsTuple.test_union",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsTuple.test_update",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsTuple.test_update_operator",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsString.test_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsString.test_difference_update",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsString.test_difference_update_operator",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsString.test_eq_ne",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsString.test_ge_gt_le_lt",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsString.test_intersection",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsString.test_intersection_update",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsString.test_intersection_update_operator",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsString.test_sym_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsString.test_sym_difference_update",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsString.test_sym_difference_update_operator",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsString.test_union",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsString.test_update",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsString.test_update_operator",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsGenerator.test_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsGenerator.test_difference_update",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsGenerator.test_difference_update_operator",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsGenerator.test_eq_ne",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsGenerator.test_ge_gt_le_lt",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsGenerator.test_intersection",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsGenerator.test_intersection_update",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsGenerator.test_intersection_update_operator",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsGenerator.test_sym_difference",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsGenerator.test_sym_difference_update",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsGenerator.test_sym_difference_update_operator",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsGenerator.test_union",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsGenerator.test_update",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestOnlySetsGenerator.test_update_operator",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestCopyingEmpty.test_copy",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestCopyingEmpty.test_deep_copy",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestCopyingSingleton.test_copy",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestCopyingSingleton.test_deep_copy",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestCopyingTriple.test_copy",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestCopyingTriple.test_deep_copy",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestCopyingTuple.test_copy",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestCopyingTuple.test_deep_copy",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestCopyingNested.test_copy",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestCopyingNested.test_deep_copy",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestIdentities.test_binopsVsSubsets",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestIdentities.test_commutativity",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestIdentities.test_exclusion",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestIdentities.test_summations",
+"file": "test_set",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_set.TestVariousIteratorArgs.test_constructor",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestVariousIteratorArgs.test_inline_methods",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestVariousIteratorArgs.test_inplace_methods",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestWeirdBugs.test_8420_set_merge",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestWeirdBugs.test_hash_collision_concurrent_add",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestWeirdBugs.test_iter_and_mutate",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestWeirdBugs.test_merge_and_mutate",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Set.test_and_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Set.test_eq_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Set.test_ge_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Set.test_gt_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Set.test_iadd_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Set.test_ior_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Set.test_isub_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Set.test_iteration_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Set.test_ixor_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Set.test_le_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Set.test_lt_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Set.test_ne_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Set.test_or_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Set.test_sub_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Set.test_xor_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Subclass.test_and_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Subclass.test_eq_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Subclass.test_ge_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Subclass.test_gt_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Subclass.test_iadd_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Subclass.test_ior_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Subclass.test_isub_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Subclass.test_iteration_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Subclass.test_ixor_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Subclass.test_le_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Subclass.test_lt_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Subclass.test_ne_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Subclass.test_or_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Subclass.test_sub_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Subclass.test_xor_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Subclass.test_and_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Subclass.test_eq_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Subclass.test_ge_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Subclass.test_gt_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Subclass.test_iadd_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Subclass.test_ior_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Subclass.test_isub_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Subclass.test_iteration_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Subclass.test_ixor_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Subclass.test_le_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Subclass.test_lt_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Subclass.test_ne_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Subclass.test_or_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Subclass.test_sub_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Set_Subclass.test_xor_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Set.test_and_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Set.test_eq_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Set.test_ge_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Set.test_gt_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Set.test_iadd_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Set.test_ior_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Set.test_isub_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Set.test_iteration_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Set.test_ixor_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Set.test_le_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Set.test_lt_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Set.test_ne_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Set.test_or_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Set.test_sub_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestBinaryOpsMutating_Subclass_Set.test_xor_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Set.test_difference_update_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Set.test_difference_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Set.test_intersection_update_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Set.test_intersection_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Set.test_isdisjoint_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Set.test_issubset_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Set.test_issuperset_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Set.test_symmetric_difference_update_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Set.test_symmetric_difference_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Set.test_union_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Set.test_update_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Subclass_Subclass.test_difference_update_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Subclass_Subclass.test_difference_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Subclass_Subclass.test_intersection_update_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Subclass_Subclass.test_intersection_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Subclass_Subclass.test_isdisjoint_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Subclass_Subclass.test_issubset_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Subclass_Subclass.test_issuperset_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Subclass_Subclass.test_symmetric_difference_update_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Subclass_Subclass.test_symmetric_difference_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Subclass_Subclass.test_union_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Subclass_Subclass.test_update_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Subclass.test_difference_update_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Subclass.test_difference_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Subclass.test_intersection_update_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Subclass.test_intersection_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Subclass.test_isdisjoint_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Subclass.test_issubset_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Subclass.test_issuperset_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Subclass.test_symmetric_difference_update_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Subclass.test_symmetric_difference_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Subclass.test_union_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Subclass.test_update_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Subclass_Set.test_difference_update_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Subclass_Set.test_difference_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Subclass_Set.test_intersection_update_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Subclass_Set.test_intersection_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Subclass_Set.test_isdisjoint_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Subclass_Set.test_issubset_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Subclass_Set.test_issuperset_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Subclass_Set.test_symmetric_difference_update_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Subclass_Set.test_symmetric_difference_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Subclass_Set.test_union_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Subclass_Set.test_update_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Dict.test_difference_update_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Dict.test_difference_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Dict.test_intersection_update_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Dict.test_intersection_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Dict.test_isdisjoint_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Dict.test_issubset_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Dict.test_issuperset_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Dict.test_symmetric_difference_update_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Dict.test_symmetric_difference_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Dict.test_union_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_Dict.test_update_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_List.test_difference_update_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_List.test_difference_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_List.test_intersection_update_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_List.test_intersection_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_List.test_isdisjoint_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_List.test_issubset_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_List.test_issuperset_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_List.test_symmetric_difference_update_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_List.test_symmetric_difference_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_List.test_union_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestMethodsMutating_Set_List.test_update_with_mutation",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+},
+"dyn": {
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+}
+}
+},
+{
+"id": "test_set.TestGraphs.test_cube",
+"file": "test_set",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_set.TestGraphs.test_cuboctahedron",
+"file": "test_set",
 "modes": {
 "normal": {
 "category": "matched",

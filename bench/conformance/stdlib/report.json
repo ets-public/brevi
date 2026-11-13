@@ -2430,7 +2430,7 @@
 "modes": {
 "normal": {
 "category": "by_design",
-"detail": "the ChainMap class (from collections) runs in the dynamic build, and this file cannot be built over dynamic values (case.py line 61: eval() is not supported in dynamic builds)"
+"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
 },
 "dyn": {
 "category": "by_design",
@@ -3406,7 +3406,7 @@
 "modes": {
 "normal": {
 "category": "by_design",
-"detail": "copy.copy() shares the items it copies, and this file cannot be built over dynamic values (case.py line 22: eval() is not supported in dynamic builds)"
+"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
 },
 "dyn": {
 "category": "by_design",
@@ -9038,7 +9038,7 @@
 "id": "test_functools.TestLRUC.test_lru_recursion",
 "file": "test_functools",
 "category": "excluded",
-"detail": "measures the recursion depth with _testinternalcapi (CPython's C internals)"
+"detail": "skipped by CPython: get_c_recursion_limit() requires _testcapi, which the reference build lacks"
 },
 {
 "id": "test_functools.TestLRUC.test_lru_reentrancy_with_len",
