@@ -73,7 +73,6 @@
    "test_copy",
    "test_copyreg",
    "test_contextlib",
-   "test_deque",
    "test_defaultdict",
    "test_ordered_dict",
    "test_operator",
@@ -301,10 +300,6 @@
   "test.test_contextlib": [
    "test/test_contextlib.py",
    "b7b3a0f70a4c760743c99662de3e575711de671ce519780b0883e9a9ec94196c"
-  ],
-  "test.test_deque": [
-   "test/test_deque.py",
-   "15578b602865dfa5c80baa64006d64c5875765aab457d5b4bedd73a5e8436d73"
   ],
   "test.test_defaultdict": [
    "test/test_defaultdict.py",

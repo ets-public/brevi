@@ -29,6 +29,7 @@ enum Wt {
     WExt(std::rc::Weak<Box<dyn Ext>>),
     // a generator or an itertools.tee iterator (the iterators CPython gives a weakref list)
     WIter(std::rc::Weak<IterCell>),
+    WDeque(std::rc::Weak<RefCell<Deq>>),
 }
 
 impl Wt {
@@ -43,6 +44,7 @@ impl Wt {
             Wt::WFSet(w) => w.upgrade().map(V::FSet),
             Wt::WExt(w) => w.upgrade().map(|r| V::Ext(ExtRc(r))),
             Wt::WIter(w) => w.upgrade().map(V::Iter),
+            Wt::WDeque(w) => w.upgrade().map(V::Deque),
         }
     }
 }
@@ -203,6 +205,7 @@ fn weak_target(x: &V) -> Result<Wt, E> {
         V::BMeth(b) => Wt::WBMeth(Rc::downgrade(b)),
         V::Set(s) => Wt::WSet(Rc::downgrade(s)),
         V::FSet(s) => Wt::WFSet(Rc::downgrade(s)),
+        V::Deque(d) => Wt::WDeque(Rc::downgrade(d)),
         V::Ext(e) if e.tname() == "re.Pattern" => Wt::WExt(ExtRc::downgrade(e)),
         V::Iter(c) if matches!(c.kind, IterClass::Kind(ItKind::Generator | ItKind::ItTee)) => Wt::WIter(Rc::downgrade(c)),
         _ => return type_err(format!("cannot create weak reference to '{}' object", proxy_tn(x))),
@@ -361,7 +364,7 @@ struct GcNode {
     indeg: usize,
 }
 
-fn gc_id(v: &V) -> Option<usize> {
+pub fn gc_id(v: &V) -> Option<usize> {
     Some(match v {
         V::List(x) => Rc::as_ptr(x) as *const u8 as usize,
         V::Tuple(x) => Tup::as_ptr(x) as usize,
@@ -466,6 +469,7 @@ fn gc_edges(v: &V) -> Vec<V> {
                 It::Tuple(x, _) => out.push(V::Tuple(x.clone())),
                 It::Dict(x, ..) | It::RevDict(x, ..) | It::ODict(x, ..) => out.push(V::Dict(x.clone())),
                 It::Set(x, ..) => out.push(V::Set(x.clone())),
+                It::Deq(x, ..) => out.push(V::Deque(x.clone())),
                 It::Obj(x) => out.push(x.clone()),
                 _ => {}
             }

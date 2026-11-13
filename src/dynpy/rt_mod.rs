@@ -2550,7 +2550,7 @@ pub fn shallow_copy(x: &V) -> R {
         V::List(l) => list(l.borrow().clone()),
         V::Dict(d) => V::Dict(Rc::new(RefCell::new(d.borrow().copy()))),
         V::Set(s0) => V::Set(Rc::new(RefCell::new(s0.borrow().copy()))),
-        V::Deque(d) => V::Deque(Rc::new(RefCell::new(Deq { v: d.borrow().v.clone(), max: d.borrow().max }))),
+        V::Deque(d) => deq_v(d.borrow().v.clone(), d.borrow().max),
         V::Obj(o) => {
             if let Some(f) = o.cls.lookup("__copy__") {
                 return call(&f, Args::p(vec![x.clone()]));
@@ -2664,7 +2664,7 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
             for y in items {
                 v.push_back(deepcopy(&y, memo)?);
             }
-            V::Deque(Rc::new(RefCell::new(Deq { v, max: d.borrow().max })))
+            deq_v(v, d.borrow().max)
         }
         V::Obj(o) => {
             if let Some(f) = o.cls.lookup("__deepcopy__") {
