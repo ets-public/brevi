@@ -26,10 +26,51 @@ pub struct ACoro {
 }
 
 pub fn make_acoro(name: Sym, body: impl FnOnce() -> R + 'static) -> V {
+    // PEP 479: a StopIteration the body raises comes out as RuntimeError, caused by it (a return value is Ok)
+    let body = move || match body() {
+        Err(E(e)) if is_exc(&e, "StopIteration") => {
+            let r = exc("RuntimeError", "coroutine raised StopIteration".into());
+            if let V::Obj(o) = &r.0 {
+                o.set("__cause__", e.clone());
+                o.set("__context__", e);
+                o.set("__suppress_context__", V::Bool(true));
+            }
+            Err(r)
+        }
+        r => r,
+    };
     V::Ext(ExtRc::new(ACoro { name, kind: "coroutine", st: RefCell::new(ACState::Fresh(Box::new(body))), agen: None }))
 }
 
 impl ACoro {
+    fn what(&self) -> &'static str {
+        if self.kind == "coroutine" { "coroutine" } else { "asynchronous generator" }
+    }
+    // coroutine.__await__(): the coroutine_wrapper iterator, which runs the same body as send() does
+    fn await_iter(&self, a: &Args) -> R {
+        if !a.p.is_empty() || !a.k.is_empty() {
+            return Err(exc("TypeError", format!("expected 0 arguments, got {}", a.p.len() + a.k.len())));
+        }
+        let mut st = self.st.borrow_mut();
+        let c = match &*st {
+            ACState::Fresh(_) => {
+                let ACState::Fresh(body) = std::mem::replace(&mut *st, ACState::Done) else { unreachable!() };
+                let c = Rc::new(RefCell::new(Coro::new(self.name, body)));
+                c.borrow_mut().awaitable = self.kind == "coroutine";
+                *st = ACState::Run(c.clone());
+                c
+            }
+            ACState::Run(c) => c.clone(),
+            ACState::Inline => return Err(exc("RuntimeError", "coroutine is being awaited already".into())),
+            ACState::Done => {
+                let e = self.reused();
+                let c = Rc::new(RefCell::new(Coro::new(self.name, Box::new(move || Err(e)))));
+                c.borrow_mut().awaitable = true;
+                c
+            }
+        };
+        Ok(new_iter(It::Coro(c), IterClass::Class(ext_class("coroutine_wrapper"))))
+    }
     fn reused(&self) -> E {
         exc("RuntimeError", match self.kind {
             "async_generator_asend" => "cannot reuse already awaited __anext__()/asend()".into(),
@@ -56,17 +97,26 @@ impl ACoro {
                     }
                     let ACState::Fresh(body) = std::mem::replace(&mut *st, ACState::Done) else { unreachable!() };
                     let c = Rc::new(RefCell::new(Coro::new(self.name, body)));
+                c.borrow_mut().awaitable = self.kind == "coroutine";
                     *st = ACState::Run(c.clone());
                     c
                 }
-                ACState::Run(c) => c.clone(),
-                ACState::Inline => return Err(exc("RuntimeError", "coroutine is being awaited already".into())),
-                ACState::Done => {
-                    return match thrown {
-                        Some(e) => Err(e),
-                        None => Err(self.reused()),
+                ACState::Run(c) => {
+                    // running now (send() from its own body): CPython's ValueError, not a second borrow
+                    let c = c.clone();
+                    let done = match c.try_borrow() {
+                        Err(_) => return Err(exc("ValueError", format!("{} already executing", self.what()))),
+                        Ok(k) => k.is_done(),
+                    };
+                    if done {
+                        *st = ACState::Done;
+                        return Err(self.reused());
                     }
+                    c
                 }
+                ACState::Inline => return Err(exc("RuntimeError", "coroutine is being awaited already".into())),
+                // throw() into a finished one is the same RuntimeError as send() (CPython 3.13)
+                ACState::Done => return Err(self.reused()),
             }
         };
         let r = match thrown {
@@ -97,6 +147,11 @@ impl ACoro {
                 ACState::Inline => return Err(exc("RuntimeError", "coroutine is being awaited already".into())),
                 ACState::Done => return Err(self.reused()),
                 ACState::Run(c) => {
+                    // suspended part-way: a coroutine only suspends inside an await, so CPython finds it
+                    // awaiting something already (test_await_15)
+                    if c.try_borrow().is_ok_and(|k| k.is_suspended()) {
+                        return Err(exc("RuntimeError", "coroutine is being awaited already".into()));
+                    }
                     let c = c.clone();
                     drop(st);
                     let r = delegate(&c);
@@ -140,15 +195,21 @@ impl Ext for ACoro {
     }
     fn attr(&self, _me: &V, n: &str) -> Option<R> {
         match n {
-            "__name__" | "__qualname__" => Some(Ok(st(self.name.to_string()))),
-            "cr_running" => Some(Ok(V::Bool(matches!(&*self.st.borrow(), ACState::Inline) || matches!(&*self.st.borrow(), ACState::Run(c) if !c.borrow().is_suspended())))),
+            // name is the qualname; __name__ is its last component (the code object's co_name)
+            "__qualname__" => Some(Ok(st(self.name.to_string()))),
+            "__name__" => Some(Ok(st(self.name.rsplit('.').next().unwrap_or(self.name).to_string()))),
+            "__class__" => Some(type_of(_me).map(V::Class)),
+            "cr_running" => Some(Ok(V::Bool(matches!(&*self.st.borrow(), ACState::Inline) || matches!(&*self.st.borrow(), ACState::Run(c) if c.try_borrow().map_or(true, |k| k.is_running()))))),
+            "cr_suspended" if self.kind == "coroutine" => Some(Ok(V::Bool(matches!(&*self.st.borrow(), ACState::Run(c) if c.try_borrow().is_ok_and(|k| k.is_suspended()))))),
             "send" | "throw" | "close" => None,
+            "__await__" if self.kind == "coroutine" => None,
             "__await__" => Some(Err(unsupported("coroutine.__await__()"))),
             _ => Some(Err(exc("AttributeError", format!("'coroutine' object has no attribute '{n}'")))),
         }
     }
     fn method(&self, _me: &V, n: &str, a: &mut Args) -> Option<R> {
         Some(match n {
+            "__await__" if self.kind == "coroutine" => self.await_iter(a),
             "send" => match a.p.len() {
                 1 => self.step(a.p[0].clone(), None),
                 k => Err(exc("TypeError", format!("send() takes exactly one argument ({k} given)"))),
@@ -220,9 +281,43 @@ fn class_has(x: &V, n: &str) -> bool {
 
 // `await x`
 pub fn aw(x: &V) -> R {
+    aw_in(x, false)
+}
+// `async for`'s await of what __anext__ returned: an error getting its awaitable iterator becomes CPython's
+// TypeError, caused by that error (errors while it runs pass through as they are)
+pub fn bi___brevi_afor_await(a: Args) -> R {
+    aw_in(&a.p[0], true)
+}
+fn aw_in(x: &V, afor: bool) -> R {
+    let wrap = |e: E| -> E {
+        if !afor {
+            return e;
+        }
+        let r = exc("TypeError", format!("'async for' received an invalid object from __anext__: {}", type_name(x)));
+        if let V::Obj(o) = &r.0 {
+            o.set("__cause__", e.0.clone());
+            o.set("__context__", e.0);
+            o.set("__suppress_context__", V::Bool(true));
+        }
+        r
+    };
     if let V::Ext(e) = x {
         if let Some(c) = e.any().downcast_ref::<ACoro>() {
             return c.await_();
+        }
+    }
+    // A generator of a `@types.coroutine` function is its own awaitable iterator (CPython's GET_AWAITABLE).
+    if let V::Iter(i) = x {
+        if let Some(c) = coro_of(&i.it) {
+            match c.try_borrow() {
+                Ok(k) if k.iter_coro => {
+                    drop(k);
+                    return delegate(&c);
+                }
+                Ok(_) => {}
+                // running now: whether it is an iterable coroutine cannot be read from inside it
+                Err(_) => return Err(unsupported("awaiting a generator that is running")),
+            }
         }
     }
     // An asyncio future (what Future.__await__ does, without making a generator for it).
@@ -237,9 +332,14 @@ pub fn aw(x: &V) -> R {
         return call_method(x, "result", Args::p(vec![]));
     }
     if !class_has(x, "__await__") {
-        return Err(exc("TypeError", format!("'{}' object can't be awaited", type_name(x))));
+        // an iterator is named by its own type ("generator"), as CPython does
+        let t = match x {
+            V::Iter(_) => type_of(x).map(|c| c.name.to_string()).unwrap_or_else(|_| type_name(x)),
+            _ => type_name(x),
+        };
+        return Err(wrap(exc("TypeError", format!("object {t} can't be used in 'await' expression"))));
     }
-    let it = call_method(x, "__await__", Args::p(vec![]))?;
+    let it = call_method(x, "__await__", Args::p(vec![])).map_err(wrap)?;
     match &it {
         V::Iter(i) if coro_of(&i.it).is_some() => delegate(&coro_of(&i.it).unwrap()),
         V::Iter(_) => {
@@ -249,8 +349,8 @@ pub fn aw(x: &V) -> R {
             }
             Ok(V::None)
         }
-        V::Ext(e) if e.any().downcast_ref::<ACoro>().is_some() => Err(exc("TypeError", "__await__() returned a coroutine".into())),
-        _ => Err(exc("TypeError", format!("__await__() returned non-iterator of type '{}'", type_name(&it)))),
+        V::Ext(e) if e.any().downcast_ref::<ACoro>().is_some() => Err(wrap(exc("TypeError", "__await__() returned a coroutine".into()))),
+        _ => Err(wrap(exc("TypeError", format!("__await__() returned non-iterator of type '{}'", type_name(&it))))),
     }
 }
 
@@ -286,8 +386,21 @@ pub fn bi_anext(a: Args) -> R {
 fn async_cm(x: &V, n: &str) -> R {
     match x {
         V::Obj(o) if o.cls.lookup("__aenter__").is_some() && o.cls.lookup("__aexit__").is_some() => Ok(o.cls.lookup(n).unwrap()),
+        // CPython looks up __aenter__ first, then __aexit__ (whose absence it names)
+        V::Obj(o) if o.cls.lookup("__aenter__").is_some() => {
+            Err(exc("TypeError", format!("'{}' object does not support the asynchronous context manager protocol (missed __aexit__ method)", type_name(x))))
+        }
         _ => Err(exc("TypeError", format!("'{}' object does not support the asynchronous context manager protocol", type_name(x)))),
     }
+}
+// `async with`: what __aenter__ (0) or __aexit__ (1) returned, which it then awaits
+pub fn bi___brevi_awith(a: Args) -> R {
+    let x = a.p[0].clone();
+    if is_acoro(&x) || class_has(&x, "__await__") || class_has(&x, "_asyncio_future_blocking") {
+        return Ok(x);
+    }
+    let which = if matches!(a.p[1], V::Int(0)) { "__aenter__" } else { "__aexit__" };
+    Err(exc("TypeError", format!("'async with' received an object from {which} that does not implement __await__: {}", type_name(&x))))
 }
 pub fn bi___brevi_aenter(a: Args) -> R {
     async_cm(&a1(&a, "__aenter__")?, "__aenter__")
@@ -309,7 +422,7 @@ pub fn brevi_async_fn(n: &str, a: Args) -> R {
         "isasyncgen" => Ok(V::Bool(ag_of(&a1(&a, "isasyncgen")?).is_some())),
         "isawaitable" => {
             let x = a1(&a, "isawaitable")?;
-            Ok(V::Bool(is_acoro(&x) || class_has(&x, "__await__")))
+            Ok(V::Bool(is_acoro(&x) || is_iter_coro(&x) || class_has(&x, "__await__")))
         }
         "set_hooks" | "track" | "untrack" | "tracked" => ag_hook_fn(n, &a),
         "set_task_hooks" => {
@@ -1506,7 +1619,9 @@ impl Ext for AGen {
     }
     fn attr(&self, _me: &V, n: &str) -> Option<R> {
         match n {
-            "__name__" | "__qualname__" => Some(Ok(st(self.name.to_string()))),
+            "__qualname__" => Some(Ok(st(self.name.to_string()))),
+            "__name__" => Some(Ok(st(self.name.rsplit('.').next().unwrap_or(self.name).to_string()))),
+            "__class__" => Some(type_of(_me).map(V::Class)),
             "ag_running" => Some(Ok(V::Bool(self.st.borrow().running))),
             "asend" | "athrow" | "aclose" | "__anext__" | "__aiter__" => None,
             _ => Some(Err(exc("AttributeError", format!("'async_generator' object has no attribute '{n}'")))),
@@ -1558,6 +1673,29 @@ impl AGen {
             let _ = r;
         } else {
             c.borrow_mut().close();
+        }
+    }
+}
+
+impl Drop for ACoro {
+    // A coroutine dropped before it ever ran: CPython's RuntimeWarning (through warnings, so catch_warnings sees it)
+    fn drop(&mut self) {
+        if self.kind != "coroutine" || std::thread::panicking() || !matches!(self.st.get_mut(), ACState::Fresh(_)) {
+            return;
+        }
+        match re_warn("RuntimeWarning", format!("coroutine '{}' was never awaited", self.name)) {
+            Ok(()) => {}
+            // the warning cannot be issued as CPython would (no line to give it): stop rather than lose it
+            Err(E(e)) if is_exc(&e, "NotImplementedError") => {
+                out_flush();
+                eprintln!("{}", exc_line(&e));
+                std::process::exit(1);
+            }
+            // a filter made it an error: CPython reports it and goes on (the coroutine is being destroyed)
+            Err(E(e)) => {
+                out_flush();
+                eprintln!("Exception ignored while finalizing coroutine: {}", exc_line(&e));
+            }
         }
     }
 }

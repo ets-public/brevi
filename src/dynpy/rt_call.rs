@@ -1535,6 +1535,15 @@ fn class_getattr(o: &V, c: &Rc<Class>, name: &str) -> R {
             // A base's builtin_class_attr answers any name (a generic unbound method), so a base other
             // than object is asked only for a method that type really has.
             for k in c.mro.borrow().iter().skip(1) {
+                // a dict or OrderedDict subclass: the methods CPython's type itself defines; fromkeys builds the subclass
+                if (k.module == "builtins" && k.name == "dict" || k.module == "collections" && k.name == "OrderedDict") && cpy_type_own_method(k, name) {
+                    if name == "fromkeys" {
+                        return Ok(dict_fromkeys(c.clone(), k.clone()));
+                    }
+                    if let Some(v) = builtin_class_attr(k, name) {
+                        return Ok(v);
+                    }
+                }
                 if (k.module == "builtins" || k.module == "collections") && k.name != "object" && builtin_type_has(k.name, name) {
                     if let Some(v) = builtin_class_attr(k, name) {
                         return Ok(v);
@@ -1878,6 +1887,12 @@ pub fn getattr(o: &V, name: &str) -> R {
                 None => Err(exc("AttributeError", format!("'{}' object has no attribute '{name}'", tn(o)))),
             }
         }
+        // an OrderedDict's instance __dict__, and the attributes set in it
+        V::Dict(d) if d.borrow().kind == 3 && name == "__dict__" => Ok(V::Dict(odict_attrs(d))),
+        V::Dict(d) if d.borrow().kind == 3 && d.borrow().attrs.as_ref().map_or(false, |x| Dict::contains_cell(x, &s(name)).unwrap_or(false)) => {
+            let x = odict_attrs(d);
+            Ok(Dict::get_cell(&x, &s(name))?.unwrap_or(V::None))
+        }
         // every value's __class__ is its type (has_method would say yes and give a bound method)
         _ if name == "__class__" => Ok(V::Class(type_of(o)?)),
         _ => {
@@ -1982,10 +1997,28 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
             }
             Ok(())
         }
+        V::Dict(d) if d.borrow().kind == 3 && &*name.to_string() != "__class__" => {
+            if &*name.to_string() == "__dict__" {
+                let V::Dict(nd) = &v else {
+                    return type_err(format!("__dict__ must be set to a dictionary, not a '{}'", tn(&v)));
+                };
+                d.borrow_mut().attrs = Some(nd.clone());
+                return Ok(());
+            }
+            Dict::set_cell(&odict_attrs(d), s(name), v)
+        }
         _ => Err(exc("AttributeError", format!("'{}' object has no attribute '{}' and no __dict__ for setting new attributes", tn(o), name))),
     }
 }
 pub fn delattr(o: &V, name: &str) -> Result<(), E> {
+    if let V::Dict(d) = o {
+        if d.borrow().kind == 3 {
+            if Dict::del_cell(&odict_attrs(d), &s(name))?.is_none() {
+                return Err(exc("AttributeError", format!("'collections.OrderedDict' object has no attribute '{name}'")));
+            }
+            return Ok(());
+        }
+    }
     if let Some(p) = proxy_deref(o) {
         return delattr(&p?, name);
     }
@@ -2169,12 +2202,18 @@ pub fn call_method(o: &V, name: &str, mut a: Args) -> R {
             // A dict subclass's copy() returns the subclass (a Counter's too). The class defines no copy of its
             // own here; the wrapped builtin value is copied into a new instance of the same class.
             if name == "copy" && ob.cls.own(name).is_none() {
+                if odict_of(o).is_some() {
+                    return odict_obj_copy(o, &V::Class(ob.cls.clone()));
+                }
                 if let Some(V::Dict(d)) = inner_of(o) {
                     let inner = V::Dict(Rc::new(RefCell::new(d.borrow().copy())));
                     let no = Obj::new(ob.cls.clone());
                     no.set_inner(Some(inner));
                     return Ok(V::Obj(no));
                 }
+            }
+            if name == "__reduce__" && odict_of(o).is_some() {
+                return odict_reduce(o);
             }
             if matches!(name, "update" | "subtract" | "__init__") && counter_inner(o).is_some() {
                 return if name == "__init__" { counter_obj_init(o, a) } else { counter_obj_method(o, name, a) };

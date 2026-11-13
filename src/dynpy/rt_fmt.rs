@@ -125,6 +125,40 @@ fn guard(p: usize) -> bool {
         true
     })
 }
+// CPython's odict_repr: `Name()` when empty, `...` for an OrderedDict already being repr'd, else `Name({...})` of a
+// dict copied key by key (its keys() in order, then a lookup of each, so a key whose hash changed raises KeyError)
+fn odict_repr(o: &V, d: &Rc<RefCell<Dict>>, name: &str) -> Result<String, E> {
+    if d.borrow().n == 0 {
+        return Ok(format!("{name}()"));
+    }
+    if !guard(Rc::as_ptr(d) as usize) {
+        return Ok("...".into());
+    }
+    let r = (|| -> Result<String, E> {
+        let mut items = vec![];
+        if let V::Obj(_) = o {
+            for k in to_vec(&call_method(o, "keys", Args::p(vec![]))?)? {
+                let x = getitem(o, &k)?;
+                items.push((k, x));
+            }
+        } else {
+            let keys = d.borrow().keys();
+            for k in keys {
+                match Dict::get_cell(d, &k)? {
+                    Some(x) => items.push((k, x)),
+                    None => return Err(exc_v("KeyError", k)),
+                }
+            }
+        }
+        let mut parts = vec![];
+        for (k, x) in &items {
+            parts.push(format!("{}: {}", repr(k)?, repr(x)?));
+        }
+        Ok(format!("{name}({{{}}})", parts.join(", ")))
+    })();
+    unguard();
+    r
+}
 fn unguard() {
     REPR_DEPTH.with(|d| {
         d.borrow_mut().pop();
@@ -244,6 +278,9 @@ pub fn repr(v: &V) -> Result<String, E> {
             if d.borrow().kind == 2 {
                 return counter_repr(d, "Counter");
             }
+            if d.borrow().kind == 3 {
+                return odict_repr(v, d, "OrderedDict");
+            }
             let p = Rc::as_ptr(d) as usize;
             if !guard(p) {
                 return Ok("{...}".into());
@@ -272,13 +309,6 @@ pub fn repr(v: &V) -> Result<String, E> {
                 2 => {
                     // Counter repr goes through counter_repr above.
                     unreachable!()
-                }
-                3 => {
-                    if items.is_empty() {
-                        "OrderedDict()".into()
-                    } else {
-                        format!("OrderedDict({body})")
-                    }
                 }
                 _ => body,
             }
@@ -327,6 +357,9 @@ pub fn repr(v: &V) -> Result<String, E> {
                     if d.borrow().kind == 2 {
                         return counter_repr(&d, o.cls.name);
                     }
+                    if d.borrow().kind == 3 && o.cls.lookup("__repr__").map_or(true, |f| matches!(&f, V::Func(x) if x.kind.get() == 3)) {
+                        return odict_repr(v, &d, o.cls.name);
+                    }
                 }
             }
             if let Some(f) = o.cls.lookup("__repr__") {
@@ -352,6 +385,10 @@ pub fn repr(v: &V) -> Result<String, E> {
                 if let V::Dict(d) = &i {
                     if d.borrow().kind == 2 {
                         return counter_repr(d, o.cls.name);
+                    }
+                    // an OrderedDict subclass reprs as the subclass: `MyOD({...})`
+                    if d.borrow().kind == 3 {
+                        return odict_repr(v, d, o.cls.name);
                     }
                 }
                 // bytearray's repr names the instance's type, as CPython's does: BA(b'..')
@@ -400,6 +437,9 @@ pub fn repr(v: &V) -> Result<String, E> {
                 if let Some(t) = r.repr() {
                     return t;
                 }
+            }
+            if matches!(&x.kind, IterClass::Class(c) if c.name == "coroutine_wrapper") {
+                return Ok(format!("<coroutine_wrapper object at 0x{:x}>", Rc::as_ptr(x) as *const u8 as usize));
             }
             // a generator (or genexpr) reprs with its dotted __qualname__, as in CPython; the cells are held
             // while the generator body runs, so read them only when free (the running generator's name is
@@ -454,8 +494,15 @@ pub fn repr(v: &V) -> Result<String, E> {
                 }
                 return Ok("mappingproxy({})".into());
             }
-            let name = ["dict_keys", "dict_values", "dict_items"][x.1 as usize];
-            format!("{}([{}])", name, join_repr(&to_vec(v)?)?)
+            let od = matches!(&x.0, V::Dict(d) if d.borrow().kind == 3);
+            let name = if od { ["odict_keys", "odict_values", "odict_items"] } else { ["dict_keys", "dict_values", "dict_items"] }[x.1 as usize];
+            // CPython's dictview_repr: `...` for a view already being repr'd (od[k] = od.values())
+            if !guard(Rc::as_ptr(x) as *const u8 as usize) {
+                return Ok("...".into());
+            }
+            let r = to_vec(v).and_then(|xs| join_repr(&xs));
+            unguard();
+            format!("{}([{}])", name, r?)
         }
         V::Prop(_) => "<property object>".into(),
         V::NTF(n) => {
@@ -560,6 +607,10 @@ pub fn to_str(v: &V) -> Result<String, E> {
                         return counter_repr(&d, o.cls.name);
                     }
                 }
+            }
+            // OrderedDict has no __str__: str of a subclass is its repr, which names the subclass (`Sub({...})`)
+            if o.cls.lookup("__str__").is_none() && matches!(inner_of(v), Some(V::Dict(d)) if d.borrow().kind == 3) {
+                return repr(v);
             }
             if let Some(f) = o.cls.lookup("__str__") {
                 return match call(&f, Args::p(vec![v.clone()]))? {

@@ -163,7 +163,70 @@ pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
         let nm = &names[*m];
         stmts(body, nm).map_err(|(l, w)| (m.to_string(), l, w))?;
     }
-    // dataclasses.Field.type: the annotation, which Brevi does not keep
+    // inspect.signature and its kin run in CPython's inspect (through the bridge), which cannot read the
+    // program's own functions and classes: refused rather than raising there
+    for (m, body) in mods {
+        if !imports(body, "inspect") {
+            continue;
+        }
+        const SIG: [&str; 3] = ["signature", "getfullargspec", "getcallargs"];
+        let mut at = None;
+        walk_all(body, &mut |e, line| {
+            if matches!(e, Ex::Attr(o, a) if SIG.contains(&a.as_str()) && matches!(o.as_ref(), Ex::Name(n) if n == "inspect")) {
+                at.get_or_insert(line);
+            }
+        });
+        let mut from = false;
+        walk_from(body, &mut |md, names| from |= md == "inspect" && names.iter().any(|n| SIG.contains(&n.as_str())));
+        if from && at.is_none() {
+            at = Some(0);
+        }
+        if let Some(l) = at {
+            return Err((m.to_string(), l, "inspect.signature of a dynamic build's functions needs CPython".into()));
+        }
+    }
+    // a dataclass's generated __doc__ is the text of inspect.signature(cls), which Brevi writes only for the
+    // __init__ dataclasses itself makes: a program that reads __doc__ and has a def __init__ or an init=False is
+    // refused (the class's own __init__, or its base's, would give the text)
+    for (m, body) in mods {
+        if !imports(body, "dataclasses") {
+            continue;
+        }
+        let mut doc = None;
+        walk_all(body, &mut |e, line| {
+            if matches!(e, Ex::Attr(_, a) if a == "__doc__") || matches!(e, Ex::Str(t) if t == "__doc__") || matches!(e, Ex::Attr(_, a) | Ex::Name(a) if a == "getdoc") {
+                doc.get_or_insert(line);
+            }
+        });
+        let Some(l) = doc else { continue };
+        let mut own_init = false;
+        let mut no_init = false;
+        walk_all(body, &mut |e, _| {
+            if let Ex::Call(_, args) = e {
+                no_init |= args.iter().any(|a| matches!(a, Arg::Kw(k, v) if k == "init" && !matches!(v, Ex::True)) || matches!(a, Arg::KwStar(_)));
+            }
+        });
+        walk_defs(body, &mut |name| own_init |= name == "__init__");
+        if own_init || no_init {
+            return Err((m.to_string(), l, "dataclasses: the __doc__ of a dataclass whose __init__ dataclasses does not write needs CPython".into()));
+        }
+    }
+    // dataclasses.Field.type and a dataclass's generated __doc__ show the class's annotations, which the build
+    // keeps (emit.rs keep_ann) unless the module has `from __future__ import annotations`
+    let lazy_dc = mods.iter().any(|(m, b)| names[*m].lazy && imports(b, "dataclasses"));
+    if lazy_dc {
+        let mut at = None;
+        for (m, body) in mods {
+            walk_all(body, &mut |e, line| {
+                if matches!(e, Ex::Attr(_, a) if a == "__doc__") && at.is_none() {
+                    at = Some((m.to_string(), line));
+                }
+            });
+        }
+        if let Some((m, l)) = at {
+            return Err((m, l, "dataclasses: the __doc__ of a dataclass in a module with `from __future__ import annotations` needs CPython".into()));
+        }
+    }
     let mut fields_used = false;
     let mut type_at = None;
     for (m, body) in mods {
@@ -198,8 +261,8 @@ pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
             return Err((m.to_string(), l, "json: JSONEncoder.iterencode needs CPython".into()));
         }
     }
-    if let (true, Some((m, l))) = (fields_used, type_at) {
-        return Err((m, l, "dataclasses: a field's .type (Brevi does not keep annotations) needs CPython".into()));
+    if let (true, true, Some((m, l))) = (lazy_dc, fields_used, type_at) {
+        return Err((m, l, "dataclasses: a field's .type in a module with `from __future__ import annotations` needs CPython".into()));
     }
     Ok(())
 }
@@ -257,6 +320,28 @@ pub fn uses_abc(mods: &[(&str, &[Stmt])]) -> bool {
         walk_imports(body, &mut |m| any |= m == "collections.abc" || m == "collections");
     }
     any
+}
+// Whether the body imports module `m` (or a submodule of it, or a name from it) anywhere.
+pub fn imports(body: &[Stmt], m: &str) -> bool {
+    let mut any = false;
+    walk_imports(body, &mut |x| any |= x == m || x.strip_prefix(m).is_some_and(|r| r.starts_with('.')));
+    any
+}
+fn walk_from(body: &[Stmt], f: &mut dyn FnMut(&str, Vec<String>)) {
+    for s in body {
+        if let St::ImportFrom(m, v) = &s.st {
+            f(m, v.iter().map(|(n, _)| n.clone()).collect());
+        }
+        blocks(&s.st, &mut |b| walk_from(b, f));
+    }
+}
+fn walk_defs(body: &[Stmt], f: &mut dyn FnMut(&str)) {
+    for s in body {
+        if let St::Def(d) = &s.st {
+            f(&d.name);
+        }
+        blocks(&s.st, &mut |b| walk_defs(b, f));
+    }
 }
 fn walk_imports(body: &[Stmt], f: &mut dyn FnMut(&str)) {
     for s in body {
