@@ -2565,6 +2565,12 @@ impl<T: Clone> AxList<T> for Vec<T> {
         self.pop().expect("pop from empty list")
     }
     fn ax_insert(&mut self, i: i64, x: T) {
+        // a .py file: list.insert (and deque.insert) clamp an index past either end to that end, as CPython does
+        if AX_PY_FILE.load(std::sync::atomic::Ordering::Relaxed) {
+            let n = self.len() as i64;
+            let j = if i < 0 { (i + n).max(0) } else { i.min(n) };
+            return self.insert(j as usize, x);
+        }
         let j = if i == self.len() as i64 { self.len() } else { ax_idx(i, self.len()) };
         self.insert(j, x)
     }
@@ -5971,12 +5977,11 @@ impl<T: Clone + PartialEq> AxQueue<T> {
         let j = ax_idx(i, self.0.len());
         self.0.remove(j).unwrap()
     }
+    // as list.insert and deque.insert: an index past either end is clamped to that end
     pub fn ax_insert(&mut self, i: i64, x: T) {
-        if i == 0 {
-            return self.0.push_front(x);
-        }
-        let j = if i == self.0.len() as i64 { self.0.len() } else { ax_idx(i, self.0.len()) };
-        self.0.insert(j, x)
+        let n = self.0.len() as i64;
+        let j = if i < 0 { (i + n).max(0) } else { i.min(n) };
+        self.0.insert(j as usize, x)
     }
     pub fn ax_len(&self) -> i64 {
         self.0.len() as i64

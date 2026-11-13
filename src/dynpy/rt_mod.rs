@@ -2539,6 +2539,10 @@ fn iter_sub_copy_check(o: &Rc<Obj>) -> Result<(), E> {
         _ => Ok(()),
     }
 }
+// coroutines and async generators (and their asend/athrow awaitables) have no reduce: copy and pickle refuse them
+fn async_unpicklable(t: &str) -> bool {
+    matches!(t, "coroutine" | "async_generator" | "async_generator_asend" | "async_generator_athrow")
+}
 pub fn shallow_copy(x: &V) -> R {
     Ok(match x {
         // copy.copy and copy.deepcopy of a bytearray make a new one, with its own bytes
@@ -2546,7 +2550,7 @@ pub fn shallow_copy(x: &V) -> R {
         V::List(l) => list(l.borrow().clone()),
         V::Dict(d) => V::Dict(Rc::new(RefCell::new(d.borrow().copy()))),
         V::Set(s0) => V::Set(Rc::new(RefCell::new(s0.borrow().copy()))),
-        V::Deque(d) => V::Deque(Rc::new(RefCell::new(Deq { v: d.borrow().v.clone(), max: d.borrow().max }))),
+        V::Deque(d) => deq_v(d.borrow().v.clone(), d.borrow().max),
         V::Obj(o) => {
             if let Some(f) = o.cls.lookup("__copy__") {
                 return call(&f, Args::p(vec![x.clone()]));
@@ -2581,6 +2585,7 @@ pub fn shallow_copy(x: &V) -> R {
             Some(v) => v,
             None => iter_copy(x, None)?,
         },
+        V::Ext(e) if async_unpicklable(e.tname()) => return Err(exc("TypeError", format!("cannot pickle '{}' object", e.tname()))),
         _ => x.clone(),
     })
 }
@@ -2669,7 +2674,7 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
             for y in items {
                 v.push_back(deepcopy(&y, memo)?);
             }
-            V::Deque(Rc::new(RefCell::new(Deq { v, max: d.borrow().max })))
+            deq_v(v, d.borrow().max)
         }
         V::Obj(o) => {
             if let Some(f) = o.cls.lookup("__deepcopy__") {
@@ -2729,6 +2734,7 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
             y
         }
         V::Iter(_) => iter_copy(x, Some(memo))?,
+        V::Ext(e) if async_unpicklable(e.tname()) => return Err(exc("TypeError", format!("cannot pickle '{}' object", e.tname()))),
         _ => x.clone(),
     })
 }
@@ -3202,6 +3208,7 @@ pub fn module_call(m: &str, n: &str, a: Args) -> R {
         },
         "gc" => gc_fn(n, a),
         "weakref" => weakref_fn(n, a),
+        "inspect" if n == "isabstract" => call(&ext_module_attr2(m, n).expect("inspect.isabstract"), a),
         _ => ext_module_call(m, n, a),
     }
 }
@@ -4194,7 +4201,93 @@ struct DcOpts {
     kw_only: bool,
     slots: bool,
     weakref_slot: bool,
+    match_args: bool,
 }
+// CPython's _Py_CalculateSuggestions (Python/suggestions.c): the closest name within a third of the characters,
+// by its Levenshtein cost (a move costs 2, a change of case 1), for "Did you mean ...?"
+pub fn cpy_suggest<'a>(name: &str, cands: &[&'a str]) -> Option<&'a str> {
+    const MOVE: usize = 2;
+    fn sub_cost(a: u8, b: u8) -> usize {
+        if a & 31 != b & 31 {
+            return MOVE;
+        }
+        if a == b {
+            return 0;
+        }
+        if a.to_ascii_lowercase() == b.to_ascii_lowercase() { 1 } else { MOVE }
+    }
+    fn lev(a: &[u8], b: &[u8], max: usize) -> usize {
+        let (mut a, mut b) = (a, b);
+        while !a.is_empty() && !b.is_empty() && a[0] == b[0] {
+            a = &a[1..];
+            b = &b[1..];
+        }
+        while !a.is_empty() && !b.is_empty() && a[a.len() - 1] == b[b.len() - 1] {
+            a = &a[..a.len() - 1];
+            b = &b[..b.len() - 1];
+        }
+        if a.is_empty() || b.is_empty() {
+            return (a.len() + b.len()) * MOVE;
+        }
+        if a.len() > 40 || b.len() > 40 {
+            return max + 1;
+        }
+        if b.len() < a.len() {
+            std::mem::swap(&mut a, &mut b);
+        }
+        if (b.len() - a.len()) * MOVE > max {
+            return max + 1;
+        }
+        let mut buf: Vec<usize> = (0..a.len()).map(|i| (i + 1) * MOVE).collect();
+        let mut result = 0;
+        for (bi, &code) in b.iter().enumerate() {
+            let mut distance = bi * MOVE;
+            result = distance;
+            let mut minimum = usize::MAX;
+            for (i, &ac) in a.iter().enumerate() {
+                let substitute = distance + sub_cost(code, ac);
+                distance = buf[i];
+                let insert_delete = result.min(distance) + MOVE;
+                result = insert_delete.min(substitute);
+                buf[i] = result;
+                minimum = minimum.min(result);
+            }
+            if minimum > max {
+                return max + 1;
+            }
+        }
+        result
+    }
+    let mut best: Option<(&'a str, usize)> = None;
+    for &c in cands {
+        if c == name {
+            continue;
+        }
+        let mut max = (name.len() + c.len() + 3) * MOVE / 6;
+        if let Some((_, d)) = best {
+            max = max.min(d.saturating_sub(1));
+            if d == 0 {
+                continue;
+            }
+        }
+        let d = lev(name.as_bytes(), c.as_bytes(), max);
+        if d > max {
+            continue;
+        }
+        if best.is_none_or(|(_, bd)| d < bd) {
+            best = Some((c, d));
+        }
+    }
+    best.map(|(c, _)| c)
+}
+// "f() got an unexpected keyword argument 'k'", with CPython 3.13's suggestion from the function's keyword names
+fn unexpected_kw_msg(f: &str, k: &str, names: &[&str]) -> String {
+    match cpy_suggest(k, names) {
+        Some(s) => format!("{f}() got an unexpected keyword argument '{k}'. Did you mean '{s}'?"),
+        None => format!("{f}() got an unexpected keyword argument '{k}'"),
+    }
+}
+const DC_KW: [&str; 10] = ["init", "repr", "eq", "order", "unsafe_hash", "frozen", "match_args", "kw_only", "slots", "weakref_slot"];
 pub fn dataclass_fn(n: &str, mut a: Args) -> R {
     match n {
         "dataclass" => {
@@ -4209,21 +4302,16 @@ pub fn dataclass_fn(n: &str, mut a: Args) -> R {
                 kw_only: flag("kw_only", false)?,
                 slots: flag("slots", false)?,
                 weakref_slot: flag("weakref_slot", false)?,
+                match_args: flag("match_args", true)?,
             };
-            let _ = a.kw("match_args");
             if !a.k.is_empty() {
-                return type_err(format!("dataclass() got an unexpected keyword argument '{}'", a.k[0].0));
+                return type_err(unexpected_kw_msg("dataclass", a.k[0].0, &DC_KW));
             }
             match a.p.first() {
-                Some(V::Class(c)) => {
-                    make_dataclass(c, &o)?;
-                    Ok(a.p[0].clone())
-                }
-                _ => Ok(builtin("dataclass", move |a: Args| {
-                    if let Some(V::Class(c)) = a.p.first() {
-                        make_dataclass(c, &o)?;
-                    }
-                    Ok(a.p.first().cloned().unwrap_or(V::None))
+                Some(V::Class(c)) => make_dataclass(c, &o),
+                _ => Ok(builtin("dataclass", move |a: Args| match a.p.first() {
+                    Some(V::Class(c)) => make_dataclass(c, &o),
+                    x => Ok(x.cloned().unwrap_or(V::None)),
                 })),
             }
         }
@@ -4232,8 +4320,11 @@ pub fn dataclass_fn(n: &str, mut a: Args) -> R {
                 return type_err(format!("field() takes 0 positional arguments but {} were given", a.p.len()));
             }
             let o = Obj::new(field_class());
-            let d = a.kw("default");
-            let df = a.kw("default_factory");
+            o.set("name", V::None);
+            o.set("type", V::None);
+            // field(default=MISSING, ...) is the same as leaving it out
+            let d = a.kw("default").filter(|v| !is_missing(v));
+            let df = a.kw("default_factory").filter(|v| !is_missing(v));
             if d.is_some() && df.is_some() {
                 return val_err("cannot specify both default and default_factory".into());
             }
@@ -4243,13 +4334,133 @@ pub fn dataclass_fn(n: &str, mut a: Args) -> R {
                 o.set(k, a.kw(k).unwrap_or(dv));
             }
             if let Some((k, _)) = a.k.first() {
-                return type_err(format!("field() got an unexpected keyword argument '{k}'"));
+                return type_err(unexpected_kw_msg("field", k, &["default", "default_factory", "init", "repr", "hash", "compare", "metadata", "kw_only"]));
             }
-            if matches!(o.get("metadata"), Some(V::None)) {
-                o.set("metadata", dict_new());
+            // types.MappingProxyType(metadata), or the shared empty one
+            match o.get("metadata") {
+                Some(V::None) => o.set("metadata", empty_metadata()),
+                Some(V::Dict(d)) => o.set("metadata", V::View(Rc::new((V::Dict(d), 3)))),
+                Some(x @ (V::List(_) | V::Tuple(_) | V::Int(_) | V::Big(_) | V::Float(_) | V::Bool(_) | V::Str(_))) => {
+                    return type_err(format!("mappingproxy() argument must be a mapping, not {}", tn(&x)));
+                }
+                _ => return Err(unsupported("field(metadata=...) with a mapping that is not a dict")),
             }
-            o.set("_field_type", s("_FIELD"));
+            o.set("_field_type", V::None);
             Ok(V::Obj(o))
+        }
+        // dataclasses.make_dataclass: the class types.new_class makes from the fields' annotations and defaults
+        // (and the namespace), with the dataclass decorator applied
+        "make_dataclass" => {
+            const KW: [&str; 35] = ["False", "None", "True", "and", "as", "assert", "async", "await", "break", "class", "continue", "def", "del", "elif", "else", "except", "finally", "for", "from", "global", "if", "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try", "while", "with", "yield"];
+            if a.p.len() > 2 {
+                return type_err(format!("make_dataclass() takes 2 positional arguments but {} were given", a.p.len()));
+            }
+            let mut pos = std::mem::take(&mut a.p).into_iter();
+            let mut arg = |k: &str, p: Option<V>, a: &mut Args| -> Result<V, E> {
+                match (p, a.kw(k)) {
+                    (Some(_), Some(_)) => type_err(format!("make_dataclass() got multiple values for argument '{k}'")),
+                    (Some(v), None) | (None, Some(v)) => Ok(v),
+                    (None, None) => type_err(format!("make_dataclass() missing 1 required positional argument: '{k}'")),
+                }
+            };
+            let cls_name = arg("cls_name", pos.next(), &mut a)?;
+            let fields = arg("fields", pos.next(), &mut a)?;
+            let bases = a.kw("bases").unwrap_or_else(|| tup(vec![]));
+            let namespace = a.kw("namespace").unwrap_or(V::None);
+            let module = a.kw("module").unwrap_or(V::None);
+            let mut flag = |k: &str, d: bool| -> Result<bool, E> { a.kw(k).map(|x| truth(&x)).transpose().map(|v| v.unwrap_or(d)) };
+            let o = DcOpts {
+                init: flag("init", true)?,
+                repr: flag("repr", true)?,
+                eq: flag("eq", true)?,
+                order: flag("order", false)?,
+                unsafe_hash: flag("unsafe_hash", false)?,
+                frozen: flag("frozen", false)?,
+                kw_only: flag("kw_only", false)?,
+                slots: flag("slots", false)?,
+                weakref_slot: flag("weakref_slot", false)?,
+                match_args: flag("match_args", true)?,
+            };
+            if let Some((k, _)) = a.k.first() {
+                let names = ["cls_name", "fields", "bases", "namespace", "init", "repr", "eq", "order", "unsafe_hash", "frozen", "match_args", "kw_only", "slots", "weakref_slot", "module"];
+                return type_err(unexpected_kw_msg("make_dataclass", k, &names));
+            }
+            let mut seen: Vec<String> = vec![];
+            let anns = dict_new();
+            let mut defaults: Vec<(Sym, V)> = vec![];
+            for item in to_vec(&fields)? {
+                let (name, tp) = if let V::Str(x) = &item {
+                    (V::Str(x.clone()), s("typing.Any"))
+                } else {
+                    let n = bi_len(Args::p(vec![item.clone()]))?;
+                    match n {
+                        V::Int(2) => {
+                            let v = unpack(&item, 2)?;
+                            (v[0].clone(), v[1].clone())
+                        }
+                        V::Int(3) => {
+                            let v = unpack(&item, 3)?;
+                            let V::Str(nm) = &v[0] else {
+                                return type_err(format!("Field names must be valid identifiers: {}", repr(&v[0])?));
+                            };
+                            defaults.push((sym(&nm.text()), v[2].clone()));
+                            (v[0].clone(), v[1].clone())
+                        }
+                        _ => return type_err(format!("Invalid field: {}", repr(&item)?)),
+                    }
+                };
+                let text = match &name {
+                    V::Str(x) if !x.is_lone() && py_isidentifier(x.text()) => x.text().to_string(),
+                    _ => return type_err(format!("Field names must be valid identifiers: {}", repr(&name)?)),
+                };
+                if KW.contains(&text.as_str()) {
+                    return type_err(format!("Field names must not be keywords: {}", repr(&name)?));
+                }
+                if seen.contains(&text) {
+                    return type_err(format!("Field name duplicated: {}", repr(&name)?));
+                }
+                seen.push(text);
+                setitem(&anns, &name, tp)?;
+            }
+            // types.new_class: bases must be classes here (no __mro_entries__), the metaclass is type's
+            let V::Tuple(bt) = &bases else {
+                return Err(unsupported("make_dataclass(bases=...) that is not a tuple"));
+            };
+            if bt.iter().any(|b| !matches!(b, V::Class(_))) {
+                return Err(unsupported("make_dataclass(bases=...) with a base that is not a class"));
+            }
+            let mut attrs: Vec<(Sym, V)> = vec![];
+            let mut put = |k: Sym, v: V| match attrs.iter_mut().find(|(n, _)| *n == k) {
+                Some(slot) => slot.1 = v,
+                None => attrs.push((k, v)),
+            };
+            match &namespace {
+                V::None => {}
+                V::Dict(d) => {
+                    for (k, v) in d.borrow().items() {
+                        let V::Str(ks) = &k else { return Err(unsupported("make_dataclass(namespace=...) with a key that is not a str")) };
+                        put(sym(&ks.text()), v);
+                    }
+                }
+                _ => return Err(unsupported("make_dataclass(namespace=...) that is not a dict")),
+            }
+            for (k, v) in defaults {
+                put(k, v);
+            }
+            put("__annotations__", anns);
+            let module = match &module {
+                V::None => sym("__main__"),
+                V::Str(x) => sym(&x.text()),
+                _ => return Err(unsupported("make_dataclass(module=...) that is not a str")),
+            };
+            let V::Str(cn) = &cls_name else {
+                return Err(unsupported("make_dataclass() with a class name that is not a str"));
+            };
+            let cn = sym(&cn.text());
+            let V::Class(c) = make_class_f(cn, cn, module, bt.to_vec(), attrs, vec![])? else {
+                return Err(unsupported("make_dataclass(): a class made by a metaclass"));
+            };
+            make_dataclass(&c, &o)
         }
         "fields" => {
             let x = a1(&a, n)?;
@@ -4273,11 +4484,17 @@ pub fn dataclass_fn(n: &str, mut a: Args) -> R {
             Ok(V::Bool(matches!(c.lookup("__dataclass_fields__"), Some(V::Dict(_)))))
         }
         "asdict" | "astuple" => {
+            let fac = a.kw(if n == "asdict" { "dict_factory" } else { "tuple_factory" });
+            if let Some((k, _)) = a.k.first() {
+                return type_err(format!("{n}() got an unexpected keyword argument '{k}'"));
+            }
             let x = a1(&a, n)?;
             if dc_fields(&x).is_none() || matches!(x, V::Class(_)) {
                 return type_err(format!("{n}() should be called on dataclass instances"));
             }
-            dc_copy(&x, n == "asdict")
+            // dict and tuple themselves take the fast path, as in dataclasses.py
+            let fac = fac.filter(|f| !matches!(f, V::Class(c) if Rc::ptr_eq(c, &bclass(if n == "asdict" { "dict" } else { "tuple" }))));
+            dc_copy(&x, n == "asdict", &fac)
         }
         "replace" => {
             let x = a.p.first().cloned().unwrap_or(V::None);
@@ -4286,6 +4503,9 @@ pub fn dataclass_fn(n: &str, mut a: Args) -> R {
             let mut k: Vec<(Sym, V)> = a.k.clone();
             for f in fs {
                 let name = field_name(&f);
+                if field_kind(&f) == "_FIELD_CLASSVAR" {
+                    continue;
+                }
                 if !truth(&fget(&f, "init"))? {
                     if k.iter().any(|(n, _)| *n == name) {
                         return type_err(format!("field {name} is declared with init=False, it cannot be specified with replace()"));
@@ -4316,11 +4536,58 @@ fn dc_globals() -> (Rc<Class>, V, V, V) {
         let mut a = a.borrow_mut();
         if a.is_none() {
             let f = Class::new("Field", "dataclasses", vec![bclass("object")], BT::Other);
-            // its repr shows the field's type, which Brevi does not keep
-            f.set("__repr__", builtin("__repr__", |_a: Args| Err(unsupported("repr() of a dataclasses.Field"))));
+            f.set("__repr__", builtin("__repr__", |a: Args| {
+                let me = a.p[0].clone();
+                // typing's ClassVar[...] and its kin keep no argument in Brevi, so their repr is not CPython's
+                if let V::Ext(e) = fget(&me, "type") {
+                    if e.any().downcast_ref::<TForm>().is_some_and(|t| matches!(t.name, "ClassVar" | "Final" | "TypeGuard" | "TypeIs" | "Unpack" | "Required" | "NotRequired" | "ReadOnly" | "Literal")) {
+                        return Err(unsupported("repr() of a dataclasses.Field whose type is a subscripted typing form"));
+                    }
+                }
+                dc_recursive(&me, || {
+                    let mut parts = vec![];
+                    for k in ["name", "type", "default", "default_factory", "init", "repr", "hash", "compare", "metadata", "kw_only"] {
+                        parts.push(format!("{k}={}", repr(&getattr(&me, k)?)?));
+                    }
+                    parts.push(format!("_field_type={}", to_str(&str_v(&getattr(&me, "_field_type")?)?)?));
+                    Ok(format!("Field({})", parts.join(",")))
+                })
+            }));
+            // the PEP 487 hook: a descriptor default gets its own __set_name__ call
+            f.set("__set_name__", builtin("__set_name__", |a: Args| {
+                let d = fget(&a.p[0], "default");
+                if let Some(h) = type_of(&d)?.lookup("__set_name__") {
+                    call(&h, Args::p(vec![d, a.p[1].clone(), a.p[2].clone()]))?;
+                }
+                Ok(V::None)
+            }));
             let m = Class::new("_MISSING_TYPE", "dataclasses", vec![bclass("object")], BT::Other);
             let k = Class::new("_KW_ONLY_TYPE", "dataclasses", vec![bclass("object")], BT::Other);
             let iv = Class::new("InitVar", "dataclasses", vec![bclass("object")], BT::Other);
+            // InitVar(type), InitVar[type] and their repr, as dataclasses.py
+            iv.set("__init__", func("__init__", |a: Args| {
+                if a.p.len() != 2 || !a.k.is_empty() {
+                    return type_err(format!("InitVar.__init__() takes 2 positional arguments but {} were given", a.p.len()));
+                }
+                if let V::Obj(o) = &a.p[0] {
+                    o.set("type", a.p[1].clone());
+                }
+                Ok(V::None)
+            }));
+            let ivc = iv.clone();
+            iv.set("__class_getitem__", func("__class_getitem__", move |a: Args| {
+                let o = Obj::new(ivc.clone());
+                o.set("type", a.p.get(1).cloned().unwrap_or(V::None));
+                Ok(V::Obj(o))
+            }));
+            iv.set("__repr__", builtin("__repr__", |a: Args| {
+                let t = fget(&a.p[0], "type");
+                let n = match &t {
+                    V::Class(_) => to_str(&getattr(&t, "__qualname__")?)?,
+                    _ => repr(&t)?,
+                };
+                Ok(st(format!("dataclasses.InitVar[{n}]")))
+            }));
             *a = Some((f, V::Obj(Obj::new(m)), V::Obj(Obj::new(k)), V::Class(iv)));
         }
         a.clone().unwrap()
@@ -4376,170 +4643,400 @@ fn dc_fields(x: &V) -> Option<Vec<V>> {
         _ => None,
     }
 }
-// asdict / astuple: dataclasses, lists, tuples (namedtuples too) and dicts copied deeply.
-fn dc_copy(x: &V, as_dict: bool) -> R {
+// asdict / astuple: dataclasses.py's _asdict_inner / _astuple_inner, step for step. `fac` is the
+// dict_factory / tuple_factory (None: dict / tuple, the fast path).
+fn dc_copy(x: &V, as_dict: bool, fac: &Option<V>) -> R {
     if let (Some(fs), V::Obj(_)) = (dc_fields(x), x) {
-        let mut d = Dict::new();
-        let mut t = vec![];
+        let mut pairs = vec![];
         for f in fs.iter().filter(|f| field_kind(f) == "_FIELD") {
             let name = field_name(f);
-            let v = dc_copy(&getattr(x, name)?, as_dict)?;
-            if as_dict {
-                d.set(s(name), v)?;
-            } else {
-                t.push(v);
-            }
+            let v = dc_copy(&getattr(x, name)?, as_dict, fac)?;
+            pairs.push(if as_dict { tup(vec![s(name), v]) } else { v });
         }
-        return Ok(if as_dict { V::Dict(Rc::new(RefCell::new(d))) } else { tup(t) });
+        return match (fac, as_dict) {
+            (Some(f), _) => call(f, Args::p(vec![list(pairs)])),
+            (None, true) => {
+                let mut d = Dict::new();
+                for p in pairs {
+                    let V::Tuple(t) = p else { unreachable!() };
+                    d.set(t[0].clone(), t[1].clone())?;
+                }
+                Ok(V::Dict(Rc::new(RefCell::new(d))))
+            }
+            (None, false) => Ok(tup(pairs)),
+        };
     }
+    let t = type_of(x)?;
+    let each = |v: Vec<V>| -> Result<Vec<V>, E> { v.iter().map(|y| dc_copy(y, as_dict, fac)).collect() };
     Ok(match x {
-        V::Obj(o) if o.cls.lookup("_fields").is_some() && inner_of(x).is_some() => {
-            let mut v = vec![];
-            for y in to_vec(x)? {
-                v.push(dc_copy(&y, as_dict)?);
-            }
-            instantiate(&o.cls, Args::p(v))?
-        }
-        V::List(l) => {
-            let mut v = vec![];
-            for y in l.borrow().clone().iter() {
-                v.push(dc_copy(y, as_dict)?);
-            }
-            list(v)
-        }
-        V::Tuple(t) => {
-            let mut v = vec![];
-            for y in t.iter() {
-                v.push(dc_copy(y, as_dict)?);
-            }
-            tup(v)
-        }
-        V::Dict(d) => {
+        V::List(l) => list(each(l.borrow().clone())?),
+        V::Tuple(v) => tup(each(v.to_vec())?),
+        V::Dict(d) if d.borrow().kind == 0 => {
             let mut n = Dict::new();
             for (k, v) in d.borrow().items() {
-                n.set(dc_copy(&k, as_dict)?, dc_copy(&v, as_dict)?)?;
+                n.set(dc_copy(&k, as_dict, fac)?, dc_copy(&v, as_dict, fac)?)?;
             }
             V::Dict(Rc::new(RefCell::new(n)))
         }
+        _ if t.is_sub(&bclass("tuple")) => {
+            let v = each(to_vec(x)?)?;
+            if hasattr(x, "_fields")? {
+                call(&V::Class(t), Args::p(v))?
+            } else {
+                call(&V::Class(t), Args::p(vec![list(v)]))?
+            }
+        }
+        _ if t.is_sub(&bclass("dict")) => {
+            let items = to_vec(&call_method(x, "items", Args::p(vec![]))?)?;
+            if hasattr(&V::Class(t.clone()), "default_factory")? {
+                let r = call(&V::Class(t), Args::p(vec![getattr(x, "default_factory")?]))?;
+                for kv in items {
+                    let kv = to_vec(&kv)?;
+                    setitem(&r, &dc_copy(&kv[0], as_dict, fac)?, dc_copy(&kv[1], as_dict, fac)?)?;
+                }
+                r
+            } else {
+                let mut v = vec![];
+                for kv in items {
+                    let kv = to_vec(&kv)?;
+                    v.push(tup(vec![dc_copy(&kv[0], as_dict, fac)?, dc_copy(&kv[1], as_dict, fac)?]));
+                }
+                call(&V::Class(t), Args::p(vec![list(v)]))?
+            }
+        }
+        _ if t.is_sub(&bclass("list")) => call(&V::Class(t), Args::p(vec![list(each(to_vec(x)?)?)]))?,
         _ => deepcopy(x, &mut vec![])?,
     })
 }
-fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> Result<(), E> {
+thread_local! {
+    // reprlib.recursive_repr's running set, for Field.__repr__ and the generated __repr__s
+    static DC_REPR: RefCell<Vec<usize>> = RefCell::new(Vec::new());
+}
+fn dc_recursive(me: &V, f: impl FnOnce() -> Result<String, E>) -> R {
+    let p = match me {
+        V::Obj(o) => Rc::as_ptr(o) as *const u8 as usize,
+        _ => return Ok(st(f()?)),
+    };
+    if DC_REPR.with(|d| d.borrow().contains(&p)) {
+        return Ok(s("..."));
+    }
+    DC_REPR.with(|d| d.borrow_mut().push(p));
+    let r = f();
+    DC_REPR.with(|d| d.borrow_mut().retain(|x| *x != p));
+    Ok(st(r?))
+}
+// A function dataclasses adds to the class: its __qualname__ is the class's qualname, a dot and its name.
+fn dc_fn(c: &Rc<Class>, name: Sym, f: impl Fn(Args) -> R + 'static) -> V {
+    let v = func(name, f);
+    if let V::Func(x) = &v {
+        let q = sym(&format!("{}.{name}", c.qualname.get()));
+        x.qualname.set(q);
+        x.fq.set(q);
+    }
+    v
+}
+// dataclasses._set_new_attribute: true when the class's own dict already has the name (then it is kept)
+fn dc_set_new(c: &Rc<Class>, name: Sym, v: V) -> bool {
+    if c.own(name).is_some() {
+        return true;
+    }
+    c.set_exact(name, v);
+    false
+}
+fn dc_params(c: &Rc<Class>) -> Option<V> {
+    c.lookup("__dataclass_params__")
+}
+// What an evaluated class annotation is to dataclasses: KW_ONLY, ClassVar, InitVar or a field (""). A string
+// annotation is told by the compiler's mark for the name (`mark`), as dataclasses._is_type reads the string.
+fn dc_ann_kind(v: &Option<V>, mark: &str) -> &'static str {
+    let g = dc_globals();
+    match v {
+        Some(V::Str(_)) | None => match mark {
+            "KW_ONLY" => "KW_ONLY",
+            "ClassVar" => "ClassVar",
+            "InitVar" => "InitVar",
+            _ => "",
+        },
+        Some(x) if is(x, &g.2) => "KW_ONLY",
+        Some(x) if is(x, &g.3) => "InitVar",
+        Some(V::Obj(o)) if matches!(&g.3, V::Class(iv) if Rc::ptr_eq(&o.cls, iv)) => "InitVar",
+        Some(V::Ext(e)) if e.any().downcast_ref::<TForm>().is_some_and(|f| f.name == "ClassVar") => "ClassVar",
+        Some(_) => "",
+    }
+}
+fn dc_field_new(default: V) -> V {
+    let x = Obj::new(field_class());
+    x.set("name", V::None);
+    x.set("type", V::None);
+    x.set("default", default);
+    x.set("default_factory", missing());
+    for (k, dv) in [("init", V::Bool(true)), ("repr", V::Bool(true)), ("hash", V::None), ("compare", V::Bool(true)), ("kw_only", missing())] {
+        x.set(k, dv);
+    }
+    x.set("metadata", empty_metadata());
+    x.set("_field_type", V::None);
+    V::Obj(x)
+}
+fn empty_metadata() -> V {
+    V::View(Rc::new((dict_new(), 3)))
+}
+// inspect.formatannotation, for the generated __doc__ (inspect.signature's text)
+fn dc_fmt_ann(a: &V) -> Result<String, E> {
+    // typing.Optional[int] and typing.Union[...] are of module typing in CPython
+    let union = matches!(a, V::Ext(e) if e.any().downcast_ref::<TUnion>().is_some());
+    let module = match getattr(a, "__module__") {
+        Ok(V::Str(m)) => Some(m.text().to_string()),
+        _ => None,
+    };
+    {
+        if union || module.as_deref() == Some("typing") {
+            let r = repr(a)?;
+            let mut out = String::new();
+            let mut word = String::new();
+            for ch in r.chars().chain(std::iter::once(' ')) {
+                if ch.is_alphanumeric() || ch == '_' || ch == '.' {
+                    word.push(ch);
+                } else {
+                    out.push_str(word.strip_prefix("typing.").unwrap_or(&word));
+                    word.clear();
+                    out.push(ch);
+                }
+            }
+            out.pop();
+            return Ok(out);
+        }
+    }
+    // a class: its module and qualname, which its repr <class 'module.qualname'> shows (builtins left out)
+    if let V::Class(k) = a {
+        // (Brevi's deque class says builtins; CPython's is collections.deque)
+        if k.bt == BT::Deque {
+            return Ok("collections.deque".into());
+        }
+        let r = repr(a)?;
+        if let Some(t) = r.strip_prefix("<class '").and_then(|t| t.strip_suffix("'>")) {
+            return Ok(t.strip_prefix("builtins.").unwrap_or(t).to_string());
+        }
+        return Err(unsupported("the __doc__ of a dataclass with a field annotated by a class with its own repr"));
+    }
+    if let Ok(t) = type_of(a) {
+        if t.name == "GenericAlias" {
+            return to_str(&str_v(a)?);
+        }
+    }
+    repr(a)
+}
+// abc.update_abstractmethods
+fn dc_update_abstract(c: &Rc<Class>) -> Result<(), E> {
+    if c.lookup("__abstractmethods__").is_none() {
+        return Ok(());
+    }
+    let mut names: Vec<Sym> = vec![];
+    for b in c.bases.iter() {
+        if let Some(V::FSet(p)) = b.lookup("__abstractmethods__") {
+            for k in p.keys() {
+                let n = sym(&to_str(&k)?);
+                if let Some(v) = c.lookup(n) {
+                    if is_abstract_method(&v)? && !names.contains(&n) {
+                        names.push(n);
+                    }
+                }
+            }
+        }
+    }
+    let own: Vec<(Sym, V)> = c.attrs.borrow().iter().map(|(n, v)| (*n, v.clone())).collect();
+    for (n, v) in own {
+        if is_abstract_method(&v)? && !names.contains(&n) {
+            names.push(n);
+        }
+    }
+    names.sort();
+    c.set_exact("__abstractmethods__", V::FSet(Rc::new(PSet::from_iter(names.iter().map(|n| s(n)).collect())?)));
+    Ok(())
+}
+// f.default.__class__.__hash__ is None
+fn dc_unhashable_type(d: &V) -> Result<bool, E> {
+    if matches!(d, V::List(_) | V::Dict(_) | V::Set(_)) {
+        return Ok(true);
+    }
+    let t = type_of(d)?;
+    for k in t.mro.borrow().iter() {
+        if let Some(h) = k.own("__hash__") {
+            return Ok(matches!(h, V::None));
+        }
+        if k.module == "builtins" || k.module == "collections" || k.module == "types" {
+            if matches!(k.name, "list" | "dict" | "set" | "bytearray" | "deque" | "defaultdict" | "OrderedDict" | "Counter" | "ChainMap" | "SimpleNamespace" | "UserDict" | "UserList") {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+thread_local! {
+    static DC_EXTRA: RefCell<Option<(Rc<Class>, V)>> = RefCell::new(None);
+}
+// _DataclassParams, and the _HAS_DEFAULT_FACTORY sentinel (its repr is <factory>)
+fn dc_extra() -> (Rc<Class>, V) {
+    DC_EXTRA.with(|x| {
+        x.borrow_mut()
+            .get_or_insert_with(|| {
+                let p = Class::new("_DataclassParams", "dataclasses", vec![bclass("object")], BT::Other);
+                p.set("__repr__", builtin("__repr__", |a: Args| {
+                    let me = &a.p[0];
+                    let mut parts = vec![];
+                    for k in ["init", "repr", "eq", "order", "unsafe_hash", "frozen", "match_args", "kw_only", "slots", "weakref_slot"] {
+                        parts.push(format!("{k}={}", repr(&getattr(me, k)?)?));
+                    }
+                    Ok(st(format!("_DataclassParams({})", parts.join(","))))
+                }));
+                let f = Class::new("_HAS_DEFAULT_FACTORY_CLASS", "dataclasses", vec![bclass("object")], BT::Other);
+                f.set("__repr__", builtin("__repr__", |_a: Args| Ok(s("<factory>"))));
+                (p, V::Obj(Obj::new(f)))
+            })
+            .clone()
+    })
+}
+fn dc_globals_params() -> Rc<Class> {
+    dc_extra().0
+}
+fn dc_factory() -> V {
+    dc_extra().1
+}
+fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> R {
     let fc = field_class();
-    // fields of dataclass bases, in reverse MRO order, then this class's own
+    let cls = V::Class(c.clone());
+    let cname = c.name;
+    // __dataclass_params__
+    let pc = dc_globals_params();
+    let p = Obj::new(pc);
+    for (k, v) in [("init", o.init), ("repr", o.repr), ("eq", o.eq), ("order", o.order), ("unsafe_hash", o.unsafe_hash), ("frozen", o.frozen), ("match_args", o.match_args), ("kw_only", o.kw_only), ("slots", o.slots), ("weakref_slot", o.weakref_slot)] {
+        p.set(k, V::Bool(v));
+    }
+    c.set_exact("__dataclass_params__", V::Obj(p));
+    // fields of dataclass bases, in reverse MRO order
     let mut fields: Vec<(Sym, V)> = vec![];
+    let (mut any_frozen, mut all_frozen, mut has_bases) = (false, None::<bool>, false);
     let mro = c.mro.borrow().clone();
     for b in mro.iter().skip(1).rev() {
-        if let Some(V::Dict(d)) = b.own("__dataclass_fields__") {
-            for (k, f) in d.borrow().items() {
+        if let Some(V::Dict(d)) = b.lookup("__dataclass_fields__") {
+            has_bases = true;
+            for (_, f) in d.borrow().items() {
                 let name = field_name(&f);
-                let _ = k;
                 match fields.iter_mut().find(|(n, _)| *n == name) {
                     Some(slot) => slot.1 = f,
                     None => fields.push((name, f)),
                 }
             }
+            let fr = match b.lookup("__dataclass_params__") {
+                Some(pv) => truth(&getattr(&pv, "frozen")?)?,
+                None => false,
+            };
+            all_frozen = Some(all_frozen.unwrap_or(true) && fr);
+            any_frozen |= fr;
         }
     }
-    let own: Vec<Sym> = c.fields.borrow().clone();
+    // the class's own annotations: its __annotations__ when the build keeps it (as inspect.get_annotations reads
+    // it), else the annotated names the compiler marked
+    let marks: Vec<(String, Sym)> = c
+        .fields
+        .borrow()
+        .iter()
+        .map(|raw| match raw.split_once(':') {
+            Some((k, n)) => (k.to_string(), sym(n)),
+            None => (String::new(), *raw),
+        })
+        .collect();
+    let typed = matches!(c.own("__annotations__"), Some(V::Dict(_))) || marks.is_empty();
+    let anns: Vec<(Sym, Option<V>)> = match c.own("__annotations__") {
+        Some(V::Dict(d)) => {
+            let mut v = vec![];
+            for (k, t) in d.borrow().items() {
+                v.push((sym(&to_str(&k)?), Some(t)));
+            }
+            v
+        }
+        _ => marks.iter().map(|(_, n)| (*n, None)).collect(),
+    };
     let mut kw_only = o.kw_only;
     let mut seen_kw_only = false;
-    for raw in own {
-        let (kind, name) = match raw.split_once(':') {
-            Some((k, n)) => (k, sym(n)),
-            None => ("", raw),
-        };
+    let mut own_fields: Vec<V> = vec![];
+    for (name, ty) in &anns {
+        let mark = marks.iter().find(|(_, n)| n == name).map(|(k, _)| k.as_str()).unwrap_or("");
+        let kind = dc_ann_kind(ty, mark);
         if kind == "KW_ONLY" {
             if seen_kw_only {
                 return type_err(format!("'{name}' is KW_ONLY, but KW_ONLY has already been specified"));
             }
             seen_kw_only = true;
             kw_only = true;
-            c.attrs.borrow_mut().retain(|(k, _)| *k != name);
             continue;
         }
-        let dflt = c.own(name);
+        // _get_field
+        let dflt = match getattr(&cls, name) {
+            // a slot of the class or a base is no default (types.MemberDescriptorType)
+            Ok(v) if is_member_desc(&v) => missing(),
+            Ok(v) => v,
+            Err(e) if is_exc(&e.0, "AttributeError") => missing(),
+            Err(e) => return Err(e),
+        };
         let f = match &dflt {
-            Some(V::Obj(x)) if Rc::ptr_eq(&x.cls, &fc) => dflt.clone().unwrap(),
-            _ => {
-                let x = Obj::new(fc.clone());
-                x.set("default", dflt.clone().unwrap_or_else(missing));
-                x.set("default_factory", missing());
-                for (k, dv) in [("init", V::Bool(true)), ("repr", V::Bool(true)), ("hash", V::None), ("compare", V::Bool(true)), ("kw_only", missing())] {
-                    x.set(k, dv);
-                }
-                x.set("metadata", dict_new());
-                V::Obj(x)
-            }
+            V::Obj(x) if Rc::ptr_eq(&x.cls, &fc) => dflt.clone(),
+            _ => dc_field_new(dflt),
         };
         let V::Obj(fo) = &f else { unreachable!() };
         fo.set("name", s(name));
-        fo.set("_field_type", s(if kind == "InitVar" { "_FIELD_INITVAR" } else { "_FIELD" }));
-        if is_missing(&fo.get("kw_only").unwrap_or(V::None)) {
-            fo.set("kw_only", V::Bool(kw_only));
-        }
-        if kind == "InitVar" && !is_missing(&fget(&f, "default_factory")) {
+        fo.set("type", ty.clone().unwrap_or(V::None));
+        let ft = match kind {
+            "ClassVar" => "_FIELD_CLASSVAR",
+            "InitVar" => "_FIELD_INITVAR",
+            _ => "_FIELD",
+        };
+        fo.set("_field_type", s(ft));
+        if ft != "_FIELD" && !is_missing(&fget(&f, "default_factory")) {
             return type_err(format!("field {name} cannot have a default factory"));
         }
-        // mutable defaults: anything unhashable
-        let d = fget(&f, "default");
-        if kind != "InitVar" && !is_missing(&d) {
-            let unhashable = match &d {
-                V::List(_) | V::Dict(_) | V::Set(_) => true,
-                V::Obj(x) => matches!(x.cls.lookup("__hash__"), Some(V::None)),
-                _ => false,
-            };
-            if unhashable {
-                return val_err(format!("mutable default {} for field {name} is not allowed: use default_factory", repr(&V::Class(type_of(&d)?))?));
+        if ft != "_FIELD_CLASSVAR" {
+            if is_missing(&fget(&f, "kw_only")) {
+                fo.set("kw_only", V::Bool(kw_only));
             }
+        } else if !is_missing(&fget(&f, "kw_only")) {
+            return type_err(format!("field {name} is a ClassVar but specifies kw_only"));
+        }
+        // a mutable default: its class's __hash__ is None
+        let d = fget(&f, "default");
+        if ft == "_FIELD" && dc_unhashable_type(&d)? {
+            return val_err(format!("mutable default {} for field {name} is not allowed: use default_factory", repr(&V::Class(type_of(&d)?))?));
+        }
+        own_fields.push(f);
+    }
+    for f in &own_fields {
+        let name = field_name(f);
+        match fields.iter_mut().find(|(n, _)| *n == name) {
+            Some(slot) => slot.1 = f.clone(),
+            None => fields.push((name, f.clone())),
         }
         // a field(...) in the class body leaves its default (or nothing) as the class attribute
-        if let Some(V::Obj(x)) = &dflt {
-            if Rc::ptr_eq(&x.cls, &fc) {
-                c.attrs.borrow_mut().retain(|(k, _)| *k != name);
-                if !is_missing(&d) {
-                    c.attrs.borrow_mut().push((name, d.clone()));
-                }
-                class_changed();
+        if matches!(getattr(&cls, name), Ok(V::Obj(x)) if Rc::ptr_eq(&x.cls, &fc)) {
+            let d = fget(f, "default");
+            if is_missing(&d) {
+                c.del_exact(name);
+            } else {
+                c.set_exact(name, d);
             }
-        }
-        match fields.iter_mut().find(|(n, _)| *n == name) {
-            Some(slot) => slot.1 = f,
-            None => fields.push((name, f)),
         }
     }
-    if o.slots {
-        // CPython's dataclasses._add_slots: the field names not already stored in a base's slot, plus
-        // __weakref__ when asked; the class's own field attributes leave its dict (their defaults still
-        // feed the generated __init__ through the Field objects)
-        if c.own("__slots__").is_some() {
-            return type_err(format!("{} already specifies __slots__", c.name));
+    let own_attrs: Vec<(Sym, V)> = c.attrs.borrow().iter().map(|(n, v)| (*n, v.clone())).collect();
+    for (n, v) in &own_attrs {
+        if matches!(v, V::Obj(x) if Rc::ptr_eq(&x.cls, &fc)) && !anns.iter().any(|(a, _)| a == n) {
+            return type_err(format!("'{n}' is a field but has no type annotation"));
         }
-        let mro = c.mro.borrow().clone();
-        let mut inherited: Vec<Sym> = vec![];
-        for b in mro.iter().skip(1).filter(|b| b.bt != BT::Object) {
-            if let Some(sv) = b.own("__slots__") {
-                slot_names(b.name, &sv, &mut inherited);
-            }
+    }
+    if has_bases {
+        if any_frozen && !o.frozen {
+            return type_err("cannot inherit non-frozen dataclass from a frozen one".into());
         }
-        let mut seen: Vec<Sym> = vec![];
-        let mut new_slots: Vec<V> = vec![];
-        for (n, f) in &fields {
-            if field_kind(f) != "_FIELD_INITVAR" && !inherited.contains(n) && !seen.contains(n) {
-                seen.push(*n);
-                new_slots.push(s(*n));
-            }
+        if all_frozen == Some(false) && o.frozen {
+            return type_err("cannot inherit frozen dataclass from a non-frozen one".into());
         }
-        if o.weakref_slot && !inherited.iter().any(|k| *k == "__weakref__") {
-            new_slots.push(s("__weakref__"));
-        }
-        for (n, f) in &fields {
-            if field_kind(f) != "_FIELD_INITVAR" {
-                c.attrs.borrow_mut().retain(|(k, _)| *k != *n);
-            }
-        }
-        class_changed();
-        c.set("__slots__", tup(new_slots));
     }
     let fd = dict_new();
     if let V::Dict(d) = &fd {
@@ -4547,8 +5044,13 @@ fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> Result<(), E> {
             d.borrow_mut().set(s(n), f.clone())?;
         }
     }
-    c.set("__dataclass_fields__", fd);
-    let all: Vec<V> = fields.iter().map(|x| x.1.clone()).collect();
+    c.set_exact("__dataclass_fields__", fd);
+    let class_hash = c.own("__hash__");
+    let explicit = !(class_hash.is_none() || (matches!(class_hash, Some(V::None)) && c.own("__eq__").is_some()));
+    if o.order && !o.eq {
+        return val_err("eq must be true if order is true".into());
+    }
+    let all: Vec<V> = fields.iter().map(|x| x.1.clone()).filter(|f| field_kind(f) != "_FIELD_CLASSVAR").collect();
     let real: Vec<V> = all.iter().filter(|f| field_kind(f) == "_FIELD").cloned().collect();
     let names = |fs: &[V], key: &str| -> Result<Vec<Sym>, E> {
         let mut out = vec![];
@@ -4559,20 +5061,20 @@ fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> Result<(), E> {
         }
         Ok(out)
     };
-    let cname = c.name;
-    if o.init && c.own("__init__").is_none() {
-        // positional fields, then keyword-only ones
-        let mut pos: Vec<V> = vec![];
-        let mut kwo: Vec<V> = vec![];
-        for f in &all {
-            if truth(&fget(f, "init"))? {
-                if truth(&fget(f, "kw_only"))? {
-                    kwo.push(f.clone());
-                } else {
-                    pos.push(f.clone());
-                }
+    // the functions are made first and added together at the end (_FuncBuilder.add_fns_to_class)
+    let mut add: Vec<(Sym, V, Option<&'static str>, bool)> = vec![];
+    let mut pos: Vec<V> = vec![];
+    let mut kwo: Vec<V> = vec![];
+    for f in &all {
+        if truth(&fget(f, "init"))? {
+            if truth(&fget(f, "kw_only"))? {
+                kwo.push(f.clone());
+            } else {
+                pos.push(f.clone());
             }
         }
+    }
+    if o.init {
         let mut seen: Option<Sym> = None;
         for f in &pos {
             let has = !is_missing(&fget(f, "default")) || !is_missing(&fget(f, "default_factory"));
@@ -4585,47 +5087,49 @@ fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> Result<(), E> {
         let order: Vec<V> = pos.iter().chain(kwo.iter()).cloned().collect();
         let mut params: Vec<Sym> = vec!["self"];
         params.extend(order.iter().map(field_name));
-        let sig = Sig { name: sym(&format!("{cname}.__init__")), params: Box::leak(params.into_boxed_slice()), npos: pos.len() + 1, npo: 0, star: false, kwstar: false };
+        let sig = Sig { name: sym(&format!("{}.__init__", c.qualname.get())), params: Box::leak(params.into_boxed_slice()), npos: pos.len() + 1, npo: 0, star: false, kwstar: false };
         // the defaults bind fills in (a factory is called afterwards, once per missing value)
         let mut dflt: Vec<V> = vec![V::Unbound];
-        let factory = V::Obj(Obj::new(Class::new("_HAS_DEFAULT_FACTORY_CLASS", "dataclasses", vec![bclass("object")], BT::Other)));
+        let factory = dc_factory();
         for f in &order {
             let d = fget(f, "default");
-            dflt.push(if !is_missing(&d) { d } else if !is_missing(&fget(f, "default_factory")) { factory.clone() } else { V::Unbound });
+            dflt.push(if !is_missing(&fget(f, "default_factory")) { factory.clone() } else if !is_missing(&d) { d } else { V::Unbound });
         }
         let frozen = o.frozen;
+        let slots = o.slots;
         let post = c.lookup("__post_init__").is_some();
         let all2 = all.clone();
-        c.set("__init__", func("__init__", move |a: Args| {
+        add.push(("__init__", dc_fn(c, "__init__", move |a: Args| {
             let vals = bind(&sig, &dflt, a)?;
             let me = vals[0].clone();
-            let V::Obj(ob) = &me else { return Ok(V::None) };
             let mut initvars = vec![];
             for f in &all2 {
                 let name = field_name(f);
                 let given = sig.params.iter().position(|p| *p == name).map(|i| vals[i].clone());
+                if field_kind(f) == "_FIELD_INITVAR" {
+                    if let Some(v) = given {
+                        initvars.push(v);
+                    }
+                    continue;
+                }
                 let v = match given {
                     Some(v) if is(&v, &factory) => call(&fget(f, "default_factory"), Args::p(vec![]))?,
                     Some(v) => v,
-                    // init=False: its default, a factory's value, or nothing
+                    // init=False: a factory's value; a default only with slots (else the class attribute serves)
                     None => {
                         let d = fget(f, "default");
                         let df = fget(f, "default_factory");
                         if !is_missing(&df) {
                             call(&df, Args::p(vec![]))?
-                        } else if !is_missing(&d) {
+                        } else if slots && !is_missing(&d) {
                             d
                         } else {
                             continue;
                         }
                     }
                 };
-                if field_kind(f) == "_FIELD_INITVAR" {
-                    initvars.push(v);
-                    continue;
-                }
                 if frozen {
-                    ob.set(name, v);
+                    object_setattr(&me, &[s(name), v])?;
                 } else {
                     setattr(&me, name, v)?;
                 }
@@ -4634,112 +5138,203 @@ fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> Result<(), E> {
                 call_method(&me, "__post_init__", Args::p(initvars))?;
             }
             Ok(V::None)
-        }));
+        }), None, false));
     }
-    if o.repr && c.own("__repr__").is_none() {
+    if o.repr {
         let fs = names(&real, "repr")?;
-        c.set("__repr__", func("__repr__", move |a: Args| {
-            let me = &a.p[0];
-            let mut parts = vec![];
-            for f in &fs {
-                parts.push(format!("{}={}", f, repr(&getattr(me, f)?)?));
-            }
-            // CPython's dataclass repr uses self.__class__.__qualname__
-            let qn = match me {
-                V::Obj(o) => o.cls.qualname.get().to_string(),
-                _ => tn(me),
-            };
-            Ok(st(format!("{qn}({})", parts.join(", "))))
-        }));
+        add.push(("__repr__", dc_fn(c, "__repr__", move |a: Args| {
+            let me = a.p[0].clone();
+            dc_recursive(&me, || {
+                let mut parts = vec![];
+                for f in &fs {
+                    parts.push(format!("{}={}", f, repr(&getattr(&me, f)?)?));
+                }
+                // self.__class__.__qualname__
+                let qn = to_str(&getattr(&getattr(&me, "__class__")?, "__qualname__")?)?;
+                Ok(format!("{qn}({})", parts.join(", ")))
+            })
+        }), None, false));
     }
     let cmp = names(&real, "compare")?;
     let key = |fs: &Vec<Sym>, v: &V| -> R { Ok(tup(fs.iter().map(|f| getattr(v, f)).collect::<Result<Vec<_>, _>>()?)) };
-    if o.eq && c.own("__eq__").is_none() {
+    if o.eq {
         let fs = cmp.clone();
-        c.set("__eq__", func("__eq__", move |a: Args| {
+        add.push(("__eq__", dc_fn(c, "__eq__", move |a: Args| {
             let (x, y) = (&a.p[0], &a.p[1]);
             if is(x, y) {
                 return Ok(V::Bool(true));
             }
-            match (x, y) {
-                (V::Obj(p), V::Obj(q)) if Rc::ptr_eq(&p.cls, &q.cls) => {
-                    for f in &fs {
-                        if !eq(&getattr(x, f)?, &getattr(y, f)?)? {
-                            return Ok(V::Bool(false));
-                        }
-                    }
-                    Ok(V::Bool(true))
-                }
-                _ => Ok(V::NotImpl),
+            if is(&getattr(x, "__class__")?, &getattr(y, "__class__")?) {
+                return Ok(V::Bool(eq(&key(&fs, x)?, &key(&fs, y)?)?));
             }
-        }));
+            Ok(V::NotImpl)
+        }), None, false));
     }
     if o.order {
         for (nm, op) in [("__lt__", "<"), ("__le__", "<="), ("__gt__", ">"), ("__ge__", ">=")] {
-            if c.own(nm).is_some() {
-                return type_err(format!("Cannot overwrite attribute {nm} in class {cname}. Consider using functools.total_ordering"));
-            }
             let fs = cmp.clone();
-            c.set(nm, func(nm, move |a: Args| match (&a.p[0], &a.p[1]) {
-                (V::Obj(x), V::Obj(y)) if Rc::ptr_eq(&x.cls, &y.cls) => Ok(V::Bool(rich(&key(&fs, &a.p[0])?, &key(&fs, &a.p[1])?, op)?)),
-                _ => Ok(V::NotImpl),
-            }));
+            add.push((nm, dc_fn(c, nm, move |a: Args| {
+                if is(&getattr(&a.p[0], "__class__")?, &getattr(&a.p[1], "__class__")?) {
+                    return Ok(V::Bool(rich(&key(&fs, &a.p[0])?, &key(&fs, &a.p[1])?, op)?));
+                }
+                Ok(V::NotImpl)
+            }), Some("Consider using functools.total_ordering"), false));
         }
     }
     if o.frozen {
         let fs: Vec<Sym> = real.iter().map(field_name).collect();
-        let cls = c.clone();
         let fs2 = fs.clone();
-        let cls2 = c.clone();
-        c.set("__setattr__", func("__setattr__", move |a: Args| {
+        let (cls1, cls2) = (cls.clone(), cls.clone());
+        add.push(("__setattr__", dc_fn(c, "__setattr__", move |a: Args| {
             let n = to_str(&a.p[1])?;
-            if matches!(&a.p[0], V::Obj(o) if Rc::ptr_eq(&o.cls, &cls)) || fs.iter().any(|f| *f == n) {
+            if is(&V::Class(type_of(&a.p[0])?), &cls1) || fs.iter().any(|f| *f == n) {
                 return Err(exc("FrozenInstanceError", format!("cannot assign to field {}", repr(&a.p[1])?)));
             }
-            if let V::Obj(o) = &a.p[0] {
-                o.set(sym(&n), a.p[2].clone());
-            }
-            Ok(V::None)
-        }));
-        c.set("__delattr__", func("__delattr__", move |a: Args| {
+            call(&super_attr(&cls1, &a.p[0], "__setattr__")?, Args::p(vec![a.p[1].clone(), a.p[2].clone()]))
+        }), Some(""), false));
+        add.push(("__delattr__", dc_fn(c, "__delattr__", move |a: Args| {
             let n = to_str(&a.p[1])?;
-            if matches!(&a.p[0], V::Obj(o) if Rc::ptr_eq(&o.cls, &cls2)) || fs2.iter().any(|f| *f == n) {
+            if is(&V::Class(type_of(&a.p[0])?), &cls2) || fs2.iter().any(|f| *f == n) {
                 return Err(exc("FrozenInstanceError", format!("cannot delete field {}", repr(&a.p[1])?)));
             }
-            Err(unsupported("del on a frozen dataclass's subclass"))
-        }));
+            call(&super_attr(&cls2, &a.p[0], "__delattr__")?, Args::p(vec![a.p[1].clone()]))
+        }), Some(""), false));
     }
     // __hash__, by CPython's _hash_action table
-    let explicit = matches!(c.own("__hash__"), Some(ref h) if !matches!(h, V::None)) || (c.own("__hash__").is_some() && c.own("__eq__").is_none());
-    let add = match (o.unsafe_hash, o.eq, o.frozen, explicit) {
-        (false, true, false, false) => {
-            c.set("__hash__", V::None);
-            false
+    match (o.unsafe_hash, o.eq, o.frozen, explicit) {
+        (false, true, false, false) => c.set_exact("__hash__", V::None),
+        (false, true, true, false) | (true, _, _, false) => {
+            let mut fs = vec![];
+            for f in &real {
+                let h = fget(f, "hash");
+                if if matches!(h, V::None) { truth(&fget(f, "compare"))? } else { truth(&h)? } {
+                    fs.push(field_name(f));
+                }
+            }
+            add.push(("__hash__", dc_fn(c, "__hash__", move |a: Args| Ok(V::Int(py_hash(&key(&fs, &a.p[0])?)?))), None, true));
         }
-        (false, true, true, false) | (true, _, _, false) => true,
         (true, _, _, true) => return type_err(format!("Cannot overwrite attribute __hash__ in class {cname}")),
-        _ => false,
-    };
-    if add {
-        let mut fs = vec![];
-        for f in &real {
-            let h = fget(f, "hash");
-            if if matches!(h, V::None) { truth(&fget(f, "compare"))? } else { truth(&h)? } {
-                fs.push(field_name(f));
-            }
-        }
-        c.set("__hash__", func("__hash__", move |a: Args| Ok(V::Int(py_hash(&key(&fs, &a.p[0])?)?))));
+        _ => {}
     }
-    if c.own("__match_args__").is_none() {
-        let mut m = vec![];
-        for f in &all {
-            if truth(&fget(f, "init"))? && !truth(&fget(f, "kw_only"))? {
-                m.push(s(field_name(f)));
+    for (nm, f, err, always) in add {
+        if always {
+            c.set_exact(nm, f);
+        } else if dc_set_new(c, nm, f) {
+            if let Some(extra) = err {
+                return type_err(if extra.is_empty() { format!("Cannot overwrite attribute {nm} in class {cname}") } else { format!("Cannot overwrite attribute {nm} in class {cname} {extra}") });
             }
         }
-        c.set("__match_args__", tup(m));
+    }
+    // (only when the build kept the class's annotations, which the text shows: Brevi's own library copies
+    // do not keep them, and their classes' __doc__ stays None)
+    if typed && !truth(&getattr(&cls, "__doc__")?)? {
+        // cls.__name__ + str(inspect.signature(cls)) without ' -> None'
+        let text = if o.init || c.own("__init__").is_some() { dc_signature(c, &pos, &kwo)? } else { None };
+        // (None: the class's own or a base's __init__ gives the text; a program reading __doc__ then is refused
+        // at build time, typing.rs)
+        if let Some(t) = text {
+            c.set_exact("__doc__", st(format!("{cname}{t}")));
+        }
+    }
+    if o.match_args {
+        dc_set_new(c, "__match_args__", tup(pos.iter().map(|f| s(field_name(f))).collect()));
+    }
+    if o.weakref_slot && !o.slots {
+        return type_err("weakref_slot is True but slots is False".into());
+    }
+    let c = if o.slots { dc_add_slots(c, &real, o.weakref_slot)? } else { c.clone() };
+    dc_update_abstract(&c)?;
+    Ok(V::Class(c))
+}
+// dataclasses._get_slots: the slot names a class of the MRO stores
+fn dc_get_slots(k: &Rc<Class>, out: &mut Vec<String>) -> Result<(), E> {
+    match k.own("__slots__") {
+        None => {
+            // no __slots__: the instance layout tells whether it keeps a __weakref__ and a __dict__
+            let Some((d, w, _)) = layout(k) else { return Err(unsupported("dataclass(slots=True) over a base whose instance layout Brevi does not know")) };
+            if w {
+                out.push("__weakref__".into());
+            }
+            if d {
+                out.push("__dict__".into());
+            }
+        }
+        Some(V::Str(x)) => out.push(x.text().to_string()),
+        Some(v) => {
+            if hasattr(&v, "__next__")? {
+                return type_err(format!("Slots of '{}' cannot be determined", k.name));
+            }
+            for x in to_vec(&v)? {
+                out.push(to_str(&x)?);
+            }
+        }
     }
     Ok(())
+}
+// dataclasses._add_slots: a new class made by type() from the class's dict, with __slots__ the field names
+// no base stores already (and __weakref__ when asked)
+fn dc_add_slots(c: &Rc<Class>, real: &[V], weakref_slot: bool) -> Result<Rc<Class>, E> {
+    if c.own("__slots__").is_some() {
+        return type_err(format!("{} already specifies __slots__", c.name));
+    }
+    let mro = c.mro.borrow().clone();
+    let mut inherited: Vec<String> = vec![];
+    if mro.len() > 2 {
+        for b in &mro[1..mro.len() - 1] {
+            dc_get_slots(b, &mut inherited)?;
+        }
+    }
+    let names: Vec<Sym> = real.iter().map(field_name).collect();
+    let mut slots: Vec<V> = vec![];
+    for n in names.iter().copied().chain(if weakref_slot { Some("__weakref__") } else { None }) {
+        if !inherited.iter().any(|i| i == n) {
+            slots.push(s(n));
+        }
+    }
+    let mut attrs: Vec<(Sym, V)> = c.attrs.borrow().iter().filter(|(k, _)| !names.contains(k) && *k != "__dict__" && *k != "__weakref__" && *k != TNEW).cloned().collect();
+    attrs.push(("__slots__", tup(slots)));
+    let bases: Vec<V> = c.bases.iter().map(|b| V::Class(b.clone())).collect();
+    let V::Class(n) = make_class_f(c.name, c.qualname.get(), c.module, bases, attrs, c.fields.borrow().clone())? else {
+        return type_err("dataclass(slots=True): type() did not make a class".into());
+    };
+    Ok(n)
+}
+
+// str(inspect.signature(cls)) of the __init__ dataclasses wrote, ' -> None' left out; None when the class
+// defines its own __init__ (its signature is the program's def, which this does not read)
+fn dc_signature(c: &Rc<Class>, pos: &[V], kwo: &[V]) -> Result<Option<String>, E> {
+    if !matches!(c.own("__init__"), Some(V::Func(f)) if f.qualname.get() == sym(&format!("{}.__init__", c.qualname.get())) && c.own("__dataclass_fields__").is_some()) {
+        return Ok(None);
+    }
+    let mut parts = vec![];
+    let one = |f: &V| -> Result<String, E> {
+        let n = field_name(f);
+        let t = fget(f, "type");
+        let ann = Some(dc_fmt_ann(&t)?);
+        let d = if !is_missing(&fget(f, "default_factory")) {
+            Some("<factory>".to_string())
+        } else if !is_missing(&fget(f, "default")) {
+            Some(repr(&fget(f, "default"))?)
+        } else {
+            None
+        };
+        Ok(match (ann, d) {
+            (Some(a), Some(d)) => format!("{n}: {a} = {d}"),
+            (Some(a), None) => format!("{n}: {a}"),
+            (None, Some(d)) => format!("{n}={d}"),
+            (None, None) => n.to_string(),
+        })
+    };
+    for f in pos {
+        parts.push(one(f)?);
+    }
+    if !kwo.is_empty() {
+        parts.push("*".into());
+        for f in kwo {
+            parts.push(one(f)?);
+        }
+    }
+    Ok(Some(format!("({})", parts.join(", "))))
 }
 
 // Library modules written elsewhere (re, json, decimal, ...) register here.

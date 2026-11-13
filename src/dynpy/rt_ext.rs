@@ -2976,6 +2976,24 @@ pub fn ext_module_attr2(m: &str, n: &str) -> Option<V> {
         ("fractions", "Fraction") => V::Class(ext_class("fractions.Fraction")),
         ("re", "Pattern") => V::Class(ext_class("re.Pattern")),
         ("inspect", "Signature") => V::Class(sig_class()),
+        // the type's Py_TPFLAGS_IS_ABSTRACT: set when a non-empty __abstractmethods__ is in the class's own dict
+        ("inspect", "isabstract") => builtin("isabstract", |a: Args| {
+            let o = match (&a.p[..], &a.k[..]) {
+                ([o], []) => o.clone(),
+                ([], [(k, o)]) if *k == "object" => o.clone(),
+                ([], []) => return type_err("isabstract() missing 1 required positional argument: 'object'".into()),
+                ([_], [(k, _)]) if *k == "object" => return type_err("isabstract() got multiple values for argument 'object'".into()),
+                (_, [(k, _), ..]) if *k != "object" => return type_err(format!("isabstract() got an unexpected keyword argument '{k}'")),
+                (p, _) => return type_err(format!("isabstract() takes 1 positional argument but {} were given", p.len())),
+            };
+            Ok(V::Bool(match &o {
+                V::Class(c) => match c.own("__abstractmethods__") {
+                    Some(v) => truth(&v)?,
+                    None => false,
+                },
+                _ => false,
+            }))
+        }),
         ("re", "Match") => V::Class(ext_class("re.Match")),
         ("datetime", "date") => V::Class(ext_class("datetime.date")),
         ("datetime", "datetime") => V::Class(ext_class("datetime.datetime")),

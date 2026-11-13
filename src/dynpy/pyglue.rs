@@ -27,6 +27,24 @@ static PYD_BRIT: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::ato
 // back as the program's own (pickle.loads of a pickled pattern)
 static PYD_REPAT: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_BRRED: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+// CPython's collections.deque, its iterator type, _brevi_dyn's _BrNew and _mkobj (set when Python starts), and
+// pickle.dumps and pickle.dump once the program imports pickle: a deque goes into Python only for those two
+// (pyd_invoke sets PYD_PICKLING), since any other library would get a copy whose changes the program never sees
+static PYD_DEQ: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+static PYD_DEQIT: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+static PYD_BRNEW: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+static PYD_MKOBJ: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+static PYD_PDUMPS: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+static PYD_PDUMP: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+thread_local! {
+    static PYD_PICKLING: Cell<bool> = const { Cell::new(false) };
+}
+fn pyd_ptr(s: &std::sync::atomic::AtomicPtr<std::ffi::c_void>) -> P {
+    s.load(std::sync::atomic::Ordering::Relaxed) as P
+}
+// CPython's collections.OrderedDict type, once a program's OrderedDict has gone into Python: objects of exactly that
+// type come back as the program's OrderedDict (pickle.loads of a pickled one), in their order, not as a plain dict
+static PYD_ODICT: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_MAIN: std::sync::OnceLock<std::thread::ThreadId> = std::sync::OnceLock::new();
 const PYD_CAP: &std::ffi::CStr = c"brevi.dyn.callable";
 
@@ -197,6 +215,25 @@ def _buf(o):
         return m.tobytes()
 _d.buf = _buf
 _d.red = _BrRed
+# A deque pickled here (CPython's deque.__reduce__ form): the deque type and its iterator's, which come back as
+# the program's own; an instance of a program's deque subclass loads as a _BrNew that holds what pickle gives
+# it (its class and arguments, its items, its state) until the loaded value comes back to the program, which
+# then makes the instance (see pyd_wrap_new). copyreg entries for the program's own classes (cr_prog) would
+# change how pickle saves one: refused.
+import collections as _co
+_d.deq_t = _co.deque
+_d.deqit_t = type(iter(_co.deque()))
+class _BrNew:
+    __slots__ = ('c', 'a', 's', 'x')
+    def __init__(s, c, a): s.c = c; s.a = a; s.s = None; s.x = []
+    def __setstate__(s, st): s.s = (st,)
+    def extend(s, xs): s.x.extend(xs)
+def _mkobj(c, a):
+    return _BrNew(c, a)
+_mkobj.__module__ = '_brevi_dyn'
+_d._mkobj = _mkobj
+_d.brnew_t = _BrNew
+_d.cr_prog = lambda: any(getattr(k, '__name__', None) == 'brevi_function' for k in _cr.dispatch_table)
 # The program's own `pickle` module: CPython's, except that a pickle naming an itertools class loads as the
 # program's itertools iterator (as pickles the program makes do), not CPython's, whose __setstate__ warns from C
 # code with no frame to name. Libraries keep CPython's pickle.
@@ -679,7 +716,7 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
     let tt = (a.Type)(t);
     (a.DecRef)(tt);
     if tt == t {
-        if let Some(c) = pyd_builtin_exc(p) {
+        if let Some(c) = pyd_builtin_exc(p).or_else(|| pyd_types_class(p)) {
             return done(V::Class(c));
         }
     }
@@ -751,6 +788,42 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
         }
         return done(me);
     }
+    // CPython's OrderedDict (exactly that type): the program's OrderedDict, its keys in the OrderedDict's own order
+    // (iter(od), not the dict table, which move_to_end does not reorder), each value through od[key]
+    if deep && t == PYD_ODICT.load(std::sync::atomic::Ordering::Relaxed) {
+        let mut n = Dict::new();
+        n.kind = 3;
+        let cell = Rc::new(RefCell::new(n));
+        let me = V::Dict(cell.clone());
+        from_memo_put(p, &me);
+        let r = (|| -> Result<(), E> {
+            let it = pyd_own((a.GetIter)(p))?;
+            loop {
+                let k = (a.IterNext)(it);
+                if k.is_null() {
+                    break;
+                }
+                let x = (a.GetItem)(p, k);
+                if x.is_null() {
+                    (a.DecRef)(k);
+                    (a.DecRef)(it);
+                    return Err(pyd_err());
+                }
+                let r = pyd_wrap(k, true).and_then(|kk| pyd_wrap(x, true).map(|xx| (kk, xx)));
+                if let Err(e) = r.and_then(|(kk, xx)| cell.borrow_mut().set(kk, xx)) {
+                    (a.DecRef)(it);
+                    return Err(e);
+                }
+            }
+            (a.DecRef)(it);
+            if !(a.ErrOccurred)().is_null() {
+                return Err(pyd_err());
+            }
+            Ok(())
+        })();
+        (a.DecRef)(p);
+        return r.map(|_| me);
+    }
     if deep && t == a.TDict {
         let cell = Rc::new(RefCell::new(Dict::new()));
         let me = V::Dict(cell.clone());
@@ -791,6 +864,43 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
         (a.DecRef)(p);
         return made;
     }
+    if deep && t == pyd_ptr(&PYD_DEQ) {
+        // CPython's deque (pickle.loads made it): the program's, remembered before its items so a deque that
+        // holds itself comes back holding itself
+        let mx = (a.GetAttr)(p, c"maxlen".as_ptr());
+        let max = if mx.is_null() {
+            (a.DecRef)(p);
+            return Err(pyd_err());
+        } else if mx == a.None {
+            (a.DecRef)(mx);
+            None
+        } else {
+            let n = (a.LongAs)(mx, &mut 0);
+            (a.DecRef)(mx);
+            Some(n.max(0) as usize)
+        };
+        let d = Rc::new(RefCell::new(Deq::new(std::collections::VecDeque::new(), max)));
+        let me = V::Deque(d.clone());
+        from_memo_put(p, &me);
+        let items = pyd_items(p);
+        (a.DecRef)(p);
+        for x in items? {
+            let out = d.borrow_mut().push(x, false);
+            drop(out);
+        }
+        return Ok(me);
+    }
+    if deep && t == pyd_ptr(&PYD_DEQIT) {
+        if let Some(v) = pyd_deque_iter(p)? {
+            (a.DecRef)(p);
+            return Ok(v);
+        }
+    }
+    if deep && t == pyd_ptr(&PYD_BRNEW) {
+        let r = pyd_brnew(p);
+        (a.DecRef)(p);
+        return r;
+    }
     if t == PYD_BRIT.load(std::sync::atomic::Ordering::Relaxed) || t == PYD_BRRED.load(std::sync::atomic::Ordering::Relaxed) {
         // an iterator of the program that went into Python (a library returned it, or types.coroutine)
         let b = (a.GetAttr)(p, c"b".as_ptr());
@@ -830,7 +940,99 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
             return Ok(v);
         }
     }
+    // types.coroutine marks a generator function's code object as awaitable; the program's generators have no
+    // code object, so it cannot work on them (the build refuses `types.coroutine` it can see; this catches the rest)
+    if pyd_is_types_coroutine(p) {
+        (a.DecRef)(p);
+        return Err(unsupported("types.coroutine"));
+    }
     Ok(pyv(p, t == a.TList || t == a.TDict || t == a.TSet))
+}
+unsafe fn pyd_is_types_coroutine(p: P) -> bool {
+    thread_local! {
+        static TC: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+    let a = pyd_api();
+    let mut q = TC.with(|c| c.get());
+    if q == 0 {
+        let Ok(m) = pyd_own((a.Import)(c"types".as_ptr())) else { return false };
+        let f = (a.GetAttr)(m, c"coroutine".as_ptr());
+        (a.DecRef)(m);
+        let Ok(f) = pyd_own(f) else { return false };
+        // the module keeps it alive for the whole run, so the pointer stays this object's
+        (a.DecRef)(f);
+        q = f as usize;
+        TC.with(|c| c.set(q));
+    }
+    p as usize == q
+}
+
+// CPython's deque iterator (pickle.loads made it) as the program's, over the program's copy of its deque, at
+// the same place: its __reduce__ is (type, (deque, index)). None for a state it cannot read (a deque of a
+// subclass that is not the program's).
+unsafe fn pyd_deque_iter(p: P) -> Result<Option<V>, E> {
+    let a = pyd_api();
+    let f = (a.GetAttr)(p, c"__reduce__".as_ptr());
+    if f.is_null() {
+        (a.ErrClear)();
+        return Ok(None);
+    }
+    let red = pyd_call_raw(f, &[]);
+    (a.DecRef)(f);
+    let red = red?;
+    let got = (|| -> Result<Option<V>, E> {
+        if !pyd_type_is(red, a.TTuple) || (a.TupleSize)(red) != 2 {
+            return Ok(None);
+        }
+        let args = (a.TupleGet)(red, 1);
+        if !pyd_type_is(args, a.TTuple) || (a.TupleSize)(args) != 2 {
+            return Ok(None);
+        }
+        let (dq, idx) = ((a.TupleGet)(args, 0), (a.TupleGet)(args, 1));
+        if !pyd_type_is(idx, a.TLong) {
+            return Ok(None);
+        }
+        let i = (a.LongAs)(idx, &mut 0);
+        (a.IncRef)(dq);
+        let d = pyd_wrap(dq, true)?;
+        if !matches!(d, V::Deque(_)) && !matches!(inner_of(&d), Some(V::Deque(_))) {
+            return Ok(None);
+        }
+        deque_iter_new(Args::p(vec![d, V::Int(i)])).map(Some)
+    })();
+    (a.DecRef)(red);
+    got
+}
+
+// A _BrNew (an instance of a deque subclass of the program, as pickle.loads rebuilt it): cls(*args), then
+// extend(items) and its state, in the order pickle gives them.
+unsafe fn pyd_brnew(p: P) -> R {
+    let a = pyd_api();
+    let part = |n: &std::ffi::CStr| pyd_own((a.GetAttr)(p, n.as_ptr()));
+    let c = part(c"c")?;
+    let cls = pyd_callable_v(c);
+    (a.DecRef)(c);
+    let Some(cls @ V::Class(_)) = cls else {
+        return Err(unsupported("loading a pickled deque subclass that is not a class of the program"));
+    };
+    let V::Tuple(args) = pyd_wrap(part(c"a")?, true)? else {
+        return Err(unsupported("loading a pickled deque subclass without its arguments"));
+    };
+    let o = call(&cls, Args::p(args.to_vec()))?;
+    from_memo_put(p, &o);
+    let x = part(c"x")?;
+    let items = pyd_items(x);
+    (a.DecRef)(x);
+    let items = items?;
+    if !items.is_empty() {
+        call_method(&o, "extend", Args::p(vec![list(items)]))?;
+    }
+    if let V::Tuple(t) = pyd_wrap(part(c"s")?, true)? {
+        if let Some(st) = t.first() {
+            deque_pickle_setstate(&o, st.clone())?;
+        }
+    }
+    Ok(o)
 }
 
 // A list's iterator (or reverse iterator) of Python as the program's own iterator over the program's copy of
@@ -1040,6 +1242,15 @@ unsafe fn pyd_register(a: &ax_pyffi::Api) -> bool {
             Err(_) => ok = false,
         }
     }
+    // kept for the program's life (the references are never given back)
+    for (n, at) in [(c"deq_t", &PYD_DEQ), (c"deqit_t", &PYD_DEQIT), (c"brnew_t", &PYD_BRNEW), (c"_mkobj", &PYD_MKOBJ)] {
+        if !ok {
+            break;
+        }
+        let x = (a.GetAttr)(m, n.as_ptr());
+        ok = !x.is_null();
+        at.store(x, std::sync::atomic::Ordering::Relaxed);
+    }
     if !m.is_null() {
         (a.DecRef)(m);
     }
@@ -1048,6 +1259,27 @@ unsafe fn pyd_register(a: &ax_pyffi::Api) -> bool {
     }
     (a.GilRelease)(g);
     ok
+}
+
+// pickle.dumps and pickle.dump of CPython, remembered when the program imports pickle (see PYD_PDUMPS)
+unsafe fn pyd_note_pickle() {
+    if !pyd_ptr(&PYD_PDUMPS).is_null() {
+        return;
+    }
+    let a = pyd_api();
+    let m = (a.Import)(c"pickle".as_ptr());
+    if m.is_null() {
+        (a.ErrClear)();
+        return;
+    }
+    for (n, at) in [(c"dumps", &PYD_PDUMPS), (c"dump", &PYD_PDUMP)] {
+        let x = (a.GetAttr)(m, n.as_ptr());
+        if x.is_null() {
+            (a.ErrClear)();
+        }
+        at.store(x, std::sync::atomic::Ordering::Relaxed);
+    }
+    (a.DecRef)(m);
 }
 
 // What pickle saves for a function or class of the program: None for any other callable (CPython's own
@@ -1195,6 +1427,9 @@ unsafe extern "C" fn pyd_tramp(me: P, args: P, kw: P) -> P {
             return std::ptr::null_mut();
         }
     }
+    // the program's own code runs as outside pickle.dumps (its library calls convert as usual); what it gives
+    // back (an iterator's __reduce__ value) converts as the pickle call's values do
+    let pickling = PYD_PICKLING.with(|c| c.replace(false));
     let r = (|| -> R {
         let mut pos = vec![];
         for i in 0..(a.TupleSize)(args) {
@@ -1217,6 +1452,7 @@ unsafe extern "C" fn pyd_tramp(me: P, args: P, kw: P) -> P {
     if warn_on {
         let _ = pyd_helper("bpop", &[]);
     }
+    PYD_PICKLING.with(|c| c.set(pickling));
     match r.and_then(|v| pyd_to(&v)) {
         Ok(p) => p,
         Err(e) => {
@@ -1265,6 +1501,33 @@ unsafe fn pyd_builtin_exc(p: P) -> Option<Rc<Class>> {
         }
     };
     same.then_some(c)
+}
+// The program's class for p when p is one of the `types` module's classes of values the program makes itself
+// (functions, generators, coroutines, async generators), so `type(f) is types.FunctionType` and
+// `coro.__class__ in {types.GeneratorType, types.CoroutineType}` hold as in CPython.
+unsafe fn pyd_types_class(p: P) -> Option<Rc<Class>> {
+    let a = pyd_api();
+    let m = pyd_own((a.Import)(c"types".as_ptr())).ok()?;
+    let mut found = None;
+    for (attr, which) in [(c"FunctionType", 0), (c"GeneratorType", 1), (c"CoroutineType", 2), (c"AsyncGeneratorType", 3)] {
+        let q = (a.GetAttr)(m, attr.as_ptr());
+        if q.is_null() {
+            (a.ErrClear)();
+            continue;
+        }
+        (a.DecRef)(q);
+        if q == p {
+            found = Some(which);
+            break;
+        }
+    }
+    (a.DecRef)(m);
+    match found? {
+        0 => Some(bclass("function")),
+        1 => it_class(ItKind::Generator).ok(),
+        2 => Some(ext_class("coroutine")),
+        _ => Some(ext_class("async_generator")),
+    }
 }
 unsafe fn pyd_builtins_attr(name: &str) -> Result<P, E> {
     let a = pyd_api();
@@ -1349,6 +1612,11 @@ fn iter_reduce(v: &V) -> R {
     if let Some(V::Class(c)) = out.first() {
         if Rc::ptr_eq(c, &it_class(ItKind::Reversed)?) {
             out[0] = pyd_builtin("reversed")?;
+        } else if Rc::ptr_eq(c, &it_class(ItKind::DequeIter)?) {
+            // CPython's _collections._deque_iterator, which loads as the program's again (pyd_wrap_new)
+            let p = pyd_ptr(&PYD_DEQIT);
+            unsafe { (pyd_api().IncRef)(p) };
+            out[0] = pyv(p, false);
         }
     }
     Ok(tup(out))
@@ -1370,6 +1638,8 @@ fn memo_key(v: &V) -> Option<usize> {
         V::Dict(d) => Some(Rc::as_ptr(d) as *const u8 as usize),
         V::Set(x) => Some(Rc::as_ptr(x) as *const u8 as usize),
         V::FSet(x) => Some(Rc::as_ptr(x) as *const u8 as usize),
+        V::Deque(x) => Some(Rc::as_ptr(x) as *const u8 as usize),
+        V::Obj(o) if matches!(o.inner(), Some(V::Deque(_))) => Some(Rc::as_ptr(o) as *const u8 as usize),
         // a tee link: one Python object per pickle, so tees that share it share it again when loaded
         V::Ext(_) => teedata_of(v).map(|l| Rc::as_ptr(&l) as *const u8 as usize),
         _ => None,
@@ -1460,6 +1730,40 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
                         (a.DecRef)(p);
                         return Err(e);
                     }
+                }
+            }
+            p
+        }
+        // an OrderedDict goes in as CPython's OrderedDict, filled through its __setitem__ (PyDict_SetItem would leave
+        // its linked list out of step with the table)
+        V::Dict(d) if d.borrow().kind == 3 => {
+            let items = d.borrow().items();
+            let p = pyd_mod_call("collections", "OrderedDict", &[])?;
+            to_memo_put(v, p);
+            let t = (a.Type)(p);
+            (a.DecRef)(t);
+            PYD_ODICT.store(t, std::sync::atomic::Ordering::Relaxed);
+            for (k, x) in items {
+                let r = pyd_to(&k).and_then(|kk| match pyd_to(&x) {
+                    Ok(xx) => Ok((kk, xx)),
+                    Err(e) => {
+                        (a.DecRef)(kk);
+                        Err(e)
+                    }
+                });
+                let (kk, xx) = match r {
+                    Ok(t) => t,
+                    Err(e) => {
+                        (a.DecRef)(p);
+                        return Err(e);
+                    }
+                };
+                let bad = (a.SetItem)(p, kk, xx) < 0;
+                (a.DecRef)(kk);
+                (a.DecRef)(xx);
+                if bad {
+                    (a.DecRef)(p);
+                    return Err(pyd_err());
                 }
             }
             p
@@ -1680,6 +1984,9 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
         }
         V::Class(c) if c.module == "builtins" && (c.bt == BT::Exc || c.is_sub(&exc_class("BaseException"))) => pyd_builtins_attr(c.name)?,
         V::Obj(o) if o.cls.lookup("__bv_namedtuple__").is_some() => pyd_namedtuple(v)?,
+        V::Deque(_) | V::Obj(_) if PYD_PICKLING.with(|c| c.get()) && (matches!(v, V::Deque(_)) || matches!(inner_of(v), Some(V::Deque(_)))) => pyd_deque_red(v)?,
+        // CPython would see an iterator, not a generator flagged CO_ITERABLE_COROUTINE (inspect.isawaitable)
+        V::Iter(_) if is_iter_coro(v) => return Err(unsupported("passing a generator of a types.coroutine function to a Python library")),
         V::Iter(_) => {
             let next_me = v.clone();
             let red_me = v.clone();
@@ -1702,6 +2009,60 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
         V::Func(_) | V::Bound(_) | V::BMeth(_) | V::Class(_) => pyd_callable(v)?,
         V::Obj(o) if o.cls.lookup("__call__").is_some() => pyd_callable(v)?,
         _ => return type_err(format!("brevi: a '{}' object cannot be passed to a Python library in a dynamic build", tn(v))),
+    })
+}
+
+// A deque of the program, or an instance of a subclass of deque, going into pickle.dumps or pickle.dump (only
+// those: see PYD_PDUMPS): a _BrRed whose __reduce__ gives CPython's deque.__reduce__ value when pickle asks for
+// it, so the iterator in it walks the program's deque as pickle saves the items.
+unsafe fn pyd_deque_red(v: &V) -> Result<P, E> {
+    let a = pyd_api();
+    let me = v.clone();
+    let red = func(sym("__reduce__"), move |_a: Args| deque_reduce_py(&me));
+    let r = pyd_callable(&red)?;
+    let b = match pyd_callable(v) {
+        Ok(b) => b,
+        Err(e) => {
+            (a.DecRef)(r);
+            return Err(e);
+        }
+    };
+    let o = pyd_mod_call("_brevi_dyn", "red", &[r, b]);
+    (a.DecRef)(r);
+    (a.DecRef)(b);
+    let o = o?;
+    to_memo_put(v, o);
+    let t = (a.Type)(o);
+    (a.DecRef)(t);
+    PYD_BRRED.store(t, std::sync::atomic::Ordering::Relaxed);
+    Ok(o)
+}
+
+// deque.__reduce__ as CPython 3.13 gives it: (deque, () or ((), maxlen), None, iter(d)); for an instance of a
+// subclass of the program, (_brevi_dyn._mkobj, (cls, those arguments), state, iter(d)), which loads as a _BrNew.
+fn deque_reduce_py(v: &V) -> R {
+    let a = pyd_api();
+    unsafe {
+        let o = pyd_mod_call("_brevi_dyn", "cr_prog", &[])?;
+        let held = (a.IsTrue)(o) == 1;
+        (a.DecRef)(o);
+        if held {
+            return Err(unsupported("pickling a deque while copyreg holds a reducer for a class or function of the program"));
+        }
+    }
+    let (cls, max, state, it) = deque_pickle_parts(v)?;
+    let args = match max {
+        Some(m) => tup(vec![tup(vec![]), V::Int(m as i64)]),
+        None => tup(vec![]),
+    };
+    let held = |s: &std::sync::atomic::AtomicPtr<std::ffi::c_void>| {
+        let p = pyd_ptr(s);
+        unsafe { (a.IncRef)(p) };
+        pyv(p, false)
+    };
+    Ok(match cls {
+        None => tup(vec![held(&PYD_DEQ), args, state, it]),
+        Some(c) => tup(vec![held(&PYD_MKOBJ), tup(vec![V::Class(c), args]), state, it]),
     })
 }
 
@@ -1914,11 +2275,14 @@ unsafe fn pyd_invoke(f: P, pre: &[V], args: &Args, deep: bool) -> R {
     let a = pyd_api();
     out_flush();
     to_memo_enter();
+    let dump = !f.is_null() && (f == pyd_ptr(&PYD_PDUMPS) || f == pyd_ptr(&PYD_PDUMP));
+    let was = PYD_PICKLING.with(|c| c.replace(dump));
     let pa = pyd_args(f, pre, args);
     let r = match &pa {
         Ok(pa) => (a.Call)(f, pa.t, pa.kw),
         Err(_) => std::ptr::null_mut(),
     };
+    PYD_PICKLING.with(|c| c.set(was));
     to_memo_exit();
     let pa = pa?;
     if r.is_null() {
@@ -2429,6 +2793,7 @@ pub fn pyd_import(m: &str, top: bool) -> R {
     let _g = PydGil::take();
     unsafe {
         if m == "pickle" {
+            pyd_note_pickle();
             return pyv_ok(pyd_mod_call("_brevi_dyn", "pmod", &[]));
         }
         let c = CString::new(m).unwrap();
@@ -2445,6 +2810,9 @@ pub fn pyd_from(m: &str, n: &str) -> R {
     let a = pyd_api();
     let _g = PydGil::take();
     unsafe {
+        if m == "pickle" {
+            pyd_note_pickle();
+        }
         if m == "pickle" && matches!(n, "load" | "loads" | "Unpickler") {
             let pm = pyd_mod_call("_brevi_dyn", "pmod", &[])?;
             let cn = CString::new(n).unwrap();

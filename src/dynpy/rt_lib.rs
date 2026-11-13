@@ -713,6 +713,9 @@ pub fn bi_reversed(a: Args) -> R {
         let n = l.borrow().len();
         return Ok(new_iter(It::RevList(l.clone(), n), IterClass::Kind(kind)));
     }
+    if let V::Deque(d) = &x {
+        return Ok(new_iter(deque_iter(d, true), IterClass::Kind(kind)));
+    }
     // a dict (not an OrderedDict, whose reverse iterator is its own), its views, or a dict subclass instance:
     // live, as CPython's dict reverse iterators
     let dict_of = match &x {
@@ -728,6 +731,10 @@ pub fn bi_reversed(a: Args) -> R {
         _ => None,
     };
     if let Some((d, vk)) = dict_of {
+        // an OrderedDict's own reverse iterator: live, as CPython's odict_iterator
+        if vk <= 2 && d.borrow().kind == 3 {
+            return Ok(new_iter(odict_iter(&d, vk | 4), IterClass::Kind(ItKind::OdictIter)));
+        }
         let (n, used, ver, odict) = {
             let b = d.borrow();
             (b.ents.len(), b.n as i64, b.ver, b.kind == 3)
@@ -1077,11 +1084,11 @@ fn builtin_hook_methods(c: &Rc<Class>) -> Option<Option<&'static [&'static str]>
             "bytes" => &["__hash__", "__iter__", "__len__", "__contains__", "__buffer__"],
             "bytearray" => &["__iter__", "__len__", "__contains__", "__buffer__"],
             "memoryview" => &["__hash__", "__iter__", "__len__", "__buffer__"],
-            "list" | "dict" | "defaultdict" | "Counter" | "OrderedDict" | "deque" | "dict_keys" | "dict_items" => &["__iter__", "__reversed__", "__len__", "__contains__"],
+            "list" | "dict" | "defaultdict" | "Counter" | "OrderedDict" | "deque" | "dict_keys" | "dict_items" | "odict_keys" | "odict_items" => &["__iter__", "__reversed__", "__len__", "__contains__"],
             "tuple" | "frozenset" => &["__hash__", "__iter__", "__len__", "__contains__"],
             "set" => &["__iter__", "__len__", "__contains__"],
             "range" => &["__hash__", "__iter__", "__reversed__", "__len__", "__contains__"],
-            "dict_values" => &["__hash__", "__iter__", "__reversed__", "__len__"],
+            "dict_values" | "odict_values" => &["__hash__", "__iter__", "__reversed__", "__len__"],
             "type" | "function" | "builtin_function_or_method" | "method" => CALLABLE,
             "generator" => &["__hash__", "__iter__", "__next__", "send", "throw", "close"],
             "coroutine" => &["__hash__", "__await__", "send", "throw", "close"],
@@ -1195,6 +1202,7 @@ pub fn type_of(x: &V) -> Result<Rc<Class>, E> {
         V::Range(_) => tclass(15, "range"),
         V::Deque(_) => tclass(16, "deque"),
         V::View(x) if x.1 == 3 => tclass(17, "mappingproxy"),
+        V::View(x) if x.1 <= 2 && matches!(&x.0, V::Dict(d) if d.borrow().kind == 3) => ext_class(["odict_keys", "odict_values", "odict_items"][x.1 as usize]),
         V::View(x) => ext_class(match x.1 {
             0 => "dict_keys",
             1 => "dict_values",
@@ -1236,6 +1244,7 @@ pub fn it_class(k: ItKind) -> Result<Rc<Class>, E> {
         ItKind::ListReverseIter => ("builtins", "list_reverseiterator"),
         ItKind::Reversed => ("builtins", "reversed"),
         ItKind::DictReverseKeys => ("builtins", "dict_reversekeyiterator"),
+        ItKind::OdictIter => ("builtins", "odict_iterator"),
         ItKind::DictReverseValues => ("builtins", "dict_reversevalueiterator"),
         ItKind::DictReverseItems => ("builtins", "dict_reverseitemiterator"),
         ItKind::Map => ("builtins", "map"),
@@ -1491,7 +1500,14 @@ pub fn ext_class(n: &'static str) -> Rc<Class> {
         return c;
     }
     // datetime.datetime is a subclass of datetime.date, as in CPython (isinstance, issubclass, __mro__)
-    let base = if n == "datetime.datetime" { ext_class("datetime.date") } else { bclass("object") };
+    // and odict_keys, odict_values and odict_items subclass the dict views
+    let base = match n {
+        "datetime.datetime" => ext_class("datetime.date"),
+        "odict_keys" => ext_class("dict_keys"),
+        "odict_values" => ext_class("dict_values"),
+        "odict_items" => ext_class("dict_items"),
+        _ => bclass("object"),
+    };
     // bytes is the library class a user class may subclass: its instances wrap a bytes value
     let c = Class::new(n, "builtins", vec![base], match n {
         "bytes" => BT::Bytes,
@@ -2022,6 +2038,8 @@ pub fn builtin_fn(name: &str) -> Option<fn(Args) -> R> {
         "anext" => bi_anext,
         "__brevi_aenter" => bi___brevi_aenter,
         "__brevi_aexit" => bi___brevi_aexit,
+        "__brevi_awith" => bi___brevi_awith,
+        "__brevi_afor_await" => bi___brevi_afor_await,
         "__brevi_eg_split" => bi___brevi_eg_split,
         "__brevi_eg_reraise" => bi___brevi_eg_reraise,
         _ => return None,
@@ -2134,18 +2152,90 @@ pub fn builtin_type_call(c: &Rc<Class>, a: &mut Args) -> Option<R> {
         "range" => bi_range(a),
         "defaultdict" => col_defaultdict(a),
         "Counter" => col_counter(a),
-        "OrderedDict" => {
-            let d = bi_dict(a);
-            if let Ok(V::Dict(x)) = &d {
-                x.borrow_mut().kind = 3;
-            }
-            d
-        }
+        "OrderedDict" => odict_new(a),
         "deque" => col_deque(a),
         _ => return None,
     })
 }
+// cls.fromkeys(iterable, value=None), a classmethod of dict (`base`) or OrderedDict: dict's takes its arguments by
+// position only, OrderedDict's by keyword too. The class itself builds its own value; a subclass is called with
+// no arguments and each key set through its __setitem__, as CPython's dict_fromkeys does.
+pub fn dict_fromkeys(cls: Rc<Class>, base: Rc<Class>) -> V {
+    builtin("fromkeys", move |mut a: Args| {
+        let od = base.name == "OrderedDict";
+        if od {
+            if let Some(x) = a.kw("iterable") {
+                a.p.insert(0, x);
+            }
+            if let Some(x) = a.kw("value") {
+                a.p.push(x);
+            }
+            a.no_kw("OrderedDict.fromkeys")?;
+            if a.p.is_empty() {
+                return type_err("OrderedDict.fromkeys() missing required argument 'iterable' (pos 1)".into());
+            }
+            if a.p.len() > 2 {
+                return type_err(format!("OrderedDict.fromkeys() takes at most 2 arguments ({} given)", a.p.len()));
+            }
+        } else {
+            if !a.k.is_empty() {
+                return type_err("dict.fromkeys() takes no keyword arguments".into());
+            }
+            a.want("fromkeys", 1, 2)?;
+        }
+        let v = a.p.get(1).cloned().unwrap_or(V::None);
+        if cls.module == "builtins" || cls.module == "collections" {
+            let mut d = Dict::new();
+            if od {
+                d.kind = 3;
+            }
+            // a set's or plain dict's keys keep their stored hashes (CPython's dict_fromkeys)
+            let known = match &a.p[0] {
+                V::Set(_) | V::FSet(_) => Some(set_of(&a.p[0]).unwrap().keys_h()),
+                V::Dict(x) if x.borrow().kind == 0 => Some(x.borrow().keys_h()),
+                _ => None,
+            };
+            match known {
+                Some(ks) => {
+                    for (k, h) in ks {
+                        d.set_h(k, v.clone(), h)?;
+                    }
+                }
+                None => {
+                    for k in to_vec(&a.p[0])? {
+                        d.set(k, v.clone())?;
+                    }
+                }
+            }
+            return Ok(V::Dict(Rc::new(RefCell::new(d))));
+        }
+        let keys = to_vec(&a.p[0])?;
+        let me = call(&V::Class(cls.clone()), Args::p(vec![]))?;
+        for k in keys {
+            setitem(&me, &k, v.clone())?;
+        }
+        Ok(me)
+    })
+}
 pub fn builtin_class_attr(c: &Rc<Class>, name: &str) -> Option<V> {
+    // object's attributes are made once, so each read gives the same value (object.__hash__ is object.__hash__,
+    // as CPython's type dict holds one slot wrapper)
+    thread_local! {
+        static OBJ_ATTRS: RefCell<Vec<(Sym, V)>> = const { RefCell::new(vec![]) };
+    }
+    let obj = c.module == "builtins" && c.name == "object";
+    if obj {
+        if let Some(v) = OBJ_ATTRS.with(|m| m.borrow().iter().find(|(k, _)| *k == name).map(|(_, v)| v.clone())) {
+            return Some(v);
+        }
+    }
+    let v = builtin_class_attr1(c, name)?;
+    if obj {
+        OBJ_ATTRS.with(|m| m.borrow_mut().push((sym(name), v.clone())));
+    }
+    Some(v)
+}
+fn builtin_class_attr1(c: &Rc<Class>, name: &str) -> Option<V> {
     let v = builtin_class_attr_raw(c, name)?;
     if let V::Func(f) = &v {
         if f.kind.get() == 3 {
@@ -2184,6 +2274,9 @@ fn builtin_class_attr_raw(c: &Rc<Class>, name: &str) -> Option<V> {
             Ok(V::None)
         })),
         ("object", "__init_subclass__") => Some(builtin("__init_subclass__", |_a: Args| Ok(V::None))),
+        // a class method: C.__subclasshook__(sub) is NotImplemented for any class that does not define its own
+        // (ABCMeta's issubclass calls it and then goes on to the registry and subclasses)
+        ("object", "__subclasshook__") => Some(builtin("__subclasshook__", |_a: Args| Ok(V::NotImpl))),
         // the lookup without the class's __getattr__ fallback
         ("object", "__getattribute__") => Some(builtin("__getattribute__", |a: Args| {
             let (Some(o), Some(V::Str(n))) = (a.p.first(), a.p.get(1)) else {
@@ -2211,30 +2304,7 @@ fn builtin_class_attr_raw(c: &Rc<Class>, name: &str) -> Option<V> {
         })),
         // a classmethod bound to its class: a class attribute holding it never binds (`ctor = dict.fromkeys`)
         ("dict", "fromkeys") | ("OrderedDict", "fromkeys") => Some({
-            let f = builtin("fromkeys", |a: Args| {
-                a.want("fromkeys", 1, 2)?;
-                let v = a.p.get(1).cloned().unwrap_or(V::None);
-                let mut d = Dict::new();
-                // a set's or plain dict's keys keep their stored hashes (CPython's dict_fromkeys)
-                let known = match &a.p[0] {
-                    V::Set(_) | V::FSet(_) => Some(set_of(&a.p[0]).unwrap().keys_h()),
-                    V::Dict(x) if x.borrow().kind == 0 => Some(x.borrow().keys_h()),
-                    _ => None,
-                };
-                match known {
-                    Some(ks) => {
-                        for (k, h) in ks {
-                            d.set_h(k, v.clone(), h)?;
-                        }
-                    }
-                    None => {
-                        for k in to_vec(&a.p[0])? {
-                            d.set(k, v.clone())?;
-                        }
-                    }
-                }
-                Ok(V::Dict(Rc::new(RefCell::new(d))))
-            });
+            let f = dict_fromkeys(c.clone(), c.clone());
             if let V::Func(ff) = &f {
                 ff.attrs.borrow_mut().push(("__bv_nobind__", V::Bool(true)));
             }
@@ -2250,6 +2320,7 @@ fn builtin_class_attr_raw(c: &Rc<Class>, name: &str) -> Option<V> {
                     return type_err(format!("descriptor '{n}' needs an argument"));
                 }
                 let me = a.p.remove(0);
+                odict_bypass_refused(cname, &n.to_string(), &me)?;
                 // Base.method(self, ...) on an instance of a subclass: the base's own method, not an override
                 if let V::Obj(o) = &me {
                     let base = {
@@ -2439,25 +2510,6 @@ pub fn counter_obj_method(me: &V, name: &str, mut a: Args) -> R {
     }
     Ok(V::None)
 }
-pub fn col_deque(mut a: Args) -> R {
-    let max = match a.kw("maxlen").or_else(|| a.p.get(1).cloned()) {
-        Some(V::None) | None => None,
-        Some(m) => Some(idx_of(&m)? as usize),
-    };
-    let mut v = VecDeque::new();
-    if let Some(x) = a.p.first() {
-        for y in to_vec(x)? {
-            v.push_back(y);
-            if let Some(m) = max {
-                if v.len() > m {
-                    v.pop_front();
-                }
-            }
-        }
-    }
-    Ok(V::Deque(Rc::new(RefCell::new(Deq { v, max }))))
-}
-
 // ---------- methods of builtin types ----------
 
 pub fn has_method(o: &V, name: &str) -> bool {
@@ -3450,6 +3502,13 @@ pub fn dict_method(d: &Rc<RefCell<Dict>>, o: &V, name: &str, mut a: Args) -> R {
             if d.borrow().kind == 2 {
                 return counter_update(o, a, true);
             }
+            if d.borrow().kind == 3 {
+                odict_update(o, a)?;
+                return Ok(V::None);
+            }
+            if a.p.len() > 1 {
+                return type_err(format!("update expected at most 1 argument, got {}", a.p.len()));
+            }
             if let Some(x) = a.p.first() {
                 let other = if let V::Dict(y) = x { Some((y.clone(), y.borrow().n)) } else { None };
                 for (k, v) in dict_items_of(x)? {
@@ -3471,7 +3530,23 @@ pub fn dict_method(d: &Rc<RefCell<Dict>>, o: &V, name: &str, mut a: Args) -> R {
             if d.borrow().kind == 2 {
                 return counter_update(o, a, true);
             }
+            if d.borrow().kind == 3 {
+                return odict_init(o, a);
+            }
             return bad_method(o, name);
+        }
+        "__reduce__" if d.borrow().kind == 3 => {
+            no_args("OrderedDict", name, &a)?;
+            return odict_reduce(o);
+        }
+        "__or__" | "__ror__" if d.borrow().kind == 3 => {
+            let x = a1(&a, name)?;
+            let (l, r) = if name == "__or__" { (o.clone(), x) } else { (x, o.clone()) };
+            return odict_or(&l, &r).unwrap_or(Ok(V::NotImpl));
+        }
+        "__ior__" if d.borrow().kind == 3 => {
+            odict_update_arg(o, &a1(&a, name)?)?;
+            o.clone()
         }
         "__or__" | "__ror__" => {
             let x = a1(&a, name)?;
@@ -3491,6 +3566,7 @@ pub fn dict_method(d: &Rc<RefCell<Dict>>, o: &V, name: &str, mut a: Args) -> R {
             }
             o.clone()
         }
+        "copy" if d.borrow().kind == 3 => return odict_copy(d),
         "copy" => V::Dict(Rc::new(RefCell::new(d.borrow().copy()))),
         "clear" => {
             d.borrow_mut().clear();
@@ -3716,102 +3792,6 @@ pub fn set_method(o: &V, name: &str, a: Args) -> R {
         } as i64),
         "__contains__" => V::Bool(contains(o, &a1(&a, name)?)?),
         "__iter__" => iter_v(o)?,
-        _ => return bad_method(o, name),
-    })
-}
-pub fn deque_method(d: &Rc<RefCell<Deq>>, o: &V, name: &str, a: Args) -> R {
-    let push = |d: &mut Deq, x: V, left: bool| {
-        if left {
-            d.v.push_front(x);
-            if let Some(m) = d.max {
-                if d.v.len() > m {
-                    d.v.pop_back();
-                }
-            }
-        } else {
-            d.v.push_back(x);
-            if let Some(m) = d.max {
-                if d.v.len() > m {
-                    d.v.pop_front();
-                }
-            }
-        }
-    };
-    Ok(match name {
-        "append" | "appendleft" => {
-            let x = a1(&a, name)?;
-            push(&mut d.borrow_mut(), x, name == "appendleft");
-            V::None
-        }
-        "extend" | "extendleft" => {
-            let xs = to_vec(&a1(&a, name)?)?;
-            let mut d = d.borrow_mut();
-            for x in xs {
-                push(&mut d, x, name == "extendleft");
-            }
-            V::None
-        }
-        "pop" => match d.borrow_mut().v.pop_back() {
-            Some(v) => v,
-            None => return Err(exc("IndexError", "pop from an empty deque".into())),
-        },
-        "popleft" => match d.borrow_mut().v.pop_front() {
-            Some(v) => v,
-            None => return Err(exc("IndexError", "pop from an empty deque".into())),
-        },
-        "rotate" => {
-            let n = opt_idx(&a, 0)?.unwrap_or(1);
-            let mut d = d.borrow_mut();
-            let len = d.v.len() as i64;
-            if len > 0 {
-                let k = n.rem_euclid(len) as usize;
-                d.v.rotate_right(k);
-            }
-            V::None
-        }
-        "clear" => {
-            d.borrow_mut().v.clear();
-            V::None
-        }
-        "copy" => V::Deque(Rc::new(RefCell::new(Deq { v: d.borrow().v.clone(), max: d.borrow().max }))),
-        "reverse" => {
-            let mut d = d.borrow_mut();
-            let v: VecDeque<V> = d.v.drain(..).rev().collect();
-            d.v = v;
-            V::None
-        }
-        "count" | "index" | "remove" => {
-            let x = a1(&a, name)?;
-            let v: Vec<V> = d.borrow().v.iter().cloned().collect();
-            let mut k = 0;
-            for (i, y) in v.iter().enumerate() {
-                if eq(y, &x)? {
-                    match name {
-                        "index" => return Ok(V::Int(i as i64)),
-                        "remove" => {
-                            d.borrow_mut().v.remove(i);
-                            return Ok(V::None);
-                        }
-                        _ => k += 1,
-                    }
-                }
-            }
-            match name {
-                "count" => V::Int(k),
-                "index" => return val_err(format!("{} is not in deque", repr(&x)?)),
-                _ => return val_err("deque.remove(x): x not in deque".into()),
-            }
-        }
-        "insert" => {
-            a.want("insert", 2, 2)?;
-            let i = idx_of(&a.p[0])?;
-            let mut d = d.borrow_mut();
-            let n = d.v.len() as i64;
-            let j = if i < 0 { (i + n).max(0) } else { i.min(n) } as usize;
-            d.v.insert(j, a.p[1].clone());
-            V::None
-        }
-        "__len__" => V::Int(d.borrow().v.len() as i64),
         _ => return bad_method(o, name),
     })
 }

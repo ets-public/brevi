@@ -30,6 +30,15 @@ if sys.version_info[:3] != PIN:
 # gives the class: init_builtin_classes (rt_core.rs), ext_class (rt_lib.rs, module "builtins" with a dotted
 # name) and it_class (rt_lib.rs). Only types written in C are listed: a class CPython defines in Python
 # (Counter, JSONDecodeError, Fraction) has functions in its dict that Brevi's natives do not reproduce.
+def _coroutine_wrapper_type():
+    async def f():
+        pass
+    c = f()
+    t = type(c.__await__())
+    c.close()
+    return t
+
+
 TYPES = {
     ("builtins", "object"): object,
     ("builtins", "int"): int,
@@ -89,6 +98,9 @@ TYPES = {
     ("builtins", "zip"): zip,
     ("builtins", "enumerate"): enumerate,
     ("builtins", "generator"): types.GeneratorType,
+    ("builtins", "coroutine"): types.CoroutineType,
+    ("builtins", "coroutine_wrapper"): _coroutine_wrapper_type(),
+    ("builtins", "async_generator"): types.AsyncGeneratorType,
     ("builtins", "callable_iterator"): type(iter(int, 1)),
     ("builtins", "bytes_iterator"): type(iter(b"")),
     ("collections", "_deque_iterator"): type(iter(collections.deque())),

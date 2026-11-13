@@ -4,7 +4,7 @@
 # A toolchain that was already tested at this commit is skipped, so quiet days cost almost nothing.
 # Any failure on the schedule opens (or updates) a GitHub issue labelled "toolchain".
 # Actions minutes are limited, so: no run on pushes to main (the PR and the daily run cover it),
-# pull requests test Rust stable only, skip draft PRs and docs/site-only changes, rebuild the old
+# pull requests test Rust stable only, skip draft PRs and docs/site/conformance-list-only changes, rebuild the old
 # Brevi solutions only when the compiler or the baseline changed (the Rust and Python ones only when
 # they themselves changed), and reuse the build cache the daily run saved, so test programs whose
 # generated Rust didn't change aren't recompiled. The daily run always starts cold and runs everything.
@@ -32,6 +32,14 @@ on:
       - "!skills/**"
       - "!plugins/**"
       - "!reserve/**"
+      # Conformance lists: only tools/conformance.py reads them, and PR CI runs it only when src/ changes too.
+      # A PR changing nothing but files this list skips merges on tools/ci_local.sh alone (AGENTS.md, "Before merging").
+      - "!compat/conformance_known_wrong/**"
+      - "!compat/conformance_stdlib_known_wrong/**"
+      - "!compat/conformance_by_design.txt"
+      - "!compat/conformance_cpython_private.txt"
+      - "!compat/conformance_needs_string_model.txt"
+      - "!tools/conformance_candidates.json"
   workflow_call:
     inputs:
       release:

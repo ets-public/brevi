@@ -61,12 +61,13 @@ BAD = ("wrong_output", "wrong_exit", "crash_or_timeout")  # built, but did not d
 TAG = "v3.13.13"
 PYTHON_VERSION = "3.13.13"
 RAW = "https://raw.githubusercontent.com/python/cpython/" + TAG + "/Lib/"
-SCOPE = ["test_grammar", "test_scope", "test_int", "test_list", "test_dict", "test_set"]
+SCOPE = ["test_grammar", "test_scope", "test_int", "test_list", "test_dict", "test_contains", "test_binop", "test_richcmp", "test_set"]
 # The second, separately published number: the stdlib modules agents use most (`--slice stdlib`), with its own
 # floor and known-wrong list so neither slice's ratchet hides the other's.
 SLICES = {
     "core": (SCOPE, BASELINE, FLOOR),
-    "stdlib": (["test_itertools", "test_collections", "test_re", "test_textwrap", "test_functools", "test_string"],
+    "stdlib": (["test_itertools", "test_collections", "test_re", "test_textwrap", "test_functools", "test_string",
+               "test_graphlib", "test_colorsys", "test_deque"],
                ROOT / "compat" / "conformance_stdlib_known_wrong", ROOT / "compat" / "conformance_stdlib_floor.json"),
 }
 # Module name -> (path under Lib/, SHA-256). The helpers are only read for the definitions tests use.
@@ -89,6 +90,12 @@ SOURCES = {
     "test.test_textwrap": ("test/test_textwrap.py", "1f16be769aa2aa32028b821bca3e90c3bdfabb37ffdbafa20db09ee627009214"),
     "test.test_functools": ("test/test_functools.py", "ec00d729ddde2de6412237b3f8f4196bc0777ce9d0bf99fd69071fb44ce72fd5"),
     "test.test_string": ("test/test_string.py", "defe67cc39c2a4737f1dad3a6c7877cb4eb96df6c331966214b77548f6b2c6a6"),
+    "test.test_contains": ("test/test_contains.py", "34916d854f7f04c3189cd7d8e04177bca3c55bf1acdccf88beac501ff24239f4"),
+    "test.test_binop": ("test/test_binop.py", "85af7379285b3787d61be4926d38fa188d7a7f11413398fd6364886208f4fd3f"),
+    "test.test_richcmp": ("test/test_richcmp.py", "87ffd49f08a617224cdbb84f0eeb7cef643f3cd918090c606a311a25d929d135"),
+    "test.test_graphlib": ("test/test_graphlib.py", "87cde0e38dc1901e938356f4627f6842ff0cf9a74582edc1f22868b295944b3e"),
+    "test.test_colorsys": ("test/test_colorsys.py", "f7ea1907f751f0201ea69a0bc368cdb2b24e7c7f958d8df659a8ff84142bfb93"),
+    "test.test_deque": ("test/test_deque.py", "15578b602865dfa5c80baa64006d64c5875765aab457d5b4bedd73a5e8436d73"),
     "test.re_tests": ("test/re_tests.py", "33033dc23d20a6924391819395e7bdd3c16d11cf3bb79eedb6298e79f65bb4e8"),  # data for test_re.ExternalTests
 }
 # Modules some tests import as modules (test_grammar reads their __annotations__): copied as they are next to the
@@ -103,9 +110,9 @@ COMPANIONS = {
 
 # A generated script may import only these: nothing that reaches files, processes or the network.
 ALLOWED_IMPORTS = {
-    "__future__", "abc", "array", "bisect", "builtins", "cmath", "collections", "contextlib", "copy", "dataclasses",
-    "decimal", "enum", "fractions", "functools", "gc", "heapq", "inspect", "itertools", "json", "math", "numbers",
-    "locale", "operator", "pickle", "random", "re", "string", "struct", "sys", "textwrap", "threading", "time", "types",
+    "__future__", "abc", "array", "bisect", "builtins", "cmath", "collections", "colorsys", "contextlib", "copy",
+    "dataclasses", "decimal", "enum", "fractions", "functools", "gc", "graphlib", "heapq", "inspect", "itertools", "json",
+    "math", "numbers", "locale", "operator", "pickle", "random", "re", "string", "struct", "sys", "textwrap", "threading", "time", "types",
     "typing", "unicodedata", "warnings", "weakref",
 }
 # Modules a generated script may use only in part: each name it reads from them must be in the set (io.open or
@@ -294,6 +301,12 @@ EXCLUDED_CLASSES = {
     "PyLongModuleTests": "tests _pylong, a private CPython module",
     "CAPITest": "tests the C API",
 }
+# (file, method): tests of one CPython C implementation detail, excluded wherever the method is (C and subclass classes)
+_ODICT_DICT_METHODS = ("dict's own method called on an OrderedDict: tests that CPython's C OrderedDict survives its "
+                       "linked list going out of step with the dict table (Brevi refuses the call with a clear error)")
+EXCLUDED_TESTS = {("test_ordered_dict", m): _ODICT_DICT_METHODS for m in (
+    "test_dict_setitem", "test_dict_delitem", "test_dict_clear", "test_dict_pop", "test_dict_popitem",
+    "test_dict_setdefault", "test_dict_update")}
 EXCLUDED_SOURCE = [
     (r"\b_test(capi|internalcapi|limitedcapi)\b", "tests the C API"),
     (r"\bsys\.getrefcount\b|\bcheck_free_after_iterating\b", "depends on reference counts"),
@@ -304,6 +317,11 @@ EXCLUDED_SOURCE = [
     (r"\bmultiprocessing\.Process\b", "starts a child process"),
     (r"\bsre_(compile|constants|parse)\b", "tests CPython's deprecated sre_* modules"),
 ]
+# Tests whose CPython output comes from unseeded random numbers (test_set's *Mutating* classes print a line only when
+# a random __eq__ happens to raise RuntimeError): two CPython runs agree by luck most of the time, so such a test
+# flipped between matched and unstable from run to run and moved the floor. They are always classed unstable, but
+# both builds still run them, so a crash, a wrong exit code or a refusal still counts.
+RANDOM_OUTPUT = re.compile(r"^test_set\.Test(BinaryOps|Methods)Mutating_\w+\.test_\w+_with_mutation$")
 RECEIVERS = {"self", "testcase"}
 SAME_AS_EQUAL = {"assertEqual", "assertListEqual", "assertTupleEqual", "assertDictEqual", "assertSetEqual",
                  "assertSequenceEqual", "assertMultiLineEqual"}
@@ -790,6 +808,8 @@ class Universe:
         cls = next(n for n in mod.tree.body if isinstance(n, ast.ClassDef) and n.name == cls_name)
         if cls_name in EXCLUDED_CLASSES:
             raise Excluded(EXCLUDED_CLASSES[cls_name])
+        if (name, method) in EXCLUDED_TESTS:
+            raise Excluded(EXCLUDED_TESTS[(name, method)])
         chain = self.chain(mod, cls)
         # `class TestLRUPy(TestLRU, unittest.TestCase): module = py_functools`: the same tests against the pure-Python
         # copy. Brevi has one copy of the module, which its C-copy twin already scores.
@@ -1430,6 +1450,9 @@ def run_case(case, cfg):
         (folder / rel).parent.mkdir(parents=True, exist_ok=True)
         (folder / rel).write_bytes(data)
     a, b = (reference(cfg.python, script, folder, seed, cfg) for seed in (1, 2))
+    random_output = bool(RANDOM_OUTPUT.match(case["id"]))
+    if random_output:
+        b = a  # the output is random by design: only the exit code and crashes are compared below
     if (a.rc, a.out) != (b.rc, b.out):
         return {**case, "category": "unstable", "detail": "CPython's output changes with PYTHONHASHSEED"}
     if a.rc != 0 or a.note:
@@ -1446,6 +1469,8 @@ def run_case(case, cfg):
         exe, path, why, crashed = build(script, folder, mode, cfg)
         got = masked(run_limited([str(exe)], str(folder), run_env(folder, 1), cfg.timeout, cfg.mem_mb, cfg.sandbox)) if exe else None
         category, detail = classify(a, (exe is not None, why, crashed), got)
+        if random_output and category in ("matched", "wrong_output"):
+            category, detail = "unstable", "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
         if category == "wrong_output":
             # Two seeds can agree by luck on a small str set: try more before calling this Brevi's fault.
             for seed in (3, 4, 5):

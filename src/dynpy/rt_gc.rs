@@ -29,6 +29,7 @@ enum Wt {
     WExt(std::rc::Weak<Box<dyn Ext>>),
     // a generator or an itertools.tee iterator (the iterators CPython gives a weakref list)
     WIter(std::rc::Weak<IterCell>),
+    WDeque(std::rc::Weak<RefCell<Deq>>),
 }
 
 impl Wt {
@@ -43,6 +44,7 @@ impl Wt {
             Wt::WFSet(w) => w.upgrade().map(V::FSet),
             Wt::WExt(w) => w.upgrade().map(|r| V::Ext(ExtRc(r))),
             Wt::WIter(w) => w.upgrade().map(V::Iter),
+            Wt::WDeque(w) => w.upgrade().map(V::Deque),
         }
     }
 }
@@ -50,6 +52,47 @@ impl Wt {
 pub struct WeakRefV {
     w: Wt,
     cb: RefCell<Option<V>>,
+    // made without a callback: CPython's one basic ref of its object, which ref(x) gives again
+    basic: bool,
+}
+
+thread_local! {
+    // whether the program made a weakref.proxy (not kept in WEAKREFS, so __weakref__ cannot tell its place)
+    static PROXY_MADE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+// the live weakref.ref objects whose referent is x
+fn refs_to(x: &V) -> Vec<(ExtRc, bool)> {
+    WEAKREFS.with(|ws| {
+        ws.borrow()
+            .iter()
+            .filter_map(|w| w.upgrade())
+            .filter_map(|r| {
+                let r = ExtRc(r);
+                let hit = r.any().downcast_ref::<WeakRefV>().and_then(|w| w.w.upgrade().filter(|t| is(t, x)).map(|_| w.basic));
+                hit.map(|b| (r, b))
+            })
+            .collect()
+    })
+}
+
+// x.__weakref__ for an instance: the head of its weakref list (CPython keeps the basic ref first), None when
+// there is none; an AttributeError when the layout has no __weakref__ slot
+pub fn obj_weakref(x: &V, cls: &Rc<Class>) -> R {
+    match weak_layout(cls) {
+        Some(true) => {}
+        Some(false) => return Err(exc("AttributeError", format!("'{}' object has no attribute '__weakref__'", cls.name))),
+        None => return Err(unsupported("__weakref__ of an instance whose layout Brevi does not know")),
+    }
+    let refs = refs_to(x);
+    if let Some((r, _)) = refs.iter().find(|(_, b)| *b) {
+        return Ok(V::Ext(r.clone()));
+    }
+    // callback refs and proxies sit in CPython's list in an order Brevi does not keep
+    if !refs.is_empty() || PROXY_MADE.with(|p| p.get()) {
+        return Err(unsupported("__weakref__ of an object with only callback weak references or proxies"));
+    }
+    Ok(V::None)
 }
 
 impl WeakRefV {
@@ -107,7 +150,14 @@ pub fn weakref_fn(n: &str, a: Args) -> R {
             a.want("ref", 1, 2)?;
             let cb = if a.p.len() == 2 { a.p[1].clone() } else { V::None };
             let w = weak_target(&a.p[0])?;
-            let r = ExtRc::new(WeakRefV { w, cb: RefCell::new(if matches!(cb, V::None) { None } else { Some(cb) }) });
+            let basic = matches!(cb, V::None);
+            // ref(x) without a callback gives x's basic ref again while it lives (CPython reuses it)
+            if basic {
+                if let Some((r, _)) = refs_to(&a.p[0]).into_iter().find(|(_, b)| *b) {
+                    return Ok(V::Ext(r));
+                }
+            }
+            let r = ExtRc::new(WeakRefV { w, cb: RefCell::new(if basic { None } else { Some(cb) }), basic });
             WEAKREFS.with(|ws| {
                 let mut ws = ws.borrow_mut();
                 ws.retain(|w| w.strong_count() > 0);
@@ -136,6 +186,7 @@ pub fn weakref_fn(n: &str, a: Args) -> R {
                 }
             }
             let callable = truth(&bi_callable(Args::p(vec![a.p[0].clone()]))?)?;
+            PROXY_MADE.with(|p| p.set(true));
             Ok(V::Ext(ExtRc::new(ProxyV { w, callable })))
         }
         _ => Err(unsupported(&format!("weakref.{n}"))),
@@ -145,6 +196,8 @@ pub fn weakref_fn(n: &str, a: Args) -> R {
 // The weak target for ref() and proxy(): every Brevi value CPython takes a weak reference to.
 fn weak_target(x: &V) -> Result<Wt, E> {
     Ok(match x {
+        // an instance whose layout has no __weakref__ slot (a __slots__ class without it)
+        V::Obj(o) if weak_layout(&o.cls) == Some(false) => return type_err(format!("cannot create weak reference to '{}' object", o.cls.name)),
         V::Obj(o) => Wt::WObj(Rc::downgrade(o)),
         V::Class(c) => Wt::WClass(Rc::downgrade(c)),
         V::Func(f) => Wt::WFunc(Rc::downgrade(f)),
@@ -152,6 +205,7 @@ fn weak_target(x: &V) -> Result<Wt, E> {
         V::BMeth(b) => Wt::WBMeth(Rc::downgrade(b)),
         V::Set(s) => Wt::WSet(Rc::downgrade(s)),
         V::FSet(s) => Wt::WFSet(Rc::downgrade(s)),
+        V::Deque(d) => Wt::WDeque(Rc::downgrade(d)),
         V::Ext(e) if e.tname() == "re.Pattern" => Wt::WExt(ExtRc::downgrade(e)),
         V::Iter(c) if matches!(c.kind, IterClass::Kind(ItKind::Generator | ItKind::ItTee)) => Wt::WIter(Rc::downgrade(c)),
         _ => return type_err(format!("cannot create weak reference to '{}' object", proxy_tn(x))),
@@ -310,7 +364,7 @@ struct GcNode {
     indeg: usize,
 }
 
-fn gc_id(v: &V) -> Option<usize> {
+pub fn gc_id(v: &V) -> Option<usize> {
     Some(match v {
         V::List(x) => Rc::as_ptr(x) as *const u8 as usize,
         V::Tuple(x) => Tup::as_ptr(x) as usize,
@@ -387,6 +441,9 @@ fn gc_edges(v: &V) -> Vec<V> {
             if let Some(x) = &d.dflt {
                 out.push(x.clone());
             }
+            if let Some(a) = &d.attrs {
+                out.push(V::Dict(a.clone()));
+            }
             out
         }
         V::Set(s) => match s.try_borrow() {
@@ -410,8 +467,9 @@ fn gc_edges(v: &V) -> Vec<V> {
             match &*it {
                 It::List(x, _) | It::RevList(x, _) => out.push(V::List(x.clone())),
                 It::Tuple(x, _) => out.push(V::Tuple(x.clone())),
-                It::Dict(x, ..) | It::RevDict(x, ..) => out.push(V::Dict(x.clone())),
+                It::Dict(x, ..) | It::RevDict(x, ..) | It::ODict(x, ..) => out.push(V::Dict(x.clone())),
                 It::Set(x, ..) => out.push(V::Set(x.clone())),
+                It::Deq(x, ..) => out.push(V::Deque(x.clone())),
                 It::Obj(x) => out.push(x.clone()),
                 _ => {}
             }

@@ -162,6 +162,29 @@ fn py_next_to_buffer(a: &V, b: &V) -> bool {
     let buf = |x: &V| ba_val(x).is_some() || memview_of(x).is_some();
     (py(a) && buf(b)) || (buf(a) && py(b))
 }
+// CPython's _odict_keys_equal: the keys of two OrderedDicts compared pairwise in order, an error if either
+// OrderedDict's key set changed during a comparison
+fn odict_keys_equal(x: &Rc<RefCell<Dict>>, y: &Rc<RefCell<Dict>>) -> Result<bool, E> {
+    let (kx, vx) = { let d = x.borrow(); (d.keys(), d.ver) };
+    let (ky, vy) = { let d = y.borrow(); (d.keys(), d.ver) };
+    let mut i = 0;
+    loop {
+        match (kx.get(i), ky.get(i)) {
+            (None, None) => return Ok(true),
+            (None, _) | (_, None) => return Ok(false),
+            (Some(p), Some(q)) => {
+                let same = is(p, q) || eq(p, q)?;
+                if x.borrow().ver != vx || y.borrow().ver != vy {
+                    return Err(exc("RuntimeError", "OrderedDict mutated during iteration".into()));
+                }
+                if !same {
+                    return Ok(false);
+                }
+            }
+        }
+        i += 1;
+    }
+}
 pub fn eq(a: &V, b: &V) -> Result<bool, E> {
     if let Some(r) = meta_cmp(a, b, "==") {
         return truth(&r?);
@@ -249,7 +272,8 @@ pub fn eq(a: &V, b: &V) -> Result<bool, E> {
                     }
                 }
             }
-            ok
+            // two OrderedDicts: equal contents, then the same key order (CPython's odict_richcompare)
+            ok && (x.borrow().kind != 3 || y.borrow().kind != 3 || odict_keys_equal(x, y)?)
         }
         (V::View(x), V::View(y)) if x.1 == 3 && y.1 == 3 => eq(&x.0, &y.0)?,
         (V::View(x), V::Dict(_)) if x.1 == 3 => eq(&x.0, b)?,
@@ -480,6 +504,10 @@ pub fn order(a: &V, b: &V, op: &str) -> Result<Option<std::cmp::Ordering>, E> {
             seq_order(&x, &y, op)?
         }
         (V::Tuple(x), V::Tuple(y)) => seq_order(x, y, op)?,
+        (V::Deque(_), V::Deque(_)) => {
+            let (x, y) = deque_pair(a, b).unwrap();
+            seq_order(&x, &y, op)?
+        }
         (V::Set(_) | V::FSet(_), V::Set(_) | V::FSet(_)) => {
             let (x, y) = (set_of(a).unwrap(), set_of(b).unwrap());
             let sub = pset_issubset(&x, &y)?;
@@ -1196,6 +1224,9 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
         (V::Dict(x), V::Dict(y)) if matches!(op, "+" | "-" | "|" | "&") && x.borrow().kind == 2 && y.borrow().kind == 2 => {
             return counter_op(x, y, op);
         }
+        (V::Dict(x), V::Dict(y)) if op == "|" && (x.borrow().kind == 3 || y.borrow().kind == 3) => {
+            return odict_or(a, b).unwrap();
+        }
         (V::Dict(x), V::Dict(y)) if op == "|" => {
             let mut d = x.borrow().copy();
             let items = y.borrow().items();
@@ -1206,15 +1237,26 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
         }
         (V::View(x), _) if x.1 == 3 && op == "|" => return binop(&x.0, b, op),
         (_, V::View(y)) if y.1 == 3 && op == "|" => return binop(a, &y.0, op),
-        (V::Deque(x), V::Deque(y)) if op == "+" => {
-            let mut v = x.borrow().v.clone();
-            v.extend(y.borrow().v.iter().cloned());
-            return Ok(V::Deque(Rc::new(RefCell::new(Deq { v, max: x.borrow().max }))));
+        // deque + deque keeps the left one's maxlen; deque * n and n * deque keep the last maxlen items
+        (V::Deque(x), V::Deque(_)) if op == "+" => return deque_concat(x, b),
+        (V::Deque(x), n) | (n, V::Deque(x)) if op == "*" && is_intlike(n) => return deque_mul(x, n),
+        // (an instance or library value on the right gets its reflected method first)
+        (V::Deque(x), _) if op == "+" && !matches!(b, V::Obj(_) | V::Ext(_)) => return deque_concat(x, b),
+        (V::Deque(_), _) if op == "*" && !matches!(b, V::Obj(_) | V::Ext(_)) => {
+            return type_err(format!("can't multiply sequence by non-int of type '{}'", tn(b)));
         }
         _ => {}
     }
     if let Some(r) = obj_binop(a, b, op) {
         return r;
+    }
+    if let Some(r) = deque_sub_binop(a, b, op) {
+        return r;
+    }
+    if op == "|" {
+        if let Some(r) = odict_or(a, b) {
+            return r;
+        }
     }
     let (ia, ib) = (inner_of(a), inner_of(b));
     // (a bytearray subclass instance is not unwrapped: obj_binop took what bytearray takes, and errors name the subclass)
@@ -1349,6 +1391,11 @@ fn iop_slow(a: &V, b: &V, op: &str) -> R {
             }
         }
     }
+    // od |= x (CPython's odict_inplace_or): an update through __setitem__
+    if op == "|" && odict_of(a).is_some() {
+        odict_update_arg(a, b)?;
+        return Ok(a.clone());
+    }
     match (a, op) {
         (V::List(l), "+") => {
             let add = to_vec(b)?;
@@ -1413,17 +1460,12 @@ fn iop_slow(a: &V, b: &V, op: &str) -> R {
             }
             return Ok(a.clone());
         }
+        (V::Deque(d), "*") if !matches!(b, V::Obj(_) | V::Ext(_)) => {
+            deque_imul(d, b)?;
+            return Ok(a.clone());
+        }
         (V::Deque(d), "+") => {
-            let add = to_vec(b)?;
-            let mut d = d.borrow_mut();
-            for x in add {
-                d.v.push_back(x);
-                if let Some(m) = d.max {
-                    if d.v.len() > m {
-                        d.v.pop_front();
-                    }
-                }
-            }
+            deque_extend(d, b, false)?;
             return Ok(a.clone());
         }
         _ => {}
@@ -1734,10 +1776,7 @@ pub fn contains(c: &V, x: &V) -> Result<bool, E> {
             // value (a NaN object, say) is a hit before __eq__ runs.
             _ => to_vec(c)?.iter().any(|y| is(y, x) || eq(y, x).unwrap_or(false)),
         },
-        V::Deque(d) => {
-            let v: Vec<V> = d.borrow().v.iter().cloned().collect();
-            v.iter().any(|y| is(y, x) || eq(y, x).unwrap_or(false))
-        }
+        V::Deque(d) => deque_contains(d, x)?,
         V::Obj(o) => {
             if let Some(f) = o.cls.lookup("__contains__") {
                 return truth(&call(&f, Args::p(vec![c.clone(), x.clone()]))?);
@@ -2030,11 +2069,7 @@ pub fn getitem(c: &V, i: &V) -> R {
             let stop = r.0 + r.2 * e;
             return Ok(V::Range(Rc::new((start, stop, r.2 * stp))));
         }
-        (V::Deque(d), _) => {
-            let d = d.borrow();
-            let j = norm_idx(idx_of(i)?, d.v.len(), "deque")?;
-            return Ok(d.v[j].clone());
-        }
+        (V::Deque(d), _) => return deque_getitem(d, i),
         (V::View(x), _) if x.1 == 3 => return getitem(&x.0, i),
         (V::Obj(o), _) => {
             if let Some(f) = o.cls.lookup("__getitem__") {
@@ -2162,12 +2197,7 @@ pub fn setitem(c: &V, i: &V, v: V) -> Result<(), E> {
             }
             Ok(())
         }
-        (V::Deque(d), _) => {
-            let mut d = d.borrow_mut();
-            let j = norm_idx(idx_of(i)?, d.v.len(), "deque")?;
-            d.v[j] = v;
-            Ok(())
-        }
+        (V::Deque(d), _) => deque_setitem(d, i, v),
         (V::Obj(o), _) => {
             if let Some(f) = o.cls.lookup("__setitem__") {
                 call(&f, Args::p(vec![c.clone(), i.clone(), v]))?;
@@ -2224,12 +2254,7 @@ pub fn delitem(c: &V, i: &V) -> Result<(), E> {
                 None => Err(exc_v("KeyError", i.clone())),
             }
         }
-        (V::Deque(d), _) => {
-            let mut d = d.borrow_mut();
-            let j = norm_idx(idx_of(i)?, d.v.len(), "deque")?;
-            d.v.remove(j);
-            Ok(())
-        }
+        (V::Deque(d), _) => deque_delitem(d, i),
         (V::Obj(o), _) => {
             if let Some(f) = o.cls.lookup("__delitem__") {
                 call(&f, Args::p(vec![c.clone(), i.clone()]))?;
@@ -2284,6 +2309,8 @@ pub enum ItKind {
     CallableIterator,
     BytesIter,
     DequeIter,
+    // an OrderedDict's iterators (its keys, values, items, and reversed): CPython's one odict_iterator type
+    OdictIter,
     Iterator,
     ItCount,
     ItChain,
@@ -2326,7 +2353,13 @@ pub enum It {
     // index plus one (0: none left), the view kind, the dict's size when it began (-1 once a size change was
     // seen, so later next() calls raise too, as CPython's di_used = -1) and its key version then
     RevDict(Rc<RefCell<Dict>>, usize, u8, i64, u64),
+    // an OrderedDict or one of its views, as CPython's odict_iterator: the next entry's index (usize::MAX once
+    // done), the view kind (0 keys, 1 values, 2 items; 4 added when reversed), and the dict's key version and size
+    // when it began (the size -1 once a change was seen, so later next() calls raise too)
+    ODict(Rc<RefCell<Dict>>, usize, u8, u64, i64),
     Set(Rc<RefCell<PSet>>, usize, i64),
+    // a deque's iterator or reverse iterator: next position, items left, the deque's state when it began, reversed
+    Deq(Rc<RefCell<Deq>>, usize, usize, u64, bool),
     Gen(Box<dyn FnMut() -> Result<Option<V>, E>>),
     // A generator expression: like Gen, but an error escapes to the caller once and then the iterator is
     // exhausted, as in CPython. `name` is the genexp's dotted __qualname__ (f.<locals>.<genexpr>).
@@ -2420,6 +2453,7 @@ impl It {
                 }
             }
             It::Vec(v) => Ok(v.next()),
+            It::Deq(d, i, left, st, rev) => deque_iter_next(d, i, left, *st, *rev),
             It::Repeat(x, n) => match n {
                 Some(k) if *k == 0 => Ok(None),
                 Some(k) => {
@@ -2481,6 +2515,41 @@ impl It {
                     }
                 }
                 Ok(None)
+            }
+            It::ODict(d, i, kind, ver0, n0) => {
+                // CPython's odictiter_iternext: done stays done; a changed key set (od_state: a key added,
+                // deleted or moved) stops the iterator; a changed size raises on every later call; values and
+                // items look each key up again, so a key whose hash changed raises KeyError
+                if *i == usize::MAX {
+                    return Ok(None);
+                }
+                let k = {
+                    let dd = d.borrow();
+                    if dd.ver != *ver0 {
+                        *i = usize::MAX;
+                        return Err(exc("RuntimeError", "OrderedDict mutated during iteration".into()));
+                    }
+                    if *n0 < 0 || dd.n as i64 != *n0 {
+                        *n0 = -1;
+                        return Err(exc("RuntimeError", "OrderedDict changed size during iteration".into()));
+                    }
+                    let Some(Some((k, _))) = dd.ents.get(*i) else {
+                        *i = usize::MAX;
+                        return Err(exc("RuntimeError", "OrderedDict mutated during iteration".into()));
+                    };
+                    let k = k.clone();
+                    let rev = *kind & 4 != 0;
+                    *i = if rev { if *i == 0 { usize::MAX } else { odict_scan(&dd, *i - 1, true) } } else { odict_scan(&dd, *i + 1, false) };
+                    k
+                };
+                if *kind & 3 == 0 {
+                    return Ok(Some(k));
+                }
+                let Some(val) = Dict::get_cell(d, &k)? else {
+                    *i = usize::MAX;
+                    return Err(exc_v("KeyError", k));
+                };
+                Ok(Some(if *kind & 3 == 1 { val } else { tup(vec![k, val]) }))
             }
             It::RevDict(d, i, kind, used, ver0) => {
                 let item = {
@@ -2576,6 +2645,24 @@ pub fn is_exc(e: &V, name: &str) -> bool {
         _ => false,
     }
 }
+// The first live entry of an OrderedDict at or after `from` (at or before, reversed); usize::MAX when none is left.
+pub fn odict_scan(d: &Dict, from: usize, rev: bool) -> usize {
+    if rev {
+        (0..=from.min(d.ents.len().wrapping_sub(1))).rev().find(|&j| d.ents[j].is_some()).unwrap_or(usize::MAX)
+    } else {
+        (from..d.ents.len()).find(|&j| d.ents[j].is_some()).unwrap_or(usize::MAX)
+    }
+}
+// An OrderedDict's iterator over its keys (view kind 0), values (1) or items (2); add 4 for reversed.
+pub fn odict_iter(d: &Rc<RefCell<Dict>>, kind: u8) -> It {
+    let dd = d.borrow();
+    let start = if kind & 4 != 0 {
+        if dd.ents.is_empty() { usize::MAX } else { odict_scan(&dd, dd.ents.len() - 1, true) }
+    } else {
+        odict_scan(&dd, 0, false)
+    };
+    It::ODict(d.clone(), start, kind, dd.ver, dd.n as i64)
+}
 pub fn iter(v: &V) -> Result<It, E> {
     Ok(match v {
         V::Class(c) if is_enum(c) => match enum_members(c) {
@@ -2586,11 +2673,13 @@ pub fn iter(v: &V) -> Result<It, E> {
         V::Tuple(t) => It::Tuple(t.clone(), 0),
         V::Str(s) => It::Str(s.clone(), 0),
         V::Range(r) => It::Range(r.0, r.1, r.2),
+        V::Dict(d) if d.borrow().kind == 3 => odict_iter(d, 0),
         V::Dict(d) => {
             let n = d.borrow().n;
             It::Dict(d.clone(), 0, 0, 0, n)
         }
         V::View(x) => match &x.0 {
+            V::Dict(d) if x.1 <= 2 && d.borrow().kind == 3 => odict_iter(d, x.1),
             V::Dict(d) => {
                 let n = d.borrow().n;
                 It::Dict(d.clone(), 0, x.1, 0, n)
@@ -2602,7 +2691,7 @@ pub fn iter(v: &V) -> Result<It, E> {
             It::Set(s.clone(), 0, n)
         }
         V::FSet(s) => It::Vec(s.keys().into_iter()),
-        V::Deque(d) => It::Vec(d.borrow().v.iter().cloned().collect::<Vec<_>>().into_iter()),
+        V::Deque(d) => deque_iter(d, false),
         V::Iter(it) => It::Ref(it.it.clone()),
         V::Obj(o) => {
             if let Some(f) = o.cls.lookup("__iter__") {
@@ -2653,7 +2742,9 @@ fn iter_kind(v: &V) -> ItKind {
         V::Tuple(_) => ItKind::TupleIter,
         V::Str(s) => if s.ascii() { ItKind::StrAsciiIter } else { ItKind::StrIter },
         V::Range(_) => ItKind::RangeIter,
+        V::Dict(d) if d.borrow().kind == 3 => ItKind::OdictIter,
         V::Dict(_) => ItKind::DictKeys,
+        V::View(x) if x.1 <= 2 && matches!(&x.0, V::Dict(d) if d.borrow().kind == 3) => ItKind::OdictIter,
         // view kinds 0, 1, 2, 3: keys, values, items, mappingproxy (which iterates keys too)
         V::View(x) => match x.1 {
             0 | 3 => ItKind::DictKeys,
@@ -2736,12 +2827,32 @@ pub fn genexp_iter(name: Sym, f: impl FnMut() -> Result<Option<V>, E> + 'static)
 pub fn vec_iter(kind: ItKind, v: Vec<V>) -> V {
     new_iter(It::Vec(v.into_iter()), IterClass::Kind(kind))
 }
+// unpacking's own message for a value whose type cannot be iterated at all (CPython's unpack_iterable): iter()
+// said "'X' object is not iterable" and the type has neither __iter__ nor __getitem__ (a TypeError that the
+// type's own __iter__ raised stays as it is)
+fn unpack_items(v: &V) -> Result<Vec<V>, E> {
+    to_vec(v).map_err(|e| {
+        let own = match v {
+            V::Obj(o) => o.cls.lookup("__iter__").is_none() && o.cls.lookup("__getitem__").is_none(),
+            V::Class(_) | V::Ext(_) => false,
+            _ => true,
+        };
+        let plain = format!("'{}' object is not iterable", tn(v));
+        let same = is_exc(&e.0, "TypeError")
+            && matches!(&e.0, V::Obj(o) if matches!(o.get("args"), Some(V::Tuple(a)) if a.len() == 1 && matches!(&a[0], V::Str(m) if m.text() == plain)));
+        if own && same {
+            exc("TypeError", format!("cannot unpack non-iterable {} object", tn(v)))
+        } else {
+            e
+        }
+    })
+}
 // a, b = x
 pub fn unpack(v: &V, n: usize) -> Result<Vec<V>, E> {
     let xs = match v {
         V::Tuple(t) if t.len() == n => return Ok(t.to_vec()),
         V::List(l) if l.borrow().len() == n => return Ok(l.borrow().clone()),
-        _ => to_vec(v)?,
+        _ => unpack_items(v)?,
     };
     if xs.len() > n {
         return val_err(format!("too many values to unpack (expected {n})"));
@@ -2763,7 +2874,7 @@ pub fn unpack2(v: V) -> Result<(V, V), E> {
 }
 // a, *b, c = x
 pub fn unpack_star(v: &V, before: usize, after: usize) -> Result<Vec<V>, E> {
-    let xs = to_vec(v)?;
+    let xs = unpack_items(v)?;
     if xs.len() < before + after {
         return val_err(format!("not enough values to unpack (expected at least {}, got {})", before + after, xs.len()));
     }

@@ -162,6 +162,7 @@ pub fn iter_reduce_v(v: &V) -> R {
         Dict(Rc<RefCell<Dict>>, usize, u8, u64, usize),
         Set(Rc<RefCell<PSet>>, usize, i64),
         Repeat(V, Option<i64>),
+        Deq(V, i64),
     }
     let plan = {
         let Ok(it) = cell.it.try_borrow() else {
@@ -186,8 +187,26 @@ pub fn iter_reduce_v(v: &V) -> R {
                 }
                 Plan::Seq(out)
             }
+            // an OrderedDict iterator: CPython's odictiter_reduce pickles it as iter(list of the rest)
+            It::ODict(d, i, kind, ver, n0) => {
+                let mut sim = It::ODict(d.clone(), *i, *kind, *ver, *n0);
+                let mut out = vec![];
+                while let Some(x) = sim.next()? {
+                    out.push(x);
+                }
+                Plan::Seq(out)
+            }
             It::Set(s, i, n0) => Plan::Set(s.clone(), *i, *n0),
             It::Repeat(x, n) => Plan::Repeat(x.clone(), *n),
+            // CPython's dequeiter_reduce: (type(it), (its deque, len(deque) - items left)). An iterator over a
+            // deque subclass instance would name the instance, which the iterator here does not keep.
+            It::Deq(d, _, left, _, false) if matches!(cell.kind, IterClass::Kind(ItKind::DequeIter)) => {
+                if d.borrow().sub {
+                    return Err(unsupported("pickling or copying an iterator over an instance of a deque subclass"));
+                }
+                let n = d.borrow().v.len() as i64;
+                Plan::Deq(V::Deque(d.clone()), n - *left as i64)
+            }
             It::Done if matches!(cell.kind, IterClass::Kind(ItKind::ListReverseIter)) => Plan::Rev(V::None, -1),
             It::Done if !matches!(cell.kind, IterClass::Kind(ItKind::Generator)) && !is_itertools_kind(cell) => Plan::Seq(vec![]),
             // reversed() of a dict or its views keeps the rest as It::Vec; CPython pickles those iterators as
@@ -232,6 +251,7 @@ pub fn iter_reduce_v(v: &V) -> R {
             }
             tup(vec![iter_f, tup(vec![list(out)])])
         }
+        Plan::Deq(d, i) => tup(vec![cls_of(cell)?, tup(vec![d, V::Int(i)])]),
         // repeat: (repeat, (element, times)) while it counts, (repeat, (element,)) when it is endless
         Plan::Repeat(x, n) => {
             it_pickle_warn()?;
@@ -377,6 +397,7 @@ pub fn iter_class_call(c: &Class, a: Args) -> Option<R> {
         ("builtins", "zip") => Some(bi_zip(a)),
         ("builtins", "enumerate") => Some(bi_enumerate(a)),
         ("builtins", "reversed") => Some(bi_reversed(a)),
+        ("collections", "_deque_iterator") => Some(deque_iter_new(a)),
         _ => None,
     }
 }

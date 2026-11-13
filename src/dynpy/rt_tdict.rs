@@ -41,6 +41,10 @@ fn trow(c: &Class) -> Option<&'static (&'static str, &'static str, &'static str,
     })
 }
 
+// whether CPython's type `c` itself (not a base) defines the method `n` (a method, slot wrapper or classmethod)
+pub fn cpy_type_own_method(c: &Class, n: &str) -> bool {
+    trow(c).map_or(false, |r| r.5.iter().any(|e| e.0 == n && matches!(e.1, 0 | 1 | 4)))
+}
 // whether CPython's builtin type `name` (or object, which it inherits from) has the attribute `attr`
 pub fn cpy_builtin_has(name: &str, attr: &str) -> bool {
     let has = |n: &str| TYPE_DICTS.iter().any(|r| r.0 == "builtins" && r.1 == n && r.5.iter().any(|e| e.0 == attr));
@@ -79,6 +83,20 @@ fn layout(c: &Rc<Class>) -> Option<(bool, bool, bool)> {
     }
     let r = trow(c)?;
     Some((r.3 & 1 != 0, r.3 & 2 != 0, r.3 & 4 != 0))
+}
+
+// whether instances of c take weak references (a __weakref__ slot in the layout); None when Brevi cannot
+// tell exactly (a base of unknown layout, or a class whose record is marked inexact)
+pub fn weak_layout(c: &Rc<Class>) -> Option<bool> {
+    let mut k = Some(c.clone());
+    while let Some(x) = k {
+        match tinfo(&x) {
+            Some(t) if t.inexact.get().is_some() => return None,
+            Some(t) => k = t.base.clone(),
+            None => break,
+        }
+    }
+    layout(c).map(|l| l.1)
 }
 
 // CPython's solid_base(): the nearest class in the base chain that adds instance fields
@@ -210,6 +228,10 @@ pub struct TDesc {
     pub owner: Rc<Class>,
     pub name: Sym,
 }
+// a slot's member descriptor (types.MemberDescriptorType)
+pub fn is_member_desc(v: &V) -> bool {
+    matches!(v, V::Ext(x) if x.any().downcast_ref::<TDesc>().is_some_and(|d| d.kind == 3))
+}
 fn tdesc(kind: u8, owner: &Rc<Class>, name: Sym) -> V {
     let key = (Rc::as_ptr(owner) as *const u8 as usize, name);
     if let Some(v) = TDESCS.with(|m| m.borrow().get(&key).cloned()) {
@@ -223,6 +245,10 @@ fn tdesc(kind: u8, owner: &Rc<Class>, name: Sym) -> V {
 // the type's tp_name, for subscripting a class (rt_typing.rs class_subscript).
 pub fn cpy_dict_has(c: &Class, n: &str) -> Option<(bool, &'static str)> {
     trow(c).map(|r| (r.5.iter().any(|e| e.0 == n), r.2))
+}
+// whether CPython's object type dict holds n (object.__hash__, __repr__, __reduce_ex__, ...)
+pub fn object_type_has(n: &str) -> bool {
+    trow(&bclass("object")).is_some_and(|r| r.5.iter().any(|e| e.0 == n))
 }
 // Whether CPython's type lookup finds `n` on the builtin type `c` (#470): in the dict of a class on its MRO, or
 // on `type`, its metaclass. None when a class on the MRO has no table, so Brevi cannot tell.
