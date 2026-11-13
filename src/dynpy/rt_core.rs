@@ -829,23 +829,31 @@ pub fn ose_class() -> Rc<Class> {
         k
     })
 }
+// An exception the runtime raises (1/0, [][1], a coroutine's StopIteration) is raised where it is made, so it
+// takes the exception being handled as its __context__, as CPython's C-level raises do (`raise` sets it too).
 pub fn exc(name: &str, msg: String) -> E {
     let c = exc_class(name);
     let o = Obj::new(c);
     o.set("args", tup(vec![st(msg)]));
-    E(V::Obj(o))
+    let e = E(V::Obj(o));
+    set_context(&e);
+    e
 }
 pub fn exc0(name: &str) -> E {
     let c = exc_class(name);
     let o = Obj::new(c);
     o.set("args", tup(vec![]));
-    E(V::Obj(o))
+    let e = E(V::Obj(o));
+    set_context(&e);
+    e
 }
 pub fn exc_v(name: &str, v: V) -> E {
     let c = exc_class(name);
     let o = Obj::new(c);
     o.set("args", tup(vec![v]));
-    E(V::Obj(o))
+    let e = E(V::Obj(o));
+    set_context(&e);
+    e
 }
 pub fn type_err<T>(m: String) -> Result<T, E> {
     Err(exc("TypeError", m))

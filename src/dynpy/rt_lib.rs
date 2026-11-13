@@ -1991,6 +1991,8 @@ pub fn builtin_fn(name: &str) -> Option<fn(Args) -> R> {
         "anext" => bi_anext,
         "__brevi_aenter" => bi___brevi_aenter,
         "__brevi_aexit" => bi___brevi_aexit,
+        "__brevi_awith" => bi___brevi_awith,
+        "__brevi_afor_await" => bi___brevi_afor_await,
         "__brevi_eg_split" => bi___brevi_eg_split,
         "__brevi_eg_reraise" => bi___brevi_eg_reraise,
         _ => return None,

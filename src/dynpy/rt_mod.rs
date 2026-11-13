@@ -2539,6 +2539,10 @@ fn iter_sub_copy_check(o: &Rc<Obj>) -> Result<(), E> {
         _ => Ok(()),
     }
 }
+// coroutines and async generators (and their asend/athrow awaitables) have no reduce: copy and pickle refuse them
+fn async_unpicklable(t: &str) -> bool {
+    matches!(t, "coroutine" | "async_generator" | "async_generator_asend" | "async_generator_athrow")
+}
 pub fn shallow_copy(x: &V) -> R {
     Ok(match x {
         // copy.copy and copy.deepcopy of a bytearray make a new one, with its own bytes
@@ -2581,6 +2585,7 @@ pub fn shallow_copy(x: &V) -> R {
             Some(v) => v,
             None => iter_copy(x, None)?,
         },
+        V::Ext(e) if async_unpicklable(e.tname()) => return Err(exc("TypeError", format!("cannot pickle '{}' object", e.tname()))),
         _ => x.clone(),
     })
 }
@@ -2719,6 +2724,7 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
             y
         }
         V::Iter(_) => iter_copy(x, Some(memo))?,
+        V::Ext(e) if async_unpicklable(e.tname()) => return Err(exc("TypeError", format!("cannot pickle '{}' object", e.tname()))),
         _ => x.clone(),
     })
 }

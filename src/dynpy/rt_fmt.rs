@@ -438,6 +438,9 @@ pub fn repr(v: &V) -> Result<String, E> {
                     return t;
                 }
             }
+            if matches!(&x.kind, IterClass::Class(c) if c.name == "coroutine_wrapper") {
+                return Ok(format!("<coroutine_wrapper object at 0x{:x}>", Rc::as_ptr(x) as *const u8 as usize));
+            }
             // a generator (or genexpr) reprs with its dotted __qualname__, as in CPython; the cells are held
             // while the generator body runs, so read them only when free (the running generator's name is
             // remembered elsewhere for that case)
