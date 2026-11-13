@@ -269,7 +269,7 @@ fn walk_imports(body: &[Stmt], f: &mut dyn FnMut(&str)) {
     }
 }
 
-fn blocks(st: &St, f: &mut dyn FnMut(&[Stmt])) {
+pub(crate) fn blocks(st: &St, f: &mut dyn FnMut(&[Stmt])) {
     match st {
         St::If(arms, els) => {
             arms.iter().for_each(|(_, b)| f(b));

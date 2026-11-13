@@ -19,6 +19,25 @@ pub fn rewrite(src: &str) -> String {
     let Ok(body) = parse::parse(src) else { return src.to_string() };
     let mut lines: Vec<String> = src.lines().map(String::from).collect();
     let mut changed = false;
+    // A class with dunder methods could make an operator in the loop raise StopIteration (see no_stop).
+    // So could one from a module of the program's own: allow only standard modules whose values cannot.
+    const STD: &[&str] = &["math", "random", "sys", "time", "itertools", "collections", "functools", "operator", "string", "re", "os", "typing", "heapq", "bisect", "fractions", "decimal", "statistics"];
+    let std = |m: &str| STD.contains(&m.split('.').next().unwrap_or(m));
+    let (mut dunders, mut own_import) = (false, false);
+    each_stmt(&body, &mut |st| match st {
+        St::Class(c) => dunders |= !c.body.iter().all(|s| match &s.st {
+            St::Def(f) => !f.name.starts_with("__") || f.name == "__init__",
+            St::Assign(ts, _) => ts.iter().all(|t| matches!(t, Ex::Name(n) if !n.starts_with("__"))),
+            St::Pass | St::Expr(Ex::Str(_)) => true,
+            _ => false,
+        }),
+        St::Import(ms) => own_import |= ms.iter().any(|(m, _)| !std(m)),
+        St::ImportFrom(m, _) => own_import |= !std(m),
+        _ => {}
+    });
+    if dunders || own_import {
+        return src.to_string();
+    }
     for s in &body {
         let St::Def(d) = &s.st else { continue };
         if let Some(new) = one(d, &lines) {
@@ -63,6 +82,9 @@ fn one(d: &parse::FuncDef, lines: &[String]) -> Option<Vec<String>> {
         return None;
     }
     if !steps.iter().all(|s| body_ok(s)) || !simple(&steps[0].st) {
+        return None;
+    }
+    if !no_stop(setup) || !no_stop(steps) {
         return None;
     }
     let def_l = d.line - 1;
@@ -156,6 +178,27 @@ fn one(d: &parse::FuncDef, lines: &[String]) -> Option<Vec<String>> {
 
 fn simple(s: &St) -> bool {
     matches!(s, St::Assign(..) | St::AugAssign(..) | St::Expr(_) | St::Pass)
+}
+
+// PEP 479: a StopIteration escaping a generator's body is a RuntimeError, but escaping gen_next_ it would
+// stay a StopIteration. Only rewrite code that cannot raise one: no calls other than these builtins, no
+// attribute or item reads (a __getattr__/__getitem__ could), and (checked in rewrite) no class dunders.
+fn no_stop(body: &[Stmt]) -> bool {
+    const PURE: &[&str] = &["abs", "min", "max", "int", "float", "bool", "str", "len", "divmod", "round", "ord", "chr", "pow", "hash"];
+    let mut ok = true;
+    crate::dynpy::typing::walk_all(body, &mut |e, _| match e {
+        Ex::Call(f, _) => ok &= matches!(f.as_ref(), Ex::Name(n) if PURE.contains(&n.as_str())),
+        Ex::Attr(..) | Ex::Index(..) => ok = false,
+        _ => {}
+    });
+    ok
+}
+
+fn each_stmt(body: &[Stmt], f: &mut dyn FnMut(&St)) {
+    for s in body {
+        f(&s.st);
+        crate::dynpy::typing::blocks(&s.st, &mut |b| each_stmt(b, f));
+    }
 }
 
 fn balanced(s: &str) -> bool {
@@ -290,5 +333,22 @@ mod tests {
         // Any other use keeps the generator.
         let other = src.replace("print(next(r), next(r) % 4)", "print(next(r), list(zip(r, range(2))))");
         assert_eq!(rewrite(&other), other);
+    }
+
+    // PEP 479: anything that could raise StopIteration in the body keeps the generator.
+    #[test]
+    fn may_raise_stop() {
+        let src = "def rng(seed):\n    x = seed\n    while True:\n        x = (x * 1103515245 + 12345) % 2147483648\n        yield x\n\nr = rng(3)\nprint(next(r), next(r) % 4)\n";
+        assert!(rewrite(src).contains("class rng:"));
+        for (a, b) in [("(x * 1103515245 + 12345)", "f(x)"), ("(x * 1103515245 + 12345)", "xs[x]"), ("(x * 1103515245 + 12345)", "x.v")] {
+            let s = src.replace(a, b);
+            assert_eq!(rewrite(&s), s, "{b}");
+        }
+        for pre in ["class A:\n    def __add__(self, o): return o\n", "import mymod\n", "from mymod import f\n"] {
+            let s = format!("{pre}{src}");
+            assert_eq!(rewrite(&s), s, "{pre}");
+        }
+        let s = format!("import math\nclass A:\n    def __init__(self): self.v = 1\n{src}");
+        assert!(rewrite(&s).contains("class rng:"));
     }
 }

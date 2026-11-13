@@ -1,0 +1,18 @@
+raise RuntimeError ('generator raised StopIteration',) StopIteration ('boom',) True True
+next RuntimeError ('generator raised StopIteration',) StopIteration () True True
+yield from RuntimeError ('generator raised StopIteration',) StopIteration ('boom',) True True
+return ok [1]
+return yf ok [1, 7]
+subclass RuntimeError ('generator raised StopIteration',) MyStop (3,) True True
+for loop RuntimeError ('generator raised StopIteration',) StopIteration ('boom',) True True
+genexp RuntimeError ('generator raised StopIteration',) StopIteration () True True
+sum genexp RuntimeError ('generator raised StopIteration',) StopIteration () True True
+sync StopAsync StopAsyncIteration () NoneType None True False
+throw RuntimeError ('generator raised StopIteration',) StopIteration ('t',) True True
+throw at yield RuntimeError ('generator raised StopIteration',) StopIteration ('in',) True True
+caught ok [1, 'generator raised StopIteration']
+same cause ok True
+close RuntimeError ('generator raised StopIteration',) StopIteration ('fin',) True True
+agen StopIteration RuntimeError ('async generator raised StopIteration',) StopIteration ('a',) True True
+agen StopAsyncIteration RuntimeError ('async generator raised StopAsyncIteration',) StopAsyncIteration ('b',) True True
+contextmanager ok StopIteration cm

@@ -2508,7 +2508,7 @@ impl It {
                     Ok(v) => Ok(v),
                     Err(e) => {
                         *done = true;
-                        Err(e)
+                        Err(pep479(e, "generator", false))
                     }
                 }
             }
