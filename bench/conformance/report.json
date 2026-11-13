@@ -2,14 +2,14 @@
 "brevi": "brevi 0.27.1",
 "python": "3.13.13",
 "tag": "v3.13.13",
-"date": "2026-11-13",
+"date": "2026-11-12",
 "platform": "linux",
 "sandboxed": false,
 "timeout_s": 20,
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 300,
+"matched": 276,
 "refused": 0,
 "by_design": 34,
 "string_model": 0,
@@ -17,22 +17,22 @@
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 2,
-"unstable": 8,
+"not_extractable": 0,
+"unstable": 7,
 "excluded": 40,
-"total": 384,
-"scored": 302,
+"total": 357,
+"scored": 276,
 "matched_through_cpython": 0,
 "matched_silent": 47,
-"coverage": 0.9934,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 253,
-"assert_coverage": 0.8377,
-"matched_typed": 27,
-"typed_share": 0.09
+"matched_asserting": 229,
+"assert_coverage": 0.8297,
+"matched_typed": 25,
+"typed_share": 0.0906
 },
 "dyn": {
-"matched": 300,
+"matched": 276,
 "refused": 0,
 "by_design": 34,
 "string_model": 0,
@@ -40,17 +40,17 @@
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 2,
-"unstable": 8,
+"not_extractable": 0,
+"unstable": 7,
 "excluded": 40,
-"total": 384,
-"scored": 302,
+"total": 357,
+"scored": 276,
 "matched_through_cpython": 0,
 "matched_silent": 47,
-"coverage": 0.9934,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 253,
-"assert_coverage": 0.8377,
+"matched_asserting": 229,
+"assert_coverage": 0.8297,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -295,160 +295,16 @@
 "matched_typed": 0,
 "typed_share": 0.0
 }
-},
-"test_contains": {
-"normal": {
-"matched": 4,
-"refused": 0,
-"by_design": 0,
-"string_model": 0,
-"cpython_private": 0,
-"wrong_output": 0,
-"wrong_exit": 0,
-"crash_or_timeout": 0,
-"not_extractable": 0,
-"unstable": 0,
-"excluded": 0,
-"total": 4,
-"scored": 4,
-"matched_through_cpython": 0,
-"matched_silent": 0,
-"coverage": 1.0,
-"wrong": 0,
-"matched_asserting": 4,
-"assert_coverage": 1.0,
-"matched_typed": 0,
-"typed_share": 0.0
-},
-"dyn": {
-"matched": 4,
-"refused": 0,
-"by_design": 0,
-"string_model": 0,
-"cpython_private": 0,
-"wrong_output": 0,
-"wrong_exit": 0,
-"crash_or_timeout": 0,
-"not_extractable": 0,
-"unstable": 0,
-"excluded": 0,
-"total": 4,
-"scored": 4,
-"matched_through_cpython": 0,
-"matched_silent": 0,
-"coverage": 1.0,
-"wrong": 0,
-"matched_asserting": 4,
-"assert_coverage": 1.0,
-"matched_typed": 0,
-"typed_share": 0.0
-}
-},
-"test_binop": {
-"normal": {
-"matched": 11,
-"refused": 0,
-"by_design": 0,
-"string_model": 0,
-"cpython_private": 0,
-"wrong_output": 0,
-"wrong_exit": 0,
-"crash_or_timeout": 0,
-"not_extractable": 1,
-"unstable": 0,
-"excluded": 0,
-"total": 12,
-"scored": 12,
-"matched_through_cpython": 0,
-"matched_silent": 0,
-"coverage": 0.9167,
-"wrong": 0,
-"matched_asserting": 11,
-"assert_coverage": 0.9167,
-"matched_typed": 1,
-"typed_share": 0.0909
-},
-"dyn": {
-"matched": 11,
-"refused": 0,
-"by_design": 0,
-"string_model": 0,
-"cpython_private": 0,
-"wrong_output": 0,
-"wrong_exit": 0,
-"crash_or_timeout": 0,
-"not_extractable": 1,
-"unstable": 0,
-"excluded": 0,
-"total": 12,
-"scored": 12,
-"matched_through_cpython": 0,
-"matched_silent": 0,
-"coverage": 0.9167,
-"wrong": 0,
-"matched_asserting": 11,
-"assert_coverage": 0.9167,
-"matched_typed": 0,
-"typed_share": 0.0
-}
-},
-"test_richcmp": {
-"normal": {
-"matched": 9,
-"refused": 0,
-"by_design": 0,
-"string_model": 0,
-"cpython_private": 0,
-"wrong_output": 0,
-"wrong_exit": 0,
-"crash_or_timeout": 0,
-"not_extractable": 1,
-"unstable": 1,
-"excluded": 0,
-"total": 11,
-"scored": 10,
-"matched_through_cpython": 0,
-"matched_silent": 0,
-"coverage": 0.9,
-"wrong": 0,
-"matched_asserting": 9,
-"assert_coverage": 0.9,
-"matched_typed": 1,
-"typed_share": 0.1111
-},
-"dyn": {
-"matched": 9,
-"refused": 0,
-"by_design": 0,
-"string_model": 0,
-"cpython_private": 0,
-"wrong_output": 0,
-"wrong_exit": 0,
-"crash_or_timeout": 0,
-"not_extractable": 1,
-"unstable": 1,
-"excluded": 0,
-"total": 11,
-"scored": 10,
-"matched_through_cpython": 0,
-"matched_silent": 0,
-"coverage": 0.9,
-"wrong": 0,
-"matched_asserting": 9,
-"assert_coverage": 0.9,
-"matched_typed": 0,
-"typed_share": 0.0
-}
 }
 },
 "paths": {
 "normal": {
-"dynamic": 273,
+"dynamic": 251,
 "refused": 34,
-"typed": 27
+"typed": 25
 },
 "dyn": {
-"dynamic": 300,
+"dynamic": 276,
 "refused": 34
 }
 },
@@ -5064,360 +4920,6 @@
 {
 "id": "test_dict.SubclassMappingTests.test_write",
 "file": "test_dict",
-"modes": {
-"normal": {
-"category": "matched",
-"path": "dynamic"
-},
-"dyn": {
-"category": "matched",
-"path": "dynamic"
-}
-}
-},
-{
-"id": "test_contains.TestContains.test_block_fallback",
-"file": "test_contains",
-"modes": {
-"normal": {
-"category": "matched",
-"path": "dynamic"
-},
-"dyn": {
-"category": "matched",
-"path": "dynamic"
-}
-}
-},
-{
-"id": "test_contains.TestContains.test_builtin_sequence_types",
-"file": "test_contains",
-"modes": {
-"normal": {
-"category": "matched",
-"path": "dynamic"
-},
-"dyn": {
-"category": "matched",
-"path": "dynamic"
-}
-}
-},
-{
-"id": "test_contains.TestContains.test_common_tests",
-"file": "test_contains",
-"modes": {
-"normal": {
-"category": "matched",
-"path": "dynamic"
-},
-"dyn": {
-"category": "matched",
-"path": "dynamic"
-}
-}
-},
-{
-"id": "test_contains.TestContains.test_nonreflexive",
-"file": "test_contains",
-"modes": {
-"normal": {
-"category": "matched",
-"path": "dynamic"
-},
-"dyn": {
-"category": "matched",
-"path": "dynamic"
-}
-}
-},
-{
-"id": "test_binop.RatTestCase.test_add",
-"file": "test_binop",
-"modes": {
-"normal": {
-"category": "matched",
-"path": "dynamic"
-},
-"dyn": {
-"category": "matched",
-"path": "dynamic"
-}
-}
-},
-{
-"id": "test_binop.RatTestCase.test_constructor",
-"file": "test_binop",
-"category": "not_extractable",
-"detail": "uses unittest beyond mock"
-},
-{
-"id": "test_binop.RatTestCase.test_div",
-"file": "test_binop",
-"modes": {
-"normal": {
-"category": "matched",
-"path": "dynamic"
-},
-"dyn": {
-"category": "matched",
-"path": "dynamic"
-}
-}
-},
-{
-"id": "test_binop.RatTestCase.test_eq",
-"file": "test_binop",
-"modes": {
-"normal": {
-"category": "matched",
-"path": "dynamic"
-},
-"dyn": {
-"category": "matched",
-"path": "dynamic"
-}
-}
-},
-{
-"id": "test_binop.RatTestCase.test_floordiv",
-"file": "test_binop",
-"modes": {
-"normal": {
-"category": "matched",
-"path": "dynamic"
-},
-"dyn": {
-"category": "matched",
-"path": "dynamic"
-}
-}
-},
-{
-"id": "test_binop.RatTestCase.test_gcd",
-"file": "test_binop",
-"modes": {
-"normal": {
-"category": "matched",
-"path": "typed"
-},
-"dyn": {
-"category": "matched",
-"path": "dynamic"
-}
-}
-},
-{
-"id": "test_binop.RatTestCase.test_mul",
-"file": "test_binop",
-"modes": {
-"normal": {
-"category": "matched",
-"path": "dynamic"
-},
-"dyn": {
-"category": "matched",
-"path": "dynamic"
-}
-}
-},
-{
-"id": "test_binop.RatTestCase.test_sub",
-"file": "test_binop",
-"modes": {
-"normal": {
-"category": "matched",
-"path": "dynamic"
-},
-"dyn": {
-"category": "matched",
-"path": "dynamic"
-}
-}
-},
-{
-"id": "test_binop.RatTestCase.test_true_div",
-"file": "test_binop",
-"modes": {
-"normal": {
-"category": "matched",
-"path": "dynamic"
-},
-"dyn": {
-"category": "matched",
-"path": "dynamic"
-}
-}
-},
-{
-"id": "test_binop.OperationOrderTests.test_comparison_orders",
-"file": "test_binop",
-"modes": {
-"normal": {
-"category": "matched",
-"path": "dynamic"
-},
-"dyn": {
-"category": "matched",
-"path": "dynamic"
-}
-}
-},
-{
-"id": "test_binop.FallbackBlockingTests.test_fallback_ne_blocking",
-"file": "test_binop",
-"modes": {
-"normal": {
-"category": "matched",
-"path": "dynamic"
-},
-"dyn": {
-"category": "matched",
-"path": "dynamic"
-}
-}
-},
-{
-"id": "test_binop.FallbackBlockingTests.test_fallback_rmethod_blocking",
-"file": "test_binop",
-"modes": {
-"normal": {
-"category": "matched",
-"path": "dynamic"
-},
-"dyn": {
-"category": "matched",
-"path": "dynamic"
-}
-}
-},
-{
-"id": "test_richcmp.VectorTest.test_mixed",
-"file": "test_richcmp",
-"modes": {
-"normal": {
-"category": "matched",
-"path": "dynamic"
-},
-"dyn": {
-"category": "matched",
-"path": "dynamic"
-}
-}
-},
-{
-"id": "test_richcmp.NumberTest.test_basic",
-"file": "test_richcmp",
-"modes": {
-"normal": {
-"category": "matched",
-"path": "dynamic"
-},
-"dyn": {
-"category": "matched",
-"path": "dynamic"
-}
-}
-},
-{
-"id": "test_richcmp.NumberTest.test_values",
-"file": "test_richcmp",
-"modes": {
-"normal": {
-"category": "matched",
-"path": "dynamic"
-},
-"dyn": {
-"category": "matched",
-"path": "dynamic"
-}
-}
-},
-{
-"id": "test_richcmp.MiscTest.test_exception_message",
-"file": "test_richcmp",
-"modes": {
-"normal": {
-"category": "matched",
-"path": "dynamic"
-},
-"dyn": {
-"category": "matched",
-"path": "dynamic"
-}
-}
-},
-{
-"id": "test_richcmp.MiscTest.test_misbehavin",
-"file": "test_richcmp",
-"modes": {
-"normal": {
-"category": "matched",
-"path": "dynamic"
-},
-"dyn": {
-"category": "matched",
-"path": "dynamic"
-}
-}
-},
-{
-"id": "test_richcmp.MiscTest.test_not",
-"file": "test_richcmp",
-"modes": {
-"normal": {
-"category": "matched",
-"path": "dynamic"
-},
-"dyn": {
-"category": "matched",
-"path": "dynamic"
-}
-}
-},
-{
-"id": "test_richcmp.MiscTest.test_recursion",
-"file": "test_richcmp",
-"category": "not_extractable",
-"detail": "decorator @support.no_tracing"
-},
-{
-"id": "test_richcmp.DictTest.test_dicts",
-"file": "test_richcmp",
-"category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
-},
-{
-"id": "test_richcmp.ListTest.test_badentry",
-"file": "test_richcmp",
-"modes": {
-"normal": {
-"category": "matched",
-"path": "dynamic"
-},
-"dyn": {
-"category": "matched",
-"path": "dynamic"
-}
-}
-},
-{
-"id": "test_richcmp.ListTest.test_coverage",
-"file": "test_richcmp",
-"modes": {
-"normal": {
-"category": "matched",
-"path": "typed"
-},
-"dyn": {
-"category": "matched",
-"path": "dynamic"
-}
-}
-},
-{
-"id": "test_richcmp.ListTest.test_goodentry",
-"file": "test_richcmp",
 "modes": {
 "normal": {
 "category": "matched",
