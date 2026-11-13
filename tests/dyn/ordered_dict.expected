@@ -1,0 +1,15 @@
+Sub({'a': 1, 'b': 2}) Sub({'a': 1, 'b': 2}) Sub({'a': 1, 'b': 2}) [Sub({'a': 1, 'b': 2})] Sub()
+Sub Sub({'a': 1, 'b': 2})
+{'a': 99}
+KeyError
+RuntimeError: OrderedDict mutated during iteration
+False True
+odict_keys(['a', 'b', 'z']) odict_values([1, 2, 0]) odict_items([('a', 1), ('b', 2), ('z', 0)])
+OrderedDict({1: ...})
+0 OrderedDict ['b', 'c', 'a', 1] True False
+1 OrderedDict ['b', 'c', 'a', 1] True False
+2 OrderedDict ['b', 'c', 'a', 1] True False
+3 OrderedDict ['b', 'c', 'a', 1] True False
+4 OrderedDict ['b', 'c', 'a', 1] True False
+5 OrderedDict ['b', 'c', 'a', 1] True False
+[OrderedDict({'z': 1}), {'q': OrderedDict()}]

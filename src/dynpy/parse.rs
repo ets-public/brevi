@@ -1175,7 +1175,7 @@ impl P {
         }
         stop.push(st(St::Break));
         let get = st(St::Try(
-            vec![st(St::Assign(vec![name(&ax)], Ex::Await(Box::new(call("anext", name(&ai))))))],
+            vec![st(St::Assign(vec![name(&ax)], call("__brevi_afor_await", call("anext", name(&ai)))))],
             vec![Handler { types: Some(name("StopAsyncIteration")), name: None, body: stop, line }],
             None,
             None,
@@ -1213,13 +1213,14 @@ impl P {
             st(St::Assign(vec![name(&am)], m)),
             st(St::Assign(vec![name(&ax)], call(name("__brevi_aexit"), vec![name(&am)]))),
         ];
-        let enter = Ex::Await(Box::new(call(call(name("__brevi_aenter"), vec![name(&am)]), vec![name(&am)])));
+        // __brevi_awith checks what __aenter__/__aexit__ returned is awaitable, with CPython's 'async with' message
+        let enter = Ex::Await(Box::new(call(name("__brevi_awith"), vec![call(call(name("__brevi_aenter"), vec![name(&am)]), vec![name(&am)]), Ex::Int("0".into())])));
         out.push(st(match t {
             Some(t) => St::Assign(vec![t], enter),
             None => St::Expr(enter),
         }));
         out.push(st(St::Assign(vec![name(&ak)], Ex::True)));
-        let exit = |args: Vec<Ex>| Ex::Await(Box::new(call(name(&ax), args)));
+        let exit = |args: Vec<Ex>| Ex::Await(Box::new(call(name("__brevi_awith"), vec![call(name(&ax), args), Ex::Int("1".into())])));
         let h = vec![
             st(St::Assign(vec![name(&ak)], Ex::False)),
             st(St::If(

@@ -829,23 +829,31 @@ pub fn ose_class() -> Rc<Class> {
         k
     })
 }
+// An exception the runtime raises (1/0, [][1], a coroutine's StopIteration) is raised where it is made, so it
+// takes the exception being handled as its __context__, as CPython's C-level raises do (`raise` sets it too).
 pub fn exc(name: &str, msg: String) -> E {
     let c = exc_class(name);
     let o = Obj::new(c);
     o.set("args", tup(vec![st(msg)]));
-    E(V::Obj(o))
+    let e = E(V::Obj(o));
+    set_context(&e);
+    e
 }
 pub fn exc0(name: &str) -> E {
     let c = exc_class(name);
     let o = Obj::new(c);
     o.set("args", tup(vec![]));
-    E(V::Obj(o))
+    let e = E(V::Obj(o));
+    set_context(&e);
+    e
 }
 pub fn exc_v(name: &str, v: V) -> E {
     let c = exc_class(name);
     let o = Obj::new(c);
     o.set("args", tup(vec![v]));
-    E(V::Obj(o))
+    let e = E(V::Obj(o));
+    set_context(&e);
+    e
 }
 pub fn type_err<T>(m: String) -> Result<T, E> {
     Err(exc("TypeError", m))
@@ -1680,13 +1688,15 @@ pub struct Dict {
     pub ver: u64,
     // number of stored keys whose == may run user code (lookups on such a dict drop the RefCell borrow)
     pub unsafe_eq: usize,
+    // an OrderedDict's instance __dict__ (CPython's OrderedDict keeps one; dict, Counter and defaultdict do not)
+    pub attrs: Option<Rc<RefCell<Dict>>>,
 }
 // At most this many restarts of a lookup whose key comparison changed the dict; then give up instead of
 // looping forever (CPython restarts on the changed table; a dict cleared in __eq__ is empty the second time).
 const LOOKUP_RESTARTS: usize = 200;
 impl Dict {
     pub fn new() -> Dict {
-        Dict { ents: vec![], idx: Rc::new(HM::default()), n: 0, kind: 0, dflt: None, ver: 0, unsafe_eq: 0 }
+        Dict { ents: vec![], idx: Rc::new(HM::default()), n: 0, kind: 0, dflt: None, ver: 0, unsafe_eq: 0, attrs: None }
     }
     pub fn len(&self) -> usize {
         self.n
@@ -1842,6 +1852,7 @@ impl Dict {
             dflt: self.dflt.clone(),
             ver: 0,
             unsafe_eq: self.unsafe_eq,
+            attrs: None,
         }
     }
     pub fn move_to_end(&mut self, k: &V, last: bool) -> Result<bool, E> {
@@ -4027,6 +4038,7 @@ pub fn type_name(v: &V) -> String {
         V::Slice(_) => "slice".into(),
         V::Deque(_) => "collections.deque".into(),
         V::Module(_) => "module".into(),
+        V::View(v) if v.1 <= 2 && matches!(&v.0, V::Dict(d) if d.borrow().kind == 3) => ["odict_keys", "odict_values", "odict_items"][v.1 as usize].into(),
         V::View(v) => match v.1 {
             0 => "dict_keys".into(),
             1 => "dict_values".into(),
@@ -4046,6 +4058,7 @@ pub fn tn(v: &V) -> String {
         V::Dict(d) => match d.borrow().kind {
             1 => "collections.defaultdict".into(),
             2 => "Counter".into(),
+            3 => "collections.OrderedDict".into(),
             _ => "dict".into(),
         },
         // a live weakref.proxy names its referent's type in errors, as CPython's proxy slots raise them
