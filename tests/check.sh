@@ -702,7 +702,7 @@ case "$c:$o" in "1:NotImplementedError: brevi: this operation on a str with a lo
 printf 'async def f():\n    pass\nc = f()\nprint(c.cr_frame)\n' > "$t/cr.py"
 printf 'import types as t\n@t.coroutine\ndef g():\n    yield 1\n' > "$t/tc.py"
 printf 'from types import coroutine\n' > "$t/tf.py"
-for x in "cr:the cr_frame attribute of a coroutine" "tc:types.coroutine is not" "tf:types.coroutine is not"; do
+for x in "cr:the cr_frame attribute of a coroutine" "tc:types.coroutine" "tf:types.coroutine"; do
   o=$(BREVI_DYN=1 $BREVI build "$t/${x%%:*}.py" -o "$t/prog" 2>&1)
   case "$o" in *"${x#*:}"*"not supported in dynamic builds"*) echo "ok   refused: ${x#*:}" ;; *) echo "FAIL not refused: ${x#*:}"; printf '%s\n' "$o"; fail=1 ;; esac
 done
