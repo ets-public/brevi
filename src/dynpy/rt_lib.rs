@@ -2156,6 +2156,24 @@ pub fn dict_fromkeys(cls: Rc<Class>, base: Rc<Class>) -> V {
     })
 }
 pub fn builtin_class_attr(c: &Rc<Class>, name: &str) -> Option<V> {
+    // object's attributes are made once, so each read gives the same value (object.__hash__ is object.__hash__,
+    // as CPython's type dict holds one slot wrapper)
+    thread_local! {
+        static OBJ_ATTRS: RefCell<Vec<(Sym, V)>> = const { RefCell::new(vec![]) };
+    }
+    let obj = c.module == "builtins" && c.name == "object";
+    if obj {
+        if let Some(v) = OBJ_ATTRS.with(|m| m.borrow().iter().find(|(k, _)| *k == name).map(|(_, v)| v.clone())) {
+            return Some(v);
+        }
+    }
+    let v = builtin_class_attr1(c, name)?;
+    if obj {
+        OBJ_ATTRS.with(|m| m.borrow_mut().push((sym(name), v.clone())));
+    }
+    Some(v)
+}
+fn builtin_class_attr1(c: &Rc<Class>, name: &str) -> Option<V> {
     let v = builtin_class_attr_raw(c, name)?;
     if let V::Func(f) = &v {
         if f.kind.get() == 3 {
@@ -2194,6 +2212,9 @@ fn builtin_class_attr_raw(c: &Rc<Class>, name: &str) -> Option<V> {
             Ok(V::None)
         })),
         ("object", "__init_subclass__") => Some(builtin("__init_subclass__", |_a: Args| Ok(V::None))),
+        // a class method: C.__subclasshook__(sub) is NotImplemented for any class that does not define its own
+        // (ABCMeta's issubclass calls it and then goes on to the registry and subclasses)
+        ("object", "__subclasshook__") => Some(builtin("__subclasshook__", |_a: Args| Ok(V::NotImpl))),
         // the lookup without the class's __getattr__ fallback
         ("object", "__getattribute__") => Some(builtin("__getattribute__", |a: Args| {
             let (Some(o), Some(V::Str(n))) = (a.p.first(), a.p.get(1)) else {

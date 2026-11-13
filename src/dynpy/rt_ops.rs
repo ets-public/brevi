@@ -2805,12 +2805,32 @@ pub fn genexp_iter(name: Sym, f: impl FnMut() -> Result<Option<V>, E> + 'static)
 pub fn vec_iter(kind: ItKind, v: Vec<V>) -> V {
     new_iter(It::Vec(v.into_iter()), IterClass::Kind(kind))
 }
+// unpacking's own message for a value whose type cannot be iterated at all (CPython's unpack_iterable): iter()
+// said "'X' object is not iterable" and the type has neither __iter__ nor __getitem__ (a TypeError that the
+// type's own __iter__ raised stays as it is)
+fn unpack_items(v: &V) -> Result<Vec<V>, E> {
+    to_vec(v).map_err(|e| {
+        let own = match v {
+            V::Obj(o) => o.cls.lookup("__iter__").is_none() && o.cls.lookup("__getitem__").is_none(),
+            V::Class(_) | V::Ext(_) => false,
+            _ => true,
+        };
+        let plain = format!("'{}' object is not iterable", tn(v));
+        let same = is_exc(&e.0, "TypeError")
+            && matches!(&e.0, V::Obj(o) if matches!(o.get("args"), Some(V::Tuple(a)) if a.len() == 1 && matches!(&a[0], V::Str(m) if m.text() == plain)));
+        if own && same {
+            exc("TypeError", format!("cannot unpack non-iterable {} object", tn(v)))
+        } else {
+            e
+        }
+    })
+}
 // a, b = x
 pub fn unpack(v: &V, n: usize) -> Result<Vec<V>, E> {
     let xs = match v {
         V::Tuple(t) if t.len() == n => return Ok(t.to_vec()),
         V::List(l) if l.borrow().len() == n => return Ok(l.borrow().clone()),
-        _ => to_vec(v)?,
+        _ => unpack_items(v)?,
     };
     if xs.len() > n {
         return val_err(format!("too many values to unpack (expected {n})"));
@@ -2832,7 +2852,7 @@ pub fn unpack2(v: V) -> Result<(V, V), E> {
 }
 // a, *b, c = x
 pub fn unpack_star(v: &V, before: usize, after: usize) -> Result<Vec<V>, E> {
-    let xs = to_vec(v)?;
+    let xs = unpack_items(v)?;
     if xs.len() < before + after {
         return val_err(format!("not enough values to unpack (expected at least {}, got {})", before + after, xs.len()));
     }

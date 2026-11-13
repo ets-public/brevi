@@ -1,0 +1,45 @@
+C(x=10, y=5) 11 __main__ C
+{}
+{'x': 1, 'y': 2, 'z': 3} {'x': 'typing.Any', 'y': <class 'int'>, 'z': 'typing.Any'}
+{'x': 6} 1
+Invalid field: ()
+Invalid field: (1, 2, 3, 4)
+object of type 'type' has no len()
+object of type 'function' has no len()
+Field name duplicated: 'a'
+Field name duplicated: 'ab'
+Field names must not be keywords: 'for'
+Field names must be valid identifiers: '()'
+Field names must be valid identifiers: ''
+'()'
+'x,y'
+''
+E.__init__() missing 1 required positional argument: 'y'
+E(x=1, y=2) True
+custom custom
+('a', '__weakref__')
+weakref_slot is True but slots is False
+make_dataclass() got an unexpected keyword argument 'xxinit'. Did you mean 'init'?
+('a', 'b') M(a=1, b=2)
+[] False
+True
+['foo'] True
+Can't instantiate abstract class B without an implementation for abstract method 'foo'
+F(x=[])
+True True
+cannot unpack non-iterable Q object
+FrozenInstanceError cannot assign to field 'x'
+FrozenInstanceError cannot delete field 'x'
+True True
+cannot create weak reference to 'B' object
+C(y=1, x=3)
+D.__init__() missing 1 required positional argument: 'x'
+D(x=2)
+None
+True True
+cannot create weak reference to 'I' object
+cannot create weak reference to 'ValueError' object
+'S' object has no attribute '__weakref__'
+True
+cannot unpack non-iterable int object
+cannot unpack non-iterable NoneType object
