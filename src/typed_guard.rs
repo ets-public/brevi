@@ -48,6 +48,32 @@ pub fn check_soft_at(path: &std::path::Path, src: &str) -> Result<Option<(usize,
     Ok(check_body(&crate::share_guard::parsed(path, src)?))
 }
 
+// `a is b` / `a is not b`: the typed build's values have no identity, so its lexer turns `is` into `==` (and
+// `v is True` / `v is False` into a test for that bool). Only those comparisons answer as CPython does: with
+// None or Ellipsis on either side, or True / False on the right. Any other `is` goes to the dynamic build,
+// where `[1] is [1]` is False.
+fn identity_is(body: &[Stmt]) -> Option<usize> {
+    let mut hit = None;
+    crate::dynpy::typing::walk_all(body, &mut |e, line| {
+        if hit.is_some() {
+            return;
+        }
+        if let Ex::Cmp(a, ops) = e {
+            let mut left: &Ex = a;
+            for (op, b) in ops {
+                if matches!(*op, "is" | "is not") {
+                    let one = |x: &Ex| matches!(x, Ex::NoneV | Ex::Ellipsis);
+                    if !(one(left) || one(b) || matches!(b, Ex::True | Ex::False)) {
+                        hit = Some(line);
+                        return;
+                    }
+                }
+                left = b;
+            }
+        }
+    });
+    hit
+}
 // json.dumps(x, ...): the typed build writes indent, separators (a pair), sort_keys and ensure_ascii; any other
 // keyword (allow_nan, default, cls, ...) it would leave out.
 fn json_kwargs(body: &[Stmt]) -> Option<(usize, String)> {
@@ -186,6 +212,9 @@ fn check_body(body: &[Stmt]) -> Option<(usize, String, Vec<String>)> {
             let line = body.iter().find(|s| matches!(&s.st, St::Assign(..) | St::AugAssign(..))).map_or(1, |s| s.line);
             return Some((line, format!("`{n}` can grow past 64 bits and is read by a function, where the typed build keeps it a 64-bit int"), vec![]));
         }
+    }
+    if let Some(line) = identity_is(body) {
+        return Some((line, "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values)".into(), vec![]));
     }
     if let Some(line) = crate::dynpy::typing::typed_isinstance(body) {
         return Some((line, "isinstance with a typing name".into(), vec![]));

@@ -1,0 +1,4 @@
+{"path":"dynamic","line":6,"why":"`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), so the typed build would differ from CPython"}
+False True True
+True False
+native exit 0

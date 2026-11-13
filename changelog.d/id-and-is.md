@@ -1,0 +1,3 @@
+- `id()` of a float is no longer always 1 (`id(1.5) == id(2.5)` was True): each float value has its own id, and `id()` agrees with `is` for every kind of value in the dynamic build (ints of any size, floats, the empty str and 1-char ASCII strs, the empty tuple). `id()` of a NaN that has no identity of its own refuses instead of answering.
+- `is` holds between a value and itself for every int (`x = 1000; x is x` was False), big ints, bound methods, ranges, slices, dict views and properties.
+- The typed build no longer answers `is` by comparing values (`[1] is [1]` was True): a file that uses `is` with anything other than None, True, False or Ellipsis goes to the dynamic build.
