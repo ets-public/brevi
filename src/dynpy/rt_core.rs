@@ -526,6 +526,9 @@ pub struct Deq {
     pub max: Option<usize>,
     // bumped by every change of length or order but d[i] = x and reverse(), as CPython's deque->state
     pub state: u64,
+    // the builtin value of an instance of a deque subclass: an iterator over it cannot name that instance
+    // (pickling one is refused)
+    pub sub: bool,
 }
 
 pub struct E(pub V);
@@ -3406,6 +3409,9 @@ impl Obj {
         self.cls.is_sub(&exc_class("NameError")) && n == "name"
     }
     pub fn set_inner(&self, v: Option<V>) {
+        if let Some(V::Deque(d)) = &v {
+            d.borrow_mut().sub = true;
+        }
         *self.inner.borrow_mut() = v.map(Box::new);
     }
     // o.name for code that must match CPython exactly: errors from a dict key's __eq__ are raised.

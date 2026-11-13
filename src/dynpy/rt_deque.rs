@@ -5,7 +5,7 @@
 
 impl Deq {
     pub fn new(v: VecDeque<V>, max: Option<usize>) -> Deq {
-        Deq { v, max, state: 0 }
+        Deq { v, max, state: 0, sub: false }
     }
     // one append (right) or appendleft: the item that maxlen pushes out comes back, so the caller drops it
     // after the borrow is released (dropping can run user code)
@@ -506,4 +506,136 @@ pub fn deque_method(d: &Rc<RefCell<Deq>>, o: &V, name: &str, mut a: Args) -> R {
         "__repr__" | "__str__" => st(repr(o)?),
         _ => return bad_method(o, name),
     })
+}
+
+// collections._deque_iterator(deque, index=0), as CPython's dequeiter_new (keyword arguments are ignored there
+// too): a new iterator moved on `index` steps. What its __reduce__ names, so what pickle and copy call.
+pub fn deque_iter_new(a: Args) -> R {
+    let n = a.p.len();
+    if n == 0 {
+        return type_err("function takes at least 1 argument (0 given)".into());
+    }
+    if n > 2 {
+        return type_err(format!("function takes at most 2 arguments ({n} given)"));
+    }
+    let d = match &a.p[0] {
+        V::Deque(d) => d.clone(),
+        x => match inner_of(x) {
+            Some(V::Deque(d)) => d,
+            _ => return type_err(format!("argument 1 must be collections.deque, not {}", tn(x))),
+        },
+    };
+    let index = match a.p.get(1) {
+        Some(x) => deq_int(x)?,
+        None => 0,
+    };
+    let it = new_iter(deque_iter(&d, false), IterClass::Kind(ItKind::DequeIter));
+    for _ in 0..index.max(0) {
+        let V::Iter(c) = &it else { break };
+        let step = c.it.borrow_mut().next();
+        if step?.is_none() {
+            break;
+        }
+    }
+    Ok(it)
+}
+
+// What pickle needs of a deque, as CPython's deque.__reduce__ gives it: (maxlen, state, a live iterator over
+// it), and for an instance of a subclass its class. state is the instance's __dict__ (None when empty) and, if
+// its classes have __slots__, (that, the slots that are set) as object.__getstate__ makes it. Refused for a
+// class that changes how it pickles (__reduce__, __reduce_ex__, __getstate__, __getnewargs__) or how pickle
+// refills it (extend, append): those are not run here.
+pub fn deque_pickle_parts(v: &V) -> Result<(Option<Rc<Class>>, Option<usize>, V, V), E> {
+    let (d, cls) = match v {
+        V::Deque(d) => (d.clone(), None),
+        V::Obj(o) => match o.inner() {
+            Some(V::Deque(d)) => (d, Some(o.cls.clone())),
+            _ => return type_err(format!("cannot pickle '{}' object", tn(v))),
+        },
+        _ => return type_err(format!("cannot pickle '{}' object", tn(v))),
+    };
+    let max = d.borrow().max;
+    let it = new_iter(deque_iter(&d, false), IterClass::Kind(ItKind::DequeIter));
+    let Some(c) = &cls else { return Ok((None, max, V::None, it)) };
+    let mro = c.mro.borrow().clone();
+    let own = mro.iter().filter(|k| !matches!(k.module, "builtins" | "collections"));
+    for k in own.clone() {
+        for n in ["__reduce__", "__reduce_ex__", "__getstate__", "__getnewargs__", "__getnewargs_ex__", "extend", "append"] {
+            if k.own(n).is_some() {
+                return Err(unsupported(&format!("pickling an instance of a deque subclass that defines {n}")));
+            }
+        }
+    }
+    let dict = if c.has_dict() {
+        match getattr(v, "__dict__")? {
+            V::Dict(x) if x.borrow().len() > 0 => V::Dict(x),
+            _ => V::None,
+        }
+    } else {
+        V::None
+    };
+    // copyreg._slotnames: each class's own __slots__, in MRO order, without __dict__ and __weakref__, private
+    // names mangled
+    let mut slots = Dict::new();
+    for k in own {
+        let names = match k.own("__slots__") {
+            None => continue,
+            Some(V::Str(x)) => vec![V::Str(x)],
+            Some(x) => to_vec(&x)?,
+        };
+        for n in names {
+            let V::Str(n) = n else { continue };
+            let n = n.text();
+            if n == "__dict__" || n == "__weakref__" {
+                continue;
+            }
+            let name = if n.starts_with("__") && !n.ends_with("__") { format!("_{}{n}", k.name.trim_start_matches('_')) } else { n.to_string() };
+            match getattr(v, &name) {
+                Ok(x) => slots.set(st(name), x)?,
+                Err(e) if is_exc(&e.0, "AttributeError") => {}
+                Err(e) => return Err(e),
+            }
+        }
+    }
+    let state = if slots.len() > 0 { tup(vec![dict, V::Dict(Rc::new(RefCell::new(slots)))]) } else { dict };
+    Ok((cls, max, state, it))
+}
+
+// pickle's BUILD for an instance of a deque subclass a pickle made: its own __setstate__(state), or else the
+// __dict__ part set directly and the slots part with setattr, as CPython's load_build.
+pub fn deque_pickle_setstate(o: &V, state: V) -> Result<(), E> {
+    if let V::Obj(ob) = o {
+        if ob.cls.mro.borrow().iter().any(|k| !matches!(k.module, "builtins" | "collections") && k.own("__setstate__").is_some()) {
+            call_method(o, "__setstate__", Args::p(vec![state]))?;
+            return Ok(());
+        }
+    }
+    let (dict, slots) = match state {
+        V::Tuple(t) if t.len() == 2 => (t[0].clone(), t[1].clone()),
+        x => (x, V::None),
+    };
+    let V::Obj(ob) = o else { return Ok(()) };
+    // (pickle.UnpicklingError in CPython; a pickle made here never holds one)
+    let bad = |what: &str| unsupported(&format!("loading a pickled deque whose {what} is not a dictionary"));
+    match &dict {
+        V::None => {}
+        V::Dict(x) => {
+            for (k, x) in x.borrow().items() {
+                let V::Str(k) = k else { return Err(unsupported("a pickled __dict__ key that is not a str")) };
+                ob.set_res(sym(k.text()), x)?;
+            }
+        }
+        _ => return Err(bad("state")),
+    }
+    match &slots {
+        V::None => {}
+        V::Dict(x) => {
+            for (k, x) in x.borrow().items() {
+                let V::Str(k) = k else { return Err(unsupported("a pickled slot name that is not a str")) };
+                setattr(o, sym(k.text()), x)?;
+            }
+        }
+        _ => return Err(bad("slot state")),
+    }
+    Ok(())
 }
