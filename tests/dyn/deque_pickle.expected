@@ -1,0 +1,63 @@
+0 False deque [0, 1, 2, 3, 4] None
+1 False deque [0, 1, 2, 3, 4] None
+2 False deque [0, 1, 2, 3, 4] None
+3 False deque [0, 1, 2, 3, 4] None
+4 False deque [0, 1, 2, 3, 4] None
+5 False deque [0, 1, 2, 3, 4] None
+0 False deque [2, 3, 4] 3
+1 False deque [2, 3, 4] 3
+2 False deque [2, 3, 4] 3
+3 False deque [2, 3, 4] 3
+4 False deque [2, 3, 4] 3
+5 False deque [2, 3, 4] 3
+True [1.01, 2.02, 3.0300000000000002, 4.04, 5.05]
+True [1.01, 2.02, 3.0300000000000002, 4.04, 5.05]
+True [1.01, 2.02, 3.0300000000000002, 4.04, 5.05]
+True [1.01, 2.02, 3.0300000000000002, 4.04, 5.05]
+True [1.01, 2.02, 3.0300000000000002, 4.04, 5.05]
+True [1.01, 2.02, 3.0300000000000002, 4.04, 5.05]
+Deque ['a', 'b', 'c'] None ['x'] ['z'] False False
+Deque ['a', 'b', 'c'] None ['x'] ['z'] False False
+Deque ['a', 'b', 'c'] None ['x'] ['z'] False False
+Deque ['a', 'b', 'c'] None ['x'] ['z'] False False
+Deque ['a', 'b', 'c'] None ['x'] ['z'] False False
+Deque ['a', 'b', 'c'] None ['x'] ['z'] False False
+Deque ['b', 'c', 'd', 'e'] 4 ['x'] ['z'] False False
+Deque ['b', 'c', 'd', 'e'] 4 ['x'] ['z'] False False
+Deque ['b', 'c', 'd', 'e'] 4 ['x'] ['z'] False False
+Deque ['b', 'c', 'd', 'e'] 4 ['x'] ['z'] False False
+Deque ['b', 'c', 'd', 'e'] 4 ['x'] ['z'] False False
+Deque ['b', 'c', 'd', 'e'] 4 ['x'] ['z'] False False
+DequeWithSlots ['a', 'b', 'c'] None ['x'] ['z'] False False
+DequeWithSlots ['a', 'b', 'c'] None ['x'] ['z'] False False
+DequeWithSlots ['a', 'b', 'c'] None ['x'] ['z'] False False
+DequeWithSlots ['a', 'b', 'c'] None ['x'] ['z'] False False
+DequeWithSlots ['a', 'b', 'c'] None ['x'] ['z'] False False
+DequeWithSlots ['a', 'b', 'c'] None ['x'] ['z'] False False
+DequeWithSlots ['b', 'c', 'd', 'e'] 4 ['x'] ['z'] False False
+DequeWithSlots ['b', 'c', 'd', 'e'] 4 ['x'] ['z'] False False
+DequeWithSlots ['b', 'c', 'd', 'e'] 4 ['x'] ['z'] False False
+DequeWithSlots ['b', 'c', 'd', 'e'] 4 ['x'] ['z'] False False
+DequeWithSlots ['b', 'c', 'd', 'e'] 4 ['x'] ['z'] False False
+DequeWithSlots ['b', 'c', 'd', 'e'] 4 ['x'] ['z'] False False
+True None
+Deque True
+True
+[2, 3] [2, 3] [2, 3]
+(<class 'collections._deque_iterator'>, (deque([1, 2]), 0))
+init 2
+init 2
+init 2
+init 2
+init 2
+init 2
+S2 S2([0, 1], maxlen=3) 3 False
+S2 S2([1, 0, 1], maxlen=3) 3 False
+S2 S2([], maxlen=3) 3 False
+S2 S2([1, 0, 1], maxlen=3) 3 False
+S2 S2([0, 1, 5], maxlen=3) 3 False
+can only concatenate deque (not "list") to deque
+deque deque([1, 0, 1])
+init 1
+init 0
+Deque([1]) Deque([2]) R! R!
