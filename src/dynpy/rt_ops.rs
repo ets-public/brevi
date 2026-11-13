@@ -443,7 +443,10 @@ pub fn is(a: &V, b: &V) -> bool {
     match (a, b) {
         (V::None, V::None) => true,
         (V::Bool(x), V::Bool(y)) => x == y,
-        (V::Int(x), V::Int(y)) => x == y && (-5..=256).contains(x),
+        // an unboxed int is its value, one object per value (the language allows it for immutable types), so
+        // `x is x` holds for any int; id() gives each value one id to match (rt_lib::bi_id)
+        (V::Int(x), V::Int(y)) => x == y,
+        (V::Big(x), V::Big(y)) => Rc::ptr_eq(x, y),
         // NaN identity comes from its payload; other floats compare by their bits (an unboxed float
         // cannot tell two equal values apart, so `x is x` holds and `1.5 is 1.5` is true, as on main).
         (V::Float(x), V::Float(y)) => {
@@ -469,6 +472,12 @@ pub fn is(a: &V, b: &V) -> bool {
         (V::Ext(x), V::Ext(y)) => ExtRc::ptr_eq(x, y),
         (V::Module(x), V::Module(y)) => x == y,
         (V::NTF(x), V::NTF(y)) => Rc::ptr_eq(x, y),
+        (V::Bound(x), V::Bound(y)) => Rc::ptr_eq(x, y),
+        (V::BMeth(x), V::BMeth(y)) => Rc::ptr_eq(x, y),
+        (V::Range(x), V::Range(y)) => Rc::ptr_eq(x, y),
+        (V::Slice(x), V::Slice(y)) => Rc::ptr_eq(x, y),
+        (V::View(x), V::View(y)) => Rc::ptr_eq(x, y),
+        (V::Prop(x), V::Prop(y)) => Rc::ptr_eq(x, y),
         (V::NotImpl, V::NotImpl) | (V::Ellipsis, V::Ellipsis) => true,
         _ => false,
     }

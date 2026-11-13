@@ -1829,44 +1829,56 @@ pub fn bi_pow(a: Args) -> R {
 pub fn bi_hash(a: Args) -> R {
     Ok(V::Int(py_hash(&a1(&a, "hash")?)?))
 }
+// id(x), kept in step with `is` (rt_ops::is): two live values have the same id exactly when `x is y`.
+// The ids live in four classes of integers that never meet:
+// - heap values: their allocation, a multiple of 8;
+// - ints (unboxed): 32 * i + 1, odd (a value past 2**58 gets an id past 64 bits, still odd);
+// - floats (unboxed): 8 * bits + 4, which is 4 modulo 8;
+// - singletons and values CPython keeps once (None, bools, Ellipsis, NotImplemented, the empty tuple, the
+//   empty str and each 1-char ASCII str): 2 modulo 4.
+// Ints and floats are plain values here, so their identity is their value (each value is one object, which
+// the language allows for immutable types). A NaN made by arithmetic has no identity payload (`x is x` is
+// false for it), so no id can agree with `is`: id() refuses it rather than give a wrong answer.
 pub fn bi_id(a: Args) -> R {
     let x = a1(&a, "id")?;
-    Ok(V::Int(match &x {
-        V::Obj(o) => Rc::as_ptr(o) as *const u8 as i64,
-        V::List(o) => Rc::as_ptr(o) as *const u8 as i64,
-        V::Dict(o) => Rc::as_ptr(o) as *const u8 as i64,
-        V::Str(o) => Rc::as_ptr(o) as *const u8 as i64,
-        V::Tuple(o) => Tup::as_ptr(o) as *const u8 as i64,
-        V::Int(i) => *i * 32 + 1,
-        // every other heap value is its allocation, as `is` compares them (heap pointers are 8-aligned, so
-        // they never meet the int ids above or the singletons below)
-        V::Set(o) => Rc::as_ptr(o) as *const u8 as i64,
-        V::FSet(o) => Rc::as_ptr(o) as *const u8 as i64,
-        V::Big(o) => Rc::as_ptr(o) as *const u8 as i64,
-        V::Cell(o) => Rc::as_ptr(o) as *const u8 as i64,
-        V::Func(o) => Rc::as_ptr(o) as *const u8 as i64,
-        V::Class(o) => Rc::as_ptr(o) as *const u8 as i64,
-        V::Bound(o) => Rc::as_ptr(o) as *const u8 as i64,
-        V::BMeth(o) => Rc::as_ptr(o) as *const u8 as i64,
-        V::Iter(o) => Rc::as_ptr(o) as *const u8 as i64,
-        V::Range(o) => Rc::as_ptr(o) as *const u8 as i64,
-        V::Slice(o) => Rc::as_ptr(o) as *const u8 as i64,
-        V::Deque(o) => Rc::as_ptr(o) as *const u8 as i64,
-        V::View(o) => Rc::as_ptr(o) as *const u8 as i64,
-        V::Prop(o) => Rc::as_ptr(o) as *const u8 as i64,
-        V::NTF(o) => Rc::as_ptr(o) as *const u8 as i64,
-        V::Ext(o) => ExtRc::as_ptr(o) as i64,
-        V::Module(m) => *m as *const ModName as *const u8 as i64,
-        V::None => 2,
-        V::Bool(false) => 6,
-        V::Bool(true) => 10,
-        V::Ellipsis => 14,
-        V::NotImpl => 18,
-        _ => match gc_id(&x) {
-            Some(p) => p as i64,
-            None => 1,
-        },
-    }))
+    let p = |q: *const u8| V::Int(q as i64);
+    Ok(match &x {
+        V::Obj(o) => p(Rc::as_ptr(o) as *const u8),
+        V::List(o) => p(Rc::as_ptr(o) as *const u8),
+        V::Dict(o) => p(Rc::as_ptr(o) as *const u8),
+        V::Str(o) if !o.is_lone() && o.text().len() <= 1 => V::Int(o.text().bytes().next().map_or(26, |b| 30 + 4 * b as i64)),
+        V::Str(o) => p(Rc::as_ptr(o) as *const u8),
+        V::Tuple(o) if o.is_empty() => V::Int(22),
+        V::Tuple(o) => p(Tup::as_ptr(o)),
+        V::Int(i) => Big::from_i128(*i as i128 * 32 + 1).norm(),
+        V::Float(f) if f.is_nan() && !same_nan(*f, *f) => {
+            return Err(exc("NotImplementedError", "brevi: id() of a NaN made by arithmetic is not supported (it has no identity of its own); use math.isnan()".into()))
+        }
+        V::Float(f) => Big::from_i128(f.to_bits() as i128 * 8 + 4).norm(),
+        V::Set(o) => p(Rc::as_ptr(o) as *const u8),
+        V::FSet(o) => p(Rc::as_ptr(o) as *const u8),
+        V::Big(o) => p(Rc::as_ptr(o) as *const u8),
+        V::Cell(o) => p(Rc::as_ptr(o) as *const u8),
+        V::Func(o) => p(Rc::as_ptr(o) as *const u8),
+        V::Class(o) => p(Rc::as_ptr(o) as *const u8),
+        V::Bound(o) => p(Rc::as_ptr(o) as *const u8),
+        V::BMeth(o) => p(Rc::as_ptr(o) as *const u8),
+        V::Iter(o) => p(Rc::as_ptr(o) as *const u8),
+        V::Range(o) => p(Rc::as_ptr(o) as *const u8),
+        V::Slice(o) => p(Rc::as_ptr(o) as *const u8),
+        V::Deque(o) => p(Rc::as_ptr(o) as *const u8),
+        V::View(o) => p(Rc::as_ptr(o) as *const u8),
+        V::Prop(o) => p(Rc::as_ptr(o) as *const u8),
+        V::NTF(o) => p(Rc::as_ptr(o) as *const u8),
+        V::Ext(o) => p(ExtRc::as_ptr(o)),
+        V::Module(m) => p(*m as *const ModName as *const u8),
+        V::None => V::Int(2),
+        V::Bool(false) => V::Int(6),
+        V::Bool(true) => V::Int(10),
+        V::Ellipsis => V::Int(14),
+        V::NotImpl => V::Int(18),
+        V::Unbound => return Err(exc("NameError", "id() of an unbound name".into())),
+    })
 }
 pub fn bi_format(a: Args) -> R {
     a.want("format", 1, 2)?;
