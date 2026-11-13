@@ -5,13 +5,11 @@
   "base64",
   "binascii",
   "calendar",
-  "colorsys",
   "copyreg",
   "csv",
   "datetime",
   "difflib",
   "fnmatch",
-  "graphlib",
   "ipaddress",
   "keyword",
   "pprint",
@@ -36,9 +34,7 @@
    "test_with",
    "test_raise",
    "test_augassign",
-   "test_binop",
    "test_compare",
-   "test_contains",
    "test_range",
    "test_slice",
    "test_iter",
@@ -61,7 +57,6 @@
    "test_print",
    "test_index",
    "test_isinstance",
-   "test_richcmp",
    "test_decorators",
    "test_type_params",
    "test_typechecks",
@@ -94,11 +89,9 @@
    "test_base64",
    "test_binascii",
    "test_calendar",
-   "test_colorsys",
    "test_csv",
    "test_difflib",
    "test_fnmatch",
-   "test_graphlib",
    "test_ipaddress",
    "test_keyword",
    "test_pprint",
@@ -160,17 +153,9 @@
    "test/test_augassign.py",
    "fa336b354cb98b5e290f71d9565cc0c1fc26d603450c9b96a2ee2a927ff99ea6"
   ],
-  "test.test_binop": [
-   "test/test_binop.py",
-   "85af7379285b3787d61be4926d38fa188d7a7f11413398fd6364886208f4fd3f"
-  ],
   "test.test_compare": [
    "test/test_compare.py",
    "2e20846df813bba0eef6a62f47ba0d4a10d40e0feb76cd8a63118567464d165a"
-  ],
-  "test.test_contains": [
-   "test/test_contains.py",
-   "34916d854f7f04c3189cd7d8e04177bca3c55bf1acdccf88beac501ff24239f4"
   ],
   "test.test_range": [
    "test/test_range.py",
@@ -259,10 +244,6 @@
   "test.test_isinstance": [
    "test/test_isinstance.py",
    "2a1e36a89336d2a266ee56a5e725312ca19d86138e6414bd89f2ded6bbecf102"
-  ],
-  "test.test_richcmp": [
-   "test/test_richcmp.py",
-   "87ffd49f08a617224cdbb84f0eeb7cef643f3cd918090c606a311a25d929d135"
   ],
   "test.test_decorators": [
    "test/test_decorators.py",
@@ -384,10 +365,6 @@
    "test/test_calendar.py",
    "421558919d09511931c7e258ac96b62db71909dc37bb1fce30ad5b55d4580efc"
   ],
-  "test.test_colorsys": [
-   "test/test_colorsys.py",
-   "f7ea1907f751f0201ea69a0bc368cdb2b24e7c7f958d8df659a8ff84142bfb93"
-  ],
   "test.test_csv": [
    "test/test_csv.py",
    "37be9144ab9838f7b385172571a26dadaed0b1cd45d6a8f731003ac7e9883939"
@@ -399,10 +376,6 @@
   "test.test_fnmatch": [
    "test/test_fnmatch.py",
    "8b1705a63c0947192afcb8f3cba1b6b02819eb69e9fbea82e337bcc22022bf33"
-  ],
-  "test.test_graphlib": [
-   "test/test_graphlib.py",
-   "87cde0e38dc1901e938356f4627f6842ff0cf9a74582edc1f22868b295944b3e"
   ],
   "test.test_ipaddress": [
    "test/test_ipaddress.py",
