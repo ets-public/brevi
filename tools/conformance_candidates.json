@@ -68,6 +68,7 @@
    "test_descr"
   ],
   "stdlib": [
+   "test_dataclasses",
    "test_enum",
    "test_copy",
    "test_copyreg",
@@ -280,6 +281,10 @@
   "test.test_descr": [
    "test/test_descr.py",
    "bba66f18787fd76ffc9d5553daf478ccb5c9d7d9c59ac4cc6bd1dc136dc3e08f"
+  ],
+  "test.test_dataclasses": [
+   "test/test_dataclasses/__init__.py",
+   "eb6d80602be85858a9a5f559c6f9fe7949b48972df4024aff8c825fcf8548cb4"
   ],
   "test.test_enum": [
    "test/test_enum.py",

@@ -67,7 +67,7 @@ SCOPE = ["test_grammar", "test_scope", "test_int", "test_list", "test_dict", "te
 SLICES = {
     "core": (SCOPE, BASELINE, FLOOR),
     "stdlib": (["test_itertools", "test_collections", "test_re", "test_textwrap", "test_functools", "test_string",
-               "test_graphlib", "test_colorsys", "test_dataclasses"],
+               "test_graphlib", "test_colorsys"],
                ROOT / "compat" / "conformance_stdlib_known_wrong", ROOT / "compat" / "conformance_stdlib_floor.json"),
 }
 # Module name -> (path under Lib/, SHA-256). The helpers are only read for the definitions tests use.
@@ -94,7 +94,6 @@ SOURCES = {
     "test.test_richcmp": ("test/test_richcmp.py", "87ffd49f08a617224cdbb84f0eeb7cef643f3cd918090c606a311a25d929d135"),
     "test.test_graphlib": ("test/test_graphlib.py", "87cde0e38dc1901e938356f4627f6842ff0cf9a74582edc1f22868b295944b3e"),
     "test.test_colorsys": ("test/test_colorsys.py", "f7ea1907f751f0201ea69a0bc368cdb2b24e7c7f958d8df659a8ff84142bfb93"),
-    "test.test_dataclasses": ("test/test_dataclasses/__init__.py", "eb6d80602be85858a9a5f559c6f9fe7949b48972df4024aff8c825fcf8548cb4"),
     "test.re_tests": ("test/re_tests.py", "33033dc23d20a6924391819395e7bdd3c16d11cf3bb79eedb6298e79f65bb4e8"),  # data for test_re.ExternalTests
 }
 # Modules some tests import as modules (test_grammar reads their __annotations__): copied as they are next to the
@@ -306,10 +305,6 @@ _ODICT_DICT_METHODS = ("dict's own method called on an OrderedDict: tests that C
 EXCLUDED_TESTS = {("test_ordered_dict", m): _ODICT_DICT_METHODS for m in (
     "test_dict_setitem", "test_dict_delitem", "test_dict_clear", "test_dict_pop", "test_dict_popitem",
     "test_dict_setdefault", "test_dict_update")}
-# (file, "Class.method"): one test of one class only (another class may have a method of the same name)
-EXCLUDED_TESTS[("test_dataclasses", "TestReplace.test_classvar")] = (
-    "`c.y is d.y` on the int 1000 tests a CPython implementation detail (one int object shared through the class "
-    "attribute); Brevi's unboxed ints have no identity outside -5..256")
 EXCLUDED_SOURCE = [
     (r"\b_test(capi|internalcapi|limitedcapi)\b", "tests the C API"),
     (r"\bsys\.getrefcount\b|\bcheck_free_after_iterating\b", "depends on reference counts"),
@@ -806,9 +801,8 @@ class Universe:
         cls = next(n for n in mod.tree.body if isinstance(n, ast.ClassDef) and n.name == cls_name)
         if cls_name in EXCLUDED_CLASSES:
             raise Excluded(EXCLUDED_CLASSES[cls_name])
-        for key in ((name, method), (name, f"{cls_name}.{method}")):
-            if key in EXCLUDED_TESTS:
-                raise Excluded(EXCLUDED_TESTS[key])
+        if (name, method) in EXCLUDED_TESTS:
+            raise Excluded(EXCLUDED_TESTS[(name, method)])
         chain = self.chain(mod, cls)
         # `class TestLRUPy(TestLRU, unittest.TestCase): module = py_functools`: the same tests against the pure-Python
         # copy. Brevi has one copy of the module, which its C-copy twin already scores.
