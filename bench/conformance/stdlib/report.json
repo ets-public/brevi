@@ -2,7 +2,7 @@
 "brevi": "brevi 0.27.1",
 "python": "3.13.13",
 "tag": "v3.13.13",
-"date": "2026-11-12",
+"date": "2026-11-13",
 "platform": "linux",
 "sandboxed": false,
 "timeout_s": 20,
@@ -8990,7 +8990,7 @@
 "id": "test_functools.TestLRUC.test_lru_recursion",
 "file": "test_functools",
 "category": "excluded",
-"detail": "measures the recursion depth with _testinternalcapi (CPython's C internals)"
+"detail": "skipped by CPython: get_c_recursion_limit() requires _testcapi, which the reference build lacks"
 },
 {
 "id": "test_functools.TestLRUC.test_lru_reentrancy_with_len",
