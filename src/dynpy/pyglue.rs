@@ -42,6 +42,9 @@ thread_local! {
 fn pyd_ptr(s: &std::sync::atomic::AtomicPtr<std::ffi::c_void>) -> P {
     s.load(std::sync::atomic::Ordering::Relaxed) as P
 }
+// CPython's collections.OrderedDict type, once a program's OrderedDict has gone into Python: objects of exactly that
+// type come back as the program's OrderedDict (pickle.loads of a pickled one), in their order, not as a plain dict
+static PYD_ODICT: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_MAIN: std::sync::OnceLock<std::thread::ThreadId> = std::sync::OnceLock::new();
 const PYD_CAP: &std::ffi::CStr = c"brevi.dyn.callable";
 
@@ -713,7 +716,7 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
     let tt = (a.Type)(t);
     (a.DecRef)(tt);
     if tt == t {
-        if let Some(c) = pyd_builtin_exc(p) {
+        if let Some(c) = pyd_builtin_exc(p).or_else(|| pyd_types_class(p)) {
             return done(V::Class(c));
         }
     }
@@ -784,6 +787,42 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
             }
         }
         return done(me);
+    }
+    // CPython's OrderedDict (exactly that type): the program's OrderedDict, its keys in the OrderedDict's own order
+    // (iter(od), not the dict table, which move_to_end does not reorder), each value through od[key]
+    if deep && t == PYD_ODICT.load(std::sync::atomic::Ordering::Relaxed) {
+        let mut n = Dict::new();
+        n.kind = 3;
+        let cell = Rc::new(RefCell::new(n));
+        let me = V::Dict(cell.clone());
+        from_memo_put(p, &me);
+        let r = (|| -> Result<(), E> {
+            let it = pyd_own((a.GetIter)(p))?;
+            loop {
+                let k = (a.IterNext)(it);
+                if k.is_null() {
+                    break;
+                }
+                let x = (a.GetItem)(p, k);
+                if x.is_null() {
+                    (a.DecRef)(k);
+                    (a.DecRef)(it);
+                    return Err(pyd_err());
+                }
+                let r = pyd_wrap(k, true).and_then(|kk| pyd_wrap(x, true).map(|xx| (kk, xx)));
+                if let Err(e) = r.and_then(|(kk, xx)| cell.borrow_mut().set(kk, xx)) {
+                    (a.DecRef)(it);
+                    return Err(e);
+                }
+            }
+            (a.DecRef)(it);
+            if !(a.ErrOccurred)().is_null() {
+                return Err(pyd_err());
+            }
+            Ok(())
+        })();
+        (a.DecRef)(p);
+        return r.map(|_| me);
     }
     if deep && t == a.TDict {
         let cell = Rc::new(RefCell::new(Dict::new()));
@@ -901,7 +940,31 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
             return Ok(v);
         }
     }
+    // types.coroutine marks a generator function's code object as awaitable; the program's generators have no
+    // code object, so it cannot work on them (the build refuses `types.coroutine` it can see; this catches the rest)
+    if pyd_is_types_coroutine(p) {
+        (a.DecRef)(p);
+        return Err(unsupported("types.coroutine"));
+    }
     Ok(pyv(p, t == a.TList || t == a.TDict || t == a.TSet))
+}
+unsafe fn pyd_is_types_coroutine(p: P) -> bool {
+    thread_local! {
+        static TC: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+    let a = pyd_api();
+    let mut q = TC.with(|c| c.get());
+    if q == 0 {
+        let Ok(m) = pyd_own((a.Import)(c"types".as_ptr())) else { return false };
+        let f = (a.GetAttr)(m, c"coroutine".as_ptr());
+        (a.DecRef)(m);
+        let Ok(f) = pyd_own(f) else { return false };
+        // the module keeps it alive for the whole run, so the pointer stays this object's
+        (a.DecRef)(f);
+        q = f as usize;
+        TC.with(|c| c.set(q));
+    }
+    p as usize == q
 }
 
 // CPython's deque iterator (pickle.loads made it) as the program's, over the program's copy of its deque, at
@@ -1439,6 +1502,33 @@ unsafe fn pyd_builtin_exc(p: P) -> Option<Rc<Class>> {
     };
     same.then_some(c)
 }
+// The program's class for p when p is one of the `types` module's classes of values the program makes itself
+// (functions, generators, coroutines, async generators), so `type(f) is types.FunctionType` and
+// `coro.__class__ in {types.GeneratorType, types.CoroutineType}` hold as in CPython.
+unsafe fn pyd_types_class(p: P) -> Option<Rc<Class>> {
+    let a = pyd_api();
+    let m = pyd_own((a.Import)(c"types".as_ptr())).ok()?;
+    let mut found = None;
+    for (attr, which) in [(c"FunctionType", 0), (c"GeneratorType", 1), (c"CoroutineType", 2), (c"AsyncGeneratorType", 3)] {
+        let q = (a.GetAttr)(m, attr.as_ptr());
+        if q.is_null() {
+            (a.ErrClear)();
+            continue;
+        }
+        (a.DecRef)(q);
+        if q == p {
+            found = Some(which);
+            break;
+        }
+    }
+    (a.DecRef)(m);
+    match found? {
+        0 => Some(bclass("function")),
+        1 => it_class(ItKind::Generator).ok(),
+        2 => Some(ext_class("coroutine")),
+        _ => Some(ext_class("async_generator")),
+    }
+}
 unsafe fn pyd_builtins_attr(name: &str) -> Result<P, E> {
     let a = pyd_api();
     let b = pyd_own((a.Import)(c"builtins".as_ptr()))?;
@@ -1640,6 +1730,40 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
                         (a.DecRef)(p);
                         return Err(e);
                     }
+                }
+            }
+            p
+        }
+        // an OrderedDict goes in as CPython's OrderedDict, filled through its __setitem__ (PyDict_SetItem would leave
+        // its linked list out of step with the table)
+        V::Dict(d) if d.borrow().kind == 3 => {
+            let items = d.borrow().items();
+            let p = pyd_mod_call("collections", "OrderedDict", &[])?;
+            to_memo_put(v, p);
+            let t = (a.Type)(p);
+            (a.DecRef)(t);
+            PYD_ODICT.store(t, std::sync::atomic::Ordering::Relaxed);
+            for (k, x) in items {
+                let r = pyd_to(&k).and_then(|kk| match pyd_to(&x) {
+                    Ok(xx) => Ok((kk, xx)),
+                    Err(e) => {
+                        (a.DecRef)(kk);
+                        Err(e)
+                    }
+                });
+                let (kk, xx) = match r {
+                    Ok(t) => t,
+                    Err(e) => {
+                        (a.DecRef)(p);
+                        return Err(e);
+                    }
+                };
+                let bad = (a.SetItem)(p, kk, xx) < 0;
+                (a.DecRef)(kk);
+                (a.DecRef)(xx);
+                if bad {
+                    (a.DecRef)(p);
+                    return Err(pyd_err());
                 }
             }
             p
@@ -1861,6 +1985,8 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
         V::Class(c) if c.module == "builtins" && (c.bt == BT::Exc || c.is_sub(&exc_class("BaseException"))) => pyd_builtins_attr(c.name)?,
         V::Obj(o) if o.cls.lookup("__bv_namedtuple__").is_some() => pyd_namedtuple(v)?,
         V::Deque(_) | V::Obj(_) if PYD_PICKLING.with(|c| c.get()) && (matches!(v, V::Deque(_)) || matches!(inner_of(v), Some(V::Deque(_)))) => pyd_deque_red(v)?,
+        // CPython would see an iterator, not a generator flagged CO_ITERABLE_COROUTINE (inspect.isawaitable)
+        V::Iter(_) if is_iter_coro(v) => return Err(unsupported("passing a generator of a types.coroutine function to a Python library")),
         V::Iter(_) => {
             let next_me = v.clone();
             let red_me = v.clone();

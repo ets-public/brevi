@@ -697,6 +697,17 @@ if [ -n "$want" ] && [ "$got" = "$want" ]; then echo "ok   a lone surrogate on s
 # Under --sandbox the program reads no environment, so it cannot name stdout's error handler: it stops instead.
 o=$(BREVI_DYN=1 $BREVI run --sandbox "$t/c.py" 2>&1); c=$?
 case "$c:$o" in "1:NotImplementedError: brevi: this operation on a str with a lone surrogate"*) echo "ok   a lone surrogate on stdout under --sandbox stops" ;; *) echo "FAIL a lone surrogate on stdout under --sandbox ($c)"; printf '%s\n' "$o"; fail=1 ;; esac
+# What a native coroutine cannot give is refused when the program is built (test_coroutines): its frame and code
+# objects, and types.coroutine (which marks a code object) in every spelling the build can see, except as the
+# innermost decorator of a generator function (tests/lib/coroutine_protocol.py).
+printf 'async def f():\n    pass\nc = f()\nprint(c.cr_frame)\n' > "$t/cr.py"
+printf 'import types as t\ndef g():\n    yield 1\nh = t.coroutine(g)\n' > "$t/tc.py"
+printf 'from types import coroutine\n' > "$t/tf.py"
+printf 'import types\n@types.coroutine\ndef g():\n    return 1\n' > "$t/tn.py"
+for x in "cr:the cr_frame attribute of a coroutine" "tc:types.coroutine" "tf:types.coroutine" "tn:types.coroutine on a function that is not a generator function"; do
+  o=$(BREVI_DYN=1 $BREVI build "$t/${x%%:*}.py" -o "$t/prog" 2>&1)
+  case "$o" in *"${x#*:}"*"not supported in dynamic builds"*) echo "ok   refused: ${x#*:}" ;; *) echo "FAIL not refused: ${x#*:}"; printf '%s\n' "$o"; fail=1 ;; esac
+done
 rm -rf "$t"
 #== bridge split
 # Python libraries the dynamic build lacks (tests/bridge/brlib stands in for a third-party one) run in CPython
@@ -996,4 +1007,34 @@ if [ -n "$t3bad" ]; then
   echo "FAIL the same file built at once:$t3bad"; for o in "$t3"/*.out "$t3"/*.err; do echo "== $o"; cat "$o"; done; fail=1
 else echo "ok   the same file built at once"; fi
 rm -rf "$t3"
+# A cached program is marked as used (the cache evicts the least recently used) without a handle open for
+# writing: builds hard link it into place, and such a handle, however brief, makes any process starting one of
+# its links fail with "Text file busy" (ETXTBSY, os error 26), as random tests did at 32 parallel jobs. While a
+# link of it runs, a write handle cannot even be opened, so the mark must still land then.
+t4=$(mktemp -d)
+tag=$(( $$ * 1000 + $(date +%s) % 1000 ))
+printf 'import sys\nprint(len(sys.stdin.read()) + %s)\n' "$tag" > "$t4/a.py"
+cp "$t4/a.py" "$t4/b.py"; cp "$t4/a.py" "$t4/c.py"
+t4bad=""
+# a.py builds it; c.py, the same program, takes it from the binary cache: x1 is then a link of the cached binary
+for f in a c; do
+  BREVI_CACHE="$t4/cache" $BREVI build --native "$t4/$f.py" -o "$t4/x1" > "$t4/build-$f" 2>&1 || t4bad=" the build of $f.py failed"
+done
+t4c=$(find "$t4/cache" -samefile "$t4/x1" -path '*/bin/*' 2>/dev/null | head -1)
+[ -n "$t4bad" ] || [ -n "$t4c" ] || t4bad=" no cached binary is linked to the build"
+if [ -z "$t4bad" ]; then
+  mkfifo "$t4/in"
+  "$t4/x1" < "$t4/in" > "$t4/x1.out" &
+  exec 9<> "$t4/in"  # read-write: never blocks, even if x1 failed to start
+  touch -d '2001-01-01' "$t4/ref"; touch -d '2000-01-01' "$t4c"
+  # b.py: the same program at another path, so the result cache misses and the binary cache answers
+  BREVI_CACHE="$t4/cache" $BREVI build --native "$t4/b.py" -o "$t4/x2" > "$t4/build2" 2>&1 || t4bad=" second build failed"
+  [ "$t4c" -nt "$t4/ref" ] || t4bad="$t4bad (the cached binary was not marked as used while it ran)"
+  echo ab >&9; exec 9>&-; wait
+  [ "$(cat "$t4/x1.out")" = "$((tag + 3))" ] || t4bad="$t4bad (the running program printed $(cat "$t4/x1.out"))"
+fi
+if [ -n "$t4bad" ]; then
+  echo "FAIL the build cache marks a running program as used:$t4bad"; cat "$t4"/build* 2>/dev/null; fail=1
+else echo "ok   the build cache marks a running program as used"; fi
+rm -rf "$t4"
 exit $fail

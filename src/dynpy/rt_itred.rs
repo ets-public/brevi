@@ -187,6 +187,15 @@ pub fn iter_reduce_v(v: &V) -> R {
                 }
                 Plan::Seq(out)
             }
+            // an OrderedDict iterator: CPython's odictiter_reduce pickles it as iter(list of the rest)
+            It::ODict(d, i, kind, ver, n0) => {
+                let mut sim = It::ODict(d.clone(), *i, *kind, *ver, *n0);
+                let mut out = vec![];
+                while let Some(x) = sim.next()? {
+                    out.push(x);
+                }
+                Plan::Seq(out)
+            }
             It::Set(s, i, n0) => Plan::Set(s.clone(), *i, *n0),
             It::Repeat(x, n) => Plan::Repeat(x.clone(), *n),
             // CPython's dequeiter_reduce: (type(it), (its deque, len(deque) - items left)). An iterator over a

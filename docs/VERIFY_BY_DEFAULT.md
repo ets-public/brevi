@@ -6,7 +6,7 @@ since v0.26.0 (`src/verify.rs`).
 
 ## The problem
 
-Brevi matches CPython on 80.4% of the CPython conformance slice and gives a wrong answer on 8 tests (v0.27.0; 58.2% and 44 at v0.26.0). On main, from the next release: 100.0% of scored tests, core and stdlib, and none wrong. A harness that
+Brevi matches CPython on 80.4% of the CPython conformance slice and gives a wrong answer on 8 tests (v0.27.0; 58.2% and 44 at v0.26.0). On main, from the next release: 99.3% core and 99.9% stdlib, and none wrong. A harness that
 makes Brevi its default Python takes on that risk for every program. `brevi verify` already proves, per program and
 per input, that the native build answers as CPython does, but an agent has to know to call it, and nobody does. The
 fix is to make the check part of the commands agents already run, at a cost they don't notice.

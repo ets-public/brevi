@@ -1,0 +1,1 @@
+- Pull requests that change only docs, the site or the conformance lists no longer start a GitHub CI run; they merge on `tools/ci_local.sh`, which now also runs the workflow, credential, built-file and `--limit` checks, and both conformance slices whenever a conformance list changed.
