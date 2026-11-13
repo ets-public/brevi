@@ -1586,12 +1586,7 @@ fn ag_drive(me: &V, op: AOp) -> R {
                 if is_close && is_exc(&e, "GeneratorExit") {
                     return Ok(V::None);
                 }
-                for n in ["StopAsyncIteration", "StopIteration"] {
-                    if is_exc(&e, n) {
-                        return Err(exc("RuntimeError", format!("async generator raised {n}")));
-                    }
-                }
-                return Err(E(e));
+                return Err(pep479(E(e), "async generator", true));
             }
         }
     }

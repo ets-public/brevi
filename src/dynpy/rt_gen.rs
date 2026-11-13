@@ -562,10 +562,30 @@ pub fn gen_yield_from(it: &V) -> R {
 
 // A generator object: the function body, started at the first next().
 pub fn make_gen(name: Sym, body: impl FnOnce() -> R + 'static) -> V {
+    let body = move || body().map_err(|e| pep479(e, "generator", false));
     new_iter(It::Coro(Rc::new(RefCell::new(Coro::new(name, Box::new(body))))), IterClass::Kind(ItKind::Generator))
+}
+// PEP 479: a StopIteration (and, in an async generator, a StopAsyncIteration) that escapes the body of a
+// generator, async generator or generator expression becomes RuntimeError("<kind> raised <name>"), with the
+// original as both __cause__ and __context__. A `return v` never reaches here: it leaves the body as Ok(v).
+pub fn pep479(e: E, kind: &str, agen: bool) -> E {
+    let names: &[&str] = if agen { &["StopAsyncIteration", "StopIteration"] } else { &["StopIteration"] };
+    for n in names {
+        if is_exc(&e.0, n) {
+            let err = exc("RuntimeError", format!("{kind} raised {n}"));
+            if let V::Obj(o) = &err.0 {
+                o.set("__cause__", e.0.clone());
+                o.set("__context__", e.0.clone());
+                o.set("__suppress_context__", V::Bool(true));
+            }
+            return err;
+        }
+    }
+    e
 }
 // A generator object of a `@types.coroutine` generator function.
 pub fn make_gen_ic(name: Sym, body: impl FnOnce() -> R + 'static) -> V {
+    let body = move || body().map_err(|e| pep479(e, "generator", false));
     let mut c = Coro::new(name, Box::new(body));
     c.iter_coro = true;
     new_iter(It::Coro(Rc::new(RefCell::new(c))), IterClass::Kind(ItKind::Generator))
