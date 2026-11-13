@@ -495,6 +495,10 @@ pub fn order(a: &V, b: &V, op: &str) -> Result<Option<std::cmp::Ordering>, E> {
             seq_order(&x, &y, op)?
         }
         (V::Tuple(x), V::Tuple(y)) => seq_order(x, y, op)?,
+        (V::Deque(_), V::Deque(_)) => {
+            let (x, y) = deque_pair(a, b).unwrap();
+            seq_order(&x, &y, op)?
+        }
         (V::Set(_) | V::FSet(_), V::Set(_) | V::FSet(_)) => {
             let (x, y) = (set_of(a).unwrap(), set_of(b).unwrap());
             let sub = pset_issubset(&x, &y)?;
@@ -1224,14 +1228,20 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
         }
         (V::View(x), _) if x.1 == 3 && op == "|" => return binop(&x.0, b, op),
         (_, V::View(y)) if y.1 == 3 && op == "|" => return binop(a, &y.0, op),
-        (V::Deque(x), V::Deque(y)) if op == "+" => {
-            let mut v = x.borrow().v.clone();
-            v.extend(y.borrow().v.iter().cloned());
-            return Ok(V::Deque(Rc::new(RefCell::new(Deq { v, max: x.borrow().max }))));
+        // deque + deque keeps the left one's maxlen; deque * n and n * deque keep the last maxlen items
+        (V::Deque(x), V::Deque(_)) if op == "+" => return deque_concat(x, b),
+        (V::Deque(x), n) | (n, V::Deque(x)) if op == "*" && is_intlike(n) => return deque_mul(x, n),
+        // (an instance or library value on the right gets its reflected method first)
+        (V::Deque(x), _) if op == "+" && !matches!(b, V::Obj(_) | V::Ext(_)) => return deque_concat(x, b),
+        (V::Deque(_), _) if op == "*" && !matches!(b, V::Obj(_) | V::Ext(_)) => {
+            return type_err(format!("can't multiply sequence by non-int of type '{}'", tn(b)));
         }
         _ => {}
     }
     if let Some(r) = obj_binop(a, b, op) {
+        return r;
+    }
+    if let Some(r) = deque_sub_binop(a, b, op) {
         return r;
     }
     if op == "|" {
@@ -1441,17 +1451,12 @@ fn iop_slow(a: &V, b: &V, op: &str) -> R {
             }
             return Ok(a.clone());
         }
+        (V::Deque(d), "*") if !matches!(b, V::Obj(_) | V::Ext(_)) => {
+            deque_imul(d, b)?;
+            return Ok(a.clone());
+        }
         (V::Deque(d), "+") => {
-            let add = to_vec(b)?;
-            let mut d = d.borrow_mut();
-            for x in add {
-                d.v.push_back(x);
-                if let Some(m) = d.max {
-                    if d.v.len() > m {
-                        d.v.pop_front();
-                    }
-                }
-            }
+            deque_extend(d, b, false)?;
             return Ok(a.clone());
         }
         _ => {}
@@ -1762,10 +1767,7 @@ pub fn contains(c: &V, x: &V) -> Result<bool, E> {
             // value (a NaN object, say) is a hit before __eq__ runs.
             _ => to_vec(c)?.iter().any(|y| is(y, x) || eq(y, x).unwrap_or(false)),
         },
-        V::Deque(d) => {
-            let v: Vec<V> = d.borrow().v.iter().cloned().collect();
-            v.iter().any(|y| is(y, x) || eq(y, x).unwrap_or(false))
-        }
+        V::Deque(d) => deque_contains(d, x)?,
         V::Obj(o) => {
             if let Some(f) = o.cls.lookup("__contains__") {
                 return truth(&call(&f, Args::p(vec![c.clone(), x.clone()]))?);
@@ -2058,11 +2060,7 @@ pub fn getitem(c: &V, i: &V) -> R {
             let stop = r.0 + r.2 * e;
             return Ok(V::Range(Rc::new((start, stop, r.2 * stp))));
         }
-        (V::Deque(d), _) => {
-            let d = d.borrow();
-            let j = norm_idx(idx_of(i)?, d.v.len(), "deque")?;
-            return Ok(d.v[j].clone());
-        }
+        (V::Deque(d), _) => return deque_getitem(d, i),
         (V::View(x), _) if x.1 == 3 => return getitem(&x.0, i),
         (V::Obj(o), _) => {
             if let Some(f) = o.cls.lookup("__getitem__") {
@@ -2190,12 +2188,7 @@ pub fn setitem(c: &V, i: &V, v: V) -> Result<(), E> {
             }
             Ok(())
         }
-        (V::Deque(d), _) => {
-            let mut d = d.borrow_mut();
-            let j = norm_idx(idx_of(i)?, d.v.len(), "deque")?;
-            d.v[j] = v;
-            Ok(())
-        }
+        (V::Deque(d), _) => deque_setitem(d, i, v),
         (V::Obj(o), _) => {
             if let Some(f) = o.cls.lookup("__setitem__") {
                 call(&f, Args::p(vec![c.clone(), i.clone(), v]))?;
@@ -2252,12 +2245,7 @@ pub fn delitem(c: &V, i: &V) -> Result<(), E> {
                 None => Err(exc_v("KeyError", i.clone())),
             }
         }
-        (V::Deque(d), _) => {
-            let mut d = d.borrow_mut();
-            let j = norm_idx(idx_of(i)?, d.v.len(), "deque")?;
-            d.v.remove(j);
-            Ok(())
-        }
+        (V::Deque(d), _) => deque_delitem(d, i),
         (V::Obj(o), _) => {
             if let Some(f) = o.cls.lookup("__delitem__") {
                 call(&f, Args::p(vec![c.clone(), i.clone()]))?;
@@ -2361,6 +2349,8 @@ pub enum It {
     // when it began (the size -1 once a change was seen, so later next() calls raise too)
     ODict(Rc<RefCell<Dict>>, usize, u8, u64, i64),
     Set(Rc<RefCell<PSet>>, usize, i64),
+    // a deque's iterator or reverse iterator: next position, items left, the deque's state when it began, reversed
+    Deq(Rc<RefCell<Deq>>, usize, usize, u64, bool),
     Gen(Box<dyn FnMut() -> Result<Option<V>, E>>),
     // A generator expression: like Gen, but an error escapes to the caller once and then the iterator is
     // exhausted, as in CPython. `name` is the genexp's dotted __qualname__ (f.<locals>.<genexpr>).
@@ -2454,6 +2444,7 @@ impl It {
                 }
             }
             It::Vec(v) => Ok(v.next()),
+            It::Deq(d, i, left, st, rev) => deque_iter_next(d, i, left, *st, *rev),
             It::Repeat(x, n) => match n {
                 Some(k) if *k == 0 => Ok(None),
                 Some(k) => {
@@ -2691,7 +2682,7 @@ pub fn iter(v: &V) -> Result<It, E> {
             It::Set(s.clone(), 0, n)
         }
         V::FSet(s) => It::Vec(s.keys().into_iter()),
-        V::Deque(d) => It::Vec(d.borrow().v.iter().cloned().collect::<Vec<_>>().into_iter()),
+        V::Deque(d) => deque_iter(d, false),
         V::Iter(it) => It::Ref(it.it.clone()),
         V::Obj(o) => {
             if let Some(f) = o.cls.lookup("__iter__") {

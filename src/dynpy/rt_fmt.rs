@@ -401,6 +401,14 @@ pub fn repr(v: &V) -> Result<String, E> {
                 if matches!(i, V::Set(_) | V::FSet(_)) {
                     return set_repr(&i, Some(o.cls.name));
                 }
+                // a deque subclass's repr names the instance's type, as CPython's deque_repr does: D([...])
+                if let V::Deque(_) = &i {
+                    let r = repr(&i)?;
+                    return Ok(match r.strip_prefix("deque") {
+                        Some(rest) => format!("{}{}", o.cls.name, rest),
+                        None => r,
+                    });
+                }
                 // bytearray's repr names the instance's type, as CPython's does: BA(b'..')
                 if o.cls.base_bt() == BT::ByteArray {
                     if let Some(b) = bytes_of(&i) {
@@ -474,10 +482,18 @@ pub fn repr(v: &V) -> Result<String, E> {
         }
         V::Slice(s) => format!("slice({}, {}, {})", repr(&s.0)?, repr(&s.1)?, repr(&s.2)?),
         V::Deque(d) => {
+            // a deque holding itself shows it as [...], as CPython's deque_repr (Py_ReprEnter)
+            let p = Rc::as_ptr(d) as *const u8 as usize;
+            if !guard(p) {
+                return Ok("[...]".into());
+            }
             let v: Vec<V> = d.borrow().v.iter().cloned().collect();
+            let items = join_repr(&v);
+            unguard();
+            let items = items?;
             match d.borrow().max {
-                Some(m) => format!("deque([{}], maxlen={})", join_repr(&v)?, m),
-                None => format!("deque([{}])", join_repr(&v)?),
+                Some(m) => format!("deque([{}], maxlen={})", items, m),
+                None => format!("deque([{}])", items),
             }
         }
         V::Module(m) => format!("<module '{}'>", m),
@@ -618,8 +634,10 @@ pub fn to_str(v: &V) -> Result<String, E> {
                     }
                 }
             }
+            // deque has no __str__ of its own: object.__str__ is the instance's repr (its class's __repr__, or
+            // deque's, which names the subclass)
             // OrderedDict has no __str__: str of a subclass is its repr, which names the subclass (`Sub({...})`)
-            if o.cls.lookup("__str__").is_none() && matches!(inner_of(v), Some(V::Dict(d)) if d.borrow().kind == 3) {
+            if o.cls.lookup("__str__").is_none() && (matches!(inner_of(v), Some(V::Deque(_))) || matches!(inner_of(v), Some(V::Dict(d)) if d.borrow().kind == 3)) {
                 return repr(v);
             }
             if let Some(f) = o.cls.lookup("__str__") {

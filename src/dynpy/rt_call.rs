@@ -1740,6 +1740,12 @@ pub fn getattr(o: &V, name: &str) -> R {
                 if has_method(&inner, name) {
                     return Ok(V::BMeth(Rc::new((inner, sym(name)))));
                 }
+                // deque's maxlen, a data descriptor of the base class
+                if let V::Deque(d) = &inner {
+                    if name == "maxlen" {
+                        return Ok(d.borrow().max.map_or(V::None, |m| V::Int(m as i64)));
+                    }
+                }
             }
             Err(exc("AttributeError", format!("'{}' object has no attribute '{}'", ob.cls.name, name)))
         }
@@ -2266,6 +2272,12 @@ pub fn call_method(o: &V, name: &str, mut a: Args) -> R {
                     let no = Obj::new(ob.cls.clone());
                     no.set_inner(Some(inner));
                     return Ok(V::Obj(no));
+                }
+            }
+            // a deque subclass's copy() and __copy__() return the subclass: type(d)(d[, maxlen])
+            if matches!(name, "copy" | "__copy__") && ob.cls.own(name).is_none() {
+                if let Some(r) = deque_sub_copy(o) {
+                    return r;
                 }
             }
             if name == "__reduce__" && odict_of(o).is_some() {
