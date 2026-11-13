@@ -23,7 +23,6 @@
   "core": [
    "test_bool",
    "test_tuple",
-   "test_set",
    "test_bytes",
    "test_class",
    "test_exceptions",
@@ -108,10 +107,6 @@
   "test.test_tuple": [
    "test/test_tuple.py",
    "de89ebf6387fc48e8ffeb4d36cd9d67711c4bd8615f7250b514078f508f2df45"
-  ],
-  "test.test_set": [
-   "test/test_set.py",
-   "05f3ed822ab460c2efa96898cca6d9df4a2eac1833664c579450600eb2ddcd22"
   ],
   "test.test_bytes": [
    "test/test_bytes.py",

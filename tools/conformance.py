@@ -61,7 +61,7 @@ BAD = ("wrong_output", "wrong_exit", "crash_or_timeout")  # built, but did not d
 TAG = "v3.13.13"
 PYTHON_VERSION = "3.13.13"
 RAW = "https://raw.githubusercontent.com/python/cpython/" + TAG + "/Lib/"
-SCOPE = ["test_grammar", "test_scope", "test_int", "test_list", "test_dict", "test_contains", "test_binop", "test_richcmp"]
+SCOPE = ["test_grammar", "test_scope", "test_int", "test_list", "test_dict", "test_contains", "test_binop", "test_richcmp", "test_set"]
 # The second, separately published number: the stdlib modules agents use most (`--slice stdlib`), with its own
 # floor and known-wrong list so neither slice's ratchet hides the other's.
 SLICES = {
@@ -83,6 +83,7 @@ SOURCES = {
     "test.test_int": ("test/test_int.py", "2d947888f306e945ebc12c6817691330528c0bc7a13330b942c9af97fe3075d8"),
     "test.test_list": ("test/test_list.py", "088eb797e98cbbf6374bd1e646e4d8c6cecfc4ca114873653336e661e7938887"),
     "test.test_dict": ("test/test_dict.py", "009c957818d2e4c13b5c1e5a2bf90c7122ad77ac17362f8ef3ec6b8f6bf61f06"),
+    "test.test_set": ("test/test_set.py", "05f3ed822ab460c2efa96898cca6d9df4a2eac1833664c579450600eb2ddcd22"),
     "test.test_itertools": ("test/test_itertools.py", "b356e71312eaac265c7104c32176c5150ab06433754bcb25d6e0013f321ca1c9"),
     "test.test_collections": ("test/test_collections.py", "d9db27a28044d2d0cd24a54299d87e0f5c171f46115b91087163726ccab14bfa"),
     "test.test_re": ("test/test_re.py", "fe86c393ae0a94bd9b5e4577d08b99fc60d825e04f4440486562868fb3d3e620"),
@@ -316,6 +317,11 @@ EXCLUDED_SOURCE = [
     (r"\bmultiprocessing\.Process\b", "starts a child process"),
     (r"\bsre_(compile|constants|parse)\b", "tests CPython's deprecated sre_* modules"),
 ]
+# Tests whose CPython output comes from unseeded random numbers (test_set's *Mutating* classes print a line only when
+# a random __eq__ happens to raise RuntimeError): two CPython runs agree by luck most of the time, so such a test
+# flipped between matched and unstable from run to run and moved the floor. They are always classed unstable, but
+# both builds still run them, so a crash, a wrong exit code or a refusal still counts.
+RANDOM_OUTPUT = re.compile(r"^test_set\.Test(BinaryOps|Methods)Mutating_\w+\.test_\w+_with_mutation$")
 RECEIVERS = {"self", "testcase"}
 SAME_AS_EQUAL = {"assertEqual", "assertListEqual", "assertTupleEqual", "assertDictEqual", "assertSetEqual",
                  "assertSequenceEqual", "assertMultiLineEqual"}
@@ -1444,6 +1450,9 @@ def run_case(case, cfg):
         (folder / rel).parent.mkdir(parents=True, exist_ok=True)
         (folder / rel).write_bytes(data)
     a, b = (reference(cfg.python, script, folder, seed, cfg) for seed in (1, 2))
+    random_output = bool(RANDOM_OUTPUT.match(case["id"]))
+    if random_output:
+        b = a  # the output is random by design: only the exit code and crashes are compared below
     if (a.rc, a.out) != (b.rc, b.out):
         return {**case, "category": "unstable", "detail": "CPython's output changes with PYTHONHASHSEED"}
     if a.rc != 0 or a.note:
@@ -1460,6 +1469,8 @@ def run_case(case, cfg):
         exe, path, why, crashed = build(script, folder, mode, cfg)
         got = masked(run_limited([str(exe)], str(folder), run_env(folder, 1), cfg.timeout, cfg.mem_mb, cfg.sandbox)) if exe else None
         category, detail = classify(a, (exe is not None, why, crashed), got)
+        if random_output and category in ("matched", "wrong_output"):
+            category, detail = "unstable", "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
         if category == "wrong_output":
             # Two seeds can agree by luck on a small str set: try more before calling this Brevi's fault.
             for seed in (3, 4, 5):

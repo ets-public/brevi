@@ -125,6 +125,27 @@ fn guard(p: usize) -> bool {
         true
     })
 }
+// CPython's set_repr: {1, 2} for a set, Name({1, 2}) for a frozenset or a subclass, Name() when empty, and
+// Name(...) for a set met again inside its own repr.
+fn set_repr(v: &V, name: Option<&str>) -> Result<String, E> {
+    let (ks, p, frozen) = match v {
+        V::Set(s) => (s.borrow().keys(), Rc::as_ptr(s) as *const u8 as usize, false),
+        V::FSet(s) => (s.keys(), Rc::as_ptr(s) as *const u8 as usize, true),
+        _ => unreachable!(),
+    };
+    let tname = name.unwrap_or(if frozen { "frozenset" } else { "set" });
+    if !guard(p) {
+        return Ok(format!("{tname}(...)"));
+    }
+    if ks.is_empty() {
+        unguard();
+        return Ok(format!("{tname}()"));
+    }
+    let body = join_repr(&ks);
+    unguard();
+    let body = body?;
+    Ok(if name.is_none() && !frozen { format!("{{{body}}}") } else { format!("{tname}({{{body}}})") })
+}
 // CPython's odict_repr: `Name()` when empty, `...` for an OrderedDict already being repr'd, else `Name({...})` of a
 // dict copied key by key (its keys() in order, then a lookup of each, so a key whose hash changed raises KeyError)
 fn odict_repr(o: &V, d: &Rc<RefCell<Dict>>, name: &str) -> Result<String, E> {
@@ -313,22 +334,7 @@ pub fn repr(v: &V) -> Result<String, E> {
                 _ => body,
             }
         }
-        V::Set(s) => {
-            let ks = s.borrow().keys();
-            if ks.is_empty() {
-                "set()".into()
-            } else {
-                format!("{{{}}}", join_repr(&ks)?)
-            }
-        }
-        V::FSet(s) => {
-            let ks = s.keys();
-            if ks.is_empty() {
-                "frozenset()".into()
-            } else {
-                format!("frozenset({{{}}})", join_repr(&ks)?)
-            }
-        }
+        V::Set(_) | V::FSet(_) => return set_repr(v, None),
         V::Func(f) => {
             if let Some(V::Str(r)) = f.attrs.borrow().iter().find(|(k, _)| *k == "__bv_repr__").map(|(_, v)| v.clone()) {
                 return Ok(r.text().to_string());
@@ -390,6 +396,10 @@ pub fn repr(v: &V) -> Result<String, E> {
                     if d.borrow().kind == 3 {
                         return odict_repr(v, d, o.cls.name);
                     }
+                }
+                // a set or frozenset subclass names its type: S({1}), S()
+                if matches!(i, V::Set(_) | V::FSet(_)) {
+                    return set_repr(&i, Some(o.cls.name));
                 }
                 // a deque subclass's repr names the instance's type, as CPython's deque_repr does: D([...])
                 if let V::Deque(_) = &i {

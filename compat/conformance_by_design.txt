@@ -42,3 +42,8 @@ test_scope.ScopeTests.testGlobalInParallelNestedFunctions  exec
 test_scope.ScopeTests.testScopeOfGlobalStmt  exec
 test_scope.ScopeTests.testUnboundLocal_AugAssign  exec
 test_scope.ScopeTests.testUnoptimizedNamespaces  compile
+test_set.TestSubsetEmptyNonEmpty.test_issubset  eval
+test_set.TestSubsetEqualEmpty.test_issubset  eval
+test_set.TestSubsetEqualNonEmpty.test_issubset  eval
+test_set.TestSubsetNonOverlap.test_issubset  eval
+test_set.TestSubsetPartial.test_issubset  eval

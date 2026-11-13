@@ -2651,12 +2651,22 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
             }
             V::Dict(n)
         }
+        // a key's __deepcopy__ may run user code, so the keys are copied out of the set first
         V::Set(s0) => {
             let mut n = PSet::new();
-            for k in s0.borrow().keys() {
+            let ks = s0.borrow().keys();
+            for k in ks {
                 n.add(deepcopy(&k, memo)?)?;
             }
             V::Set(Rc::new(RefCell::new(n)))
+        }
+        // a frozenset is rebuilt from its deep-copied items (copy._reconstruct of its __reduce__)
+        V::FSet(s0) => {
+            let mut n = PSet::new();
+            for k in s0.keys() {
+                n.add(deepcopy(&k, memo)?)?;
+            }
+            V::FSet(Rc::new(n))
         }
         V::Deque(d) => {
             let mut v = VecDeque::new();
@@ -2783,6 +2793,7 @@ fn length_hint(mut a: Args) -> R {
                 // an endless repeat: its __length_hint__ raises TypeError, which gives the default
                 (ItRepeat, It::Repeat(_, None)) => Ok(default),
                 (ListIter, It::List(l, i)) => left(l.borrow().len(), *i),
+                (SetIter, It::Set(..)) => call_method(&o, "__length_hint__", Args::p(vec![])),
                 (TupleIter, It::Tuple(t, i)) => left(t.len(), *i),
                 (ListReverseIter, It::RevList(l, n)) => Ok(V::Int(if l.borrow().len() >= *n { *n as i64 } else { 0 })),
                 // CPython's dictiter_len: the items left, or 0 once the dict's size changed
@@ -2790,7 +2801,7 @@ fn length_hint(mut a: Args) -> R {
                     let d = d.borrow();
                     Ok(V::Int(if d.n as i64 == *used { d.ents[..*i].iter().filter(|e| e.is_some()).count() as i64 } else { 0 }))
                 }
-                (ListIter | TupleIter | ListReverseIter | ItRepeat | DictReverseKeys | DictReverseValues | DictReverseItems, It::Done) => Ok(V::Int(0)),
+                (ListIter | TupleIter | SetIter | ListReverseIter | ItRepeat | DictReverseKeys | DictReverseValues | DictReverseItems, It::Done) => Ok(V::Int(0)),
                 (Map | Filter | Zip | Enumerate | Generator | CallableIterator | ItCount | ItChain | ItIslice | ItCycle | ItAccumulate | ItZipLongest | ItStarmap | ItTakewhile
                 | ItDropwhile | ItPairwise | ItCompress | ItFilterfalse | ItGroupby | ItGrouper | ItProduct | ItPermutations | ItCombinations
                 | ItCombinationsWithReplacement | ItTee | ItBatched, _) => Ok(default),
