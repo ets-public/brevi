@@ -1713,6 +1713,10 @@ pub struct Em {
     mod_alias: HashMap<(String, String), String>,
     // global names `import types` binds (module, name): `types.coroutine` through them is refused
     types_alias: HashSet<(String, String)>,
+    // the subset bound only by that import (once, never rebound): `@types.coroutine` through one is known statically
+    types_once: HashSet<(String, String)>,
+    // the def being built is a generator function under `@types.coroutine`: its generators are iterable coroutines
+    next_iter_coro: bool,
     // names assigned anywhere at module level, per module
     mod_names: HashMap<String, BTreeSet<String>>,
     class_ctx: Option<String>,
@@ -2618,6 +2622,15 @@ impl Em {
         format!("gtab_{}", rust_ident(&self.module))
     }
     fn call(&mut self, f: &Ex, args: &[Arg], line: usize) -> ER<String> {
+        // `types.coroutine(f)` called (a method call never goes through the attribute check below)
+        if let Ex::Attr(o, m) = f {
+            if matches!(&**o, Ex::Name(x) if self.types_alias.contains(&(self.module.clone(), x.clone()))) {
+                lib_attr_check("types", m, line)?;
+            }
+            if let Some(md) = self.static_module(o) {
+                lib_attr_check(&md, m, line)?;
+            }
+        }
         // warnings.warn(..., stacklevel=2) in the program names a caller's line, which the dynamic build does
         // not keep: CPython runs it (a stacklevel it only learns at run time is refused there, see pyglue)
         if self.track_warn {
@@ -3971,10 +3984,19 @@ impl Em {
             return Err(err(d.line, "async functions are not supported in dynamic builds on this platform"));
         }
         self.next_async = d.is_async;
+        // `@types.coroutine` innermost on a plain generator function: CPython sets CO_ITERABLE_COROUTINE on the
+        // def's code and returns the function itself, so the def is built with that flag and the decorator is not
+        // called. Any other use of types.coroutine stays refused (lib_attr_check).
+        let iter_coro = d.decorators.last().is_some_and(|x| self.is_types_coroutine(x));
+        if iter_coro && (d.is_async || !has_yield(&d.body)) {
+            return Err(err(d.line, "types.coroutine on a function that is not a generator function is not supported in dynamic builds"));
+        }
+        self.next_iter_coro = iter_coro;
         let own = d.disp.as_deref().unwrap_or(&d.name);
         let qn = self.qualname_of(own);
         let v = self.closure(own, &qn, &d.params, &d.body, d.line, true);
         self.next_async = false;
+        self.next_iter_coro = false;
         let mut v = v?;
         v = format!("with_qualname({v}, {})", lit(&qn));
         if let Some(doc) = docstring(&d.body) {
@@ -4039,11 +4061,23 @@ impl Em {
                 v = format!("with_sd_ann({v}, tup(vec![s({}), {desc}]))", lit(pn));
             }
         }
-        for dec in d.decorators.iter().rev() {
+        let n_dec = d.decorators.len() - usize::from(iter_coro);
+        for dec in d.decorators[..n_dec].iter().rev() {
             let dd = self.ex(dec, d.line)?;
             v = self.q(&format!("call(&{dd}, Args::p(vec![{v}]))"));
         }
         Ok(v)
+    }
+    // `types.coroutine`, where `types` is certainly the types module (bound once, by `import types`)
+    fn is_types_coroutine(&self, e: &Ex) -> bool {
+        let Ex::Attr(o, n) = e else { return false };
+        if n != "coroutine" {
+            return false;
+        }
+        if self.static_module(o).as_deref() == Some("types") {
+            return true;
+        }
+        matches!(&**o, Ex::Name(x) if matches!(self.lookup(x), Some(Var::Global(_))) && self.types_once.contains(&(self.module.clone(), x.clone())))
     }
     // A function value. Module-level functions (and methods of module-level classes) become plain Rust
     // functions plus a wrapper; nested ones are closures capturing the cells they use.
@@ -4089,6 +4123,9 @@ impl Em {
         let id = self.id();
         let is_async = std::mem::take(&mut self.next_async);
         let is_gen = has_yield(body);
+        // (a lambda in the def's defaults is built first: is_def keeps the flag for the def itself)
+        let iter_coro = is_def && std::mem::take(&mut self.next_iter_coro) && is_gen && !is_async;
+        let mk_gen = if iter_coro { "make_gen_ic" } else { "make_gen" };
         let params = lambda_params(p);
         let sc = scope_of(body, &params);
         let inner_free = nested_free(body);
@@ -4249,6 +4286,9 @@ impl Em {
             if is_gen {
                 code_flags |= 0x20; // CO_GENERATOR
             }
+            if iter_coro {
+                code_flags |= 0x100; // CO_ITERABLE_COROUTINE
+            }
             if is_async {
                 code_flags |= 0x80; // CO_COROUTINE
             }
@@ -4267,7 +4307,7 @@ impl Em {
                 let mk = if is_gen { "make_agen" } else { "make_acoro" };
                 write!(self.items, "fn {fname}({}) -> R {{ Ok({mk}(sym({qname}), move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}\n", pdecl.join(", ")).unwrap();
             } else if is_gen {
-                write!(self.items, "fn {fname}({}) -> R {{ Ok(make_gen(sym({qname}), move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}\n", pdecl.join(", ")).unwrap();
+                write!(self.items, "fn {fname}({}) -> R {{ Ok({mk_gen}(sym({qname}), move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}\n", pdecl.join(", ")).unwrap();
             } else {
                 write!(self.items, "fn {fname}({}) -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }}\n", pdecl.join(", ")).unwrap();
             }
@@ -4343,7 +4383,7 @@ impl Em {
             }
         }
         if is_gen || is_async {
-            let mk = if is_async && is_gen { format!("make_agen(sym({qname}), ") } else if is_async { format!("make_acoro(sym({qname}), ") } else { format!("make_gen(sym({qname}), ") };
+            let mk = if is_async && is_gen { format!("make_agen(sym({qname}), ") } else if is_async { format!("make_acoro(sym({qname}), ") } else { format!("{mk_gen}(sym({qname}), ") };
             return Ok(format!(
                 "with_fq({wo}with_code({{ let __d = vec![{}]; {caps} func({name_lit}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{caps} Ok({mk}move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}) }}, {code}){wc}, {fq})",
                 dflt_all.join(", ")
@@ -4816,6 +4856,8 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         direct: HashMap::new(),
         mod_alias: HashMap::new(),
         types_alias: HashSet::new(),
+        types_once: HashSet::new(),
+        next_iter_coro: false,
         mod_names: HashMap::new(),
         class_ctx: None,
         lazy: false,
@@ -4937,6 +4979,9 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
             for (n, t) in import_of {
                 if t == "types" {
                     em.types_alias.insert((m.name.clone(), n.clone()));
+                    if binds.get(&n) == Some(&1) && !fn_globals.contains(&n) {
+                        em.types_once.insert((m.name.clone(), n.clone()));
+                    }
                 }
                 if binds.get(&n) == Some(&1) && !fn_globals.contains(&n) && !(em.bridge.has(&t) && !builtin_mod(t.as_str()) && !em.user_modules.contains(&t)) {
                     em.mod_alias.insert((m.name.clone(), n), t);

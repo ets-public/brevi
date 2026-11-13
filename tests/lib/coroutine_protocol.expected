@@ -23,3 +23,9 @@ ZeroDivisionError division by zero | RuntimeError
 object int can't be used in 'await' expression
 KeyError
 [('RuntimeWarning', "coroutine 'spam' was never awaited")]
+generator False False 288
+raw
+returned 42
+raw
+returned 9
+object generator can't be used in 'await' expression

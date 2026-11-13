@@ -1731,6 +1731,8 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
         }
         V::Class(c) if c.module == "builtins" && (c.bt == BT::Exc || c.is_sub(&exc_class("BaseException"))) => pyd_builtins_attr(c.name)?,
         V::Obj(o) if o.cls.lookup("__bv_namedtuple__").is_some() => pyd_namedtuple(v)?,
+        // CPython would see an iterator, not a generator flagged CO_ITERABLE_COROUTINE (inspect.isawaitable)
+        V::Iter(_) if is_iter_coro(v) => return Err(unsupported("passing a generator of a types.coroutine function to a Python library")),
         V::Iter(_) => {
             let next_me = v.clone();
             let red_me = v.clone();

@@ -147,6 +147,11 @@ impl ACoro {
                 ACState::Inline => return Err(exc("RuntimeError", "coroutine is being awaited already".into())),
                 ACState::Done => return Err(self.reused()),
                 ACState::Run(c) => {
+                    // suspended part-way: a coroutine only suspends inside an await, so CPython finds it
+                    // awaiting something already (test_await_15)
+                    if c.try_borrow().is_ok_and(|k| k.is_suspended()) {
+                        return Err(exc("RuntimeError", "coroutine is being awaited already".into()));
+                    }
                     let c = c.clone();
                     drop(st);
                     let r = delegate(&c);
@@ -301,6 +306,20 @@ fn aw_in(x: &V, afor: bool) -> R {
             return c.await_();
         }
     }
+    // A generator of a `@types.coroutine` function is its own awaitable iterator (CPython's GET_AWAITABLE).
+    if let V::Iter(i) = x {
+        if let Some(c) = coro_of(&i.it) {
+            match c.try_borrow() {
+                Ok(k) if k.iter_coro => {
+                    drop(k);
+                    return delegate(&c);
+                }
+                Ok(_) => {}
+                // running now: whether it is an iterable coroutine cannot be read from inside it
+                Err(_) => return Err(unsupported("awaiting a generator that is running")),
+            }
+        }
+    }
     // An asyncio future (what Future.__await__ does, without making a generator for it).
     if class_has(x, "_asyncio_future_blocking") {
         if !truth(&call_method(x, "done", Args::p(vec![]))?)? {
@@ -313,7 +332,12 @@ fn aw_in(x: &V, afor: bool) -> R {
         return call_method(x, "result", Args::p(vec![]));
     }
     if !class_has(x, "__await__") {
-        return Err(wrap(exc("TypeError", format!("object {} can't be used in 'await' expression", type_name(x)))));
+        // an iterator is named by its own type ("generator"), as CPython does
+        let t = match x {
+            V::Iter(_) => type_of(x).map(|c| c.name.to_string()).unwrap_or_else(|_| type_name(x)),
+            _ => type_name(x),
+        };
+        return Err(wrap(exc("TypeError", format!("object {t} can't be used in 'await' expression"))));
     }
     let it = call_method(x, "__await__", Args::p(vec![])).map_err(wrap)?;
     match &it {
@@ -398,7 +422,7 @@ pub fn brevi_async_fn(n: &str, a: Args) -> R {
         "isasyncgen" => Ok(V::Bool(ag_of(&a1(&a, "isasyncgen")?).is_some())),
         "isawaitable" => {
             let x = a1(&a, "isawaitable")?;
-            Ok(V::Bool(is_acoro(&x) || class_has(&x, "__await__")))
+            Ok(V::Bool(is_acoro(&x) || is_iter_coro(&x) || class_has(&x, "__await__")))
         }
         "set_hooks" | "track" | "untrack" | "tracked" => ag_hook_fn(n, &a),
         "set_task_hooks" => {

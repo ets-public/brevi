@@ -171,3 +171,56 @@ with warnings.catch_warnings(record=True) as ws:
     warnings.simplefilter("always")
     spam()
 print([(w.category.__name__, str(w.message)) for w in ws])
+
+
+# @types.coroutine on a generator function (CO_ITERABLE_COROUTINE): the same function back, its generators are
+# not Awaitable or Coroutine instances, `await` takes them as they are, and they may `yield from` a coroutine.
+from collections.abc import Awaitable, Coroutine
+
+
+@types.coroutine
+def iter_coro():
+    v = yield "raw"
+    return v
+
+
+async def awaits_iter_coro():
+    return await iter_coro()
+
+
+ic = iter_coro()
+print(type(ic).__name__, isinstance(ic, Awaitable), isinstance(ic, Coroutine), iter_coro.__code__.co_flags & 0x1a0)
+ic.close()
+co = awaits_iter_coro()
+print(co.send(None))
+try:
+    co.send(42)
+except StopIteration as e:
+    print("returned", e.value)
+
+
+@types.coroutine
+def yields_from_coro():
+    return (yield from awaits_iter_coro())
+
+
+g = yields_from_coro()
+print(next(g))
+try:
+    g.send(9)
+except StopIteration as e:
+    print("returned", e.value)
+
+
+def plain_gen():
+    yield
+
+
+async def awaits_plain():
+    await plain_gen()
+
+
+try:
+    awaits_plain().send(None)
+except TypeError as e:
+    print(e)

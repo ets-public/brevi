@@ -159,6 +159,9 @@ pub struct Coro {
     // a coroutine's body (send() and its __await__() iterator): once finished, resuming or throwing in is
     // RuntimeError, as CPython's coroutines are, not the generator's quiet end
     pub awaitable: bool,
+    // a generator of a `@types.coroutine` function (CO_ITERABLE_COROUTINE): `await` takes it as it is, and in its
+    // body `yield from` a coroutine delegates to that coroutine
+    pub iter_coro: bool,
 }
 
 thread_local! {
@@ -310,6 +313,7 @@ impl Coro {
             live_seq: 0,
             wsite: None,
             awaitable: false,
+            iter_coro: false,
         })
     }
     // Runs the generator to its next yield: Some(value), or None once it has returned.
@@ -537,6 +541,11 @@ pub fn gen_yield(v: V) -> R {
 // `yield from it`: every item of it, then its return value.
 pub fn gen_yield_from(it: &V) -> R {
     if matches!(it, V::Ext(e) if e.tname() == "coroutine") {
+        // SAFETY: CORO_NOW holds the generators whose bodies are running now; the last is the one running this
+        let in_iter_coro = CORO_NOW.with(|s| s.borrow().last().is_some_and(|&c| unsafe { (*c).iter_coro }));
+        if in_iter_coro {
+            return aw(it);
+        }
         return Err(exc("TypeError", "cannot 'yield from' a coroutine object in a non-coroutine generator".into()));
     }
     if let V::Iter(i) = it {
@@ -554,6 +563,19 @@ pub fn gen_yield_from(it: &V) -> R {
 // A generator object: the function body, started at the first next().
 pub fn make_gen(name: Sym, body: impl FnOnce() -> R + 'static) -> V {
     new_iter(It::Coro(Rc::new(RefCell::new(Coro::new(name, Box::new(body))))), IterClass::Kind(ItKind::Generator))
+}
+// A generator object of a `@types.coroutine` generator function.
+pub fn make_gen_ic(name: Sym, body: impl FnOnce() -> R + 'static) -> V {
+    let mut c = Coro::new(name, Box::new(body));
+    c.iter_coro = true;
+    new_iter(It::Coro(Rc::new(RefCell::new(c))), IterClass::Kind(ItKind::Generator))
+}
+// whether x is a generator of a `@types.coroutine` function
+pub fn is_iter_coro(x: &V) -> bool {
+    match x {
+        V::Iter(i) => coro_of(&i.it).is_some_and(|c| c.try_borrow().is_ok_and(|k| k.iter_coro)),
+        _ => false,
+    }
 }
 // The __qualname__ of the generator whose body is running now (None otherwise).
 pub fn running_gen_name() -> Option<Sym> {
