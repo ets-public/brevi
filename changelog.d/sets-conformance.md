@@ -4,4 +4,4 @@
 - `id()` gives every heap value (sets, functions, classes, iterators, ...) its own identity instead of 1.
 - frozenset subclasses work; int, float, str, bytes, tuple and frozenset subclasses with their own `__init__` keep the value they were built from; set and frozenset subclasses repr with their class name, and a set inside its own repr prints `set(...)`.
 - frozenset hashes are cached (nested frozensets no longer rehash exponentially); `set(dict)`, `set.update(dict)` and `dict.fromkeys(set)` reuse stored hashes; a class attribute holding `dict.fromkeys` no longer binds; set iterators have `__length_hint__`; `copy.deepcopy` of a frozenset copies its items.
-- CPython's test_set joins the scored core conformance slice (0 wrong; 94.4% of its scored tests match).
+- CPython's test_set joins the scored core conformance slice (0 wrong; 94.2% of its scored tests match). Its 126 `*Mutating*` tests print output that depends on unseeded random numbers, so the conformance tool always classes them unstable (they flipped between matched and unstable from run to run); both builds still run them, so a crash, wrong exit code or refusal still fails.
