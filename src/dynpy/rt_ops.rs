@@ -1214,6 +1214,9 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
     if let Some(r) = obj_binop(a, b, op) {
         return r;
     }
+    if let Some(r) = deque_sub_binop(a, b, op) {
+        return r;
+    }
     let (ia, ib) = (inner_of(a), inner_of(b));
     // (a bytearray subclass instance is not unwrapped: obj_binop took what bytearray takes, and errors name the subclass)
     if (ia.is_some() || ib.is_some()) && !is_ba_sub(a) && !is_ba_sub(b) {

@@ -577,6 +577,11 @@ pub fn to_str(v: &V) -> Result<String, E> {
                     }
                 }
             }
+            // deque has no __str__ of its own: object.__str__ is the instance's repr (its class's __repr__, or
+            // deque's, which names the subclass)
+            if matches!(inner_of(v), Some(V::Deque(_))) && o.cls.lookup("__str__").is_none() {
+                return repr(v);
+            }
             if let Some(f) = o.cls.lookup("__str__") {
                 return match call(&f, Args::p(vec![v.clone()]))? {
                     V::Str(s) => Ok(s.text().to_string()),

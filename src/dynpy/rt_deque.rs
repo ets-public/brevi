@@ -155,6 +155,34 @@ pub fn deque_imul(d: &Rc<RefCell<Deq>>, n: &V) -> Result<(), E> {
     Ok(())
 }
 
+// `sub * n`, `n * sub` and `sub + other` for an instance of a deque subclass whose class does not define the
+// operator: CPython's deque_repeat and deque_concat start from deque_copy, type(d)(d) or type(d)(d, maxlen),
+// so the result is of the subclass (made by its own __init__), then repeat or extend it in place.
+pub fn deque_sub_binop(a: &V, b: &V, op: &str) -> Option<R> {
+    let (sub, other) = match op {
+        "*" if matches!(inner_of(a), Some(V::Deque(_))) && is_intlike(b) => (a, b),
+        "*" if matches!(inner_of(b), Some(V::Deque(_))) && is_intlike(a) => (b, a),
+        "+" if matches!(inner_of(a), Some(V::Deque(_))) => (a, b),
+        _ => return None,
+    };
+    Some((|| {
+        if op == "+" && !matches!(other, V::Deque(_)) && !matches!(inner_of(other), Some(V::Deque(_))) {
+            return type_err(format!("can only concatenate deque (not \"{}\") to deque", tn(other)));
+        }
+        let k = if op == "*" { Some(deque_count(other)?) } else { None };
+        let new = deque_sub_copy(sub).unwrap_or_else(|| type_err("internal: deque subclass copy".into()))?;
+        let Some(V::Deque(nd)) = inner_of(&new).or_else(|| Some(new.clone())) else {
+            let V::Obj(o) = sub else { return type_err("internal: deque subclass copy".into()) };
+            return type_err(format!("{}() must return a deque, not {}", o.cls.name, tn(&new)));
+        };
+        match k {
+            Some(k) => deque_imul(&nd, &V::Int(k))?,
+            None => deque_extend(&nd, other, false)?,
+        }
+        Ok(new)
+    })())
+}
+
 // `d + other`: a deque of the left one's maxlen; other must be a deque (or a deque subclass instance)
 pub fn deque_concat(d: &Rc<RefCell<Deq>>, other: &V) -> R {
     let o = match other {
