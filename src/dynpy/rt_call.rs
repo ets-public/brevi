@@ -522,7 +522,15 @@ fn is_abstract_method(v: &V) -> Result<bool, E> {
             let a = f.attrs.borrow().iter().find(|(k, _)| *k == "__isabstractmethod__").map(|(_, x)| x.clone());
             a.map_or(Ok(false), |x| truth(&x))
         }
-        V::None | V::Bool(_) | V::Int(_) | V::Big(_) | V::Float(_) | V::Str(_) | V::Tuple(_) | V::List(_) | V::Dict(_) => Ok(false),
+        V::None | V::Bool(_) | V::Int(_) | V::Big(_) | V::Float(_) | V::Str(_) | V::Tuple(_) | V::List(_) | V::Dict(_) | V::Set(_) | V::FSet(_) => Ok(false),
+        // a native value answers only for attributes it has (getattr's fallback would offer any name as a
+        // method): the class's own _abc_impl and __abstractmethods__ are never abstract themselves
+        V::Ext(x) => match x.attr(v, "__isabstractmethod__") {
+            Some(Ok(a)) => truth(&a),
+            Some(Err(e)) if is_exc(&e.0, "AttributeError") => Ok(false),
+            Some(Err(e)) => Err(e),
+            None => Ok(false),
+        },
         _ => match getattr(v, "__isabstractmethod__") {
             Ok(x) => truth(&x),
             Err(e) if is_exc(&e.0, "AttributeError") => Ok(false),
@@ -1084,6 +1092,18 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
     if name == "__init_subclass__" {
         return Ok(builtin("__init_subclass__", |_a: Args| Ok(V::None)));
     }
+    if name == "__delattr__" {
+        let me2 = me.clone();
+        return Ok(builtin("__delattr__", move |a: Args| {
+            if a.p.len() != 1 {
+                return type_err(format!("expected 1 argument, got {}", a.p.len()));
+            }
+            let V::Str(n) = &a.p[0] else {
+                return type_err(format!("attribute name must be string, not '{}'", tn(&a.p[0])));
+            };
+            object_delattr(&me2, &n.text()).map(|_| V::None)
+        }));
+    }
     if name == "__setattr__" {
         let me2 = me.clone();
         return Ok(builtin("__setattr__", move |a: Args| object_setattr(&me2, &a.p)));
@@ -1544,8 +1564,9 @@ fn class_getattr(o: &V, c: &Rc<Class>, name: &str) -> R {
             // Last: a plain class inherits object.__init__ (so Formatter.__init__(self) works as it
             // does in CPython); it is not among c.lookup's names because object adds no slot.
             // After the builtin bases, so ValueError.__init__ on an exception subclass stays ValueError's.
-            if name == "__init__" {
-                if let Some(v) = builtin_class_attr(&bclass("object"), "__init__") {
+            // Every name of object's type dict alike (C.__hash__ is object.__hash__ for a class without __eq__).
+            if name == "__init__" || object_type_has(name) {
+                if let Some(v) = builtin_class_attr(&bclass("object"), name) {
                     return Ok(v);
                 }
             }
@@ -1561,6 +1582,10 @@ pub fn getattr(o: &V, name: &str) -> R {
             if name == "__dict__" && ob.cls.lookup(name).is_none() && ob.cls.has_dict() {
                 return ob.dict();
             }
+            // the __weakref__ getset of the layout: a data descriptor, so it wins over an instance attribute
+            if name == "__weakref__" && ob.cls.lookup(name).is_none() {
+                return obj_weakref(o, &ob.cls);
+            }
             // a data descriptor of the program (its class defines __set__ or __delete__) wins over the
             // instance's own attribute, as in CPython
             if USER_DATA_DESC.load(std::sync::atomic::Ordering::Relaxed) {
@@ -1572,6 +1597,10 @@ pub fn getattr(o: &V, name: &str) -> R {
             }
             if let Some(v) = ob.get_attr(name)? {
                 return Ok(v);
+            }
+            // the class's __module__ (a str in its dict in CPython; Brevi keeps it beside the dict)
+            if name == "__module__" && ob.cls.lookup(name).is_none() {
+                return Ok(s(ob.cls.module));
             }
             // (An instance's __annotations__ is an ordinary lookup through its class's MRO, so a base's dict is
             // found and a class with none raises AttributeError, as in CPython; only the class itself is special.)
@@ -1985,6 +2014,58 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
         _ => Err(exc("AttributeError", format!("'{}' object has no attribute '{}' and no __dict__ for setting new attributes", tn(o), name))),
     }
 }
+// object.__delattr__: deleting an instance attribute without the class's own __delattr__
+pub fn object_delattr(o: &V, name: &str) -> Result<(), E> {
+    let V::Obj(ob) = o else {
+        return Err(exc("AttributeError", format!("'{}' object has no attribute '{}'", tn(o), name)));
+    };
+    // a C type's __dict__ descriptor (functools.partial's) cannot be deleted
+    if name == "__dict__" && ob.cls.lookup("__bv_nodeldict__").is_some() {
+        return type_err("cannot delete __dict__".into());
+    }
+    // deleting an OSError field empties the slot (getattr then reads None), it does not raise
+    if matches!(name, "errno" | "strerror" | "filename" | "filename2")
+        && ob.cls.base_bt() == BT::Exc
+        && ob.cls.is_sub(&ose_class())
+    {
+        ob.del_attr(name)?;
+        return Ok(());
+    }
+    if (matches!(name, "path") && ob.cls.is_sub(&exc_class("ImportError"))
+        || matches!(name, "obj") && ob.cls.is_sub(&exc_class("AttributeError"))
+        || matches!(name, "name")
+            && (ob.cls.is_sub(&exc_class("ImportError"))
+                || ob.cls.is_sub(&exc_class("AttributeError"))
+                || ob.cls.is_sub(&exc_class("NameError"))))
+        && ob.cls.base_bt() == BT::Exc
+    {
+        ob.del_attr(name)?;
+        return Ok(());
+    }
+    // a data descriptor of the program: __delete__(obj); one with only __set__ cannot be deleted
+    if USER_DATA_DESC.load(std::sync::atomic::Ordering::Relaxed) {
+        if let Some(d @ V::Obj(_)) = ob.cls.lookup(name) {
+            if is_data_desc(&d) {
+                let V::Obj(dd) = &d else { unreachable!() };
+                return match dd.cls.lookup("__delete__") {
+                    Some(f) => call(&f, Args::p(vec![d.clone(), o.clone()])).map(|_| ()),
+                    None => Err(exc("AttributeError", "__delete__".into())),
+                };
+            }
+        }
+    }
+    if ob.del_attr(name)? {
+        Ok(())
+    } else if !ob.cls.has_dict() {
+        if ob.cls.lookup(name).is_some() {
+            Err(exc("AttributeError", format!("'{}' object attribute '{}' is read-only", ob.cls.name, name)))
+        } else {
+            Err(exc("AttributeError", format!("'{}' object has no attribute '{}' and no __dict__ for setting new attributes", ob.cls.name, name)))
+        }
+    } else {
+        Err(exc("AttributeError", format!("'{}' object has no attribute '{}'", ob.cls.name, name)))
+    }
+}
 pub fn delattr(o: &V, name: &str) -> Result<(), E> {
     if let Some(p) = proxy_deref(o) {
         return delattr(&p?, name);
@@ -2004,52 +2085,7 @@ pub fn delattr(o: &V, name: &str) -> Result<(), E> {
                 call(&da, Args::p(vec![o.clone(), s(name)]))?;
                 return Ok(());
             }
-            // a C type's __dict__ descriptor (functools.partial's) cannot be deleted
-            if name == "__dict__" && ob.cls.lookup("__bv_nodeldict__").is_some() {
-                return type_err("cannot delete __dict__".into());
-            }
-            // deleting an OSError field empties the slot (getattr then reads None), it does not raise
-            if matches!(name, "errno" | "strerror" | "filename" | "filename2")
-                && ob.cls.base_bt() == BT::Exc
-                && ob.cls.is_sub(&ose_class())
-            {
-                ob.del_attr(name)?;
-                return Ok(());
-            }
-            if (matches!(name, "path") && ob.cls.is_sub(&exc_class("ImportError"))
-                || matches!(name, "obj") && ob.cls.is_sub(&exc_class("AttributeError"))
-                || matches!(name, "name")
-                    && (ob.cls.is_sub(&exc_class("ImportError"))
-                        || ob.cls.is_sub(&exc_class("AttributeError"))
-                        || ob.cls.is_sub(&exc_class("NameError"))))
-                && ob.cls.base_bt() == BT::Exc
-            {
-                ob.del_attr(name)?;
-                return Ok(());
-            }
-            // a data descriptor of the program: __delete__(obj); one with only __set__ cannot be deleted
-            if USER_DATA_DESC.load(std::sync::atomic::Ordering::Relaxed) {
-                if let Some(d @ V::Obj(_)) = ob.cls.lookup(name) {
-                    if is_data_desc(&d) {
-                        let V::Obj(dd) = &d else { unreachable!() };
-                        return match dd.cls.lookup("__delete__") {
-                            Some(f) => call(&f, Args::p(vec![d.clone(), o.clone()])).map(|_| ()),
-                            None => Err(exc("AttributeError", "__delete__".into())),
-                        };
-                    }
-                }
-            }
-            if ob.del_attr(name)? {
-                Ok(())
-            } else if !ob.cls.has_dict() {
-                if ob.cls.lookup(name).is_some() {
-                    Err(exc("AttributeError", format!("'{}' object attribute '{}' is read-only", ob.cls.name, name)))
-                } else {
-                    Err(exc("AttributeError", format!("'{}' object has no attribute '{}' and no __dict__ for setting new attributes", ob.cls.name, name)))
-                }
-            } else {
-                Err(exc("AttributeError", format!("'{}' object has no attribute '{}'", ob.cls.name, name)))
-            }
+            object_delattr(o, name)
         }
         // deleting a namedtuple field descriptor's __doc__ resets it to None, as in CPython
         V::NTF(n) if name == "__doc__" => {

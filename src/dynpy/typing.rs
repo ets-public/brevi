@@ -66,6 +66,9 @@ struct Names {
     tdicts: HashSet<String>,    // TypedDict classes
     ntuples: HashSet<String>,   // NamedTuple classes (their __annotations__ is not kept)
     classes: HashSet<String>,   // every class of the module, nested ones included
+    // classes built on a subscripted generic class (`class D(Base[int, T])`) and no Generic[...] of their own: the
+    // runtime does not work out their type parameters, so subscripting one (`D[str]`) is refused here
+    on_alias: HashSet<String>,
     lazy: bool,                 // `from __future__ import annotations`: annotations are strings, not kept
     odd_ann: bool,              // a class annotation the runtime may not evaluate (`int | None`, `list[int]`)
 }
@@ -136,8 +139,28 @@ pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
             names.insert(m.to_string(), nm);
         }
     }
+    // classes on a subscripted generic class at any depth (collect reads only module-level statements)
+    fn deep_alias(body: &[Stmt], nm: &mut Names, gens: &mut HashSet<String>) {
+        for s in body {
+            if let St::Class(c) = &s.st {
+                let generic = |o: &Ex, nm: &Names, gens: &HashSet<String>| nm.generic_class(o) || matches!(o, Ex::Name(n) if gens.contains(n));
+                let own = c.bases.iter().any(|b| matches!(b, Ex::Index(o, _) if nm.is_form(o, "Generic") || nm.is_form(o, "Protocol")));
+                if !own && c.bases.iter().any(|b| matches!(b, Ex::Index(o, _) if generic(o, nm, gens))) {
+                    nm.on_alias.insert(c.name.clone());
+                }
+                if own || c.bases.iter().any(|b| match b {
+                    Ex::Index(o, _) => generic(o, nm, gens),
+                    b => generic(b, nm, gens),
+                }) {
+                    gens.insert(c.name.clone());
+                }
+            }
+            blocks(&s.st, &mut |b| deep_alias(b, nm, gens));
+        }
+    }
     for (m, body) in mods {
         let nm = names.get_mut(*m).unwrap();
+        deep_alias(body, nm, &mut HashSet::new());
         class_names(body, &mut nm.classes);
         nm.lazy = future_annotations(body);
         nm.odd_ann = odd_class_annotation(body, false);
@@ -209,6 +232,89 @@ pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
         walk_defs(body, &mut |name| own_init |= name == "__init__");
         if own_init || no_init {
             return Err((m.to_string(), l, "dataclasses: the __doc__ of a dataclass whose __init__ dataclasses does not write needs CPython".into()));
+        }
+    }
+    // The program's own objects cannot pass to CPython's pickle or unittest.mock (the bridge stops at run time):
+    // the uses that would hand them over are refused here, before the program runs.
+    for (m, body) in mods {
+        let classes = &names[*m].classes;
+        // make_dataclass sets __module__ from its caller's frame; Brevi gives "__main__"
+        if *m != "__main__" {
+            let mut at = None;
+            walk_all(body, &mut |e, line| {
+                if matches!(e, Ex::Name(n) | Ex::Attr(_, n) if n == "make_dataclass") {
+                    at.get_or_insert(line);
+                }
+            });
+            if let Some(l) = at {
+                return Err((m.to_string(), l, "dataclasses.make_dataclass outside the main module needs CPython".into()));
+            }
+        }
+        // field(metadata=M(...)) with a mapping class of the program (types.MappingProxyType over it)
+        let mut at = None;
+        walk_all(body, &mut |e, line| {
+            if let Ex::Call(f, args) = e {
+                if matches!(f.as_ref(), Ex::Name(n) | Ex::Attr(_, n) if n == "field")
+                    && args.iter().any(|a| matches!(a, Arg::Kw(k, Ex::Call(g, _)) if k == "metadata" && matches!(g.as_ref(), Ex::Name(n) if classes.contains(n))))
+                {
+                    at.get_or_insert(line);
+                }
+            }
+        });
+        if let Some(l) = at {
+            return Err((m.to_string(), l, "dataclasses: field(metadata=...) with a mapping class of the program needs CPython".into()));
+        }
+        // pickling a dataclass instance or class
+        if imports(body, "pickle") {
+            let mut dc = false;
+            let mut pk = None;
+            walk_all(body, &mut |e, line| {
+                dc |= matches!(e, Ex::Name(n) | Ex::Attr(_, n) if n == "dataclass" || n == "make_dataclass");
+                if matches!(e, Ex::Attr(o, a) if matches!(a.as_str(), "dumps" | "dump" | "Pickler") && matches!(o.as_ref(), Ex::Name(n) if n == "pickle")) {
+                    pk.get_or_insert(line);
+                }
+            });
+            walk_from(body, &mut |md, ns| {
+                if md == "pickle" && ns.iter().any(|n| matches!(n.as_str(), "dumps" | "dump" | "Pickler")) {
+                    pk.get_or_insert(0);
+                }
+            });
+            if let (true, Some(l)) = (dc, pk) {
+                return Err((m.to_string(), l, "pickle of the program's dataclasses needs CPython".into()));
+            }
+        }
+        // a unittest.mock object stored on a class of the program (`D.__set__ = Mock()`, or `x = Mock()` in its
+        // body): the runtime would call it with the program's objects
+        if imports(body, "unittest") {
+            fn is_mock(e: &Ex) -> bool {
+                matches!(e, Ex::Call(f, _) if matches!(f.as_ref(), Ex::Name(n) | Ex::Attr(_, n) if matches!(n.as_str(), "Mock" | "MagicMock" | "NonCallableMock" | "NonCallableMagicMock" | "AsyncMock" | "PropertyMock" | "create_autospec")))
+            }
+            fn walk(body: &[Stmt], classes: &HashSet<String>, in_class: bool, at: &mut Option<usize>) {
+                for s in body {
+                    match &s.st {
+                        St::Assign(ts, v) if is_mock(v) => {
+                            if in_class || ts.iter().any(|t| matches!(t, Ex::Attr(o, _) if matches!(o.as_ref(), Ex::Name(n) if classes.contains(n)))) {
+                                at.get_or_insert(s.line);
+                            }
+                        }
+                        St::AnnAssign(_, Some(v), _, _) if in_class && is_mock(v) => {
+                            at.get_or_insert(s.line);
+                        }
+                        St::Expr(Ex::Call(f, args)) if matches!(f.as_ref(), Ex::Name(n) if n == "setattr") => {
+                            if matches!(args.first(), Some(Arg::Pos(Ex::Name(n))) if classes.contains(n)) && matches!(args.get(2), Some(Arg::Pos(v)) if is_mock(v)) {
+                                at.get_or_insert(s.line);
+                            }
+                        }
+                        St::Class(c) => walk(&c.body, classes, true, at),
+                        st => blocks(st, &mut |b| walk(b, classes, false, at)),
+                    }
+                }
+            }
+            let mut at = None;
+            walk(body, classes, false, &mut at);
+            if let Some(l) = at {
+                return Err((m.to_string(), l, "unittest.mock: a Mock stored on a class of the program needs CPython".into()));
+            }
         }
     }
     // dataclasses.Field.type and a dataclass's generated __doc__ show the class's annotations, which the build
@@ -490,7 +596,7 @@ fn collect(body: &[Stmt], nm: &mut Names, all: &HashMap<String, Names>, top: boo
                         if let Some(f) = o.forms.get(n) {
                             nm.forms.insert(bind.clone(), f.clone());
                         }
-                        for (from, to) in [(&o.generic, &mut nm.generic), (&o.protocols, &mut nm.protocols), (&o.tdicts, &mut nm.tdicts)] {
+                        for (from, to) in [(&o.generic, &mut nm.generic), (&o.protocols, &mut nm.protocols), (&o.tdicts, &mut nm.tdicts), (&o.on_alias, &mut nm.on_alias)] {
                             if from.contains(n) {
                                 to.insert(bind.clone());
                             }
@@ -510,6 +616,10 @@ fn collect(body: &[Stmt], nm: &mut Names, all: &HashMap<String, Names>, top: boo
                 nm.forms.insert(n.clone(), (String::new(), String::new()));
             }
             St::Class(c) => {
+                let own = c.bases.iter().any(|b| matches!(b, Ex::Index(o, _) if nm.is_form(o, "Generic") || nm.is_form(o, "Protocol")));
+                if !own && c.bases.iter().any(|b| matches!(b, Ex::Index(o, _) if nm.generic_class(o))) {
+                    nm.on_alias.insert(c.name.clone());
+                }
                 for b in &c.bases {
                     let head = match b {
                         Ex::Index(o, _) => o.as_ref(),
@@ -769,6 +879,7 @@ fn expr(e: &Ex, ok: bool, line: usize, nm: &Names) -> Result<(), Er> {
             }
             go(o)
         }
+        Ex::Index(o, _) if matches!(o.as_ref(), Ex::Name(n) if nm.on_alias.contains(n)) => Err(err(line, "subscripting a class built on a subscripted generic class")),
         Ex::Index(o, i) => {
             if nm.typing_expr(o) && !nm.generic_class(o) {
                 // typing.List[int], typing.Optional[X], ...: values the runtime makes (rt_typing.rs TAlias, TUnion)
@@ -862,6 +973,9 @@ fn expr(e: &Ex, ok: bool, line: usize, nm: &Names) -> Result<(), Er> {
             }
             // `Stack[int]()`
             if let Ex::Index(o, i) = f.as_ref() {
+                if matches!(o.as_ref(), Ex::Name(n) if nm.on_alias.contains(n)) {
+                    return Err(err(line, "subscripting a class built on a subscripted generic class"));
+                }
                 if nm.generic_class(o) {
                     expr(i, true, line, nm)?;
                     return all(false);

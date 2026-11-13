@@ -247,7 +247,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "_brevi_col" => &["fsum", "cmp", "farith", "iarith", "take", "mask", "group1", "infer"],
         "_brevi_mt" => &["new", "seed", "next", "random", "bits", "below", "shuffle"],
         "collections" => &["defaultdict", "Counter", "OrderedDict", "deque", "namedtuple", "abc", "_count_elements"],
-        "dataclasses" => &["asdict", "astuple", "dataclass", "field", "fields", "replace", "is_dataclass", "MISSING", "KW_ONLY", "InitVar", "Field", "FrozenInstanceError"],
+        "dataclasses" => &["asdict", "astuple", "dataclass", "field", "fields", "replace", "is_dataclass", "make_dataclass", "MISSING", "KW_ONLY", "InitVar", "Field", "FrozenInstanceError"],
         "re" => &["compile", "_compile", "escape", "findall", "finditer", "fullmatch", "match", "purge", "search", "split", "sub", "subn", "IGNORECASE", "I", "LOCALE", "L", "MULTILINE", "M", "DOTALL", "S", "VERBOSE", "X", "ASCII", "A", "NOFLAG", "UNICODE", "U", "DEBUG", "RegexFlag", "error", "PatternError", "Pattern", "Match", "Scanner"],
         "re._constants" => &["MAXGROUPS", "MAXREPEAT"],
         "re._compiler" => &["_generate_overlap_table", "MAXGROUPS", "MAXREPEAT"],
@@ -265,7 +265,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "zoneinfo" => &["ZoneInfo", "ZoneInfoNotFoundError", "available_timezones", "TZPATH", "reset_tzpath"],
         "gc" => &["collect"],
         "weakref" => &["ref", "proxy"],
-        "inspect" => &["Signature"],
+        "inspect" => &["Signature", "isabstract"],
         _ => return false,
     };
     names.contains(&n)

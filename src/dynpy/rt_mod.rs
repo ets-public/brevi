@@ -3191,6 +3191,7 @@ pub fn module_call(m: &str, n: &str, a: Args) -> R {
         },
         "gc" => gc_fn(n, a),
         "weakref" => weakref_fn(n, a),
+        "inspect" if n == "isabstract" => call(&ext_module_attr2(m, n).expect("inspect.isabstract"), a),
         _ => ext_module_call(m, n, a),
     }
 }
@@ -4185,6 +4186,91 @@ struct DcOpts {
     weakref_slot: bool,
     match_args: bool,
 }
+// CPython's _Py_CalculateSuggestions (Python/suggestions.c): the closest name within a third of the characters,
+// by its Levenshtein cost (a move costs 2, a change of case 1), for "Did you mean ...?"
+pub fn cpy_suggest<'a>(name: &str, cands: &[&'a str]) -> Option<&'a str> {
+    const MOVE: usize = 2;
+    fn sub_cost(a: u8, b: u8) -> usize {
+        if a & 31 != b & 31 {
+            return MOVE;
+        }
+        if a == b {
+            return 0;
+        }
+        if a.to_ascii_lowercase() == b.to_ascii_lowercase() { 1 } else { MOVE }
+    }
+    fn lev(a: &[u8], b: &[u8], max: usize) -> usize {
+        let (mut a, mut b) = (a, b);
+        while !a.is_empty() && !b.is_empty() && a[0] == b[0] {
+            a = &a[1..];
+            b = &b[1..];
+        }
+        while !a.is_empty() && !b.is_empty() && a[a.len() - 1] == b[b.len() - 1] {
+            a = &a[..a.len() - 1];
+            b = &b[..b.len() - 1];
+        }
+        if a.is_empty() || b.is_empty() {
+            return (a.len() + b.len()) * MOVE;
+        }
+        if a.len() > 40 || b.len() > 40 {
+            return max + 1;
+        }
+        if b.len() < a.len() {
+            std::mem::swap(&mut a, &mut b);
+        }
+        if (b.len() - a.len()) * MOVE > max {
+            return max + 1;
+        }
+        let mut buf: Vec<usize> = (0..a.len()).map(|i| (i + 1) * MOVE).collect();
+        let mut result = 0;
+        for (bi, &code) in b.iter().enumerate() {
+            let mut distance = bi * MOVE;
+            result = distance;
+            let mut minimum = usize::MAX;
+            for (i, &ac) in a.iter().enumerate() {
+                let substitute = distance + sub_cost(code, ac);
+                distance = buf[i];
+                let insert_delete = result.min(distance) + MOVE;
+                result = insert_delete.min(substitute);
+                buf[i] = result;
+                minimum = minimum.min(result);
+            }
+            if minimum > max {
+                return max + 1;
+            }
+        }
+        result
+    }
+    let mut best: Option<(&'a str, usize)> = None;
+    for &c in cands {
+        if c == name {
+            continue;
+        }
+        let mut max = (name.len() + c.len() + 3) * MOVE / 6;
+        if let Some((_, d)) = best {
+            max = max.min(d.saturating_sub(1));
+            if d == 0 {
+                continue;
+            }
+        }
+        let d = lev(name.as_bytes(), c.as_bytes(), max);
+        if d > max {
+            continue;
+        }
+        if best.is_none_or(|(_, bd)| d < bd) {
+            best = Some((c, d));
+        }
+    }
+    best.map(|(c, _)| c)
+}
+// "f() got an unexpected keyword argument 'k'", with CPython 3.13's suggestion from the function's keyword names
+fn unexpected_kw_msg(f: &str, k: &str, names: &[&str]) -> String {
+    match cpy_suggest(k, names) {
+        Some(s) => format!("{f}() got an unexpected keyword argument '{k}'. Did you mean '{s}'?"),
+        None => format!("{f}() got an unexpected keyword argument '{k}'"),
+    }
+}
+const DC_KW: [&str; 10] = ["init", "repr", "eq", "order", "unsafe_hash", "frozen", "match_args", "kw_only", "slots", "weakref_slot"];
 pub fn dataclass_fn(n: &str, mut a: Args) -> R {
     match n {
         "dataclass" => {
@@ -4202,7 +4288,7 @@ pub fn dataclass_fn(n: &str, mut a: Args) -> R {
                 match_args: flag("match_args", true)?,
             };
             if !a.k.is_empty() {
-                return type_err(format!("dataclass() got an unexpected keyword argument '{}'", a.k[0].0));
+                return type_err(unexpected_kw_msg("dataclass", a.k[0].0, &DC_KW));
             }
             match a.p.first() {
                 Some(V::Class(c)) => make_dataclass(c, &o),
@@ -4219,8 +4305,9 @@ pub fn dataclass_fn(n: &str, mut a: Args) -> R {
             let o = Obj::new(field_class());
             o.set("name", V::None);
             o.set("type", V::None);
-            let d = a.kw("default");
-            let df = a.kw("default_factory");
+            // field(default=MISSING, ...) is the same as leaving it out
+            let d = a.kw("default").filter(|v| !is_missing(v));
+            let df = a.kw("default_factory").filter(|v| !is_missing(v));
             if d.is_some() && df.is_some() {
                 return val_err("cannot specify both default and default_factory".into());
             }
@@ -4230,7 +4317,7 @@ pub fn dataclass_fn(n: &str, mut a: Args) -> R {
                 o.set(k, a.kw(k).unwrap_or(dv));
             }
             if let Some((k, _)) = a.k.first() {
-                return type_err(format!("field() got an unexpected keyword argument '{k}'"));
+                return type_err(unexpected_kw_msg("field", k, &["default", "default_factory", "init", "repr", "hash", "compare", "metadata", "kw_only"]));
             }
             // types.MappingProxyType(metadata), or the shared empty one
             match o.get("metadata") {
@@ -4243,6 +4330,120 @@ pub fn dataclass_fn(n: &str, mut a: Args) -> R {
             }
             o.set("_field_type", V::None);
             Ok(V::Obj(o))
+        }
+        // dataclasses.make_dataclass: the class types.new_class makes from the fields' annotations and defaults
+        // (and the namespace), with the dataclass decorator applied
+        "make_dataclass" => {
+            const KW: [&str; 35] = ["False", "None", "True", "and", "as", "assert", "async", "await", "break", "class", "continue", "def", "del", "elif", "else", "except", "finally", "for", "from", "global", "if", "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try", "while", "with", "yield"];
+            if a.p.len() > 2 {
+                return type_err(format!("make_dataclass() takes 2 positional arguments but {} were given", a.p.len()));
+            }
+            let mut pos = std::mem::take(&mut a.p).into_iter();
+            let mut arg = |k: &str, p: Option<V>, a: &mut Args| -> Result<V, E> {
+                match (p, a.kw(k)) {
+                    (Some(_), Some(_)) => type_err(format!("make_dataclass() got multiple values for argument '{k}'")),
+                    (Some(v), None) | (None, Some(v)) => Ok(v),
+                    (None, None) => type_err(format!("make_dataclass() missing 1 required positional argument: '{k}'")),
+                }
+            };
+            let cls_name = arg("cls_name", pos.next(), &mut a)?;
+            let fields = arg("fields", pos.next(), &mut a)?;
+            let bases = a.kw("bases").unwrap_or_else(|| tup(vec![]));
+            let namespace = a.kw("namespace").unwrap_or(V::None);
+            let module = a.kw("module").unwrap_or(V::None);
+            let mut flag = |k: &str, d: bool| -> Result<bool, E> { a.kw(k).map(|x| truth(&x)).transpose().map(|v| v.unwrap_or(d)) };
+            let o = DcOpts {
+                init: flag("init", true)?,
+                repr: flag("repr", true)?,
+                eq: flag("eq", true)?,
+                order: flag("order", false)?,
+                unsafe_hash: flag("unsafe_hash", false)?,
+                frozen: flag("frozen", false)?,
+                kw_only: flag("kw_only", false)?,
+                slots: flag("slots", false)?,
+                weakref_slot: flag("weakref_slot", false)?,
+                match_args: flag("match_args", true)?,
+            };
+            if let Some((k, _)) = a.k.first() {
+                let names = ["cls_name", "fields", "bases", "namespace", "init", "repr", "eq", "order", "unsafe_hash", "frozen", "match_args", "kw_only", "slots", "weakref_slot", "module"];
+                return type_err(unexpected_kw_msg("make_dataclass", k, &names));
+            }
+            let mut seen: Vec<String> = vec![];
+            let anns = dict_new();
+            let mut defaults: Vec<(Sym, V)> = vec![];
+            for item in to_vec(&fields)? {
+                let (name, tp) = if let V::Str(x) = &item {
+                    (V::Str(x.clone()), s("typing.Any"))
+                } else {
+                    let n = bi_len(Args::p(vec![item.clone()]))?;
+                    match n {
+                        V::Int(2) => {
+                            let v = unpack(&item, 2)?;
+                            (v[0].clone(), v[1].clone())
+                        }
+                        V::Int(3) => {
+                            let v = unpack(&item, 3)?;
+                            let V::Str(nm) = &v[0] else {
+                                return type_err(format!("Field names must be valid identifiers: {}", repr(&v[0])?));
+                            };
+                            defaults.push((sym(&nm.text()), v[2].clone()));
+                            (v[0].clone(), v[1].clone())
+                        }
+                        _ => return type_err(format!("Invalid field: {}", repr(&item)?)),
+                    }
+                };
+                let text = match &name {
+                    V::Str(x) if !x.is_lone() && py_isidentifier(x.text()) => x.text().to_string(),
+                    _ => return type_err(format!("Field names must be valid identifiers: {}", repr(&name)?)),
+                };
+                if KW.contains(&text.as_str()) {
+                    return type_err(format!("Field names must not be keywords: {}", repr(&name)?));
+                }
+                if seen.contains(&text) {
+                    return type_err(format!("Field name duplicated: {}", repr(&name)?));
+                }
+                seen.push(text);
+                setitem(&anns, &name, tp)?;
+            }
+            // types.new_class: bases must be classes here (no __mro_entries__), the metaclass is type's
+            let V::Tuple(bt) = &bases else {
+                return Err(unsupported("make_dataclass(bases=...) that is not a tuple"));
+            };
+            if bt.iter().any(|b| !matches!(b, V::Class(_))) {
+                return Err(unsupported("make_dataclass(bases=...) with a base that is not a class"));
+            }
+            let mut attrs: Vec<(Sym, V)> = vec![];
+            let mut put = |k: Sym, v: V| match attrs.iter_mut().find(|(n, _)| *n == k) {
+                Some(slot) => slot.1 = v,
+                None => attrs.push((k, v)),
+            };
+            match &namespace {
+                V::None => {}
+                V::Dict(d) => {
+                    for (k, v) in d.borrow().items() {
+                        let V::Str(ks) = &k else { return Err(unsupported("make_dataclass(namespace=...) with a key that is not a str")) };
+                        put(sym(&ks.text()), v);
+                    }
+                }
+                _ => return Err(unsupported("make_dataclass(namespace=...) that is not a dict")),
+            }
+            for (k, v) in defaults {
+                put(k, v);
+            }
+            put("__annotations__", anns);
+            let module = match &module {
+                V::None => sym("__main__"),
+                V::Str(x) => sym(&x.text()),
+                _ => return Err(unsupported("make_dataclass(module=...) that is not a str")),
+            };
+            let V::Str(cn) = &cls_name else {
+                return Err(unsupported("make_dataclass() with a class name that is not a str"));
+            };
+            let cn = sym(&cn.text());
+            let V::Class(c) = make_class_f(cn, cn, module, bt.to_vec(), attrs, vec![])? else {
+                return Err(unsupported("make_dataclass(): a class made by a metaclass"));
+            };
+            make_dataclass(&c, &o)
         }
         "fields" => {
             let x = a1(&a, n)?;
@@ -4754,6 +4955,8 @@ fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> R {
         }
         // _get_field
         let dflt = match getattr(&cls, name) {
+            // a slot of the class or a base is no default (types.MemberDescriptorType)
+            Ok(v) if is_member_desc(&v) => missing(),
             Ok(v) => v,
             Err(e) if is_exc(&e.0, "AttributeError") => missing(),
             Err(e) => return Err(e),
