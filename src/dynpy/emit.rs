@@ -180,6 +180,21 @@ pub static LIB_COPIES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec
 thread_local! {
     static IN_COPY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
+// Attributes a native coroutine or async generator cannot give: the frame and code objects CPython runs it in,
+// and the awaitable it waits on (Brevi runs coroutine bodies as compiled code, with no frame). Refused when the
+// program is built, so a program reading one goes to CPython rather than stopping with AttributeError.
+fn frame_attr_refused(n: &str) -> Option<String> {
+    matches!(n, "cr_frame" | "cr_code" | "cr_await" | "cr_origin" | "ag_frame" | "ag_code" | "ag_await")
+        .then(|| format!("the {n} attribute of a coroutine or async generator is not supported in dynamic builds"))
+}
+// Library attributes whose CPython value cannot work on the program's own values: types.coroutine marks a
+// generator's code object as awaitable, and Brevi's generators have no code object for CPython to mark.
+fn lib_attr_check(m: &str, n: &str, line: usize) -> ER<()> {
+    if m == "types" && n == "coroutine" {
+        return Err(err(line, "types.coroutine is not supported in dynamic builds"));
+    }
+    Ok(())
+}
 fn np_attr_check(n: &str, kws: &[&str], line: usize) -> ER<()> {
     if !np_on() || !NP_ATTR_ALL.contains(&n) || IN_COPY.with(|c| c.get()) {
         return Ok(());
@@ -285,7 +300,7 @@ fn is_missing_builtin(n: &str) -> bool {
 fn is_builtin_name(n: &str) -> bool {
     matches!(
         n,
-        "print" | "input" | "len" | "repr" | "ascii" | "abs" | "min" | "max" | "sum" | "sorted" | "reversed" | "enumerate" | "zip" | "map" | "filter" | "any" | "all" | "iter" | "next" | "isinstance" | "issubclass" | "hasattr" | "getattr" | "setattr" | "delattr" | "callable" | "ord" | "chr" | "hex" | "oct" | "bin" | "round" | "divmod" | "pow" | "hash" | "id" | "format" | "vars" | "dir" | "exit" | "quit" | "staticmethod" | "classmethod" | "property" | "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "slice" | "super" | "NotImplemented" | "Ellipsis" | "__name__" | "bytes" | "bytearray" | "memoryview" | "__bytes_lit" | "__brevi_lone_str" | "complex" | "__complex_lit" | "aiter" | "anext" | "__brevi_aenter" | "__brevi_aexit" | "__brevi_eg_split" | "__brevi_eg_reraise"
+        "print" | "input" | "len" | "repr" | "ascii" | "abs" | "min" | "max" | "sum" | "sorted" | "reversed" | "enumerate" | "zip" | "map" | "filter" | "any" | "all" | "iter" | "next" | "isinstance" | "issubclass" | "hasattr" | "getattr" | "setattr" | "delattr" | "callable" | "ord" | "chr" | "hex" | "oct" | "bin" | "round" | "divmod" | "pow" | "hash" | "id" | "format" | "vars" | "dir" | "exit" | "quit" | "staticmethod" | "classmethod" | "property" | "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "slice" | "super" | "NotImplemented" | "Ellipsis" | "__name__" | "bytes" | "bytearray" | "memoryview" | "__bytes_lit" | "__brevi_lone_str" | "complex" | "__complex_lit" | "aiter" | "anext" | "__brevi_aenter" | "__brevi_aexit" | "__brevi_awith" | "__brevi_afor_await" | "__brevi_eg_split" | "__brevi_eg_reraise"
     ) || is_exc_name(n)
 }
 fn is_exc_name(n: &str) -> bool {
@@ -1696,6 +1711,8 @@ pub struct Em {
     direct: HashMap<(String, String), (String, usize, Vec<usize>)>,
     // module-level names bound only once by import of a builtin module
     mod_alias: HashMap<(String, String), String>,
+    // global names `import types` binds (module, name): `types.coroutine` through them is refused
+    types_alias: HashSet<(String, String)>,
     // names assigned anywhere at module level, per module
     mod_names: HashMap<String, BTreeSet<String>>,
     class_ctx: Option<String>,
@@ -2195,6 +2212,7 @@ impl Em {
                     }
                 }
                 if let Some(m) = self.static_module(o) {
+                    lib_attr_check(&m, n, line)?;
                     if m == "collections" && n == "abc" && self.user_modules.iter().any(|u| u == "collections.abc") {
                         let init = self.q(&format!("init_{}()", rust_ident("collections.abc")));
                         return Ok(self.q(&format!("{{ {init}; Ok::<V, E>(V::Module(&ModName(\"collections.abc\"))) }}")));
@@ -2212,6 +2230,14 @@ impl Em {
                     return Ok(self.q(&format!("module_attr({}, {})", lit(&m), lit(n))));
                 }
                 np_attr_check(n, &[], line)?;
+                if let Some(why) = frame_attr_refused(n) {
+                    return Err(err(line, &why));
+                }
+                if let Ex::Name(x) = &**o {
+                    if self.types_alias.contains(&(self.module.clone(), x.clone())) {
+                        lib_attr_check("types", n, line)?;
+                    }
+                }
                 let oo = self.ex(o, line)?;
                 let ic = new_ic();
                 self.q(&format!("getattr_ic(&{oo}, {}, &IC{ic})", lit(n)))
@@ -2770,6 +2796,7 @@ impl Em {
                 let a = self.args(args, line, None)?;
                 if !module_has(&md, m) {
                     if hybrid_bridged(&md) {
+                        lib_attr_check(&md, m, line)?;
                         self.bridged_used.insert(md.clone());
                         let f = self.q(&format!("pyd_from({}, {})", lit(&md), lit(m)));
                         return Ok(self.q(&format!("call(&{f}, {a})")));
@@ -3610,6 +3637,7 @@ impl Em {
                         if n == "*" {
                             return Err(err(line, "from ... import * is not supported for library modules"));
                         }
+                        lib_attr_check(m, n, line)?;
                         let v = self.q(&format!("pyd_from({}, {})", lit(m), lit(n)));
                         b.push_str(&self.store(a.as_ref().unwrap_or(n), &v));
                     }
@@ -3654,6 +3682,7 @@ impl Em {
                     }
                     if !user && !module_has(m, n) {
                         if hybrid_bridged(m) {
+                            lib_attr_check(m, n, line)?;
                             self.bridged_used.insert(m.to_string());
                             let v = self.q(&format!("pyd_from({}, {})", lit(m), lit(n)));
                             b.push_str(&self.store(&bind, &v));
@@ -4236,7 +4265,7 @@ impl Em {
             // a plain Rust function
             if is_async {
                 let mk = if is_gen { "make_agen" } else { "make_acoro" };
-                write!(self.items, "fn {fname}({}) -> R {{ Ok({mk}(sym({name_lit}), move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}\n", pdecl.join(", ")).unwrap();
+                write!(self.items, "fn {fname}({}) -> R {{ Ok({mk}(sym({qname}), move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}\n", pdecl.join(", ")).unwrap();
             } else if is_gen {
                 write!(self.items, "fn {fname}({}) -> R {{ Ok(make_gen(sym({qname}), move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}\n", pdecl.join(", ")).unwrap();
             } else {
@@ -4314,7 +4343,7 @@ impl Em {
             }
         }
         if is_gen || is_async {
-            let mk = if is_async && is_gen { format!("make_agen(sym({name_lit}), ") } else if is_async { format!("make_acoro(sym({name_lit}), ") } else { format!("make_gen(sym({qname}), ") };
+            let mk = if is_async && is_gen { format!("make_agen(sym({qname}), ") } else if is_async { format!("make_acoro(sym({qname}), ") } else { format!("make_gen(sym({qname}), ") };
             return Ok(format!(
                 "with_fq({wo}with_code({{ let __d = vec![{}]; {caps} func({name_lit}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{caps} Ok({mk}move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}) }}, {code}){wc}, {fq})",
                 dflt_all.join(", ")
@@ -4786,6 +4815,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         user_modules: mods.iter().skip(1).map(|m| m.name.clone()).collect(),
         direct: HashMap::new(),
         mod_alias: HashMap::new(),
+        types_alias: HashSet::new(),
         mod_names: HashMap::new(),
         class_ctx: None,
         lazy: false,
@@ -4905,6 +4935,9 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
             let mut fn_globals = BTreeSet::new();
             globals_in(&m.body, &mut fn_globals);
             for (n, t) in import_of {
+                if t == "types" {
+                    em.types_alias.insert((m.name.clone(), n.clone()));
+                }
                 if binds.get(&n) == Some(&1) && !fn_globals.contains(&n) && !(em.bridge.has(&t) && !builtin_mod(t.as_str()) && !em.user_modules.contains(&t)) {
                     em.mod_alias.insert((m.name.clone(), n), t);
                 }

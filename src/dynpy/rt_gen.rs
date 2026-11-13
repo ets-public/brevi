@@ -156,6 +156,9 @@ pub struct Coro {
     live_seq: u64,
     // where its own code was when it last yielded: a warning issued in it names its line, never the caller's
     wsite: Option<ReSite>,
+    // a coroutine's body (send() and its __await__() iterator): once finished, resuming or throwing in is
+    // RuntimeError, as CPython's coroutines are, not the generator's quiet end
+    pub awaitable: bool,
 }
 
 thread_local! {
@@ -306,6 +309,7 @@ impl Coro {
             live_idx: 0,
             live_seq: 0,
             wsite: None,
+            awaitable: false,
         })
     }
     // Runs the generator to its next yield: Some(value), or None once it has returned.
@@ -320,6 +324,9 @@ impl Coro {
     }
     fn resume_in(&mut self, sent: V) -> Result<Option<V>, E> {
         if self.result.is_some() {
+            if self.awaitable {
+                return Err(exc("RuntimeError", "cannot reuse already awaited coroutine".into()));
+            }
             return Ok(None);
         }
         if self.running {
@@ -413,6 +420,9 @@ impl Coro {
     }
     // throw(e): raised at the yield the generator is suspended at; one not started yet ends with it unrun.
     pub fn throw(&mut self, e: E) -> Result<Option<V>, E> {
+        if self.result.is_some() && self.awaitable && !self.running {
+            return Err(exc("RuntimeError", "cannot reuse already awaited coroutine".into()));
+        }
         if self.result.is_some() || !self.started {
             if !self.running {
                 self.result = Some(Ok(V::None));
@@ -422,6 +432,12 @@ impl Coro {
         }
         self.thrown = Some(e);
         self.resume(V::None)
+    }
+    pub fn is_done(&self) -> bool {
+        self.result.is_some()
+    }
+    pub fn is_running(&self) -> bool {
+        self.running
     }
     pub fn is_suspended(&self) -> bool {
         self.started && self.result.is_none() && !self.running
@@ -520,6 +536,9 @@ pub fn gen_yield(v: V) -> R {
 
 // `yield from it`: every item of it, then its return value.
 pub fn gen_yield_from(it: &V) -> R {
+    if matches!(it, V::Ext(e) if e.tname() == "coroutine") {
+        return Err(exc("TypeError", "cannot 'yield from' a coroutine object in a non-coroutine generator".into()));
+    }
     if let V::Iter(i) = it {
         if let Some(c) = coro_of(&i.it) {
             return delegate(&c);

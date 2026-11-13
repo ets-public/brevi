@@ -697,6 +697,15 @@ if [ -n "$want" ] && [ "$got" = "$want" ]; then echo "ok   a lone surrogate on s
 # Under --sandbox the program reads no environment, so it cannot name stdout's error handler: it stops instead.
 o=$(BREVI_DYN=1 $BREVI run --sandbox "$t/c.py" 2>&1); c=$?
 case "$c:$o" in "1:NotImplementedError: brevi: this operation on a str with a lone surrogate"*) echo "ok   a lone surrogate on stdout under --sandbox stops" ;; *) echo "FAIL a lone surrogate on stdout under --sandbox ($c)"; printf '%s\n' "$o"; fail=1 ;; esac
+# What a native coroutine cannot give is refused when the program is built (test_coroutines): its frame and code
+# objects, and types.coroutine (which marks a code object), in every spelling the build can see.
+printf 'async def f():\n    pass\nc = f()\nprint(c.cr_frame)\n' > "$t/cr.py"
+printf 'import types as t\n@t.coroutine\ndef g():\n    yield 1\n' > "$t/tc.py"
+printf 'from types import coroutine\n' > "$t/tf.py"
+for x in "cr:the cr_frame attribute of a coroutine" "tc:types.coroutine is not" "tf:types.coroutine is not"; do
+  o=$(BREVI_DYN=1 $BREVI build "$t/${x%%:*}.py" -o "$t/prog" 2>&1)
+  case "$o" in *"${x#*:}"*"not supported in dynamic builds"*) echo "ok   refused: ${x#*:}" ;; *) echo "FAIL not refused: ${x#*:}"; printf '%s\n' "$o"; fail=1 ;; esac
+done
 rm -rf "$t"
 #== bridge split
 # Python libraries the dynamic build lacks (tests/bridge/brlib stands in for a third-party one) run in CPython

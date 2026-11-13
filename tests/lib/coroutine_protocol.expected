@@ -1,0 +1,25 @@
+True True True
+outer.<locals>.inner inner True
+True
+True True
+([], 7)
+send cannot reuse already awaited coroutine
+throw cannot reuse already awaited coroutine
+ValueError coroutine already executing
+coroutine raised StopIteration StopIteration
+True True coroutine_wrapper
+stop ('spam',)
+cannot reuse already awaited coroutine
+cannot reuse already awaited coroutine
+cannot reuse already awaited coroutine
+cannot 'yield from' a coroutine object in a non-coroutine generator
+cannot pickle 'coroutine' object
+cannot pickle 'coroutine' object
+True True
+TypeError 'NoExit' object does not support the asynchronous context manager protocol (missed __aexit__ method) | NoneType
+TypeError 'async with' received an object from __aexit__ that does not implement __await__: int | RuntimeError
+ZeroDivisionError division by zero | RuntimeError
+'async for' received an invalid object from __anext__: BadAwait ZeroDivisionError
+object int can't be used in 'await' expression
+KeyError
+[('RuntimeWarning', "coroutine 'spam' was never awaited")]

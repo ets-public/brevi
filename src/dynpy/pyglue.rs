@@ -679,7 +679,7 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
     let tt = (a.Type)(t);
     (a.DecRef)(tt);
     if tt == t {
-        if let Some(c) = pyd_builtin_exc(p) {
+        if let Some(c) = pyd_builtin_exc(p).or_else(|| pyd_types_class(p)) {
             return done(V::Class(c));
         }
     }
@@ -830,7 +830,31 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
             return Ok(v);
         }
     }
+    // types.coroutine marks a generator function's code object as awaitable; the program's generators have no
+    // code object, so it cannot work on them (the build refuses `types.coroutine` it can see; this catches the rest)
+    if pyd_is_types_coroutine(p) {
+        (a.DecRef)(p);
+        return Err(unsupported("types.coroutine"));
+    }
     Ok(pyv(p, t == a.TList || t == a.TDict || t == a.TSet))
+}
+unsafe fn pyd_is_types_coroutine(p: P) -> bool {
+    thread_local! {
+        static TC: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+    let a = pyd_api();
+    let mut q = TC.with(|c| c.get());
+    if q == 0 {
+        let Ok(m) = pyd_own((a.Import)(c"types".as_ptr())) else { return false };
+        let f = (a.GetAttr)(m, c"coroutine".as_ptr());
+        (a.DecRef)(m);
+        let Ok(f) = pyd_own(f) else { return false };
+        // the module keeps it alive for the whole run, so the pointer stays this object's
+        (a.DecRef)(f);
+        q = f as usize;
+        TC.with(|c| c.set(q));
+    }
+    p as usize == q
 }
 
 // A list's iterator (or reverse iterator) of Python as the program's own iterator over the program's copy of
@@ -1265,6 +1289,33 @@ unsafe fn pyd_builtin_exc(p: P) -> Option<Rc<Class>> {
         }
     };
     same.then_some(c)
+}
+// The program's class for p when p is one of the `types` module's classes of values the program makes itself
+// (functions, generators, coroutines, async generators), so `type(f) is types.FunctionType` and
+// `coro.__class__ in {types.GeneratorType, types.CoroutineType}` hold as in CPython.
+unsafe fn pyd_types_class(p: P) -> Option<Rc<Class>> {
+    let a = pyd_api();
+    let m = pyd_own((a.Import)(c"types".as_ptr())).ok()?;
+    let mut found = None;
+    for (attr, which) in [(c"FunctionType", 0), (c"GeneratorType", 1), (c"CoroutineType", 2), (c"AsyncGeneratorType", 3)] {
+        let q = (a.GetAttr)(m, attr.as_ptr());
+        if q.is_null() {
+            (a.ErrClear)();
+            continue;
+        }
+        (a.DecRef)(q);
+        if q == p {
+            found = Some(which);
+            break;
+        }
+    }
+    (a.DecRef)(m);
+    match found? {
+        0 => Some(bclass("function")),
+        1 => it_class(ItKind::Generator).ok(),
+        2 => Some(ext_class("coroutine")),
+        _ => Some(ext_class("async_generator")),
+    }
 }
 unsafe fn pyd_builtins_attr(name: &str) -> Result<P, E> {
     let a = pyd_api();
