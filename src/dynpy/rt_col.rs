@@ -84,7 +84,7 @@ fn col_order(x: &V, y: &V) -> Option<std::cmp::Ordering> {
         (V::Float(a), V::Int(b)) if exact(*b) => Some(fo(*a, *b as f64)),
         (V::Int(a), V::Float(b)) if exact(*a) => Some(fo(*a as f64, *b)),
         (V::Bool(a), V::Bool(b)) => Some(a.cmp(b)),
-        (V::Str(a), V::Str(b)) => Some(a.s.as_bytes().cmp(b.s.as_bytes())),
+        (V::Str(a), V::Str(b)) => Some(a.text().as_bytes().cmp(b.text().as_bytes())),
         _ => None,
     }
 }
@@ -258,7 +258,7 @@ pub fn brevi_col_fn(n: &str, a: Args) -> R {
     let p = &a.p;
     let arg = |i: usize| p.get(i).cloned().unwrap_or(V::None);
     let op = |i: usize| match p.get(i) {
-        Some(V::Str(x)) => x.s.to_string(),
+        Some(V::Str(x)) => x.text().to_string(),
         _ => String::new(),
     };
     match n {

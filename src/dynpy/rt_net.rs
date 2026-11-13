@@ -70,7 +70,7 @@ fn net_f(v: &V) -> f64 {
 
 fn net_s(v: &V) -> String {
     match v {
-        V::Str(x) => x.s.clone(),
+        V::Str(x) => x.text().to_string(),
         _ => String::new(),
     }
 }

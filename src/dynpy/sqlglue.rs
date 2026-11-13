@@ -383,7 +383,7 @@ mod brevi_sqlglue {
                 V::None => (l.bind_null)(s, k),
                 V::Int(i) => (l.bind_int64)(s, k, *i),
                 V::Float(f) => (l.bind_double)(s, k, *f),
-                V::Str(t) => (l.bind_text)(s, k, t.s.as_ptr() as *const c_char, t.s.len() as c_int, -1),
+                V::Str(t) => (l.bind_text)(s, k, t.text().as_ptr() as *const c_char, t.text().len() as c_int, -1),
                 V::Ext(x) => match x.any().downcast_ref::<BytesV>() {
                     Some(b) => (l.bind_blob)(s, k, b.0.as_ptr() as *const c_void, b.0.len() as c_int, -1),
                     None => 21,

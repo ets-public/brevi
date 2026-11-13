@@ -9,34 +9,11 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 596,
-"refused": 31,
+"matched": 634,
+"refused": 0,
 "by_design": 4,
-"string_model": 1,
-"cpython_private": 6,
-"wrong_output": 0,
-"wrong_exit": 0,
-"crash_or_timeout": 0,
-"not_extractable": 0,
-"unstable": 15,
-"excluded": 150,
-"total": 803,
-"scored": 634,
-"matched_through_cpython": 1,
-"matched_silent": 34,
-"coverage": 0.9385,
-"wrong": 0,
-"matched_asserting": 561,
-"assert_coverage": 0.8849,
-"matched_typed": 18,
-"typed_share": 0.0303
-},
-"dyn": {
-"matched": 595,
-"refused": 32,
-"by_design": 4,
-"string_model": 1,
-"cpython_private": 6,
+"string_model": 0,
+"cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
@@ -47,10 +24,33 @@
 "scored": 634,
 "matched_through_cpython": 0,
 "matched_silent": 34,
-"coverage": 0.9385,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 561,
-"assert_coverage": 0.8849,
+"matched_asserting": 600,
+"assert_coverage": 0.9464,
+"matched_typed": 18,
+"typed_share": 0.0284
+},
+"dyn": {
+"matched": 634,
+"refused": 0,
+"by_design": 4,
+"string_model": 0,
+"cpython_private": 0,
+"wrong_output": 0,
+"wrong_exit": 0,
+"crash_or_timeout": 0,
+"not_extractable": 0,
+"unstable": 15,
+"excluded": 150,
+"total": 803,
+"scored": 634,
+"matched_through_cpython": 0,
+"matched_silent": 34,
+"coverage": 1.0,
+"wrong": 0,
+"matched_asserting": 600,
+"assert_coverage": 0.9464,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -58,8 +58,8 @@
 "files": {
 "test_itertools": {
 "normal": {
-"matched": 112,
-"refused": 8,
+"matched": 120,
+"refused": 0,
 "by_design": 1,
 "string_model": 0,
 "cpython_private": 0,
@@ -73,16 +73,16 @@
 "scored": 120,
 "matched_through_cpython": 0,
 "matched_silent": 28,
-"coverage": 0.9333,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 84,
-"assert_coverage": 0.7,
+"matched_asserting": 92,
+"assert_coverage": 0.7667,
 "matched_typed": 2,
-"typed_share": 0.0179
+"typed_share": 0.0167
 },
 "dyn": {
-"matched": 112,
-"refused": 8,
+"matched": 120,
+"refused": 0,
 "by_design": 1,
 "string_model": 0,
 "cpython_private": 0,
@@ -96,21 +96,21 @@
 "scored": 120,
 "matched_through_cpython": 0,
 "matched_silent": 28,
-"coverage": 0.9333,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 84,
-"assert_coverage": 0.7,
+"matched_asserting": 92,
+"assert_coverage": 0.7667,
 "matched_typed": 0,
 "typed_share": 0.0
 }
 },
 "test_collections": {
 "normal": {
-"matched": 73,
-"refused": 11,
+"matched": 85,
+"refused": 0,
 "by_design": 2,
 "string_model": 0,
-"cpython_private": 1,
+"cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
@@ -121,19 +121,19 @@
 "scored": 85,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.8588,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 73,
-"assert_coverage": 0.8588,
+"matched_asserting": 85,
+"assert_coverage": 1.0,
 "matched_typed": 0,
 "typed_share": 0.0
 },
 "dyn": {
-"matched": 73,
-"refused": 11,
+"matched": 85,
+"refused": 0,
 "by_design": 2,
 "string_model": 0,
-"cpython_private": 1,
+"cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
@@ -144,44 +144,21 @@
 "scored": 85,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.8588,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 73,
-"assert_coverage": 0.8588,
+"matched_asserting": 85,
+"assert_coverage": 1.0,
 "matched_typed": 0,
 "typed_share": 0.0
 }
 },
 "test_re": {
 "normal": {
-"matched": 140,
-"refused": 1,
+"matched": 144,
+"refused": 0,
 "by_design": 1,
-"string_model": 1,
-"cpython_private": 2,
-"wrong_output": 0,
-"wrong_exit": 0,
-"crash_or_timeout": 0,
-"not_extractable": 0,
-"unstable": 2,
-"excluded": 18,
-"total": 165,
-"scored": 144,
-"matched_through_cpython": 1,
-"matched_silent": 3,
-"coverage": 0.9653,
-"wrong": 0,
-"matched_asserting": 136,
-"assert_coverage": 0.9444,
-"matched_typed": 16,
-"typed_share": 0.1151
-},
-"dyn": {
-"matched": 139,
-"refused": 2,
-"by_design": 1,
-"string_model": 1,
-"cpython_private": 2,
+"string_model": 0,
+"cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
@@ -192,10 +169,33 @@
 "scored": 144,
 "matched_through_cpython": 0,
 "matched_silent": 3,
-"coverage": 0.9653,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 136,
-"assert_coverage": 0.9444,
+"matched_asserting": 141,
+"assert_coverage": 0.9792,
+"matched_typed": 16,
+"typed_share": 0.1111
+},
+"dyn": {
+"matched": 144,
+"refused": 0,
+"by_design": 1,
+"string_model": 0,
+"cpython_private": 0,
+"wrong_output": 0,
+"wrong_exit": 0,
+"crash_or_timeout": 0,
+"not_extractable": 0,
+"unstable": 2,
+"excluded": 18,
+"total": 165,
+"scored": 144,
+"matched_through_cpython": 0,
+"matched_silent": 3,
+"coverage": 1.0,
+"wrong": 0,
+"matched_asserting": 141,
+"assert_coverage": 0.9792,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -250,11 +250,11 @@
 },
 "test_functools": {
 "normal": {
-"matched": 167,
-"refused": 11,
+"matched": 181,
+"refused": 0,
 "by_design": 0,
 "string_model": 0,
-"cpython_private": 3,
+"cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
@@ -265,19 +265,19 @@
 "scored": 181,
 "matched_through_cpython": 0,
 "matched_silent": 3,
-"coverage": 0.9227,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 164,
-"assert_coverage": 0.9061,
+"matched_asserting": 178,
+"assert_coverage": 0.9834,
 "matched_typed": 0,
 "typed_share": 0.0
 },
 "dyn": {
-"matched": 167,
-"refused": 11,
+"matched": 181,
+"refused": 0,
 "by_design": 0,
 "string_model": 0,
-"cpython_private": 3,
+"cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
@@ -288,10 +288,10 @@
 "scored": 181,
 "matched_through_cpython": 0,
 "matched_silent": 3,
-"coverage": 0.9227,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 164,
-"assert_coverage": 0.9061,
+"matched_asserting": 178,
+"assert_coverage": 0.9834,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -347,14 +347,13 @@
 },
 "paths": {
 "normal": {
-"dynamic": 578,
-"refused": 41,
+"dynamic": 616,
 "typed": 18,
-"pybridge": 1
+"refused": 4
 },
 "dyn": {
-"dynamic": 596,
-"refused": 42
+"dynamic": 634,
+"refused": 4
 }
 },
 "tests": [
@@ -377,12 +376,12 @@
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "except AssertionError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 105: complex() is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "complex() is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -567,12 +566,12 @@
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found ="
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "complex numbers are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -595,12 +594,12 @@
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found ="
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "complex numbers are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -929,12 +928,12 @@
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found ="
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "complex numbers are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -985,12 +984,12 @@
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "pickle of a program that makes iterators: the typed build keeps iter() as the list itself, and this file cannot be built over dynamic values (case.py line 1: copy.deepcopy in a program that uses itert"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "copy.deepcopy in a program that uses itertools.tee is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -999,12 +998,12 @@
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found I"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "threading.Event is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1149,12 +1148,12 @@
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "except AssertionError: the typed build stops at this error instead of raising it, and this file cannot be built over dynamic values (case.py line 54: operator.is_ is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "operator.is_ is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2163,12 +2162,12 @@
 "file": "test_itertools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found subclass"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "class subclass has a base chosen at run time in a program that uses builtin iterator types as values; subclassing zip, map, filter or an itertools type is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2707,12 +2706,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected ':', found *"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "complex numbers are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2763,12 +2762,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected an expression, found end of line"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "complex numbers are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2777,12 +2776,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected an expression, found end of line"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "complex numbers are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2791,12 +2790,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected an expression, found end of line"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "complex numbers are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2819,12 +2818,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected ':', found *"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "complex numbers are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2833,12 +2832,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "isinstance with a typing name, and this file cannot be built over dynamic values (case.py line 52: complex() is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "complex() is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2847,12 +2846,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected an expression, found end of line"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "complex numbers are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2861,12 +2860,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected an expression, found end of line"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "complex numbers are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2875,12 +2874,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected an expression, found end of line"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "complex numbers are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2889,12 +2888,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected an expression, found end of line"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "complex numbers are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2993,12 +2992,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "isinstance with a typing name, and this file cannot be built over dynamic values (case.py line 1: bytearray or memoryview together with array is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "bytearray or memoryview together with array is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3317,12 +3316,12 @@
 "file": "test_collections",
 "modes": {
 "normal": {
-"category": "cpython_private",
-"detail": "expected a name, found **"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "cpython_private",
-"detail": "collections._count_elements is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -3657,14 +3656,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "string_model",
-"path": "dynamic",
-"detail": "exit 1, expected 0: NotImplementedError: brevi: chr() of a lone surrogate (U+D800..U+DFFF) is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "string_model",
-"path": "dynamic",
-"detail": "exit 1, expected 0: NotImplementedError: brevi: chr() of a lone surrogate (U+D800..U+DFFF) is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4233,12 +4230,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`a` and a value kept elsewhere name the same list in Python, and `a` is changed (by a function the proof does not follow) while a value kept elsewhere is still used; the typed build would change only "
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re together with array is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -4793,12 +4790,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "cpython_private",
-"detail": "a compiled pattern shown or passed to a builtin, which the typed build keeps as a plain string, and this file cannot be built over dynamic values (case.py line 14: re._compile is not supported in dyna"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "cpython_private",
-"detail": "re._compile is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -5587,12 +5584,12 @@
 "file": "test_re",
 "modes": {
 "normal": {
-"category": "cpython_private",
-"detail": "type annotations needed: cannot infer type"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "cpython_private",
-"detail": "re._compiler is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -5608,11 +5605,11 @@
 "modes": {
 "normal": {
 "category": "matched",
-"path": "pybridge"
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "re._compiler is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -7793,12 +7790,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected a name, found **"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "abc.ABCMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -7961,12 +7958,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected '(', found ["
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "expected '(', found Op(\"[\")"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -7975,12 +7972,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected '(', found ["
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "expected '(', found Op(\"[\")"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -8059,12 +8056,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected '(', found ["
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "expected '(', found Op(\"[\")"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -8073,12 +8070,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected '(', found ["
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "expected '(', found Op(\"[\")"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -8391,12 +8388,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found SortableMeta"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "metaclasses are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -8807,12 +8804,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`_conf_start_threads` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 38: threading.Barrier is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "threading.Barrier is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -9099,12 +9096,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "cpython_private",
-"detail": "`C` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 9: functools._c3_mro is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "cpython_private",
-"detail": "functools._c3_mro is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -9119,12 +9116,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "cpython_private",
-"detail": "`swap_attr` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 109: functools._find_impl is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "cpython_private",
-"detail": "functools._find_impl is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -9189,12 +9186,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "cpython_private",
-"detail": "the ChainMap class (from collections) runs in the dynamic build, and this file cannot be built over dynamic values (case.py line 10: functools._compose_mro is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "cpython_private",
-"detail": "functools._compose_mro is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -9217,12 +9214,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found MetaA"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "metaclasses are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -9405,12 +9402,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`f` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 18: typing: a subscripted typing form used as a value needs CPython's typing)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "typing: a subscripted typing form used as a value needs CPython's typing"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -9433,12 +9430,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`f` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 18: typing: a subscripted typing form used as a value needs CPython's typing)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "typing: a subscripted typing form used as a value needs CPython's typing"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -9657,12 +9654,12 @@
 "file": "test_functools",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found MyMeta"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "metaclasses are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },

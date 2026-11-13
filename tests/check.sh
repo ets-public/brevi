@@ -46,29 +46,36 @@ for f in tests/errors/*.py; do
   fi
 done
 #== fallback split
+no_rustc_words='s/\(Rust did not compile\) ([^"]*)/\1 (rustc: ...)/'
 # brevi run on a .py file: runs with python3 when Brevi cannot build it (with a note), unless --native.
 for f in tests/fallback/*.py; do
   exp="${f%.py}.expected"
   out=$($BREVI run "$f" 2>&1; $BREVI run "$f" --native >/dev/null 2>&1; echo "native exit $?")
   if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
-  if [ "$out" != "$(cat "$exp")" ]; then
-    echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
+  # The note quotes rustc's first error, whose wording (how it prints a type, e.g. `Vec<_>` or `Vec<Vec<i64>>`)
+  # is rustc's, not Brevi's: compare everything but that quote, so the test holds on any rustc.
+  out=$(printf '%s\n' "$out" | sed "$no_rustc_words")
+  want=$(sed "$no_rustc_words" "$exp")
+  if [ "$out" != "$want" ]; then
+    w=$(mktemp); printf '%s\n' "$want" > "$w"
+    echo "FAIL $f"; printf '%s\n' "$out" | diff "$w" - ; rm -f "$w"; fail=1
   else
     echo "ok   $f"
   fi
 done
-# A class built on a builtin iterator type (zip, map, filter, an itertools type) is refused by the dynamic build,
-# never built on a function: directly, and through a base chosen at run time from such types used as values.
+# A class built on a builtin iterator type (zip, map, filter, an itertools type) builds over dynamic values and
+# prints what python3 prints: directly, and through a base chosen at run time from such types used as values.
 if [ "$1" != "--update" ]; then
   it_dir=$(mktemp -d)
-  printf 'from itertools import chain\nclass C(chain):\n    pass\nprint(list(C([1], [2])))\n' > "$it_dir/a.py"
-  printf 'from itertools import repeat\ndef f():\n    for cls in (repeat, zip):\n        class S(cls):\n            pass\n        print(S)\nf()\n' > "$it_dir/b.py"
+  printf 'from itertools import chain\nclass C(chain):\n    pass\nprint(list(C([1], [2])), type(C([])).__name__)\n' > "$it_dir/a.py"
+  printf 'from itertools import repeat\ndef f():\n    for cls in (repeat, zip):\n        class S(cls):\n            pass\n        print(S.__name__, S.__mro__[1].__name__, issubclass(S, cls))\nf()\n' > "$it_dir/b.py"
   for p in a b; do
-    out=$(BREVI_DYN=1 $BREVI build "$it_dir/$p.py" -o "$it_dir/prog" 2>&1)
-    case "$out" in
-      *'subclassing zip, map, filter or an itertools type is not supported in dynamic builds'*) echo "ok   dynamic build refuses a class on an iterator type ($p)" ;;
-      *) echo "FAIL dynamic build refuses a class on an iterator type ($p)"; printf '%s\n' "$out" | tail -3; fail=1 ;;
-    esac
+    out=$(BREVI_DYN=1 $BREVI build "$it_dir/$p.py" -o "$it_dir/prog" 2>&1 && "$it_dir/prog" 2>&1)
+    if [ "$out" = "$(python3 "$it_dir/$p.py" 2>&1)" ]; then
+      echo "ok   dynamic build subclasses an iterator type ($p)"
+    else
+      echo "FAIL dynamic build subclasses an iterator type ($p)"; printf '%s\n' "$out" | tail -3; fail=1
+    fi
   done
   rm -rf "$it_dir"
 fi
@@ -672,6 +679,34 @@ for f in tests/dyn/*.py; do
     echo "ok   $f"
   fi
 done
+# A str with a lone surrogate on a path not yet written for one stops the program, even inside try/except: never a
+# different answer (handoffs/string-model-design.md).
+t=$(mktemp -d)
+printf 'import json\ntry:\n    print(json.loads(chr(34) + chr(0xd800) + chr(34)))\nexcept BaseException:\n    print("caught")\nprint("after")\n' > "$t/s.py"
+o=$(BREVI_DYN=1 $BREVI run "$t/s.py" 2>&1); c=$?
+case "$c:$o" in "1:NotImplementedError: brevi: this operation on a str with a lone surrogate (U+D800..U+DFFF) is not supported in dynamic builds yet"*) echo "ok   a lone surrogate on an unwritten path stops the program" ;; *) echo "FAIL a lone surrogate on an unwritten path ($c)"; printf '%s\n' "$o"; fail=1 ;; esac
+printf 'def f():\n    "\\ud800"\n' > "$t/d.py"
+o=$(BREVI_DYN=1 $BREVI run "$t/d.py" 2>&1)
+case "$o" in *"a docstring with a lone surrogate (U+D800..U+DFFF) is not supported"*) echo "ok   a docstring with a lone surrogate is refused" ;; *) echo "FAIL a docstring with a lone surrogate"; printf '%s\n' "$o"; fail=1 ;; esac
+# python3's stdout under the C locale is UTF-8 with surrogateescape: \udc80 is written as the byte 0x80, and \ud800
+# still raises (the same answer both builds give: compare bytes with python3's).
+printf 'import sys\nprint("a" + chr(0xdc80) + "b")\nsys.stdout.write(chr(0xdcff) + "\\n")\ntry:\n    print(chr(0xd800))\nexcept UnicodeEncodeError as e:\n    print(e)\n' > "$t/c.py"
+want=$(env -u LANG -u LC_ALL -u LC_CTYPE -u PYTHONIOENCODING -u PYTHONUTF8 python3 "$t/c.py" 2>&1 | od -An -tx1)
+got=$(env -u LANG -u LC_ALL -u LC_CTYPE -u PYTHONIOENCODING -u PYTHONUTF8 BREVI_DYN=1 $BREVI run "$t/c.py" 2>&1 | od -An -tx1)
+if [ -n "$want" ] && [ "$got" = "$want" ]; then echo "ok   a lone surrogate on stdout under the C locale"; else echo "FAIL a lone surrogate on stdout under the C locale"; echo "want $want"; echo "got  $got"; fail=1; fi
+# Under --sandbox the program reads no environment, so it cannot name stdout's error handler: it stops instead.
+o=$(BREVI_DYN=1 $BREVI run --sandbox "$t/c.py" 2>&1); c=$?
+case "$c:$o" in "1:NotImplementedError: brevi: this operation on a str with a lone surrogate"*) echo "ok   a lone surrogate on stdout under --sandbox stops" ;; *) echo "FAIL a lone surrogate on stdout under --sandbox ($c)"; printf '%s\n' "$o"; fail=1 ;; esac
+# What a native coroutine cannot give is refused when the program is built (test_coroutines): its frame and code
+# objects, and types.coroutine (which marks a code object), in every spelling the build can see.
+printf 'async def f():\n    pass\nc = f()\nprint(c.cr_frame)\n' > "$t/cr.py"
+printf 'import types as t\n@t.coroutine\ndef g():\n    yield 1\n' > "$t/tc.py"
+printf 'from types import coroutine\n' > "$t/tf.py"
+for x in "cr:the cr_frame attribute of a coroutine" "tc:types.coroutine is not" "tf:types.coroutine is not"; do
+  o=$(BREVI_DYN=1 $BREVI build "$t/${x%%:*}.py" -o "$t/prog" 2>&1)
+  case "$o" in *"${x#*:}"*"not supported in dynamic builds"*) echo "ok   refused: ${x#*:}" ;; *) echo "FAIL not refused: ${x#*:}"; printf '%s\n' "$o"; fail=1 ;; esac
+done
+rm -rf "$t"
 #== bridge split
 # Python libraries the dynamic build lacks (tests/bridge/brlib stands in for a third-party one) run in CPython
 # inside a dynamic build: output must match python3, the path line must name them, and nothing may run fully

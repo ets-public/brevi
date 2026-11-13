@@ -1,0 +1,1 @@
+- `tools/ci_local.sh` puts its pinned mcp venv on PATH only for the MCP checks (new `CHECK_SKIP` in `tests/check_parallel.py`), so the CPython sandbox checks, which cannot see `$HOME`, pass locally again.

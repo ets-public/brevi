@@ -112,6 +112,9 @@ impl Conv<'_> {
                         out.push(tup(vec![tag("none")]));
                         tup(vec![tag("union"), tup(out)])
                     }
+                    "Union" if args.is_empty() || matches!(i.as_ref(), Ex::Tuple(v) if v.is_empty()) => {
+                        return Err("Union[()], which CPython refuses".into());
+                    }
                     "Union" => {
                         let mut out = vec![];
                         for a in &args {
@@ -346,7 +349,10 @@ fn alias_like(v: &Ex) -> bool {
 
 // The rewrite: `__annotations__` descriptors for every class, aliases as descriptors. Models whose annotations
 // have no descriptor are refused by check(); other classes just get a ('?', why) the copy never reads.
-pub fn rewrite(body: &mut [Stmt], classes: &HashSet<String>, models: &HashSet<String>) {
+// Returns what the dynamic build's annotation evaluation (emit.rs, PYD_ANN) must know: the lines of the model
+// annotations made descriptors, which the descriptor statement evaluates in their place, and the names that
+// hold a descriptor or Brevi's pydantic itself rather than CPython's typing value.
+pub fn rewrite(body: &mut [Stmt], classes: &HashSet<String>, models: &HashSet<String>) -> (HashSet<usize>, HashSet<String>) {
     let lazy = future_annotations(body);
     let mut cv = Conv {
         lazy,
@@ -366,7 +372,28 @@ pub fn rewrite(body: &mut [Stmt], classes: &HashSet<String>, models: &HashSet<St
             }
         }
     }
+    DESCRIBED.with(|d| d.borrow_mut().clear());
     walk(body, &cv);
+    let lines = DESCRIBED.with(|d| std::mem::take(&mut *d.borrow_mut()));
+    let mut names = cv.aliases.clone();
+    for s in body.iter() {
+        match &s.st {
+            // the copy's classes and functions are what CPython's pydantic has (Field(...) a FieldInfo); its
+            // module constants (StrictStr, PositiveInt) and the functions that return a descriptor are not
+            St::ImportFrom(m, v) if m == "pydantic" || m.starts_with("pydantic.") => {
+                let held = descriptor_names();
+                names.extend(v.iter().filter(|(n, _)| held.contains(n.as_str()) || n == "*").map(|(n, a)| a.clone().unwrap_or_else(|| n.clone())));
+            }
+            St::Import(v) => {
+                for (m, a) in v {
+                    if m == "pydantic" || m.starts_with("pydantic.") {
+                        names.insert(a.clone().unwrap_or_else(|| "pydantic".into()));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
     // TypeAdapter(T): T as a descriptor too (a type Brevi's pydantic lacks becomes ('?', why), refused by check)
     stmts_mut(body, &mut |e| {
         if let Ex::Call(f, args) = e {
@@ -396,6 +423,38 @@ pub fn rewrite(body: &mut [Stmt], classes: &HashSet<String>, models: &HashSet<St
             }
         }
     });
+    (lines, names)
+}
+
+// Names of Brevi's pydantic that hold a descriptor, not CPython's value: module-level `Name = ...` and the
+// defs that return a descriptor tuple (`return ("...`).
+fn descriptor_names() -> HashSet<&'static str> {
+    let mut out = HashSet::new();
+    let mut def: Option<&str> = None;
+    for l in include_str!("py/pydantic.py").lines() {
+        if let Some(r) = l.strip_prefix("def ") {
+            def = r.split('(').next();
+            continue;
+        }
+        if !l.is_empty() && !l.starts_with(char::is_whitespace) {
+            def = None;
+            if let Some((n, _)) = l.split_once(" = ") {
+                if n.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                    out.insert(n);
+                }
+            }
+        } else if let Some(d) = def {
+            if l.trim_start().starts_with("return (\"") {
+                out.insert(d);
+            }
+        }
+    }
+    out
+}
+
+thread_local! {
+    // the lines of the model annotations class() made descriptors (read back by rewrite)
+    static DESCRIBED: std::cell::RefCell<HashSet<usize>> = std::cell::RefCell::new(HashSet::new());
 }
 
 // Every expression of the statements (nested blocks, defs and classes too), children first.
@@ -592,6 +651,7 @@ fn class(c: &mut ClassDef, cv: &Conv) {
             let d = cv
                 .desc(ann)
                 .unwrap_or_else(|why| tup(vec![tag("?"), Ex::Str(why)]));
+            DESCRIBED.with(|x| x.borrow_mut().insert(s.line));
             pairs.push(tup(vec![Ex::Str(n.clone()), d]));
         }
     }

@@ -67,31 +67,50 @@ pub fn float_repr(x: f64) -> String {
     }
     out
 }
+// repr() of a str, lone surrogates included (each is \udXXX: CPython's isprintable() rejects it).
+pub fn repr_s(s: &S) -> String {
+    let Some(v) = s.lone() else { return str_repr(s.text()) };
+    let has = |c: char| v.contains(&(c as u32));
+    let q = if has('\'') && !has('"') { '"' } else { '\'' };
+    let mut out = String::with_capacity(v.len() + 2);
+    out.push(q);
+    for &u in v {
+        match char::from_u32(u) {
+            Some(c) => repr_char(&mut out, c, q),
+            None => out.push_str(&format!("\\u{u:04x}")),
+        }
+    }
+    out.push(q);
+    out
+}
 pub fn str_repr(s: &str) -> String {
     let q = if s.contains('\'') && !s.contains('"') { '"' } else { '\'' };
     let mut out = String::with_capacity(s.len() + 2);
     out.push(q);
     for c in s.chars() {
-        match c {
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if c == q => {
-                out.push('\\');
-                out.push(c);
-            }
-            c if (c as u32) < 0x20 || c as u32 == 0x7f => out.push_str(&format!("\\x{:02x}", c as u32)),
-            // what str.isprintable() rejects: \xNN, \uNNNN or \UNNNNNNNN, as CPython's repr
-            c if !c.is_ascii() && tab_has(PY_NOPRINT, c) => {
-                let u = c as u32;
-                out.push_str(&if u < 0x100 { format!("\\x{u:02x}") } else if u < 0x10000 { format!("\\u{u:04x}") } else { format!("\\U{u:08x}") })
-            }
-            c => out.push(c),
-        }
+        repr_char(&mut out, c, q);
     }
     out.push(q);
     out
+}
+fn repr_char(out: &mut String, c: char, q: char) {
+    match c {
+        '\\' => out.push_str("\\\\"),
+        '\n' => out.push_str("\\n"),
+        '\r' => out.push_str("\\r"),
+        '\t' => out.push_str("\\t"),
+        c if c == q => {
+            out.push('\\');
+            out.push(c);
+        }
+        c if (c as u32) < 0x20 || c as u32 == 0x7f => out.push_str(&format!("\\x{:02x}", c as u32)),
+        // what str.isprintable() rejects: \xNN, \uNNNN or \UNNNNNNNN, as CPython's repr
+        c if !c.is_ascii() && tab_has(PY_NOPRINT, c) => {
+            let u = c as u32;
+            out.push_str(&if u < 0x100 { format!("\\x{u:02x}") } else if u < 0x10000 { format!("\\u{u:04x}") } else { format!("\\U{u:08x}") })
+        }
+        c => out.push(c),
+    }
 }
 thread_local! {
     static REPR_DEPTH: RefCell<Vec<usize>> = RefCell::new(Vec::new());
@@ -187,7 +206,7 @@ pub fn repr(v: &V) -> Result<String, E> {
             s
         }
         V::Float(f) => float_repr(*f),
-        V::Str(s) => str_repr(&s.s),
+        V::Str(s) => repr_s(s),
         V::List(l) => {
             let p = Rc::as_ptr(l) as usize;
             if !guard(p) {
@@ -282,7 +301,7 @@ pub fn repr(v: &V) -> Result<String, E> {
         }
         V::Func(f) => {
             if let Some(V::Str(r)) = f.attrs.borrow().iter().find(|(k, _)| *k == "__bv_repr__").map(|(_, v)| v.clone()) {
-                return Ok(r.s.clone());
+                return Ok(r.text().to_string());
             }
             if f.kind.get() == 3 {
                 format!("<built-in function {}>", f.name.get())
@@ -317,7 +336,7 @@ pub fn repr(v: &V) -> Result<String, E> {
                     _ => call(&getattr(v, "__repr__")?, Args::p(vec![]))?,
                 };
                 return match r {
-                    V::Str(s) => Ok(s.s.clone()),
+                    V::Str(s) => Ok(s.text().to_string()),
                     x => type_err(format!("__repr__ returned non-string (type {})", tn(&x))),
                 };
             }
@@ -333,6 +352,12 @@ pub fn repr(v: &V) -> Result<String, E> {
                 if let V::Dict(d) = &i {
                     if d.borrow().kind == 2 {
                         return counter_repr(d, o.cls.name);
+                    }
+                }
+                // bytearray's repr names the instance's type, as CPython's does: BA(b'..')
+                if o.cls.base_bt() == BT::ByteArray {
+                    if let Some(b) = bytes_of(&i) {
+                        return Ok(format!("{}({})", o.cls.name, bytes_repr_q(&b, true)));
                     }
                 }
                 return repr(&i);
@@ -375,6 +400,9 @@ pub fn repr(v: &V) -> Result<String, E> {
                 if let Some(t) = r.repr() {
                     return t;
                 }
+            }
+            if matches!(&x.kind, IterClass::Class(c) if c.name == "coroutine_wrapper") {
+                return Ok(format!("<coroutine_wrapper object at 0x{:x}>", Rc::as_ptr(x) as *const u8 as usize));
             }
             // a generator (or genexpr) reprs with its dotted __qualname__, as in CPython; the cells are held
             // while the generator body runs, so read them only when free (the running generator's name is
@@ -522,7 +550,7 @@ pub fn to_str(v: &V) -> Result<String, E> {
     }
     Ok(match v {
         V::Class(c) if meta_has(c, "__str__") || meta_has(c, "__repr__") => return meta_str(c, v, if meta_has(c, "__str__") { "__str__" } else { "__repr__" }),
-        V::Str(s) => s.s.clone(),
+        V::Str(s) => s.text().to_string(),
         V::Float(f) => float_repr(*f),
         V::Int(i) => i.to_string(),
         V::Obj(o) => {
@@ -538,7 +566,7 @@ pub fn to_str(v: &V) -> Result<String, E> {
             }
             if let Some(f) = o.cls.lookup("__str__") {
                 return match call(&f, Args::p(vec![v.clone()]))? {
-                    V::Str(s) => Ok(s.s.clone()),
+                    V::Str(s) => Ok(s.text().to_string()),
                     x => type_err(format!("__str__ returned non-string (type {})", tn(&x))),
                 };
             }
@@ -552,10 +580,15 @@ pub fn to_str(v: &V) -> Result<String, E> {
                     if t.len() == 5 && o.cls.is_sub(&exc_class("UnicodeDecodeError")) {
                         if let (V::Str(e), Some(b), V::Int(a), V::Int(z), V::Str(r)) = (&t[0], bytes_of(&t[1]), &t[2], &t[3], &t[4]) {
                             return Ok(if *z == *a + 1 && (*a as usize) < b.len() {
-                                format!("'{}' codec can't decode byte 0x{:02x} in position {a}: {}", e.s, b[*a as usize], r.s)
+                                format!("'{}' codec can't decode byte 0x{:02x} in position {a}: {}", e.text(), b[*a as usize], r.text())
                             } else {
-                                format!("'{}' codec can't decode bytes in position {a}-{}: {}", e.s, z - 1, r.s)
+                                format!("'{}' codec can't decode bytes in position {a}-{}: {}", e.text(), z - 1, r.text())
                             });
+                        }
+                    }
+                    if t.len() == 5 && o.cls.is_sub(&exc_class("UnicodeEncodeError")) {
+                        if let (V::Str(e), V::Str(ob), V::Int(a), V::Int(z), V::Str(r)) = (&t[0], &t[1], &t[2], &t[3], &t[4]) {
+                            return Ok(uenc_msg(e.text(), &ob.cps(), *a, *z, r.text()));
                         }
                     }
                 }
@@ -576,7 +609,8 @@ pub fn to_str(v: &V) -> Result<String, E> {
             if let Some(i @ V::Str(_)) = inner_of(v) {
                 return to_str(&i);
             }
-            if o.cls.lookup("__repr__").is_some() {
+            // bytearray has no __str__ of its own: object's gives the repr, which names the subclass
+            if o.cls.lookup("__repr__").is_some() || o.cls.base_bt() == BT::ByteArray {
                 return repr(v);
             }
             if let Some(i) = inner_of(v) {
@@ -817,6 +851,23 @@ fn group_num(body: &str, sp: &Spec) -> String {
         }
     }
 }
+// Where a format spec's 'z' option is, if it has one: after an optional fill-and-align (or align) and sign.
+fn z_option_at(spec: &str) -> Option<usize> {
+    if !spec.contains('z') {
+        return None;
+    }
+    let c: Vec<(usize, char)> = spec.char_indices().collect();
+    let mut i = 0;
+    if c.len() >= 2 && matches!(c[1].1, '<' | '>' | '^' | '=') {
+        i = 2;
+    } else if !c.is_empty() && matches!(c[0].1, '<' | '>' | '^' | '=') {
+        i = 1;
+    }
+    if i < c.len() && matches!(c[i].1, '+' | '-' | ' ') {
+        i += 1;
+    }
+    (i < c.len() && c[i].1 == 'z').then(|| c[i].0)
+}
 pub fn format_spec(v: &V, spec: &str) -> Result<String, E> {
     match v {
         V::Obj(o) => {
@@ -848,6 +899,26 @@ pub fn format_spec(v: &V, spec: &str) -> Result<String, E> {
         }
         _ => {}
     }
+    // the 'z' option (negative zero coercion): after the fill, align and sign, as CPython parses it
+    if let Some(k) = z_option_at(spec) {
+        let mut rest = spec.to_string();
+        rest.remove(k);
+        let ty = rest.chars().last().filter(|c| c.is_ascii_alphabetic() || *c == '%');
+        let floaty = matches!(ty, Some('e' | 'E' | 'f' | 'F' | 'g' | 'G' | '%' | 'n'));
+        match v {
+            V::Float(x) => {
+                let r = format_spec(v, &rest)?;
+                if x.is_sign_negative() && !x.is_nan() && r == format_spec(&V::Float(-0.0), &rest)? {
+                    return format_spec(&V::Float(0.0), &rest);
+                }
+                return Ok(r);
+            }
+            V::Int(_) | V::Big(_) | V::Bool(_) if floaty && ty != Some('n') => return format_spec(v, &rest),
+            V::Int(_) | V::Big(_) | V::Bool(_) => return val_err("Negative zero coercion (z) not allowed in integer format specifier".into()),
+            V::Str(_) => return val_err("Negative zero coercion (z) not allowed in string format specifier".into()),
+            _ => {}
+        }
+    }
     if spec.is_empty() {
         return to_str(v);
     }
@@ -866,8 +937,8 @@ pub fn format_spec(v: &V, spec: &str) -> Result<String, E> {
                 return val_err("'=' alignment not allowed in string format specifier".into());
             }
             let body: String = match sp.prec {
-                Some(p) => x.s.chars().take(p).collect(),
-                None => x.s.clone(),
+                Some(p) => x.text().chars().take(p).collect(),
+                None => x.text().to_string(),
             };
             Ok(pad(body, "", &sp, false))
         }
@@ -946,7 +1017,7 @@ pub fn format_spec(v: &V, spec: &str) -> Result<String, E> {
     }
 }
 pub fn fmt_v(v: &V, spec: &str) -> R {
-    Ok(st(format_spec(v, spec)?))
+    Ok(V::Str(Rc::new(fmt_s(v, spec)?)))
 }
 
 // The one-conversion, no-flags cases ("%d" % n, "%s" % name, "%f" % x): the general parser below walks the
@@ -989,7 +1060,8 @@ fn percent_simple(f: &str, args: &V) -> Option<Result<String, E>> {
             _ => return None,
         },
         's' => match v {
-            V::Str(s) => s.s.clone(),
+            V::Str(s) if s.is_lone() => return None,
+            V::Str(s) => s.text().to_string(),
             _ => return None,
         },
         'f' => match v {
@@ -1006,17 +1078,25 @@ fn percent_simple(f: &str, args: &V) -> Option<Result<String, E>> {
 }
 
 // '%5.2f' % x
-pub fn percent_format(f: &str, args: &V) -> Result<String, E> {
-    if let Some(r) = percent_simple(f, args) {
-        return r;
+pub fn percent_format(fs: &S, args: &V) -> Result<S, E> {
+    if !fs.is_lone() {
+        if let Some(r) = percent_simple(fs.text(), args) {
+            return r.map(S::new);
+        }
     }
+    // the template as chars, with each lone surrogate as U+FFFD (it can only be literal text: a surrogate in a
+    // key or a conversion stops), and its code points to copy literal text from
+    let orig = fs.lone();
+    let sur = |i: usize| orig.is_some_and(|o| i < o.len() && is_surrogate(o[i]));
+    let f = fs.text_sub('\u{fffd}');
+    let f: &str = &f;
     let (items, dict): (Vec<V>, Option<V>) = match args {
         V::Tuple(t) => (t.to_vec(), None),
         V::Dict(_) => (vec![args.clone()], Some(args.clone())),
         x => (vec![x.clone()], None),
     };
     let c: Vec<char> = f.chars().collect();
-    let mut out = String::new();
+    let mut out = Txt::new();
     let mut i = 0;
     let mut k = 0;
     let next = |k: &mut usize| -> Result<V, E> {
@@ -1026,7 +1106,10 @@ pub fn percent_format(f: &str, args: &V) -> Result<String, E> {
     };
     while i < c.len() {
         if c[i] != '%' {
-            out.push(c[i]);
+            match orig {
+                Some(o) => out.push_cp(o[i]),
+                None => out.push(c[i]),
+            }
             i += 1;
             continue;
         }
@@ -1044,6 +1127,9 @@ pub fn percent_format(f: &str, args: &V) -> Result<String, E> {
             let st = i + 1;
             while i < c.len() && c[i] != ')' {
                 i += 1;
+            }
+            if (st..i.min(c.len())).any(sur) {
+                lone_stop(std::panic::Location::caller());
             }
             key = Some(c[st..i].iter().collect::<String>());
             i += 1;
@@ -1082,6 +1168,9 @@ pub fn percent_format(f: &str, args: &V) -> Result<String, E> {
         if i >= c.len() {
             return val_err("incomplete format".into());
         }
+        if sur(i) {
+            lone_stop(std::panic::Location::caller());
+        }
         let ty = c[i];
         i += 1;
         let v = match &key {
@@ -1110,6 +1199,24 @@ pub fn percent_format(f: &str, args: &V) -> Result<String, E> {
         }
         spec.push_str(&width);
         let piece = match ty {
+            's' if matches!(&v, V::Str(x) if x.is_lone()) => {
+                let V::Str(x) = &v else { unreachable!() };
+                let x = match prec {
+                    Some(p) => V::Str(Rc::new(S::from_cps(x.cps().into_iter().take(p).collect()))),
+                    None => v.clone(),
+                };
+                out.push_s(&fmt_s(&x, &spec)?);
+                continue;
+            }
+            'c' if matches!(&v, V::Int(i) if (0xD800..=0xDFFF).contains(i)) || matches!(&v, V::Str(x) if x.is_lone()) => {
+                let x = match &v {
+                    V::Int(i) => st_cps(vec![*i as u32]),
+                    _ if nchars_of(&v) == 1 => v.clone(),
+                    _ => return type_err("%c requires int or char".into()),
+                };
+                out.push_s(&fmt_s(&x, &spec)?);
+                continue;
+            }
             's' | 'r' | 'a' => {
                 let mut t = if ty == 's' { to_str(&v)? } else { repr(&v)? };
                 if let Some(p) = prec {
@@ -1126,6 +1233,7 @@ pub fn percent_format(f: &str, args: &V) -> Result<String, E> {
                         Big::from_f64(*x).norm()
                     }
                     V::Int(_) | V::Big(_) | V::Bool(_) => v.clone(),
+                    V::Ext(_) if cplx_of(&v).is_some() => return type_err(format!("%{ty} format: a real number is required, not complex")),
                     V::Ext(_) => to_int(&v)?,
                     // an int subclass (IntEnum): its int
                     V::Obj(_) if matches!(inner_of(&v), Some(V::Int(_) | V::Big(_) | V::Bool(_))) => inner_of(&v).unwrap(),
@@ -1158,14 +1266,20 @@ pub fn percent_format(f: &str, args: &V) -> Result<String, E> {
             'e' | 'E' | 'f' | 'F' | 'g' | 'G' => {
                 let x = match &v {
                     V::Str(_) | V::None | V::List(_) | V::Tuple(_) | V::Dict(_) => return type_err(format!("must be real number, not {}", tn(&v))),
+                    _ if cplx_of(&v).is_some() => return type_err("must be real number, not complex".into()),
                     _ => V::Float(to_float(&v)?),
                 };
                 format_spec(&x, &format!("{spec}.{}{ty}", prec.unwrap_or(6)))?
             }
             'c' => {
                 let t = match &v {
-                    V::Int(i) => char::from_u32(*i as u32).unwrap_or('?').to_string(),
-                    V::Str(x) => x.s.clone(),
+                    V::Int(i) => match u32::try_from(*i).ok().and_then(char::from_u32) {
+                        Some(c) => c.to_string(),
+                        None => return Err(exc("OverflowError", "%c arg not in range(0x110000)".into())),
+                    },
+                    V::Str(x) if x.nchars() == 1 => x.text().to_string(),
+                    V::Bool(b) => (*b as u8 as char).to_string(),
+                    V::Big(_) => return Err(exc("OverflowError", "%c arg not in range(0x110000)".into())),
                     _ => return type_err("%c requires int or char".into()),
                 };
                 format_spec(&st(t), &spec)?
@@ -1177,7 +1291,25 @@ pub fn percent_format(f: &str, args: &V) -> Result<String, E> {
     if k < items.len() && dict.is_none() {
         return type_err("not all arguments converted during string formatting".into());
     }
-    Ok(out)
+    Ok(out.finish())
+}
+fn nchars_of(v: &V) -> usize {
+    if let V::Str(x) = v {
+        x.nchars()
+    } else {
+        0
+    }
+}
+// format(v, spec) as a str: a str with a lone surrogate goes through Swap (a str's format only cuts and pads).
+pub fn fmt_s(v: &V, spec: &str) -> Result<S, E> {
+    if let V::Str(x) = v {
+        if x.is_lone() {
+            let Some(sw) = Swap::plan(&[x], &[spec]) else { lone_stop(std::panic::Location::caller()) };
+            let r = format_spec(&V::Str(Rc::new(sw.to(x))), spec)?;
+            return Ok(sw.back_str(&r));
+        }
+    }
+    Ok(S::new(format_spec(v, spec)?))
 }
 
 // ---------- numbers from values ----------
@@ -1197,17 +1329,21 @@ pub fn to_float(v: &V) -> Result<f64, E> {
             }
             Ok(f)
         }
-        V::Str(s) => parse_float(&s.s).ok_or_else(|| exc("ValueError", format!("could not convert string to float: {}", str_repr(&s.s)))),
+        V::Str(s) => parse_float(&s.text()).ok_or_else(|| exc("ValueError", format!("could not convert string to float: {}", str_repr(&s.text())))),
         V::Obj(o) => match o.cls.lookup("__float__") {
             Some(f) => to_float(&call(&f, Args::p(vec![v.clone()]))?),
-            // a bytes subclass instance parses as its bytes do
-            None if o.cls.base_bt() == BT::Bytes => to_float(&o.inner().unwrap_or(V::None)),
+            // a bytes or bytearray subclass instance parses as its bytes do
+            None if matches!(o.cls.base_bt(), BT::Bytes | BT::ByteArray) => {
+                let b = o.inner().and_then(|i| bytes_of(&i)).unwrap_or_default();
+                parse_float(&String::from_utf8_lossy(&b)).ok_or_else(|| exc("ValueError", format!("could not convert string to float: {}", repr(v).unwrap_or_default())))
+            }
             None => type_err(format!("float() argument must be a string or a real number, not '{}'", tn(v))),
         },
         // a memoryview counts when it gives a simple buffer (live and contiguous), as in CPython
         V::Ext(x) if x.any().is::<BytesV>() || x.any().is::<ByteArrayV>() || (x.any().is::<MemV>() && bytes_of(v).is_some()) => {
             let b = bytes_of(v).unwrap_or_default();
-            parse_float(&String::from_utf8_lossy(&b)).ok_or_else(|| exc("ValueError", format!("could not convert string to float: {}", bytes_repr(&b))))
+            // (the message shows the object's repr, as CPython's %R does: bytearray(b'x'))
+            parse_float(&String::from_utf8_lossy(&b)).ok_or_else(|| exc("ValueError", format!("could not convert string to float: {}", repr(v).unwrap_or_default())))
         }
         V::Ext(x) if x.any().is::<MemV>() => type_err("float() argument must be a string or a real number, not 'memoryview'".into()),
         V::Ext(x) => x.to_f64().ok_or_else(|| exc("TypeError", format!("float() argument must be a string or a real number, not '{}'", tn(v)))),
@@ -1341,13 +1477,17 @@ pub fn to_int(v: &V) -> R {
                 Ok(Big::from_f64(t).norm())
             }
         }
-        V::Str(s) => int_text_limit(&s.s, 10, parse_int(&s.s, 10))?.ok_or_else(|| exc("ValueError", format!("invalid literal for int() with base 10: {}", str_repr(&s.s)))),
+        // a lone surrogate reads as CPython's '?' (_PyUnicode_TransformDecimalAndSpaceToASCII): never a digit
+        V::Str(s) => {
+            let t = s.text_sub('?');
+            int_text_limit(&t, 10, parse_int(&t, 10))?.ok_or_else(|| exc("ValueError", format!("invalid literal for int() with base 10: {}", repr_s(s))))
+        }
         V::Obj(o) => {
             if let Some(f) = o.cls.lookup("__int__") {
                 return int_returned(call(&f, Args::p(vec![v.clone()]))?, "__int__");
             }
             // a subclass of int, float or str (IntEnum, StrEnum): int's own __int__ wins over a user __index__
-            if let Some(i) = inner_of(v).filter(|i| matches!(i, V::Int(_) | V::Big(_) | V::Bool(_) | V::Float(_) | V::Str(_)) || is_bytes_v(i)) {
+            if let Some(i) = inner_of(v).filter(|i| matches!(i, V::Int(_) | V::Big(_) | V::Bool(_) | V::Float(_) | V::Str(_)) || is_bytes_v(i) || bytearray_of(i).is_some()) {
                 return to_int(&i);
             }
             if let Some(f) = o.cls.lookup("__index__") {
@@ -1481,7 +1621,7 @@ pub fn sort_values(v: &mut Vec<V>, key: Option<&V>, reverse: bool) -> Result<(),
     if all_int {
         keyed.sort_by(|a, b| if let (V::Int(x), V::Int(y)) = (&a.0, &b.0) { x.cmp(y) } else { std::cmp::Ordering::Equal });
     } else if all_str {
-        keyed.sort_by(|a, b| if let (V::Str(x), V::Str(y)) = (&a.0, &b.0) { x.s.cmp(&y.s) } else { std::cmp::Ordering::Equal });
+        keyed.sort_by(|a, b| if let (V::Str(x), V::Str(y)) = (&a.0, &b.0) { x.order(y) } else { std::cmp::Ordering::Equal });
     } else {
         merge_sort(&mut keyed, &mut |a: &(V, V), b: &(V, V)| {
             if err.is_some() {

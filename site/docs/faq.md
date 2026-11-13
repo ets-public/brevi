@@ -16,7 +16,7 @@ No. Write Python. Brevi also has its own language for `.bv` files, but measureme
 ## How is this different from Codon, Nuitka, Cython or PyPy?
 
 - **Codon** compiles a Python-like language and is very fast, but changes Python's behaviour (64-bit integers that wrap, different printing) and refuses much real code. On 591 of our saved agent programs it built 206 and got 36 of those wrong; Brevi built all 591, all matching CPython (they are our own regression set, so this favours Brevi). Codon never promised CPython's exact behaviour, and it is faster than Brevi on numeric code.
-- **Nuitka** matches CPython's behaviour, but keeps CPython's object model, so it runs at about CPython's speed. Brevi's default build is 1.7x to 39.5x faster than CPython on our 12 compute benchmarks (median 8.5x). Nuitka runs far more of Python than Brevi does today.
+- **Nuitka** matches CPython's behaviour, but keeps CPython's object model, so it runs at about CPython's speed. Brevi's default build is 1.6x to 37.9x faster than CPython on our 12 compute benchmarks (median 9.3x). Nuitka runs far more of Python than Brevi does today.
 - **Cython** speeds up code you annotate with C types. Brevi needs no annotations.
 - **PyPy** is a faster interpreter with a JIT. Brevi produces a standalone native binary, checks programs before they run, and gives errors built for agents.
 

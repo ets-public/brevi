@@ -41,6 +41,12 @@ fn trow(c: &Class) -> Option<&'static (&'static str, &'static str, &'static str,
     })
 }
 
+// whether CPython's builtin type `name` (or object, which it inherits from) has the attribute `attr`
+pub fn cpy_builtin_has(name: &str, attr: &str) -> bool {
+    let has = |n: &str| TYPE_DICTS.iter().any(|r| r.0 == "builtins" && r.1 == n && r.5.iter().any(|e| e.0 == attr));
+    has(name) || has("object")
+}
+
 pub fn tinfo(c: &Class) -> Option<Rc<TInfo>> {
     c.tinfo.borrow().clone()
 }
@@ -117,12 +123,12 @@ fn best_base(bases: &[Rc<Class>]) -> Option<Rc<Class>> {
 fn slot_list(v: &V) -> Vec<Sym> {
     let mut out = vec![];
     match v {
-        V::Str(x) => out.push(sym(&x.s)),
+        V::Str(x) => out.push(sym(&x.text())),
         V::Tuple(_) | V::List(_) | V::Dict(_) => {
             if let Ok(xs) = to_vec(v) {
                 for x in xs {
                     if let V::Str(x) = x {
-                        out.push(sym(&x.s));
+                        out.push(sym(&x.text()));
                     }
                 }
             }
@@ -212,6 +218,22 @@ fn tdesc(kind: u8, owner: &Rc<Class>, name: Sym) -> V {
     let v = V::Ext(ExtRc::new(TDesc { kind, owner: owner.clone(), name }));
     TDESCS.with(|m| m.borrow_mut().insert(key, v.clone()));
     v
+}
+// Whether CPython's own dict of the builtin type `c` holds `n` (None: Brevi has no table for the type), and
+// the type's tp_name, for subscripting a class (rt_typing.rs class_subscript).
+pub fn cpy_dict_has(c: &Class, n: &str) -> Option<(bool, &'static str)> {
+    trow(c).map(|r| (r.5.iter().any(|e| e.0 == n), r.2))
+}
+// Whether CPython's type lookup finds `n` on the builtin type `c` (#470): in the dict of a class on its MRO, or
+// on `type`, its metaclass. None when a class on the MRO has no table, so Brevi cannot tell.
+pub fn cpy_type_has(c: &Rc<Class>, n: &str) -> Option<bool> {
+    for k in c.mro.borrow().iter() {
+        if trow(k)?.5.iter().any(|e| e.0 == n) {
+            return Some(true);
+        }
+    }
+    let ty = TYPE_DICTS.iter().find(|r| r.0 == "builtins" && r.1 == "type")?;
+    Some(ty.5.iter().any(|e| e.0 == n))
 }
 fn tname_of(c: &Class) -> String {
     match trow(c) {

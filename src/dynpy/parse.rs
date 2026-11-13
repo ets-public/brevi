@@ -7,10 +7,12 @@ pub enum Tok {
     Name(String),
     Int(String),
     Float(f64),
-    Imag,
+    Imag(f64),
     Str(String, bool),
     FStr(String, bool),
     Bytes(String),
+    // a str literal with a lone surrogate (U+D800..U+DFFF): its code points, which a Rust String cannot hold
+    LoneStr(Vec<u32>),
     Op(&'static str),
     Newline,
     Indent,
@@ -53,7 +55,31 @@ fn bytes_unescape(body: &str, line: usize) -> Result<String, (usize, String)> {
     Ok(v.chars().map(|c| char::from_u32(c as u32 & 0xff).unwrap()).collect())
 }
 
+// A str literal's escapes: Ok(Err(code points)) when one is a lone surrogate (\udXXX), which a String cannot hold.
+fn unescape_lone(body: &str, line: usize) -> Result<Result<String, Vec<u32>>, (usize, String)> {
+    let mut lone: Vec<(usize, u32)> = vec![];
+    let out = unescape_at(body, line, &mut Some(&mut lone))?;
+    if lone.is_empty() {
+        return Ok(Ok(out));
+    }
+    let mut cps = Vec::with_capacity(out.len() + lone.len());
+    let mut at = 0;
+    for (b, v) in lone {
+        cps.extend(out[at..b].chars().map(|c| c as u32));
+        cps.push(v);
+        at = b;
+    }
+    cps.extend(out[at..].chars().map(|c| c as u32));
+    Ok(Err(cps))
+}
+
 fn unescape(body: &str, line: usize) -> Result<String, (usize, String)> {
+    unescape_at(body, line, &mut None)
+}
+
+// `lone`, when given, collects each lone surrogate escape as (byte offset in the result, code point); without it
+// one is an error.
+fn unescape_at(body: &str, line: usize, lone: &mut Option<&mut Vec<(usize, u32)>>) -> Result<String, (usize, String)> {
     let mut out = String::new();
     let cs: Vec<char> = body.chars().collect();
     let mut i = 0;
@@ -87,6 +113,11 @@ fn unescape(body: &str, line: usize) -> Result<String, (usize, String)> {
                 let h: String = cs[i..(i + k).min(cs.len())].iter().collect();
                 let v = u32::from_str_radix(&h, 16).map_err(|_| err(line, "bad escape in string"))?;
                 // U+D800..U+DFFF: a str CPython can hold and a Rust string cannot (the string model, #450)
+                if let (true, Some(l)) = ((0xD800..=0xDFFF).contains(&v), lone.as_mut()) {
+                    l.push((out.len(), v));
+                    i += k;
+                    continue;
+                }
                 out.push(char::from_u32(v).ok_or_else(|| err(line, if (0xD800..=0xDFFF).contains(&v) { "a lone surrogate (U+D800..U+DFFF) in a string literal is not supported" } else { "bad escape in string" }))?);
                 i += k;
             }
@@ -302,8 +333,14 @@ pub fn lex(src: &str) -> Result<Lexed, (usize, String)> {
             if prefix.contains('f') {
                 toks.push((Tok::FStr(body, raw), start_line));
             } else {
-                let v = if raw { body } else { unescape(&body, start_line)? };
-                toks.push((Tok::Str(v, raw), start_line));
+                if raw {
+                    toks.push((Tok::Str(body, raw), start_line));
+                } else {
+                    match unescape_lone(&body, start_line)? {
+                        Ok(v) => toks.push((Tok::Str(v, raw), start_line)),
+                        Err(cps) => toks.push((Tok::LoneStr(cps), start_line)),
+                    }
+                }
             }
             continue;
         }
@@ -354,7 +391,9 @@ pub fn lex(src: &str) -> Result<Lexed, (usize, String)> {
                 }
             }
             if j < cs.len() && (cs[j] == 'j' || cs[j] == 'J') {
-                toks.push((Tok::Imag, line));
+                // an imaginary literal: its digits read as a float (`1_0j`, `1e3j`, `07j`)
+                let t: String = cs[i..j].iter().filter(|c| **c != '_').collect();
+                toks.push((Tok::Imag(t.parse().map_err(|_| err(line, "bad number"))?), line));
                 i = j + 1;
                 continue;
             }
@@ -633,6 +672,11 @@ impl P {
         Ok(out)
     }
     fn block(&mut self) -> PR<Vec<Stmt>> {
+        let b = self.block_body()?;
+        lone_doc(&b)?;
+        Ok(b)
+    }
+    fn block_body(&mut self) -> PR<Vec<Stmt>> {
         self.expect_op(":")?;
         if !matches!(self.peek(), Tok::Newline) {
             // one-line suite
@@ -1131,7 +1175,7 @@ impl P {
         }
         stop.push(st(St::Break));
         let get = st(St::Try(
-            vec![st(St::Assign(vec![name(&ax)], Ex::Await(Box::new(call("anext", name(&ai))))))],
+            vec![st(St::Assign(vec![name(&ax)], call("__brevi_afor_await", call("anext", name(&ai)))))],
             vec![Handler { types: Some(name("StopAsyncIteration")), name: None, body: stop, line }],
             None,
             None,
@@ -1169,13 +1213,14 @@ impl P {
             st(St::Assign(vec![name(&am)], m)),
             st(St::Assign(vec![name(&ax)], call(name("__brevi_aexit"), vec![name(&am)]))),
         ];
-        let enter = Ex::Await(Box::new(call(call(name("__brevi_aenter"), vec![name(&am)]), vec![name(&am)])));
+        // __brevi_awith checks what __aenter__/__aexit__ returned is awaitable, with CPython's 'async with' message
+        let enter = Ex::Await(Box::new(call(name("__brevi_awith"), vec![call(call(name("__brevi_aenter"), vec![name(&am)]), vec![name(&am)]), Ex::Int("0".into())])));
         out.push(st(match t {
             Some(t) => St::Assign(vec![t], enter),
             None => St::Expr(enter),
         }));
         out.push(st(St::Assign(vec![name(&ak)], Ex::True)));
-        let exit = |args: Vec<Ex>| Ex::Await(Box::new(call(name(&ax), args)));
+        let exit = |args: Vec<Ex>| Ex::Await(Box::new(call(name("__brevi_awith"), vec![call(name(&ax), args), Ex::Int("1".into())])));
         let h = vec![
             st(St::Assign(vec![name(&ak)], Ex::False)),
             st(St::If(
@@ -1658,7 +1703,7 @@ impl P {
             },
             Tok::Int(t) => Ok(Ex::Int(t)),
             Tok::Float(f) => Ok(Ex::Float(f)),
-            Tok::Imag => Err(err(line, "complex numbers are not supported")),
+            Tok::Imag(f) => Ok(Ex::Call(Box::new(Ex::Name("__complex_lit".into())), vec![Arg::Pos(Ex::Float(f))])),
             Tok::Bytes(b0) => {
                 // adjacent literals concatenate; b'...' 'x' mixes kinds, a SyntaxError in Python
                 let mut b = b0;
@@ -1668,22 +1713,37 @@ impl P {
                             b.push_str(&x);
                             self.next();
                         }
-                        Tok::Str(..) | Tok::FStr(..) => return Err(err(line, "cannot mix bytes and nonbytes literals")),
+                        Tok::Str(..) | Tok::FStr(..) | Tok::LoneStr(..) => return Err(err(line, "cannot mix bytes and nonbytes literals")),
                         _ => break,
                     }
                 }
                 Ok(Ex::Call(Box::new(Ex::Name("__bytes_lit".into())), vec![Arg::Pos(Ex::Str(b))]))
             }
             Tok::Op("...") => Ok(Ex::Ellipsis),
-            Tok::Str(s0, _) | Tok::FStr(s0, _) => {
+            Tok::Str(..) | Tok::FStr(..) | Tok::LoneStr(..) => {
                 self.i -= 1;
                 // adjacent literals concatenate
                 let mut parts: Vec<FPart> = vec![];
                 let mut any_f = false;
+                // the code points of the plain literals, kept once one holds a lone surrogate
+                let mut lone: Option<Vec<u32>> = None;
                 loop {
                     match self.peek().clone() {
                         Tok::Str(s, _) => {
+                            if let Some(l) = lone.as_mut() {
+                                l.extend(s.chars().map(|c| c as u32));
+                            }
                             parts.push(FPart::Lit(s));
+                            self.next();
+                        }
+                        Tok::LoneStr(cps) => {
+                            let l = lone.get_or_insert_with(|| {
+                                parts.iter().flat_map(|p| match p {
+                                    FPart::Lit(x) => x.chars().map(|c| c as u32).collect::<Vec<_>>(),
+                                    _ => vec![],
+                                }).collect()
+                            });
+                            l.extend(cps);
                             self.next();
                         }
                         Tok::FStr(body, raw) => {
@@ -1696,7 +1756,14 @@ impl P {
                         _ => break,
                     }
                 }
-                let _ = s0;
+                if let Some(cps) = lone {
+                    if any_f {
+                        return Err(err(line, "a lone surrogate (U+D800..U+DFFF) in a string literal next to an f-string is not supported"));
+                    }
+                    // a str that holds a lone surrogate: built at run time from its code points, in hex
+                    let hex: Vec<String> = cps.iter().map(|c| format!("{c:x}")).collect();
+                    return Ok(Ex::Call(Box::new(Ex::Name("__brevi_lone_str".into())), vec![Arg::Pos(Ex::Str(hex.join(" ")))]));
+                }
                 if !any_f {
                     let mut s = String::new();
                     for p in parts {
@@ -1993,8 +2060,20 @@ pub fn parse(src: &str) -> PR<Vec<Stmt>> {
     let lx = lex(src)?;
     let mut p = P { toks: lx.toks, i: 0, anon: 0 };
     let mut body = p.file()?;
+    lone_doc(&body)?;
     super::mangle::module(&mut body)?;
     Ok(body)
+}
+
+// A body starting with a str literal that holds a lone surrogate: a docstring the emitter's docstrings (String)
+// cannot carry, so the build stops instead of giving the def, class or module no __doc__. Any block counts.
+fn lone_doc(b: &[Stmt]) -> Result<(), (usize, String)> {
+    match b.first() {
+        Some(Stmt { line, st: St::Expr(Ex::Call(f, _)) }) if matches!(f.as_ref(), Ex::Name(n) if n == "__brevi_lone_str") => {
+            Err(err(*line, "a docstring with a lone surrogate (U+D800..U+DFFF) is not supported"))
+        }
+        _ => Ok(()),
+    }
 }
 
 // A break, continue or return in this block that leaves it (not inside a nested loop or function).

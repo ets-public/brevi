@@ -1,0 +1,26 @@
+int False False True True True
+float False False True True True
+str False False True True True
+bytes False False True True True
+list False False True True True
+tuple False False True True True
+dict False False True True True
+set False False True True True
+frozenset False False True True True
+bool False False True True True
+BaseException False False True True True
+ValueError False False True True True
+KeyError False False True True True
+range False False True True True
+object False False True True True
+type False False True True True
+True True True True True
+True False True True True
+True True True True
+AttributeError: type object 'int' has no attribute 'zzz'
+AttributeError: type object 'str' has no attribute 'append'
+AttributeError: type object 'list' has no attribute 'upper'
+AttributeError: type object 'ValueError' has no attribute 'nope'
+AttributeError: type object 'int' has no attribute 'zzz'
+default
+AB 8 2 {'a': 0, 'b': 0}

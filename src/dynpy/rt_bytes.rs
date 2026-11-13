@@ -8,18 +8,30 @@ pub fn bytesv(b: Vec<u8>) -> V {
     V::Ext(ExtRc::new(BytesV(b)))
 }
 
-// the bytes of a bytes-like value: bytes, or a bytearray's current contents (CPython's buffer protocol)
+thread_local! {
+    // The bytes of a buffer a Python library made (an array.array, ...): the dynamic build's bridge sets this
+    // when CPython starts, and it answers None for a library value that has no buffer.
+    pub static BUF_BRIDGE: Cell<Option<fn(&V) -> Option<Vec<u8>>>> = const { Cell::new(None) };
+    // CPython's builtin of that name (int, ...), for a library value whose conversion CPython must decide
+    // (__int__, __index__, then its buffer): set with BUF_BRIDGE.
+    pub static PY_BUILTIN: Cell<Option<fn(&str) -> R>> = const { Cell::new(None) };
+}
+// the bytes of a bytes-like value: bytes, a bytearray's current contents, or the buffer of a library's object
+// (CPython's buffer protocol)
 pub fn bytes_of(v: &V) -> Option<Vec<u8>> {
     match v {
         V::Ext(x) => match x.any().downcast_ref::<BytesV>() {
             Some(b) => Some(b.0.clone()),
             None => match x.any().downcast_ref::<ByteArrayV>() {
                 Some(b) => Some(b.d.borrow().clone()),
-                None => x.any().downcast_ref::<MemV>().and_then(mv_simple),
+                None => match x.any().downcast_ref::<MemV>() {
+                    Some(m) => mv_simple(m),
+                    None => BUF_BRIDGE.with(|h| h.get()).and_then(|f| f(v)),
+                },
             },
         },
-        // an instance of a bytes subclass: its bytes value
-        V::Obj(o) if o.cls.base_bt() == BT::Bytes => o.inner().and_then(|i| bytes_of(&i)),
+        // an instance of a bytes or bytearray subclass: its value's bytes
+        V::Obj(o) if matches!(o.cls.base_bt(), BT::Bytes | BT::ByteArray) => o.inner().and_then(|i| bytes_of(&i)),
         _ => None,
     }
 }
@@ -33,6 +45,10 @@ fn want_bytes(v: &V, what: &str) -> Result<Vec<u8>, E> {
 }
 
 pub fn bytes_repr(b: &[u8]) -> String {
+    bytes_repr_q(b, false)
+}
+// bytearray's repr escapes a single quote even inside double quotes (CPython's bytearray_repr): bytearray(b"\'")
+pub fn bytes_repr_q(b: &[u8], esc_single: bool) -> String {
     let q = if b.contains(&b'\'') && !b.contains(&b'"') { '"' } else { '\'' };
     let mut out = String::from("b");
     out.push(q);
@@ -42,9 +58,9 @@ pub fn bytes_repr(b: &[u8]) -> String {
             b'\t' => out.push_str("\\t"),
             b'\n' => out.push_str("\\n"),
             b'\r' => out.push_str("\\r"),
-            _ if c as char == q => {
+            _ if c as char == q || (esc_single && c == b'\'') => {
                 out.push('\\');
-                out.push(q);
+                out.push(c as char);
             }
             32..=126 => out.push(c as char),
             _ => out.push_str(&format!("\\x{c:02x}")),
@@ -308,7 +324,7 @@ fn codec_alias(name: &str) -> Option<&'static str> {
 fn codec_name(v: Option<&V>) -> Result<&'static str, E> {
     let n = match v {
         None => return Ok("utf-8"),
-        Some(V::Str(s)) => s.s.to_lowercase().replace('_', "-"),
+        Some(V::Str(s)) => s.text().to_lowercase().replace('_', "-"),
         Some(x) => return type_err(format!("decode() argument 'encoding' must be str, not {}", arg_tn(x))),
     };
     if let Some(c) = codec_alias(&n) {
@@ -319,14 +335,14 @@ fn codec_name(v: Option<&V>) -> Result<&'static str, E> {
         m if ["utf-16", "utf16", "utf-32", "utf32", "utf-7", "utf-8-sig", "cp", "iso-8859", "iso8859", "koi8", "mac-", "gb", "big5", "euc", "shift", "sjis", "latin-", "windows-", "idna", "punycode", "unicode-escape", "raw-unicode-escape", "hz", "johab", "ptcp", "tis"].iter().any(|p| m.starts_with(p)) => {
             return Err(unsupported(&format!("the {m} codec")))
         }
-        _ => return Err(exc("LookupError", format!("unknown encoding: {}", match v { Some(V::Str(s)) => s.s.clone(), _ => n }))),
+        _ => return Err(exc("LookupError", format!("unknown encoding: {}", match v { Some(V::Str(s)) => s.text().to_string(), _ => n }))),
     })
 }
 
 fn errors_name(v: Option<&V>) -> Result<String, E> {
     match v {
         None => Ok("strict".into()),
-        Some(V::Str(s)) => Ok(s.s.clone()),
+        Some(V::Str(s)) => Ok(s.text().to_string()),
         Some(x) => type_err(format!("decode() argument 'errors' must be str, not {}", arg_tn(x))),
     }
 }
@@ -343,17 +359,19 @@ pub fn bytes_decode(b: &[u8], enc: Option<&V>, errors: Option<&V>) -> R {
     }
     let codec = codec_name(enc)?;
     let errors = errors_s;
-    if !matches!(errors.as_str(), "strict" | "replace" | "ignore" | "backslashreplace") {
+    if !matches!(errors.as_str(), "strict" | "replace" | "ignore" | "backslashreplace" | "surrogateescape" | "surrogatepass") {
         return Err(unsupported(&format!("decode errors='{errors}'")));
     }
     match codec {
         "latin-1" => Ok(st(b.iter().map(|&c| c as char).collect())),
         "ascii" => {
-            let mut out = String::new();
+            let mut out = Txt::new();
             for (i, &c) in b.iter().enumerate() {
                 if c < 128 {
                     out.push(c as char);
-                } else if errors == "strict" {
+                } else if errors == "surrogateescape" {
+                    out.push_cp(0xDC00 + c as u32);
+                } else if errors == "strict" || errors == "surrogatepass" {
                     return Err(udec_err("ascii", b, i, i + 1, "ordinal not in range(128)"));
                 } else if errors == "replace" {
                     out.push('\u{fffd}');
@@ -361,24 +379,33 @@ pub fn bytes_decode(b: &[u8], enc: Option<&V>, errors: Option<&V>) -> R {
                     out.push_str(&format!("\\x{c:02x}"));
                 }
             }
-            Ok(st(out))
+            Ok(txt_v(out))
         }
         _ => {
-            let mut out = String::new();
+            let mut out = Txt::new();
             let mut rest = b;
             let mut base = 0usize;
             loop {
                 match std::str::from_utf8(rest) {
                     Ok(t) => {
                         out.push_str(t);
-                        return Ok(st(out));
+                        return Ok(txt_v(out));
                     }
                     Err(e) => {
                         let ok = e.valid_up_to();
                         out.push_str(std::str::from_utf8(&rest[..ok]).unwrap());
                         let pos = base + ok;
                         let bad = e.error_len();
-                        if errors == "strict" {
+                        // surrogatepass takes a UTF-8-encoded surrogate (ED A0..BF 80..BF); anything else raises
+                        if errors == "surrogatepass" {
+                            if let [0xED, b1 @ 0xA0..=0xBF, b2 @ 0x80..=0xBF, ..] = rest[ok..] {
+                                out.push_cp(0xD000 | ((b1 as u32 & 0x3F) << 6) | (b2 as u32 & 0x3F));
+                                rest = &rest[ok + 3..];
+                                base += ok + 3;
+                                continue;
+                            }
+                        }
+                        if errors == "strict" || errors == "surrogatepass" {
                             let c = rest[ok];
                             let (end, reason) = match bad {
                                 None => (base + rest.len(), "unexpected end of data"),
@@ -388,7 +415,11 @@ pub fn bytes_decode(b: &[u8], enc: Option<&V>, errors: Option<&V>) -> R {
                             return Err(udec_err("utf-8", b, pos, end, reason));
                         }
                         let skip = bad.unwrap_or(rest.len() - ok);
-                        if errors == "backslashreplace" {
+                        if errors == "surrogateescape" {
+                            for &c in &rest[ok..ok + skip] {
+                                out.push_cp(0xDC00 + c as u32);
+                            }
+                        } else if errors == "backslashreplace" {
                             // backslashreplace escapes each byte of the bad run with \xhh
                             for &c in &rest[ok..ok + skip] {
                                 out.push_str(&format!("\\x{c:02x}"));
@@ -418,8 +449,8 @@ pub fn udec_err(enc: &str, obj: &[u8], start: usize, end: usize, reason: &str) -
     E(V::Obj(o))
 }
 
-fn char_repr(c: char) -> String {
-    let n = c as u32;
+fn char_repr(c: u32) -> String {
+    let n = c;
     if n < 0x100 {
         format!("'\\x{n:02x}'")
     } else if n < 0x10000 {
@@ -429,42 +460,94 @@ fn char_repr(c: char) -> String {
     }
 }
 
-pub fn str_encode(s: &str, enc: Option<&V>, errors: Option<&V>) -> R {
+// UnicodeEncodeError(encoding, object, start, end, reason), with its attributes (str() is in rt_fmt.rs)
+pub fn uenc_err(enc: &str, cps: &[u32], start: usize, end: usize, reason: &str) -> E {
+    let o = Obj::new(exc_class("UnicodeEncodeError"));
+    let (e, ob, st0, en, r) = (s(enc), st_cps(cps.to_vec()), V::Int(start as i64), V::Int(end as i64), s(reason));
+    o.set("args", tup(vec![e.clone(), ob.clone(), st0.clone(), en.clone(), r.clone()]));
+    o.set("encoding", e);
+    o.set("object", ob);
+    o.set("start", st0);
+    o.set("end", en);
+    o.set("reason", r);
+    E(V::Obj(o))
+}
+
+// The message str(UnicodeEncodeError) gives.
+pub fn uenc_msg(enc: &str, obj: &[u32], start: i64, end: i64, reason: &str) -> String {
+    if end == start + 1 && start >= 0 && (start as usize) < obj.len() {
+        format!("'{enc}' codec can't encode character {} in position {start}: {reason}", char_repr(obj[start as usize]))
+    } else {
+        format!("'{enc}' codec can't encode characters in position {start}-{}: {reason}", end - 1)
+    }
+}
+
+// str.encode over code points, lone surrogates included, with CPython's error handlers and its error ranges: a
+// strict failure covers the run of characters the codec cannot encode (for utf-8, the run of surrogates), and
+// surrogateescape/surrogatepass, when they meet a character they cannot handle, raise for the rest of that run.
+pub fn str_encode(sv: &S, enc: Option<&V>, errors: Option<&V>) -> R {
     let codec = codec_name(enc)?;
     let errors = errors_name(errors)?;
-    if !matches!(errors.as_str(), "strict" | "replace" | "ignore") {
+    if !matches!(errors.as_str(), "strict" | "replace" | "ignore" | "backslashreplace" | "xmlcharrefreplace" | "surrogateescape" | "surrogatepass") {
         return Err(unsupported(&format!("encode errors='{errors}'")));
     }
-    if codec == "utf-8" {
-        return Ok(bytesv(s.as_bytes().to_vec()));
+    if codec == "utf-8" && !sv.is_lone() {
+        return Ok(bytesv(sv.text().as_bytes().to_vec()));
     }
+    let cs = sv.cps();
+    let utf8 = codec == "utf-8";
     let lim: u32 = if codec == "ascii" { 128 } else { 256 };
-    let cs: Vec<char> = s.chars().collect();
+    let bad = |c: u32| if utf8 { is_surrogate(c) } else { c >= lim };
+    let reason = if utf8 { "surrogates not allowed".to_string() } else { format!("ordinal not in range({lim})") };
     let mut out = vec![];
     let mut i = 0;
     while i < cs.len() {
         let c = cs[i];
-        if (c as u32) < lim {
-            out.push(c as u32 as u8);
+        if !bad(c) {
+            if utf8 {
+                let mut b = [0u8; 4];
+                out.extend_from_slice(char::from_u32(c).unwrap().encode_utf8(&mut b).as_bytes());
+            } else {
+                out.push(c as u8);
+            }
             i += 1;
             continue;
         }
-        if errors == "strict" {
-            let mut j = i;
-            while j < cs.len() && cs[j] as u32 >= lim {
-                j += 1;
+        let mut j = i;
+        while j < cs.len() && bad(cs[j]) {
+            j += 1;
+        }
+        match errors.as_str() {
+            "strict" => return Err(uenc_err(codec, &cs, i, j, &reason)),
+            "surrogatepass" if utf8 => {
+                for &c in &cs[i..j] {
+                    out.extend_from_slice(&[0xE0 | (c >> 12) as u8, 0x80 | ((c >> 6) & 0x3F) as u8, 0x80 | (c & 0x3F) as u8]);
+                }
             }
-            let msg = if j - i == 1 {
-                format!("'{codec}' codec can't encode character {} in position {i}: ordinal not in range({lim})", char_repr(c))
-            } else {
-                format!("'{codec}' codec can't encode characters in position {i}-{}: ordinal not in range({lim})", j - 1)
-            };
-            return Err(exc("UnicodeEncodeError", msg));
+            "surrogatepass" => return Err(uenc_err(codec, &cs, i, j, &reason)),
+            "surrogateescape" => {
+                for k in i..j {
+                    if !(0xDC80..=0xDCFF).contains(&cs[k]) {
+                        return Err(uenc_err(codec, &cs, k, j, &reason));
+                    }
+                    out.push((cs[k] - 0xDC00) as u8);
+                }
+            }
+            "replace" => out.extend(std::iter::repeat(b'?').take(j - i)),
+            "ignore" => {}
+            "backslashreplace" => {
+                for &c in &cs[i..j] {
+                    let e = if c < 0x100 { format!("\\x{c:02x}") } else if c < 0x10000 { format!("\\u{c:04x}") } else { format!("\\U{c:08x}") };
+                    out.extend_from_slice(e.as_bytes());
+                }
+            }
+            _ => {
+                for &c in &cs[i..j] {
+                    out.extend_from_slice(format!("&#{c};").as_bytes());
+                }
+            }
         }
-        if errors == "replace" {
-            out.push(b'?');
-        }
-        i += 1;
+        i = j;
     }
     Ok(bytesv(out))
 }
@@ -490,7 +573,7 @@ pub fn bi_bytes(a: Args) -> R {
         if enc.is_none() {
             return type_err("string argument without an encoding".into());
         }
-        return str_encode(&s.s, enc.as_ref(), errs.as_ref());
+        return str_encode(s, enc.as_ref(), errs.as_ref());
     }
     if enc.is_some() {
         return type_err("encoding without a string argument".into());
@@ -529,14 +612,14 @@ pub fn bi_bytes(a: Args) -> R {
 // b"..." in the program: its bytes are the chars (all below 256) of the str the parser made.
 pub fn bi___bytes_lit(a: Args) -> R {
     match a.p.first() {
-        Some(V::Str(s)) => Ok(bytesv(s.s.chars().map(|c| c as u32 as u8).collect())),
+        Some(V::Str(s)) => Ok(bytesv(s.text().chars().map(|c| c as u32 as u8).collect())),
         _ => Ok(bytesv(vec![])),
     }
 }
 
 pub fn bytes_fromhex(a: Args) -> R {
     let s = match a.p.first() {
-        Some(V::Str(s)) => s.s.clone(),
+        Some(V::Str(s)) => s.text().to_string(),
         Some(x) => return type_err(format!("fromhex() argument must be str, not {}", arg_tn(x))),
         None => return type_err("fromhex() takes exactly one argument (0 given)".into()),
     };
@@ -786,7 +869,7 @@ impl BytesV {
                         // no separator: CPython's default is an empty separator, so the output is plain hex
                         None => return Ok(st(hex_of(b))),
                         Some(V::Str(sd)) => {
-                            let mut cs = sd.s.chars();
+                            let mut cs = sd.text().chars();
                             match (cs.next(), cs.next()) {
                                 (Some(c), None) if (c as u32) < 128 => c as u32 as u8,
                                 (Some(_), None) => return val_err("sep must be ASCII.".into()),
@@ -1368,11 +1451,17 @@ impl Ext for BytesV {
         if let Some(m) = memview_of(o) {
             return m.eq(&bytesv(self.0.clone()));
         }
+        // a library buffer (array.array, ...) is left to its own comparison: bytes == array is False in CPython,
+        // as bytes.__eq__ does not take an arbitrary buffer
+        if matches!(o, V::Ext(x) if x.is_py()) {
+            return None;
+        }
         Some(bytes_of(o).is_some_and(|b| b == self.0))
     }
     fn cmp(&self, o: &V) -> Option<std::cmp::Ordering> {
-        // bytes order against bytes and bytearray only: `b'a' < memoryview(b'b')` is a TypeError, as in CPython
-        if memview_of(o).is_some() {
+        // bytes order against bytes and bytearray only: `b'a' < memoryview(b'b')` is a TypeError, as is any
+        // ordering next to a library buffer, in CPython
+        if memview_of(o).is_some() || matches!(o, V::Ext(x) if x.is_py()) {
             return None;
         }
         bytes_of(o).map(|b| self.0.as_slice().cmp(b.as_slice()))
@@ -1693,7 +1782,7 @@ pub fn hashlib_fn(n: &str, a: Args) -> R {
     let data = a.kw("data").or_else(|| a.kw("string"));
     let (name, data) = if n == "new" {
         let nm = match a.p.first() {
-            Some(V::Str(s)) => s.s.clone(),
+            Some(V::Str(s)) => s.text().to_string(),
             Some(x) => return type_err(format!("new() argument 'name' must be str, not {}", arg_tn(x))),
             None => return type_err("new() missing required argument 'name' (pos 1)".into()),
         };
@@ -1825,10 +1914,10 @@ fn b64_decode(d: &[u8], strict: bool) -> Result<Vec<u8>, E> {
 fn b64_arg(v: Option<&V>) -> Result<Vec<u8>, E> {
     match v {
         Some(V::Str(s)) => {
-            if !s.s.is_ascii() {
+            if !s.text().is_ascii() {
                 return val_err("string argument should contain only ASCII characters".into());
             }
-            Ok(s.s.as_bytes().to_vec())
+            Ok(s.text().as_bytes().to_vec())
         }
         Some(x) => bytes_of(x).ok_or_else(|| exc("TypeError", format!("argument should be a bytes-like object or ASCII string, not '{}'", tn(x)))),
         None => type_err("missing required argument 's' (pos 1)".into()),

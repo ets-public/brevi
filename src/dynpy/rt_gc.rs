@@ -410,7 +410,7 @@ fn gc_edges(v: &V) -> Vec<V> {
             match &*it {
                 It::List(x, _) | It::RevList(x, _) => out.push(V::List(x.clone())),
                 It::Tuple(x, _) => out.push(V::Tuple(x.clone())),
-                It::Dict(x, ..) => out.push(V::Dict(x.clone())),
+                It::Dict(x, ..) | It::RevDict(x, ..) => out.push(V::Dict(x.clone())),
                 It::Set(x, ..) => out.push(V::Set(x.clone())),
                 It::Obj(x) => out.push(x.clone()),
                 _ => {}

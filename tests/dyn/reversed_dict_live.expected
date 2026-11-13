@@ -1,0 +1,20 @@
+[3, 2, 9]
+['b', 'z']
+[(2, 'q'), (1, 'z')]
+keys RuntimeError: dictionary changed size during iteration
+keys RuntimeError: dictionary changed size during iteration
+values RuntimeError: dictionary changed size during iteration
+values RuntimeError: dictionary changed size during iteration
+items RuntimeError: dictionary changed size during iteration
+items RuntimeError: dictionary changed size during iteration
+1
+RuntimeError: dictionary changed size during iteration
+[1] []
+[]
+(5, '5') 4
+[(4, '4'), (3, '3'), (1, '1'), (0, '0')] [(4, '4'), (3, '3'), (1, '1'), (0, '0')]
+[(4, '4'), (3, '3'), (1, '1'), (0, '0')] 0
+['b', 'a']
+[7, 5]
+dict_reversekeyiterator dict_reversevalueiterator dict_reverseitemiterator
+[]

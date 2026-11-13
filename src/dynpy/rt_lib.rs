@@ -63,7 +63,9 @@ pub fn out_write(t: &str) {
     });
 }
 pub fn out_flush() {
-    OUT.with(|o| {
+    // try_with: a library value dropped by another thread-local's destructor at thread exit (a module CPython
+    // runs, kept in sys.modules) flushes after OUT itself is gone, when there is nothing left to flush
+    let _ = OUT.try_with(|o| {
         let mut o = o.borrow_mut();
         let b = std::mem::take(&mut o.buf);
         std::io::stdout().write_all(&b).ok();
@@ -147,15 +149,39 @@ fn file_target(f: &V) -> Result<u8, E> {
         _ => Err(unsupported("print(file=...) to this file")),
     }
 }
+// What stderr shows for a str: CPython's stderr writes a lone surrogate with errors='backslashreplace'.
+pub fn err_text(x: &S) -> std::borrow::Cow<'_, str> {
+    if !x.is_lone() {
+        return std::borrow::Cow::Borrowed(x.text());
+    }
+    let b = str_encode(x, None, Some(&s("backslashreplace"))).ok().and_then(|b| bytes_of(&b)).unwrap_or_default();
+    std::borrow::Cow::Owned(String::from_utf8(b).unwrap_or_default())
+}
+// The error handler python3's stdout would encode with, when Brevi can name it (None: a lone surrogate at stdout
+// stops). Naming it reads the environment (the locale, PYTHONUTF8, PYTHONIOENCODING), which the runtime never does
+// itself (caps.rs tests it, for --sandbox): outside the sandbox dynpy::to_rust sets the reader (STDOUT_ERRS_FN in
+// mod.rs); under it the hook stays unset and the program stops instead of guessing.
+pub static STDOUT_ERRS: std::sync::OnceLock<fn() -> Option<&'static str>> = std::sync::OnceLock::new();
+fn stdout_errors() -> Option<&'static str> {
+    static ERRS: std::sync::OnceLock<Option<&'static str>> = std::sync::OnceLock::new();
+    *ERRS.get_or_init(|| STDOUT_ERRS.get().and_then(|f| f()))
+}
+// print/sys.stdout.write of a str with a lone surrogate: python3's stdout encodes it (stdout_errors) and raises
+// UnicodeEncodeError if it cannot; Ok(bytes) are written as they are (surrogateescape gives back raw bytes).
+pub fn out_lone(x: &S) -> Result<Vec<u8>, E> {
+    let Some(errs) = stdout_errors() else { lone_stop(std::panic::Location::caller()) };
+    let b = str_encode(x, None, Some(&s(errs)))?;
+    Ok(bytes_of(&b).unwrap_or_default())
+}
 pub fn bi_print(mut a: Args) -> R {
     let sep = match a.kw("sep") {
-        Some(V::None) | None => " ".to_string(),
-        Some(V::Str(x)) => x.s.clone(),
+        Some(V::None) | None => s(" "),
+        Some(x @ V::Str(_)) => x,
         Some(x) => return type_err(format!("sep must be None or a string, not {}", tn(&x))),
     };
     let end = match a.kw("end") {
-        Some(V::None) | None => "\n".to_string(),
-        Some(V::Str(x)) => x.s.clone(),
+        Some(V::None) | None => s("\n"),
+        Some(x @ V::Str(_)) => x,
         Some(x) => return type_err(format!("end must be None or a string, not {}", tn(&x))),
     };
     let file = match a.kw("file").unwrap_or(V::None) {
@@ -164,47 +190,68 @@ pub fn bi_print(mut a: Args) -> R {
     };
     let flush = a.kw("flush").map(|f| truth(&f).unwrap_or(false)).unwrap_or(false);
     a.no_kw("print")?;
-    // a file object: one write() per piece and then flush(), in CPython's order (an error in str() of a later
-    // argument comes after the earlier pieces were written)
-    if file_target(&file)? == 3 {
-        let w = |t: String| call_method(&file, "write", Args::p(vec![st(t)])).map(|_| ());
-        for (i, x) in a.p.iter().enumerate() {
-            if i > 0 {
-                w(sep.clone())?;
-            }
-            w(match x {
-                V::Str(x) => x.s.clone(),
-                _ => to_str(x)?,
-            })?;
+    // the pieces in CPython's order (arg, sep, arg, ..., end), each str() taken only when it is reached, so an error
+    // in str() of a later argument (or a lone surrogate stdout cannot encode) comes after the earlier pieces
+    let n = a.p.len();
+    // k = 0, 2, 4, ...: the arguments; the odd k between them: sep; the last k: end
+    let piece = |k: usize| -> R {
+        if k + 1 == (2 * n).max(1) {
+            return Ok(end.clone());
         }
-        w(end)?;
+        if k % 2 == 1 {
+            return Ok(sep.clone());
+        }
+        match &a.p[k / 2] {
+            x @ V::Str(_) => Ok(x.clone()),
+            x => Ok(st(to_str(x)?)),
+        }
+    };
+    let ks = 0..(2 * n).max(1);
+    let target = file_target(&file)?;
+    // a file object: one write() per piece and then flush()
+    if target == 3 {
+        for k in ks {
+            call_method(&file, "write", Args::p(vec![piece(k)?]))?;
+        }
         if flush {
             call_method(&file, "flush", Args::p(vec![]))?;
         }
         return Ok(V::None);
     }
     let mut t = String::new();
-    for (i, x) in a.p.iter().enumerate() {
-        if i > 0 {
-            t.push_str(&sep);
-        }
-        match x {
-            V::Str(x) => t.push_str(&x.s),
-            _ => t.push_str(&to_str(x)?),
+    for k in ks {
+        let p = piece(k);
+        let p = match p {
+            Ok(p) => p,
+            Err(e) => {
+                if target == 1 {
+                    out_write(&t);
+                }
+                return Err(e);
+            }
+        };
+        let V::Str(x) = &p else { unreachable!() };
+        if x.is_lone() {
+            match target {
+                1 => {
+                    out_write(&t);
+                    t.clear();
+                    out_write_bytes(&out_lone(x)?);
+                }
+                _ => t.push_str(&err_text(x)),
+            }
+        } else {
+            t.push_str(x.text());
         }
     }
-    t.push_str(&end);
-    match file_target(&file)? {
+    match target {
         1 => {
             out_write(&t);
             if flush {
                 out_flush();
             }
         }
-        2 => err_write(&t),
-        _ => {
-            call_method(&file, "write", Args::p(vec![st(t)]))?;
-        }
+        _ => err_write(&t),
     }
     Ok(V::None)
 }
@@ -288,25 +335,49 @@ pub fn bi_int(mut a: Args) -> R {
         }
         return Ok(V::Int(0));
     }
+    // int(a library value): CPython's int decides (its __int__ or __index__ first, then its buffer, as for
+    // int(array('B', b'42')), and "can't convert non-string with explicit base" with a base)
+    if let V::Ext(x) = &a.p[0] {
+        if x.is_py() {
+            if let Some(f) = PY_BUILTIN.with(|h| h.get()) {
+                let mut p = a.p.clone();
+                if let (1, Some(b)) = (p.len(), &base) {
+                    p.push(b.clone());
+                }
+                return call(&f("int")?, Args::p(p));
+            }
+        }
+    }
     let base = match (a.p.get(1).cloned(), base) {
         // `int("0", base=2 ** 234)`: out of range, as any base past 36.
         (Some(V::Big(_)), _) | (None, Some(V::Big(_))) => Some(i64::MAX),
         (Some(b), _) | (None, Some(b)) => Some(idx_of(&b)?),
         _ => None,
     };
-    match (base, &a.p[0]) {
+    // with a base, an instance of a str, bytes or bytearray subclass is read as its value (CPython never
+    // calls its __int__ or __index__ then)
+    let x0 = match &a.p[0] {
+        V::Obj(o) if base.is_some() => match o.inner() {
+            Some(i @ V::Str(_)) => i,
+            Some(i) if matches!(o.cls.base_bt(), BT::Bytes | BT::ByteArray) => i,
+            _ => a.p[0].clone(),
+        },
+        x => x.clone(),
+    };
+    match (base, &x0) {
         (None, x) => to_int(x),
         (Some(b), V::Str(x)) => {
             if b != 0 && !(2..=36).contains(&b) {
                 return val_err("int() base must be >= 2 and <= 36, or 0".into());
             }
-            int_text_limit(&x.s, b as u32, parse_int(&x.s, b as u32))?.ok_or_else(|| exc("ValueError", format!("invalid literal for int() with base {}: {}", b, str_repr(&x.s))))
+            let t = x.text_sub('?');
+            int_text_limit(&t, b as u32, parse_int(&t, b as u32))?.ok_or_else(|| exc("ValueError", format!("invalid literal for int() with base {}: {}", b, repr_s(x))))
         }
         (Some(b), V::Ext(x)) if x.any().is::<BytesV>() || x.any().is::<ByteArrayV>() => {
             if b != 0 && !(2..=36).contains(&b) {
                 return val_err("int() base must be >= 2 and <= 36, or 0".into());
             }
-            bytes_int(&bytes_of(&a.p[0]).unwrap_or_default(), b as u32)
+            bytes_int(&bytes_of(&x0).unwrap_or_default(), b as u32)
         }
         (Some(_), _) => type_err("int() can't convert non-string with explicit base".into()),
     }
@@ -329,6 +400,15 @@ pub fn bi_float(a: Args) -> R {
     a.no_kw("float")?;
     if a.p.is_empty() {
         return Ok(V::Float(0.0));
+    }
+    // float(a library value): CPython's float decides, with its own errors (a buffer that is not a number is a
+    // ValueError there)
+    if let V::Ext(x) = &a.p[0] {
+        if x.is_py() {
+            if let Some(f) = PY_BUILTIN.with(|h| h.get()) {
+                return call(&f("float")?, Args::p(a.p.clone()));
+            }
+        }
     }
     Ok(V::Float(to_float(&a.p[0])?))
 }
@@ -401,6 +481,24 @@ pub fn bi_dict(mut a: Args) -> R {
 pub fn bi_range(a: Args) -> R {
     let a = enum_nums(a);
     a.no_kw("range")?;
+    if (1..=3).contains(&a.p.len()) && a.p.iter().any(|x| matches!(x, V::Big(_))) {
+        let mut bs = Vec::new();
+        for x in &a.p {
+            match big_of(x) {
+                Some(b) => bs.push(b),
+                None => return type_err(format!("'{}' object cannot be interpreted as an integer", tn(x))),
+            }
+        }
+        let (s0, e, st) = match bs.len() {
+            1 => (Big::from_i64(0), bs[0].clone(), Big::from_i64(1)),
+            2 => (bs[0].clone(), bs[1].clone(), Big::from_i64(1)),
+            _ => (bs[0].clone(), bs[1].clone(), bs[2].clone()),
+        };
+        if st.is_zero() {
+            return val_err("range() arg 3 must not be zero".into());
+        }
+        return Ok(bigrange_v(s0, e, st));
+    }
     let g = |i: usize| -> Result<i64, E> {
         match &a.p[i] {
             V::Int(x) => Ok(*x),
@@ -575,10 +673,18 @@ pub fn bi_reversed(a: Args) -> R {
             return call(&f, Args::p(vec![x.clone()]));
         }
     }
+    if bigrange_of(&x).is_some() {
+        return call_method(&x, "__reversed__", Args::p(vec![]));
+    }
     if let V::Range(r) = &x {
         let n = range_len(&x) as i64;
         let last = r.0 + (n - 1) * r.2;
-        return Ok(new_iter(It::Range(last, r.0 - r.2, -r.2), IterClass::Kind(ItKind::RangeIter)));
+        // CPython falls back to its long range iterator when start - step leaves the C long range
+        let (Some(stop), Some(neg)) = (r.0.checked_sub(r.2), r.2.checked_neg()) else {
+            let b = bigrange_v(Big::from_i64(r.0), Big::from_i64(r.1), Big::from_i64(r.2));
+            return call_method(&b, "__reversed__", Args::p(vec![]));
+        };
+        return Ok(new_iter(It::Range(last, stop, neg), IterClass::Kind(ItKind::RangeIter)));
     }
     // list, dict and dict views have their own reverse iterators; every other reversible sequence gets
     // the generic `reversed` object, as in CPython.
@@ -602,6 +708,29 @@ pub fn bi_reversed(a: Args) -> R {
         let n = l.borrow().len();
         return Ok(new_iter(It::RevList(l.clone(), n), IterClass::Kind(kind)));
     }
+    // a dict (not an OrderedDict, whose reverse iterator is its own), its views, or a dict subclass instance:
+    // live, as CPython's dict reverse iterators
+    let dict_of = match &x {
+        V::Dict(d) => Some((d.clone(), 0u8)),
+        V::View(v) if v.1 <= 3 => match &v.0 {
+            V::Dict(d) => Some((d.clone(), v.1)),
+            _ => None,
+        },
+        V::Obj(_) => match inner_of(&x) {
+            Some(V::Dict(d)) => Some((d.clone(), 0)),
+            _ => None,
+        },
+        _ => None,
+    };
+    if let Some((d, vk)) = dict_of {
+        let (n, used, ver, odict) = {
+            let b = d.borrow();
+            (b.ents.len(), b.n as i64, b.ver, b.kind == 3)
+        };
+        if !odict && matches!(kind, ItKind::DictReverseKeys | ItKind::DictReverseValues | ItKind::DictReverseItems) {
+            return Ok(new_iter(It::RevDict(d, n, vk, used, ver), IterClass::Kind(kind)));
+        }
+    }
     if matches!(x, V::Dict(_) | V::List(_) | V::Tuple(_) | V::Str(_) | V::Deque(_) | V::View(_)) || inner_of(&x).is_some() {
         let mut v = to_vec(&x)?;
         v.reverse();
@@ -621,7 +750,14 @@ pub fn bi_enumerate(mut a: Args) -> R {
 }
 // zip and map hold no borrow while they step their inputs, so a callback may re-enter them, as in CPython
 pub fn bi_zip(mut a: Args) -> R {
-    let strict = a.kw("strict").map(|x| truth(&x).unwrap_or(false)).unwrap_or(false);
+    // zip_new parses "|$p:zip": strict is the only keyword, and a truth test that fails raises
+    let strict = match a.kw("strict") {
+        Some(x) => truth(&x)?,
+        None => false,
+    };
+    if let Some((k, _)) = a.k.first() {
+        return type_err(format!("zip() got an unexpected keyword argument '{k}'"));
+    }
     let mut its = vec![];
     for x in &a.p {
         its.push(get_iter(x)?);
@@ -674,7 +810,25 @@ pub fn bi_iter(a: Args) -> R {
             }
         }));
     }
-    iter_v(&a1(&a, "iter")?)
+    let v = a1(&a, "iter")?;
+    // iter(x) is what x.__iter__() returned when that is an iterator of the program's own (an iterator's
+    // __iter__ returning self keeps `iter(it) is it`, as in CPython)
+    if let V::Obj(o) = &v {
+        if let Some(f) = o.cls.lookup("__iter__") {
+            let r = call(&f, Args::p(vec![v.clone()]))?;
+            if let V::Obj(ro) = &r {
+                if ro.cls.lookup("__next__").is_none() {
+                    return type_err(format!("iter() returned non-iterator of type '{}'", tn(&r)));
+                }
+                return Ok(r);
+            }
+            if !matches!(r, V::Iter(_) | V::Ext(_)) {
+                return type_err(format!("iter() returned non-iterator of type '{}'", tn(&r)));
+            }
+            return iter_v(&r);
+        }
+    }
+    iter_v(&v)
 }
 pub fn bi_next(a: Args) -> R {
     a.want("next", 1, 2)?;
@@ -724,6 +878,18 @@ pub fn bi_isinstance(a: Args) -> R {
     a.want("isinstance", 2, 2)?;
     Ok(V::Bool(isinstance(&a.p[0], &a.p[1])?))
 }
+// A library class or value (a bridged array.array, say) checked against one of Brevi's collections.abc ABCs:
+// CPython's own collections.abc class of the same name answers, as Brevi's ABC cannot see a library class's
+// methods. None for any other value or class.
+pub fn abc_bridge(k: &Rc<Class>, x: &V, sub: bool) -> Option<Result<bool, E>> {
+    if !(k.module == "collections.abc" && k.abc.get()) {
+        return None;
+    }
+    if !matches!(x, V::Ext(e) if e.is_py()) {
+        return None;
+    }
+    ABC_BRIDGE.with(|h| h.get()).and_then(|f| f(&k.name, x, sub))
+}
 pub fn isinstance(x: &V, c: &V) -> Result<bool, E> {
     // a proxy is an instance of its own type and of its referent's class (CPython checks __class__ too)
     if let Some(__p) = proxy_deref(x).filter(|_| !matches!(c, V::Tuple(_))) {
@@ -746,6 +912,9 @@ pub fn isinstance(x: &V, c: &V) -> Result<bool, E> {
         V::Class(k) => {
             if k.name == "object" && k.module == "builtins" {
                 return Ok(true);
+            }
+            if let Some(r) = abc_bridge(k, x, false) {
+                return r;
             }
             if k.abc.get() {
                 // CPython's exact-type shortcut comes before the metaclass's __instancecheck__
@@ -817,6 +986,14 @@ pub fn abc_subclasscheck(cls: &Rc<Class>, sub: &Rc<Class>) -> Result<bool, E> {
         }
     }
     if sub.is_sub(cls) {
+        if !abc_has(&cls.abc_cache.borrow(), sub) {
+            cls.abc_cache.borrow_mut().push(sub.clone());
+        }
+        return Ok(true);
+    }
+    // collections registers deque as a MutableSequence (CPython's collections/__init__.py); Brevi's deque is the
+    // runtime's own class, which a program can import without Brevi's collections module ever running
+    if cls.module == "collections.abc" && cls.name == "MutableSequence" && sub.is_sub(&tclass(16, "deque")) {
         if !abc_has(&cls.abc_cache.borrow(), sub) {
             cls.abc_cache.borrow_mut().push(sub.clone());
         }
@@ -1021,8 +1198,10 @@ pub fn type_of(x: &V) -> Result<Rc<Class>, E> {
         V::Slice(_) => ext_class("slice"),
         V::Ellipsis => ext_class("ellipsis"),
         V::NotImpl => ext_class("NotImplementedType"),
+        V::Ext(e) if e.tname() == "range" => tclass(15, "range"),
         V::Ext(e) if e.tname() == "typing.TypeVar" => ext_class_mod("typing", "TypeVar"),
         V::Ext(e) if e.any().is::<SigV>() => sig_class(),
+        V::Ext(e) if e.any().is::<TeeDataV>() => teedata_class(),
         V::Ext(e) => ext_class(e.tname()),
         V::Iter(it) => return iter_type_of(it),
         V::NTF(_) => ext_class("collections._tuplegetter"),
@@ -1093,8 +1272,194 @@ pub fn it_class(k: ItKind) -> Result<Rc<Class>, E> {
         }
         let k = Class::new(name, module, vec![bclass("object")], BT::Other);
         c.borrow_mut()[i] = Some(k.clone());
+        if iter_kind_subclassable(k_kind(k.name, k.module)) {
+            iter_base_attrs(&k);
+        }
         Ok(k)
     })
+}
+fn k_kind(name: &str, module: &str) -> Option<ItKind> {
+    match (module, name) {
+        ("builtins", "zip") => Some(ItKind::Zip),
+        ("builtins", "map") => Some(ItKind::Map),
+        ("builtins", "filter") => Some(ItKind::Filter),
+        ("builtins", "enumerate") => Some(ItKind::Enumerate),
+        ("builtins", "reversed") => Some(ItKind::Reversed),
+        ("itertools", n) => itertools_kind(n),
+        _ => None,
+    }
+}
+// The iterator types a class may be built on (CPython's Py_TPFLAGS_BASETYPE): zip, map, filter, enumerate,
+// reversed and every public itertools type. The others (list_iterator, generator, itertools._tee, ...) are
+// refused as bases, with CPython's message.
+fn iter_kind_subclassable(k: Option<ItKind>) -> bool {
+    k.is_some()
+}
+pub fn iter_base_of(c: &Rc<Class>) -> Option<Rc<Class>> {
+    c.mro.borrow().iter().find(|k| is_iter_class(k)).cloned()
+}
+// CPython's tp_name of one of Brevi's iterator classes, as "type '...' is not an acceptable base type" prints it
+pub fn iter_tp_name(k: &Class) -> String {
+    match k.module {
+        "builtins" => k.name.to_string(),
+        "collections" => format!("_collections.{}", k.name),
+        m => format!("{m}.{}", k.name),
+    }
+}
+pub fn iter_base_check(bases: &[Rc<Class>]) -> Result<(), E> {
+    for b in bases {
+        if is_iter_class(b) && !iter_kind_subclassable(k_kind(b.name, b.module)) {
+            return type_err(format!("type '{}' is not an acceptable base type", iter_tp_name(b)));
+        }
+    }
+    Ok(())
+}
+// The base's __new__(cls, *args, **kw) for a class built on an iterator type: the iterator the base makes
+// from the arguments, wrapped in an instance of cls. The types whose C constructor takes no keyword arguments
+// refuse them only when cls keeps the base's __init__ (CPython's `type->tp_init == base->tp_init` test), and
+// otherwise ignore them; the others parse them as the base does. reversed() of a sequence with __reversed__
+// returns that result itself, not an instance of cls, as CPython's does.
+fn iter_base_new(base: &Rc<Class>, mut a: Args) -> R {
+    let Some(V::Class(cls)) = a.p.first().cloned() else {
+        return type_err(format!("{}.__new__(): not enough arguments", base.name));
+    };
+    a.p.remove(0);
+    if !cls.is_sub(base) {
+        return type_err(format!("{}.__new__({}): {} is not a subtype of {}", iter_tp_name(base), cls.name, cls.name, iter_tp_name(base)));
+    }
+    if Rc::ptr_eq(&cls, base) {
+        return match iter_class_call(base, a) {
+            Some(r) => r,
+            None => type_err(format!("cannot create '{}' instances", iter_tp_name(base))),
+        };
+    }
+    let no_kw = matches!(
+        (base.module, base.name),
+        ("builtins", "map" | "filter") | ("itertools", "chain" | "islice" | "cycle" | "dropwhile" | "takewhile" | "starmap" | "filterfalse" | "pairwise")
+    );
+    if no_kw && !a.k.is_empty() {
+        let own_init = cls.lookup("__init__").is_some_and(|f| !matches!(&f, V::Func(x) if x.kind.get() == 3 && x.name.get() == "__init__"));
+        if !own_init {
+            return type_err(format!("{}() takes no keyword arguments", base.name));
+        }
+        a.k.clear();
+    }
+    let inner = match iter_class_call(base, a) {
+        Some(r) => r?,
+        None => return type_err(format!("cannot create '{}' instances", iter_tp_name(base))),
+    };
+    match type_of(&inner) {
+        Ok(t) if Rc::ptr_eq(&t, base) => {}
+        _ => return Ok(inner),
+    }
+    let o = Obj::new(cls.clone());
+    o.set_inner(Some(inner));
+    Ok(V::Obj(o))
+}
+// The iterator an instance of a class built on an iterator type wraps (or the iterator itself)
+fn iter_self(v: &V, base: &Class, what: &str) -> R {
+    match v {
+        V::Iter(_) => Ok(v.clone()),
+        V::Obj(_) => match inner_of(v) {
+            Some(i @ V::Iter(_)) => Ok(i),
+            _ => type_err(format!("descriptor '{what}' for '{}' objects doesn't apply to a '{}' object", iter_tp_name(base), tn(v))),
+        },
+        _ => type_err(format!("descriptor '{what}' for '{}' objects doesn't apply to a '{}' object", iter_tp_name(base), tn(v))),
+    }
+}
+// What a class built on an iterator type inherits: __new__, __iter__ and __next__ (stepping the wrapped
+// iterator, so iter(x) is x), the __repr__ of count and repeat (with the subclass's name, as CPython's
+// _PyType_Name), __length_hint__ of repeat and reversed, chain.from_iterable making the subclass, and
+// __reduce__/__setstate__, which are refused for a subclass instance (CPython rebuilds it from its class and
+// the base's arguments, which Brevi does not model).
+fn iter_base_attrs(k: &Rc<Class>) {
+    let w = Rc::downgrade(k);
+    let base = move || w.upgrade().expect("iterator class");
+    let b = base.clone();
+    k.set_exact("__new__", builtin("__new__", move |a: Args| iter_base_new(&b(), a)));
+    let b = base.clone();
+    k.set_exact("__iter__", builtin("__iter__", move |a: Args| {
+        a.want("__iter__", 1, 1)?;
+        iter_self(&a.p[0], &b(), "__iter__")?;
+        Ok(a.p[0].clone())
+    }));
+    let b = base.clone();
+    k.set_exact("__next__", builtin("__next__", move |a: Args| {
+        a.want("__next__", 1, 1)?;
+        let it = iter_self(&a.p[0], &b(), "__next__")?;
+        bi_next(Args::p(vec![it]))
+    }));
+    if matches!(k.name, "count" | "repeat") && k.module == "itertools" {
+        let b = base.clone();
+        k.set_exact("__repr__", builtin("__repr__", move |a: Args| {
+            a.want("__repr__", 1, 1)?;
+            let it = iter_self(&a.p[0], &b(), "__repr__")?;
+            let r = repr(&it)?;
+            Ok(match &a.p[0] {
+                V::Obj(o) => st(format!("{}{}", o.cls.name, &r[b().name.len()..])),
+                _ => st(r),
+            })
+        }));
+    }
+    if (k.module, k.name) == ("itertools", "repeat") || (k.module, k.name) == ("builtins", "reversed") {
+        let b = base.clone();
+        k.set_exact("__length_hint__", builtin("__length_hint__", move |a: Args| {
+            a.want("__length_hint__", 1, 1)?;
+            let it = iter_self(&a.p[0], &b(), "__length_hint__")?;
+            call_method(&it, "__length_hint__", Args::p(vec![]))
+        }));
+    }
+    let b = base.clone();
+    k.set_exact("__reduce__", builtin("__reduce__", move |a: Args| {
+        a.want("__reduce__", 1, 1)?;
+        let it = iter_self(&a.p[0], &b(), "__reduce__")?;
+        if let V::Obj(o) = &a.p[0] {
+            return Err(unsupported(&format!("pickling or copying an instance of {}, a subclass of {}", o.cls.name, iter_tp_name(&b()))));
+        }
+        iter_reduce_v(&it)
+    }));
+    let b = base.clone();
+    k.set_exact("__setstate__", builtin("__setstate__", move |a: Args| {
+        a.want("__setstate__", 2, 2)?;
+        let it = iter_self(&a.p[0], &b(), "__setstate__")?;
+        if let V::Obj(o) = &a.p[0] {
+            return Err(unsupported(&format!("__setstate__ of an instance of {}, a subclass of {}", o.cls.name, iter_tp_name(&b()))));
+        }
+        iter_setstate_v(&it, &a.p[1])
+    }));
+    if (k.module, k.name) == ("itertools", "chain") {
+        k.set_exact("from_iterable", chain_from_iterable_for(k));
+    }
+    // the methods are the class's own and read as builtin methods (not bound to an instance's class)
+    for n in ["__new__", "__iter__", "__next__", "__repr__", "__length_hint__", "__reduce__", "__setstate__"] {
+        if let Some(V::Func(f)) = k.own(n) {
+            f.qualname.set(sym(&format!("{}.{n}", k.name)));
+        }
+    }
+}
+// chain.from_iterable for class k (chain or a subclass of it): a classmethod in CPython, so C.from_iterable(x)
+// makes a C without calling its __init__.
+pub fn chain_from_iterable_for(k: &Rc<Class>) -> V {
+    let w = Rc::downgrade(k);
+    let f = builtin("from_iterable", move |a: Args| {
+        let src = get_iter(&a1(&a, "from_iterable")?)?;
+        let inner = chain_new(src);
+        let k = w.upgrade().expect("chain class");
+        if k.module == "itertools" {
+            return Ok(inner);
+        }
+        let o = Obj::new(k);
+        o.set_inner(Some(inner));
+        Ok(V::Obj(o))
+    });
+    if let V::Func(ff) = &f {
+        ff.attrs.borrow_mut().push(("__bv_nobind__", V::Bool(true)));
+        ff.attrs.borrow_mut().push(("__bv_chain_fi__", V::Bool(true)));
+    }
+    f
+}
+pub fn is_chain_fi(f: &V) -> bool {
+    matches!(f, V::Func(x) if x.attrs.borrow().iter().any(|(k, _)| *k == "__bv_chain_fi__"))
 }
 thread_local! {
     // type_of's builtin classes, filled on first use (init_builtin_classes empties it)
@@ -1123,7 +1488,11 @@ pub fn ext_class(n: &'static str) -> Rc<Class> {
     // datetime.datetime is a subclass of datetime.date, as in CPython (isinstance, issubclass, __mro__)
     let base = if n == "datetime.datetime" { ext_class("datetime.date") } else { bclass("object") };
     // bytes is the library class a user class may subclass: its instances wrap a bytes value
-    let c = Class::new(n, "builtins", vec![base], if n == "bytes" { BT::Bytes } else { BT::Other });
+    let c = Class::new(n, "builtins", vec![base], match n {
+        "bytes" => BT::Bytes,
+        "bytearray" => BT::ByteArray,
+        _ => BT::Other,
+    });
     EXT_CLASSES.with(|m| m.borrow_mut().insert(n, c.clone()));
     c
 }
@@ -1156,19 +1525,27 @@ pub fn bi_type(a: Args) -> R {
 pub fn bi_issubclass(a: Args) -> R {
     a.want("issubclass", 2, 2)?;
     let sub = match &a.p[0] {
-        V::Class(c) => c.clone(),
+        V::Class(c) => Some(c.clone()),
+        V::Ext(e) if e.is_py() => None,
         _ => return type_err("issubclass() arg 1 must be a class".into()),
     };
     let check = |k: &V| -> Result<bool, E> {
         match k {
             V::Class(k) => {
+                // a library class (array.array) against a collections.abc ABC: CPython answers
+                if let Some(r) = abc_bridge(k, &a.p[0], true) {
+                    return r;
+                }
+                let Some(sub) = &sub else {
+                    return type_err("issubclass() arg 1 must be a class".into());
+                };
                 if k.abc.get() {
-                    abc_subclasscheck(k, &sub)
+                    abc_subclasscheck(k, sub)
                 } else {
                     Ok(sub.is_sub(k))
                 }
             }
-            V::Ext(e) => match e.subclasscheck(&V::Class(sub.clone())) {
+            V::Ext(e) => match e.subclasscheck(&V::Class(sub.clone().ok_or_else(|| exc("TypeError", "issubclass() arg 1 must be a class".into()))?)) {
                 Some(r) => r,
                 None => type_err("issubclass() arg 2 must be a class, a tuple of classes, or a union".into()),
             },
@@ -1229,7 +1606,7 @@ pub fn bi_callable(a: Args) -> R {
 }
 pub fn bi_ord(a: Args) -> R {
     match &a1(&a, "ord")? {
-        V::Str(x) if x.nchars() == 1 => Ok(V::Int(x.s.chars().next().unwrap() as i64)),
+        V::Str(x) if x.nchars() == 1 => Ok(V::Int(x.cps()[0] as i64)),
         V::Str(x) => type_err(format!("ord() expected a character, but string of length {} found", x.nchars())),
         x => type_err(format!("ord() expected string of length 1, but {} found", tn(x))),
     }
@@ -1258,15 +1635,15 @@ fn chr_of(x: &V) -> R {
         }
     }
 }
-// chr() of an int that fits: out of range is CPython's ValueError; a lone surrogate (U+D800..U+DFFF) is a str in
-// CPython that a Rust string cannot hold, so it stops as unsupported instead of giving a different string.
+// chr() of an int that fits: out of range is CPython's ValueError; a lone surrogate (U+D800..U+DFFF) is a str of
+// code points (S::from_cps).
 fn chr_code(i: i64) -> R {
     if !(0..=0x10FFFF).contains(&i) {
         return val_err("chr() arg not in range(0x110000)".into());
     }
     match char::from_u32(i as u32) {
         Some(c) => Ok(ch1(c)),
-        None => Err(unsupported("chr() of a lone surrogate (U+D800..U+DFFF)")),
+        None => Ok(st_cps(vec![i as u32])),
     }
 }
 fn radix(a: Args, f: &str, r: u32, p: &str) -> R {
@@ -1362,6 +1739,9 @@ pub fn bi_round(a: Args) -> R {
 pub fn bi_divmod(a: Args) -> R {
     let a = enum_nums(a);
     a.want("divmod", 2, 2)?;
+    if cplx_of(&a.p[0]).is_some() || cplx_of(&a.p[1]).is_some() {
+        return Err(op_err("divmod()", &a.p[0], &a.p[1]));
+    }
     let q = binop(&a.p[0], &a.p[1], "//")?;
     let r = binop(&a.p[0], &a.p[1], "%")?;
     Ok(tup(vec![q, r]))
@@ -1397,6 +1777,9 @@ pub fn bi_pow(a: Args) -> R {
     let a = enum_nums(a);
     a.want("pow", 2, 3)?;
     if a.p.len() == 3 && !matches!(a.p[2], V::None) {
+        if let Some(r) = complex_pow3(&a.p[0], &a.p[1], &a.p[2]) {
+            return r;
+        }
         let (b, e, m) = (big_of(&a.p[0]), big_of(&a.p[1]), big_of(&a.p[2]));
         let (mut b, mut e, m) = match (b, e, m) {
             (Some(b), Some(e), Some(m)) => (b, e, m),
@@ -1595,6 +1978,8 @@ pub fn builtin_fn(name: &str) -> Option<fn(Args) -> R> {
         "anext" => bi_anext,
         "__brevi_aenter" => bi___brevi_aenter,
         "__brevi_aexit" => bi___brevi_aexit,
+        "__brevi_awith" => bi___brevi_awith,
+        "__brevi_afor_await" => bi___brevi_afor_await,
         "__brevi_eg_split" => bi___brevi_eg_split,
         "__brevi_eg_reraise" => bi___brevi_eg_reraise,
         _ => return None,
@@ -1635,11 +2020,26 @@ pub fn builtin_value(name: &str) -> Option<V> {
     if name == "memoryview" {
         return Some(V::Class(ext_class("memoryview")));
     }
+    if name == "complex" {
+        return Some(V::Class(ext_class("complex")));
+    }
     if builtin_type_name(name) && name != "slice" {
         return Some(V::Class(bclass(name)));
     }
     if name == "slice" {
         return Some(builtin("slice", bi_slice));
+    }
+    // the builtin iterator types are classes, as in CPython (type(zip()) is zip, subclassing zip)
+    let kind = match name {
+        "zip" => Some(ItKind::Zip),
+        "map" => Some(ItKind::Map),
+        "filter" => Some(ItKind::Filter),
+        "enumerate" => Some(ItKind::Enumerate),
+        "reversed" => Some(ItKind::Reversed),
+        _ => None,
+    };
+    if let Some(k) = kind {
+        return it_class(k).ok().map(V::Class);
     }
     if let Some(f) = builtin_fn(name) {
         let n: Sym = sym(name);
@@ -1665,6 +2065,9 @@ pub fn builtin_type_call(c: &Rc<Class>, a: &mut Args) -> Option<R> {
     }
     if c.name == "bytearray" && c.module == "builtins" {
         return Some(bi_bytearray(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));
+    }
+    if c.name == "complex" && c.module == "builtins" {
+        return Some(bi_complex(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));
     }
     if c.name == "memoryview" && c.module == "builtins" {
         return Some(bi_memoryview(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));
@@ -1746,18 +2149,18 @@ fn builtin_class_attr_raw(c: &Rc<Class>, name: &str) -> Option<V> {
             };
             match o {
                 V::Obj(ob) => {
-                    if n.s == "__dict__" && ob.cls.lookup(&n.s).is_none() && ob.cls.has_dict() {
+                    if n.text() == "__dict__" && ob.cls.lookup(&n.text()).is_none() && ob.cls.has_dict() {
                         return ob.dict();
                     }
-                    if let Some(v) = ob.get_attr(&n.s)? {
+                    if let Some(v) = ob.get_attr(&n.text())? {
                         return Ok(v);
                     }
-                    if ob.cls.lookup(&n.s).is_some() || n.s == "__class__" || n.s == "__dict__" {
-                        return getattr(o, &n.s);
+                    if ob.cls.lookup(&n.text()).is_some() || n.text() == "__class__" || n.text() == "__dict__" {
+                        return getattr(o, &n.text());
                     }
-                    Err(exc("AttributeError", format!("'{}' object has no attribute '{}'", ob.cls.name, n.s)))
+                    Err(exc("AttributeError", format!("'{}' object has no attribute '{}'", ob.cls.name, n.text())))
                 }
-                _ => getattr(o, &n.s),
+                _ => getattr(o, &n.text()),
             }
         })),
         // Counter.fromkeys is defined only to refuse: initializing counts to a constant has no clear meaning.
@@ -1905,6 +2308,72 @@ fn counter_update_pair(d: &Rc<RefCell<Dict>>, k: V, v: V, add: bool, mapping: bo
     Dict::set_cell(d, k, n)?;
     Ok(V::None)
 }
+// A Counter subclass instance's __init__, update and subtract, as CPython's Python Counter runs them: through the
+// instance's own update, get, __setitem__ and truth, so a subclass that overrides them is called (the native
+// paths above work on the wrapped dict and see no override).
+pub fn counter_inner(me: &V) -> Option<Rc<RefCell<Dict>>> {
+    match me {
+        V::Obj(o) => match o.inner() {
+            Some(V::Dict(d)) if d.borrow().kind == 2 => Some(d),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+pub fn counter_obj_init(me: &V, a: Args) -> R {
+    // Counter.__init__(self, iterable=None, /, **kwds): super().__init__(); self.update(iterable, **kwds)
+    if a.p.len() > 1 {
+        return type_err(format!("Counter.__init__() takes from 1 to 2 positional arguments but {} were given", a.p.len() + 1));
+    }
+    if let V::Obj(o) = me {
+        let mut d = Dict::new();
+        d.kind = 2;
+        o.set_inner(Some(V::Dict(Rc::new(RefCell::new(d)))));
+    }
+    call_method(me, "update", a)?;
+    Ok(V::None)
+}
+pub fn counter_obj_method(me: &V, name: &str, mut a: Args) -> R {
+    let add = name == "update";
+    let Some(d) = counter_inner(me) else {
+        return Ok(V::None);
+    };
+    a.want(if add { "Counter.update" } else { "Counter.subtract" }, 0, 1)?;
+    if let Some(src) = a.p.first().cloned() {
+        if !matches!(src, V::None) {
+            if is_counter_mapping(&src) {
+                if add && !truth(me)? {
+                    // super().update(iterable): dict.update stores into the dict itself
+                    counter_update_pairs(&d, dict_items_of(&src)?, true)?;
+                } else {
+                    let get = getattr(me, "get")?;
+                    for (k, c) in dict_items_of(&src)? {
+                        let cur = call(&get, Args::p(vec![k.clone(), V::Int(0)]))?;
+                        let n = if add { binop(&c, &cur, "+")? } else { binop(&cur, &c, "-")? };
+                        setitem(me, &k, n)?;
+                    }
+                }
+            } else if add {
+                module_call("collections", "_count_elements", Args::p(vec![me.clone(), src]))?;
+            } else {
+                let get = getattr(me, "get")?;
+                let mut it = iter(&src)?;
+                while let Some(k) = it.next()? {
+                    let cur = call(&get, Args::p(vec![k.clone(), V::Int(0)]))?;
+                    setitem(me, &k, binop(&cur, &V::Int(1), "-")?)?;
+                }
+            }
+        }
+    }
+    if !a.k.is_empty() {
+        let mut kw = Dict::new();
+        for (n, v) in a.k.drain(..) {
+            kw.set(s(n), v)?;
+        }
+        call_method(me, name, Args::p(vec![V::Dict(Rc::new(RefCell::new(kw)))]))?;
+    }
+    Ok(V::None)
+}
 pub fn col_deque(mut a: Args) -> R {
     let max = match a.kw("maxlen").or_else(|| a.p.get(1).cloned()) {
         Some(V::None) | None => None,
@@ -1937,6 +2406,10 @@ pub fn has_method(o: &V, name: &str) -> bool {
         V::Int(_) | V::Big(_) | V::Bool(_) => &["bit_length", "to_bytes", "from_bytes", "conjugate", "bit_count", "as_integer_ratio", "is_integer"],
         V::Float(_) => &["is_integer", "as_integer_ratio", "hex", "conjugate"],
         V::Iter(_) => &["__next__", "__iter__", "send", "throw", "close"],
+        // bytes, bytearray and memoryview have exactly CPython's attributes (b''.append is an AttributeError)
+        V::Ext(x) if matches!(x.tname(), "bytes" | "bytearray" | "memoryview") && (x.any().is::<BytesV>() || x.any().is::<ByteArrayV>() || x.any().is::<MemV>()) => {
+            return cpy_builtin_has(x.tname(), name)
+        }
         V::Ext(_) => return true,
         _ => &[],
     };
@@ -2002,17 +2475,17 @@ fn char_range(st: &S, a: Option<i64>, b: Option<i64>) -> (usize, usize) {
     (s0, e0)
 }
 fn byte_at(st: &S, ci: usize) -> usize {
-    if st.ascii {
-        ci.min(st.s.len())
+    if st.ascii() {
+        ci.min(st.text().len())
     } else {
-        st.s.char_indices().nth(ci).map(|(b, _)| b).unwrap_or(st.s.len())
+        st.text().char_indices().nth(ci).map(|(b, _)| b).unwrap_or(st.text().len())
     }
 }
 fn char_at_byte(st: &S, b: usize) -> usize {
-    if st.ascii {
+    if st.ascii() {
         b
     } else {
-        st.s[..b].chars().count()
+        st.text()[..b].chars().count()
     }
 }
 fn py_split_ws(t: &str, maxsplit: i64) -> Vec<V> {
@@ -2087,11 +2560,117 @@ fn py_title(t: &str) -> String {
 fn strip_set(a: &Args, f: &str) -> Result<Option<Vec<char>>, E> {
     match a.p.first() {
         None | Some(V::None) => Ok(None),
-        Some(x) => Ok(Some(arg_str(x, f)?.s.chars().collect())),
+        Some(x) => Ok(Some(arg_str(x, f)?.text().chars().collect())),
     }
 }
+// A str argument with a lone surrogate, or a tuple holding one (startswith's prefixes).
+fn arg_lone(x: &V) -> bool {
+    match x {
+        V::Str(y) => y.is_lone(),
+        V::Tuple(t) => t.iter().any(|y| matches!(y, V::Str(z) if z.is_lone())),
+        _ => false,
+    }
+}
+// The str methods whose answer for a str with a lone surrogate is the answer for the same text with each
+// surrogate swapped for an unused private-use character (Swap's rule): the methods only compare characters,
+// count them, and ask the properties Cs and Co share. Their errors never quote the text.
+const STR_SWAP_OK: &[&str] = &[
+    "split", "rsplit", "strip", "lstrip", "rstrip", "replace", "find", "rfind", "index", "rindex", "count", "startswith", "endswith", "upper", "lower", "casefold", "title", "capitalize", "swapcase", "isdigit", "isdecimal", "isnumeric", "isalpha", "isalnum", "isspace", "isupper", "islower", "istitle", "isascii", "isprintable", "isidentifier", "ljust", "rjust", "center", "zfill", "partition", "rpartition", "splitlines", "removeprefix", "removesuffix", "expandtabs",
+];
+// str_method for a call where the str or a str argument holds a lone surrogate: through Swap for the methods it is
+// sound for, code points for join and format; every other method stops (text()).
+fn str_method_lone(me: &Rc<S>, o: &V, name: &str, a: Args) -> R {
+    if !STR_SWAP_OK.contains(&name) {
+        return match name {
+            "join" | "format" | "format_map" => str_method_cps(me, name, a),
+            _ => lone_stop(std::panic::Location::caller()),
+        };
+    }
+    let mut strs: Vec<Rc<S>> = vec![me.clone()];
+    for x in a.p.iter().chain(a.k.iter().map(|(_, v)| v)) {
+        match x {
+            V::Str(y) => strs.push(y.clone()),
+            V::Tuple(t) => strs.extend(t.iter().filter_map(|y| if let V::Str(z) = y { Some(z.clone()) } else { None })),
+            _ => {}
+        }
+    }
+    let refs: Vec<&S> = strs.iter().map(|x| &**x).collect();
+    let Some(sw) = Swap::plan(&refs, &[]) else { lone_stop(std::panic::Location::caller()) };
+    // swapped value -> the caller's object, so that answers which are an input itself stay that object
+    let mut orig: Vec<(Rc<S>, V)> = vec![];
+    let mut to = |x: &V, orig: &mut Vec<(Rc<S>, V)>| -> V {
+        match x {
+            V::Str(y) => {
+                let z = Rc::new(sw.to(y));
+                orig.push((z.clone(), x.clone()));
+                V::Str(z)
+            }
+            V::Tuple(t) if t.iter().any(|y| matches!(y, V::Str(_))) => tup(t
+                .iter()
+                .map(|y| match y {
+                    V::Str(z) => V::Str(Rc::new(sw.to(z))),
+                    _ => y.clone(),
+                })
+                .collect()),
+            _ => x.clone(),
+        }
+    };
+    let me2 = Rc::new(sw.to(me));
+    orig.push((me2.clone(), o.clone()));
+    let a2 = Args { p: a.p.iter().map(|x| to(x, &mut orig)).collect(), k: a.k.iter().map(|(n, x)| (*n, to(x, &mut orig))).collect() };
+    let back = |x: V| -> V {
+        match &x {
+            V::Str(y) => match orig.iter().find(|(z, _)| Rc::ptr_eq(z, y)) {
+                Some((_, v)) => v.clone(),
+                None => V::Str(Rc::new(sw.back(y))),
+            },
+            _ => x,
+        }
+    };
+    Ok(match str_method(&me2, &V::Str(me2.clone()), name, a2)? {
+        V::List(l) => list(l.borrow().iter().cloned().map(back).collect()),
+        V::Tuple(t) => tup(t.iter().cloned().map(back).collect()),
+        r => back(r),
+    })
+}
+// join, format and format_map, over code points: the text they copy may hold lone surrogates.
+fn str_method_cps(me: &Rc<S>, name: &str, a: Args) -> R {
+    match name {
+        "join" => str_join(me, &a1(&a, "join")?),
+        "format" => Ok(V::Str(Rc::new(str_format_s(me, &a, None)?))),
+        _ => {
+            let m = a1(&a, "format_map")?;
+            Ok(V::Str(Rc::new(str_format_s(me, &Args { p: vec![], k: vec![] }, Some(&m))?)))
+        }
+    }
+}
+fn str_join(me: &S, it: &V) -> R {
+    let items = to_vec(it)?;
+    let mut out = Txt::new();
+    for (i, x) in items.iter().enumerate() {
+        if i > 0 {
+            out.push_s(me);
+        }
+        match x {
+            V::Str(y) => out.push_s(y),
+            // a library str (numpy's np.str_)
+            V::Ext(e) if matches!(e.native(), Some(Ok(V::Str(_)))) => {
+                if let Some(Ok(V::Str(y))) = e.native() {
+                    out.push_s(&y);
+                }
+            }
+            // a str subclass (StrEnum)
+            V::Obj(_) if matches!(inner_of(x), Some(V::Str(_))) => {
+                if let Some(V::Str(y)) = inner_of(x) {
+                    out.push_s(&y);
+                }
+            }
+            y => return type_err(format!("sequence item {i}: expected str instance, {} found", tn(y))),
+        }
+    }
+    Ok(txt_v(out))
+}
 pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
-    let t = me.s.as_str();
     // str subclasses (StrEnum members) as arguments: their str
     for x in a.p.iter_mut().chain(a.k.iter_mut().map(|(_, v)| v)) {
         if let V::Obj(_) = x {
@@ -2100,6 +2679,17 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             }
         }
     }
+    // encode reads code points itself (str_encode), so a str with lone surrogates goes there as it is
+    if name == "encode" {
+        let enc = a.kw("encoding").or_else(|| a.p.first().cloned());
+        let errs = a.kw("errors").or_else(|| a.p.get(1).cloned());
+        a.no_kw("encode")?;
+        return str_encode(me, enc.as_ref(), errs.as_ref());
+    }
+    if me.is_lone() || a.p.iter().chain(a.k.iter().map(|(_, v)| v)).any(arg_lone) {
+        return str_method_lone(me, o, name, a);
+    }
+    let t = me.text();
     Ok(match name {
         "split" | "rsplit" => {
             let sep = a.kw("sep").or_else(|| a.p.first().cloned()).unwrap_or(V::None);
@@ -2110,15 +2700,15 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             match sep {
                 V::None => list(if name == "split" { py_split_ws(t, maxsplit) } else { py_rsplit_ws(t, maxsplit) }),
                 V::Str(sep) => {
-                    if sep.s.is_empty() {
+                    if sep.text().is_empty() {
                         return val_err("empty separator".into());
                     }
                     let parts: Vec<V> = if maxsplit < 0 {
-                        t.split(sep.s.as_str()).map(s).collect()
+                        t.split(sep.text()).map(s).collect()
                     } else if name == "split" {
-                        t.splitn(maxsplit as usize + 1, sep.s.as_str()).map(s).collect()
+                        t.splitn(maxsplit as usize + 1, sep.text()).map(s).collect()
                     } else {
-                        let mut v: Vec<V> = t.rsplitn(maxsplit as usize + 1, sep.s.as_str()).map(s).collect();
+                        let mut v: Vec<V> = t.rsplitn(maxsplit as usize + 1, sep.text()).map(s).collect();
                         v.reverse();
                         v
                     };
@@ -2143,49 +2733,28 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             }
             s(r)
         }
-        "join" => {
-            let items = to_vec(&a1(&a, "join")?)?;
-            let mut out = String::new();
-            for (i, x) in items.iter().enumerate() {
-                if i > 0 {
-                    out.push_str(t);
-                }
-                match x {
-                    V::Str(y) => out.push_str(&y.s),
-                    // a library str (numpy's np.str_)
-                    V::Ext(e) if matches!(e.native(), Some(Ok(V::Str(_)))) => {
-                        if let Some(Ok(V::Str(y))) = e.native() {
-                            out.push_str(&y.s);
-                        }
-                    }
-                    // a str subclass (StrEnum)
-                    V::Obj(_) if matches!(inner_of(x), Some(V::Str(_))) => {
-                        if let Some(V::Str(y)) = inner_of(x) {
-                            out.push_str(&y.s);
-                        }
-                    }
-                    y => return type_err(format!("sequence item {i}: expected str instance, {} found", tn(y))),
-                }
-            }
-            st(out)
-        }
+        "join" => return str_join(me, &a1(&a, "join")?),
         "replace" => {
             a.want("replace", 2, 3)?;
             let (old, new) = (arg_str(&a.p[0], "replace")?, arg_str(&a.p[1], "replace")?);
             let count = opt_idx(&a, 2)?.unwrap_or(-1);
+            // nothing to replace: the str itself, as CPython returns it
+            if count == 0 || (old.text().is_empty() && new.text().is_empty()) || (!old.text().is_empty() && !t.contains(old.text())) {
+                return Ok(o.clone());
+            }
             if count < 0 {
-                if old.s.is_empty() {
-                    let mut out = new.s.clone();
+                if old.text().is_empty() {
+                    let mut out = new.text().to_string();
                     for c in t.chars() {
                         out.push(c);
-                        out.push_str(&new.s);
+                        out.push_str(&new.text());
                     }
                     st(out)
                 } else {
-                    st(t.replace(old.s.as_str(), &new.s))
+                    st(t.replace(old.text(), &new.text()))
                 }
             } else {
-                st(t.replacen(old.s.as_str(), &new.s, count as usize))
+                st(t.replacen(old.text(), &new.text(), count as usize))
             }
         }
         "find" | "rfind" | "index" | "rindex" | "count" => {
@@ -2197,12 +2766,12 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             let (bs, be) = (byte_at(me, cs), byte_at(me, ce));
             let hay = &t[bs..be];
             if name == "count" {
-                if sub.s.is_empty() {
+                if sub.text().is_empty() {
                     return Ok(V::Int((ce - cs + 1) as i64));
                 }
-                return Ok(V::Int(hay.matches(sub.s.as_str()).count() as i64));
+                return Ok(V::Int(hay.matches(sub.text()).count() as i64));
             }
-            let r = if name.starts_with('r') { hay.rfind(sub.s.as_str()) } else { hay.find(sub.s.as_str()) };
+            let r = if name.starts_with('r') { hay.rfind(sub.text()) } else { hay.find(sub.text()) };
             match r {
                 Some(b) => V::Int(char_at_byte(me, bs + b) as i64),
                 None => {
@@ -2230,7 +2799,7 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
                 if cs > ce {
                     continue;
                 }
-                if if name == "startswith" { hay.starts_with(p.s.as_str()) } else { hay.ends_with(p.s.as_str()) } {
+                if if name == "startswith" { hay.starts_with(p.text()) } else { hay.ends_with(p.text()) } {
                     r = true;
                     break;
                 }
@@ -2265,7 +2834,7 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             a.want(name, 1, 2)?;
             let w = idx_of(&a.p[0])?.max(0) as usize;
             let fill = match a.p.get(1) {
-                Some(V::Str(f)) if f.nchars() == 1 => f.s.chars().next().unwrap(),
+                Some(V::Str(f)) if f.nchars() == 1 => f.text().chars().next().unwrap(),
                 Some(_) => return type_err("The fill character must be exactly one character long".into()),
                 None => ' ',
             };
@@ -2295,12 +2864,12 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
         }
         "partition" | "rpartition" => {
             let sep = arg_str(&a1(&a, name)?, name)?;
-            if sep.s.is_empty() {
+            if sep.text().is_empty() {
                 return val_err("empty separator".into());
             }
-            let r = if name == "partition" { t.find(sep.s.as_str()) } else { t.rfind(sep.s.as_str()) };
+            let r = if name == "partition" { t.find(sep.text()) } else { t.rfind(sep.text()) };
             match r {
-                Some(i) => tup(vec![s(&t[..i]), V::Str(sep.clone()), s(&t[i + sep.s.len()..])]),
+                Some(i) => tup(vec![s(&t[..i]), V::Str(sep.clone()), s(&t[i + sep.text().len()..])]),
                 None => {
                     if name == "partition" {
                         tup(vec![o.clone(), s(""), s("")])
@@ -2338,22 +2907,18 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             }
             list(out)
         }
-        "format" => st(str_format(t, &a, None)?),
-        "format_map" => {
-            let m = a1(&a, "format_map")?;
-            st(str_format(t, &Args { p: vec![], k: vec![] }, Some(&m))?)
-        }
+        "format" | "format_map" => return str_method_cps(me, name, a),
         "removeprefix" => {
             let p = arg_str(&a1(&a, name)?, name)?;
-            match t.strip_prefix(p.s.as_str()) {
+            match t.strip_prefix(p.text()) {
                 Some(r) => s(r),
                 None => o.clone(),
             }
         }
         "removesuffix" => {
             let p = arg_str(&a1(&a, name)?, name)?;
-            match t.strip_suffix(p.s.as_str()) {
-                Some(r) if !p.s.is_empty() => s(r),
+            match t.strip_suffix(p.text()) {
+                Some(r) if !p.text().is_empty() => s(r),
                 _ => o.clone(),
             }
         }
@@ -2394,20 +2959,13 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
                     None => out.push(c),
                     Some(V::None) => {}
                     Some(V::Int(i)) => out.push(char::from_u32(i as u32).unwrap_or('?')),
-                    Some(V::Str(x)) => out.push_str(&x.s),
+                    Some(V::Str(x)) => out.push_str(&x.text()),
                     Some(x) => return type_err(format!("character mapping must return integer, None or str")),
                 }
             }
             st(out)
         }
         "maketrans" => str_maketrans(&a)?,
-        "encode" => {
-            let mut a = a;
-            let enc = a.kw("encoding").or_else(|| a.p.first().cloned());
-            let errs = a.kw("errors").or_else(|| a.p.get(1).cloned());
-            a.no_kw("encode")?;
-            str_encode(&me.s, enc.as_ref(), errs.as_ref())?
-        }
         "__len__" => V::Int(me.nchars() as i64),
         "__contains__" => V::Bool(contains(o, &a1(&a, name)?)?),
         "__getitem__" => getitem(o, &a1(&a, name)?)?,
@@ -2445,7 +3003,7 @@ fn str_maketrans(a: &Args) -> R {
             for (k, v) in dict_items_of(&a.p[0])? {
                 let k = match as_str(&k) {
                     Some(x) => {
-                        let mut cs = x.s.chars();
+                        let mut cs = x.text().chars();
                         match cs.next() {
                             Some(c) if cs.next().is_none() => V::Int(c as i64),
                             _ => return val_err("string keys in translate table must be of length 1".into()),
@@ -2469,7 +3027,7 @@ fn str_maketrans(a: &Args) -> R {
             if x.nchars() != y.nchars() {
                 return val_err("the first two maketrans arguments must have equal length".into());
             }
-            for (p, q) in x.s.chars().zip(y.s.chars()) {
+            for (p, q) in x.text().chars().zip(y.text().chars()) {
                 d.set(V::Int(p as i64), V::Int(q as i64))?;
             }
             if let Some(z) = a.p.get(2) {
@@ -2477,7 +3035,7 @@ fn str_maketrans(a: &Args) -> R {
                     Some(z) => z,
                     None => return type_err(format!("maketrans() argument 3 must be str, not {}", tn(z))),
                 };
-                for p in z.s.chars() {
+                for p in z.text().chars() {
                     d.set(V::Int(p as i64), V::None)?;
                 }
             }
@@ -2487,7 +3045,7 @@ fn str_maketrans(a: &Args) -> R {
     }
 }
 // "{} {name} {0:>5}".format(...); `mapping` is str.format_map's mapping, resolved lazily with [key].
-pub fn str_format(t: &str, a: &Args, mapping: Option<&V>) -> Result<String, E> {
+pub fn str_format_s(t: &S, a: &Args, mapping: Option<&V>) -> Result<S, E> {
     Ok(str_format_auto(t, a, mapping, Some(0), 2)?.0)
 }
 // `auto` mirrors CPython's auto_arg_index: None once a manual field was seen, Some(next) while
@@ -2495,9 +3053,13 @@ pub fn str_format(t: &str, a: &Args, mapping: Option<&V>) -> Result<String, E> {
 // the same numbering (and can switch modes), and updated state comes back to the outer string.
 // `depth` mirrors CPython's recursion budget: every field consumes one level for its spec, even
 // an empty one, so two nested specs are as deep as str.format allows.
-fn str_format_auto(t: &str, a: &Args, mapping: Option<&V>, mut auto: Option<usize>, depth: usize) -> Result<(String, Option<usize>), E> {
+fn str_format_auto(ts: &S, a: &Args, mapping: Option<&V>, mut auto: Option<usize>, depth: usize) -> Result<(S, Option<usize>), E> {
+    // a lone surrogate in the template is U+FFFD here; literal text is copied from the code points, and a field
+    // holding one stops
+    let orig = ts.lone();
+    let t = ts.text_sub('\u{fffd}');
     let c: Vec<char> = t.chars().collect();
-    let mut out = String::new();
+    let mut out = Txt::new();
     let mut i = 0;
     while i < c.len() {
         if c[i] == '{' {
@@ -2522,6 +3084,9 @@ fn str_format_auto(t: &str, a: &Args, mapping: Option<&V>, mut auto: Option<usiz
             }
             if j >= c.len() {
                 return val_err("Single '{' encountered in format string".into());
+            }
+            if orig.is_some_and(|o| o[i + 1..j].iter().any(|&x| is_surrogate(x))) {
+                lone_stop(std::panic::Location::caller());
             }
             let field: String = c[i + 1..j].iter().collect();
             i = j + 1;
@@ -2583,19 +3148,19 @@ fn str_format_auto(t: &str, a: &Args, mapping: Option<&V>, mut auto: Option<usiz
             }
             let v = match conv.as_deref() {
                 Some("r") => st(repr(&v)?),
-                Some("s") => st(to_str(&v)?),
+                Some("s") => str_v(&v)?,
                 Some("a") => bi_ascii(Args::p(vec![v]))?,
                 _ => v,
             };
             // nested fields in the spec continue the same auto numbering
             let spec = if spec.contains('{') {
-                let (s, next) = str_format_auto(&spec, a, mapping, auto, depth - 1)?;
+                let (s, next) = str_format_auto(&S::new(spec), a, mapping, auto, depth - 1)?;
                 auto = next;
-                s
+                s.into_text()
             } else {
                 spec
             };
-            out.push_str(&format_spec(&v, &spec)?);
+            out.push_s(&fmt_s(&v, &spec)?);
         } else if c[i] == '}' {
             if i + 1 < c.len() && c[i + 1] == '}' {
                 out.push('}');
@@ -2604,11 +3169,14 @@ fn str_format_auto(t: &str, a: &Args, mapping: Option<&V>, mut auto: Option<usiz
             }
             return val_err("Single '}' encountered in format string".into());
         } else {
-            out.push(c[i]);
+            match orig {
+                Some(o) => out.push_cp(o[i]),
+                None => out.push(c[i]),
+            }
             i += 1;
         }
     }
-    Ok((out, auto))
+    Ok((out.finish(), auto))
 }
 // `xs.clear(None)`: CPython's TypeError for a method that takes no arguments.
 fn no_args(ty: &str, name: &str, a: &Args) -> Result<(), E> {
@@ -3171,7 +3739,7 @@ fn to_bytes_len(v: &V) -> Result<i64, E> {
 // True means little-endian, as _PyLong_ByteOrder parses.
 fn byteorder_arg(f: &str, v: &V) -> Result<bool, E> {
     match v {
-        V::Str(x) => match x.s.as_str() {
+        V::Str(x) => match x.text() {
             "big" => Ok(false),
             "little" => Ok(true),
             _ => val_err("byteorder must be either 'little' or 'big'".into()),

@@ -1,0 +1,2 @@
+- Dynamic build: a builtin type answers only the attributes CPython gives it, so `hasattr(int, "zzz")` is False and `int.zzz` raises AttributeError (any name used to return a method stub) (#470).
+- `reversed()` of a dict or one of its views is live in the dynamic build, as in CPython: it sees later value changes and raises RuntimeError when the dict's size changes; a same-size key change while it runs is refused, not guessed. The typed build sends a file to the dynamic build when a list changes while a `reversed()` of it is still read (#459).

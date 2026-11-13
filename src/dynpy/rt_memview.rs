@@ -87,12 +87,17 @@ pub fn bi_memoryview(a: Args) -> R {
         m.live()?;
         return Ok(mv_new(m.obj.clone(), m.start, m.step, m.len, m.readonly));
     }
+    // a library object's buffer cannot be a view that writes through: copying it would show stale bytes
+    if matches!(&x, V::Ext(e) if e.is_py()) && bytes_of(&x).is_some() {
+        return Err(unsupported("memoryview of a library object"));
+    }
     // bytes, or an instance of a bytes subclass (the view's obj is the instance, as in CPython)
     if is_bytes_v(&x) || matches!(&x, V::Obj(o) if o.cls.base_bt() == BT::Bytes) {
         let n = bytes_of(&x).map_or(0, |b| b.len());
         return Ok(mv_new(x, 0, 1, n, true));
     }
-    if let Some(b) = bytearray_of(&x) {
+    // a bytearray, or an instance of a bytearray subclass (writes through the view reach its buffer)
+    if let Some(b) = ba_val(&x).as_ref().and_then(bytearray_of) {
         let n = b.d.borrow().len();
         return Ok(mv_new(x, 0, 1, n, false));
     }
@@ -151,7 +156,7 @@ impl MemV {
                 if let Some(o) = &order {
                     match o {
                         V::None => {}
-                        V::Str(s) if matches!(s.s.as_str(), "C" | "F" | "A") => {}
+                        V::Str(s) if matches!(s.text(), "C" | "F" | "A") => {}
                         V::Str(_) => return val_err("order must be 'C', 'F' or 'A'".into()),
                         o => return type_err(format!("tobytes() argument 'order' must be str or None, not {}", tn(o))),
                     }
@@ -191,7 +196,8 @@ impl MemV {
                     return type_err("cannot modify read-only memory".into());
                 }
                 let (i, v) = (a.p[0].clone(), a.p[1].clone());
-                let Some(b) = bytearray_of(&self.obj) else { return type_err("cannot modify read-only memory".into()) };
+                let held = ba_val(&self.obj);
+                let Some(b) = held.as_ref().and_then(bytearray_of) else { return type_err("cannot modify read-only memory".into()) };
                 if let V::Slice(sl) = &i {
                     let src = match buf_full(&v)? {
                         Some(s) => s,
@@ -235,6 +241,10 @@ impl Ext for MemV {
         } else {
             format!("<memory at {at:#x}>")
         }
+    }
+    // type(iter(x)): CPython's memory_iterator class, one shared class
+    fn iter_class(&self, _me: &V) -> Option<Rc<Class>> {
+        Some(ext_class_mod("builtins", "memory_iterator"))
     }
     fn any(&self) -> &dyn std::any::Any {
         self

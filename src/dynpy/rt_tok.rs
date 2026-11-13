@@ -248,7 +248,7 @@ impl TokCore {
 // pyo3's conversions, with its messages
 fn tok_str(v: &V) -> Result<&str, E> {
     match v {
-        V::Str(x) => Ok(&x.s),
+        V::Str(x) => Ok(&x.text()),
         V::None => type_err("'None' is not an instance of 'str'".into()),
         _ => type_err(format!("'{}' object is not an instance of 'str'", tn(v))),
     }
@@ -375,7 +375,7 @@ impl Ext for TokCore {
 // of them, with the regex module's messages): the leftmost one found in the text, else None.
 fn tok_find_special(text: &V, toks: &V) -> R {
     let t = match text {
-        V::Str(x) => &x.s,
+        V::Str(x) => &x.text(),
         _ if bytes_of(text).is_some() => return type_err("cannot use a string pattern on a bytes-like object".into()),
         _ => return type_err(format!("a bytes-like object is required, not '{}'", tn(text))),
     };
@@ -406,7 +406,7 @@ pub fn brevi_tok_fn(n: &str, a: Args) -> R {
         "core" => {
             let src = arg(0);
             let r = match &src {
-                V::Str(x) => tok_file(&x.s)?,
+                V::Str(x) => tok_file(&x.text())?,
                 V::Dict(d) => {
                     let mut order = vec![];
                     for (k, v) in d.borrow().items() {

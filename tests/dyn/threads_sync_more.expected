@@ -1,0 +1,22 @@
+3 0 False
+waiting 2
+main index 2
+action [('passed', 0, 0), ('passed', 1, 1)]
+broken BrokenBarrierError True
+still broken
+after reset False 0
+default timeout breaks
+aborted
+ValueError parties must be >= 1
+consumers got ['a', 'b', 'c']
+wait timeout False
+wait_for True False
+RuntimeError cannot notify on un-acquired lock
+RuntimeError cannot wait on un-acquired lock
+after notify(2) [0, 1]
+after notify_all [0, 1, 2, 3]
+condition over Lock False
+True True False False
+8 2
+ValueError Semaphore released too many times
+ValueError semaphore initial value must be >= 0

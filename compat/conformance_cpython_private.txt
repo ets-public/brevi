@@ -5,9 +5,3 @@
 # exactly such a private name AND the normal build refuses too; `--check` fails on a line that no longer is, and on a
 # line without `issue=#N`. Implementing the helper turns the test into a normal result: then remove its line.
 # Format: `test-id  issue=#N`.
-test_collections.TestCounter.test_helper_function  issue=#481
-test_functools.TestSingleDispatch.test_c3_abc  issue=#481
-test_functools.TestSingleDispatch.test_cache_invalidation  issue=#481
-test_functools.TestSingleDispatch.test_compose_mro  issue=#481
-test_re.ImplementationTest.test_overlap_table  issue=#481
-test_re.ReTests.test_pickling  issue=#481

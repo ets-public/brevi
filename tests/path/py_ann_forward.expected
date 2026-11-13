@@ -1,0 +1,7 @@
+{"path":"dynamic","line":4,"fn":"area","why":"the annotation reads `Square`, which is not bound on every path to where CPython evaluates it, so the typed build would differ from CPython"}
+{"path":"dynamic","line":4,"fn":"area","why":"the annotation reads `Square`, which is not bound on every path to where CPython evaluates it, so the typed build would differ from CPython"}
+Traceback (most recent call last):
+NameError: name 'Square' is not defined
+{"path":"dynamic","line":4,"fn":"area","why":"the annotation reads `Square`, which is not bound on every path to where CPython evaluates it, so the typed build would differ from CPython"}
+Traceback (most recent call last):
+NameError: name 'Square' is not defined

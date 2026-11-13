@@ -155,9 +155,19 @@ fn items_view_rich(a: &Rc<RefCell<Dict>>, b: &Rc<RefCell<Dict>>, op: &str) -> Re
         _ => unreachable!(),
     })
 }
+// a library value next to a bytearray or memoryview: the library's comparison decides (pyglue's cmp_value
+// compares an array.array's buffer; anything else refuses the bytearray, which cannot cross as itself)
+fn py_next_to_buffer(a: &V, b: &V) -> bool {
+    let py = |x: &V| matches!(x, V::Ext(e) if e.is_py());
+    let buf = |x: &V| ba_val(x).is_some() || memview_of(x).is_some();
+    (py(a) && buf(b)) || (buf(a) && py(b))
+}
 pub fn eq(a: &V, b: &V) -> Result<bool, E> {
     if let Some(r) = meta_cmp(a, b, "==") {
         return truth(&r?);
+    }
+    if py_next_to_buffer(a, b) {
+        return truth(&cmp_v(a, b, "==")?);
     }
     if matches!(a, V::View(_)) || matches!(b, V::View(_)) {
         if let (Some(x), Some(y)) = (items_view_dict(a), items_view_dict(b)) {
@@ -169,7 +179,7 @@ pub fn eq(a: &V, b: &V) -> Result<bool, E> {
     }
     Ok(match (a, b) {
         (V::Int(x), V::Int(y)) => x == y,
-        (V::Str(x), V::Str(y)) => Rc::ptr_eq(x, y) || x.s == y.s,
+        (V::Str(x), V::Str(y)) => Rc::ptr_eq(x, y) || x.same(y),
         (V::None, V::None) => true,
         (V::None, _) | (_, V::None)
             if !matches!(a, V::Obj(_))
@@ -389,6 +399,9 @@ pub fn ne(a: &V, b: &V) -> Result<bool, E> {
     if let Some(r) = meta_cmp(a, b, "!=") {
         return truth(&r?);
     }
+    if py_next_to_buffer(a, b) {
+        return truth(&cmp_v(a, b, "!=")?);
+    }
     if let Some(r) = obj_ne(a, b)? {
         return truth(&r);
     }
@@ -416,7 +429,8 @@ pub fn is(a: &V, b: &V) -> bool {
                 x.to_bits() == y.to_bits()
             }
         }
-        (V::Str(x), V::Str(y)) => Rc::ptr_eq(x, y) || (x.s == y.s && x.s.len() <= 1),
+        // CPython keeps one object for each 1-char latin-1 str; a lone surrogate is not one of them
+        (V::Str(x), V::Str(y)) => Rc::ptr_eq(x, y) || (!x.is_lone() && !y.is_lone() && x.text() == y.text() && x.text().len() <= 1),
         (V::List(x), V::List(y)) => Rc::ptr_eq(x, y),
         (V::Tuple(x), V::Tuple(y)) => Tup::ptr_eq(x, y) || (x.is_empty() && y.is_empty()),
         (V::Dict(x), V::Dict(y)) => Rc::ptr_eq(x, y),
@@ -445,7 +459,7 @@ pub fn order(a: &V, b: &V, op: &str) -> Result<Option<std::cmp::Ordering>, E> {
     Ok(match (a, b) {
         (V::Int(x), V::Int(y)) => Some(x.cmp(y)),
         (V::Float(x), V::Float(y)) => x.partial_cmp(y),
-        (V::Str(x), V::Str(y)) => Some(x.s.cmp(&y.s)),
+        (V::Str(x), V::Str(y)) => Some(x.order(y)),
         (x, y) if is_intlike(x) && is_intlike(y) => match (ival(x), ival(y)) {
             (Some(p), Some(q)) => Some(p.cmp(&q)),
             _ => Some(big_of(x).unwrap().cmp(&big_of(y).unwrap())),
@@ -590,6 +604,9 @@ pub fn rich(a: &V, b: &V, op: &str) -> Result<bool, E> {
     if let Some(r) = meta_cmp(a, b, op) {
         return truth(&r?);
     }
+    if py_next_to_buffer(a, b) {
+        return truth(&cmp_v(a, b, op)?);
+    }
     if let (V::Int(x), V::Int(y)) = (a, b) {
         return Ok(match op {
             "<" => x < y,
@@ -643,6 +660,11 @@ pub fn rich(a: &V, b: &V, op: &str) -> Result<bool, E> {
                     return truth(&r);
                 }
             }
+        }
+        // a bytearray subclass instance orders against a bytes-like value only; the error names the subclass
+        let not_buf = |x: &V| bytes_of(x).is_none() || memview_of(x).is_some();
+        if (is_ba_sub(a) && not_buf(b)) || (is_ba_sub(b) && not_buf(a)) {
+            return Err(cmp_err(op, a, b));
         }
         let (ia, ib) = (inner_of(a), inner_of(b));
         if ia.is_some() || ib.is_some() {
@@ -742,6 +764,41 @@ fn obj_binop(a: &V, b: &V, op: &str) -> Option<R> {
             }
         }
     }
+    // a bytearray subclass instance (no method of its own answered): bytearray's + and * on its value, so
+    // the result is a bytearray, as CPython's is (before bytes' reflected + could make it bytes)
+    if is_ba_sub(a) || is_ba_sub(b) {
+        // the count of a repeat: an int, or what __index__ gives (an int subclass, a class with __index__)
+        fn count(v: &V) -> Option<R> {
+            match v {
+                V::Int(_) | V::Bool(_) | V::Big(_) => Some(Ok(v.clone())),
+                // an int subclass is its value (PyNumber_Index never calls its __index__)
+                V::Obj(o) if matches!(o.inner(), Some(V::Int(_) | V::Bool(_) | V::Big(_))) => o.inner().map(Ok),
+                V::Obj(o) if !is_ba_sub(v) => {
+                    let f = o.cls.lookup("__index__")?;
+                    Some(call(&f, Args::p(vec![v.clone()])).and_then(|r| match &r {
+                        V::Int(_) | V::Bool(_) | V::Big(_) => Ok(r),
+                        V::Obj(k) if matches!(k.inner(), Some(V::Int(_) | V::Bool(_) | V::Big(_))) => Ok(k.inner().unwrap()),
+                        _ => type_err(format!("__index__ returned non-int (type {})", tn(&r))),
+                    }))
+                }
+                _ => None,
+            }
+        }
+        match op {
+            "+" if is_ba_sub(a) && bytes_of(b).is_some() => return Some(binop(&ba_val(a).unwrap(), b, op)),
+            "*" if is_ba_sub(a) => {
+                if let Some(n) = count(b) {
+                    return Some(n.and_then(|n| binop(&ba_val(a).unwrap(), &n, op)));
+                }
+            }
+            "*" if is_ba_sub(b) => {
+                if let Some(n) = count(a) {
+                    return Some(n.and_then(|n| binop(&n, &ba_val(b).unwrap(), op)));
+                }
+            }
+            _ => {}
+        }
+    }
     if let V::Ext(x) = a {
         if let Some(r) = x.binop(a, op, b, false) {
             return Some(r);
@@ -751,6 +808,16 @@ fn obj_binop(a: &V, b: &V, op: &str) -> Option<R> {
         if let Some(r) = x.binop(b, op, a, true) {
             return Some(r);
         }
+    }
+    // nothing else takes a bytearray subclass instance: CPython's errors, naming the subclass
+    if is_ba_sub(a) || is_ba_sub(b) {
+        // (other operators: binop's own errors, which do not unwrap the instance)
+        return match op {
+            "+" if is_ba_sub(a) => Some(type_err(format!("can't concat {} to {}", tn(b), tn(a)))),
+            "*" if is_ba_sub(a) => Some(type_err(format!("can't multiply sequence by non-int of type '{}'", tn(b)))),
+            "*" => Some(type_err(format!("can't multiply sequence by non-int of type '{}'", tn(a)))),
+            _ => None,
+        };
     }
     None
 }
@@ -1018,12 +1085,7 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
             }
             return float_op(fx, fy, op, a, b);
         }
-        (V::Str(x), V::Str(y)) if op == "+" => {
-            let mut s = String::with_capacity(x.s.len() + y.s.len());
-            s.push_str(&x.s);
-            s.push_str(&y.s);
-            return Ok(V::Str(Rc::new(S { s, ascii: x.ascii && y.ascii })));
-        }
+        (V::Str(x), V::Str(y)) if op == "+" => return Ok(V::Str(Rc::new(x.concat(y)))),
         (V::List(x), V::List(y)) if op == "+" => {
             let mut v = x.borrow().clone();
             v.extend(y.borrow().iter().cloned());
@@ -1038,7 +1100,8 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
             let (sq, n) = if is_intlike(a) { (b, a) } else { (a, b) };
             let k = ival(n).unwrap_or(0).max(0) as usize;
             let len = match sq {
-                V::Str(x) => x.s.len(),
+                V::Str(x) if x.is_lone() => x.nchars() * 4,
+                V::Str(x) => x.text().len(),
                 V::List(x) => x.borrow().len(),
                 V::Tuple(x) => x.len(),
                 _ => 0,
@@ -1048,7 +1111,8 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
                 return Err(exc("MemoryError", String::new()));
             }
             return Ok(match sq {
-                V::Str(x) => V::Str(Rc::new(S { s: x.s.repeat(k), ascii: x.ascii })),
+                V::Str(x) if x.is_lone() => st_cps(x.lone().unwrap().repeat(k)),
+                V::Str(x) => V::Str(Rc::new(S::with_ascii(x.text().repeat(k), x.ascii()))),
                 V::List(x) => {
                     let x = x.borrow();
                     let mut v = Vec::with_capacity(x.len() * k);
@@ -1072,7 +1136,7 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
         (V::Str(_) | V::List(_) | V::Tuple(_), _) if op == "*" && (bytes_of(b).is_some() || !matches!(b, V::Obj(_) | V::Ext(_))) => {
             return type_err(format!("can't multiply sequence by non-int of type '{}'", tn(b)));
         }
-        (V::Str(f), _) if op == "%" => return Ok(st(percent_format(&f.s, b)?)),
+        (V::Str(f), _) if op == "%" => return Ok(V::Str(Rc::new(percent_format(f, b)?))),
         (V::Set(_) | V::FSet(_), V::Set(_) | V::FSet(_)) if matches!(op, "|" | "&" | "-" | "^") => {
             let r = set_op(&set_of(a).unwrap(), &set_of(b).unwrap(), op)?;
             return Ok(if matches!(a, V::FSet(_)) { V::FSet(Rc::new(r)) } else { V::Set(Rc::new(RefCell::new(r))) });
@@ -1144,7 +1208,8 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
         return r;
     }
     let (ia, ib) = (inner_of(a), inner_of(b));
-    if ia.is_some() || ib.is_some() {
+    // (a bytearray subclass instance is not unwrapped: obj_binop took what bytearray takes, and errors name the subclass)
+    if (ia.is_some() || ib.is_some()) && !is_ba_sub(a) && !is_ba_sub(b) {
         return binop(&ia.unwrap_or(a.clone()), &ib.unwrap_or(b.clone()), op);
     }
     if op == "+" && matches!((a, b), (V::Str(_), _) | (_, V::Str(_))) {
@@ -1202,7 +1267,11 @@ fn float_op(x: f64, y: f64, op: &str, a: &V, b: &V) -> R {
                 return Err(exc("ZeroDivisionError", "0.0 cannot be raised to a negative power".into()));
             }
             if x < 0.0 && y.fract() != 0.0 {
-                return Err(unsupported("complex numbers"));
+                // float_pow: a negative number to a fractional power is complex_pow's
+                if x.is_finite() && y.is_finite() {
+                    return c_pow((x, 0.0), (y, 0.0));
+                }
+                return Err(unsupported("a negative float to an infinite or NaN power"));
             }
             let r = x.powf(y);
             if r.is_infinite() && x.is_finite() && y.is_finite() {
@@ -1555,6 +1624,10 @@ pub fn len(v: &V) -> Result<usize, E> {
         V::Ext(x) => match x.len() {
             Some(n) => n,
             None if memview_of(v).is_some() => return Err(exc("ValueError", "operation forbidden on released memoryview object".into())),
+            None if bigrange_of(v).is_some() => match call_method(v, "__len__", Args::p(vec![]))? {
+                V::Int(i) => i as usize,
+                _ => return type_err("'__len__' returned a bad value".into()),
+            },
             None => return type_err(format!("object of type '{}' has no len()", tn(v))),
         },
         _ => return type_err(format!("object of type '{}' has no len()", tn(v))),
@@ -1589,7 +1662,7 @@ pub fn contains(c: &V, x: &V) -> Result<bool, E> {
             None => false,
         },
         V::Str(s) => match x {
-            V::Str(n) => s.s.contains(n.s.as_str()),
+            V::Str(n) => s.has(n),
             _ => return type_err(format!("'in <string>' requires string as left operand, not {}", tn(x))),
         },
         V::List(l) => {
@@ -1756,7 +1829,7 @@ fn slice_positions(sl: &(V, V, V), n: usize) -> Result<Vec<usize>, E> {
     Ok(out)
 }
 pub fn str_chars(s: &S) -> Vec<char> {
-    s.s.chars().collect()
+    s.text().chars().collect()
 }
 // A class subscripted in a dynamic build (list[int], a namedtuple's Group[int, list[int]]): the origin
 // class, the args, and the few attributes CPython's types.GenericAlias exposes.
@@ -1864,22 +1937,32 @@ pub fn getitem(c: &V, i: &V) -> R {
             }
             return Err(exc_v("KeyError", i.clone()));
         }
+        (V::Str(s), V::Int(k)) if s.is_lone() => {
+            let v = s.lone().unwrap();
+            let j = norm_idx(*k, v.len(), "string")?;
+            return Ok(cp1(v[j]));
+        }
+        (V::Str(sx), V::Slice(sl)) if sx.is_lone() => {
+            let v = sx.lone().unwrap();
+            let ps = slice_positions(sl, v.len())?;
+            return Ok(st_cps(ps.iter().map(|&p| v[p]).collect()));
+        }
         (V::Str(s), V::Int(k)) => {
-            if s.ascii {
-                let j = norm_idx(*k, s.s.len(), "string")?;
-                return Ok(ch1(s.s.as_bytes()[j] as char));
+            if s.ascii() {
+                let j = norm_idx(*k, s.text().len(), "string")?;
+                return Ok(ch1(s.text().as_bytes()[j] as char));
             }
             let n = s.nchars();
             let j = norm_idx(*k, n, "string")?;
-            return Ok(ch1(s.s.chars().nth(j).unwrap()));
+            return Ok(ch1(s.text().chars().nth(j).unwrap()));
         }
         (V::Str(sx), V::Slice(sl)) => {
-            if sx.ascii {
-                let b = sx.s.as_bytes();
+            if sx.ascii() {
+                let b = sx.text().as_bytes();
                 let (a, e, stp) = slice_idx(sl, b.len())?;
                 if stp == 1 {
                     let (a, e) = (a.max(0) as usize, e.max(0) as usize);
-                    return Ok(if a >= e { s("") } else { st_ascii(&sx.s[a..e]) });
+                    return Ok(if a >= e { s("") } else { st_ascii(&sx.text()[a..e]) });
                 }
                 let ps = slice_positions(sl, b.len())?;
                 return Ok(st(ps.iter().map(|&p| b[p] as char).collect()));
@@ -1957,7 +2040,7 @@ pub fn getitem(c: &V, i: &V) -> R {
         // collections.abc.Mapping[str, int] (or a subclass of an ABC): a types.GenericAlias, as
         // __class_getitem__ = classmethod(GenericAlias) makes it. Callable's alias flattens its arguments
         // (_CallableGenericAlias), which this one does not do, so Callable[...] is refused.
-        (V::Class(k), _) if k.abc.get() || tinfo(k).is_some() && k.lookup("__class_getitem__").is_some() => {
+        (V::Class(k), _) if k.lookup("__class_getitem__").is_some() => {
             if let Some(g) = k.lookup("__class_getitem__") {
                 // classmethod(GenericAlias): the alias itself (Brevi's GenericAlias type is not callable)
                 if let V::Func(gf) = &g {
@@ -1981,13 +2064,12 @@ pub fn getitem(c: &V, i: &V) -> R {
             };
             return Ok(V::Ext(ExtRc::new(GAlias { origin: k.clone(), args })));
         }
-        (V::Class(k), _) if k.module == "typing" => {
-            if let Some(r) = typing_subscript(k, i) {
-                return r;
-            }
-            return Ok(c.clone());
+        (V::Class(k), _) if k.module == "typing" => return typing_getitem(k, i),
+        (V::Class(k), _) => return class_subscript(k, i),
+        // list[int][str], typing.List[T][int] and the like: substitution CPython checks and Brevi does not make
+        (V::Ext(x), _) if matches!(x.tname(), "types.GenericAlias" | "typing._GenericAlias" | "typing._UnionGenericAlias" | "types.UnionType") => {
+            return Err(unsupported(&format!("subscripting a {}", x.tname())));
         }
-        (V::Class(_), _) => return Ok(c.clone()), // typing: list[int]
         (V::Ext(x), _) => {
             if let Some(r) = x.method(c, "__getitem__", &mut Args::p(vec![i.clone()])) {
                 return r;
@@ -2001,6 +2083,8 @@ pub fn getitem(c: &V, i: &V) -> R {
         (V::List(_), _) => type_err(format!("list indices must be integers or slices, not {}", tn(i))),
         (V::Tuple(_), _) => type_err(format!("tuple indices must be integers or slices, not {}", tn(i))),
         (V::Str(_), _) => type_err(format!("string indices must be integers, not '{}'", tn(i))),
+        // a builtin of the runtime may be a class in CPython (enumerate, zip, property), which may subscript
+        (V::Func(_), _) if tn(c) != "function" => Err(unsupported(&format!("subscripting {}", tn(c)))),
         _ => type_err(format!("'{}' object is not subscriptable", tn(c))),
     }
 }
@@ -2008,7 +2092,7 @@ fn st_ascii(x: &str) -> V {
     if x.len() == 1 {
         return ch1(x.as_bytes()[0] as char);
     }
-    V::Str(Rc::new(S { s: x.to_string(), ascii: true }))
+    V::Str(Rc::new(S::new_ascii(x.to_string())))
 }
 pub fn setitem(c: &V, i: &V, v: V) -> Result<(), E> {
     if let Some(__p) = proxy_deref(c) {
@@ -2207,6 +2291,10 @@ pub enum It {
     Str(Rc<S>, usize),
     Range(i64, i64, i64),
     Dict(Rc<RefCell<Dict>>, usize, u8, u64, usize),
+    // reversed() of a dict or one of its views, live like CPython's dict reverse iterators: the next entry
+    // index plus one (0: none left), the view kind, the dict's size when it began (-1 once a size change was
+    // seen, so later next() calls raise too, as CPython's di_used = -1) and its key version then
+    RevDict(Rc<RefCell<Dict>>, usize, u8, i64, u64),
     Set(Rc<RefCell<PSet>>, usize, i64),
     Gen(Box<dyn FnMut() -> Result<Option<V>, E>>),
     // A generator expression: like Gen, but an error escapes to the caller once and then the iterator is
@@ -2309,22 +2397,32 @@ impl It {
                 }
                 None => Ok(Some(x.clone())),
             },
-            It::Str(s, i) => {
-                if *i >= s.s.len() {
+            // a str with a lone surrogate: `i` counts code points
+            It::Str(s, i) if s.is_lone() => {
+                let v = s.lone().unwrap();
+                if *i >= v.len() {
                     return Ok(None);
                 }
-                if s.ascii {
-                    *i += 1;
-                    return Ok(Some(ch1(s.s.as_bytes()[*i - 1] as char)));
+                *i += 1;
+                Ok(Some(cp1(v[*i - 1])))
+            }
+            It::Str(s, i) => {
+                if *i >= s.text().len() {
+                    return Ok(None);
                 }
-                let c = s.s[*i..].chars().next().unwrap();
+                if s.ascii() {
+                    *i += 1;
+                    return Ok(Some(ch1(s.text().as_bytes()[*i - 1] as char)));
+                }
+                let c = s.text()[*i..].chars().next().unwrap();
                 *i += c.len_utf8();
                 Ok(Some(ch1(c)))
             }
             It::Range(a, b, st) => {
                 if (*st > 0 && *a < *b) || (*st < 0 && *a > *b) {
                     let v = *a;
-                    *a += *st;
+                    // a step past the i64 range is past stop too: the range is done
+                    *a = a.checked_add(*st).unwrap_or(*b);
                     Ok(Some(V::Int(v)))
                 } else {
                     Ok(None)
@@ -2352,6 +2450,38 @@ impl It {
                     }
                 }
                 Ok(None)
+            }
+            It::RevDict(d, i, kind, used, ver0) => {
+                let item = {
+                    let d = d.borrow();
+                    // CPython checks the size before anything else, so a change after the last item still raises
+                    if *used < 0 || d.n as i64 != *used {
+                        *used = -1;
+                        return Err(exc("RuntimeError", "dictionary changed size during iteration".into()));
+                    }
+                    // A key deleted and another added (same size): CPython goes on reading its entry table, so
+                    // what comes next depends on when its table was compacted, which Brevi's dict does not copy.
+                    if d.ver != *ver0 {
+                        return Err(unsupported("reversed() of a dict whose keys changed during iteration"));
+                    }
+                    let mut got = None;
+                    while *i > 0 {
+                        *i -= 1;
+                        if let Some((k, v)) = &d.ents[*i] {
+                            got = Some(match kind {
+                                0 | 3 => k.clone(),
+                                1 => v.clone(),
+                                _ => tup(vec![k.clone(), v.clone()]),
+                            });
+                            break;
+                        }
+                    }
+                    got
+                };
+                if item.is_none() {
+                    *self = It::Done;
+                }
+                Ok(item)
             }
             It::Set(s, i, n0) => {
                 let s = s.borrow();
@@ -2490,7 +2620,7 @@ fn iter_kind(v: &V) -> ItKind {
     match v {
         V::List(_) => ItKind::ListIter,
         V::Tuple(_) => ItKind::TupleIter,
-        V::Str(s) => if s.ascii { ItKind::StrAsciiIter } else { ItKind::StrIter },
+        V::Str(s) => if s.ascii() { ItKind::StrAsciiIter } else { ItKind::StrIter },
         V::Range(_) => ItKind::RangeIter,
         V::Dict(_) => ItKind::DictKeys,
         // view kinds 0, 1, 2, 3: keys, values, items, mappingproxy (which iterates keys too)
@@ -2543,6 +2673,9 @@ pub fn iter_v(v: &V) -> R {
                 }
                 // the object __iter__ returned, itself (`iter(it) is it` for an iterator class, as in CPython)
                 return Ok(r);
+            }
+            if !matches!(r, V::Iter(_) | V::Ext(_)) {
+                return type_err(format!("iter() returned non-iterator of type '{}'", tn(&r)));
             }
             return iter_v(&r);
         }
@@ -2651,7 +2784,7 @@ pub fn dict_sym_items(v: &V) -> Result<Vec<(Sym, V)>, E> {
     let mut out = vec![];
     for (k, x) in dict_items_of(v)? {
         match k {
-            V::Str(sv) => out.push((sym(&sv.s), x)),
+            V::Str(sv) => out.push((sym(&sv.text()), x)),
             _ => return type_err("__build_class__: keys must be strings".into()),
         }
     }

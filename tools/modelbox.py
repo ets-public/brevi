@@ -65,6 +65,14 @@ def redact(text):
     return text
 
 
+def unavailable():
+    """Why the box cannot be built on this machine, or None when it can. Box() refuses whenever this is not None;
+    tests that need the box skip with this reason (e.g. on GitHub's or Adam's PC's non-root runs)."""
+    if not sys.platform.startswith("linux") or os.geteuid() != 0 or not shutil.which("unshare") or not shutil.which("setpriv"):
+        return "the box needs Linux, root, unshare and setpriv"
+    return None
+
+
 def chown_tree(p):
     """Make a folder the box's to write: it and everything under it become nobody's (links are not followed)."""
     p = Path(p)
@@ -81,9 +89,8 @@ class Box:
     nobody's). ro: folders it may read. All three appear at their own paths inside."""
 
     def __init__(self, root, rw=(), ro=()):
-        if not sys.platform.startswith("linux") or os.geteuid() != 0 or not shutil.which("unshare") or not shutil.which("setpriv"):
-            sys.exit("refusing to run model-written code: the box needs Linux, root, unshare and setpriv "
-                     "(it never runs unboxed)")
+        if unavailable():
+            sys.exit(f"refusing to run model-written code: {unavailable()} (it never runs unboxed)")
         self.root = Path(root).resolve()
         self.dir = Path(tempfile.mkdtemp(prefix="modelbox-"))  # the box's home and temp folder
         (self.dir / "tmp").mkdir()

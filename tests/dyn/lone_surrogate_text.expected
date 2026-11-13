@@ -1,0 +1,24 @@
+'\ud800' ' ' 'b\ud800c' 'x \udc80Dc\ud800ba' 'a\ud800D ' True
+["'a'", "'b'", "'\\ud800'", "'c'", "'D'", "'\\udc80'", "' '", "'x'"] ['\ud800', '\udfff'] 'x \udc80Dc\ud800ba' ['\ud800', '\udc80']
+'\ud800\ud800\ud800' 4 '\ud800-x-\udc80' 'a\ud800b\ud800c' True
+'ab\ud800cD\udc80 x|    \ud800|\udc80   |\ud800|\udabc|\udfff' '\ud8007' "'\\ud800'"
+"\ud800|   \udc80|\udfff|'\\ud800'" '\ud800-  \udc80  ' '\ud800**'
+"\ud800  \udc80'\\udfff'z" "a='ab\\ud800cD\\udc80 x'" '\ud800k' 'x\ud800\U000f0000y'
+['ab\ud800cD\udc80', 'x'] ['ab', 'cD\udc80 x'] ['ab\ud800', 'D\udc80 x'] ['\ud800', '\udc80'] ('ab\ud800cD', '\udc80', ' x') ('', '', 'ab\ud800cD\udc80 x')
+'\ud800' 'ab' '\ud800cD\udc80 x' 'ab\ud800cD\udc80'
+'ab!cD\udc80 x' 'ab\ud800\udc80D\udc80 x' '.a.b.\ud800cD\udc80 x' '\ud800\ud800'
+2 5 3 5 1 9 -1 -1 1
+True True True True True
+'AB\ud800CD\udc80 X' 'ab\ud800cd\udc80 x' 'Ab\ud800Cd\udc80 X' 'Ab\ud800cd\udc80 x' 'AB\ud800Cd\udc80 X' 'ab\ud800cd\udc80 x'
+False False False False False False False False
+False False False False True False False
+'  \ud800  ' '\ud800..' '\udc80\udc80\ud800' '-00\ud800' '\ud800'
+['a\ud800', '\udc80', 'b'] ['\ud800\n'] '    \ud800   x'
+'cD\udc80 x' 'ab\ud800cD\udc80' '\ud800'
+True True True True
+ValueError substring not found
+TypeError The fill character must be exactly one character long
+OverflowError %c arg not in range(0x110000)
+TypeError %c requires int or char
+TypeError %c requires int or char
+('\ud800q\udc80',) 1 ['q', '\udc80']

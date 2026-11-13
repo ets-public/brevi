@@ -127,6 +127,9 @@ TOOLS = [
 ]
 
 
+EDITS = {"replace", "write_file"}
+EXPLORE_NUDGE = 20  # calls before the first nudge to start editing (SYSTEM asks for a first edit by about then)
+
 PROTECT = set()  # task mode: extra files the model must not edit (the check's own files)
 TASK_ONLY, TEST_ONLY = {"run_check"}, {"check_test"}
 
@@ -408,6 +411,8 @@ def main():
     ap.add_argument("--effort", default="max", choices=["low", "high", "max"], help="DeepSeek reasoning effort (default %(default)s)")
     ap.add_argument("--budget", type=float, default=1.50, help="stop at this many dollars (default %(default)s)")
     ap.add_argument("--steps", type=int, default=150, help="most model calls (default %(default)s)")
+    ap.add_argument("--explore", type=int, default=50,
+                    help="model calls allowed before the first edit; the run stops there without one (default %(default)s)")
     ap.add_argument("--python", default=os.environ.get("CONFORMANCE_PYTHON", "python3.13"))
     ap.add_argument("--branch", help="commit a successful fix on this new branch (default: no commit)")
     ap.add_argument("--log", type=Path)
@@ -461,7 +466,15 @@ def main():
     messages = [{"role": "system", "content": TASK_SYSTEM if task_mode else SYSTEM}, {"role": "user", "content": prompt}]
     tools = tool_schemas(task_mode)
     spent, finished = 0.0, None
+    # Pace, held by the harness: a lane that read for 130 of its 150 calls (threading-1112 lane c, 11-12) ran
+    # out of steps with an unfinished edit. Nudges at EXPLORE_NUDGE and 10 calls before --explore; at --explore
+    # with no edit the run stops, so a vague brief costs a third of a run, not all of it.
+    first_edit, nudged, reads = None, set(), {}
     for step in range(a.steps):
+        if first_edit is None and step >= a.explore:
+            print(f"[ds] no edit after {a.explore} calls: stopping. Sharpen the brief (name the files and "
+                  f"functions to change) and rerun, or raise --explore", flush=True)
+            note(event="explore_stop", step=step); break
         if spent >= a.budget:
             print(f"[ds] budget ${a.budget:.2f} reached", flush=True); break
         if is_peak() and not a.allow_peak:
@@ -497,11 +510,26 @@ def main():
                     out = run_tool(name, args, task) if args is not None else "error: arguments were not valid JSON"
                 except Exception as e:
                     out = f"error: {e}"
+                if name in EDITS and first_edit is None and not out.startswith("error"):
+                    first_edit = step
+                if name == "read_file" and args:
+                    key = (args.get("path"), args.get("start"), args.get("end"))
+                    if key in reads:
+                        out = (f"(You read this same range at call {reads[key]}: use what you learned then "
+                               f"instead of reading it again.)\n" + out)
+                    reads.setdefault(key, step)
             out = redact(out)
             short = json.dumps(args)[:120] if args else ""
             print(f"[ds] step {step} ${spent:.3f} {name} {short}", flush=True)
             note(event="tool", name=name, args=args, result=out[:4000])
             messages.append({"role": "tool", "tool_call_id": tc["id"], "content": out})
+        if first_edit is None and not finished:
+            for at in (EXPLORE_NUDGE, a.explore - 10):
+                if step + 1 >= at and at not in nudged:
+                    nudged.add(at)
+                    messages.append({"role": "user", "content": f"Note: {step + 1} calls and no edit yet. The run stops "
+                                     f"at {a.explore} calls without one. Make your first edit now from what you have read."})
+                    break
         left = a.steps - step - 1
         if left in (20, 8, 3) and not finished:
             messages.append({"role": "user", "content": f"Note: {left} model calls left. Finish your edit, build, "
@@ -510,6 +538,12 @@ def main():
             break
     print(f"[ds] done after ${spent:.3f}; rebuilding and checking", flush=True)
     diff = git("diff")[1]
+    if diff and not finished:
+        # Out of steps or budget mid-edit: keep the work so a reviewer, or a rerun with --note, can pick it up.
+        kept = log_path.with_suffix(".patch")
+        kept.write_text(diff)
+        print(f"[ds] unfinished: the diff is in {kept}; review it, or apply it and rerun with "
+              f"--note describing what is left (off-peak only)", flush=True)
     built = run_tool("build", {}, task) == "ok" if diff else True
     after, after_text = task.results() if built else ({}, "build failed")
     builds = ("check",) if task_mode else ("normal", "dyn")

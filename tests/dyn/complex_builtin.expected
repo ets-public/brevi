@@ -1,0 +1,91 @@
+(1+2j) complex
+(1+2j) complex
+(1-2j) complex
+3j complex
+-1j complex
+1j complex
+1j complex
+1j complex
+(1+1j) complex
+(1-1j) complex
+(inf+0j) complex
+infj complex
+-infj complex
+(nan+0j) complex
+nanj complex
+100000j complex
+(0.0015+200j) complex
+(1000+20j) complex
+raises ValueError could not convert string to complex: '1__0'
+raises ValueError could not convert string to complex: '_1'
+raises ValueError could not convert string to complex: '1_'
+raises ValueError complex() arg is a malformed string
+raises ValueError complex() arg is a malformed string
+raises ValueError complex() arg is a malformed string
+raises ValueError complex() arg is a malformed string
+raises ValueError complex() arg is a malformed string
+raises ValueError complex() arg is a malformed string
+raises ValueError complex() arg is a malformed string
+raises ValueError complex() arg is a malformed string
+raises ValueError complex() arg is a malformed string
+raises ValueError complex() arg is a malformed string
+1j complex
+12j complex
+raises ValueError complex() arg is a malformed string
+raises ValueError complex() arg is a malformed string
+0.5j complex
+5j complex
+raises ValueError complex() arg is a malformed string
+raises ValueError complex() arg is a malformed string
+raises ValueError complex() arg is a malformed string
+(1.5+0j) complex
+raises ValueError complex() arg is a malformed string
+0j complex
+(1+0j) complex
+(1+2j) complex
+(1.5-2j) complex
+1j complex
+(-1+1j) complex
+(-3+5j) complex
+(1+0j) complex
+(1+0j) complex
+(2.5+0j) complex
+(7+0j) complex
+(3+4j) complex
+raises TypeError __complex__ returned non-complex (type int)
+raises TypeError complex() first argument must be a string or a number, not 'N'
+raises TypeError complex() first argument must be a string or a number, not 'NoneType'
+raises TypeError complex() second argument must be a number, not 'NoneType'
+raises TypeError complex() second arg can't be a string
+raises TypeError complex() can't take second arg if first is a string
+raises OverflowError int too large to convert to float
+raises OverflowError int too large to convert to float
+(2.5+2.5j) complex
+(7+7j) complex
+(3+5j) complex
+(1+2j) complex
+3j complex
+raises TypeError argument for complex() given by name ('real') and position (1)
+raises TypeError complex() got an unexpected keyword argument 'foo'
+raises TypeError complex() takes at most 2 arguments (3 given)
+<class 'complex'> True True False <class 'complex'> complex True
+True False True False False
+raises AttributeError 'complex' object has no attribute 'foo'
+raises AttributeError readonly attribute
+raises AttributeError 'complex' object has no attribute 'x' and no __dict__ for setting new attributes
+(2+2j) (3.5+2j) NotImplemented False NotImplemented True (1.0, 2.0) 2.23606797749979 (-1-2j) (-3+4j) (0.2-0.4j)
+(1+2j) (1+2j) (1+2j) (1+2j) [(1+2j), 1j] {1j: 'a', (1+0j): 'c'} True True True True
+(5.5+1j) 4j [0j, 1j, 2j] True True -2
+'1.00+2.00j' str
+raises TypeError must be real number, not complex
+raises TypeError %d format: a real number is required, not complex
+raises TypeError must be real number, not complex
+raises TypeError object of type 'complex' has no len()
+raises TypeError 'complex' object is not iterable
+raises TypeError 'complex' object is not subscriptable
+raises TypeError 'complex' object is not callable
+(1+2j) [(1+2j)] True
+(2+0j)
+2 False 2 3 [1j, 1j] (1j, 2j)
+(3+4j) True
+raises TypeError Object of type complex is not JSON serializable

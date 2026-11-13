@@ -147,6 +147,13 @@ pub fn iter_reduce_v(v: &V) -> R {
         }
         return r.reduce(cls_of(cell)?);
     }
+    let tee = match cell.it.try_borrow().as_deref() {
+        Ok(It::Tee(p)) => Some(p.clone()),
+        _ => None,
+    };
+    if let Some(p) = tee {
+        return tee_reduce(&p);
+    }
     enum Plan {
         At(V, usize),
         Rev(V, i64),
@@ -166,11 +173,22 @@ pub fn iter_reduce_v(v: &V) -> R {
             It::RevList(l, i) => Plan::Rev(V::List(l.clone()), *i as i64 - 1),
             It::Tuple(t, i) => Plan::At(tup(t.to_vec()), *i),
             // the iterator keeps a byte offset; CPython's index counts characters
-            It::Str(s, i) => Plan::At(st(s.s.clone()), s.s[..*i].chars().count()),
+            It::Str(s, i) if s.is_lone() => Plan::At(V::Str(s.clone()), *i),
+            It::Str(s, i) => Plan::At(st(s.text().to_string()), s.text()[..*i].chars().count()),
             It::Range(a, b, st) => Plan::Range(*a, *b, *st),
             It::Dict(d, i, kind, ver, n0) => Plan::Dict(d.clone(), *i, *kind, *ver, *n0),
+            // reversed() of a dict or its views: CPython pickles it as iter(list of the rest)
+            It::RevDict(d, i, kind, used, ver) => {
+                let mut sim = It::RevDict(d.clone(), *i, *kind, *used, *ver);
+                let mut out = vec![];
+                while let Some(x) = sim.next()? {
+                    out.push(x);
+                }
+                Plan::Seq(out)
+            }
             It::Set(s, i, n0) => Plan::Set(s.clone(), *i, *n0),
             It::Repeat(x, n) => Plan::Repeat(x.clone(), *n),
+            It::Done if matches!(cell.kind, IterClass::Kind(ItKind::ListReverseIter)) => Plan::Rev(V::None, -1),
             It::Done if !matches!(cell.kind, IterClass::Kind(ItKind::Generator)) && !is_itertools_kind(cell) => Plan::Seq(vec![]),
             // reversed() of a dict or its views keeps the rest as It::Vec; CPython pickles those iterators as
             // iter(list of the rest), as here
@@ -186,12 +204,17 @@ pub fn iter_reduce_v(v: &V) -> R {
     let iter_f = bv("iter");
     Ok(match plan {
         Plan::At(whole, i) => tup(vec![iter_f, tup(vec![whole]), V::Int(i as i64)]),
+        // CPython 3.13 listreviter_reduce: once the index is below 0 (every item given, said or not), reversed([])
+        Plan::Rev(_, i) if i < 0 => tup(vec![bv("reversed"), tup(vec![list(vec![])])]),
         Plan::Rev(whole, i) => tup(vec![bv("reversed"), tup(vec![whole]), V::Int(i)]),
         Plan::Seq(xs) => tup(vec![iter_f, tup(vec![list(xs)])]),
         // CPython: (iter, (range(start, start + len * step, step),), None)
         Plan::Range(a, b, step) => {
             let n = range_len(&V::Range(Rc::new((a, b, step)))) as i64;
-            tup(vec![iter_f, tup(vec![V::Range(Rc::new((a, a + n * step, step)))]), V::None])
+            let Some(stop) = n.checked_mul(step).and_then(|d| a.checked_add(d)) else {
+                return Err(unsupported("pickling a range iterator whose stop is past 64 bits"));
+            };
+            tup(vec![iter_f, tup(vec![V::Range(Rc::new((a, stop, step)))]), V::None])
         }
         Plan::Dict(d, i, kind, ver, n0) => {
             let mut sim = It::Dict(d, i, kind, ver, n0);
@@ -249,6 +272,13 @@ pub fn iter_setstate_v(v: &V, st: &V) -> R {
     let V::Iter(cell) = v else {
         return Err(exc("AttributeError", format!("'{}' object has no attribute '__setstate__'", tn(v))));
     };
+    let tee = match cell.it.try_borrow().as_deref() {
+        Ok(It::Tee(p)) => Some(p.clone()),
+        _ => None,
+    };
+    if let Some(p) = tee {
+        return tee_setstate(&p, st).map(|_| V::None);
+    }
     if let Some(r) = red_of(cell) {
         let warn = is_itertools_kind(cell);
         return match r.setstate(st) {
@@ -275,16 +305,17 @@ pub fn iter_setstate_v(v: &V, st: &V) -> R {
         // silently clipped to the sequence, as CPython does
         It::List(l, i) => *i = idx.clamp(0, l.borrow().len() as i64) as usize,
         It::Tuple(t, i) => *i = idx.clamp(0, t.len() as i64) as usize,
+        It::Str(s, i) if s.is_lone() => *i = (idx.max(0) as usize).min(s.nchars()),
         It::Str(s, i) => {
             let n = idx.max(0) as usize;
-            *i = s.s.char_indices().nth(n).map_or(s.s.len(), |(b, _)| b);
+            *i = s.text().char_indices().nth(n).map_or(s.text().len(), |(b, _)| b);
         }
         // CPython's index is the next position (-1: exhausted); Brevi keeps it plus one
         It::RevList(l, i) => *i = (idx.clamp(-1, l.borrow().len() as i64 - 1) + 1) as usize,
         It::Range(a, b, step) => {
             let n = range_len(&V::Range(Rc::new((*a, *b, *step)))) as i64;
             let k = idx.clamp(0, n);
-            *a += k * *step;
+            *a = k.checked_mul(*step).and_then(|d| a.checked_add(d)).unwrap_or(*b);
         }
         _ => {}
     }
@@ -338,11 +369,14 @@ pub fn iter_copy(x: &V, memo: Option<&mut Vec<(usize, V)>>) -> R {
 pub fn iter_class_call(c: &Class, a: Args) -> Option<R> {
     match (c.module, c.name) {
         ("itertools", "_grouper") => Some(grouper_new(a)),
-        ("itertools", n) if !matches!(n, "_tee" | "_tee_dataobject") => Some(itertools_fn(if n == "chain" { "chain" } else { n }, a)),
+        ("itertools", "_tee") => Some(tee_new(a)),
+        ("itertools", "_tee_dataobject") => Some(teedata_new(a)),
+        ("itertools", n) => Some(itertools_fn(if n == "chain" { "chain" } else { n }, a)),
         ("builtins", "map") => Some(bi_map(a)),
         ("builtins", "filter") => Some(bi_filter(a)),
         ("builtins", "zip") => Some(bi_zip(a)),
         ("builtins", "enumerate") => Some(bi_enumerate(a)),
+        ("builtins", "reversed") => Some(bi_reversed(a)),
         _ => None,
     }
 }
@@ -354,10 +388,13 @@ pub fn iter_class_named(m: &str, n: &str) -> Option<V> {
         ItKind::ItCount, ItKind::ItChain, ItKind::ItIslice, ItKind::ItRepeat, ItKind::ItCycle, ItKind::ItAccumulate, ItKind::ItZipLongest,
         ItKind::ItStarmap, ItKind::ItTakewhile, ItKind::ItDropwhile, ItKind::ItCompress, ItKind::ItFilterfalse, ItKind::ItGroupby,
         ItKind::ItGrouper, ItKind::ItProduct, ItKind::ItPermutations, ItKind::ItCombinations, ItKind::ItCombinationsWithReplacement,
-        ItKind::Map, ItKind::Filter, ItKind::Zip, ItKind::Enumerate,
+        ItKind::ItTee, ItKind::Map, ItKind::Filter, ItKind::Zip, ItKind::Enumerate,
     ];
     if !matches!(m, "itertools" | "builtins") {
         return None;
+    }
+    if (m, n) == ("itertools", "_tee_dataobject") {
+        return Some(V::Class(teedata_class()));
     }
     KINDS.iter().find_map(|k| match it_class(*k) {
         Ok(c) if c.module == m && c.name == n => Some(V::Class(c)),

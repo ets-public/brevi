@@ -22,6 +22,11 @@ use ax_pyffi::P;
 static PYD_API: std::sync::OnceLock<Result<ax_pyffi::Api, String>> = std::sync::OnceLock::new();
 // the type of _brevi_dyn's _BrIt, once one has been made
 static PYD_BRIT: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+// the type of _brevi_dyn's _BrRed (a value of the program that Python sees only to pickle it), once one has been made
+// CPython's re.Pattern type, once a program's compiled pattern has gone into Python: patterns of that type come
+// back as the program's own (pickle.loads of a pickled pattern)
+static PYD_REPAT: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+static PYD_BRRED: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_MAIN: std::sync::OnceLock<std::thread::ThreadId> = std::sync::OnceLock::new();
 const PYD_CAP: &std::ffi::CStr = c"brevi.dyn.callable";
 
@@ -35,6 +40,10 @@ class _BrIt:
     def __next__(s): return s.f()
     def __reduce__(s): return s.r()
     def __setstate__(s, state): return _d.setstate(s.b, state)
+class _BrRed:
+    __slots__ = ('r', 'b')
+    def __init__(s, r, b): s.r = r; s.b = b
+    def __reduce__(s): return s.r()
 def _pyclass(mod, imports, src, name, file):
     m = _s.modules.get(mod) if mod == '__main__' else _d.mods.get(mod)
     if m is None:
@@ -179,6 +188,15 @@ def _install_warn(site):
     _w._showwarnmsg = _showwarnmsg
 _d.install_warn = _install_warn
 _d.it = _BrIt
+def _buf(o):
+    try:
+        m = memoryview(o)
+    except TypeError:
+        return None
+    with m:
+        return m.tobytes()
+_d.buf = _buf
+_d.red = _BrRed
 # The program's own `pickle` module: CPython's, except that a pickle naming an itertools class loads as the
 # program's itertools iterator (as pickles the program makes do), not CPython's, whose __setstate__ warns from C
 # code with no frame to name. Libraries keep CPython's pickle.
@@ -215,6 +233,28 @@ _d.pyclass = _pyclass
 _d._nt = _nt
 _d.atexit = _atexit
 _d.contains = lambda a, b: b in a
+import collections.abc as _cabc
+_d.is_array = lambda x: type(x).__module__ == "array" and type(x).__name__ == "array"
+# A bytearray of the program goes to a library as a copy, its changes copied back (see pyd_args): only into the
+# C code of array, struct and zlib, which reads or writes the buffer and runs no Python code of its own. A class
+# with Python code in it (a library's subclass) does not count.
+def _native(t):
+    return t.__module__ in ("array", "_struct", "zlib") and not any(
+        isinstance(v, (_t.FunctionType, classmethod, staticmethod, property)) for c in t.__mro__ for v in vars(c).values())
+def _ba_ok(f):
+    if isinstance(f, type):
+        return _native(f)
+    if not isinstance(f, _t.BuiltinFunctionType):  # PyCMethod (array.extend) is a subclass
+        return False
+    s = getattr(f, "__self__", None)
+    if isinstance(s, _t.ModuleType):
+        return s.__name__ in ("array", "_struct", "zlib")
+    return _native(type(s))
+_d.ba_ok = _ba_ok
+_d.rc = _s.getrefcount
+_d.babytes = _b.bytes
+_d.cabc_inst = lambda n, x: _b.isinstance(x, getattr(_cabc, n))
+_d.cabc_sub = lambda n, x: _b.issubclass(x, getattr(_cabc, n))
 _d.op = lambda n, a, b: getattr(_o, n)(a, b)
 _d.un = lambda n, a: getattr(_o, n)(a)
 _d.mro = lambda t: [(c.__name__, c.__module__) for c in t.__mro__]
@@ -267,6 +307,9 @@ fn pyd_api() -> &'static ax_pyffi::Api {
         }
         unsafe { atexit(pyd_at_exit) };
         PY_DT.with(|h| h.set(Some(pyd_dt)));
+        BUF_BRIDGE.with(|h| h.set(Some(pyd_buf)));
+        PY_BUILTIN.with(|h| h.set(Some(pyd_builtin)));
+        ABC_BRIDGE.with(|h| h.set(Some(pyd_abc)));
         Ok(a)
     }) {
         Ok(a) => a,
@@ -464,6 +507,34 @@ unsafe fn pyd_text(p: P) -> Result<String, E> {
     Ok(String::from_utf8_lossy(std::slice::from_raw_parts(c as *const u8, n as usize)).into_owned())
 }
 
+// A str for CPython: UTF-8 text, or for a str with lone surrogates its code points (PyUnicode_4BYTE_KIND).
+unsafe fn pyd_s_obj(x: &S) -> P {
+    match x.lone() {
+        None => pyd_str_obj(x.text()),
+        Some(cps) => (pyd_api().UniFromKind)(4, cps.as_ptr() as *const std::ffi::c_void, cps.len() as isize),
+    }
+}
+
+// A CPython str as the program's str: a str with lone surrogates has no UTF-8 form (AsUTF8 raises), so it is read
+// as its code points instead.
+unsafe fn pyd_s(p: P) -> R {
+    let a = pyd_api();
+    let mut n: isize = 0;
+    let c = (a.UniAs)(p, &mut n);
+    if !c.is_null() {
+        return Ok(st(String::from_utf8_lossy(std::slice::from_raw_parts(c as *const u8, n as usize)).into_owned()));
+    }
+    (a.ErrClear)();
+    let len = (a.UniLen)(p);
+    let u = (a.UniUcs4)(p);
+    if u.is_null() || len < 0 {
+        return Err(pyd_err());
+    }
+    let v = std::slice::from_raw_parts(u, len as usize).to_vec();
+    (a.MemFree)(u as *mut std::ffi::c_void);
+    Ok(st_cps(v))
+}
+
 // A function of _brevi_dyn called with borrowed arguments; its result as the program's value (copied).
 unsafe fn pyd_helper(name: &str, args: &[P]) -> R {
     let a = pyd_api();
@@ -608,7 +679,7 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
     let tt = (a.Type)(t);
     (a.DecRef)(tt);
     if tt == t {
-        if let Some(c) = pyd_builtin_exc(p) {
+        if let Some(c) = pyd_builtin_exc(p).or_else(|| pyd_types_class(p)) {
             return done(V::Class(c));
         }
     }
@@ -628,10 +699,14 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
         let f = (a.FloatAs)(p);
         return done(V::Float(f));
     }
+    if t == a.TComplex {
+        let (re, im) = ((a.ComplexReal)(p), (a.ComplexImag)(p));
+        return done(cplx(re, im));
+    }
     if t == a.TUni {
-        let s = pyd_text(p);
+        let s = pyd_s(p);
         (a.DecRef)(p);
-        return Ok(st(s?));
+        return s;
     }
     if t == a.TBytes {
         let (mut b, mut n): (*mut c_char, isize) = (std::ptr::null_mut(), 0);
@@ -716,7 +791,7 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
         (a.DecRef)(p);
         return made;
     }
-    if t == PYD_BRIT.load(std::sync::atomic::Ordering::Relaxed) {
+    if t == PYD_BRIT.load(std::sync::atomic::Ordering::Relaxed) || t == PYD_BRRED.load(std::sync::atomic::Ordering::Relaxed) {
         // an iterator of the program that went into Python (a library returned it, or types.coroutine)
         let b = (a.GetAttr)(p, c"b".as_ptr());
         if !b.is_null() {
@@ -730,6 +805,19 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
             (a.ErrClear)();
         }
     }
+    if t == PYD_REPAT.load(std::sync::atomic::Ordering::Relaxed) {
+        // CPython's compiled pattern: the program's re.compile(pattern, flags)
+        let part = |n: &std::ffi::CStr| -> R {
+            let x = (a.GetAttr)(p, n.as_ptr());
+            pyd_wrap(pyd_own(x)?, false)
+        };
+        let r = part(c"pattern").and_then(|pv| part(c"flags").map(|fv| (pv, fv))).and_then(|(pv, fv)| re_fn("compile", Args::p(vec![pv, fv])));
+        if let Ok(v) = &r {
+            from_memo_put(p, v);
+        }
+        (a.DecRef)(p);
+        return r;
+    }
     if t == a.TCFunction {
         if let Some(v) = pyd_callable_v(p) {
             (a.DecRef)(p);
@@ -742,7 +830,31 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
             return Ok(v);
         }
     }
+    // types.coroutine marks a generator function's code object as awaitable; the program's generators have no
+    // code object, so it cannot work on them (the build refuses `types.coroutine` it can see; this catches the rest)
+    if pyd_is_types_coroutine(p) {
+        (a.DecRef)(p);
+        return Err(unsupported("types.coroutine"));
+    }
     Ok(pyv(p, t == a.TList || t == a.TDict || t == a.TSet))
+}
+unsafe fn pyd_is_types_coroutine(p: P) -> bool {
+    thread_local! {
+        static TC: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+    let a = pyd_api();
+    let mut q = TC.with(|c| c.get());
+    if q == 0 {
+        let Ok(m) = pyd_own((a.Import)(c"types".as_ptr())) else { return false };
+        let f = (a.GetAttr)(m, c"coroutine".as_ptr());
+        (a.DecRef)(m);
+        let Ok(f) = pyd_own(f) else { return false };
+        // the module keeps it alive for the whole run, so the pointer stays this object's
+        (a.DecRef)(f);
+        q = f as usize;
+        TC.with(|c| c.set(q));
+    }
+    p as usize == q
 }
 
 // A list's iterator (or reverse iterator) of Python as the program's own iterator over the program's copy of
@@ -826,7 +938,7 @@ unsafe fn pyd_list_iter(p: P, t: P) -> Result<Option<V>, E> {
             return Ok(match pyd_wrap(seq, true)? {
                 V::Tuple(t) if kind == 2 => Some(new_iter(It::Tuple(t.clone(), i.min(t.len())), IterClass::Kind(ik))),
                 V::Str(x) if kind >= 4 => {
-                    let b = x.s.char_indices().nth(i).map_or(x.s.len(), |(b, _)| b);
+                    let b = x.text().char_indices().nth(i).map_or(x.text().len(), |(b, _)| b);
                     Some(new_iter(It::Str(x.clone(), b), IterClass::Kind(ik)))
                 }
                 _ => None,
@@ -981,8 +1093,8 @@ fn pickle_ref(a: Args) -> R {
             let m = f.attrs.borrow().iter().find(|(k, _)| *k == "__bv_mod__").map(|(_, x)| x.clone()).unwrap_or(V::None);
             let V::Str(m) = m else { return Err(unsupported("pickling a builtin function")) };
             let n = f.name.get();
-            return match modfn_cached(&m.s, n) {
-                Some(found) if is(&found, &v) => Ok(tup(vec![V::Int(0), st(m.s.to_string()), s(n)])),
+            return match modfn_cached(m.text(), n) {
+                Some(found) if is(&found, &v) => Ok(tup(vec![V::Int(0), st(m.text().to_string()), s(n)])),
                 _ => Err(unsupported("pickling a builtin function")),
             };
         }
@@ -992,7 +1104,7 @@ fn pickle_ref(a: Args) -> R {
     }
     let text = |x: R| -> Result<Option<String>, E> {
         Ok(match x? {
-            V::Str(t) => Some(t.s.to_string()),
+            V::Str(t) => Some(t.text().to_string()),
             _ => None,
         })
     };
@@ -1039,7 +1151,7 @@ fn pickle_rebuild(a: Args) -> R {
 }
 fn pickle_lookup_fn(a: Args) -> R {
     let t = |i: usize| match a.p.get(i) {
-        Some(V::Str(x)) => Ok(x.s.to_string()),
+        Some(V::Str(x)) => Ok(x.text().to_string()),
         _ => type_err("_glob() takes a module name and a qualified name".into()),
     };
     pickle_lookup(&t(0)?, &t(1)?)
@@ -1090,6 +1202,15 @@ unsafe extern "C" fn pyd_tramp(me: P, args: P, kw: P) -> P {
         return std::ptr::null_mut();
     }
     let f = (*f).clone();
+    // CPython's frames are under this call: the program's threads may not switch stacks until it returns
+    GT_CB.with(|c| c.set(c.get() + 1));
+    struct CbGuard;
+    impl Drop for CbGuard {
+        fn drop(&mut self) {
+            GT_CB.with(|c| c.set(c.get() - 1));
+        }
+    }
+    let _cb = CbGuard;
     // a program using warnings: where this library call reached the program (see _install_warn)
     let warn_on = PYD_WARN_ON.load(std::sync::atomic::Ordering::Relaxed);
     if warn_on {
@@ -1169,6 +1290,33 @@ unsafe fn pyd_builtin_exc(p: P) -> Option<Rc<Class>> {
     };
     same.then_some(c)
 }
+// The program's class for p when p is one of the `types` module's classes of values the program makes itself
+// (functions, generators, coroutines, async generators), so `type(f) is types.FunctionType` and
+// `coro.__class__ in {types.GeneratorType, types.CoroutineType}` hold as in CPython.
+unsafe fn pyd_types_class(p: P) -> Option<Rc<Class>> {
+    let a = pyd_api();
+    let m = pyd_own((a.Import)(c"types".as_ptr())).ok()?;
+    let mut found = None;
+    for (attr, which) in [(c"FunctionType", 0), (c"GeneratorType", 1), (c"CoroutineType", 2), (c"AsyncGeneratorType", 3)] {
+        let q = (a.GetAttr)(m, attr.as_ptr());
+        if q.is_null() {
+            (a.ErrClear)();
+            continue;
+        }
+        (a.DecRef)(q);
+        if q == p {
+            found = Some(which);
+            break;
+        }
+    }
+    (a.DecRef)(m);
+    match found? {
+        0 => Some(bclass("function")),
+        1 => it_class(ItKind::Generator).ok(),
+        2 => Some(ext_class("coroutine")),
+        _ => Some(ext_class("async_generator")),
+    }
+}
 unsafe fn pyd_builtins_attr(name: &str) -> Result<P, E> {
     let a = pyd_api();
     let b = pyd_own((a.Import)(c"builtins".as_ptr()))?;
@@ -1247,6 +1395,13 @@ fn iter_reduce(v: &V) -> R {
             out[0] = pyd_builtin(name)?;
         }
     }
+    // `reversed` is a class now (it_class): its reduce names that class, which pickles as CPython's
+    // reversed too, so a reversed list iterator loads as CPython's list_reverseiterator, as before
+    if let Some(V::Class(c)) = out.first() {
+        if Rc::ptr_eq(c, &it_class(ItKind::Reversed)?) {
+            out[0] = pyd_builtin("reversed")?;
+        }
+    }
     Ok(tup(out))
 }
 
@@ -1266,6 +1421,8 @@ fn memo_key(v: &V) -> Option<usize> {
         V::Dict(d) => Some(Rc::as_ptr(d) as *const u8 as usize),
         V::Set(x) => Some(Rc::as_ptr(x) as *const u8 as usize),
         V::FSet(x) => Some(Rc::as_ptr(x) as *const u8 as usize),
+        // a tee link: one Python object per pickle, so tees that share it share it again when loaded
+        V::Ext(_) => teedata_of(v).map(|l| Rc::as_ptr(&l) as *const u8 as usize),
         _ => None,
     }
 }
@@ -1320,7 +1477,7 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
             pyd_own((a.LongFromStr)(c.as_ptr(), std::ptr::null_mut(), 10))?
         }
         V::Float(f) => (a.FloatFrom)(*f),
-        V::Str(x) => pyd_own(pyd_str_obj(&x.s))?,
+        V::Str(x) => pyd_own(pyd_s_obj(x))?,
         V::Tuple(t) => {
             let p = (a.TupleNew)(t.len() as isize);
             for (i, x) in t.iter().enumerate() {
@@ -1447,12 +1604,31 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
                 (a.IncRef)(p.p);
                 return Ok(p.p);
             }
+            // an itertools._tee_dataobject (in a tee's __reduce__ state): pickled through its own __reduce__,
+            // and the program's own value again when it comes back
+            if let Some(l) = teedata_of(v) {
+                let red = func(sym("__reduce__"), move |_a: Args| teedata_reduce(&l));
+                let r = pyd_callable(&red)?;
+                let b = pyd_callable(v)?;
+                let o = pyd_mod_call("_brevi_dyn", "red", &[r, b]);
+                (a.DecRef)(r);
+                (a.DecRef)(b);
+                let o = o?;
+                to_memo_put(v, o);
+                let t = (a.Type)(o);
+                (a.DecRef)(t);
+                PYD_BRRED.store(t, std::sync::atomic::Ordering::Relaxed);
+                return Ok(o);
+            }
             // a bytearray would arrive as a copy, so the library's changes would not reach the program's
             if bytearray_of(v).is_some() || memview_of(v).is_some() {
                 return Err(unsupported("a bytearray or memoryview passed to a library CPython runs"));
             }
             if let Some(b) = bytes_of(v) {
                 return pyd_own((a.BytesFrom)(b.as_ptr() as *const c_char, b.len() as isize));
+            }
+            if let Some((re, im)) = cplx_of(v) {
+                return pyd_own((a.ComplexFrom)(re, im));
             }
             match x.tname().rsplit('.').next().unwrap_or("") {
                 "Decimal" => pyd_str_arg("decimal", "Decimal", &to_str(v)?)?,
@@ -1491,6 +1667,26 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
                     let r = pyd_mod_call("datetime", "timezone", &[off]);
                     (a.DecRef)(off);
                     r?
+                }
+                // a compiled pattern goes in as CPython's re.compile(pattern, flags), which is what it pickles as
+                "Pattern" if x.tname() == "re.Pattern" => {
+                    let pat = pyd_to(&getattr(v, "pattern")?)?;
+                    let fl = match pyd_to(&getattr(v, "flags")?) {
+                        Ok(f) => f,
+                        Err(e) => {
+                            (a.DecRef)(pat);
+                            return Err(e);
+                        }
+                    };
+                    let r = pyd_mod_call("re", "compile", &[pat, fl]);
+                    (a.DecRef)(pat);
+                    (a.DecRef)(fl);
+                    let o = r?;
+                    to_memo_put(v, o);
+                    let t = (a.Type)(o);
+                    (a.DecRef)(t);
+                    PYD_REPAT.store(t, std::sync::atomic::Ordering::Relaxed);
+                    o
                 }
                 t => return type_err(format!("brevi: a {t} value cannot be passed to a Python library in a dynamic build")),
             }
@@ -1566,6 +1762,9 @@ struct PydArgs {
     t: P,
     kw: P,
     back: Vec<(V, P, Vec<P>)>,
+    // a bytearray of the program handed over as a copy: (the program's bytearray, the copy, the copy's refcount
+    // once the arguments hold it); see pyd_ba_sync
+    ba: Vec<(V, P, i64)>,
 }
 impl Drop for PydArgs {
     fn drop(&mut self) {
@@ -1576,6 +1775,9 @@ impl Drop for PydArgs {
                 (a.DecRef)(self.kw);
             }
             for (_, p, _) in &self.back {
+                (a.DecRef)(*p);
+            }
+            for (_, p, _) in &self.ba {
                 (a.DecRef)(*p);
             }
         }
@@ -1600,11 +1802,108 @@ unsafe fn pyd_snapshot(p: P) -> Vec<P> {
     out
 }
 
-unsafe fn pyd_args(pre: &[V], args: &Args) -> Result<PydArgs, E> {
+// A bytearray goes to CPython as a copy, so a library's changes would not reach the program's bytearray, and
+// the program's later changes would not reach the library. Only for a call into the C code of array, struct or
+// zlib (_brevi_dyn.ba_ok) whose other arguments are plain values, so no code of the program runs while the copy
+// is out, a bytearray goes as a copy whose changes are copied back after the call (pyd_ba_sync), and the call
+// stops if the library kept a reference to the copy. Anything else stays refused (pyd_to_new).
+// A bytearray, or an instance of a bytearray subclass whose classes hold only plain values (no methods, so the
+// C code, which sees only the buffer, cannot tell it from its bytearray): the bytearray it shares its bytes with.
+fn ba_plain(x: &V) -> Option<V> {
+    let data = |v: &V| matches!(v, V::None | V::Bool(_) | V::Int(_) | V::Str(_)) || matches!(v, V::Tuple(t) if t.as_slice().iter().all(|e| matches!(e, V::Str(_))));
+    match x {
+        V::Ext(_) if bytearray_of(x).is_some() => Some(x.clone()),
+        V::Obj(o) if is_ba_sub(x) && o.cls.mro.borrow().iter().all(|c| c.module == "builtins" || c.attrs.borrow().iter().all(|(_, v)| data(v))) => ba_val(x),
+        _ => None,
+    }
+}
+
+unsafe fn pyd_ba_call(f: P, pre: &[V], args: &Args) -> bool {
+    let all = || pre.iter().chain(args.p.iter()).chain(args.k.iter().map(|(_, x)| x));
+    let bas: Vec<V> = all().filter_map(ba_plain).collect();
+    if bas.is_empty() {
+        return false;
+    }
+    let plain = |x: &V| matches!(x, V::None | V::Bool(_) | V::Int(_) | V::Big(_) | V::Float(_) | V::Str(_)) || is_bytes_v(x) || ba_plain(x).is_some();
+    if !all().all(plain) {
+        return false;
+    }
+    // the same bytes twice would go as two copies
+    let ds: Vec<_> = bas.iter().map(|b| bytearray_of(b).unwrap().d.clone()).collect();
+    if ds.iter().enumerate().any(|(i, d)| ds[..i].iter().any(|e| Rc::ptr_eq(d, e))) {
+        return false;
+    }
+    matches!(pyd_helper("ba_ok", &[f]), Ok(V::Bool(true)))
+}
+
+unsafe fn pyd_ba_copy(x: &V, out: &mut Vec<(V, P, i64)>) -> Result<P, E> {
+    let a = pyd_api();
+    let x = &ba_plain(x).unwrap();
+    let b = bytearray_of(x).unwrap().d.borrow().clone();
+    let bs = pyd_own((a.BytesFrom)(b.as_ptr() as *const c_char, b.len() as isize))?;
+    let k = pyd_builtins_attr("bytearray");
+    let k = match k {
+        Ok(k) => k,
+        Err(e) => {
+            (a.DecRef)(bs);
+            return Err(e);
+        }
+    };
+    let p = pyd_call_raw(k, &[bs]);
+    (a.DecRef)(k);
+    (a.DecRef)(bs);
+    let p = p?;
+    (a.IncRef)(p); // one for the arguments, one held in PydArgs.ba
+    out.push((x.clone(), p, 0));
+    Ok(p)
+}
+
+unsafe fn pyd_refcount(p: P) -> Result<i64, E> {
+    match pyd_helper("rc", &[p])? {
+        V::Int(n) => Ok(n),
+        _ => Err(exc("SystemError", "refcount".into())),
+    }
+}
+
+// After a call that took bytearray copies: stop if the library still holds one (it would no longer be the
+// program's bytearray), else copy the library's changes back into the program's bytearray.
+unsafe fn pyd_ba_sync(args: &PydArgs) -> Result<(), E> {
+    for (v, p, rc) in &args.ba {
+        if pyd_refcount(*p)? != *rc {
+            return Err(unsupported("a bytearray that a library CPython runs keeps after the call"));
+        }
+        let nb = bytes_of(&pyd_helper("babytes", &[*p])?).unwrap_or_default();
+        let ba = bytearray_of(v).unwrap();
+        if *ba.d.borrow() == nb {
+            continue;
+        }
+        // CPython would raise BufferError resizing an exported bytearray; the copy was not exported
+        if ba.d.borrow().len() != nb.len() && ba.ex.get() > 0 {
+            return Err(unsupported("a library CPython runs resizing an exported bytearray"));
+        }
+        *ba.d.borrow_mut() = nb;
+    }
+    Ok(())
+}
+
+unsafe fn pyd_args(f: P, pre: &[V], args: &Args) -> Result<PydArgs, E> {
     let a = pyd_api();
     let n = pre.len() + args.p.len();
-    let mut out = PydArgs { t: (a.TupleNew)(n as isize), kw: std::ptr::null_mut(), back: vec![] };
+    let mut out = PydArgs { t: (a.TupleNew)(n as isize), kw: std::ptr::null_mut(), back: vec![], ba: vec![] };
+    let ba_call = pyd_ba_call(f, pre, args);
+    // the copies, released if building the arguments fails part way
+    struct Hold(Vec<(V, P, i64)>);
+    impl Drop for Hold {
+        fn drop(&mut self) {
+            self.0.iter().for_each(|(_, p, _)| unsafe { (pyd_api().DecRef)(*p) });
+        }
+    }
+    let mut hold = Hold(vec![]);
+    let ba = &mut hold.0;
     let mut one = |x: &V, back: &mut Vec<(V, P, Vec<P>)>| -> Result<P, E> {
+        if ba_call && ba_plain(x).is_some() {
+            return pyd_ba_copy(x, ba);
+        }
         let p = pyd_to(x)?;
         if matches!(x, V::List(_) | V::Dict(_)) {
             (a.IncRef)(p);
@@ -1628,6 +1927,11 @@ unsafe fn pyd_args(pre: &[V], args: &Args) -> Result<PydArgs, E> {
             (a.DecRef)(p);
         }
     }
+    // what each copy's refcount is while only the arguments and PydArgs hold it
+    for e in hold.0.iter_mut() {
+        e.2 = pyd_refcount(e.1)?;
+    }
+    out.ba = std::mem::take(&mut hold.0);
     Ok(out)
 }
 
@@ -1661,7 +1965,7 @@ unsafe fn pyd_invoke(f: P, pre: &[V], args: &Args, deep: bool) -> R {
     let a = pyd_api();
     out_flush();
     to_memo_enter();
-    let pa = pyd_args(pre, args);
+    let pa = pyd_args(f, pre, args);
     let r = match &pa {
         Ok(pa) => (a.Call)(f, pa.t, pa.kw),
         Err(_) => std::ptr::null_mut(),
@@ -1669,7 +1973,13 @@ unsafe fn pyd_invoke(f: P, pre: &[V], args: &Args, deep: bool) -> R {
     to_memo_exit();
     let pa = pa?;
     if r.is_null() {
-        return Err(pyd_err());
+        let e = pyd_err();
+        pyd_ba_sync(&pa)?;
+        return Err(e);
+    }
+    if let Err(e) = pyd_ba_sync(&pa) {
+        (a.DecRef)(r);
+        return Err(e);
     }
     pyd_write_back(&pa)?;
     pyd_wrap(r, deep)
@@ -1930,6 +2240,30 @@ impl Ext for PyV {
         })
     }
     fn cmp_value(&self, me: &V, op: &str, o: &V, right: bool) -> Option<R> {
+        // an array.array next to a bytearray: array's comparison answers NotImplemented and bytearray's compares
+        // the two buffers (CPython); the bytearray itself cannot cross to CPython (a copy would not be the object)
+        if let Some(theirs) = ba_val(o).and_then(|v| bytes_of(&v)) {
+            let is_arr = {
+                let _g = PydGil::take();
+                matches!(unsafe { pyd_helper("is_array", &[self.p]) }, Ok(V::Bool(true)))
+            };
+            if is_arr {
+                if let Some(mine) = pyd_buf(me) {
+                    let (l, r) = if right { (theirs, mine) } else { (mine, theirs) };
+                    let c = l.cmp(&r);
+                    use std::cmp::Ordering::*;
+                    return Some(Ok(V::Bool(match op {
+                        "==" => c == Equal,
+                        "!=" => c != Equal,
+                        "<" => c == Less,
+                        "<=" => c != Greater,
+                        ">" => c == Greater,
+                        ">=" => c != Less,
+                        _ => return self.binop(me, op, o, right),
+                    })));
+                }
+            }
+        }
         self.binop(me, op, o, right)
     }
     fn try_truth(&self) -> Option<Result<bool, E>> {
@@ -2189,6 +2523,29 @@ pub fn pyd_from(m: &str, n: &str) -> R {
     }
 }
 // datetime.<cls>.<meth>(*a) run by CPython, for a tzinfo the native datetime lacks (rt_ext.rs py_dt).
+// isinstance / issubclass of a library class or value against CPython's collections.abc class `name`
+// (ABC_BRIDGE in rt_typing.rs): a bool, or the exception CPython raised.
+pub fn pyd_abc(name: &str, v: &V, sub: bool) -> Option<Result<bool, E>> {
+    let p = pyv_of(v)?;
+    let _g = PydGil::take();
+    let n = unsafe { pyd_str_obj(name) };
+    let r = unsafe { pyd_helper(if sub { "cabc_sub" } else { "cabc_inst" }, &[n, p.p]) };
+    unsafe { (pyd_api().DecRef)(n) };
+    Some(match r {
+        Ok(V::Bool(b)) => Ok(b),
+        Ok(x) => truth(&x),
+        Err(e) => Err(e),
+    })
+}
+// The bytes of a library object's buffer (memoryview(o).tobytes() in CPython), or None when it has none.
+fn pyd_buf(v: &V) -> Option<Vec<u8>> {
+    let p = pyv_of(v)?;
+    let _g = PydGil::take();
+    match unsafe { pyd_helper("buf", &[p.p]) } {
+        Ok(b) => bytes_of(&b),
+        Err(_) => None,
+    }
+}
 fn pyd_dt(cls: &str, meth: &str, a: Args) -> R {
     let c = pyd_from("datetime", cls)?;
     let f = if meth.is_empty() { c } else { getattr(&c, meth)? };

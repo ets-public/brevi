@@ -1,0 +1,77 @@
+G[int] ok
+G[int] ok
+G[int,str] TypeError Too many arguments for <class '__main__.G'>; actual 2, expected 1
+G[int,str] TypeError Too many arguments for <class '__main__.G'>; actual 2, expected 1
+G[()] TypeError Too few arguments for <class '__main__.G'>; actual 0, expected at least 1
+G[()] TypeError Too few arguments for <class '__main__.G'>; actual 0, expected at least 1
+H[int] TypeError Too few arguments for <class '__main__.H'>; actual 1, expected at least 2
+H[int] TypeError Too few arguments for <class '__main__.H'>; actual 1, expected at least 2
+H[int,str,str] TypeError Too many arguments for <class '__main__.H'>; actual 3, expected 2
+H[int,str,str] TypeError Too many arguments for <class '__main__.H'>; actual 3, expected 2
+B[int] TypeError <class '__main__.B'> is not a generic class
+B[int] TypeError <class '__main__.B'> is not a generic class
+P[int] ok
+P[int] ok
+Q[int] TypeError <class '__main__.Q'> is not a generic class
+Q[int] TypeError <class '__main__.Q'> is not a generic class
+G[1] ok
+G[1] ok
+G[(int,)] ok
+G[(int,)] ok
+H[(int,str)] ok
+H[(int,str)] ok
+D[int] ok
+D[int] ok
+E[int] TypeError type 'E' is not subscriptable
+E[int] TypeError type 'E' is not subscriptable
+collections.OrderedDict[str,int] ok
+collections.OrderedDict[str,int] ok
+collections.defaultdict[str,int] ok
+collections.defaultdict[str,int] ok
+collections.deque[int] ok
+collections.deque[int] ok
+collections.Counter[str] ok
+collections.Counter[str] ok
+re.Pattern[str] ok
+re.Pattern[str] ok
+type[int] ok
+type[int] ok
+collections.abc.Mapping[str,int] ok
+collections.abc.Mapping[str,int] ok
+collections.abc.Hashable[int] TypeError type 'Hashable' is not subscriptable
+collections.abc.Hashable[int] TypeError type 'Hashable' is not subscriptable
+collections.abc.Callable[[int],str] ok
+collections.abc.Callable[[int],str] ok
+collections.abc.Iterator[int] ok
+collections.abc.Iterator[int] ok
+Iterator[int] ok
+Iterator[int] ok
+Callable[..., int] ok
+Callable[..., int] ok
+Optional['G'] ok
+Optional['G'] ok
+Literal[1,2] ok
+Literal[1,2] ok
+int | None ok
+int | None ok
+G | None ok
+G | None ok
+list[int] | None ok
+list[int] | None ok
+frozenset[int] ok
+frozenset[int] ok
+object[int] TypeError type 'object' is not subscriptable
+object[int] TypeError type 'object' is not subscriptable
+str[int] TypeError type 'str' is not subscriptable
+str[int] TypeError type 'str' is not subscriptable
+bool[int] TypeError type 'bool' is not subscriptable
+bool[int] TypeError type 'bool' is not subscriptable
+Any ok
+Any ok
+Optional[Any] ok
+Optional[Any] ok
+dict[str, Any] ok
+dict[str, Any] ok
+NameError name 'undefined_name' is not defined
+class NameError name 'also_undefined' is not defined
+def NameError name 'Later' is not defined

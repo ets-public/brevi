@@ -1,0 +1,18 @@
+started [True, True, True] 3 False
+[(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2), (2, 0), (2, 1), (2, 2)] [False, False, False]
+main first
+still alive True
+slow done
+thread sees None
+main sees KeyError
+rlock again True
+other thread gets rlock True
+timed False False True
+got it after release True
+RuntimeError release unlocked lock
+RuntimeError threads can only be started once
+True False False
+quick 1
+after quick True True
+main end True
+non-daemon thread finishes before exit

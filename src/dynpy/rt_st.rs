@@ -860,7 +860,7 @@ fn st_int(v: &V) -> i64 {
 
 fn st_str(v: &V) -> String {
     match v {
-        V::Str(x) => x.s.clone(),
+        V::Str(x) => x.text().to_string(),
         _ => String::new(),
     }
 }

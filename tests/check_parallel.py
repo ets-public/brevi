@@ -11,7 +11,7 @@ a file's build), so jobs never share one. The HTTP and
 LLM mock servers are started once here (CHECK_SERVERS=1 tells check.sh not to start its own), so the per-file
 jobs that talk to them can run side by side.
 
-Env CHECK_ONLY=NAME,... runs only those sections.
+Env CHECK_ONLY=NAME,... runs only those sections; CHECK_SKIP=NAME,... leaves those out.
 usage: check_parallel.py [--update] [--jobs N] [--quiet] [--changed-since REF]
   --quiet               leave out the "ok" lines
   --changed-since REF   the fast tier for a branch (tools/ci_local.sh uses it): skip the sections for Brevi's
@@ -203,6 +203,9 @@ def main():
     only = [x for x in os.environ.get("CHECK_ONLY", "").split(",") if x]  # CHECK_ONLY=polars,jinja2: just those
     if only:
         secs = secs[:1] + [s for s in secs[1:] if s[0] in only]
+    leave = [x for x in os.environ.get("CHECK_SKIP", "").split(",") if x]  # CHECK_SKIP=mcp_sdk: run those elsewhere
+    if leave:
+        secs = secs[:1] + [s for s in secs[1:] if s[0] not in leave]
     pre = secs[0][2]
     # The preamble (BREVI=..., fail=0) goes in front of every job; it must not run checks itself.
     if any(re.match(r"(for|if|while) ", l) for l in pre):

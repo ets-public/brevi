@@ -8,9 +8,9 @@ links to the artifact it came from, with the date, the Brevi version and the har
 
 | Metric | Value | Version, date | Source |
 |---|---:|---|---|
-| Conformance | 93.1% (268 of 288) on main; stdlib slice 83.9% (540 of 644). At v0.27.0: 80.4% (250 of 311) and 45.1% (250 of 554) | main f6d97ed and v0.27.0, 11 Nov 2026 | `bench/conformance/report.md`, `bench/conformance/stdlib/report.md` |
-| Known-wrong results | 0 on main (8 tests, 16 test-mode pairs at v0.27.0); stdlib: 5 wrong on main | v0.27.0, 11 Nov 2026 | `compat/conformance_known_wrong/`, `compat/conformance_stdlib_known_wrong/` |
-| Crash or timeout | 0 of 311 tests (stdlib: 1) | v0.27.0, 11 Nov 2026 | `bench/conformance/report.md` |
+| Conformance | 100.0% (276 of 276; 34 refused by design left out) on main; stdlib slice 100.0% (634 of 634; 4 by design). At v0.27.0: 80.4% (250 of 311) and 45.1% (250 of 554) | main 434276a1 and v0.27.0, 12 Nov 2026 | `bench/conformance/report.md`, `bench/conformance/stdlib/report.md` |
+| Known-wrong results | 0 on main, core and stdlib (8 tests, 16 test-mode pairs at v0.27.0) | v0.27.0, 11 Nov 2026 | `compat/conformance_known_wrong/`, `compat/conformance_stdlib_known_wrong/` |
+| Crash or timeout | 0 on main, core and stdlib; 0 of 311 tests at v0.27.0 (stdlib: 1) | main and v0.27.0, 12 Nov 2026 | `bench/conformance/report.md` |
 | `check --fast` p50 / p95 | 22.0 / 24.4 ms on main (16.1 / 18.2 at v0.26.0; 160.3 / 174.4 at v0.27.0, when the fixture built dynamic) | main d91ca4b, 11 Nov 2026 | `bench/latency-results/2026-11-11-main-d91ca4b.json` |
 | `check` p50 / p95 | 94.4 / 107.4 ms on main (93.6 / 113.6 ms at v0.26.0) | main d91ca4b, 11 Nov 2026 | same |
 | `check`, unchanged, p50 | 2.3 ms | main d91ca4b, 11 Nov 2026 | same |

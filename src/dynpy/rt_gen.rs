@@ -19,16 +19,21 @@ unsafe extern "C" fn brevi_ctx_switch(_from: *mut *mut u8, _to: *mut u8) {
 unsafe extern "C" fn brevi_coro_stub() {
     core::arch::naked_asm!("mov rdi, r12", "and rsp, -16", "call {m}", "ud2", m = sym coro_main)
 }
-#[cfg(all(target_arch = "x86_64", not(windows)))]
+#[cfg(not(windows))]
 unsafe fn coro_init_stack(top: *mut u8, arg: *mut Coro) -> *mut u8 {
+    ctx_init_stack(top, arg as usize, brevi_coro_stub as usize)
+}
+// A fresh stack that starts in `stub` with `arg` in r12 (x86_64) or x19 (aarch64): generators and threads.
+#[cfg(all(target_arch = "x86_64", not(windows)))]
+unsafe fn ctx_init_stack(top: *mut u8, arg: usize, stub: usize) -> *mut u8 {
     // Popped by brevi_ctx_switch: r15 r14 r13 r12 rbx rbp, then the return address (the stub).
     let r = ((top as usize - 16) & !15) as *mut usize;
-    *r = brevi_coro_stub as usize;
+    *r = stub;
     let regs = r.sub(6);
     for k in 0..6 {
         *regs.add(k) = 0;
     }
-    *regs.add(3) = arg as usize; // r12
+    *regs.add(3) = arg; // r12
     regs as *mut u8
 }
 
@@ -54,13 +59,13 @@ unsafe extern "C" fn brevi_coro_stub() {
     core::arch::naked_asm!("mov x0, x19", "bl {m}", "brk #0", m = sym coro_main)
 }
 #[cfg(all(target_arch = "aarch64", not(windows)))]
-unsafe fn coro_init_stack(top: *mut u8, arg: *mut Coro) -> *mut u8 {
+unsafe fn ctx_init_stack(top: *mut u8, arg: usize, stub: usize) -> *mut u8 {
     let sp = (((top as usize) & !15) - 160) as *mut usize;
     for k in 0..20 {
         *sp.add(k) = 0;
     }
-    *sp = arg as usize; // x19
-    *sp.add(11) = brevi_coro_stub as usize; // x30
+    *sp = arg; // x19
+    *sp.add(11) = stub; // x30
     sp as *mut u8
 }
 
@@ -151,6 +156,9 @@ pub struct Coro {
     live_seq: u64,
     // where its own code was when it last yielded: a warning issued in it names its line, never the caller's
     wsite: Option<ReSite>,
+    // a coroutine's body (send() and its __await__() iterator): once finished, resuming or throwing in is
+    // RuntimeError, as CPython's coroutines are, not the generator's quiet end
+    pub awaitable: bool,
 }
 
 thread_local! {
@@ -230,7 +238,8 @@ pub fn close_live_gens() {
     for (c, i, _) in live {
         // a finally block closed (and possibly dropped) this generator while an earlier one was shutting down
         let still = CORO_LIVE.with(|l| l.borrow().get(i) == Some(&c));
-        if still {
+        // one running in a thread that is still waiting (a daemon) is left as CPython leaves that thread's frames
+        if still && !unsafe { (*c).running } {
             unsafe {
                 if let Err(E(e)) = (*c).close_py() {
                     gen_unraisable(&e);
@@ -300,6 +309,7 @@ impl Coro {
             live_idx: 0,
             live_seq: 0,
             wsite: None,
+            awaitable: false,
         })
     }
     // Runs the generator to its next yield: Some(value), or None once it has returned.
@@ -314,6 +324,9 @@ impl Coro {
     }
     fn resume_in(&mut self, sent: V) -> Result<Option<V>, E> {
         if self.result.is_some() {
+            if self.awaitable {
+                return Err(exc("RuntimeError", "cannot reuse already awaited coroutine".into()));
+            }
             return Ok(None);
         }
         if self.running {
@@ -407,6 +420,9 @@ impl Coro {
     }
     // throw(e): raised at the yield the generator is suspended at; one not started yet ends with it unrun.
     pub fn throw(&mut self, e: E) -> Result<Option<V>, E> {
+        if self.result.is_some() && self.awaitable && !self.running {
+            return Err(exc("RuntimeError", "cannot reuse already awaited coroutine".into()));
+        }
         if self.result.is_some() || !self.started {
             if !self.running {
                 self.result = Some(Ok(V::None));
@@ -416,6 +432,12 @@ impl Coro {
         }
         self.thrown = Some(e);
         self.resume(V::None)
+    }
+    pub fn is_done(&self) -> bool {
+        self.result.is_some()
+    }
+    pub fn is_running(&self) -> bool {
+        self.running
     }
     pub fn is_suspended(&self) -> bool {
         self.started && self.result.is_none() && !self.running
@@ -514,6 +536,9 @@ pub fn gen_yield(v: V) -> R {
 
 // `yield from it`: every item of it, then its return value.
 pub fn gen_yield_from(it: &V) -> R {
+    if matches!(it, V::Ext(e) if e.tname() == "coroutine") {
+        return Err(exc("TypeError", "cannot 'yield from' a coroutine object in a non-coroutine generator".into()));
+    }
     if let V::Iter(i) = it {
         if let Some(c) = coro_of(&i.it) {
             return delegate(&c);

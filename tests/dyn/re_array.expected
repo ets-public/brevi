@@ -1,0 +1,20 @@
+(6, 9) b'wor' b'w' (b'w',) True bytes
+[b'o', b'o'] [(b'l', b'o')]
+b'hell0 w0rld' (b'heLLo worLd', 3)
+[b'hello', b'world']
+[(2, 4), (9, 10)]
+True None
+(b'he', b'e')
+B True 0
+h True 2
+H True 2
+i True 6
+I True 6
+l True 14
+L True 14
+q True 14
+Q True 14
+f False 5
+d False 13
+TypeError cannot use a string pattern on a bytes-like object
+b'a\\.b' b''

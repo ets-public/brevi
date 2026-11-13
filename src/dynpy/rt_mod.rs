@@ -74,7 +74,7 @@ pub fn math_fn(name: &str, a: Args) -> R {
                 V::Ext(e) => match e.method(&x, &format!("__{name}__"), &mut Args::p(vec![])) {
                     Some(r) => r?,
                     None => fl_int({
-                        let f = to_float(&x)?;
+                        let f = to_float(&x).map_err(|_| exc("TypeError", format!("must be real number, not {}", tn(&x))))?;
                         match name {
                             "floor" => f.floor(),
                             "ceil" => f.ceil(),
@@ -879,7 +879,7 @@ fn wraps_updated() -> V {
 }
 fn wraps_name(x: &V) -> Result<Sym, E> {
     match x {
-        V::Str(s) => Ok(sym(&s.s)),
+        V::Str(s) => Ok(sym(&s.text())),
         _ => type_err(format!("attribute name must be string, not '{}'", tn(x))),
     }
 }
@@ -917,6 +917,34 @@ fn update_wrapper(wrapper: V, wrapped: V, assigned: V, updated: V) -> R {
     setattr(&wrapper, sym("__wrapped__"), wrapped)?;
     Ok(wrapper)
 }
+// collections._count_elements(mapping, iterable, /), as CPython's C helper (Modules/_collectionsmodule.c): the
+// iterable is taken first, then each element is counted with mapping.get(elem, 0) + 1 and mapping[elem] = ....
+// A builtin dict (dict, Counter, OrderedDict, defaultdict: none overrides get or __setitem__) is counted in place.
+fn count_elements(a: Args) -> R {
+    if !a.k.is_empty() {
+        return type_err("_collections._count_elements() takes no keyword arguments".into());
+    }
+    if a.p.len() != 2 {
+        return type_err(format!("_count_elements expected 2 arguments, got {}", a.p.len()));
+    }
+    let (mapping, iterable) = (&a.p[0], &a.p[1]);
+    let mut it = iter(iterable)?;
+    if let V::Dict(d) = mapping {
+        while let Some(x) = it.next()? {
+            let cur = Dict::get_cell(d, &x)?.unwrap_or(V::Int(0));
+            let n = binop(&cur, &V::Int(1), "+")?;
+            Dict::set_cell(d, x, n)?;
+        }
+        return Ok(V::None);
+    }
+    let get = getattr(mapping, "get")?;
+    while let Some(x) = it.next()? {
+        let cur = call(&get, Args::p(vec![x.clone(), V::Int(0)]))?;
+        let n = binop(&cur, &V::Int(1), "+")?;
+        setitem(mapping, &x, n)?;
+    }
+    Ok(V::None)
+}
 // ---------- functools.singledispatch / singledispatchmethod ----------
 // CPython 3.13's pure-Python implementation, over the dynamic runtime's values. The registry is a dict of
 // type keys (exposed read-only as its mappingproxy view); the dispatch cache keys by the concrete class, as
@@ -925,10 +953,44 @@ fn update_wrapper(wrapper: V, wrapped: V, assigned: V, updated: V) -> R {
 // annotation itself.
 struct SDState {
     registry: Rc<RefCell<Dict>>,
-    // keyed by the class's address; each entry holds its class, so the address stays that class's while cached
-    cache: RefCell<std::collections::HashMap<usize, (V, Option<V>)>>,
-    // the ABC cache token the cache was filled under
+    cache: SDCache,
+    // the ABC cache token the cache was filled under: none (u64::MAX) until an ABC is registered, as in CPython,
+    // whose dispatch() only compares tokens once register() has seen a class with __abstractmethods__
     token: Cell<u64>,
+}
+// The dispatch cache: CPython's weakref.WeakKeyDictionary() (keyed by the concrete class; each entry here holds
+// its class, so the address stays that class's while cached), or what weakref.WeakKeyDictionary was assigned
+// when singledispatch ran (functools reads the module attribute then): used as a mapping, as CPython uses it.
+enum SDCache {
+    Native(RefCell<std::collections::HashMap<usize, (V, Option<V>)>>),
+    Obj(V),
+}
+fn sd_new_state() -> Result<Rc<SDState>, E> {
+    let cache = match mod_assigned("weakref", "WeakKeyDictionary") {
+        None => SDCache::Native(RefCell::new(std::collections::HashMap::new())),
+        Some(Some(f)) => SDCache::Obj(call(&f, Args::p(vec![]))?),
+        Some(None) => return Err(exc("AttributeError", "module 'weakref' has no attribute 'WeakKeyDictionary'".into())),
+    };
+    Ok(Rc::new(SDState { registry: Rc::new(RefCell::new(Dict::new())), cache, token: Cell::new(u64::MAX) }))
+}
+fn sd_clear(st: &SDState) -> Result<(), E> {
+    match &st.cache {
+        SDCache::Native(c) => c.borrow_mut().clear(),
+        SDCache::Obj(o) => {
+            call_method(o, "clear", Args::p(vec![]))?;
+        }
+    }
+    Ok(())
+}
+// register()'s `if cache_token is None and hasattr(cls, '__abstractmethods__'): cache_token = get_cache_token()`
+fn sd_note_abc(st: &SDState, cls: &V) {
+    if st.token.get() == u64::MAX {
+        if let V::Class(k) = cls {
+            if k.lookup("__abstractmethods__").is_some() {
+                st.token.set(ABC_TOKEN.load(std::sync::atomic::Ordering::Relaxed));
+            }
+        }
+    }
 }
 fn sd_registry_view(st: &Rc<SDState>) -> V {
     V::View(Rc::new((V::Dict(st.registry.clone()), 3)))
@@ -1009,13 +1071,18 @@ fn sd_register_ann(st: &Rc<SDState>, f: V) -> R {
         _ => return Err(unsupported("a singledispatch annotation")),
     };
     let classes = sd_ann_classes(&arg, &desc, None)?;
+    // a union registers each of its classes, and is itself no ABC
+    let single = if classes.len() == 1 && !matches!(sd_desc_at(&desc, 0).map(|t| to_str(&t).unwrap_or_default()).as_deref(), Some("union")) { Some(classes[0].clone()) } else { None };
     {
         let mut reg = st.registry.borrow_mut();
         for c in classes {
             reg.set(c, f.clone())?;
         }
     }
-    st.cache.borrow_mut().clear();
+    if let Some(c) = single {
+        sd_note_abc(st, &c);
+    }
+    sd_clear(st)?;
     Ok(f)
 }
 // a union whose arguments are all classes (`int | str`, typing.Union[int, str]): its arguments, as CPython 3.13's
@@ -1041,7 +1108,7 @@ fn sd_register_type(st: &Rc<SDState>, cls: &V, func: V) -> R {
                 reg.set(a, func.clone())?;
             }
         }
-        st.cache.borrow_mut().clear();
+        sd_clear(st)?;
         return Ok(func);
     }
     match cls {
@@ -1050,6 +1117,8 @@ fn sd_register_type(st: &Rc<SDState>, cls: &V, func: V) -> R {
             return Err(unsupported(&format!("singledispatch on this ABC ({})", k.name)));
         }
         V::Class(_) => {}
+        // a typing value whose CPython repr the error would show and this runtime does not make
+        V::Ext(x) if x.any().downcast_ref::<TForm>().is_some() => return Err(unsupported("singledispatch on a typing value")),
         // a subscripted typing form, or a union with one in it: CPython's "not a class or union type"
         V::Ext(x) if matches!(x.tname(), "typing._GenericAlias" | "typing._UnionGenericAlias" | "types.UnionType") => {
             return Err(sd_invalid_first(cls));
@@ -1060,7 +1129,8 @@ fn sd_register_type(st: &Rc<SDState>, cls: &V, func: V) -> R {
         _ => return Err(sd_invalid_first(cls)),
     }
     st.registry.borrow_mut().set(cls.clone(), func.clone())?;
-    st.cache.borrow_mut().clear();
+    sd_note_abc(st, cls);
+    sd_clear(st)?;
     Ok(func)
 }
 fn sd_register(st: Rc<SDState>, mut a: Args) -> R {
@@ -1115,7 +1185,9 @@ fn sd_c3_merge(mut seqs: Vec<Vec<Rc<Class>>>) -> Result<Vec<Rc<Class>>, E> {
         }
     }
 }
-fn sd_c3_mro(cls: &Rc<Class>, abcs: &mut Vec<Rc<Class>>) -> Result<Vec<Rc<Class>>, E> {
+fn sd_c3_mro(cls: &Rc<Class>, abcs_in: &[Rc<Class>]) -> Result<Vec<Rc<Class>>, E> {
+    // CPython copies the list (`abcs = list(abcs)`): what one base's MRO removes never reaches its siblings
+    let mut abcs = abcs_in.to_vec();
     let bases = &cls.bases;
     let mut boundary = 0;
     for (i, b) in bases.iter().enumerate().rev() {
@@ -1141,11 +1213,16 @@ fn sd_c3_mro(cls: &Rc<Class>, abcs: &mut Vec<Rc<Class>>) -> Result<Vec<Rc<Class>
             }
         }
     }
-    abcs.retain(|x| !sd_has(&abstract_bases, x));
+    // abcs.remove(base): the first equal entry, once per abstract base
+    for b in &abstract_bases {
+        if let Some(i) = abcs.iter().position(|x| Rc::ptr_eq(x, b)) {
+            abcs.remove(i);
+        }
+    }
     let mut seqs = vec![vec![cls.clone()]];
     for group in [&explicit, &abstract_bases, &other] {
         for b in group.iter() {
-            seqs.push(sd_c3_mro(b, abcs)?);
+            seqs.push(sd_c3_mro(b, &abcs)?);
         }
     }
     seqs.push(explicit);
@@ -1185,28 +1262,90 @@ fn sd_compose_mro(cls: &Rc<Class>, types: Vec<Rc<Class>>) -> Result<Vec<Rc<Class
             }
         }
     }
-    sd_c3_mro(cls, &mut mro)
+    sd_c3_mro(cls, &mro)
+}
+// _find_impl's loop over the composed MRO: the first registered type, or CPython's "Ambiguous dispatch" error
+fn sd_find_match(c: &Rc<Class>, keys: Vec<Rc<Class>>, has: &dyn Fn(&Rc<Class>) -> Result<bool, E>) -> Result<Option<Rc<Class>>, E> {
+    let mro = sd_compose_mro(c, keys)?;
+    let cmro = c.mro.borrow().clone();
+    let mut found: Option<Rc<Class>> = None;
+    for t in &mro {
+        if let Some(m) = &found {
+            if has(t)? && !sd_has(&cmro, t) && !sd_has(&cmro, m) && !sd_issub(m, t)? {
+                return Err(exc("RuntimeError", format!("Ambiguous dispatch: {} or {}", repr(&V::Class(m.clone()))?, repr(&V::Class(t.clone()))?)));
+            }
+            break;
+        }
+        if has(t)? {
+            found = Some(t.clone());
+        }
+    }
+    Ok(found)
 }
 fn sd_find_impl(cls: &V, reg: &Rc<RefCell<Dict>>) -> Result<Option<V>, E> {
     let V::Class(c) = cls else { return Ok(None) };
     let items = reg.borrow().items();
     let keys: Vec<Rc<Class>> = items.iter().filter_map(|(k, _)| if let V::Class(k) = k { Some(k.clone()) } else { None }).collect();
-    let mro = sd_compose_mro(c, keys)?;
-    let cmro = c.mro.borrow().clone();
     let get = |t: &Rc<Class>| items.iter().find(|(k, _)| matches!(k, V::Class(x) if Rc::ptr_eq(x, t))).map(|(_, v)| v.clone());
-    let mut found: Option<Rc<Class>> = None;
-    for t in &mro {
-        if let Some(m) = &found {
-            if get(t).is_some() && !sd_has(&cmro, t) && !sd_has(&cmro, m) && !sd_issub(m, t)? {
-                return Err(exc("RuntimeError", format!("Ambiguous dispatch: {} or {}", repr(&V::Class(m.clone()))?, repr(&V::Class(t.clone()))?)));
-            }
-            break;
-        }
-        if get(t).is_some() {
-            found = Some(t.clone());
+    let found = sd_find_match(c, keys, &|t| Ok(get(t).is_some()))?;
+    Ok(found.and_then(|m| get(&m)))
+}
+// functools._c3_mro(cls, abcs=None), _compose_mro(cls, types) and _find_impl(cls, registry), called directly:
+// the same code singledispatch runs, with CPython's argument binding. `registry` may be any mapping.
+fn sd_bind_args(name: &'static str, params: &'static [Sym], dflt: &[V], a: Args) -> Result<Vec<V>, E> {
+    let sig = Sig { name: sym(name), params, npos: params.len(), npo: 0, star: false, kwstar: false };
+    bind(&sig, dflt, a)
+}
+fn sd_class_arg(v: &V, attr: &str) -> Result<Rc<Class>, E> {
+    match v {
+        V::Class(c) => Ok(c.clone()),
+        _ => {
+            getattr(v, attr)?;
+            Err(unsupported(&format!("functools helpers on a class-like {} object", tn(v))))
         }
     }
-    Ok(found.and_then(|m| get(&m)))
+}
+fn sd_abc_list(v: &V) -> Result<Vec<Rc<Class>>, E> {
+    if !truth(v)? {
+        return Ok(vec![]);
+    }
+    let mut out = vec![];
+    for x in to_vec(v)? {
+        match x {
+            V::Class(c) => out.push(c),
+            _ => return type_err("issubclass() arg 2 must be a class, a tuple of classes, or a union".into()),
+        }
+    }
+    Ok(out)
+}
+fn sd_class_list(v: Vec<Rc<Class>>) -> V {
+    list(v.into_iter().map(V::Class).collect())
+}
+pub fn functools_private(name: &str, a: Args) -> R {
+    match name {
+        "_c3_mro" => {
+            let v = sd_bind_args("_c3_mro", &["cls", "abcs"], &[V::Unbound, V::None], a)?;
+            let c = sd_class_arg(&v[0], "__bases__")?;
+            let abcs = sd_abc_list(&v[1])?;
+            Ok(sd_class_list(sd_c3_mro(&c, &abcs)?))
+        }
+        "_compose_mro" => {
+            let v = sd_bind_args("_compose_mro", &["cls", "types"], &[V::Unbound, V::Unbound], a)?;
+            let c = sd_class_arg(&v[0], "__mro__")?;
+            // is_related: only classes (a value with no __mro__ is skipped, as is a GenericAlias)
+            let types = to_vec(&v[1])?.into_iter().filter_map(|t| if let V::Class(k) = t { Some(k) } else { None }).collect();
+            Ok(sd_class_list(sd_compose_mro(&c, types)?))
+        }
+        "_find_impl" => {
+            let v = sd_bind_args("_find_impl", &["cls", "registry"], &[V::Unbound, V::Unbound], a)?;
+            let reg = v[1].clone();
+            let c = sd_class_arg(&v[0], "__mro__")?;
+            let keys = to_vec(&reg)?.into_iter().filter_map(|t| if let V::Class(k) = t { Some(k) } else { None }).collect();
+            let found = sd_find_match(&c, keys, &|t| contains(&reg, &V::Class(t.clone())))?;
+            call_method(&reg, "get", Args::p(vec![found.map(V::Class).unwrap_or(V::None)]))
+        }
+        _ => Err(unsupported(&format!("functools.{name}"))),
+    }
 }
 fn sd_key(cls: &V) -> usize {
     match cls {
@@ -1215,27 +1354,42 @@ fn sd_key(cls: &V) -> usize {
     }
 }
 fn sd_dispatch_impl(st: &Rc<SDState>, cls: &V) -> R {
-    // CPython drops the dispatch cache when abc.get_cache_token() moves (a register() on any ABC)
-    let token = ABC_TOKEN.load(std::sync::atomic::Ordering::Relaxed);
-    if st.token.get() != token {
-        st.token.set(token);
-        st.cache.borrow_mut().clear();
-    }
-    {
-        if let Some((_, v)) = st.cache.borrow().get(&sd_key(cls)) {
-            return Ok(v.clone().unwrap_or(V::None));
+    // CPython drops the dispatch cache when abc.get_cache_token() moves (a register() on any ABC), once an ABC
+    // has been registered with this function
+    if st.token.get() != u64::MAX {
+        let token = ABC_TOKEN.load(std::sync::atomic::Ordering::Relaxed);
+        if st.token.get() != token {
+            sd_clear(st)?;
+            st.token.set(token);
         }
+    }
+    match &st.cache {
+        SDCache::Native(c) => {
+            if let Some((_, v)) = c.borrow().get(&sd_key(cls)) {
+                return Ok(v.clone().unwrap_or(V::None));
+            }
+        }
+        SDCache::Obj(o) => match getitem(o, cls) {
+            Ok(v) => return Ok(v),
+            Err(E(e)) if is_exc(&e, "KeyError") => {}
+            Err(e) => return Err(e),
+        },
     }
     let found = match Dict::get_cell(&st.registry, cls)? {
         Some(v) => Some(v),
         None => sd_find_impl(cls, &st.registry)?,
     };
-    st.cache.borrow_mut().insert(sd_key(cls), (cls.clone(), found.clone()));
+    match &st.cache {
+        SDCache::Native(c) => {
+            c.borrow_mut().insert(sd_key(cls), (cls.clone(), found.clone()));
+        }
+        SDCache::Obj(o) => setitem(o, cls, found.clone().unwrap_or(V::None))?,
+    }
     Ok(found.unwrap_or(V::None))
 }
 fn sd_make_wrapper(st: &Rc<SDState>, f: V) -> R {
     let funcname = match getattr(&f, "__name__") {
-        Ok(V::Str(x)) => x.s.clone(),
+        Ok(V::Str(x)) => x.text().to_string(),
         _ => "singledispatch function".into(),
     };
     let stw = st.clone();
@@ -1260,10 +1414,14 @@ fn sd_make_wrapper(st: &Rc<SDState>, f: V) -> R {
                 _ => type_err(format!("dispatch() argument must be a class, not '{}'", tn(&c))),
             }
         });
-        let clear = builtin("_clear_cache", move |_a: Args| {
-            st3.cache.borrow_mut().clear();
-            Ok(V::None)
-        });
+        // wrapper._clear_cache = dispatch_cache.clear
+        let clear = match &st3.cache {
+            SDCache::Obj(o) => getattr(o, "clear")?,
+            SDCache::Native(_) => builtin("_clear_cache", move |_a: Args| {
+                sd_clear(&st3)?;
+                Ok(V::None)
+            }),
+        };
         wf.attrs.borrow_mut().push(("register", reg));
         wf.attrs.borrow_mut().push(("dispatch", disp));
         wf.attrs.borrow_mut().push(("_clear_cache", clear));
@@ -1272,7 +1430,7 @@ fn sd_make_wrapper(st: &Rc<SDState>, f: V) -> R {
     update_wrapper(w, f, wraps_assigned(), wraps_updated())
 }
 fn singledispatch_impl(f: V) -> R {
-    let st = Rc::new(SDState { registry: Rc::new(RefCell::new(Dict::new())), cache: RefCell::new(std::collections::HashMap::new()), token: Cell::new(u64::MAX) });
+    let st = sd_new_state()?;
     sd_make_wrapper(&st, f)
 }
 fn sd_is_abstract(v: &V) -> bool {
@@ -1294,7 +1452,7 @@ fn sd_bind_impl(implv: &V, obj: &V, cls: &V) -> R {
 }
 fn sd_method_get(md: &SDMethod, obj: V, cls: V) -> R {
     let funcname = match getattr(&md.func, "__name__") {
-        Ok(V::Str(x)) => x.s.clone(),
+        Ok(V::Str(x)) => x.text().to_string(),
         _ => "singledispatchmethod method".into(),
     };
     let st = md.st.clone();
@@ -1376,7 +1534,7 @@ fn singledispatchmethod_impl(f: V) -> R {
         let r = repr(&f).unwrap_or_else(|_| "<object>".into());
         return type_err(format!("{r} is not callable or a descriptor"));
     }
-    let st = Rc::new(SDState { registry: Rc::new(RefCell::new(Dict::new())), cache: RefCell::new(std::collections::HashMap::new()), token: Cell::new(u64::MAX) });
+    let st = sd_new_state()?;
     let dispatcher = sd_make_wrapper(&st, f.clone())?;
     Ok(V::Ext(ExtRc::new(SDMethod { st, dispatcher, func: f })))
 }
@@ -1481,6 +1639,7 @@ pub fn functools_fn(name: &str, mut a: Args) -> R {
             c
         }
         "singledispatch" => singledispatch_impl(a1(&a, name)?)?,
+        "_c3_mro" | "_compose_mro" | "_find_impl" => return functools_private(name, a),
         "singledispatchmethod" => singledispatchmethod_impl(a1(&a, name)?)?,
         _ => return Err(unsupported(&format!("functools.{name}"))),
     })
@@ -1805,52 +1964,44 @@ fn it_index_result(r: &V) -> Result<i64, E> {
     }
 }
 
-// itertools.tee: the tee iterators of one group share a TeeData holding the source and the values fetched
-// but not yet read by every live member (CPython frees a link once all tees are past it), and each keeps its
-// own absolute position. A re-entrant next() on any tee of a group raises RuntimeError, as CPython does.
-pub struct TeeData {
-    it: Rc<RefCell<It>>,
-    // the buffered values in blocks of TEE_BLOCK (as CPython's teedataobject links blocks of 57): vals[0][0] is
-    // the value at absolute position `base`. Blocks keep a long buffer from ever being copied to grow it, and
-    // a block is freed once every member is past it.
-    vals: RefCell<std::collections::VecDeque<Vec<V>>>,
-    base: Cell<usize>,
-    members: RefCell<Vec<std::rc::Weak<TeePos>>>,
-    active: Cell<bool>,
+// itertools.tee, as CPython's teeobject and teedataobject: the members of a group read one chain of links, each
+// holding up to LINKCELLS values fetched from the shared source. A member keeps its link and its index in it, and
+// moves to the next link (made then if need be) only when it reads past a full one, so a member that has read
+// exactly 57 values still holds the first link. A link nobody holds any more is freed (Rc), as CPython frees a
+// teedataobject. Pickling, copy.deepcopy and __setstate__ see the same links and indexes CPython's do, so their
+// DeprecationWarnings and results match. A re-entrant fetch of a link's next value raises RuntimeError.
+pub struct TeeLink {
+    // the source iterator (teedataobject.it), and its cell, stepped without borrowing anything shared
+    src: V,
+    cell: Rc<RefCell<It>>,
+    vals: RefCell<Vec<V>>,
+    next: RefCell<Option<Rc<TeeLink>>>,
+    running: Cell<bool>,
+    // the link's _tee_dataobject value while one is alive, so every reduce names the same object
+    me: RefCell<std::rc::Weak<Box<dyn Ext>>>,
 }
-pub struct TeePos {
-    data: Rc<TeeData>,
-    pos: Cell<usize>,
-}
-impl Drop for TeePos {
+impl Drop for TeeLink {
+    // a long chain is freed one link at a time, not by recursion (teedataobject_safe_decref)
     fn drop(&mut self) {
-        // a deleted tee no longer holds values back (test_tee_del_backward)
-        tee_trim(&self.data);
-    }
-}
-const TEE_BLOCK: usize = 64;
-fn tee_trim(d: &TeeData) {
-    let lowest = {
-        let mut m = d.members.borrow_mut();
-        m.retain(|w| w.strong_count() > 0);
-        m.iter().filter_map(|w| w.upgrade()).map(|p| p.pos.get()).min()
-    };
-    let Some(lowest) = lowest else { return };
-    if lowest < d.base.get() + TEE_BLOCK {
-        return;
-    }
-    let mut freed = vec![];
-    {
-        let mut vals = d.vals.borrow_mut();
-        while d.base.get() + TEE_BLOCK <= lowest && vals.front().is_some_and(|b| b.len() == TEE_BLOCK) {
-            freed.push(vals.pop_front().unwrap());
-            d.base.set(d.base.get() + TEE_BLOCK);
+        let mut nx = self.next.get_mut().take();
+        while let Some(l) = nx {
+            match Rc::try_unwrap(l) {
+                Ok(mut inner) => nx = inner.next.get_mut().take(),
+                Err(_) => break,
+            }
         }
     }
-    // values are dropped after the borrow ends: a __del__ may run
-    drop(freed);
 }
-// itertools._tee(iterable), CPython's tee_new: a copy of a tee, else a lone member over iter(iterable)
+pub struct TeePos {
+    link: RefCell<Rc<TeeLink>>,
+    index: Cell<usize>,
+}
+const LINKCELLS: usize = 57;
+fn tee_link(src: V) -> Result<Rc<TeeLink>, E> {
+    let cell = shared_input(&src)?;
+    Ok(Rc::new(TeeLink { src, cell, vals: RefCell::new(Vec::new()), next: RefCell::new(None), running: Cell::new(false), me: RefCell::new(std::rc::Weak::<Box<dyn Ext>>::new()) }))
+}
+// itertools._tee(iterable), CPython's tee_fromiterable: a copy of a tee, else a lone member over iter(iterable)
 pub fn tee_new(a: Args) -> R {
     if !a.k.is_empty() {
         return type_err("_tee() takes no keyword arguments".into());
@@ -1858,73 +2009,216 @@ pub fn tee_new(a: Args) -> R {
     if a.p.len() != 1 {
         return type_err(format!("_tee expected 1 argument, got {}", a.p.len()));
     }
-    let it = iter_v(&a.p[0])?;
-    if let Some((data, pos)) = tee_pos_of(&it) {
-        return Ok(tee_member(&data, pos));
-    }
-    let src = shared_input(&it)?;
-    let data = Rc::new(TeeData { it: src, vals: RefCell::new(Default::default()), base: Cell::new(0), members: RefCell::new(vec![]), active: Cell::new(false) });
-    Ok(tee_member(&data, 0))
+    tee_from(&a.p[0])
 }
-fn tee_member(data: &Rc<TeeData>, pos: usize) -> V {
-    let p = Rc::new(TeePos { data: data.clone(), pos: Cell::new(pos) });
-    data.members.borrow_mut().push(Rc::downgrade(&p));
+fn tee_from(iterable: &V) -> R {
+    let it = iter_v(iterable)?;
+    if let Some((link, index)) = tee_pos_of(&it) {
+        return Ok(tee_member(&link, index));
+    }
+    Ok(tee_member(&tee_link(it)?, 0))
+}
+fn tee_member(link: &Rc<TeeLink>, index: usize) -> V {
+    let p = Rc::new(TeePos { link: RefCell::new(link.clone()), index: Cell::new(index) });
     new_iter(It::Tee(p), IterClass::Kind(ItKind::ItTee))
 }
 fn tee_step(p: &Rc<TeePos>) -> Result<Option<V>, E> {
-    if p.data.active.get() {
-        return Err(exc("RuntimeError", "cannot re-enter the tee iterator".into()));
+    if p.index.get() >= LINKCELLS {
+        let cur = p.link.borrow().clone();
+        let nx = {
+            let mut n = cur.next.borrow_mut();
+            match &*n {
+                Some(l) => l.clone(),
+                None => {
+                    let l = Rc::new(TeeLink { src: cur.src.clone(), cell: cur.cell.clone(), vals: RefCell::new(Vec::new()), next: RefCell::new(None), running: Cell::new(false), me: RefCell::new(std::rc::Weak::<Box<dyn Ext>>::new()) });
+                    *n = Some(l.clone());
+                    l
+                }
+            }
+        };
+        // the old link (and its values, whose __del__ may run) is dropped after the borrow ends
+        let old = std::mem::replace(&mut *p.link.borrow_mut(), nx);
+        p.index.set(0);
+        drop(old);
+        drop(cur);
     }
-    p.data.active.set(true);
-    let r = tee_step_inner(p);
-    p.data.active.set(false);
-    r
-}
-fn tee_step_inner(p: &Rc<TeePos>) -> Result<Option<V>, E> {
-    let i = p.pos.get();
-    let d = &p.data;
-    let got = {
-        let vals = d.vals.borrow();
-        let k = i - d.base.get();
-        vals.get(k / TEE_BLOCK).and_then(|b| b.get(k % TEE_BLOCK)).cloned()
-    };
+    let link = p.link.borrow().clone();
+    let i = p.index.get();
+    let got = link.vals.borrow().get(i).cloned();
     let v = match got {
         Some(v) => v,
-        None => match iter_step(&d.it)? {
-            Some(v) => {
-                let mut vals = d.vals.borrow_mut();
-                match vals.back_mut() {
-                    Some(b) if b.len() < TEE_BLOCK => b.push(v.clone()),
-                    _ => {
-                        let mut b = Vec::with_capacity(TEE_BLOCK);
-                        b.push(v.clone());
-                        vals.push_back(b);
-                    }
-                }
-                v
+        None => {
+            if link.running.get() {
+                return Err(exc("RuntimeError", "cannot re-enter the tee iterator".into()));
             }
-            None => return Ok(None),
-        },
+            link.running.set(true);
+            let r = iter_step(&link.cell);
+            link.running.set(false);
+            match r? {
+                Some(v) => {
+                    link.vals.borrow_mut().push(v.clone());
+                    v
+                }
+                None => return Ok(None),
+            }
+        }
     };
-    p.pos.set(i + 1);
-    // a block can be freed only once the last member reaches its end, a multiple of TEE_BLOCK
-    if (i + 1) % TEE_BLOCK == 0 {
-        tee_trim(d);
-    }
+    p.index.set(i + 1);
     Ok(Some(v))
 }
-fn tee_pos_of(v: &V) -> Option<(Rc<TeeData>, usize)> {
+fn tee_pos_of(v: &V) -> Option<(Rc<TeeLink>, usize)> {
     let V::Iter(cell) = v else { return None };
     let Ok(it) = cell.it.try_borrow() else { return None };
     match &*it {
-        It::Tee(p) => Some((p.data.clone(), p.pos.get())),
+        It::Tee(p) => Some((p.link.borrow().clone(), p.index.get())),
         _ => None,
     }
 }
-// copy.copy/deepcopy of a tee iterator make a new tee of the group at the same position, as CPython's
-// tee.__copy__ does.
+// copy.copy of a tee iterator: a new member at the same link and index, as CPython's tee.__copy__
 fn tee_copy_iter(v: &V) -> Option<V> {
-    tee_pos_of(v).map(|(d, pos)| tee_member(&d, pos))
+    tee_pos_of(v).map(|(l, i)| tee_member(&l, i))
+}
+// itertools._tee_dataobject: one link, as a value (what tee.__reduce__ names in its state)
+pub struct TeeDataV(pub Rc<TeeLink>);
+impl Ext for TeeDataV {
+    fn tname(&self) -> &'static str {
+        "itertools._tee_dataobject"
+    }
+    fn repr(&self) -> String {
+        format!("<itertools._tee_dataobject object at {:#x}>", Rc::as_ptr(&self.0) as usize)
+    }
+    fn any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn hash(&self) -> Option<i64> {
+        Some((Rc::as_ptr(&self.0) as usize).rotate_right(4) as i64)
+    }
+    fn eq(&self, o: &V) -> Option<bool> {
+        Some(teedata_of(o).is_some_and(|l| Rc::ptr_eq(&l, &self.0)))
+    }
+    fn method(&self, _me: &V, n: &str, a: &mut Args) -> Option<R> {
+        match n {
+            "__reduce__" => Some(a.want("__reduce__", 0, 0).and_then(|_| teedata_reduce(&self.0))),
+            "__reduce_ex__" => Some(a.want("__reduce_ex__", 1, 1).and_then(|_| teedata_reduce(&self.0))),
+            _ => None,
+        }
+    }
+}
+pub fn teedata_v(l: &Rc<TeeLink>) -> V {
+    if let Some(x) = l.me.borrow().upgrade() {
+        return V::Ext(ExtRc(x));
+    }
+    let x = ExtRc::new(TeeDataV(l.clone()));
+    *l.me.borrow_mut() = Rc::downgrade(&x.0);
+    V::Ext(x)
+}
+pub fn teedata_of(v: &V) -> Option<Rc<TeeLink>> {
+    match v {
+        V::Ext(x) => x.any().downcast_ref::<TeeDataV>().map(|d| d.0.clone()),
+        _ => None,
+    }
+}
+pub fn teedata_class() -> Rc<Class> {
+    ext_class_mod("itertools", "_tee_dataobject")
+}
+// teedataobject.__reduce__: (type, (it, values read so far, next link or None)), with the DeprecationWarning
+pub fn teedata_reduce(l: &Rc<TeeLink>) -> R {
+    it_pickle_warn()?;
+    let vals = l.vals.borrow().clone();
+    let nx = l.next.borrow().as_ref().map_or(V::None, teedata_v);
+    Ok(tup(vec![V::Class(teedata_class()), tup(vec![l.src.clone(), list(vals), nx])]))
+}
+// itertools._tee_dataobject(it, values, next), as CPython's teedataobject.__new__
+pub fn teedata_new(a: Args) -> R {
+    if !a.k.is_empty() {
+        return type_err("_tee_dataobject() takes no keyword arguments".into());
+    }
+    if a.p.len() != 3 {
+        return type_err(format!("_tee_dataobject expected 3 arguments, got {}", a.p.len()));
+    }
+    // a list, a subclass of list, or a list that pickle (CPython) made while loading
+    let vals = match &a.p[1] {
+        V::List(values) => values.borrow().clone(),
+        V::Obj(o) if o.cls.base_bt() == BT::List => to_vec(&a.p[1])?,
+        x if tn(x) == "list" => to_vec(x)?,
+        x => return type_err(format!("_tee_dataobject() argument 2 must be list, not {}", tn(x))),
+    };
+    let link = tee_link(a.p[0].clone())?;
+    let invalid = || exc("ValueError", "Invalid arguments".into());
+    if vals.len() > LINKCELLS {
+        return Err(invalid());
+    }
+    let full = vals.len() == LINKCELLS;
+    *link.vals.borrow_mut() = vals;
+    match &a.p[2] {
+        V::None => {}
+        nx if full => match teedata_of(nx) {
+            Some(n) => *link.next.borrow_mut() = Some(n),
+            None => return Err(invalid()),
+        },
+        _ => return Err(invalid()),
+    }
+    Ok(teedata_v(&link))
+}
+// tee.__reduce__: (itertools._tee, ((),), (dataobj, index)), with the DeprecationWarning
+pub fn tee_reduce(p: &Rc<TeePos>) -> R {
+    it_pickle_warn()?;
+    let l = p.link.borrow().clone();
+    Ok(tup(vec![V::Class(it_class(ItKind::ItTee)?), tup(vec![tup(vec![])]), tup(vec![teedata_v(&l), V::Int(p.index.get() as i64)])]))
+}
+// tee.__setstate__((dataobj, index)), as CPython's tee_setstate (its warning comes first)
+pub fn tee_setstate(p: &Rc<TeePos>, st: &V) -> Result<(), E> {
+    it_pickle_warn()?;
+    let V::Tuple(t) = st else {
+        return type_err("state is not a tuple".into());
+    };
+    if t.len() != 2 {
+        return type_err(format!("function takes exactly 2 arguments ({} given)", t.len()));
+    }
+    let Some(link) = teedata_of(&t[0]) else {
+        return type_err(format!("argument 1 must be itertools._tee_dataobject, not {}", tn(&t[0])));
+    };
+    let index = match &t[1] {
+        V::Float(_) => return type_err("'float' object cannot be interpreted as an integer".into()),
+        x => match to_int(x)? {
+            V::Int(i) if (i32::MIN as i64..=i32::MAX as i64).contains(&i) => i,
+            V::Int(i) if i > 0 => return Err(exc("OverflowError", "signed integer is greater than maximum".into())),
+            V::Int(_) => return Err(exc("OverflowError", "signed integer is less than minimum".into())),
+            _ => return Err(exc("OverflowError", "Python int too large to convert to C int".into())),
+        },
+    };
+    if index < 0 || index as usize > LINKCELLS {
+        return val_err("Index out of range".into());
+    }
+    let old = std::mem::replace(&mut *p.link.borrow_mut(), link);
+    p.index.set(index as usize);
+    drop(old);
+    Ok(())
+}
+// The iterator kind whose class an itertools name is (tee is a function, as in CPython).
+pub fn itertools_kind(n: &str) -> Option<ItKind> {
+    Some(match n {
+        "count" => ItKind::ItCount,
+        "chain" => ItKind::ItChain,
+        "islice" => ItKind::ItIslice,
+        "repeat" => ItKind::ItRepeat,
+        "cycle" => ItKind::ItCycle,
+        "accumulate" => ItKind::ItAccumulate,
+        "zip_longest" => ItKind::ItZipLongest,
+        "starmap" => ItKind::ItStarmap,
+        "takewhile" => ItKind::ItTakewhile,
+        "dropwhile" => ItKind::ItDropwhile,
+        "pairwise" => ItKind::ItPairwise,
+        "compress" => ItKind::ItCompress,
+        "filterfalse" => ItKind::ItFilterfalse,
+        "groupby" => ItKind::ItGroupby,
+        "product" => ItKind::ItProduct,
+        "permutations" => ItKind::ItPermutations,
+        "combinations" => ItKind::ItCombinations,
+        "combinations_with_replacement" => ItKind::ItCombinationsWithReplacement,
+        "batched" => ItKind::ItBatched,
+        _ => return None,
+    })
 }
 // Binds an itertools constructor's arguments as CPython's argument clinic does: `names` are positional-or-keyword
 // up to a "*", keyword-only after it; too many positionals, an unknown keyword or one given twice raise TypeError.
@@ -2055,8 +2349,9 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             zip_longest_new(its, fill)
         }
         "repeat" => {
-            let x = a.p[0].clone();
-            match a.p.get(1).cloned().or(a.kw("times")) {
+            let [x, times] = it_sig(&mut a, name, &["object", "times"])?;
+            let x = x.ok_or_else(|| exc("TypeError", "repeat() missing required argument 'object' (pos 1)".into()))?;
+            match times {
                 Some(n) => new_iter(It::Repeat(x, Some(idx_of(&n)?.max(0))), IterClass::Kind(ItKind::ItRepeat)),
                 None => new_iter(It::Repeat(x, None), IterClass::Kind(ItKind::ItRepeat)),
             }
@@ -2147,17 +2442,13 @@ pub fn itertools_fn(name: &str, mut a: Args) -> R {
             if n == 0 {
                 return Ok(tup(vec![]));
             }
-            let mut out = vec![it.clone()];
-            if let Some((data, pos)) = tee_pos_of(&it) {
-                // CPython 3.13 makes every member new for a tee input (gh-123884), at its position
-                out = (0..n).map(|_| tee_member(&data, pos)).collect();
-            } else {
-                let src = shared_input(&it)?;
-                let data = Rc::new(TeeData { it: src, vals: RefCell::new(Default::default()), base: Cell::new(0), members: RefCell::new(vec![]), active: Cell::new(false) });
-                out.clear();
-                for _ in 0..n {
-                    out.push(tee_member(&data, 0));
-                }
+            // CPython 3.13: tee_fromiterable(it) (a tee input gives a new member at its position, gh-123884),
+            // then copies of that member
+            let first = tee_from(&it)?;
+            let (link, index) = tee_pos_of(&first).expect("a tee member");
+            let mut out = vec![first];
+            for _ in 1..n {
+                out.push(tee_member(&link, index));
             }
             tup(out)
         }
@@ -2240,8 +2531,22 @@ pub fn copy_fn(name: &str, a: Args) -> R {
     }
     shallow_copy(&x)
 }
+// copy.copy/deepcopy of an instance of a class built on an iterator type: CPython rebuilds it through the base's
+// __reduce__ (the class called again with the base's arguments, and no __dict__), which Brevi does not model
+fn iter_sub_copy_check(o: &Rc<Obj>) -> Result<(), E> {
+    match iter_base_of(&o.cls) {
+        Some(b) if matches!(o.inner(), Some(V::Iter(_))) => Err(unsupported(&format!("copying an instance of {}, a subclass of {}", o.cls.name, iter_tp_name(&b)))),
+        _ => Ok(()),
+    }
+}
+// coroutines and async generators (and their asend/athrow awaitables) have no reduce: copy and pickle refuse them
+fn async_unpicklable(t: &str) -> bool {
+    matches!(t, "coroutine" | "async_generator" | "async_generator_asend" | "async_generator_athrow")
+}
 pub fn shallow_copy(x: &V) -> R {
     Ok(match x {
+        // copy.copy and copy.deepcopy of a bytearray make a new one, with its own bytes
+        V::Ext(_) if bytearray_of(x).is_some() => bytearrayv(bytes_of(x).unwrap_or_default()),
         V::List(l) => list(l.borrow().clone()),
         V::Dict(d) => V::Dict(Rc::new(RefCell::new(d.borrow().copy()))),
         V::Set(s0) => V::Set(Rc::new(RefCell::new(s0.borrow().copy()))),
@@ -2250,6 +2555,7 @@ pub fn shallow_copy(x: &V) -> R {
             if let Some(f) = o.cls.lookup("__copy__") {
                 return call(&f, Args::p(vec![x.clone()]));
             }
+            iter_sub_copy_check(o)?;
             let n = Obj::new(o.cls.clone());
             let (attrs, dict) = {
                 let d = o.d.borrow();
@@ -2279,6 +2585,7 @@ pub fn shallow_copy(x: &V) -> R {
             Some(v) => v,
             None => iter_copy(x, None)?,
         },
+        V::Ext(e) if async_unpicklable(e.tname()) => return Err(exc("TypeError", format!("cannot pickle '{}' object", e.tname()))),
         _ => x.clone(),
     })
 }
@@ -2291,6 +2598,9 @@ fn ptr_of(x: &V) -> Option<usize> {
         V::Tuple(l) => Tup::as_ptr(l) as *const u8 as usize,
         V::Deque(l) => Rc::as_ptr(l) as *const u8 as usize,
         V::Iter(l) => Rc::as_ptr(l) as *const u8 as usize,
+        // a bytearray: its buffer (so [b, b] deep-copies to two references to one new bytearray)
+        V::Ext(_) if bytearray_of(x).is_some() => Rc::as_ptr(&bytearray_of(x).unwrap().d) as *const u8 as usize,
+        V::Ext(_) => return teedata_of(x).map(|l| Rc::as_ptr(&l) as *const u8 as usize),
         _ => return None,
     })
 }
@@ -2302,6 +2612,11 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
         }
     }
     Ok(match x {
+        V::Ext(_) if bytearray_of(x).is_some() => {
+            let n = bytearrayv(bytes_of(x).unwrap_or_default());
+            memo.push((p.unwrap(), n.clone()));
+            n
+        }
         V::List(l) => {
             let n = Rc::new(RefCell::new(vec![]));
             memo.push((p.unwrap(), V::List(n.clone())));
@@ -2355,6 +2670,7 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
             if let Some(f) = o.cls.lookup("__deepcopy__") {
                 return call(&f, Args::p(vec![x.clone(), dict_new()]));
             }
+            iter_sub_copy_check(o)?;
             if o.cls.base_bt() == BT::Exc {
                 return Ok(x.clone());
             }
@@ -2392,9 +2708,23 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
             }
             V::Obj(n)
         }
-        // CPython deep-copies a tee's buffer and its source iterator (the _tee_dataobject's __reduce__)
-        V::Iter(_) if tee_pos_of(x).is_some() => return Err(unsupported("copy.deepcopy of an itertools.tee iterator")),
+        // a tee's link (its _tee_dataobject): reduced and rebuilt as copy._reconstruct does, args deep-copied first
+        V::Ext(_) if teedata_of(x).is_some() => {
+            let rv = {
+                let _g = copy_line(Some(152));
+                teedata_reduce(&teedata_of(x).unwrap())?
+            };
+            let V::Tuple(t) = &rv else { unreachable!() };
+            let args = deepcopy(&t[1], memo)?;
+            let y = {
+                let _g = copy_line(None);
+                teedata_new(Args::p(to_vec(&args)?))?
+            };
+            memo.push((p.unwrap(), y.clone()));
+            y
+        }
         V::Iter(_) => iter_copy(x, Some(memo))?,
+        V::Ext(e) if async_unpicklable(e.tname()) => return Err(exc("TypeError", format!("cannot pickle '{}' object", e.tname()))),
         _ => x.clone(),
     })
 }
@@ -2455,7 +2785,12 @@ fn length_hint(mut a: Args) -> R {
                 (ListIter, It::List(l, i)) => left(l.borrow().len(), *i),
                 (TupleIter, It::Tuple(t, i)) => left(t.len(), *i),
                 (ListReverseIter, It::RevList(l, n)) => Ok(V::Int(if l.borrow().len() >= *n { *n as i64 } else { 0 })),
-                (ListIter | TupleIter | ListReverseIter | ItRepeat, It::Done) => Ok(V::Int(0)),
+                // CPython's dictiter_len: the items left, or 0 once the dict's size changed
+                (DictReverseKeys | DictReverseValues | DictReverseItems, It::RevDict(d, i, _, used, _)) => {
+                    let d = d.borrow();
+                    Ok(V::Int(if d.n as i64 == *used { d.ents[..*i].iter().filter(|e| e.is_some()).count() as i64 } else { 0 }))
+                }
+                (ListIter | TupleIter | ListReverseIter | ItRepeat | DictReverseKeys | DictReverseValues | DictReverseItems, It::Done) => Ok(V::Int(0)),
                 (Map | Filter | Zip | Enumerate | Generator | CallableIterator | ItCount | ItChain | ItIslice | ItCycle | ItAccumulate | ItZipLongest | ItStarmap | ItTakewhile
                 | ItDropwhile | ItPairwise | ItCompress | ItFilterfalse | ItGroupby | ItGrouper | ItProduct | ItPermutations | ItCombinations
                 | ItCombinationsWithReplacement | ItTee | ItBatched, _) => Ok(default),
@@ -2541,6 +2876,10 @@ pub fn operator_fn(name: &str, a: Args) -> R {
                 "neg" => return neg(&a1(&a, name)?),
                 "not_" => return not(&a1(&a, name)?),
                 "truth" => return Ok(V::Bool(truth(&a1(&a, name)?)?)),
+                "is_" | "is_not" => {
+                    a.want(name, 2, 2)?;
+                    return Ok(V::Bool(is(&a.p[0], &a.p[1]) == (name == "is_")));
+                }
                 "getitem" => {
                     a.want(name, 2, 2)?;
                     return getitem(&a.p[0], &a.p[1]);
@@ -2653,14 +2992,24 @@ pub fn stream_fn(stream: &str, name: &str, a: Args) -> R {
         ("sys.stdin", "fileno") => Ok(V::Int(0)),
         ("sys.stdout", "write") => {
             let t = match &a1(&a, "write")? {
-                V::Str(x) => x.s.clone(),
+                V::Str(x) if x.is_lone() => {
+                    out_write_bytes(&out_lone(x)?);
+                    return Ok(V::Int(x.nchars() as i64));
+                }
+                V::Str(x) => x.text().to_string(),
                 x => return type_err(format!("write() argument must be str, not {}", tn(x))),
             };
             out_write(&t);
             Ok(V::Int(t.chars().count() as i64))
         }
         ("sys.stderr", "write") => {
-            let t = to_str(&a1(&a, "write")?)?;
+            let t = match &a1(&a, "write")? {
+                V::Str(x) if x.is_lone() => {
+                    err_write(&err_text(x));
+                    return Ok(V::Int(x.nchars() as i64));
+                }
+                x => to_str(x)?,
+            };
             err_write(&t);
             Ok(V::Int(t.chars().count() as i64))
         }
@@ -2785,6 +3134,7 @@ pub fn module_call(m: &str, n: &str, a: Args) -> R {
         "heapq" => heapq_fn(n, a),
         "bisect" => bisect_fn(n, a),
         "functools" => functools_fn(n, a),
+        "re._compiler" => re_compiler_fn(n, a),
         "itertools" => itertools_fn(n, a),
         "copy" => copy_fn(n, a),
         "operator" => operator_fn(n, a),
@@ -2796,6 +3146,7 @@ pub fn module_call(m: &str, n: &str, a: Args) -> R {
             "deque" => col_deque(a),
             "OrderedDict" => instantiate(&bclass("OrderedDict"), a),
             "namedtuple" => namedtuple(a),
+            "_count_elements" => count_elements(a),
             _ => Err(unsupported(&format!("collections.{n}"))),
         },
         "string" => Err(unsupported(&format!("string.{n}"))),
@@ -2821,7 +3172,7 @@ pub fn module_call(m: &str, n: &str, a: Args) -> R {
                 if secs < 0.0 {
                     return Err(exc("ValueError", "sleep length must be non-negative".into()));
                 }
-                std::thread::sleep(std::time::Duration::from_secs_f64(secs.min(1e9)));
+                gt_sleep(secs)?;
                 Ok(V::None)
             }
             "gmtime" => time_gmtime(a),
@@ -2918,7 +3269,7 @@ fn sys_flags() -> V {
         }
         let c = Class::new("flags", "sys", vec![bclass("object")], BT::Other);
         c.set("__getattr__", func("__getattr__", |a: Args| {
-            let n = match a.p.get(1) { Some(V::Str(n)) => n.s.clone(), _ => String::new() };
+            let n = match a.p.get(1) { Some(V::Str(n)) => n.text().to_string(), _ => String::new() };
             Err(unsupported(&format!("sys.flags.{n}")))
         }));
         for m in ["__repr__", "__len__", "__iter__", "__getitem__", "__eq__", "__hash__"] {
@@ -2935,7 +3286,30 @@ fn sys_flags() -> V {
         V::Obj(o)
     })
 }
+// Assignment to a builtin module's attribute, for the names whose only native readers follow it as CPython's do:
+// weakref.WeakKeyDictionary (functools.singledispatch reads it when it runs). Some(None) is a deleted name.
+pub fn mod_assignable(m: &str, n: &str) -> bool {
+    matches!((m, n), ("weakref", "WeakKeyDictionary"))
+}
+thread_local! {
+    static MOD_ASSIGNED: RefCell<Vec<(&'static str, String, Option<V>)>> = const { RefCell::new(Vec::new()) };
+}
+pub fn mod_assigned(m: &str, n: &str) -> Option<Option<V>> {
+    MOD_ASSIGNED.with(|t| t.borrow().iter().find(|(a, b, _)| *a == m && *b == n).map(|(_, _, v)| v.clone()))
+}
+pub fn mod_assign(m: &'static str, n: &str, v: Option<V>) {
+    MOD_ASSIGNED.with(|t| {
+        let mut t = t.borrow_mut();
+        t.retain(|(a, b, _)| !(*a == m && *b == n));
+        t.push((m, n.to_string(), v));
+    });
+}
 pub fn module_attr(m: &'static str, name: &str) -> R {
+    if mod_assignable(m, name) {
+        if let Some(v) = mod_assigned(m, name) {
+            return v.ok_or_else(|| exc("AttributeError", format!("module '{m}' has no attribute '{name}'")));
+        }
+    }
     let v = match (m, name) {
         ("sys", "stdin") => V::Module(&ModName("sys.stdin")),
         ("sys", "stdout") => stdout_set().unwrap_or(V::Module(&ModName("sys.stdout"))),
@@ -2964,6 +3338,11 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         ("math", "nan") => V::Float(math_nan()),
         ("collections", "defaultdict" | "Counter" | "OrderedDict" | "deque") => V::Class(bclass(name)),
         ("collections", "abc") => V::Module(&ModName("collections.abc")),
+        // submodules the package imports, so CPython has them as attributes after `import re` (read at run time
+        // when the name is not a static module alias, as after `import re` then `import re._compiler`)
+        ("re", "_constants") => V::Module(&ModName("re._constants")),
+        ("re", "_compiler") => V::Module(&ModName("re._compiler")),
+        ("json", "decoder") => V::Module(&ModName("json.decoder")),
         ("string", "ascii_lowercase") => s("abcdefghijklmnopqrstuvwxyz"),
         ("string", "ascii_uppercase") => s("ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
         ("string", "ascii_letters") => s("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"),
@@ -2974,20 +3353,14 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         ("string", "whitespace") => s(" \t\n\r\x0b\x0c"),
         ("string", "printable") => s("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~ \t\n\r\x0b\x0c"),
         ("typing" | "typing_extensions" | "collections.abc", _) => typing_attr(name),
-        ("itertools", "chain") => {
-            let f = modfn("itertools", "chain");
-            if let V::Func(ff) = &f {
-                if !ff.attrs.borrow().iter().any(|(k, _)| *k == "from_iterable") {
-                    ff.attrs.borrow_mut().push(("from_iterable", modfn("itertools", "chain.from_iterable")));
-                }
-            }
-            f
-        }
+        // itertools' iterator types are classes, as in CPython: type(chain()) is chain, isinstance, subclassing
+        ("itertools", n) if itertools_kind(n).is_some() => V::Class(it_class(itertools_kind(n).unwrap())?),
         ("dataclasses", "MISSING" | "KW_ONLY" | "InitVar" | "Field" | "FrozenInstanceError") => dataclass_attr(name).unwrap(),
         ("abc", "ABC") => V::Class(abc_class()),
         ("abc", "ABCMeta") => V::Class(abc_meta_class()),
-        ("re._constants", "MAXREPEAT") => V::Int(0xFFFF_FFFE),
-        ("re._constants", "MAXGROUPS") => V::Int(0x3FFF_FFFF),
+        // CPython's re._compiler imports both from re._constants: the same objects
+        ("re._constants" | "re._compiler", "MAXREPEAT") => re_maxrepeat(),
+        ("re._constants" | "re._compiler", "MAXGROUPS") => V::Int(0x3FFF_FFFF),
         ("functools", "cached_property") => V::Class(cached_property_class()),
         ("functools", "partialmethod") => V::Class(partialmethod_class()),
         ("functools", "partial") => V::Class(partial_class()),
@@ -3317,7 +3690,7 @@ fn kw_syms(v: &V) -> Result<Vec<(Sym, V)>, E> {
     let mut out = vec![];
     for (k, v) in dict_items_of(v)? {
         match &k {
-            V::Str(t) => out.push((sym(&t.s), v)),
+            V::Str(t) => out.push((sym(&t.text()), v)),
             _ => return type_err("keywords must be strings".into()),
         }
     }
@@ -3543,7 +3916,7 @@ fn namedtuple_with(mut a: Args, check_name: bool) -> R {
     a.want("namedtuple", 2, 2)?;
     let name = sym(&to_str(&a.p[0])?);
     let mut fields: Vec<Sym> = match &a.p[1] {
-        V::Str(x) => x.s.replace(',', " ").split_whitespace().map(sym).collect(),
+        V::Str(x) => x.text().replace(',', " ").split_whitespace().map(sym).collect(),
         x => {
             let mut out = vec![];
             for f in to_vec(x)? {
@@ -3976,13 +4349,13 @@ fn fget(f: &V, k: &str) -> V {
 }
 fn field_name(f: &V) -> Sym {
     match fget(f, "name") {
-        V::Str(x) => sym(&x.s),
+        V::Str(x) => sym(&x.text()),
         _ => "",
     }
 }
 fn field_kind(f: &V) -> String {
     match fget(f, "_field_type") {
-        V::Str(x) => x.s.clone(),
+        V::Str(x) => x.text().to_string(),
         _ => String::new(),
     }
 }
@@ -4547,6 +4920,7 @@ pub fn run_main(f: fn() -> Result<(), E>) {
                 }
             }
         };
+        gt_shutdown();
         atexit_run();
         unsafe { fin_exit(&*std::ptr::addr_of!(GL)) };
         close_live_gens();

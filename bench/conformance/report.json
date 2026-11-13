@@ -9,9 +9,9 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 271,
-"refused": 7,
-"by_design": 32,
+"matched": 276,
+"refused": 0,
+"by_design": 34,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
@@ -21,20 +21,20 @@
 "unstable": 7,
 "excluded": 40,
 "total": 357,
-"scored": 278,
+"scored": 276,
 "matched_through_cpython": 0,
 "matched_silent": 47,
-"coverage": 0.9748,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 224,
-"assert_coverage": 0.8058,
+"matched_asserting": 229,
+"assert_coverage": 0.8297,
 "matched_typed": 25,
-"typed_share": 0.0923
+"typed_share": 0.0906
 },
 "dyn": {
-"matched": 271,
-"refused": 7,
-"by_design": 32,
+"matched": 276,
+"refused": 0,
+"by_design": 34,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
@@ -44,13 +44,13 @@
 "unstable": 7,
 "excluded": 40,
 "total": 357,
-"scored": 278,
+"scored": 276,
 "matched_through_cpython": 0,
 "matched_silent": 47,
-"coverage": 0.9748,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 224,
-"assert_coverage": 0.8058,
+"matched_asserting": 229,
+"assert_coverage": 0.8297,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -58,9 +58,9 @@
 "files": {
 "test_grammar": {
 "normal": {
-"matched": 50,
-"refused": 5,
-"by_design": 24,
+"matched": 53,
+"refused": 0,
+"by_design": 26,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
@@ -70,20 +70,20 @@
 "unstable": 0,
 "excluded": 0,
 "total": 79,
-"scored": 55,
+"scored": 53,
 "matched_through_cpython": 0,
 "matched_silent": 25,
-"coverage": 0.9091,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 25,
-"assert_coverage": 0.4545,
+"matched_asserting": 28,
+"assert_coverage": 0.5283,
 "matched_typed": 17,
-"typed_share": 0.34
+"typed_share": 0.3208
 },
 "dyn": {
-"matched": 50,
-"refused": 5,
-"by_design": 24,
+"matched": 53,
+"refused": 0,
+"by_design": 26,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
@@ -93,13 +93,13 @@
 "unstable": 0,
 "excluded": 0,
 "total": 79,
-"scored": 55,
+"scored": 53,
 "matched_through_cpython": 0,
 "matched_silent": 25,
-"coverage": 0.9091,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 25,
-"assert_coverage": 0.4545,
+"matched_asserting": 28,
+"assert_coverage": 0.5283,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -154,8 +154,8 @@
 },
 "test_int": {
 "normal": {
-"matched": 29,
-"refused": 2,
+"matched": 31,
+"refused": 0,
 "by_design": 1,
 "string_model": 0,
 "cpython_private": 0,
@@ -169,16 +169,16 @@
 "scored": 31,
 "matched_through_cpython": 0,
 "matched_silent": 4,
-"coverage": 0.9355,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 25,
-"assert_coverage": 0.8065,
+"matched_asserting": 27,
+"assert_coverage": 0.871,
 "matched_typed": 2,
-"typed_share": 0.069
+"typed_share": 0.0645
 },
 "dyn": {
-"matched": 29,
-"refused": 2,
+"matched": 31,
+"refused": 0,
 "by_design": 1,
 "string_model": 0,
 "cpython_private": 0,
@@ -192,10 +192,10 @@
 "scored": 31,
 "matched_through_cpython": 0,
 "matched_silent": 4,
-"coverage": 0.9355,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 25,
-"assert_coverage": 0.8065,
+"matched_asserting": 27,
+"assert_coverage": 0.871,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -299,13 +299,13 @@
 },
 "paths": {
 "normal": {
-"dynamic": 246,
-"refused": 39,
+"dynamic": 251,
+"refused": 34,
 "typed": 25
 },
 "dyn": {
-"dynamic": 271,
-"refused": 39
+"dynamic": 276,
+"refused": 34
 }
 },
 "tests": [
@@ -874,12 +874,12 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`f` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 215: typing: .__annotations__ needs CPython's typing)"
+"category": "by_design",
+"detail": "`f` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 7: compile() is not supported in dynamic builds)"
 },
 "dyn": {
-"category": "refused",
-"detail": "typing: .__annotations__ needs CPython's typing"
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
 }
 }
 },
@@ -1210,12 +1210,12 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected a name, found 1"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "typing: .__annotations__ of a class annotated with a type expression (such as int | None or list[int]) needs CPython's typing"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1266,12 +1266,12 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found CMeta"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "metaclasses are not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1280,12 +1280,12 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "a used file holds only fn, type, enum and test items and NAME = value lines"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "typing: a subscripted typing form used as a value needs CPython's typing"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -1308,12 +1308,12 @@
 "file": "test_grammar",
 "modes": {
 "normal": {
-"category": "refused",
+"category": "by_design",
 "detail": "`ns` and a value kept elsewhere name the same list in Python, and `ns` is changed (by a function the proof does not follow) while a value kept elsewhere is still used; the typed build would change onl"
 },
 "dyn": {
-"category": "refused",
-"detail": "typing: `typing.Tuple` used as a value needs CPython's typing"
+"category": "by_design",
+"detail": "exec() is not supported in dynamic builds"
 }
 }
 },
@@ -1984,12 +1984,12 @@
 "file": "test_int",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected ')', found \"123\u0000\""
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "a lone surrogate (U+D800..U+DFFF) in a string literal is not supported"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -2166,12 +2166,12 @@
 "file": "test_int",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found CustomStr"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "a subclass of bytearray is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },

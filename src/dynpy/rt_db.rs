@@ -982,14 +982,14 @@ fn py_duck(v: &V) -> Result<DuckV, E> {
         V::Int(i) => DuckV::Int(*i),
         V::Big(_) => DuckV::Big(repr(v)?),
         V::Float(f) => DuckV::Float(*f),
-        V::Str(s) => DuckV::Str(s.s.clone()),
+        V::Str(s) => DuckV::Str(s.text().to_string()),
         V::List(l) => DuckV::List(l.borrow().iter().map(py_duck).collect::<Result<_, _>>()?),
         V::Tuple(t) => DuckV::List(t.iter().map(py_duck).collect::<Result<_, _>>()?),
         V::Dict(d) => {
             let mut kv = vec![];
             for (k, x) in d.borrow().items() {
                 match &k {
-                    V::Str(s) => kv.push((s.s.clone(), py_duck(&x)?)),
+                    V::Str(s) => kv.push((s.text().to_string(), py_duck(&x)?)),
                     _ => return Err(exc("NotImplementedError", "brevi: Brevi's duckdb binds dicts with str keys only".into())),
                 }
             }

@@ -1,0 +1,10 @@
+bytearray_iterator memory_iterator True
+'0.0'
+'0.0'
+'+0'
+'0.0e+00'
+'-1e-09'
+'0%'
+'zzzz-0.0'
+Negative zero coercion (z) not allowed in integer format specifier
+Negative zero coercion (z) not allowed in string format specifier

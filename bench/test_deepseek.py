@@ -7,6 +7,10 @@ from pathlib import Path
 B = Path(__file__).resolve().parent
 sys.path.insert(0, str(B))
 import deepseek, e2e  # noqa: E402
+from e2e import modelbox  # noqa: E402
+
+# Why tools/modelbox.py's box cannot run here (e.g. a non-root run, as on Adam's PC), or None.
+NO_BOX = modelbox.unavailable()
 
 FIZZ = (B / "solutions" / "sonnet-python" / "fizzbuzz.py").read_text()
 BROKEN = FIZZ.replace('"Fizz"', '"Fiz"')
@@ -78,6 +82,7 @@ class DeepSeekTest(unittest.TestCase):
         self.assertEqual([b.type for b in m.content], ["text"])
         self.assertEqual(deepseek.from_openai(reply(calls=[("check", {})], finish="length")).stop_reason, "max_tokens")
 
+    @unittest.skipIf(NO_BOX, f"e2e.solve runs the model's code in tools/modelbox.py's box: {NO_BOX}")
     def test_solve_end_to_end(self):
         """write a broken solution, check (fails), edit it, check (passes), stop: the e2e loop, logs and cost."""
         Fake.script = [

@@ -1,0 +1,4 @@
+str:'\ud800' str:'a\udc80b' list:['\ud800', 'ok']
+["'\\ud800\\udc80'", "'x\\udc80'", "'y\\ud800\\udc80'"] [2, 2, 3] True
+['\ud800', 1] [('\ud800', '\udc80'), ('filled', True)]
+'\ud800' [3]

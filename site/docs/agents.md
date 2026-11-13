@@ -18,7 +18,7 @@ The one piece of prompting advice that matters: **ask for the plain, direct solu
 
 Brevi's skill, MCP server, editor rules and llms.txt all carry this advice. The benchmark prompt uses this exact line:
 
-> Your program is compiled to native code, which runs plain loops over ints and lists several times faster than CPython (1.7x to 39.5x, median 8.5x, on our 12 compute benchmarks). Write the plain, direct solution; do not hand-optimise it for speed.
+> Your program is compiled to native code, which runs plain loops over ints and lists several times faster than CPython (1.6x to 37.9x, median 9.3x, on our 12 compute benchmarks). Write the plain, direct solution; do not hand-optimise it for speed.
 
 On four heavy tasks (Game of Life, knapsack, edit distance, Collatz chains), adding that line cut Sonnet's output tokens by half and Haiku's by over a quarter, and the total cost came to 0.58x (Sonnet) and 0.53x (Haiku) of the same models writing Python for CPython with no extra line. CPython has not yet been run with the same line, so this shows the line helps, not yet how much of it Brevi itself saves. Those runs used an earlier wording that said "10 to 50 times faster"; the line now gives the measured range. Every plain program ran natively within the 10-second limit, where CPython needed 29 to 59 seconds. On ordinary tasks the line makes no clear difference either way. Details in [Benchmarks](/docs/benchmarks#heavy-tasks-and-the-plain-solution-line).
 

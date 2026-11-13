@@ -1,0 +1,1 @@
+- `tools/conformance.py --candidates` measures 81 more CPython test files (`tools/conformance_candidates.json`) for planning which files to add next. It only writes a report: it refuses `--check`, `--raise-floor`, `--release-gate` and `--write-baseline`, and it never writes into `bench/conformance`. The published slices, floors and scores are unchanged.

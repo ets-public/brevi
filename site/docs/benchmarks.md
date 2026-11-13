@@ -98,7 +98,31 @@ Speed, best of 3 runs, in seconds:
 | String building | 2.36 | 1.07 | **0.82** | 1.82 | 2.14 |
 | Group records | 0.68 | 0.39 | **0.26** | 0.34 | 0.64 |
 
-Brevi's default build (what `brevi run` uses) is 1.7x to 39.5x faster than CPython on these 12 programs, median 8.5x; `--release` is 2.6x to 44.5x, median about 8.4x. Codon is faster on the numeric programs (spectral norm, n-body, sieve, LCS) and Brevi on objects, strings, sets and records; Brevi builds programs Codon cannot. Nuitka matches CPython's behaviour like Brevi and runs near CPython's speed overall, from about 2x faster (binary trees) to about 2x slower (n-body, likely a container effect) here. These 12 are compute-heavy programs, the kind a compiler helps most, and they build on Brevi's typed build; a program on the dynamic build runs much closer to CPython's speed. Measured 3 November 2026 on one 4-core Linux machine (Codon 0.20.6, Nuitka 4.3.4, CPython 3.13, rustc 1.97). The Codon and Nuitka times are from an earlier session on that machine than the Brevi and CPython times ([bench/compare](repo:bench/compare/README.md)), so compare them loosely.
+On these 3 November timings Brevi's default build (what `brevi run` uses) was 1.7x to 39.5x faster than CPython, median 8.5x; `--release` was 2.6x to 44.5x, median about 8.4x. The newer figures from 12 November, on a different machine, are in the next section. Codon is faster on the numeric programs (spectral norm, n-body, sieve, LCS) and Brevi on objects, strings, sets and records; Brevi builds programs Codon cannot. Nuitka matches CPython's behaviour like Brevi and runs near CPython's speed overall, from about 2x faster (binary trees) to about 2x slower (n-body, likely a container effect) here. These 12 are compute-heavy programs, the kind a compiler helps most, and they build on Brevi's typed build; a program on the dynamic build runs much closer to CPython's speed. Measured 3 November 2026 on one 4-core Linux machine (Codon 0.20.6, Nuitka 4.3.4, CPython 3.13, rustc 1.97). The Codon and Nuitka times are from an earlier session on that machine than the Brevi and CPython times ([bench/compare](repo:bench/compare/README.md)), so compare them loosely.
+
+## Brevi and CPython, 12 November 2026
+
+Re-measured alone on a Ryzen 9 5950X (32 threads) under WSL2 Ubuntu 24.04, Brevi main b1004c2 (0.27.1 plus merged work), CPython 3.13.13, rustc 1.99.1, best of 5 runs, one program at a time, in seconds with the speed-up over CPython in brackets. All 12 programs printed what CPython prints, on both the typed and the dynamic build. Codon and Nuitka were not rerun.
+
+| Program | CPython | Brevi default | Brevi `--release` | Dynamic build |
+| --- | ---: | ---: | ---: | ---: |
+| Objects | 1.29 | 0.03 (37.9x) | 0.03 (38.8x) | 0.90 (1.4x) |
+| Spectral norm | 1.87 | 0.06 (31.0x) | 0.05 (34.2x) | 2.17 (0.9x) |
+| LCS table | 1.12 | 0.04 (28.9x) | 0.04 (31.4x) | 1.67 (0.7x) |
+| N-body | 2.00 | 0.09 (22.5x) | 0.08 (26.4x) | 3.70 (0.5x) |
+| Grid BFS with a set | 0.79 | 0.06 (12.9x) | 0.06 (14.2x) | 0.75 (1.0x) |
+| Prime sieve | 0.49 | 0.04 (12.0x) | 0.04 (11.7x) | 0.46 (1.1x) |
+| Binary trees | 3.05 | 0.46 (6.6x) | 0.39 (7.8x) | 2.45 (1.2x) |
+| Dijkstra | 1.24 | 0.19 (6.4x) | 0.18 (7.0x) | 1.24 (1.0x) |
+| Word counts | 0.23 | 0.04 (5.3x) | 0.05 (5.0x) | 0.32 (0.7x) |
+| Fannkuch | 3.55 | 1.29 (2.8x) | 1.01 (3.5x) | 8.00 (0.5x) |
+| String building | 1.36 | 0.69 (2.0x) | 0.53 (2.6x) | 1.68 (0.8x) |
+| Group records | 0.45 | 0.27 (1.6x) | 0.21 (2.1x) | 0.84 (0.5x) |
+| **Median** | | **9.3x** | **9.8x** | **0.85x** |
+
+The ranges are 1.6x to 37.9x (default), 2.1x to 38.8x (`--release`) and 0.5x to 1.4x (dynamic). The dynamic build (`BREVI_DYN=1`, with `--release`) is what a program whose values change type gets; it runs at about CPython's speed, slower on numeric loops. Median cold build: 0.2 s default, 1.1 s `--release`, 0.3 s dynamic. The 3 November figures came from a different machine, so the two sets are not a like-for-like comparison.
+
+Library and dynamic-path cases (`bench/speed/gaps`, median of 3): polars on a large frame 2.0x faster than CPython; an asyncio loop 1.2x slower; sqlite point queries 1.3x slower; a Jinja chat template 2.9x slower; bulk pydantic validation 10.2x slower. A small autograd program shaped like microgpt (100 steps) ran 1.18x faster than CPython with 13% more memory.
 
 ## Rerunning
 
