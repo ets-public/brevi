@@ -41,6 +41,10 @@ fn trow(c: &Class) -> Option<&'static (&'static str, &'static str, &'static str,
     })
 }
 
+// whether CPython's type `c` itself (not a base) defines the method `n` (a method, slot wrapper or classmethod)
+pub fn cpy_type_own_method(c: &Class, n: &str) -> bool {
+    trow(c).map_or(false, |r| r.5.iter().any(|e| e.0 == n && matches!(e.1, 0 | 1 | 4)))
+}
 // whether CPython's builtin type `name` (or object, which it inherits from) has the attribute `attr`
 pub fn cpy_builtin_has(name: &str, attr: &str) -> bool {
     let has = |n: &str| TYPE_DICTS.iter().any(|r| r.0 == "builtins" && r.1 == n && r.5.iter().any(|e| e.0 == attr));

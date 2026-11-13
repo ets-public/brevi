@@ -2,14 +2,14 @@
 "brevi": "brevi 0.27.1",
 "python": "3.13.13",
 "tag": "v3.13.13",
-"date": "2026-11-12",
+"date": "2026-11-13",
 "platform": "linux",
 "sandboxed": false,
 "timeout_s": 20,
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 634,
+"matched": 655,
 "refused": 0,
 "by_design": 4,
 "string_model": 0,
@@ -19,20 +19,20 @@
 "crash_or_timeout": 0,
 "not_extractable": 0,
 "unstable": 15,
-"excluded": 150,
-"total": 803,
-"scored": 634,
-"matched_through_cpython": 0,
+"excluded": 151,
+"total": 825,
+"scored": 655,
+"matched_through_cpython": 1,
 "matched_silent": 34,
-"coverage": 1.0,
+"coverage": 0.9985,
 "wrong": 0,
-"matched_asserting": 600,
-"assert_coverage": 0.9464,
+"matched_asserting": 620,
+"assert_coverage": 0.9466,
 "matched_typed": 18,
-"typed_share": 0.0284
+"typed_share": 0.0275
 },
 "dyn": {
-"matched": 634,
+"matched": 655,
 "refused": 0,
 "by_design": 4,
 "string_model": 0,
@@ -42,15 +42,15 @@
 "crash_or_timeout": 0,
 "not_extractable": 0,
 "unstable": 15,
-"excluded": 150,
-"total": 803,
-"scored": 634,
+"excluded": 151,
+"total": 825,
+"scored": 655,
 "matched_through_cpython": 0,
 "matched_silent": 34,
 "coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 600,
-"assert_coverage": 0.9464,
+"matched_asserting": 621,
+"assert_coverage": 0.9481,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -343,16 +343,113 @@
 "matched_typed": 0,
 "typed_share": 0.0
 }
+},
+"test_graphlib": {
+"normal": {
+"matched": 14,
+"refused": 0,
+"by_design": 0,
+"string_model": 0,
+"cpython_private": 0,
+"wrong_output": 0,
+"wrong_exit": 0,
+"crash_or_timeout": 0,
+"not_extractable": 0,
+"unstable": 0,
+"excluded": 1,
+"total": 15,
+"scored": 14,
+"matched_through_cpython": 1,
+"matched_silent": 0,
+"coverage": 0.9286,
+"wrong": 0,
+"matched_asserting": 13,
+"assert_coverage": 0.9286,
+"matched_typed": 0,
+"typed_share": 0.0
+},
+"dyn": {
+"matched": 14,
+"refused": 0,
+"by_design": 0,
+"string_model": 0,
+"cpython_private": 0,
+"wrong_output": 0,
+"wrong_exit": 0,
+"crash_or_timeout": 0,
+"not_extractable": 0,
+"unstable": 0,
+"excluded": 1,
+"total": 15,
+"scored": 14,
+"matched_through_cpython": 0,
+"matched_silent": 0,
+"coverage": 1.0,
+"wrong": 0,
+"matched_asserting": 14,
+"assert_coverage": 1.0,
+"matched_typed": 0,
+"typed_share": 0.0
+}
+},
+"test_colorsys": {
+"normal": {
+"matched": 7,
+"refused": 0,
+"by_design": 0,
+"string_model": 0,
+"cpython_private": 0,
+"wrong_output": 0,
+"wrong_exit": 0,
+"crash_or_timeout": 0,
+"not_extractable": 0,
+"unstable": 0,
+"excluded": 0,
+"total": 7,
+"scored": 7,
+"matched_through_cpython": 0,
+"matched_silent": 0,
+"coverage": 1.0,
+"wrong": 0,
+"matched_asserting": 7,
+"assert_coverage": 1.0,
+"matched_typed": 0,
+"typed_share": 0.0
+},
+"dyn": {
+"matched": 7,
+"refused": 0,
+"by_design": 0,
+"string_model": 0,
+"cpython_private": 0,
+"wrong_output": 0,
+"wrong_exit": 0,
+"crash_or_timeout": 0,
+"not_extractable": 0,
+"unstable": 0,
+"excluded": 0,
+"total": 7,
+"scored": 7,
+"matched_through_cpython": 0,
+"matched_silent": 0,
+"coverage": 1.0,
+"wrong": 0,
+"matched_asserting": 7,
+"assert_coverage": 1.0,
+"matched_typed": 0,
+"typed_share": 0.0
+}
 }
 },
 "paths": {
 "normal": {
-"dynamic": 616,
+"dynamic": 636,
 "typed": 18,
-"refused": 4
+"refused": 4,
+"pybridge": 1
 },
 "dyn": {
-"dynamic": 634,
+"dynamic": 655,
 "refused": 4
 }
 },
@@ -8893,7 +8990,7 @@
 "id": "test_functools.TestLRUC.test_lru_recursion",
 "file": "test_functools",
 "category": "excluded",
-"detail": "measures the recursion depth with _testinternalcapi (CPython's C internals)"
+"detail": "skipped by CPython: get_c_recursion_limit() requires _testcapi, which the reference build lacks"
 },
 {
 "id": "test_functools.TestLRUC.test_lru_reentrancy_with_len",
@@ -10268,6 +10365,306 @@
 {
 "id": "test_string.TestTemplate.test_unicode_values",
 "file": "test_string",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_graphlib.TestTopologicalSort.test_add_dependencies_for_same_node_incrementally",
+"file": "test_graphlib",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_graphlib.TestTopologicalSort.test_calls_before_prepare",
+"file": "test_graphlib",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_graphlib.TestTopologicalSort.test_cycle",
+"file": "test_graphlib",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_graphlib.TestTopologicalSort.test_done",
+"file": "test_graphlib",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_graphlib.TestTopologicalSort.test_empty",
+"file": "test_graphlib",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_graphlib.TestTopologicalSort.test_graph_with_iterables",
+"file": "test_graphlib",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "pybridge"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_graphlib.TestTopologicalSort.test_invalid_nodes_in_done",
+"file": "test_graphlib",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_graphlib.TestTopologicalSort.test_is_active",
+"file": "test_graphlib",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_graphlib.TestTopologicalSort.test_no_dependencies",
+"file": "test_graphlib",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_graphlib.TestTopologicalSort.test_not_hashable_nodes",
+"file": "test_graphlib",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_graphlib.TestTopologicalSort.test_order_of_insertion_does_not_matter_between_groups",
+"file": "test_graphlib",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_graphlib.TestTopologicalSort.test_prepare_multiple_times",
+"file": "test_graphlib",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_graphlib.TestTopologicalSort.test_simple_cases",
+"file": "test_graphlib",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_graphlib.TestTopologicalSort.test_static_order_does_not_change_with_the_hash_seed",
+"file": "test_graphlib",
+"category": "excluded",
+"detail": "runs a fresh CPython in a subprocess (a CPython crash regression)"
+},
+{
+"id": "test_graphlib.TestTopologicalSort.test_the_node_multiple_times",
+"file": "test_graphlib",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_colorsys.ColorsysTest.test_hls_nearwhite",
+"file": "test_colorsys",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_colorsys.ColorsysTest.test_hls_roundtrip",
+"file": "test_colorsys",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_colorsys.ColorsysTest.test_hls_values",
+"file": "test_colorsys",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_colorsys.ColorsysTest.test_hsv_roundtrip",
+"file": "test_colorsys",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_colorsys.ColorsysTest.test_hsv_values",
+"file": "test_colorsys",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_colorsys.ColorsysTest.test_yiq_roundtrip",
+"file": "test_colorsys",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_colorsys.ColorsysTest.test_yiq_values",
+"file": "test_colorsys",
 "modes": {
 "normal": {
 "category": "matched",

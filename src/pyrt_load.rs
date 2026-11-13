@@ -283,7 +283,13 @@ fn ax_pyb_unpack(r: &mut impl std::io::Read, dir: &std::path::Path) -> std::io::
         let _ = mode;
         // Source times kept, so Python's compiled-module cache (written on first import) stays valid.
         if mtime > 0 {
-            if let Ok(fh) = std::fs::File::options().write(true).open(&out) {
+            // Through a read-only handle (futimens needs the owner, not write access): no write handle on a file
+            // that may be run, which a fork from another thread could hold (ETXTBSY, as crate::touch in brevi).
+            #[cfg(unix)]
+            let fh = std::fs::File::open(&out);
+            #[cfg(not(unix))]
+            let fh = std::fs::File::options().write(true).open(&out);
+            if let Ok(fh) = fh {
                 fh.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(mtime)).ok();
             }
         }

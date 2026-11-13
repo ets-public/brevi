@@ -13,8 +13,8 @@ step() { printf '\n== %s  (%s)\n' "$1" "$(date +%H:%M:%S)"; }
 export BREVI_CACHE_MB="${BREVI_CACHE_MB:-6144}"
 mode=${1:-pr}
 fast=
-compat=1; kinds=brevi,python,rust; grammar=1; stdlib=1
-if [ "$mode" = --quick ]; then compat=0; fi
+compat=1; kinds=brevi,python,rust; grammar=1; stdlib=1; conf=1
+if [ "$mode" = --quick ]; then compat=0; conf=0; fi
 if [ "$mode" = pr ]; then
   # The same rules as toolchains.yml's "Does this PR change the compiler or the baseline?" step.
   base=$(git merge-base HEAD origin/main 2>/dev/null || true)
@@ -27,9 +27,14 @@ if [ "$mode" = pr ]; then
     # whenever the compiler or the slice's lists change. Merge origin/main first to see what
     # this branch does together with the PRs merged since it started.
     echo "$changed" | grep -qE '^(src/|Cargo\.(toml|lock)$|tools/conformance\.py$|compat/conformance_(stdlib_|by_design))' || stdlib=0
+    # A conformance list change gets no GitHub run (toolchains.yml skips it), so both slices run here instead.
+    echo "$changed" | grep -qE '^(tools/conformance(\.py|_candidates\.json)$|compat/conformance_)' && stdlib=1 || conf=0
     echo "$changed" | grep -qE '^(grammar/|tests/run/|bench/solutions/|compat/baseline\.txt$|tools/(grammar_check|lark_to_gbnf)\.py$|tools/requirements-ci\.txt$)' || grammar=0
   fi
 fi
+# The GitHub-only "versions" job checks, for the PRs GitHub CI skips (docs, site, conformance lists).
+step "Workflows, credentials, built files, --limit claims"
+python3 tools/workflow_guard.py && python3 tools/secret_scan.py && python3 tools/no_binaries.py && python3 tools/limits_check.py
 step "Toolchain"; rustc -V; python3 -V
 # The same Rust as GitHub CI (.github/rust-version), or results differ: a newer rustc's Unicode tables change what
 # re.IGNORECASE accepts. Fix with: rustup toolchain install X && rustup default X
@@ -81,7 +86,7 @@ if [ $compat = 1 ]; then
   step "Every solution that ever passed still passes ($kinds)"; python3 tools/compat.py check --kinds $kinds
 fi
 # CPython's own tests, when the compiler could have changed (as in toolchains.yml)
-if [ $compat = 1 ] || [ "$mode" = --full ]; then
+if [ $compat = 1 ] || [ $conf = 1 ] || [ "$mode" = --full ]; then
   step "CPython conformance ratchet (CPython 3.13.13 via uv; ~10 min)"
   if command -v uv >/dev/null 2>&1 && uv python install 3.13.13 --quiet 2>/dev/null; then
     python3 tools/conformance.py --check --python "$(uv python find 3.13.13)" --out /tmp/brevi-conformance
