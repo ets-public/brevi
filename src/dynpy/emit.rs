@@ -5656,3 +5656,26 @@ const META_DUNDERS: &[&str] = &[
     "__module__", "__qualname__", "__doc__", "__new__", "__init__", "__prepare__", "__lt__", "__le__", "__gt__", "__ge__", "__eq__", "__ne__",
     "__hash__", "__len__", "__bool__", "__repr__", "__str__", "__annotations__", "__init_subclass__", "__weakref__", "__dict__",
 ];
+
+#[cfg(test)]
+mod set_rebuild_tests {
+    use super::*;
+    #[test]
+    fn source_idents_reads_names_not_strings() {
+        let id = source_idents("x = {'alpha', 'beta'}  # gamma\nif delta: print(f\"{eps} zeta\", b'eta', rb\"theta\")\nmatch = 0x1e5 + 1e-3\nclass C:\n    __p = 1\n");
+        for n in ["x", "delta", "print", "C", "__p"] {
+            assert!(id.sure.contains(n), "{n}");
+        }
+        for n in ["alpha", "beta", "gamma", "eta", "theta", "if", "x1e5", "e5"] {
+            assert!(!id.sure.contains(n) && !id.maybe.contains(n), "{n}");
+        }
+        assert!(id.maybe.contains("eps") && id.maybe.contains("zeta") && id.maybe.contains("match"));
+        assert!(!id.odd);
+        assert!(source_idents("é = 1").odd);
+    }
+    #[test]
+    fn startup_table_is_read() {
+        assert!(startup_interned("date") && startup_interned("join") && !startup_interned("zq_not_interned"));
+        assert!(name_like("ab") && !name_like("a") && !name_like("a-b") && !name_like("é1"));
+    }
+}
