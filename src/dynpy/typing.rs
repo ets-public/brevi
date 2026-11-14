@@ -404,7 +404,8 @@ pub fn typed_isinstance(body: &[Stmt]) -> Option<usize> {
         for s in body {
             crate::typed_guard::walk_st(&s.st, &mut |e| {
                 if let Ex::Call(f, args) = e {
-                    if matches!(f.as_ref(), Ex::Name(n) if n == "isinstance" || n == "issubclass") {
+                    // a class pattern (`case C():`, rewritten to __brevi_pm_cls(subject, C, ...)) is an isinstance
+                    if matches!(f.as_ref(), Ex::Name(n) if n == "isinstance" || n == "issubclass" || n == "__brevi_pm_cls") {
                         if let Some(Arg::Pos(t)) = args.get(1) {
                             let mut hit = false;
                             crate::typed_guard::walk_ex(t, &mut |x| hit |= nm.form(x).is_some());
@@ -821,7 +822,18 @@ fn stmt(st: &St, line: usize, nm: &Names) -> Result<(), Er> {
         St::Def(d) => {
             decorators(&d.decorators, d.line, nm)?;
             params(&d.params, d.line, nm)?;
-            stmts(&d.body, nm)?;
+            // a Protocol class made in the function (`from typing import Protocol` there too): isinstance with
+            // it, or a class pattern on it, is refused as at module level. Only the protocol names are taken
+            // from the body, so nothing else here is checked differently.
+            let mut probe = nm.clone();
+            collect(&d.body, &mut probe, &HashMap::new(), false, false);
+            if probe.protocols.len() > nm.protocols.len() {
+                let mut local = nm.clone();
+                local.protocols = probe.protocols;
+                stmts(&d.body, &local)?;
+            } else {
+                stmts(&d.body, nm)?;
+            }
         }
         St::Class(c) => class(c, nm)?,
         _ => {}
@@ -1056,8 +1068,9 @@ fn expr(e: &Ex, ok: bool, line: usize, nm: &Names) -> Result<(), Er> {
                     }
                 }
             }
-            // isinstance(x, P) for a Protocol class P: structural in CPython (or a TypeError)
-            if matches!(f.as_ref(), Ex::Name(n) if n == "isinstance" || n == "issubclass") {
+            // isinstance(x, P) for a Protocol class P: structural in CPython (or a TypeError); a class pattern
+            // `case P():` is the same check
+            if matches!(f.as_ref(), Ex::Name(n) if n == "isinstance" || n == "issubclass" || n == "__brevi_pm_cls") {
                 if let Some(Arg::Pos(t)) = args.get(1) {
                     let protocol = |x: &Ex| matches!(x, Ex::Name(n) if nm.protocols.contains(n));
                     if protocol(t) || matches!(t, Ex::Tuple(v) if v.iter().any(protocol)) {

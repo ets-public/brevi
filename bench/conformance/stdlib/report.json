@@ -2,55 +2,55 @@
 "brevi": "brevi 0.27.1",
 "python": "3.13.13",
 "tag": "v3.13.13",
-"date": "2026-11-13",
+"date": "2026-11-14",
 "platform": "linux",
 "sandboxed": false,
 "timeout_s": 20,
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 726,
-"refused": 0,
+"matched": 938,
+"refused": 27,
 "by_design": 5,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 0,
-"unstable": 20,
-"excluded": 154,
-"total": 905,
-"scored": 726,
-"matched_through_cpython": 2,
-"matched_silent": 43,
-"coverage": 0.9972,
+"not_extractable": 7,
+"unstable": 21,
+"excluded": 156,
+"total": 1154,
+"scored": 972,
+"matched_through_cpython": 3,
+"matched_silent": 45,
+"coverage": 0.9619,
 "wrong": 0,
-"matched_asserting": 682,
-"assert_coverage": 0.9394,
+"matched_asserting": 891,
+"assert_coverage": 0.9167,
 "matched_typed": 23,
-"typed_share": 0.0318
+"typed_share": 0.0246
 },
 "dyn": {
-"matched": 726,
-"refused": 0,
+"matched": 938,
+"refused": 27,
 "by_design": 5,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 0,
-"unstable": 20,
-"excluded": 154,
-"total": 905,
-"scored": 726,
+"not_extractable": 7,
+"unstable": 21,
+"excluded": 156,
+"total": 1154,
+"scored": 972,
 "matched_through_cpython": 0,
-"matched_silent": 43,
-"coverage": 1.0,
+"matched_silent": 45,
+"coverage": 0.965,
 "wrong": 0,
-"matched_asserting": 683,
-"assert_coverage": 0.9408,
+"matched_asserting": 893,
+"assert_coverage": 0.9187,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -487,18 +487,66 @@
 "matched_typed": 0,
 "typed_share": 0.0
 }
+},
+"test_dataclasses": {
+"normal": {
+"matched": 212,
+"refused": 27,
+"by_design": 0,
+"string_model": 0,
+"cpython_private": 0,
+"wrong_output": 0,
+"wrong_exit": 0,
+"crash_or_timeout": 0,
+"not_extractable": 7,
+"unstable": 1,
+"excluded": 2,
+"total": 249,
+"scored": 246,
+"matched_through_cpython": 1,
+"matched_silent": 2,
+"coverage": 0.8577,
+"wrong": 0,
+"matched_asserting": 209,
+"assert_coverage": 0.8496,
+"matched_typed": 0,
+"typed_share": 0.0
+},
+"dyn": {
+"matched": 212,
+"refused": 27,
+"by_design": 0,
+"string_model": 0,
+"cpython_private": 0,
+"wrong_output": 0,
+"wrong_exit": 0,
+"crash_or_timeout": 0,
+"not_extractable": 7,
+"unstable": 1,
+"excluded": 2,
+"total": 249,
+"scored": 246,
+"matched_through_cpython": 0,
+"matched_silent": 2,
+"coverage": 0.8618,
+"wrong": 0,
+"matched_asserting": 210,
+"assert_coverage": 0.8537,
+"matched_typed": 0,
+"typed_share": 0.0
+}
 }
 },
 "paths": {
 "normal": {
-"dynamic": 701,
+"dynamic": 912,
+"refused": 32,
 "typed": 23,
-"refused": 5,
-"pybridge": 2
+"pybridge": 3
 },
 "dyn": {
-"dynamic": 726,
-"refused": 5
+"dynamic": 938,
+"refused": 32
 }
 },
 "tests": [
@@ -11769,6 +11817,3412 @@
 {
 "id": "test_deque.TestSequence.test_truth",
 "file": "test_deque",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_0_field_compare",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_1_field_compare",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_alternate_classmethod_constructor",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_class_attrs",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_class_marker",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_class_var",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found C"
+},
+"dyn": {
+"category": "refused",
+"detail": "typing: .__annotations__ of a class annotated with a type expression (such as int | None or list[int]) needs CPython's typing"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_class_var_default_factory",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_class_var_frozen",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found C"
+},
+"dyn": {
+"category": "refused",
+"detail": "typing: .__annotations__ of a class annotated with a type expression (such as int | None or list[int]) needs CPython's typing"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_class_var_no_default",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_class_var_with_default",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_classvar_default_factory",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_clean_traceback_from_fields_exception",
+"file": "test_dataclasses",
+"category": "not_extractable",
+"detail": "imports traceback"
+},
+{
+"id": "test_dataclasses.TestCase.test_compare_subclasses",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_dataclass_params_repr",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_dataclass_params_signature",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found Some"
+},
+"dyn": {
+"category": "refused",
+"detail": "inspect.signature of a dynamic build's functions needs CPython"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_dataclasses_pickleable",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+},
+"dyn": {
+"category": "refused",
+"detail": "pickle of the program's dataclasses needs CPython"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_dataclasses_qualnames",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_default_factory",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_default_factory_derived",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_default_factory_not_called_if_value_given",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_default_factory_with_no_init",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_deliberately_mutable_defaults",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_disallowed_mutable_defaults",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_dont_include_other_annotations",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_dynamic_class_creation",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_dynamic_class_creation_using_field",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_eq_order",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_field_default",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_field_default_default_factory_error",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_field_metadata_custom_mapping",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found SimpleNameSpace"
+},
+"dyn": {
+"category": "refused",
+"detail": "dataclasses: field(metadata=...) with a mapping class of the program needs CPython"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_field_metadata_default",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_field_metadata_mapping",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_field_named_BUILTINS_frozen",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_field_named_like_builtin",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_field_named_like_builtin_frozen",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_field_named_object",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_field_named_object_frozen",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_field_named_self",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found C"
+},
+"dyn": {
+"category": "refused",
+"detail": "inspect.signature of a dynamic build's functions needs CPython"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_field_no_default",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_field_order",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_field_recursive_repr",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_field_repr",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_field_with_special_single_underscore_names",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_function_annotations",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+},
+"dyn": {
+"category": "refused",
+"detail": "inspect.signature of a dynamic build's functions needs CPython"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_generic_dataclasses",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_generic_dynamic",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found Parent"
+},
+"dyn": {
+"category": "refused",
+"detail": "typing: a subscripted typing form used as a value needs CPython's typing"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_generic_extending",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found Base"
+},
+"dyn": {
+"category": "refused",
+"detail": "typing: subscripting a class built on a subscripted generic class needs CPython's typing"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_hash_field_rules",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_helper_asdict",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_helper_asdict_builtin_containers",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_helper_asdict_builtin_object_containers",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_helper_asdict_copy_values",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_helper_asdict_defaultdict",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_helper_asdict_factory",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_helper_asdict_namedtuple",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_helper_asdict_namedtuple_derived",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_helper_asdict_namedtuple_key",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_helper_asdict_nested",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_helper_asdict_raises_on_classes",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_helper_astuple",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_helper_astuple_builtin_containers",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_helper_astuple_builtin_object_containers",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_helper_astuple_copy_values",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_helper_astuple_defaultdict",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_helper_astuple_factory",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_helper_astuple_namedtuple",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_helper_astuple_nested",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_helper_astuple_raises_on_classes",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_helper_fields_exception",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_helper_fields_with_class_instance",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_init_false_no_default",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_init_in_order",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_init_var",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_init_var_default_factory",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_init_var_inheritance",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_init_var_name_shadowing",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_init_var_no_default",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_init_var_preserve_type",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_init_var_with_default",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_intermediate_non_dataclass",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_is_dataclass",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_is_dataclass_genericalias",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found A"
+},
+"dyn": {
+"category": "refused",
+"detail": "class A is built on a library class inside a function or block, which dynamic builds leave to CPython"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_is_dataclass_inheritance",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_is_dataclass_when_getattr_always_returns",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_items_in_dicts",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_missing_default",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_missing_default_factory",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_missing_repr",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_named_init_params",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_no_fields",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_no_fields_but_member_variable",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_no_options",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_no_unhashable_default",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_not_in_compare",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_not_in_repr",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_not_other_dataclass",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_not_tuple",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_one_field_no_default",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_overwrite_fields_in_derived_class",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_overwrite_hash",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_post_init",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_post_init_classmethod",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_post_init_not_auto_added",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_post_init_staticmethod",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_post_init_super",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_recursive_annotation",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_simple_compare",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestCase.test_two_fields_one_default",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestFieldNoAnnotation.test_field_without_annotation",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestFieldNoAnnotation.test_field_without_annotation_but_annotation_in_base",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestFieldNoAnnotation.test_field_without_annotation_but_annotation_in_base_not_dataclass",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestDocString.test_docstring_deque_field",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestDocString.test_docstring_deque_field_with_default_factory",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestDocString.test_docstring_list_field",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestDocString.test_docstring_list_field_with_default_factory",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestDocString.test_docstring_no_fields",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestDocString.test_docstring_one_field",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestDocString.test_docstring_one_field_with_default",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestDocString.test_docstring_one_field_with_default_none",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestDocString.test_docstring_three_fields",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestDocString.test_docstring_two_fields",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestDocString.test_docstring_with_no_signature",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found Meta"
+},
+"dyn": {
+"category": "refused",
+"detail": "a metaclass defining __call__ is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_dataclasses.TestDocString.test_existing_docstring_not_overridden",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestInit.test_base_has_init",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestInit.test_inherit_from_protocol",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestInit.test_no_init",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestInit.test_overwriting_init",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestRepr.test_no_repr",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestRepr.test_overwriting_repr",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestRepr.test_repr",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestEq.test_no_eq",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestEq.test_overwriting_eq",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestEq.test_recursive_eq",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestOrdering.test_functools_total_ordering",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestOrdering.test_no_order",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestOrdering.test_overwriting_order",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestHash.test_0_field_hash",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestHash.test_1_field_hash",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestHash.test_eq_only",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestHash.test_hash_no_args",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestHash.test_hash_rules",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestHash.test_unsafe_hash",
+"file": "test_dataclasses",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_dataclasses.TestFrozen.test_frozen",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestFrozen.test_frozen_deepcopy_with_slots",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found C"
+},
+"dyn": {
+"category": "refused",
+"detail": "dataclasses._dataclass_getstate is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_dataclasses.TestFrozen.test_frozen_deepcopy_without_slots",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestFrozen.test_frozen_empty",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestFrozen.test_frozen_hash",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestFrozen.test_inherit",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestFrozen.test_inherit_from_normal_class",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestFrozen.test_inherit_frozen_from_nonfrozen",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestFrozen.test_inherit_frozen_mutliple_inheritance",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found NotFrozen"
+},
+"dyn": {
+"category": "refused",
+"detail": "unexpected Op(\"*\")"
+}
+}
+},
+{
+"id": "test_dataclasses.TestFrozen.test_inherit_frozen_mutliple_inheritance_regular_mixins",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestFrozen.test_inherit_nonfrozen_from_empty",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestFrozen.test_inherit_nonfrozen_from_empty_frozen",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestFrozen.test_inherit_nonfrozen_from_frozen",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestFrozen.test_multiple_frozen_dataclasses_inheritance",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestFrozen.test_non_frozen_normal_derived",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestFrozen.test_non_frozen_normal_derived_from_empty_frozen",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestFrozen.test_overwriting_frozen",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestSlots.test_add_slots_when_slots_exists",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestSlots.test_cant_inherit_from_iterator_slots",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestSlots.test_dataclass_derived_generic",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found A"
+},
+"dyn": {
+"category": "refused",
+"detail": "a generic class (`class C[T]`, PEP 695) is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_dataclasses.TestSlots.test_dataclass_derived_generic_from_base",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found RawBase"
+},
+"dyn": {
+"category": "refused",
+"detail": "a generic class (`class C[T]`, PEP 695) is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_dataclasses.TestSlots.test_dataclass_derived_generic_from_slotted_base",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found WithSlots"
+},
+"dyn": {
+"category": "refused",
+"detail": "a generic class (`class C[T]`, PEP 695) is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_dataclasses.TestSlots.test_dataclass_derived_generic_from_slotted_base_with_weakref",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found WithWeakrefSlot"
+},
+"dyn": {
+"category": "refused",
+"detail": "a generic class (`class C[T]`, PEP 695) is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_dataclasses.TestSlots.test_dataclass_derived_weakref_slot",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestSlots.test_dataclass_slot_dict",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestSlots.test_dataclass_slot_dict_ctype",
+"file": "test_dataclasses",
+"category": "excluded",
+"detail": "marked cpython_only"
+},
+{
+"id": "test_dataclasses.TestSlots.test_derived_added_field",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestSlots.test_frozen_pickle",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+},
+"dyn": {
+"category": "refused",
+"detail": "pickle of the program's dataclasses needs CPython"
+}
+}
+},
+{
+"id": "test_dataclasses.TestSlots.test_frozen_slots_pickle_custom_state",
+"file": "test_dataclasses",
+"category": "not_extractable",
+"detail": "generated script fails under CPython: AttributeError: 'TestSlots.FrozenSlotsGetStateClass' object has no attribute 'getstate_called'"
+},
+{
+"id": "test_dataclasses.TestSlots.test_generated_slots",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestSlots.test_generated_slots_value",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestSlots.test_returns_new_class",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestSlots.test_simple",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestSlots.test_slots_no_weakref",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestSlots.test_slots_weakref",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestSlots.test_slots_weakref_base_str",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestSlots.test_slots_weakref_base_tuple",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestSlots.test_slots_with_default_factory_no_init",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestSlots.test_slots_with_default_no_init",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestSlots.test_slots_with_wrong_init_subclass",
+"file": "test_dataclasses",
+"category": "excluded",
+"detail": "marked cpython_only"
+},
+{
+"id": "test_dataclasses.TestSlots.test_weakref_slot_make_dataclass",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestSlots.test_weakref_slot_normal_base_weakref_slot",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestSlots.test_weakref_slot_subclass_no_weakref_slot",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestSlots.test_weakref_slot_subclass_weakref_slot",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestSlots.test_weakref_slot_without_slot",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestDescriptors.test_default_value",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestDescriptors.test_getting_field_calls_get",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found D"
+},
+"dyn": {
+"category": "refused",
+"detail": "unittest.mock: a Mock stored on a class of the program needs CPython"
+}
+}
+},
+{
+"id": "test_dataclasses.TestDescriptors.test_init_calls_set",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found D"
+},
+"dyn": {
+"category": "refused",
+"detail": "unittest.mock: a Mock stored on a class of the program needs CPython"
+}
+}
+},
+{
+"id": "test_dataclasses.TestDescriptors.test_lookup_on_class",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found D"
+},
+"dyn": {
+"category": "refused",
+"detail": "unittest.mock: a Mock stored on a class of the program needs CPython"
+}
+}
+},
+{
+"id": "test_dataclasses.TestDescriptors.test_lookup_on_instance",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestDescriptors.test_no_default_value",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestDescriptors.test_non_descriptor",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestDescriptors.test_set_name",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestDescriptors.test_setting_field_calls_set",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found D"
+},
+"dyn": {
+"category": "refused",
+"detail": "unittest.mock: a Mock stored on a class of the program needs CPython"
+}
+}
+},
+{
+"id": "test_dataclasses.TestDescriptors.test_setting_uninitialized_descriptor_field",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found D"
+},
+"dyn": {
+"category": "refused",
+"detail": "unittest.mock: a Mock stored on a class of the program needs CPython"
+}
+}
+},
+{
+"id": "test_dataclasses.TestStringAnnotations.test_classvar",
+"file": "test_dataclasses",
+"category": "not_extractable",
+"detail": "generated script fails under CPython: TypeError: test_classvar.<locals>.C.__init__() missing 1 required positional argument: 'x'"
+},
+{
+"id": "test_dataclasses.TestStringAnnotations.test_classvar_module_level_import",
+"file": "test_dataclasses",
+"category": "not_extractable",
+"detail": "generated script fails under CPython: NameError: name 'dataclass_module_1' is not defined"
+},
+{
+"id": "test_dataclasses.TestStringAnnotations.test_initvar",
+"file": "test_dataclasses",
+"category": "not_extractable",
+"detail": "assertRaises saw no exception in the extracted test"
+},
+{
+"id": "test_dataclasses.TestStringAnnotations.test_isnt_classvar",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestStringAnnotations.test_isnt_initvar",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestStringAnnotations.test_text_annotations",
+"file": "test_dataclasses",
+"category": "not_extractable",
+"detail": "generated script fails under CPython: NameError: name 'dataclass_textanno' is not defined"
+},
+{
+"id": "test_dataclasses.TestMakeDataclass.test_base",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestMakeDataclass.test_base_dataclass",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestMakeDataclass.test_cannot_be_pickled",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "unknown function type()"
+},
+"dyn": {
+"category": "refused",
+"detail": "pickle of the program's dataclasses needs CPython"
+}
+}
+},
+{
+"id": "test_dataclasses.TestMakeDataclass.test_class_var",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "pybridge"
+},
+"dyn": {
+"category": "refused",
+"detail": "typing: a subscripted typing form used as a value needs CPython's typing"
+}
+}
+},
+{
+"id": "test_dataclasses.TestMakeDataclass.test_duplicate_field_names",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestMakeDataclass.test_funny_class_names_names",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestMakeDataclass.test_init_var",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestMakeDataclass.test_invalid_type_specification",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestMakeDataclass.test_keyword_field_names",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestMakeDataclass.test_module_attr",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestMakeDataclass.test_no_mutate_namespace",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestMakeDataclass.test_no_types",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestMakeDataclass.test_non_identifier_field_names",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestMakeDataclass.test_other_params",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "unknown function type()"
+},
+"dyn": {
+"category": "refused",
+"detail": "typing: a subscripted typing form used as a value needs CPython's typing"
+}
+}
+},
+{
+"id": "test_dataclasses.TestMakeDataclass.test_pickle_support",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected function, found AxPy"
+},
+"dyn": {
+"category": "refused",
+"detail": "pickle of the program's dataclasses needs CPython"
+}
+}
+},
+{
+"id": "test_dataclasses.TestMakeDataclass.test_simple",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "no Python type has a method .add_one()"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestMakeDataclass.test_underscore_field_names",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestReplace.test",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestReplace.test_classvar",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestReplace.test_frozen",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestReplace.test_initvar_is_specified",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestReplace.test_initvar_with_default_value",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestReplace.test_invalid_field_name",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestReplace.test_invalid_object",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestReplace.test_no_init",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestReplace.test_recursive_repr",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestReplace.test_recursive_repr_indirection",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestReplace.test_recursive_repr_indirection_two",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestReplace.test_recursive_repr_misc_attrs",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestReplace.test_recursive_repr_two_attrs",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestAbstract.test_abc_implementation",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestAbstract.test_maintain_abc",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestMatchArgs.test_bpo_43764",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestMatchArgs.test_explicit_match_args",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestMatchArgs.test_make_dataclasses",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestMatchArgs.test_match_args",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestMatchArgs.test_match_args_argument",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestKeywordArgs.test_KW_ONLY",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestKeywordArgs.test_KW_ONLY_as_string",
+"file": "test_dataclasses",
+"category": "not_extractable",
+"detail": "generated script fails under CPython: TypeError: test_KW_ONLY_as_string.<locals>.A.__init__() missing 1 required positional argument: '_'"
+},
+{
+"id": "test_dataclasses.TestKeywordArgs.test_KW_ONLY_twice",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestKeywordArgs.test_defaults",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestKeywordArgs.test_field_marked_as_kwonly",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestKeywordArgs.test_make_dataclass",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestKeywordArgs.test_match_args",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestKeywordArgs.test_no_classvar_kwarg",
+"file": "test_dataclasses",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_dataclasses.TestKeywordArgs.test_post_init",
+"file": "test_dataclasses",
 "modes": {
 "normal": {
 "category": "matched",

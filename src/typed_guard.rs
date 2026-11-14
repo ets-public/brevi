@@ -1848,10 +1848,13 @@ mod tests {
     }
     #[test]
     fn unread_file_is_not_safe() {
-        let src = "x = 3\nmatch x:\n    case 3:\n        pass\nprint({3, -1, 5})\n";
+        // A file the guard cannot read is never typed: it fails with the line of the error.
+        let src = "x = 3\nif x\n    pass\nprint({3, -1, 5})\n";
         assert_eq!(super::check_soft(src).map_err(|e| e.0), Err(2));
         assert!(needs(src));
-        // except* is read now, so the set print is found.
+        // match and except* are read now, so the set print is found.
+        let src = "x = 3\nmatch x:\n    case 3:\n        pass\nprint({3, -1, 5})\n";
+        assert_eq!(super::check_soft(src).map(|x| x.map(|x| x.0)), Ok(Some(5)));
         let src = "try:\n    pass\nexcept* ValueError:\n    pass\nprint({3, -1, 5})\n";
         assert_eq!(super::check_soft(src).map(|x| x.map(|x| x.0)), Ok(Some(5)));
     }

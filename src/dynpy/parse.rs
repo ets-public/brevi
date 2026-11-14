@@ -880,7 +880,7 @@ impl P {
             "type" if matches!(self.toks.get(self.i + 1).map(|t| &t.0), Some(Tok::Name(_))) && matches!(self.toks.get(self.i + 2).map(|t| &t.0), Some(Tok::Op("=") | Tok::Op("["))) => {
                 return self.type_alias();
             }
-            "match" if self.is_match_stmt() => return Err(err(line, "match statements are not supported")),
+            "match" if self.is_match_stmt() => return self.match_stmt(line),
             _ => return self.simple_line(),
         };
         Ok(vec![Stmt { line, st }])
@@ -2310,4 +2310,562 @@ fn skip_nested_str(cs: &[char], k: usize, line: &mut usize) -> Option<usize> {
         p += 1;
     }
     None
+}
+
+// ---------- match statements (PEP 634) ----------
+//
+// A match statement is rewritten into an if/elif chain over the subject, as CPython's compiler lays it out:
+//     __bv_ms = subject
+//     if <pattern 1 matches> and <its names bound> [and guard]: body
+//     elif ...
+// Matching stores every capture in a hidden name first (__bv_mc<case>_<name>, hidden from a class's __dict__ and locals()), and binds the real names only
+// once the whole pattern has matched, before the guard runs: a pattern that fails part way binds nothing, as in
+// CPython. The checks that need the subject's type (Py_TPFLAGS_SEQUENCE/MAPPING, __match_args__, the mapping's
+// get()) are the runtime's __brevi_pm_* builtins (rt_patma.rs), in CPython's order. Everything CPython's compiler
+// rejects (unreachable cases, names bound twice, alternatives binding different names, duplicate literal keys)
+// is a SyntaxError here too, so the build is refused.
+
+#[derive(Clone, Debug)]
+enum Pat {
+    Wild,
+    Capture(String),
+    // a literal or dotted name, compared with ==
+    Value(Ex),
+    // None, True or False, compared with is
+    Is(Ex),
+    Seq(Vec<Pat>),
+    // `*name` or `*_` inside a sequence pattern
+    Star(Option<String>),
+    // keys, their patterns, `**rest`
+    Map(Vec<Ex>, Vec<Pat>, Option<String>),
+    Class(Ex, Vec<Pat>, Vec<(String, Pat)>),
+    Or(Vec<Pat>),
+    As(Box<Pat>, String),
+}
+
+fn pat_irrefutable(p: &Pat) -> bool {
+    match p {
+        Pat::Wild | Pat::Capture(_) => true,
+        Pat::As(q, _) => pat_irrefutable(q),
+        Pat::Or(alts) => alts.iter().any(pat_irrefutable),
+        _ => false,
+    }
+}
+
+// the names a pattern binds, in order; a SyntaxError when one is bound twice or alternatives differ
+fn pat_names(p: &Pat, out: &mut Vec<String>, line: usize) -> PR<()> {
+    let mut add = |n: &String, out: &mut Vec<String>| -> PR<()> {
+        if out.contains(n) {
+            return Err(err(line, &format!("multiple assignments to name '{n}' in pattern")));
+        }
+        out.push(n.clone());
+        Ok(())
+    };
+    match p {
+        Pat::Wild | Pat::Value(_) | Pat::Is(_) | Pat::Star(None) => {}
+        Pat::Capture(n) | Pat::Star(Some(n)) => add(n, out)?,
+        Pat::As(q, n) => {
+            pat_names(q, out, line)?;
+            add(n, out)?;
+        }
+        Pat::Seq(items) => {
+            if items.iter().filter(|x| matches!(x, Pat::Star(_))).count() > 1 {
+                return Err(err(line, "multiple starred names in sequence pattern"));
+            }
+            for x in items {
+                pat_names(x, out, line)?;
+            }
+        }
+        Pat::Map(_, pats, rest) => {
+            for x in pats {
+                pat_names(x, out, line)?;
+            }
+            if let Some(n) = rest {
+                add(n, out)?;
+            }
+        }
+        Pat::Class(_, pos, kw) => {
+            for x in pos.iter().chain(kw.iter().map(|x| &x.1)) {
+                pat_names(x, out, line)?;
+            }
+        }
+        Pat::Or(alts) => {
+            let mut first: Option<Vec<String>> = None;
+            for (i, a) in alts.iter().enumerate() {
+                if pat_irrefutable(a) && i + 1 < alts.len() {
+                    return Err(err(line, &unreachable_msg(a)));
+                }
+                let mut ns = vec![];
+                pat_names(a, &mut ns, line)?;
+                match &first {
+                    None => first = Some(ns),
+                    Some(f) => {
+                        let mut x = f.clone();
+                        let mut y = ns.clone();
+                        x.sort();
+                        y.sort();
+                        if x != y {
+                            return Err(err(line, "alternative patterns bind different names"));
+                        }
+                    }
+                }
+            }
+            for n in first.unwrap_or_default() {
+                add(&n, out)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn unreachable_msg(p: &Pat) -> String {
+    match p {
+        Pat::Capture(n) => format!("name capture '{n}' makes remaining patterns unreachable"),
+        Pat::As(q, _) => unreachable_msg(q),
+        Pat::Or(alts) => alts.iter().find(|a| pat_irrefutable(a)).map_or_else(|| "wildcard makes remaining patterns unreachable".into(), unreachable_msg),
+        _ => "wildcard makes remaining patterns unreachable".into(),
+    }
+}
+
+// A literal mapping key as CPython's compiler compares them for duplicates: None when two keys could be equal
+// in ways this does not model (a float or complex key next to another number), which refuses the build.
+fn key_canon(k: &Ex) -> Option<Result<String, ()>> {
+    Some(Ok(match k {
+        Ex::Str(s) => format!("s:{s}"),
+        Ex::Call(f, a) if matches!(&**f, Ex::Name(n) if n == "__bytes_lit") => match a.first() {
+            Some(Arg::Pos(Ex::Str(s))) => format!("b:{s}"),
+            _ => return Some(Err(())),
+        },
+        Ex::NoneV => "none".into(),
+        Ex::True => "i:1".into(),
+        Ex::False => "i:0".into(),
+        Ex::Int(t) => match int_canon(t) {
+            Some(v) => format!("i:{v}"),
+            None => return Some(Err(())),
+        },
+        Ex::Unary("-", x) => match &**x {
+            Ex::Int(t) => match int_canon(t) {
+                Some(0) => "i:0".into(),
+                Some(v) => format!("i:-{v}"),
+                None => return Some(Err(())),
+            },
+            _ => return Some(Err(())),
+        },
+        // a dotted name: evaluated when matching, checked by the runtime
+        Ex::Attr(..) => return None,
+        _ => return Some(Err(())),
+    }))
+}
+
+fn int_canon(t: &str) -> Option<u128> {
+    let t = t.replace('_', "");
+    let l = t.to_ascii_lowercase();
+    let (digits, radix) = if let Some(x) = l.strip_prefix("0x") {
+        (x.to_string(), 16)
+    } else if let Some(x) = l.strip_prefix("0o") {
+        (x.to_string(), 8)
+    } else if let Some(x) = l.strip_prefix("0b") {
+        (x.to_string(), 2)
+    } else {
+        (l.clone(), 10)
+    };
+    u128::from_str_radix(&digits, radix).ok()
+}
+
+impl P {
+    // `match subject:` NEWLINE INDENT (`case` patterns [if guard] `:` block)+ DEDENT
+    fn match_stmt(&mut self, line: usize) -> PR<Vec<Stmt>> {
+        self.next();
+        let subject = self.exprlist_star()?;
+        if matches!(subject, Ex::Star(_)) {
+            return Err(err(line, "can't use starred expression here"));
+        }
+        self.expect_op(":")?;
+        if !matches!(self.peek(), Tok::Newline) {
+            return Err(err(line, "expected a newline after 'match ...:'"));
+        }
+        self.next();
+        if !matches!(self.peek(), Tok::Indent) {
+            return Err(err(self.line(), "expected an indented block"));
+        }
+        self.next();
+        let mut cases: Vec<(usize, Pat, Option<Ex>, Vec<Stmt>)> = vec![];
+        while !matches!(self.peek(), Tok::Dedent | Tok::Eof) {
+            if matches!(self.peek(), Tok::Newline) {
+                self.next();
+                continue;
+            }
+            let cl = self.line();
+            if !self.eat_kw("case") {
+                return Err(err(cl, "expected 'case'"));
+            }
+            let p = self.patterns()?;
+            let guard = if self.eat_kw("if") { Some(self.expr()?) } else { None };
+            let body = self.block()?;
+            cases.push((cl, p, guard, body));
+        }
+        self.next();
+        if cases.is_empty() {
+            return Err(err(line, "expected 'case'"));
+        }
+        for (i, (cl, p, g, _)) in cases.iter().enumerate() {
+            pat_names(p, &mut vec![], *cl)?;
+            if g.is_none() && pat_irrefutable(p) && i + 1 < cases.len() {
+                return Err(err(*cl, &unreachable_msg(p)));
+            }
+        }
+        self.anon += 1;
+        let subj = format!("__bv_ms{}", self.anon);
+        let mut out = vec![Stmt { line, st: St::Assign(vec![Ex::Name(subj.clone())], subject) }];
+        let mut arms = vec![];
+        let mut els = None;
+        let n = cases.len();
+        for (i, (cl, p, guard, body)) in cases.into_iter().enumerate() {
+            self.anon += 1;
+            let k = self.anon;
+            let mut binds = vec![];
+            let mut conds = vec![];
+            self.pm_cond(&p, &Ex::Name(subj.clone()), k, &mut binds, &mut conds, cl)?;
+            for b in &binds {
+                conds.push(bind_true(b, Ex::Name(cap_temp(k, b))));
+            }
+            conds.extend(guard);
+            if conds.is_empty() && i + 1 == n && !arms.is_empty() {
+                els = Some(body);
+                break;
+            }
+            let c = conds.into_iter().reduce(|a, b| Ex::And(Box::new(a), Box::new(b))).unwrap_or(Ex::True);
+            arms.push((c, body));
+        }
+        out.push(Stmt { line, st: St::If(arms, els) });
+        Ok(out)
+    }
+
+    // patterns: an open sequence (`case a, *b:`) or one pattern
+    fn patterns(&mut self) -> PR<Pat> {
+        let line = self.line();
+        let first = self.star_pattern()?;
+        if self.is_op(",") {
+            let mut items = vec![first];
+            while self.eat_op(",") {
+                if self.is_op(":") || self.is_kw("if") {
+                    break;
+                }
+                items.push(self.star_pattern()?);
+            }
+            return Ok(Pat::Seq(items));
+        }
+        if matches!(first, Pat::Star(_)) {
+            return Err(err(line, "invalid syntax: a starred pattern outside a sequence pattern"));
+        }
+        Ok(first)
+    }
+    fn star_pattern(&mut self) -> PR<Pat> {
+        if self.eat_op("*") {
+            let n = self.name()?;
+            return Ok(Pat::Star(if n == "_" { None } else { Some(n) }));
+        }
+        self.pattern()
+    }
+    // as_pattern | or_pattern
+    fn pattern(&mut self) -> PR<Pat> {
+        let line = self.line();
+        let p = self.or_pattern()?;
+        if self.eat_kw("as") {
+            let n = self.name()?;
+            if n == "_" {
+                return Err(err(line, "cannot use '_' as a target"));
+            }
+            return Ok(Pat::As(Box::new(p), n));
+        }
+        Ok(p)
+    }
+    fn or_pattern(&mut self) -> PR<Pat> {
+        let mut alts = vec![self.closed_pattern()?];
+        while self.eat_op("|") {
+            alts.push(self.closed_pattern()?);
+        }
+        Ok(if alts.len() == 1 { alts.pop().unwrap() } else { Pat::Or(alts) })
+    }
+    fn seq_items(&mut self, close: &str) -> PR<Vec<Pat>> {
+        let mut items = vec![];
+        while !self.is_op(close) {
+            items.push(self.star_pattern()?);
+            if !self.eat_op(",") {
+                break;
+            }
+        }
+        self.expect_op(close)?;
+        Ok(items)
+    }
+    fn closed_pattern(&mut self) -> PR<Pat> {
+        let line = self.line();
+        match self.peek().clone() {
+            Tok::Op("(") => {
+                self.next();
+                if self.eat_op(")") {
+                    return Ok(Pat::Seq(vec![]));
+                }
+                let first = self.star_pattern()?;
+                if self.eat_op(")") {
+                    if matches!(first, Pat::Star(_)) {
+                        return Err(err(line, "invalid syntax: a starred pattern outside a sequence pattern"));
+                    }
+                    return Ok(first);
+                }
+                self.expect_op(",")?;
+                let mut items = vec![first];
+                items.extend(self.seq_items(")")?);
+                Ok(Pat::Seq(items))
+            }
+            Tok::Op("[") => {
+                self.next();
+                Ok(Pat::Seq(self.seq_items("]")?))
+            }
+            Tok::Op("{") => {
+                self.next();
+                let mut keys = vec![];
+                let mut pats = vec![];
+                let mut rest = None;
+                let mut seen: Vec<String> = vec![];
+                let mut numeric_other = 0;
+                while !self.is_op("}") {
+                    if self.eat_op("**") {
+                        let n = self.name()?;
+                        if n == "_" {
+                            return Err(err(line, "invalid syntax: '**_' in a mapping pattern"));
+                        }
+                        rest = Some(n);
+                        self.eat_op(",");
+                        break;
+                    }
+                    let kl = self.line();
+                    let key = match self.closed_pattern()? {
+                        Pat::Value(e) | Pat::Is(e) => e,
+                        _ => return Err(err(kl, "mapping pattern keys may only match literals and attribute lookups")),
+                    };
+                    match key_canon(&key) {
+                        Some(Ok(c)) => {
+                            if seen.contains(&c) {
+                                return Err(err(kl, "mapping pattern checks duplicate key"));
+                            }
+                            seen.push(c);
+                        }
+                        Some(Err(())) => numeric_other += 1,
+                        None => {}
+                    }
+                    self.expect_op(":")?;
+                    keys.push(key);
+                    pats.push(self.pattern()?);
+                    if !self.eat_op(",") {
+                        break;
+                    }
+                }
+                self.expect_op("}")?;
+                // a float or complex key could equal another literal key (1 == 1.0 == True): not modelled
+                if numeric_other > 0 && keys.len() > 1 {
+                    return Err(err(line, "a mapping pattern with a float or complex key beside other literal keys is not supported in dynamic builds"));
+                }
+                Ok(Pat::Map(keys, pats, rest))
+            }
+            Tok::Op("-") | Tok::Int(_) | Tok::Float(_) | Tok::Imag(_) => {
+                let neg = self.eat_op("-");
+                let imag = matches!(self.peek(), Tok::Imag(_));
+                let mut e = match self.peek() {
+                    Tok::Int(_) | Tok::Float(_) | Tok::Imag(_) => self.atom()?,
+                    _ => return Err(err(line, "invalid syntax in a pattern")),
+                };
+                if neg {
+                    e = Ex::Unary("-", Box::new(e));
+                }
+                // complex: real + imag, real - imag
+                if !imag && (self.is_op("+") || self.is_op("-")) && matches!(self.toks.get(self.i + 1).map(|t| &t.0), Some(Tok::Imag(_))) {
+                    let op = if self.eat_op("+") {
+                        "+"
+                    } else {
+                        self.next();
+                        "-"
+                    };
+                    let im = self.atom()?;
+                    e = Ex::Bin(op, Box::new(e), Box::new(im));
+                } else if self.is_op("+") || self.is_op("-") {
+                    return Err(err(line, "real number required in complex literal"));
+                }
+                Ok(Pat::Value(e))
+            }
+            Tok::FStr(..) => Err(err(line, "patterns may only match literals and attribute lookups")),
+            Tok::Str(..) | Tok::Bytes(_) | Tok::LoneStr(_) => {
+                let e = self.atom()?;
+                if matches!(e, Ex::FStr(_)) {
+                    return Err(err(line, "patterns may only match literals and attribute lookups"));
+                }
+                Ok(Pat::Value(e))
+            }
+            Tok::Name(n) => {
+                match n.as_str() {
+                    "None" => {
+                        self.next();
+                        return Ok(Pat::Is(Ex::NoneV));
+                    }
+                    "True" => {
+                        self.next();
+                        return Ok(Pat::Is(Ex::True));
+                    }
+                    "False" => {
+                        self.next();
+                        return Ok(Pat::Is(Ex::False));
+                    }
+                    _ => {}
+                }
+                let n = self.name()?;
+                let mut e = Ex::Name(n.clone());
+                let mut dotted = false;
+                while self.eat_op(".") {
+                    let a = self.name()?;
+                    e = Ex::Attr(Box::new(e), a);
+                    dotted = true;
+                }
+                if self.eat_op("(") {
+                    let mut pos = vec![];
+                    let mut kw: Vec<(String, Pat)> = vec![];
+                    while !self.is_op(")") {
+                        let al = self.line();
+                        let is_kw = matches!(self.peek(), Tok::Name(_)) && matches!(self.toks.get(self.i + 1).map(|t| &t.0), Some(Tok::Op("=")));
+                        if is_kw {
+                            let k = self.name()?;
+                            self.expect_op("=")?;
+                            if kw.iter().any(|x| x.0 == k) {
+                                return Err(err(al, &format!("attribute name repeated in class pattern: {k}")));
+                            }
+                            kw.push((k, self.pattern()?));
+                        } else {
+                            if !kw.is_empty() {
+                                return Err(err(al, "positional patterns follow keyword patterns"));
+                            }
+                            if self.is_op("*") {
+                                return Err(err(al, "invalid syntax: a starred pattern in a class pattern"));
+                            }
+                            pos.push(self.pattern()?);
+                        }
+                        if !self.eat_op(",") {
+                            break;
+                        }
+                    }
+                    self.expect_op(")")?;
+                    return Ok(Pat::Class(e, pos, kw));
+                }
+                if dotted {
+                    return Ok(Pat::Value(e));
+                }
+                Ok(if n == "_" { Pat::Wild } else { Pat::Capture(n) })
+            }
+            t => Err(err(line, &format!("invalid syntax in a pattern: {t:?}"))),
+        }
+    }
+
+    // The tests for pattern p on subject s, in CPython's order, pushed onto conds (all must hold); the names p
+    // captures onto binds, each stored in its hidden name (cap_temp) as the tests run.
+    fn pm_cond(&mut self, p: &Pat, s: &Ex, k: usize, binds: &mut Vec<String>, conds: &mut Vec<Ex>, line: usize) -> PR<()> {
+        let call = |f: &str, a: Vec<Ex>| Ex::Call(Box::new(Ex::Name(f.to_string())), a.into_iter().map(Arg::Pos).collect());
+        let not_none = |e: Ex| Ex::Cmp(Box::new(e), vec![("is not", Ex::NoneV)]);
+        let at = |t: &str, i: usize| Ex::Index(Box::new(Ex::Name(t.to_string())), Box::new(Ex::Int(i.to_string())));
+        let int = |i: usize| Ex::Int(i.to_string());
+        match p {
+            Pat::Wild | Pat::Star(None) => {}
+            Pat::Capture(n) | Pat::Star(Some(n)) => {
+                if !binds.contains(n) {
+                    binds.push(n.clone());
+                }
+                conds.push(bind_true(&cap_temp(k, n), s.clone()));
+            }
+            Pat::Value(v) => conds.push(Ex::Cmp(Box::new(s.clone()), vec![("==", v.clone())])),
+            Pat::Is(v) => conds.push(Ex::Cmp(Box::new(s.clone()), vec![("is", v.clone())])),
+            Pat::As(q, n) => {
+                self.pm_cond(q, s, k, binds, conds, line)?;
+                if !binds.contains(n) {
+                    binds.push(n.clone());
+                }
+                conds.push(bind_true(&cap_temp(k, n), s.clone()));
+            }
+            Pat::Or(alts) => {
+                let mut ors = vec![];
+                for a in alts {
+                    let mut c = vec![];
+                    self.pm_cond(a, s, k, binds, &mut c, line)?;
+                    let all = c.into_iter().reduce(|a, b| Ex::And(Box::new(a), Box::new(b))).unwrap_or(Ex::True);
+                    ors.push(all);
+                }
+                conds.push(ors.into_iter().reduce(|a, b| Ex::Or(Box::new(a), Box::new(b))).unwrap());
+            }
+            Pat::Seq(items) => {
+                let star = items.iter().position(|x| matches!(x, Pat::Star(_)));
+                let nb = star.unwrap_or(items.len());
+                let na = star.map_or(0, |i| items.len() - i - 1);
+                let only_wild = items.iter().all(|x| matches!(x, Pat::Wild | Pat::Star(None)));
+                // how the items are read: 0 unpacked by iterating, 1 by subscripts (a `*_` star), 2 not at all
+                let how = if only_wild {
+                    2
+                } else if matches!(star.map(|i| &items[i]), Some(Pat::Star(None))) {
+                    1
+                } else {
+                    0
+                };
+                let args = vec![s.clone(), int(nb), int(na), if star.is_some() { Ex::True } else { Ex::False }, int(how)];
+                if how == 2 {
+                    conds.push(not_none(call("__brevi_pm_seq", args)));
+                    return Ok(());
+                }
+                self.anon += 1;
+                let t = format!("__bv_mt{}", self.anon);
+                conds.push(not_none(Ex::Walrus(t.clone(), Box::new(call("__brevi_pm_seq", args)))));
+                for (i, x) in items.iter().enumerate() {
+                    let j = match (star, how) {
+                        (Some(si), 1) if i > si => i - 1,
+                        _ => i,
+                    };
+                    if how == 1 && Some(i) == star {
+                        continue;
+                    }
+                    self.pm_cond(x, &at(&t, j), k, binds, conds, line)?;
+                }
+            }
+            Pat::Map(keys, pats, rest) => {
+                conds.push(call("__brevi_pm_ismap", vec![s.clone(), int(keys.len())]));
+                if keys.is_empty() && rest.is_none() {
+                    return Ok(());
+                }
+                self.anon += 1;
+                let t = format!("__bv_mt{}", self.anon);
+                let args = vec![s.clone(), Ex::Tuple(keys.clone()), if rest.is_some() { Ex::True } else { Ex::False }];
+                conds.push(not_none(Ex::Walrus(t.clone(), Box::new(call("__brevi_pm_map", args)))));
+                for (i, x) in pats.iter().enumerate() {
+                    self.pm_cond(x, &at(&t, i), k, binds, conds, line)?;
+                }
+                if let Some(n) = rest {
+                    self.pm_cond(&Pat::Capture(n.clone()), &at(&t, keys.len()), k, binds, conds, line)?;
+                }
+            }
+            Pat::Class(c, pos, kw) => {
+                self.anon += 1;
+                let t = format!("__bv_mt{}", self.anon);
+                let names = Ex::Tuple(kw.iter().map(|x| Ex::Str(x.0.clone())).collect());
+                let args = vec![s.clone(), c.clone(), int(pos.len()), names];
+                conds.push(not_none(Ex::Walrus(t.clone(), Box::new(call("__brevi_pm_cls", args)))));
+                for (i, x) in pos.iter().chain(kw.iter().map(|x| &x.1)).enumerate() {
+                    self.pm_cond(x, &at(&t, i), k, binds, conds, line)?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+// the hidden name a case's capture of n is stored in until the whole pattern has matched
+fn cap_temp(k: usize, n: &str) -> String {
+    format!("__bv_mc{k}_{n}")
+}
+
+// `(t := e,) is not None`: stores e in t, always true
+fn bind_true(t: &str, e: Ex) -> Ex {
+    Ex::Cmp(Box::new(Ex::Tuple(vec![Ex::Walrus(t.to_string(), Box::new(e))])), vec![("is not", Ex::NoneV)])
 }

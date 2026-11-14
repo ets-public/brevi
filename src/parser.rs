@@ -3295,6 +3295,10 @@ impl Parser {
                 let mut arms = Vec::new();
                 self.skip_seps();
                 while !self.is_sym("}") {
+                    // a Python match statement (PEP 634): the dynamic build has it (dynpy/parse.rs match_stmt)
+                    if self.py && matches!(self.peek(), Tok::Ident(c) if c == "case") {
+                        return Err(self.err("a Python match statement (case patterns) is built over dynamic values"));
+                    }
                     let p = self.pat()?;
                     // `Arr(xs):` as in Python's `case`, for `Arr(xs) =>`.
                     if !self.eat_sym(":") && !self.is_sym("{") {

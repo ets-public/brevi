@@ -1,0 +1,1 @@
+- Conformance: CPython's `test_patma` (match statements) joins the core slice (266 tests match in both builds, no wrong result). Its 44 tests that run a string through `compile()` are refused by design and listed in `compat/conformance_by_design.txt`; the rest are refused with a clear message.

@@ -595,6 +595,24 @@ pub fn abc_meta(c: V) -> R {
     }
     Ok(c)
 }
+// Whether n, looked up along c's MRO, is still abstract: a builtin base (dict, list, ...) that defines n in
+// CPython's type dict supplies a concrete method, as CPython's lookup finds it before an ABC's abstract one.
+fn abc_mro_abstract(c: &Rc<Class>, n: &str) -> Result<bool, E> {
+    for k in c.mro.borrow().iter() {
+        if k.made.get() == 0 && k.tinfo.borrow().is_none() && k.name != "object" {
+            if let Some(t) = TYPE_DICTS.iter().find(|t| t.0 == k.module && t.1 == k.name) {
+                if t.5.iter().any(|e| e.0 == n) {
+                    return Ok(false);
+                }
+                continue;
+            }
+        }
+        if let Some(v) = k.own(n) {
+            return is_abstract_method(&v);
+        }
+    }
+    Ok(false)
+}
 // ABCMeta.__new__'s class setup: __abstractmethods__, __flags__ and the flag conflict check.
 fn abc_setup(c: &Rc<Class>) -> R {
     let mut names: Vec<Sym> = vec![];
@@ -609,10 +627,7 @@ fn abc_setup(c: &Rc<Class>) -> R {
             if let V::FSet(p) = &fs {
                 for k in p.keys() {
                     let n = to_str(&k).unwrap_or_default();
-                    let abs = match c.lookup(&n) {
-                        Some(v) => is_abstract_method(&v)?,
-                        None => false,
-                    };
+                    let abs = abc_mro_abstract(c, &n)?;
                     if !names.iter().any(|x| same_name(x, &n)) && abs {
                         names.push(sym(&n));
                     }
@@ -625,20 +640,15 @@ fn abc_setup(c: &Rc<Class>) -> R {
     c.set_exact("__abstractmethods__", V::FSet(Rc::new(abs)));
     // the Py_TPFLAGS_SEQUENCE/MAPPING bits, kept as Brevi's own __bv_flags__ (CPython keeps them in tp_flags,
     // not the dict); _abc_init removes __abc_tpflags__ from the dict
-    let mut flags: i64 = 0;
-    for b in c.bases.iter() {
-        if b.abc.get() {
-            if let Some(V::Int(f)) = b.own("__bv_flags__") {
-                flags |= f;
-            }
-        }
-    }
+    // CPython's type creation takes the bits from the first class in the MRO that has them (inherit_patma_flags);
+    // an __abc_tpflags__ in the class body replaces them
+    let mut flags: i64 = c.mro.borrow().iter().skip(1).map(pm_own_flags).find(|f| *f != 0).unwrap_or(0);
     if let Some(V::Int(f)) = c.own("__abc_tpflags__") {
-        flags |= f;
+        if f & 32 != 0 && f & 64 != 0 {
+            return Err(exc("TypeError", "__abc_tpflags__ cannot be both Py_TPFLAGS_SEQUENCE and Py_TPFLAGS_MAPPING".into()));
+        }
+        flags = f & 96;
         c.del_exact("__abc_tpflags__");
-    }
-    if flags & 32 != 0 && flags & 64 != 0 {
-        return Err(exc("TypeError", "__abc_tpflags__ cannot be both Py_TPFLAGS_SEQUENCE and Py_TPFLAGS_MAPPING".into()));
     }
     c.set_exact("__bv_flags__", V::Int(flags));
     c.set_exact("_abc_impl", V::Ext(ExtRc::new(AbcData)));

@@ -300,7 +300,7 @@ fn is_missing_builtin(n: &str) -> bool {
 fn is_builtin_name(n: &str) -> bool {
     matches!(
         n,
-        "print" | "input" | "len" | "repr" | "ascii" | "abs" | "min" | "max" | "sum" | "sorted" | "reversed" | "enumerate" | "zip" | "map" | "filter" | "any" | "all" | "iter" | "next" | "isinstance" | "issubclass" | "hasattr" | "getattr" | "setattr" | "delattr" | "callable" | "ord" | "chr" | "hex" | "oct" | "bin" | "round" | "divmod" | "pow" | "hash" | "id" | "format" | "vars" | "dir" | "exit" | "quit" | "staticmethod" | "classmethod" | "property" | "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "slice" | "super" | "NotImplemented" | "Ellipsis" | "__name__" | "bytes" | "bytearray" | "memoryview" | "__bytes_lit" | "__brevi_lone_str" | "complex" | "__complex_lit" | "aiter" | "anext" | "__brevi_aenter" | "__brevi_aexit" | "__brevi_awith" | "__brevi_afor_await" | "__brevi_eg_split" | "__brevi_eg_reraise" | "__brevi_typevar" | "__brevi_tparams" | "__brevi_typealias" | "__brevi_generic"
+        "print" | "input" | "len" | "repr" | "ascii" | "abs" | "min" | "max" | "sum" | "sorted" | "reversed" | "enumerate" | "zip" | "map" | "filter" | "any" | "all" | "iter" | "next" | "isinstance" | "issubclass" | "hasattr" | "getattr" | "setattr" | "delattr" | "callable" | "ord" | "chr" | "hex" | "oct" | "bin" | "round" | "divmod" | "pow" | "hash" | "id" | "format" | "vars" | "dir" | "exit" | "quit" | "staticmethod" | "classmethod" | "property" | "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "slice" | "super" | "NotImplemented" | "Ellipsis" | "__name__" | "bytes" | "bytearray" | "memoryview" | "__bytes_lit" | "__brevi_lone_str" | "complex" | "__complex_lit" | "aiter" | "anext" | "__brevi_aenter" | "__brevi_aexit" | "__brevi_awith" | "__brevi_afor_await" | "__brevi_eg_split" | "__brevi_eg_reraise" | "__brevi_typevar" | "__brevi_tparams" | "__brevi_typealias" | "__brevi_generic" | "__brevi_pm_seq" | "__brevi_pm_ismap" | "__brevi_pm_map" | "__brevi_pm_cls"
     ) || is_exc_name(n)
 }
 fn is_exc_name(n: &str) -> bool {
@@ -2716,7 +2716,8 @@ impl Em {
                     }
                     if !fr.is_module && !fr.is_class && !fr.is_gen && !fr.order.is_empty() || (!fr.is_module && !fr.is_class && !fr.is_gen && fr.vars.is_empty()) {
                         let mut b = String::from("{ let mut __d = Dict::new(); ");
-                        for n in fr.order.clone() {
+                        // the parser's own hidden names (a match statement's subject and captures) are not the program's
+                        for n in fr.order.clone().into_iter().filter(|n| !n.starts_with("__brevi_") && !n.starts_with("__bv_")) {
                             let get = match self.lookup(&n) {
                                 Some(Var::Local(r)) => format!("{r}.clone()"),
                                 Some(Var::Cell(r)) => format!("{r}.borrow().clone()"),
