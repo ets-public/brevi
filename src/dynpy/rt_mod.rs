@@ -2977,6 +2977,8 @@ pub fn sys_fn(name: &str, a: Args) -> R {
             a.want(name, 0, 0)?;
             Ok(cur_exc().unwrap_or(V::None))
         }
+        "settrace" => sys_settrace(a),
+        "gettrace" => sys_gettrace(a),
         "exc_info" => {
             a.want(name, 0, 0)?;
             Ok(match cur_exc() {

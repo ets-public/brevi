@@ -15,6 +15,8 @@ pub static NP_NATIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicB
 pub static NP_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 // The program uses Brevi's pydantic: defs carry their number of positional parameters (src/dynpy/pyd.rs).
 pub static PYD_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+// The program is built with sys.settrace's hooks (trace_check.rs): only then does sys have settrace and gettrace.
+pub static TRACE_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 // With Brevi's pydantic, per module (pyd::rewrite): the model annotations' lines, which their descriptor
 // statement evaluates in place of the annotation, and the names holding descriptors or the pydantic copy, which
 // are not CPython's typing values (an annotation reading one is refused where CPython evaluates it).
@@ -216,6 +218,9 @@ fn np_attr_check(n: &str, kws: &[&str], line: usize) -> ER<()> {
 
 // Names a builtin module provides in dynamic builds (anything else is refused when the program is built).
 pub fn module_has(m: &str, n: &str) -> bool {
+    if m == "sys" && matches!(n, "settrace" | "gettrace") {
+        return TRACE_MODE.load(std::sync::atomic::Ordering::Relaxed);
+    }
     let names: &[&str] = match m {
         "__future__" => return true,
         "typing" | "typing_extensions" => return super::typing::module_has(m, n),
@@ -1757,6 +1762,15 @@ pub struct Em {
     warn_names: HashSet<(String, String)>,
     // module + value set -> the first display's items in source order (CPython's constant merging)
     set_lits: HashMap<(String, BTreeSet<ConstKey>), Vec<Ex>>,
+    // sys.settrace: the main module's lines when the program is built with trace hooks (trace_check.rs)
+    trace: Option<super::trace_check::TLines>,
+    // emitting a def or class body (a traced frame, whose hooks name `__tf`), not module code
+    tr_on: bool,
+    // the next block is a def's body that opens with its docstring (no instruction there, so no line event)
+    skip_doc: bool,
+    // co_firstlineno of the def being built, and the TraceCode static its body names
+    def_first: usize,
+    last_tcode: Option<String>,
 }
 
 // The annotation a def passes to functools.singledispatch's register when the def is decorated with a bare
@@ -1820,6 +1834,9 @@ fn sd_class_like(e: &Ex) -> bool {
         _ => false,
     }
 }
+// dis reads CPython bytecode, and a compiled function has none: CPython's dis would raise TypeError where CPython
+// itself disassembles, so the module is refused rather than bridged (test_patma test_jump_threading stays out)
+const DIS_REFUSED: &str = "module 'dis' is not supported in dynamic builds (compiled functions have no CPython bytecode to disassemble)";
 fn is_dec_name(e: &Ex, n: &str) -> bool {
     match e {
         Ex::Attr(_, x) if x == n => true,
@@ -1829,6 +1846,20 @@ fn is_dec_name(e: &Ex, n: &str) -> bool {
 }
 
 impl Em {
+    // sys.settrace: a code body's code object, as a static its frames and function value share
+    fn tcode(&mut self, name: &str, first: usize, flags: u32) -> String {
+        let id = self.id();
+        let file = self.bridge.srcs.get(&self.module).map(|(f, _)| f.clone()).unwrap_or_default();
+        write!(self.items, "static TC{id}: TraceCode = TraceCode {{ name: {}, first: {first}, flags: {flags}, file: {} }};\n", lit(name), lit(&file)).unwrap();
+        format!("TC{id}")
+    }
+    // sys.settrace: an instruction starting `line` runs, in a traced code body
+    fn tl(&self, line: usize) -> String {
+        if !self.tr_on || line == 0 {
+            return String::new();
+        }
+        format!("let _ = {};", self.q(&format!("trace_line(&__tf, {line})")))
+    }
     fn id(&mut self) -> usize {
         self.n += 1;
         self.n
@@ -3309,7 +3340,14 @@ impl Em {
             // a loop body starts here too, so what rebinding the loop target freed is finalized before the body
             b.push_str("fin_point();\n");
         }
-        for s in body {
+        for (k, s) in body.iter().enumerate() {
+            if self.tr_on {
+                // a def's docstring is no instruction; a def's own lines are its decorators' (def)
+                let doc = k == 0 && std::mem::take(&mut self.skip_doc) && matches!(&s.st, St::Expr(Ex::Str(_)));
+                if !doc && !matches!(s.st, St::Def(_)) {
+                    b.push_str(&self.tl(s.line));
+                }
+            }
             let w = self.stmt_site(s);
             b.push_str(&w);
             b.push_str(&self.stmt(s)?);
@@ -3607,6 +3645,9 @@ impl Em {
                 let mut b = String::new();
                 for (m, a) in v {
                     let top = m.split('.').next().unwrap().to_string();
+                    if top == "dis" {
+                        return Err(err(line, DIS_REFUSED));
+                    }
                     let bind = a.clone().unwrap_or(top.clone());
                     let target = if a.is_some() { m.clone() } else { top.clone() };
                     if target == "warnings" {
@@ -3647,6 +3688,9 @@ impl Em {
             }
             St::ImportFrom(m, names) => {
                 let mut b = String::new();
+                if m.split('.').next() == Some("dis") {
+                    return Err(err(line, DIS_REFUSED));
+                }
                 if m == "__future__" {
                     return Ok(b);
                 }
@@ -3743,8 +3787,28 @@ impl Em {
             St::If(arms, els) if arms.len() == 1 && els.is_none() && super::typing::type_checking(&arms[0].0) => String::new(),
             St::If(arms, els) => {
                 let mut b = String::new();
+                // sys.settrace: where each arm's test runs (an elif's line; a match's arms are its cases, the
+                // else arm an irrefutable last case); the if's own line is the statement's, said before it
+                let (arm_lines, els_line) = match (self.tr_on, &self.trace) {
+                    (true, Some(tl)) => match tl.first(line) {
+                        Some("match") => {
+                            let c = tl.cases(line).ok_or_else(|| err(line, "internal: a traced match's cases"))?;
+                            (c[..arms.len()].to_vec(), c.get(arms.len()).copied())
+                        }
+                        _ => {
+                            let (e, _) = tl.if_arms(line).ok_or_else(|| err(line, "internal: a traced if's arms"))?;
+                            (std::iter::once(0).chain(e).collect(), None)
+                        }
+                    },
+                    _ => (vec![], None),
+                };
                 for (k, (c, body)) in arms.iter().enumerate() {
                     let mut cc = self.cond(c, line)?;
+                    if let Some(&l) = arm_lines.get(k) {
+                        if l != 0 {
+                            cc = format!("{{ {} {cc} }}", self.tl(l));
+                        }
+                    }
                     if k > 0 && self.track_warn {
                         // an elif's own line is not kept
                         let ws = self.wsite(0, false);
@@ -3758,7 +3822,8 @@ impl Em {
                 }
                 if let Some(e) = els {
                     let bb = self.block(e)?;
-                    write!(b, " else {{\n{bb}}}").unwrap();
+                    let t = els_line.map(|l| self.tl(l)).unwrap_or_default();
+                    write!(b, " else {{\n{t}{bb}}}").unwrap();
                 }
                 b
             }
@@ -3880,7 +3945,9 @@ impl Em {
             self.f().frames.pop();
             let fb = self.block(fin)?;
             let after = self.flow_dispatch(id, line)?;
-            return Ok(format!("{{ let __fl{id}: Flow = {lbl}: {{ {inner}\nFlow::Normal }};\n{fb}\n{after} }}"));
+            // sys.settrace: an exception reaching the finally is reported where it was raised, before the finally runs
+            let trf = if self.tr_on { format!("let __fl{id}: Flow = trace_fin(&__tf, __fl{id});") } else { String::new() };
+            return Ok(format!("{{ let __fl{id}: Flow = {lbl}: {{ {inner}\nFlow::Normal }};{trf}\n{fb}\n{after} }}"));
         }
         let id = self.id();
         let lbl = format!("'t{id}");
@@ -4008,6 +4075,13 @@ impl Em {
         self.next_iter_coro = iter_coro;
         let own = d.disp.as_deref().unwrap_or(&d.name);
         let qn = self.qualname_of(own);
+        // sys.settrace: the decorators' lines (just above the def, as trace_check made sure)
+        let dec_lines = match &self.trace {
+            Some(tl) if !d.decorators.is_empty() => tl.decorator_lines(d.line, d.decorators.len()).ok_or_else(|| err(d.line, "internal: a traced def's decorator lines"))?,
+            _ => vec![],
+        };
+        self.def_first = dec_lines.first().copied().unwrap_or(d.line);
+        self.last_tcode = None;
         let v = self.closure(own, &qn, &d.params, &d.body, d.line, true);
         self.next_async = false;
         self.next_iter_coro = false;
@@ -4075,6 +4149,29 @@ impl Em {
                 v = format!("with_sd_ann({v}, tup(vec![s({}), {desc}]))", lit(pn));
             }
         }
+        if self.trace.is_some() {
+            let tc = self.last_tcode.take().ok_or_else(|| err(d.line, "internal: a traced def's code object"))?;
+            v = format!("with_tcode({v}, &{tc})");
+        }
+        if self.tr_on {
+            // CPython's order and lines: each decorator evaluated at its line, the function made at the def's
+            // (its defaults with it), the decorators applied innermost first at their lines, the name stored at
+            // the def's line
+            let mut b = String::new();
+            for (k, dec) in d.decorators.iter().enumerate() {
+                let dd = self.ex(dec, d.line)?;
+                write!(b, "let __dk{k} = {{ {} {dd} }}; ", self.tl(dec_lines[k])).unwrap();
+            }
+            write!(b, "let __fv = {{ {} {v} }}; ", self.tl(d.line)).unwrap();
+            for k in (0..d.decorators.len()).rev() {
+                let c = self.q(&format!("call(&__dk{k}, Args::p(vec![__fv]))"));
+                write!(b, "let __fv = {{ {} {c} }}; ", self.tl(dec_lines[k])).unwrap();
+            }
+            if !d.decorators.is_empty() {
+                b.push_str(&self.tl(d.line));
+            }
+            return Ok(format!("{{ {b}__fv }}"));
+        }
         let n_dec = d.decorators.len() - usize::from(iter_coro);
         for dec in d.decorators[..n_dec].iter().rev() {
             let dd = self.ex(dec, d.line)?;
@@ -4135,6 +4232,8 @@ impl Em {
     #[allow(clippy::too_many_arguments)]
     fn closure_body(&mut self, name: &str, qualname: &str, p: &Params, body: &[Stmt], line: usize, is_def: bool, dflt: Option<(Vec<String>, Vec<String>)>) -> ER<String> {
         let id = self.id();
+        // sys.settrace: this def's co_firstlineno, taken before its body builds the defs nested in it
+        let def_first = if is_def { std::mem::take(&mut self.def_first) } else { 0 };
         let is_async = std::mem::take(&mut self.next_async);
         let is_gen = has_yield(body);
         // (a lambda in the def's defaults is built first: is_def keeps the flag for the def itself)
@@ -4270,7 +4369,13 @@ impl Em {
                 }
             }
         }
+        let traced = self.trace.is_some() && is_def;
+        let new_tr = traced || self.tr_on && !is_def;
+        let saved_tr = std::mem::replace(&mut self.tr_on, new_tr);
+        self.skip_doc = traced && docstring(body).is_some();
         let body_code = self.block(body);
+        self.tr_on = saved_tr;
+        self.skip_doc = false;
         self.fstack.pop();
         self.class_ctx = saved_ctx;
         let body_code = body_code?;
@@ -4311,6 +4416,15 @@ impl Em {
             code_flags |= 0x10; // CO_NESTED
         }
         let code = code_flags.to_string();
+        // sys.settrace: the body between its "call" and "return" events (rt_trace.rs)
+        let body_all = if traced {
+            let first = if def_first != 0 { def_first } else { line };
+            let tc = self.tcode(name, first, code_flags);
+            self.last_tcode = Some(tc.clone());
+            format!("let __tf: TF = trace_enter(&{tc})?; let __tr: R = (|| -> R {{ {decls}{cells_init}\n{body_code}\nOk(V::None) }})(); trace_leave(&__tf, __tr)")
+        } else {
+            format!("{decls}{cells_init}\n{body_code}\nOk(V::None)")
+        };
         let sig = format!("Sig {{ name: {qname}, params: &[{names_lit}], npos: {npos}, npo: {npo}, star: {star}, kwstar: {kwstar} }}");
         let dflt_all: Vec<String> = dflt_codes.iter().chain(kwd.iter()).cloned().collect();
         let nparams = params.len();
@@ -4323,7 +4437,7 @@ impl Em {
             } else if is_gen {
                 write!(self.items, "fn {fname}({}) -> R {{ Ok({mk_gen}(sym({qname}), move || -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }})) }}\n", pdecl.join(", ")).unwrap();
             } else {
-                write!(self.items, "fn {fname}({}) -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }}\n", pdecl.join(", ")).unwrap();
+                write!(self.items, "fn {fname}({}) -> R {{ let __depth = Depth::new()?; {body_all} }}\n", pdecl.join(", ")).unwrap();
             }
             let need_defaults = dflt_all.iter().any(|d| d != "V::Unbound");
             if is_def && at_top && !star && !kwstar && p.kwonly.is_empty() {
@@ -4389,7 +4503,7 @@ impl Em {
             if let Some((dfn, dcaps, _)) = nd {
                 if dcaps == captures.iter().map(|(_, r)| r.clone()).collect::<Vec<_>>() {
                     let cparams: String = dcaps.iter().map(|r| format!("{r}: Rc<RefCell<V>>, ")).collect();
-                    write!(self.items, "fn {dfn}({cparams}{}) -> R {{ let __depth = Depth::new()?; {decls}{cells_init}\n{body_code}\nOk(V::None) }}\n", pdecl.join(", ")).unwrap();
+                    write!(self.items, "fn {dfn}({cparams}{}) -> R {{ let __depth = Depth::new()?; {body_all} }}\n", pdecl.join(", ")).unwrap();
                     let cargs: String = dcaps.iter().map(|r| format!("{r}.clone(), ")).collect();
                     return Ok(format!("with_fq({wo}with_code({{ let __d = vec![{}]; {caps} func({name_lit}, move |a: Args| -> R {{ let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {dfn}({cargs}{unpack}) }}) }}, {code}){wc}, {fq})", dflt_all.join(", ")));
                 }
@@ -4404,7 +4518,7 @@ impl Em {
             ));
         }
         Ok(format!(
-            "with_fq({wo}with_code({{ let __d = vec![{}]; {caps} func({name_lit}, move |a: Args| -> R {{ let __depth = Depth::new()?; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{decls}{cells_init}\n{body_code}\nOk(V::None) }}) }}, {code}){wc}, {fq})",
+            "with_fq({wo}with_code({{ let __d = vec![{}]; {caps} func({name_lit}, move |a: Args| -> R {{ let __depth = Depth::new()?; let mut __b = bind(&{sig}, &__d, a)?.into_iter(); {bind_params}{body_all} }}) }}, {code}){wc}, {fq})",
             dflt_all.join(", ")
         ))
     }
@@ -4506,7 +4620,9 @@ impl Em {
             why = "annotations Brevi did not keep";
         }
         let ns_var = format!("__ns{id}");
-        let mut fr = Func { vars: HashMap::new(), frames: parent.frames.clone(), class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), qname: qualname.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![], ns: dict_mode.then_some(ns_var.clone()) };
+        // sys.settrace: a class body is its own frame (a closure here), so its errors leave it by `?`
+        let class_frames = if self.trace.is_some() { vec![] } else { parent.frames.clone() };
+        let mut fr = Func { vars: HashMap::new(), frames: class_frames, class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), qname: qualname.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![], ns: dict_mode.then_some(ns_var.clone()) };
         let ctx = format!("__auto_ctx{id}");
         let av = format!("__auto_last{id}");
         let mut decls = String::new();
@@ -4576,8 +4692,12 @@ impl Em {
         self.fstack.push(fr);
         let mut body = String::new();
         let mut res = Ok(());
+        let saved_tr = std::mem::replace(&mut self.tr_on, self.trace.is_some());
         for s in &c.body {
             let mut code = self.stmt_site(s);
+            if !matches!(s.st, St::Def(_)) {
+                code.push_str(&self.tl(s.line));
+            }
             if let (true, St::AnnAssign(t, v, ann, simple)) = (setup, &s.st) {
                 let line = s.line;
                 // CPython (compiler_annassign) stores the value first, or with no value evaluates the target's
@@ -4616,9 +4736,17 @@ impl Em {
             body.push_str(&code);
             body.push('\n');
         }
+        self.tr_on = saved_tr;
         self.fstack.pop();
         self.class_ctx = saved;
         res?;
+        // sys.settrace: the class body between its "call" and "return" events, its first line the class's
+        if self.trace.is_some() {
+            let tc = self.tcode(&c.name, c.first, 0);
+            let enter = self.q(&format!("trace_enter(&{tc})"));
+            let leave = self.q("trace_leave(&__tf, __tr)");
+            body = format!("let __tf: TF = {enter}; let __tr: R = (|| -> R {{ trace_line(&__tf, {})?; {body} Ok(V::None) }})(); let _ = {leave};", c.line);
+        }
         // the class is made at the class statement's line
         let w = self.wsite(c.line, c.decorators.is_empty());
         let abcm = if c.abc_meta { format!("let __c = {};", self.q("abc_meta(__c)")) } else { String::new() };
@@ -4860,6 +4988,15 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     }) || iter_pickle;
 
     let has_del = mods.iter().any(|m| format!("{:?}", m.body).contains("\"__del__\""));
+    // sys.settrace: checked here, then every def and class body is compiled with trace hooks (rt_trace.rs)
+    let srcset: HashSet<String> = bridge.srcs.keys().cloned().collect();
+    let trace = if super::trace_check::wants_trace(mods, &srcset) {
+        let src = bridge.srcs.get(&mods[0].name).map(|(_, s)| s.clone());
+        Some(super::trace_check::check(mods, src.as_deref()).map_err(|(l, m)| (mods[0].name.clone(), l, m))?)
+    } else {
+        None
+    };
+    TRACE_MODE.store(trace.is_some(), std::sync::atomic::Ordering::Relaxed);
     let has_closure = mods.iter().any(|m| format!("{:?}", m.body).contains("__closure__"));
     let mut em = Em {
         has_del,
@@ -4902,6 +5039,11 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         lam_line: None,
         warn_names: HashSet::new(),
         set_lits: HashMap::new(),
+        trace,
+        tr_on: false,
+        skip_doc: false,
+        def_first: 0,
+        last_tcode: None,
     };
     // Brevi's own library copies first, each group named and numbered on its own, then the program's modules:
     // the copies' Rust (everything before LIB_END) is then the same for every program that imports them, so a
@@ -5111,13 +5253,14 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     };
     write!(
         out,
-        "fn __run() -> Result<(), E> {{ unsafe {{ GL = vec![V::Unbound; {}]; K = vec![{}]; }} USER_MOD.with(|u| u.set(Some(user_mod))); MAIN_GTAB.with(|u| u.set(Some(gtab___main__))); {}{}{} let r = init___main__(); fin_point(); r }}\nfn main() {{ run_main(__run); }}\n",
+        "fn __run() -> Result<(), E> {{ unsafe {{ GL = vec![V::Unbound; {}]; K = vec![{}]; }} USER_MOD.with(|u| u.set(Some(user_mod))); MAIN_GTAB.with(|u| u.set(Some(gtab___main__))); {}{}{}{} let r = init___main__(); fin_point(); r }}\nfn main() {{ run_main(__run); }}\n",
         em.nglobals.max(1),
         consts.join(", "),
         del_on,
         // the program uses CPython's warnings module: the warnings the runtime issues go through it
         if em.bridged_used.contains("warnings") { " set_warn_bridge(pyd_warn_at); pyd_warn_install()?;" } else { "" },
-        if uname { " set_name_lookup(__uname);" } else { "" }
+        if uname { " set_name_lookup(__uname);" } else { "" },
+        if em.trace.is_some() { " trace_build_on();" } else { "" }
     )
     .unwrap();
     if uname {

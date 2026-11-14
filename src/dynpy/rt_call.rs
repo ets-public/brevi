@@ -1925,7 +1925,10 @@ pub fn getattr(o: &V, name: &str) -> R {
             // an assigned __code__ is kept in attrs; otherwise one is made from the def's flags
             "__code__" if f.attrs.borrow().iter().all(|(k, _)| *k != "__code__") => match f.code_flags.get() {
                 0 => Err(exc("AttributeError", format!("'{}' object has no attribute '__code__'", if f.kind.get() == 3 { "builtin_function_or_method" } else { "function" }))),
-                fl => Ok(mk_code(f.name.get(), fl)),
+                fl => Ok(match f.tcode.get() {
+                    Some(tc) => trace_code_v(tc),
+                    None => mk_code(f.name.get(), fl),
+                }),
             },
             // the cells the function closes over: None with no free variables, a tuple of cell objects otherwise
             "__closure__" => {

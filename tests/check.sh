@@ -679,6 +679,25 @@ for f in tests/dyn/*.py; do
     echo "ok   $f"
   fi
 done
+# sys.settrace is compiled only for the statements whose events are known to be CPython 3.13's (dynpy/trace_check.rs,
+# tools/trace_fuzz.py); anything else in a program that uses it is refused when built, never traced differently. dis
+# is refused: a compiled function has no bytecode.
+t=$(mktemp -d)
+printf 'import sys\ndef f():\n    for i in range(2):\n        pass\nsys.settrace(None)\n' > "$t/loop.py"
+printf 'import sys\ndef t(fr, ev, arg):\n    print(fr.f_locals)\n    return t\nsys.settrace(t)\n' > "$t/flocals.py"
+printf 'import sys\nsys.settrace(lambda *a: None)\n' > "$t/lam.py"
+printf 'import sys\ndef f():\n    try:\n        x = 1\n    except ValueError:\n        pass\nsys.settrace(None)\n' > "$t/exc.py"
+printf 'import dis\ndef f():\n    return 1\nprint(list(dis.get_instructions(f)))\n' > "$t/dis.py"
+for c in "loop:this statement inside a def or class is not supported in a program that uses sys.settrace" \
+         "flocals:the f_locals attribute is not supported in a program that uses sys.settrace" \
+         "lam:a lambda is not supported in a program that uses sys.settrace" \
+         "exc:this statement inside a def or class is not supported in a program that uses sys.settrace" \
+         "dis:module 'dis' is not supported in dynamic builds"; do
+  n=${c%%:*}; want=${c#*:}
+  o=$(BREVI_DYN=1 $BREVI build "$t/$n.py" -o "$t/$n.bin" 2>&1)
+  case "$o" in *"$want"*) echo "ok   dynamic build refuses $n with sys.settrace/dis" ;; *) echo "FAIL dynamic build refuses $n with sys.settrace/dis"; printf '%s\n' "$o" | tail -3; fail=1 ;; esac
+done
+rm -rf "$t"
 # A str with a lone surrogate on a path not yet written for one stops the program, even inside try/except: never a
 # different answer (handoffs/string-model-design.md).
 t=$(mktemp -d)
