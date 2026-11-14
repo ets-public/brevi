@@ -513,7 +513,8 @@ pub fn tdict_attr(c: &Rc<Class>, name: &str) -> Option<V> {
 }
 
 pub fn merge_class_names(c: &Rc<Class>, out: &mut Vec<Sym>) -> Result<(), E> {
-    let d = if is_enum(c) { enum_class_dict(c, false)? } else { class_dict(c)? };
+    // an enum class, or one of the enum module's own (Enum, Flag, ...): the keys CPython's dict holds
+    let d = if is_enum(c) || enum_mod_keys(c).is_some() { enum_class_dict(c, false)? } else { class_dict(c)? };
     for (k, _) in d {
         if !out.contains(&k) {
             out.push(k);

@@ -33,6 +33,19 @@ fn enum_classes() -> (Rc<Class>, Rc<Class>) {
                     _ => Err(unsupported("Enum.__new__ with other than one value")),
                 }
             }));
+            // Enum.__format__ (str.__format__(str(self), spec)) and __reduce_ex__ ((cls, (value,))), enum.py 3.13;
+            // format() of a member keeps its own path (rt_fmt format_spec), which gives the same text
+            en.set("__format__", builtin("__format__", |a: Args| {
+                a.want("__format__", 2, 2)?;
+                let spec = to_str(&a.p[1])?;
+                Ok(st(crate::dynpy::rt_fmt::format_spec(&st(to_str(&a.p[0])?), &spec)?))
+            }));
+            en.set("__reduce_ex__", builtin("__reduce_ex__", |a: Args| {
+                a.want("__reduce_ex__", 2, 2)?;
+                let m = &a.p[0];
+                let V::Obj(o) = m else { return type_err("descriptor '__reduce_ex__' needs an Enum member".into()) };
+                Ok(tup(vec![V::Class(o.cls.clone()), tup(vec![o.get("_value_").unwrap_or(V::None)])]))
+            }));
             // Enum.__copy__ and __deepcopy__: a member is its own copy
             en.set("__copy__", builtin("__copy__", |a: Args| Ok(a.p.first().cloned().unwrap_or(V::None))));
             en.set("__deepcopy__", builtin("__deepcopy__", |a: Args| Ok(a.p.first().cloned().unwrap_or(V::None))));
@@ -760,7 +773,9 @@ fn enum_cpy_attrs(c: &Rc<Class>, new_fn: &Option<V>, mt: &Rc<Class>, members: &[
         Some(f @ V::Obj(_)) if matches!(&f, V::Obj(o) if o.cls.name == "staticmethod") => f,
         Some(f) => bi_staticmethod(Args::p(vec![f]))?,
         None => {
-            let first = c.bases.iter().rev().find(|b| is_enum(b)).cloned().unwrap_or_else(enum_base);
+            // CPython's first_enum: the last base that is an Enum class, enum's own classes included
+    let en = enum_base();
+    let first = c.bases.iter().rev().find(|b| b.is_sub(&en)).cloned().unwrap_or(en);
             bi_staticmethod(Args::p(vec![getattr(&V::Class(first), "_generate_next_value_")?]))?
         }
     };
@@ -1774,7 +1789,7 @@ const ENUM_MOD_KEYS: &[(&str, &[&str])] = &[
     ("Flag", &["__and__", "__bool__", "__contains__", "__doc__", "__firstlineno__", "__invert__", "__iter__", "__len__", "__module__", "__new__", "__or__", "__rand__", "__repr__", "__ror__", "__rxor__", "__static_attributes__", "__str__", "__xor__", "_all_bits_", "_boundary_", "_flag_mask_", "_generate_next_value_", "_get_value", "_hashable_values_", "_inverted_", "_iter_member_", "_iter_member_by_def_", "_iter_member_by_value_", "_member_map_", "_member_names_", "_member_type_", "_missing_", "_new_member_", "_numeric_repr_", "_singles_mask_", "_unhashable_values_", "_unhashable_values_map_", "_use_args_", "_value2member_map_", "_value_repr_"]),
     ("IntFlag", &["__and__", "__dict__", "__doc__", "__firstlineno__", "__format__", "__invert__", "__module__", "__new__", "__or__", "__rand__", "__repr__", "__ror__", "__rxor__", "__static_attributes__", "__str__", "__xor__", "_all_bits_", "_boundary_", "_flag_mask_", "_generate_next_value_", "_hashable_values_", "_inverted_", "_member_map_", "_member_names_", "_member_type_", "_new_member_", "_singles_mask_", "_unhashable_values_", "_unhashable_values_map_", "_use_args_", "_value2member_map_", "_value_repr_"]),
 ];
-fn enum_mod_keys(c: &Class) -> Option<&'static [&'static str]> {
+pub fn enum_mod_keys(c: &Class) -> Option<&'static [&'static str]> {
     if c.module != "enum" {
         return None;
     }
@@ -1868,7 +1883,9 @@ fn enum_post(c: &Rc<Class>) -> Result<Vec<(Sym, String, Option<V>)>, E> {
         _ => bclass("object"),
     };
     let mt_mro = mt.mro.borrow().clone();
-    let first = c.bases.iter().rev().find(|b| is_enum(b)).cloned().unwrap_or_else(enum_base);
+    // CPython's first_enum: the last base that is an Enum class, enum's own classes included
+    let en = enum_base();
+    let first = c.bases.iter().rev().find(|b| b.is_sub(&en)).cloned().unwrap_or(en);
     let first_mro = first.mro.borrow().clone();
     let mut out: Vec<(Sym, String, Option<V>)> = vec![];
     let re = REPR_ENUM.with(|r| r.borrow().clone());

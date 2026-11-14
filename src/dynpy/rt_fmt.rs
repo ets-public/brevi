@@ -948,7 +948,10 @@ pub fn format_spec(v: &V, spec: &str) -> Result<String, E> {
     match v {
         V::Obj(o) => {
             if let Some(f) = o.cls.lookup("__format__") {
-                return to_str(&call(&f, Args::p(vec![v.clone(), s(spec)]))?);
+                // Enum's own __format__ goes the enum way below (a mixed-in data type formats the value)
+                if !(is_enum(&o.cls) && enum_base().own("__format__").is_some_and(|e| same_obj(&e, &f))) {
+                    return to_str(&call(&f, Args::p(vec![v.clone(), s(spec)]))?);
+                }
             }
             // Enum.__format__ formats str(member); IntEnum, StrEnum and IntFlag format the value
             if is_enum(&o.cls) {
