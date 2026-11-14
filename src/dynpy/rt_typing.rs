@@ -23,6 +23,7 @@ pub fn typing_form(n: &str) -> Rc<Class> {
 pub fn typing_attr(n: &str) -> V {
     match n {
         "TYPE_CHECKING" => V::Bool(false),
+        "NoDefault" => no_default(),
         "cast" | "overload" | "final" | "override" | "no_type_check" | "runtime_checkable" | "assert_never" | "assert_type" | "reveal_type" | "NewType" | "TypeVar" | "ParamSpec" | "TypeVarTuple" => {
             let n: Sym = sym(n);
             builtin(n, move |a: Args| typing_call(n, a))
@@ -137,24 +138,125 @@ pub fn typed_dict_call(c: &Rc<Class>, a: Args) -> Option<R> {
     None
 }
 
-// A PEP 695 type parameter (`def f[T]`): CPython's typing.TypeVar with infer_variance=True and no bound,
-// constraints or default (the parser refuses those). Identity is the object's: equal and hashed only as itself.
+// A PEP 695 type parameter (`def f[T]`, `class C[T: int]`, `type A[*Ts, **P = ...]`): CPython's typing.TypeVar
+// (kind 0), TypeVarTuple (1) or ParamSpec (2), with infer_variance=True. The bound, constraints and default are
+// the annotation scope's lambdas, evaluated on first read and kept once one succeeds (an error, NameError say,
+// is raised again on the next read, as CPython's lazy evaluation does). Identity is the object's: equal and
+// hashed only as itself.
 pub struct TypeVarV {
     pub name: Sym,
+    pub kind: u8,
+    bound: Lazy,
+    cons: Lazy,
+    dflt: Lazy,
+}
+struct Lazy(RefCell<Option<(V, bool)>>);
+impl Lazy {
+    fn new(v: V) -> Lazy {
+        Lazy(RefCell::new(if matches!(v, V::None) { None } else { Some((v, false)) }))
+    }
+    fn present(&self) -> bool {
+        self.0.borrow().is_some()
+    }
+    fn get(&self) -> Result<Option<V>, E> {
+        let (f, done) = match &*self.0.borrow() {
+            None => return Ok(None),
+            Some((v, done)) => (v.clone(), *done),
+        };
+        if done {
+            return Ok(Some(f));
+        }
+        let v = call(&f, Args::p(vec![]))?;
+        *self.0.borrow_mut() = Some((v.clone(), true));
+        Ok(Some(v))
+    }
 }
 pub fn pep695_typevar(n: &str) -> V {
-    V::Ext(ExtRc::new(TypeVarV { name: sym(n) }))
+    V::Ext(ExtRc::new(TypeVarV { name: sym(n), kind: 0, bound: Lazy::new(V::None), cons: Lazy::new(V::None), dflt: Lazy::new(V::None) }))
+}
+// __brevi_typevar(name, kind, bound, constraints, default): the parser's binding of one type parameter
+pub fn bi___brevi_typevar(a: Args) -> R {
+    a.want("__brevi_typevar", 5, 5)?;
+    let kind = match &a.p[1] {
+        V::Int(k) => *k as u8,
+        _ => 0,
+    };
+    let name = sym(&to_str(&a.p[0])?);
+    Ok(V::Ext(ExtRc::new(TypeVarV { name, kind, bound: Lazy::new(a.p[2].clone()), cons: Lazy::new(a.p[3].clone()), dflt: Lazy::new(a.p[4].clone()) })))
+}
+// __brevi_tparams(f, (T, ...)): the def made in the annotation scope, with its __type_params__
+pub fn bi___brevi_tparams(a: Args) -> R {
+    a.want("__brevi_tparams", 2, 2)?;
+    Ok(with_tparams(a.p[0].clone(), a.p[1].clone()))
+}
+// typing.NoDefault, a type parameter's __default__ when it has none
+pub struct NoDefaultV;
+impl Ext for NoDefaultV {
+    fn tname(&self) -> &'static str {
+        "typing.NoDefaultType"
+    }
+    fn repr(&self) -> String {
+        "typing.NoDefault".into()
+    }
+    fn any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn hash(&self) -> Option<i64> {
+        Some(0x4e6f44656661)
+    }
+    fn eq(&self, o: &V) -> Option<bool> {
+        Some(matches!(o, V::Ext(e) if e.any().downcast_ref::<NoDefaultV>().is_some()))
+    }
+    fn attr(&self, _me: &V, n: &str) -> Option<R> {
+        if n == "__class__" {
+            return None;
+        }
+        Some(Err(unsupported(&format!("typing.NoDefault.{n}"))))
+    }
+}
+thread_local! {
+    static NO_DEFAULT: V = V::Ext(ExtRc::new(NoDefaultV));
+}
+pub fn no_default() -> V {
+    NO_DEFAULT.with(|v| v.clone())
 }
 impl TypeVarV {
     fn addr(&self) -> usize {
         self as *const TypeVarV as usize
     }
+    fn kind_name(&self) -> &'static str {
+        ["TypeVar", "TypeVarTuple", "ParamSpec"][self.kind.min(2) as usize]
+    }
+}
+// isinstance(x, typing.TypeVar) (or TypeVarTuple, ParamSpec): a PEP 695 parameter knows its kind; an old-style
+// TypeVar("T") is a class of module "typing" (is_typevar), and ParamSpec("P") and TypeVarTuple("Ts") are classes
+// typing_call marks made = 5 alike, so which of the two such a class is cannot be told: refused.
+pub fn typevar_isinstance(x: &V, kind: &str) -> Result<bool, E> {
+    let k = match kind {
+        "TypeVar" => 0,
+        "TypeVarTuple" => 1,
+        _ => 2,
+    };
+    // type(T) of a PEP 695 T is a class of module "typing" too (rt_lib.rs ext_class_mod), and no TypeVar
+    let old_style = |c: &Rc<Class>| c.module == "typing" && !is_form(c) && !EXT_ITER_CLASSES.with(|m| m.borrow().values().any(|x| Rc::ptr_eq(x, c)));
+    match x {
+        V::Ext(e) if e.any().downcast_ref::<TypeVarV>().is_some() => Ok(is_pep695_kind(x, k)),
+        V::Class(c) if old_style(c) && c.made.get() == 5 => {
+            if k == 0 { Ok(false) } else { Err(unsupported(&format!("isinstance of an old-style ParamSpec or TypeVarTuple with typing.{kind}"))) }
+        }
+        V::Class(c) if old_style(c) => Ok(k == 0),
+        _ => Ok(false),
+    }
+}
+// x is a PEP 695 type parameter of this kind (isinstance(x, typing.TypeVar) and the like)
+pub fn is_pep695_kind(x: &V, kind: u8) -> bool {
+    matches!(x, V::Ext(e) if e.any().downcast_ref::<TypeVarV>().is_some_and(|t| t.kind == kind))
 }
 impl Ext for TypeVarV {
     fn tname(&self) -> &'static str {
-        "typing.TypeVar"
+        ["typing.TypeVar", "typing.TypeVarTuple", "typing.ParamSpec"][self.kind.min(2) as usize]
     }
-    // infer_variance: no ~, + or - in front, as CPython prints it
+    // infer_variance: no ~, + or - in front, as CPython prints it (and a TypeVarTuple's is its name too)
     fn repr(&self) -> String {
         self.name.to_string()
     }
@@ -168,31 +270,113 @@ impl Ext for TypeVarV {
         Some(matches!(o, V::Ext(e) if e.any().downcast_ref::<TypeVarV>().is_some_and(|t| t.addr() == self.addr())))
     }
     fn attr(&self, _me: &V, n: &str) -> Option<R> {
+        let tuple = self.kind == 1;
         Some(match n {
             "__name__" => Ok(s(self.name)),
             "__module__" => Ok(s("typing")),
-            "__bound__" => Ok(V::None),
-            "__constraints__" => Ok(tup(vec![])),
-            "__covariant__" | "__contravariant__" => Ok(V::Bool(false)),
-            "__infer_variance__" => Ok(V::Bool(true)),
-            "__class__" => return None,
-            // the rest of CPython's TypeVar (typing.NoDefault, has_default(), substitution hooks, `T | int`)
-            // and object's other dunders are not made here
-            _ if n.starts_with("__") || matches!(n, "has_default" | "evaluate_bound" | "evaluate_constraints" | "evaluate_default") => {
-                Err(unsupported(&format!("TypeVar.{n}")))
+            "__bound__" if !tuple => self.bound.get().map(|b| b.unwrap_or(V::None)),
+            "__constraints__" if self.kind == 0 => self.cons.get().map(|c| c.unwrap_or_else(|| tup(vec![]))),
+            "__default__" => self.dflt.get().map(|d| d.unwrap_or_else(no_default)),
+            "__covariant__" | "__contravariant__" if !tuple => Ok(V::Bool(false)),
+            "__infer_variance__" if !tuple => Ok(V::Bool(true)),
+            "has_default" => {
+                let h = self.dflt.present();
+                Ok(builtin(sym("has_default"), move |a: Args| {
+                    a.want("has_default", 0, 0)?;
+                    Ok(V::Bool(h))
+                }))
             }
-            _ => Err(exc("AttributeError", format!("'typing.TypeVar' object has no attribute '{n}'"))),
+            "__class__" => return None,
+            // the rest of CPython's TypeVar (substitution hooks, a ParamSpec's args and kwargs, a TypeVarTuple's
+            // unpacking) and object's other dunders are not made here
+            _ if n.starts_with("__") || (self.kind == 2 && matches!(n, "args" | "kwargs")) => Err(unsupported(&format!("{}.{n}", self.kind_name()))),
+            _ => Err(exc("AttributeError", format!("'typing.{}' object has no attribute '{n}'", self.kind_name()))),
         })
     }
     fn set_attr(&self, _me: &V, n: &str, _v: V) -> Option<Result<(), E>> {
-        Some(Err(unsupported(&format!("setting TypeVar.{n}"))))
+        Some(Err(unsupported(&format!("setting {}.{n}", self.kind_name()))))
+    }
+    // T.has_default() and the like: the attribute, called
+    fn method(&self, me: &V, n: &str, a: &mut Args) -> Option<R> {
+        if n == "__call__" {
+            return Some(type_err(format!("'typing.{}' object is not callable", self.kind_name())));
+        }
+        Some(self.attr(me, n)?.and_then(|f| call(&f, Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) })))
+    }
+    // `T | int`, `int | T`: typing.Union[...] (TypeVar.__or__ and __ror__; a TypeVarTuple has neither)
+    fn binop(&self, me: &V, op: &str, o: &V, right: bool) -> Option<R> {
+        if op != "|" || self.kind == 1 {
+            return None;
+        }
+        Some(if right { typing_union(&[o.clone(), me.clone()]) } else { typing_union(&[me.clone(), o.clone()]) })
+    }
+}
+
+// `type X[T] = value` (PEP 695): typing.TypeAliasType. __value__ is the annotation scope's lambda, evaluated on
+// the first read and kept once it succeeds.
+pub struct TypeAliasV {
+    name: Sym,
+    module: V,
+    params: V,
+    value: Lazy,
+}
+pub fn bi___brevi_typealias(a: Args) -> R {
+    a.want("__brevi_typealias", 4, 4)?;
+    Ok(V::Ext(ExtRc::new(TypeAliasV { name: sym(&to_str(&a.p[0])?), params: a.p[1].clone(), value: Lazy::new(a.p[2].clone()), module: a.p[3].clone() })))
+}
+impl TypeAliasV {
+    fn addr(&self) -> usize {
+        self as *const TypeAliasV as usize
+    }
+}
+impl Ext for TypeAliasV {
+    fn tname(&self) -> &'static str {
+        "typing.TypeAliasType"
+    }
+    fn repr(&self) -> String {
+        self.name.to_string()
+    }
+    fn any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn hash(&self) -> Option<i64> {
+        Some((self.addr() >> 4) as i64)
+    }
+    fn eq(&self, o: &V) -> Option<bool> {
+        Some(matches!(o, V::Ext(e) if e.any().downcast_ref::<TypeAliasV>().is_some_and(|t| t.addr() == self.addr())))
+    }
+    fn attr(&self, _me: &V, n: &str) -> Option<R> {
+        Some(match n {
+            "__name__" => Ok(s(self.name)),
+            "__module__" => Ok(self.module.clone()),
+            "__type_params__" | "__parameters__" => Ok(self.params.clone()),
+            "__value__" => self.value.get().map(|v| v.unwrap_or(V::None)),
+            "__class__" => return None,
+            // subscripting, `|`, pickling and object's other dunders are not made here
+            _ if n.starts_with("__") => Err(unsupported(&format!("TypeAliasType.{n}"))),
+            _ => Err(exc("AttributeError", format!("'typing.TypeAliasType' object has no attribute '{n}'"))),
+        })
+    }
+    fn set_attr(&self, _me: &V, n: &str, _v: V) -> Option<Result<(), E>> {
+        Some(Err(match n {
+            "__name__" | "__module__" | "__type_params__" | "__parameters__" | "__value__" => exc("AttributeError", format!("readonly attribute")),
+            _ => unsupported(&format!("setting TypeAliasType.{n}")),
+        }))
+    }
+    fn method(&self, me: &V, n: &str, a: &mut Args) -> Option<R> {
+        if n == "__call__" {
+            return Some(type_err("'typing.TypeAliasType' object is not callable".into()));
+        }
+        // A.__value__() and the like: the attribute, called
+        Some(self.attr(me, n).unwrap_or_else(|| Err(unsupported(&format!("TypeAliasType.{n}")))).and_then(|f| call(&f, Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) })))
     }
     fn binop(&self, _me: &V, op: &str, _o: &V, _right: bool) -> Option<R> {
-        if op == "|" {
-            return Some(Err(unsupported("a TypeVar in a typing union")));
-        }
-        None
+        Some(Err(unsupported(&format!("a TypeAliasType with {op}"))))
     }
+}
+// __brevi_generic(T, ...): the typing.Generic[T, ...] a PEP 695 class gets after its bases
+pub fn bi___brevi_generic(a: Args) -> R {
+    Ok(V::Ext(ExtRc::new(TForm { name: sym("Generic"), params: a.p.len(), origin: None, pep695: Some(a.p.clone()) })))
 }
 
 // ---------- typing values: types.UnionType (`int | str`), typing.List[int] and friends, typing.Union ----------
@@ -525,8 +709,9 @@ pub fn union_or(a: &V, b: &V) -> Option<R> {
         _ => false,
     };
     if (typing_valueish(a) && (unionable(b) || typing_valueish(b))) || (typing_valueish(b) && unionable(a)) {
-        if [a, b].iter().any(|x| matches!(x, V::Ext(e) if e.any().downcast_ref::<TypeVarV>().is_some())) {
-            return Some(Err(unsupported("a TypeVar in a typing union")));
+        // a TypeVarTuple has no `|` (the usual TypeError follows)
+        if [a, b].iter().any(|x| is_pep695_kind(x, 1)) {
+            return None;
         }
         return Some(typing_union(&[a.clone(), b.clone()]));
     }
@@ -609,6 +794,8 @@ pub struct TForm {
     pub params: usize,
     // G[int] of a class the program made on Generic: G, which calling the alias makes an instance of
     pub origin: Option<Rc<Class>>,
+    // the Generic[T, ...] a PEP 695 class statement adds after its bases: its type parameters
+    pub pep695: Option<Vec<V>>,
 }
 impl Ext for TForm {
     fn tname(&self) -> &'static str {
@@ -657,7 +844,7 @@ fn swallowed(e: &E) -> bool {
     is("Exception") && !(is("NotImplementedError") && to_str(&e.0).is_ok_and(|m| m.contains("is not supported in dynamic builds")))
 }
 fn tform(n: Sym) -> R {
-    Ok(V::Ext(ExtRc::new(TForm { name: n, params: 0, origin: None })))
+    Ok(V::Ext(ExtRc::new(TForm { name: n, params: 0, origin: None, pep695: None })))
 }
 // a typing form of the runtime's own (typing_form), not a TypeVar or another class of module "typing"
 fn is_form(k: &Rc<Class>) -> bool {
@@ -827,7 +1014,7 @@ pub fn typing_getitem(k: &Rc<Class>, i: &V) -> R {
                     }
                 }
             }
-            Ok(V::Ext(ExtRc::new(TForm { name: n, params: args.len(), origin: None })))
+            Ok(V::Ext(ExtRc::new(TForm { name: n, params: args.len(), origin: None, pep695: None })))
         }
         "Self" | "NoReturn" | "Never" | "LiteralString" | "TypeAlias" => type_err(format!("typing.{n} is not subscriptable")),
         "Any" => type_err("type 'Any' is not subscriptable".into()),
@@ -864,7 +1051,7 @@ pub fn class_subscript(k: &Rc<Class>, i: &V) -> R {
             if got < want {
                 return type_err(format!("Too few arguments for {kr}; actual {got}, expected at least {}", got + 1));
             }
-            return Ok(V::Ext(ExtRc::new(TForm { name: k.name, params: 0, origin: Some(k.clone()) })));
+            return Ok(V::Ext(ExtRc::new(TForm { name: k.name, params: 0, origin: Some(k.clone()), pep695: None })));
         }
         _ => {}
     }

@@ -708,6 +708,13 @@ for x in "cr:the cr_frame attribute of a coroutine" "tc:types.coroutine" "tf:typ
   o=$(BREVI_DYN=1 $BREVI build "$t/${x%%:*}.py" -o "$t/prog" 2>&1)
   case "$o" in *"${x#*:}"*"not supported in dynamic builds"*) echo "ok   refused: ${x#*:}" ;; *) echo "FAIL not refused: ${x#*:}"; printf '%s\n' "$o"; fail=1 ;; esac
 done
+# A class on Generic or Protocol (`class C[T]` included) has them left out of its bases here: reading its bases,
+# MRO or __dict__ is refused, and so is a subscript of a PEP 695 class used as a value (test_type_params).
+for x in "C.__bases__" "D.__mro__" "C.mro()" "getattr(C, '__orig_bases__')" "vars(C)" "dir(D())" "P.__bases__" "C[int]"; do
+  printf 'from typing import Protocol\nclass P(Protocol): pass\nclass C[T]: pass\nclass D(C): pass\nprint(%s)\n' "$x" > "$t/g.py"
+  o=$(BREVI_DYN=1 $BREVI build "$t/g.py" -o "$t/prog" 2>&1)
+  case "$o" in *"needs CPython's typing"*) echo "ok   refused: $x of a generic class" ;; *) echo "FAIL not refused: $x of a generic class"; printf '%s\n' "$o"; fail=1 ;; esac
+done
 rm -rf "$t"
 #== bridge split
 # Python libraries the dynamic build lacks (tests/bridge/brlib stands in for a third-party one) run in CPython

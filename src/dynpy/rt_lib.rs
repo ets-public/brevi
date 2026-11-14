@@ -961,6 +961,8 @@ pub fn isinstance(x: &V, c: &V) -> Result<bool, E> {
         },
         // the builtin slice is a function here (builtin_value), the type of slice objects
         V::Func(f) if &*f.name.get() == "slice" => Ok(matches!(x, V::Slice(_))),
+        // typing.TypeVar, TypeVarTuple and ParamSpec are functions here too (rt_typing.rs typing_attr)
+        V::Func(f) if f.kind.get() == 3 && matches!(&*f.name.get(), "TypeVar" | "TypeVarTuple" | "ParamSpec") => typevar_isinstance(x, &f.name.get()),
         _ => type_err("isinstance() arg 2 must be a type, a tuple of types, or a union".into()),
     }
 }
@@ -2048,6 +2050,10 @@ pub fn builtin_fn(name: &str) -> Option<fn(Args) -> R> {
         "__brevi_afor_await" => bi___brevi_afor_await,
         "__brevi_eg_split" => bi___brevi_eg_split,
         "__brevi_eg_reraise" => bi___brevi_eg_reraise,
+        "__brevi_typevar" => bi___brevi_typevar,
+        "__brevi_tparams" => bi___brevi_tparams,
+        "__brevi_typealias" => bi___brevi_typealias,
+        "__brevi_generic" => bi___brevi_generic,
         "__brevi_pm_seq" => bi___brevi_pm_seq,
         "__brevi_pm_ismap" => bi___brevi_pm_ismap,
         "__brevi_pm_map" => bi___brevi_pm_map,

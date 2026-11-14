@@ -596,6 +596,18 @@ pub struct P {
     i: usize,
     // numbers the hidden names `async for` and `async with` are rewritten with
     anon: usize,
+    // the statements being parsed are a class body's own (not a def's inside it): PEP 695 scopes there see the
+    // class namespace, which the rewrite in pep695_* does not give, so they keep the narrower handling
+    in_class: bool,
+}
+// A PEP 695 type parameter: `T`, `T: bound`, `T: (c1, c2)` (constraints), `*Ts`, `**P`, each with an optional
+// `= default`. kind: 0 TypeVar, 1 TypeVarTuple, 2 ParamSpec.
+#[derive(Clone, Debug)]
+pub struct TParam {
+    pub name: String,
+    pub kind: u8,
+    pub bound: Option<Ex>,
+    pub default: Option<Ex>,
 }
 type PR<T> = Result<T, (usize, String)>;
 
@@ -805,8 +817,14 @@ impl P {
                 let b = self.block()?;
                 St::With(items, b)
             }
-            "def" => St::Def(Box::new(self.funcdef(vec![])?)),
-            "class" => St::Class(Box::new(self.classdef(vec![])?)),
+            "def" => {
+                let (d, tps) = self.funcdef(vec![])?;
+                return self.pep695_def(d, tps);
+            }
+            "class" => {
+                let (c, tps) = self.classdef(vec![])?;
+                return self.pep695_class(c, tps);
+            }
             "@" => {
                 let first = self.line();
                 let mut decs = vec![];
@@ -817,19 +835,20 @@ impl P {
                     }
                 }
                 if self.is_kw("def") {
-                    St::Def(Box::new(self.funcdef(decs)?))
+                    let (d, tps) = self.funcdef(decs)?;
+                    return self.pep695_def(d, tps);
                 } else if self.is_kw("class") {
-                    let mut c = self.classdef(decs)?;
+                    let (mut c, tps) = self.classdef(decs)?;
                     c.first = first;
-                    St::Class(Box::new(c))
+                    return self.pep695_class(c, tps);
                 } else if self.is_kw("async") {
                     self.next();
                     if !self.is_kw("def") {
                         return Err(err(self.line(), "expected def after async"));
                     }
-                    let mut d = self.funcdef(decs)?;
+                    let (mut d, tps) = self.funcdef(decs)?;
                     d.is_async = true;
-                    St::Def(Box::new(d))
+                    return self.pep695_def(d, tps);
                 } else {
                     return Err(err(self.line(), "expected def or class after a decorator"));
                 }
@@ -837,9 +856,9 @@ impl P {
             "async" => {
                 self.next();
                 if self.is_kw("def") {
-                    let mut d = self.funcdef(vec![])?;
+                    let (mut d, tps) = self.funcdef(vec![])?;
                     d.is_async = true;
-                    St::Def(Box::new(d))
+                    return self.pep695_def(d, tps);
                 } else if self.eat_kw("for") {
                     let t = self.target_list()?;
                     self.expect_kw("in")?;
@@ -859,7 +878,7 @@ impl P {
             }
             // `type X = ...` (PEP 695): `type` is a soft keyword there
             "type" if matches!(self.toks.get(self.i + 1).map(|t| &t.0), Some(Tok::Name(_))) && matches!(self.toks.get(self.i + 2).map(|t| &t.0), Some(Tok::Op("=") | Tok::Op("["))) => {
-                return Err(err(line, "the type statement (PEP 695 type aliases) is not supported in dynamic builds"))
+                return self.type_alias();
             }
             "match" if self.is_match_stmt() => return self.match_stmt(line),
             _ => return self.simple_line(),
@@ -1232,36 +1251,73 @@ impl P {
         out.push(st(St::Try(body, vec![Handler { types: Some(name("BaseException")), name: Some(ae), body: h, line }], None, Some(fin))));
         out
     }
-    fn funcdef(&mut self, decorators: Vec<Ex>) -> PR<FuncDef> {
+    fn funcdef(&mut self, decorators: Vec<Ex>) -> PR<(FuncDef, Vec<TParam>)> {
         let line = self.line();
         self.expect_kw("def")?;
         let name = self.name()?;
-        let tparams = if self.is_op("[") { self.type_params()? } else { vec![] };
+        let tps = if self.is_op("[") { self.type_params()? } else { vec![] };
+        // a def in a class body keeps the narrower handling (plain names, which the def must not use: see def in
+        // dynpy/emit.rs); anywhere else pep695_def rewrites it
+        let mut tparams = vec![];
+        if self.in_class {
+            for t in &tps {
+                if t.kind != 0 {
+                    return Err(err(line, "a `*Ts` or `**P` type parameter (PEP 695) of a method is not supported in dynamic builds"));
+                }
+                if t.bound.is_some() || t.default.is_some() {
+                    return Err(err(line, "a type parameter with a bound, constraints or a default (PEP 695) on a method is not supported in dynamic builds"));
+                }
+                tparams.push(t.name.clone());
+            }
+        }
         self.expect_op("(")?;
         let params = self.params(")")?;
         self.expect_op(")")?;
         let ret = if self.eat_op("->") { Some(self.expr()?) } else { None };
-        let body = self.block()?;
-        Ok(FuncDef { name, params, body, decorators, line, is_async: false, ret, tparams, disp: None })
+        let saved = std::mem::replace(&mut self.in_class, false);
+        let body = self.block();
+        self.in_class = saved;
+        let body = body?;
+        Ok((FuncDef { name, params, body, decorators, line, is_async: false, ret, tparams, disp: None }, tps))
     }
-    // `[T, U]` after a def's name (PEP 695). Only plain type variables are taken: the others need CPython's lazily
-    // evaluated bounds and defaults, or TypeVarTuple and ParamSpec objects, which this build does not have.
-    fn type_params(&mut self) -> PR<Vec<String>> {
+    // `[T, U: bound, V: (c1, c2), *Ts, **P = default]` after a def's or class's name, or a type alias's (PEP 695)
+    fn type_params(&mut self) -> PR<Vec<TParam>> {
         let line = self.line();
         self.expect_op("[")?;
-        let mut out: Vec<String> = vec![];
+        let mut out: Vec<TParam> = vec![];
         while !self.is_op("]") {
-            if self.is_op("*") || self.is_op("**") {
-                return Err(err(line, "a `*Ts` or `**P` type parameter (PEP 695) is not supported in dynamic builds"));
+            let kind = if self.eat_op("**") {
+                2
+            } else if self.eat_op("*") {
+                1
+            } else {
+                0
+            };
+            let name = self.name()?;
+            let mut bound = None;
+            if self.eat_op(":") {
+                if kind == 1 {
+                    return Err(err(line, "cannot use bound with TypeVarTuple"));
+                }
+                if kind == 2 {
+                    return Err(err(line, "cannot use bound with ParamSpec"));
+                }
+                // a tuple, even `()` or `(X,)`, is the constraints (CPython takes any length here)
+                bound = Some(self.expr()?);
             }
-            let n = self.name()?;
-            if self.is_op(":") || self.is_op("=") {
-                return Err(err(line, "a type parameter with a bound, constraints or a default (PEP 695) is not supported in dynamic builds"));
+            let mut default = None;
+            if self.eat_op("=") {
+                if self.is_op("*") {
+                    return Err(err(line, "a starred type parameter default (`*Ts = *tuple[...]`, PEP 696) is not supported in dynamic builds"));
+                }
+                default = Some(self.expr()?);
+            } else if out.iter().any(|t| t.default.is_some()) {
+                return Err(err(line, &format!("non-default type parameter '{name}' follows default type parameter")));
             }
-            if out.contains(&n) {
-                return Err(err(line, &format!("duplicate type parameter '{n}'")));
+            if out.iter().any(|t| t.name == name) {
+                return Err(err(line, &format!("duplicate type parameter '{name}'")));
             }
-            out.push(n);
+            out.push(TParam { name, kind, bound, default });
             if !self.eat_op(",") {
                 break;
             }
@@ -1271,6 +1327,126 @@ impl P {
             return Err(err(line, "Type parameter list cannot be empty"));
         }
         Ok(out)
+    }
+    // `T = <typevar>(...)` for each type parameter, in the annotation scope (the hidden def pep695_* make). The
+    // bound, constraints and default are lambdas: CPython evaluates each lazily, on first read, in that scope.
+    fn tp_binds(tps: &[TParam], line: usize) -> Vec<Stmt> {
+        let thunk = |e: &Option<Ex>| match e {
+            Some(x) => Ex::Lambda(Box::new(Params::default()), Box::new(x.clone())),
+            None => Ex::NoneV,
+        };
+        tps.iter()
+            .map(|t| {
+                let (b, c) = match &t.bound {
+                    Some(Ex::Tuple(_)) => (None, t.bound.clone()),
+                    b => (b.clone(), None),
+                };
+                let args = vec![Ex::Str(t.name.clone()), Ex::Int(t.kind.to_string()), thunk(&b), thunk(&c), thunk(&t.default)];
+                let v = Ex::Call(Box::new(Ex::Name("__brevi_typevar".into())), args.into_iter().map(Arg::Pos).collect());
+                Stmt { line, st: St::Assign(vec![Ex::Name(t.name.clone())], v) }
+            })
+            .collect()
+    }
+    // The hidden def CPython's annotation scope stands for (`<generic parameters of f>`), run once and then
+    // deleted: `def <gp>(params): <type params bound>; body`, then `name = decorators(<gp>(args))`; `del <gp>`.
+    fn pep695_scope(line: usize, name: &str, params: Params, body: Vec<Stmt>, decorators: &[Ex], args: Vec<Ex>) -> Vec<Stmt> {
+        let gp = format!("__brevi_gp_{name}");
+        let wrapper = FuncDef { name: gp.clone(), params, body, decorators: vec![], line, is_async: false, ret: None, tparams: vec![], disp: None };
+        let mut v = Ex::Call(Box::new(Ex::Name(gp.clone())), args.into_iter().map(Arg::Pos).collect());
+        for d in decorators.iter().rev() {
+            v = Ex::Call(Box::new(d.clone()), vec![Arg::Pos(v)]);
+        }
+        vec![
+            Stmt { line, st: St::Def(Box::new(wrapper)) },
+            Stmt { line, st: St::Assign(vec![Ex::Name(name.to_string())], v) },
+            Stmt { line, st: St::Del(vec![Ex::Name(gp)]) },
+        ]
+    }
+    // `def f[T](...)` outside a class body: the def runs inside the annotation scope, which binds the type
+    // parameters (its annotations and body see them); its defaults are evaluated outside it first, as CPython
+    // does. The def's own name is hidden there, so its body still finds the decorated function by its name.
+    fn pep695_def(&mut self, mut d: FuncDef, tps: Vec<TParam>) -> PR<Vec<Stmt>> {
+        let line = d.line;
+        if tps.is_empty() || self.in_class {
+            return Ok(vec![Stmt { line, st: St::Def(Box::new(d)) }]);
+        }
+        let mut wp = Params::default();
+        let mut args = vec![];
+        for (_, dv) in d.params.pos.iter_mut().chain(d.params.kwonly.iter_mut()) {
+            if let Some(x) = dv.take() {
+                let n = format!("__brevi_gd{}", args.len());
+                wp.pos.push((n.clone(), None));
+                args.push(x);
+                *dv = Some(Ex::Name(n));
+            }
+        }
+        let name = std::mem::replace(&mut d.name, String::new());
+        d.name = format!("__brevi_gf_{name}");
+        d.disp = Some(name.clone());
+        let decorators = std::mem::take(&mut d.decorators);
+        let names: Vec<Ex> = tps.iter().map(|t| Ex::Name(t.name.clone())).collect();
+        let mut body = Self::tp_binds(&tps, line);
+        let inner = Ex::Name(d.name.clone());
+        body.push(Stmt { line, st: St::Def(Box::new(d)) });
+        let ret = Ex::Call(Box::new(Ex::Name("__brevi_tparams".into())), vec![Arg::Pos(inner), Arg::Pos(Ex::Tuple(names))]);
+        body.push(Stmt { line, st: St::Return(Some(ret)) });
+        Ok(Self::pep695_scope(line, &name, wp, body, &decorators, args))
+    }
+    // `class C[T](bases)` outside a class body: the class statement runs inside the annotation scope, with
+    // typing.Generic[T, ...] after its bases (made by __brevi_generic) and __type_params__ set first in its body.
+    fn pep695_class(&mut self, mut c: ClassDef, tps: Vec<TParam>) -> PR<Vec<Stmt>> {
+        let line = c.line;
+        if tps.is_empty() {
+            return Ok(vec![Stmt { line, st: St::Class(Box::new(c)) }]);
+        }
+        if self.in_class {
+            return Err(err(line, "a generic class (`class C[T]`, PEP 695) in a class body is not supported in dynamic builds"));
+        }
+        let name = std::mem::replace(&mut c.name, String::new());
+        c.name = format!("__brevi_gc_{name}");
+        c.disp = Some(name.clone());
+        let decorators = std::mem::take(&mut c.decorators);
+        let names: Vec<Ex> = tps.iter().map(|t| Ex::Name(t.name.clone())).collect();
+        c.bases.push(Ex::Call(Box::new(Ex::Name("__brevi_generic".into())), names.iter().cloned().map(Arg::Pos).collect()));
+        let at = usize::from(matches!(c.body.first(), Some(Stmt { st: St::Expr(Ex::Str(_)), .. })));
+        c.body.insert(at, Stmt { line, st: St::Assign(vec![Ex::Name("__type_params__".into())], Ex::Tuple(names)) });
+        let inner = Ex::Name(c.name.clone());
+        let mut body = Self::tp_binds(&tps, line);
+        body.push(Stmt { line, st: St::Class(Box::new(c)) });
+        body.push(Stmt { line, st: St::Return(Some(inner)) });
+        Ok(Self::pep695_scope(line, &name, Params::default(), body, &decorators, vec![]))
+    }
+    // `type X = value` and `type X[T] = value` (PEP 695): a typing.TypeAliasType whose value is evaluated lazily,
+    // on the first read of __value__ (in the annotation scope when it has type parameters)
+    fn type_alias(&mut self) -> PR<Vec<Stmt>> {
+        let line = self.line();
+        self.next();
+        let name = self.name()?;
+        if self.in_class {
+            return Err(err(line, "the type statement (PEP 695 type aliases) in a class body is not supported in dynamic builds"));
+        }
+        let tps = if self.is_op("[") { self.type_params()? } else { vec![] };
+        self.expect_op("=")?;
+        let value = self.expr()?;
+        self.eat_op(";");
+        match self.peek() {
+            Tok::Newline => {
+                self.next();
+            }
+            Tok::Eof => {}
+            _ => return Err(err(line, "a type statement followed by more statements on its line is not supported in dynamic builds")),
+        }
+        let names: Vec<Ex> = tps.iter().map(|t| Ex::Name(t.name.clone())).collect();
+        let mk = Ex::Call(
+            Box::new(Ex::Name("__brevi_typealias".into())),
+            vec![Arg::Pos(Ex::Str(name.clone())), Arg::Pos(Ex::Tuple(names)), Arg::Pos(Ex::Lambda(Box::new(Params::default()), Box::new(value))), Arg::Pos(Ex::Name("__name__".into()))],
+        );
+        if tps.is_empty() {
+            return Ok(vec![Stmt { line, st: St::Assign(vec![Ex::Name(name)], mk) }]);
+        }
+        let mut body = Self::tp_binds(&tps, line);
+        body.push(Stmt { line, st: St::Return(Some(mk)) });
+        Ok(Self::pep695_scope(line, &name, Params::default(), body, &[], vec![]))
     }
     fn params(&mut self, end: &str) -> PR<Params> {
         let mut p = Params::default();
@@ -1318,13 +1494,11 @@ impl P {
         }
         Ok(p)
     }
-    fn classdef(&mut self, decorators: Vec<Ex>) -> PR<ClassDef> {
+    fn classdef(&mut self, decorators: Vec<Ex>) -> PR<(ClassDef, Vec<TParam>)> {
         let line = self.line();
         self.expect_kw("class")?;
         let name = self.name()?;
-        if self.is_op("[") {
-            return Err(err(line, "a generic class (`class C[T]`, PEP 695) is not supported in dynamic builds"));
-        }
+        let tps = if self.is_op("[") { self.type_params()? } else { vec![] };
         let mut bases = vec![];
         let mut kwargs = vec![];
         let mut abc_meta = false;
@@ -1368,8 +1542,11 @@ impl P {
             }
             self.expect_op(")")?;
         }
-        let body = self.block()?;
-        Ok(ClassDef { name, bases, body, decorators, line, kwargs, disp: None, first: line, static_attrs: vec![], abc_meta })
+        let saved = std::mem::replace(&mut self.in_class, true);
+        let body = self.block();
+        self.in_class = saved;
+        let body = body?;
+        Ok((ClassDef { name, bases, body, decorators, line, kwargs, disp: None, first: line, static_attrs: vec![], abc_meta }, tps))
     }
 
     // ---- expressions ----
@@ -2030,7 +2207,7 @@ pub fn parse_fstring(body: &str, raw: bool, line: usize) -> PR<Vec<FPart>> {
                 None => vec![],
             };
             let lx = lex(&format!("({})", text.replace('\n', " "))).map_err(|(_, m)| err(line, &format!("f-string: {m}")))?;
-            let mut p = P { toks: lx.toks, i: 0, anon: 0 };
+            let mut p = P { toks: lx.toks, i: 0, anon: 0, in_class: false };
             let e = p.expr().map_err(|(_, m)| err(line, &format!("f-string: {m}")))?;
             if let Some(d) = self_doc {
                 parts.push(FPart::Lit(d));
@@ -2058,7 +2235,7 @@ pub fn parse_fstring(body: &str, raw: bool, line: usize) -> PR<Vec<FPart>> {
 
 pub fn parse(src: &str) -> PR<Vec<Stmt>> {
     let lx = lex(src)?;
-    let mut p = P { toks: lx.toks, i: 0, anon: 0 };
+    let mut p = P { toks: lx.toks, i: 0, anon: 0, in_class: false };
     let mut body = p.file()?;
     lone_doc(&body)?;
     super::mangle::module(&mut body)?;
