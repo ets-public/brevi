@@ -2577,17 +2577,14 @@ impl Em {
         }
         None
     }
-    // A library module (or sys.stdin/stdout/stderr, decimal.getcontext()) whose str or repr the program asks for
-    // where the build can see it (`print(math)`, `repr(m)`, `f"{math}"`): refused here rather than stopped at run
-    // time (rt_fmt.rs module_repr), since its repr names where CPython's own copy is installed.
+    // sys.stdin/stdout/stderr or decimal.getcontext() whose str or repr the program asks for where the build can
+    // see it (`print(sys.stdout)`, `f"{decimal.getcontext()}"`): refused here rather than stopped at run time
+    // (rt_fmt.rs module_repr). The first names the run's locale encoding, the second the context's flags.
     fn lib_repr_check(&self, e: &Ex, line: usize) -> ER<()> {
         let what = match e {
             Ex::Attr(o, n) if matches!(n.as_str(), "stdin" | "stdout" | "stderr") && self.static_module(o).as_deref() == Some("sys") => Some(format!("the repr of sys.{n}")),
             Ex::Call(f, a) if a.is_empty() && matches!(&**f, Ex::Attr(o, n) if n == "getcontext" && self.static_module(o).as_deref() == Some("decimal")) => Some("the repr of decimal.getcontext()".to_string()),
-            _ => match self.static_module(e) {
-                Some(m) if m != "sys" && m != "builtins" => Some(format!("the repr of module {m}")),
-                _ => None,
-            },
+            _ => None,
         };
         match what {
             Some(w) => Err(err(line, &format!("{w} is not supported in dynamic builds"))),
@@ -4793,6 +4790,59 @@ fn ann_kind(a: &Ex) -> Option<&'static str> {
     ["ClassVar", "InitVar", "KW_ONLY"].into_iter().find(|k| name == *k)
 }
 
+// The module names a built program can hold as values: each `ModName("x")` the emitted program spells, and
+// those the runtime spells (re._constants, numpy.random, sys) where the program spells their top package. The
+// pseudo-modules (sys.stdout, decimal.context) and Brevi's private _brevi_* modules are left out.
+fn module_values(text: &str, mine: &HashSet<String>) -> Vec<String> {
+    fn scan(t: &str, into: &mut std::collections::BTreeSet<String>) {
+        for part in t.split("ModName(\"").skip(1) {
+            if let Some(end) = part.find('"') {
+                let n = &part[..end];
+                if !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.') {
+                    into.insert(n.to_string());
+                }
+            }
+        }
+    }
+    let mut prog = std::collections::BTreeSet::new();
+    scan(text, &mut prog);
+    let mut rt = std::collections::BTreeSet::new();
+    scan(crate::dynpy::RUNTIME, &mut rt);
+    let tops: HashSet<String> = prog.iter().map(|n| n.split('.').next().unwrap_or("").to_string()).collect();
+    for n in rt {
+        if n == "sys" || tops.contains(n.split('.').next().unwrap_or("")) {
+            prog.insert(n);
+        }
+    }
+    prog.into_iter()
+        .filter(|n| !mine.contains(n) && !n.starts_with("_brevi") && !matches!(n.as_str(), "decimal.context") && !n.starts_with("sys.std"))
+        .collect()
+}
+// CPython's repr of each library module the program can hold, as the build machine's CPython (BREVI_PYTHON,
+// else python3) prints it after importing the module: `<module 'math' from '/usr/lib/...'>`, `(built-in)` or
+// `(frozen)`. The same choice the build makes for a program file's __file__: the binary names the build
+// machine's copy. A module CPython cannot import there (or no CPython at all) is left out: its repr stops the
+// program at run time (rt_fmt.rs module_repr). The import's own output is thrown away.
+fn lib_mod_reprs(text: &str, mine: &HashSet<String>) -> Vec<(String, String)> {
+    let names = module_values(text, mine);
+    if names.is_empty() {
+        return vec![];
+    }
+    const Q: &str = "import sys, os, importlib\nout = os.fdopen(os.dup(1), 'w')\nnull = os.open(os.devnull, os.O_RDWR)\nfor fd in (0, 1, 2):\n    os.dup2(null, fd)\nfor n in sys.argv[1:]:\n    try:\n        r = repr(importlib.import_module(n))\n    except BaseException:\n        continue\n    if '\\n' not in r and '\\t' not in r:\n        out.write(n + '\\t' + r + '\\n')\nout.flush()\nos._exit(0)\n";
+    let exe = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| if cfg!(windows) { "python".into() } else { "python3".into() });
+    let Ok(o) = std::process::Command::new(&exe).arg("-P").arg("-c").arg(Q).args(&names).stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).output() else {
+        return vec![];
+    };
+    if !o.status.success() {
+        return vec![];
+    }
+    String::from_utf8_lossy(&o.stdout)
+        .lines()
+        .filter_map(|l| l.split_once('\t'))
+        .filter(|(n, r)| names.iter().any(|x| x == n) && r.starts_with("<module "))
+        .map(|(n, r)| (n.to_string(), r.to_string()))
+        .collect()
+}
 // CPython's __package__ for a file of the program: None for the script, the package for a package's
 // __init__.py, else the name up to its last dot ("" for a top-level module).
 fn mod_package(name: &str, path: &str) -> Option<String> {
@@ -5173,6 +5223,13 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         }
     }
     files.push_str("_ => None } }\n");
+    // each library module the program can hold, as the build machine's CPython prints it (lib_mod_reprs)
+    let mine: HashSet<String> = mods.iter().filter(|m| m.path.is_some()).map(|m| m.name.clone()).collect();
+    files.push_str("fn lib_mod_repr(m: &str) -> Option<&'static str> { match m { ");
+    for (n, r) in lib_mod_reprs(&out, &mine) {
+        write!(files, "{} => Some({}), ", lit(&n), lit(&r)).unwrap();
+    }
+    files.push_str("_ => None } }\n");
     out.push_str(&files);
     // name -> global slot, per module, for globals()
     for m in mods.iter().filter(|m| !libs.iter().any(|l| l.name == m.name)) {
@@ -5206,7 +5263,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     };
     write!(
         out,
-        "fn __run() -> Result<(), E> {{ unsafe {{ GL = vec![V::Unbound; {}]; K = vec![{}]; }} USER_MOD.with(|u| u.set(Some(user_mod))); USER_MOD_FILE.with(|u| u.set(Some(user_mod_file))); MAIN_GTAB.with(|u| u.set(Some(gtab___main__))); {}{}{} let r = init___main__(); fin_point(); r }}\nfn main() {{ run_main(__run); }}\n",
+        "fn __run() -> Result<(), E> {{ unsafe {{ GL = vec![V::Unbound; {}]; K = vec![{}]; }} USER_MOD.with(|u| u.set(Some(user_mod))); USER_MOD_FILE.with(|u| u.set(Some(user_mod_file))); LIB_MOD_REPR.with(|u| u.set(Some(lib_mod_repr))); MAIN_GTAB.with(|u| u.set(Some(gtab___main__))); {}{}{} let r = init___main__(); fin_point(); r }}\nfn main() {{ run_main(__run); }}\n",
         em.nglobals.max(1),
         consts.join(", "),
         del_on,
