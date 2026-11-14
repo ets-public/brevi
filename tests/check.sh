@@ -679,6 +679,25 @@ for f in tests/dyn/*.py; do
     echo "ok   $f"
   fi
 done
+# sys.settrace is compiled only for the statements whose events are known to be CPython 3.13's (dynpy/trace_check.rs,
+# tools/trace_fuzz.py); anything else in a program that uses it is refused when built, never traced differently. dis
+# is refused: a compiled function has no bytecode.
+t=$(mktemp -d)
+printf 'import sys\ndef f():\n    for i in range(2):\n        pass\nsys.settrace(None)\n' > "$t/loop.py"
+printf 'import sys\ndef t(fr, ev, arg):\n    print(fr.f_locals)\n    return t\nsys.settrace(t)\n' > "$t/flocals.py"
+printf 'import sys\nsys.settrace(lambda *a: None)\n' > "$t/lam.py"
+printf 'import sys\ndef f():\n    try:\n        x = 1\n    except ValueError:\n        pass\nsys.settrace(None)\n' > "$t/exc.py"
+printf 'import dis\ndef f():\n    return 1\nprint(list(dis.get_instructions(f)))\n' > "$t/dis.py"
+for c in "loop:this statement inside a def or class is not supported in a program that uses sys.settrace" \
+         "flocals:the f_locals attribute is not supported in a program that uses sys.settrace" \
+         "lam:a lambda is not supported in a program that uses sys.settrace" \
+         "exc:this statement inside a def or class is not supported in a program that uses sys.settrace" \
+         "dis:module 'dis' is not supported in dynamic builds"; do
+  n=${c%%:*}; want=${c#*:}
+  o=$(BREVI_DYN=1 $BREVI build "$t/$n.py" -o "$t/$n.bin" 2>&1)
+  case "$o" in *"$want"*) echo "ok   dynamic build refuses $n with sys.settrace/dis" ;; *) echo "FAIL dynamic build refuses $n with sys.settrace/dis"; printf '%s\n' "$o" | tail -3; fail=1 ;; esac
+done
+rm -rf "$t"
 # A str with a lone surrogate on a path not yet written for one stops the program, even inside try/except: never a
 # different answer (handoffs/string-model-design.md).
 t=$(mktemp -d)
@@ -704,6 +723,11 @@ case "$o" in *"NotImplementedError: brevi: the repr of decimal.context is not su
 printf 'import json\ntry:\n    print(json.loads(chr(34) + chr(0xd800) + chr(34)))\nexcept BaseException:\n    print("caught")\nprint("after")\n' > "$t/s.py"
 o=$(BREVI_DYN=1 $BREVI run "$t/s.py" 2>&1); c=$?
 case "$c:$o" in "1:NotImplementedError: brevi: this operation on a str with a lone surrogate (U+D800..U+DFFF) is not supported in dynamic builds yet"*) echo "ok   a lone surrogate on an unwritten path stops the program" ;; *) echo "FAIL a lone surrogate on an unwritten path ($c)"; printf '%s\n' "$o"; fail=1 ;; esac
+# locals() in an Enum's body is enum.EnumDict, whose writes check names (a member set twice is a TypeError); Brevi's
+# namespace is a plain dict, so a class that may be an Enum and calls locals() is refused when it builds.
+printf 'import enum\nclass E(enum.Enum):\n    A = 1\n    locals().update({"B": 2}, **{"A": 3})\nprint(list(E))\n' > "$t/el.py"
+o=$(BREVI_DYN=1 $BREVI build "$t/el.py" -o "$t/el" 2>&1)
+case "$o" in *"locals() in the body of a class that may be an Enum is not supported in dynamic builds"*) echo "ok   locals() in an Enum body is refused" ;; *) echo "FAIL locals() in an Enum body"; printf '%s\n' "$o"; fail=1 ;; esac
 printf 'def f():\n    "\\ud800"\n' > "$t/d.py"
 o=$(BREVI_DYN=1 $BREVI run "$t/d.py" 2>&1)
 case "$o" in *"a docstring with a lone surrogate (U+D800..U+DFFF) is not supported"*) echo "ok   a docstring with a lone surrogate is refused" ;; *) echo "FAIL a docstring with a lone surrogate"; printf '%s\n' "$o"; fail=1 ;; esac

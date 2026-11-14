@@ -1,0 +1,3 @@
+- Dynamic builds: `isinstance()` and `case P():` class patterns with `typing.Protocol` classes follow CPython's `_ProtocolMeta` (the `@runtime_checkable` TypeError, structural member checks, "Protocols cannot be instantiated", protocols that inherit from non-protocols); `issubclass()` with a protocol is refused.
+- Dynamic builds: `str(bytes, encoding[, errors])`, `sys.getdefaultencoding()`, and StrEnum or `(str, Enum)` members made from several arguments, with CPython's errors.
+- Conformance: the `support.no_tracing` and `support.infinite_recursion(N)` test decorators are extracted.

@@ -8,6 +8,7 @@ pub mod pyd;
 pub mod tok;
 pub mod hf;
 pub mod typing;
+pub mod trace_check;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -56,6 +57,7 @@ pub const RUNTIME: &str = concat!(
     include_str!("rt_thread.rs"),
     include_str!("rt_async.rs"),
     include_str!("rt_patma.rs"),
+    include_str!("rt_trace.rs"),
     include_str!("rt_enum.rs"),
     include_str!("rt_typing.rs"),
     include_str!("rt_rand.rs"),
