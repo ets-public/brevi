@@ -1,0 +1,51 @@
+None -> none
+True -> true
+False -> small
+0 -> small
+1 -> small
+-3 -> literal
+2.5 -> literal
+(1+2j) -> literal
+'spameggs' -> string
+b'raw' -> string
+[] -> empty
+() -> empty
+[9, 8, 7] -> nine then [8, 7]
+(3, 4, 5) -> two or more: 3 4
+[6] -> one: 6
+{'k': 1, 'z': 2} -> map k=1 others={'z': 2}
+{'q': 1} -> other map
+OrderedDict({'k': 5}) -> map k=5 others={}
+Point(x=0, y=4) -> on the y axis at 4
+Point(x=3, y=3) -> diagonal Point(x=3, y=3)
+Point(x=1, y=2) -> a point
+Plain([1, 2]) -> plain pair [1, 2]
+Plain(3) -> other
+500 -> big 500
+50 -> other
+'s' -> text
+b'b' -> text
+7.5 -> other
+range(0, 2) -> two or more: 0 1
+deque([4, 5]) -> two or more: 4 5
+NameError: name 'x' is not defined
+guard failed, first = 5 second = 6
+(1, 2)
+TypeError: Two() accepts 2 positional sub-patterns (3 given)
+TypeError: Bad.__match_args__ must be a tuple (got list)
+TypeError: called match pattern must be a class
+TypeError: Two() got multiple sub-patterns for attribute 'a'
+ValueError: mapping pattern checks duplicate key ('a')
+Reg seq
+RegChild seq
+M4 map
+S1 seq
+str neither
+bytes neither
+bytearray neither
+set neither
+UserDict map
+0 30 ['len', 0, 'len', 3]
+0 [10, 20, 30] ['len', 0, 1, 2, 3, 4]
+matched, subject evaluated 1 time
+['a', 'b', 'v']
