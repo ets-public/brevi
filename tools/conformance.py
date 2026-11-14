@@ -23,6 +23,9 @@ surrogate; it is printed beside the score and counts as not matched. cpython_pri
 conformance_cpython_private.txt, each with an issue) that both builds refuse because it calls a CPython-private module
 helper (re._compile, functools._c3_mro); it is printed beside the score and counts as not matched. A test that calls
 self.skipTest() under the reference CPython is excluded as skipped by CPython, like a skip decorator.
+unstable is a test whose CPython output depends on PYTHONHASHSEED, and only a reproduced difference counts: each seed's
+output is settled by a second run at that seed, and a CPython run that timed out or died is retried, then reported as
+not_extractable, never as unstable (rule 1: seeds 1 and 2; rule 2: seeds 3 to 5, tried for a wrong result).
 coverage = matched / (all - unstable - excluded - by_design); wrong = wrong_output + wrong_exit among programs that built.
 
 The test files are fetched once from the pinned tag into a cache outside git (not vendored: nothing of
@@ -1442,6 +1445,111 @@ def classify(want, built, got):
     return "matched", ""
 
 
+REFERENCE_TRIES = 2  # a reference run that timed out, hit the memory limit or died is tried once more
+SETTLE_RUNS = 3  # normal runs at one seed before its output counts as not reproducible
+
+
+class ReferenceFailed(Exception):
+    def __init__(self, seed, why, tries):
+        super().__init__(f"CPython reference run failed at PYTHONHASHSEED={seed}: {why} ({tries} tries)")
+        self.seed, self.why, self.tries = seed, why, tries
+
+
+def abnormal(run):
+    """Why a CPython reference run tells nothing about the test (it timed out, hit the memory limit or died on a
+    signal), or "". A run like that is an infrastructure error, never evidence that the output depends on the seed."""
+    if run.note:
+        return run.note
+    if WINDOWS and run.rc >= 0xC0000000:
+        return f"exception 0x{run.rc:08X}"
+    if run.rc < 0:
+        try:
+            return f"signal {signal.Signals(-run.rc).name}"
+        except ValueError:
+            return f"signal {-run.rc}"
+    return ""
+
+
+def outcome(run):
+    return run.rc, run.out
+
+
+class Reference:
+    """CPython's reference runs of one case, kept per PYTHONHASHSEED so both builds share them. A single run can be
+    disturbed (a timeout under load, a killed process), so no single run decides what is scored, in either
+    direction: an abnormal run is retried and then reported as an error (ReferenceFailed), and before a seed's output
+    is called different from another seed's, it is settled: two normal runs at that seed must agree."""
+
+    def __init__(self, run):
+        self.run, self.runs = run, {}  # run(seed) -> Run; seed -> that seed's normal runs, in order
+
+    def one(self, seed):
+        """One more normal run at `seed`, or ReferenceFailed after REFERENCE_TRIES abnormal ones."""
+        for _ in range(REFERENCE_TRIES):
+            r = self.run(seed)
+            why = abnormal(r)
+            if not why:
+                self.runs.setdefault(seed, []).append(r)
+                return r
+        raise ReferenceFailed(seed, why, REFERENCE_TRIES)
+
+    def first(self, seed):
+        return self.runs[seed][0] if self.runs.get(seed) else self.one(seed)
+
+    def settled(self, seed):
+        """The output two normal runs at `seed` agree on, or None when SETTLE_RUNS normal runs all differ (the output
+        does not depend on the seed alone)."""
+        while True:
+            seen = {}
+            for r in self.runs.get(seed, []):
+                if outcome(r) in seen:
+                    return seen[outcome(r)]
+                seen[outcome(r)] = r
+            if len(self.runs.get(seed, [])) >= SETTLE_RUNS:
+                return None
+            self.one(seed)
+
+
+def unreproducible(seed):
+    return f"rule 1: CPython's output is not reproducible: {SETTLE_RUNS} runs at PYTHONHASHSEED={seed} all differ"
+
+
+def stable_reference(ref, random_output):
+    """(CPython's settled Run for the case, None) or (None, the unstable detail). Rule 1: seeds 1 and 2 must agree;
+    when their first runs differ, each seed is settled first, so one disturbed run cannot drop a test from the score."""
+    a = ref.first(1)
+    if random_output:
+        return a, None  # the output is random by design: only the exit code and crashes are compared
+    b = ref.first(2)
+    if outcome(a) == outcome(b):
+        return a, None
+    for seed in (1, 2):
+        if ref.settled(seed) is None:
+            return None, unreproducible(seed)
+    a, b = ref.settled(1), ref.settled(2)
+    if outcome(a) != outcome(b):
+        return None, "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
+    return a, None
+
+
+def seed_dependence(ref, want):
+    """Rule 2, for a build whose output differs from CPython's: two seeds can agree by luck on a small str set, so
+    seeds 3 to 5 are tried before calling it Brevi's fault. Returns (unstable detail or None, note for the wrong
+    result or ""). A seed's run that matches `want` needs no second run; one that differs is settled first."""
+    for seed in (3, 4, 5):
+        try:
+            if outcome(ref.first(seed)) == outcome(want):
+                continue
+            r = ref.settled(seed)
+        except ReferenceFailed as e:
+            return None, f" (seed check stopped: {e})"
+        if r is None:
+            return unreproducible(seed).replace("rule 1", "rule 2"), ""
+        if outcome(r) != outcome(want):
+            return f"rule 2: CPython's output at PYTHONHASHSEED={seed} differs from seeds 1 and 2 (reproduced)", ""
+    return None, ""
+
+
 def run_case(case, cfg):
     """Fills in the case's result for each mode."""
     folder = cfg.work / case["id"]
@@ -1452,15 +1560,16 @@ def run_case(case, cfg):
     for rel, data in case.get("files", {}).items():
         (folder / rel).parent.mkdir(parents=True, exist_ok=True)
         (folder / rel).write_bytes(data)
-    a, b = (reference(cfg.python, script, folder, seed, cfg) for seed in (1, 2))
+    ref = Reference(lambda seed: reference(cfg.python, script, folder, seed, cfg))
     random_output = bool(RANDOM_OUTPUT.match(case["id"]))
-    if random_output:
-        b = a  # the output is random by design: only the exit code and crashes are compared below
-    if (a.rc, a.out) != (b.rc, b.out):
-        return {**case, "category": "unstable", "detail": "CPython's output changes with PYTHONHASHSEED"}
-    if a.rc != 0 or a.note:
-        why = a.note or last_line(a.err)
-        return {**case, "category": "not_extractable", "detail": f"generated script fails under CPython: {why}"}
+    try:
+        a, unstable = stable_reference(ref, random_output)
+    except ReferenceFailed as e:
+        return {**case, "category": "not_extractable", "detail": str(e)}
+    if unstable:
+        return {**case, "category": "unstable", "detail": unstable}
+    if a.rc != 0:
+        return {**case, "category": "not_extractable", "detail": f"generated script fails under CPython: {last_line(a.err)}"}
     if NO_RAISE.encode() in a.out:
         return {**case, "category": "not_extractable", "detail": "assertRaises saw no exception in the extracted test"}
     if SKIPPED in a.out:
@@ -1475,10 +1584,10 @@ def run_case(case, cfg):
         if random_output and category in ("matched", "wrong_output"):
             category, detail = "unstable", "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
         if category == "wrong_output":
-            # Two seeds can agree by luck on a small str set: try more before calling this Brevi's fault.
-            for seed in (3, 4, 5):
-                if reference(cfg.python, script, folder, seed, cfg).out != a.out:
-                    return {**case, "category": "unstable", "detail": f"CPython's output changes with PYTHONHASHSEED={seed}"}
+            unstable, note = seed_dependence(ref, a)
+            if unstable:
+                return {**case, "category": "unstable", "detail": unstable}
+            detail += note
         modes[mode] = {"category": category, "path": (path or {}).get("path"), "detail": detail, "silent": not a.out,
                        "stderr": last_line(got.err) if got else ""}
     shutil.rmtree(folder, ignore_errors=True)
@@ -1695,6 +1804,13 @@ def markdown(rep, results):
         lines += ["", f"## {title}", ""]
         why = collections.Counter(normalise(r["detail"]) for r in results if r.get("category") == cat)
         lines += [f"- {c}: {w}" for w, c in why.most_common(25)]
+    lines += ["", "## Unstable (left out of the score)", "",
+              "Rule 1: CPython's output at PYTHONHASHSEED 1 and 2, each seed settled by a second run when they differ. "
+              "Rule 2: seeds 3 to 5, tried when a build's output differs.", ""]
+    lines += [f"- `{r['id']}`: {r['detail']}" for r in results if r.get("category") == "unstable"]
+    random = sum(1 for r in results if any(x["category"] == "unstable" for x in r.get("modes", {}).values()))
+    if random:
+        lines.append(f"- {random} more print unseeded random numbers (checked for crashes and exit code only).")
     lines += ["", "## Top refusals (normal build)", ""]
     why = collections.Counter(normalise(r["modes"]["normal"]["detail"]) for r in results
                               if "modes" in r and r["modes"]["normal"]["category"] == "refused")
