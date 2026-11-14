@@ -29,7 +29,7 @@ pub const TYPING_NAMES: &[&str] = &[
     "ChainMap", "IO", "TextIO", "BinaryIO", "Pattern", "Match", "ClassVar", "Final", "Literal", "Annotated", "Required", "NotRequired",
     "ReadOnly", "Self", "NoReturn", "Never", "LiteralString", "TypeAlias", "TypeGuard", "TypeIs", "Concatenate", "Unpack",
     "SupportsInt", "SupportsFloat", "SupportsIndex", "SupportsAbs", "SupportsRound", "SupportsBytes", "SupportsComplex", "Text",
-    "TypeVar", "ParamSpec", "TypeVarTuple", "NewType", "Generic", "Protocol", "NamedTuple", "TypedDict", "TYPE_CHECKING", "cast",
+    "TypeVar", "ParamSpec", "TypeVarTuple", "NoDefault", "NewType", "Generic", "Protocol", "NamedTuple", "TypedDict", "TYPE_CHECKING", "cast",
     "overload", "final", "override", "no_type_check", "runtime_checkable", "assert_never", "assert_type", "reveal_type",
 ];
 // Names of collections.abc (annotations only: as a value, isinstance needs CPython's ABCs).
@@ -185,6 +185,9 @@ pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
     for (m, body) in mods {
         let nm = &names[*m];
         stmts(body, nm).map_err(|(l, w)| (m.to_string(), l, w))?;
+    }
+    if let Some((m, l)) = generic_introspection(mods, &names) {
+        return Err((m, l, "typing: reading a class's bases, MRO, __dict__, dir() or vars() in a program with a class on Generic or Protocol (left out of its bases here) needs CPython's typing".into()));
     }
     // inspect.signature and its kin run in CPython's inspect (through the bridge), which cannot read the
     // program's own functions and classes: refused rather than raising there
@@ -641,12 +644,75 @@ fn collect(body: &[Stmt], nm: &mut Names, all: &HashMap<String, Names>, top: boo
             }
             _ => {}
         }
+        // `class C[T]` (PEP 695): the parser's hidden annotation scope holds the class, on __brevi_generic(T)
+        if let St::Def(d) = &s.st {
+            for x in d.body.iter().filter(|_| d.name.starts_with("__brevi_gp_")) {
+                if let St::Class(c) = &x.st {
+                    if c.bases.iter().any(pep695_base) {
+                        nm.generic.insert(c.disp.clone().unwrap_or_else(|| c.name.clone()));
+                    }
+                }
+            }
+        }
         // `if TYPE_CHECKING:` imports, aliases in an `if` or `try`
         match &s.st {
             St::Def(_) | St::Class(_) => {}
             st => blocks(st, &mut |b| collect(b, nm, all, top, abc_forms)),
         }
     }
+}
+
+// The base the parser gives a `class C[T]` (PEP 695 Generic[T], made at run time)
+fn pep695_base(b: &Ex) -> bool {
+    matches!(b, Ex::Call(f, _) if matches!(f.as_ref(), Ex::Name(n) if n == "__brevi_generic"))
+}
+// What a class on typing's Generic or Protocol shows differently here: the runtime takes Generic and Protocol out
+// of its bases (so __bases__, __mro__ and mro() leave them out at any depth), and the class has no __orig_bases__,
+// __class_getitem__ or Protocol's own attributes, so its __dict__, vars() and dir() differ too.
+const GENERIC_INTROSPECTION: &[&str] = &[
+    "__bases__", "__mro__", "mro", "__orig_bases__", "__class_getitem__", "__dict__", "__protocol_attrs__", "_is_protocol",
+    "__non_callable_proto_members__", "__abstractmethods__", "_abc_impl", "get_original_bases", "getmro",
+];
+// A program with such a class that reads one of those (by attribute, by name in getattr or hasattr, or by dir()
+// or vars()): the first module and line, refused rather than answered without Generic or Protocol.
+fn generic_introspection(mods: &[(&str, &[Stmt])], names: &HashMap<String, Names>) -> Option<(String, usize)> {
+    fn has_generic(body: &[Stmt], nm: &Names) -> bool {
+        body.iter().any(|s| {
+            let own = matches!(&s.st, St::Class(c) if c.bases.iter().any(|b| pep695_base(b) || match b {
+                Ex::Index(o, _) => nm.is_form(o, "Generic") || nm.is_form(o, "Protocol"),
+                b => nm.is_form(b, "Protocol") || nm.is_form(b, "Generic"),
+            }));
+            let mut deep = false;
+            blocks(&s.st, &mut |b| deep |= has_generic(b, nm));
+            own || deep
+        })
+    }
+    if !mods.iter().any(|(m, b)| has_generic(b, &names[*m])) {
+        return None;
+    }
+    for (m, body) in mods {
+        let mut at = None;
+        walk_all(body, &mut |e, line| {
+            let hit = match e {
+                Ex::Attr(_, a) => GENERIC_INTROSPECTION.contains(&a.as_str()),
+                Ex::Str(t) => t.starts_with('_') && GENERIC_INTROSPECTION.contains(&t.as_str()),
+                Ex::Call(f, args) => match f.as_ref() {
+                    Ex::Name(n) if n == "dir" || n == "vars" => true,
+                    Ex::Name(n) if n == "getattr" || n == "hasattr" => matches!(args.get(1), Some(Arg::Pos(Ex::Str(t))) if GENERIC_INTROSPECTION.contains(&t.as_str())),
+                    _ => false,
+                },
+                Ex::Name(n) => n == "get_original_bases" || n == "getmro",
+                _ => false,
+            };
+            if hit {
+                at.get_or_insert(line);
+            }
+        });
+        if let Some(l) = at {
+            return Some((m.to_string(), l));
+        }
+    }
+    None
 }
 
 fn stmts(body: &[Stmt], nm: &Names) -> Result<(), Er> {
@@ -836,7 +902,8 @@ fn expr(e: &Ex, ok: bool, line: usize, nm: &Names) -> Result<(), Er> {
     let go = |x: &Ex| expr(x, false, line, nm);
     match e {
         Ex::Name(n) => {
-            if (nm.forms.contains_key(n) || nm.tdicts.contains(n)) && !ok && !nm.is_form(e, "TYPE_CHECKING") {
+            // TYPE_CHECKING and NoDefault are plain values, not forms
+            if (nm.forms.contains_key(n) || nm.tdicts.contains(n)) && !ok && !nm.is_form(e, "TYPE_CHECKING") && !nm.is_form(e, "NoDefault") {
                 return Err(err(line, &format!("`{n}` used as a value")));
             }
             if nm.generic.contains(n) || nm.protocols.contains(n) {
@@ -849,7 +916,7 @@ fn expr(e: &Ex, ok: bool, line: usize, nm: &Names) -> Result<(), Er> {
                 if !module_has(&m, &n) {
                     return Err(err(line, &format!("{m}.{n}")));
                 }
-                if !ok && n != "TYPE_CHECKING" {
+                if !ok && n != "TYPE_CHECKING" && n != "NoDefault" {
                     return Err(err(line, &format!("`{m}.{a}` used as a value")));
                 }
                 return Ok(());
@@ -979,6 +1046,14 @@ fn expr(e: &Ex, ok: bool, line: usize, nm: &Names) -> Result<(), Er> {
                 if nm.generic_class(o) {
                     expr(i, true, line, nm)?;
                     return all(false);
+                }
+            }
+            // isinstance(x, TypeVar) (or TypeVarTuple, ParamSpec): the runtime answers it (rt_lib.rs isinstance)
+            if matches!(f.as_ref(), Ex::Name(n) if n == "isinstance") && args.len() == 2 {
+                if let (Arg::Pos(x), Arg::Pos(t)) = (&args[0], &args[1]) {
+                    if matches!(nm.form(t), Some((m, n)) if !m.is_empty() && matches!(n.as_str(), "TypeVar" | "ParamSpec" | "TypeVarTuple")) {
+                        return go(x);
+                    }
                 }
             }
             // isinstance(x, P) for a Protocol class P: structural in CPython (or a TypeError)

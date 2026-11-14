@@ -961,6 +961,8 @@ pub fn isinstance(x: &V, c: &V) -> Result<bool, E> {
         },
         // the builtin slice is a function here (builtin_value), the type of slice objects
         V::Func(f) if &*f.name.get() == "slice" => Ok(matches!(x, V::Slice(_))),
+        // typing.TypeVar, TypeVarTuple and ParamSpec are functions here too (rt_typing.rs typing_attr)
+        V::Func(f) if f.kind.get() == 3 && matches!(&*f.name.get(), "TypeVar" | "TypeVarTuple" | "ParamSpec") => typevar_isinstance(x, &f.name.get()),
         _ => type_err("isinstance() arg 2 must be a type, a tuple of types, or a union".into()),
     }
 }

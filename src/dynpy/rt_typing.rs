@@ -23,6 +23,7 @@ pub fn typing_form(n: &str) -> Rc<Class> {
 pub fn typing_attr(n: &str) -> V {
     match n {
         "TYPE_CHECKING" => V::Bool(false),
+        "NoDefault" => no_default(),
         "cast" | "overload" | "final" | "override" | "no_type_check" | "runtime_checkable" | "assert_never" | "assert_type" | "reveal_type" | "NewType" | "TypeVar" | "ParamSpec" | "TypeVarTuple" => {
             let n: Sym = sym(n);
             builtin(n, move |a: Args| typing_call(n, a))
@@ -225,6 +226,26 @@ impl TypeVarV {
     }
     fn kind_name(&self) -> &'static str {
         ["TypeVar", "TypeVarTuple", "ParamSpec"][self.kind.min(2) as usize]
+    }
+}
+// isinstance(x, typing.TypeVar) (or TypeVarTuple, ParamSpec): a PEP 695 parameter knows its kind; an old-style
+// TypeVar("T") is a class of module "typing" (is_typevar), and ParamSpec("P") and TypeVarTuple("Ts") are classes
+// typing_call marks made = 5 alike, so which of the two such a class is cannot be told: refused.
+pub fn typevar_isinstance(x: &V, kind: &str) -> Result<bool, E> {
+    let k = match kind {
+        "TypeVar" => 0,
+        "TypeVarTuple" => 1,
+        _ => 2,
+    };
+    // type(T) of a PEP 695 T is a class of module "typing" too (rt_lib.rs ext_class_mod), and no TypeVar
+    let old_style = |c: &Rc<Class>| c.module == "typing" && !is_form(c) && !EXT_ITER_CLASSES.with(|m| m.borrow().values().any(|x| Rc::ptr_eq(x, c)));
+    match x {
+        V::Ext(e) if e.any().downcast_ref::<TypeVarV>().is_some() => Ok(is_pep695_kind(x, k)),
+        V::Class(c) if old_style(c) && c.made.get() == 5 => {
+            if k == 0 { Ok(false) } else { Err(unsupported(&format!("isinstance of an old-style ParamSpec or TypeVarTuple with typing.{kind}"))) }
+        }
+        V::Class(c) if old_style(c) => Ok(k == 0),
+        _ => Ok(false),
     }
 }
 // x is a PEP 695 type parameter of this kind (isinstance(x, typing.TypeVar) and the like)

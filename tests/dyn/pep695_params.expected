@@ -1,0 +1,12 @@
+5 f f ['T', 'U', 'V', 'W', 'Ts', 'P', 'X']
+None <class 'int'> (<class 'int'>,) () ()
+True <class 'str'> True False typing.NoDefault
+True True True
+False False False False
+typing.Union[T, int] typing.Union[int, T]
+NameError name 'Missing' is not defined
+NameError name 'Missing' is not defined
+<class 'float'>
+Pair Pair ['K'] tuple[K, K]
+3 Box Box (T,) True
+Box True

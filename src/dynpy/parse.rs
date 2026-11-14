@@ -1302,11 +1302,8 @@ impl P {
                 if kind == 2 {
                     return Err(err(line, "cannot use bound with ParamSpec"));
                 }
-                let b = self.expr()?;
-                if matches!(&b, Ex::Tuple(v) if v.len() < 2) {
-                    return Err(err(line, "a type parameter's constraints (PEP 695) need at least two types, which is not supported in dynamic builds"));
-                }
-                bound = Some(b);
+                // a tuple, even `()` or `(X,)`, is the constraints (CPython takes any length here)
+                bound = Some(self.expr()?);
             }
             let mut default = None;
             if self.eat_op("=") {
