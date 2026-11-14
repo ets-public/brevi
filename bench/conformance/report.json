@@ -9,48 +9,48 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 931,
-"refused": 5,
+"matched": 937,
+"refused": 0,
 "by_design": 83,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 26,
+"not_extractable": 25,
 "unstable": 248,
 "excluded": 44,
 "total": 1337,
 "scored": 962,
 "matched_through_cpython": 0,
 "matched_silent": 98,
-"coverage": 0.9678,
+"coverage": 0.974,
 "wrong": 0,
-"matched_asserting": 833,
-"assert_coverage": 0.8659,
+"matched_asserting": 839,
+"assert_coverage": 0.8721,
 "matched_typed": 27,
-"typed_share": 0.029
+"typed_share": 0.0288
 },
 "dyn": {
-"matched": 931,
-"refused": 5,
+"matched": 937,
+"refused": 0,
 "by_design": 83,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 26,
+"not_extractable": 25,
 "unstable": 248,
 "excluded": 44,
 "total": 1337,
 "scored": 962,
 "matched_through_cpython": 0,
 "matched_silent": 98,
-"coverage": 0.9678,
+"coverage": 0.974,
 "wrong": 0,
-"matched_asserting": 833,
-"assert_coverage": 0.8659,
+"matched_asserting": 839,
+"assert_coverage": 0.8721,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -394,7 +394,7 @@
 },
 "test_richcmp": {
 "normal": {
-"matched": 9,
+"matched": 10,
 "refused": 0,
 "by_design": 0,
 "string_model": 0,
@@ -402,22 +402,22 @@
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 1,
+"not_extractable": 0,
 "unstable": 1,
 "excluded": 0,
 "total": 11,
 "scored": 10,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.9,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 9,
-"assert_coverage": 0.9,
+"matched_asserting": 10,
+"assert_coverage": 1.0,
 "matched_typed": 1,
-"typed_share": 0.1111
+"typed_share": 0.1
 },
 "dyn": {
-"matched": 9,
+"matched": 10,
 "refused": 0,
 "by_design": 0,
 "string_model": 0,
@@ -425,17 +425,17 @@
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 1,
+"not_extractable": 0,
 "unstable": 1,
 "excluded": 0,
 "total": 11,
 "scored": 10,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.9,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 9,
-"assert_coverage": 0.9,
+"matched_asserting": 10,
+"assert_coverage": 1.0,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -490,8 +490,8 @@
 },
 "test_patma": {
 "normal": {
-"matched": 272,
-"refused": 5,
+"matched": 277,
+"refused": 0,
 "by_design": 44,
 "string_model": 0,
 "cpython_private": 0,
@@ -505,16 +505,16 @@
 "scored": 279,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.9749,
+"coverage": 0.9928,
 "wrong": 0,
-"matched_asserting": 272,
-"assert_coverage": 0.9749,
+"matched_asserting": 277,
+"assert_coverage": 0.9928,
 "matched_typed": 0,
 "typed_share": 0.0
 },
 "dyn": {
-"matched": 272,
-"refused": 5,
+"matched": 277,
+"refused": 0,
 "by_design": 44,
 "string_model": 0,
 "cpython_private": 0,
@@ -528,10 +528,10 @@
 "scored": 279,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.9749,
+"coverage": 0.9928,
 "wrong": 0,
-"matched_asserting": 272,
-"assert_coverage": 0.9749,
+"matched_asserting": 277,
+"assert_coverage": 0.9928,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -539,13 +539,13 @@
 },
 "paths": {
 "normal": {
-"dynamic": 1030,
-"refused": 88,
+"dynamic": 1036,
+"refused": 83,
 "typed": 27
 },
 "dyn": {
-"dynamic": 1057,
-"refused": 88
+"dynamic": 1063,
+"refused": 83
 }
 },
 "tests": [
@@ -5474,8 +5474,16 @@
 {
 "id": "test_richcmp.MiscTest.test_recursion",
 "file": "test_richcmp",
-"category": "not_extractable",
-"detail": "decorator @support.no_tracing"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_richcmp.DictTest.test_dicts",
@@ -17072,12 +17080,12 @@
 "file": "test_patma",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found P"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "typing: isinstance with a Protocol class needs CPython's typing"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -17086,12 +17094,12 @@
 "file": "test_patma",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`__bv_ms4` and a value kept elsewhere name the same list in Python, and `__bv_ms4` is changed (by a function the proof does not follow) while a value kept elsewhere is still used; the typed build woul"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "typing: isinstance with a Protocol class needs CPython's typing"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -17100,12 +17108,12 @@
 "file": "test_patma",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`__bv_ms4` and a value kept elsewhere name the same list in Python, and `__bv_ms4` is changed (by a function the proof does not follow) while a value kept elsewhere is still used; the typed build woul"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "typing: isinstance with a Protocol class needs CPython's typing"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -17842,12 +17850,12 @@
 "file": "test_patma",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found P"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "typing: isinstance with a Protocol class needs CPython's typing"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -17856,12 +17864,12 @@
 "file": "test_patma",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found P"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "typing: isinstance with a Protocol class needs CPython's typing"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
