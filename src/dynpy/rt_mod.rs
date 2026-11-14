@@ -2543,6 +2543,52 @@ fn iter_sub_copy_check(o: &Rc<Obj>) -> Result<(), E> {
 fn async_unpicklable(t: &str) -> bool {
     matches!(t, "coroutine" | "async_generator" | "async_generator_asend" | "async_generator_athrow")
 }
+// copy._reconstruct sets the slots part of object.__getstate__'s state with setattr, so a class of the program
+// with its own __setattr__ (a frozen dataclass with __slots__ of its own: FrozenInstanceError) sees each slot
+// set again, in copyreg._slotnames order. The slots (name, value) of `o` to set that way; empty when the class
+// has no such __setattr__ (then storing directly is the same).
+fn copy_slot_sets(o: &Rc<Obj>) -> Result<Vec<(String, V)>, E> {
+    let mro = o.cls.mro.borrow().clone();
+    let own: Vec<&Rc<Class>> = mro.iter().filter(|k| k.module != "builtins").collect();
+    if !own.iter().any(|k| k.own("__setattr__").is_some()) || !own.iter().any(|k| k.own("__slots__").is_some()) {
+        return Ok(vec![]);
+    }
+    // a frozen dataclass with slots=True (or a class built on one) copies through dataclasses'
+    // _dataclass_getstate/_dataclass_setstate, which store with object.__setattr__: directly
+    for k in &own {
+        if let Some(p) = k.own("__dataclass_params__") {
+            if truth(&getattr(&p, "frozen")?)? && truth(&getattr(&p, "slots")?)? {
+                return Ok(vec![]);
+            }
+        }
+    }
+    let me = V::Obj(o.clone());
+    let mut out: Vec<(String, V)> = vec![];
+    for k in own {
+        let names = match k.own("__slots__") {
+            None => continue,
+            Some(V::Str(x)) => vec![V::Str(x)],
+            Some(x) => to_vec(&x)?,
+        };
+        for n in names {
+            let V::Str(n) = n else { continue };
+            let n = n.text();
+            if n == "__dict__" || n == "__weakref__" {
+                continue;
+            }
+            let name = if n.starts_with("__") && !n.ends_with("__") { format!("_{}{n}", k.name.trim_start_matches('_')) } else { n.to_string() };
+            if out.iter().any(|(m, _)| *m == name) {
+                continue;
+            }
+            match getattr(&me, &name) {
+                Ok(x) => out.push((name, x)),
+                Err(e) if is_exc(&e.0, "AttributeError") => {}
+                Err(e) => return Err(e),
+            }
+        }
+    }
+    Ok(out)
+}
 pub fn shallow_copy(x: &V) -> R {
     Ok(match x {
         // copy.copy and copy.deepcopy of a bytearray make a new one, with its own bytes
@@ -2556,11 +2602,17 @@ pub fn shallow_copy(x: &V) -> R {
                 return call(&f, Args::p(vec![x.clone()]));
             }
             iter_sub_copy_check(o)?;
+            let hooked = copy_slot_sets(o)?;
             let n = Obj::new(o.cls.clone());
-            let (attrs, dict) = {
+            let (mut attrs, dict) = {
                 let d = o.d.borrow();
                 (d.attrs.clone(), d.dict.clone())
             };
+            for (h, _) in &hooked {
+                if let Some(i) = attrs.find(h) {
+                    attrs.remove(i);
+                }
+            }
             *n.d.borrow_mut() = AStore { attrs, dict: None };
             if let Some(dd) = dict {
                 let (kind, dflt, items) = {
@@ -2579,6 +2631,9 @@ pub fn shallow_copy(x: &V) -> R {
                 Some(i) => Some(shallow_copy(&i)?),
                 None => None,
             });
+            for (k, v) in hooked {
+                setattr(&V::Obj(n.clone()), sym(&k), v)?;
+            }
             V::Obj(n)
         }
         V::Iter(_) => match tee_copy_iter(x) {
@@ -2684,12 +2739,18 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
             if o.cls.base_bt() == BT::Exc {
                 return Ok(x.clone());
             }
+            let hooked = copy_slot_sets(o)?;
             let n = Obj::new(o.cls.clone());
             memo.push((p.unwrap(), V::Obj(n.clone())));
-            let (attrs, dict) = {
+            let (mut attrs, dict) = {
                 let d = o.d.borrow();
                 (d.attrs.clone(), d.dict.clone())
             };
+            for (h, _) in &hooked {
+                if let Some(i) = attrs.find(h) {
+                    attrs.remove(i);
+                }
+            }
             if let Some(dd) = dict {
                 let (kind, dflt, items) = {
                     let src = dd.borrow();
@@ -2715,6 +2776,10 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
             let inner = o.inner();
             if let Some(i) = inner {
                 n.set_inner(Some(deepcopy(&i, memo)?));
+            }
+            for (k, v) in hooked {
+                let v = deepcopy(&v, memo)?;
+                setattr(&V::Obj(n.clone()), sym(&k), v)?;
             }
             V::Obj(n)
         }
@@ -2956,6 +3021,15 @@ pub fn sys_fn(name: &str, a: Args) -> R {
             Ok(V::None)
         }
         "getrecursionlimit" => Ok(V::Int(REC_LIMIT.with(|l| l.get()) as i64)),
+        "getdefaultencoding" => {
+            if !a.k.is_empty() {
+                return type_err("sys.getdefaultencoding() takes no keyword arguments".into());
+            }
+            if !a.p.is_empty() {
+                return type_err(format!("sys.getdefaultencoding() takes no arguments ({} given)", a.p.len()));
+            }
+            Ok(s("utf-8"))
+        }
         "set_int_max_str_digits" => {
             let mut a = a;
             let kw = a.kw("maxdigits");
@@ -2977,6 +3051,8 @@ pub fn sys_fn(name: &str, a: Args) -> R {
             a.want(name, 0, 0)?;
             Ok(cur_exc().unwrap_or(V::None))
         }
+        "settrace" => sys_settrace(a),
+        "gettrace" => sys_gettrace(a),
         "exc_info" => {
             a.want(name, 0, 0)?;
             Ok(match cur_exc() {
@@ -4785,6 +4861,30 @@ fn dc_fn(c: &Rc<Class>, name: Sym, f: impl Fn(Args) -> R + 'static) -> V {
     }
     v
 }
+// dataclasses._replace(self, /, **changes): replace() without its check that self is a dataclass instance
+thread_local! {
+    static DC_REPLACE: RefCell<Option<V>> = const { RefCell::new(None) };
+}
+fn dc_replace_fn() -> V {
+    if let Some(f) = DC_REPLACE.with(|r| r.borrow().clone()) {
+        return f;
+    }
+    let f = func("_replace", |a: Args| {
+        let Some(me) = a.p.first().cloned() else { return type_err("_replace() missing 1 required positional argument: 'self'".into()) };
+        if a.p.len() > 1 {
+            return type_err(format!("_replace() takes 1 positional argument but {} were given", a.p.len()));
+        }
+        if dc_fields(&me).filter(|_| !matches!(me, V::Class(_))).is_none() {
+            // getattr(self, '__dataclass_fields__') on what is not a dataclass instance
+            getattr(&me, "__dataclass_fields__")?;
+            return Err(unsupported("dataclasses._replace on a dataclass class"));
+        }
+        dataclass_fn("replace", a)
+    });
+    let f = with_module(f, "dataclasses");
+    DC_REPLACE.with(|r| *r.borrow_mut() = Some(f.clone()));
+    f
+}
 // dataclasses._set_new_attribute: true when the class's own dict already has the name (then it is kept)
 fn dc_set_new(c: &Rc<Class>, name: Sym, v: V) -> bool {
     if c.own(name).is_some() {
@@ -4811,6 +4911,8 @@ fn dc_ann_kind(v: &Option<V>, mark: &str) -> &'static str {
         Some(x) if is(x, &g.3) => "InitVar",
         Some(V::Obj(o)) if matches!(&g.3, V::Class(iv) if Rc::ptr_eq(&o.cls, iv)) => "InitVar",
         Some(V::Ext(e)) if e.any().downcast_ref::<TForm>().is_some_and(|f| f.name == "ClassVar") => "ClassVar",
+        // a bare `ClassVar` (dataclasses._is_classvar: `a_type is typing.ClassVar`)
+        Some(V::Class(k)) if k.module == "typing" && k.name == "ClassVar" && is_form(k) => "ClassVar",
         Some(_) => "",
     }
 }
@@ -5111,6 +5213,8 @@ fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> R {
         }
         Ok(out)
     };
+    // dataclasses._replace, the one module function every dataclass shares as __replace__ (copy.replace)
+    dc_set_new(c, "__replace__", dc_replace_fn());
     // the functions are made first and added together at the end (_FuncBuilder.add_fns_to_class)
     let mut add: Vec<(Sym, V, Option<&'static str>, bool)> = vec![];
     let mut pos: Vec<V> = vec![];
