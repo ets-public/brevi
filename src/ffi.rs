@@ -367,6 +367,8 @@ pub fn rust_fn(name: &str, params: &[Param], ret: &Ty, fallible: bool, lang: &st
 // The Python program that runs py fns: one process for the whole run, one JSON line per call.
 pub fn py_driver(f: &Foreign, names: &[String]) -> String {
     let mut s = String::from("import sys, json\n_ax_out = sys.stdout\nsys.stdout = sys.stderr\n");
+    // Only a CPython 3.13 runs py fns (src/cpython.rs): another one answers every call with an error.
+    s.push_str("if (sys.implementation.name, sys.version_info[:2]) != ('cpython', (3, 13)):\n    _ax_bad = 'Brevi answers as CPython 3.13 does, so py fns run only in CPython 3.13, and this is %s %d.%d.%d: set BREVI_PYTHON to a CPython 3.13' % ((sys.implementation.name,) + tuple(sys.version_info[:3]))\n    for _ax_l in sys.stdin:\n        _ax_out.write(json.dumps({'err': _ax_bad}) + '\\n')\n        _ax_out.flush()\n    sys.exit(1)\n");
     s.push_str(&f.py_top);
     s.push('\n');
     for (k, (params, body)) in f.py_fns.iter().enumerate() {
@@ -483,13 +485,23 @@ pub fn ax_py(f: usize, args: Vec<Json>) -> R<Json> {
     use std::io::{BufRead, Write};
     let mut g = AX_PY.lock().unwrap_or_else(|e| e.into_inner());
     if g.is_none() {
-        let exe = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| if cfg!(windows) { "python".to_string() } else { "python3".to_string() });
-        let mut c = std::process::Command::new(&exe)
-            .args(["-u", "-c", AX_PY_SRC])
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|e| AxErr(format!("cannot start {exe}: {e}")))?;
+        // BREVI_PYTHON, else python3.13, else python3 (python on Windows); the driver refuses any but CPython 3.13.
+        let names: Vec<String> = match std::env::var("BREVI_PYTHON") {
+            Ok(p) if !p.is_empty() => vec![p],
+            _ => (if cfg!(windows) { ["python3.13", "python"] } else { ["python3.13", "python3"] }).iter().map(|s| s.to_string()).collect(),
+        };
+        let mut last = String::new();
+        let mut child = None;
+        for exe in &names {
+            match std::process::Command::new(exe).args(["-u", "-c", AX_PY_SRC]).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn() {
+                Ok(c) => {
+                    child = Some(c);
+                    break;
+                }
+                Err(e) => last = format!("cannot start {exe}: {e}"),
+            }
+        }
+        let mut c = child.ok_or_else(|| AxErr(last))?;
         let i = c.stdin.take().unwrap();
         let o = std::io::BufReader::new(c.stdout.take().unwrap());
         *g = Some((i, o));

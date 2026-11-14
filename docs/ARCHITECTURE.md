@@ -295,7 +295,7 @@ flowchart TD
 
 `brevi run FILE a b` runs the built program with the arguments after the file (as `python3 FILE a b` does; the first word after FILE that is not a Brevi option starts them, and anything after `--` is the program's too) and exits with its status. A runtime error prints one JSON line: `{"e":"runtime","line":N,"msg":"..."}`, with the message in Python's words for Python files and `"type":"Class"` after the line when the error was raised as a class.
 
-For `brevi run x.py` without `--native`, Brevi runs a strict build of itself as a child process. If that fails, it runs `python3 x.py` (or `$BREVI_PYTHON`) and prints a `{"path":"cpython",...}` line on stderr naming the line, function and error that stopped Brevi, so an agent always gets a result and knows it ran on CPython. If there is no Python either, it prints Brevi's errors.
+For `brevi run x.py` without `--native`, Brevi runs a strict build of itself as a child process. If that fails, it runs `x.py` with CPython 3.13 (`src/cpython.rs`: `$BREVI_PYTHON`, else the first 3.13 among `python3`, `python3.13` and `python` on PATH, the `py` launcher or `uv python find 3.13`; any other version is refused, since Brevi answers as 3.13 does) and prints a `{"path":"cpython",...}` line on stderr naming the line, function and error that stopped Brevi, so an agent always gets a result and knows it ran on CPython. If there is no CPython 3.13 either, it prints Brevi's errors and says why nothing else ran.
 
 ## Other pieces
 

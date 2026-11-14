@@ -4983,8 +4983,8 @@ fn module_values(text: &str, mine: &HashSet<String>) -> Vec<String> {
         .filter(|n| !mine.contains(n) && !n.starts_with("_brevi") && !matches!(n.as_str(), "decimal.context") && !n.starts_with("sys.std"))
         .collect()
 }
-// CPython's repr of each library module the program can hold, as the build machine's CPython (BREVI_PYTHON,
-// else python3) prints it after importing the module: `<module 'math' from '/usr/lib/...'>`, `(built-in)` or
+// CPython's repr of each library module the program can hold, as the build machine's CPython 3.13 (src/cpython.rs)
+// prints it after importing the module: `<module 'math' from '/usr/lib/...'>`, `(built-in)` or
 // `(frozen)`. The same choice the build makes for a program file's __file__: the binary names the build
 // machine's copy. A module CPython cannot import there (or no CPython at all) is left out: its repr stops the
 // program at run time (rt_fmt.rs module_repr). The import's own output is thrown away.
@@ -4994,7 +4994,7 @@ fn lib_mod_reprs(text: &str, mine: &HashSet<String>) -> Vec<(String, String)> {
         return vec![];
     }
     const Q: &str = "import sys, os, importlib\nout = os.fdopen(os.dup(1), 'w')\nnull = os.open(os.devnull, os.O_RDWR)\nfor fd in (0, 1, 2):\n    os.dup2(null, fd)\nfor n in sys.argv[1:]:\n    try:\n        r = repr(importlib.import_module(n))\n    except BaseException:\n        continue\n    if '\\n' not in r and '\\t' not in r:\n        out.write(n + '\\t' + r + '\\n')\nout.flush()\nos._exit(0)\n";
-    let exe = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| if cfg!(windows) { "python".into() } else { "python3".into() });
+    let Ok(exe) = crate::python_exe() else { return vec![] };
     let Ok(o) = std::process::Command::new(&exe).arg("-P").arg("-c").arg(Q).args(&names).stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).output() else {
         return vec![];
     };

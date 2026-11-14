@@ -76,7 +76,7 @@ For a Python file, `brevi run`, `build` and `check` print one JSON line on stder
 
 ## The CPython fallback
 
-`brevi run x.py` always gives a result. When Brevi cannot build a file natively, it runs it with `python3` (or `$BREVI_PYTHON`) and prints one line on stderr naming the first line that stopped it:
+`brevi run x.py` always gives a result. When Brevi cannot build a file natively, it runs it with CPython 3.13 (`$BREVI_PYTHON`, else the first 3.13 among `python3`, `python3.13` and `python` on PATH; Brevi answers as CPython 3.13 does, so it never runs another version) and prints one line on stderr naming the first line that stopped it:
 
 ```
 {"path":"cpython","line":2,"why":"Brevi could not build it: expected ')', found end of line","by":"python3"}
@@ -108,7 +108,7 @@ From the next release, `--strict` (or `BREVI_STRICT=1`, which reaches every `bre
 
 ## Verify against CPython
 
-`brevi verify x.py` (from v0.26.0) is proof that the native build answers as CPython does. It builds the file natively (strict, as `brevi build` does: no fallback), then runs `python3` (or `$BREVI_PYTHON`) and the built program on the same inputs, and compares stdout byte for byte, the exit code and stderr. CPython's traceback frames are left out of the stderr comparison, since a built program names the exception but not the frames. CPython runs each input twice: output that changes from run to run (set order, the time, unseeded `random`) cannot be certified, and is reported as `unstable` instead of matched by luck.
+`brevi verify x.py` (from v0.26.0) is proof that the native build answers as CPython does. It builds the file natively (strict, as `brevi build` does: no fallback), then runs CPython 3.13 (as the fallback finds it) and the built program on the same inputs, and compares stdout byte for byte, the exit code and stderr. CPython's traceback frames are left out of the stderr comparison, since a built program names the exception but not the frames. CPython runs each input twice: output that changes from run to run (set order, the time, unseeded `random`) cannot be certified, and is reported as `unstable` instead of matched by luck.
 
 ```
 $ brevi verify main.py --input tests/ -- --verbose
@@ -343,7 +343,7 @@ Write the plain, direct program. Brevi runs plain loops over ints and lists seve
 | --- | --- |
 | `BREVI_NATIVE=1` | Same as `--native`: never fall back to CPython. |
 | `BREVI_TRACEBACK=1` | Same as `--traceback`: show the whole CPython traceback after a fallback on a sure mistake. |
-| `BREVI_PYTHON` | The Python used for the fallback (default `python3`). |
+| `BREVI_PYTHON` | The CPython Brevi uses: the library bridge, the fallback and `brevi verify`. It must be a CPython 3.13 (default: the first 3.13 among `python3`, `python3.13` and `python` on PATH, then `uv python find 3.13`). |
 | `BREVI_CACHE` | Where builds and runtimes are cached (default `~/.cache/brevi`). |
 | `BREVI_NO_CACHE=1` | Same as `--no-cache`: do not use the result or build cache. |
 | `BREVI_CACHE_MB` | Most megabytes of builds the cache keeps (default 1024); the least recently used go first. |

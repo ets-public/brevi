@@ -7,6 +7,7 @@ mod ast;
 mod bigint;
 mod caps;
 mod cgroup;
+mod cpython;
 mod diag;
 mod dynpy;
 mod emit;
@@ -159,10 +160,10 @@ fn print_diag(d: &Diag) {
     explain(&d.msg, d.fix.as_deref().unwrap_or(""));
 }
 
-/// The CPython to run when a library program falls back, or when verify compares: `python` on Windows
-/// (there `python3` is often a Store alias), `python3` elsewhere.
-pub fn python_exe() -> String {
-    std::env::var("BREVI_PYTHON").unwrap_or_else(|_| if cfg!(windows) { "python".into() } else { "python3".into() })
+/// The CPython to run when a program falls back, or when verify compares: always a CPython 3.13
+/// (src/cpython.rs), or why there is none.
+pub fn python_exe() -> Result<String, String> {
+    cpython::exe()
 }
 
 /// A program's source file, read as Python reads it: a UTF-8 byte order mark at the start is not part of the text.
@@ -1042,7 +1043,16 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
         }
         Ok(o) => {
             let out = String::from_utf8_lossy(&o.stdout).to_string();
-            let python = python_exe();
+            let python = match python_exe() {
+                Ok(p) => p,
+                Err(why) => {
+                    // No CPython 3.13 here: show Brevi's errors as a strict run would, and why nothing else ran.
+                    print!("{out}");
+                    std::io::stderr().write_all(&o.stderr).ok();
+                    eprintln!("note: not run with CPython: {why}");
+                    exit(1);
+                }
+            };
             // On a sure mistake the note already names the error, so CPython's traceback is cut to its last
             // line (`--traceback` or BREVI_TRACEBACK=1 shows all of it).
             let short = o.code == Some(3) && !TRACEBACK.load(std::sync::atomic::Ordering::Relaxed);
@@ -1501,7 +1511,7 @@ fn compile_once(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>
         match engine::glue(&mods, &froms, &items) {
             Some(g) => foreign.rust_top.push_str(&g),
             None => {
-                pybridge::python_ok().map_err(|m| vec![Diag::new("check", 1, 1, &m).fix_hint("run the program with python3")])?;
+                pybridge::python_ok().map_err(|m| vec![Diag::new("check", 1, 1, &m).fix_hint("install CPython 3.13 with its shared library (libpython), or set BREVI_PYTHON to one")])?;
                 foreign.rust_top.push_str(&pybridge::runtime());
             }
         }

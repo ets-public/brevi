@@ -386,7 +386,10 @@ pub fn main(argv: &[String]) -> ! {
         let l = l.trim_start();
         l.starts_with("from mcp") || l.starts_with("import mcp")
     });
-    let python = crate::python_exe();
+    let python = crate::python_exe().unwrap_or_else(|why| {
+        println!("{{\"verify\":\"error\",\"msg\":\"{}\",\"fix\":\"install CPython {}, or set BREVI_PYTHON to one\"}}", esc(&why), crate::cpython::WANT);
+        exit(2);
+    });
     let pyver = python_version(&python);
 
     // The native build, strict: no CPython fallback, so what runs below is Brevi's own code.
@@ -793,11 +796,12 @@ pub fn run_main(argv: &[String]) -> ! {
         cross_main(&file, &held, cpython, strict, release, limit, &pass, &prog_args);
     }
     let src = std::fs::read(&file).unwrap_or_else(|e| run_usage(&format!("cannot read {file}: {e}")));
-    let python = crate::python_exe();
-    let pyver = {
-        let python = python.clone();
-        std::thread::spawn(move || python_version_opt(&python))
-    };
+    // Found (and its version asked) on a thread, while the build runs.
+    let pyver = std::thread::spawn(|| -> Result<(String, String), String> {
+        let python = crate::python_exe()?;
+        let v = python_version_opt(&python).ok_or_else(|| format!("{python} not found"))?;
+        Ok((python, v))
+    });
     let refuse = |why: &str| -> ! {
         eprintln!("{{\"verify\":\"refused\",\"why\":\"{}\",\"msg\":\"not checked against CPython: a second run could answer differently or repeat what it does; run as plain brevi run\"}}", esc(why));
         if strict {
@@ -823,8 +827,16 @@ pub fn run_main(argv: &[String]) -> ! {
     if let Some(why) = side_effects(&file) {
         refuse(why);
     }
-    let Some(pyver) = pyver.join().ok().flatten() else {
-        refuse(&format!("{python} not found"));
+    let (python, pyver) = match pyver.join() {
+        Ok(Ok(x)) => x,
+        Ok(Err(why)) => {
+            eprintln!("{{\"verify\":\"refused\",\"why\":\"{}\",\"msg\":\"not checked against CPython: there is no CPython {} to compare with\"}}", esc(&why), crate::cpython::WANT);
+            if strict {
+                exit(1);
+            }
+            plain_run(&file, &pass, &prog_args)
+        }
+        Err(_) => refuse("CPython not found"),
     };
     // The build's notes, and its path line as `brevi run` shows it (typed only with BREVI_PATH=1).
     let show_path = std::env::var("BREVI_PATH").is_ok_and(|v| v == "1");
