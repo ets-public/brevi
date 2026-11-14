@@ -38,6 +38,8 @@ static PYD_PDUMPS: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::a
 static PYD_PDUMP: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 thread_local! {
     static PYD_PICKLING: Cell<bool> = const { Cell::new(false) };
+    // how many of the program's pickle Unpickler.load calls are running (see _pmod)
+    static PYD_UNPICKLING: Cell<i64> = const { Cell::new(0) };
 }
 fn pyd_ptr(s: &std::sync::atomic::AtomicPtr<std::ffi::c_void>) -> P {
     s.load(std::sync::atomic::Ordering::Relaxed) as P
@@ -59,9 +61,20 @@ class _BrIt:
     def __reduce__(s): return s.r()
     def __setstate__(s, state): return _d.setstate(s.b, state)
 class _BrRed:
-    __slots__ = ('r', 'b')
-    def __init__(s, r, b): s.r = r; s.b = b
-    def __reduce__(s): return s.r()
+    __slots__ = ('r', 'b', 'm')
+    def __init__(s, r, b): s.r = r; s.b = b; s.m = '_brevi_dyn'
+    def __reduce__(s):
+        r = s.r()
+        # an Enum member whose __reduce_ex__ gives a name: saved as that global of the program by CPython's own
+        # save_global, as for a def (see _pk_global)
+        if type(r) is tuple and r and r[0] == -1:
+            return _pk_global(s, r[1], r[2])
+        if type(r) is tuple and r and r[0] == -2:
+            import pickle
+            raise pickle.PicklingError(r[1])
+        return r
+# the module save_global reads from a by-name member (whichmodule reads obj.__module__)
+_BrRed.__module__ = property(lambda s: s.m, lambda s, v: setattr(s, 'm', v))
 def _pyclass(mod, imports, src, name, file):
     m = _s.modules.get(mod) if mod == '__main__' else _d.mods.get(mod)
     if m is None:
@@ -281,6 +294,8 @@ def _pmod():
             return obj
         # the protocol of the pickle about to load (CPython walks a dotted name only from protocol 4 on),
         # read ahead from a file that can seek; None when it cannot
+        # While it loads, an Enum member of the program that a program class gives back (cls(value), as the
+        # member's __reduce_ex__ asked) goes into Python as a _BrRed that comes back out as that member
         def __init__(self, file, **kw):
             super().__init__(file, **kw)
             self._bvf = file
@@ -295,7 +310,11 @@ def _pmod():
             except Exception:
                 pass
             self._bvp = p
-            return super().load()
+            _d._unp(1)
+            try:
+                return super().load()
+            finally:
+                _d._unp(-1)
     Unpickler.__module__ = '_pickle'
     Unpickler.__qualname__ = Unpickler.__name__ = 'Unpickler'
     def load(file, *, fix_imports=True, encoding="ASCII", errors="strict", buffers=None):
@@ -1320,7 +1339,14 @@ unsafe fn pyd_register(a: &ax_pyffi::Api) -> bool {
         (Some(it), Some(st)) => iter_setstate_v(it, st),
         _ => type_err("__setstate__() takes exactly one argument".into()),
     });
-    for (n, f) in [(c"_ref", func(sym("_ref"), pickle_ref)), (c"_lookup", func(sym("_lookup"), pickle_lookup_fn)), (c"_progmod", func(sym("_progmod"), pickle_progmod)), (c"_missing", func(sym("_missing"), pickle_missing_fn)), (c"setstate", setstate), (c"_rebuild_obj", func(sym("_rebuild_obj"), pickle_rebuild))] {
+    for (n, f) in [(c"_ref", func(sym("_ref"), pickle_ref)), (c"_lookup", func(sym("_lookup"), pickle_lookup_fn)), (c"_progmod", func(sym("_progmod"), pickle_progmod)), (c"_missing", func(sym("_missing"), pickle_missing_fn)), (c"setstate", setstate), (c"_rebuild_obj", func(sym("_rebuild_obj"), pickle_rebuild)), (c"_unp", func(sym("_unp"), |a: Args| {
+        let d = match a.p.first() {
+            Some(V::Int(d)) => *d,
+            _ => 0,
+        };
+        PYD_UNPICKLING.with(|c| c.set(c.get() + d));
+        Ok(V::None)
+    }))] {
         if !ok {
             break;
         }
@@ -2127,6 +2153,10 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
         V::Class(c) if c.module == "builtins" && PYD_PICKLING.with(|x| x.get()) && pickle_lookup("builtins", c.name).is_ok_and(|k| is(&k, v)) && pyd_has_builtin(c.name) => pyd_builtins_attr(c.name)?,
         V::Obj(o) if o.cls.lookup("__bv_namedtuple__").is_some() => pyd_namedtuple(v)?,
         V::Deque(_) | V::Obj(_) if PYD_PICKLING.with(|c| c.get()) && (matches!(v, V::Deque(_)) || matches!(inner_of(v), Some(V::Deque(_)))) => pyd_deque_red(v)?,
+        // an Enum member going into pickle.dumps or pickle.dump, or coming back from a program class while the
+        // program's Unpickler loads: a _BrRed that pickles as the member's __reduce_ex__ says, and that comes back
+        // out of Python as the member itself
+        V::Obj(o) if (PYD_PICKLING.with(|c| c.get()) || PYD_UNPICKLING.with(|c| c.get()) > 0) && is_enum(&o.cls) && o.get("_value_").is_some() => pyd_enum_red(v)?,
         // CPython would see an iterator, not a generator flagged CO_ITERABLE_COROUTINE (inspect.isawaitable)
         V::Iter(_) if is_iter_coro(v) => return Err(unsupported("passing a generator of a types.coroutine function to a Python library")),
         V::Iter(_) => {
@@ -2166,6 +2196,45 @@ unsafe fn pyd_deque_red(v: &V) -> Result<P, E> {
     let a = pyd_api();
     let me = v.clone();
     let red = func(sym("__reduce__"), move |_a: Args| deque_reduce_py(&me));
+    let r = pyd_callable(&red)?;
+    let b = match pyd_callable(v) {
+        Ok(b) => b,
+        Err(e) => {
+            (a.DecRef)(r);
+            return Err(e);
+        }
+    };
+    let o = pyd_mod_call("_brevi_dyn", "red", &[r, b]);
+    (a.DecRef)(r);
+    (a.DecRef)(b);
+    let o = o?;
+    to_memo_put(v, o);
+    let t = (a.Type)(o);
+    (a.DecRef)(t);
+    PYD_BRRED.store(t, std::sync::atomic::Ordering::Relaxed);
+    Ok(o)
+}
+
+// An Enum member of the program going into pickle (or out of a program class while the program's Unpickler
+// loads): a _BrRed whose __reduce__ gives the member's own __reduce_ex__(4) (Enum's: (cls, (value,))); a name
+// instead (_reduce_ex_by_global_name) is saved as that global, checked to be this very member, as save_global does.
+unsafe fn pyd_enum_red(v: &V) -> Result<P, E> {
+    let a = pyd_api();
+    let me = v.clone();
+    let red = func(sym("__reduce__"), move |_a: Args| {
+        let r = call_method(&me, "__reduce_ex__", Args::p(vec![V::Int(4)]))?;
+        let V::Str(n) = &r else { return Ok(r) };
+        let n = n.text().to_string();
+        let m = match getattr(&me, "__module__")? {
+            V::Str(m) => m.text().to_string(),
+            _ => return Ok(tup(vec![V::Int(-2), st(format!("Can't pickle {}: no __module__", repr(&me)?))])),
+        };
+        Ok(match pickle_lookup(&m, &n) {
+            Ok(found) if is(&found, &me) => tup(vec![V::Int(-1), st(m), st(n)]),
+            Ok(_) => tup(vec![V::Int(-2), st(format!("Can't pickle {}: it's not the same object as {m}.{n}", repr(&me)?))]),
+            Err(_) => tup(vec![V::Int(-2), st(format!("Can't pickle {}: it's not found as {m}.{n}", repr(&me)?))]),
+        })
+    });
     let r = pyd_callable(&red)?;
     let b = match pyd_callable(v) {
         Ok(b) => b,
@@ -2424,12 +2493,14 @@ unsafe fn pyd_invoke(f: P, pre: &[V], args: &Args, deep: bool) -> R {
     to_memo_enter();
     let dump = !f.is_null() && (f == pyd_ptr(&PYD_PDUMPS) || f == pyd_ptr(&PYD_PDUMP));
     let was = PYD_PICKLING.with(|c| c.replace(dump));
+    let was_unp = PYD_UNPICKLING.with(|c| c.replace(0));
     let pa = pyd_args(f, pre, args);
     let r = match &pa {
         Ok(pa) => (a.Call)(f, pa.t, pa.kw),
         Err(_) => std::ptr::null_mut(),
     };
     PYD_PICKLING.with(|c| c.set(was));
+    PYD_UNPICKLING.with(|c| c.set(was_unp));
     to_memo_exit();
     let pa = pa?;
     if r.is_null() {

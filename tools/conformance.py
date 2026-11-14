@@ -71,7 +71,7 @@ SCOPE = ["test_grammar", "test_scope", "test_int", "test_list", "test_dict", "te
 SLICES = {
     "core": (SCOPE, BASELINE, FLOOR),
     "stdlib": (["test_itertools", "test_collections", "test_re", "test_textwrap", "test_functools", "test_string",
-               "test_graphlib", "test_colorsys", "test_deque", "test_dataclasses"],
+               "test_graphlib", "test_colorsys", "test_deque", "test_dataclasses", "test_enum"],
                ROOT / "compat" / "conformance_stdlib_known_wrong", ROOT / "compat" / "conformance_stdlib_floor.json"),
 }
 # Module name -> (path under Lib/, SHA-256). The helpers are only read for the definitions tests use.
@@ -102,6 +102,7 @@ SOURCES = {
     "test.test_colorsys": ("test/test_colorsys.py", "f7ea1907f751f0201ea69a0bc368cdb2b24e7c7f958d8df659a8ff84142bfb93"),
     "test.test_deque": ("test/test_deque.py", "15578b602865dfa5c80baa64006d64c5875765aab457d5b4bedd73a5e8436d73"),
     "test.test_dataclasses": ("test/test_dataclasses/__init__.py", "eb6d80602be85858a9a5f559c6f9fe7949b48972df4024aff8c825fcf8548cb4"),
+    "test.test_enum": ("test/test_enum.py", "c656b79b79a6706b54e47b4e9dcb36034f5e16f80b69dc3508acdb714d6c5809"),
     "test.re_tests": ("test/re_tests.py", "33033dc23d20a6924391819395e7bdd3c16d11cf3bb79eedb6298e79f65bb4e8"),  # data for test_re.ExternalTests
 }
 # Modules some tests import as modules (test_grammar reads their __annotations__): copied as they are next to the
@@ -112,12 +113,22 @@ COMPANIONS = {
     "test.typinganndata.ann_module": ("test/typinganndata/ann_module.py", "14c92d11f7e53a1d315e9125458a68105097d152dbee27cd063c9f6664c7453c"),
     "test.typinganndata.ann_module2": ("test/typinganndata/ann_module2.py", "2f1214af1113c659b37ff02aa9727f3341812e066c82524c471e4325bcde6f72"),
     "test.typinganndata.ann_module3": ("test/typinganndata/ann_module3.py", "c72c7dfa54f5af1bb9ad263964adf130597666ae1e5cd125f5a435b565d6c15f"),
+    "test.test_dataclasses.dataclass_module_1": ("test/test_dataclasses/dataclass_module_1.py", "b7f5e7b0da4ee72ad65d0c6ef765037c7a26518b1558f32e7b06ecc1a26490d5"),
+    "test.test_dataclasses.dataclass_module_1_str": ("test/test_dataclasses/dataclass_module_1_str.py", "43c54096c3a8f83e1c3461f6fbbb110ed26a913f8cfeec5ed117257cd776f464"),
+    "test.test_dataclasses.dataclass_module_2": ("test/test_dataclasses/dataclass_module_2.py", "d0db5b8fc6e45a2139721b806f1e01199c7754c68d262c2264a8e333791fa90b"),
+    "test.test_dataclasses.dataclass_module_2_str": ("test/test_dataclasses/dataclass_module_2_str.py", "9af63db46e8b76f28aaa4abb86b3dbc35c82e31f94eafeea5784a7669cc42982"),
+    "test.test_dataclasses.dataclass_textanno": ("test/test_dataclasses/dataclass_textanno.py", "1274341e8132110bb9797f33f733800277e6f1ac8c690ba9df6385944236aca1"),
 }
+# A package whose real __init__.py is the test file itself (test_dataclasses): a script that imports one of its companion
+# modules gets an empty __init__.py instead, since the companions read nothing from their package. Only the submodules
+# in COMPANIONS may be imported from it (validate).
+PACKAGE_STANDINS = {"test.test_dataclasses": ("test/test_dataclasses/__init__.py",
+                                              b"# Stand-in written by tools/conformance.py: the real __init__.py is the test file.\n")}
 
 # A generated script may import only these: nothing that reaches files, processes or the network.
 ALLOWED_IMPORTS = {
     "__future__", "abc", "array", "bisect", "builtins", "cmath", "collections", "colorsys", "contextlib", "copy",
-    "dataclasses", "decimal", "enum", "fractions", "functools", "gc", "graphlib", "heapq", "inspect", "itertools", "json",
+    "dataclasses", "datetime", "decimal", "enum", "fractions", "functools", "gc", "graphlib", "heapq", "inspect", "itertools", "json",
     "math", "numbers", "locale", "operator", "pickle", "random", "re", "string", "struct", "sys", "textwrap", "threading", "time", "types",
     "typing", "unicodedata", "warnings", "weakref",
 }
@@ -145,6 +156,7 @@ EXCLUDED_DECORATORS = {
 CONDITION_PRELUDE = """import os, sys, re, sysconfig
 is_emscripten = sys.platform == "emscripten"
 is_wasi = sys.platform == "wasi"
+python_version = sys.version_info[:2]
 class support:
     is_wasi = is_wasi
 try:
@@ -156,7 +168,9 @@ else:
 """
 CONDITION_BINDINGS = {"sys": ("import", "sys", None), "re": ("import", "re", None), "support": ("from", "test", "support"),
                       "is_emscripten": ("from", "test.support", "is_emscripten"), "is_wasi": ("from", "test.support", "is_wasi")}
-CONDITION_NAMES = {"sys", "re", "hasattr", "is_emscripten", "is_wasi", "support", "multiprocessing", "__debug__"}
+CONDITION_NAMES = {"sys", "re", "hasattr", "is_emscripten", "is_wasi", "support", "multiprocessing", "__debug__", "python_version"}
+# a name a condition may read that the test file binds itself, with the one statement that must bind it (top level, once)
+CONDITION_ASSIGNED = {"python_version": "python_version = sys.version_info[:2]"}
 # support.requires_docstrings is skipUnless(HAVE_DOCSTRINGS, ...); with no -O, HAVE_DOCSTRINGS is `not MISSING_C_DOCSTRINGS`
 # (Lib/test/support/__init__.py: MISSING_C_DOCSTRINGS = check_impl_detail() and platform != 'win32' and no WITH_DOC_STRINGS).
 DOCSTRINGS_CONDITION = 'not (sys.platform != "win32" and not sysconfig.get_config_var("WITH_DOC_STRINGS"))'
@@ -244,6 +258,22 @@ HELPERS = {
     "_conf_Skip": """class _conf_Skip(Exception):
     pass""",
     "_conf_cleanups": """_conf_cleanups = []""",
+    # unittest's enterContext: enters the manager now and adds its __exit__ as a cleanup, run after tearDown
+    "_conf_enterContext": """def _conf_enterContext(cm):
+    cls = type(cm)
+    enter, exit = cls.__enter__, cls.__exit__
+    result = enter(cm)
+    _conf_cleanups.append((exit, (cm, None, None, None)))
+    return result""",
+    # an assertion method passed as a value (`test_pickle_dump_load(self.assertIs, x)`), printing what the inline
+    # rewrite of the same call prints (rewrite_assertion)
+    "_conf_assertIs": """def _conf_assertIs(first, second, msg=None):
+    print((first) is (second))""",
+    "_conf_assertEqual": """def _conf_assertEqual(first, second, msg=None):
+    print(repr(first))
+    print(repr(second))""",
+    "_conf_assertRaises": """def _conf_assertRaises(category):
+    return _conf_Raises(category)""",
     "_conf_run": """def _conf_run(test):
     try:
         test()
@@ -301,8 +331,12 @@ SKIPPED = b"_conf_skipped:"  # what _conf_run prints when the test called skipTe
 HELPER_IMPORTS = {"_conf_Warns": ["import re", "import warnings"], "_conf_pickle_deprecated": ["import warnings"],
                   "_conf_ignore_warnings": ["import warnings"], "_conf_search": ["import re"], "_conf_Raises": [],
                   "_conf_Skip": [], "_conf_cleanups": [], "_conf_run": [], "_conf_TestCase": [],
+                  "_conf_enterContext": [], "_conf_assertIs": [], "_conf_assertEqual": [], "_conf_assertRaises": [],
                   "_conf_start_threads": ["import contextlib", "import time"]}
-HELPER_NEEDS = {"_conf_pickle_deprecated": ["_conf_Warns"], "_conf_run": ["_conf_Skip"]}
+HELPER_NEEDS = {"_conf_pickle_deprecated": ["_conf_Warns"], "_conf_run": ["_conf_Skip"], "_conf_enterContext": ["_conf_cleanups"],
+                "_conf_assertRaises": ["_conf_Raises"]}
+STRING_ANNOTATION = re.compile(r"\b(ClassVar|InitVar|KW_ONLY)\b")
+PASSED_ASSERTIONS = {"assertIs", "assertEqual", "assertRaises"}  # the ones with a _conf_ helper for being passed as a value
 EXCLUDED_CLASSES = {
     "PyLongModuleTests": "tests _pylong, a private CPython module",
     "CAPITest": "tests the C API",
@@ -505,9 +539,45 @@ class Rewriter(ast.NodeVisitor):
             self.m.imports.setdefault(node.attr, ("from", f"{kind[1]}.{kind[2]}", node.attr))
             self.m.edit(*self.m.span(node), node.attr)
 
+    def visit_Call(self, node):
+        self.generic_visit(node)
+        f = node.func
+        if (isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id in RECEIVERS and f.attr == "enterContext"
+                and len(node.args) == 1 and not node.keywords and not isinstance(node.args[0], ast.Starred)):
+            self.m.edit(*self.m.span(f), "_conf_enterContext")
+        for a in node.args + [k.value for k in node.keywords]:
+            if (isinstance(a, ast.Attribute) and isinstance(a.value, ast.Name) and a.value.id in RECEIVERS
+                    and a.attr in PASSED_ASSERTIONS and isinstance(a.ctx, ast.Load)):
+                self.m.edit(*self.m.span(a), "_conf_" + a.attr)
+
+    def visit_Compare(self, node):
+        """`type(self) not in (TestStrEnumClass, TestStrEnumFunction)`: which test class runs the inherited test. The
+        script keeps only the class that runs, under its own name, so the check compares names (unique in the file)."""
+        self.generic_visit(node)
+        left = node.left
+        if not (len(node.ops) == 1 and isinstance(left, ast.Call) and isinstance(left.func, ast.Name) and left.func.id == "type"
+                and len(left.args) == 1 and isinstance(left.args[0], ast.Name) and left.args[0].id in RECEIVERS and not left.keywords):
+            return
+        right, op = node.comparators[0], node.ops[0]
+        names = right.elts if isinstance(op, (ast.In, ast.NotIn)) and isinstance(right, ast.Tuple) else [right] if isinstance(op, (ast.Is, ast.IsNot, ast.Eq, ast.NotEq)) else []
+        if not names or not all(isinstance(n, ast.Name) and self.is_test_class(n.id) for n in names):
+            return
+        new_op = {ast.Is: "==", ast.IsNot: "!=", ast.Eq: "==", ast.NotEq: "!=", ast.In: "in", ast.NotIn: "not in"}[type(op)]
+        quoted = ", ".join(repr(n.id) for n in names)
+        rhs = f"({quoted},)" if isinstance(right, ast.Tuple) else quoted
+        # __qualname__, not __name__: the extracted class is top level, as the file's test classes are
+        self.m.edit(*self.m.span(node), f"type({left.args[0].id}).__qualname__ {new_op} {rhs}")
+
+    def is_test_class(self, name):
+        defs = self.m.defs.get(name, [])
+        return (len(defs) == 1 and isinstance(defs[0], ast.ClassDef) and defs[0] in self.m.tree.body
+                and sum(isinstance(n, ast.ClassDef) and n.name == name for n in ast.walk(self.m.tree)) == 1
+                and any(ast.unparse(b) == "unittest.TestCase" for b in defs[0].bases))
+
     def visit_ImportFrom(self, node):
         # `from test.re_tests import tests` inside a test: the names come from that fetched module like any other
-        if node.col_offset and node.module in self.helpers and node.level == 0 and self.m.alone(node):
+        if (node.col_offset and node.module in self.helpers and node.level == 0 and self.m.alone(node)
+                and not all(f"{node.module}.{a.name}" in COMPANIONS for a in node.names)):  # a companion module stays an import
             for a in node.names:
                 self.m.imports.setdefault(a.asname or a.name, ("from", node.module, a.name))
             self.m.edit(*self.m.span(node), "pass")
@@ -846,6 +916,15 @@ class Universe:
 
         script = Script(self)
         script.test_fn = fn
+        for w in wrappers:
+            if w[0] == "decorator":
+                for n in uses(w[1])[0]:
+                    script.need(owner, n)
+        if any(isinstance(n, ast.Constant) and isinstance(n.value, str) and STRING_ANNOTATION.search(n.value) for n in ast.walk(fn)):
+            # dataclasses reads a string annotation ('typing.ClassVar[int]', 'InitVar') by looking the names up in the
+            # class's module, so the script binds them the way the test file does (each only if the file binds it)
+            for n in ("typing", "dataclasses", "ClassVar", "InitVar", "KW_ONLY"):
+                script.need(owner, n)
         body = owner.bare(fn)
         names, attrs = uses(body)
         # exec("... self.assertEqual(...) ...") keeps its assertions in a string, out of the rewriter's reach: the class
@@ -870,7 +949,8 @@ class Universe:
         header = f"# Extracted by tools/conformance.py from CPython {TAG} Lib/test/{name}.py, {cls_name}.{method}\n"
         header += "# (CPython's test suite is under the PSF licence: https://docs.python.org/3/license.html)\n"
         out = script.finish(header, tail)
-        self.last_files = {COMPANIONS[m][0]: self.companions[m] for m in sorted(script.companions)}
+        self.last_files = dict(PACKAGE_STANDINS[m] if m in PACKAGE_STANDINS else (COMPANIONS[m][0], self.companions[m])
+                               for m in sorted(script.companions))
         return out
 
 
@@ -893,6 +973,9 @@ def condition_value(py, mod, test, trusted=False, cache={}):
             bad = True
         elif isinstance(n, ast.Name) and n.id in CONDITION_BINDINGS and mod.imports.get(n.id) != CONDITION_BINDINGS[n.id]:
             bad = True  # the name must be bound the way the prelude binds it
+        elif (isinstance(n, ast.Name) and n.id in CONDITION_ASSIGNED
+              and [ast.unparse(d) for d in mod.defs.get(n.id, [])] != [CONDITION_ASSIGNED[n.id]]):
+            bad = True  # bound by the file in exactly the way the prelude binds it, or not decided
         elif isinstance(n, ast.Name) and n.id == "multiprocessing" and mod.name != "test.test_re":
             bad = True  # test_re binds it with a try/except import, which the prelude copies
         if isinstance(n, ast.Call) and not (isinstance(n.func, ast.Name) and n.func.id == "hasattr"
@@ -913,7 +996,7 @@ def condition_value(py, mod, test, trusted=False, cache={}):
 def decorator_plan(py, mod, node):
     """What CPython does with the decorators of a test (or test class): Excluded if one skips it or marks it as
     not a language test, CantExtract if one is not understood, else the wrappers the script must apply, outermost first.
-    Each is ("pickle_deprecated",) or ("ignore_warnings", category name)."""
+    Each is ("pickle_deprecated",), ("ignore_warnings", category name) or ("decorator", its source text)."""
     wrappers, excluded, unknown = [], None, None
     for d in node.decorator_list:
         target = d.func if isinstance(d, ast.Call) else d
@@ -944,6 +1027,11 @@ def decorator_plan(py, mod, node):
                     excluded = excluded or "skipped by CPython: skipped on s390x"
             elif dotted == "support.skip_if_pgo_task" and mod.imports.get("support") == ("from", "test", "support"):
                 pass  # support.PGO is False outside the PGO build task, so this is the identity
+            elif dotted == "unittest.skip" and len(args) == 1 and not kws and isinstance(args[0], ast.Constant) and isinstance(args[0].value, str):
+                excluded = excluded or f"skipped by CPython: {args[0].value}"
+            elif (dotted == "threading_helper.reap_threads" and not isinstance(d, ast.Call)
+                  and mod.imports.get("threading_helper") == ("from", "test.support", "threading_helper")):
+                pass  # threading_setup/threading_cleanup around the test: it only warns on stderr about threads left running
             elif dotted == "support.impl_detail" and not kws and mod.imports.get("support") == ("from", "test", "support"):
                 excluded = excluded or "tests CPython internals"  # runs on CPython, but says it is specific to it
             elif dotted == "pickle_deprecated" and mod.name == "test.test_itertools" and not args:
@@ -951,6 +1039,11 @@ def decorator_plan(py, mod, node):
             elif (dotted == "warnings_helper.ignore_warnings" and not args and list(kws) == ["category"]
                   and isinstance(kws["category"], ast.Name) and kws["category"].id in ("DeprecationWarning", "PendingDeprecationWarning", "UserWarning", "ResourceWarning", "RuntimeWarning", "SyntaxWarning")):
                 wrappers.append(("ignore_warnings", kws["category"].id))
+            elif (isinstance(target, ast.Name) and len(mod.defs.get(last, [])) == 1 and isinstance(mod.defs[last][0], ast.FunctionDef)
+                  and mod.defs[last][0] in mod.tree.body and not last.startswith("test")):
+                # a decorator the test file defines at top level (test_enum's reraise_if_not_enum): the script carries
+                # its definition and applies it as written, to the bound test method
+                wrappers.append(("decorator", mod.expr(d)))
             else:
                 raise CantExtract(f"decorator @{dotted}")
         except CantExtract as e:
@@ -965,7 +1058,8 @@ def decorator_plan(py, mod, node):
 def wrapped_call(wrappers, target):
     """The expression that runs `target` the way its decorators make CPython run it."""
     for w in reversed(wrappers):
-        target = f"_conf_pickle_deprecated({target})" if w[0] == "pickle_deprecated" else f"_conf_ignore_warnings({w[1]})({target})"
+        target = (f"_conf_pickle_deprecated({target})" if w[0] == "pickle_deprecated" else f"({w[1]})({target})" if w[0] == "decorator"
+                  else f"_conf_ignore_warnings({w[1]})({target})")
     return target + "()"
 
 
@@ -1154,11 +1248,11 @@ class Script:
 
     def finish(self, header, tail):
         text = "\n".join(list(self.nodes.values()) + [tail])
-        if re.search(r"\b_conf_(Skip|cleanups)\b", text):
+        if re.search(r"\b_conf_(Skip|cleanups|enterContext)\b", text):
             # skipTest ends the test where it is called; the cleanups run after it (and after tearDown), last first
             head, sep, rest = tail.rpartition(self.call)
             tail = head + f"_conf_run(lambda: {self.call})" + rest
-            if "_conf_cleanups" in text:
+            if re.search(r"\b_conf_(cleanups|enterContext)\b", text):
                 tail += "for _f, _a in reversed(_conf_cleanups):\n    _f(*_a)\n"
             text = "\n".join(list(self.nodes.values()) + [tail])
         used = [h for h in HELPERS if re.search(rf"\b{h}\b", text)]
@@ -1203,7 +1297,7 @@ def validate(script):
                 roots.append(root if root not in RESTRICTED_IMPORTS else a.name)
         elif isinstance(n, ast.ImportFrom):
             root, _, rest = (n.module or "").partition(".")
-            if n.level == 0 and n.module in COMPANIONS and all(f"{n.module}.{a.name}" in COMPANIONS for a in n.names):
+            if n.level == 0 and (n.module in COMPANIONS or n.module in PACKAGE_STANDINS) and all(f"{n.module}.{a.name}" in COMPANIONS for a in n.names):
                 pass
             elif root in RESTRICTED_IMPORTS and n.level == 0:
                 if not (rest in RESTRICTED_IMPORTS[root] or not rest and all(a.name in RESTRICTED_IMPORTS[root] for a in n.names)):

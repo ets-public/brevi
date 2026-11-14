@@ -2306,6 +2306,7 @@ fn builtin_class_attr_raw(c: &Rc<Class>, name: &str) -> Option<V> {
         // their first argument as self
         ("bytes" | "bytearray", "maketrans") => Some(builtin("maketrans", bytes_maketrans)),
         ("int", "from_bytes") => Some(builtin("from_bytes", |a: Args| int_from_bytes(&V::None, a))),
+        ("float", "fromhex") => Some(builtin("fromhex", float_fromhex)),
         // str.maketrans is a static method: class calls do not bind their first argument as self
         ("str", "maketrans") => Some(builtin("maketrans", |a: Args| str_maketrans(&a))),
         // int.__new__(cls, x) and the like, as a subclass's own __new__ calls it: an instance of cls wrapping the
@@ -3994,6 +3995,187 @@ pub fn int_to_bytes(o: &V, mut a: Args) -> R {
     }
     Ok(bytesv(out))
 }
+// float.hex(), as CPython's float_hex: '0x1.<13 hex digits>p<exp>' (subnormals '0x0.<...>p-1022')
+pub fn float_hex(x: f64) -> String {
+    if x.is_nan() {
+        return "nan".into();
+    }
+    if x.is_infinite() {
+        return if x < 0.0 { "-inf".into() } else { "inf".into() };
+    }
+    let sign = if x.is_sign_negative() { "-" } else { "" };
+    if x == 0.0 {
+        return format!("{sign}0x0.0p+0");
+    }
+    let b = x.to_bits();
+    let e = ((b >> 52) & 0x7ff) as i64;
+    let m = b & ((1u64 << 52) - 1);
+    if e == 0 {
+        format!("{sign}0x0.{m:013x}p-1022")
+    } else {
+        format!("{sign}0x1.{m:013x}p{:+}", e - 1023)
+    }
+}
+
+// 2.0**n for -1022 <= n <= 1023
+fn pow2(n: i64) -> f64 {
+    f64::from_bits(((n + 1023) as u64) << 52)
+}
+
+// float.fromhex(s), as CPython's float_fromhex: optional whitespace and sign, inf/infinity/nan, or an optional 0x,
+// hex digits with an optional point, and an optional p exponent; correctly rounded (half to even).
+pub fn float_fromhex_str(src: &str) -> Result<f64, E> {
+    let bad = || val_err::<f64>("invalid hexadecimal floating-point string".into());
+    let sp = |c: u8| matches!(c, b' ' | b'\t' | b'\n' | b'\x0b' | b'\x0c' | b'\r');
+    let s = src.as_bytes();
+    let mut i = 0;
+    while i < s.len() && sp(s[i]) {
+        i += 1;
+    }
+    let end_ok = |mut j: usize| {
+        while j < s.len() && sp(s[j]) {
+            j += 1;
+        }
+        j == s.len()
+    };
+    // infinities and nans (with their own optional sign)
+    {
+        let mut j = i;
+        let mut neg = false;
+        if j < s.len() && (s[j] == b'+' || s[j] == b'-') {
+            neg = s[j] == b'-';
+            j += 1;
+        }
+        let rest = &s[j..];
+        let low = |n: usize| rest.len() >= n && rest[..n].eq_ignore_ascii_case(&b"infinity"[..n]);
+        let special = if rest.len() >= 8 && rest[..8].eq_ignore_ascii_case(b"infinity") {
+            Some((f64::INFINITY, 8))
+        } else if low(3) {
+            Some((f64::INFINITY, 3))
+        } else if rest.len() >= 3 && rest[..3].eq_ignore_ascii_case(b"nan") {
+            Some((f64::NAN, 3))
+        } else {
+            None
+        };
+        if let Some((v, n)) = special {
+            if !end_ok(j + n) {
+                return bad();
+            }
+            return Ok(if neg { -v } else { v });
+        }
+    }
+    let mut neg = false;
+    if i < s.len() && (s[i] == b'+' || s[i] == b'-') {
+        neg = s[i] == b'-';
+        i += 1;
+    }
+    if i + 1 < s.len() && s[i] == b'0' && (s[i + 1] == b'x' || s[i + 1] == b'X') {
+        i += 2;
+    }
+    let hexd = |c: u8| (c as char).to_digit(16);
+    let mut digits: Vec<u32> = Vec::new();
+    let mut frac = 0i64;
+    while i < s.len() && hexd(s[i]).is_some() {
+        digits.push(hexd(s[i]).unwrap());
+        i += 1;
+    }
+    if i < s.len() && s[i] == b'.' {
+        i += 1;
+        while i < s.len() && hexd(s[i]).is_some() {
+            digits.push(hexd(s[i]).unwrap());
+            frac += 1;
+            i += 1;
+        }
+    }
+    if digits.is_empty() {
+        return bad();
+    }
+    let mut exp: i64 = 0;
+    if i < s.len() && (s[i] == b'p' || s[i] == b'P') {
+        i += 1;
+        let mut eneg = false;
+        if i < s.len() && (s[i] == b'+' || s[i] == b'-') {
+            eneg = s[i] == b'-';
+            i += 1;
+        }
+        if !(i < s.len() && s[i].is_ascii_digit()) {
+            return bad();
+        }
+        while i < s.len() && s[i].is_ascii_digit() {
+            exp = exp.saturating_mul(10).saturating_add((s[i] - b'0') as i64).min(1 << 50);
+            i += 1;
+        }
+        if eneg {
+            exp = -exp;
+        }
+    }
+    if !end_ok(i) {
+        return bad();
+    }
+    let sign = |v: f64| if neg { -v } else { v };
+    // the coefficient's bits, most significant first, without leading zeros
+    let mut bits: Vec<u8> = Vec::with_capacity(digits.len() * 4);
+    for d in &digits {
+        for k in (0..4).rev() {
+            let b = ((d >> k) & 1) as u8;
+            if b == 1 || !bits.is_empty() {
+                bits.push(b);
+            }
+        }
+    }
+    if bits.is_empty() {
+        return Ok(sign(0.0));
+    }
+    let e2 = exp - 4 * frac;
+    let top = bits.len() as i64 - 1 + e2;
+    let too_big = || Err(exc("OverflowError", "hexadecimal value too large to represent as a float".into()));
+    if top > 1023 {
+        return too_big();
+    }
+    if top < -1100 {
+        return Ok(sign(0.0));
+    }
+    let mut lsb = (top - 52).max(-1074);
+    let k = top - lsb + 1; // bits kept: indices 0..k
+    let mut m: u64 = 0;
+    for idx in 0..k.max(0) as usize {
+        m = (m << 1) | *bits.get(idx).unwrap_or(&0) as u64;
+    }
+    let (round, sticky) = if k < 0 {
+        (false, true)
+    } else {
+        let r = bits.get(k as usize).copied().unwrap_or(0) == 1;
+        let st = bits.iter().skip(k as usize + 1).any(|&b| b == 1);
+        (r, st)
+    };
+    if round && (sticky || m & 1 == 1) {
+        m += 1;
+        if m == 1u64 << 53 {
+            m >>= 1;
+            lsb += 1;
+        }
+    }
+    if m != 0 && lsb + (64 - m.leading_zeros() as i64) - 1 > 1023 {
+        return too_big();
+    }
+    let v = if lsb < -1000 { (m as f64) * pow2(lsb + 1000) * pow2(-1000) } else { (m as f64) * pow2(lsb) };
+    Ok(sign(v))
+}
+
+// float.fromhex(string) (a classmethod: cls(value) for a subclass, as CPython calls the type)
+pub fn float_fromhex(a: Args) -> R {
+    if !a.k.is_empty() {
+        return type_err("float.fromhex() takes no keyword arguments".into());
+    }
+    if a.p.len() != 1 {
+        return type_err(format!("float.fromhex() takes exactly one argument ({} given)", a.p.len()));
+    }
+    let V::Str(t) = &a.p[0] else {
+        return type_err("bad argument type for built-in operation".into());
+    };
+    Ok(V::Float(float_fromhex_str(t.text())?))
+}
+
 pub fn int_from_bytes(o: &V, mut a: Args) -> R {
     let f = "from_bytes";
     // from_bytes(bytes, byteorder='big', *, signed=False)
@@ -4137,7 +4319,8 @@ pub fn builtin_method(o: &V, name: &str, a: Args) -> R {
                 let g = big_gcd(&n, &d);
                 Ok(tup(vec![n.divmod(&g).0.norm(), d.divmod(&g).0.norm()]))
             }
-            "hex" => Err(unsupported("float.hex()")),
+            "hex" => Ok(st(float_hex(*f))),
+            "fromhex" => float_fromhex(a),
             "__add__" | "__radd__" => add(o, &a1(&a, name)?),
             "__eq__" => Ok(V::Bool(eq(o, &a1(&a, name)?)?)),
             "__lt__" => Ok(V::Bool(lt(o, &a1(&a, name)?)?)),

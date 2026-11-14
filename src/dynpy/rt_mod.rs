@@ -889,9 +889,11 @@ fn update_wrapper(wrapper: V, wrapped: V, assigned: V, updated: V) -> R {
     let mut it = iter(&assigned)?;
     while let Some(x) = it.next()? {
         let n = wraps_name(&x)?;
-        // annotations Brevi doesn't keep: the wrapper's stay unkept too (reading either is refused)
+        // annotations Brevi doesn't keep: the wrapper's stay unkept too (reading either is refused). A bound method's
+        // __annotations__ is its function's, as in CPython.
         if n == "__annotations__" {
-            if let V::Func(wd) = &wrapped {
+            let func = if let V::Bound(b) = &wrapped { &b.1 } else { &wrapped };
+            if let V::Func(wd) = func {
                 if wd.attrs.borrow().iter().all(|(k, _)| *k != "__annotations__") {
                     continue;
                 }
@@ -4746,12 +4748,83 @@ fn dc_set_new(c: &Rc<Class>, name: Sym, v: V) -> bool {
 fn dc_params(c: &Rc<Class>) -> Option<V> {
     c.lookup("__dataclass_params__")
 }
-// What an evaluated class annotation is to dataclasses: KW_ONLY, ClassVar, InitVar or a field (""). A string
-// annotation is told by the compiler's mark for the name (`mark`), as dataclasses._is_type reads the string.
-fn dc_ann_kind(v: &Option<V>, mark: &str) -> &'static str {
+// A global of a module of the program (`__main__` or a user module), as `sys.modules[m].__dict__.get(n)` reads it.
+fn program_global(m: &str, n: &str) -> Option<V> {
+    if m == "__main__" {
+        let tab = MAIN_GTAB.with(|g| g.get())?;
+        return glob_item(tab, &s(n)).ok();
+    }
+    USER_MOD.with(|u| u.get()).and_then(|f| f(m, n)).and_then(|r| r.ok())
+}
+// dataclasses._is_type (CPython 3.13) for a string annotation: _MODULE_IDENTIFIER_RE `^(?:\s*(\w+)\s*\.)?\s*(\w+)`
+// picks an optional module name and a name; the name is looked up in the class's module, which must bind the module
+// name (when there is one) to `typing` or `dataclasses` itself. Only the start of the string is read, so
+// 'typing.ClassVar+' is a ClassVar too.
+fn dc_string_kind(text: &str, module: &str) -> &'static str {
+    let c: Vec<char> = text.chars().collect();
+    let word = |mut i: usize| {
+        let st = i;
+        while i < c.len() && (c[i].is_alphanumeric() || c[i] == '_') {
+            i += 1;
+        }
+        (st, i)
+    };
+    let ws = |mut i: usize| {
+        while i < c.len() && c[i].is_whitespace() {
+            i += 1;
+        }
+        i
+    };
+    let mut module_name = None;
+    let mut at = 0;
+    let (a, b) = word(ws(0));
+    if b > a {
+        let d = ws(b);
+        if d < c.len() && c[d] == '.' {
+            module_name = Some(c[a..b].iter().collect::<String>());
+            at = d + 1;
+        }
+    }
+    let (a, b) = word(ws(at));
+    if b == a {
+        return "";
+    }
+    let name: String = c[a..b].iter().collect();
+    let g = dc_globals();
+    let kinds: &[&'static str] = match module_name.as_deref() {
+        None => &["ClassVar", "InitVar", "KW_ONLY"],
+        Some(mn) => match program_global(module, mn) {
+            Some(V::Module(m)) if &**m == "typing" => &["ClassVar"],
+            Some(V::Module(m)) if &**m == "dataclasses" => &["InitVar", "KW_ONLY"],
+            _ => return "",
+        },
+    };
+    let Some(x) = program_global(module, &name) else { return "" };
+    for k in kinds {
+        let hit = match *k {
+            // typing.ClassVar itself, or ClassVar[...] (a _GenericAlias whose origin is ClassVar)
+            "ClassVar" => match &x {
+                V::Class(k) => k.module == "typing" && k.name == "ClassVar",
+                V::Ext(e) => e.any().downcast_ref::<TForm>().is_some_and(|f| f.name == "ClassVar"),
+                _ => false,
+            },
+            "InitVar" => is(&x, &g.3) || matches!((&x, &g.3), (V::Obj(o), V::Class(iv)) if Rc::ptr_eq(&o.cls, iv)),
+            _ => is(&x, &g.2),
+        };
+        if hit {
+            return k;
+        }
+    }
+    ""
+}
+// What an evaluated class annotation is to dataclasses: KW_ONLY, ClassVar, InitVar or a field (""). A string is read
+// as dataclasses._is_type reads it, against the class's module (dc_string_kind); an annotation the build did not
+// evaluate is told by the compiler's mark for the name (`mark`).
+fn dc_ann_kind(v: &Option<V>, mark: &str, module: &str) -> &'static str {
     let g = dc_globals();
     match v {
-        Some(V::Str(_)) | None => match mark {
+        Some(V::Str(t)) => dc_string_kind(&t.text(), module),
+        None => match mark {
             "KW_ONLY" => "KW_ONLY",
             "ClassVar" => "ClassVar",
             "InitVar" => "InitVar",
@@ -4956,12 +5029,16 @@ fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> R {
         }
         _ => marks.iter().map(|(_, n)| (*n, None)).collect(),
     };
+    let module = match c.lookup("__module__") {
+        Some(V::Str(m)) => m.text().to_string(),
+        _ => "__main__".to_string(),
+    };
     let mut kw_only = o.kw_only;
     let mut seen_kw_only = false;
     let mut own_fields: Vec<V> = vec![];
     for (name, ty) in &anns {
         let mark = marks.iter().find(|(_, n)| n == name).map(|(k, _)| k.as_str()).unwrap_or("");
-        let kind = dc_ann_kind(ty, mark);
+        let kind = dc_ann_kind(ty, mark, &module);
         if kind == "KW_ONLY" {
             if seen_kw_only {
                 return type_err(format!("'{name}' is KW_ONLY, but KW_ONLY has already been specified"));
