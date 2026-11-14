@@ -61,7 +61,8 @@ BAD = ("wrong_output", "wrong_exit", "crash_or_timeout")  # built, but did not d
 TAG = "v3.13.13"
 PYTHON_VERSION = "3.13.13"
 RAW = "https://raw.githubusercontent.com/python/cpython/" + TAG + "/Lib/"
-SCOPE = ["test_grammar", "test_scope", "test_int", "test_list", "test_dict", "test_contains", "test_binop", "test_richcmp", "test_set"]
+SCOPE = ["test_grammar", "test_scope", "test_int", "test_list", "test_dict", "test_contains", "test_binop", "test_richcmp", "test_set",
+         "test_patma"]
 # The second, separately published number: the stdlib modules agents use most (`--slice stdlib`), with its own
 # floor and known-wrong list so neither slice's ratchet hides the other's.
 SLICES = {
@@ -93,6 +94,7 @@ SOURCES = {
     "test.test_contains": ("test/test_contains.py", "34916d854f7f04c3189cd7d8e04177bca3c55bf1acdccf88beac501ff24239f4"),
     "test.test_binop": ("test/test_binop.py", "85af7379285b3787d61be4926d38fa188d7a7f11413398fd6364886208f4fd3f"),
     "test.test_richcmp": ("test/test_richcmp.py", "87ffd49f08a617224cdbb84f0eeb7cef643f3cd918090c606a311a25d929d135"),
+    "test.test_patma": ("test/test_patma.py", "651dcbe1421d8f6fda77f6319cedd3c2ca67193de805d08cadd22a3e9efc48ed"),
     "test.test_graphlib": ("test/test_graphlib.py", "87cde0e38dc1901e938356f4627f6842ff0cf9a74582edc1f22868b295944b3e"),
     "test.test_colorsys": ("test/test_colorsys.py", "f7ea1907f751f0201ea69a0bc368cdb2b24e7c7f958d8df659a8ff84142bfb93"),
     "test.test_deque": ("test/test_deque.py", "15578b602865dfa5c80baa64006d64c5875765aab457d5b4bedd73a5e8436d73"),
