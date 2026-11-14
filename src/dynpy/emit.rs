@@ -2418,6 +2418,7 @@ impl Em {
             match p {
                 FPart::Lit(s) => write!(b, "__s.push_str({}); ", lit(s)).unwrap(),
                 FPart::Expr(e, conv, spec, _) => {
+                    self.lib_repr_check(e, line)?;
                     let ee = self.ex(e, line)?;
                     let v = match conv {
                         Some('r') => format!("st({})", self.q(&format!("repr(&{ee})"))),
@@ -2576,6 +2577,23 @@ impl Em {
         }
         None
     }
+    // A library module (or sys.stdin/stdout/stderr, decimal.getcontext()) whose str or repr the program asks for
+    // where the build can see it (`print(math)`, `repr(m)`, `f"{math}"`): refused here rather than stopped at run
+    // time (rt_fmt.rs module_repr), since its repr names where CPython's own copy is installed.
+    fn lib_repr_check(&self, e: &Ex, line: usize) -> ER<()> {
+        let what = match e {
+            Ex::Attr(o, n) if matches!(n.as_str(), "stdin" | "stdout" | "stderr") && self.static_module(o).as_deref() == Some("sys") => Some(format!("the repr of sys.{n}")),
+            Ex::Call(f, a) if a.is_empty() && matches!(&**f, Ex::Attr(o, n) if n == "getcontext" && self.static_module(o).as_deref() == Some("decimal")) => Some("the repr of decimal.getcontext()".to_string()),
+            _ => match self.static_module(e) {
+                Some(m) if m != "sys" && m != "builtins" => Some(format!("the repr of module {m}")),
+                _ => None,
+            },
+        };
+        match what {
+            Some(w) => Err(err(line, &format!("{w} is not supported in dynamic builds"))),
+            None => Ok(()),
+        }
+    }
     fn user_mod_load(&mut self, m: &str, n: &str, line: usize) -> ER<String> {
         if !self.mod_names.get(m).is_some_and(|s| s.contains(n)) {
             if let Some(d) = self.mod_dunder(m, n) {
@@ -2679,6 +2697,17 @@ impl Em {
                     if let Some(v) = lvl {
                         if !matches!(v, Ex::Int(n) if n.parse::<i64>().is_ok_and(|n| n <= 1)) {
                             return Err(err(line, "warnings.warn with a stacklevel above 1 is not supported in dynamic builds"));
+                        }
+                    }
+                }
+            }
+        }
+        if let Ex::Name(n) = f {
+            if matches!(n.as_str(), "print" | "repr" | "str" | "ascii" | "format") && self.lookup(n).is_none() {
+                for (k, a) in args.iter().enumerate() {
+                    if let Arg::Pos(x) = a {
+                        if n == "print" || k == 0 {
+                            self.lib_repr_check(x, line)?;
                         }
                     }
                 }

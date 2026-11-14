@@ -692,9 +692,12 @@ case "$o" in *"helper.__spec__ is not supported in dynamic builds"*) echo "ok   
 printf 'import helper\nm = helper\nprint(m.__loader__)\n' > "$t/m2.py"
 o=$(BREVI_DYN=1 $BREVI run "$t/m2.py" 2>&1)
 case "$o" in *"NotImplementedError: brevi: helper.__loader__ is not supported in dynamic builds") echo "ok   a program module's __loader__ through a variable stops" ;; *) echo "FAIL a program module's __loader__ through a variable"; printf '%s\n' "$o"; fail=1 ;; esac
-printf 'import math, sys\nprint(sys)\nprint(math)\n' > "$t/m3.py"
-o=$(BREVI_DYN=1 $BREVI run "$t/m3.py" 2>&1)
-case "$o" in "<module 'sys' (built-in)>"*"NotImplementedError: brevi: the repr of module math is not supported in dynamic builds") echo "ok   a library module's repr stops" ;; *) echo "FAIL a library module's repr"; printf '%s\n' "$o"; fail=1 ;; esac
+printf 'import math, sys\nprint(sys)\nprint(f"{math}")\n' > "$t/m3.py"
+o=$(BREVI_DYN=1 $BREVI build "$t/m3.py" -o "$t/m3" 2>&1)
+case "$o" in *"the repr of module math is not supported in dynamic builds"*) echo "ok   a library module's repr is refused when built" ;; *) echo "FAIL a library module's repr when built"; printf '%s\n' "$o"; fail=1 ;; esac
+printf 'import math, sys\nprint(sys)\nprint([math])\n' > "$t/m4.py"
+o=$(BREVI_DYN=1 $BREVI run "$t/m4.py" 2>&1)
+case "$o" in "<module 'sys' (built-in)>"*"NotImplementedError: brevi: the repr of module math is not supported in dynamic builds") echo "ok   a library module's repr the build cannot see stops" ;; *) echo "FAIL a library module's repr at run time"; printf '%s\n' "$o"; fail=1 ;; esac
 printf 'import json\ntry:\n    print(json.loads(chr(34) + chr(0xd800) + chr(34)))\nexcept BaseException:\n    print("caught")\nprint("after")\n' > "$t/s.py"
 o=$(BREVI_DYN=1 $BREVI run "$t/s.py" 2>&1); c=$?
 case "$c:$o" in "1:NotImplementedError: brevi: this operation on a str with a lone surrogate (U+D800..U+DFFF) is not supported in dynamic builds yet"*) echo "ok   a lone surrogate on an unwritten path stops the program" ;; *) echo "FAIL a lone surrogate on an unwritten path ($c)"; printf '%s\n' "$o"; fail=1 ;; esac
