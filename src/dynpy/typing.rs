@@ -1377,6 +1377,92 @@ pub fn enum_refusal(body: &[Stmt]) -> Option<(usize, &'static str)> {
 // A class built on a datetime class (`class D(date)`, `class E(datetime, Enum)`), or a functional Enum with
 // `type=datetime`: the dynamic build's datetime classes cannot be subclassed (their instances hold no value), so such a
 // program is refused at build time: (line, the class's dotted name).
+// A class statement subclassing set or frozenset in a program that imports pickle: the line and the base.
+// Pickling such an instance would hand it to CPython's pickle, which cannot take it, so the build refuses.
+pub fn pickled_set_subclass(body: &[Stmt]) -> Option<(usize, String)> {
+    let mut pickle = false;
+    fn scan(body: &[Stmt], pickle: &mut bool) {
+        for s in body {
+            match &s.st {
+                St::ImportFrom(m, _) if m == "pickle" || m.starts_with("pickle.") => *pickle = true,
+                St::Import(v) if v.iter().any(|(m, _)| m == "pickle" || m.starts_with("pickle.")) => *pickle = true,
+                _ => {}
+            }
+            blocks(&s.st, &mut |b| scan(b, pickle));
+        }
+    }
+    scan(body, &mut pickle);
+    if !pickle {
+        return None;
+    }
+    let mut found: Option<(usize, String)> = None;
+    fn classes(body: &[Stmt], f: &mut dyn FnMut(&[Ex], usize)) {
+        for s in body {
+            if let St::Class(c) = &s.st {
+                f(&c.bases, s.line);
+            }
+            blocks(&s.st, &mut |b| classes(b, f));
+        }
+    }
+    classes(body, &mut |bases, line| {
+        if found.is_none() {
+            if let Some(n) = bases.iter().find_map(|b| match b {
+                Ex::Name(n) if n == "set" || n == "frozenset" => Some(n.clone()),
+                _ => None,
+            }) {
+                found = Some((line, n));
+            }
+        }
+    });
+    found
+}
+// hash() of a compiled pattern the build can see (`hash(re.compile(...))`, or of a name some assignment binds to
+// re.compile(...)): the module and line. CPython hashes a re.Pattern over its compiled sre code (_sre.c
+// pattern_hash), which Brevi's regex engine does not build; rt_core's py_hash stops on any other Pattern at run time.
+pub fn re_pattern_hash(mods: &[(&str, &[Stmt])]) -> Option<(String, usize)> {
+    fn compiled(e: &Ex) -> bool {
+        matches!(e, Ex::Call(f, _) if matches!(f.as_ref(), Ex::Attr(m, n) if n == "compile" && matches!(m.as_ref(), Ex::Name(r) if r == "re")))
+    }
+    for (m, body) in mods {
+        if !imports(body, "re") {
+            continue;
+        }
+        let mut pats: HashSet<String> = HashSet::new();
+        fn binds(body: &[Stmt], pats: &mut HashSet<String>, compiled: &dyn Fn(&Ex) -> bool) {
+            for s in body {
+                if let St::Assign(ts, v) = &s.st {
+                    if compiled(v) {
+                        for t in ts {
+                            if let Ex::Name(n) = t {
+                                pats.insert(n.clone());
+                            }
+                        }
+                    }
+                }
+                blocks(&s.st, &mut |b| binds(b, pats, compiled));
+            }
+        }
+        binds(body, &mut pats, &compiled);
+        let mut found = None;
+        walk_all(body, &mut |e, line| {
+            if found.is_none() {
+                if let Ex::Call(f, a) = e {
+                    if matches!(f.as_ref(), Ex::Name(n) if n == "hash") {
+                        if let [Arg::Pos(x)] = a.as_slice() {
+                            if compiled(x) || matches!(x, Ex::Name(n) if pats.contains(n)) {
+                                found = Some(line);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        if let Some(l) = found {
+            return Some((m.to_string(), l));
+        }
+    }
+    None
+}
 pub fn datetime_subclass(body: &[Stmt]) -> Option<(usize, String)> {
     const DT: [&str; 5] = ["date", "datetime", "time", "timedelta", "timezone"];
     let mut names: HashMap<String, String> = HashMap::new();

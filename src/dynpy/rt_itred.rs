@@ -214,6 +214,9 @@ pub fn iter_reduce_v(v: &V) -> R {
             It::Vec(rest) if matches!(cell.kind, IterClass::Kind(ItKind::DictReverseKeys | ItKind::DictReverseValues | ItKind::DictReverseItems)) => {
                 Plan::Seq(rest.as_slice().to_vec())
             }
+            // a frozenset's iterator keeps the rest of its keys: CPython's setiter_reduce pickles it as
+            // iter(list of the rest), as a set's
+            It::Vec(rest) if matches!(cell.kind, IterClass::Kind(ItKind::SetIter)) => Plan::Seq(rest.as_slice().to_vec()),
             // generators, and the iterators CPython gives no __reduce__ (pairwise, batched)
             It::Coro(_) | It::GenExp(..) => return Err(cannot_pickle(v)),
             _ if matches!(cell.kind, IterClass::Kind(ItKind::Generator | ItKind::ItPairwise | ItKind::ItBatched)) => return Err(cannot_pickle(v)),

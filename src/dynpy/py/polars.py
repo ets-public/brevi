@@ -2901,8 +2901,9 @@ class _ListNS:
 
 
 # Expressions that give one value (per group in an aggregation)
-_AGG = {"sum", "mean", "median", "min", "max", "nan_min", "nan_max", "std", "var", "product", "quantile", "count", "len", "null_count",
-        "n_unique", "first", "last", "arg_min", "arg_max", "any", "all", "implode", "entropy", "skew", "kurtosis", "get"}
+# (looked up only: frozenset of a tuple, as a set literal in a module Brevi copies has no CPython order, emit.rs const_fset)
+_AGG = frozenset(("sum", "mean", "median", "min", "max", "nan_min", "nan_max", "std", "var", "product", "quantile", "count", "len", "null_count",
+        "n_unique", "first", "last", "arg_min", "arg_max", "any", "all", "implode", "entropy", "skew", "kurtosis", "get"))
 # namespace functions that give one value for the whole column
 _NS_SCALAR = {"str": ("join",), "list": ()}
 

@@ -1642,6 +1642,16 @@ fn class_getattr(o: &V, c: &Rc<Class>, name: &str) -> R {
         "__qualname__" => Ok(s(dotted_type_name(c).map_or(c.qualname.get(), |(_, n)| n))),
         "__module__" => Ok(s(dotted_type_name(c).map_or(c.module, |(m, _)| m))),
         "__mro__" => Ok(tup(c.mro.borrow().iter().map(|k| V::Class(k.clone())).collect())),
+        // type.mro(), bound: the method resolution order as a new list
+        "mro" => {
+            let c = c.clone();
+            Ok(builtin("mro", move |a: Args| {
+                if !a.p.is_empty() || !a.k.is_empty() {
+                    return Err(exc("TypeError", format!("type.mro() takes no arguments ({} given)", a.p.len() + a.k.len())));
+                }
+                Ok(list(c.mro.borrow().iter().map(|k| V::Class(k.clone())).collect()))
+            }))
+        }
         "__bases__" => Ok(tup(c.bases.iter().map(|k| V::Class(k.clone())).collect())),
         "__subclasses__" => {
             // the type class itself exposes the unbound descriptor; every other class gets it bound
@@ -1857,6 +1867,10 @@ pub fn getattr(o: &V, name: &str) -> R {
                     return Ok(ob.get(name).unwrap_or(V::None));
                 }
                 _ => {}
+            }
+            // dict.fromkeys read from a dict subclass instance: bound to the subclass, which it builds
+            if name == "fromkeys" && matches!(inner_of(o), Some(V::Dict(_))) {
+                return getattr(&V::Class(ob.cls.clone()), name);
             }
             if let Some(ga) = ob.cls.lookup("__getattr__") {
                 return call(&ga, Args::p(vec![o.clone(), s(name)]));
@@ -2096,6 +2110,8 @@ pub fn getattr(o: &V, name: &str) -> R {
             let x = odict_attrs(d);
             Ok(Dict::get_cell(&x, &s(name))?.unwrap_or(V::None))
         }
+        // dict.fromkeys is a classmethod: read from an instance it is bound to the instance's type
+        V::Dict(_) if name == "fromkeys" => getattr(&V::Class(type_of(o)?), name),
         // every value's __class__ is its type (has_method would say yes and give a bound method)
         _ if name == "__class__" => Ok(V::Class(type_of(o)?)),
         _ => {
@@ -2441,6 +2457,10 @@ pub fn call_method(o: &V, name: &str, mut a: Args) -> R {
             // a bytearray subclass instance's __iadd__ and __imul__ give back the instance itself (getattr has the same)
             if is_ba_sub(o) && matches!(name, "__iadd__" | "__imul__") {
                 return call(&getattr(o, name)?, a);
+            }
+            // dict.fromkeys called on a dict subclass instance runs on the subclass, which it builds
+            if name == "fromkeys" && matches!(inner_of(o), Some(V::Dict(_))) {
+                return call(&getattr(&V::Class(ob.cls.clone()), name)?, a);
             }
             if let Some(inner) = inner_of(o) {
                 if is_date_sub(o) && matches!(name, "replace" | "__replace__" | "__add__" | "__radd__" | "__sub__" | "__rsub__") {

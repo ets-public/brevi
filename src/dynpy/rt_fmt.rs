@@ -657,7 +657,8 @@ pub fn to_str(v: &V) -> Result<String, E> {
             // deque has no __str__ of its own: object.__str__ is the instance's repr (its class's __repr__, or
             // deque's, which names the subclass)
             // OrderedDict has no __str__: str of a subclass is its repr, which names the subclass (`Sub({...})`)
-            if o.cls.lookup("__str__").is_none() && (matches!(inner_of(v), Some(V::Deque(_))) || matches!(inner_of(v), Some(V::Dict(d)) if d.borrow().kind == 3)) {
+            // set and frozenset have no __str__ either: their repr names the subclass (`SetSubclass({...})`)
+            if o.cls.lookup("__str__").is_none() && (matches!(inner_of(v), Some(V::Deque(_) | V::Set(_) | V::FSet(_))) || matches!(inner_of(v), Some(V::Dict(d)) if d.borrow().kind == 3)) {
                 return repr(v);
             }
             if let Some(f) = o.cls.lookup("__str__") {

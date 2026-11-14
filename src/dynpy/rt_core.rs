@@ -353,16 +353,13 @@ mod strmodel {
                 }
             }
         }
-        // A hash for a str with a lone surrogate: it never equals a Utf8 str, so any stable hash will do.
-        pub fn lone_hash(v: &[u32]) -> u64 {
-            let mut h: u64 = 0xcbf29ce484222325;
-            for &c in v {
-                for b in c.to_le_bytes() {
-                    h ^= b as u64;
-                    h = h.wrapping_mul(0x100000001b3);
-                }
+        // CPython's hash of this str (sip_str: SipHash-1-3 over its PEP 393 form).
+        pub fn py_hash(&self) -> i64 {
+            match &self.r {
+                Repr::Utf8(t) if self.ascii => super::sip_bytes(t.as_bytes()),
+                Repr::Utf8(t) => super::sip_cps(t.chars().map(|c| c as u32), t.chars().map(|c| c as u32).max().unwrap_or(0)),
+                Repr::Lone(v) => super::sip_cps(v.iter().copied(), v.iter().copied().max().unwrap_or(0)),
             }
-            h
         }
         pub fn is_empty(&self) -> bool {
             match &self.r {
@@ -1479,22 +1476,119 @@ fn frexp(f: f64) -> (f64, i32) {
     let m = f64::from_bits((bits & !(0x7ffu64 << 52)) | (1022u64 << 52));
     (m, e)
 }
+// CPython 3.13's hash of a str or bytes (Python/pyhash.c, Py_HASH_ALGORITHM SIPHASH13, Py_HASH_CUTOFF 0):
+// SipHash-1-3 over the bytes, for a str its PEP 393 form (one byte per code point when the widest is below 256,
+// else two, else four, little-endian), keyed by the first 16 bytes of _Py_HashSecret. Empty hashes as 0, and -1
+// becomes -2. Equal hashes at equal keys give sets the probe order CPython's have, so a set prints as it does.
+// The key comes from PYTHONHASHSEED as CPython draws it (HASH_KEY): reading the environment is the program's
+// glue (HASH_KEY_FN in dynpy/mod.rs, set first thing in main), never the runtime's (caps.rs); unset (under
+// --sandbox) it is CPython's key at PYTHONHASHSEED=0, all zero.
+pub static HASH_KEY: std::sync::OnceLock<(u64, u64)> = std::sync::OnceLock::new();
+// set by the same glue when the key is random (PYTHONHASHSEED unset, empty or "random")
+pub static HASH_RANDOM: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+#[inline]
+fn hash_key() -> (u64, u64) {
+    HASH_KEY.get().copied().unwrap_or((0, 0))
+}
+// CPython's lcg_urandom (Python/bootstrap_hash.c): the secret's bytes for a PYTHONHASHSEED from 1 to 2**32-1.
+pub fn hash_key_of_seed(seed: u32) -> (u64, u64) {
+    if seed == 0 {
+        return (0, 0);
+    }
+    let mut b = [0u8; 16];
+    let mut x = seed;
+    for c in b.iter_mut() {
+        x = x.wrapping_mul(214013).wrapping_add(2531011);
+        *c = (x >> 16) as u8;
+    }
+    (u64::from_le_bytes(b[..8].try_into().unwrap()), u64::from_le_bytes(b[8..].try_into().unwrap()))
+}
+struct Sip13 {
+    v: [u64; 4],
+    tail: u64,
+    ntail: u32,
+    len: u64,
+}
+impl Sip13 {
+    #[inline]
+    fn new((k0, k1): (u64, u64)) -> Sip13 {
+        Sip13 { v: [k0 ^ 0x736f6d6570736575, k1 ^ 0x646f72616e646f6d, k0 ^ 0x6c7967656e657261, k1 ^ 0x7465646279746573], tail: 0, ntail: 0, len: 0 }
+    }
+    #[inline(always)]
+    fn round(&mut self) {
+        let v = &mut self.v;
+        v[0] = v[0].wrapping_add(v[1]);
+        v[1] = v[1].rotate_left(13) ^ v[0];
+        v[0] = v[0].rotate_left(32);
+        v[2] = v[2].wrapping_add(v[3]);
+        v[3] = v[3].rotate_left(16) ^ v[2];
+        v[0] = v[0].wrapping_add(v[3]);
+        v[3] = v[3].rotate_left(21) ^ v[0];
+        v[2] = v[2].wrapping_add(v[1]);
+        v[1] = v[1].rotate_left(17) ^ v[2];
+        v[2] = v[2].rotate_left(32);
+    }
+    #[inline(always)]
+    fn block(&mut self, m: u64) {
+        self.v[3] ^= m;
+        self.round();
+        self.v[0] ^= m;
+    }
+    #[inline(always)]
+    fn byte(&mut self, b: u8) {
+        self.tail |= (b as u64) << (8 * self.ntail);
+        self.ntail += 1;
+        self.len += 1;
+        if self.ntail == 8 {
+            let m = self.tail;
+            self.block(m);
+            self.tail = 0;
+            self.ntail = 0;
+        }
+    }
+    fn finish(mut self) -> i64 {
+        if self.len == 0 {
+            return 0;
+        }
+        let b = (self.len << 56) | self.tail;
+        self.block(b);
+        self.v[2] ^= 0xff;
+        self.round();
+        self.round();
+        self.round();
+        let h = ((self.v[0] ^ self.v[1]) ^ (self.v[2] ^ self.v[3])) as i64;
+        if h == -1 { -2 } else { h }
+    }
+}
+// CPython's hash of bytes, or of a str whose code points are all ASCII (its PEP 393 form is those bytes).
+pub fn sip_bytes(d: &[u8]) -> i64 {
+    let mut h = Sip13::new(hash_key());
+    let mut ch = d.chunks_exact(8);
+    for c in &mut ch {
+        h.block(u64::from_le_bytes(c.try_into().unwrap()));
+    }
+    h.len = (d.len() - ch.remainder().len()) as u64;
+    for &b in ch.remainder() {
+        h.byte(b);
+    }
+    h.finish()
+}
+// CPython's hash of a str with these code points, the widest being `max`.
+fn sip_cps(cps: impl Iterator<Item = u32>, max: u32) -> i64 {
+    let mut h = Sip13::new(hash_key());
+    let width = if max < 0x100 { 1 } else if max < 0x10000 { 2 } else { 4 };
+    for c in cps {
+        for b in &c.to_le_bytes()[..width] {
+            h.byte(*b);
+        }
+    }
+    h.finish()
+}
 fn hash_str(s: &str) -> i64 {
-    // CPython randomizes string hashes; any stable hash keeps the same guarantees. The empty string hashes as 0,
-    // as in CPython.
-    if s.is_empty() {
-        return 0;
-    }
-    let mut h: u64 = 0xcbf29ce484222325;
-    for b in s.bytes() {
-        h ^= b as u64;
-        h = h.wrapping_mul(0x100000001b3);
-    }
-    let h = (h >> 1) as i64;
-    if h == -1 {
-        -2
+    if s.is_ascii() {
+        sip_bytes(s.as_bytes())
     } else {
-        h
+        sip_cps(s.chars().map(|c| c as u32), s.chars().map(|c| c as u32).max().unwrap_or(0))
     }
 }
 pub fn hash_tuple(xs: &[V]) -> Result<i64, E> {
@@ -1541,13 +1635,7 @@ pub fn py_hash(v: &V) -> Result<i64, E> {
         V::Int(i) => hash_int(*i),
         V::Big(b) => hash_big(b),
         V::Float(f) => hash_float(*f),
-        V::Str(x) => match x.lone() {
-            None => hash_str(x.text()),
-            Some(v) => {
-                let h = (S::lone_hash(v) >> 1) as i64;
-                if h == -1 { -2 } else { h }
-            }
-        },
+        V::Str(x) => x.py_hash(),
         V::Tuple(xs) => hash_tuple(xs)?,
         V::FSet(p) => p.fset_hash(),
         V::Obj(o) if {
@@ -1598,6 +1686,7 @@ pub fn py_hash(v: &V) -> Result<i64, E> {
             Some(h) => h,
             None if memview_of(v).is_some() => return memview_hash(v).unwrap(),
             None if x.any().is::<SigV>() => return Err(unsupported("hash() of an inspect.Signature")),
+            None if x.any().is::<RPat>() => return Err(unsupported("hash() of a re.Pattern (CPython hashes its compiled sre code)")),
             None => return type_err(format!("unhashable type: '{}'", x.tname())),
         },
         // range_hash: hash((len, start, step)), start and step None when empty, step None for one item
@@ -2275,11 +2364,8 @@ impl PSet {
                         Some(f) => Probe::Absent(f, true),
                         None => Probe::Absent(i + j, false),
                     }),
-                    Slot::Dummy => {
-                        if free.is_none() {
-                            free = Some(i + j);
-                        }
-                    }
+                    // the last dummy on the probe path (CPython's set_add_entry keeps overwriting freeslot)
+                    Slot::Dummy => free = Some(i + j),
                     Slot::Full(x, xh) if *xh == h && (same_obj(x, k) || eq(x, k)?) => return Ok(Probe::Found(i + j)),
                     Slot::Full(..) => {}
                 }
@@ -2315,9 +2401,7 @@ impl PSet {
                             ))
                         }
                         Slot::Dummy => {
-                            if free.is_none() {
-                                free = Some(i + j);
-                            }
+                            free = Some(i + j);
                             continue;
                         }
                         Slot::Full(x, xh) if *xh == h => {
@@ -2527,6 +2611,15 @@ impl PSet {
             }
         }
     }
+    // the end of set_difference_update_internal: more than a quarter of the table dummies is resized away
+    pub fn resize_dummies(&mut self) {
+        if self.fill - self.used > self.mask() / 4 {
+            self.resize(if self.used > 50000 { self.used * 2 } else { self.used * 4 });
+        }
+    }
+    pub fn cell_resize_dummies(c: &RefCell<PSet>) {
+        c.borrow_mut().resize_dummies();
+    }
     pub fn discard(&mut self, k: &V) -> Result<bool, E> {
         let h = py_hash(k)?;
         match self.find(k, h)? {
@@ -2588,7 +2681,7 @@ impl PSet {
         }
         self.ver = pset_ver();
         self.hash.set(-1);
-        if self.t.len() == o.t.len() {
+        if self.t.len() == o.t.len() && o.fill == o.used {
             for (i, s) in o.t.iter().enumerate() {
                 if let Slot::Full(k, h) = s {
                     self.t[i] = Slot::Full(k.clone(), *h);

@@ -945,6 +945,15 @@ pub fn binop(a: &V, b: &V, op: &str) -> R {
 }
 #[inline(never)]
 fn binop_slow(a: &V, b: &V, op: &str) -> R {
+    // bool's own __and__/__or__/__xor__: two bools give a bool
+    if let (V::Bool(x), V::Bool(y)) = (a, b) {
+        match op {
+            "&" => return Ok(V::Bool(*x & *y)),
+            "|" => return Ok(V::Bool(*x | *y)),
+            "^" => return Ok(V::Bool(*x ^ *y)),
+            _ => {}
+        }
+    }
     // `int | str`, `list[int] | None`, `typing.List[int] | str`: a union of types
     if op == "|" && (matches!(a, V::Class(_) | V::Ext(_) | V::None) && matches!(b, V::Class(_) | V::Ext(_) | V::None)) {
         if let Some(r) = union_or(a, b) {
@@ -1175,51 +1184,13 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
         }
         (V::Str(f), _) if op == "%" => return Ok(V::Str(Rc::new(percent_format(f, b)?))),
         (V::Set(_) | V::FSet(_), V::Set(_) | V::FSet(_)) if matches!(op, "|" | "&" | "-" | "^") => {
-            let r = set_op(&set_of(a).unwrap(), &set_of(b).unwrap(), op)?;
+            let r = set_op(a, b, op)?;
             return Ok(if matches!(a, V::FSet(_)) { V::FSet(Rc::new(r)) } else { V::Set(Rc::new(RefCell::new(r))) });
         }
-        // CPython's dictviews_or: build the left side into an empty set, then
-        // update it with the right side. The left side is built by iterating
-        // (a set's table is copied, a plain dict's keys reuse its stored
-        // hashes); the right side is merged table-wise only when it is a real
-        // set, with the same fast path for a plain dict. Materialising a view
-        // into a table first and bulk-merging it gives the wrong iteration
-        // order, e.g. {1:1, 2:2}.items() | {1:1, 2:2, 3:3}.items().
-        (V::View(x), _) | (_, V::View(x)) if (x.1 == 0 || x.1 == 2) && op == "|" => {
-            let mut r = match a {
-                V::Set(_) | V::FSet(_) => set_of(a).unwrap().copy(),
-                V::View(v) if v.1 == 0 => match &v.0 {
-                    V::Dict(d) if d.borrow().kind == 0 => {
-                        let ks = d.borrow().keys_h();
-                        PSet::from_dict(ks)?
-                    }
-                    _ => PSet::from_iter(to_vec(a)?)?,
-                },
-                _ => PSet::from_iter(to_vec(a)?)?,
-            };
-            match b {
-                V::Set(_) | V::FSet(_) => r.merge(&set_of(b).unwrap())?,
-                V::Dict(d) if d.borrow().kind == 0 => {
-                    let ks = d.borrow().keys_h();
-                    r.update_dict(ks)?
-                }
-                _ => {
-                    for k in to_vec(b)? {
-                        r.add(k)?;
-                    }
-                }
-            }
-            return Ok(V::Set(Rc::new(RefCell::new(r))));
-        }
-        (V::View(x), _) | (_, V::View(x)) if (x.1 == 0 || x.1 == 2) && matches!(op, "&" | "-" | "^") => {
-            let to_set = |v: &V| -> Result<PSet, E> {
-                match v {
-                    V::Set(_) | V::FSet(_) => Ok(set_of(v).unwrap()),
-                    _ => PSet::from_iter(to_vec(v)?),
-                }
-            };
-            let r = set_op(&to_set(a)?, &to_set(b)?, op)?;
-            return Ok(V::Set(Rc::new(RefCell::new(r))));
+        // a keys or items view beside a set or another view: CPython's dictviews_or/sub/xor and
+        // _PyDictView_Intersect, step for step, so the result set has CPython's table order
+        (V::View(x), _) | (_, V::View(x)) if (x.1 == 0 || x.1 == 2) && matches!(op, "|" | "&" | "-" | "^") => {
+            return Ok(V::Set(Rc::new(RefCell::new(dictview_op(a, b, op)?))));
         }
         (V::Dict(x), V::Dict(y)) if matches!(op, "+" | "-" | "|" | "&") && x.borrow().kind == 2 && y.borrow().kind == 2 => {
             return counter_op(x, y, op);
@@ -1420,33 +1391,10 @@ fn iop_slow(a: &V, b: &V, op: &str) -> R {
             }
             return Ok(a.clone());
         }
-        (V::Set(s), "|" | "&" | "-" | "^") if matches!(b, V::Set(_) | V::FSet(_)) => {
+        (V::Set(s), "|" | "&" | "-" | "^") if any_set(b).is_some() => {
             // In place and in time with the other set's size, as CPython's are (`seen |= new` in a loop
             // must not copy seen each time).
-            // No borrow of s is held while a key's __eq__ runs: it may change s (or b).
-            let other = set_of(b).unwrap();
-            match op {
-                "|" => PSet::cell_merge(s, &other)?,
-                "-" => {
-                    for (k, h) in other.keys_h() {
-                        PSet::cell_discard_h(s, &k, h)?;
-                    }
-                }
-                "&" => {
-                    // remove the others (keeps table positions)
-                    let mine = s.borrow().keys_h();
-                    for (k, h) in mine {
-                        if other.find(&k, h)?.is_none() {
-                            PSet::cell_discard_h(s, &k, h)?;
-                        }
-                    }
-                }
-                _ => {
-                    let cur = s.borrow().clone();
-                    let r = set_op(&cur, &other, op)?;
-                    PSet::cell_replace(s, r);
-                }
-            }
+            set_inplace(s, &set_arg(set_id(a), b), op)?;
             return Ok(a.clone());
         }
         (V::Dict(d), cop @ ("+" | "-" | "|" | "&")) if d.borrow().kind == 2 => {
@@ -1524,13 +1472,266 @@ fn counter_unary(x: &Rc<RefCell<Dict>>, negate: bool) -> R {
 // a set's snapshot, a plain dict's keys with their stored hashes (CPython hashes neither again), or the
 // items of any other iterable
 pub fn pset_of_iterable(v: &V) -> Result<PSet, E> {
+    let mut r = PSet::new();
+    set_update_local(&mut r, &set_arg(0, v))?;
+    Ok(r)
+}
+// The other operand of a set operation, told apart as CPython's setobject.c does: a set or frozenset,
+// subclasses included (PyAnySet_Check), is read through its table (bool: it is the set operated on);
+// an exact dict through its stored hashes; anything else is iterated.
+pub enum SetArg {
+    Set(PSet, bool),
+    Dict(Vec<(V, i64)>),
+    Iter(V),
+}
+// the identity of a set value (a subclass instance: its inner set), 0 for anything else
+pub fn set_id(v: &V) -> usize {
     match v {
-        V::Set(_) | V::FSet(_) => Ok(set_of(v).unwrap()),
+        V::Set(s) => Rc::as_ptr(s) as *const u8 as usize,
+        V::FSet(s) => Rc::as_ptr(s) as *const u8 as usize,
+        V::Obj(_) => match inner_of(v) {
+            Some(i @ (V::Set(_) | V::FSet(_))) => set_id(&i),
+            _ => 0,
+        },
+        _ => 0,
+    }
+}
+// any set: a set, a frozenset, or an instance of a subclass of one
+pub fn any_set(v: &V) -> Option<PSet> {
+    match v {
+        V::Set(_) | V::FSet(_) => set_of(v),
+        V::Obj(_) => match inner_of(v) {
+            Some(i @ (V::Set(_) | V::FSet(_))) => set_of(&i),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+pub fn set_arg(me: usize, x: &V) -> SetArg {
+    if let Some(p) = any_set(x) {
+        return SetArg::Set(p, me != 0 && set_id(x) == me);
+    }
+    match x {
         V::Dict(d) if d.borrow().kind == 0 => {
             let ks = d.borrow().keys_h();
-            PSet::from_dict(ks)
+            SetArg::Dict(ks)
         }
-        _ => PSet::from_iter(to_vec(v)?),
+        _ => SetArg::Iter(x.clone()),
+    }
+}
+// set_update_local: a set is merged, a dict's stored hashes reused, an iterable's items added one by one
+pub fn set_update_local(r: &mut PSet, x: &SetArg) -> Result<(), E> {
+    match x {
+        SetArg::Set(o, _) => r.merge(o),
+        SetArg::Dict(ks) => r.update_dict(ks.clone()),
+        SetArg::Iter(v) => {
+            let mut it = iter(v)?;
+            while let Some(k) = it.next()? {
+                r.add(k)?;
+            }
+            Ok(())
+        }
+    }
+}
+// set_union_impl / set_or: a copy, then each other operand that is not the set itself
+pub fn set_union(so: &PSet, xs: &[SetArg]) -> Result<PSet, E> {
+    let mut r = so.copy();
+    for x in xs {
+        if !matches!(x, SetArg::Set(_, true)) {
+            set_update_local(&mut r, x)?;
+        }
+    }
+    Ok(r)
+}
+// set_intersection: a set is walked on the smaller side (the other one when sizes tie); an iterable is
+// walked in order and stops once the result is as big as the set
+pub fn set_intersection(so: &PSet, x: &SetArg) -> Result<PSet, E> {
+    let mut r = PSet::new();
+    match x {
+        SetArg::Set(_, true) => return Ok(so.copy()),
+        SetArg::Set(o, false) => {
+            let (big, small) = if o.used > so.used { (o, so) } else { (so, o) };
+            for (k, h) in small.keys_h() {
+                if big.find(&k, h)?.is_some() {
+                    r.add_h(k, h)?;
+                }
+            }
+        }
+        SetArg::Dict(ks) => {
+            for (k, h) in ks.iter().cloned() {
+                if so.find(&k, h)?.is_some() {
+                    r.add_h(k, h)?;
+                    if r.used >= so.used {
+                        break;
+                    }
+                }
+            }
+        }
+        SetArg::Iter(v) => {
+            let mut it = iter(v)?;
+            while let Some(k) = it.next()? {
+                let h = hash_of(&k)?;
+                if so.find(&k, h)?.is_some() {
+                    r.add_h(k, h)?;
+                    if r.used >= so.used {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    Ok(r)
+}
+// set_intersection_multi_impl: no others is a copy; only the first other can be the set itself
+pub fn set_intersection_multi(so: &PSet, xs: Vec<SetArg>) -> Result<PSet, E> {
+    if xs.is_empty() {
+        return Ok(so.copy());
+    }
+    let mut r: Option<PSet> = None;
+    for x in xs {
+        let next = match &r {
+            None => set_intersection(so, &x)?,
+            Some(cur) => set_intersection(cur, &match x {
+                SetArg::Set(p, _) => SetArg::Set(p, false),
+                o => o,
+            })?,
+        };
+        r = Some(next);
+    }
+    Ok(r.unwrap())
+}
+// set_difference_update_internal on a set nobody else can reach
+pub fn set_difference_update(r: &mut PSet, x: &SetArg) -> Result<(), E> {
+    match x {
+        SetArg::Set(_, true) => {
+            r.clear();
+            return Ok(());
+        }
+        SetArg::Set(o, false) => {
+            let i;
+            let o = if (o.used >> 3) > r.used {
+                i = set_intersection(r, &SetArg::Set(o.clone(), false))?;
+                &i
+            } else {
+                o
+            };
+            for (k, h) in o.keys_h() {
+                if let Some(at) = r.find(&k, h)? {
+                    r.remove_at(at);
+                }
+            }
+        }
+        SetArg::Dict(ks) => {
+            for (k, h) in ks.iter() {
+                if let Some(at) = r.find(k, *h)? {
+                    r.remove_at(at);
+                }
+            }
+        }
+        SetArg::Iter(v) => {
+            let mut it = iter(v)?;
+            while let Some(k) = it.next()? {
+                let h = hash_of(&k)?;
+                if let Some(at) = r.find(&k, h)? {
+                    r.remove_at(at);
+                }
+            }
+        }
+    }
+    r.resize_dummies();
+    Ok(())
+}
+// set_difference: a set or dict much smaller than the set is removed from a copy; otherwise the set's own
+// keys not in the other are added to a new set (anything else: a copy, then removal)
+pub fn set_difference(so: &PSet, x: &SetArg) -> Result<PSet, E> {
+    let other_size = match x {
+        SetArg::Set(o, _) => o.used,
+        SetArg::Dict(ks) => ks.len(),
+        SetArg::Iter(_) => usize::MAX,
+    };
+    if other_size == usize::MAX || (so.used >> 2) > other_size {
+        let mut r = so.copy();
+        set_difference_update(&mut r, &match x {
+            SetArg::Set(p, _) => SetArg::Set(p.clone(), false),
+            SetArg::Dict(ks) => SetArg::Dict(ks.clone()),
+            SetArg::Iter(v) => SetArg::Iter(v.clone()),
+        })?;
+        return Ok(r);
+    }
+    let dict_keys;
+    let other = match x {
+        SetArg::Set(o, _) => o,
+        SetArg::Dict(ks) => {
+            dict_keys = PSet::from_dict(ks.clone())?;
+            &dict_keys
+        }
+        SetArg::Iter(_) => unreachable!(),
+    };
+    let mut r = PSet::new();
+    for (k, h) in so.keys_h() {
+        if other.find(&k, h)?.is_none() {
+            r.add_h(k, h)?;
+        }
+    }
+    Ok(r)
+}
+// set_difference_multi_impl
+pub fn set_difference_multi(so: &PSet, xs: Vec<SetArg>) -> Result<PSet, E> {
+    let mut xs = xs.into_iter();
+    let mut r = match xs.next() {
+        None => return Ok(so.copy()),
+        Some(x) => set_difference(so, &x)?,
+    };
+    for x in xs {
+        let x = match x {
+            SetArg::Set(p, _) => SetArg::Set(p, false),
+            o => o,
+        };
+        set_difference_update(&mut r, &x)?;
+    }
+    Ok(r)
+}
+// discard the key if present, else add it, with its stored hash (set_symmetric_difference_update_set)
+fn toggle(r: &mut PSet, k: V, h: i64) -> Result<(), E> {
+    match r.probe(&k, h)? {
+        Probe::Found(i) => r.remove_at(i),
+        Probe::Absent(at, reuse) => r.insert_at(at, reuse, k, h),
+    }
+    Ok(())
+}
+// set_symmetric_difference_impl: a new set updated from the other, then toggled by the set's own keys
+pub fn set_symmetric_difference(so: &PSet, x: &SetArg) -> Result<PSet, E> {
+    let mut r = PSet::new();
+    set_update_local(&mut r, x)?;
+    for (k, h) in so.keys_h() {
+        toggle(&mut r, k, h)?;
+    }
+    Ok(r)
+}
+// the keys and stored hashes set_symmetric_difference_update toggles: a dict's or a set's own, else those of
+// a new set built from the iterable; None for the set itself (it is cleared)
+pub fn symdiff_keys(x: &SetArg) -> Result<Option<Vec<(V, i64)>>, E> {
+    Ok(match x {
+        SetArg::Set(_, true) => None,
+        SetArg::Set(o, false) => Some(o.keys_h()),
+        SetArg::Dict(ks) => Some(ks.clone()),
+        SetArg::Iter(_) => Some(pset_of_iterable_arg(x)?.keys_h()),
+    })
+}
+fn pset_of_iterable_arg(x: &SetArg) -> Result<PSet, E> {
+    let mut r = PSet::new();
+    set_update_local(&mut r, x)?;
+    Ok(r)
+}
+// a binary set operator on two sets (set_or, set_and, set_sub, set_xor)
+pub fn set_op(a: &V, b: &V, op: &str) -> Result<PSet, E> {
+    let so = any_set(a).unwrap();
+    let x = set_arg(set_id(a), b);
+    match op {
+        "|" => set_union(&so, std::slice::from_ref(&x)),
+        "&" => set_intersection(&so, &x),
+        "-" => set_difference(&so, &x),
+        _ => set_symmetric_difference(&so, &x),
     }
 }
 pub fn set_of(v: &V) -> Option<PSet> {
@@ -1552,52 +1753,160 @@ pub fn pset_issubset(x: &PSet, y: &PSet) -> Result<bool, E> {
     }
     Ok(true)
 }
-// CPython's set algebra, so results come out in the same table order.
-pub fn set_op(a: &PSet, b: &PSet, op: &str) -> Result<PSet, E> {
-    Ok(match op {
-        "|" => {
-            let mut r = a.copy();
-            r.merge(b)?;
-            r
-        }
-        "&" => {
-            let (small, big) = if a.used > b.used { (b, a) } else { (a, b) };
-            let mut r = PSet::new();
-            for (k, h) in small.keys_h() {
-                if big.find(&k, h)?.is_some() {
-                    r.add_h(k, h)?;
+// set_ior / set_isub / set_iand / set_ixor and the update methods, in place on a set in a cell. No borrow of
+// the set is held while a key's __eq__ runs: it may change the set.
+pub fn set_inplace(s: &Rc<RefCell<PSet>>, x: &SetArg, op: &str) -> Result<(), E> {
+    match op {
+        "|" => match x {
+            SetArg::Set(_, true) => {}
+            SetArg::Set(o, false) => PSet::cell_merge(s, o)?,
+            SetArg::Dict(ks) => PSet::cell_update_dict(s, ks.clone())?,
+            SetArg::Iter(v) => {
+                let mut it = iter(v)?;
+                while let Some(k) = it.next()? {
+                    PSet::cell_add(s, k)?;
                 }
             }
-            r
-        }
+        },
         "-" => {
-            if (a.used >> 2) > b.used {
-                let mut r = a.copy();
-                for k in b.keys() {
-                    r.discard(&k)?;
+            match x {
+                SetArg::Set(_, true) => {
+                    PSet::cell_clear(s);
+                    return Ok(());
                 }
-                r
-            } else {
-                let mut r = PSet::new();
-                for (k, h) in a.keys_h() {
-                    if b.find(&k, h)?.is_none() {
-                        r.add_h(k, h)?;
+                SetArg::Set(o, false) => {
+                    let o = if (o.used >> 3) > s.borrow().used {
+                        let cur = s.borrow().clone();
+                        set_intersection(&cur, &SetArg::Set(o.clone(), false))?
+                    } else {
+                        o.clone()
+                    };
+                    for (k, h) in o.keys_h() {
+                        PSet::cell_discard_h(s, &k, h)?;
                     }
                 }
-                r
-            }
-        }
-        _ => {
-            let mut r = a.copy();
-            for (k, h) in b.keys_h() {
-                match r.probe(&k, h)? {
-                    Probe::Found(i) => r.remove_at(i),
-                    Probe::Absent(at, reuse) => r.insert_at(at, reuse, k, h),
+                SetArg::Dict(ks) => {
+                    for (k, h) in ks {
+                        PSet::cell_discard_h(s, k, *h)?;
+                    }
+                }
+                SetArg::Iter(v) => {
+                    let mut it = iter(v)?;
+                    while let Some(k) = it.next()? {
+                        let h = hash_of(&k)?;
+                        PSet::cell_discard_h(s, &k, h)?;
+                    }
                 }
             }
-            r
+            PSet::cell_resize_dummies(s);
         }
-    })
+        "&" => {
+            let cur = s.borrow().clone();
+            let r = set_intersection(&cur, x)?;
+            PSet::cell_replace(s, r);
+        }
+        _ => match symdiff_keys(x)? {
+            None => PSet::cell_clear(s),
+            Some(ks) => {
+                for (k, h) in ks {
+                    if !PSet::cell_discard_h(s, &k, h)? {
+                        PSet::cell_add_h(s, k, h)?;
+                    }
+                }
+            }
+        },
+    }
+    Ok(())
+}
+fn is_setview(v: &V) -> bool {
+    matches!(v, V::View(x) if x.1 == 0 || x.1 == 2)
+}
+// dictviews_to_set: a keys view of an exact dict is built from the dict (its stored hashes), anything else by
+// set(x)
+fn dictviews_to_set(v: &V) -> Result<PSet, E> {
+    if let V::View(x) = v {
+        if x.1 == 0 {
+            if let V::Dict(d) = &x.0 {
+                if d.borrow().kind == 0 {
+                    let ks = d.borrow().keys_h();
+                    return PSet::from_dict(ks);
+                }
+            }
+        }
+    }
+    pset_of_iterable(v)
+}
+fn dictview_op(a: &V, b: &V, op: &str) -> Result<PSet, E> {
+    match op {
+        "|" => {
+            let mut r = dictviews_to_set(a)?;
+            set_update_local(&mut r, &set_arg(0, b))?;
+            Ok(r)
+        }
+        "-" => {
+            let mut r = dictviews_to_set(a)?;
+            set_difference_update(&mut r, &set_arg(0, b))?;
+            Ok(r)
+        }
+        "^" => {
+            if let (V::View(x), V::View(y)) = (a, b) {
+                if x.1 == 2 && y.1 == 2 {
+                    return dictitems_xor(&x.0, &y.0);
+                }
+            }
+            let mut r = dictviews_to_set(a)?;
+            if let Some(ks) = symdiff_keys(&set_arg(0, b))? {
+                for (k, h) in ks {
+                    toggle(&mut r, k, h)?;
+                }
+            } else {
+                r.clear();
+            }
+            Ok(r)
+        }
+        _ => {
+            let (mut me, mut other) = if is_setview(a) { (a, b) } else { (b, a) };
+            let len_self = len(me)?;
+            if let V::Set(o) = other {
+                if len_self <= o.borrow().used {
+                    let so = o.borrow().clone();
+                    return set_intersection(&so, &SetArg::Iter(me.clone()));
+                }
+            }
+            if is_setview(other) && len(other)? > len_self {
+                std::mem::swap(&mut me, &mut other);
+            }
+            let mut r = PSet::new();
+            let mut it = iter(other)?;
+            while let Some(k) = it.next()? {
+                if contains(me, &k)? {
+                    r.add(k)?;
+                }
+            }
+            Ok(r)
+        }
+    }
+}
+// dictitems_xor: the pairs of d2 whose key is not in d1 with an equal value, then d1's remaining pairs
+fn dictitems_xor(d1: &V, d2: &V) -> Result<PSet, E> {
+    let mut t = Dict::new();
+    for (k, v) in dict_items_of(d1)? {
+        t.set(k, v)?;
+    }
+    let temp = V::Dict(Rc::new(RefCell::new(t)));
+    let mut r = PSet::new();
+    let pairs = dict_items_of(d2)?;
+    for (k, v2) in pairs {
+        let del = if contains(&temp, &k)? { eq(&getitem(&temp, &k)?, &v2)? } else { false };
+        if del {
+            delitem(&temp, &k)?;
+        } else {
+            r.add(tup(vec![k, v2]))?;
+        }
+    }
+    let rest = V::View(Rc::new((temp, 2)));
+    set_update_local(&mut r, &SetArg::Iter(rest))?;
+    Ok(r)
 }
 pub fn neg(a: &V) -> R {
     match a {

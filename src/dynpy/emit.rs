@@ -1604,6 +1604,8 @@ pub struct Bridge {
     pub files: HashMap<String, String>,
     // module -> (its absolute path, its source), for the warnings the runtime issues at a line of it
     pub srcs: HashMap<String, (String, String)>,
+    // the modules Brevi builds from its own copies (src/dynpy/py), not from the program's files
+    pub own: HashSet<String>,
 }
 impl Bridge {
     pub fn has(&self, m: &str) -> bool {
@@ -1623,6 +1625,8 @@ pub enum ConstKey {
     Bool(bool),
     Ellipsis,
     Tuple(Vec<ConstKey>),
+    Bytes(String),
+    Complex(u64, u64),
 }
 
 // An int literal's digits as a little-endian base-1e9 number, so 16, 0x10 and 0b10000 compare equal.
@@ -1682,11 +1686,194 @@ fn const_key(e: &Ex) -> ConstKey {
                 ConstKey::Int(!neg && !zero, mag)
             }
             Ex::Float(f) => ConstKey::Float((-f).to_bits()),
-            _ => unreachable!(),
+            _ => match complex_const(e) {
+                Some((re, im)) => ConstKey::Complex(re.to_bits(), im.to_bits()),
+                None => unreachable!(),
+            },
         },
         Ex::Tuple(xs) => ConstKey::Tuple(xs.iter().map(const_key).collect()),
-        _ => unreachable!(),
+        Ex::Call(f, a) if matches!((f.as_ref(), a.as_slice()), (Ex::Name(n), [Arg::Pos(Ex::Str(_))]) if n == "__bytes_lit") => match a.as_slice() {
+            [Arg::Pos(Ex::Str(b))] => ConstKey::Bytes(b.clone()),
+            _ => unreachable!(),
+        },
+        _ => match complex_const(e) {
+            Some((re, im)) => ConstKey::Complex(re.to_bits(), im.to_bits()),
+            None => unreachable!(),
+        },
     }
+}
+
+// A literal CPython keeps as a constant (in a set it folds into a frozenset): what const_key models.
+fn konst(e: &Ex) -> bool {
+    match e {
+        Ex::Int(_) | Ex::Float(_) | Ex::Str(_) | Ex::NoneV | Ex::True | Ex::False | Ex::Ellipsis => true,
+        Ex::Unary("-", x) => matches!(x.as_ref(), Ex::Int(_) | Ex::Float(_)) || complex_const(e).is_some(),
+        Ex::Tuple(xs) => xs.iter().all(konst),
+        Ex::Call(f, a) if matches!((f.as_ref(), a.as_slice()), (Ex::Name(n), [Arg::Pos(Ex::Str(_))]) if n == "__bytes_lit") => true,
+        _ => complex_const(e).is_some(),
+    }
+}
+// A complex constant CPython folds: 2j, -2j, and a real literal plus or minus an imaginary one (1+2j), as
+// (real, imag) computed the way CPython's complex arithmetic does (the real part converted to float).
+fn complex_const(e: &Ex) -> Option<(f64, f64)> {
+    fn imag(e: &Ex) -> Option<f64> {
+        match e {
+            Ex::Call(f, a) => match (f.as_ref(), a.as_slice()) {
+                (Ex::Name(n), [Arg::Pos(Ex::Float(x))]) if n == "__complex_lit" => Some(*x),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+    fn real(e: &Ex) -> Option<f64> {
+        let r = match e {
+            Ex::Float(x) => Some(*x),
+            Ex::Int(t) => {
+                let d = t.replace('_', "");
+                if d.bytes().all(|c| c.is_ascii_digit()) { d.parse::<f64>().ok() } else { None }
+            }
+            Ex::Unary("-", x) if matches!(x.as_ref(), Ex::Int(_) | Ex::Float(_)) => real(x).map(|v| -v),
+            _ => None,
+        };
+        r.filter(|v| v.is_finite())
+    }
+    match e {
+        Ex::Unary("-", x) => imag(x).map(|i| (-0.0, -i)),
+        Ex::Bin(op @ ("+" | "-"), a, b) => {
+            let (r, i) = (real(a)?, imag(b)?);
+            Some(if *op == "+" { (r + 0.0, 0.0 + i) } else { (r - 0.0, 0.0 - i) })
+        }
+        _ => imag(e).map(|i| (0.0, i)),
+    }
+}
+// An expression CPython's AST optimizer may fold into a constant (Python/ast_opt.c: operators on constants,
+// subscripts, tuples, __debug__, an f-string of literal text): a set of these that konst does not model is refused.
+fn foldable(e: &Ex) -> bool {
+    match e {
+        Ex::Name(n) => n == "__debug__",
+        Ex::Unary(_, x) => foldable(x),
+        Ex::Bin(_, a, b) | Ex::Index(a, b) => foldable(a) && foldable(b),
+        Ex::Tuple(xs) => xs.iter().all(foldable),
+        Ex::FStr(ps) => ps.iter().all(|p| matches!(p, FPart::Lit(_))),
+        _ => konst(e),
+    }
+}
+
+// How many times CPython 3.13 rebuilds a constant frozenset before code runs it. compile.c merge_consts_recursive
+// rebuilds it once from its iteration order; codeobject.c intern_constants rebuilds it again when a top-level item is
+// a name-like str (ASCII [A-Za-z0-9_], 2 or more characters: shorter ones are singletons) and an equal string is
+// already interned as another object: an identifier of the module (the parser interns every name) or, for the main
+// module (compiled before anything runs), a string CPython interned at startup (interned_313.txt, written by
+// tools/gen_interned.py). A module compiled at import time sees whatever earlier imports interned: Unsure, which
+// const_fset refuses when the order is visible (in a module Brevi copies, a run-time check).
+#[derive(Clone, Copy, PartialEq)]
+enum Rebuilds {
+    One,
+    Two,
+    Unsure,
+}
+static INTERNED_313: &str = include_str!("interned_313.txt");
+fn startup_interned(s: &str) -> bool {
+    static T: std::sync::OnceLock<HashSet<&'static str>> = std::sync::OnceLock::new();
+    T.get_or_init(|| INTERNED_313.lines().collect()).contains(s)
+}
+fn name_like(s: &str) -> bool {
+    s.len() >= 2 && s.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_')
+}
+// A module's names as its source spells them: `sure` the parser interns (every NAME token that is not a keyword);
+// `maybe` a word that may or may not be one (inside an f-string, a soft keyword); `odd` when a name is not ASCII
+// (the parser NFKC-normalizes it, which can give an ASCII name).
+#[derive(Default)]
+pub struct Idents {
+    sure: HashSet<String>,
+    maybe: HashSet<String>,
+    odd: bool,
+}
+pub fn source_idents(src: &str) -> Idents {
+    const KW: [&str; 35] = ["False", "None", "True", "and", "as", "assert", "async", "await", "break", "class", "continue", "def", "del", "elif", "else", "except", "finally", "for", "from", "global", "if", "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try", "while", "with", "yield"];
+    const SOFT: [&str; 4] = ["match", "case", "type", "_"];
+    let c: Vec<char> = src.chars().collect();
+    let mut id = Idents::default();
+    let word_ch = |ch: char| ch == '_' || ch.is_alphanumeric();
+    // skips the string whose quote is at c[i] (prefix flags already read): its end; f-string words go to maybe
+    fn string(c: &[char], mut i: usize, f: bool, id: &mut Idents) -> usize {
+        let q = c[i];
+        let triple = i + 2 < c.len() && c[i + 1] == q && c[i + 2] == q;
+        i += if triple { 3 } else { 1 };
+        let mut depth = 0usize;
+        while i < c.len() {
+            let ch = c[i];
+            if ch == '\\' {
+                i += 2;
+                continue;
+            }
+            if f && depth > 0 && (ch == '\'' || ch == '"') {
+                i = string(c, i, false, id);
+                continue;
+            }
+            if depth == 0 && ch == q && (!triple || i + 2 < c.len() && c[i + 1] == q && c[i + 2] == q) {
+                return i + if triple { 3 } else { 1 };
+            }
+            if !triple && depth == 0 && ch == '\n' {
+                return i;
+            }
+            if f {
+                if ch == '{' {
+                    if depth == 0 && i + 1 < c.len() && c[i + 1] == '{' {
+                        i += 2;
+                        continue;
+                    }
+                    depth += 1;
+                } else if ch == '}' && depth > 0 {
+                    depth -= 1;
+                } else if ch == '_' || ch.is_alphanumeric() {
+                    let s = i;
+                    while i < c.len() && (c[i] == '_' || c[i].is_alphanumeric()) {
+                        i += 1;
+                    }
+                    let w: String = c[s..i].iter().collect();
+                    id.odd |= !w.is_ascii();
+                    id.maybe.insert(w);
+                    continue;
+                }
+            }
+            i += 1;
+        }
+        i
+    }
+    let mut i = 0;
+    while i < c.len() {
+        let ch = c[i];
+        if ch == '#' {
+            while i < c.len() && c[i] != '\n' {
+                i += 1;
+            }
+        } else if ch == '\'' || ch == '"' {
+            i = string(&c, i, false, &mut id);
+        } else if ch.is_ascii_digit() || ch == '.' && i + 1 < c.len() && c[i + 1].is_ascii_digit() {
+            while i < c.len() && (word_ch(c[i]) || c[i] == '.' || matches!(c[i], '+' | '-') && matches!(c[i - 1], 'e' | 'E') && i + 1 < c.len() && c[i + 1].is_ascii_digit()) {
+                i += 1;
+            }
+        } else if word_ch(ch) {
+            let s = i;
+            while i < c.len() && word_ch(c[i]) {
+                i += 1;
+            }
+            let w: String = c[s..i].iter().collect();
+            if i < c.len() && (c[i] == '\'' || c[i] == '"') && matches!(w.to_ascii_lowercase().as_str(), "r" | "u" | "b" | "f" | "br" | "rb" | "fr" | "rf") {
+                let f = w.to_ascii_lowercase().contains('f');
+                i = string(&c, i, f, &mut id);
+            } else if SOFT.contains(&w.as_str()) {
+                id.maybe.insert(w);
+            } else if !KW.contains(&w.as_str()) {
+                id.odd |= !w.is_ascii();
+                id.sure.insert(w);
+            }
+        } else {
+            i += 1;
+        }
+    }
+    id
 }
 
 pub struct Em {
@@ -1777,6 +1964,9 @@ pub struct Em {
     // co_firstlineno of the def being built, and the TraceCode static its body names
     def_first: usize,
     last_tcode: Option<String>,
+    // the program's main module, and each module's identifiers read off its source (set_rebuilds)
+    main_mod: String,
+    idents: HashMap<String, Option<std::rc::Rc<Idents>>>,
 }
 
 // The annotation a def passes to functools.singledispatch's register when the def is decorated with a bare
@@ -1934,6 +2124,94 @@ impl Em {
         self.nglobals += 1;
         self.globals.insert((module.to_string(), name.to_string()), i);
         i
+    }
+    // A set literal of constants as CPython's frozenset constant (None when an item is not a constant). Equal
+    // constant sets anywhere in the module share the first one's frozenset (merge_consts_recursive), so a literal whose
+    // values repeat an earlier one's is built in that one's source order; then the rebuilds (set_rebuilds). `order`:
+    // the program can see the order (a display, `for`, a comprehension), not only membership (`in`).
+    fn const_fset(&mut self, v: &[Ex], line: usize, order: bool) -> ER<Option<String>> {
+        if !v.iter().all(konst) {
+            if v.iter().all(foldable) {
+                return Err(err(line, "a set literal of constant expressions CPython folds (operators on constants, __debug__, f-strings) is not supported in dynamic builds"));
+            }
+            return Ok(None);
+        }
+        let key: BTreeSet<ConstKey> = v.iter().map(const_key).collect();
+        let distinct = key.len();
+        let m = self.module.clone();
+        let items = match self.set_lits.get(&(m.clone(), key.clone())) {
+            Some(x) => x.clone(),
+            None => {
+                self.set_lits.insert((m, key), v.to_vec());
+                v.to_vec()
+            }
+        };
+        let f = match self.set_rebuilds(&items) {
+            _ if !order => "fset_rebuild",
+            Rebuilds::One => "fset_rebuild",
+            Rebuilds::Two => "fset_rebuild2",
+            // the 1x and 2x layouts of 2 or more items differ under some PYTHONHASHSEED (a str hash puts them in
+            // one probe chain), and the build cannot know the seed: refused rather than stopped at run time
+            // In a module Brevi copies (jinja2's LoopControlExtension.tags), CPython's own copy is compiled or
+            // unmarshalled at import, so the order is unknowable too, but refusing would refuse every program
+            // using that library: the program stops at run time when the 2 layouts differ at a fixed seed.
+            Rebuilds::Unsure if distinct >= 2 && self.bridge.own.contains(&self.module) => "fset_rebuild_unsure",
+            Rebuilds::Unsure if distinct >= 2 => return Err(err(line, "a set literal of strings whose order CPython takes from the strings already interned when it compiles the module (an imported module, or a name the build cannot read) is not supported in dynamic builds: write the items as a list or tuple, or use sorted()")),
+            Rebuilds::Unsure => "fset_rebuild",
+        };
+        let sq = self.seq(&items, line)?;
+        let one = self.q(&format!("set_of_vec({sq})"));
+        Ok(Some(self.q(&format!("{f}({one})"))))
+    }
+    fn set_rebuilds(&mut self, items: &[Ex]) -> Rebuilds {
+        let names: Vec<&str> = items.iter().filter_map(|e| match e {
+            Ex::Str(s) if name_like(s) => Some(s.as_str()),
+            _ => None,
+        }).collect();
+        if names.is_empty() {
+            return Rebuilds::One;
+        }
+        let m = self.module.clone();
+        if !self.idents.contains_key(&m) {
+            let v = self.bridge.srcs.get(&m).map(|(_, src)| std::rc::Rc::new(source_idents(src)));
+            self.idents.insert(m.clone(), v);
+        }
+        let Some(id) = self.idents[&m].clone() else { return Rebuilds::Unsure };
+        if names.iter().any(|n| id.sure.contains(*n)) {
+            return Rebuilds::Two;
+        }
+        if m != self.main_mod {
+            return Rebuilds::Unsure;
+        }
+        // a private name a class mangles (_C__x for __x in class C) is interned too
+        let mangled = |n: &str| n.starts_with('_') && n[1..].match_indices("__").any(|(k, _)| k > 0 && !n[1 + k..].ends_with("__") && id.sure.contains(&n[1 + k..]));
+        if id.odd || names.iter().any(|n| id.maybe.contains(*n) || mangled(n)) {
+            return Rebuilds::Unsure;
+        }
+        if names.iter().any(|n| startup_interned(n)) {
+            Rebuilds::Two
+        } else {
+            Rebuilds::One
+        }
+    }
+    // An iterable CPython's AST optimizer turns into a constant (ast_opt.c fold_iter): a set literal of constants
+    // that `for` or a comprehension walks is the frozenset itself, never copied into a set.
+    fn iter_ex(&mut self, e: &Ex, line: usize) -> ER<String> {
+        if let Ex::Set(v) = e {
+            if let Some(fs) = self.const_fset(v, line, true)? {
+                return Ok(fs);
+            }
+        }
+        self.ex(e, line)
+    }
+    // The last operand of `in` / `not in`: a set literal of constants is CPython's frozenset (fold_compare)
+    fn in_ex(&mut self, e: &Ex, line: usize) -> ER<String> {
+        if let Ex::Set(v) = e {
+            if let Some(fs) = self.const_fset(v, line, false)? {
+                return Ok(fs);
+            }
+        }
+        self.ex(e, line)
     }
     fn konst(&mut self, s: &str) -> String {
         let i = match self.const_idx.get(s) {
@@ -2189,40 +2467,14 @@ impl Em {
                 }
             }
             Ex::Set(v) => {
-                // CPython builds a literal of 3 or more constants as a frozenset constant copied into a new
-                // set, which can order the items differently from adding them one by one; and equal constant
-                // sets anywhere in the module share the first one's frozenset (constant merging), so a display
-                // whose values repeat an earlier one uses that earlier display's source order.
-                fn konst(e: &Ex) -> bool {
-                    match e {
-                        Ex::Int(_) | Ex::Float(_) | Ex::Str(_) | Ex::NoneV | Ex::True | Ex::False | Ex::Ellipsis => true,
-                        Ex::Unary("-", x) => matches!(x.as_ref(), Ex::Int(_) | Ex::Float(_)),
-                        Ex::Tuple(xs) => xs.iter().all(konst),
-                        _ => false,
+                // CPython builds a display of 3 or more constants as a frozenset constant copied into a new set
+                // (const_fset), which can order the items differently from adding them one by one
+                match if v.len() >= 3 { self.const_fset(v, line, true)? } else { None } {
+                    Some(fs) => self.q(&format!("bi_set(Args::p(vec![{fs}]))")),
+                    None => {
+                        let sq = self.seq(v, line)?;
+                        self.q(&format!("set_of_vec({sq})"))
                     }
-                }
-                let folded = v.len() >= 3 && v.iter().all(konst);
-                let items = if folded {
-                    let key: BTreeSet<ConstKey> = v.iter().map(const_key).collect();
-                    let m = self.module.clone();
-                    let have = self.set_lits.get(&(m.clone(), key.clone())).cloned();
-                    match have {
-                        Some(x) => x,
-                        None => {
-                            self.set_lits.insert((m, key), v.clone());
-                            v.clone()
-                        }
-                    }
-                } else {
-                    v.clone()
-                };
-                let sq = self.seq(&items, line)?;
-                let one = self.q(&format!("set_of_vec({sq})"));
-                if folded {
-                    let fs = self.q(&format!("fset_rebuild({one})"));
-                    self.q(&format!("bi_set(Args::p(vec![{fs}]))"))
-                } else {
-                    one
                 }
             }
             Ex::Dict(items) => {
@@ -2484,7 +2736,13 @@ impl Em {
                     let aa = self.ex(a, line)?;
                     let op = rest[0].0;
                     let is_g = matches!(op, "in" | "not in") && self.is_globals(&rest[0].1);
-                    let bb = if is_g { String::new() } else { self.ex(&rest[0].1, line)? };
+                    let bb = if is_g {
+                        String::new()
+                    } else if matches!(op, "in" | "not in") {
+                        self.in_ex(&rest[0].1, line)?
+                    } else {
+                        self.ex(&rest[0].1, line)?
+                    };
                     return Ok(match op {
                         "is" => format!("is(&{aa}, &{bb})"),
                         "is not" => format!("!is(&{aa}, &{bb})"),
@@ -2500,7 +2758,7 @@ impl Em {
                 let aa = self.ex(a, line)?;
                 let mut b = format!("{{ let mut __l = {aa}; let mut __ok = true; ");
                 for (i, (op, x)) in rest.iter().enumerate() {
-                    let xx = self.ex(x, line)?;
+                    let xx = if i + 1 == rest.len() && matches!(*op, "in" | "not in") { self.in_ex(x, line)? } else { self.ex(x, line)? };
                     let c = self.q(&format!("cmp_op(&__l, &__r, {})", lit(op)));
                     write!(b, "if __ok {{ let __r = {xx}; __ok = {c}; __l = __r; }} ").unwrap();
                     let _ = i;
@@ -3076,7 +3334,7 @@ impl Em {
             Some((a, b, t0, t1)) if !gens[0].is_async => Some((self.ex(a, line)?, self.ex(b, line)?, t0, t1)),
             _ => None,
         };
-        let first_iter = if first_zip.is_some() { String::new() } else { self.ex(&gens[0].iter, line)? };
+        let first_iter = if first_zip.is_some() { String::new() } else { self.iter_ex(&gens[0].iter, line)? };
         let first_it = match &first_zip {
             Some((za, zb, _, _)) => (
                 self.q(&format!("iter(&{za})")),
@@ -3165,7 +3423,7 @@ impl Em {
                     return Ok(arm);
                 }
                 let asg = self.assign(&g.target, &format!("__x{id}_{k}"), line)?;
-                let it = self.ex(&g.iter, line)?;
+                let it = self.iter_ex(&g.iter, line)?;
                 write!(inner_decl, "let mut __it{id}_{k}: Option<It> = None; ").unwrap();
                 write!(arm, "{k} => {{ if __it{id}_{k}.is_none() {{ __it{id}_{k} = Some(iter(&{it})?); }} match __it{id}_{k}.as_mut().unwrap().next()? {{ Some(__x{id}_{k}) => {{ {asg} {conds}{next} }} None => {{ __it{id}_{k} = None; __st{id} = {}; }} }} }}, ", k - 1).unwrap();
                 Ok(arm)
@@ -3230,7 +3488,7 @@ impl Em {
             Some((a, b, _, _)) if !gens[0].is_async => Some((self.ex(a, line)?, self.ex(b, line)?)),
             _ => None,
         };
-        let first_iter = if first_zip.is_some() { String::new() } else { self.ex(&gens[0].iter, line)? };
+        let first_iter = if first_zip.is_some() { String::new() } else { self.iter_ex(&gens[0].iter, line)? };
         // In a class body the rest of the comprehension does not see the class's names (CPython resolves them
         // past the class scope, to enclosing functions, globals and builtins), and its own variables are plain
         // locals: never class namespace stores, nor Enum auto() stores (whose `&mut` borrow the enclosing
@@ -3299,7 +3557,7 @@ impl Em {
                 close.push_str("} ");
                 continue;
             }
-            let it = if k == 0 { first_iter.clone() } else { self.ex(&g.iter, line)? };
+            let it = if k == 0 { first_iter.clone() } else { self.iter_ex(&g.iter, line)? };
             let (itv, nx) = if g.is_async {
                 (self.q(&format!("bi_aiter(Args::p(vec![{it}]))")), self.q(&format!("afor_next(&__it{k})")))
             } else {
@@ -3976,7 +4234,7 @@ impl Em {
             fast = true;
         }
         if !fast {
-            let itv = self.ex(it, line)?;
+            let itv = self.iter_ex(it, line)?;
             let iv = self.q(&format!("iter(&{itv})"));
             let w = self.wsite(line, true);
             let nx = self.q(&format!("{{ {w} __it{id}.next() }}"));
@@ -5132,6 +5390,13 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         if let Some((line, what)) = super::typing::enum_refusal(&m.body) {
             return Err((m.name.clone(), line, format!("{what} is not supported in dynamic builds")));
         }
+        if let Some((line, n)) = super::typing::pickled_set_subclass(&m.body).filter(|_| bridge.srcs.contains_key(&m.name)) {
+            return Err((m.name.clone(), line, format!("pickling an instance of a subclass of {n} is not supported in dynamic builds")));
+        }
+    }
+    let progs: Vec<(&str, &[Stmt])> = mods.iter().filter(|m| bridge.srcs.contains_key(&m.name)).map(|m| (m.name.as_str(), m.body.as_slice())).collect();
+    if let Some((m, line)) = super::typing::re_pattern_hash(&progs) {
+        return Err((m, line, "hash() of a re.Pattern is not supported in dynamic builds (CPython hashes its compiled sre code)".into()));
     }
     // the program (not Brevi's library copies) uses the warnings module
     // (or functools.partial, whose __get__ warns at the line that reads it from an instance, or
@@ -5206,6 +5471,8 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         skip_doc: false,
         def_first: 0,
         last_tcode: None,
+        main_mod: mods.first().map(|m| m.name.clone()).unwrap_or_default(),
+        idents: HashMap::new(),
     };
     // Brevi's own library copies first, each group named and numbered on its own, then the program's modules:
     // the copies' Rust (everything before LIB_END) is then the same for every program that imports them, so a
@@ -5610,3 +5877,26 @@ const META_DUNDERS: &[&str] = &[
     "__module__", "__qualname__", "__doc__", "__new__", "__init__", "__prepare__", "__lt__", "__le__", "__gt__", "__ge__", "__eq__", "__ne__",
     "__hash__", "__len__", "__bool__", "__repr__", "__str__", "__annotations__", "__init_subclass__", "__weakref__", "__dict__",
 ];
+
+#[cfg(test)]
+mod set_rebuild_tests {
+    use super::*;
+    #[test]
+    fn source_idents_reads_names_not_strings() {
+        let id = source_idents("x = {'alpha', 'beta'}  # gamma\nif delta: print(f\"{eps} zeta\", b'eta', rb\"theta\")\nmatch = 0x1e5 + 1e-3\nclass C:\n    __p = 1\n");
+        for n in ["x", "delta", "print", "C", "__p"] {
+            assert!(id.sure.contains(n), "{n}");
+        }
+        for n in ["alpha", "beta", "gamma", "eta", "theta", "if", "x1e5", "e5"] {
+            assert!(!id.sure.contains(n) && !id.maybe.contains(n), "{n}");
+        }
+        assert!(id.maybe.contains("eps") && id.maybe.contains("zeta") && id.maybe.contains("match"));
+        assert!(!id.odd);
+        assert!(source_idents("é = 1").odd);
+    }
+    #[test]
+    fn startup_table_is_read() {
+        assert!(startup_interned("date") && startup_interned("join") && !startup_interned("zq_not_interned"));
+        assert!(name_like("ab") && !name_like("a") && !name_like("a-b") && !name_like("é1"));
+    }
+}
