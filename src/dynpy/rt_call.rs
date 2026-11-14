@@ -1710,6 +1710,16 @@ fn class_getattr(o: &V, c: &Rc<Class>, name: &str) -> R {
                     return Ok(builtin("fromhex", move |a: Args| call(&k, Args::p(vec![bytes_fromhex(a)?]))));
                 }
             }
+            // int.from_bytes and float.fromhex on a subclass (an IntEnum, a float mixin Enum): CPython calls the
+            // subclass with the value the base makes (cls(int.from_bytes(...)), cls(float.fromhex(s)))
+            if c.base_bt() == BT::Int && name == "from_bytes" {
+                let k = V::Class(c.clone());
+                return Ok(builtin("from_bytes", move |a: Args| call(&k, Args::p(vec![int_from_bytes(&V::None, a)?]))));
+            }
+            if c.base_bt() == BT::Float && name == "fromhex" {
+                let k = V::Class(c.clone());
+                return Ok(builtin("fromhex", move |a: Args| call(&k, Args::p(vec![float_fromhex(a)?]))));
+            }
             // A base's builtin_class_attr answers any name (a generic unbound method), so a base other
             // than object is asked only for a method that type really has.
             for k in c.mro.borrow().iter().skip(1) {
