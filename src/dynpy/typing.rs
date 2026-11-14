@@ -1338,6 +1338,23 @@ pub fn enum_refusal(body: &[Stmt]) -> Option<(usize, &'static str)> {
             blocks(&s.st, &mut |b| classes(b, f));
         }
     }
+    // a name CPython finds on EnumType read through an Enum class (`Color.__contains__`, `self.Color._find_new_`):
+    // EnumType's methods are not modelled, and the class itself does not have them
+    walk_all(body, &mut |e, l| {
+        if found.is_some() {
+            return;
+        }
+        if let Ex::Attr(o, a) = e {
+            let on_enum = match o.as_ref() {
+                Ex::Name(n) => enums.contains(n),
+                Ex::Attr(_, n) => enums.contains(n),
+                _ => false,
+            };
+            if on_enum && enum_type_only(a) {
+                found = Some((l, "a method of enum.EnumType read through an Enum class"));
+            }
+        }
+    });
     classes(body, &mut |c, line| {
         if found.is_some() {
             return;
@@ -1453,4 +1470,15 @@ pub fn datetime_subclass(body: &[Stmt]) -> Option<(usize, String)> {
         });
     }
     found.map(|(l, n)| (l, format!("datetime.{n}")))
+}
+
+// EnumType's methods an Enum class has only through its type (enum.py 3.13's EnumType.__dict__, less what the
+// runtime's Enum classes hold themselves and the ones Flag defines too: __bool__, __contains__, __iter__ and
+// __len__ read through a plain Enum class are refused when the program runs)
+fn enum_type_only(n: &str) -> bool {
+    matches!(
+        n,
+        "__call__" | "__dir__" | "__getitem__" | "__reversed__" | "__prepare__" | "_add_member_"
+            | "_check_for_existing_members_" | "_convert_" | "_create_" | "_find_data_repr_" | "_find_data_type_" | "_find_new_" | "_get_mixins_"
+    )
 }
