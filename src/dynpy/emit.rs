@@ -1834,6 +1834,9 @@ fn sd_class_like(e: &Ex) -> bool {
         _ => false,
     }
 }
+// dis reads CPython bytecode, and a compiled function has none: CPython's dis would raise TypeError where CPython
+// itself disassembles, so the module is refused rather than bridged (test_patma test_jump_threading stays out)
+const DIS_REFUSED: &str = "module 'dis' is not supported in dynamic builds (compiled functions have no CPython bytecode to disassemble)";
 fn is_dec_name(e: &Ex, n: &str) -> bool {
     match e {
         Ex::Attr(_, x) if x == n => true,
@@ -3638,6 +3641,9 @@ impl Em {
                 let mut b = String::new();
                 for (m, a) in v {
                     let top = m.split('.').next().unwrap().to_string();
+                    if top == "dis" {
+                        return Err(err(line, DIS_REFUSED));
+                    }
                     let bind = a.clone().unwrap_or(top.clone());
                     let target = if a.is_some() { m.clone() } else { top.clone() };
                     if target == "warnings" {
@@ -3678,6 +3684,9 @@ impl Em {
             }
             St::ImportFrom(m, names) => {
                 let mut b = String::new();
+                if m.split('.').next() == Some("dis") {
+                    return Err(err(line, DIS_REFUSED));
+                }
                 if m == "__future__" {
                     return Ok(b);
                 }
@@ -4219,6 +4228,8 @@ impl Em {
     #[allow(clippy::too_many_arguments)]
     fn closure_body(&mut self, name: &str, qualname: &str, p: &Params, body: &[Stmt], line: usize, is_def: bool, dflt: Option<(Vec<String>, Vec<String>)>) -> ER<String> {
         let id = self.id();
+        // sys.settrace: this def's co_firstlineno, taken before its body builds the defs nested in it
+        let def_first = if is_def { std::mem::take(&mut self.def_first) } else { 0 };
         let is_async = std::mem::take(&mut self.next_async);
         let is_gen = has_yield(body);
         // (a lambda in the def's defaults is built first: is_def keeps the flag for the def itself)
@@ -4403,7 +4414,7 @@ impl Em {
         let code = code_flags.to_string();
         // sys.settrace: the body between its "call" and "return" events (rt_trace.rs)
         let body_all = if traced {
-            let first = if self.def_first != 0 { std::mem::take(&mut self.def_first) } else { line };
+            let first = if def_first != 0 { def_first } else { line };
             let tc = self.tcode(name, first, code_flags);
             self.last_tcode = Some(tc.clone());
             format!("let __tf: TF = trace_enter(&{tc})?; let __tr: R = (|| -> R {{ {decls}{cells_init}\n{body_code}\nOk(V::None) }})(); trace_leave(&__tf, __tr)")
