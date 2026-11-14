@@ -542,7 +542,8 @@ fn bind_count(body: &[Stmt], n: &str) -> usize {
 // name, which is bound once, by the def; no decorator but contextlib.contextmanager, whose wrapper passes its
 // arguments on as given) with that parameter a literal or a literal default, and never rebinds the parameter.
 // Ways to reach a def or a module's namespace otherwise (globals(), a frame's or function's globals, the
-// __main__ module object, importlib, inspect, gc) leave the map empty.
+// __main__ module object, importlib, inspect, gc) leave the map empty. (`x.__dict__` is no way in: only the __main__
+// module object's holds the defs, and nothing here hands that out.)
 fn sysmod_param_lits(body: &[Stmt]) -> HashMap<(String, String), Vec<String>> {
     let mut out = HashMap::new();
     let mut escape = false;
@@ -550,7 +551,7 @@ fn sysmod_param_lits(body: &[Stmt]) -> HashMap<(String, String), Vec<String>> {
     let (mut mods, mut mods_keyed) = (0, 0);
     visit_any(body, &mut |e| match e {
         Ex::Name(n) if matches!(n.as_str(), "globals" | "vars" | "locals" | "__import__" | "__builtins__" | "eval" | "exec") => escape = true,
-        Ex::Attr(_, a) if matches!(a.as_str(), "__globals__" | "f_globals" | "f_locals" | "__dict__" | "__wrapped__" | "__closure__" | "__code__" | "__self__" | "__func__") => escape = true,
+        Ex::Attr(_, a) if matches!(a.as_str(), "__globals__" | "f_globals" | "f_locals" | "__wrapped__" | "__closure__" | "__code__" | "__self__" | "__func__") => escape = true,
         Ex::Attr(_, m) if m == "modules" => mods += 1,
         _ => {}
     });
