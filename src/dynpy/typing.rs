@@ -163,7 +163,7 @@ pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
         deep_alias(body, nm, &mut HashSet::new());
         class_names(body, &mut nm.classes);
         nm.lazy = future_annotations(body);
-        nm.odd_ann = odd_class_annotation(body, false);
+        nm.odd_ann = odd_class_annotation(body, false, nm);
     }
     let reads = mods.iter().any(|(_, b)| {
         let mut r = false;
@@ -507,25 +507,34 @@ fn class_names(body: &[Stmt], out: &mut HashSet<String>) {
 // program reads __annotations__, class annotations are evaluated as the class body runs (dynpy/emit.rs), and
 // the runtime has no `int | None` or `list[int]` type objects, so such a program is refused, not run to a
 // TypeError that CPython would not raise.
-fn odd_class_annotation(body: &[Stmt], in_class: bool) -> bool {
-    fn plain(e: &Ex) -> bool {
+// ClassVar[C] and Final[C] (`exact_form`) are evaluated, print and compare as CPython's, so they are not odd.
+fn odd_class_annotation(body: &[Stmt], in_class: bool, nm: &Names) -> bool {
+    fn plain(e: &Ex, nm: &Names) -> bool {
         match e {
             Ex::Name(_) | Ex::Str(_) | Ex::NoneV => true,
-            Ex::Attr(o, _) => plain(o),
-            _ => false,
+            Ex::Attr(o, _) => plain(o, nm),
+            e => exact_form(e, nm),
         }
     }
     body.iter().any(|s| match &s.st {
-        St::AnnAssign(_, _, ann, _) if in_class => !plain(ann),
-        St::Class(c) => odd_class_annotation(&c.body, true),
+        St::AnnAssign(_, _, ann, _) if in_class => !plain(ann, nm),
+        St::Class(c) => odd_class_annotation(&c.body, true, nm),
         // a def's own annotated statements are not evaluated (a function body keeps no annotations)
-        St::Def(d) => odd_class_annotation(&d.body, false),
+        St::Def(d) => odd_class_annotation(&d.body, false, nm),
         st => {
             let mut odd = false;
-            blocks(st, &mut |b| odd |= odd_class_annotation(b, in_class));
+            blocks(st, &mut |b| odd |= odd_class_annotation(b, in_class, nm));
             odd
         }
     })
+}
+// typing's ClassVar[C] or Final[C] over a builtin type or a class of the module, by name: the runtime keeps C in
+// the alias (rt_typing.rs TForm.arg), which then prints, compares and hashes as CPython's
+fn exact_form(e: &Ex, nm: &Names) -> bool {
+    const TYPES: [&str; 13] = ["int", "str", "float", "bool", "bytes", "complex", "list", "dict", "set", "frozenset", "tuple", "object", "type"];
+    let Ex::Index(o, i) = e else { return false };
+    matches!(nm.form(o), Some((m, n)) if typing_mod(&m) && matches!(n.as_str(), "ClassVar" | "Final"))
+        && matches!(i.as_ref(), Ex::Name(x) if !nm.forms.contains_key(x) && (TYPES.contains(&x.as_str()) || nm.classes.contains(x)))
 }
 
 // A def anywhere in the body (methods and nested defs too) with an annotation that is not a plain name,
@@ -962,7 +971,7 @@ fn expr(e: &Ex, ok: bool, line: usize, nm: &Names) -> Result<(), Er> {
         Ex::Index(o, i) => {
             if nm.typing_expr(o) && !nm.generic_class(o) {
                 // typing.List[int], typing.Optional[X], ...: values the runtime makes (rt_typing.rs TAlias, TUnion)
-                if !ok && value_form(e, nm) {
+                if !ok && (value_form(e, nm) || exact_form(e, nm)) {
                     return expr(i, true, line, nm);
                 }
                 if !ok {

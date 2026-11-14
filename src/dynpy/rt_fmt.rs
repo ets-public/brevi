@@ -351,6 +351,9 @@ pub fn repr(v: &V) -> Result<String, E> {
                 format!("<{} '{}'>", if is_flag(c) { "flag" } else { "enum" }, c.name)
             } else if c.module == "builtins" {
                 format!("<class '{}'>", c.name)
+            } else if c.module == "typing" && matches!(c.name, "ClassVar" | "Final") && is_form(c) {
+                // typing._SpecialForm.__repr__
+                format!("typing.{}", c.name)
             } else {
                 format!("<class '{}.{}'>", c.module, c.qualname.get())
             }
