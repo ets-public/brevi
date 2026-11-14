@@ -392,6 +392,8 @@ fn meta_from_base(m: &Rc<Class>, name: Sym, qualname: Sym, module: Sym, bases: V
 }
 #[allow(clippy::too_many_arguments)]
 fn make_class_impl(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, mut attrs: Vec<(Sym, V)>, fields: Vec<Sym>, stmt: Option<(i64, Vec<Sym>)>, meta: Option<Rc<Class>>) -> R {
+    // a class on Protocol is a protocol (rt_typing.rs), which may inherit only from protocols
+    let protocol = proto_bases_check(&bases)?;
     // `class C[T](...)` (PEP 695): Generic[T, ...] comes last. As CPython's: a Generic of the class's own among its
     // bases is a TypeError, and so is `object` (no MRO puts it before Generic). __parameters__ is the class's own
     // type parameters (Generic.__init_subclass__ sets it in the class's dict).
@@ -490,6 +492,7 @@ fn make_class_impl(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, mut
     let c = Class::with_qualname(name, qualname, module, bs, bt);
     c.abc.set(abc);
     c.made.set(made);
+    let meta_is_some = meta.is_some();
     *c.meta.borrow_mut() = meta;
     for (n, v) in attrs {
         c.set_exact(n, v);
@@ -568,6 +571,12 @@ fn make_class_impl(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, mut
     }
     if is_enum(&c) {
         enum_made(&c);
+    }
+    if protocol {
+        if meta_is_some {
+            return Err(unsupported("a Protocol class with a metaclass"));
+        }
+        proto_register(&c);
     }
     Ok(V::Class(c))
 }
@@ -768,6 +777,7 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
     if c.module != "builtins" && is_metaclass(c) {
         return meta_call(c, a);
     }
+    proto_call_check(c)?;
     if c.abc.get() {
         if let Some(V::FSet(p)) = c.lookup("__abstractmethods__") {
             let mut names: Vec<String> = p.keys().iter().map(|k| to_str(k).unwrap_or_default()).collect();

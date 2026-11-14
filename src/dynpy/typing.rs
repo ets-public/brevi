@@ -1077,13 +1077,13 @@ fn expr(e: &Ex, ok: bool, line: usize, nm: &Names) -> Result<(), Er> {
                     }
                 }
             }
-            // isinstance(x, P) for a Protocol class P: structural in CPython (or a TypeError); a class pattern
-            // `case P():` is the same check
-            if matches!(f.as_ref(), Ex::Name(n) if n == "isinstance" || n == "issubclass" || n == "__brevi_pm_cls") {
+            // issubclass(C, P) for a Protocol class P: _proto_hook over C's MRO, which the runtime does not follow
+            // (isinstance(x, P) and a class pattern `case P():` it does: rt_typing.rs proto_instancecheck)
+            if matches!(f.as_ref(), Ex::Name(n) if n == "issubclass") {
                 if let Some(Arg::Pos(t)) = args.get(1) {
                     let protocol = |x: &Ex| matches!(x, Ex::Name(n) if nm.protocols.contains(n));
                     if protocol(t) || matches!(t, Ex::Tuple(v) if v.iter().any(protocol)) {
-                        return Err(err(line, "isinstance with a Protocol class"));
+                        return Err(err(line, "issubclass with a Protocol class"));
                     }
                 }
             }
