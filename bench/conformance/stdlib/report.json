@@ -9,8 +9,8 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 938,
-"refused": 27,
+"matched": 942,
+"refused": 23,
 "by_design": 5,
 "string_model": 0,
 "cpython_private": 0,
@@ -24,16 +24,16 @@
 "scored": 972,
 "matched_through_cpython": 3,
 "matched_silent": 45,
-"coverage": 0.9619,
+"coverage": 0.966,
 "wrong": 0,
-"matched_asserting": 891,
-"assert_coverage": 0.9167,
+"matched_asserting": 895,
+"assert_coverage": 0.9208,
 "matched_typed": 23,
-"typed_share": 0.0246
+"typed_share": 0.0245
 },
 "dyn": {
-"matched": 938,
-"refused": 27,
+"matched": 942,
+"refused": 23,
 "by_design": 5,
 "string_model": 0,
 "cpython_private": 0,
@@ -47,10 +47,10 @@
 "scored": 972,
 "matched_through_cpython": 0,
 "matched_silent": 45,
-"coverage": 0.965,
+"coverage": 0.9691,
 "wrong": 0,
-"matched_asserting": 893,
-"assert_coverage": 0.9187,
+"matched_asserting": 897,
+"assert_coverage": 0.9228,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -490,8 +490,8 @@
 },
 "test_dataclasses": {
 "normal": {
-"matched": 212,
-"refused": 27,
+"matched": 216,
+"refused": 23,
 "by_design": 0,
 "string_model": 0,
 "cpython_private": 0,
@@ -505,16 +505,16 @@
 "scored": 246,
 "matched_through_cpython": 1,
 "matched_silent": 2,
-"coverage": 0.8577,
+"coverage": 0.874,
 "wrong": 0,
-"matched_asserting": 209,
-"assert_coverage": 0.8496,
+"matched_asserting": 213,
+"assert_coverage": 0.8659,
 "matched_typed": 0,
 "typed_share": 0.0
 },
 "dyn": {
-"matched": 212,
-"refused": 27,
+"matched": 216,
+"refused": 23,
 "by_design": 0,
 "string_model": 0,
 "cpython_private": 0,
@@ -528,10 +528,10 @@
 "scored": 246,
 "matched_through_cpython": 0,
 "matched_silent": 2,
-"coverage": 0.8618,
+"coverage": 0.878,
 "wrong": 0,
-"matched_asserting": 210,
-"assert_coverage": 0.8537,
+"matched_asserting": 214,
+"assert_coverage": 0.8699,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -539,14 +539,14 @@
 },
 "paths": {
 "normal": {
-"dynamic": 912,
-"refused": 32,
+"dynamic": 916,
+"refused": 28,
 "typed": 23,
 "pybridge": 3
 },
 "dyn": {
-"dynamic": 938,
-"refused": 32
+"dynamic": 942,
+"refused": 28
 }
 },
 "tests": [
@@ -9086,7 +9086,7 @@
 "id": "test_functools.TestLRUC.test_lru_recursion",
 "file": "test_functools",
 "category": "excluded",
-"detail": "skipped by CPython: get_c_recursion_limit() requires _testcapi, which the reference build lacks"
+"detail": "measures the recursion depth with _testinternalcapi (CPython's C internals)"
 },
 {
 "id": "test_functools.TestLRUC.test_lru_reentrancy_with_len",
@@ -14071,12 +14071,12 @@
 "file": "test_dataclasses",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found A"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "a generic class (`class C[T]`, PEP 695) is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -14085,12 +14085,12 @@
 "file": "test_dataclasses",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found RawBase"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "a generic class (`class C[T]`, PEP 695) is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -14099,12 +14099,12 @@
 "file": "test_dataclasses",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found WithSlots"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "a generic class (`class C[T]`, PEP 695) is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -14113,12 +14113,12 @@
 "file": "test_dataclasses",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found WithWeakrefSlot"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "a generic class (`class C[T]`, PEP 695) is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },

@@ -9,48 +9,48 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 659,
-"refused": 0,
-"by_design": 39,
+"matched": 925,
+"refused": 11,
+"by_design": 83,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 24,
-"unstable": 244,
+"not_extractable": 26,
+"unstable": 248,
 "excluded": 44,
-"total": 1010,
-"scored": 683,
+"total": 1337,
+"scored": 962,
 "matched_through_cpython": 0,
 "matched_silent": 98,
-"coverage": 0.9649,
+"coverage": 0.9615,
 "wrong": 0,
-"matched_asserting": 561,
-"assert_coverage": 0.8214,
+"matched_asserting": 827,
+"assert_coverage": 0.8597,
 "matched_typed": 27,
-"typed_share": 0.041
+"typed_share": 0.0292
 },
 "dyn": {
-"matched": 659,
-"refused": 0,
-"by_design": 39,
+"matched": 925,
+"refused": 11,
+"by_design": 83,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 24,
-"unstable": 244,
+"not_extractable": 26,
+"unstable": 248,
 "excluded": 44,
-"total": 1010,
-"scored": 683,
+"total": 1337,
+"scored": 962,
 "matched_through_cpython": 0,
 "matched_silent": 98,
-"coverage": 0.9649,
+"coverage": 0.9615,
 "wrong": 0,
-"matched_asserting": 561,
-"assert_coverage": 0.8214,
+"matched_asserting": 827,
+"assert_coverage": 0.8597,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -487,17 +487,65 @@
 "matched_typed": 0,
 "typed_share": 0.0
 }
+},
+"test_patma": {
+"normal": {
+"matched": 266,
+"refused": 11,
+"by_design": 44,
+"string_model": 0,
+"cpython_private": 0,
+"wrong_output": 0,
+"wrong_exit": 0,
+"crash_or_timeout": 0,
+"not_extractable": 2,
+"unstable": 4,
+"excluded": 0,
+"total": 327,
+"scored": 279,
+"matched_through_cpython": 0,
+"matched_silent": 0,
+"coverage": 0.9534,
+"wrong": 0,
+"matched_asserting": 266,
+"assert_coverage": 0.9534,
+"matched_typed": 0,
+"typed_share": 0.0
+},
+"dyn": {
+"matched": 266,
+"refused": 11,
+"by_design": 44,
+"string_model": 0,
+"cpython_private": 0,
+"wrong_output": 0,
+"wrong_exit": 0,
+"crash_or_timeout": 0,
+"not_extractable": 2,
+"unstable": 4,
+"excluded": 0,
+"total": 327,
+"scored": 279,
+"matched_through_cpython": 0,
+"matched_silent": 0,
+"coverage": 0.9534,
+"wrong": 0,
+"matched_asserting": 266,
+"assert_coverage": 0.9534,
+"matched_typed": 0,
+"typed_share": 0.0
+}
 }
 },
 "paths": {
 "normal": {
-"dynamic": 758,
-"refused": 39,
+"dynamic": 1024,
+"refused": 94,
 "typed": 27
 },
 "dyn": {
-"dynamic": 785,
-"refused": 39
+"dynamic": 1051,
+"refused": 94
 }
 },
 "tests": [
@@ -13402,6 +13450,4536 @@
 "dyn": {
 "category": "matched",
 "path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestCompiler.test_refleaks",
+"file": "test_patma",
+"category": "not_extractable",
+"detail": "uses open()"
+},
+{
+"id": "test_patma.TestInheritance.test_late_registration_mapping",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestInheritance.test_late_registration_sequence",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestInheritance.test_multiple_inheritance_mapping",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestInheritance.test_multiple_inheritance_sequence",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_000",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_001",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_002",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_003",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_004",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_005",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_006",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_007",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_008",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_009",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_010",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_011",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_012",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_013",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_014",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_015",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_016",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_017",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_018",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_019",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_020",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_021",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_022",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_023",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_024",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_025",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_026",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_027",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_028",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_029",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_030",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_031",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_032",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_033",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_034",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_035",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_036",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_037",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_038",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_039",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_040",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_041",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_042",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_043",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_044",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_045",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_046",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_047",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_048",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_049",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_050",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_051",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_052",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_053",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_054",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_055",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_056",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_057",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_058",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_059",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_060",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_061",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_062",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_063",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_064",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_065",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_066",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_067",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_068",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_069",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_070",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_071",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_072",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_073",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_074",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_075",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_076",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_077",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_078",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_079",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_080",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_081",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_082",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_083",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_084",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_085",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_086",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_087",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_088",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_089",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_090",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_091",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_092",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_093",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_094",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_095",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_096",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_097",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_098",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_099",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_100",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_101",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_102",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_103",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_104",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_105",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_106",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_107",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_108",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_109",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_110",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_111",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_112",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_113",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_114",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_115",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_116",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_117",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_118",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_119",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_120",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_121",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_122",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_123",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_124",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_125",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_126",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_127",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_128",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_129",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_130",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_131",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_132",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_133",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_134",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_135",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_136",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_137",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_138",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_139",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_140",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_141",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_142",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_143",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_144",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_145",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_146",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_147",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_148",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_149",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_150",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_151",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_152",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_153",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_154",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_155",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_156",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_157",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_158",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_159",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_160",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_161",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_162",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_163",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_164",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_165",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_166",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_167",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_168",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_169",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_170",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_171",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_172",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_173",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_174",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_175",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_176",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_177",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_178",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_179",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_180",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_181",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_182",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_183",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_184",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_185",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_186",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_187",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_188",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_189",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_190",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_191",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_192",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_193",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_194",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_195",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_196",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_197",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_198",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_199",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_200",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_201",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_202",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_203",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_204",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_205",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_206",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_207",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_208",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_209",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_210",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_211",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_212",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_213",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_214",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_215",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_216",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_217",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_218",
+"file": "test_patma",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_patma.TestPatma.test_patma_219",
+"file": "test_patma",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_patma.TestPatma.test_patma_220",
+"file": "test_patma",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_patma.TestPatma.test_patma_221",
+"file": "test_patma",
+"category": "unstable",
+"detail": "CPython's output changes with PYTHONHASHSEED"
+},
+{
+"id": "test_patma.TestPatma.test_patma_222",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_223",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_224",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_225",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_226",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_227",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_228",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_229",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_230",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_231",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_232",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_233",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_234",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_235",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_236",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_237",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_238",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_239",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_240",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_241",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_242",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_243",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_244",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_245",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_246",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_247",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_248",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_249",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_250",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_251",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_252",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_253",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_254",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_255",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_generic_protocol",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found P"
+},
+"dyn": {
+"category": "refused",
+"detail": "typing: isinstance with a Protocol class needs CPython's typing"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_protocol_with_match_args",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "`__bv_ms4` and a value kept elsewhere name the same list in Python, and `__bv_ms4` is changed (by a function the proof does not follow) while a value kept elsewhere is still used; the typed build woul"
+},
+"dyn": {
+"category": "refused",
+"detail": "typing: isinstance with a Protocol class needs CPython's typing"
+}
+}
+},
+{
+"id": "test_patma.TestPatma.test_patma_runtime_checkable_protocol",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "`__bv_ms4` and a value kept elsewhere name the same list in Python, and `__bv_ms4` is changed (by a function the proof does not follow) while a value kept elsewhere is still used; the typed build woul"
+},
+"dyn": {
+"category": "refused",
+"detail": "typing: isinstance with a Protocol class needs CPython's typing"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_alternative_patterns_bind_different_names_0",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_alternative_patterns_bind_different_names_1",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_attribute_name_repeated_in_class_pattern",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_imaginary_number_required_in_complex_literal_0",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_imaginary_number_required_in_complex_literal_1",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_invalid_syntax_0",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_invalid_syntax_1",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_invalid_syntax_2",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_invalid_syntax_3",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_len1_tuple_sequence_pattern_comma",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_mapping_pattern_duplicate_key",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_mapping_pattern_duplicate_key_edge_case0",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_mapping_pattern_duplicate_key_edge_case1",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_mapping_pattern_duplicate_key_edge_case2",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_mapping_pattern_duplicate_key_edge_case3",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_mapping_pattern_keys_may_only_match_literals_and_attribute_lookups",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_multiple_assignments_to_name_in_pattern_0",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_multiple_assignments_to_name_in_pattern_1",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_multiple_assignments_to_name_in_pattern_2",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_multiple_assignments_to_name_in_pattern_3",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_multiple_assignments_to_name_in_pattern_4",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_multiple_assignments_to_name_in_pattern_5",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_multiple_starred_names_in_sequence_pattern_0",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_multiple_starred_names_in_sequence_pattern_1",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_name_capture_makes_remaining_patterns_unreachable_0",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_name_capture_makes_remaining_patterns_unreachable_1",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_name_capture_makes_remaining_patterns_unreachable_2",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_name_capture_makes_remaining_patterns_unreachable_3",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_name_capture_makes_remaining_patterns_unreachable_4",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_patterns_may_only_match_literals_and_attribute_lookups_0",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_patterns_may_only_match_literals_and_attribute_lookups_1",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_real_number_multiple_ops",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_real_number_required_in_complex_literal_0",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_real_number_required_in_complex_literal_1",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_real_number_required_in_complex_literal_2",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_real_number_required_in_complex_literal_3",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_real_number_wrong_ops",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_wildcard_makes_remaining_patterns_unreachable_0",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_wildcard_makes_remaining_patterns_unreachable_1",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_wildcard_makes_remaining_patterns_unreachable_2",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_wildcard_makes_remaining_patterns_unreachable_3",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_wildcard_makes_remaining_patterns_unreachable_4",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestSyntaxErrors.test_wildcard_makes_remaining_patterns_unreachable_5",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestTypeErrors.test_accepts_positional_subpatterns_0",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestTypeErrors.test_accepts_positional_subpatterns_1",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestTypeErrors.test_class_pattern_not_type",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestTypeErrors.test_got_multiple_subpatterns_for_attribute_0",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestTypeErrors.test_got_multiple_subpatterns_for_attribute_1",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestTypeErrors.test_match_args_elements_must_be_strings",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestTypeErrors.test_match_args_must_be_a_tuple_0",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestTypeErrors.test_match_args_must_be_a_tuple_1",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestTypeErrors.test_match_args_must_be_a_tuple_2",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestTypeErrors.test_positional_patterns_with_regular_protocol",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found P"
+},
+"dyn": {
+"category": "refused",
+"detail": "typing: isinstance with a Protocol class needs CPython's typing"
+}
+}
+},
+{
+"id": "test_patma.TestTypeErrors.test_regular_protocol",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found P"
+},
+"dyn": {
+"category": "refused",
+"detail": "typing: isinstance with a Protocol class needs CPython's typing"
+}
+}
+},
+{
+"id": "test_patma.TestValueErrors.test_mapping_pattern_checks_duplicate_key_1",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
+},
+{
+"id": "test_patma.TestSourceLocations.test_jump_threading",
+"file": "test_patma",
+"category": "not_extractable",
+"detail": "imports dis"
+},
+{
+"id": "test_patma.TestTracing.test_default_capture",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "`__bv_ms1` and a value kept elsewhere name the same list in Python, and `__bv_ms1` is changed (by a function the proof does not follow) while a value kept elsewhere is still used; the typed build woul"
+},
+"dyn": {
+"category": "refused",
+"detail": "sys.gettrace is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestTracing.test_default_wildcard",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "`__bv_ms1` and a value kept elsewhere name the same list in Python, and `__bv_ms1` is changed (by a function the proof does not follow) while a value kept elsewhere is still used; the typed build woul"
+},
+"dyn": {
+"category": "refused",
+"detail": "sys.gettrace is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestTracing.test_no_default",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "`__bv_ms1` and a value kept elsewhere name the same list in Python, and `__bv_ms1` is changed (by a function the proof does not follow) while a value kept elsewhere is still used; the typed build woul"
+},
+"dyn": {
+"category": "refused",
+"detail": "sys.gettrace is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestTracing.test_only_default_capture",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected a name, found **"
+},
+"dyn": {
+"category": "refused",
+"detail": "sys.gettrace is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestTracing.test_only_default_wildcard",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected a name, found **"
+},
+"dyn": {
+"category": "refused",
+"detail": "sys.gettrace is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestTracing.test_parser_deeply_nested_patterns",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "by_design",
+"detail": "unknown function compile()"
+},
+"dyn": {
+"category": "by_design",
+"detail": "compile() is not supported in dynamic builds"
+}
+}
+},
+{
+"id": "test_patma.TestTracing.test_unreachable_code",
+"file": "test_patma",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected a name, found **"
+},
+"dyn": {
+"category": "refused",
+"detail": "sys.gettrace is not supported in dynamic builds"
 }
 }
 }
