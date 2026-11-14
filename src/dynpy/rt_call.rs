@@ -750,8 +750,11 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
         return r;
     }
     if c.module == "enum" || is_enum(c) {
-        if is_enum(c) {
+        if is_enum(c) || c.is_sub(&enum_base()) {
             return enum_call(c, a);
+        }
+        if Rc::ptr_eq(c, &eprop_class()) {
+            return eprop_new(a);
         }
         return Err(unsupported(&format!("enum.{}()", c.name)));
     }

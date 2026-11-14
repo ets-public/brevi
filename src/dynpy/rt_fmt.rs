@@ -347,8 +347,8 @@ pub fn repr(v: &V) -> Result<String, E> {
         }
         V::Class(c) if meta_has(c, "__repr__") => return meta_str(c, v, "__repr__"),
         V::Class(c) => {
-            if is_enum(c) {
-                format!("<{} '{}'>", if c.lookup("_flag_mask_").is_some() { "flag" } else { "enum" }, c.name)
+            if is_enum(c) || (c.module == "enum" && c.is_sub(&enum_base())) {
+                format!("<{} '{}'>", if is_flag(c) { "flag" } else { "enum" }, c.name)
             } else if c.module == "builtins" {
                 format!("<class '{}'>", c.name)
             } else {

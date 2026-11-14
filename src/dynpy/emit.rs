@@ -234,7 +234,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "string" => &["ascii_lowercase", "ascii_uppercase", "ascii_letters", "digits", "hexdigits", "octdigits", "punctuation", "whitespace", "printable"],
         "time" => &["time", "perf_counter", "monotonic", "process_time", "sleep", "time_ns", "perf_counter_ns", "monotonic_ns", "process_time_ns", "gmtime", "strftime"],
         "abc" => &["ABC", "ABCMeta", "abstractmethod", "_abc_register", "_check_methods"],
-        "enum" => &["Enum", "IntEnum", "StrEnum", "Flag", "IntFlag", "auto", "unique"],
+        "enum" => &["Enum", "IntEnum", "StrEnum", "Flag", "IntFlag", "auto", "unique", "property", "ReprEnum"],
         "_brevi_term" => &["columns"],
         "hashlib" => &["new", "md5", "sha1", "sha224", "sha256", "sha384", "sha512"],
         "base64" => &["b64encode", "b64decode", "standard_b64encode", "standard_b64decode", "urlsafe_b64encode", "urlsafe_b64decode", "encodebytes", "decodebytes", "b16encode", "b16decode"],
@@ -2067,7 +2067,7 @@ impl Em {
         match self.lookup(name) {
             Some(Var::Local(r)) => {
                 if let Some((av, ctx)) = cnv {
-                    format!("{r} = {};", self.q(&format!("enum_auto_store(&mut {av}, {ctx}, {}, {val})", lit(name))))
+                    format!("{r} = {};", self.q(&format!("enum_auto_store(&mut {av}, &mut {ctx}, {}, {val})", lit(name))))
                 } else {
                     format!("{r} = {val};")
                 }
@@ -2076,7 +2076,7 @@ impl Em {
             Some(Var::Global(i)) => format!("gs({i}, {val});"),
             Some(Var::NS(r)) => {
                 if let Some((av, ctx)) = cnv {
-                    let v = self.q(&format!("enum_auto_store(&mut {av}, {ctx}, {}, {val})", lit(name)));
+                    let v = self.q(&format!("enum_auto_store(&mut {av}, &mut {ctx}, {}, {val})", lit(name)));
                     let set = self.q(&format!("setitem(&{r}, &s({}), __v)", lit(name)));
                     format!("{{ let __v = {v}; {set}; }}")
                 } else {
@@ -4496,7 +4496,7 @@ impl Em {
         let av = format!("__auto_last{id}");
         let mut decls = String::new();
         write!(decls, "{base_decls}").unwrap();
-        write!(decls, "let {ctx}: i64 = enum_auto_ctx(&[{}]); let mut {av}: Vec<V> = vec![]; ", base_vars.iter().map(|v| format!("&{v}")).collect::<Vec<_>>().join(", ")).unwrap();
+        write!(decls, "let mut {ctx}: EnumCtx = enum_auto_ctx(&[{}]); let mut {av}: Vec<V> = vec![]; ", base_vars.iter().map(|v| format!("&{v}")).collect::<Vec<_>>().join(", ")).unwrap();
         if let Some(mx) = meta {
             // as __build_class__: the metaclass after the bases, then its __prepare__, then the body's own first
             // stores (__module__, __qualname__, __firstlineno__, SETUP_ANNOTATIONS, the docstring)
