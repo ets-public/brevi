@@ -412,6 +412,9 @@ pub fn own_dict_of(x: &V) -> R {
     Ok(V::View(Rc::new((V::Dict(Rc::new(RefCell::new(d))), 3))))
 }
 fn class_dict_with(c: &Rc<Class>, strict: bool) -> Result<Vec<(Sym, V)>, E> {
+    if is_enum(c) {
+        return enum_class_dict(c, true);
+    }
     let qn = c.qualname.get();
     if let Some(t) = tinfo(c) {
         if let Some(why) = t.inexact.get().filter(|_| strict) {
@@ -509,8 +512,9 @@ pub fn tdict_attr(c: &Rc<Class>, name: &str) -> Option<V> {
     None
 }
 
-fn merge_class_names(c: &Rc<Class>, out: &mut Vec<Sym>) -> Result<(), E> {
-    for (k, _) in class_dict(c)? {
+pub fn merge_class_names(c: &Rc<Class>, out: &mut Vec<Sym>) -> Result<(), E> {
+    let d = if is_enum(c) { enum_class_dict(c, false)? } else { class_dict(c)? };
+    for (k, _) in d {
         if !out.contains(&k) {
             out.push(k);
         }

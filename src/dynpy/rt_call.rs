@@ -512,6 +512,9 @@ fn make_class_impl(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, att
         };
         call(&f, Args::p(vec![V::Class(c.clone())]))?;
     }
+    if is_enum(&c) {
+        enum_made(&c);
+    }
     Ok(V::Class(c))
 }
 // ABCMeta's test: getattr(value, "__isabstractmethod__", False) is true. A def has it when @abstractmethod set
