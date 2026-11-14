@@ -3299,6 +3299,55 @@ pub fn sys_modules() -> V {
         V::Dict(s.get_or_insert_with(|| Rc::new(RefCell::new(Dict::new()))).clone())
     })
 }
+// The reads of sys.modules a dynamic build compiles, with what emit.rs (sysmod_key) knew of the key, always a
+// literal: Dict, the dict alone decides (what the program imported and stored); Startup, CPython 3.13 had it when
+// the script started (with the module, when the read takes it); Lits, the key is a parameter whose every call
+// passes one of these strs, each decided as that literal is (emit.rs sysmod_param_lits).
+pub enum SysKey {
+    Dict,
+    Startup(Option<V>),
+    Lits(&'static [&'static str], Vec<SysKey>),
+}
+impl SysKey {
+    // the literal's own SysKey; a value no call passes reached the def by reflection the build did not see
+    fn pick(self, k: &V) -> Result<SysKey, E> {
+        let SysKey::Lits(ls, keys) = self else { return Ok(self) };
+        let at = if let V::Str(t) = k { ls.iter().position(|l| *l == t.text()) } else { None };
+        match at {
+            Some(i) => keys.into_iter().nth(i).unwrap().pick(k),
+            None => Err(unsupported("sys.modules read with a key the calls of its def do not pass (the def was reached by reflection)")),
+        }
+    }
+}
+pub fn is_sys_mod(v: &V) -> bool {
+    matches!(v, V::Module(m) if m.0 == "sys")
+}
+pub fn sysmod_store(k: &V, v: V) -> Result<(), E> {
+    setitem(&sys_modules(), k, v)
+}
+pub fn sysmod_has(k: &V, key: SysKey) -> Result<bool, E> {
+    match key.pick(k)? {
+        SysKey::Startup(_) => Ok(true),
+        _ => contains(&sys_modules(), k),
+    }
+}
+pub fn sysmod_item(k: &V, key: SysKey) -> R {
+    let d = sys_modules();
+    match key.pick(k)? {
+        SysKey::Startup(Some(m)) if !contains(&d, k)? => {
+            setitem(&d, k, m.clone())?;
+            Ok(m)
+        }
+        _ => getitem(&d, k),
+    }
+}
+pub fn sysmod_get(k: &V, default: V, key: SysKey) -> R {
+    match key.pick(k)? {
+        st @ SysKey::Startup(_) => sysmod_item(k, st),
+        SysKey::Dict if !contains(&sys_modules(), k)? => Ok(default),
+        _ => getitem(&sys_modules(), k),
+    }
+}
 // `import m` records the module object the program bound to `m`, so `sys.modules['m'] is m`.
 pub fn sys_modules_set(name: &str, v: &V) -> R {
     if let V::Dict(d) = sys_modules() {
@@ -3413,7 +3462,8 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         ("sys", "flags") => sys_flags(),
         ("sys", "version") => s("3.13.0 (brevi)"),
         ("sys", "float_info") => return Err(unsupported("sys.float_info")),
-        ("sys", "modules") => sys_modules(),
+        // reached through a module object, not `sys.modules` in the source (which emit.rs checks)
+        ("sys", "modules") => return Err(unsupported("sys.modules reached through getattr or another name (dynamic builds read sys.modules[k], k in sys.modules and sys.modules.get(k))")),
         // CPython puts the script's folder first; a built program has only itself, so its folder stands in
         ("sys", "path") => list(vec![s(&std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_string_lossy().into_owned())).unwrap_or_default())]),
         ("sys.stdin", "buffer") => V::Module(&ModName("sys.stdin.buffer")),

@@ -1,0 +1,12 @@
+True True True True True
+True True True True
+False False False False True
+None 7 7
+KeyError 'math'
+True True True
+True True True True
+True True
+False True True
+True 42 42
+True False False False False
+['-', 42, '-']

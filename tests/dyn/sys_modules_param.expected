@@ -1,0 +1,3 @@
+True 6
+True True True
+(True, True, True) (True, True, False) (True, True, True)
