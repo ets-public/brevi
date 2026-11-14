@@ -2444,6 +2444,10 @@ pub fn call_method(o: &V, name: &str, mut a: Args) -> R {
             if is_ba_sub(o) && matches!(name, "__iadd__" | "__imul__") {
                 return call(&getattr(o, name)?, a);
             }
+            // dict.fromkeys called on a dict subclass instance runs on the subclass, which it builds
+            if name == "fromkeys" && matches!(inner_of(o), Some(V::Dict(_))) {
+                return call(&getattr(&V::Class(ob.cls.clone()), name)?, a);
+            }
             if let Some(inner) = inner_of(o) {
                 if is_date_sub(o) && matches!(name, "replace" | "__replace__" | "__add__" | "__radd__" | "__sub__" | "__rsub__") {
                     return Err(unsupported(&format!("{name} of an Enum member that wraps a date (CPython builds the Enum's class from the result)")));

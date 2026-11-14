@@ -446,6 +446,7 @@ fn __hash_key() -> (u64, u64) {
     let t = v.to_string_lossy();
     if t.is_empty() || t == "random" {
         use std::hash::{BuildHasher, Hasher};
+        HASH_RANDOM.store(true, std::sync::atomic::Ordering::Relaxed);
         let r = std::collections::hash_map::RandomState::new();
         let mut a = r.build_hasher();
         a.write_u8(0);

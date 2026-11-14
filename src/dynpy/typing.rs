@@ -1407,6 +1407,26 @@ pub fn pickled_set_subclass(body: &[Stmt]) -> Option<(usize, String)> {
     });
     found
 }
+// A program that imports re and names the builtin hash: the line of the first `hash`. CPython hashes a
+// re.Pattern over its compiled sre code (_sre.c pattern_hash), which Brevi's regex engine does not build, so the
+// build refuses rather than print another number (rt_core's py_hash also stops on a Pattern at run time).
+pub fn re_with_hash(mods: &[(&str, &[Stmt])]) -> Option<(String, usize)> {
+    if !mods.iter().any(|(_, b)| imports(b, "re")) {
+        return None;
+    }
+    for (m, body) in mods {
+        let mut found = None;
+        walk_all(body, &mut |e, line| {
+            if found.is_none() && matches!(e, Ex::Name(n) if n == "hash") {
+                found = Some(line);
+            }
+        });
+        if let Some(l) = found {
+            return Some((m.to_string(), l));
+        }
+    }
+    None
+}
 pub fn datetime_subclass(body: &[Stmt]) -> Option<(usize, String)> {
     const DT: [&str; 5] = ["date", "datetime", "time", "timedelta", "timezone"];
     let mut names: HashMap<String, String> = HashMap::new();

@@ -2198,9 +2198,7 @@ impl Ext for RPat {
             _ => false,
         })
     }
-    fn hash(&self) -> Option<i64> {
-        Some((self.prog.src.len() as i64) ^ if self.prog.bytes { 1 } else { 0 })
-    }
+    // no hash: CPython's covers the compiled sre code (rt_core py_hash refuses)
     fn attr(&self, _me: &V, n: &str) -> Option<R> {
         Some(Ok(match n {
             "pattern" if self.prog.scan_flags.is_some() => V::None,

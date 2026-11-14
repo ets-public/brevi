@@ -1484,6 +1484,8 @@ fn frexp(f: f64) -> (f64, i32) {
 // glue (HASH_KEY_FN in dynpy/mod.rs, set first thing in main), never the runtime's (caps.rs); unset (under
 // --sandbox) it is CPython's key at PYTHONHASHSEED=0, all zero.
 pub static HASH_KEY: std::sync::OnceLock<(u64, u64)> = std::sync::OnceLock::new();
+// set by the same glue when the key is random (PYTHONHASHSEED unset, empty or "random")
+pub static HASH_RANDOM: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 #[inline]
 fn hash_key() -> (u64, u64) {
     HASH_KEY.get().copied().unwrap_or((0, 0))
@@ -1684,6 +1686,7 @@ pub fn py_hash(v: &V) -> Result<i64, E> {
             Some(h) => h,
             None if memview_of(v).is_some() => return memview_hash(v).unwrap(),
             None if x.any().is::<SigV>() => return Err(unsupported("hash() of an inspect.Signature")),
+            None if x.any().is::<RPat>() => return Err(unsupported("hash() of a re.Pattern (CPython hashes its compiled sre code)")),
             None => return type_err(format!("unhashable type: '{}'", x.tname())),
         },
         // range_hash: hash((len, start, step)), start and step None when empty, step None for one item
