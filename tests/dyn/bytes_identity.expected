@@ -1,0 +1,56 @@
+slice True
+slice 0:n True
+slice ::1 True
+slice big True
+slice part False
+slice rev False
+mul 1 True
+rmul 1 True
+mul 2 False
+add empty True
+empty add True
+add bytearray True
+add more False
+bytes() True
+bytearray() False
+copy True
+replace none True
+replace 0 True
+replace same False
+replace real False
+strip True
+lstrip True
+rstrip True
+strip q True
+strip ws False
+join 1 True
+join 1 sep True
+join 2 False
+join sub False
+join bytearray False
+center True
+ljust True
+rjust True
+zfill True
+center wide False
+expandtabs False
+split True
+rsplit True
+split hit False
+split ws False
+splitlines True
+splitlines nl False
+partition True
+rpartition True
+partition hit False
+removeprefix True
+removesuffix True
+removeprefix hit False
+translate True
+translate delete True
+translate del hit False
+lower False
+upper False
+title False
+sub mul False
+sub replace False

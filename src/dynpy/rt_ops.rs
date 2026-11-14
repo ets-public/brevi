@@ -1122,12 +1122,18 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
             }
             return float_op(fx, fy, op, a, b);
         }
+        // CPython: an empty left gives the right str, else an empty right gives the left (the str itself)
+        (V::Str(x), V::Str(_)) if op == "+" && x.nchars() == 0 => return Ok(b.clone()),
+        (V::Str(_), V::Str(y)) if op == "+" && y.nchars() == 0 => return Ok(a.clone()),
         (V::Str(x), V::Str(y)) if op == "+" => return Ok(V::Str(Rc::new(x.concat(y)))),
         (V::List(x), V::List(y)) if op == "+" => {
             let mut v = x.borrow().clone();
             v.extend(y.borrow().iter().cloned());
             return Ok(list(v));
         }
+        // an empty right tuple gives the left tuple itself, else an empty left gives the right one
+        (V::Tuple(_), V::Tuple(y)) if op == "+" && y.is_empty() => return Ok(a.clone()),
+        (V::Tuple(x), V::Tuple(_)) if op == "+" && x.is_empty() => return Ok(b.clone()),
         (V::Tuple(x), V::Tuple(y)) if op == "+" => {
             let mut v = x.to_vec();
             v.extend(y.iter().cloned());
@@ -1136,6 +1142,10 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
         (V::Str(_) | V::List(_) | V::Tuple(_), n) | (n, V::Str(_) | V::List(_) | V::Tuple(_)) if op == "*" && is_intlike(n) => {
             let (sq, n) = if is_intlike(a) { (b, a) } else { (a, b) };
             let k = ival(n).unwrap_or(0).max(0) as usize;
+            // * 1 on an exact str or tuple is the object itself
+            if k == 1 && matches!(sq, V::Str(_) | V::Tuple(_)) && matches!(n, V::Int(_) | V::Bool(_)) {
+                return Ok(sq.clone());
+            }
             let len = match sq {
                 V::Str(x) if x.is_lone() => x.nchars() * 4,
                 V::Str(x) => x.text().len(),
@@ -1173,6 +1183,8 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
         (V::Str(_) | V::List(_) | V::Tuple(_), _) if op == "*" && (bytes_of(b).is_some() || !matches!(b, V::Obj(_) | V::Ext(_))) => {
             return type_err(format!("can't multiply sequence by non-int of type '{}'", tn(b)));
         }
+        // "%s" % s and "%s" % (s,) with an exact str: the str itself
+        (V::Str(f), _) if op == "%" && f.text() == "%s" && !f.is_lone() && pct_one_str(b).is_some() => return Ok(pct_one_str(b).unwrap()),
         (V::Str(f), _) if op == "%" => return Ok(V::Str(Rc::new(percent_format(f, b)?))),
         (V::Set(_) | V::FSet(_), V::Set(_) | V::FSet(_)) if matches!(op, "|" | "&" | "-" | "^") => {
             let r = set_op(&set_of(a).unwrap(), &set_of(b).unwrap(), op)?;
@@ -1337,6 +1349,14 @@ fn float_op(x: f64, y: f64, op: &str, a: &V, b: &V) -> R {
         }
         _ => return Err(op_err(op, a, b)),
     }).map(|r| V::Float(fresh_float(r)))
+}
+// the one exact str that a "%s" argument is (the str, or a 1-tuple of it)
+fn pct_one_str(b: &V) -> Option<V> {
+    match b {
+        V::Str(_) => Some(b.clone()),
+        V::Tuple(t) if t.len() == 1 && matches!(t[0], V::Str(_)) => Some(t[0].clone()),
+        _ => None,
+    }
 }
 pub fn add(a: &V, b: &V) -> R {
     if let (V::Int(x), V::Int(y)) = (a, b) {
@@ -2036,6 +2056,10 @@ pub fn getitem(c: &V, i: &V) -> R {
                 let b = sx.text().as_bytes();
                 let (a, e, stp) = slice_idx(sl, b.len())?;
                 if stp == 1 {
+                    // the whole str: the str itself
+                    if a <= 0 && e >= b.len() as i64 {
+                        return Ok(c.clone());
+                    }
                     let (a, e) = (a.max(0) as usize, e.max(0) as usize);
                     return Ok(if a >= e { s("") } else { st_ascii(&sx.text()[a..e]) });
                 }
@@ -2043,6 +2067,10 @@ pub fn getitem(c: &V, i: &V) -> R {
                 return Ok(st(ps.iter().map(|&p| b[p] as char).collect()));
             }
             let cs = str_chars(sx);
+            let (a0, e0, st0) = slice_idx(sl, cs.len())?;
+            if st0 == 1 && a0 <= 0 && e0 >= cs.len() as i64 {
+                return Ok(c.clone());
+            }
             let ps = slice_positions(sl, cs.len())?;
             return Ok(st(ps.iter().map(|&p| cs[p]).collect()));
         }
@@ -2057,6 +2085,11 @@ pub fn getitem(c: &V, i: &V) -> R {
             return Ok(list(ps.iter().map(|&p| l[p].clone()).collect()));
         }
         (V::Tuple(t), V::Slice(sl)) => {
+            // the whole tuple: the tuple itself
+            let (a0, e0, st0) = slice_idx(sl, t.len())?;
+            if st0 == 1 && a0 <= 0 && e0 >= t.len() as i64 {
+                return Ok(c.clone());
+            }
             let ps = slice_positions(sl, t.len())?;
             return Ok(tup(ps.iter().map(|&p| t[p].clone()).collect()));
         }

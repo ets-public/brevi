@@ -2703,6 +2703,10 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
             let mut out: Vec<u32> = vec![];
             let mut last = 0;
             let nsub = ms.len();
+            // CPython joins the pieces: a lone piece is returned as it is (the subject when nothing matched,
+            // the exact str a callable gave for a match of the whole subject)
+            let mut whole: Option<V> = None;
+            let one_whole = nsub == 1 && ms[0][0] == 0 && ms[0][1] == sc.len();
             for c in ms {
                 out.extend(sc[last..c[0]].iter());
                 if wrong_type {
@@ -2723,6 +2727,9 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
                                 None => return type_err(format!("sequence item 0: expected a bytes-like object, {} found", tn(&r))),
                             }
                         } else {
+                            if one_whole && matches!(r, V::Str(_)) {
+                                whole = Some(r.clone());
+                            }
                             match &r {
                                 V::Str(x) => match x.lone() {
                                     Some(v) => out.extend_from_slice(v),
@@ -2736,7 +2743,15 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
                 last = c[1];
             }
             out.extend(sc[last..].iter());
-            let rv = if prog.bytes { bytesv(out.iter().map(|&c| c as u8).collect()) } else { st_cps(out) };
+            let rv = if prog.bytes {
+                bytesv(out.iter().map(|&c| c as u8).collect())
+            } else if let Some(w) = whole {
+                w
+            } else if nsub == 0 && matches!(sv, V::Str(_)) {
+                sv.clone()
+            } else {
+                st_cps(out)
+            };
             Ok(if n == "subn" { tup(vec![rv, V::Int(nsub as i64)]) } else { rv })
         }
         "split" => {

@@ -2632,7 +2632,8 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
             for y in t.iter() {
                 v.push(deepcopy(y, memo)?);
             }
-            tup(v)
+            // copy._deepcopy_tuple: the tuple itself when every item copies to itself
+            if t.iter().zip(v.iter()).all(|(a, b)| is(a, b)) { x.clone() } else { tup(v) }
         }
         V::Dict(d) => {
             let n = Rc::new(RefCell::new(Dict::new()));

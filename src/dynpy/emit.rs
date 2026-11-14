@@ -1615,6 +1615,8 @@ pub enum ConstKey {
     Bool(bool),
     Ellipsis,
     Tuple(Vec<ConstKey>),
+    Bytes(String),
+    Imag(u64),
 }
 
 // An int literal's digits as a little-endian base-1e9 number, so 16, 0x10 and 0b10000 compare equal.
@@ -1653,6 +1655,29 @@ fn int_key(t: &str) -> (bool, Vec<u32>) {
     }
     let zero = mag.len() == 1 && mag[0] == 0;
     (neg && !zero, mag)
+}
+
+// CPython's constant key (_PyCode_ConstantKey) for a folded constant: equal keys are one object.
+fn cv_key(c: &super::constfold::CV) -> ConstKey {
+    use super::constfold::CV;
+    match c {
+        CV::Int(i) => {
+            let (neg, mag) = int_key(&i.to_string());
+            ConstKey::Int(neg, mag)
+        }
+        CV::BigLit(t) => {
+            let (neg, mag) = int_key(t);
+            ConstKey::Int(neg, mag)
+        }
+        CV::Float(f) => ConstKey::Float(f.to_bits()),
+        CV::Imag(f) => ConstKey::Imag(f.to_bits()),
+        CV::Str(s) => ConstKey::Str(s.clone()),
+        CV::Bytes(b) => ConstKey::Bytes(b.clone()),
+        CV::NoneV => ConstKey::NoneV,
+        CV::Bool(b) => ConstKey::Bool(*b),
+        CV::Ellipsis => ConstKey::Ellipsis,
+        CV::Tuple(xs) => ConstKey::Tuple(xs.iter().map(cv_key).collect()),
+    }
 }
 
 fn const_key(e: &Ex) -> ConstKey {
@@ -1701,9 +1726,14 @@ pub struct Em {
     globals: HashMap<(String, String), usize>,
     nglobals: usize,
     consts: Vec<String>,
-    const_idx: HashMap<String, usize>,
+    // (module, text): a str constant's slot; the module is "" for one CPython interns (constfold::all_name_chars)
+    const_idx: HashMap<(String, String), usize>,
+    // slots holding a bytes or tuple constant (a module's, as CPython's constant cache shares them): the Rust code
+    // that makes it, by slot, and the slot of each (module, constant)
+    kraw: HashMap<usize, String>,
+    kraw_idx: HashMap<(String, ConstKey), usize>,
     // str constants with a lone surrogate: hex code points -> slot in consts (whose text there is unused)
-    lone_idx: HashMap<String, usize>,
+    lone_idx: HashMap<(String, String), usize>,
     fstack: Vec<Func>,
     module: String,
     user_modules: Vec<String>,
@@ -1898,13 +1928,54 @@ impl Em {
         self.globals.insert((module.to_string(), name.to_string()), i);
         i
     }
+    // A str constant: one object for equal ones in the module, or in the program for one CPython interns.
     fn konst(&mut self, s: &str) -> String {
-        let i = match self.const_idx.get(s) {
+        let key = (if super::constfold::all_name_chars(s) { String::new() } else { self.module.clone() }, s.to_string());
+        let i = match self.const_idx.get(&key) {
             Some(&i) => i,
             None => {
                 let i = self.consts.len();
                 self.consts.push(s.to_string());
-                self.const_idx.insert(s.to_string(), i);
+                self.const_idx.insert(key, i);
+                i
+            }
+        };
+        format!("kc({i})")
+    }
+    // A constant CPython's compiler makes (constfold): a str, bytes or tuple is one object for equal ones in the
+    // module (a tuple's items are such constants too); a number is its value.
+    fn konst_cv(&mut self, c: &super::constfold::CV) -> String {
+        use super::constfold::CV;
+        let code = match c {
+            CV::Str(s) => return self.konst(s),
+            CV::Int(i) => {
+                return match i64::try_from(*i) {
+                    Ok(v) => format!("V::Int({v}i64)"),
+                    Err(_) => format!("parse_int({}, 10).unwrap()", lit(&i.to_string())),
+                };
+            }
+            CV::BigLit(t) => return self.ex(&Ex::Int(t.clone()), 0).unwrap(),
+            CV::Float(f) if f.is_infinite() => return (if *f > 0.0 { "V::Float(f64::INFINITY)" } else { "V::Float(f64::NEG_INFINITY)" }).into(),
+            CV::Float(f) => return format!("V::Float({f:?}f64)"),
+            CV::NoneV => return "V::None".into(),
+            CV::Bool(b) => return format!("V::Bool({b})"),
+            CV::Ellipsis => return "V::Ellipsis".into(),
+            CV::Imag(x) if x.is_infinite() => format!("bi___complex_lit(Args::p(vec![V::Float(f64::{})]))?", if *x > 0.0 { "INFINITY" } else { "NEG_INFINITY" }),
+            CV::Imag(x) => format!("bi___complex_lit(Args::p(vec![V::Float({x:?}f64)]))?"),
+            CV::Bytes(b) => format!("bi___bytes_lit(Args::p(vec![s({})]))?", lit(b)),
+            CV::Tuple(xs) => {
+                let items: Vec<String> = xs.iter().map(|x| self.konst_cv(x)).collect();
+                if items.is_empty() { "tup(vec![])".into() } else { format!("tupa([{}])", items.join(", ")) }
+            }
+        };
+        let key = (self.module.clone(), cv_key(c));
+        let i = match self.kraw_idx.get(&key) {
+            Some(&i) => i,
+            None => {
+                let i = self.consts.len();
+                self.consts.push(String::new());
+                self.kraw.insert(i, code);
+                self.kraw_idx.insert(key, i);
                 i
             }
         };
@@ -1913,12 +1984,13 @@ impl Em {
     // A str literal with a lone surrogate (the parser's __brevi_lone_str call): one constant per distinct value,
     // as CPython keeps one object for equal constants.
     fn konst_lone(&mut self, hex: &str) -> String {
-        let i = match self.lone_idx.get(hex) {
+        let key = (self.module.clone(), hex.to_string());
+        let i = match self.lone_idx.get(&key) {
             Some(&i) => i,
             None => {
                 let i = self.consts.len();
                 self.consts.push(String::new());
-                self.lone_idx.insert(hex.to_string(), i);
+                self.lone_idx.insert(key, i);
                 i
             }
         };
@@ -1944,6 +2016,10 @@ impl Em {
         }
     }
     // `expr?` or a jump to the innermost try block
+    // the program uses pickle, which writes each object once and then refers to it by identity
+    fn pickles(&self) -> bool {
+        ["pickle", "_pickle", "shelve", "copyreg", "multiprocessing"].iter().any(|m| self.bridge.modules.contains(*m))
+    }
     fn q(&self, code: &str) -> String {
         for fr in self.fstack.last().unwrap().frames.iter().rev() {
             match fr {
@@ -2098,6 +2174,24 @@ impl Em {
 
     // ---- expressions ----
     fn ex(&mut self, e: &Ex, line: usize) -> ER<String> {
+        // a str, bytes or tuple CPython's compiler folds to a constant (constfold): the module's one object
+        let foldable = match e {
+            Ex::Tuple(v) => !v.is_empty(),
+            Ex::Bin("+" | "*", ..) => true,
+            Ex::Call(f, _) => matches!(&**f, Ex::Name(n) if n == "__bytes_lit" || n == "__complex_lit"),
+            _ => false,
+        };
+        if foldable {
+            use super::constfold::{fold, Fold, CV};
+            match fold(e) {
+                Fold::Const(c @ (CV::Str(_) | CV::Bytes(_) | CV::Tuple(_) | CV::Imag(_))) => return Ok(self.konst_cv(&c)),
+                // which tuple object it is, pickle writes (its memo is by identity)
+                Fold::Unknown if matches!(e, Ex::Tuple(_)) && self.pickles() => {
+                    return Err(err(line, "a tuple of constants whose folding CPython's compiler does differently (2 ** 0.5, 1 << 200, complex or big-int arithmetic) in a program that pickles is not supported in dynamic builds"));
+                }
+                _ => {}
+            }
+        }
         Ok(match e {
             Ex::Name(n) if self.ann_tvars.contains(n) => format!("pep695_typevar({})", lit(n)),
             Ex::Name(n) => self.load(n, line)?,
@@ -2132,6 +2226,13 @@ impl Em {
             Ex::True => "V::Bool(true)".into(),
             Ex::False => "V::Bool(false)".into(),
             Ex::Ellipsis => "V::Ellipsis".into(),
+            // f"{x}", f"{x!s}", f"{x:}": format(x, "") is the exact str itself
+            Ex::FStr(parts) if matches!(&parts[..], [FPart::Expr(_, None | Some('s'), spec, _)] if spec.is_empty()) => {
+                let FPart::Expr(e, _, _, _) = &parts[0] else { unreachable!() };
+                let ee = self.ex(e, line)?;
+                let t = self.q("to_str(&__x)");
+                format!("{{ let __x = {ee}; if let V::Str(_) = &__x {{ __x }} else {{ let mut __s = Txt::new(); __s.push_str(&{t}); txt_v(__s) }} }}")
+            }
             Ex::FStr(parts) => {
                 let body = self.fparts(parts, line)?;
                 format!("txt_v({{ let mut __s = Txt::new(); {body} __s }})")
@@ -4874,6 +4975,8 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         nglobals: 0,
         consts: vec![],
         const_idx: HashMap::new(),
+        kraw: HashMap::new(),
+        kraw_idx: HashMap::new(),
         lone_idx: HashMap::new(),
         fstack: vec![],
         module: String::new(),
@@ -5083,10 +5186,12 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     for m in mods.iter().filter(|m| !libs.iter().any(|l| l.name == m.name)) {
         out.push_str(&gtab(&em, &m.name));
     }
-    let lone: HashMap<usize, &String> = em.lone_idx.iter().map(|(h, &i)| (i, h)).collect();
-    let consts: Vec<String> = em.consts.iter().enumerate().map(|(i, c)| match lone.get(&i) {
-        Some(h) => format!("lone_lit({})", lit(h)),
-        None => format!("s({})", lit(c)),
+    let lone: HashMap<usize, &String> = em.lone_idx.iter().map(|(h, &i)| (i, &h.1)).collect();
+    // one slot at a time: a tuple constant reads the slots of its items, made before it
+    let consts: Vec<String> = em.consts.iter().enumerate().map(|(i, c)| match (lone.get(&i), em.kraw.get(&i)) {
+        (Some(h), _) => format!("{{ let k = lone_lit({}); (*std::ptr::addr_of_mut!(K)).push(k); }}", lit(h)),
+        (_, Some(code)) => format!("{{ let k = {code}; (*std::ptr::addr_of_mut!(K)).push(k); }}"),
+        _ => format!("{{ let k = s({}); (*std::ptr::addr_of_mut!(K)).push(k); }}", lit(c)),
     }).collect();
     // re's \N{NAME}: the name table goes into programs whose source may hold such a pattern
     let uname = em.uses_re && em.bridge.srcs.values().any(|(_, t)| t.contains("\\N{"));
@@ -5111,9 +5216,9 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     };
     write!(
         out,
-        "fn __run() -> Result<(), E> {{ unsafe {{ GL = vec![V::Unbound; {}]; K = vec![{}]; }} USER_MOD.with(|u| u.set(Some(user_mod))); MAIN_GTAB.with(|u| u.set(Some(gtab___main__))); {}{}{} let r = init___main__(); fin_point(); r }}\nfn main() {{ run_main(__run); }}\n",
+        "fn __run() -> Result<(), E> {{ unsafe {{ GL = vec![V::Unbound; {}]; K = Vec::new(); {} }} USER_MOD.with(|u| u.set(Some(user_mod))); MAIN_GTAB.with(|u| u.set(Some(gtab___main__))); {}{}{} let r = init___main__(); fin_point(); r }}\nfn main() {{ run_main(__run); }}\n",
         em.nglobals.max(1),
-        consts.join(", "),
+        consts.join(" "),
         del_on,
         // the program uses CPython's warnings module: the warnings the runtime issues go through it
         if em.bridged_used.contains("warnings") { " set_warn_bridge(pyd_warn_at); pyd_warn_install()?;" } else { "" },
