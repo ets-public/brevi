@@ -936,6 +936,9 @@ pub fn isinstance(x: &V, c: &V) -> Result<bool, E> {
             if let Some(r) = abc_bridge(k, x, false) {
                 return r;
             }
+            if let Some(p) = proto_info(k) {
+                return proto_instancecheck(k, &p, x);
+            }
             if k.abc.get() {
                 // CPython's exact-type shortcut comes before the metaclass's __instancecheck__
                 if let V::Obj(o) = x {
@@ -1581,6 +1584,9 @@ pub fn bi_issubclass(a: Args) -> R {
                 let Some(sub) = &sub else {
                     return type_err("issubclass() arg 1 must be a class".into());
                 };
+                if proto_info(k).is_some() {
+                    return Err(unsupported("issubclass() with a Protocol class"));
+                }
                 if k.abc.get() {
                     abc_subclasscheck(k, sub)
                 } else {
