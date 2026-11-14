@@ -1,0 +1,11 @@
+('area', 'area', 'Width times height.', '__main__', True, False, True, True, 'function', False, False, (2,), 'shape')
+('gen', 'gen', None, '__main__', True, False, True, True, 'function', False, True, None, None)
+('<lambda>', '<lambda>', None, '__main__', True, False, True, True, 'function', False, False, None, None)
+('size', 'Box.size', "The box's size.", '__main__', False, True, True, True, 'method', False, False, None, None)
+('inner', 'Box.nested.<locals>.inner', None, '__main__', True, False, True, True, 'function', False, False, None, None)
+Holder
+([1, 2], True)
+area Width times height. 6 True shape
+Width times height. The box's size.
+True True __main__
+(True, True, False, 'fn', 'meth', True, True, False, "<class 'function'>", 'method', 'builtins', True, False, True, True, True, 'kinds', True, True, False, True)

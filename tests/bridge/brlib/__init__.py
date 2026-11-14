@@ -123,3 +123,47 @@ class Money:
 
     def __bool__(self):
         return self.cents != 0
+
+
+# What a library reads off a function the program hands it (tests/bridge/func_introspect.py).
+def about(f):
+    return (f.__name__, f.__qualname__, f.__doc__, f.__module__, inspect.isfunction(f), inspect.ismethod(f),
+            inspect.isroutine(f), callable(f), type(f).__name__, inspect.iscoroutinefunction(f),
+            inspect.isgeneratorfunction(f), f.__defaults__, getattr(f, "tag", None))
+
+
+# A function put in a class binds as a method, as a def does.
+def as_method(f):
+    class Holder:
+        m = f
+    return Holder().m()
+
+
+def registry(*fs):
+    seen = {}
+    for f in fs:
+        seen[f] = seen.get(f, 0) + 1
+    return sorted(seen.values()), fs[0] in seen
+
+
+def wrap(f):
+    import functools
+
+    @functools.wraps(f)
+    def w(*a, **k):
+        return f(*a, **k)
+    return w
+
+
+# What a library learns from type(f) of a program function or method: CPython's FunctionType and MethodType.
+def kinds(f, m):
+    import copy
+    import pickle
+    import types
+    tf, tm = type(f), type(m)
+    seen = {types.FunctionType: "fn", types.MethodType: "meth"}
+    return (tf == types.FunctionType, types.FunctionType == tf, tf != types.FunctionType, seen.get(tf), seen.get(tm),
+            tf in (int, types.FunctionType), tm == types.MethodType, tf == tm, repr(tf), tm.__name__, tf.__module__,
+            isinstance(f, tf), isinstance(len, tf), isinstance(m, tm), copy.copy(f) is f, copy.deepcopy(f) is f,
+            tf(kinds.__code__, {}).__name__, hash(tf) == hash(types.FunctionType), copy.copy(m) == m, copy.copy(m) is m,
+            pickle.loads(pickle.dumps(f)) == f)

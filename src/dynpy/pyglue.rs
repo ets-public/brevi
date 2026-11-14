@@ -34,6 +34,12 @@ static PYD_DEQ: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atom
 static PYD_DEQIT: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_BRNEW: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_MKOBJ: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+// _BrFn and _BrMeth (see PYD_HELPERS): the stand-ins a library sees for the program's defs and bound methods
+static PYD_BRFN: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+static PYD_BRMETH: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+// _mkfn and _mkmeth: make one (calling the classes is FunctionType(...) and MethodType(...), as a library expects)
+static PYD_MKFN: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+static PYD_MKMETH: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_PDUMPS: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_PDUMP: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 thread_local! {
@@ -321,6 +327,96 @@ def _bf_reduce(f):
     return (_glob, (r[1], r[2]))
 import copyreg as _cr
 _cr.dispatch_table[type(len)] = _bf_reduce
+# A def or lambda of the program (_BrFn) or one of its bound methods (_BrMeth), as a library sees it. A plain
+# builtin stand-in answered wrongly: no __name__ or __doc__ (inspect.getdoc gave None), no __code__ (dis raised
+# TypeError, inspect.signature ValueError), inspect.isfunction False. This one answers from the program's own
+# value (_d._fget): its names, doc, defaults, attributes, co_flags and co_name; isinstance sees a function (a
+# method), and it binds as one when a library puts it in a class. What compiled code cannot answer truly (its
+# bytecode, other co_* fields, __globals__, __closure__, writes to __dict__) raises NotImplementedError("brevi:
+# ..."), the dynamic build's refusal, never a wrong answer. The library's call reaches the program through b.
+# type(f) is _BrFn, whose metaclass _BrT answers as FunctionType (MethodType for _BrMeth) does: ==, hash (so a
+# dict or set keyed by FunctionType finds it), attributes, repr, isinstance, calling it. Only identity (`is`, id),
+# issubclass(type(f), FunctionType) and type(type(f)) can tell them apart: CPython checks those on the C type.
+_tga = type.__getattribute__
+class _BrT(type):
+    def __getattribute__(c, n): return getattr(_tga(c, '_as'), n)
+    def __setattr__(c, n, v): _no('a Python library setting an attribute of the function type')
+    def __delattr__(c, n): _no('a Python library deleting an attribute of the function type')
+    def __eq__(c, o): return o is c or o is _tga(c, '_as')
+    def __ne__(c, o): return not (o is c or o is _tga(c, '_as'))
+    def __hash__(c): return hash(_tga(c, '_as'))
+    def __repr__(c): return repr(_tga(c, '_as'))
+    def __dir__(c): return dir(_tga(c, '_as'))
+    def __instancecheck__(c, x): return isinstance(x, _tga(c, '_as'))
+    def __subclasscheck__(c, s): return issubclass(s, _tga(c, '_as'))
+    def __call__(c, *a, **k): return _tga(c, '_as')(*a, **k)
+_isbr = lambda o: type.__instancecheck__(_BrFn, o)  # isinstance(o, _BrFn) is isinstance(o, FunctionType)
+class _BrFn(metaclass=_BrT):
+    __slots__ = ('b', '__weakref__')
+    def __init__(s, b): object.__setattr__(s, 'b', b)
+    def __call__(s, /, *a, **k): return s.b(*a, **k)
+    def __getattr__(s, n):
+        if n == '__code__':
+            k, v = _d._fcode(s.b)
+            return _BrCode(v) if k else v
+        if n == '__kwdefaults__':
+            v = _d._fget(s.b, n)
+            return v if v is None else _BrDict(v)
+        return _d._fget(s.b, n)
+    def __setattr__(s, n, v): _d._fset(s.b, n, v)
+    def __delattr__(s, n): _d._fdel(s.b, n)
+    def __get__(s, obj, typ=None): return s if obj is None else _t.MethodType(s, obj)
+    def __repr__(s): return _d._frepr(s.b)
+    def __eq__(s, o): return _d._feq(s.b, o.b) if _isbr(o) else NotImplemented
+    def __ne__(s, o): return not _d._feq(s.b, o.b) if _isbr(o) else NotImplemented
+    def __hash__(s): return _d._fhash(s.b)
+    # copy finds FunctionType's entry for type(f) (kept as is); pickle reaches here by reference, as for a def
+    # __reduce_ex__, not __reduce__: object.__reduce_ex__ looks __reduce__ up on type(f), which answers as FunctionType
+    def __reduce_ex__(s, proto): return _bf_reduce(s.b)
+    __class__ = property(lambda s: _t.FunctionType)
+    __doc__ = property(lambda s: _d._fget(s.b, '__doc__'))
+    __module__ = property(lambda s: _d._fget(s.b, '__module__'))
+    # a property, so that object.__getattribute__(f, '__dict__') (inspect.getattr_static) finds it too
+    __dict__ = property(lambda s: _BrDict(_d._fget(s.b, '__dict__')))
+class _BrMeth(_BrFn):
+    __slots__ = ()
+    def __get__(s, obj, typ=None): return s
+    __class__ = property(lambda s: _t.MethodType)
+    # a new method of the same function and object, as CPython's method.__reduce__ gives copy (pickle refuses b)
+    def __reduce_ex__(s, proto): return (_mcopy, (s.b,))
+    # a class body sets its own __doc__ and __module__: the inherited properties again
+    __doc__, __module__ = _tga(_BrFn, '__dict__')['__doc__'], _tga(_BrFn, '__dict__')['__module__']
+for _k, _n, _a in ((_BrFn, 'function', _t.FunctionType), (_BrMeth, 'method', _t.MethodType)):
+    type.__setattr__(_k, '__name__', _n)
+    type.__setattr__(_k, '__qualname__', _n)
+    type.__setattr__(_k, '_as', _a)
+def _mkfn(b):
+    o = object.__new__(_BrFn)
+    object.__setattr__(o, 'b', b)
+    return o
+def _mkmeth(b):
+    o = object.__new__(_BrMeth)
+    object.__setattr__(o, 'b', b)
+    return o
+def _mcopy(b):
+    return _mkmeth(b)
+_mcopy.__module__ = '_brevi_dyn'
+_d._mcopy = _mcopy
+def _no(what):
+    raise NotImplementedError('brevi: ' + what + ' is not supported in dynamic builds')
+class _BrCode:
+    __slots__ = ('g',)
+    def __init__(s, g): object.__setattr__(s, 'g', g)
+    def __getattr__(s, n): return s.g(n)
+    def __setattr__(s, n, v): _no("setting an attribute of a compiled function's code object")
+    def __repr__(s): return s.g('__repr__')
+    __class__ = property(lambda s: _t.CodeType)
+_BrCode.__name__ = _BrCode.__qualname__ = 'code'
+class _BrDict(dict):
+    __slots__ = ()
+    def _w(s, *a, **k): _no("a Python library changing a compiled function's __dict__ or __kwdefaults__")
+    __setitem__ = __delitem__ = update = pop = popitem = clear = setdefault = __ior__ = _w
+_d.fn_t, _d.meth_t, _d.mkfn, _d.mkmeth = _BrFn, _BrMeth, _mkfn, _mkmeth
 _s.modules['_brevi_dyn'] = _d
 "#;
 
@@ -901,7 +997,7 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
         (a.DecRef)(p);
         return r;
     }
-    if t == PYD_BRIT.load(std::sync::atomic::Ordering::Relaxed) || t == PYD_BRRED.load(std::sync::atomic::Ordering::Relaxed) {
+    if t == PYD_BRIT.load(std::sync::atomic::Ordering::Relaxed) || t == PYD_BRRED.load(std::sync::atomic::Ordering::Relaxed) || t == pyd_ptr(&PYD_BRFN) || t == pyd_ptr(&PYD_BRMETH) {
         // an iterator of the program that went into Python (a library returned it, or types.coroutine)
         let b = (a.GetAttr)(p, c"b".as_ptr());
         if !b.is_null() {
@@ -1230,7 +1326,27 @@ unsafe fn pyd_register(a: &ax_pyffi::Api) -> bool {
         (Some(it), Some(st)) => iter_setstate_v(it, st),
         _ => type_err("__setstate__() takes exactly one argument".into()),
     });
-    for (n, f) in [(c"_ref", func(sym("_ref"), pickle_ref)), (c"_lookup", func(sym("_lookup"), pickle_lookup_fn)), (c"setstate", setstate), (c"_rebuild_obj", func(sym("_rebuild_obj"), pickle_rebuild))] {
+    let fns = [
+        (c"_ref", func(sym("_ref"), pickle_ref)),
+        (c"_lookup", func(sym("_lookup"), pickle_lookup_fn)),
+        (c"setstate", setstate),
+        (c"_rebuild_obj", func(sym("_rebuild_obj"), pickle_rebuild)),
+        (c"_fget", func(sym("_fget"), brfn_get)),
+        (c"_fcode", func(sym("_fcode"), brfn_code)),
+        (c"_fset", func(sym("_fset"), |a: Args| {
+            let (f, n, v) = (a.p.first().cloned().unwrap_or(V::None), to_str(a.p.get(1).unwrap_or(&V::None))?, a.p.get(2).cloned().unwrap_or(V::None));
+            // these change how CPython's function runs or what it is; the compiled one would not follow
+            if matches!(n.as_str(), "__code__" | "__defaults__" | "__kwdefaults__" | "__globals__" | "__closure__" | "__builtins__" | "__class__" | "__dict__") {
+                return Err(unsupported(&format!("a Python library setting {n} of a compiled function")));
+            }
+            setattr(&f, sym(&n), v).map(|_| V::None)
+        })),
+        (c"_fdel", func(sym("_fdel"), |a: Args| delattr(a.p.first().unwrap_or(&V::None), &to_str(a.p.get(1).unwrap_or(&V::None))?).map(|_| V::None))),
+        (c"_frepr", func(sym("_frepr"), |a: Args| Ok(st(repr(a.p.first().unwrap_or(&V::None))?)))),
+        (c"_feq", func(sym("_feq"), |a: Args| Ok(V::Bool(eq(a.p.first().unwrap_or(&V::None), a.p.get(1).unwrap_or(&V::None))?)))),
+        (c"_fhash", func(sym("_fhash"), |a: Args| bi_hash(Args::p(vec![a.p.first().cloned().unwrap_or(V::None)])))),
+    ];
+    for (n, f) in fns {
         if !ok {
             break;
         }
@@ -1243,7 +1359,7 @@ unsafe fn pyd_register(a: &ax_pyffi::Api) -> bool {
         }
     }
     // kept for the program's life (the references are never given back)
-    for (n, at) in [(c"deq_t", &PYD_DEQ), (c"deqit_t", &PYD_DEQIT), (c"brnew_t", &PYD_BRNEW), (c"_mkobj", &PYD_MKOBJ)] {
+    for (n, at) in [(c"deq_t", &PYD_DEQ), (c"deqit_t", &PYD_DEQIT), (c"brnew_t", &PYD_BRNEW), (c"_mkobj", &PYD_MKOBJ), (c"fn_t", &PYD_BRFN), (c"meth_t", &PYD_BRMETH), (c"mkfn", &PYD_MKFN), (c"mkmeth", &PYD_MKMETH)] {
         if !ok {
             break;
         }
@@ -2006,10 +2122,85 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
             PYD_BRIT.store(t, std::sync::atomic::Ordering::Relaxed);
             o
         }
-        V::Func(_) | V::Bound(_) | V::BMeth(_) | V::Class(_) => pyd_callable(v)?,
+        // a def or lambda (not a builtin, a staticmethod or classmethod object) and a bound method of the program
+        V::Func(f) if f.kind.get() == 0 => pyd_brfn(v, &PYD_MKFN)?,
+        V::Bound(_) => pyd_brfn(v, &PYD_MKMETH)?,
+        V::Func(_) | V::BMeth(_) | V::Class(_) => pyd_callable(v)?,
         V::Obj(o) if o.cls.lookup("__call__").is_some() => pyd_callable(v)?,
         _ => return type_err(format!("brevi: a '{}' object cannot be passed to a Python library in a dynamic build", tn(v))),
     })
+}
+
+// The _BrFn or _BrMeth (made by `t`, _mkfn or _mkmeth) a library sees for function or bound method `v` (see PYD_HELPERS).
+unsafe fn pyd_brfn(v: &V, t: &std::sync::atomic::AtomicPtr<std::ffi::c_void>) -> Result<P, E> {
+    let a = pyd_api();
+    let t = pyd_ptr(t);
+    let b = pyd_callable(v)?;
+    if t.is_null() {
+        // _brevi_dyn did not start: the plain callable, as before
+        return Ok(b);
+    }
+    let args = (a.TupleNew)(1);
+    (a.TupleSet)(args, 0, b);
+    let r = (a.Call)(t, args, std::ptr::null_mut());
+    (a.DecRef)(args);
+    pyd_own(r)
+}
+
+// What a library reading attribute `n` of a program function (through _BrFn) gets: the program's own answer,
+// except for what compiled code has no true answer to.
+fn brfn_get(a: Args) -> R {
+    let f = a.p.first().cloned().unwrap_or(V::None);
+    let n = to_str(a.p.get(1).unwrap_or(&V::None))?;
+    let n = if let V::Bound(b) = &f {
+        // a bound method's own fields, the rest from its function, as CPython's method does
+        match n.as_str() {
+            "__func__" => return Ok(b.1.clone()),
+            "__self__" => return Ok(b.0.clone()),
+            _ => return brfn_get(Args::p(vec![b.1.clone(), st(n)])),
+        }
+    } else {
+        n
+    };
+    match n.as_str() {
+        "__globals__" | "__closure__" | "__builtins__" => Err(unsupported(&format!("a Python library reading {n} of a compiled function"))),
+        // every CPython function has these: one this build did not record is refused, never missing
+        "__defaults__" | "__kwdefaults__" if !f_assigned(&f, &n) => match &f {
+            V::Func(x) => sig_defaults(x, n == "__kwdefaults__").ok_or_else(|| unsupported(&format!("a Python library reading {n} of this compiled function"))),
+            _ => getattr(&f, &n),
+        },
+        "__annotations__" | "__defaults__" | "__kwdefaults__" | "__type_params__" | "__dict__" | "__doc__" | "__module__" | "__name__" | "__qualname__" => match getattr(&f, &n) {
+            Err(e) if is_exc(&e.0, "AttributeError") => Err(unsupported(&format!("a Python library reading {n} of this compiled function"))),
+            r => r,
+        },
+        _ => getattr(&f, &n),
+    }
+}
+
+// Whether the program assigned attribute n to function f (kept in its attrs).
+fn f_assigned(f: &V, n: &str) -> bool {
+    matches!(f, V::Func(x) if x.attrs.borrow().iter().any(|(k, _)| *k == n))
+}
+
+// f.__code__ for a library: (1, getter) for the program's code object, read through _BrCode, whose fields it
+// cannot answer truly (co_code and the rest) are refused (CodeObj::attr); (0, value) for one the program assigned.
+fn brfn_code(a: Args) -> R {
+    let mut f = a.p.first().cloned().unwrap_or(V::None);
+    if let V::Bound(b) = &f {
+        f = b.1.clone();
+    }
+    match getattr(&f, "__code__") {
+        Ok(c @ V::Ext(_)) if tn(&c) == "code" => Ok(tup(vec![V::Int(1), func(sym("code"), move |a: Args| {
+            let n = to_str(a.p.first().unwrap_or(&V::None))?;
+            if n == "__repr__" {
+                return Ok(st(repr(&c)?));
+            }
+            getattr(&c, &n)
+        })])),
+        Ok(v) => Ok(tup(vec![V::Int(0), v])),
+        // a def whose build recorded no code flags: CPython's has a code object, this build cannot make it
+        Err(_) => Err(unsupported("a Python library reading __code__ of this compiled function")),
+    }
 }
 
 // A deque of the program, or an instance of a subclass of deque, going into pickle.dumps or pickle.dump (only

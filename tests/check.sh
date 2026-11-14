@@ -766,6 +766,17 @@ B=$BREVI; case $B in /*) ;; *) B=$PWD/$B ;; esac
 o=$(cd "$t" && BREVI_DYN=1 $B run m.py 2>&1)
 case "$o" in *"async code with a library CPython runs (brlib)"*) echo "ok   async code handing a coroutine to a bridged library is refused" ;; *) echo "FAIL async code handing a coroutine to a bridged library"; printf '%s\n' "$o"; fail=1 ;; esac
 rm -rf "$t"
+# A compiled function has no CPython bytecode: a bridged library that reads it (dis loaded through importlib,
+# inspect.signature reading co_argcount) gets the dynamic build's refusal, never a TypeError CPython would not raise.
+t=$(mktemp -d)
+printf 'import importlib\ndis = importlib.import_module("dis")\ndef f(x):\n    return x\ntry:\n    print(list(dis.get_instructions(f)))\nexcept TypeError as e:\n    print("TypeError", e)\n' > "$t/via_dis.py"
+printf 'import importlib\ndef f(x, y=2):\n    return x\nprint(importlib.import_module("inspect").signature(f))\n' > "$t/via_sig.py"
+for c in "dis:brevi: the code object's co_code" "sig:brevi: the code object's co_argcount"; do
+  n=${c%%:*}; want=${c#*:}
+  o=$(cd "$t" && BREVI_DYN=1 $B run via_$n.py 2>&1)
+  case "$o" in *"$want"*) echo "ok   a bridged library reading a compiled function's bytecode is refused ($n)" ;; *) echo "FAIL a bridged library reading a compiled function's bytecode is refused ($n)"; printf '%s\n' "$o" | tail -3; fail=1 ;; esac
+done
+rm -rf "$t"
 # Under the C locale (no LANG), text files a bridged library reads decode as UTF-8, as in python3 (#211).
 f=tests/bridge/c_locale/read_utf8.py
 out=$(env -u LANG -u LC_ALL -u LC_CTYPE $BREVI run --native "$f" 2>/dev/null)
