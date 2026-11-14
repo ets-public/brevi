@@ -2361,11 +2361,8 @@ impl PSet {
                         Some(f) => Probe::Absent(f, true),
                         None => Probe::Absent(i + j, false),
                     }),
-                    Slot::Dummy => {
-                        if free.is_none() {
-                            free = Some(i + j);
-                        }
-                    }
+                    // the last dummy on the probe path (CPython's set_add_entry keeps overwriting freeslot)
+                    Slot::Dummy => free = Some(i + j),
                     Slot::Full(x, xh) if *xh == h && (same_obj(x, k) || eq(x, k)?) => return Ok(Probe::Found(i + j)),
                     Slot::Full(..) => {}
                 }
@@ -2401,9 +2398,7 @@ impl PSet {
                             ))
                         }
                         Slot::Dummy => {
-                            if free.is_none() {
-                                free = Some(i + j);
-                            }
+                            free = Some(i + j);
                             continue;
                         }
                         Slot::Full(x, xh) if *xh == h => {
@@ -2613,6 +2608,15 @@ impl PSet {
             }
         }
     }
+    // the end of set_difference_update_internal: more than a quarter of the table dummies is resized away
+    pub fn resize_dummies(&mut self) {
+        if self.fill - self.used > self.mask() / 4 {
+            self.resize(if self.used > 50000 { self.used * 2 } else { self.used * 4 });
+        }
+    }
+    pub fn cell_resize_dummies(c: &RefCell<PSet>) {
+        c.borrow_mut().resize_dummies();
+    }
     pub fn discard(&mut self, k: &V) -> Result<bool, E> {
         let h = py_hash(k)?;
         match self.find(k, h)? {
@@ -2674,7 +2678,7 @@ impl PSet {
         }
         self.ver = pset_ver();
         self.hash.set(-1);
-        if self.t.len() == o.t.len() {
+        if self.t.len() == o.t.len() && o.fill == o.used {
             for (i, s) in o.t.iter().enumerate() {
                 if let Slot::Full(k, h) = s {
                     self.t[i] = Slot::Full(k.clone(), *h);

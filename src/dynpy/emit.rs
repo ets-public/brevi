@@ -4833,6 +4833,9 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         if let Some((line, n)) = super::typing::datetime_subclass(&m.body) {
             return Err((m.name.clone(), line, format!("a subclass of {n} is not supported in dynamic builds")));
         }
+        if let Some((line, n)) = super::typing::pickled_set_subclass(&m.body).filter(|_| bridge.srcs.contains_key(&m.name)) {
+            return Err((m.name.clone(), line, format!("pickling an instance of a subclass of {n} is not supported in dynamic builds")));
+        }
     }
     // the program (not Brevi's library copies) uses the warnings module
     // (or functools.partial, whose __get__ warns at the line that reads it from an instance, or
