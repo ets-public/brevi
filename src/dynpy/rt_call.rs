@@ -4,6 +4,8 @@
 thread_local! {
     pub static USER_MOD: Cell<Option<fn(&str, &str) -> Option<R>>> = Cell::new(None);
     // a file of the program by module name -> its absolute path (for the module's repr)
+    // `m.n = v` on a file of the program (by module name): Some when m is one
+    pub static USER_MOD_SET: Cell<Option<fn(&str, &str, V) -> Option<Result<(), E>>>> = Cell::new(None);
     pub static USER_MOD_FILE: Cell<Option<fn(&str) -> Option<&'static str>>> = Cell::new(None);
     // a library module's repr as the build machine's CPython printed it (emit.rs lib_mod_reprs)
     pub static LIB_MOD_REPR: Cell<Option<fn(&str) -> Option<&'static str>>> = Cell::new(None);
@@ -2169,6 +2171,9 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
         }
         V::NTF(_) => Err(exc("AttributeError", format!("'collections._tuplegetter' object has no attribute '{}' and no __dict__ for setting new attributes", name))),
         V::Module(&ModName("decimal.context")) => decimal_context_set(name, &v),
+        V::Module(m) if USER_MOD_SET.with(|u| u.get()).is_some_and(|f| f(m.0, "", V::None).is_some()) => {
+            USER_MOD_SET.with(|u| u.get()).unwrap()(m.0, &name.to_string(), v).unwrap()
+        }
         V::Module(m) if mod_assignable(m.0, name) => {
             mod_assign(m.0, &name.to_string(), Some(v));
             Ok(())

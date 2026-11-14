@@ -1,0 +1,21 @@
+True __main__
+init subpk
+False False
+module 'subpk' has no attribute 'one'
+module 'subpk' has no attribute 'two'
+init subpk.one
+cannot access submodule 'one' of module 'subpk' (most likely due to a circular import)
+2 True True True
+3 True 3
+init subpk.inner
+init subpk.inner.deep
+4 ['subpk', 'subpk.inner', 'subpk.inner.deep', 'subpk.one', 'subpk.two']
+True subpk.inner.deep
+2 4
+init circ
+module 'circ' has no attribute 'later' (consider renaming '<file>' if it has the same name as a library you intended to import)
+5
+10 7 True True
+module '__main__' has no attribute 'later'
+1 False
+3
