@@ -37,6 +37,9 @@ static PYD_MKOBJ: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::at
 // _BrFn and _BrMeth (see PYD_HELPERS): the stand-ins a library sees for the program's defs and bound methods
 static PYD_BRFN: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_BRMETH: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+// _mkfn and _mkmeth: make one (calling the classes is FunctionType(...) and MethodType(...), as a library expects)
+static PYD_MKFN: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+static PYD_MKMETH: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_PDUMPS: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_PDUMP: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 thread_local! {
@@ -331,7 +334,24 @@ _cr.dispatch_table[type(len)] = _bf_reduce
 # method), and it binds as one when a library puts it in a class. What compiled code cannot answer truly (its
 # bytecode, other co_* fields, __globals__, __closure__, writes to __dict__) raises NotImplementedError("brevi:
 # ..."), the dynamic build's refusal, never a wrong answer. The library's call reaches the program through b.
-class _BrFn:
+# type(f) is _BrFn, whose metaclass _BrT answers as FunctionType (MethodType for _BrMeth) does: ==, hash (so a
+# dict or set keyed by FunctionType finds it), attributes, repr, isinstance, calling it. Only identity (`is`, id),
+# issubclass(type(f), FunctionType) and type(type(f)) can tell them apart: CPython checks those on the C type.
+_tga = type.__getattribute__
+class _BrT(type):
+    def __getattribute__(c, n): return getattr(_tga(c, '_as'), n)
+    def __setattr__(c, n, v): _no('a Python library setting an attribute of the function type')
+    def __delattr__(c, n): _no('a Python library deleting an attribute of the function type')
+    def __eq__(c, o): return o is c or o is _tga(c, '_as')
+    def __ne__(c, o): return not (o is c or o is _tga(c, '_as'))
+    def __hash__(c): return hash(_tga(c, '_as'))
+    def __repr__(c): return repr(_tga(c, '_as'))
+    def __dir__(c): return dir(_tga(c, '_as'))
+    def __instancecheck__(c, x): return isinstance(x, _tga(c, '_as'))
+    def __subclasscheck__(c, s): return issubclass(s, _tga(c, '_as'))
+    def __call__(c, *a, **k): return _tga(c, '_as')(*a, **k)
+_isbr = lambda o: type.__instancecheck__(_BrFn, o)  # isinstance(o, _BrFn) is isinstance(o, FunctionType)
+class _BrFn(metaclass=_BrT):
     __slots__ = ('b', '__weakref__')
     def __init__(s, b): object.__setattr__(s, 'b', b)
     def __call__(s, /, *a, **k): return s.b(*a, **k)
@@ -347,11 +367,12 @@ class _BrFn:
     def __delattr__(s, n): _d._fdel(s.b, n)
     def __get__(s, obj, typ=None): return s if obj is None else _t.MethodType(s, obj)
     def __repr__(s): return _d._frepr(s.b)
-    def __eq__(s, o): return _d._feq(s.b, o.b) if isinstance(o, _BrFn) else NotImplemented
-    def __ne__(s, o): return not _d._feq(s.b, o.b) if isinstance(o, _BrFn) else NotImplemented
+    def __eq__(s, o): return _d._feq(s.b, o.b) if _isbr(o) else NotImplemented
+    def __ne__(s, o): return not _d._feq(s.b, o.b) if _isbr(o) else NotImplemented
     def __hash__(s): return _d._fhash(s.b)
-    def __copy__(s): return s
-    def __deepcopy__(s, memo): return s
+    # copy finds FunctionType's entry for type(f) (kept as is); pickle reaches here by reference, as for a def
+    # __reduce_ex__, not __reduce__: object.__reduce_ex__ looks __reduce__ up on type(f), which answers as FunctionType
+    def __reduce_ex__(s, proto): return _bf_reduce(s.b)
     __class__ = property(lambda s: _t.FunctionType)
     __doc__ = property(lambda s: _d._fget(s.b, '__doc__'))
     __module__ = property(lambda s: _d._fget(s.b, '__module__'))
@@ -361,10 +382,26 @@ class _BrMeth(_BrFn):
     __slots__ = ()
     def __get__(s, obj, typ=None): return s
     __class__ = property(lambda s: _t.MethodType)
+    # a new method of the same function and object, as CPython's method.__reduce__ gives copy (pickle refuses b)
+    def __reduce_ex__(s, proto): return (_mcopy, (s.b,))
     # a class body sets its own __doc__ and __module__: the inherited properties again
-    __doc__, __module__ = _BrFn.__doc__, _BrFn.__dict__['__module__']
-_BrFn.__name__ = _BrFn.__qualname__ = 'function'
-_BrMeth.__name__ = _BrMeth.__qualname__ = 'method'
+    __doc__, __module__ = _tga(_BrFn, '__dict__')['__doc__'], _tga(_BrFn, '__dict__')['__module__']
+for _k, _n, _a in ((_BrFn, 'function', _t.FunctionType), (_BrMeth, 'method', _t.MethodType)):
+    type.__setattr__(_k, '__name__', _n)
+    type.__setattr__(_k, '__qualname__', _n)
+    type.__setattr__(_k, '_as', _a)
+def _mkfn(b):
+    o = object.__new__(_BrFn)
+    object.__setattr__(o, 'b', b)
+    return o
+def _mkmeth(b):
+    o = object.__new__(_BrMeth)
+    object.__setattr__(o, 'b', b)
+    return o
+def _mcopy(b):
+    return _mkmeth(b)
+_mcopy.__module__ = '_brevi_dyn'
+_d._mcopy = _mcopy
 def _no(what):
     raise NotImplementedError('brevi: ' + what + ' is not supported in dynamic builds')
 class _BrCode:
@@ -379,8 +416,7 @@ class _BrDict(dict):
     __slots__ = ()
     def _w(s, *a, **k): _no("a Python library changing a compiled function's __dict__ or __kwdefaults__")
     __setitem__ = __delitem__ = update = pop = popitem = clear = setdefault = __ior__ = _w
-_d.fn_t, _d.meth_t, _d.mkfn, _d.mkmeth = _BrFn, _BrMeth, _BrFn, _BrMeth
-_cr.dispatch_table[_BrFn] = _cr.dispatch_table[_BrMeth] = lambda f: _bf_reduce(f.b)
+_d.fn_t, _d.meth_t, _d.mkfn, _d.mkmeth = _BrFn, _BrMeth, _mkfn, _mkmeth
 _s.modules['_brevi_dyn'] = _d
 "#;
 
@@ -1323,7 +1359,7 @@ unsafe fn pyd_register(a: &ax_pyffi::Api) -> bool {
         }
     }
     // kept for the program's life (the references are never given back)
-    for (n, at) in [(c"deq_t", &PYD_DEQ), (c"deqit_t", &PYD_DEQIT), (c"brnew_t", &PYD_BRNEW), (c"_mkobj", &PYD_MKOBJ), (c"fn_t", &PYD_BRFN), (c"meth_t", &PYD_BRMETH)] {
+    for (n, at) in [(c"deq_t", &PYD_DEQ), (c"deqit_t", &PYD_DEQIT), (c"brnew_t", &PYD_BRNEW), (c"_mkobj", &PYD_MKOBJ), (c"fn_t", &PYD_BRFN), (c"meth_t", &PYD_BRMETH), (c"mkfn", &PYD_MKFN), (c"mkmeth", &PYD_MKMETH)] {
         if !ok {
             break;
         }
@@ -2087,15 +2123,15 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
             o
         }
         // a def or lambda (not a builtin, a staticmethod or classmethod object) and a bound method of the program
-        V::Func(f) if f.kind.get() == 0 => pyd_brfn(v, &PYD_BRFN)?,
-        V::Bound(_) => pyd_brfn(v, &PYD_BRMETH)?,
+        V::Func(f) if f.kind.get() == 0 => pyd_brfn(v, &PYD_MKFN)?,
+        V::Bound(_) => pyd_brfn(v, &PYD_MKMETH)?,
         V::Func(_) | V::BMeth(_) | V::Class(_) => pyd_callable(v)?,
         V::Obj(o) if o.cls.lookup("__call__").is_some() => pyd_callable(v)?,
         _ => return type_err(format!("brevi: a '{}' object cannot be passed to a Python library in a dynamic build", tn(v))),
     })
 }
 
-// The _BrFn or _BrMeth (`t`) a library sees for function or bound method `v` (see PYD_HELPERS).
+// The _BrFn or _BrMeth (made by `t`, _mkfn or _mkmeth) a library sees for function or bound method `v` (see PYD_HELPERS).
 unsafe fn pyd_brfn(v: &V, t: &std::sync::atomic::AtomicPtr<std::ffi::c_void>) -> Result<P, E> {
     let a = pyd_api();
     let t = pyd_ptr(t);

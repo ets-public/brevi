@@ -153,3 +153,17 @@ def wrap(f):
     def w(*a, **k):
         return f(*a, **k)
     return w
+
+
+# What a library learns from type(f) of a program function or method: CPython's FunctionType and MethodType.
+def kinds(f, m):
+    import copy
+    import pickle
+    import types
+    tf, tm = type(f), type(m)
+    seen = {types.FunctionType: "fn", types.MethodType: "meth"}
+    return (tf == types.FunctionType, types.FunctionType == tf, tf != types.FunctionType, seen.get(tf), seen.get(tm),
+            tf in (int, types.FunctionType), tm == types.MethodType, tf == tm, repr(tf), tm.__name__, tf.__module__,
+            isinstance(f, tf), isinstance(len, tf), isinstance(m, tm), copy.copy(f) is f, copy.deepcopy(f) is f,
+            tf(kinds.__code__, {}).__name__, hash(tf) == hash(types.FunctionType), copy.copy(m) == m, copy.copy(m) is m,
+            pickle.loads(pickle.dumps(f)) == f)

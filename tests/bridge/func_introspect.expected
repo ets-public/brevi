@@ -8,3 +8,4 @@ Holder
 area Width times height. 6 True shape
 Width times height. The box's size.
 True True __main__
+(True, True, False, 'fn', 'meth', True, True, False, "<class 'function'>", 'method', 'builtins', True, False, True, True, True, 'kinds', True, True, False, True)

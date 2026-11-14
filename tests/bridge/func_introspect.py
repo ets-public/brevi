@@ -1,7 +1,7 @@
 # A library CPython runs sees the program's functions as CPython's: names, docs, defaults, attributes, kind
 # (inspect.isfunction, ismethod, isgeneratorfunction), binding in a class, equality and hashing, functools.wraps.
 import inspect
-from brlib import about, as_method, registry, wrap
+from brlib import about, as_method, kinds, registry, wrap
 
 
 def area(w, h=2):
@@ -39,3 +39,4 @@ w = wrap(area)
 print(w.__name__, w.__doc__, w(3), w.__wrapped__ is area, w.tag)
 print(inspect.getdoc(area), inspect.getdoc(b.size))
 print(inspect.isfunction(area), inspect.ismethod(b.size), inspect.getmodule(area).__name__)
+print(kinds(area, b.size))
