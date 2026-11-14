@@ -1759,8 +1759,8 @@ fn foldable(e: &Ex) -> bool {
 // a name-like str (ASCII [A-Za-z0-9_], 2 or more characters: shorter ones are singletons) and an equal string is
 // already interned as another object: an identifier of the module (the parser interns every name) or, for the main
 // module (compiled before anything runs), a string CPython interned at startup (interned_313.txt, written by
-// tools/gen_interned.py). A module compiled at import time sees whatever earlier imports interned: Unsure, decided
-// at run time (rt_glue fset_rebuild_unsure).
+// tools/gen_interned.py). A module compiled at import time sees whatever earlier imports interned: Unsure, which
+// const_fset refuses when the order is visible.
 #[derive(Clone, Copy, PartialEq)]
 enum Rebuilds {
     One,
@@ -2129,6 +2129,7 @@ impl Em {
             return Ok(None);
         }
         let key: BTreeSet<ConstKey> = v.iter().map(const_key).collect();
+        let distinct = key.len();
         let m = self.module.clone();
         let items = match self.set_lits.get(&(m.clone(), key.clone())) {
             Some(x) => x.clone(),
@@ -2141,7 +2142,10 @@ impl Em {
             _ if !order => "fset_rebuild",
             Rebuilds::One => "fset_rebuild",
             Rebuilds::Two => "fset_rebuild2",
-            Rebuilds::Unsure => "fset_rebuild_unsure",
+            // the 1x and 2x layouts of 2 or more items differ under some PYTHONHASHSEED (a str hash puts them in
+            // one probe chain), and the build cannot know the seed: refused rather than stopped at run time
+            Rebuilds::Unsure if distinct >= 2 => return Err(err(line, "a set literal of strings whose order CPython takes from the strings already interned when it compiles the module (an imported module, or a name the build cannot read) is not supported in dynamic builds: write the items as a list or tuple, or use sorted()")),
+            Rebuilds::Unsure => "fset_rebuild",
         };
         let sq = self.seq(&items, line)?;
         let one = self.q(&format!("set_of_vec({sq})"));

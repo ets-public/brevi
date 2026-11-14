@@ -1484,8 +1484,6 @@ fn frexp(f: f64) -> (f64, i32) {
 // glue (HASH_KEY_FN in dynpy/mod.rs, set first thing in main), never the runtime's (caps.rs); unset (under
 // --sandbox) it is CPython's key at PYTHONHASHSEED=0, all zero.
 pub static HASH_KEY: std::sync::OnceLock<(u64, u64)> = std::sync::OnceLock::new();
-// set by the same glue when the key is random (PYTHONHASHSEED unset, empty or "random")
-pub static HASH_RANDOM: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 #[inline]
 fn hash_key() -> (u64, u64) {
     HASH_KEY.get().copied().unwrap_or((0, 0))

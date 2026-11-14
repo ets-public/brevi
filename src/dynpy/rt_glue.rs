@@ -193,20 +193,6 @@ pub fn fset_rebuild(v: V) -> R {
 pub fn fset_rebuild2(v: V) -> R {
     fset_rebuild(fset_rebuild(v)?)
 }
-// Whether CPython rebuilds the frozenset a second time depends on the strings interned before the module was
-// compiled, which the build cannot know (a module imported at run time). With a random hash key any layout is one
-// CPython could give; with a fixed one (PYTHONHASHSEED) the program stops when the two layouts iterate differently.
-pub fn fset_rebuild_unsure(v: V) -> R {
-    let one = fset_rebuild(v)?;
-    if !HASH_RANDOM.load(std::sync::atomic::Ordering::Relaxed) {
-        let two = fset_rebuild(one.clone())?;
-        let (V::FSet(a), V::FSet(b)) = (&one, &two) else { unreachable!() };
-        if a.keys().iter().zip(b.keys().iter()).any(|(x, y)| !is(x, y)) {
-            return Err(unsupported("a set literal of strings whose order CPython takes from the strings already interned when it imports the module"));
-        }
-    }
-    Ok(one)
-}
 pub fn make_exc(v: V) -> Result<E, E> {
     match &v {
         V::Class(c) => {
