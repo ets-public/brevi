@@ -361,3 +361,22 @@ pub fn sig_from_callable(mut a: Args) -> R {
     let s = sig_of(&a.p[0], 0)?;
     Ok(V::Ext(ExtRc::new(s)))
 }
+
+// A def's __defaults__ (kw false) or __kwdefaults__ (kw true) from its recorded signature, as CPython's: a tuple
+// of the positional parameters' defaults or a dict of the keyword-only ones', None when there are none. None
+// (no answer) when the def recorded no signature (SIG_DEFS off).
+pub fn sig_defaults(f: &Func, kw: bool) -> Option<V> {
+    let rec = f.attrs.borrow().iter().find(|(k, _)| *k == "__bv_sig__").map(|(_, v)| v.clone())?;
+    let V::Ext(e) = &rec else { return None };
+    let r = e.any().downcast_ref::<SigRec>()?;
+    if kw {
+        let mut d = Dict::new();
+        for (n, v) in r.kw.iter().filter(|(_, v)| !matches!(v, V::Unbound)) {
+            d.set(s(n), v.clone()).ok()?;
+        }
+        Some(if d.len() == 0 { V::None } else { V::Dict(Rc::new(RefCell::new(d))) })
+    } else {
+        let ds: Vec<V> = r.pos.iter().filter(|(_, v)| !matches!(v, V::Unbound)).map(|(_, v)| v.clone()).collect();
+        Some(if ds.is_empty() { V::None } else { tup(ds) })
+    }
+}
