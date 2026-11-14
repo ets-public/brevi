@@ -4487,7 +4487,19 @@ impl Em {
         }) {
             return Err(err(c.line, "a class with a metaclass whose body names __annotations__ is not supported in dynamic builds"));
         }
-        let dict_mode = meta.is_some() || class_calls_locals(&c.body);
+        let calls_locals = class_calls_locals(&c.body);
+        // In an Enum's body, locals() is the EnumDict: its __setitem__ and update() check each name (a member
+        // set twice is a TypeError) and turn auto() into a value. Brevi's namespace dict is a plain dict, so a
+        // write through it would skip those checks: refused unless the class cannot be an Enum (every base
+        // and the metaclass is a builtin the program does not rebind, or a metaclass made from type).
+        if calls_locals {
+            let plain = |e: &Ex| matches!(e, Ex::Name(n) if is_builtin_name(n) && self.lookup(n).is_none());
+            let meta_ok = |e: &Ex| plain(e) || matches!(e, Ex::Name(n) if self.metaclasses.contains(n));
+            if !c.bases.iter().all(plain) || !meta.map_or(true, meta_ok) {
+                return Err(err(c.line, "locals() in the body of a class that may be an Enum is not supported in dynamic builds"));
+            }
+        }
+        let dict_mode = meta.is_some() || calls_locals;
         let parent = self.fstack.last().unwrap();
         // CPython's __qualname__: `Outer.Inner` inside a class, `f.<locals>.C` inside a function.
         let qualname = self.qualname_of(&own_name);
