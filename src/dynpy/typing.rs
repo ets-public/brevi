@@ -1277,13 +1277,17 @@ pub fn enum_refusal(body: &[Stmt]) -> Option<(usize, &'static str)> {
     const EN: [&str; 6] = ["Enum", "IntEnum", "StrEnum", "Flag", "IntFlag", "ReprEnum"];
     let mut enums: Vec<String> = vec![];
     let mut mods: Vec<String> = vec![];
-    fn scan(body: &[Stmt], enums: &mut Vec<String>, mods: &mut Vec<String>) {
+    let mut metas: Vec<String> = vec![];
+    fn scan(body: &[Stmt], enums: &mut Vec<String>, mods: &mut Vec<String>, metas: &mut Vec<String>) {
         for s in body {
             match &s.st {
                 St::ImportFrom(m, v) if m == "enum" => {
                     for (n, a) in v {
                         if EN.contains(&n.as_str()) {
                             enums.push(a.clone().unwrap_or_else(|| n.clone()));
+                        }
+                        if matches!(n.as_str(), "EnumMeta" | "EnumType") {
+                            metas.push(a.clone().unwrap_or_else(|| n.clone()));
                         }
                     }
                 }
@@ -1296,11 +1300,11 @@ pub fn enum_refusal(body: &[Stmt]) -> Option<(usize, &'static str)> {
                 }
                 _ => {}
             }
-            blocks(&s.st, &mut |b| scan(b, enums, mods));
+            blocks(&s.st, &mut |b| scan(b, enums, mods, metas));
         }
     }
-    scan(body, &mut enums, &mut mods);
-    if enums.is_empty() && mods.is_empty() {
+    scan(body, &mut enums, &mut mods, &mut metas);
+    if enums.is_empty() && mods.is_empty() && metas.is_empty() {
         return None;
     }
     // classes built on an Enum class, in the order they are defined
@@ -1341,6 +1345,15 @@ pub fn enum_refusal(body: &[Stmt]) -> Option<(usize, &'static str)> {
         let meta_base = c.bases.iter().any(|b| matches!(b, Ex::Call(f, args) if matches!(f.as_ref(), Ex::Name(t) if t == "type") && args.len() == 1 && matches!(&args[0], Arg::Pos(x) if is_enum_ex(x))));
         if meta_base {
             found = Some((line, "a metaclass built on type() of an Enum class"));
+            return;
+        }
+        let enum_meta_base = c.bases.iter().any(|b| match b {
+            Ex::Name(n) => metas.contains(n),
+            Ex::Attr(o, a) => matches!(a.as_str(), "EnumMeta" | "EnumType") && matches!(o.as_ref(), Ex::Name(m) if mods.contains(m)),
+            _ => false,
+        });
+        if enum_meta_base {
+            found = Some((line, "a subclass of enum.EnumType (EnumMeta)"));
             return;
         }
         if !enums.contains(&c.name) {

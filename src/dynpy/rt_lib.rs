@@ -1211,6 +1211,8 @@ pub fn type_of(x: &V) -> Result<Rc<Class>, E> {
         V::None => tclass(12, "NoneType"),
         // a collections.abc class (or a subclass of one) is made by abc.ABCMeta, a subclass of type
         V::Class(k) if k.meta.borrow().is_some() => k.meta.borrow().clone().unwrap(),
+        // Enum and every class built on it are made by enum.EnumType
+        V::Class(k) if enum_meta_of(k).is_some() => enum_meta_of(k).unwrap(),
         V::Class(k) if k.abc.get() => abc_meta_class(),
         V::Class(_) => tclass(13, "type"),
         V::Func(f) if f.kind.get() == 3 => ext_class("builtin_function_or_method"),
@@ -1564,10 +1566,6 @@ pub fn bi_type(a: Args) -> R {
         return make_class(name, "__main__", bases, attrs);
     }
     let x = a1(&a, "type")?;
-    // an Enum class's type is EnumType, which Brevi's enum classes do not have (they are made by type)
-    if matches!(&x, V::Class(c) if c.is_sub(&enum_base())) {
-        return Err(unsupported("type() of an Enum class (EnumType)"));
-    }
     Ok(V::Class(type_of(&x)?))
 }
 pub fn bi_issubclass(a: Args) -> R {
