@@ -1,0 +1,1 @@
+- Conformance: CPython's `test_enum` joins the stdlib slice (no wrong result in either build; the rest are refused with a clear message). `datetime` joins the imports a scored test may use, and `test_enum.TestSpecial.test_empty_globals` (it runs a string through `compile()`) is refused by design.
