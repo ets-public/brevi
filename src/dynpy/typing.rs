@@ -1269,6 +1269,102 @@ fn union_safe(e: &Ex, nm: &Names) -> bool {
     }
 }
 
+// Two Enum uses the dynamic build refuses at build time: (line, what).
+// - a metaclass built on `type(SomeEnum)` (EnumType's subclasses get an EnumDict namespace Brevi does not model);
+// - `X.__new__(...)` in an Enum class's method other than __new__ (a pseudo-member made after the class, as a
+//   _missing_ may make one: Brevi's enum methods read such an instance as a member).
+pub fn enum_refusal(body: &[Stmt]) -> Option<(usize, &'static str)> {
+    const EN: [&str; 6] = ["Enum", "IntEnum", "StrEnum", "Flag", "IntFlag", "ReprEnum"];
+    let mut enums: Vec<String> = vec![];
+    let mut mods: Vec<String> = vec![];
+    fn scan(body: &[Stmt], enums: &mut Vec<String>, mods: &mut Vec<String>) {
+        for s in body {
+            match &s.st {
+                St::ImportFrom(m, v) if m == "enum" => {
+                    for (n, a) in v {
+                        if EN.contains(&n.as_str()) {
+                            enums.push(a.clone().unwrap_or_else(|| n.clone()));
+                        }
+                    }
+                }
+                St::Import(v) => {
+                    for (m, a) in v {
+                        if m == "enum" {
+                            mods.push(a.clone().unwrap_or_else(|| m.clone()));
+                        }
+                    }
+                }
+                _ => {}
+            }
+            blocks(&s.st, &mut |b| scan(b, enums, mods));
+        }
+    }
+    scan(body, &mut enums, &mut mods);
+    if enums.is_empty() && mods.is_empty() {
+        return None;
+    }
+    // classes built on an Enum class, in the order they are defined
+    fn mark(body: &[Stmt], enums: &mut Vec<String>, mods: &[String]) {
+        for s in body {
+            if let St::Class(c) = &s.st {
+                let is_en = c.bases.iter().any(|b| match b {
+                    Ex::Name(n) => enums.contains(n),
+                    Ex::Attr(o, a) => EN.contains(&a.as_str()) && matches!(o.as_ref(), Ex::Name(m) if mods.contains(m)),
+                    _ => false,
+                });
+                if is_en && !enums.contains(&c.name) {
+                    enums.push(c.name.clone());
+                }
+            }
+            blocks(&s.st, &mut |b| mark(b, enums, mods));
+        }
+    }
+    mark(body, &mut enums, &mods);
+    let is_enum_ex = |e: &Ex| match e {
+        Ex::Name(n) => enums.contains(n),
+        Ex::Attr(o, a) => EN.contains(&a.as_str()) && matches!(o.as_ref(), Ex::Name(m) if mods.contains(m)),
+        _ => false,
+    };
+    let mut found: Option<(usize, &'static str)> = None;
+    fn classes(body: &[Stmt], f: &mut dyn FnMut(&ClassDef, usize)) {
+        for s in body {
+            if let St::Class(c) = &s.st {
+                f(c, s.line);
+            }
+            blocks(&s.st, &mut |b| classes(b, f));
+        }
+    }
+    classes(body, &mut |c, line| {
+        if found.is_some() {
+            return;
+        }
+        let meta_base = c.bases.iter().any(|b| matches!(b, Ex::Call(f, args) if matches!(f.as_ref(), Ex::Name(t) if t == "type") && args.len() == 1 && matches!(&args[0], Arg::Pos(x) if is_enum_ex(x))));
+        if meta_base {
+            found = Some((line, "a metaclass built on type() of an Enum class"));
+            return;
+        }
+        if !enums.contains(&c.name) {
+            return;
+        }
+        for s in &c.body {
+            let St::Def(d) = &s.st else { continue };
+            if d.name == "__new__" {
+                continue;
+            }
+            walk_all(&d.body, &mut |e, l| {
+                if found.is_none() {
+                    if let Ex::Call(f, _) = e {
+                        if matches!(f.as_ref(), Ex::Attr(_, a) if a == "__new__") {
+                            found = Some((l, "calling __new__ in an Enum method other than __new__ (a member made after its class)"));
+                        }
+                    }
+                }
+            });
+        }
+    });
+    found
+}
+
 // A class built on a datetime class (`class D(date)`, `class E(datetime, Enum)`), or a functional Enum with
 // `type=datetime`: the dynamic build's datetime classes cannot be subclassed (their instances hold no value), so such a
 // program is refused at build time: (line, the class's dotted name).

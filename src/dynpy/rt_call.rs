@@ -348,7 +348,15 @@ pub fn make_class_f(name: Sym, qualname: Sym, module: Sym, bases: Vec<V>, attrs:
 // A class statement's class: as make_class_f, with what CPython's compiler adds to the namespace
 // (__firstlineno__, __static_attributes__)
 // (and, when not "", why its dict cannot be CPython's: the compiler knows when it is not)
-pub fn make_class_s(name: Sym, qualname: Sym, module: Sym, bases: Vec<V>, attrs: Vec<(Sym, V)>, fields: Vec<Sym>, first: i64, sattrs: &[&'static str], why: &'static str) -> R {
+pub fn make_class_s(name: Sym, mut qualname: Sym, module: Sym, bases: Vec<V>, mut attrs: Vec<(Sym, V)>, fields: Vec<Sym>, first: i64, sattrs: &[&'static str], why: &'static str) -> R {
+    // `__qualname__ = '...'` in the body is the class's __qualname__ (type.__new__ takes it out of the dict)
+    if let Some(i) = attrs.iter().position(|(k, _)| *k == "__qualname__") {
+        match &attrs[i].1 {
+            V::Str(x) => qualname = sym(&x.text()),
+            x => return type_err(format!("type __qualname__ must be a str, not {}", tn(x))),
+        }
+        attrs.remove(i);
+    }
     let c = match bases_meta(&bases)? {
         Some(m) => meta_from_base(&m, name, qualname, module, bases, attrs, fields, Some((first, sattrs)))?,
         None => make_class_impl(name, qualname, module, bases, attrs, fields, Some((first, sattrs.to_vec())), None)?,
@@ -1056,6 +1064,17 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
     let mro = target.mro.borrow().clone();
     let start = mro.iter().position(|x| Rc::ptr_eq(x, &c)).map(|i| i + 1).unwrap_or(mro.len());
     for k in &mro[start..] {
+        // EnumType.__new__ gives every enum class (IntEnum, a program's) Enum.__new__ in its dict
+        if name == "__new__" && k.is_sub(&enum_base()) {
+            if let Some(v) = enum_base().own("__new__") {
+                return Ok(v);
+            }
+        }
+        // a builtin base (int in `class MyInt(int)`) whose CPython dict has __new__ or __init__ is where the
+        // lookup stops: the builtin fallback below is that method, and a later base's (Enum.__new__) is not reached
+        if matches!(name, "__new__" | "__init__") && k.own(name).is_none() && k.module == "builtins" && k.name != "object" && matches!(cpy_dict_has(k, name), Some((true, _))) {
+            break;
+        }
         if let Some(v) = k.own(name) {
             // __new__ is a static method (type.__new__ makes it one): super().__new__(cls, ...) passes cls itself
             if name == "__new__" && matches!(v, V::Func(_)) {

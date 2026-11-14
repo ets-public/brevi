@@ -481,7 +481,14 @@ fn enum_text(v: &V, rep: bool) -> R {
         _ => String::new(),
     };
     Ok(s(&if rep {
-        format!("<{}.{}: {}>", o.cls.name, name, repr(&o.get("_value_").unwrap_or(V::None))?)
+        // Enum.__repr__: `v_repr = self.__class__._value_repr_ or repr`
+        let val = o.get("_value_").unwrap_or(V::None);
+        let vr = match o.cls.lookup("_value_repr_") {
+            // (a builtin data type's repr is the value's own repr; a program's, or _dataclass_repr, is called)
+            Some(f @ V::Func(_)) if matches!(&f, V::Func(x) if x.kind.get() != 3 || x.name.get() == "_dataclass_repr") => to_str(&call(&f, Args::p(vec![val]))?)?,
+            _ => repr(&val)?,
+        };
+        format!("<{}.{}: {}>", o.cls.name, name, vr)
     } else {
         format!("{}.{}", o.cls.name, name)
     }))
@@ -509,10 +516,15 @@ pub struct EnumCtx {
     count: usize,
     // an auto() got its value from _generate_next_value_ (which may then no longer be defined)
     auto_called: bool,
+    // EnumDict's _member_names (with the value each was stored with), every other name the body stored (its
+    // latest value), and _ignore_'s names
+    members: Vec<(String, V)>,
+    seen: Vec<(String, V)>,
+    ignore: Vec<String>,
 }
 pub fn enum_auto_ctx(cls: &str, bases: &[&V]) -> EnumCtx {
     let en = enum_base();
-    let mut ctx = EnumCtx { cls: cls.to_string(), kind: 0, gnv: None, count: 0, auto_called: false };
+    let mut ctx = EnumCtx { cls: cls.to_string(), kind: 0, gnv: None, count: 0, auto_called: false, members: vec![], seen: vec![], ignore: vec![] };
     for b in bases {
         if let V::Class(c) = b {
             if c.is_sub(&en) {
@@ -584,6 +596,23 @@ pub fn enum_auto_store(last: &mut Vec<V>, ctx: &mut EnumCtx, name: &str, v: V) -
     if ctx.kind == 0 {
         return Ok(v);
     }
+    let r = enum_store_in(last, ctx, name, v)?;
+    // the namespace's own dict: a member's name is in it too, and `del` (Unbound) takes a name out
+    ctx.seen.retain(|(n, _)| n != name);
+    if !matches!(r, V::Unbound) {
+        ctx.seen.push((name.to_string(), r.clone()));
+    }
+    Ok(r)
+}
+fn enum_store_in(last: &mut Vec<V>, ctx: &mut EnumCtx, name: &str, v: V) -> R {
+    if matches!(&v, V::Unbound) {
+        return Ok(v);
+    }
+    // EnumDict.__setitem__, in its order: a private name is a plain attribute; a _sunder_ name must be one
+    // enum.py knows; a dunder is a plain attribute
+    if enum_is_private(&ctx.cls, name) {
+        return Ok(v);
+    }
     if name == "_generate_next_value_" {
         if ctx.auto_called {
             return type_err("_generate_next_value_ must be defined before members".into());
@@ -591,14 +620,75 @@ pub fn enum_auto_store(last: &mut Vec<V>, ctx: &mut EnumCtx, name: &str, v: V) -
         ctx.gnv = Some(v.clone());
         return Ok(v);
     }
-    // EnumDict.__setitem__: a private name is a plain attribute; a _sunder_ name must be one enum.py knows
-    if enum_is_private(&ctx.cls, name) {
-        return Ok(v);
-    }
     enum_name_check(name)?;
-    if (name.starts_with('_') && enum_not_member(&ctx.cls, name)) || is_descriptor(&v) || matches!(&v, V::Unbound) || enum_internal_class(&ctx.cls, &v) {
+    if name == "_ignore_" {
+        let names: Vec<V> = match &v {
+            V::Str(t) => t.text().replace(',', " ").split_whitespace().map(s).collect(),
+            x => to_vec(x)?,
+        };
+        let mut ig = vec![];
+        for n in &names {
+            let V::Str(t) = n else { return Err(unsupported("an _ignore_ entry that is not a str")) };
+            ig.push(t.text().to_string());
+        }
+        let already: Vec<&String> = ig.iter().filter(|n| ctx.members.iter().any(|(m, _)| m == *n)).collect();
+        match already.len() {
+            0 => {}
+            // a set of one name prints the same in any order
+            1 => return val_err(format!("_ignore_ cannot specify already set names: {{{}}}", repr(&s(already[0]))?)),
+            _ => return Err(unsupported("an _ignore_ that names several members already set")),
+        }
+        ctx.ignore = ig;
         return Ok(v);
     }
+    let b = name.as_bytes();
+    let sunder = b.len() > 2 && b[0] == b'_' && b[1] != b'_' && b[b.len() - 1] == b'_' && b[b.len() - 2] != b'_';
+    let dunder = b.len() > 4 && name.starts_with("__") && name.ends_with("__") && b[2] != b'_' && b[b.len() - 3] != b'_';
+    if sunder || dunder {
+        return Ok(v);
+    }
+    if let Some((_, old)) = ctx.members.iter().find(|(n, _)| n == name) {
+        return type_err(format!("{} already defined as {}", repr(&s(name))?, repr(old)?));
+    }
+    if ctx.ignore.iter().any(|n| n == name) {
+        return Ok(v);
+    }
+    if is_partial(&v) {
+        re_warn("FutureWarning", "functools.partial will be a method descriptor in future Python versions; wrap it in enum.member() if you want to preserve the old behavior".into())?;
+        return Ok(v);
+    }
+    if (name.starts_with('_') && enum_not_member(&ctx.cls, name)) || is_descriptor(&v) || enum_internal_class(&ctx.cls, &v) {
+        return Ok(v);
+    }
+    if let Some((_, old)) = ctx.seen.iter().find(|(n, _)| n == name) {
+        return type_err(format!("{} already defined as {}", repr(&s(name))?, repr(old)?));
+    }
+    let r = enum_member_store(last, ctx, name, v)?;
+    ctx.members.push((name.to_string(), r.clone()));
+    Ok(r)
+}
+// _ignore_'s names leave the class namespace before the class is made (EnumType.__new__ pops them)
+pub fn enum_ignore_drop(ctx: &EnumCtx, at: &mut Vec<(Sym, V)>) {
+    if !ctx.ignore.is_empty() {
+        at.retain(|(k, _)| !ctx.ignore.iter().any(|n| n == k));
+    }
+}
+pub fn enum_ignore_ns(ctx: &EnumCtx, ns: &V, meta: bool) -> Result<(), E> {
+    if ctx.ignore.is_empty() {
+        return Ok(());
+    }
+    if meta {
+        return Err(unsupported("_ignore_ in an Enum with its own metaclass"));
+    }
+    for n in &ctx.ignore {
+        let V::Dict(d) = ns else { return Err(unsupported("_ignore_ with a class namespace that is not a dict")) };
+        if Dict::contains_cell(d, &s(n))? {
+            delitem(ns, &s(n))?;
+        }
+    }
+    Ok(())
+}
+fn enum_member_store(last: &mut Vec<V>, ctx: &mut EnumCtx, name: &str, v: V) -> R {
     let au = enum_classes().1;
     let is_auto = |x: &V| matches!(x, V::Obj(o) if Rc::ptr_eq(&o.cls, &au));
     // EnumDict.__setitem__: an auto(), alone or in a plain tuple, gets its value (the same auto() assigned
@@ -718,7 +808,7 @@ pub fn enum_setup(c: &Rc<Class>) -> Result<(), E> {
     let mut v2m: Vec<(V, V)> = vec![];
     let map = dict_new();
     // EnumType.__new__: 'mro' and '' are refused as member names, before any member is made
-    let bad: Vec<String> = attrs.iter().filter(|(n, v)| matches!(*n, "mro" | "") && !is_descriptor(v) && !matches!(v, V::Class(_))).map(|(n, _)| format!("'{n}'")).collect();
+    let bad: Vec<String> = attrs.iter().filter(|(n, v)| matches!(*n, "mro" | "") && !is_descriptor(v) && !is_partial(v) && !matches!(v, V::Class(_))).map(|(n, _)| format!("'{n}'")).collect();
     if !bad.is_empty() {
         return val_err(format!("invalid enum member name(s) {}", bad.join(",")));
     }
@@ -735,7 +825,7 @@ pub fn enum_setup(c: &Rc<Class>) -> Result<(), E> {
     BUILDING.with(|b| b.borrow_mut().push(c.clone()));
     let building = Building;
     for (n, v) in attrs {
-        if (n.starts_with('_') && enum_not_member(c.name, n)) || is_descriptor(&v) || enum_internal_class(c.name, &v) {
+        if (n.starts_with('_') && enum_not_member(c.name, n)) || is_descriptor(&v) || is_partial(&v) || enum_internal_class(c.name, &v) {
             continue;
         }
         let val = match &v {
@@ -746,12 +836,16 @@ pub fn enum_setup(c: &Rc<Class>) -> Result<(), E> {
         };
         values.push(val.clone());
         // _proto_member.__set_name__: the value as the arguments of __new__, _value_ and __init__
+        // (`if not isinstance(value, tuple)`: a tuple subclass's value, a namedtuple, is unpacked too, through
+        // its iterator as a call's *args is)
+        let tuple_sub = matches!(&val, V::Obj(o) if matches!(o.inner(), Some(V::Tuple(_))) && o.cls.mro.borrow().iter().any(|k| k.module == "builtins" && k.name == "tuple"));
         let mut args: Vec<V> = match &val {
             V::Tuple(t) => t.iter().cloned().collect(),
+            _ if tuple_sub => to_vec(&val)?,
             _ => vec![val.clone()],
         };
         if mt.module == "builtins" && mt.name == "tuple" {
-            args = vec![tup(args)];
+            args = if tuple_sub { vec![val.clone()] } else { vec![tup(args)] };
         }
         let mv = match &new_fn {
             Some(f) => {
@@ -922,6 +1016,22 @@ pub fn enum_setup(c: &Rc<Class>) -> Result<(), E> {
         c.del_exact("__new__");
     }
     enum_cpy_attrs(c, &new_fn, &mt, &members, &seen)?;
+    // EnumType.__new__: a __repr__, __str__, __format__ or __reduce_ex__ the class would find on its data type
+    // (or object) becomes its first enum base's. Brevi's runtime gives builtin data types theirs already; a
+    // program's own data type (a namedtuple, a class with __new__) has its methods in its dict, so they are
+    // replaced here.
+    for (n, _, v) in enum_post(c)? {
+        if !matches!(n, "__repr__" | "__str__" | "__format__" | "__reduce_ex__") {
+            continue;
+        }
+        let first = c.mro.borrow().iter().skip(1).find(|b| b.own(n).is_some()).cloned();
+        if first.is_some_and(|b| !is_enum(&b) && b.module != "builtins" && b.module != "enum") {
+            match v {
+                Some(v) => c.set(n, v),
+                None => return Err(unsupported(&format!("an Enum whose data type defines {n}"))),
+            }
+        }
+    }
     c.set("__bv_members__", list(members));
     c.set("__members__", map.clone());
     c.set("_member_map_", map);
@@ -1056,7 +1166,7 @@ fn data_repr(bases: &[Rc<Class>]) -> R {
             if b.module == "builtins" && b.name == "object" {
                 continue;
             }
-            if is_enum(b) {
+            if b.is_sub(&enum_base()) {
                 return if b.module == "enum" { data_repr(&b.bases) } else { Ok(b.own("_value_repr_").unwrap_or(V::None)) };
             }
             if b.module == "builtins" {
@@ -1066,15 +1176,39 @@ fn data_repr(bases: &[Rc<Class>]) -> R {
                     None => return Err(unsupported(&format!("an Enum mixed with {}", b.name))),
                 }
             }
-            if let Some(r) = b.own("__repr__") {
-                if b.own("__dataclass_fields__").is_some() {
-                    return Err(unsupported("an Enum mixed with a dataclass"));
+            // a dataclass whose __repr__ dataclasses made (repr=True) shows its repr fields, as enum.py's
+            // _dataclass_repr does; a program's own __repr__ otherwise
+            // (Brevi's dataclasses keep the made __repr__ out of the class dict)
+            if b.own("__dataclass_fields__").is_some() {
+                if let Some(p) = b.own("__dataclass_params__") {
+                    if truth(&getattr(&p, "repr")?)? {
+                        return Ok(dataclass_repr());
+                    }
                 }
+            }
+            if let Some(r) = b.own("__repr__") {
                 return Ok(r);
             }
         }
     }
     Ok(V::None)
+}
+// enum.py's _dataclass_repr: 'k=v' for each of the value's fields with repr=True
+fn dataclass_repr() -> V {
+    builtin("_dataclass_repr", |a: Args| {
+        a.want("_dataclass_repr", 1, 1)?;
+        let me = &a.p[0];
+        let dcf = getattr(me, "__dataclass_fields__")?;
+        let mut parts = vec![];
+        for k in to_vec(&dcf)? {
+            let f = getitem(&dcf, &k)?;
+            if truth(&getattr(&f, "repr")?)? {
+                let kn = to_str(&k)?;
+                parts.push(format!("{kn}={}", repr(&getattr(me, &kn)?)?));
+            }
+        }
+        Ok(st(parts.join(", ")))
+    })
 }
 // Enum._generate_next_value_ (kind 1), Flag's (2) and StrEnum's (4), as staticmethods
 fn gnv_builtin(kind: i64) -> V {
@@ -1557,6 +1691,10 @@ fn enum_create(c: &Rc<Class>, name: &V, names: V, module: V, qualname: V, ty: V,
             }
             _ => v,
         };
+        // EnumDict warns at its caller's line, which is enum.py's own here
+        if is_partial(&v) {
+            return Err(unsupported("a functools.partial value in the Enum functional API"));
+        }
         if !enum_not_member(cname, kn) && !is_descriptor(&v) {
             last.push(v.clone());
         }
@@ -1591,7 +1729,15 @@ fn enum_internal_class(cls: &str, v: &V) -> bool {
     q == s || q.ends_with(&format!(".{s}"))
 }
 // enum.py's _is_descriptor: an object with __get__, __set__ or __delete__ is never a member.
+// isinstance(v, functools.partial)
+fn is_partial(v: &V) -> bool {
+    matches!(v, V::Obj(o) if o.cls.mro.borrow().iter().any(|k| k.module == "functools" && k.name == "partial"))
+}
+// enum.py's _is_descriptor: a partial is not one (it has __get__)
 pub fn is_descriptor(v: &V) -> bool {
+    if is_partial(v) {
+        return false;
+    }
     match v {
         V::Obj(o) => ["__get__", "__set__", "__delete__"].iter().any(|n| o.cls.lookup(n).is_some()),
         V::Func(_) | V::Prop(_) | V::Bound(_) | V::BMeth(_) | V::NTF(_) => true,

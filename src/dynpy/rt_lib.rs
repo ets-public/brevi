@@ -1563,7 +1563,12 @@ pub fn bi_type(a: Args) -> R {
         let attrs: Vec<(Sym, V)> = dict_items_of(&a.p[2])?.into_iter().map(|(k, v)| (sym(&to_str(&k).unwrap_or_default()), v)).collect();
         return make_class(name, "__main__", bases, attrs);
     }
-    Ok(V::Class(type_of(&a1(&a, "type")?)?))
+    let x = a1(&a, "type")?;
+    // an Enum class's type is EnumType, which Brevi's enum classes do not have (they are made by type)
+    if matches!(&x, V::Class(c) if c.is_sub(&enum_base())) {
+        return Err(unsupported("type() of an Enum class (EnumType)"));
+    }
+    Ok(V::Class(type_of(&x)?))
 }
 pub fn bi_issubclass(a: Args) -> R {
     a.want("issubclass", 2, 2)?;
@@ -2618,6 +2623,26 @@ pub fn has_method(o: &V, name: &str) -> bool {
     const NOT_ON_SCALARS: &[&str] = &["__iter__", "__len__", "__getitem__", "__contains__", "__setitem__", "__delitem__", "__reversed__"];
     if names.contains(&name) {
         return true;
+    }
+    // A value of an exact builtin type has exactly the dunders of CPython's type dict (and its bases'):
+    // hasattr(frozenset(), '__delete__') is False, so enum.py's _is_descriptor does not take it for one.
+    if name.len() > 4 && name.starts_with("__") && name.ends_with("__") {
+        let exact: Option<&[&str]> = match o {
+            V::Str(_) => Some(&["str"]),
+            V::List(_) => Some(&["list"]),
+            V::Tuple(_) => Some(&["tuple"]),
+            V::Set(_) => Some(&["set"]),
+            V::FSet(_) => Some(&["frozenset"]),
+            V::Int(_) | V::Big(_) => Some(&["int"]),
+            V::Bool(_) => Some(&["bool", "int"]),
+            V::Float(_) => Some(&["float"]),
+            V::Range(_) => Some(&["range"]),
+            V::Dict(d) if d.borrow().kind == 0 => Some(&["dict"]),
+            _ => None,
+        };
+        if let Some(ts) = exact {
+            return ts.iter().any(|t| cpy_builtin_has(t, name));
+        }
     }
     if name.starts_with("__") || name == "read" {
         let scalar = matches!(o, V::Int(_) | V::Big(_) | V::Bool(_) | V::Float(_) | V::None);
