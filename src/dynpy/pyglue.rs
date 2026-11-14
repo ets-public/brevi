@@ -351,6 +351,26 @@ def _pmod():
         return Unpickler(_io.BytesIO(data), fix_imports=fix_imports, encoding=encoding, errors=errors, buffers=buffers).load()
     load.__module__ = loads.__module__ = '_pickle'
     m.Unpickler, m.load, m.loads = Unpickler, load, loads
+    # CPython 3.13's default protocol, 4, whatever CPython the bridge runs (3.14 on default to 5): a protocol
+    # left out, or given as None, is 4, so the program's bytes are 3.13's
+    _P = 4
+    def _proto(a, k, i):
+        if len(a) > i:
+            if a[i] is None:
+                a = a[:i] + (_P,) + a[i + 1:]
+        elif k.get('protocol') is None:
+            k['protocol'] = _P
+        return a
+    def dumps(*a, **k):
+        return _p.dumps(*_proto(a, k, 1), **k)
+    def dump(*a, **k):
+        return _p.dump(*_proto(a, k, 2), **k)
+    class Pickler(_p.Pickler):
+        def __init__(self, *a, **k):
+            super().__init__(*_proto(a, k, 1), **k)
+    dumps.__module__ = dump.__module__ = Pickler.__module__ = '_pickle'
+    Pickler.__qualname__ = Pickler.__name__ = 'Pickler'
+    m.dumps, m.dump, m.Pickler, m.DEFAULT_PROTOCOL = dumps, dump, Pickler, _P
     _d._pm = m
     return m
 _d.pmod = _pmod
@@ -1450,17 +1470,17 @@ unsafe fn pyd_register(a: &ax_pyffi::Api) -> bool {
     ok
 }
 
-// pickle.dumps and pickle.dump of CPython, remembered when the program imports pickle (see PYD_PDUMPS)
+// pickle.dumps and pickle.dump of the program's pickle module, remembered when the program imports pickle (see PYD_PDUMPS)
 unsafe fn pyd_note_pickle() {
     if !pyd_ptr(&PYD_PDUMPS).is_null() {
         return;
     }
     let a = pyd_api();
-    let m = (a.Import)(c"pickle".as_ptr());
-    if m.is_null() {
+    // the program's pickle module (its dumps and dump give CPython 3.13's default protocol)
+    let Ok(m) = pyd_mod_call("_brevi_dyn", "pmod", &[]) else {
         (a.ErrClear)();
         return;
-    }
+    };
     for (n, at) in [(c"dumps", &PYD_PDUMPS), (c"dump", &PYD_PDUMP)] {
         let x = (a.GetAttr)(m, n.as_ptr());
         if x.is_null() {
@@ -3142,7 +3162,7 @@ pub fn pyd_from(m: &str, n: &str) -> R {
         if m == "pickle" {
             pyd_note_pickle();
         }
-        if m == "pickle" && matches!(n, "load" | "loads" | "Unpickler") {
+        if m == "pickle" && matches!(n, "load" | "loads" | "Unpickler" | "dump" | "dumps" | "Pickler" | "DEFAULT_PROTOCOL") {
             let pm = pyd_mod_call("_brevi_dyn", "pmod", &[])?;
             let cn = CString::new(n).unwrap();
             let x = (a.GetAttr)(pm, cn.as_ptr());
