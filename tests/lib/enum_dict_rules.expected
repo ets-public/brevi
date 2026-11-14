@@ -1,0 +1,13 @@
+TypeError 'red' already defined as 1
+TypeError 'red' already defined as 1
+TypeError 'red' already defined as <enum.property object
+ValueError _ignore_ cannot specify already set names: {'A'}
+TypeError 'A' already defined as 1
+[<Period.ZERO: 0>] False False
+[False, False, True, False, False, True, False, False, True, False, False, True, False, False, True, False, False, False, False, False, False, False, False, False, False, False, True, False, False, True]
+[<Dirs.DOWN: frozenset({'sc'})>, <Dirs.UP: frozenset({'cs'})>] True
+['FutureWarning'] [<P.a: 1>] (2, 5)
+<NT.A: T(x=1, y=2)> <NTMix.A: T(x=1, y=2)> 1 NTMix.A 3 4
+<Creature.DOG: size='medium', legs=4> <Entries.ONE: plain!> True
+0xa True True
+Renamed <class '__main__.Renamed'>
