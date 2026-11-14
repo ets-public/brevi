@@ -71,7 +71,7 @@ SCOPE = ["test_grammar", "test_scope", "test_int", "test_list", "test_dict", "te
 SLICES = {
     "core": (SCOPE, BASELINE, FLOOR),
     "stdlib": (["test_itertools", "test_collections", "test_re", "test_textwrap", "test_functools", "test_string",
-               "test_graphlib", "test_colorsys", "test_deque", "test_dataclasses"],
+               "test_graphlib", "test_colorsys", "test_deque", "test_dataclasses", "test_enum"],
                ROOT / "compat" / "conformance_stdlib_known_wrong", ROOT / "compat" / "conformance_stdlib_floor.json"),
 }
 # Module name -> (path under Lib/, SHA-256). The helpers are only read for the definitions tests use.
@@ -102,6 +102,7 @@ SOURCES = {
     "test.test_colorsys": ("test/test_colorsys.py", "f7ea1907f751f0201ea69a0bc368cdb2b24e7c7f958d8df659a8ff84142bfb93"),
     "test.test_deque": ("test/test_deque.py", "15578b602865dfa5c80baa64006d64c5875765aab457d5b4bedd73a5e8436d73"),
     "test.test_dataclasses": ("test/test_dataclasses/__init__.py", "eb6d80602be85858a9a5f559c6f9fe7949b48972df4024aff8c825fcf8548cb4"),
+    "test.test_enum": ("test/test_enum.py", "c656b79b79a6706b54e47b4e9dcb36034f5e16f80b69dc3508acdb714d6c5809"),
     "test.re_tests": ("test/re_tests.py", "33033dc23d20a6924391819395e7bdd3c16d11cf3bb79eedb6298e79f65bb4e8"),  # data for test_re.ExternalTests
 }
 # Modules some tests import as modules (test_grammar reads their __annotations__): copied as they are next to the
@@ -117,7 +118,7 @@ COMPANIONS = {
 # A generated script may import only these: nothing that reaches files, processes or the network.
 ALLOWED_IMPORTS = {
     "__future__", "abc", "array", "bisect", "builtins", "cmath", "collections", "colorsys", "contextlib", "copy",
-    "dataclasses", "decimal", "enum", "fractions", "functools", "gc", "graphlib", "heapq", "inspect", "itertools", "json",
+    "dataclasses", "datetime", "decimal", "enum", "fractions", "functools", "gc", "graphlib", "heapq", "inspect", "itertools", "json",
     "math", "numbers", "locale", "operator", "pickle", "random", "re", "string", "struct", "sys", "textwrap", "threading", "time", "types",
     "typing", "unicodedata", "warnings", "weakref",
 }
