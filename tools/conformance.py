@@ -23,9 +23,12 @@ surrogate; it is printed beside the score and counts as not matched. cpython_pri
 conformance_cpython_private.txt, each with an issue) that both builds refuse because it calls a CPython-private module
 helper (re._compile, functools._c3_mro); it is printed beside the score and counts as not matched. A test that calls
 self.skipTest() under the reference CPython is excluded as skipped by CPython, like a skip decorator.
-unstable is a test whose CPython output depends on PYTHONHASHSEED, and only a reproduced difference counts: each seed's
-output is settled by a second run at that seed, and a CPython run that timed out or died is retried, then reported as
-not_extractable, never as unstable (rule 1: seeds 1 and 2; rule 2: seeds 3 to 5, tried for a wrong result).
+CPython and both built programs run at one fixed PYTHONHASHSEED (REF_SEED): Brevi hashes str and bytes exactly as
+CPython 3.13 does at the same seed, so a set of strings must print in CPython's own order. unstable is a test whose
+CPython output is not reproducible at that seed (object addresses, the clock, unseeded random numbers), and only a
+reproduced difference counts: a CPython run that timed out or died is retried, then reported as not_extractable, never
+as unstable (rule 1: a second run at the seed, settled by a third when they differ; rule 2: three more runs, tried for a
+wrong result).
 coverage = matched / (all - unstable - excluded - by_design); wrong = wrong_output + wrong_exit among programs that built.
 
 The test files are fetched once from the pinned tag into a cache outside git (not vendored: nothing of
@@ -1453,6 +1456,8 @@ def classify(want, built, got):
 
 REFERENCE_TRIES = 2  # a reference run that timed out, hit the memory limit or died is tried once more
 SETTLE_RUNS = 3  # normal runs at one seed before its output counts as not reproducible
+REF_SEED = 0  # the PYTHONHASHSEED of every CPython reference run and every built program (Brevi follows it exactly)
+RULE2_RUNS = 3  # more CPython runs at REF_SEED before a build's differing output counts as wrong
 
 
 class ReferenceFailed(Exception):
@@ -1483,11 +1488,12 @@ def outcome(run):
 class Reference:
     """CPython's reference runs of one case, kept per PYTHONHASHSEED so both builds share them. A single run can be
     disturbed (a timeout under load, a killed process), so no single run decides what is scored, in either
-    direction: an abnormal run is retried and then reported as an error (ReferenceFailed), and before a seed's output
-    is called different from another seed's, it is settled: two normal runs at that seed must agree."""
+    direction: an abnormal run is retried and then reported as an error (ReferenceFailed), and a seed's output is
+    settled before it counts: two normal runs at that seed must agree."""
 
     def __init__(self, run):
         self.run, self.runs = run, {}  # run(seed) -> Run; seed -> that seed's normal runs, in order
+        self.rule2 = None  # reproducible()'s answer, once asked
 
     def one(self, seed):
         """One more normal run at `seed`, or ReferenceFailed after REFERENCE_TRIES abnormal ones."""
@@ -1521,39 +1527,37 @@ def unreproducible(seed):
 
 
 def stable_reference(ref, random_output):
-    """(CPython's settled Run for the case, None) or (None, the unstable detail). Rule 1: seeds 1 and 2 must agree;
-    when their first runs differ, each seed is settled first, so one disturbed run cannot drop a test from the score."""
-    a = ref.first(1)
+    """(CPython's settled Run for the case, None) or (None, the unstable detail). Rule 1: two runs at REF_SEED must
+    agree; when they differ the seed is settled (two agreeing normal runs out of SETTLE_RUNS), so one disturbed run
+    cannot drop a test from the score, and SETTLE_RUNS runs that all differ make the test unstable."""
+    a = ref.first(REF_SEED)
     if random_output:
         return a, None  # the output is random by design: only the exit code and crashes are compared
-    b = ref.first(2)
-    if outcome(a) == outcome(b):
-        return a, None
-    for seed in (1, 2):
-        if ref.settled(seed) is None:
-            return None, unreproducible(seed)
-    a, b = ref.settled(1), ref.settled(2)
-    if outcome(a) != outcome(b):
-        return None, "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
-    return a, None
+    if len(ref.runs.get(REF_SEED, [])) < 2:
+        ref.one(REF_SEED)
+    if ref.settled(REF_SEED) is None:
+        return None, unreproducible(REF_SEED)
+    return ref.settled(REF_SEED), None
 
 
-def seed_dependence(ref, want):
-    """Rule 2, for a build whose output differs from CPython's: two seeds can agree by luck on a small str set, so
-    seeds 3 to 5 are tried before calling it Brevi's fault. Returns (unstable detail or None, note for the wrong
-    result or ""). A seed's run that matches `want` needs no second run; one that differs is settled first."""
-    for seed in (3, 4, 5):
+def reproducible(ref, want):
+    """Rule 2, for a build whose output differs from CPython's: runs that agree by luck (an address or the clock in
+    the output) must not make it Brevi's fault, so RULE2_RUNS more runs at REF_SEED must all give `want`. Returns
+    (unstable detail or None, note for the wrong result or ""). The runs are kept, so both builds share them."""
+    if ref.rule2 is not None:
+        return ref.rule2
+    for _ in range(RULE2_RUNS):
         try:
-            if outcome(ref.first(seed)) == outcome(want):
-                continue
-            r = ref.settled(seed)
+            r = ref.one(REF_SEED)
         except ReferenceFailed as e:
-            return None, f" (seed check stopped: {e})"
-        if r is None:
-            return unreproducible(seed).replace("rule 1", "rule 2"), ""
+            ref.rule2 = (None, f" (reproducibility check stopped: {e})")
+            return ref.rule2
         if outcome(r) != outcome(want):
-            return f"rule 2: CPython's output at PYTHONHASHSEED={seed} differs from seeds 1 and 2 (reproduced)", ""
-    return None, ""
+            ref.rule2 = (f"rule 2: CPython's output at PYTHONHASHSEED={REF_SEED} is not reproducible "
+                         f"(run {len(ref.runs[REF_SEED])} differs)", "")
+            return ref.rule2
+    ref.rule2 = (None, "")
+    return ref.rule2
 
 
 def run_case(case, cfg):
@@ -1585,12 +1589,12 @@ def run_case(case, cfg):
     modes = {}
     for mode in ("normal", "dyn"):
         exe, path, why, crashed = build(script, folder, mode, cfg)
-        got = masked(run_limited([str(exe)], str(folder), run_env(folder, 1), cfg.timeout, cfg.mem_mb, cfg.sandbox)) if exe else None
+        got = masked(run_limited([str(exe)], str(folder), run_env(folder, REF_SEED), cfg.timeout, cfg.mem_mb, cfg.sandbox)) if exe else None
         category, detail = classify(a, (exe is not None, why, crashed), got)
         if random_output and category in ("matched", "wrong_output"):
             category, detail = "unstable", ADDRESS_ORDER.get(case["id"], "CPython's output depends on unseeded random numbers") + " (checked for crashes and exit code only)"
         if category == "wrong_output":
-            unstable, note = seed_dependence(ref, a)
+            unstable, note = reproducible(ref, a)
             if unstable:
                 return {**case, "category": "unstable", "detail": unstable}
             detail += note
@@ -1811,8 +1815,8 @@ def markdown(rep, results):
         why = collections.Counter(normalise(r["detail"]) for r in results if r.get("category") == cat)
         lines += [f"- {c}: {w}" for w, c in why.most_common(25)]
     lines += ["", "## Unstable (left out of the score)", "",
-              "Rule 1: CPython's output at PYTHONHASHSEED 1 and 2, each seed settled by a second run when they differ. "
-              "Rule 2: seeds 3 to 5, tried when a build's output differs.", ""]
+              f"CPython and the built programs run at PYTHONHASHSEED={REF_SEED}. Rule 1: a second CPython run, settled by a "
+              "third when they differ. Rule 2: three more runs, tried when a build's output differs.", ""]
     lines += [f"- `{r['id']}`: {r['detail']}" for r in results if r.get("category") == "unstable"]
     random = sum(1 for r in results if any(x["category"] == "unstable" for x in r.get("modes", {}).values()))
     if random:

@@ -436,6 +436,42 @@ fn __ctype_locale() -> Option<String> {
 }
 "#;
 
+// The str/bytes hash key (rt_core.rs HASH_KEY) as CPython 3.13 draws it at startup from PYTHONHASHSEED
+// (Python/initconfig.c config_init_hash_seed, bootstrap_hash.c): unset, empty or "random" draws a random key;
+// a decimal integer (strtoul: leading spaces and a sign allowed) from 0 to 4294967295 gives that seed's key, 0 the
+// all-zero one; anything else stops the program at startup with CPython's fatal error and exit code 1.
+const HASH_KEY_FN: &str = r#"
+fn __hash_key() -> (u64, u64) {
+    let v = std::env::var_os("PYTHONHASHSEED").unwrap_or_default();
+    let t = v.to_string_lossy();
+    if t.is_empty() || t == "random" {
+        use std::hash::{BuildHasher, Hasher};
+        let r = std::collections::hash_map::RandomState::new();
+        let mut a = r.build_hasher();
+        a.write_u8(0);
+        let mut b = r.build_hasher();
+        b.write_u8(1);
+        return (a.finish(), b.finish());
+    }
+    let s = t.trim_start_matches([' ', '\t', '\n', '\x0b', '\x0c', '\r']);
+    let (neg, d) = match s.as_bytes().first() {
+        Some(b'-') => (true, &s[1..]),
+        Some(b'+') => (false, &s[1..]),
+        _ => (false, s),
+    };
+    let n = if !d.is_empty() && d.bytes().all(|c| c.is_ascii_digit()) { d.parse::<u64>().ok() } else { None };
+    match n.map(|n| if neg { n.wrapping_neg() } else { n }).filter(|&n| n <= u32::MAX as u64) {
+        Some(n) => hash_key_of_seed(n as u32),
+        None => {
+            eprintln!("Fatal Python error: config_init_hash_seed: PYTHONHASHSEED must be \"random\" or an integer in range [0; 4294967295]");
+            eprintln!("Python runtime state: preinitialized");
+            eprintln!();
+            std::process::exit(1)
+        }
+    }
+}
+"#;
+
 // shutil.get_terminal_size().columns, for argparse's help outside the sandbox: $COLUMNS when it is a positive
 // int, else the width of the terminal on stdout, else 80.
 const TERM_COLS_FN: &str = r#"
@@ -1005,6 +1041,8 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     if !crate::pybridge::no_native() {
         rust = rust.replacen("fn main() { ", "fn main() { STDOUT_ERRS.set(__stdout_errs).ok(); ", 1);
         rust.push_str(STDOUT_ERRS_FN);
+        rust = rust.replacen("fn main() { ", "fn main() { HASH_KEY.set(__hash_key()).ok(); ", 1);
+        rust.push_str(HASH_KEY_FN);
     }
     if mods.iter().any(|m| m.name == "argparse") && crate::pybridge::py_allowed("argparse") {
         rust = rust.replacen("run_main(__run); }", "TERM_COLS.set(__term_cols).ok(); run_main(__run); }", 1);

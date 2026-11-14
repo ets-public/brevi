@@ -33,10 +33,8 @@ pub fn check(src: &str) -> Option<(usize, String)> {
     check_soft(src).unwrap_or_else(|(l, m)| Some((l, m, vec![]))).map(|(l, w, _)| (l, w))
 }
 
-// As check, with the names the typed build may still take the file on (empty: it may not). Every reason
-// found is a set walked or shown in CPython's hash order, on sets named there; when rustc finds that each of
-// those holds strings (or tuples led by one), whose hashes CPython draws afresh each run (PYTHONHASHSEED), no
-// order is CPython's own, and the typed build's is as good as any run's.
+// As check, with the names the typed build may still take the file on (empty: it may not; today always empty,
+// as a set walked in hash order always goes to the dynamic build, see check_body).
 // Err (line, why): the dynamic build's parser cannot read the file, so none of this was checked.
 pub fn check_soft(src: &str) -> Result<Option<(usize, String, Vec<String>)>, (usize, String)> {
     Ok(check_body(&crate::dynpy::parse::parse(src)?))
@@ -226,18 +224,11 @@ fn check_body(body: &[Stmt]) -> Option<(usize, String, Vec<String>)> {
     g.pure_fns = pure_fns(body);
     g.fn_changes = program_changes(body);
     uses(body, &g, &mut hits);
+    // A set walked or shown in hash order goes to the dynamic build even when it holds strings: the dynamic
+    // build hashes them as CPython does (rt_core.rs sip_bytes), so at a fixed PYTHONHASHSEED its order is
+    // CPython's own, which the typed build's order is not.
     let (line, why, _) = hits.first().cloned()?;
-    if let Some(h) = hits.iter().find(|h| h.2.is_none()) {
-        return Some((h.0, h.1.clone(), vec![]));
-    }
-    let mut names: Vec<String> = hits.iter().flat_map(|h| h.2.clone().unwrap_or_default()).collect();
-    names.sort();
-    names.dedup();
-    // Each name must be set only by `name = ...` (or be a def's parameter), where the typed build checks it.
-    if names.iter().any(|k| bound_oddly(body, k.split_once(':').map_or(k.as_str(), |x| x.1))) {
-        return Some((line, why, vec![]));
-    }
-    Some((line, why, names))
+    Some((line, why, vec![]))
 }
 
 // A decorator the typed build would drop although it changes what the def or class does (`@retry` from
@@ -336,36 +327,6 @@ fn odd_decorator(body: &[Stmt]) -> Option<(usize, String)> {
         None
     }
     walk(body, &known)
-}
-
-// Is `n` bound other than by `n = ...` or as a plain def parameter (a loop variable, a tuple target,
-// `with ... as n`, `except E as n`, a comprehension's variable, `n :=`, a lambda's or a starred parameter)?
-fn bound_oddly(body: &[Stmt], n: &str) -> bool {
-    fn names_in(t: &Ex, n: &str) -> bool {
-        let mut f = false;
-        walk_ex(t, &mut |e| f |= matches!(e, Ex::Name(m) if m == n));
-        f
-    }
-    let mut odd = false;
-    for s in body {
-        match &s.st {
-            St::For(t, ..) => odd |= names_in(t, n),
-            St::Assign(ts, _) => odd |= ts.iter().any(|t| !matches!(t, Ex::Name(_)) && matches!(t, Ex::Tuple(_) | Ex::List(_) | Ex::Star(_)) && names_in(t, n)),
-            St::With(items, _) => odd |= items.iter().any(|(_, t)| t.as_ref().is_some_and(|t| names_in(t, n))),
-            St::Try(_, hs, _, _) => odd |= hs.iter().any(|h| h.name.as_deref() == Some(n)),
-            St::Import(v) | St::ImportFrom(_, v) => odd |= v.iter().any(|(m, a)| a.as_deref().unwrap_or(m) == n),
-            St::Def(d) => odd |= d.params.star.as_deref() == Some(n) || d.params.kwstar.as_deref() == Some(n) || d.params.kwonly.iter().any(|p| p.0 == n),
-            _ => {}
-        }
-        walk_st(&s.st, &mut |e| match e {
-            Ex::Comp(_, _, _, fors) => odd |= fors.iter().any(|c| names_in(&c.target, n)),
-            Ex::Walrus(m, _) => odd |= m == n,
-            Ex::Lambda(p, _) => odd |= p.pos.iter().any(|x| x.0 == n) || p.star.as_deref() == Some(n),
-            _ => {}
-        });
-        each_block(&s.st, &mut |b| odd |= bound_oddly(b, n));
-    }
-    odd
 }
 
 // The names whose sets `e` (a set, or a container of sets) walks, tagged `s:` (a set, or what set(...) was
