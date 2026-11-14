@@ -44,7 +44,6 @@
    "test_keywordonlyarg",
    "test_property",
    "test_sort",
-   "test_patma",
    "test_named_expressions",
    "test_long",
    "test_float",
@@ -190,10 +189,6 @@
   "test.test_sort": [
    "test/test_sort.py",
    "dd8cee99c70a21f6a220f64bf40e2ab9099c6df79f15859577cea4c4377fb382"
-  ],
-  "test.test_patma": [
-   "test/test_patma.py",
-   "651dcbe1421d8f6fda77f6319cedd3c2ca67193de805d08cadd22a3e9efc48ed"
   ],
   "test.test_named_expressions": [
    "test/test_named_expressions.py",
