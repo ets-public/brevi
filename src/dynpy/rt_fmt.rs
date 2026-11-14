@@ -953,6 +953,8 @@ pub fn format_spec(v: &V, spec: &str) -> Result<String, E> {
             // Enum.__format__ formats str(member); IntEnum, StrEnum and IntFlag format the value
             if is_enum(&o.cls) {
                 return match inner_of(v) {
+                    // int.__format__, str.__format__ and float.__format__ with an empty spec give str(member)
+                    Some(_) if is_repr_enum(&o.cls) && spec.is_empty() => to_str(v),
                     Some(i) if is_repr_enum(&o.cls) => format_spec(&i, spec),
                     _ => format_spec(&st(to_str(v)?), spec),
                 };

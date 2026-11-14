@@ -2767,7 +2767,12 @@ impl Em {
                         let fr = self.fstack.last().unwrap();
                         let cls = fr.class_expr.clone().ok_or_else(|| err(line, "super() outside a method is not supported"))?;
                         let me = fr.self_name.clone().ok_or_else(|| err(line, "super() outside a method is not supported"))?;
-                        let cls = self.load_raw(&cls, line)?;
+                        // the class's name, read so that a class still being made (its name not bound yet) is found
+                        let cls = match (self.f().ns.is_none(), self.lookup(&cls)) {
+                            (true, Some(Var::Global(i))) => self.q(&format!("super_cls(gl_raw({i}), {}, 0)", lit(&cls))),
+                            (true, Some(Var::Cell(r))) => self.q(&format!("super_cls({r}.borrow().clone(), {}, 1)", lit(&cls))),
+                            _ => self.load_raw(&cls, line)?,
+                        };
                         let me = self.load(&me, line)?;
                         (cls, me)
                     };
@@ -4496,7 +4501,7 @@ impl Em {
         let av = format!("__auto_last{id}");
         let mut decls = String::new();
         write!(decls, "{base_decls}").unwrap();
-        write!(decls, "let mut {ctx}: EnumCtx = enum_auto_ctx(&[{}]); let mut {av}: Vec<V> = vec![]; ", base_vars.iter().map(|v| format!("&{v}")).collect::<Vec<_>>().join(", ")).unwrap();
+        write!(decls, "let mut {ctx}: EnumCtx = enum_auto_ctx({}, &[{}]); let mut {av}: Vec<V> = vec![]; ", lit(&c.name), base_vars.iter().map(|v| format!("&{v}")).collect::<Vec<_>>().join(", ")).unwrap();
         if let Some(mx) = meta {
             // as __build_class__: the metaclass after the bases, then its __prepare__, then the body's own first
             // stores (__module__, __qualname__, __firstlineno__, SETUP_ANNOTATIONS, the docstring)
@@ -4818,6 +4823,11 @@ pub fn ic_statics() -> String {
 // Whether `src` names a builtin iterator type (zip, map, filter, enumerate, reversed, or an itertools one) other
 // than to call it or import it: `(repeat, args)`, `cls = chain`.
 pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>), (String, usize, String)> {
+    for m in mods {
+        if let Some((line, n)) = super::typing::datetime_subclass(&m.body) {
+            return Err((m.name.clone(), line, format!("a subclass of {n} is not supported in dynamic builds")));
+        }
+    }
     // the program (not Brevi's library copies) uses the warnings module
     // (or functools.partial, whose __get__ warns at the line that reads it from an instance, or
     // collections.abc.ByteString, whose metaclass warns at the isinstance or class statement)

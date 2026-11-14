@@ -2005,6 +2005,9 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
             Ok(())
         }
         V::Class(c) => {
+            if let Some(e) = enum_setattr_block(c, &name.to_string()) {
+                return Err(e);
+            }
             if let Some(r) = meta_setattr(o, c, name, &v) {
                 return r;
             }
@@ -2160,6 +2163,7 @@ pub fn delattr(o: &V, name: &str) -> Result<(), E> {
         V::Class(c) if c.meta.borrow().as_ref().is_some_and(|m| meta_lookup(m, name).is_some_and(|d| matches!(d, V::Prop(_)) || is_data_desc(&d))) => {
             Err(unsupported("deleting a class attribute its metaclass defines as a descriptor"))
         }
+        V::Class(c) if enum_delattr_block(c, name).is_some() => Err(enum_delattr_block(c, name).unwrap()),
         V::Class(c) if c.del_exact(name) => Ok(()),
         V::Class(c) => Err(exc("AttributeError", format!("type object '{}' has no attribute '{}'", c.name, name))),
         // a def's user attribute: from its __dict__ once that has been made, else from its attrs (as setattr stores it)

@@ -1,0 +1,36 @@
+set cannot reassign member 'RED'
+del 'Color' cannot delete member 'RED'.
+[<Color.GREEN: 2>, <Color.RED: 1>]
+True True
+mro invalid enum member name(s) 'mro'
+sunder _sunder_ names, such as '_foo_', are reserved for future Enum use
+[<P.a: 2>]
+<D.first: (1978, 5, 26)>
+[<AutoNumber.first: 1>, <AutoNumber.second: 2>] AutoNumber.second
+I.a two I.b 2
+super do not use `super().__new__; call the appropriate __new__ directly
+super2 do not use `super().__new__; call the appropriate __new__ directly
+4.869e+24 (3.303e+23, 2439700.0) Pl.MERCURY
+<SE.a: '1'> SE.a True
+<IE.a: 16> IE.a
+True [<D2.a: 1>]
+['__class__', '__contains__', '__doc__', '__getitem__', '__init_subclass__', '__iter__', '__len__', '__members__', '__module__', '__name__', '__qualname__', 'a']
+['__class__', '__doc__', '__eq__', '__hash__', '__module__', 'hi', 'name', 'value']
+['__class__', '__contains__', '__doc__', '__getitem__', '__init_subclass__', '__iter__', '__len__', '__members__', '__module__', '__name__', '__new__', '__qualname__', 'a']
+['__class__', '__contains__', '__doc__', '__getitem__', '__init_subclass__', '__iter__', '__len__', '__members__', '__module__', '__name__', '__qualname__', 'a']
+['__class__', '__doc__', '__eq__', '__hash__', '__module__', 'name', 'value']
+True 83
+True True
+['__class__', '__doc__', '__eq__', '__hash__', '__module__', 'big', 'desc', 'name', 'value']
+[<A.red: 1>, <A.green: 2>] False
+member order does not match _order_:
+  ['red', 'green', 'blue']
+  ['red', 'green']
+[<C.red: 1>, <C.green: 2>]
+[<F.a: 1>, <F.b: 2>]
+Y Y Y FIRST FIRST aFIRST
+FIRST FIRST FIRST     1 FIRST
+FIRST FIRST FIRST     x FIRST
+FIRST FIRST FIRST   1.5 FIRST
+FIRST FIRST FIRST FIRST FIRST
+item.test item.test item.test item.test

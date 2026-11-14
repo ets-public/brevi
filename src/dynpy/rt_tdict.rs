@@ -528,6 +528,9 @@ pub fn bi_dir(a: Args) -> R {
         return Err(unsupported("dir() without an argument"));
     }
     let x = a1(&a, "dir")?;
+    if let Some(r) = enum_dir(&x) {
+        return r;
+    }
     let cls = type_of(&x)?;
     let user_dir = cls.mro.borrow().iter().find_map(|k| if tinfo(k).is_some() { k.own("__dir__") } else { None });
     let mut names: Vec<V> = if let Some(f) = user_dir {

@@ -1180,3 +1180,77 @@ fn union_safe(e: &Ex, nm: &Names) -> bool {
         _ => !nm.typing_expr(e) || value_form(e, nm),
     }
 }
+
+// A class built on a datetime class (`class D(date)`, `class E(date, Enum)`), or a functional Enum with
+// `type=date`: the dynamic build's date classes cannot be subclassed (their instances hold no date), so such a
+// program is refused at build time: (line, the class's dotted name).
+pub fn datetime_subclass(body: &[Stmt]) -> Option<(usize, String)> {
+    const DT: [&str; 5] = ["date", "datetime", "time", "timedelta", "timezone"];
+    let mut names: HashMap<String, String> = HashMap::new();
+    let mut mods: Vec<String> = vec![];
+    fn scan(body: &[Stmt], names: &mut HashMap<String, String>, mods: &mut Vec<String>) {
+        for s in body {
+            match &s.st {
+                St::ImportFrom(m, v) if m == "datetime" => {
+                    for (n, a) in v {
+                        if DT.contains(&n.as_str()) {
+                            names.insert(a.clone().unwrap_or_else(|| n.clone()), n.clone());
+                        }
+                    }
+                }
+                St::Import(v) => {
+                    for (m, a) in v {
+                        if m == "datetime" {
+                            mods.push(a.clone().unwrap_or_else(|| m.clone()));
+                        }
+                    }
+                }
+                _ => {}
+            }
+            blocks(&s.st, &mut |b| scan(b, names, mods));
+        }
+    }
+    scan(body, &mut names, &mut mods);
+    if names.is_empty() && mods.is_empty() {
+        return None;
+    }
+    let dt_of = |e: &Ex| -> Option<String> {
+        match e {
+            Ex::Name(n) => names.get(n).cloned(),
+            Ex::Attr(o, a) if DT.contains(&a.as_str()) && matches!(o.as_ref(), Ex::Name(m) if mods.contains(m)) => Some(a.clone()),
+            _ => None,
+        }
+    };
+    let mut found: Option<(usize, String)> = None;
+    fn classes(body: &[Stmt], f: &mut dyn FnMut(&[Ex], usize)) {
+        for s in body {
+            if let St::Class(c) = &s.st {
+                f(&c.bases, s.line);
+            }
+            blocks(&s.st, &mut |b| classes(b, f));
+        }
+    }
+    classes(body, &mut |bases, line| {
+        if found.is_none() {
+            if let Some(n) = bases.iter().find_map(|b| dt_of(b)) {
+                found = Some((line, n));
+            }
+        }
+    });
+    if found.is_none() {
+        walk_all(body, &mut |e, line| {
+            if let Ex::Call(_, args) = e {
+                for a in args {
+                    if let Arg::Kw(k, v) = a {
+                        if k == "type" && found.is_none() {
+                            if let Some(n) = dt_of(v) {
+                                found = Some((line, n));
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+    found.map(|(l, n)| (l, format!("datetime.{n}")))
+}
