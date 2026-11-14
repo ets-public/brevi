@@ -1,0 +1,3 @@
+- Dynamic builds hash `str` and `bytes` exactly as CPython 3.13 does (SipHash-1-3 over the PEP 393 form), keyed from `PYTHONHASHSEED` as CPython reads it (unset, empty or `random`: a random key; `0`: the all-zero key; an invalid value stops at startup with CPython's fatal error). At a fixed seed, `hash()` of a string and the order of a set of strings match `python3`. Under `--sandbox` the key is CPython's for `PYTHONHASHSEED=0`.
+- The typed build no longer walks a set of strings in its own order: such programs take the dynamic build, whose order is CPython's.
+- Conformance runs CPython and both builds at `PYTHONHASHSEED=0`, so tests whose output depends on string hashes are scored.

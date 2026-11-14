@@ -1435,17 +1435,8 @@ impl Ext for BytesV {
         self
     }
     fn hash(&self) -> Option<i64> {
-        // the same as a str of the same ASCII text, as in CPython (b'' hashes as 0)
-        if self.0.is_empty() {
-            return Some(0);
-        }
-        let mut h: u64 = 0xcbf29ce484222325;
-        for &b in &self.0 {
-            h ^= b as u64;
-            h = h.wrapping_mul(0x100000001b3);
-        }
-        let h = (h >> 1) as i64;
-        Some(if h == -1 { -2 } else { h })
+        // CPython's: the same as a str of the same ASCII text (b'' hashes as 0)
+        Some(sip_bytes(&self.0))
     }
     fn eq(&self, o: &V) -> Option<bool> {
         if let Some(m) = memview_of(o) {
