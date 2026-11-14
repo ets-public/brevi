@@ -5395,6 +5395,7 @@ pub fn ext_module_attr(m: &str, n: &str) -> Result<Option<V>, E> {
         ("enum", "Enum") => Some(V::Class(enum_base())),
         ("enum", "property") => Some(V::Class(eprop_class())),
         ("enum", "IntEnum" | "StrEnum" | "Flag" | "IntFlag" | "ReprEnum") => enum_class(n).map(V::Class),
+        ("enum", _) if enum_mod_attr(n)?.is_some() => enum_mod_attr(n)?,
         ("binascii", "Error") => Some(V::Class(exc_class("binascii.Error"))),
         _ => None,
     })
