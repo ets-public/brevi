@@ -150,7 +150,8 @@ def lit(s):
 
 def entry(t, k, v):
     # (name, kind, text): kinds 0-5 are the descriptor kinds above; 6 None; 7 a str (text); 8 an int (text);
-    # 9 a tuple of str (text, comma-separated); 10 a staticmethod of a builtin method of the type
+    # 9 a tuple of str (text, comma-separated); 10 a staticmethod of a builtin method of the type;
+    # 11 a datetime type's own constant (date.min, timedelta.resolution, timezone.utc), read off the class
     if k == "__new__" and type(v) is types.BuiltinFunctionType:
         return (k, 5, "")
     kd = KINDS.get(type(v))
@@ -166,6 +167,8 @@ def entry(t, k, v):
         return (k, 8, str(v))
     if type(v) is tuple and all(type(x) is str for x in v):
         return (k, 9, ",".join(v))
+    if t.__module__ == "datetime" and type(v) in (datetime.date, datetime.datetime, datetime.time, datetime.timedelta, datetime.timezone):
+        return (k, 11, "")
     return None
 
 

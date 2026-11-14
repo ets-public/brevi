@@ -2193,7 +2193,7 @@ fn int_args(a: &mut Args, names: &[&str], req: usize, what: &str) -> Result<Vec<
     }
     Ok(out)
 }
-fn date_new(mut a: Args) -> R {
+pub fn date_new(mut a: Args) -> R {
     let v = int_args(&mut a, &["year", "month", "day"], 3, "date")?;
     check_date(v[0], v[1], v[2])?;
     Ok(dtv(DT { ord: ymd_to_ord(v[0], v[1], v[2]), us: 0, has_time: false, tz: None, fold: false }))

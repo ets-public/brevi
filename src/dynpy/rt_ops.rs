@@ -1261,7 +1261,12 @@ fn binop_slow(a: &V, b: &V, op: &str) -> R {
     let (ia, ib) = (inner_of(a), inner_of(b));
     // (a bytearray subclass instance is not unwrapped: obj_binop took what bytearray takes, and errors name the subclass)
     if (ia.is_some() || ib.is_some()) && !is_ba_sub(a) && !is_ba_sub(b) {
-        return binop(&ia.unwrap_or(a.clone()), &ib.unwrap_or(b.clone()), op);
+        let r = binop(&ia.unwrap_or(a.clone()), &ib.unwrap_or(b.clone()), op)?;
+        // CPython's date arithmetic gives back type(self)(...), an instance of the subclass (date_sub_refused)
+        if (is_date_sub(a) || is_date_sub(b)) && is_date_v(&r) {
+            return Err(unsupported("date arithmetic on an Enum member that wraps a date (CPython builds the Enum's class from the result)"));
+        }
+        return Ok(r);
     }
     if op == "+" && matches!((a, b), (V::Str(_), _) | (_, V::Str(_))) {
         if let V::Str(_) = a {
