@@ -1621,7 +1621,7 @@ pub enum ConstKey {
     Ellipsis,
     Tuple(Vec<ConstKey>),
     Bytes(String),
-    Imag(u64),
+    Complex(u64, u64),
 }
 
 // An int literal's digits as a little-endian base-1e9 number, so 16, 0x10 and 0b10000 compare equal.
@@ -1681,15 +1681,20 @@ fn const_key(e: &Ex) -> ConstKey {
                 ConstKey::Int(!neg && !zero, mag)
             }
             Ex::Float(f) => ConstKey::Float((-f).to_bits()),
-            _ => unreachable!(),
+            _ => match complex_const(e) {
+                Some((re, im)) => ConstKey::Complex(re.to_bits(), im.to_bits()),
+                None => unreachable!(),
+            },
         },
         Ex::Tuple(xs) => ConstKey::Tuple(xs.iter().map(const_key).collect()),
-        Ex::Call(f, a) => match (f.as_ref(), a.as_slice()) {
-            (Ex::Name(n), [Arg::Pos(Ex::Str(b))]) if n == "__bytes_lit" => ConstKey::Bytes(b.clone()),
-            (Ex::Name(n), [Arg::Pos(Ex::Float(f))]) if n == "__complex_lit" => ConstKey::Imag(f.to_bits()),
+        Ex::Call(f, a) if matches!((f.as_ref(), a.as_slice()), (Ex::Name(n), [Arg::Pos(Ex::Str(_))]) if n == "__bytes_lit") => match a.as_slice() {
+            [Arg::Pos(Ex::Str(b))] => ConstKey::Bytes(b.clone()),
             _ => unreachable!(),
         },
-        _ => unreachable!(),
+        _ => match complex_const(e) {
+            Some((re, im)) => ConstKey::Complex(re.to_bits(), im.to_bits()),
+            None => unreachable!(),
+        },
     }
 }
 
@@ -1697,14 +1702,43 @@ fn const_key(e: &Ex) -> ConstKey {
 fn konst(e: &Ex) -> bool {
     match e {
         Ex::Int(_) | Ex::Float(_) | Ex::Str(_) | Ex::NoneV | Ex::True | Ex::False | Ex::Ellipsis => true,
-        Ex::Unary("-", x) => matches!(x.as_ref(), Ex::Int(_) | Ex::Float(_)),
+        Ex::Unary("-", x) => matches!(x.as_ref(), Ex::Int(_) | Ex::Float(_)) || complex_const(e).is_some(),
         Ex::Tuple(xs) => xs.iter().all(konst),
-        Ex::Call(f, a) => match (f.as_ref(), a.as_slice()) {
-            (Ex::Name(n), [Arg::Pos(Ex::Str(_))]) => n == "__bytes_lit",
-            (Ex::Name(n), [Arg::Pos(Ex::Float(_))]) => n == "__complex_lit",
-            _ => false,
-        },
-        _ => false,
+        Ex::Call(f, a) if matches!((f.as_ref(), a.as_slice()), (Ex::Name(n), [Arg::Pos(Ex::Str(_))]) if n == "__bytes_lit") => true,
+        _ => complex_const(e).is_some(),
+    }
+}
+// A complex constant CPython folds: 2j, -2j, and a real literal plus or minus an imaginary one (1+2j), as
+// (real, imag) computed the way CPython's complex arithmetic does (the real part converted to float).
+fn complex_const(e: &Ex) -> Option<(f64, f64)> {
+    fn imag(e: &Ex) -> Option<f64> {
+        match e {
+            Ex::Call(f, a) => match (f.as_ref(), a.as_slice()) {
+                (Ex::Name(n), [Arg::Pos(Ex::Float(x))]) if n == "__complex_lit" => Some(*x),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+    fn real(e: &Ex) -> Option<f64> {
+        let r = match e {
+            Ex::Float(x) => Some(*x),
+            Ex::Int(t) => {
+                let d = t.replace('_', "");
+                if d.bytes().all(|c| c.is_ascii_digit()) { d.parse::<f64>().ok() } else { None }
+            }
+            Ex::Unary("-", x) if matches!(x.as_ref(), Ex::Int(_) | Ex::Float(_)) => real(x).map(|v| -v),
+            _ => None,
+        };
+        r.filter(|v| v.is_finite())
+    }
+    match e {
+        Ex::Unary("-", x) => imag(x).map(|i| (-0.0, -i)),
+        Ex::Bin(op @ ("+" | "-"), a, b) => {
+            let (r, i) = (real(a)?, imag(b)?);
+            Some(if *op == "+" { (r + 0.0, 0.0 + i) } else { (r - 0.0, 0.0 - i) })
+        }
+        _ => imag(e).map(|i| (0.0, i)),
     }
 }
 // An expression CPython's AST optimizer may fold into a constant (Python/ast_opt.c: operators on constants,
@@ -5202,8 +5236,8 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         }
     }
     let progs: Vec<(&str, &[Stmt])> = mods.iter().filter(|m| bridge.srcs.contains_key(&m.name)).map(|m| (m.name.as_str(), m.body.as_slice())).collect();
-    if let Some((m, line)) = super::typing::re_with_hash(&progs) {
-        return Err((m, line, "hash() in a program that uses re is not supported in dynamic builds (CPython hashes a re.Pattern over its compiled sre code)".into()));
+    if let Some((m, line)) = super::typing::re_pattern_hash(&progs) {
+        return Err((m, line, "hash() of a re.Pattern is not supported in dynamic builds (CPython hashes its compiled sre code)".into()));
     }
     // the program (not Brevi's library copies) uses the warnings module
     // (or functools.partial, whose __get__ warns at the line that reads it from an instance, or

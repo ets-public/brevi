@@ -1407,18 +1407,45 @@ pub fn pickled_set_subclass(body: &[Stmt]) -> Option<(usize, String)> {
     });
     found
 }
-// A program that imports re and names the builtin hash: the line of the first `hash`. CPython hashes a
-// re.Pattern over its compiled sre code (_sre.c pattern_hash), which Brevi's regex engine does not build, so the
-// build refuses rather than print another number (rt_core's py_hash also stops on a Pattern at run time).
-pub fn re_with_hash(mods: &[(&str, &[Stmt])]) -> Option<(String, usize)> {
-    if !mods.iter().any(|(_, b)| imports(b, "re")) {
-        return None;
+// hash() of a compiled pattern the build can see (`hash(re.compile(...))`, or of a name some assignment binds to
+// re.compile(...)): the module and line. CPython hashes a re.Pattern over its compiled sre code (_sre.c
+// pattern_hash), which Brevi's regex engine does not build; rt_core's py_hash stops on any other Pattern at run time.
+pub fn re_pattern_hash(mods: &[(&str, &[Stmt])]) -> Option<(String, usize)> {
+    fn compiled(e: &Ex) -> bool {
+        matches!(e, Ex::Call(f, _) if matches!(f.as_ref(), Ex::Attr(m, n) if n == "compile" && matches!(m.as_ref(), Ex::Name(r) if r == "re")))
     }
     for (m, body) in mods {
+        if !imports(body, "re") {
+            continue;
+        }
+        let mut pats: HashSet<String> = HashSet::new();
+        fn binds(body: &[Stmt], pats: &mut HashSet<String>, compiled: &dyn Fn(&Ex) -> bool) {
+            for s in body {
+                if let St::Assign(ts, v) = &s.st {
+                    if compiled(v) {
+                        for t in ts {
+                            if let Ex::Name(n) = t {
+                                pats.insert(n.clone());
+                            }
+                        }
+                    }
+                }
+                blocks(&s.st, &mut |b| binds(b, pats, compiled));
+            }
+        }
+        binds(body, &mut pats, &compiled);
         let mut found = None;
         walk_all(body, &mut |e, line| {
-            if found.is_none() && matches!(e, Ex::Name(n) if n == "hash") {
-                found = Some(line);
+            if found.is_none() {
+                if let Ex::Call(f, a) = e {
+                    if matches!(f.as_ref(), Ex::Name(n) if n == "hash") {
+                        if let [Arg::Pos(x)] = a.as_slice() {
+                            if compiled(x) || matches!(x, Ex::Name(n) if pats.contains(n)) {
+                                found = Some(line);
+                            }
+                        }
+                    }
+                }
             }
         });
         if let Some(l) = found {

@@ -1822,8 +1822,8 @@ mod tests {
     #[test]
     fn string_set_walks_wait_for_rustc() {
         use super::check_soft;
-        // Named for the typed build to check (rustc proves the items are strings), not refused outright.
-        assert_eq!(check_soft("ws = set('a b a'.split())\nfor w in ws:\n    print(w)\n").unwrap().map(|x| x.2), Some(vec!["s:ws".to_string()]));
+        // A walk over a set that may hold strings takes the dynamic build, whose order is CPython's (str hash).
+        assert_eq!(check_soft("ws = set('a b a'.split())\nfor w in ws:\n    print(w)\n").unwrap().map(|x| x.2), Some(vec![]));
         // A set made by a function, or bound as a loop variable, cannot be checked by name.
         assert_eq!(check_soft("def f():\n    return {'a'}\nfor w in f():\n    print(w)\n").unwrap().map(|x| x.2), Some(vec![]));
         assert_eq!(check_soft("for s in [{'a'}]:\n    for w in s:\n        print(w)\n").unwrap().map(|x| x.2.is_empty()), Some(true));
