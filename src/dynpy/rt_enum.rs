@@ -38,7 +38,7 @@ fn enum_classes() -> (Rc<Class>, Rc<Class>) {
             en.set("__format__", builtin("__format__", |a: Args| {
                 a.want("__format__", 2, 2)?;
                 let spec = to_str(&a.p[1])?;
-                Ok(st(crate::dynpy::rt_fmt::format_spec(&st(to_str(&a.p[0])?), &spec)?))
+                Ok(st(format_spec(&st(to_str(&a.p[0])?), &spec)?))
             }));
             en.set("__reduce_ex__", builtin("__reduce_ex__", |a: Args| {
                 a.want("__reduce_ex__", 2, 2)?;
@@ -774,8 +774,8 @@ fn enum_cpy_attrs(c: &Rc<Class>, new_fn: &Option<V>, mt: &Rc<Class>, members: &[
         Some(f) => bi_staticmethod(Args::p(vec![f]))?,
         None => {
             // CPython's first_enum: the last base that is an Enum class, enum's own classes included
-    let en = enum_base();
-    let first = c.bases.iter().rev().find(|b| b.is_sub(&en)).cloned().unwrap_or(en);
+            let en = enum_base();
+            let first = c.bases.iter().rev().find(|b| b.is_sub(&en)).cloned().unwrap_or(en);
             bi_staticmethod(Args::p(vec![getattr(&V::Class(first), "_generate_next_value_")?]))?
         }
     };
