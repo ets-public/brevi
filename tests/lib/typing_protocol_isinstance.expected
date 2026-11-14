@@ -1,0 +1,24 @@
+True 1 2
+1 2
+True 1 2
+1 2
+False True
+True
+True
+False
+True
+TE Instance and class checks can only be used with @runtime_checkable protocols
+TE Instance and class checks can only be used with @runtime_checkable protocols
+TE Protocols can only inherit from other protocols, got <class '__main__.Base'>
+TE @runtime_checkable can be only applied to protocol classes, got <class '__main__.NotP'>
+True False True True
+True False
+True True
+True False
+TE Protocols cannot be instantiated
+False True True
+False
+True True
+True
+True
+True

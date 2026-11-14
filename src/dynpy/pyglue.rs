@@ -1393,9 +1393,13 @@ fn pickle_lookup_fn(a: Args) -> R {
 // globals (__main__, an imported module of the program, or functools' total_ordering helpers), the rest as
 // attributes.
 fn pickle_lookup(m: &str, q: &str) -> R {
-    let missing = || exc("AttributeError", format!("Can't get attribute '{q}' on <module '{m}'>"));
+    // CPython names the module by its repr (refused where Brevi cannot give it exactly)
+    let missing = || match module_repr(m) {
+        Ok(r) => exc("AttributeError", format!("Can't get attribute '{q}' on {r}")),
+        Err(e) => e,
+    };
     if q.split('.').any(|p| p == "<locals>") {
-        return Err(exc("AttributeError", format!("Can't get local attribute '{q}' on <module '{m}'>")));
+        return Err(exc("AttributeError", format!("Can't get local attribute '{q}' on {}", module_repr(m)?)));
     }
     if let Some(c) = iter_class_named(m, q) {
         return Ok(c);
