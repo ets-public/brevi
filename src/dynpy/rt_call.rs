@@ -3,6 +3,8 @@
 
 thread_local! {
     pub static USER_MOD: Cell<Option<fn(&str, &str) -> Option<R>>> = Cell::new(None);
+    // a file of the program by module name -> its absolute path (for the module's repr)
+    pub static USER_MOD_FILE: Cell<Option<fn(&str) -> Option<&'static str>>> = Cell::new(None);
     // __main__'s name -> global slot table (its gtab), for lookups by name at run time (pickle by reference)
     pub static MAIN_GTAB: Cell<Option<fn(&str) -> Option<usize>>> = Cell::new(None);
     pub static DEPTH: Cell<usize> = Cell::new(0);

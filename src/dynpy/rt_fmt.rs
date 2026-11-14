@@ -242,6 +242,20 @@ pub fn ose_str(o: &Rc<Obj>, args: &V) -> Result<String, E> {
         _ => repr(args)?,
     })
 }
+// CPython's module repr: `<module 'helper' from '/abs/helper.py'>` for a file of the program (its path as
+// the build found it, as the script's __file__), `(built-in)` for sys and builtins, which every CPython
+// build compiles in. Any other library module's repr names where CPython's own copy lives, or whether this
+// CPython build has it built in or frozen, which a native program cannot know: refused.
+pub fn module_repr(m: &str) -> Result<String, E> {
+    if let Some(p) = USER_MOD_FILE.with(|u| u.get()).and_then(|f| f(m)) {
+        return Ok(format!("<module {} from {}>", str_repr(m), str_repr(p)));
+    }
+    match m {
+        "sys" | "builtins" => Ok(format!("<module '{m}' (built-in)>")),
+        "sys.stdin" | "sys.stdout" | "sys.stderr" | "decimal.context" => Err(unsupported(&format!("the repr of {m}"))),
+        _ => Err(unsupported(&format!("the repr of module {m}"))),
+    }
+}
 pub fn repr(v: &V) -> Result<String, E> {
     if let V::Ext(_) = v {
         if let Some(r) = sig_str(v, true) {
@@ -496,7 +510,7 @@ pub fn repr(v: &V) -> Result<String, E> {
                 None => format!("deque([{}])", items),
             }
         }
-        V::Module(m) => format!("<module '{}'>", m),
+        V::Module(m) => module_repr(m)?,
         V::View(x) => {
             // kind 3 is a mappingproxy: the dict's own repr in `mappingproxy({...})`.
             if x.1 == 3 {

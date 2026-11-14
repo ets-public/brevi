@@ -30,6 +30,8 @@ Things to know when reading these numbers:
 
 Not built natively yet (README, Status): `match` statements, and `eval` of text known only at run time (`eval` of literal text works from v0.27.0). Classes built on a library's classes run in CPython as a whole.
 
+Module objects: a file of the program gives `__file__`, `__name__`, `__doc__`, `__package__` and its repr (`<module 'helper' from '/abs/helper.py'>`) as CPython does, with the path the build found the file at, so a binary run after its sources moved still names the old place. Its `__spec__`, `__loader__`, `__cached__`, `__dict__` and `__builtins__`, and a package's `__path__`, are refused when the build sees them and stop the program when read through a variable. A library module's repr stops the program too (only `sys` and `builtins` are given): it names where CPython's own copy is installed, or whether that CPython build compiled the module in, which a native program cannot know.
+
 Outside the aim: text on stderr, and output CPython itself changes between runs (the order of a set of strings, `__del__` timing).
 
 ## Windows (beta, x86-64 only)
