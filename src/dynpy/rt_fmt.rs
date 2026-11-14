@@ -243,12 +243,15 @@ pub fn ose_str(o: &Rc<Obj>, args: &V) -> Result<String, E> {
     })
 }
 // CPython's module repr: `<module 'helper' from '/abs/helper.py'>` for a file of the program (its path as
-// the build found it, as the script's __file__), `(built-in)` for sys and builtins, which every CPython
-// build compiles in. Any other library module's repr names where CPython's own copy lives, or whether this
-// CPython build has it built in or frozen, which a native program cannot know: refused.
+// the build found it), and a library module's as the build machine's CPython printed it (emit.rs
+// lib_mod_reprs). A module that CPython could not import when the program was built, and sys.stdout's or a
+// decimal context's repr (they depend on the run's locale and the context's flags), stop the program.
 pub fn module_repr(m: &str) -> Result<String, E> {
     if let Some(p) = USER_MOD_FILE.with(|u| u.get()).and_then(|f| f(m)) {
         return Ok(format!("<module {} from {}>", str_repr(m), str_repr(p)));
+    }
+    if let Some(r) = LIB_MOD_REPR.with(|u| u.get()).and_then(|f| f(m)) {
+        return Ok(r.to_string());
     }
     match m {
         "sys" | "builtins" => Ok(format!("<module '{m}' (built-in)>")),
@@ -365,6 +368,9 @@ pub fn repr(v: &V) -> Result<String, E> {
                 format!("<{} '{}'>", if is_flag(c) { "flag" } else { "enum" }, c.name)
             } else if c.module == "builtins" {
                 format!("<class '{}'>", c.name)
+            } else if c.module == "typing" && matches!(c.name, "ClassVar" | "Final") && is_form(c) {
+                // typing._SpecialForm.__repr__
+                format!("typing.{}", c.name)
             } else {
                 format!("<class '{}.{}'>", c.module, c.qualname.get())
             }
