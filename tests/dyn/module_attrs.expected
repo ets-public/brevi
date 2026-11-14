@@ -1,0 +1,13 @@
+True True
+True
+True True True
+True
+modattrs.helper modattrs.plain modattrs
+'Helper module.\n\nIndented second line.' None A package of the program.
+'modattrs' 'modattrs' 'modattrs'
+('modattrs.helper', 'Helper module.\n\nIndented second line.', 'modattrs', True)
+modattrs.plain None modattrs True True
+False True
+module 'modattrs.plain' has no attribute '__path__'
+The script's docstring. None __main__
+The script's docstring. The script's docstring.

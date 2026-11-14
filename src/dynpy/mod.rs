@@ -496,7 +496,7 @@ fn add_collections(mods: &mut Vec<emit::Module>, own_mods: &mut HashSet<String>)
     let Some(py) = sandbox_module("collections") else { return Ok(()) };
     let body = parse::parse(py).map_err(|(l, msg)| ("<collections>".into(), l, msg))?;
     own_mods.insert("collections".into());
-    mods.push(emit::Module { name: "collections".into(), body });
+    mods.push(emit::Module { name: "collections".into(), body, path: None });
     Ok(())
 }
 pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
@@ -634,7 +634,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     let src = crate::pygen::rewrite(&src);
     let body = parse::parse(&src).map_err(|(l, m)| (file.to_string(), l, m))?;
     let dir = Path::new(file).parent().map(|p| p.to_path_buf()).unwrap_or_default();
-    let mut mods = vec![emit::Module { name: "__main__".into(), body }];
+    let mut mods = vec![emit::Module { name: "__main__".into(), body, path: Some(crate::modules::abs_path(Path::new(file))) }];
     // Brevi's own random and path-text copies stand in for CPython's only when no file of the program uses
     // more of os, pathlib or random than they have.
     let pure = |s: &str| crate::caps::path_uses(s).map_or(true, |v| v.is_empty()) && int_seeds(s);
@@ -728,7 +728,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
                     own_used = true;
                     own_mods.insert(m.clone());
                     let body = parse::parse(src).map_err(|(l, msg)| (format!("<{m}>"), l, msg))?;
-                    mods.push(emit::Module { name: m, body });
+                    mods.push(emit::Module { name: m, body, path: None });
                     continue;
                 }
             }
@@ -741,7 +741,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
                 absolutize(&mut body, &m, p.ends_with("__init__.py"));
                 own_ok &= pure(&src);
                 texts.insert(m.clone(), (ps.clone(), src.to_string()));
-                mods.push(emit::Module { name: m, body });
+                mods.push(emit::Module { name: m, body, path: Some(crate::modules::abs_path(&p)) });
             } else if m == "asyncio" || m.starts_with("asyncio.") {
                 // Brevi's coroutines run only on Brevi's own asyncio.
                 return Err((file.to_string(), 0, format!("module {m} beyond Brevi's own asyncio runs in CPython")));

@@ -271,6 +271,19 @@ pub fn split_back(segs: &[Seg], joined: &str) -> Vec<(PathBuf, String)> {
         .collect()
 }
 
+// A program file's absolute path, as CPython 3.9+ gives a script's and an imported module's __file__.
+// On Windows canonicalize gives the verbatim form (\\?\C:\..., \\?\UNC\host\...), which CPython never shows.
+pub fn abs_path(path: &Path) -> String {
+    let p = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()).to_string_lossy().to_string();
+    if let Some(r) = p.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{r}");
+    }
+    match p.strip_prefix(r"\\?\") {
+        Some(r) if r.as_bytes().get(1) == Some(&b':') => r.to_string(),
+        _ => p,
+    }
+}
+
 // Python's `__file__`: the file's absolute path, written into the source as a string (outside strings and
 // comments), as CPython 3.9+ gives it for a script run by path.
 pub fn fill_file_name(src: &str, path: &Path) -> String {
@@ -298,8 +311,7 @@ pub fn fill_file_name(src: &str, path: &Path) -> String {
     });
     let src: String = if os_used { src } else { src.split_inclusive('\n').map(|l| if l.trim() == "import os" { l.replacen("import os", "pass", 1) } else { l.to_string() }).collect() };
     let src = src.as_str();
-    let abs = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let lit = format!("\"{}\"", abs.to_string_lossy().replace('\\', "\\\\").replace('"', "\\\""));
+    let lit = format!("\"{}\"", abs_path(path).replace('\\', "\\\\").replace('"', "\\\""));
     let b = src.as_bytes();
     let mut out = String::with_capacity(src.len());
     let mut i = 0;
