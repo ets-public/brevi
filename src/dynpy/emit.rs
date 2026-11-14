@@ -2736,6 +2736,10 @@ impl Em {
         if args.is_empty() && matches!(f, Ex::Name(n) if n == "dir") && self.lookup("dir").is_none() {
             return Err(err(line, "dir() without an argument is not supported in dynamic builds"));
         }
+        // vars() with no argument is locals(): the runtime's vars takes the object it reads
+        if args.is_empty() && matches!(f, Ex::Name(n) if n == "vars") && self.lookup("vars").is_none() {
+            return Err(err(line, "vars() without an argument is not supported in dynamic builds"));
+        }
         // locals() in a function: a snapshot dict of its bound names, in CPython's order
         if args.is_empty() && matches!(f, Ex::Name(n) if n == "locals") {
             match self.lookup("locals") {
@@ -4673,7 +4677,7 @@ impl Em {
                 fr.vars.insert(n.clone(), Var::Local(r));
             }
         }
-        fr.enum_cnv = Some((av, ctx));
+        fr.enum_cnv = Some((av, ctx.clone()));
         let mut fields = vec![];
         for s in &c.body {
             if let St::AnnAssign(Ex::Name(n), _, ann, true) = &s.st {
@@ -4752,6 +4756,8 @@ impl Em {
             if meta.is_some() {
                 let sa: Vec<String> = c.static_attrs.iter().map(|n| format!("s({})", lit(n))).collect();
                 let set = self.q(&format!("setitem(&{ns_var}, &s(\"__static_attributes__\"), tup(vec![{}]))", sa.join(", ")));
+                let ig = self.q(&format!("enum_ignore_ns(&{ctx}, &{ns_var}, true)"));
+                let set = format!("{set}; {ig}");
                 let mk = self.q(&format!("meta_build(&__meta{id}, {}, {}, {}, vec![{}], {ns_var}.clone(), vec![{}])", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", ")));
                 format!("{{ {decls}\n{body}\n{set}; {w} let __c = {mk}; __c }}")
             } else {
@@ -4766,7 +4772,8 @@ impl Em {
                 }
                 None => String::new(),
             };
-            format!("{{ {decls}\n{doc_set}{body}\n{attrs} {w} let __c = {mk}; {abcm} __c }}")
+            let ig = self.q(&format!("enum_ignore_ns(&{ctx}, &{ns_var}, false)"));
+            format!("{{ {decls}\n{doc_set}{body}\n{attrs} {ig}; {w} let __c = {mk}; {abcm} __c }}")
             }
         } else {
             // class attributes in the order the body first binds them, as CPython's class namespace keeps them
@@ -4817,7 +4824,7 @@ impl Em {
                 write!(attrs, "if !matches!({r}, V::Unbound) {{ __at.push(({}, {r})); }} ", lit(n)).unwrap();
             }
             let mk = self.q(&format!("make_class_s({}, {}, {}, vec![{}], __at, vec![{}], {}, &[{}], {})", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", "), first, sattrs, lit(why)));
-            format!("{{ {decls}\n{body}\nlet mut __at: Vec<(Sym, V)> = vec![]; {attrs} {w} let __c = {mk}; {abcm} __c }}")
+            format!("{{ {decls}\n{body}\nlet mut __at: Vec<(Sym, V)> = vec![]; {attrs} enum_ignore_drop(&{ctx}, &mut __at); {w} let __c = {mk}; {abcm} __c }}")
         };
         for dec in c.decorators.iter().rev() {
             let dd = self.ex(dec, c.line)?;
@@ -4960,6 +4967,9 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     for m in mods {
         if let Some((line, n)) = super::typing::datetime_subclass(&m.body) {
             return Err((m.name.clone(), line, format!("a subclass of {n} is not supported in dynamic builds")));
+        }
+        if let Some((line, what)) = super::typing::enum_refusal(&m.body) {
+            return Err((m.name.clone(), line, format!("{what} is not supported in dynamic builds")));
         }
     }
     // the program (not Brevi's library copies) uses the warnings module

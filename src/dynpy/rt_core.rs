@@ -2848,6 +2848,9 @@ pub enum BT {
     Bytes,
     // bytearray (a library class too): a subclass instance wraps a bytearray value, shared, so mutations show
     ByteArray,
+    // datetime.date (a library class): a subclass instance wraps a date value. Only an Enum's members are made
+    // (class Holiday(date, Enum)); any other instance of a date subclass is refused (date_sub_refused)
+    Date,
     Other,
 }
 
