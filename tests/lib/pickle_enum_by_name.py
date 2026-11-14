@@ -1,10 +1,12 @@
-# An Enum member pickled by name (enum.pickle_by_global_name) is written as CPython's save_global writes it, memo
+# An Enum member pickled by name (its __reduce_ex__ gives a name, as enum.pickle_by_global_name does) is written as CPython's save_global writes it, memo
 # included; one by value is (cls, (value,)); a by-name member that is not a module global cannot be pickled.
 import enum, pickle
 class G(enum.Enum):
     A = 1
     B = 2
-    __reduce_ex__ = enum.pickle_by_global_name
+
+    def __reduce_ex__(self, proto):
+        return self.name
 A = G.A
 class H(enum.Enum):
     X = 1

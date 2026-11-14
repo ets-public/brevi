@@ -1803,6 +1803,8 @@ fn memo_key(v: &V) -> Option<usize> {
         V::Func(x) => Some(Rc::as_ptr(x) as *const u8 as usize),
         V::Class(x) => Some(Rc::as_ptr(x) as *const u8 as usize),
         V::Obj(o) if matches!(o.inner(), Some(V::Deque(_))) => Some(Rc::as_ptr(o) as *const u8 as usize),
+        // an Enum member (see pyd_enum_red): one _BrRed per library call, so pickle memoizes it as CPython does
+        V::Obj(o) if is_enum(&o.cls) && o.get("_value_").is_some() => Some(Rc::as_ptr(o) as *const u8 as usize),
         // a tee link: one Python object per pickle, so tees that share it share it again when loaded
         V::Ext(_) => teedata_of(v).map(|l| Rc::as_ptr(&l) as *const u8 as usize),
         _ => None,
@@ -2232,7 +2234,7 @@ unsafe fn pyd_enum_red(v: &V) -> Result<P, E> {
         Ok(match pickle_lookup(&m, &n) {
             Ok(found) if is(&found, &me) => tup(vec![V::Int(-1), st(m), st(n)]),
             Ok(_) => tup(vec![V::Int(-2), st(format!("Can't pickle {}: it's not the same object as {m}.{n}", repr(&me)?))]),
-            Err(_) => tup(vec![V::Int(-2), st(format!("Can't pickle {}: it's not found as {m}.{n}", repr(&me)?))]),
+            Err(_) => tup(vec![V::Int(-2), st(format!("Can't pickle {}: attribute lookup {n} on {m} failed", repr(&me)?))]),
         })
     });
     let r = pyd_callable(&red)?;
