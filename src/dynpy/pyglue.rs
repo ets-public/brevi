@@ -250,7 +250,7 @@ def _pmod():
             # a def or class of the program (__main__ or a module of the program): looked up in the program,
             # as CPython's find_class looks it up in that module (a dotted name only from protocol 4 on)
             # total_ordering's helpers (functools._gt_from_lt) are the program's own functions too
-            if module == 'functools' and name in _TO_HELPERS:
+            if module == 'functools' and (name in _TO_HELPERS or name == 'partial'):
                 _s.audit('pickle.find_class', module, name)
                 return _d._lookup(module, name)
             if module == '__main__' or _d._progmod(module):
@@ -267,9 +267,15 @@ def _pmod():
             # program, the program's getattr
             if obj is _b.getattr:
                 return _pk_getattr
-            if isinstance(obj, type) and obj.__module__ == 'itertools':
+            # a module's function the program has read (operator.add): the program's own again
+            if type(obj) is type(len) and '.' not in name and obj.__module__ != 'builtins':
                 try:
-                    return _d._lookup('itertools', obj.__name__)
+                    return _d._lookup(module, name)
+                except Exception:
+                    pass
+            if isinstance(obj, type) and (obj.__module__ == 'itertools' or obj.__module__ == 'builtins' and name in ('map', 'filter', 'zip', 'enumerate')):
+                try:
+                    return _d._lookup(obj.__module__, obj.__name__)
                 except Exception:
                     pass
             return obj
@@ -2113,9 +2119,12 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
             }
             e
         }
-        // a builtin class (int, list, ValueError): CPython's own, so a library's isinstance and pickle's
-        // builtins.int see the very class; it comes back as the program's (pyd_builtin_class)
-        V::Class(c) if pyd_builtin_class_named(c.name).is_some_and(|k| Rc::ptr_eq(&k, c)) && pyd_has_builtin(c.name) => pyd_builtins_attr(c.name)?,
+        // a builtin exception class: CPython's own, so a library's isinstance and except clauses see the very class
+        V::Class(c) if c.module == "builtins" && (c.bt == BT::Exc || c.is_sub(&exc_class("BaseException"))) => pyd_builtins_attr(c.name)?,
+        // any other builtin class (int, list, map) going into pickle: CPython's own, which pickle saves as
+        // builtins.int, as CPython does. It comes back as the program's class (pyd_builtin_exc). Elsewhere it
+        // stays a callable of the program: an Unpickler calls the map class it found as the program's map.
+        V::Class(c) if c.module == "builtins" && PYD_PICKLING.with(|x| x.get()) && pickle_lookup("builtins", c.name).is_ok_and(|k| is(&k, v)) && pyd_has_builtin(c.name) => pyd_builtins_attr(c.name)?,
         V::Obj(o) if o.cls.lookup("__bv_namedtuple__").is_some() => pyd_namedtuple(v)?,
         V::Deque(_) | V::Obj(_) if PYD_PICKLING.with(|c| c.get()) && (matches!(v, V::Deque(_)) || matches!(inner_of(v), Some(V::Deque(_)))) => pyd_deque_red(v)?,
         // CPython would see an iterator, not a generator flagged CO_ITERABLE_COROUTINE (inspect.isawaitable)
