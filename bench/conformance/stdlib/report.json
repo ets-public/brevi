@@ -9,8 +9,8 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 1842,
-"refused": 81,
+"matched": 1890,
+"refused": 32,
 "by_design": 6,
 "string_model": 0,
 "cpython_private": 0,
@@ -18,22 +18,22 @@
 "wrong_exit": 0,
 "crash_or_timeout": 0,
 "not_extractable": 75,
-"unstable": 71,
+"unstable": 72,
 "excluded": 156,
 "total": 2231,
-"scored": 1998,
+"scored": 1997,
 "matched_through_cpython": 2,
-"matched_silent": 49,
-"coverage": 0.9209,
+"matched_silent": 53,
+"coverage": 0.9454,
 "wrong": 0,
-"matched_asserting": 1792,
-"assert_coverage": 0.8969,
+"matched_asserting": 1836,
+"assert_coverage": 0.9194,
 "matched_typed": 23,
-"typed_share": 0.0125
+"typed_share": 0.0122
 },
 "dyn": {
-"matched": 1842,
-"refused": 81,
+"matched": 1890,
+"refused": 32,
 "by_design": 6,
 "string_model": 0,
 "cpython_private": 0,
@@ -41,16 +41,16 @@
 "wrong_exit": 0,
 "crash_or_timeout": 0,
 "not_extractable": 75,
-"unstable": 71,
+"unstable": 72,
 "excluded": 156,
 "total": 2231,
-"scored": 1998,
+"scored": 1997,
 "matched_through_cpython": 0,
-"matched_silent": 49,
-"coverage": 0.9219,
+"matched_silent": 53,
+"coverage": 0.9464,
 "wrong": 0,
-"matched_asserting": 1793,
-"assert_coverage": 0.8974,
+"matched_asserting": 1837,
+"assert_coverage": 0.9199,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -250,7 +250,7 @@
 },
 "test_functools": {
 "normal": {
-"matched": 181,
+"matched": 180,
 "refused": 0,
 "by_design": 0,
 "string_model": 0,
@@ -259,21 +259,21 @@
 "wrong_exit": 0,
 "crash_or_timeout": 0,
 "not_extractable": 0,
-"unstable": 2,
+"unstable": 3,
 "excluded": 105,
 "total": 288,
-"scored": 181,
+"scored": 180,
 "matched_through_cpython": 0,
 "matched_silent": 3,
 "coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 178,
-"assert_coverage": 0.9834,
+"matched_asserting": 177,
+"assert_coverage": 0.9833,
 "matched_typed": 0,
 "typed_share": 0.0
 },
 "dyn": {
-"matched": 181,
+"matched": 180,
 "refused": 0,
 "by_design": 0,
 "string_model": 0,
@@ -282,16 +282,16 @@
 "wrong_exit": 0,
 "crash_or_timeout": 0,
 "not_extractable": 0,
-"unstable": 2,
+"unstable": 3,
 "excluded": 105,
 "total": 288,
-"scored": 181,
+"scored": 180,
 "matched_through_cpython": 0,
 "matched_silent": 3,
 "coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 178,
-"assert_coverage": 0.9834,
+"matched_asserting": 177,
+"assert_coverage": 0.9833,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -538,8 +538,8 @@
 },
 "test_enum": {
 "normal": {
-"matched": 895,
-"refused": 63,
+"matched": 944,
+"refused": 14,
 "by_design": 1,
 "string_model": 0,
 "cpython_private": 0,
@@ -552,17 +552,17 @@
 "total": 1077,
 "scored": 1026,
 "matched_through_cpython": 0,
-"matched_silent": 4,
-"coverage": 0.8723,
+"matched_silent": 8,
+"coverage": 0.9201,
 "wrong": 0,
-"matched_asserting": 891,
-"assert_coverage": 0.8684,
+"matched_asserting": 936,
+"assert_coverage": 0.9123,
 "matched_typed": 0,
 "typed_share": 0.0
 },
 "dyn": {
-"matched": 895,
-"refused": 63,
+"matched": 944,
+"refused": 14,
 "by_design": 1,
 "string_model": 0,
 "cpython_private": 0,
@@ -575,11 +575,11 @@
 "total": 1077,
 "scored": 1026,
 "matched_through_cpython": 0,
-"matched_silent": 4,
-"coverage": 0.8723,
+"matched_silent": 8,
+"coverage": 0.9201,
 "wrong": 0,
-"matched_asserting": 891,
-"assert_coverage": 0.8684,
+"matched_asserting": 936,
+"assert_coverage": 0.9123,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -587,14 +587,14 @@
 },
 "paths": {
 "normal": {
-"dynamic": 1818,
-"refused": 87,
+"dynamic": 1866,
+"refused": 38,
 "typed": 23,
 "pybridge": 2
 },
 "dyn": {
-"dynamic": 1843,
-"refused": 87
+"dynamic": 1891,
+"refused": 38
 }
 },
 "tests": [
@@ -9057,16 +9057,8 @@
 {
 "id": "test_functools.TestLRUC.test_lru_cache_threaded3",
 "file": "test_functools",
-"modes": {
-"normal": {
-"category": "matched",
-"path": "dynamic"
-},
-"dyn": {
-"category": "matched",
-"path": "dynamic"
-}
-}
+"category": "unstable",
+"detail": "rule 2: CPython's output at PYTHONHASHSEED=4 differs from seeds 1 and 2 (reproduced)"
 },
 {
 "id": "test_functools.TestLRUC.test_lru_cache_typed_is_not_recursive",
@@ -9134,7 +9126,7 @@
 "id": "test_functools.TestLRUC.test_lru_recursion",
 "file": "test_functools",
 "category": "excluded",
-"detail": "skipped by CPython: get_c_recursion_limit() requires _testcapi, which the reference build lacks"
+"detail": "measures the recursion depth with _testinternalcapi (CPython's C internals)"
 },
 {
 "id": "test_functools.TestLRUC.test_lru_reentrancy_with_len",
@@ -15287,12 +15279,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found ,"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum._is_dunder is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -15301,12 +15293,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found foo"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum._is_descriptor is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -15315,12 +15307,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found ,"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum._is_private is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -15329,12 +15321,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown function type()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum._iter_bits_lsb is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -15343,12 +15335,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found ,"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum._is_sunder is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -15613,12 +15605,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -16065,12 +16057,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -16545,12 +16537,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -16587,12 +16579,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EJECT is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -17053,12 +17045,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -17081,12 +17073,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EJECT is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -17547,12 +17539,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -18041,12 +18033,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -18535,12 +18527,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -19029,12 +19021,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -19551,12 +19543,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -19579,12 +19571,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EJECT is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -20073,12 +20065,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -20101,12 +20093,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EJECT is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -20539,12 +20531,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -20991,12 +20983,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -21443,12 +21435,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -21895,12 +21887,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -22375,12 +22367,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -22403,12 +22395,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EJECT is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -22869,12 +22861,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -22897,12 +22889,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EJECT is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -23335,12 +23327,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -23787,12 +23779,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -24267,12 +24259,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -24747,12 +24739,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -25199,12 +25191,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -25651,12 +25643,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -26131,12 +26123,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -26611,12 +26603,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -27085,12 +27077,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.nonmember is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -27188,7 +27180,7 @@
 },
 "dyn": {
 "category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"detail": "a subclass of enum.EnumType (EnumMeta) is not supported in dynamic builds"
 }
 }
 },
@@ -27577,12 +27569,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`Inner` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 5: enum.member is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.member is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -27591,12 +27583,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`Inner` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 5: enum.nonmember is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.nonmember is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -28087,12 +28079,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.nonmember is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -28977,12 +28969,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`Silly` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 5: enum.UNIQUE is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.UNIQUE is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -28991,12 +28983,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`Bizarre` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 5: enum.NAMED_FLAGS is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.NAMED_FLAGS is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -29005,12 +28997,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`Auto` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 3: enum.CONTINUOUS is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.CONTINUOUS is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -29019,12 +29011,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`Color` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 4: enum.NAMED_FLAGS is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.NAMED_FLAGS is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -29033,12 +29025,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`Clean` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 5: enum.UNIQUE is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.UNIQUE is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -29047,12 +29039,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`Dirty` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 5: enum.UNIQUE is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.UNIQUE is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -29061,12 +29053,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`Silly` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 5: enum.UNIQUE is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.UNIQUE is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -29175,12 +29167,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found ,"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum._is_dunder is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -29203,12 +29195,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found ,"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum._is_private is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -29231,12 +29223,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found ,"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum._is_sunder is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -29250,7 +29242,7 @@
 },
 "dyn": {
 "category": "refused",
-"detail": "enum.EnumType is not supported in dynamic builds"
+"detail": "a method of enum.EnumType read through an Enum class is not supported in dynamic builds"
 }
 }
 },
