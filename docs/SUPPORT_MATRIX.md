@@ -40,7 +40,8 @@ Under `--sandbox` (and in the MCP tools by default) nothing runs in CPython unle
 | numpy, requests, httpx, pydantic, the LLM SDKs, `mcp`, jinja2, polars, sqlite3, duckdb, tokenizers, safetensors, onnxruntime | `typed` or `dynamic` | Brevi's own native copies. |
 | Other installed libraries (pandas, yaml, ...) | `pybridge` (or `dynamic` with `py`) | Library calls run in CPython inside the native program; Linux, macOS and Windows (Windows from v0.27.0). |
 | Classes built on a library's classes | `dynamic` with `py` | CPython runs the class as a whole. |
-| `match`, `eval`/`exec` of text known only at run time | `cpython` | `brevi build`, `check`, `--native` and `--strict` refuse them. |
+| `eval`/`exec` of text known only at run time | `cpython` | `brevi build`, `check`, `--native` and `--strict` refuse them. |
+| `match` statements | `cpython` at v0.27.x; `dynamic` from the next release | Before the next release `brevi build`, `check`, `--native` and `--strict` refuse them. |
 
 ### Platforms
 

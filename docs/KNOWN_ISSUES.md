@@ -15,20 +15,20 @@ Brevi's aim is that a build prints what CPython prints, or is refused. Two outco
 | --- | ---: | ---: | ---: | ---: |
 | Core: `test_grammar`, `test_scope`, `test_int`, `test_list`, `test_dict` ([report](../bench/conformance/report.md)) | 250 of 311 (80.4%) | 38 | 8, all exit status | 0 |
 | Stdlib: `itertools`, `collections`, `re`, `textwrap`, `functools`, `string` ([report](../bench/conformance/stdlib/report.md)) | 250 of 554 (45.1%) | 170 | 22 (3 output, 19 exit status) | 1 |
-| Core on main, 13 November (from the next release; 9 files with `test_contains`, `test_binop`, `test_richcmp`, `test_set`; 39 by-design refusals left out; 24 not extractable) | 659 of 683 (96.5%) | 0 | 0 | 0 |
-| Stdlib on main, 13 November (from the next release; 9 files with `test_graphlib`, `test_colorsys`, `test_deque`; 5 by-design refusals left out; 2 match only through the CPython bridge) | 724 of 726 (99.7%) | 0 | 0 | 0 |
+| Core on main, 14 November (from the next release; 10 files with `test_contains`, `test_binop`, `test_richcmp`, `test_set`, `test_patma`; 83 by-design refusals left out; 25 not extractable) | 937 of 962 (97.4%) | 0 | 0 | 0 |
+| Stdlib on main, 14 November (from the next release; 11 files with `test_graphlib`, `test_colorsys`, `test_deque`, `test_dataclasses`, `test_enum`; 6 by-design refusals left out; 75 not extractable; 2 match only through the CPython bridge) | 1840 of 1998 (92.1%) | 81 | 0 | 0 |
 
 Things to know when reading these numbers:
 
 - 46 of the 250 core matches print nothing, so they show only that the program built and exited cleanly.
 - Weak modules in the stdlib set at v0.27.0: `test_string` 2.6%, `test_functools` 12.2%, `test_collections` 35.7% (all 100% on main).
-- The score on main covers the 18 files scored, not all of CPython: more test files are measured with `tools/conformance.py --candidates` for planning and are not in the score yet.
+- The score on main covers the 21 files scored, not all of CPython: more test files are measured with `tools/conformance.py --candidates` for planning and are not in the score yet.
 - Tests that depend on CPython internals, or that cannot be cut into a standalone script, are left out of the score.
 - Known wrong results are listed in [compat/conformance_known_wrong/](../compat/conformance_known_wrong/) (core) and [compat/conformance_stdlib_known_wrong/](../compat/conformance_stdlib_known_wrong/). At v0.27.0 the core ones were pickling of dict and list iterators and two `test_scope` cell cases; on main both folders are empty. CI fails if a line stops being wrong or a new wrong result appears, so the lists only shrink.
 - The score floors are in [compat/conformance_floor.json](../compat/conformance_floor.json). The score can only go up: after each merge, main raises the floors to what the merged tree measures (`.github/workflows/conformance-main.yml`), and pull requests leave them alone (`tools/floor_guard.py`).
 - [compat/baseline.txt](../compat/baseline.txt) lists saved programs that once passed and must keep passing. It is a regression set, not a measure of how much Python works.
 
-Not built natively yet (README, Status): `match` statements, and `eval` of text known only at run time (`eval` of literal text works from v0.27.0). Classes built on a library's classes run in CPython as a whole.
+Not built natively yet (README, Status): `eval` of text known only at run time (`eval` of literal text works from v0.27.0). `match` statements build natively from the next release. Classes built on a library's classes run in CPython as a whole.
 
 Module objects: a file of the program gives `__file__`, `__name__`, `__doc__`, `__package__` and its repr (`<module 'helper' from '/abs/helper.py'>`) as CPython does, with the path the build found the file at, so a binary run after its sources moved still names the old place. Its `__spec__`, `__loader__`, `__cached__`, `__dict__` and `__builtins__`, and a package's `__path__`, are refused when the build sees them and stop the program when read through a variable. A library module's repr is the one the build machine's CPython prints (`<module 'json' from '/usr/lib/python3.13/json/__init__.py'>`, `<module 'math' (built-in)>`), so like `__file__` it names the build machine's copy; a module that CPython could not import when the program was built stops the program instead. The repr of `sys.stdout` or of `decimal.getcontext()` (they depend on the run's locale and the context's flags) is refused when the build sees it and stops the program otherwise (one inside a list).
 
