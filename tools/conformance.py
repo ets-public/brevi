@@ -219,6 +219,20 @@ HELPERS = {
                 return test()
         return wrapper
     return decorator""",
+    # support.infinite_recursion(max_depth) as a decorator: the recursion limit is max_depth frames past the depth
+    # the test starts at (support's get_recursion_depth(), a few frames in a generated script; 10 stands in for it,
+    # in both runs), restored afterwards
+    "_conf_infinite_recursion": """def _conf_infinite_recursion(max_depth):
+    def decorator(test):
+        def wrapper():
+            old = sys.getrecursionlimit()
+            sys.setrecursionlimit(10 + max_depth)
+            try:
+                return test()
+            finally:
+                sys.setrecursionlimit(old)
+        return wrapper
+    return decorator""",
     "_conf_search": """def _conf_search(text, regex):
     print(repr(text))
     print(re.search(regex, text) is not None)""",
@@ -299,7 +313,7 @@ def _conf_start_threads(threads, unlock=None):
 EXEC_SHIM = {"assertEqual", "assertTrue", "assertFalse", "fail"}  # the methods _conf_TestCase has
 SKIPPED = b"_conf_skipped:"  # what _conf_run prints when the test called skipTest
 HELPER_IMPORTS = {"_conf_Warns": ["import re", "import warnings"], "_conf_pickle_deprecated": ["import warnings"],
-                  "_conf_ignore_warnings": ["import warnings"], "_conf_search": ["import re"], "_conf_Raises": [],
+                  "_conf_ignore_warnings": ["import warnings"], "_conf_infinite_recursion": ["import sys"], "_conf_search": ["import re"], "_conf_Raises": [],
                   "_conf_Skip": [], "_conf_cleanups": [], "_conf_run": [], "_conf_TestCase": [],
                   "_conf_start_threads": ["import contextlib", "import time"]}
 HELPER_NEEDS = {"_conf_pickle_deprecated": ["_conf_Warns"], "_conf_run": ["_conf_Skip"]}
@@ -913,7 +927,7 @@ def condition_value(py, mod, test, trusted=False, cache={}):
 def decorator_plan(py, mod, node):
     """What CPython does with the decorators of a test (or test class): Excluded if one skips it or marks it as
     not a language test, CantExtract if one is not understood, else the wrappers the script must apply, outermost first.
-    Each is ("pickle_deprecated",) or ("ignore_warnings", category name)."""
+    Each is ("pickle_deprecated",), ("ignore_warnings", category name) or ("infinite_recursion", max_depth)."""
     wrappers, excluded, unknown = [], None, None
     for d in node.decorator_list:
         target = d.func if isinstance(d, ast.Call) else d
@@ -942,6 +956,12 @@ def decorator_plan(py, mod, node):
             elif dotted == "support.skip_on_s390x" and not isinstance(d, ast.Call) and mod.imports.get("support") == ("from", "test", "support"):
                 if condition_value(py, mod, ast.parse(S390X_CONDITION, mode="eval").body, trusted=True):
                     excluded = excluded or "skipped by CPython: skipped on s390x"
+            elif dotted == "support.no_tracing" and not isinstance(d, ast.Call) and mod.imports.get("support") == ("from", "test", "support"):
+                pass  # it sets sys.settrace(None) around the test; a generated script never traces, so this is the identity
+            elif (dotted == "support.infinite_recursion" and isinstance(d, ast.Call) and len(args) == 1 and not kws
+                  and isinstance(args[0], ast.Constant) and type(args[0].value) is int and args[0].value >= 3
+                  and mod.imports.get("support") == ("from", "test", "support")):
+                wrappers.append(("infinite_recursion", args[0].value))
             elif dotted == "support.skip_if_pgo_task" and mod.imports.get("support") == ("from", "test", "support"):
                 pass  # support.PGO is False outside the PGO build task, so this is the identity
             elif dotted == "support.impl_detail" and not kws and mod.imports.get("support") == ("from", "test", "support"):
@@ -965,7 +985,12 @@ def decorator_plan(py, mod, node):
 def wrapped_call(wrappers, target):
     """The expression that runs `target` the way its decorators make CPython run it."""
     for w in reversed(wrappers):
-        target = f"_conf_pickle_deprecated({target})" if w[0] == "pickle_deprecated" else f"_conf_ignore_warnings({w[1]})({target})"
+        if w[0] == "pickle_deprecated":
+            target = f"_conf_pickle_deprecated({target})"
+        elif w[0] == "infinite_recursion":
+            target = f"_conf_infinite_recursion({w[1]})({target})"
+        else:
+            target = f"_conf_ignore_warnings({w[1]})({target})"
     return target + "()"
 
 
