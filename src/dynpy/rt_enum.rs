@@ -906,15 +906,27 @@ pub fn enum_setup(c: &Rc<Class>) -> Result<(), E> {
                 if args.len() == 1 && !matches!(args[0], V::Str(_)) {
                     return type_err(format!("{} is not a string", repr(&args[0])?));
                 }
-                if args.len() > 1 {
-                    return Err(unsupported("StrEnum values given as several arguments"));
+                if args.len() >= 2 && !matches!(args[1], V::Str(_)) {
+                    return type_err(format!("encoding must be a string, not {}", repr(&args[1])?));
                 }
-                args[0].clone()
+                if args.len() == 3 && !matches!(args[2], V::Str(_)) {
+                    return type_err(format!("errors must be a string, not {}", repr(&args[2])?));
+                }
+                if args.len() > 1 {
+                    // str(b'2', 'ascii'): decoded, with str()'s own errors
+                    bi_str(Args::p(args.clone()))?
+                } else {
+                    args[0].clone()
+                }
             } else if mt_object {
                 val.clone()
             } else {
                 match call(&V::Class(mt.clone()), Args::p(args.clone())) {
                     Ok(x) => x,
+                    // a builtin data type and no __new__ of the class's own: _new_member_ (the data type's __new__)
+                    // failed first with these same arguments, and that error is the one raised. After a custom
+                    // __new__ that left _value_ unset, enum.py wraps the data type's error.
+                    Err(e) if mt.module == "builtins" && new_fn.is_none() => return Err(e),
                     Err(e) => {
                         let ne = exc("TypeError", "_value_ not set in __new__, unable to create it".into());
                         if let V::Obj(x) = &ne.0 {

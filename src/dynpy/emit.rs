@@ -227,7 +227,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "numpy" => return np_func_kw(n).is_some() && (!np_narrow() || NP_NARROW_FUNCS.contains(&n) || (NP_F32_SIMD.contains(&n) && np_f32_simd_here()) || (matches!(n, "dot" | "matmul") && np_f32_simd_here())),
         "numpy.random" => return np_rand_kw(n).is_some(),
         "numpy.linalg" => return np_linalg_kw(n).is_some() && (!np_narrow() || n == "norm"),
-        "sys" => &["exit", "setrecursionlimit", "getrecursionlimit", "getsizeof", "intern", "set_int_max_str_digits", "get_int_max_str_digits", "stdin", "stdout", "stderr", "__stdin__", "__stdout__", "__stderr__", "argv", "maxsize", "platform", "byteorder", "version_info", "flags", "version", "modules", "path", "exception", "exc_info"],
+        "sys" => &["exit", "setrecursionlimit", "getrecursionlimit", "getdefaultencoding", "getsizeof", "intern", "set_int_max_str_digits", "get_int_max_str_digits", "stdin", "stdout", "stderr", "__stdin__", "__stdout__", "__stderr__", "argv", "maxsize", "platform", "byteorder", "version_info", "flags", "version", "modules", "path", "exception", "exc_info"],
         "math" => &["acos", "asin", "atan", "atan2", "ceil", "comb", "copysign", "cos", "cosh", "degrees", "dist", "exp", "fabs", "factorial", "floor", "fmod", "frexp", "fsum", "gcd", "hypot", "isclose", "isfinite", "isinf", "isnan", "isqrt", "lcm", "ldexp", "log", "log10", "log1p", "log2", "modf", "perm", "pow", "prod", "radians", "remainder", "sin", "sinh", "sqrt", "tan", "tanh", "trunc", "pi", "e", "tau", "inf", "nan"],
         "atexit" => &["register", "unregister", "_run_exitfuncs", "_clear", "_ncallbacks"],
         "heapq" => &["heapify", "heappop", "heappush", "heappushpop", "heapreplace", "merge", "nlargest", "nsmallest"],
@@ -4538,8 +4538,12 @@ impl Em {
                 }
             }
         }
+        let starred = c.bases.iter().any(|b| matches!(b, Ex::Star(_)));
         for b in &c.bases {
-            bases.push(self.ex(b, c.line)?);
+            bases.push(match b {
+                Ex::Star(x) => self.ex(x, c.line)?,
+                b => self.ex(b, c.line)?,
+            });
         }
         // Bases are evaluated before the class body, as CPython does; the body needs them to know
         // whether it is defining an Enum (auto() turns into its value on assignment).
@@ -4550,6 +4554,27 @@ impl Em {
             write!(base_decls, "let {vn}: V = {b}; ").unwrap();
             base_vars.push(vn);
         }
+        // the bases as a slice of references, a tuple and a Vec, in the emitted code; with `*bases` among them,
+        // one Vec made at run time (each starred value unpacked in place, as CPython's BUILD_LIST/LIST_EXTEND)
+        let (base_refs, base_tup, base_vec) = if starred {
+            let bs = format!("__bases{id}");
+            write!(base_decls, "let {bs}: Vec<V> = {{ let mut __v: Vec<V> = vec![]; ").unwrap();
+            for (b, vn) in c.bases.iter().zip(&base_vars) {
+                if matches!(b, Ex::Star(_)) {
+                    write!(base_decls, "__v.extend(to_vec(&{vn})?); ").unwrap();
+                } else {
+                    write!(base_decls, "__v.push({vn}.clone()); ").unwrap();
+                }
+            }
+            write!(base_decls, "__v }}; ").unwrap();
+            (format!("&{bs}.iter().collect::<Vec<&V>>()"), format!("tup({bs}.clone())"), format!("{bs}.clone()"))
+        } else {
+            (
+                format!("&[{}]", base_vars.iter().map(|v| format!("&{v}")).collect::<Vec<_>>().join(", ")),
+                format!("tup(vec![{}])", base_vars.iter().map(|v| format!("{v}.clone()")).collect::<Vec<_>>().join(", ")),
+                format!("vec![{}]", base_vars.join(", ")),
+            )
+        };
         // the class body runs with its own namespace: class-level names are Rust locals here,
         // invisible to the methods. When the body has an annotated statement, __annotations__ starts as
         // CPython's SETUP_ANNOTATIONS does: an empty dict, filled as the statements run. (Never under
@@ -4643,13 +4668,13 @@ impl Em {
         let av = format!("__auto_last{id}");
         let mut decls = String::new();
         write!(decls, "{base_decls}").unwrap();
-        write!(decls, "let mut {ctx}: EnumCtx = enum_auto_ctx({}, &[{}]); let mut {av}: Vec<V> = vec![]; ", lit(&c.name), base_vars.iter().map(|v| format!("&{v}")).collect::<Vec<_>>().join(", ")).unwrap();
+        write!(decls, "let mut {ctx}: EnumCtx = enum_auto_ctx({}, {base_refs}); let mut {av}: Vec<V> = vec![]; ", lit(&c.name)).unwrap();
         if let Some(mx) = meta {
             // as __build_class__: the metaclass after the bases, then its __prepare__, then the body's own first
             // stores (__module__, __qualname__, __firstlineno__, SETUP_ANNOTATIONS, the docstring)
             let mv = self.ex(mx, c.line)?;
             write!(decls, "let __meta{id}: V = {mv}; ").unwrap();
-            let prep = self.q(&format!("meta_prepare(&__meta{id}, {}, &tup(vec![{}]))", lit(&c.name), base_vars.iter().map(|v| format!("{v}.clone()")).collect::<Vec<_>>().join(", ")));
+            let prep = self.q(&format!("meta_prepare(&__meta{id}, {}, &{base_tup})", lit(&c.name)));
             write!(decls, "let mut {ns_var}: V = {prep}; ").unwrap();
             for (k, v) in [("__module__", format!("s({})", lit(if self.module == "__main__" { "__main__" } else { &self.module }))), ("__qualname__", format!("s({})", lit(&qualname))), ("__firstlineno__", format!("V::Int({first})"))] {
                 let set = self.q(&format!("setitem(&{ns_var}, &s(\"{k}\"), {v})"));
@@ -4774,12 +4799,12 @@ impl Em {
                 let set = self.q(&format!("setitem(&{ns_var}, &s(\"__static_attributes__\"), tup(vec![{}]))", sa.join(", ")));
                 let ig = self.q(&format!("enum_ignore_ns(&{ctx}, &{ns_var}, true)"));
                 let set = format!("{set}; {ig}");
-                let mk = self.q(&format!("meta_build(&__meta{id}, {}, {}, {}, vec![{}], {ns_var}.clone(), vec![{}])", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", ")));
+                let mk = self.q(&format!("meta_build(&__meta{id}, {}, {}, {}, {base_vec}, {ns_var}.clone(), vec![{}])", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), fields.join(", ")));
                 format!("{{ {decls}\n{body}\n{set}; {w} let __c = {mk}; __c }}")
             } else {
             let attrs = String::new();
             let items = self.q(&format!("dict_sym_items(&{ns_var})"));
-            let mk = self.q(&format!("make_class_s({}, {}, {}, vec![{}], {items}, vec![{}], {}, &[{}], {})", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", "), first, sattrs, lit(why)));
+            let mk = self.q(&format!("make_class_s({}, {}, {}, {base_vec}, {items}, vec![{}], {}, &[{}], {})", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), fields.join(", "), first, sattrs, lit(why)));
             // a docstring is the body's first store (CPython's STORE_NAME __doc__), after SETUP_ANNOTATIONS
             let doc_set = match docstring(&c.body) {
                 Some(d) => {
@@ -4839,7 +4864,7 @@ impl Em {
                 let r = format!("a{id}_{}", rust_ident(n));
                 write!(attrs, "if !matches!({r}, V::Unbound) {{ __at.push(({}, {r})); }} ", lit(n)).unwrap();
             }
-            let mk = self.q(&format!("make_class_s({}, {}, {}, vec![{}], __at, vec![{}], {}, &[{}], {})", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", "), first, sattrs, lit(why)));
+            let mk = self.q(&format!("make_class_s({}, {}, {}, {base_vec}, __at, vec![{}], {}, &[{}], {})", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), fields.join(", "), first, sattrs, lit(why)));
             format!("{{ {decls}\n{body}\nlet mut __at: Vec<(Sym, V)> = vec![]; {attrs} enum_ignore_drop(&{ctx}, &mut __at); {w} let __c = {mk}; {abcm} __c }}")
         };
         for dec in c.decorators.iter().rev() {
