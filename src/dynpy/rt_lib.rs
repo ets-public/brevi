@@ -1533,6 +1533,7 @@ pub fn ext_class(n: &'static str) -> Rc<Class> {
     let c = Class::new(n, "builtins", vec![base], match n {
         "bytes" => BT::Bytes,
         "bytearray" => BT::ByteArray,
+        "datetime.date" => BT::Date,
         _ => BT::Other,
     });
     EXT_CLASSES.with(|m| m.borrow_mut().insert(n, c.clone()));
@@ -2159,6 +2160,9 @@ pub fn builtin_type_call(c: &Rc<Class>, a: &mut Args) -> Option<R> {
     if c.name == "bytearray" && c.module == "builtins" {
         return Some(bi_bytearray(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));
     }
+    if c.name == "datetime.date" && c.module == "builtins" {
+        return Some(date_new(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));
+    }
     if c.name == "complex" && c.module == "builtins" {
         return Some(bi_complex(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));
     }
@@ -2301,7 +2305,7 @@ fn builtin_class_attr_raw(c: &Rc<Class>, name: &str) -> Option<V> {
         ("str", "maketrans") => Some(builtin("maketrans", |a: Args| str_maketrans(&a))),
         // int.__new__(cls, x) and the like, as a subclass's own __new__ calls it: an instance of cls wrapping the
         // value the type makes
-        ("int" | "float" | "str" | "tuple" | "bytes" | "frozenset", "__new__") if c.module == "builtins" => {
+        ("int" | "float" | "str" | "tuple" | "bytes" | "frozenset" | "datetime.date", "__new__") if c.module == "builtins" => {
             let base = c.clone();
             Some(builtin("__new__", move |mut a: Args| {
                 let Some(V::Class(k)) = a.p.first().cloned() else {

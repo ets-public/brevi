@@ -325,6 +325,11 @@ EXCLUDED_SOURCE = [
 # flipped between matched and unstable from run to run and moved the floor. They are always classed unstable, but
 # both builds still run them, so a crash, a wrong exit code or a refusal still counts.
 RANDOM_OUTPUT = re.compile(r"^test_set\.Test(BinaryOps|Methods)Mutating_\w+\.test_\w+_with_mutation$")
+# Tests whose CPython output is ordered by memory addresses (a set of classes hashes by id): one CPython build agrees
+# with itself, so the two-seed check cannot see it, but no other build has to. Classed unstable like RANDOM_OUTPUT.
+ADDRESS_ORDER = {
+    "test_enum.TestSpecial.test_too_many_data_types": "CPython's TypeError message prints a set of classes, which orders them by memory address",
+}
 RECEIVERS = {"self", "testcase"}
 SAME_AS_EQUAL = {"assertEqual", "assertListEqual", "assertTupleEqual", "assertDictEqual", "assertSetEqual",
                  "assertSequenceEqual", "assertMultiLineEqual"}
@@ -1453,7 +1458,7 @@ def run_case(case, cfg):
         (folder / rel).parent.mkdir(parents=True, exist_ok=True)
         (folder / rel).write_bytes(data)
     a, b = (reference(cfg.python, script, folder, seed, cfg) for seed in (1, 2))
-    random_output = bool(RANDOM_OUTPUT.match(case["id"]))
+    random_output = bool(RANDOM_OUTPUT.match(case["id"])) or case["id"] in ADDRESS_ORDER
     if random_output:
         b = a  # the output is random by design: only the exit code and crashes are compared below
     if (a.rc, a.out) != (b.rc, b.out):
@@ -1473,7 +1478,7 @@ def run_case(case, cfg):
         got = masked(run_limited([str(exe)], str(folder), run_env(folder, 1), cfg.timeout, cfg.mem_mb, cfg.sandbox)) if exe else None
         category, detail = classify(a, (exe is not None, why, crashed), got)
         if random_output and category in ("matched", "wrong_output"):
-            category, detail = "unstable", "CPython's output depends on unseeded random numbers (checked for crashes and exit code only)"
+            category, detail = "unstable", ADDRESS_ORDER.get(case["id"], "CPython's output depends on unseeded random numbers") + " (checked for crashes and exit code only)"
         if category == "wrong_output":
             # Two seeds can agree by luck on a small str set: try more before calling this Brevi's fault.
             for seed in (3, 4, 5):

@@ -1269,8 +1269,8 @@ fn union_safe(e: &Ex, nm: &Names) -> bool {
     }
 }
 
-// A class built on a datetime class (`class D(date)`, `class E(date, Enum)`), or a functional Enum with
-// `type=date`: the dynamic build's date classes cannot be subclassed (their instances hold no date), so such a
+// A class built on a datetime class (`class D(date)`, `class E(datetime, Enum)`), or a functional Enum with
+// `type=datetime`: the dynamic build's datetime classes cannot be subclassed (their instances hold no value), so such a
 // program is refused at build time: (line, the class's dotted name).
 pub fn datetime_subclass(body: &[Stmt]) -> Option<(usize, String)> {
     const DT: [&str; 5] = ["date", "datetime", "time", "timedelta", "timezone"];
@@ -1318,9 +1318,12 @@ pub fn datetime_subclass(body: &[Stmt]) -> Option<(usize, String)> {
             blocks(&s.st, &mut |b| classes(b, f));
         }
     }
+    // date with another base (class Holiday(date, Enum)) or as a functional Enum's type= is left to the runtime,
+    // which makes such a class's instances only as Enum members (rt_call.rs date_sub_refused); a class with date as
+    // its only base cannot be an Enum and is refused here
     classes(body, &mut |bases, line| {
         if found.is_none() {
-            if let Some(n) = bases.iter().find_map(|b| dt_of(b)) {
+            if let Some(n) = bases.iter().find_map(|b| dt_of(b)).filter(|n| n != "date" || bases.len() < 2) {
                 found = Some((line, n));
             }
         }
@@ -1331,7 +1334,7 @@ pub fn datetime_subclass(body: &[Stmt]) -> Option<(usize, String)> {
                 for a in args {
                     if let Arg::Kw(k, v) = a {
                         if k == "type" && found.is_none() {
-                            if let Some(n) = dt_of(v) {
+                            if let Some(n) = dt_of(v).filter(|n| n != "date") {
                                 found = Some((line, n));
                             }
                         }

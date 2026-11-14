@@ -2705,6 +2705,10 @@ impl Em {
         if args.is_empty() && matches!(f, Ex::Name(n) if n == "dir") && self.lookup("dir").is_none() {
             return Err(err(line, "dir() without an argument is not supported in dynamic builds"));
         }
+        // vars() with no argument is locals(): the runtime's vars takes the object it reads
+        if args.is_empty() && matches!(f, Ex::Name(n) if n == "vars") && self.lookup("vars").is_none() {
+            return Err(err(line, "vars() without an argument is not supported in dynamic builds"));
+        }
         // locals() in a function: a snapshot dict of its bound names, in CPython's order
         if args.is_empty() && matches!(f, Ex::Name(n) if n == "locals") {
             match self.lookup("locals") {
