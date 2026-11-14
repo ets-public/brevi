@@ -704,6 +704,11 @@ t=$(mktemp -d)
 printf 'import json\ntry:\n    print(json.loads(chr(34) + chr(0xd800) + chr(34)))\nexcept BaseException:\n    print("caught")\nprint("after")\n' > "$t/s.py"
 o=$(BREVI_DYN=1 $BREVI run "$t/s.py" 2>&1); c=$?
 case "$c:$o" in "1:NotImplementedError: brevi: this operation on a str with a lone surrogate (U+D800..U+DFFF) is not supported in dynamic builds yet"*) echo "ok   a lone surrogate on an unwritten path stops the program" ;; *) echo "FAIL a lone surrogate on an unwritten path ($c)"; printf '%s\n' "$o"; fail=1 ;; esac
+# locals() in an Enum's body is enum.EnumDict, whose writes check names (a member set twice is a TypeError); Brevi's
+# namespace is a plain dict, so a class that may be an Enum and calls locals() is refused when it builds.
+printf 'import enum\nclass E(enum.Enum):\n    A = 1\n    locals().update({"B": 2}, **{"A": 3})\nprint(list(E))\n' > "$t/el.py"
+o=$(BREVI_DYN=1 $BREVI build "$t/el.py" -o "$t/el" 2>&1)
+case "$o" in *"locals() in the body of a class that may be an Enum is not supported in dynamic builds"*) echo "ok   locals() in an Enum body is refused" ;; *) echo "FAIL locals() in an Enum body"; printf '%s\n' "$o"; fail=1 ;; esac
 printf 'def f():\n    "\\ud800"\n' > "$t/d.py"
 o=$(BREVI_DYN=1 $BREVI run "$t/d.py" 2>&1)
 case "$o" in *"a docstring with a lone surrogate (U+D800..U+DFFF) is not supported"*) echo "ok   a docstring with a lone surrogate is refused" ;; *) echo "FAIL a docstring with a lone surrogate"; printf '%s\n' "$o"; fail=1 ;; esac
