@@ -237,6 +237,7 @@ _d.cr_prog = lambda: any(getattr(k, '__name__', None) == 'brevi_function' for k 
 # The program's own `pickle` module: CPython's, except that a pickle naming an itertools class loads as the
 # program's itertools iterator (as pickles the program makes do), not CPython's, whose __setstate__ warns from C
 # code with no frame to name. Libraries keep CPython's pickle.
+_TO_HELPERS = {f'_{a}_from_{b}' for b in ('lt', 'le', 'gt', 'ge') for a in ('lt', 'le', 'gt', 'ge') if a != b}
 def _pmod():
     m = _d.__dict__.get('_pm')
     if m is not None:
@@ -246,13 +247,49 @@ def _pmod():
     m.__dict__.update(_p.__dict__)
     class Unpickler(_p.Unpickler):
         def find_class(self, module, name):
+            # a def or class of the program (__main__ or a module of the program): looked up in the program,
+            # as CPython's find_class looks it up in that module (a dotted name only from protocol 4 on)
+            # total_ordering's helpers (functools._gt_from_lt) are the program's own functions too
+            if module == 'functools' and name in _TO_HELPERS:
+                _s.audit('pickle.find_class', module, name)
+                return _d._lookup(module, name)
+            if module == '__main__' or _d._progmod(module):
+                _s.audit('pickle.find_class', module, name)
+                if '.' in name:
+                    p = self.__dict__.get('_bvp')
+                    if p is None:
+                        raise NotImplementedError("brevi: loading a pickle that names a dotted attribute of the program from a file that cannot seek is not supported in dynamic builds")
+                    if p < 4:
+                        _d._missing(module, name)
+                return _d._lookup(module, name)
             obj = super().find_class(module, name)
+            # below protocol 4 a method or nested class loads as getattr(class, name): on a class of the
+            # program, the program's getattr
+            if obj is _b.getattr:
+                return _pk_getattr
             if isinstance(obj, type) and obj.__module__ == 'itertools':
                 try:
                     return _d._lookup('itertools', obj.__name__)
                 except Exception:
                     pass
             return obj
+        # the protocol of the pickle about to load (CPython walks a dotted name only from protocol 4 on),
+        # read ahead from a file that can seek; None when it cannot
+        def __init__(self, file, **kw):
+            super().__init__(file, **kw)
+            self._bvf = file
+        def load(self):
+            p, f = None, self._bvf
+            try:
+                if f.seekable():
+                    at = f.tell()
+                    b = f.read(2)
+                    f.seek(at)
+                    p = b[1] if len(b) == 2 and b[0] == 0x80 else 0
+            except Exception:
+                pass
+            self._bvp = p
+            return super().load()
     Unpickler.__module__ = '_pickle'
     Unpickler.__qualname__ = Unpickler.__name__ = 'Unpickler'
     def load(file, *, fix_imports=True, encoding="ASCII", errors="strict", buffers=None):
@@ -296,12 +333,59 @@ _d.op = lambda n, a, b: getattr(_o, n)(a, b)
 _d.un = lambda n, a: getattr(_o, n)(a)
 _d.mro = lambda t: [(c.__name__, c.__module__) for c in t.__mro__]
 # Pickling a function or class of the program: by reference, as CPython pickles a def or class (its
-# __module__ and __qualname__, looked up again when loaded), checked to be the same object when dumped.
-# The pickle names _brevi_dyn._glob, which resolves the name in the program, so it loads in this program.
-def _glob(m, q):
-    return _d._lookup(m, q)
-_glob.__module__ = '_brevi_dyn'
-_d._glob = _glob
+# __module__ and __qualname__, looked up again when loaded), checked to be the same object when dumped. The
+# reducer gives pickle the qualified name, so CPython's own save_global writes the very bytes CPython writes
+# (STACK_GLOBAL, or GLOBAL and getattr below protocol 4, memoized alike). save_global imports the module and
+# walks the name to the object: a _PkMod stands in sys.modules for that one walk, handing back the callable
+# being pickled, and puts the modules back on the walk's first step.
+class _PkMod:
+    __slots__ = ('_q', '_f', '_old')
+    def __getattribute__(self, n):
+        g = object.__getattribute__
+        q = g(self, '_q')
+        if q is not None and n == q.split('.')[0]:
+            for k, o in g(self, '_old').items():
+                if o is _PkMod:
+                    _s.modules.pop(k, None)
+                else:
+                    _s.modules[k] = o
+            return _PkPath(q.split('.')[1:], g(self, '_f'))
+        if n == '__spec__':
+            return None
+        raise AttributeError(n)
+class _PkPath:
+    __slots__ = ('_r', '_f')
+    def __new__(cls, rest, f):
+        if not rest:
+            return f
+        p = object.__new__(cls)
+        p._r, p._f = rest, f
+        return p
+    def __getattribute__(self, n):
+        g = object.__getattribute__
+        r = g(self, '_r')
+        if n == r[0]:
+            return _PkPath(r[1:], g(self, '_f'))
+        raise AttributeError(n)
+def _pk_getattr(o, *a):
+    if type(o) is type(len) and o.__name__ == 'brevi_function' and type(o.__self__).__name__ == 'PyCapsule':
+        return _d._lookup('builtins', 'getattr')(o, *a)
+    return _b.getattr(o, *a)
+def _pk_global(f, m, q):
+    # interned, as CPython's __module__ and __qualname__ are, so pickle memoizes the module name once
+    m, q = _s.intern(m), _s.intern(q)
+    if m == 'builtins':
+        raise NotImplementedError("brevi: pickling this builtin is not supported in dynamic builds")
+    f.__module__ = m
+    old = {}
+    parts = m.split('.')
+    for i in range(1, len(parts) + 1):
+        k = '.'.join(parts[:i])
+        old[k] = _s.modules.get(k, _PkMod)
+        stand = object.__new__(_PkMod)
+        stand._q, stand._f, stand._old = (q if i == len(parts) else None), f, old
+        _s.modules[k] = stand
+    return q
 def _rebuild(cls, args, state):
     return _d._rebuild_obj(cls, args, state)
 _rebuild.__module__ = '_brevi_dyn'
@@ -318,7 +402,7 @@ def _bf_reduce(f):
     if r[0] == 3:
         t = r[1]
         return (_rebuild, (t[0], t[1], t[2] if len(t) > 2 else None))
-    return (_glob, (r[1], r[2]))
+    return _pk_global(f, r[1], r[2])
 import copyreg as _cr
 _cr.dispatch_table[type(len)] = _bf_reduce
 _s.modules['_brevi_dyn'] = _d
@@ -1230,7 +1314,7 @@ unsafe fn pyd_register(a: &ax_pyffi::Api) -> bool {
         (Some(it), Some(st)) => iter_setstate_v(it, st),
         _ => type_err("__setstate__() takes exactly one argument".into()),
     });
-    for (n, f) in [(c"_ref", func(sym("_ref"), pickle_ref)), (c"_lookup", func(sym("_lookup"), pickle_lookup_fn)), (c"setstate", setstate), (c"_rebuild_obj", func(sym("_rebuild_obj"), pickle_rebuild))] {
+    for (n, f) in [(c"_ref", func(sym("_ref"), pickle_ref)), (c"_lookup", func(sym("_lookup"), pickle_lookup_fn)), (c"_progmod", func(sym("_progmod"), pickle_progmod)), (c"_missing", func(sym("_missing"), pickle_missing_fn)), (c"setstate", setstate), (c"_rebuild_obj", func(sym("_rebuild_obj"), pickle_rebuild))] {
         if !ok {
             break;
         }
@@ -1325,7 +1409,7 @@ fn pickle_ref(a: Args) -> R {
     match pickle_lookup(&m, &q) {
         Ok(found) if is(&found, &v) => Ok(tup(vec![V::Int(0), st(m), st(q)])),
         Ok(_) => Ok(tup(vec![V::Int(1), st(format!("Can't pickle {}: it's not the same object as {m}.{q}", repr(&v)?))])),
-        Err(_) => Ok(tup(vec![V::Int(1), st(format!("Can't pickle {}: it's not found as {m}.{q}", repr(&v)?))])),
+        Err(_) => Ok(tup(vec![V::Int(1), st(format!("Can't pickle {}: attribute lookup {q} on {m} failed", repr(&v)?))])),
     }
 }
 // _brevi_dyn._rebuild(cls, args, state): cls(*args), then its __setstate__(state), as pickle rebuilds an
@@ -1357,20 +1441,43 @@ fn pickle_rebuild(a: Args) -> R {
     }
     Ok(o)
 }
+// _brevi_dyn._progmod(name): whether `name` is a module of the program (other than __main__)
+fn pickle_progmod(a: Args) -> R {
+    Ok(V::Bool(match a.p.first() {
+        Some(V::Str(m)) => USER_MOD.with(|u| u.get()).and_then(|f| f(m.text(), "")).is_some(),
+        _ => false,
+    }))
+}
 fn pickle_lookup_fn(a: Args) -> R {
     let t = |i: usize| match a.p.get(i) {
         Some(V::Str(x)) => Ok(x.text().to_string()),
-        _ => type_err("_glob() takes a module name and a qualified name".into()),
+        _ => type_err("_lookup() takes a module name and a qualified name".into()),
     };
     pickle_lookup(&t(0)?, &t(1)?)
+}
+// The AttributeError CPython's find_class raises for `q` missing from module `m`. It names the module by its
+// repr, which for __main__ and the program's modules holds the absolute path of the file, which the program
+// does not know when it runs: refused there.
+fn pickle_missing(m: &str, q: &str, what: &str) -> E {
+    match m {
+        "builtins" | "itertools" => exc("AttributeError", format!("Can't get {what}'{q}' on <module '{m}' (built-in)>")),
+        _ => unsupported("loading a pickle that names a missing attribute of a module of the program"),
+    }
+}
+fn pickle_missing_fn(a: Args) -> R {
+    let t = |i: usize| match a.p.get(i) {
+        Some(V::Str(x)) => x.text().to_string(),
+        _ => String::new(),
+    };
+    Err(pickle_missing(&t(0), &t(1), "attribute "))
 }
 // `module.qualname` of the program, as pickle finds a def or class again: the first name from the module's
 // globals (__main__, an imported module of the program, or functools' total_ordering helpers), the rest as
 // attributes.
 fn pickle_lookup(m: &str, q: &str) -> R {
-    let missing = || exc("AttributeError", format!("Can't get attribute '{q}' on <module '{m}'>"));
+    let missing = || pickle_missing(m, q, "attribute ");
     if q.split('.').any(|p| p == "<locals>") {
-        return Err(exc("AttributeError", format!("Can't get local attribute '{q}' on <module '{m}'>")));
+        return Err(pickle_missing(m, q, "local attribute "));
     }
     if let Some(c) = iter_class_named(m, q) {
         return Ok(c);
@@ -1480,16 +1587,37 @@ unsafe fn pyd_raise(e: &E) {
 }
 
 // The program's class for p when p is one of Python's builtin exception classes.
+// The program's builtin class named `n` when CPython's builtins has a class of that name.
+fn pyd_builtin_class_named(n: &str) -> Option<Rc<Class>> {
+    let c = BUILTIN_CLASSES.with(|b| b.borrow().get(n).cloned())?;
+    (c.module == "builtins").then_some(c)
+}
+// Whether CPython's builtins module has a class named `n` (and not some other value).
+unsafe fn pyd_has_builtin(n: &str) -> bool {
+    let a = pyd_api();
+    match pyd_builtins_attr(n) {
+        Ok(q) => {
+            let t = (a.Type)(q);
+            let tt = (a.Type)(t);
+            (a.DecRef)(tt);
+            (a.DecRef)(t);
+            (a.DecRef)(q);
+            // a class: its type is `type`, whose type is itself
+            tt == t
+        }
+        Err(_) => {
+            (a.ErrClear)();
+            false
+        }
+    }
+}
 unsafe fn pyd_builtin_exc(p: P) -> Option<Rc<Class>> {
     let a = pyd_api();
     let n = pyd_own((a.GetAttr)(p, c"__name__".as_ptr())).ok()?;
     let name = pyd_text(n);
     (a.DecRef)(n);
     let name = name.ok()?;
-    let c = BUILTIN_CLASSES.with(|b| b.borrow().get(name.as_str()).cloned())?;
-    if !(c.module == "builtins" && (c.bt == BT::Exc || c.is_sub(&exc_class("BaseException")))) {
-        return None;
-    }
+    let c = pyd_builtin_class_named(&name)?;
     let same = match pyd_builtins_attr(&name) {
         Ok(q) => {
             (a.DecRef)(q);
@@ -1639,6 +1767,9 @@ fn memo_key(v: &V) -> Option<usize> {
         V::Set(x) => Some(Rc::as_ptr(x) as *const u8 as usize),
         V::FSet(x) => Some(Rc::as_ptr(x) as *const u8 as usize),
         V::Deque(x) => Some(Rc::as_ptr(x) as *const u8 as usize),
+        // a def or class: one callable per library call, so pickle memoizes `[f, f]` as CPython does
+        V::Func(x) => Some(Rc::as_ptr(x) as *const u8 as usize),
+        V::Class(x) => Some(Rc::as_ptr(x) as *const u8 as usize),
         V::Obj(o) if matches!(o.inner(), Some(V::Deque(_))) => Some(Rc::as_ptr(o) as *const u8 as usize),
         // a tee link: one Python object per pickle, so tees that share it share it again when loaded
         V::Ext(_) => teedata_of(v).map(|l| Rc::as_ptr(&l) as *const u8 as usize),
@@ -1982,7 +2113,9 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
             }
             e
         }
-        V::Class(c) if c.module == "builtins" && (c.bt == BT::Exc || c.is_sub(&exc_class("BaseException"))) => pyd_builtins_attr(c.name)?,
+        // a builtin class (int, list, ValueError): CPython's own, so a library's isinstance and pickle's
+        // builtins.int see the very class; it comes back as the program's (pyd_builtin_class)
+        V::Class(c) if pyd_builtin_class_named(c.name).is_some_and(|k| Rc::ptr_eq(&k, c)) && pyd_has_builtin(c.name) => pyd_builtins_attr(c.name)?,
         V::Obj(o) if o.cls.lookup("__bv_namedtuple__").is_some() => pyd_namedtuple(v)?,
         V::Deque(_) | V::Obj(_) if PYD_PICKLING.with(|c| c.get()) && (matches!(v, V::Deque(_)) || matches!(inner_of(v), Some(V::Deque(_)))) => pyd_deque_red(v)?,
         // CPython would see an iterator, not a generator flagged CO_ITERABLE_COROUTINE (inspect.isawaitable)
@@ -2006,7 +2139,12 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
             PYD_BRIT.store(t, std::sync::atomic::Ordering::Relaxed);
             o
         }
-        V::Func(_) | V::Bound(_) | V::BMeth(_) | V::Class(_) => pyd_callable(v)?,
+        V::Func(_) | V::Class(_) => {
+            let p = pyd_callable(v)?;
+            to_memo_put(v, p);
+            p
+        }
+        V::Bound(_) | V::BMeth(_) => pyd_callable(v)?,
         V::Obj(o) if o.cls.lookup("__call__").is_some() => pyd_callable(v)?,
         _ => return type_err(format!("brevi: a '{}' object cannot be passed to a Python library in a dynamic build", tn(v))),
     })
