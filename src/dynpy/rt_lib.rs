@@ -1533,6 +1533,7 @@ pub fn ext_class(n: &'static str) -> Rc<Class> {
     let c = Class::new(n, "builtins", vec![base], match n {
         "bytes" => BT::Bytes,
         "bytearray" => BT::ByteArray,
+        "datetime.date" => BT::Date,
         _ => BT::Other,
     });
     EXT_CLASSES.with(|m| m.borrow_mut().insert(n, c.clone()));
@@ -1562,7 +1563,12 @@ pub fn bi_type(a: Args) -> R {
         let attrs: Vec<(Sym, V)> = dict_items_of(&a.p[2])?.into_iter().map(|(k, v)| (sym(&to_str(&k).unwrap_or_default()), v)).collect();
         return make_class(name, "__main__", bases, attrs);
     }
-    Ok(V::Class(type_of(&a1(&a, "type")?)?))
+    let x = a1(&a, "type")?;
+    // an Enum class's type is EnumType, which Brevi's enum classes do not have (they are made by type)
+    if matches!(&x, V::Class(c) if c.is_sub(&enum_base())) {
+        return Err(unsupported("type() of an Enum class (EnumType)"));
+    }
+    Ok(V::Class(type_of(&x)?))
 }
 pub fn bi_issubclass(a: Args) -> R {
     a.want("issubclass", 2, 2)?;
@@ -2159,6 +2165,9 @@ pub fn builtin_type_call(c: &Rc<Class>, a: &mut Args) -> Option<R> {
     if c.name == "bytearray" && c.module == "builtins" {
         return Some(bi_bytearray(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));
     }
+    if c.name == "datetime.date" && c.module == "builtins" {
+        return Some(date_new(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));
+    }
     if c.name == "complex" && c.module == "builtins" {
         return Some(bi_complex(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));
     }
@@ -2301,7 +2310,7 @@ fn builtin_class_attr_raw(c: &Rc<Class>, name: &str) -> Option<V> {
         ("str", "maketrans") => Some(builtin("maketrans", |a: Args| str_maketrans(&a))),
         // int.__new__(cls, x) and the like, as a subclass's own __new__ calls it: an instance of cls wrapping the
         // value the type makes
-        ("int" | "float" | "str" | "tuple" | "bytes" | "frozenset", "__new__") if c.module == "builtins" => {
+        ("int" | "float" | "str" | "tuple" | "bytes" | "frozenset" | "datetime.date", "__new__") if c.module == "builtins" => {
             let base = c.clone();
             Some(builtin("__new__", move |mut a: Args| {
                 let Some(V::Class(k)) = a.p.first().cloned() else {
@@ -2614,6 +2623,26 @@ pub fn has_method(o: &V, name: &str) -> bool {
     const NOT_ON_SCALARS: &[&str] = &["__iter__", "__len__", "__getitem__", "__contains__", "__setitem__", "__delitem__", "__reversed__"];
     if names.contains(&name) {
         return true;
+    }
+    // A value of an exact builtin type has exactly the dunders of CPython's type dict (and its bases'):
+    // hasattr(frozenset(), '__delete__') is False, so enum.py's _is_descriptor does not take it for one.
+    if name.len() > 4 && name.starts_with("__") && name.ends_with("__") {
+        let exact: Option<&[&str]> = match o {
+            V::Str(_) => Some(&["str"]),
+            V::List(_) => Some(&["list"]),
+            V::Tuple(_) => Some(&["tuple"]),
+            V::Set(_) => Some(&["set"]),
+            V::FSet(_) => Some(&["frozenset"]),
+            V::Int(_) | V::Big(_) => Some(&["int"]),
+            V::Bool(_) => Some(&["bool", "int"]),
+            V::Float(_) => Some(&["float"]),
+            V::Range(_) => Some(&["range"]),
+            V::Dict(d) if d.borrow().kind == 0 => Some(&["dict"]),
+            _ => None,
+        };
+        if let Some(ts) = exact {
+            return ts.iter().any(|t| cpy_builtin_has(t, name));
+        }
     }
     if name.starts_with("__") || name == "read" {
         let scalar = matches!(o, V::Int(_) | V::Big(_) | V::Bool(_) | V::Float(_) | V::None);

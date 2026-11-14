@@ -469,6 +469,8 @@ fn class_dict_with(c: &Rc<Class>, strict: bool) -> Result<Vec<(Sym, V)>, E> {
             7 => s(text),
             8 => V::Int(text.parse().unwrap_or(0)),
             9 => tup(if text.is_empty() { vec![] } else { text.split(',').map(s).collect() }),
+            // a datetime type's constant (date.min): the value the class gives
+            11 => getattr(&V::Class(c.clone()), n)?,
             k => tdesc(*k, c, n),
         };
         out.push((*n, v));

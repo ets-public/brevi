@@ -348,7 +348,15 @@ pub fn make_class_f(name: Sym, qualname: Sym, module: Sym, bases: Vec<V>, attrs:
 // A class statement's class: as make_class_f, with what CPython's compiler adds to the namespace
 // (__firstlineno__, __static_attributes__)
 // (and, when not "", why its dict cannot be CPython's: the compiler knows when it is not)
-pub fn make_class_s(name: Sym, qualname: Sym, module: Sym, bases: Vec<V>, attrs: Vec<(Sym, V)>, fields: Vec<Sym>, first: i64, sattrs: &[&'static str], why: &'static str) -> R {
+pub fn make_class_s(name: Sym, mut qualname: Sym, module: Sym, bases: Vec<V>, mut attrs: Vec<(Sym, V)>, fields: Vec<Sym>, first: i64, sattrs: &[&'static str], why: &'static str) -> R {
+    // `__qualname__ = '...'` in the body is the class's __qualname__ (type.__new__ takes it out of the dict)
+    if let Some(i) = attrs.iter().position(|(k, _)| *k == "__qualname__") {
+        match &attrs[i].1 {
+            V::Str(x) => qualname = sym(&x.text()),
+            x => return type_err(format!("type __qualname__ must be a str, not {}", tn(x))),
+        }
+        attrs.remove(i);
+    }
     let c = match bases_meta(&bases)? {
         Some(m) => meta_from_base(&m, name, qualname, module, bases, attrs, fields, Some((first, sattrs)))?,
         None => make_class_impl(name, qualname, module, bases, attrs, fields, Some((first, sattrs.to_vec())), None)?,
@@ -891,6 +899,9 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
             o.set("args", tup(a.p.clone()));
         }
     } else if bb != BT::Object && bb != BT::Other {
+        if let Some(e) = date_sub_refused(&c2) {
+            return Err(e);
+        }
         // subclass of a builtin container: the instance wraps a builtin value
         let mut a0 = Args { p: vec![], k: vec![] };
         // An immutable builtin is made by its __new__, which takes the arguments whatever __init__ does
@@ -1000,6 +1011,24 @@ fn ose_init(o: &Rc<Obj>, p: &[V]) {
     o.set("args", tup(stored));
 }
 
+// An instance of a datetime.date subclass is made only as an Enum member (class Holiday(date, Enum)): CPython's
+// date methods and arithmetic give back the subclass (type(self)(...)), which the wrapped date cannot, so any
+// other instance is refused where it would be made.
+pub fn date_sub_refused(k: &Rc<Class>) -> Option<E> {
+    if k.base_bt() == BT::Date && !is_enum(k) {
+        return Some(unsupported(&format!("an instance of {}, a subclass of datetime.date that is not an Enum", k.name)));
+    }
+    None
+}
+// A date or datetime value (both are DTV; a datetime is a date subclass in CPython too)
+pub fn is_date_v(v: &V) -> bool {
+    matches!(v, V::Ext(x) if x.any().downcast_ref::<DTV>().is_some())
+}
+// An Enum member that wraps a date, from a datetime.date mixin (class Holiday(date, Enum)).
+pub fn is_date_sub(v: &V) -> bool {
+    matches!(v, V::Obj(o) if o.cls.base_bt() == BT::Date)
+}
+
 fn builtin_of_bt(bt: BT) -> Rc<Class> {
     bclass(match bt {
         BT::List => "list",
@@ -1016,6 +1045,7 @@ fn builtin_of_bt(bt: BT) -> Rc<Class> {
         BT::Deque => "deque",
         BT::Bytes => return ext_class("bytes"),
         BT::ByteArray => return ext_class("bytearray"),
+        BT::Date => return ext_class("datetime.date"),
         _ => "object",
     })
 }
@@ -1034,6 +1064,17 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
     let mro = target.mro.borrow().clone();
     let start = mro.iter().position(|x| Rc::ptr_eq(x, &c)).map(|i| i + 1).unwrap_or(mro.len());
     for k in &mro[start..] {
+        // EnumType.__new__ gives every enum class (IntEnum, a program's) Enum.__new__ in its dict
+        if name == "__new__" && k.is_sub(&enum_base()) {
+            if let Some(v) = enum_base().own("__new__") {
+                return Ok(v);
+            }
+        }
+        // a builtin base (int in `class MyInt(int)`) whose CPython dict has __new__ or __init__ is where the
+        // lookup stops: the builtin fallback below is that method, and a later base's (Enum.__new__) is not reached
+        if matches!(name, "__new__" | "__init__") && k.own(name).is_none() && k.module == "builtins" && k.name != "object" && matches!(cpy_dict_has(k, name), Some((true, _))) {
+            break;
+        }
         if let Some(v) = k.own(name) {
             // __new__ is a static method (type.__new__ makes it one): super().__new__(cls, ...) passes cls itself
             if name == "__new__" && matches!(v, V::Func(_)) {
@@ -1074,6 +1115,9 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
                 return type_err("__new__(X): X is not a type object".into());
             };
             a.p.remove(0);
+            if let Some(e) = date_sub_refused(&k) {
+                return Err(e);
+            }
             let o = Obj::new(k.clone());
             let bb = k.base_bt();
             if bb == BT::Exc {
@@ -1114,6 +1158,10 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
                             return counter_obj_init(&me2, a);
                         }
                         let bb = o.cls.base_bt();
+                        if bb == BT::Date {
+                            // a date member is made whole by its Enum; date.__init__ takes the arguments and does nothing
+                            return Ok(V::None);
+                        }
                         let base = builtin_of_bt(bb);
                         if let Some(r) = builtin_type_call(&base, &mut a) {
                             o.set_inner(Some(r?));
@@ -1559,6 +1607,15 @@ fn class_getattr(o: &V, c: &Rc<Class>, name: &str) -> R {
         if let Some(v) = ext_class_attr(c.name, name) {
             return Ok(v);
         }
+    } else if c.base_bt() == BT::Date {
+        // date's class attributes on a subclass: min, max and resolution are plain dates and a timedelta, as in
+        // CPython; its alternate constructors (today, fromordinal, ...) build cls(...), which is refused
+        if let Some(v) = ext_class_attr("datetime.date", name) {
+            if matches!(name, "min" | "max" | "resolution") {
+                return Ok(v);
+            }
+            return Err(unsupported(&format!("datetime.date.{name} on {}, a subclass of datetime.date", c.name)));
+        }
     }
     // a builtin type has none (CPython's static types raise)
     if name == "__annotations__" {
@@ -1804,6 +1861,13 @@ pub fn getattr(o: &V, name: &str) -> R {
                 }));
             }
             if let Some(inner) = inner_of(o) {
+                if is_date_sub(o) && matches!(name, "replace" | "__replace__" | "__add__" | "__radd__" | "__sub__" | "__rsub__") {
+                    return Err(unsupported(&format!("{name} of an Enum member that wraps a date (CPython builds the Enum's class from the result)")));
+                }
+                // a date's year, month and day are attributes, its other names methods: the date answers
+                if is_date_sub(o) {
+                    return getattr(&inner, name);
+                }
                 if has_method(&inner, name) {
                     return Ok(V::BMeth(Rc::new((inner, sym(name)))));
                 }
@@ -2362,6 +2426,9 @@ pub fn call_method(o: &V, name: &str, mut a: Args) -> R {
                 return call(&getattr(o, name)?, a);
             }
             if let Some(inner) = inner_of(o) {
+                if is_date_sub(o) && matches!(name, "replace" | "__replace__" | "__add__" | "__radd__" | "__sub__" | "__rsub__") {
+                    return Err(unsupported(&format!("{name} of an Enum member that wraps a date (CPython builds the Enum's class from the result)")));
+                }
                 return call_method(&inner, name, a);
             }
             if ob.cls.base_bt() == BT::Exc && name == "with_traceback" {
