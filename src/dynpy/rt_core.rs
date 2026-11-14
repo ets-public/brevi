@@ -4045,6 +4045,7 @@ pub fn type_name(v: &V) -> String {
         V::Func(f) => if f.kind.get() == 3 { "builtin_function_or_method".into() } else { "function".into() },
         V::Class(c) => match c.meta.borrow().as_ref() {
             Some(m) => m.name.into(),
+            None if enum_meta_of(c).is_some() => "EnumType".into(),
             None => "type".into(),
         },
         V::Obj(o) => o.cls.name.into(),
