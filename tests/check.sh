@@ -711,6 +711,21 @@ case "$o" in "2"*"NotImplementedError: brevi: setting a new attribute helper.Z t
 printf 'import json\ntry:\n    print(json.loads(chr(34) + chr(0xd800) + chr(34)))\nexcept BaseException:\n    print("caught")\nprint("after")\n' > "$t/s.py"
 o=$(BREVI_DYN=1 $BREVI run "$t/s.py" 2>&1); c=$?
 case "$c:$o" in "1:NotImplementedError: brevi: this operation on a str with a lone surrogate (U+D800..U+DFFF) is not supported in dynamic builds yet"*) echo "ok   a lone surrogate on an unwritten path stops the program" ;; *) echo "FAIL a lone surrogate on an unwritten path ($c)"; printf '%s\n' "$o"; fail=1 ;; esac
+# sys.modules: a read whose CPython answer is not sure is refused when it builds (tests/dyn/sys_modules_startup.py
+# has the exact ones), and one with a key only known when it runs stops the program there.
+for c in 'import sys\nprint(len(sys.modules))\n|only as `k in sys.modules`' \
+         'import sys, json\nprint("re" in sys.modules)\n|when the program imports json' \
+         'import sys\nprint("encodings.utf_8" in sys.modules)\n|depends on its environment' \
+         'import sys\nprint("x".encode("idna"), "re" in sys.modules)\n|look up a codec by name' \
+         'from sys import modules\n|from sys import modules is not supported' \
+         'import sys\nprint(sys.modules["os"].sep)\n|a module CPython loads at startup'; do
+  printf "${c%%|*}" > "$t/sm.py"
+  o=$(BREVI_DYN=1 $BREVI build "$t/sm.py" -o "$t/sm" 2>&1)
+  case "$o" in *"${c#*|}"*) echo "ok   sys.modules refused: ${c#*|}" ;; *) echo "FAIL sys.modules not refused: ${c#*|}"; printf '%s\n' "$o"; fail=1 ;; esac
+done
+printf 'import sys, json\nk = "re"\nprint(k in sys.modules)\n' > "$t/sm.py"
+o=$(BREVI_DYN=1 $BREVI run "$t/sm.py" 2>&1); c=$?
+case "$c:$o" in "1:"*'sys.modules `in` with the key "re" (CPython 3.13 may'*) echo "ok   an unsure sys.modules key known only at run time stops the program" ;; *) echo "FAIL an unsure sys.modules key at run time ($c)"; printf '%s\n' "$o"; fail=1 ;; esac
 printf 'def f():\n    "\\ud800"\n' > "$t/d.py"
 o=$(BREVI_DYN=1 $BREVI run "$t/d.py" 2>&1)
 case "$o" in *"a docstring with a lone surrogate (U+D800..U+DFFF) is not supported"*) echo "ok   a docstring with a lone surrogate is refused" ;; *) echo "FAIL a docstring with a lone surrogate"; printf '%s\n' "$o"; fail=1 ;; esac

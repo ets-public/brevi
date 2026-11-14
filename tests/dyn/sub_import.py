@@ -18,7 +18,7 @@ print(subpk.one.B, hasattr(subpk, "one"), getattr(m, "one") is subpk.one, sys.mo
 from subpk import two
 print(two.C, subpk.two is two, m.two.C)
 import subpk.inner.deep
-print(subpk.inner.deep.D, sorted(k for k in sys.modules if k.startswith("subpk")))
+print(subpk.inner.deep.D, [k in sys.modules for k in ("subpk", "subpk.one", "subpk.two", "subpk.inner", "subpk.inner.deep", "subpk.three")])
 import subpk.inner.deep as dd
 print(dd is subpk.inner.deep, dd.__name__)
 from subpk import one, inner

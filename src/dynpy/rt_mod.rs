@@ -3223,6 +3223,85 @@ pub fn sys_modules() -> V {
         V::Dict(s.get_or_insert_with(|| Rc::new(RefCell::new(Dict::new()))).clone())
     })
 }
+// The reads of sys.modules a dynamic build compiles, with what emit.rs (sysmod_key) knew of the key: Dict, the
+// dict alone decides (what the program imported and stored); Startup, CPython 3.13 had it when the script
+// started (with the module, when the read takes it); Dyn, a key only known now (Dyn below).
+pub enum SysKey {
+    Dict,
+    Startup(Option<V>),
+    // the program's files, the library modules it imports, and whether every key is sure: the program imports
+    // only quiet library modules (emit.rs SYSMOD_QUIET), so what is not in the dict is not in CPython's and
+    // everything in it is (Brevi's own library copies, which may load modules CPython's do not, are not loaded)
+    Dyn(&'static [&'static str], &'static [&'static str], bool),
+}
+thread_local! {
+    // the keys `sys.modules[k] = v` in the program stored
+    static SYS_MODS_STORED: RefCell<std::collections::HashSet<String>> = RefCell::new(std::collections::HashSet::new());
+}
+pub fn is_sys_mod(v: &V) -> bool {
+    matches!(v, V::Module(m) if m.0 == "sys")
+}
+pub fn sysmod_store(k: &V, v: V) -> Result<(), E> {
+    SYS_MODS_STORED.with(|s| s.borrow_mut().insert(sysmod_name(k)));
+    setitem(&sys_modules(), k, v)
+}
+fn sysmod_name(k: &V) -> String {
+    if let V::Str(t) = k { t.text().to_string() } else { String::new() }
+}
+fn sysmod_unknown(k: &V, what: &str) -> E {
+    unsupported(&format!("sys.modules {what} with the key {:?} (CPython 3.13 may or may not have that module loaded here)", sysmod_name(k)))
+}
+// Whether CPython has a Dyn key: Ok(Some(true)) / Ok(Some(false)) when that is sure, given whether Brevi's dict has
+// it; refused when not. A str key is decided as emit.rs decides a literal; another key is in the dict only once
+// the program stored it.
+fn sysmod_dyn(k: &V, in_dict: bool, prog: &[&str], libs: &[&str], all_sure: bool, what: &str) -> Result<bool, E> {
+    let V::Str(_) = k else { return Ok(in_dict) };
+    let n = sysmod_name(k);
+    let mine = n == "__main__" || prog.contains(&n.as_str());
+    if in_dict {
+        if all_sure || mine || libs.contains(&n.as_str()) || sysmod_startup(&n) || SYS_MODS_STORED.with(|s| s.borrow().contains(&n)) {
+            return Ok(true);
+        }
+        return Err(sysmod_unknown(k, what));
+    }
+    if sysmod_startup(&n) {
+        return Ok(true);
+    }
+    if mine || (all_sure && !sysmod_unsure(&n)) {
+        return Ok(false);
+    }
+    Err(sysmod_unknown(k, what))
+}
+pub fn sysmod_has(k: &V, key: SysKey) -> Result<bool, E> {
+    let in_dict = contains(&sys_modules(), k)?;
+    match key {
+        SysKey::Startup(_) => Ok(true),
+        SysKey::Dict => Ok(in_dict),
+        SysKey::Dyn(prog, libs, sure) => sysmod_dyn(k, in_dict, prog, libs, sure, "`in`"),
+    }
+}
+pub fn sysmod_item(k: &V, key: SysKey) -> R {
+    let d = sys_modules();
+    let in_dict = contains(&d, k)?;
+    match key {
+        SysKey::Startup(Some(m)) if !in_dict => {
+            setitem(&d, k, m.clone())?;
+            Ok(m)
+        }
+        SysKey::Dyn(prog, libs, sure) if sysmod_dyn(k, in_dict, prog, libs, sure, "read")? && !in_dict => Err(sysmod_unknown(k, "read of a startup module")),
+        _ => getitem(&d, k),
+    }
+}
+pub fn sysmod_get(k: &V, default: V, key: SysKey) -> R {
+    let in_dict = contains(&sys_modules(), k)?;
+    match key {
+        SysKey::Startup(_) => sysmod_item(k, key),
+        SysKey::Dyn(prog, libs, sure) if !sysmod_dyn(k, in_dict, prog, libs, sure, "get()")? => Ok(default),
+        SysKey::Dyn(..) if !in_dict => Err(sysmod_unknown(k, "get() of a startup module")),
+        SysKey::Dict if !in_dict => Ok(default),
+        _ => getitem(&sys_modules(), k),
+    }
+}
 // `import m` records the module object the program bound to `m`, so `sys.modules['m'] is m`.
 pub fn sys_modules_set(name: &str, v: &V) -> R {
     if let V::Dict(d) = sys_modules() {
@@ -3337,7 +3416,8 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         ("sys", "flags") => sys_flags(),
         ("sys", "version") => s("3.13.0 (brevi)"),
         ("sys", "float_info") => return Err(unsupported("sys.float_info")),
-        ("sys", "modules") => sys_modules(),
+        // reached through a module object, not `sys.modules` in the source (which emit.rs checks)
+        ("sys", "modules") => return Err(unsupported("sys.modules reached through getattr or another name (dynamic builds read sys.modules[k], k in sys.modules and sys.modules.get(k))")),
         // CPython puts the script's folder first; a built program has only itself, so its folder stands in
         ("sys", "path") => list(vec![s(&std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_string_lossy().into_owned())).unwrap_or_default())]),
         ("sys.stdin", "buffer") => V::Module(&ModName("sys.stdin.buffer")),

@@ -43,6 +43,7 @@ pub const RUNTIME: &str = concat!(
     include_str!("rt_tdict_data.rs"),
     include_str!("rt_tdict.rs"),
     include_str!("rt_mod.rs"),
+    include_str!("rt_sysmods.rs"),
     include_str!("rt_itred.rs"),
     include_str!("rt_itred_comb.rs"),
     include_str!("rt_odict.rs"),

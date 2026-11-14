@@ -235,6 +235,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "copy" => &["copy", "deepcopy"],
         "operator" => &["add", "and_", "attrgetter", "contains", "eq", "floordiv", "ge", "getitem", "gt", "index", "is_", "is_not", "itemgetter", "le", "length_hint", "lshift", "lt", "methodcaller", "mod", "mul", "ne", "neg", "not_", "or_", "pow", "rshift", "sub", "truediv", "truth", "xor", "__lt__", "__le__", "__gt__", "__ge__", "__eq__", "__ne__", "__and__", "__or__", "__xor__", "__sub__"],
         "string" => &["ascii_lowercase", "ascii_uppercase", "ascii_letters", "digits", "hexdigits", "octdigits", "punctuation", "whitespace", "printable"],
+        // adding strptime (CPython imports _strptime and re for it) takes time off SYSMOD_QUIET
         "time" => &["time", "perf_counter", "monotonic", "process_time", "sleep", "time_ns", "perf_counter_ns", "monotonic_ns", "process_time_ns", "gmtime", "strftime"],
         "abc" => &["ABC", "ABCMeta", "abstractmethod", "_abc_register", "_check_methods"],
         "enum" => &["Enum", "IntEnum", "StrEnum", "Flag", "IntFlag", "auto", "unique", "property", "ReprEnum"],
@@ -437,6 +438,121 @@ fn mentions_annotations(body: &[Stmt]) -> bool {
     found
 }
 
+// SYSMOD_STARTUP, SYSMOD_STARTUP_OS and sysmod_unsure, shared with the runtime
+include!("rt_sysmods.rs");
+// Library modules whose import adds no module to sys.modules but itself (and names sysmod_unsure leaves out),
+// with no function that imports one later: CPython 3.13's Lib read for the .py ones (keyword, colorsys, bisect's
+// and struct's are C), the C ones (math, itertools, ...) import nothing. Any other library import may add
+// modules (json adds re, enum, functools, ...; os.path.expandvars imports re). time is quiet for what dynamic
+// builds have of it (module_has): its strptime, which imports _strptime and re, is not one of them.
+const SYSMOD_QUIET: &[&str] = &["sys", "time", "builtins", "math", "cmath", "gc", "itertools", "bisect", "atexit", "binascii", "zlib", "marshal", "errno", "keyword", "colorsys", "abc", "stat", "struct", "__future__"];
+// The names `import sys` and `import sys as n` bind in these files, in any scope.
+fn sys_binds(body: &[Stmt], out: &mut BTreeSet<String>) {
+    let mut nested: Vec<&[Stmt]> = vec![body];
+    while let Some(b) = nested.pop() {
+        for s in b {
+            match &s.st {
+                St::Import(v) => out.extend(v.iter().filter(|(m, _)| m == "sys").map(|(m, a)| a.clone().unwrap_or(m.clone()))),
+                St::Def(d) => nested.push(&d.body),
+                St::Class(c) => nested.push(&c.body),
+                St::If(arms, els) => {
+                    arms.iter().for_each(|(_, x)| nested.push(x));
+                    nested.extend(els.as_deref());
+                }
+                St::For(_, _, x, e) | St::While(_, x, e) => {
+                    nested.push(x);
+                    nested.extend(e.as_deref());
+                }
+                St::Try(x, hs, e, f) => {
+                    nested.push(x);
+                    hs.iter().for_each(|h| nested.push(&h.body));
+                    nested.extend(e.as_deref());
+                    nested.extend(f.as_deref());
+                }
+                St::With(_, x) => nested.push(x),
+                _ => {}
+            }
+        }
+    }
+}
+// Every module an import statement of these files names: `import a.b.c` a, a.b and a.b.c; `from m import n` m and
+// m.n (n may be a submodule). `if TYPE_CHECKING:` blocks too: more names only refuse more.
+fn sys_imports(body: &[Stmt], out: &mut BTreeSet<String>) {
+    fn dotted(m: &str, out: &mut BTreeSet<String>) {
+        let parts: Vec<&str> = m.split('.').collect();
+        for k in 1..=parts.len() {
+            out.insert(parts[..k].join("."));
+        }
+    }
+    for s in body {
+        match &s.st {
+            St::Import(v) => v.iter().for_each(|(m, _)| dotted(m, out)),
+            St::ImportFrom(m, v) => {
+                if !m.starts_with('.') {
+                    dotted(m, out);
+                    v.iter().filter(|(n, _)| n != "*").for_each(|(n, _)| dotted(&format!("{m}.{n}"), out));
+                }
+            }
+            St::Def(d) => sys_imports(&d.body, out),
+            St::Class(c) => sys_imports(&c.body, out),
+            St::If(arms, els) => {
+                arms.iter().for_each(|(_, b)| sys_imports(b, out));
+                if let Some(b) = els {
+                    sys_imports(b, out);
+                }
+            }
+            St::For(_, _, b, e) | St::While(_, b, e) => {
+                sys_imports(b, out);
+                if let Some(e) = e {
+                    sys_imports(e, out);
+                }
+            }
+            St::Try(b, hs, e, f) => {
+                sys_imports(b, out);
+                hs.iter().for_each(|h| sys_imports(&h.body, out));
+                for x in [e, f].into_iter().flatten() {
+                    sys_imports(x, out);
+                }
+            }
+            St::With(_, b) => sys_imports(b, out),
+            _ => {}
+        }
+    }
+}
+// A codec looked up by name imports encodings.<name>, and a few of those import more (idna: re, stringprep;
+// base64_codec: base64; quopri_codec: quopri, io; ...): true when the program may look one of those up, that is
+// names one in a string literal (CPython's normalization: case, spaces and hyphens), or passes a codec that is
+// not a literal to .encode()/.decode(), encoding=, str()/bytes()/bytearray() or open().
+fn codec_lookups(body: &[Stmt]) -> bool {
+    fn risky(c: &str) -> bool {
+        let n = c.trim().to_ascii_lowercase().replace([' ', '-'], "_");
+        matches!(n.as_str(), "idna" | "base64" | "base_64" | "base64_codec" | "bz2" | "bz2_codec" | "hex" | "hex_codec" | "quopri" | "quoted_printable" | "quotedprintable" | "quopri_codec" | "uu" | "uu_codec" | "zip" | "zlib" | "zlib_codec")
+    }
+    let lit = |e: &Ex| matches!(e, Ex::Str(_));
+    let mut found = false;
+    visit_any(body, &mut |e| match e {
+        Ex::Str(c) if risky(c) => found = true,
+        Ex::Call(f, args) => {
+            if args.iter().any(|a| matches!(a, Arg::Kw(k, v) if k == "encoding" && !lit(v))) {
+                found = true;
+            }
+            let star = args.iter().any(|a| matches!(a, Arg::Star(_) | Arg::KwStar(_)));
+            let pos = |i: usize| match args.get(i) {
+                Some(Arg::Pos(x)) => lit(x),
+                Some(_) => false,
+                None => true,
+            };
+            match &**f {
+                Ex::Attr(_, m) if m == "encode" || m == "decode" => found |= star || !pos(0),
+                Ex::Name(n) if matches!(n.as_str(), "str" | "bytes" | "bytearray") => found |= star || !pos(1),
+                Ex::Name(n) if n == "open" => found |= star || !pos(3),
+                _ => {}
+            }
+        }
+        _ => {}
+    });
+    found
+}
 pub fn visit_any(body: &[Stmt], f: &mut dyn FnMut(&Ex)) {
     fn lam(e: &Ex, f: &mut dyn FnMut(&Ex)) {
         visit_ex(e, &mut |x| {
@@ -1722,6 +1838,12 @@ pub struct Em {
     // (package, name) slots made only for a submodule CPython's import sets on its package (the package itself
     // never assigns the name): unbound until the submodule is imported
     sub_slots: HashSet<(String, String)>,
+    // the modules other than the program's files that any file of the program imports, and whether the program
+    // may run a codec lookup that imports modules (sys.modules reads, sysmod_key)
+    sys_libs: BTreeSet<String>,
+    // every name an `import sys [as n]` of the program binds, in any scope
+    sys_names: BTreeSet<String>,
+    codec_imports: bool,
     // module-level defs that can be called directly: (module, name) -> (rust fn, nparams, default slots, defaults count)
     direct: HashMap<(String, String), (String, usize, Vec<usize>)>,
     // module-level names bound only once by import of a builtin module
@@ -2242,6 +2364,9 @@ impl Em {
                 }
                 if let Some(m) = self.static_module(o) {
                     lib_attr_check(&m, n, line)?;
+                    if m == "sys" && n == "modules" {
+                        return Err(err(line, "sys.modules is supported in dynamic builds only as `k in sys.modules`, `sys.modules[k]`, `sys.modules.get(k)` and `sys.modules[k] = v`: its length, keys and other methods depend on CPython's environment"));
+                    }
                     if m == "collections" && n == "abc" && self.user_modules.iter().any(|u| u == "collections.abc") {
                         let init = self.q(&format!("init_{}()", rust_ident("collections.abc")));
                         return Ok(self.q(&format!("{{ {init}; Ok::<V, E>(V::Module(&ModName(\"collections.abc\"))) }}")));
@@ -2274,6 +2399,18 @@ impl Em {
             Ex::Index(o, i) if self.is_globals(o) => {
                 let ii = self.ex(i, line)?;
                 self.q(&format!("glob_item({}, &{ii})", self.gtab()))
+            }
+            Ex::Index(o, i) if self.is_sys_modules(o) => {
+                let (kk, st) = self.sysmod_key(i, true, line)?;
+                self.q(&format!("sysmod_item(&{kk}, {st})"))
+            }
+            Ex::Index(o, i) if matches!(self.sys_split(o, line)?, Some(_)) => {
+                let base = self.sys_split(o, line)?.unwrap();
+                let (kk, st) = self.sysmod_key(i, true, line)?;
+                let a = self.q(&format!("sysmod_item(&{kk}, {st})"));
+                let g = self.modules_attr();
+                let b = self.q(&format!("getitem(&{g}, &{kk})"));
+                format!("{{ let __o = {base}; if is_sys_mod(&__o) {{ {a} }} else {{ {b} }} }}")
             }
             Ex::Index(o, i) => {
                 let oo = self.ex(o, line)?;
@@ -2456,6 +2593,23 @@ impl Em {
                     let bb = self.ex(&rest[0].1, line)?;
                     let c = self.q(&format!("cmp_v(&{aa}, &{bb}, {})", lit(rest[0].0)));
                     return Ok(self.q(&format!("truth(&{c})")));
+                }
+                if rest.len() == 1 && matches!(rest[0].0, "in" | "not in") && self.is_sys_modules(&rest[0].1) {
+                    let op = rest[0].0;
+                    let (kk, st) = self.sysmod_key(a, false, line)?;
+                    let h = self.q(&format!("sysmod_has(&{kk}, {st})"));
+                    return Ok(if op == "in" { h } else { format!("!{h}") });
+                }
+                if rest.len() == 1 && matches!(rest[0].0, "in" | "not in") {
+                    if let Some(base) = self.sys_split(&rest[0].1, line)? {
+                        // CPython reads the container first, then the key
+                        let (kk, st) = self.sysmod_key(a, false, line)?;
+                        let h = self.q(&format!("sysmod_has(&__k, {st})"));
+                        let g = self.modules_attr();
+                        let c = self.q(&format!("contains(&{g}, &__k)"));
+                        let r = format!("{{ let __k = {kk}; let __o = {base}; if is_sys_mod(&__o) {{ {h} }} else {{ {c} }} }}");
+                        return Ok(if rest[0].0 == "in" { r } else { format!("!{r}") });
+                    }
                 }
                 if rest.len() == 1 {
                     let aa = self.ex(a, line)?;
@@ -2693,6 +2847,75 @@ impl Em {
         Ok(b)
     }
     // `globals()` (the builtin, not shadowed)
+    // `n.modules` where n may be sys only when it runs (`import sys` in a function): the code that reads n, for
+    // a read that takes the sys.modules path when n is sys and the attribute's otherwise
+    fn sys_split(&mut self, e: &Ex, line: usize) -> ER<Option<String>> {
+        match e {
+            Ex::Attr(o, n) if n == "modules" && matches!(&**o, Ex::Name(x) if self.sys_names.contains(x)) && self.static_module(o).as_deref() != Some("sys") => Ok(Some(self.ex(o, line)?)),
+            _ => Ok(None),
+        }
+    }
+    fn modules_attr(&mut self) -> String {
+        let ic = new_ic();
+        self.q(&format!("getattr_ic(&__o, \"modules\", &IC{ic})"))
+    }
+    fn is_sys_modules(&self, e: &Ex) -> bool {
+        matches!(e, Ex::Attr(o, n) if n == "modules" && self.static_module(o).as_deref() == Some("sys"))
+    }
+    // A read of sys.modules by key (`k in sys.modules`, `sys.modules[k]`, `sys.modules.get(k)`), as CPython 3.13
+    // answers it: the key's Rust value, and the runtime's argument for it (sysmod_arg). The dict holds what the
+    // program imported and stored, and everything in it CPython has too; a startup module is there all along;
+    // any other key is there only once imported. Refused at build time when the answer is not sure: a module only
+    // some environments have at startup, or one an import of the program's might add besides the module it names.
+    // A key that is not a literal (or __name__) is decided when it runs, the same way (rt_mod.rs sysmod_dyn).
+    fn sysmod_key(&mut self, k: &Ex, want_value: bool, line: usize) -> ER<(String, String)> {
+        let kk = self.ex(k, line)?;
+        let name = match k {
+            Ex::Str(n) => n.clone(),
+            Ex::Name(n) if n == "__name__" && matches!(self.lookup(n), None | Some(Var::Global(_))) && !self.mod_names.get(&self.module).is_some_and(|s| s.contains(n)) => self.module.clone(),
+            _ => {
+                let prog: Vec<String> = self.prog_mods.iter().map(|m| lit(m)).collect();
+                let libs: Vec<String> = self.sys_libs.iter().map(|m| lit(m)).collect();
+                let sure = self.sys_libs.iter().all(|m| SYSMOD_QUIET.contains(&m.as_str())) && !self.codec_imports;
+                return Ok((kk, format!("SysKey::Dyn(&[{}], &[{}], {sure})", prog.join(", "), libs.join(", "))));
+            }
+        };
+        if sysmod_startup(&name) {
+            if !want_value {
+                return Ok((kk, "SysKey::Startup(None)".into()));
+            }
+            // the program's module is in the dict from its start; a library module is the same object as its import
+            if name == "__main__" || name == self.module || self.prog_mods.contains(&name) {
+                return Ok((kk, "SysKey::Dict".into()));
+            }
+            if builtin_mod(&name) {
+                return Ok((kk, format!("SysKey::Startup(Some(V::Module(&ModName({}))))", lit(&name))));
+            }
+            return Err(err(line, &format!("sys.modules[{name:?}] (a module CPython loads at startup that this program does not import as Brevi's) is not supported in dynamic builds")));
+        }
+        if name == "__main__" || self.prog_mods.contains(&name) {
+            return Ok((kk, "SysKey::Dict".into()));
+        }
+        if sysmod_unsure(&name) {
+            return Err(err(line, &format!("{name:?} in sys.modules is not supported in dynamic builds: CPython's answer depends on its environment or on its builtins' own imports")));
+        }
+        // the dict has it once an import of it ran (Brevi registers its builtin modules and its own copies on
+        // import), but CPython's import of another library module may add this one too: sure when every library
+        // import is quiet. A module the program imports itself is decided when it runs: there once imported, and
+        // refused there if read before (sysmod_dyn).
+        let noisy = self.sys_libs.iter().find(|m| !SYSMOD_QUIET.contains(&m.as_str()) && **m != name).cloned();
+        if noisy.is_some() || self.codec_imports {
+            if self.sys_libs.contains(&name) && (builtin_mod(&name) || self.user_modules.contains(&name)) {
+                let libs: Vec<String> = self.sys_libs.iter().map(|m| lit(m)).collect();
+                return Ok((kk, format!("SysKey::Dyn(&[], &[{}], false)", libs.join(", "))));
+            }
+            return Err(err(line, &match noisy {
+                Some(m) => format!("{name:?} in sys.modules is not supported in dynamic builds when the program imports {m}: CPython's import of {m} may add modules besides {m}"),
+                None => format!("{name:?} in sys.modules is not supported in dynamic builds when the program may look up a codec by name: the codec's module may import more"),
+            }));
+        }
+        Ok((kk, "SysKey::Dict".into()))
+    }
     fn is_globals(&self, e: &Ex) -> bool {
         matches!(e, Ex::Call(f, a) if a.is_empty() && matches!(&**f, Ex::Name(n) if n == "globals") && self.lookup("globals").is_none())
     }
@@ -2700,6 +2923,34 @@ impl Em {
         format!("gtab_{}", rust_ident(&self.module))
     }
     fn call(&mut self, f: &Ex, args: &[Arg], line: usize) -> ER<String> {
+        // sys.modules.get(k[, default])
+        if let Ex::Attr(o, m) = f {
+            if m == "get" && self.is_sys_modules(o) && (1..=2).contains(&args.len()) && args.iter().all(|a| matches!(a, Arg::Pos(_))) {
+                let (Arg::Pos(k), d) = (&args[0], args.get(1)) else { unreachable!() };
+                let (kk, st) = self.sysmod_key(k, true, line)?;
+                let dd = match d {
+                    Some(Arg::Pos(d)) => self.ex(d, line)?,
+                    _ => "V::None".into(),
+                };
+                return Ok(self.q(&format!("sysmod_get(&{kk}, {dd}, {st})")));
+            }
+            if m == "get" && (1..=2).contains(&args.len()) && args.iter().all(|a| matches!(a, Arg::Pos(_))) {
+                if let Some(base) = self.sys_split(o, line)? {
+                    let (Arg::Pos(k), d) = (&args[0], args.get(1)) else { unreachable!() };
+                    let (kk, st) = self.sysmod_key(k, true, line)?;
+                    let dd = match d {
+                        Some(Arg::Pos(d)) => self.ex(d, line)?,
+                        _ => "V::None".into(),
+                    };
+                    let a = self.q(&format!("sysmod_get(&__k, __d, {st})"));
+                    let g = self.modules_attr();
+                    let ic = new_ic();
+                    let f = self.q(&format!("getattr_ic(&{g}, \"get\", &IC{ic})"));
+                    let b = self.q(&format!("call(&{f}, Args::p(vec![__k, __d]))"));
+                    return Ok(format!("{{ let __o = {base}; let __k = {kk}; let __d = {dd}; if is_sys_mod(&__o) {{ {a} }} else {{ {b} }} }}"));
+                }
+            }
+        }
         // `types.coroutine(f)` called (a method call never goes through the attribute check below)
         if let Ex::Attr(o, m) = f {
             if matches!(&**o, Ex::Name(x) if self.types_alias.contains(&(self.module.clone(), x.clone()))) {
@@ -3341,6 +3592,19 @@ impl Em {
                 format!("{{ let __v = {val}; {c}; }}")
             }
             Ex::Index(o, i) => {
+                // `sys.modules[k] = v` stores into the dict the reads above see
+                if self.is_sys_modules(o) {
+                    let ii = self.ex(i, line)?;
+                    let c = self.q("sysmod_store(&__i, __v)");
+                    return Ok(format!("{{ let __v = {val}; let __i = {ii}; {c}; }}"));
+                }
+                if let Some(base) = self.sys_split(o, line)? {
+                    let ii = self.ex(i, line)?;
+                    let c = self.q("sysmod_store(&__i, __v)");
+                    let g = self.modules_attr();
+                    let d = self.q(&format!("setitem(&{g}, &__i, __v)"));
+                    return Ok(format!("{{ let __v = {val}; let __o = {base}; let __i = {ii}; if is_sys_mod(&__o) {{ {c}; }} else {{ {d}; }} }}"));
+                }
                 let oo = self.ex(o, line)?;
                 let ii = self.ex(i, line)?;
                 let c = self.q(&format!("setitem(&__o, &__i, __v)"));
@@ -3760,6 +4024,9 @@ impl Em {
                     write!(b, "{reg}; ").unwrap();
                 }
                 for (n, a) in names {
+                    if m == "sys" && n == "modules" {
+                        return Err(err(line, "from sys import modules is not supported in dynamic builds: read sys.modules[k], k in sys.modules or sys.modules.get(k)"));
+                    }
                     if n == "*" {
                         if m == "collections.abc" {
                             return Err(err(line, "from collections.abc import * is not supported in dynamic builds"));
@@ -4983,6 +5250,9 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         mod_info: mods.iter().filter_map(|m| m.path.as_ref().map(|p| (m.name.clone(), (p.clone(), docstring(&m.body), mod_package(&m.name, p))))).collect(),
         prog_mods: BTreeSet::new(),
         sub_slots: HashSet::new(),
+        sys_libs: BTreeSet::new(),
+        sys_names: BTreeSet::new(),
+        codec_imports: false,
         direct: HashMap::new(),
         mod_alias: HashMap::new(),
         types_alias: HashSet::new(),
@@ -5023,6 +5293,13 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     // keeps them too.
     let copies = OWN_COPIES.lock().unwrap().clone();
     em.prog_mods = users.iter().filter(|m| m.name != "__main__" && !copies.contains(&m.name) && em.mod_info.contains_key(&m.name)).map(|m| m.name.clone()).collect();
+    for m in users.iter().filter(|m| m.name == "__main__" || em.prog_mods.contains(&m.name)) {
+        let mut imps = BTreeSet::new();
+        sys_imports(&m.body, &mut imps);
+        em.sys_libs.extend(imps.into_iter().filter(|x| !x.starts_with('.') && !em.prog_mods.contains(x)));
+        em.codec_imports |= codec_lookups(&m.body);
+        sys_binds(&m.body, &mut em.sys_names);
+    }
     let users_read_ann = !PYD_ON.load(std::sync::atomic::Ordering::Relaxed)
         && users.iter().any(|m| !copies.contains(&m.name) && (mentions_annotations(&m.body) || super::typing::imports(&m.body, "dataclasses")));
     for (gi, group) in [libs.clone(), users].into_iter().enumerate() {

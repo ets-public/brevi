@@ -9,7 +9,7 @@ cannot access submodule 'one' of module 'subpk' (most likely due to a circular i
 3 True 3
 init subpk.inner
 init subpk.inner.deep
-4 ['subpk', 'subpk.inner', 'subpk.inner.deep', 'subpk.one', 'subpk.two']
+4 [True, True, True, True, True, False]
 True subpk.inner.deep
 2 4
 init circ
