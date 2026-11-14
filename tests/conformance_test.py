@@ -278,5 +278,123 @@ class Private(unittest.TestCase):
         self.assertEqual((t["cpython_private"], t["scored"], t["coverage"]), (1, 2, 0.0))
 
 
+class Instability(unittest.TestCase):
+    """One disturbed CPython reference run must not change what is scored, in either direction."""
+
+    def ref(self, **seeds):
+        script = {int(k[1:]): list(v) for k, v in seeds.items()}  # s1=[run, ...]: the runs each seed gives, in order
+        calls = []
+
+        def run(seed):
+            calls.append(seed)
+            return script[seed].pop(0)
+        r = c.Reference(run)
+        r.calls = calls
+        return r
+
+    ok = c.Run(0, b"1\n", b"", "")
+    other = c.Run(0, b"2\n", b"", "")
+    third = c.Run(0, b"3\n", b"", "")
+    timeout = c.Run(-9, b"", b"", "timeout")
+    killed = c.Run(-9, b"1", b"", "")
+
+    def test_agreeing_seeds_take_one_run_each(self):
+        r = self.ref(s1=[self.ok], s2=[self.ok])
+        self.assertEqual(c.stable_reference(r, False), (self.ok, None))
+        self.assertEqual(r.calls, [1, 2])
+
+    def test_a_timed_out_run_is_retried_not_unstable(self):
+        r = self.ref(s1=[self.ok], s2=[self.timeout, self.ok])
+        self.assertEqual(c.stable_reference(r, False), (self.ok, None))
+
+    def test_a_killed_run_is_retried(self):
+        r = self.ref(s1=[self.killed, self.ok], s2=[self.ok])
+        self.assertEqual(c.stable_reference(r, False), (self.ok, None))
+
+    def test_a_reference_that_keeps_failing_is_an_error(self):
+        r = self.ref(s1=[self.timeout, self.timeout])
+        with self.assertRaisesRegex(c.ReferenceFailed, r"PYTHONHASHSEED=1: timeout \(2 tries\)"):
+            c.stable_reference(r, False)
+
+    def test_one_disturbed_normal_run_is_outvoted(self):
+        # seed 2's first run printed something else; its next run agrees with seed 1
+        r = self.ref(s1=[self.ok, self.ok], s2=[self.other, self.ok, self.ok])
+        self.assertEqual(c.stable_reference(r, False), (self.ok, None))
+        # the disturbed run was seed 1's: seed 2's output is the reference
+        r = self.ref(s1=[self.other, self.ok, self.ok], s2=[self.ok, self.ok])
+        self.assertEqual(c.stable_reference(r, False), (self.ok, None))
+
+    def test_a_reproduced_seed_difference_is_unstable_by_rule_1(self):
+        r = self.ref(s1=[self.ok, self.ok], s2=[self.other, self.other])
+        a, why = c.stable_reference(r, False)
+        self.assertIsNone(a)
+        self.assertIn("rule 1", why)
+        self.assertIn("PYTHONHASHSEED=1 and 2", why)
+
+    def test_output_that_no_seed_reproduces_is_unstable(self):
+        r = self.ref(s1=[self.ok, self.other, self.third], s2=[self.third])
+        a, why = c.stable_reference(r, False)
+        self.assertIsNone(a)
+        self.assertIn("3 runs at PYTHONHASHSEED=1 all differ", why)
+
+    def test_random_output_runs_seed_1_only(self):
+        r = self.ref(s1=[self.ok])
+        self.assertEqual(c.stable_reference(r, True), (self.ok, None))
+        self.assertEqual(r.calls, [1])
+
+    def test_rule_2_needs_a_reproduced_difference(self):
+        # seed 3's first run differs but is not reproduced: the wrong result stands
+        r = self.ref(s3=[self.other, self.ok, self.ok], s4=[self.ok], s5=[self.ok])
+        self.assertEqual(c.seed_dependence(r, self.ok), (None, ""))
+        r = self.ref(s3=[self.ok], s4=[self.other, self.other])
+        why, note = c.seed_dependence(r, self.ok)
+        self.assertIn("rule 2", why)
+        self.assertIn("PYTHONHASHSEED=4", why)
+
+    def test_rule_2_matching_runs_need_no_second_run(self):
+        r = self.ref(s3=[self.ok], s4=[self.ok], s5=[self.ok])
+        self.assertEqual(c.seed_dependence(r, self.ok), (None, ""))
+        self.assertEqual(r.calls, [3, 4, 5])
+
+    def test_rule_2_runs_are_shared_by_both_builds(self):
+        r = self.ref(s3=[self.ok], s4=[self.ok], s5=[self.ok])
+        c.seed_dependence(r, self.ok)
+        self.assertEqual(c.seed_dependence(r, self.ok), (None, ""))
+        self.assertEqual(r.calls, [3, 4, 5])
+
+    def test_rule_2_failed_reference_keeps_the_wrong_result(self):
+        r = self.ref(s3=[self.timeout, self.timeout])
+        why, note = c.seed_dependence(r, self.ok)
+        self.assertIsNone(why)
+        self.assertIn("PYTHONHASHSEED=3: timeout", note)
+
+    def run_case(self, runs):
+        """run_case with CPython's runs scripted per seed and a build that refuses (no compiler needed)."""
+        import types
+        saved = c.reference, c.build
+        c.reference = lambda py, script, folder, seed, cfg: runs[seed].pop(0)
+        c.build = lambda script, folder, mode, cfg: (None, None, "refused here", False)
+        try:
+            with tempfile.TemporaryDirectory() as t:
+                cfg = types.SimpleNamespace(work=Path(t), python="python3", timeout=1, mem_mb=64, sandbox=False)
+                return c.run_case({"id": "test_x.T.test_a", "file": "test_x", "script": "print(1)\n"}, cfg)
+        finally:
+            c.reference, c.build = saved
+
+    def test_run_case_scores_a_test_whose_reference_run_was_disturbed_once(self):
+        r = self.run_case({1: [self.ok], 2: [self.timeout, self.ok]})
+        self.assertEqual(r["modes"]["normal"]["category"], "refused")
+
+    def test_run_case_reports_a_failing_reference_as_not_extractable(self):
+        r = self.run_case({1: [self.timeout, self.timeout]})
+        self.assertEqual(r["category"], "not_extractable")
+        self.assertIn("reference run failed at PYTHONHASHSEED=1: timeout", r["detail"])
+
+    def test_run_case_names_the_rule_for_a_reproduced_difference(self):
+        r = self.run_case({1: [self.ok, self.ok], 2: [self.other, self.other]})
+        self.assertEqual(r["category"], "unstable")
+        self.assertTrue(r["detail"].startswith("rule 1:"))
+
+
 if __name__ == "__main__":
     unittest.main()
