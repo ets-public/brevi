@@ -441,15 +441,8 @@ pub fn bi_set(a: Args) -> R {
     if a.p.is_empty() {
         return Ok(set_new());
     }
-    match &a.p[0] {
-        V::Set(_) | V::FSet(_) => Ok(V::Set(Rc::new(RefCell::new(set_of(&a.p[0]).unwrap().copy())))),
-        // CPython's set_update_dict: the dict's stored hashes, no key is hashed again
-        V::Dict(d) => {
-            let ks = d.borrow().keys_h();
-            Ok(V::Set(Rc::new(RefCell::new(PSet::from_dict(ks)?))))
-        }
-        x => Ok(V::Set(Rc::new(RefCell::new(PSet::from_iter(to_vec(x)?)?)))),
-    }
+    // make_new_set: a set (or subclass) is merged, an exact dict's stored hashes reused, else iterated
+    Ok(V::Set(Rc::new(RefCell::new(pset_of_iterable(&a.p[0])?))))
 }
 // set() and frozenset() take at most one argument, and none by keyword
 fn set_args(name: &str, a: &Args) -> Result<(), E> {
@@ -465,6 +458,10 @@ pub fn bi_frozenset(a: Args) -> R {
     set_args("frozenset", &a)?;
     if a.p.is_empty() {
         return Ok(V::FSet(Rc::new(PSet::new())));
+    }
+    // frozenset(f) is f itself for an exact frozenset
+    if let V::FSet(_) = &a.p[0] {
+        return Ok(a.p[0].clone());
     }
     match bi_set(a)? {
         V::Set(s) => Ok(V::FSet(Rc::new(s.borrow().clone()))),
@@ -2271,7 +2268,8 @@ pub fn builtin_class_attr(c: &Rc<Class>, name: &str) -> Option<V> {
     thread_local! {
         static OBJ_ATTRS: RefCell<Vec<(Sym, V)>> = const { RefCell::new(vec![]) };
     }
-    let obj = c.module == "builtins" && c.name == "object";
+    // (not the classmethods: each read binds a new method, so object.__init_subclass__ is not itself)
+    let obj = c.module == "builtins" && c.name == "object" && !matches!(name, "__init_subclass__" | "__subclasshook__");
     if obj {
         if let Some(v) = OBJ_ATTRS.with(|m| m.borrow().iter().find(|(k, _)| *k == name).map(|(_, v)| v.clone())) {
             return Some(v);
@@ -3555,6 +3553,11 @@ pub fn dict_method(d: &Rc<RefCell<Dict>>, o: &V, name: &str, mut a: Args) -> R {
     if matches!(name, "keys" | "values" | "items" | "copy" | "clear" | "__len__") {
         no_args("dict", name, &a)?;
     }
+    // dict.fromkeys is a classmethod: called on an instance it runs on the instance's type
+    if name == "fromkeys" {
+        let f = getattr(&V::Class(type_of(o)?), name)?;
+        return call(&f, a);
+    }
     Ok(match name {
         "get" => {
             a.want("get", 1, 2)?;
@@ -3766,6 +3769,8 @@ pub fn set_method(o: &V, name: &str, a: Args) -> R {
     };
     Ok(match name {
         // set.__init__(iterable=()): empties the set, then adds the iterable's items
+        // frozenset keeps object.__init__: it takes any arguments and does nothing (frozenset_new did the work)
+        "__init__" if matches!(o, V::FSet(_)) => V::None,
         "__init__" if matches!(o, V::Set(_)) => {
             if !a.k.is_empty() {
                 return type_err("set() takes no keyword arguments".into());
@@ -3773,14 +3778,17 @@ pub fn set_method(o: &V, name: &str, a: Args) -> R {
             if a.p.len() > 1 {
                 return type_err(format!("set expected at most 1 argument, got {}", a.p.len()));
             }
+            // set_init: emptied (back to the small table), then updated from the iterable
             let m = mutable(o)?;
-            let items = match a.p.first() {
-                Some(x) => Some(pset_of_iterable(x)?),
-                None => None,
-            };
+            let x = a.p.first().map(|x| set_arg(set_id(o), x));
             PSet::cell_clear(&m);
-            if let Some(p) = items {
-                PSet::cell_merge(&m, &p)?;
+            if let Some(x) = x {
+                // the set itself was snapshot before it was cleared, so it adds its old items back
+                let x = match x {
+                    SetArg::Set(p, _) => SetArg::Set(p, false),
+                    x => x,
+                };
+                set_inplace(&m, &x, "|")?;
             }
             V::None
         }
@@ -3810,63 +3818,47 @@ pub fn set_method(o: &V, name: &str, a: Args) -> R {
             PSet::cell_clear(&*mutable(o)?);
             V::None
         }
+        // frozenset.copy of an exact frozenset is the frozenset itself
+        "copy" if matches!(o, V::FSet(_)) => o.clone(),
         "copy" => wrap(me().copy()),
+        // CPython's set_union_impl, set_intersection_multi_impl, set_difference_multi_impl and
+        // set_symmetric_difference_impl (each other operand told apart as set, exact dict or iterable)
         "union" | "intersection" | "difference" | "symmetric_difference" => {
-            let op = match name {
-                "union" => "|",
-                "intersection" => "&",
-                "difference" => "-",
-                _ => "^",
-            };
-            let mut r = me().copy();
-            for x in others(&a)? {
-                r = set_op(&r, &x, op)?;
-            }
-            wrap(r)
+            let id = set_id(o);
+            let xs: Vec<SetArg> = a.p.iter().map(|x| set_arg(id, x)).collect();
+            let so = me();
+            wrap(match name {
+                "union" => set_union(&so, &xs)?,
+                "intersection" => set_intersection_multi(&so, xs)?,
+                "difference" => set_difference_multi(&so, xs)?,
+                _ => {
+                    if xs.len() != 1 {
+                        return type_err(format!("{}.symmetric_difference() takes exactly one argument ({} given)", if matches!(o, V::FSet(_)) { "frozenset" } else { "set" }, xs.len()));
+                    }
+                    set_symmetric_difference(&so, &xs[0])?
+                }
+            })
         }
         "update" | "intersection_update" | "difference_update" | "symmetric_difference_update" => {
             let m = mutable(o)?;
-            let op = match name {
-                "update" => "|",
-                "intersection_update" => "&",
-                "difference_update" => "-",
-                _ => "^",
-            };
-            // No borrow of m is held while a key's __eq__ runs: it may change m.
-            if op == "|" {
-                for x in &a.p {
-                    match x {
-                        // CPython's set_merge: one resize up front, then a table copy or
-                        // insertion with the other set's own hashes.
-                        V::Set(_) | V::FSet(_) => {
-                            let p = set_of(x).unwrap();
-                            PSet::cell_merge(&m, &p)?;
-                        }
-                        // set_update_dict: the dict's stored hashes
-                        V::Dict(d) if d.borrow().kind == 0 => {
-                            let ks = d.borrow().keys_h();
-                            PSet::cell_update_dict(&m, ks)?;
-                        }
-                        _ => {
-                            for k in to_vec(x)? {
-                                PSet::cell_add(&m, k)?;
-                            }
-                        }
-                    }
+            let id = set_id(o);
+            match name {
+                "intersection_update" => {
+                    let xs: Vec<SetArg> = a.p.iter().map(|x| set_arg(id, x)).collect();
+                    let cur = m.borrow().clone();
+                    let r = set_intersection_multi(&cur, xs)?;
+                    PSet::cell_replace(&m, r);
                 }
-            } else {
-                for x in others(&a)? {
-                    match op {
-                        "-" => {
-                            for (k, h) in x.keys_h() {
-                                PSet::cell_discard_h(&m, &k, h)?;
-                            }
-                        }
-                        _ => {
-                            let cur = m.borrow().clone();
-                            let r = set_op(&cur, &x, op)?;
-                            PSet::cell_replace(&m, r);
-                        }
+                "symmetric_difference_update" => {
+                    if a.p.len() != 1 {
+                        return type_err(format!("set.symmetric_difference_update() takes exactly one argument ({} given)", a.p.len()));
+                    }
+                    set_inplace(&m, &set_arg(id, &a.p[0]), "^")?;
+                }
+                _ => {
+                    let op = if name == "update" { "|" } else { "-" };
+                    for x in &a.p {
+                        set_inplace(&m, &set_arg(id, x), op)?;
                     }
                 }
             }

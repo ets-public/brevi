@@ -1368,6 +1368,45 @@ pub fn enum_refusal(body: &[Stmt]) -> Option<(usize, &'static str)> {
 // A class built on a datetime class (`class D(date)`, `class E(datetime, Enum)`), or a functional Enum with
 // `type=datetime`: the dynamic build's datetime classes cannot be subclassed (their instances hold no value), so such a
 // program is refused at build time: (line, the class's dotted name).
+// A class statement subclassing set or frozenset in a program that imports pickle: the line and the base.
+// Pickling such an instance would hand it to CPython's pickle, which cannot take it, so the build refuses.
+pub fn pickled_set_subclass(body: &[Stmt]) -> Option<(usize, String)> {
+    let mut pickle = false;
+    fn scan(body: &[Stmt], pickle: &mut bool) {
+        for s in body {
+            match &s.st {
+                St::ImportFrom(m, _) if m == "pickle" || m.starts_with("pickle.") => *pickle = true,
+                St::Import(v) if v.iter().any(|(m, _)| m == "pickle" || m.starts_with("pickle.")) => *pickle = true,
+                _ => {}
+            }
+            blocks(&s.st, &mut |b| scan(b, pickle));
+        }
+    }
+    scan(body, &mut pickle);
+    if !pickle {
+        return None;
+    }
+    let mut found: Option<(usize, String)> = None;
+    fn classes(body: &[Stmt], f: &mut dyn FnMut(&[Ex], usize)) {
+        for s in body {
+            if let St::Class(c) = &s.st {
+                f(&c.bases, s.line);
+            }
+            blocks(&s.st, &mut |b| classes(b, f));
+        }
+    }
+    classes(body, &mut |bases, line| {
+        if found.is_none() {
+            if let Some(n) = bases.iter().find_map(|b| match b {
+                Ex::Name(n) if n == "set" || n == "frozenset" => Some(n.clone()),
+                _ => None,
+            }) {
+                found = Some((line, n));
+            }
+        }
+    });
+    found
+}
 pub fn datetime_subclass(body: &[Stmt]) -> Option<(usize, String)> {
     const DT: [&str; 5] = ["date", "datetime", "time", "timedelta", "timezone"];
     let mut names: HashMap<String, String> = HashMap::new();
