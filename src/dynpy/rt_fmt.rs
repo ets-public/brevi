@@ -1097,7 +1097,51 @@ pub fn format_spec(v: &V, spec: &str) -> Result<String, E> {
         }
     }
 }
+// A str spec that leaves the text as it is (no width past its length, no cut by a precision, type s or none):
+// CPython's str.__format__ then returns the str itself.
+fn str_spec_noop(x: &S, spec: &str) -> bool {
+    if spec.is_empty() {
+        return true;
+    }
+    let c: Vec<char> = spec.chars().collect();
+    let mut i = 0;
+    if c.len() >= 2 && matches!(c[1], '<' | '>' | '^') {
+        i = 2;
+    } else if matches!(c[0], '<' | '>' | '^') {
+        i = 1;
+    }
+    let num = |i: &mut usize| -> Option<usize> {
+        let st = *i;
+        while *i < c.len() && c[*i].is_ascii_digit() {
+            *i += 1;
+        }
+        (*i > st).then(|| c[st..*i].iter().collect::<String>().parse::<usize>().unwrap_or(usize::MAX))
+    };
+    // a leading 0 is the zero-fill flag, not a width
+    if c.get(i) == Some(&'0') {
+        return false;
+    }
+    let w = num(&mut i);
+    let mut p = None;
+    if c.get(i) == Some(&'.') {
+        i += 1;
+        p = Some(match num(&mut i) {
+            Some(p) => p,
+            None => return false,
+        });
+    }
+    if c.get(i) == Some(&'s') {
+        i += 1;
+    }
+    let n = x.nchars();
+    i == c.len() && w.map_or(true, |w| w <= n) && p.map_or(true, |p| p >= n)
+}
 pub fn fmt_v(v: &V, spec: &str) -> R {
+    if let V::Str(x) = v {
+        if str_spec_noop(x, spec) {
+            return Ok(v.clone());
+        }
+    }
     Ok(V::Str(Rc::new(fmt_s(v, spec)?)))
 }
 

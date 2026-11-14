@@ -581,6 +581,10 @@ pub fn bi_bytes(a: Args) -> R {
     if errs.is_some() {
         return type_err("errors without a string argument".into());
     }
+    // bytes(b) of an exact bytes is b itself
+    if is_bytes_v(x) {
+        return Ok(x.clone());
+    }
     if let Some(b) = buf_full(x)? {
         return Ok(bytesv(b));
     }
@@ -795,6 +799,10 @@ impl BytesV {
                 "__getitem__" => match a.p.first() {
                     Some(V::Slice(sl)) => {
                         let (st, en, step) = slice_idx(sl, b.len())?;
+                        // the whole bytes: CPython returns the bytes itself
+                        if step == 1 && st <= 0 && en >= b.len() as i64 {
+                            return Ok(me.clone());
+                        }
                         let mut out = vec![];
                         let mut i = st;
                         while (step > 0 && i < en) || (step < 0 && i > en) {
@@ -1031,11 +1039,12 @@ impl BytesV {
                         None | Some(V::None) => None,
                         Some(x) => Some(sub_arg(&x, false)?),
                     };
-                    if n == "split" {
-                        list(bytes_split(b, sep.as_deref(), max)?)
-                    } else {
-                        list(bytes_rsplit(b, sep.as_deref(), max)?)
+                    let parts = if n == "split" { bytes_split(b, sep.as_deref(), max)? } else { bytes_rsplit(b, sep.as_deref(), max)? };
+                    // separator not found: CPython's list holds the bytes itself
+                    if sep.is_some() && parts.len() == 1 {
+                        return Ok(list(vec![me.clone()]));
                     }
+                    list(parts)
                 }
                 "strip" | "lstrip" | "rstrip" => {
                     no_kws(n, &a)?;
@@ -1062,6 +1071,10 @@ impl BytesV {
                             hi -= 1;
                         }
                     }
+                    // nothing stripped: the bytes itself
+                    if lo == 0 && hi == b.len() {
+                        return Ok(me.clone());
+                    }
                     bytesv(b[lo..hi].to_vec())
                 }
                 "join" => {
@@ -1076,7 +1089,11 @@ impl BytesV {
                     };
                     let mut out = vec![];
                     let mut i = 0;
+                    let mut first: Option<V> = None;
                     while let Some(x) = it.next()? {
+                        if i == 0 {
+                            first = Some(x.clone());
+                        }
                         if i > 0 {
                             out.extend_from_slice(b);
                         }
@@ -1085,6 +1102,12 @@ impl BytesV {
                             None => return type_err(format!("sequence item {i}: expected a bytes-like object, {} found", tn(&x))),
                         }
                         i += 1;
+                    }
+                    // one exact bytes item: CPython returns that item itself
+                    if let (1, Some(f)) = (i, first) {
+                        if is_bytes_v(&f) {
+                            return Ok(f);
+                        }
                     }
                     bytesv(out)
                 }
@@ -1097,6 +1120,10 @@ impl BytesV {
                         None => -1,
                         Some(m) => ssize_arg(m)?,
                     };
+                    // CPython returns the bytes itself when nothing is replaced
+                    if max == 0 || (old.is_empty() && new.is_empty()) {
+                        return Ok(me.clone());
+                    }
                     let mut out = vec![];
                     let mut from = 0;
                     let mut done = 0;
@@ -1123,6 +1150,9 @@ impl BytesV {
                             None => break,
                         }
                     }
+                    if done == 0 {
+                        return Ok(me.clone());
+                    }
                     out.extend_from_slice(&b[from..]);
                     bytesv(out)
                 }
@@ -1137,7 +1167,7 @@ impl BytesV {
                     } else if n == "removesuffix" && b.ends_with(&p) && !p.is_empty() {
                         bytesv(b[..b.len() - p.len()].to_vec())
                     } else {
-                        bytesv(b.clone())
+                        me.clone()
                     }
                 }
                 "upper" | "lower" | "capitalize" | "title" | "istitle" | "swapcase" | "isdigit" | "isalpha" | "isalnum" | "isspace" | "isupper" | "islower" | "isascii" => {
@@ -1228,7 +1258,7 @@ impl BytesV {
                     };
                     let w = width.max(0) as usize;
                     if w <= b.len() {
-                        return Ok(bytesv(b.clone()));
+                        return Ok(me.clone());
                     }
                     let pad = w - b.len();
                     // CPython: the extra padding goes on the left when the total is odd
@@ -1254,7 +1284,7 @@ impl BytesV {
                     let width = ssize_arg(&a.p[0])?;
                     let w = width.max(0) as usize;
                     if w <= b.len() {
-                        return Ok(bytesv(b.clone()));
+                        return Ok(me.clone());
                     }
                     let sign = b.first().is_some_and(|&c| c == b'+' || c == b'-');
                     let pad = w - b.len();
@@ -1318,6 +1348,10 @@ impl BytesV {
                         Some(v) => truth(&v)?,
                         None => false,
                     };
+                    // one line, no break: the list holds the bytes itself
+                    if !b.is_empty() && !b.iter().any(|&c| c == b'\n' || c == b'\r') {
+                        return Ok(list(vec![me.clone()]));
+                    }
                     let mut out = vec![];
                     let mut st = 0;
                     let mut i = 0;
@@ -1355,8 +1389,8 @@ impl BytesV {
                     match hit {
                         // the separator found is the argument object itself, as in CPython
                         Some(k) => tup(vec![bytesv(b[..k].to_vec()), a.p[0].clone(), bytesv(b[k + sep.len()..].to_vec())]),
-                        None if n == "partition" => tup(vec![bytesv(b.clone()), bytesv(vec![]), bytesv(vec![])]),
-                        None => tup(vec![bytesv(vec![]), bytesv(vec![]), bytesv(b.clone())]),
+                        None if n == "partition" => tup(vec![me.clone(), bytesv(vec![]), bytesv(vec![])]),
+                        None => tup(vec![bytesv(vec![]), bytesv(vec![]), me.clone()]),
                     }
                 }
                 "translate" => {
@@ -1400,6 +1434,10 @@ impl BytesV {
                             Some(tb) => tb[c as usize],
                             None => c,
                         });
+                    }
+                    // nothing changed: the bytes itself
+                    if out == *b {
+                        return Ok(me.clone());
                     }
                     bytesv(out)
                 }
@@ -1491,12 +1529,20 @@ impl Ext for BytesV {
         const M: &[&str] = &["decode", "hex", "startswith", "endswith", "find", "index", "rfind", "rindex", "count", "split", "rsplit", "strip", "lstrip", "rstrip", "join", "replace", "removeprefix", "removesuffix", "upper", "lower", "capitalize", "title", "istitle", "swapcase", "center", "ljust", "rjust", "zfill", "expandtabs", "partition", "rpartition", "translate", "isdigit", "isalpha", "isalnum", "isspace", "isupper", "islower", "isascii", "splitlines", "maketrans", "fromhex"];
         M.contains(&n).then(|| Ok(V::BMeth(Rc::new((me.clone(), sym(n))))))
     }
-    fn binop(&self, _me: &V, op: &str, o: &V, right: bool) -> Option<R> {
+    fn binop(&self, me: &V, op: &str, o: &V, right: bool) -> Option<R> {
         match op {
             "+" => {
                 let Some(other) = bytes_of(o) else {
                     return (!right).then(|| type_err(format!("can't concat {} to bytes", tn(o))));
                 };
+                // CPython: an empty left gives the right operand, else an empty right gives the left (exact bytes only)
+                let (l, r, ll, rl) = if right { (o, me, other.len(), self.0.len()) } else { (me, o, self.0.len(), other.len()) };
+                if ll == 0 && is_bytes_v(r) {
+                    return Some(Ok(r.clone()));
+                }
+                if rl == 0 && is_bytes_v(l) {
+                    return Some(Ok(l.clone()));
+                }
                 let mut out = if right { other.clone() } else { self.0.clone() };
                 out.extend(if right { &self.0 } else { &other });
                 Some(Ok(bytesv(out)))
@@ -1514,6 +1560,9 @@ impl Ext for BytesV {
                 };
                 if n < 0 {
                     return Some(Ok(bytesv(vec![])));
+                }
+                if n == 1 {
+                    return Some(Ok(me.clone()));
                 }
                 // CPython's bytes_repeat: the total size cannot fit a Py_ssize_t
                 if n > 0 && (self.0.len() as i64) > i64::MAX / n {

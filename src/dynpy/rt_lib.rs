@@ -315,6 +315,12 @@ pub fn bi_ascii(a: Args) -> R {
     Ok(st(o))
 }
 pub fn bi_str(mut a: Args) -> R {
+    // str(object=x) is str(x)
+    if a.p.is_empty() {
+        if let Some(x) = a.kw("object") {
+            a.p.push(x);
+        }
+    }
     if a.p.is_empty() {
         return Ok(s(""));
     }
@@ -2866,8 +2872,38 @@ fn str_method_cps(me: &Rc<S>, name: &str, a: Args) -> R {
         }
     }
 }
-fn str_join(me: &S, it: &V) -> R {
+// join where the one item is an exact str: CPython returns that item itself
+fn str_join_o(me: &S, it: &V) -> R {
     let items = to_vec(it)?;
+    if let [V::Str(y)] = &items[..] {
+        return Ok(V::Str(y.clone()));
+    }
+    str_join_items(me, items)
+}
+fn str_join(me: &S, it: &V) -> R {
+    str_join_items(me, to_vec(it)?)
+}
+// "{}", "{0}", "{x}" or "{x!s}" with that argument an exact str: CPython's format returns the str itself
+fn one_field_str(t: &str, a: &Args, map: bool) -> Option<V> {
+    let inner = t.strip_prefix('{')?.strip_suffix('}')?;
+    let inner = inner.strip_suffix("!s").unwrap_or(inner);
+    if !inner.chars().all(|c| c.is_alphanumeric() || c == '_') {
+        return None;
+    }
+    let v = if map {
+        let m = a.p.first()?;
+        let V::Dict(d) = m else { return None };
+        d.borrow().get(&s(inner)).ok()??
+    } else if inner.is_empty() {
+        a.p.first()?.clone()
+    } else if inner.bytes().all(|c| c.is_ascii_digit()) {
+        a.p.get(inner.parse::<usize>().ok()?)?.clone()
+    } else {
+        a.k.iter().find(|(n, _)| *n == inner)?.1.clone()
+    };
+    matches!(v, V::Str(_)).then_some(v)
+}
+fn str_join_items(me: &S, items: Vec<V>) -> R {
     let mut out = Txt::new();
     for (i, x) in items.iter().enumerate() {
         if i > 0 {
@@ -2936,6 +2972,10 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
                         v.reverse();
                         v
                     };
+                    // separator not found: CPython's list holds the str itself
+                    if parts.len() == 1 {
+                        return Ok(list(vec![o.clone()]));
+                    }
                     list(parts)
                 }
                 x => return type_err(format!("must be str or None, not {}", tn(&x))),
@@ -2957,13 +2997,17 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             }
             s(r)
         }
-        "join" => return str_join(me, &a1(&a, "join")?),
+        "join" => return str_join_o(me, &a1(&a, "join")?),
         "replace" => {
             a.want("replace", 2, 3)?;
             let (old, new) = (arg_str(&a.p[0], "replace")?, arg_str(&a.p[1], "replace")?);
             let count = opt_idx(&a, 2)?.unwrap_or(-1);
             // nothing to replace: the str itself, as CPython returns it
             if count == 0 || (old.text().is_empty() && new.text().is_empty()) || (!old.text().is_empty() && !t.contains(old.text())) {
+                return Ok(o.clone());
+            }
+            // old and new the same object (or the same one char): CPython finds nothing to change, returns self
+            if Rc::ptr_eq(&old, &new) || (old.nchars() == 1 && old.text() == new.text()) {
                 return Ok(o.clone());
             }
             if count < 0 {
@@ -3105,6 +3149,10 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
         }
         "splitlines" => {
             let keep = a.kw("keepends").or_else(|| a.p.first().cloned()).map(|k| truth(&k)).transpose()?.unwrap_or(false);
+            // one line, no break: CPython's list holds the str itself
+            if !t.is_empty() && !t.chars().any(is_linebreak) {
+                return Ok(list(vec![o.clone()]));
+            }
             let mut out = vec![];
             let cs: Vec<char> = t.chars().collect();
             let mut cur = String::new();
@@ -3131,7 +3179,13 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             }
             list(out)
         }
-        "format" | "format_map" => return str_method_cps(me, name, a),
+        "format" | "format_map" => {
+            // a template that is one plain field holding an exact str: that str itself
+            if let Some(v) = one_field_str(t, &a, name == "format_map") {
+                return Ok(v);
+            }
+            return str_method_cps(me, name, a);
+        }
         "removeprefix" => {
             let p = arg_str(&a1(&a, name)?, name)?;
             match t.strip_prefix(p.text()) {
@@ -3147,6 +3201,11 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             }
         }
         "expandtabs" => {
+            // no tab: CPython returns the str itself
+            if !t.contains('\t') {
+                opt_idx(&a, 0)?;
+                return Ok(o.clone());
+            }
             let ts = opt_idx(&a, 0)?.unwrap_or(8).max(0) as usize;
             let mut out = String::new();
             let mut col = 0;

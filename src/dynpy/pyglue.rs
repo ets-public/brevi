@@ -34,6 +34,10 @@ static PYD_DEQ: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atom
 static PYD_DEQIT: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_BRNEW: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_MKOBJ: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+// CPython's collections.defaultdict and Counter (set when Python starts): the program's defaultdict and Counter go
+// into Python as these (pickle saves them as CPython does), and objects of exactly these types come back as them
+static PYD_DDICT: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+static PYD_CTR: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_PDUMPS: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_PDUMP: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 thread_local! {
@@ -236,6 +240,8 @@ _d.red = _BrRed
 import collections as _co
 _d.deq_t = _co.deque
 _d.deqit_t = type(iter(_co.deque()))
+_d.dd_t = _co.defaultdict
+_d.ctr_t = _co.Counter
 class _BrNew:
     __slots__ = ('c', 'a', 's', 'x')
     def __init__(s, c, a): s.c = c; s.a = a; s.s = None; s.x = []
@@ -850,7 +856,11 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
         return done(cplx(re, im));
     }
     if t == a.TUni {
+        // the same str object twice (a pickle's memo) comes back as one str of the program
         let s = pyd_s(p);
+        if let (true, Ok(v)) = (deep, &s) {
+            from_memo_put(p, v);
+        }
         (a.DecRef)(p);
         return s;
     }
@@ -860,8 +870,11 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
             (a.DecRef)(p);
             return Err(pyd_err());
         }
-        let v = std::slice::from_raw_parts(b as *const u8, n as usize).to_vec();
-        return done(bytesv(v));
+        let v = bytesv(std::slice::from_raw_parts(b as *const u8, n as usize).to_vec());
+        if deep {
+            from_memo_put(p, &v);
+        }
+        return done(v);
     }
     if t == a.TTuple {
         let n = (a.TupleSize)(p);
@@ -877,7 +890,11 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
                 }
             }
         }
-        return done(tup(out));
+        let v = tup(out);
+        if deep && n > 0 {
+            from_memo_put(p, &v);
+        }
+        return done(v);
     }
     if deep && t == a.TList {
         let n = (a.ListSize)(p);
@@ -933,8 +950,29 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
         (a.DecRef)(p);
         return r.map(|_| me);
     }
-    if deep && t == a.TDict {
-        let cell = Rc::new(RefCell::new(Dict::new()));
+    let (dd, ctr) = (t == pyd_ptr(&PYD_DDICT), t == pyd_ptr(&PYD_CTR));
+    if deep && (t == a.TDict || dd || ctr) {
+        let mut n = Dict::new();
+        if dd {
+            // CPython's defaultdict: the program's, its default_factory brought back first (pickle.loads made it)
+            let f = (a.GetAttr)(p, c"default_factory".as_ptr());
+            if f.is_null() {
+                (a.DecRef)(p);
+                return Err(pyd_err());
+            }
+            n.kind = 1;
+            n.dflt = match pyd_wrap(f, true) {
+                Ok(V::None) => None,
+                Ok(f) => Some(f),
+                Err(e) => {
+                    (a.DecRef)(p);
+                    return Err(e);
+                }
+            };
+        } else if ctr {
+            n.kind = 2;
+        }
+        let cell = Rc::new(RefCell::new(n));
         let me = V::Dict(cell.clone());
         from_memo_put(p, &me);
         let mut pos: isize = 0;
@@ -1359,7 +1397,7 @@ unsafe fn pyd_register(a: &ax_pyffi::Api) -> bool {
         }
     }
     // kept for the program's life (the references are never given back)
-    for (n, at) in [(c"deq_t", &PYD_DEQ), (c"deqit_t", &PYD_DEQIT), (c"brnew_t", &PYD_BRNEW), (c"_mkobj", &PYD_MKOBJ)] {
+    for (n, at) in [(c"deq_t", &PYD_DEQ), (c"deqit_t", &PYD_DEQIT), (c"brnew_t", &PYD_BRNEW), (c"_mkobj", &PYD_MKOBJ), (c"dd_t", &PYD_DDICT), (c"ctr_t", &PYD_CTR)] {
         if !ok {
             break;
         }
@@ -1799,6 +1837,11 @@ fn memo_key(v: &V) -> Option<usize> {
         V::Set(x) => Some(Rc::as_ptr(x) as *const u8 as usize),
         V::FSet(x) => Some(Rc::as_ptr(x) as *const u8 as usize),
         V::Deque(x) => Some(Rc::as_ptr(x) as *const u8 as usize),
+        // a str, tuple or bytes too: pickle writes one object once and then refers to it (its memo is by id), so
+        // the same one twice (`[s, s]`) must be one object, and equal ones that are not the same must not be
+        V::Str(x) => Some(Rc::as_ptr(x) as *const u8 as usize),
+        V::Tuple(t) if !t.is_empty() => Some(Tup::as_ptr(t) as usize),
+        V::Ext(x) if is_bytes_v(v) || x.any().downcast_ref::<CplxV>().is_some() => Some(ExtRc::as_ptr(x) as usize),
         // a def or class: one callable per library call, so pickle memoizes `[f, f]` as CPython does
         V::Func(x) => Some(Rc::as_ptr(x) as *const u8 as usize),
         V::Class(x) => Some(Rc::as_ptr(x) as *const u8 as usize),
@@ -1861,7 +1904,11 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
             pyd_own((a.LongFromStr)(c.as_ptr(), std::ptr::null_mut(), 10))?
         }
         V::Float(f) => (a.FloatFrom)(*f),
-        V::Str(x) => pyd_own(pyd_s_obj(x))?,
+        V::Str(x) => {
+            let p = pyd_own(pyd_s_obj(x))?;
+            to_memo_put(v, p);
+            p
+        }
         V::Tuple(t) => {
             let p = (a.TupleNew)(t.len() as isize);
             for (i, x) in t.iter().enumerate() {
@@ -1875,6 +1922,7 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
                     }
                 }
             }
+            to_memo_put(v, p);
             p
         }
         V::List(l) => {
@@ -1934,8 +1982,21 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
             p
         }
         V::Dict(d) => {
-            let items = d.borrow().items();
-            let p = (a.DictNew)();
+            let (items, kind, dflt) = {
+                let d = d.borrow();
+                (d.items(), d.kind, d.dflt.clone())
+            };
+            // a defaultdict goes in as CPython's, with its default_factory; a Counter as CPython's Counter
+            let p = match kind {
+                1 => {
+                    let f = pyd_to(dflt.as_ref().unwrap_or(&V::None))?;
+                    let p = pyd_call_raw(pyd_ptr(&PYD_DDICT), &[f]);
+                    (a.DecRef)(f);
+                    p?
+                }
+                2 => pyd_call_raw(pyd_ptr(&PYD_CTR), &[])?,
+                _ => (a.DictNew)(),
+            };
             to_memo_put(v, p);
             for (k, x) in items {
                 let r = pyd_to(&k).and_then(|kk| match pyd_to(&x) {
@@ -2043,10 +2104,14 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
                 return Err(unsupported("a bytearray or memoryview passed to a library CPython runs"));
             }
             if let Some(b) = bytes_of(v) {
-                return pyd_own((a.BytesFrom)(b.as_ptr() as *const c_char, b.len() as isize));
+                let p = pyd_own((a.BytesFrom)(b.as_ptr() as *const c_char, b.len() as isize))?;
+                to_memo_put(v, p);
+                return Ok(p);
             }
             if let Some((re, im)) = cplx_of(v) {
-                return pyd_own((a.ComplexFrom)(re, im));
+                let p = pyd_own((a.ComplexFrom)(re, im))?;
+                to_memo_put(v, p);
+                return Ok(p);
             }
             match x.tname().rsplit('.').next().unwrap_or("") {
                 "Decimal" => pyd_str_arg("decimal", "Decimal", &to_str(v)?)?,
