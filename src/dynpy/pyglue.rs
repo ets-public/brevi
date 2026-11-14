@@ -247,6 +247,14 @@ class _BrNew:
     def __init__(s, c, a): s.c = c; s.a = a; s.s = None; s.x = []
     def __setstate__(s, st): s.s = (st,)
     def extend(s, xs): s.x.extend(xs)
+# functools.partial (or a program subclass of it) as find_class gives it: REDUCE's cls(func) makes a _BrNew,
+# BUILD gives it partial's state, and it comes out as the program's partial (pyd_brnew)
+def _pt_mk(c):
+    if not _d._ispt(c):
+        return c
+    def mk(*a):
+        return _BrNew(c, a)
+    return mk
 def _mkobj(c, a):
     return _BrNew(c, a)
 _mkobj.__module__ = '_brevi_dyn'
@@ -271,7 +279,7 @@ def _pmod():
             # total_ordering's helpers (functools._gt_from_lt) are the program's own functions too
             if module == 'functools' and (name in _TO_HELPERS or name == 'partial'):
                 _s.audit('pickle.find_class', module, name)
-                return _d._lookup(module, name)
+                return _pt_mk(_d._lookup(module, name))
             if module == '__main__' or _d._progmod(module):
                 _s.audit('pickle.find_class', module, name)
                 if '.' in name:
@@ -280,18 +288,30 @@ def _pmod():
                         raise NotImplementedError("brevi: loading a pickle that names a dotted attribute of the program from a file that cannot seek is not supported in dynamic builds")
                     if p < 4:
                         _d._missing(module, name)
-                return _d._lookup(module, name)
+                return _pt_mk(_d._lookup(module, name))
             obj = super().find_class(module, name)
             # below protocol 4 a method or nested class loads as getattr(class, name): on a class of the
             # program, the program's getattr
             if obj is _b.getattr:
                 return _pk_getattr
             # a module's function the program has read (operator.add): the program's own again
-            if type(obj) is type(len) and '.' not in name and obj.__module__ != 'builtins':
-                try:
-                    return _d._lookup(module, name)
-                except Exception:
-                    pass
+            # a module's function the program has read (operator.add, json.dumps): the program's own again. It is
+            # found by the module and qualname of CPython's own function (a protocol 2 pickle names functools.reduce
+            # __builtin__.reduce), and CPython's _operator.add is the program's operator.add when it is that function
+            if isinstance(obj, (type(len), _t.FunctionType)) and '.' not in name and obj.__module__ not in (None, 'builtins'):
+                om, on = obj.__module__, getattr(obj, '__qualname__', name)
+                for mm in ((module, om, om[1:]) if om.startswith('_') else (module, om)):
+                    if mm != module and mm != om:
+                        import importlib
+                        try:
+                            if getattr(importlib.import_module(mm), on, None) is not obj:
+                                continue
+                        except Exception:
+                            continue
+                    try:
+                        return _d._lookup(mm, on if mm != module else name)
+                    except Exception:
+                        pass
             if isinstance(obj, type) and (obj.__module__ == 'itertools' or obj.__module__ == 'builtins' and name in ('map', 'filter', 'zip', 'enumerate')):
                 try:
                     return _d._lookup(obj.__module__, obj.__name__)
@@ -432,8 +452,14 @@ def _bf_reduce(f):
         raise AttributeError(r[1])
     if r[0] == 3:
         t = r[1]
-        return (_rebuild, (t[0], t[1], t[2] if len(t) > 2 else None))
-    return _pk_global(f, r[1], r[2])
+        # partial's own __reduce__ as it is, so pickle writes CPython's bytes: (cls, (func,), state)
+        return t
+    m, q = r[1], r[2]
+    if r[0] == 4:
+        import importlib
+        o = getattr(importlib.import_module(m), q)
+        m, q = o.__module__, o.__qualname__
+    return _pk_global(f, m, q)
 import copyreg as _cr
 _cr.dispatch_table[type(len)] = _bf_reduce
 _s.modules['_brevi_dyn'] = _d
@@ -1151,8 +1177,8 @@ unsafe fn pyd_deque_iter(p: P) -> Result<Option<V>, E> {
     got
 }
 
-// A _BrNew (an instance of a deque subclass of the program, as pickle.loads rebuilt it): cls(*args), then
-// extend(items) and its state, in the order pickle gives them.
+// A _BrNew (an instance of a deque subclass of the program, or a functools.partial, as pickle.loads rebuilt
+// it): cls(*args), then extend(items) and its state, in the order pickle gives them.
 unsafe fn pyd_brnew(p: P) -> R {
     let a = pyd_api();
     let part = |n: &std::ffi::CStr| pyd_own((a.GetAttr)(p, n.as_ptr()));
@@ -1160,13 +1186,22 @@ unsafe fn pyd_brnew(p: P) -> R {
     let cls = pyd_callable_v(c);
     (a.DecRef)(c);
     let Some(cls @ V::Class(_)) = cls else {
-        return Err(unsupported("loading a pickled deque subclass that is not a class of the program"));
+        return Err(unsupported("loading a pickled deque subclass or partial that is not a class of the program"));
     };
     let V::Tuple(args) = pyd_wrap(part(c"a")?, true)? else {
         return Err(unsupported("loading a pickled deque subclass without its arguments"));
     };
     let o = call(&cls, Args::p(args.to_vec()))?;
     from_memo_put(p, &o);
+    // a functools.partial: partial.__setstate__ with the state pickle gave (it may hold the partial itself)
+    if is_partial_v(&o) {
+        if let V::Tuple(t) = pyd_wrap(part(c"s")?, true)? {
+            if let Some(st) = t.first() {
+                call_method(&o, "__setstate__", Args::p(vec![st.clone()]))?;
+            }
+        }
+        return Ok(o);
+    }
     let x = part(c"x")?;
     let items = pyd_items(x);
     (a.DecRef)(x);
@@ -1377,7 +1412,7 @@ unsafe fn pyd_register(a: &ax_pyffi::Api) -> bool {
         (Some(it), Some(st)) => iter_setstate_v(it, st),
         _ => type_err("__setstate__() takes exactly one argument".into()),
     });
-    for (n, f) in [(c"_ref", func(sym("_ref"), pickle_ref)), (c"_lookup", func(sym("_lookup"), pickle_lookup_fn)), (c"_progmod", func(sym("_progmod"), pickle_progmod)), (c"_missing", func(sym("_missing"), pickle_missing_fn)), (c"setstate", setstate), (c"_rebuild_obj", func(sym("_rebuild_obj"), pickle_rebuild)), (c"_unp", func(sym("_unp"), |a: Args| {
+    for (n, f) in [(c"_ref", func(sym("_ref"), pickle_ref)), (c"_lookup", func(sym("_lookup"), pickle_lookup_fn)), (c"_progmod", func(sym("_progmod"), pickle_progmod)), (c"_ispt", func(sym("_ispt"), |a: Args| Ok(V::Bool(matches!(a.p.first(), Some(V::Class(c)) if c.is_sub(&partial_class())))))), (c"_missing", func(sym("_missing"), pickle_missing_fn)), (c"setstate", setstate), (c"_rebuild_obj", func(sym("_rebuild_obj"), pickle_rebuild)), (c"_unp", func(sym("_unp"), |a: Args| {
         let d = match a.p.first() {
             Some(V::Int(d)) => *d,
             _ => 0,
@@ -1456,7 +1491,9 @@ fn pickle_ref(a: Args) -> R {
             let V::Str(m) = m else { return Err(unsupported("pickling a builtin function")) };
             let n = f.name.get();
             return match modfn_cached(m.text(), n) {
-                Some(found) if is(&found, &v) => Ok(tup(vec![V::Int(0), st(m.text().to_string()), s(n)])),
+                // (4, ...): pickled under the module and qualname CPython's own function has (operator.add is
+                // _operator.add)
+                Some(found) if is(&found, &v) => Ok(tup(vec![V::Int(4), st(m.text().to_string()), s(n)])),
                 _ => Err(unsupported("pickling a builtin function")),
             };
         }
@@ -1848,6 +1885,8 @@ fn memo_key(v: &V) -> Option<usize> {
         V::Obj(o) if matches!(o.inner(), Some(V::Deque(_))) => Some(Rc::as_ptr(o) as *const u8 as usize),
         // an Enum member (see pyd_enum_red): one _BrRed per library call, so pickle memoizes it as CPython does
         V::Obj(o) if is_enum(&o.cls) && o.get("_value_").is_some() => Some(Rc::as_ptr(o) as *const u8 as usize),
+        // a functools.partial: one Python callable per library call, so pickle memoizes `[p, p]` as CPython does
+        V::Obj(o) if is_partial_v(v) => Some(Rc::as_ptr(o) as *const u8 as usize),
         // a tee link: one Python object per pickle, so tees that share it share it again when loaded
         V::Ext(_) => teedata_of(v).map(|l| Rc::as_ptr(&l) as *const u8 as usize),
         _ => None,
@@ -2251,6 +2290,11 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
             p
         }
         V::Bound(_) | V::BMeth(_) => pyd_callable(v)?,
+        V::Obj(_) if is_partial_v(v) => {
+            let p = pyd_callable(v)?;
+            to_memo_put(v, p);
+            p
+        }
         V::Obj(o) if o.cls.lookup("__call__").is_some() => pyd_callable(v)?,
         _ => return type_err(format!("brevi: a '{}' object cannot be passed to a Python library in a dynamic build", tn(v))),
     })

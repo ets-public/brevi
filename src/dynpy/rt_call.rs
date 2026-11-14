@@ -1879,6 +1879,11 @@ pub fn getattr(o: &V, name: &str) -> R {
                     return getattr(&inner, name);
                 }
                 if has_method(&inner, name) {
+                    // a str, bytes or tuple subclass's method binds the instance, so a call gives what
+                    // call_method gives it (sub_res: never the wrapped value itself), and __self__ is the instance
+                    if fresh_copy(&inner).is_some() {
+                        return Ok(V::BMeth(Rc::new((o.clone(), sym(name)))));
+                    }
                     return Ok(V::BMeth(Rc::new((inner, sym(name)))));
                 }
                 // deque's maxlen, a data descriptor of the base class
@@ -2439,7 +2444,8 @@ pub fn call_method(o: &V, name: &str, mut a: Args) -> R {
                 if is_date_sub(o) && matches!(name, "replace" | "__replace__" | "__add__" | "__radd__" | "__sub__" | "__rsub__") {
                     return Err(unsupported(&format!("{name} of an Enum member that wraps a date (CPython builds the Enum's class from the result)")));
                 }
-                return call_method(&inner, name, a);
+                let r = call_method(&inner, name, a)?;
+                return Ok(sub_res(r, &inner, o, name));
             }
             if ob.cls.base_bt() == BT::Exc && name == "with_traceback" {
                 return Ok(o.clone());

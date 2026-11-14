@@ -2974,7 +2974,21 @@ pub fn sys_fn(name: &str, a: Args) -> R {
             a.want(name, 0, 0)?;
             Ok(V::Int(int_max_digits() as i64))
         }
-        "intern" => Ok(a1(&a, name)?),
+        "intern" => {
+            if !a.k.is_empty() {
+                return type_err("sys.intern() takes no keyword arguments".into());
+            }
+            if a.p.len() != 1 {
+                return type_err(format!("sys.intern() takes exactly one argument ({} given)", a.p.len()));
+            }
+            let V::Str(x) = &a.p[0] else {
+                return match &a.p[0] {
+                    V::Obj(o) if matches!(o.inner(), Some(V::Str(_))) => type_err(format!("can't intern {}", o.cls.name)),
+                    v => type_err(format!("intern() argument must be str, not {}", tn(v))),
+                };
+            };
+            Ok(sys_intern(x, &a.p[0]))
+        }
         "getsizeof" => Ok(V::Int(64)),
         "exception" => {
             a.want(name, 0, 0)?;
@@ -5670,4 +5684,29 @@ pub fn clock_ns(cpu: bool) -> i64 {
         unsafe { clock_gettime(clk, &mut ts) };
         ts.sec * 1_000_000_000 + ts.nsec
     }
+}
+
+thread_local! {
+    // sys.intern's table: the first str interned for each text (lone-surrogate strs keyed by their code points)
+    static INTERNED: RefCell<HashMap<Vec<u32>, V>> = RefCell::new(HashMap::new());
+}
+// sys.intern(s): the one str for that text. A str constant made only of name characters is one object in the
+// whole program (CPython's compiler interns it), so that constant is the interned str when there is one.
+fn sys_intern(x: &S, v: &V) -> V {
+    let key = x.cps();
+    if let Some(hit) = INTERNED.with(|t| t.borrow().get(&key).cloned()) {
+        return hit;
+    }
+    let mut got = v.clone();
+    if !x.is_lone() && name_chars_only(x.text()) {
+        let ks = unsafe { &*std::ptr::addr_of!(K) };
+        if let Some(k) = ks.iter().find(|k| matches!(k, V::Str(y) if !y.is_lone() && y.text() == x.text())) {
+            got = k.clone();
+        }
+    }
+    INTERNED.with(|t| t.borrow_mut().insert(key, got.clone()));
+    got
+}
+fn name_chars_only(s: &str) -> bool {
+    s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }

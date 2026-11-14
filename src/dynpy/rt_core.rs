@@ -3651,6 +3651,8 @@ impl Obj {
         if let Some(V::Deque(d)) = &v {
             d.borrow_mut().sub = true;
         }
+        // a str, bytes or tuple subclass instance holds its own copy (str.__new__(S, s) is never s)
+        let v = v.map(|x| fresh_copy(&x).unwrap_or(x));
         *self.inner.borrow_mut() = v.map(Box::new);
     }
     // o.name for code that must match CPython exactly: errors from a dict key's __eq__ are raised.
@@ -4155,6 +4157,45 @@ pub fn inner_of(v: &V) -> Option<V> {
         return o.inner();
     }
     None
+}
+
+// A new exact str, bytes or tuple equal to v (CPython's _PyUnicode_Copy, PyBytes_FromStringAndSize,
+// PyTuple_GetSlice): None for any other value.
+pub fn fresh_copy(v: &V) -> Option<V> {
+    match v {
+        V::Str(x) => Some(V::Str(Rc::new(match x.lone() {
+            Some(c) => S::from_cps(c.to_vec()),
+            None => S::with_ascii(x.text().to_string(), x.ascii()),
+        }))),
+        V::Tuple(t) => Some(tup(t.to_vec())),
+        V::Ext(_) if is_bytes_v(v) => bytes_of(v).map(bytesv),
+        _ => None,
+    }
+}
+
+// The result of an operation a str, bytes or tuple subclass instance passed to the value it wraps.
+// CPython never answers with that wrapped value itself: where the exact type would give back self
+// (s[:], s + "", s.strip(), s.split() of one piece) the subclass gives a new exact object, and
+// partition gives the instance itself (stringlib's partition returns str_obj as it is).
+pub fn sub_res(r: V, inner: &V, me: &V, op: &str) -> V {
+    if !matches!(inner, V::Str(_) | V::Tuple(_) | V::Ext(_)) {
+        return r;
+    }
+    if is(&r, inner) {
+        return fresh_copy(inner).unwrap_or(r);
+    }
+    let held = |items: &[V]| items.iter().any(|x| is(x, inner));
+    match &r {
+        V::List(l) if held(&l.borrow()) => {
+            let v: Vec<V> = l.borrow().iter().map(|x| if is(x, inner) { fresh_copy(inner).unwrap_or(x.clone()) } else { x.clone() }).collect();
+            list(v)
+        }
+        V::Tuple(t) if held(t) => {
+            let part = matches!(op, "partition" | "rpartition");
+            tup(t.iter().map(|x| if !is(x, inner) { x.clone() } else if part { me.clone() } else { fresh_copy(inner).unwrap_or(x.clone()) }).collect())
+        }
+        _ => r,
+    }
 }
 
 // two words: a tag and a pointer or number (tuples, library values and module names are thin pointers)
