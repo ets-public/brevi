@@ -67,7 +67,7 @@ SCOPE = ["test_grammar", "test_scope", "test_int", "test_list", "test_dict", "te
 SLICES = {
     "core": (SCOPE, BASELINE, FLOOR),
     "stdlib": (["test_itertools", "test_collections", "test_re", "test_textwrap", "test_functools", "test_string",
-               "test_graphlib", "test_colorsys", "test_deque"],
+               "test_graphlib", "test_colorsys", "test_deque", "test_dataclasses"],
                ROOT / "compat" / "conformance_stdlib_known_wrong", ROOT / "compat" / "conformance_stdlib_floor.json"),
 }
 # Module name -> (path under Lib/, SHA-256). The helpers are only read for the definitions tests use.
@@ -96,6 +96,7 @@ SOURCES = {
     "test.test_graphlib": ("test/test_graphlib.py", "87cde0e38dc1901e938356f4627f6842ff0cf9a74582edc1f22868b295944b3e"),
     "test.test_colorsys": ("test/test_colorsys.py", "f7ea1907f751f0201ea69a0bc368cdb2b24e7c7f958d8df659a8ff84142bfb93"),
     "test.test_deque": ("test/test_deque.py", "15578b602865dfa5c80baa64006d64c5875765aab457d5b4bedd73a5e8436d73"),
+    "test.test_dataclasses": ("test/test_dataclasses/__init__.py", "eb6d80602be85858a9a5f559c6f9fe7949b48972df4024aff8c825fcf8548cb4"),
     "test.re_tests": ("test/re_tests.py", "33033dc23d20a6924391819395e7bdd3c16d11cf3bb79eedb6298e79f65bb4e8"),  # data for test_re.ExternalTests
 }
 # Modules some tests import as modules (test_grammar reads their __annotations__): copied as they are next to the
