@@ -695,6 +695,19 @@ case "$o" in *"NotImplementedError: brevi: helper.__loader__ is not supported in
 printf 'import math, sys\nprint(sys)\nprint(math)\n' > "$t/m3.py"
 o=$(BREVI_DYN=1 $BREVI run "$t/m3.py" 2>&1)
 case "$o" in "<module 'sys' (built-in)>"*"NotImplementedError: brevi: the repr of module math is not supported in dynamic builds") echo "ok   a library module's repr stops" ;; *) echo "FAIL a library module's repr"; printf '%s\n' "$o"; fail=1 ;; esac
+# A missing attribute of a program file that shadows a standard library module is CPython 3.13's AttributeError
+# (it names the file); `from FILE import *` of a program file, and a new attribute set through a program
+# module object, are refused (the file's names are fixed when it is built).
+printf 'X = 1\n' > "$t/tabnanny.py"
+printf 'import tabnanny\ntry:\n    tabnanny.nope\nexcept AttributeError as e:\n    print(e)\n' > "$t/m6.py"
+o=$(BREVI_DYN=1 $BREVI run "$t/m6.py" 2>&1)
+if [ "$o" = "$(python3 "$t/m6.py" 2>&1)" ]; then echo "ok   a missing attribute of a file shadowing the stdlib"; else echo "FAIL a missing attribute of a file shadowing the stdlib"; printf '%s\n' "$o"; fail=1; fi
+printf 'from helper import *\nprint(X)\n' > "$t/m7.py"
+o=$(BREVI_DYN=1 $BREVI run "$t/m7.py" 2>&1)
+case "$o" in *"from helper import * (a file of the program) is not supported in dynamic builds"*) echo "ok   a star import of a program file is refused" ;; *) echo "FAIL a star import of a program file"; printf '%s\n' "$o"; fail=1 ;; esac
+printf 'import helper\nm = helper\nm.X = 2\nprint(helper.X)\nm.Z = 3\n' > "$t/m8.py"
+o=$(BREVI_DYN=1 $BREVI run "$t/m8.py" 2>&1)
+case "$o" in "2"*"NotImplementedError: brevi: setting a new attribute helper.Z through the module object is not supported in dynamic builds") echo "ok   a new attribute through a program module object stops" ;; *) echo "FAIL a new attribute through a program module object"; printf '%s\n' "$o"; fail=1 ;; esac
 printf 'import json\ntry:\n    print(json.loads(chr(34) + chr(0xd800) + chr(34)))\nexcept BaseException:\n    print("caught")\nprint("after")\n' > "$t/s.py"
 o=$(BREVI_DYN=1 $BREVI run "$t/s.py" 2>&1); c=$?
 case "$c:$o" in "1:NotImplementedError: brevi: this operation on a str with a lone surrogate (U+D800..U+DFFF) is not supported in dynamic builds yet"*) echo "ok   a lone surrogate on an unwritten path stops the program" ;; *) echo "FAIL a lone surrogate on an unwritten path ($c)"; printf '%s\n' "$o"; fail=1 ;; esac

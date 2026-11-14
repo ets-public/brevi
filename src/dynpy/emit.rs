@@ -58,6 +58,9 @@ pub fn names_narrow(src: &str) -> bool {
 // The numpy functions native for float32 and int32 arrays (the runtime's np_narrow_ok has the same list).
 // float32 ufuncs whose numpy SIMD loops the runtime reproduces, for numpy's AVX-512 (SkylakeX) dispatch only
 // (rt_npfn.rs np_exp_f32 and the rest). On another CPU numpy runs other code, so the program goes to CPython.
+// sys.stdlib_module_names of CPython 3.13, for its wording of a missing attribute on a program module that
+// shadows one (Objects/moduleobject.c)
+const STDLIB_NAMES: &str = "__future__ _abc _aix_support _android_support _apple_support _ast _asyncio _bisect _blake2 _bz2 _codecs _codecs_cn _codecs_hk _codecs_iso2022 _codecs_jp _codecs_kr _codecs_tw _collections _collections_abc _colorize _compat_pickle _compression _contextvars _csv _ctypes _curses _curses_panel _datetime _dbm _decimal _elementtree _frozen_importlib _frozen_importlib_external _functools _gdbm _hashlib _heapq _imp _interpchannels _interpqueues _interpreters _io _ios_support _json _locale _lsprof _lzma _markupbase _md5 _multibytecodec _multiprocessing _opcode _opcode_metadata _operator _osx_support _overlapped _pickle _posixshmem _posixsubprocess _py_abc _pydatetime _pydecimal _pyio _pylong _pyrepl _queue _random _scproxy _sha1 _sha2 _sha3 _signal _sitebuiltins _socket _sqlite3 _sre _ssl _stat _statistics _string _strptime _struct _suggestions _symtable _sysconfig _thread _threading_local _tkinter _tokenize _tracemalloc _typing _uuid _warnings _weakref _weakrefset _winapi _wmi _zoneinfo abc antigravity argparse array ast asyncio atexit base64 bdb binascii bisect builtins bz2 cProfile calendar cmath cmd code codecs codeop collections colorsys compileall concurrent configparser contextlib contextvars copy copyreg csv ctypes curses dataclasses datetime dbm decimal difflib dis doctest email encodings ensurepip enum errno faulthandler fcntl filecmp fileinput fnmatch fractions ftplib functools gc genericpath getopt getpass gettext glob graphlib grp gzip hashlib heapq hmac html http idlelib imaplib importlib inspect io ipaddress itertools json keyword linecache locale logging lzma mailbox marshal math mimetypes mmap modulefinder msvcrt multiprocessing netrc nt ntpath nturl2path numbers opcode operator optparse os pathlib pdb pickle pickletools pkgutil platform plistlib poplib posix posixpath pprint profile pstats pty pwd py_compile pyclbr pydoc pydoc_data pyexpat queue quopri random re readline reprlib resource rlcompleter runpy sched secrets select selectors shelve shlex shutil signal site smtplib socket socketserver sqlite3 sre_compile sre_constants sre_parse ssl stat statistics string stringprep struct subprocess symtable sys sysconfig syslog tabnanny tarfile tempfile termios textwrap this threading time timeit tkinter token tokenize tomllib trace traceback tracemalloc tty turtle turtledemo types typing unicodedata unittest urllib uuid venv warnings wave weakref webbrowser winreg winsound wsgiref xml xmlrpc zipapp zipfile zipimport zlib zoneinfo";
 const NP_F32_SIMD: &[&str] = &["exp", "tanh", "log1p", "sin", "cos"];
 fn np_f32_simd_here() -> bool {
     #[cfg(target_arch = "x86_64")]
@@ -1713,6 +1716,12 @@ pub struct Em {
     // the program's own files (__main__ and the modules it imports): name -> (absolute path, docstring,
     // __package__), the module attributes CPython's import sets on them
     mod_info: HashMap<String, (String, Option<String>, Option<String>)>,
+    // the program's own modules other than __main__ (not Brevi's copies): each keeps its import state at run time
+    // (ST_<module>: 0 not run, 1 running, 2 done), and a package's submodule is set on it once imported
+    prog_mods: BTreeSet<String>,
+    // (package, name) slots made only for a submodule CPython's import sets on its package (the package itself
+    // never assigns the name): unbound until the submodule is imported
+    sub_slots: HashSet<(String, String)>,
     // module-level defs that can be called directly: (module, name) -> (rust fn, nparams, default slots, defaults count)
     direct: HashMap<(String, String), (String, usize, Vec<usize>)>,
     // module-level names bound only once by import of a builtin module
@@ -2584,11 +2593,42 @@ impl Em {
                     Err(()) => Err(err(line, &format!("{m}.{n} is not supported in dynamic builds"))),
                 };
             }
-            return Ok(self.q(&format!("Err::<V, E>(exc(\"AttributeError\", {}.into()))", lit(&format!("module '{m}' has no attribute '{n}'")))));
+            let e = self.mod_attr_err(m, &lit(n), false);
+            return Ok(self.q(&format!("Err::<V, E>({e})")));
         }
         let i = self.gslot(m, n);
         let _ = line;
-        Ok(self.q(&format!("gl({i}, {})", lit(n))))
+        let g = self.mod_slot_read(m, n, i);
+        Ok(self.q(&g))
+    }
+    // The submodules of a program package (one level down), by their name in it.
+    fn sub_children(&self, pkg: &str) -> Vec<String> {
+        let pre = format!("{pkg}.");
+        self.prog_mods.iter().filter_map(|x| x.strip_prefix(&pre)).filter(|c| !c.contains('.')).map(String::from).collect()
+    }
+    // Reading global slot i of module m as an attribute of the module object: an unbound slot is CPython's
+    // AttributeError, with its circular-import wording while m (or the submodule named n) is still running.
+    fn mod_slot_read(&self, m: &str, n: &str, i: usize) -> String {
+        let e = self.mod_attr_err(m, &lit(n), self.prog_mods.contains(&format!("{m}.{n}")));
+        format!("gla({i}, || {e})")
+    }
+    // The AttributeError CPython 3.13 raises for name `n` (a Rust &str expression) missing from module m
+    // (module_getattro): its file's state, whether n is a submodule of it, and whether the file could shadow a
+    // library (a top-level module or package in the script's directory, which is sys.path[0]).
+    fn mod_attr_err(&self, m: &str, n: &str, n_is_sub: bool) -> String {
+        let st = |x: &str| if self.prog_mods.contains(x) { format!("ST_{}.with(|c| c.get())", rust_ident(x)) } else { "2".into() };
+        let sub_st = if n_is_sub { st(&format!("{m}.{}", n.trim_matches('"'))) } else { "0".into() };
+        let (shadow, origin) = match (self.prog_mods.contains(m), self.mod_info.get(m), self.mod_info.get("__main__")) {
+            (true, Some((p, _, _)), Some((mp, _, _))) => {
+                let p = std::path::Path::new(p);
+                let dir = if p.file_name().is_some_and(|f| f == "__init__.py") { p.parent().and_then(|d| d.parent()) } else { p.parent() };
+                let shadow = dir.is_some() && dir == std::path::Path::new(mp).parent();
+                let sh = if !shadow { 0 } else if STDLIB_NAMES.split(' ').any(|x| x == m) { 2 } else { 1 };
+                (sh, p.to_string_lossy().into_owned())
+            }
+            _ => (0, String::new()),
+        };
+        format!("mod_attr_err({}, {n}, {}, {sub_st}, {shadow}, {})", lit(m), st(m), lit(&origin))
     }
     // A module attribute CPython's import sets on a file of the program, for a name the file does not assign:
     // Ok(the V expression) for the ones Brevi gives exactly, Err for the ones it refuses (the spec, loader and
@@ -3661,6 +3701,11 @@ impl Em {
                         let v = format!("V::Module(&ModName({}))", lit(&target));
                         let reg = self.q(&format!("sys_modules_set({}, &__m{id})", lit(&target)));
                         write!(b, "let __m{id} = {v}; {reg}; {init}; ").unwrap();
+                        // `import pkg.sub` runs pkg, then pkg.sub (which sets itself on pkg), and binds pkg
+                        if target != *m && self.prog_mods.contains(m) {
+                            let sub = self.q(&format!("init_{}()", rust_ident(m)));
+                            write!(b, "{sub}; ").unwrap();
+                        }
                         b.push_str(&self.store(&bind, &format!("__m{id}")));
                     } else if self.bridge.has(m) {
                         self.bridged_used.insert(m.split('.').next().unwrap_or(m).to_string());
@@ -3719,9 +3764,21 @@ impl Em {
                         if m == "collections.abc" {
                             return Err(err(line, "from collections.abc import * is not supported in dynamic builds"));
                         }
+                        // the names a star import of a program file binds are not known when the importing file's
+                        // scope is (they read as unbound): refused rather than a NameError CPython does not raise
+                        if self.prog_mods.contains(m) {
+                            return Err(err(line, &format!("from {m} import * (a file of the program) is not supported in dynamic builds")));
+                        }
                         if user {
                             let all: Vec<String> = self.mod_names.get(m).cloned().unwrap_or_default().into_iter().filter(|x| !x.starts_with('_')).collect();
                             for x in all {
+                                if self.sub_slots.contains(&(m.clone(), x.clone())) {
+                                    // a submodule's slot is in the package's namespace only once it was imported
+                                    let i = self.gslot(m, &x);
+                                    let st = self.store(&x, &format!("gr({i})"));
+                                    write!(b, "if !matches!(gr({i}), V::Unbound) {{ {st} }} ").unwrap();
+                                    continue;
+                                }
                                 let v = self.user_mod_load(m, &x, line)?;
                                 b.push_str(&self.store(&x, &v));
                             }
@@ -3752,7 +3809,7 @@ impl Em {
                         return Err(err(line, &format!("{m}.{n} is not supported in dynamic builds")));
                     }
                     let sub = format!("{m}.{n}");
-                    if user && self.user_modules.contains(&sub) && (self.module == *m || !self.mod_names.get(m).is_some_and(|s| s.contains(n))) {
+                    if user && self.user_modules.contains(&sub) && (self.module == *m || self.sub_slots.contains(&(m.clone(), n.clone())) || !self.mod_names.get(m).is_some_and(|s| s.contains(n))) {
                         // `from pkg import sub`: the package's module sub
                         let init = self.q(&format!("init_{}()", rust_ident(&sub)));
                         let reg = self.q(&format!("sys_modules_set({}, &V::Module(&ModName({})))", lit(&sub), lit(&sub)));
@@ -4924,6 +4981,8 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         module: String::new(),
         user_modules: mods.iter().skip(1).map(|m| m.name.clone()).collect(),
         mod_info: mods.iter().filter_map(|m| m.path.as_ref().map(|p| (m.name.clone(), (p.clone(), docstring(&m.body), mod_package(&m.name, p))))).collect(),
+        prog_mods: BTreeSet::new(),
+        sub_slots: HashSet::new(),
         direct: HashMap::new(),
         mod_alias: HashMap::new(),
         types_alias: HashSet::new(),
@@ -4963,6 +5022,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     // dataclasses reads a class's __annotations__ (field types, __doc__, classes made by type()), so importing it
     // keeps them too.
     let copies = OWN_COPIES.lock().unwrap().clone();
+    em.prog_mods = users.iter().filter(|m| m.name != "__main__" && !copies.contains(&m.name) && em.mod_info.contains_key(&m.name)).map(|m| m.name.clone()).collect();
     let users_read_ann = !PYD_ON.load(std::sync::atomic::Ordering::Relaxed)
         && users.iter().any(|m| !copies.contains(&m.name) && (mentions_annotations(&m.body) || super::typing::imports(&m.body, "dataclasses")));
     for (gi, group) in [libs.clone(), users].into_iter().enumerate() {
@@ -5073,6 +5133,21 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
                     }
                 }
             }
+            // `import pkg.sub` sets `sub` on pkg: a slot for each submodule of a program package
+            if gi == 1 {
+                for c in em.sub_children(&m.name) {
+                    // importing the submodule rebinds the name: never a def called directly or a fixed alias
+                    let k = (m.name.clone(), c.clone());
+                    em.direct_ok.remove(&k);
+                    em.direct.remove(&k);
+                    em.mod_alias.remove(&k);
+                    em.types_once.remove(&k);
+                    em.types_alias.remove(&k);
+                    if names.insert(c.clone()) {
+                        em.sub_slots.insert(k);
+                    }
+                }
+            }
             for n in &names {
                 em.gslot(&m.name, n);
             }
@@ -5097,7 +5172,21 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
             let nm = lit(&m.name);
             // a copy's classes follow Brevi's copy, whose __class_getitem__s are not all CPython's (class_subscript)
             let mark = if IN_COPY.with(|c| c.get()) || gi == 0 { format!("copy_module({nm}); ") } else { String::new() };
-            write!(inits, "thread_local! {{ static DONE_{ident}: Cell<bool> = Cell::new(false); }}\nfn init_{ident}() -> Result<(), E> {{ if DONE_{ident}.with(|d| d.replace(true)) {{ return Ok(()); }} {mark}gs({name_slot}, s({nm}));\n{body}\nOk(()) }}\n").unwrap();
+            if em.prog_mods.contains(&m.name) {
+                // CPython's import of a program module: its package first (which may import it in turn), then
+                // sys.modules holds it while it runs, and once it has run its package gets it as an attribute
+                let parent = m.name.rsplit_once('.').map(|(p, c)| (p.to_string(), c.to_string())).filter(|(p, _)| em.prog_mods.contains(p));
+                let (pre, post) = match parent {
+                    Some((p, c)) => {
+                        let slot = em.gslot(&p, &c);
+                        (format!("init_{}()?; ", rust_ident(&p)), format!("gs({slot}, V::Module(&ModName({nm}))); "))
+                    }
+                    None => (String::new(), String::new()),
+                };
+                write!(inits, "thread_local! {{ static DONE_{ident}: Cell<bool> = Cell::new(false); static ST_{ident}: Cell<u8> = Cell::new(0); }}\nfn init_{ident}() -> Result<(), E> {{ {pre}if DONE_{ident}.with(|d| d.replace(true)) {{ return Ok(()); }} ST_{ident}.with(|c| c.set(1)); sys_modules_set({nm}, &V::Module(&ModName({nm})))?; {mark}gs({name_slot}, s({nm}));\n{body}\nST_{ident}.with(|c| c.set(2)); {post}Ok(()) }}\n").unwrap();
+            } else {
+                write!(inits, "thread_local! {{ static DONE_{ident}: Cell<bool> = Cell::new(false); }}\nfn init_{ident}() -> Result<(), E> {{ if DONE_{ident}.with(|d| d.replace(true)) {{ return Ok(()); }} {mark}gs({name_slot}, s({nm}));\n{body}\nOk(()) }}\n").unwrap();
+            }
         }
         if gi == 0 && !libs.is_empty() {
             lib_part.push_str(&std::mem::take(&mut em.items));
@@ -5115,12 +5204,14 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     out.push_str(&inits);
     // user module attribute hook
     let mut hook = String::from("fn user_mod(m: &str, n: &str) -> Option<R> { match m { ");
-    for m in mods.iter().skip(1) {
+    // __main__ too: sys.modules['__main__'] is the script's module
+    for m in mods.iter() {
         write!(hook, "{} => {{ match n {{ ", lit(&m.name)).unwrap();
         let names = em.mod_names[&m.name].clone();
         for nm in names.iter().cloned() {
             let i = em.gslot(&m.name, &nm);
-            write!(hook, "{} => Some(gl({i}, {})), ", lit(&nm), lit(&nm)).unwrap();
+            let g = em.mod_slot_read(&m.name, &nm, i);
+            write!(hook, "{} => Some({g}), ", lit(&nm)).unwrap();
         }
         for nm in ["__name__", "__file__", "__doc__", "__package__", "__spec__", "__loader__", "__cached__", "__builtins__", "__dict__", "__path__"] {
             if names.contains(nm) {
@@ -5132,10 +5223,32 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
                 None => {}
             }
         }
-        write!(hook, "_ => Some(Err(exc(\"AttributeError\", format!(\"module '{{}}' has no attribute '{{}}'\", m, n)))) }} }} ").unwrap();
+        let e = em.mod_attr_err(&m.name, "n", false);
+        write!(hook, "_ => Some(Err({e})) }} }} ").unwrap();
     }
     hook.push_str("_ => None } }\n");
     out.push_str(&hook);
+    // `m.n = v` through a module object, for the program's own files: a name the file has a slot for is set as the
+    // file's global; a new name is refused (the file's globals are fixed when it is built). The probe name ""
+    // only asks whether m is one of them.
+    let mut set = String::from("fn user_mod_set(m: &str, n: &str, v: V) -> Option<Result<(), E>> { match m { ");
+    let settable = em.prog_mods.clone();
+    for m in mods.iter().filter(|m| m.name == "__main__" || settable.contains(&m.name)) {
+        write!(set, "{} => Some(match n {{ \"\" => Ok(()), ", lit(&m.name)).unwrap();
+        for nm in em.mod_names[&m.name].clone() {
+            let k = (m.name.clone(), nm.clone());
+            // a def the file calls directly, or an import alias it reads as the module itself, is fixed when built
+            if em.direct_ok.contains(&k) || em.mod_alias.contains_key(&k) || em.types_once.contains(&k) {
+                write!(set, "{} => {{ let _ = v; Err(unsupported({})) }} ", lit(&nm), lit(&format!("rebinding {}.{nm} through the module object", m.name))).unwrap();
+                continue;
+            }
+            let i = em.gslot(&m.name, &nm);
+            write!(set, "{} => {{ gs({i}, v); Ok(()) }} ", lit(&nm)).unwrap();
+        }
+        write!(set, "_ => {{ let _ = v; Err(unsupported(&format!(\"setting a new attribute {{}}.{{}} through the module object\", m, n))) }} }}), ").unwrap();
+    }
+    set.push_str("_ => None } }\n");
+    out.push_str(&set);
     // the program's files by module name, for a module's repr
     let mut files = String::from("fn user_mod_file(m: &str) -> Option<&'static str> { match m { ");
     for m in mods.iter() {
@@ -5177,7 +5290,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     };
     write!(
         out,
-        "fn __run() -> Result<(), E> {{ unsafe {{ GL = vec![V::Unbound; {}]; K = vec![{}]; }} USER_MOD.with(|u| u.set(Some(user_mod))); USER_MOD_FILE.with(|u| u.set(Some(user_mod_file))); MAIN_GTAB.with(|u| u.set(Some(gtab___main__))); {}{}{} let r = init___main__(); fin_point(); r }}\nfn main() {{ run_main(__run); }}\n",
+        "fn __run() -> Result<(), E> {{ unsafe {{ GL = vec![V::Unbound; {}]; K = vec![{}]; }} USER_MOD.with(|u| u.set(Some(user_mod))); USER_MOD_FILE.with(|u| u.set(Some(user_mod_file))); USER_MOD_SET.with(|u| u.set(Some(user_mod_set))); MAIN_GTAB.with(|u| u.set(Some(gtab___main__))); sys_modules_set(\"__main__\", &V::Module(&ModName(\"__main__\")))?; {}{}{} let r = init___main__(); fin_point(); r }}\nfn main() {{ run_main(__run); }}\n",
         em.nglobals.max(1),
         consts.join(", "),
         del_on,
