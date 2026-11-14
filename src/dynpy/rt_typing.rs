@@ -376,7 +376,7 @@ impl Ext for TypeAliasV {
 }
 // __brevi_generic(T, ...): the typing.Generic[T, ...] a PEP 695 class gets after its bases
 pub fn bi___brevi_generic(a: Args) -> R {
-    Ok(V::Ext(ExtRc::new(TForm { name: sym("Generic"), params: a.p.len(), origin: None, pep695: Some(a.p.clone()) })))
+    Ok(V::Ext(ExtRc::new(TForm { name: sym("Generic"), params: a.p.len(), origin: None, pep695: Some(a.p.clone()), arg: None })))
 }
 
 // ---------- typing values: types.UnionType (`int | str`), typing.List[int] and friends, typing.Union ----------
@@ -796,19 +796,31 @@ pub struct TForm {
     pub origin: Option<Rc<Class>>,
     // the Generic[T, ...] a PEP 695 class statement adds after its bases: its type parameters
     pub pep695: Option<Vec<V>>,
+    // ClassVar[C], Final[C] and their kin over a class C (not a TypeVar): C, so the alias prints and compares as
+    // CPython's (`typing.ClassVar[int]`); over anything else the argument is not kept
+    pub arg: Option<V>,
 }
 impl Ext for TForm {
     fn tname(&self) -> &'static str {
         "typing._GenericAlias"
     }
     fn repr(&self) -> String {
-        format!("typing.{}[...]", self.name)
+        match &self.arg {
+            Some(a) => format!("typing.{}[{}]", self.name, typing_type_repr(a)),
+            None => format!("typing.{}[...]", self.name),
+        }
     }
     fn any(&self) -> &dyn std::any::Any {
         self
     }
+    // hash((origin, args)): CPython's value rests on the form's id, so only its agreement with == is kept
+    fn hash(&self) -> Option<i64> {
+        let a = self.arg.as_ref()?;
+        py_hash(&tup(vec![s(self.name), a.clone()])).ok()
+    }
+    // _GenericAlias.__eq__: the same form over the same argument
     fn eq(&self, o: &V) -> Option<bool> {
-        Some(matches!(o, V::Ext(e) if e.any().downcast_ref::<TForm>().is_some_and(|b| std::ptr::eq(self, b))))
+        Some(matches!(o, V::Ext(e) if e.any().downcast_ref::<TForm>().is_some_and(|b| std::ptr::eq(self, b) || matches!((&self.arg, &b.arg), (Some(x), Some(y)) if self.name == b.name && is(x, y)))))
     }
     fn attr(&self, _me: &V, n: &str) -> Option<R> {
         if n == "__class__" {
@@ -844,7 +856,7 @@ fn swallowed(e: &E) -> bool {
     is("Exception") && !(is("NotImplementedError") && to_str(&e.0).is_ok_and(|m| m.contains("is not supported in dynamic builds")))
 }
 fn tform(n: Sym) -> R {
-    Ok(V::Ext(ExtRc::new(TForm { name: n, params: 0, origin: None, pep695: None })))
+    Ok(V::Ext(ExtRc::new(TForm { name: n, params: 0, origin: None, pep695: None, arg: None })))
 }
 // a typing form of the runtime's own (typing_form), not a TypeVar or another class of module "typing"
 fn is_form(k: &Rc<Class>) -> bool {
@@ -970,7 +982,8 @@ pub fn typing_getitem(k: &Rc<Class>, i: &V) -> R {
                 return type_err(format!("{head} Got {}.", arg_repr100(i)?));
             }
             type_arg_ok(i, &what)?;
-            tform(n)
+            let arg = matches!(i, V::Class(_)).then(|| i.clone()).filter(|a| !is_typevar(a));
+            Ok(V::Ext(ExtRc::new(TForm { name: n, params: 0, origin: None, pep695: None, arg })))
         }
         "Literal" => tform(n),
         "Annotated" => {
@@ -1014,7 +1027,7 @@ pub fn typing_getitem(k: &Rc<Class>, i: &V) -> R {
                     }
                 }
             }
-            Ok(V::Ext(ExtRc::new(TForm { name: n, params: args.len(), origin: None, pep695: None })))
+            Ok(V::Ext(ExtRc::new(TForm { name: n, params: args.len(), origin: None, pep695: None, arg: None })))
         }
         "Self" | "NoReturn" | "Never" | "LiteralString" | "TypeAlias" => type_err(format!("typing.{n} is not subscriptable")),
         "Any" => type_err("type 'Any' is not subscriptable".into()),
@@ -1051,7 +1064,7 @@ pub fn class_subscript(k: &Rc<Class>, i: &V) -> R {
             if got < want {
                 return type_err(format!("Too few arguments for {kr}; actual {got}, expected at least {}", got + 1));
             }
-            return Ok(V::Ext(ExtRc::new(TForm { name: k.name, params: 0, origin: Some(k.clone()), pep695: None })));
+            return Ok(V::Ext(ExtRc::new(TForm { name: k.name, params: 0, origin: Some(k.clone()), pep695: None, arg: None })));
         }
         _ => {}
     }
