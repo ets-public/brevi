@@ -234,7 +234,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "string" => &["ascii_lowercase", "ascii_uppercase", "ascii_letters", "digits", "hexdigits", "octdigits", "punctuation", "whitespace", "printable"],
         "time" => &["time", "perf_counter", "monotonic", "process_time", "sleep", "time_ns", "perf_counter_ns", "monotonic_ns", "process_time_ns", "gmtime", "strftime"],
         "abc" => &["ABC", "ABCMeta", "abstractmethod", "_abc_register", "_check_methods"],
-        "enum" => &["Enum", "IntEnum", "StrEnum", "Flag", "IntFlag", "auto", "unique"],
+        "enum" => &["Enum", "IntEnum", "StrEnum", "Flag", "IntFlag", "auto", "unique", "property", "ReprEnum"],
         "_brevi_term" => &["columns"],
         "hashlib" => &["new", "md5", "sha1", "sha224", "sha256", "sha384", "sha512"],
         "base64" => &["b64encode", "b64decode", "standard_b64encode", "standard_b64decode", "urlsafe_b64encode", "urlsafe_b64decode", "encodebytes", "decodebytes", "b16encode", "b16decode"],
@@ -2071,7 +2071,7 @@ impl Em {
         match self.lookup(name) {
             Some(Var::Local(r)) => {
                 if let Some((av, ctx)) = cnv {
-                    format!("{r} = {};", self.q(&format!("enum_auto_store(&mut {av}, {ctx}, {}, {val})", lit(name))))
+                    format!("{r} = {};", self.q(&format!("enum_auto_store(&mut {av}, &mut {ctx}, {}, {val})", lit(name))))
                 } else {
                     format!("{r} = {val};")
                 }
@@ -2080,7 +2080,7 @@ impl Em {
             Some(Var::Global(i)) => format!("gs({i}, {val});"),
             Some(Var::NS(r)) => {
                 if let Some((av, ctx)) = cnv {
-                    let v = self.q(&format!("enum_auto_store(&mut {av}, {ctx}, {}, {val})", lit(name)));
+                    let v = self.q(&format!("enum_auto_store(&mut {av}, &mut {ctx}, {}, {val})", lit(name)));
                     let set = self.q(&format!("setitem(&{r}, &s({}), __v)", lit(name)));
                     format!("{{ let __v = {v}; {set}; }}")
                 } else {
@@ -2772,7 +2772,12 @@ impl Em {
                         let fr = self.fstack.last().unwrap();
                         let cls = fr.class_expr.clone().ok_or_else(|| err(line, "super() outside a method is not supported"))?;
                         let me = fr.self_name.clone().ok_or_else(|| err(line, "super() outside a method is not supported"))?;
-                        let cls = self.load_raw(&cls, line)?;
+                        // the class's name, read so that a class still being made (its name not bound yet) is found
+                        let cls = match (self.f().ns.is_none(), self.lookup(&cls)) {
+                            (true, Some(Var::Global(i))) => self.q(&format!("super_cls(gl_raw({i}), {}, 0)", lit(&cls))),
+                            (true, Some(Var::Cell(r))) => self.q(&format!("super_cls({r}.borrow().clone(), {}, 1)", lit(&cls))),
+                            _ => self.load_raw(&cls, line)?,
+                        };
                         let me = self.load(&me, line)?;
                         (cls, me)
                     };
@@ -4402,10 +4407,11 @@ impl Em {
     fn class(&mut self, c: &ClassDef) -> ER<String> {
         let id = self.id();
         let mut bases = vec![];
-        // a subclass of memoryview or complex has no wrapped value here (bytes, bytearray, str, int and the containers do)
+        // a subclass of memoryview, complex, staticmethod or classmethod has no wrapped value here (bytes,
+        // bytearray, str, int and the containers do)
         for b in &c.bases {
             if let Ex::Name(n) = b {
-                if matches!(n.as_str(), "memoryview" | "complex") && self.lookup(n).is_none() {
+                if matches!(n.as_str(), "memoryview" | "complex" | "staticmethod" | "classmethod") && self.lookup(n).is_none() {
                     return Err(err(c.line, &format!("a subclass of {n} is not supported in dynamic builds")));
                 }
             }
@@ -4501,7 +4507,7 @@ impl Em {
         let av = format!("__auto_last{id}");
         let mut decls = String::new();
         write!(decls, "{base_decls}").unwrap();
-        write!(decls, "let {ctx}: i64 = enum_auto_ctx(&[{}]); let mut {av}: Vec<V> = vec![]; ", base_vars.iter().map(|v| format!("&{v}")).collect::<Vec<_>>().join(", ")).unwrap();
+        write!(decls, "let mut {ctx}: EnumCtx = enum_auto_ctx({}, &[{}]); let mut {av}: Vec<V> = vec![]; ", lit(&c.name), base_vars.iter().map(|v| format!("&{v}")).collect::<Vec<_>>().join(", ")).unwrap();
         if let Some(mx) = meta {
             // as __build_class__: the metaclass after the bases, then its __prepare__, then the body's own first
             // stores (__module__, __qualname__, __firstlineno__, SETUP_ANNOTATIONS, the docstring)
@@ -4823,6 +4829,11 @@ pub fn ic_statics() -> String {
 // Whether `src` names a builtin iterator type (zip, map, filter, enumerate, reversed, or an itertools one) other
 // than to call it or import it: `(repeat, args)`, `cls = chain`.
 pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>), (String, usize, String)> {
+    for m in mods {
+        if let Some((line, n)) = super::typing::datetime_subclass(&m.body) {
+            return Err((m.name.clone(), line, format!("a subclass of {n} is not supported in dynamic builds")));
+        }
+    }
     // the program (not Brevi's library copies) uses the warnings module
     // (or functools.partial, whose __get__ warns at the line that reads it from an instance, or
     // collections.abc.ByteString, whose metaclass warns at the isinstance or class statement)

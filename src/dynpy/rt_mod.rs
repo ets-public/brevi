@@ -5391,7 +5391,8 @@ pub fn ext_module_attr(m: &str, n: &str) -> Result<Option<V>, E> {
         ("json" | "json.decoder", "JSONDecoder") => Some(V::Class(json_decoder_class())),
         ("json" | "json.encoder", "JSONEncoder") => Some(V::Class(json_encoder_class())),
         ("enum", "Enum") => Some(V::Class(enum_base())),
-        ("enum", "IntEnum" | "StrEnum" | "Flag" | "IntFlag") => enum_class(n).map(V::Class),
+        ("enum", "property") => Some(V::Class(eprop_class())),
+        ("enum", "IntEnum" | "StrEnum" | "Flag" | "IntFlag" | "ReprEnum") => enum_class(n).map(V::Class),
         ("binascii", "Error") => Some(V::Class(exc_class("binascii.Error"))),
         _ => None,
     })

@@ -282,3 +282,28 @@ pub fn glob_get(tab: fn(&str) -> Option<usize>, k: &V, d: V) -> R {
 pub fn glob_has(tab: fn(&str) -> Option<usize>, k: &V) -> Result<bool, E> {
     Ok(glob_slot(tab, k)?.is_some())
 }
+
+thread_local! {
+    // the classes whose creation is running user code (an Enum's members made by its own __new__ and __init__),
+    // innermost last: a zero-argument super() in that code finds its class here before the name is bound
+    pub static BUILDING: RefCell<Vec<Rc<Class>>> = RefCell::new(vec![]);
+}
+// The class of a zero-argument super(): the value of the class's name (`v`, read without a check), else the class
+// of that name being made; kind 0 a global, 1 a free variable, 2 a local.
+pub fn super_cls(v: V, name: &str, kind: u8) -> R {
+    if !matches!(v, V::Unbound) {
+        return Ok(v);
+    }
+    let short = name.rsplit('.').next().unwrap_or(name);
+    if let Some(c) = BUILDING.with(|b| b.borrow().iter().rev().find(|c| c.name == short).cloned()) {
+        return Ok(V::Class(c));
+    }
+    match kind {
+        0 => name_err(name),
+        1 => Err(exc("NameError", format!("cannot access free variable '{name}' where it is not associated with a value in enclosing scope"))),
+        _ => Err(exc("UnboundLocalError", format!("cannot access local variable '{name}' where it is not associated with a value"))),
+    }
+}
+pub fn gl_raw(i: usize) -> V {
+    gref(i).clone()
+}

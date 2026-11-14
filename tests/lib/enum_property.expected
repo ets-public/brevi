@@ -1,0 +1,10 @@
+Main.first second is first! first is first! ['first is first!', 'second is first!']
+second 2 <class 'object'> <class 'int'>
+AE <enum 'Enum'> cannot delete attribute 'name'
+AE <enum 'Enum'> cannot set attribute 'value'
+AE <enum 'Main'> has no attribute 'name'
+1.5 1.5 <F.a: 1.5> <class 'float'>
+2 2 3
+W.name name 2 1
+<flag 'IntFlag'> <flag 'Flag'> <enum 'Enum'> (<flag 'IntFlag'>, <class 'int'>, <enum 'ReprEnum'>, <flag 'Flag'>, <enum 'Enum'>, <class 'object'>)
+6 4 2 [<P.R: 4>, <P.W: 2>]

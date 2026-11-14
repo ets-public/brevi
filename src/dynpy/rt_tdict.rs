@@ -412,6 +412,9 @@ pub fn own_dict_of(x: &V) -> R {
     Ok(V::View(Rc::new((V::Dict(Rc::new(RefCell::new(d))), 3))))
 }
 fn class_dict_with(c: &Rc<Class>, strict: bool) -> Result<Vec<(Sym, V)>, E> {
+    if is_enum(c) {
+        return enum_class_dict(c, true);
+    }
     let qn = c.qualname.get();
     if let Some(t) = tinfo(c) {
         if let Some(why) = t.inexact.get().filter(|_| strict) {
@@ -509,8 +512,10 @@ pub fn tdict_attr(c: &Rc<Class>, name: &str) -> Option<V> {
     None
 }
 
-fn merge_class_names(c: &Rc<Class>, out: &mut Vec<Sym>) -> Result<(), E> {
-    for (k, _) in class_dict(c)? {
+pub fn merge_class_names(c: &Rc<Class>, out: &mut Vec<Sym>) -> Result<(), E> {
+    // an enum class, or one of the enum module's own (Enum, Flag, ...): the keys CPython's dict holds
+    let d = if is_enum(c) || enum_mod_keys(c).is_some() { enum_class_dict(c, false)? } else { class_dict(c)? };
+    for (k, _) in d {
         if !out.contains(&k) {
             out.push(k);
         }
@@ -528,6 +533,9 @@ pub fn bi_dir(a: Args) -> R {
         return Err(unsupported("dir() without an argument"));
     }
     let x = a1(&a, "dir")?;
+    if let Some(r) = enum_dir(&x) {
+        return r;
+    }
     let cls = type_of(&x)?;
     let user_dir = cls.mro.borrow().iter().find_map(|k| if tinfo(k).is_some() { k.own("__dir__") } else { None });
     let mut names: Vec<V> = if let Some(f) = user_dir {

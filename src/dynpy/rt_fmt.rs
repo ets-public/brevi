@@ -347,8 +347,8 @@ pub fn repr(v: &V) -> Result<String, E> {
         }
         V::Class(c) if meta_has(c, "__repr__") => return meta_str(c, v, "__repr__"),
         V::Class(c) => {
-            if is_enum(c) {
-                format!("<{} '{}'>", if c.lookup("_flag_mask_").is_some() { "flag" } else { "enum" }, c.name)
+            if is_enum(c) || (c.module == "enum" && c.is_sub(&enum_base())) {
+                format!("<{} '{}'>", if is_flag(c) { "flag" } else { "enum" }, c.name)
             } else if c.module == "builtins" {
                 format!("<class '{}'>", c.name)
             } else {
@@ -948,11 +948,16 @@ pub fn format_spec(v: &V, spec: &str) -> Result<String, E> {
     match v {
         V::Obj(o) => {
             if let Some(f) = o.cls.lookup("__format__") {
-                return to_str(&call(&f, Args::p(vec![v.clone(), s(spec)]))?);
+                // Enum's own __format__ goes the enum way below (a mixed-in data type formats the value)
+                if !(is_enum(&o.cls) && enum_base().own("__format__").is_some_and(|e| is(&e, &f))) {
+                    return to_str(&call(&f, Args::p(vec![v.clone(), s(spec)]))?);
+                }
             }
             // Enum.__format__ formats str(member); IntEnum, StrEnum and IntFlag format the value
             if is_enum(&o.cls) {
                 return match inner_of(v) {
+                    // int.__format__, str.__format__ and float.__format__ with an empty spec give str(member)
+                    Some(_) if is_repr_enum(&o.cls) && spec.is_empty() => to_str(v),
                     Some(i) if is_repr_enum(&o.cls) => format_spec(&i, spec),
                     _ => format_spec(&st(to_str(v)?), spec),
                 };

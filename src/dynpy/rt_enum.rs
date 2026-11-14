@@ -5,6 +5,7 @@
 // alias. The class iterates, has len, `in`, C[name] and C(value) as CPython's EnumType gives it.
 thread_local! {
     static ENUM_CLS: RefCell<Option<(Rc<Class>, Rc<Class>)>> = RefCell::new(None);
+    static REPR_ENUM: RefCell<Option<Rc<Class>>> = RefCell::new(None);
     // IntEnum, StrEnum, Flag, IntFlag
     static ENUM_MORE: RefCell<Option<[Rc<Class>; 4]>> = RefCell::new(None);
 }
@@ -15,11 +16,242 @@ fn enum_classes() -> (Rc<Class>, Rc<Class>) {
             let en = Class::new("Enum", "enum", vec![bclass("object")], BT::Other);
             en.set("__repr__", builtin("__repr__", |a: Args| enum_text(a.p.first().unwrap_or(&V::None), true)));
             en.set("__str__", builtin("__str__", |a: Args| enum_text(a.p.first().unwrap_or(&V::None), false)));
+            en.set("_member_type_", V::Class(bclass("object")));
+            // Enum.__new__ (what super().__new__ in an enum's __new__ reaches): a by-value lookup, which fails
+            // while the class is still being made
+            en.set("__new__", builtin("__new__", |a: Args| {
+                let Some(V::Class(c)) = a.p.first() else { return type_err("Enum.__new__(X): X is not a type object".into()) };
+                let has = matches!(c.own("_member_map_"), Some(V::Dict(d)) if d.borrow().len() > 0);
+                if !has && c.own("__bv_in_progress__").is_some() {
+                    return type_err("do not use `super().__new__; call the appropriate __new__ directly".into());
+                }
+                if !has {
+                    return type_err(format!("{} has no members defined", repr(&V::Class(c.clone()))?));
+                }
+                match a.p.get(1) {
+                    Some(v) if a.p.len() == 2 => enum_lookup(c, v),
+                    _ => Err(unsupported("Enum.__new__ with other than one value")),
+                }
+            }));
+            // Enum.__format__ (str.__format__(str(self), spec)) and __reduce_ex__ ((cls, (value,))), enum.py 3.13;
+            // format() of a member keeps its own path (rt_fmt format_spec), which gives the same text
+            en.set("__format__", builtin("__format__", |a: Args| {
+                a.want("__format__", 2, 2)?;
+                let spec = to_str(&a.p[1])?;
+                Ok(st(format_spec(&st(to_str(&a.p[0])?), &spec)?))
+            }));
+            en.set("__reduce_ex__", builtin("__reduce_ex__", |a: Args| {
+                a.want("__reduce_ex__", 2, 2)?;
+                let m = &a.p[0];
+                let V::Obj(o) = m else { return type_err("descriptor '__reduce_ex__' needs an Enum member".into()) };
+                Ok(tup(vec![V::Class(o.cls.clone()), tup(vec![o.get("_value_").unwrap_or(V::None)])]))
+            }));
+            // Enum.__copy__ and __deepcopy__: a member is its own copy
+            en.set("__copy__", builtin("__copy__", |a: Args| Ok(a.p.first().cloned().unwrap_or(V::None))));
+            en.set("__deepcopy__", builtin("__deepcopy__", |a: Args| Ok(a.p.first().cloned().unwrap_or(V::None))));
+            en.set("_generate_next_value_", gnv_builtin(1));
+            tdict_setup(&en, &[bclass("object")], None);
             let au = Class::new("auto", "enum", vec![bclass("object")], BT::Other);
-            *e = Some((en, au));
+            *e = Some((en.clone(), au));
+            drop(e);
+            // Enum.name and Enum.value are enum.property descriptors (enum.py), not instance attributes: a
+            // member's name cannot be set or deleted, and a member may itself be called `name` or `value`
+            for (n, f) in [("name", "_name_"), ("value", "_value_")] {
+                let g = builtin(n, move |a: Args| match a.p.first() {
+                    Some(V::Obj(o)) => Ok(o.get(f).unwrap_or(V::None)),
+                    _ => type_err("descriptor needs an Enum member".into()),
+                });
+                let p = make_eprop(g, V::None, V::None, V::None);
+                if let V::Obj(o) = &p {
+                    o.set("name", s(n));
+                    o.set("clsname", s("Enum"));
+                }
+                en.set(n, p);
+            }
+            return en_pair();
         }
         e.clone().unwrap()
     })
+}
+fn en_pair() -> (Rc<Class>, Rc<Class>) {
+    ENUM_CLS.with(|e| e.borrow().clone().unwrap())
+}
+// ---------- enum.property ----------
+// enum.py's property (a DynamicClassAttribute): an instance reads as property() does; through the class it is
+// the member it stands in for (`member`), or AttributeError. A member whose name a base's descriptor already
+// uses is put on the class as one of these (enum_add_member), as EnumType._add_member_ does.
+thread_local! {
+    static EPROP: RefCell<Option<Rc<Class>>> = RefCell::new(None);
+}
+pub fn eprop_class() -> Rc<Class> {
+    if let Some(c) = EPROP.with(|e| e.borrow().clone()) {
+        return c;
+    }
+    let c = Class::new("property", "enum", vec![bclass("object")], BT::Other);
+    fn me(a: &Args) -> Result<Rc<Obj>, E> {
+        match a.p.first() {
+            Some(V::Obj(o)) => Ok(o.clone()),
+            _ => type_err("descriptor needs an enum.property".into()),
+        }
+    }
+    fn field(o: &Rc<Obj>, n: &str) -> V {
+        o.get(n).unwrap_or(V::None)
+    }
+    c.set("__get__", builtin("__get__", |a: Args| {
+        let p = me(&a)?;
+        let inst = a.p.get(1).cloned().unwrap_or(V::None);
+        let owner = a.p.get(2).cloned().unwrap_or(V::None);
+        let name = field(&p, "name");
+        let no_attr = || -> R { Err(exc("AttributeError", format!("{} has no attribute {}", repr(&owner)?, repr(&name)?))) };
+        if matches!(inst, V::None) {
+            let m = field(&p, "member");
+            return if matches!(m, V::None) { no_attr() } else { Ok(m) };
+        }
+        let fget = field(&p, "fget");
+        if !matches!(fget, V::None) {
+            return call(&fget, Args::p(vec![inst]));
+        }
+        let nm = to_str(&name)?;
+        let at = match field(&p, "_attr_type") {
+            V::Str(t) => t.text().to_string(),
+            _ => String::new(),
+        };
+        match at.as_str() {
+            "attr" => return getattr(&field(&p, "_cls_type"), sym(&nm)),
+            "desc" => return getattr(&getattr(&inst, "_value_")?, sym(&nm)),
+            _ => {}
+        }
+        match getattr(&owner, "_member_map_") {
+            Ok(mm) => match getitem(&mm, &name) {
+                Ok(v) => Ok(v),
+                Err(_) => no_attr(),
+            },
+            Err(_) => no_attr(),
+        }
+    }));
+    c.set("__set__", builtin("__set__", |a: Args| {
+        let p = me(&a)?;
+        let f = field(&p, "fset");
+        if !matches!(f, V::None) {
+            return call(&f, Args::p(vec![a.p.get(1).cloned().unwrap_or(V::None), a.p.get(2).cloned().unwrap_or(V::None)]));
+        }
+        Err(exc("AttributeError", format!("<enum {}> cannot set attribute {}", repr(&field(&p, "clsname"))?, repr(&field(&p, "name"))?)))
+    }));
+    c.set("__delete__", builtin("__delete__", |a: Args| {
+        let p = me(&a)?;
+        let f = field(&p, "fdel");
+        if !matches!(f, V::None) {
+            return call(&f, Args::p(vec![a.p.get(1).cloned().unwrap_or(V::None)]));
+        }
+        Err(exc("AttributeError", format!("<enum {}> cannot delete attribute {}", repr(&field(&p, "clsname"))?, repr(&field(&p, "name"))?)))
+    }));
+    c.set("__set_name__", builtin("__set_name__", |a: Args| {
+        let p = me(&a)?;
+        let owner = a.p.get(1).cloned().unwrap_or(V::None);
+        p.set("name", a.p.get(2).cloned().unwrap_or(V::None));
+        p.set("clsname", getattr(&owner, "__name__")?);
+        Ok(V::None)
+    }));
+    // DynamicClassAttribute's getter/setter/deleter: a copy with that function replaced
+    for (n, slot) in [("getter", "fget"), ("setter", "fset"), ("deleter", "fdel")] {
+        c.set(n, builtin(n, move |a: Args| {
+            let p = me(&a)?;
+            let f = a.p.get(1).cloned().unwrap_or(V::None);
+            let mut parts = [field(&p, "fget"), field(&p, "fset"), field(&p, "fdel")];
+            parts[["fget", "fset", "fdel"].iter().position(|x| *x == slot).unwrap()] = f;
+            let [g, st_, d] = parts;
+            let doc = if matches!(p.get("overwrite_doc"), Some(V::Bool(true))) { V::None } else { field(&p, "__doc__") };
+            Ok(make_eprop(g, st_, d, doc))
+        }));
+    }
+    USER_DATA_DESC.store(true, std::sync::atomic::Ordering::Relaxed);
+    EPROP.with(|e| *e.borrow_mut() = Some(c.clone()));
+    c
+}
+// enum.property(fget, fset, fdel, doc), as DynamicClassAttribute.__init__ sets it up
+pub fn make_eprop(fget: V, fset: V, fdel: V, doc: V) -> V {
+    let o = Obj::new(eprop_class());
+    let overwrite = matches!(doc, V::None);
+    let doc = if overwrite && !matches!(fget, V::None) { getattr(&fget, "__doc__").unwrap_or(V::None) } else { doc };
+    o.set("fget", fget);
+    o.set("fset", fset);
+    o.set("fdel", fdel);
+    o.set("__doc__", doc);
+    o.set("overwrite_doc", V::Bool(overwrite));
+    o.set("member", V::None);
+    o.set("_attr_type", V::None);
+    o.set("_cls_type", V::None);
+    V::Obj(o)
+}
+pub fn eprop_new(mut a: Args) -> R {
+    let g = a.p.first().cloned().or(a.kw("fget")).unwrap_or(V::None);
+    let st_ = a.p.get(1).cloned().or(a.kw("fset")).unwrap_or(V::None);
+    let d = a.p.get(2).cloned().or(a.kw("fdel")).unwrap_or(V::None);
+    let doc = a.p.get(3).cloned().or(a.kw("doc")).unwrap_or(V::None);
+    if a.p.len() > 4 || !a.k.is_empty() {
+        return type_err("DynamicClassAttribute.__init__() takes from 1 to 5 positional arguments".into());
+    }
+    Ok(make_eprop(g, st_, d, doc))
+}
+fn is_eprop(v: &V) -> bool {
+    matches!(v, V::Obj(o) if EPROP.with(|e| e.borrow().as_ref().is_some_and(|c| Rc::ptr_eq(c, &o.cls))))
+}
+// EnumType._add_member_: the member goes on the class as itself, or (when a base already has a descriptor of that
+// name) as an enum.property standing in for it, so the class reads the member and its instances the descriptor.
+fn enum_add_member(c: &Rc<Class>, name: Sym, m: &V) -> Result<(), E> {
+    let mut found: Option<V> = None;
+    let mut dtype: Option<&str> = None;
+    let mut ctype: Option<Rc<Class>> = None;
+    for b in c.mro.borrow().iter().skip(1) {
+        let attr = match b.own(name) {
+            Some(a) => Some(a),
+            // a builtin mixin's own attribute (int.numerator, str.title): a descriptor of its type
+            None if b.module == "builtins" && b.name != "object" && !matches!(b.base_bt(), BT::Object | BT::Other) => match getattr(&V::Class(b.clone()), name) {
+                Ok(x) => Some(match x {
+                    V::Obj(_) | V::Func(_) | V::Prop(_) | V::Bound(_) | V::BMeth(_) | V::NTF(_) => x,
+                    _ => V::Prop(Rc::new((V::None, V::None))),
+                }),
+                Err(_) => None,
+            },
+            None => None,
+        };
+        let Some(attr) = attr else { continue };
+        if is_eprop(&attr) {
+            found = Some(attr);
+            ctype = Some(b.clone());
+            dtype = Some("enum");
+            break;
+        } else if is_descriptor(&attr) {
+            found = Some(attr);
+            dtype = dtype.or(Some("desc"));
+            ctype = ctype.or(Some(b.clone()));
+        } else {
+            dtype = Some("attr");
+            ctype = Some(b.clone());
+        }
+    }
+    let Some(fd) = found else {
+        c.set(name, m.clone());
+        return Ok(());
+    };
+    let r = make_eprop(V::None, V::None, V::None, V::None);
+    let V::Obj(ro) = &r else { unreachable!() };
+    ro.set("member", m.clone());
+    ro.set("name", s(name));
+    ro.set("clsname", s(c.name));
+    if matches!(dtype, Some("enum" | "desc")) {
+        if let V::Obj(fo) = &fd {
+            if is_eprop(&fd) {
+                for k in ["fget", "fset", "fdel"] {
+                    ro.set(k, fo.get(k).unwrap_or(V::None));
+                }
+            }
+        }
+    }
+    ro.set("_attr_type", dtype.map_or(V::None, s));
+    ro.set("_cls_type", ctype.map_or(V::None, V::Class));
+    c.set(name, r);
+    Ok(())
 }
 // IntEnum, StrEnum, Flag and IntFlag, as enum.py builds them on Enum.
 fn enum_more() -> [Rc<Class>; 4] {
@@ -33,20 +265,36 @@ fn enum_more() -> [Rc<Class>; 4] {
             Some(i) => Ok(st(to_str(&i)?)),
             None => Ok(s("")),
         });
+        let re_ = Class::new("ReprEnum", "enum", vec![en.clone()], BT::Other);
+        re_.set("__bv_reprenum__", V::Bool(true));
+        re_.set("__str__", mix_str());
+        REPR_ENUM.with(|r| *r.borrow_mut() = Some(re_.clone()));
+        let re_x = re_.clone();
+        let en = re_;
         let ie = Class::new("IntEnum", "enum", vec![bclass("int"), en.clone()], BT::Other);
+        ie.set("_member_type_", V::Class(bclass("int")));
         ie.set("__str__", mix_str());
         ie.set("__bv_reprenum__", V::Bool(true));
         let se = Class::new("StrEnum", "enum", vec![bclass("str"), en.clone()], BT::Other);
+        se.set("_member_type_", V::Class(bclass("str")));
         se.set("__str__", mix_str());
         se.set("__bv_reprenum__", V::Bool(true));
-        let fl = Class::new("Flag", "enum", vec![en.clone()], BT::Other);
+        let fl = Class::new("Flag", "enum", vec![enum_base()], BT::Other);
         flag_methods(&fl);
-        let ifl = Class::new("IntFlag", "enum", vec![bclass("int"), fl.clone()], BT::Other);
+        let ifl = Class::new("IntFlag", "enum", vec![bclass("int"), en.clone(), fl.clone()], BT::Other);
+        ifl.set("_member_type_", V::Class(bclass("int")));
         // Flag's operators, not int's (IntFlag sets them in its own body too)
         flag_methods(&ifl);
         ifl.set("__str__", mix_str());
         ifl.set("__bv_reprenum__", V::Bool(true));
         ifl.set("__bv_keep__", V::Bool(true));
+        se.set("_generate_next_value_", gnv_builtin(4));
+        fl.set("_generate_next_value_", gnv_builtin(2));
+        // the layouts CPython gives them (Enum adds __dict__ and __weakref__, IntEnum and IntFlag a __dict__)
+        tdict_setup(&re_x, &re_x.bases.clone(), None);
+        for k in [&ie, &se, &fl, &ifl] {
+            tdict_setup(k, &k.bases.clone(), None);
+        }
         let k = [ie, se, fl, ifl];
         *e.borrow_mut() = Some(k.clone());
         k
@@ -55,6 +303,7 @@ fn enum_more() -> [Rc<Class>; 4] {
 pub fn enum_class(n: &str) -> Option<Rc<Class>> {
     let [ie, se, fl, ifl] = enum_more();
     Some(match n {
+        "ReprEnum" => REPR_ENUM.with(|r| r.borrow().clone().unwrap()),
         "IntEnum" => ie,
         "StrEnum" => se,
         "Flag" => fl,
@@ -103,32 +352,45 @@ fn enum_not_member(cls: &str, n: &str) -> bool {
     let private = n.strip_prefix('_').and_then(|r| r.strip_prefix(cls.trim_start_matches('_'))).map_or(false, |r| r.starts_with("__"));
     sunder || dunder || private || n.starts_with("__")
 }
-// What the class being defined will be, from its bases (before make_class builds it): bit 1 Enum, bit 2 a
-// Flag subclass, bit 4 a StrEnum subclass. The class body uses this to give each auto() its value as soon as
-// the member is assigned, as CPython's _EnumDict does.
-pub fn enum_auto_ctx(bases: &[&V]) -> i64 {
+// What the class being defined will be, from its bases (before make_class builds it): kind bit 1 Enum, bit 2 a
+// Flag subclass, bit 4 a StrEnum subclass; the bases' own _generate_next_value_, and the one the body defines
+// (as CPython's EnumDict keeps it). The class body uses this to give each auto() its value as soon as the member
+// is assigned, as EnumDict does.
+pub struct EnumCtx {
+    cls: String,
+    kind: i64,
+    gnv: Option<V>,
+    count: usize,
+    // an auto() got its value from _generate_next_value_ (which may then no longer be defined)
+    auto_called: bool,
+}
+pub fn enum_auto_ctx(cls: &str, bases: &[&V]) -> EnumCtx {
     let en = enum_base();
-    let mut ctx = 0;
+    let mut ctx = EnumCtx { cls: cls.to_string(), kind: 0, gnv: None, count: 0, auto_called: false };
     for b in bases {
         if let V::Class(c) = b {
             if c.is_sub(&en) {
-                ctx |= 1;
+                ctx.kind |= 1;
             }
         }
     }
-    if ctx == 0 {
-        return 0;
+    if ctx.kind == 0 {
+        return ctx;
     }
     let k = enum_more();
     for b in bases {
         if let V::Class(c) = b {
             if c.is_sub(&k[2]) {
-                ctx |= 2;
+                ctx.kind |= 2;
             }
             if c.is_sub(&k[1]) {
-                ctx |= 4;
+                ctx.kind |= 4;
             }
         }
+    }
+    // the first enum base's _generate_next_value_ (enum.py's _get_mixins_: the last base that is an Enum)
+    if let Some(V::Class(c)) = bases.iter().rev().find(|b| matches!(b, V::Class(c) if c.is_sub(&en))) {
+        ctx.gnv = user_gnv(&c.mro.borrow());
     }
     ctx
 }
@@ -172,43 +434,149 @@ fn auto_next(ctx: i64, name: &str, last: &[V]) -> R {
 }
 // Every name store in the body of an Enum class goes through here: the members' values are kept in order,
 // and an auto() gets (and memoises, as CPython does) the value for its position.
-pub fn enum_auto_store(last: &mut Vec<V>, ctx: i64, name: &str, v: V) -> R {
-    if ctx == 0 || (name.starts_with('_') && enum_not_member("", name)) || matches!(&v, V::Unbound | V::Func(_) | V::Class(_) | V::Prop(_) | V::Bound(_) | V::BMeth(_)) {
+pub fn enum_auto_store(last: &mut Vec<V>, ctx: &mut EnumCtx, name: &str, v: V) -> R {
+    if ctx.kind == 0 {
+        return Ok(v);
+    }
+    if name == "_generate_next_value_" {
+        if ctx.auto_called {
+            return type_err("_generate_next_value_ must be defined before members".into());
+        }
+        ctx.gnv = Some(v.clone());
+        return Ok(v);
+    }
+    // EnumDict.__setitem__: a private name is a plain attribute; a _sunder_ name must be one enum.py knows
+    if enum_is_private(&ctx.cls, name) {
+        return Ok(v);
+    }
+    enum_name_check(name)?;
+    if (name.starts_with('_') && enum_not_member(&ctx.cls, name)) || is_descriptor(&v) || matches!(&v, V::Unbound | V::Class(_)) {
         return Ok(v);
     }
     let au = enum_classes().1;
-    match &v {
-        V::Obj(o) if Rc::ptr_eq(&o.cls, &au) => {
-            if let Some(x) = o.get("value") {
-                // the same auto() assigned again: CPython reuses the value it was given first
-                last.push(x.clone());
-                return Ok(x);
-            }
-            let x = auto_next(ctx, name, last)?;
-            o.set("value", x.clone());
-            last.push(x.clone());
-            Ok(x)
-        }
+    let is_auto = |x: &V| matches!(x, V::Obj(o) if Rc::ptr_eq(&o.cls, &au));
+    // EnumDict.__setitem__: an auto(), alone or in a plain tuple, gets its value (the same auto() assigned
+    // again keeps the value it was given first); only those values are remembered then
+    let (items, single) = match &v {
+        x if is_auto(x) => (vec![x.clone()], true),
+        V::Tuple(xs) if xs.iter().any(|x| is_auto(x)) => (xs.to_vec(), false),
         _ => {
             last.push(v.clone());
-            Ok(v)
+            ctx.count += 1;
+            return Ok(v);
+        }
+    };
+    let mut out = vec![];
+    for x in items {
+        let V::Obj(o) = &x else {
+            out.push(x);
+            continue;
+        };
+        if !Rc::ptr_eq(&o.cls, &au) {
+            out.push(x);
+            continue;
+        }
+        let val = match o.get("value") {
+            Some(val) => val,
+            None => {
+                let val = gen_next(&ctx.gnv, ctx.kind, name, &V::Int(1), ctx.count, last)?;
+                o.set("value", val.clone());
+                ctx.auto_called = true;
+                val
+            }
+        };
+        last.push(val.clone());
+        out.push(val);
+    }
+    ctx.count += 1;
+    Ok(if single { out.pop().unwrap_or(V::None) } else { tup(out) })
+}
+// EnumType._find_data_type_: the type the members are instances of (object for a plain Enum).
+fn find_data_type(c: &Rc<Class>) -> Result<Rc<Class>, E> {
+    let en = enum_base();
+    let mut types: Vec<Rc<Class>> = vec![];
+    for chain in c.bases.iter() {
+        let mut cand: Option<Rc<Class>> = None;
+        for b in chain.mro.borrow().iter() {
+            if b.module == "builtins" && b.name == "object" {
+                continue;
+            }
+            if b.is_sub(&en) {
+                if let Some(V::Class(mt)) = b.lookup("_member_type_") {
+                    if !(mt.module == "builtins" && mt.name == "object") && !types.iter().any(|t| Rc::ptr_eq(t, &mt)) {
+                        types.push(mt);
+                    }
+                }
+                break;
+            }
+            if b.module == "builtins" || b.own("__new__").is_some() || b.own("__dataclass_fields__").is_some() || !matches!(b.bt, BT::Object | BT::Other) {
+                let t = cand.clone().unwrap_or_else(|| b.clone());
+                if !types.iter().any(|x| Rc::ptr_eq(x, &t)) {
+                    types.push(t);
+                }
+                break;
+            }
+            cand = cand.or(Some(b.clone()));
         }
     }
+    if types.len() > 1 {
+        let names = types.iter().map(|t| repr(&V::Class(t.clone()))).collect::<Result<Vec<_>, _>>()?;
+        return type_err(format!("too many data types for {}: {{{}}}", repr(&s(c.name))?, names.join(", ")));
+    }
+    Ok(types.pop().unwrap_or_else(|| bclass("object")))
 }
 // Called by make_class for a subclass of Enum.
 pub fn enum_setup(c: &Rc<Class>) -> Result<(), E> {
     let au = enum_classes().1;
+    c.set("_member_type_", V::Class(find_data_type(c)?));
     if c.mro.borrow().iter().skip(1).any(|b| is_enum(b) && matches!(b.own("__bv_members__"), Some(V::List(l)) if !l.borrow().is_empty())) {
         return type_err(format!("<enum '{}'> cannot extend an enum with members", c.name));
     }
     let attrs = c.attrs.borrow().clone();
+    // the class body's names, in order, for its __dict__ (enum_class_dict)
+    let body: Vec<V> = attrs.iter().take_while(|(k, _)| *k != TNEW).filter(|(k, _)| *k != "__qualname__").map(|(k, _)| s(k)).collect();
+    c.set("__bv_ebody__", tup(body));
     let init = c.lookup("__init__").filter(|f| !is_builtin_init(f));
+    let mt = match c.own("_member_type_") {
+        Some(V::Class(m)) => m,
+        _ => bclass("object"),
+    };
+    let mt_object = mt.module == "builtins" && mt.name == "object";
+    // EnumType._find_new_: the class's own __new__, else a base enum's saved __new_member__, else the data
+    // type's own __new__ when the program defines it
+    let own_new = c.own("__new__");
+    let new_fn = own_new.clone().or_else(|| c.mro.borrow().iter().skip(1).find_map(|b| b.own("__new_member__"))).or_else(|| {
+        if mt.module == "builtins" {
+            None
+        } else {
+            mt.mro.borrow().iter().find_map(|b| if b.module == "builtins" { None } else { b.own("__new__") })
+        }
+    });
     let mut members: Vec<V> = vec![];
+    // (name, value) of every member and alias, in definition order
+    let mut seen: Vec<(Sym, V, V)> = vec![];
     let mut values: Vec<V> = vec![];
     let mut v2m: Vec<(V, V)> = vec![];
     let map = dict_new();
+    // EnumType.__new__: 'mro' and '' are refused as member names, before any member is made
+    let bad: Vec<String> = attrs.iter().filter(|(n, v)| matches!(*n, "mro" | "") && !is_descriptor(v) && !matches!(v, V::Class(_))).map(|(n, _)| format!("'{n}'")).collect();
+    if !bad.is_empty() {
+        return val_err(format!("invalid enum member name(s) {}", bad.join(",")));
+    }
+    // the members so far are seen while the next one is made (a __new__ reading len(cls.__members__))
+    c.set("_member_map_", map.clone());
+    c.set("__members__", map.clone());
+    c.set("__bv_in_progress__", V::Bool(true));
+    struct Building;
+    impl Drop for Building {
+        fn drop(&mut self) {
+            BUILDING.with(|b| b.borrow_mut().pop());
+        }
+    }
+    BUILDING.with(|b| b.borrow_mut().push(c.clone()));
+    let building = Building;
     for (n, v) in attrs {
-        if (n.starts_with('_') && enum_not_member(c.name, n)) || matches!(v, V::Func(_) | V::Class(_) | V::Prop(_) | V::NTF(_) | V::Bound(_) | V::BMeth(_)) {
+        if (n.starts_with('_') && enum_not_member(c.name, n)) || is_descriptor(&v) || matches!(v, V::Class(_)) {
             continue;
         }
         let val = match &v {
@@ -217,53 +585,94 @@ pub fn enum_setup(c: &Rc<Class>) -> Result<(), E> {
             V::Obj(o) if Rc::ptr_eq(&o.cls, &au) => auto_next(1, n, &values)?,
             _ => v.clone(),
         };
-        // StrEnum values are str; IntEnum and IntFlag values are int(value)
-        let val = if is_str_enum(c) {
-            match &val {
-                V::Str(_) => val,
-                x => return type_err(format!("{} is not a string", repr(x)?)),
-            }
-        } else if matches!(c.base_bt(), BT::Int) && !matches!(val, V::Int(_) | V::Big(_)) {
-            bi_int(Args::p(vec![val]))?
-        } else {
-            val
+        values.push(val.clone());
+        // _proto_member.__set_name__: the value as the arguments of __new__, _value_ and __init__
+        let mut args: Vec<V> = match &val {
+            V::Tuple(t) => t.iter().cloned().collect(),
+            _ => vec![val.clone()],
         };
+        if mt.module == "builtins" && mt.name == "tuple" {
+            args = vec![tup(args)];
+        }
+        let mv = match &new_fn {
+            Some(f) => {
+                let f = match f {
+                    V::Obj(o) if o.cls.name == "staticmethod" => o.get("__func__").unwrap_or_else(|| f.clone()),
+                    _ => f.clone(),
+                };
+                let mut p = vec![V::Class(c.clone())];
+                p.extend(args.iter().cloned());
+                call(&f, Args::p(p))?
+            }
+            None => V::Obj(Obj::new(c.clone())),
+        };
+        let V::Obj(o) = &mv else {
+            return Err(unsupported("an Enum __new__ that does not return an instance of the class"));
+        };
+        if !Rc::ptr_eq(&o.cls, c) {
+            return Err(unsupported("an Enum __new__ that does not return an instance of the class"));
+        }
+        if o.get("_value_").is_none() {
+            let value = if is_str_enum(c) && new_fn.is_none() {
+                // StrEnum.__new__: the values must already be str
+                if args.len() > 3 {
+                    return type_err(format!("too many arguments for str(): {}", repr(&tup(args.clone()))?));
+                }
+                if args.len() == 1 && !matches!(args[0], V::Str(_)) {
+                    return type_err(format!("{} is not a string", repr(&args[0])?));
+                }
+                if args.len() > 1 {
+                    return Err(unsupported("StrEnum values given as several arguments"));
+                }
+                args[0].clone()
+            } else if mt_object {
+                val.clone()
+            } else {
+                match call(&V::Class(mt.clone()), Args::p(args.clone())) {
+                    Ok(x) => x,
+                    Err(e) => {
+                        let ne = exc("TypeError", "_value_ not set in __new__, unable to create it".into());
+                        if let V::Obj(x) = &ne.0 {
+                            x.set("__cause__", e.0.clone());
+                            x.set("__context__", e.0.clone());
+                            x.set("__suppress_context__", V::Bool(true));
+                        }
+                        return Err(ne);
+                    }
+                }
+            };
+            o.set("_value_", value);
+        }
+        let val = o.get("_value_").unwrap_or(V::None);
+        o.set("_name_", s(n));
+        o.set("__objclass__", V::Class(c.clone()));
+        // class C(str, Enum) / (int, Enum): the member is also the str or int (unless its own __new__ made it so)
+        if !matches!(c.base_bt(), BT::Object | BT::Other) && o.inner().is_none() {
+            if new_fn.is_some() {
+                return Err(unsupported("an Enum __new__ that does not make the member through its data type's __new__"));
+            }
+            o.set_inner(Some(val.clone()));
+        }
+        if let Some(f) = &init {
+            let mut p = vec![mv.clone()];
+            p.extend(args.iter().cloned());
+            call(f, Args::p(p))?;
+        }
+        o.set("_sort_order_", V::Int(members.len() as i64));
         if is_flag(c) && matches!(val, V::Big(_)) {
             return Err(unsupported("Flag values past 2**62"));
         }
-        values.push(val.clone());
         let mut found = None;
-        for m in &members {
-            if let V::Obj(o) = m {
-                let mv = o.get("_value_").unwrap_or(V::None);
-                if is(&mv, &val) || eq(&mv, &val)? {
-                    found = Some(m.clone());
-                    break;
-                }
+        for (pv, pm) in &v2m {
+            if is(pv, &val) || eq(pv, &val)? {
+                found = Some(pm.clone());
+                break;
             }
         }
         let m = match found {
             Some(m) => m,
             None => {
-                let o = Obj::new(c.clone());
-                o.set("_name_", s(n));
-                o.set("_value_", val.clone());
-                o.set("name", s(n));
-                o.set("value", val.clone());
-                // class C(str, Enum) / (int, Enum): the member is also the str or int
-                if !matches!(c.base_bt(), BT::Object | BT::Other) {
-                    o.set_inner(Some(val.clone()));
-                }
-                let mv = V::Obj(o);
-                if let Some(f) = &init {
-                    let mut p = vec![mv.clone()];
-                    match &val {
-                        V::Tuple(t) => p.extend(t.iter().cloned()),
-                        _ => p.push(val.clone()),
-                    }
-                    call(f, Args::p(p))?;
-                }
-                let alias = is_flag(c) && matches!(val, V::Int(i) if i.count_ones() != 1);
+                let alias = is_flag(c) && !matches!(val, V::Int(i) if i.count_ones() == 1);
                 if !alias {
                     members.push(mv.clone());
                 }
@@ -271,8 +680,14 @@ pub fn enum_setup(c: &Rc<Class>) -> Result<(), E> {
                 mv
             }
         };
-        c.set(n, m.clone());
+        if let Some(V::Dict(d)) = Some(map.clone()) {
+            if let Some(prev) = Dict::get_cell(&d, &s(n))? {
+                return Err(exc("NameError", format!("{} is already bound: {}", repr(&s(n))?, repr(&prev)?)));
+            }
+        }
+        enum_add_member(c, n, &m)?;
         setitem(&map, &s(n), m.clone())?;
+        seen.push((n, val.clone(), m.clone()));
     }
     if is_flag(c) {
         let (mut fm, mut sm) = (0i64, 0i64);
@@ -302,10 +717,202 @@ pub fn enum_setup(c: &Rc<Class>) -> Result<(), E> {
         }
         c.set("_value2member_map_", d);
     }
+    drop(building);
+    // _order_ (or __order__): the canonical member names, in definition order, as the class lists them
+    let order = c.own("_order_").or_else(|| c.own("__order__"));
+    c.del_exact("_order_");
+    c.del_exact("__order__");
+    if let Some(ov) = order.filter(|v| !matches!(v, V::None)) {
+        let mut ord: Vec<String> = match &ov {
+            V::Str(x) => x.text().replace(',', " ").split_whitespace().map(|w| w.to_string()).collect(),
+            other => to_vec(other)?.iter().map(to_str).collect::<Result<_, _>>()?,
+        };
+        let names: Vec<String> = members.iter().map(|m| match m {
+            V::Obj(o) => to_str(&o.get("_name_").unwrap_or(V::None)),
+            _ => Ok(String::new()),
+        }).collect::<Result<_, _>>()?;
+        if !ord.is_empty() {
+            let mut keep = vec![];
+            for o in ord {
+                let m = Dict::get_cell(&match &map { V::Dict(d) => d.clone(), _ => unreachable!() }, &s(&o))?;
+                let ok = match &m {
+                    None => true,
+                    Some(mv) => {
+                        let single = !is_flag(c) || matches!(mv, V::Obj(x) if matches!(x.get("_value_"), Some(V::Int(i)) if i.count_ones() == 1));
+                        single && names.contains(&o)
+                    }
+                };
+                if ok {
+                    keep.push(o);
+                }
+            }
+            ord = keep;
+            if ord != names {
+                let r = |v: &[String]| -> Result<String, E> { repr(&list(v.iter().map(|x| st(x.clone())).collect())) };
+                return type_err(format!("member order does not match _order_:\n  {}\n  {}", r(&names)?, r(&ord)?));
+            }
+        }
+    }
+    c.del_exact("__bv_in_progress__");
+    // the class's own __new__ is kept as __new_member__ and the class gets Enum.__new__ (a by-value lookup)
+    if let Some(f) = own_new {
+        c.set("__new_member__", f);
+        c.del_exact("__new__");
+    }
+    enum_cpy_attrs(c, &new_fn, &mt, &members, &seen)?;
     c.set("__bv_members__", list(members));
     c.set("__members__", map.clone());
     c.set("_member_map_", map);
     Ok(())
+}
+// The rest of what EnumType.__new__ keeps on the class (enum.py 3.13): _generate_next_value_ as a staticmethod,
+// the _new_member_ the members were made with, _use_args_, _member_names_, the value maps and lists,
+// _value_repr_, and a Flag's _boundary_ and _inverted_.
+fn enum_cpy_attrs(c: &Rc<Class>, new_fn: &Option<V>, mt: &Rc<Class>, members: &[V], seen: &[(Sym, V, V)]) -> Result<(), E> {
+    let gnv = match c.own("_generate_next_value_") {
+        Some(f @ V::Obj(_)) if matches!(&f, V::Obj(o) if o.cls.name == "staticmethod") => f,
+        Some(f) => bi_staticmethod(Args::p(vec![f]))?,
+        None => {
+            // CPython's first_enum: the last base that is an Enum class, enum's own classes included
+            let en = enum_base();
+            let first = c.bases.iter().rev().find(|b| b.is_sub(&en)).cloned().unwrap_or(en);
+            bi_staticmethod(Args::p(vec![getattr(&V::Class(first), "_generate_next_value_")?]))?
+        }
+    };
+    c.set("_generate_next_value_", gnv);
+    let mt_object = mt.module == "builtins" && mt.name == "object";
+    let (nm, use_args) = match new_fn {
+        Some(f) => (f.clone(), true),
+        None if is_str_enum(c) => (strenum_new(), true),
+        None if mt_object => (getattr(&V::Class(bclass("object")), "__new__")?, false),
+        None => (getattr(&V::Class(mt.clone()), "__new__")?, true),
+    };
+    c.set("_new_member_", nm);
+    c.set("_use_args_", V::Bool(use_args));
+    let names: Vec<V> = members.iter().map(|m| if let V::Obj(o) = m { o.get("_name_").unwrap_or(V::None) } else { V::None }).collect();
+    c.set("_member_names_", list(names));
+    let v2m = match c.own("_value2member_map_") {
+        Some(d @ V::Dict(_)) if is_flag(c) => d,
+        _ => dict_new(),
+    };
+    let (mut hv, mut uv) = (vec![], vec![]);
+    let uvm = dict_new();
+    for (n, v, m) in seen {
+        match hash_of(v) {
+            Ok(_) => {
+                if let V::Dict(d) = &v2m {
+                    if d.borrow().get(v)?.is_none() {
+                        d.borrow_mut().set(v.clone(), m.clone())?;
+                    }
+                }
+                let mut has = false;
+                for x in &hv {
+                    if eq(x, v)? {
+                        has = true;
+                        break;
+                    }
+                }
+                if !has {
+                    hv.push(v.clone());
+                }
+            }
+            Err(e) if is_exc(&e.0, "TypeError") => {
+                uv.push(v.clone());
+                let l = match getitem(&uvm, &s(n)) {
+                    Ok(l) => l,
+                    Err(_) => {
+                        let l = list(vec![]);
+                        setitem(&uvm, &s(n), l.clone())?;
+                        l
+                    }
+                };
+                if let V::List(l) = l {
+                    l.borrow_mut().push(v.clone());
+                }
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    c.set("_value2member_map_", v2m);
+    c.set("_hashable_values_", list(hv));
+    c.set("_unhashable_values_", list(uv));
+    c.set("_unhashable_values_map_", uvm);
+    c.set("_value_repr_", data_repr(&c.bases)?);
+    if is_flag(c) {
+        c.set("_boundary_", flag_boundary(if c.lookup("__bv_keep__").is_some() { "KEEP" } else { "STRICT" })?);
+        c.set("_inverted_", V::None);
+    }
+    Ok(())
+}
+// EnumType._find_data_repr_: the repr the values get in the member's repr
+fn data_repr(bases: &[Rc<Class>]) -> R {
+    for chain in bases {
+        for b in chain.mro.borrow().iter() {
+            if b.module == "builtins" && b.name == "object" {
+                continue;
+            }
+            if is_enum(b) {
+                return if b.module == "enum" { data_repr(&b.bases) } else { Ok(b.own("_value_repr_").unwrap_or(V::None)) };
+            }
+            if b.module == "builtins" {
+                match cpy_dict_has(b, "__repr__") {
+                    Some((true, _)) => return getattr(&V::Class(b.clone()), "__repr__"),
+                    Some((false, _)) => continue,
+                    None => return Err(unsupported(&format!("an Enum mixed with {}", b.name))),
+                }
+            }
+            if let Some(r) = b.own("__repr__") {
+                if b.own("__dataclass_fields__").is_some() {
+                    return Err(unsupported("an Enum mixed with a dataclass"));
+                }
+                return Ok(r);
+            }
+        }
+    }
+    Ok(V::None)
+}
+// Enum._generate_next_value_ (kind 1), Flag's (2) and StrEnum's (4), as staticmethods
+fn gnv_builtin(kind: i64) -> V {
+    let f = builtin("_generate_next_value_", move |a: Args| {
+        if a.p.len() != 4 || !a.k.is_empty() {
+            return type_err(format!("_generate_next_value_() takes 4 positional arguments but {} were given", a.p.len()));
+        }
+        let name = if kind & 4 != 0 { to_str(&call_method(&a.p[0], "lower", Args::p(vec![]))?)? } else { String::new() };
+        if kind & 4 != 0 {
+            return Ok(st(name));
+        }
+        let count = if truth(&a.p[2])? { 1 } else { 0 };
+        let last = to_vec(&a.p[3])?;
+        gen_next(&None, kind, &name, &a.p[1], count, &last)
+    });
+    bi_staticmethod(Args::p(vec![f.clone()])).unwrap_or(f)
+}
+thread_local! {
+    static STRENUM_NEW: RefCell<Option<V>> = RefCell::new(None);
+    static FLAG_BOUNDARY: RefCell<Option<Rc<Class>>> = RefCell::new(None);
+}
+// StrEnum.__new__ as _new_member_ holds it (Brevi makes StrEnum members itself: a direct call is refused)
+fn strenum_new() -> V {
+    STRENUM_NEW.with(|x| x.borrow_mut().get_or_insert_with(|| builtin("__new__", |_a: Args| Err(unsupported("calling StrEnum.__new__ directly")))).clone())
+}
+// enum.FlagBoundary's member `n` (a Flag's _boundary_)
+fn flag_boundary(n: &str) -> R {
+    let c = match FLAG_BOUNDARY.with(|x| x.borrow().clone()) {
+        Some(c) => c,
+        None => {
+            let se = enum_more()[1].clone();
+            let attrs = vec![("__module__", s("enum")), ("STRICT", s("strict")), ("CONFORM", s("conform")), ("EJECT", s("eject")), ("KEEP", s("keep"))];
+            let V::Class(c) = make_class_f("FlagBoundary", "FlagBoundary", "enum", vec![V::Class(se)], attrs, vec![])? else { unreachable!() };
+            FLAG_BOUNDARY.with(|x| *x.borrow_mut() = Some(c.clone()));
+            c
+        }
+    };
+    getattr(&V::Class(c), n)
+}
+// Called by make_class for an enum class once __init_subclass__ has run: the names its dict holds by then
+pub fn enum_made(c: &Rc<Class>) {
+    let names: Vec<V> = c.attrs.borrow().iter().map(|(k, _)| s(k)).collect();
+    c.set("__bv_einit__", tup(names));
 }
 
 // ---------- Flag ----------
@@ -315,6 +922,20 @@ fn int_flag_value(v: &V) -> Result<(), E> {
         V::Obj(o) if !matches!(o.get("_value_"), Some(V::Int(_))) => Err(unsupported("Flag members whose values are not ints")),
         _ => Ok(()),
     }
+}
+// Flag's operators on a member whose value is None (enum.py: "'F.E' cannot be combined with other flags
+// with |", "'F.E' cannot be inverted"); `op` None is __invert__
+fn flag_none_check(v: &V, op: Option<char>) -> Result<(), E> {
+    if let V::Obj(o) = v {
+        if matches!(o.get("_value_"), Some(V::None)) {
+            let t = to_str(v)?;
+            return type_err(match op {
+                Some(op) => format!("'{t}' cannot be combined with other flags with {op}"),
+                None => format!("'{t}' cannot be inverted"),
+            });
+        }
+    }
+    Ok(())
 }
 fn flag_int(v: &V) -> i64 {
     match v {
@@ -402,6 +1023,13 @@ fn flag_member(c: &Rc<Class>, value: i64) -> R {
         neg = Some(value);
         value = all + 1 + value;
     }
+    // a member (or pseudo-member) already made for the value is the one returned (enum.py's setdefault)
+    if neg.is_some() {
+        if let Some(m) = Dict::get_cell(&v2m, &V::Int(value))? {
+            Dict::set_cell(&v2m, V::Int(neg.unwrap()), m.clone())?;
+            return Ok(m);
+        }
+    }
     let unknown0 = value & !fm;
     let aliases = value & !sm;
     let member_value = value & sm;
@@ -410,7 +1038,6 @@ fn flag_member(c: &Rc<Class>, value: i64) -> R {
     }
     let o = Obj::new(c.clone());
     o.set("_value_", V::Int(value));
-    o.set("value", V::Int(value));
     if !matches!(c.base_bt(), BT::Object | BT::Other) {
         o.set_inner(Some(V::Int(value)));
     }
@@ -448,8 +1075,7 @@ fn flag_member(c: &Rc<Class>, value: i64) -> R {
             name = st(names.join("|"));
         }
     }
-    o.set("_name_", name.clone());
-    o.set("name", name);
+    o.set("_name_", name);
     let m = V::Obj(o);
     Dict::set_cell(&v2m, V::Int(value), m.clone())?;
     if let Some(n) = neg {
@@ -475,6 +1101,12 @@ fn flag_methods(fl: &Rc<Class>) {
     fn other_val(c: &Rc<Class>, x: &V) -> Option<i64> {
         match x {
             V::Obj(o) if o.cls.is_sub(c) => Some(flag_int(x)),
+            // an instance of the mixed-in int (another IntFlag's member, an int subclass): its int value
+            V::Obj(o) if !matches!(c.base_bt(), BT::Object | BT::Other) && matches!(o.cls.base_bt(), BT::Int) => match inner_of(x) {
+                Some(V::Int(i)) => Some(i),
+                Some(V::Bool(b)) => Some(b as i64),
+                _ => None,
+            },
             V::Int(i) if !matches!(c.base_bt(), BT::Object | BT::Other) => Some(*i),
             V::Bool(b) if !matches!(c.base_bt(), BT::Object | BT::Other) => Some(*b as i64),
             _ => None,
@@ -484,6 +1116,8 @@ fn flag_methods(fl: &Rc<Class>) {
         fl.set(name, builtin(name, move |a: Args| {
             let c = me_cls(&a)?;
             let Some(o) = a.p.get(1).and_then(|x| other_val(&c, x)) else { return Ok(V::NotImpl) };
+            flag_none_check(&a.p[0], Some(op))?;
+            flag_none_check(&a.p[1], Some(op))?;
             int_flag_value(&a.p[0])?;
             int_flag_value(&a.p[1])?;
             let v = flag_int(&a.p[0]);
@@ -496,6 +1130,7 @@ fn flag_methods(fl: &Rc<Class>) {
     }
     fl.set("__invert__", builtin("__invert__", |a: Args| {
         let c = me_cls(&a)?;
+        flag_none_check(&a.p[0], None)?;
         int_flag_value(&a.p[0])?;
         let v = flag_int(&a.p[0]);
         if c.lookup("__bv_keep__").is_some() {
@@ -541,11 +1176,233 @@ fn flag_methods(fl: &Rc<Class>) {
         }))
     }));
 }
+// EnumType.__call__: a value lookup when the class has members; otherwise the functional API
+// (`Enum('Color', 'RED GREEN')`), which makes a new enum class on this one.
 pub fn enum_call(c: &Rc<Class>, a: Args) -> R {
-    if !a.k.is_empty() || a.p.len() != 1 {
-        return Err(unsupported("calling an Enum class with other than one value"));
+    let (mut module, mut qualname, mut ty, mut start, mut boundary) = (V::None, V::None, V::None, V::Int(1), V::None);
+    for (k, v) in a.k {
+        match k {
+            "module" => module = v,
+            "qualname" => qualname = v,
+            "type" => ty = v,
+            "start" => start = v,
+            "boundary" => boundary = v,
+            "names" if a.p.len() == 1 => return enum_call(c, Args { p: vec![a.p[0].clone(), v], k: vec![] }.with_k(module, qualname, ty, start, boundary)),
+            _ => return type_err(format!("EnumType.__call__() got an unexpected keyword argument '{k}'")),
+        }
     }
-    let v = &a.p[0];
+    let Some(value) = a.p.first().cloned() else { return type_err("EnumType.__call__() missing 1 required positional argument: 'value'".into()) };
+    let has_members = matches!(c.own("_member_map_"), Some(V::Dict(d)) if d.borrow().len() > 0);
+    if has_members {
+        let value = if a.p.len() > 1 { tup(a.p.clone()) } else { value };
+        return enum_lookup(c, &value);
+    }
+    if a.p.len() > 2 {
+        return Err(unsupported("calling an Enum class without members with more than two values"));
+    }
+    if a.p.len() == 1 && matches!(ty, V::None) {
+        return type_err(format!("{} has no members; specify `names=()` if you meant to create a new, empty, enum", to_str(&V::Class(c.clone()))?));
+    }
+    if !matches!(boundary, V::None) {
+        return Err(unsupported("the boundary argument of the Enum functional API"));
+    }
+    enum_create(c, &value, a.p.get(1).cloned().unwrap_or(V::None), module, qualname, ty, start)
+}
+trait WithK {
+    fn with_k(self, module: V, qualname: V, ty: V, start: V, boundary: V) -> Args;
+}
+impl WithK for Args {
+    fn with_k(mut self, module: V, qualname: V, ty: V, start: V, boundary: V) -> Args {
+        for (k, v) in [("module", module), ("qualname", qualname), ("type", ty), ("boundary", boundary)] {
+            if !matches!(v, V::None) {
+                self.k.push((k, v));
+            }
+        }
+        if !matches!(start, V::Int(1)) {
+            self.k.push(("start", start));
+        }
+        self
+    }
+}
+// The _generate_next_value_ the class (or the class being made on `bases`) would call: a function of the program's
+// own, or None for enum.py's own (computed by auto_value).
+fn user_gnv(mro: &[Rc<Class>]) -> Option<V> {
+    for k in mro {
+        if let Some(f) = k.own("_generate_next_value_") {
+            return if k.module == "enum" { None } else { Some(f) };
+        }
+    }
+    None
+}
+// _generate_next_value_(name, start, count, last_values) as enum.py's Enum, Flag and StrEnum define it, or the
+// program's own. `kind` is enum_auto_ctx's bits (2 Flag, 4 StrEnum).
+fn gen_next(gnv: &Option<V>, kind: i64, name: &str, start: &V, count: usize, last: &[V]) -> R {
+    if let Some(f) = gnv {
+        let f = match f {
+            V::Obj(o) if o.cls.name == "staticmethod" => o.get("__func__").unwrap_or(f.clone()),
+            f => f.clone(),
+        };
+        return call(&f, Args::p(vec![s(name), start.clone(), V::Int(count as i64), list(last.to_vec())]));
+    }
+    if kind & 4 != 0 {
+        return Ok(st(name.to_lowercase()));
+    }
+    if kind & 2 != 0 {
+        if count == 0 {
+            return Ok(if matches!(start, V::None) { V::Int(1) } else { start.clone() });
+        }
+        return auto_next(2, name, last);
+    }
+    if last.is_empty() {
+        return Ok(start.clone());
+    }
+    let sorted = match bi_sorted(Args::p(vec![list(last.to_vec())])) {
+        Ok(V::List(l)) => l.borrow().last().cloned().unwrap_or(V::None),
+        Ok(_) => V::None,
+        Err(e) if matches!(&e.0, V::Obj(o) if o.cls.name == "TypeError") => return type_err("unable to sort non-numeric values".into()),
+        Err(e) => return Err(e),
+    };
+    match add(&sorted, &V::Int(1)) {
+        Err(e) if matches!(&e.0, V::Obj(o) if o.cls.name == "TypeError") => type_err(format!("unable to increment {}", repr(&sorted)?)),
+        r => r,
+    }
+}
+// EnumType._create_: the class `Name(type, cls)` with `names` as its members.
+fn enum_create(c: &Rc<Class>, name: &V, names: V, module: V, qualname: V, ty: V, start: V) -> R {
+    let V::Str(cn) = name else { return type_err(format!("type.__new__() argument 1 must be str, not {}", tn(name))) };
+    let cname = sym(&cn.text());
+    let mut bases = vec![];
+    if !matches!(ty, V::None) {
+        bases.push(ty.clone());
+    }
+    bases.push(V::Class(c.clone()));
+    let mut kind = 1;
+    if is_flag(c) {
+        kind |= 2;
+    }
+    if is_str_enum(c) {
+        kind |= 4;
+    }
+    let gnv = user_gnv(&c.mro.borrow());
+    let mut pairs: Vec<(V, V)> = vec![];
+    let names = match &names {
+        V::Str(t) => list(t.text().replace(',', " ").split_whitespace().map(s).collect()),
+        _ => names,
+    };
+    let seq = match &names {
+        V::List(l) => Some(l.borrow().clone()),
+        V::Tuple(t) => Some(t.to_vec()),
+        _ => None,
+    };
+    match (&names, seq) {
+        (_, Some(items)) if matches!(items.first(), Some(V::Str(_))) => {
+            let mut last: Vec<V> = vec![];
+            for (count, n) in items.iter().enumerate() {
+                let V::Str(nt) = n else { return type_err("cannot unpack non-iterable object".into()) };
+                let v = gen_next(&gnv, kind, &nt.text(), &start, count, &last)?;
+                last.push(v.clone());
+                pairs.push((n.clone(), v));
+            }
+        }
+        (V::None, _) => {}
+        (V::Dict(_), _) => {
+            for k in to_vec(&names)? {
+                let v = getitem(&names, &k)?;
+                pairs.push((k, v));
+            }
+        }
+        _ => {
+            for item in to_vec(&names)? {
+                if let V::Str(_) = item {
+                    let v = getitem(&names, &item)?;
+                    pairs.push((item, v));
+                    continue;
+                }
+                let xs = to_vec(&item)?;
+                if xs.len() != 2 {
+                    return val_err(format!("{} values to unpack (expected 2{})", if xs.len() > 2 { "too many" } else { "not enough" }, if xs.len() > 2 { "".to_string() } else { format!(", got {}", xs.len()) }));
+                }
+                pairs.push((xs[0].clone(), xs[1].clone()));
+            }
+        }
+    }
+    let mut attrs: Vec<(Sym, V)> = vec![];
+    let mut last: Vec<V> = vec![];
+    let au = enum_classes().1;
+    for (k, v) in pairs {
+        let V::Str(kt) = &k else { return Err(unsupported("an Enum member name that is not a str")) };
+        let kn = sym(&kt.text());
+        // the namespace's checks (EnumDict.__setitem__) for the names a class body could not have made
+        enum_name_check(kn)?;
+        if attrs.iter().any(|(n, _)| *n == kn) {
+            return type_err(format!("'{kn}' already defined as {}", repr(&attrs.iter().find(|(n, _)| *n == kn).unwrap().1)?));
+        }
+        // auto() among the values gets its value as the class body would give it
+        let v = match &v {
+            V::Obj(o) if Rc::ptr_eq(&o.cls, &au) && !enum_not_member(cname, kn) => {
+                let x = match o.get("value") {
+                    Some(x) => x,
+                    None => {
+                        let x = gen_next(&gnv, kind, kn, &V::Int(1), last.len(), &last)?;
+                        o.set("value", x.clone());
+                        x
+                    }
+                };
+                x
+            }
+            _ => v,
+        };
+        if !enum_not_member(cname, kn) && !is_descriptor(&v) {
+            last.push(v.clone());
+        }
+        attrs.push((kn, v));
+    }
+    let modname: Sym = match &module {
+        V::None => "__main__",
+        V::Str(m) => sym(&m.text()),
+        _ => return Err(unsupported("an Enum functional API module that is not a str")),
+    };
+    let qn: Sym = match &qualname {
+        V::None => cname,
+        V::Str(q) => sym(&q.text()),
+        _ => return type_err(format!("type __qualname__ must be a str, not {}", tn(&qualname))),
+    };
+    attrs.insert(0, ("__module__", s(modname)));
+    make_class_f(cname, qn, modname, bases, attrs, vec![])
+}
+// enum.py's _is_descriptor: an object with __get__, __set__ or __delete__ is never a member.
+pub fn is_descriptor(v: &V) -> bool {
+    match v {
+        V::Obj(o) => ["__get__", "__set__", "__delete__"].iter().any(|n| o.cls.lookup(n).is_some()),
+        V::Func(_) | V::Prop(_) | V::Bound(_) | V::BMeth(_) | V::NTF(_) => true,
+        _ => false,
+    }
+}
+// enum.py's _is_private: _Cls__name (not ending in __), as a class body's __name becomes.
+fn enum_is_private(cls: &str, n: &str) -> bool {
+    let pat = format!("_{cls}__");
+    let b = n.as_bytes();
+    n.len() > pat.len() && n.starts_with(&pat) && (b[b.len() - 1] != b'_' || b[b.len() - 2] != b'_')
+}
+// EnumDict.__setitem__'s refusals of a name: _sunder_ names enum.py does not know, and the reserved ones.
+fn enum_name_check(n: &str) -> Result<(), E> {
+    let b = n.as_bytes();
+    let sunder = b.len() > 2 && b[0] == b'_' && b[1] != b'_' && b[b.len() - 1] == b'_' && b[b.len() - 2] != b'_';
+    if sunder && !matches!(n, "_order_" | "_generate_next_value_" | "_numeric_repr_" | "_missing_" | "_ignore_" | "_iter_member_" | "_iter_member_by_value_" | "_iter_member_by_def_" | "_add_alias_" | "_add_value_alias_") {
+        if n.starts_with("_repr_") || n == "_settle_" {
+            return Err(unsupported(&format!("the Enum name {n}")));
+        }
+        return val_err(format!("_sunder_ names, such as '{n}', are reserved for future Enum use"));
+    }
+    Ok(())
+}
+// Enum.__new__'s lookup of a value: the member, or what the class's own _missing_ gives, as enum.py runs it.
+pub fn enum_lookup(c: &Rc<Class>, v: &V) -> R {
+    if let V::Obj(o) = v {
+        if Rc::ptr_eq(&o.cls, c) {
+            return Ok(v.clone());
+        }
+    }
     if let V::List(l) = enum_members(c) {
         for m in l.borrow().iter() {
             if is(m, v) {
@@ -560,7 +1417,13 @@ pub fn enum_call(c: &Rc<Class>, a: Args) -> R {
             }
         }
     }
-    if is_flag(c) {
+    // Enum.__new__'s first step: the value map (a Flag's members that do not iterate, like a None member)
+    if let Some(V::Dict(d)) = c.own("_value2member_map_") {
+        if let Ok(Some(m)) = Dict::get_cell(&d, v) {
+            return Ok(m);
+        }
+    }
+    if is_flag(c) && user_missing(c).is_none() {
         match v {
             V::Int(i) => return flag_member(c, *i),
             V::Bool(b) => return flag_member(c, *b as i64),
@@ -568,7 +1431,33 @@ pub fn enum_call(c: &Rc<Class>, a: Args) -> R {
             _ => {}
         }
     }
-    val_err(format!("{} is not a valid {}", repr(v)?, c.name))
+    let ve = || -> Result<E, E> { Ok(exc_v("ValueError", st(format!("{} is not a valid {}", repr(v)?, c.qualname.get())))) };
+    let Some(f) = user_missing(c) else { return Err(ve()?) };
+    if is_flag(c) {
+        return Err(unsupported("a Flag's own _missing_"));
+    }
+    match call(&f, Args::p(vec![V::Class(c.clone()), v.clone()])) {
+        Ok(V::None) => Err(ve()?),
+        Ok(r) if matches!(&r, V::Obj(o) if o.cls.is_sub(c)) => Ok(r),
+        Ok(r) => type_err(format!("error in {}._missing_: returned {} instead of None or a valid member", c.name, repr(&r)?)),
+        Err(e) => Err(e),
+    }
+}
+// The class's own _missing_ (a classmethod of the program), when it has one.
+fn user_missing(c: &Rc<Class>) -> Option<V> {
+    for k in c.mro.borrow().iter() {
+        if k.own("_missing_").is_some() {
+            if k.module == "enum" {
+                return None;
+            }
+            return match getattr(&V::Class(c.clone()), "_missing_") {
+                Ok(V::Bound(b)) => Some(b.1.clone()),
+                Ok(f) => Some(f),
+                Err(_) => None,
+            };
+        }
+    }
+    None
 }
 pub fn enum_getitem(c: &Rc<Class>, k: &V) -> R {
     if let Some(V::Dict(d)) = c.own("__members__") {
@@ -630,6 +1519,7 @@ pub fn enum_contains(c: &Rc<Class>, x: &V) -> Result<bool, E> {
 pub fn enum_fn(n: &str, a: Args) -> R {
     match n {
         "auto" => Ok(V::Obj(Obj::new(enum_classes().1))),
+        "property" => eprop_new(a),
         "unique" => {
             let c = a.p.first().cloned().unwrap_or(V::None);
             if let V::Class(k) = &c {
@@ -652,7 +1542,12 @@ pub fn enum_fn(n: &str, a: Args) -> R {
             }
             Ok(c)
         }
-        _ => Err(unsupported(&format!("enum.{n}"))),
+        // enum.Enum(...), enum.IntFlag(...): a call of the class, as through its value
+        "Enum" => call(&V::Class(enum_base()), a),
+        _ => match enum_class(n) {
+            Some(k) => call(&V::Class(k), a),
+            None => Err(unsupported(&format!("enum.{n}"))),
+        },
     }
 }
 // ---------- re.RegexFlag ----------
@@ -774,4 +1669,448 @@ pub fn named_int_class() -> Rc<Class> {
 pub fn re_maxrepeat() -> V {
     named_int_class();
     NAMED_INT.with(|r| r.borrow().as_ref().unwrap().1.clone())
+}
+
+// EnumType.__setattr__: a member in the class's own _member_map_ cannot be reassigned.
+pub fn enum_setattr_block(c: &Rc<Class>, name: &str) -> Option<E> {
+    if !is_enum(c) {
+        return None;
+    }
+    let Some(V::Dict(map)) = c.own("_member_map_") else { return None };
+    match Dict::contains_cell(&map, &s(name)) {
+        Ok(true) => Some(exc("AttributeError", format!("cannot reassign member '{name}'"))),
+        Ok(false) => None,
+        Err(e) => Some(e),
+    }
+}
+// EnumType.__delattr__: a member in the class's _member_map_ (its own or a base's) cannot be deleted.
+pub fn enum_delattr_block(c: &Rc<Class>, name: &str) -> Option<E> {
+    if !is_enum(c) {
+        return None;
+    }
+    let Some(V::Dict(map)) = c.lookup("_member_map_") else { return None };
+    match Dict::contains_cell(&map, &s(name)) {
+        Ok(true) => Some(exc("AttributeError", format!("'{}' cannot delete member '{name}'.", c.name))),
+        Ok(false) => None,
+        Err(e) => Some(e),
+    }
+}
+
+// EnumType.__dir__ and Enum.__dir__ (enum.py), for dir() of an enum class or member; None when `x` is neither,
+// or a program class on the way defines its own __dir__.
+pub fn enum_dir(x: &V) -> Option<R> {
+    let c = match x {
+        V::Class(c) if is_enum(c) && c.meta.borrow().is_none() => c.clone(),
+        V::Obj(o) if is_enum(&o.cls) => o.cls.clone(),
+        _ => return None,
+    };
+    if c.mro.borrow().iter().any(|k| k.module != "enum" && k.module != "builtins" && k.own("__dir__").is_some()) {
+        return None;
+    }
+    Some(enum_dir1(x, &c))
+}
+fn enum_dir1(x: &V, c: &Rc<Class>) -> R {
+    let mt = match c.lookup("_member_type_") {
+        Some(V::Class(m)) => m,
+        _ => bclass("object"),
+    };
+    let mt_object = mt.module == "builtins" && mt.name == "object";
+    let member_map = match c.lookup("_member_map_") {
+        Some(V::Dict(d)) => Some(d),
+        _ => None,
+    };
+    let in_map = |n: &str| -> Result<bool, E> {
+        match &member_map {
+            Some(d) => Dict::contains_cell(d, &s(n)),
+            None => Ok(false),
+        }
+    };
+    let mut names: Vec<String> = vec![];
+    let add = |names: &mut Vec<String>, n: &str| {
+        if !names.iter().any(|x| x == n) {
+            names.push(n.to_string());
+        }
+    };
+    if let V::Class(_) = x {
+        for n in ["__class__", "__contains__", "__doc__", "__getitem__", "__init_subclass__", "__iter__", "__len__", "__members__", "__module__", "__name__", "__qualname__"] {
+            add(&mut names, n);
+        }
+        for m in to_vec(&enum_members(c))? {
+            if let V::Obj(o) = &m {
+                add(&mut names, &to_str(&o.get("_name_").unwrap_or(V::None))?);
+            }
+        }
+        // _new_member_ is not object.__new__: the class's own or a base's __new__, or the data type's
+        if !mt_object || c.lookup("__new_member__").is_some() {
+            add(&mut names, "__new__");
+        }
+        if !mt_object {
+            for n in to_vec(&crate_dir(&V::Class(mt.clone()))?)? {
+                add(&mut names, &to_str(&n)?);
+            }
+        }
+    } else {
+        let V::Obj(o) = x else { unreachable!() };
+        // a member of a mixed-in data type starts from object.__dir__: its own __dict__ and every class's on its MRO
+        if !mt_object {
+            if o.cls.has_dict() {
+                for k in to_vec(&o.dict()?)? {
+                    add(&mut names, &to_str(&k)?);
+                }
+            }
+            let mut ns: Vec<Sym> = vec![];
+            merge_class_names(c, &mut ns)?;
+            for n in ns {
+                add(&mut names, n);
+            }
+        }
+        if o.cls.has_dict() {
+            for k in to_vec(&o.dict()?)? {
+                let k = to_str(&k)?;
+                if !k.starts_with('_') && !in_map(&k)? {
+                    add(&mut names, &k);
+                }
+            }
+        }
+        let mro = c.mro.borrow().clone();
+        for k in mro.iter() {
+            // the enum module's classes: only Enum has public names (its name and value properties)
+            let own: Vec<(String, V)> = if k.module == "enum" {
+                if Rc::ptr_eq(k, &enum_base()) {
+                    vec![("name".into(), V::None), ("value".into(), V::None)]
+                } else {
+                    vec![]
+                }
+            } else if k.module == "builtins" {
+                if k.name == "object" {
+                    vec![]
+                } else {
+                    class_dict(k)?.into_iter().map(|(n, v)| (n.to_string(), v)).collect()
+                }
+            } else {
+                k.attrs.borrow().iter().map(|(n, v)| (n.to_string(), v.clone())).collect()
+            };
+            for (n, v) in own {
+                if n.starts_with('_') {
+                    continue;
+                }
+                if k.module == "enum" {
+                    add(&mut names, &n);
+                } else if is_eprop(&v) {
+                    let has_fget = matches!(&v, V::Obj(p) if !matches!(p.get("fget"), None | Some(V::None)));
+                    if has_fget || !in_map(&n)? {
+                        add(&mut names, &n);
+                    } else {
+                        names.retain(|x| *x != n);
+                    }
+                } else if !in_map(&n)? {
+                    add(&mut names, &n);
+                }
+            }
+        }
+        for n in ["__class__", "__doc__", "__eq__", "__hash__", "__module__"] {
+            add(&mut names, n);
+        }
+    }
+    names.sort();
+    Ok(list(names.into_iter().map(st).collect()))
+}
+fn crate_dir(x: &V) -> R {
+    bi_dir(Args::p(vec![x.clone()]))
+}
+
+// ---------- an enum class's __dict__ ----------
+// The keys of CPython's dicts of the enum module's classes (enum.py 3.13). Their values are Brevi's own, so
+// only dir() reads these; the __dict__ of these classes is refused.
+const ENUM_MOD_KEYS: &[(&str, &[&str])] = &[
+    ("Enum", &["__copy__", "__deepcopy__", "__dict__", "__dir__", "__doc__", "__firstlineno__", "__format__", "__hash__", "__init__", "__module__", "__new__", "__reduce_ex__", "__repr__", "__signature__", "__static_attributes__", "__str__", "__weakref__", "_add_alias_", "_add_value_alias_", "_generate_next_value_", "_hashable_values_", "_member_map_", "_member_names_", "_member_type_", "_missing_", "_new_member_", "_unhashable_values_", "_unhashable_values_map_", "_use_args_", "_value2member_map_", "_value_repr_", "name", "value"]),
+    ("ReprEnum", &["__doc__", "__firstlineno__", "__module__", "__new__", "__static_attributes__", "_generate_next_value_", "_hashable_values_", "_member_map_", "_member_names_", "_member_type_", "_new_member_", "_unhashable_values_", "_unhashable_values_map_", "_use_args_", "_value2member_map_", "_value_repr_"]),
+    ("IntEnum", &["__dict__", "__doc__", "__firstlineno__", "__format__", "__module__", "__new__", "__repr__", "__static_attributes__", "__str__", "_generate_next_value_", "_hashable_values_", "_member_map_", "_member_names_", "_member_type_", "_new_member_", "_unhashable_values_", "_unhashable_values_map_", "_use_args_", "_value2member_map_", "_value_repr_"]),
+    ("StrEnum", &["__dict__", "__doc__", "__firstlineno__", "__format__", "__module__", "__new__", "__new_member__", "__repr__", "__static_attributes__", "__str__", "__weakref__", "_generate_next_value_", "_hashable_values_", "_member_map_", "_member_names_", "_member_type_", "_new_member_", "_unhashable_values_", "_unhashable_values_map_", "_use_args_", "_value2member_map_", "_value_repr_"]),
+    ("Flag", &["__and__", "__bool__", "__contains__", "__doc__", "__firstlineno__", "__invert__", "__iter__", "__len__", "__module__", "__new__", "__or__", "__rand__", "__repr__", "__ror__", "__rxor__", "__static_attributes__", "__str__", "__xor__", "_all_bits_", "_boundary_", "_flag_mask_", "_generate_next_value_", "_get_value", "_hashable_values_", "_inverted_", "_iter_member_", "_iter_member_by_def_", "_iter_member_by_value_", "_member_map_", "_member_names_", "_member_type_", "_missing_", "_new_member_", "_numeric_repr_", "_singles_mask_", "_unhashable_values_", "_unhashable_values_map_", "_use_args_", "_value2member_map_", "_value_repr_"]),
+    ("IntFlag", &["__and__", "__dict__", "__doc__", "__firstlineno__", "__format__", "__invert__", "__module__", "__new__", "__or__", "__rand__", "__repr__", "__ror__", "__rxor__", "__static_attributes__", "__str__", "__xor__", "_all_bits_", "_boundary_", "_flag_mask_", "_generate_next_value_", "_hashable_values_", "_inverted_", "_member_map_", "_member_names_", "_member_type_", "_new_member_", "_singles_mask_", "_unhashable_values_", "_unhashable_values_map_", "_use_args_", "_value2member_map_", "_value_repr_"]),
+];
+pub fn enum_mod_keys(c: &Class) -> Option<&'static [&'static str]> {
+    if c.module != "enum" {
+        return None;
+    }
+    ENUM_MOD_KEYS.iter().find(|(n, _)| *n == c.name).map(|x| x.1)
+}
+thread_local! {
+    static EIDENT_VALS: RefCell<HashMap<String, V>> = RefCell::new(HashMap::new());
+}
+// Which function CPython's attribute `n` of a class is: (who, value), `who` naming the function the way
+// `is` would tell them apart (IntEnum.__format__ is int.__format__, Flag.__ror__ is Flag.__or__), the value
+// Brevi's own object for it (None where Brevi has none). Searched along `mro`; None when no class has it.
+fn cpy_ident(mro: &[Rc<Class>], n: &str) -> Result<Option<(String, Option<V>)>, E> {
+    for b in mro {
+        if let Some(keys) = enum_mod_keys(b) {
+            if !keys.contains(&n) {
+                continue;
+            }
+            let who = match (b.name, n) {
+                ("IntEnum" | "IntFlag", "__format__") => "int.__format__".to_string(),
+                ("IntEnum" | "IntFlag", "__str__") => "int.__repr__".to_string(),
+                ("IntEnum" | "StrEnum", "__repr__") => "Enum.__repr__".to_string(),
+                ("StrEnum", "__format__") => "str.__format__".to_string(),
+                ("StrEnum", "__str__") => "str.__str__".to_string(),
+                ("IntFlag", "__repr__") => "Flag.__repr__".to_string(),
+                ("Flag" | "IntFlag", "__ror__") | ("IntFlag", "__or__") => "Flag.__or__".to_string(),
+                ("Flag" | "IntFlag", "__rand__") | ("IntFlag", "__and__") => "Flag.__and__".to_string(),
+                ("Flag" | "IntFlag", "__rxor__") | ("IntFlag", "__xor__") => "Flag.__xor__".to_string(),
+                ("IntFlag", "__invert__") => "Flag.__invert__".to_string(),
+                _ => format!("{}.{n}", b.name),
+            };
+            let val = ident_value(&who);
+            return Ok(Some((who, val)));
+        }
+        if is_enum(b) {
+            if let Some(x) = enum_post(b)?.into_iter().find(|(k, _, _)| *k == n) {
+                return Ok(Some((x.1, x.2)));
+            }
+            if let Some(v) = b.own(n) {
+                return Ok(Some((format!("{:p}.{n}", Rc::as_ptr(b)), Some(v))));
+            }
+            continue;
+        }
+        if b.module == "builtins" {
+            match cpy_dict_has(b, n) {
+                Some((true, _)) => {
+                    let who = format!("{}.{n}", b.name);
+                    let val = ident_value(&who);
+                    return Ok(Some((who, val)));
+                }
+                Some((false, _)) => continue,
+                None => return Err(unsupported(&format!("an Enum mixed with {}", b.name))),
+            }
+        }
+        if class_dict(b)?.iter().any(|(k, _)| *k == n) {
+            return Ok(Some((format!("{:p}.{n}", Rc::as_ptr(b)), b.own(n))));
+        }
+    }
+    Ok(None)
+}
+// Brevi's object for an enum or builtin function CPython names `who` ("int.__format__", "Flag.__or__"),
+// made once
+fn ident_value(who: &str) -> Option<V> {
+    if let Some(v) = EIDENT_VALS.with(|m| m.borrow().get(who).cloned()) {
+        return Some(v);
+    }
+    let (cn, n) = who.split_once('.')?;
+    let v = match cn {
+        "Enum" => enum_base().own(n),
+        "Flag" => enum_more()[2].own(n),
+        // the builtin type's own dict entry (made once, so `is` holds)
+        "int" | "str" | "object" | "float" | "bytes" | "tuple" | "complex" | "bool" => class_dict(&bclass(cn)).ok()?.into_iter().find(|(k, _)| *k == n).map(|x| x.1),
+        _ => None,
+    }?;
+    EIDENT_VALS.with(|m| m.borrow_mut().insert(who.to_string(), v.clone()));
+    Some(v)
+}
+fn enum_names(c: &Class, k: &str) -> Vec<String> {
+    match c.own(k) {
+        Some(V::Tuple(t)) => t.iter().filter_map(|x| to_str(x).ok()).collect(),
+        _ => vec![],
+    }
+}
+// What EnumType.__new__ sets on the class after type.__new__, in order: (name, who, value) as cpy_ident gives them
+fn enum_post(c: &Rc<Class>) -> Result<Vec<(Sym, String, Option<V>)>, E> {
+    let body = enum_names(c, "__bv_ebody__");
+    let init = enum_names(c, "__bv_einit__");
+    // the class dict EnumType.__new__ checks: the body and what __init_subclass__ added
+    let has = |n: &str| body.iter().any(|x| x == n) || init.iter().any(|x| x == n) && !matches!(n, "__new_member__");
+    let mt = match c.own("_member_type_") {
+        Some(V::Class(m)) => m,
+        _ => bclass("object"),
+    };
+    let mt_mro = mt.mro.borrow().clone();
+    // CPython's first_enum: the last base that is an Enum class, enum's own classes included
+    let en = enum_base();
+    let first = c.bases.iter().rev().find(|b| b.is_sub(&en)).cloned().unwrap_or(en);
+    let first_mro = first.mro.borrow().clone();
+    let mut out: Vec<(Sym, String, Option<V>)> = vec![];
+    let re = REPR_ENUM.with(|r| r.borrow().clone());
+    if re.is_some_and(|r| c.bases.iter().any(|b| Rc::ptr_eq(b, &r))) {
+        if !has("__format__") {
+            if let Some((w, v)) = cpy_ident(&mt_mro, "__format__")? {
+                out.push(("__format__", w, v));
+            }
+        }
+        if !has("__str__") {
+            let mut m = cpy_ident(&mt_mro, "__str__")?;
+            if m.as_ref().is_some_and(|x| x.0 == "object.__str__") {
+                m = cpy_ident(&mt_mro, "__repr__")?;
+            }
+            if let Some((w, v)) = m {
+                out.push(("__str__", w, v));
+            }
+        }
+    }
+    let below: Vec<Rc<Class>> = c.mro.borrow().iter().skip(1).cloned().collect();
+    for n in ["__repr__", "__str__", "__format__", "__reduce_ex__"] {
+        if has(n) || out.iter().any(|x| x.0 == n) {
+            continue;
+        }
+        let found = cpy_ident(&below, n)?.map(|x| x.0);
+        let data = cpy_ident(&mt_mro, n)?.map(|x| x.0);
+        if found.is_some() && (found == data || found.as_deref() == Some(&format!("object.{n}"))) {
+            if let Some((w, v)) = cpy_ident(&first_mro, n)? {
+                out.push((n, w, v));
+            }
+        }
+    }
+    if is_flag(c) {
+        let fl = vec![enum_more()[2].clone()];
+        for n in ["__or__", "__and__", "__xor__", "__ror__", "__rand__", "__rxor__", "__invert__"] {
+            if !has(n) {
+                if let Some((w, v)) = cpy_ident(&fl, n)? {
+                    out.push((n, w, v));
+                }
+            }
+        }
+    }
+    if body.iter().any(|x| x == "__new__") {
+        out.push(("__new_member__", format!("{:p}.__new__", Rc::as_ptr(c)), c.own("__new_member__")));
+    }
+    out.push(("__new__", "Enum.__new__".into(), ident_value("Enum.__new__")));
+    if is_flag(c) && c.own("__bv_bydef__").is_some_and(|v| matches!(v, V::Bool(true))) {
+        out.push(("_iter_member_", "Flag._iter_member_by_def_".into(), None));
+    }
+    Ok(out)
+}
+// The names Brevi's runtime keeps on an enum class for itself
+fn enum_internal(n: &str) -> bool {
+    n.starts_with("__bv_") || matches!(n, "__members__" | "__qualname__")
+}
+// An enum class's __dict__ as EnumType.__new__ leaves it (enum.py 3.13), in its order: the keys only when
+// `values` is false (dir() reads them), else the values too, or the refusal where Brevi has no value that is
+// CPython's.
+pub fn enum_class_dict(c: &Rc<Class>, values: bool) -> Result<Vec<(Sym, V)>, E> {
+    if let Some(keys) = enum_mod_keys(c) {
+        if values {
+            return Err(unsupported(&format!("the __dict__ of enum.{}", c.name)));
+        }
+        return Ok(keys.iter().map(|k| (*k, V::None)).collect());
+    }
+    let qn = c.qualname.get();
+    let refuse = |why: &str| Err(unsupported(&format!("the __dict__ of class {qn} ({why})")));
+    let Some(t) = tinfo(c) else { return refuse("an enum class Brevi made without a record") };
+    if let Some(why) = t.inexact.get().filter(|w| *w != "changed by Brevi's runtime") {
+        return refuse(why);
+    }
+    // still being made: __init_subclass__ is running, after type.__new__ and before EnumType.__new__'s own
+    // later settings (enum_post), with what it has set so far
+    let making = c.own("__bv_einit__").is_none();
+    if making && c.own("_member_map_").is_none() {
+        return refuse("an enum class still being made");
+    }
+    let attrs = c.attrs.borrow().clone();
+    let get = |n: &str| attrs.iter().find(|(k, _)| *k == n).map(|x| x.1.clone());
+    let body = enum_names(c, "__bv_ebody__");
+    let init: Vec<String> = if making {
+        attrs.iter().filter(|(k, _)| !body.iter().any(|b| b == k)).map(|(k, _)| k.to_string()).collect()
+    } else {
+        enum_names(c, "__bv_einit__")
+    };
+    let members: Vec<String> = match c.own("_member_map_") {
+        Some(m @ V::Dict(_)) => to_vec(&m)?.iter().map(to_str).collect::<Result<_, _>>()?,
+        _ => vec![],
+    };
+    let is_member = |n: &str| members.iter().any(|m| m == n);
+    let post = if making { vec![] } else { enum_post(c)? };
+    let mut out: Vec<(Sym, Option<V>)> = vec![];
+    fn push(out: &mut Vec<(Sym, Option<V>)>, k: Sym, v: Option<V>) {
+        if !out.iter().any(|(n, _)| *n == k) {
+            out.push((k, v));
+        }
+    }
+    push(&mut out, "_generate_next_value_", get("_generate_next_value_"));
+    let module = get("__module__").unwrap_or_else(|| s(c.module));
+    if let Some((line, _)) = &t.stmt {
+        push(&mut out, "__module__", Some(module.clone()));
+        push(&mut out, "__firstlineno__", Some(get("__firstlineno__").unwrap_or(V::Int(*line))));
+    }
+    for n in &body {
+        let n = sym(n);
+        if matches!(n, "__module__" | "__firstlineno__" | "_generate_next_value_" | "_order_" | "__order__" | "_ignore_") || enum_internal(n) || is_member(n) {
+            continue;
+        }
+        if n == "__new__" {
+            push(&mut out, n, ident_value("Enum.__new__"));
+            continue;
+        }
+        let Some(v) = get(n) else { continue };
+        let v = match (&v, n) {
+            (V::Func(f), "__init_subclass__" | "__class_getitem__") if f.kind.get() == 0 => bi_classmethod(Args::p(vec![v.clone()]))?,
+            _ => v,
+        };
+        push(&mut out, n, Some(v));
+    }
+    match &t.stmt {
+        Some((_, sa)) => push(&mut out, "__static_attributes__", Some(sa.clone())),
+        None => push(&mut out, "__module__", Some(module)),
+    }
+    let mut made = vec!["_new_member_", "_use_args_", "_member_names_", "_member_map_", "_value2member_map_", "_hashable_values_", "_unhashable_values_", "_unhashable_values_map_", "_member_type_", "_value_repr_"];
+    if is_flag(c) && !making {
+        made.extend(["_boundary_", "_flag_mask_", "_singles_mask_", "_all_bits_", "_inverted_"]);
+    }
+    for n in made {
+        if let Some(v) = get(n) {
+            push(&mut out, n, Some(v));
+        }
+    }
+    if making {
+        // the Flag structures every enum class has while type.__new__ runs (enum.py removes them from a
+        // non-Flag after, and fills a Flag's in), and the in-progress marker
+        let b = if is_flag(c) { get("_boundary_") } else { Some(V::None) };
+        push(&mut out, "_boundary_", b);
+        for n in ["_flag_mask_", "_singles_mask_", "_all_bits_"] {
+            push(&mut out, n, Some(V::Int(0)));
+        }
+        push(&mut out, "_inverted_", Some(V::None));
+        push(&mut out, sym(&format!("_{}__in_progress", c.name)), Some(V::Bool(true)));
+    }
+    if t.add_dict {
+        push(&mut out, "__dict__", Some(tdesc(2, c, "__dict__")));
+    }
+    if t.add_weak {
+        push(&mut out, "__weakref__", Some(tdesc(2, c, "__weakref__")));
+    }
+    for n in ["__doc__", "__hash__"] {
+        if let Some(v) = get(n) {
+            push(&mut out, n, Some(v));
+        }
+    }
+    for m in &members {
+        let m = sym(m);
+        if let Some(v) = get(m) {
+            push(&mut out, m, Some(v));
+        }
+    }
+    let late = |n: &str| enum_internal(n) || n == TNEW || post.iter().any(|x| x.0 == n) || matches!(n, "_order_" | "__order__" | "_ignore_");
+    // what __init_subclass__ set, then what EnumType.__new__ set, then the program's own later changes
+    for (k, v) in &attrs {
+        if init.iter().any(|x| x == k) && !late(k) {
+            push(&mut out, k, Some(v.clone()));
+        }
+    }
+    for (k, _, v) in &post {
+        // a value the program set since is the one the dict holds
+        let v = if init.iter().any(|x| x == k) || *k == "__new_member__" { v.clone() } else { get(k).or_else(|| v.clone()) };
+        push(&mut out, k, v);
+    }
+    for (k, v) in &attrs {
+        if !enum_internal(k) && *k != TNEW && !matches!(*k, "_order_" | "__order__" | "_ignore_") {
+            push(&mut out, k, Some(v.clone()));
+        }
+    }
+    let mut r = vec![];
+    for (k, v) in out {
+        match v {
+            Some(v) => r.push((k, v)),
+            None if values => return refuse(&format!("its {k}, which Brevi does not have")),
+            None => r.push((k, V::None)),
+        }
+    }
+    Ok(r)
 }

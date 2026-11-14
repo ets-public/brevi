@@ -1,0 +1,11 @@
+[<A.x: 1>, <A.y: 2>, <A.z: 3>] A.x A.y A __main__
+[<B.p: 5>, <B.q: 7>] 7 8
+[<C.r: 1>, <C.w: 2>, <C.x: 4>] C.r|x
+[<D.Alpha: 'alpha'>, <D.Beta: 'beta'>]
+X.E2 E2.b
+[<F.a: 0>, <F.b: 1>]
+G.a
+5 is not a valid G
+<enum 'Enum'> has no members; specify `names=()` if you meant to create a new, empty, enum
+[<H.a: 'a!'>, <H.b: 'b!'>]
+3 is not a valid f.<locals>.I

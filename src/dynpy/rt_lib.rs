@@ -678,6 +678,14 @@ pub fn bi_reversed(a: Args) -> R {
             return call(&f, Args::p(vec![x.clone()]));
         }
     }
+    // EnumType.__reversed__: the members in reverse definition order
+    if let V::Class(c) = &x {
+        if is_enum(c) && c.meta.borrow().is_none() {
+            let mut v = to_vec(&enum_members(c))?;
+            v.reverse();
+            return Ok(vec_iter(ItKind::ListReverseIter, v));
+        }
+    }
     if bigrange_of(&x).is_some() {
         return call_method(&x, "__reversed__", Args::p(vec![]));
     }
@@ -1096,6 +1104,8 @@ fn builtin_hook_methods(c: &Rc<Class>) -> Option<Option<&'static [&'static str]>
             "coroutine" => &["__hash__", "__await__", "send", "throw", "close"],
             "async_generator" => &["__hash__", "__aiter__", "__anext__", "asend", "athrow", "aclose"],
             "iterator" => ITER,
+            "staticmethod" => CALLABLE,
+            "classmethod" => SCALAR,
             // library types Brevi names by their dotted CPython name: plain hashable values
             "datetime.date" | "datetime.datetime" | "datetime.time" | "datetime.timedelta" | "datetime.timezone" | "decimal.Decimal" | "fractions.Fraction" | "zoneinfo.ZoneInfo" | "re.Pattern" | "re.Match" => SCALAR,
             // cmp_to_key's K objects: callable, with __hash__ = None
@@ -1206,6 +1216,9 @@ pub fn type_of(x: &V) -> Result<Rc<Class>, E> {
         V::Func(f) if f.kind.get() == 3 => ext_class("builtin_function_or_method"),
         V::BMeth(_) => ext_class("builtin_function_or_method"),
         V::Bound(_) => ext_class("method"),
+        // staticmethod(f) and classmethod(f): Brevi's wrapper functions are of CPython's two types
+        V::Func(f) if f.kind.get() == 1 => ext_class("staticmethod"),
+        V::Func(f) if f.kind.get() == 2 => ext_class("classmethod"),
         V::Func(_) => tclass(14, "function"),
         V::Range(_) => tclass(15, "range"),
         V::Deque(_) => tclass(16, "deque"),
@@ -2099,6 +2112,10 @@ pub fn builtin_value(name: &str) -> Option<V> {
     if name == "complex" {
         return Some(V::Class(ext_class("complex")));
     }
+    // staticmethod and classmethod are types, as in CPython (type(C.__dict__['s']) is staticmethod)
+    if name == "staticmethod" || name == "classmethod" {
+        return Some(V::Class(ext_class(if name == "staticmethod" { "staticmethod" } else { "classmethod" })));
+    }
     if builtin_type_name(name) && name != "slice" {
         return Some(V::Class(bclass(name)));
     }
@@ -2144,6 +2161,12 @@ pub fn builtin_type_call(c: &Rc<Class>, a: &mut Args) -> Option<R> {
     }
     if c.name == "complex" && c.module == "builtins" {
         return Some(bi_complex(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));
+    }
+    if c.name == "staticmethod" && c.module == "builtins" {
+        return Some(bi_staticmethod(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));
+    }
+    if c.name == "classmethod" && c.module == "builtins" {
+        return Some(bi_classmethod(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));
     }
     if c.name == "memoryview" && c.module == "builtins" {
         return Some(bi_memoryview(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));
@@ -2276,9 +2299,44 @@ fn builtin_class_attr_raw(c: &Rc<Class>, name: &str) -> Option<V> {
         ("int", "from_bytes") => Some(builtin("from_bytes", |a: Args| int_from_bytes(&V::None, a))),
         // str.maketrans is a static method: class calls do not bind their first argument as self
         ("str", "maketrans") => Some(builtin("maketrans", |a: Args| str_maketrans(&a))),
+        // int.__new__(cls, x) and the like, as a subclass's own __new__ calls it: an instance of cls wrapping the
+        // value the type makes
+        ("int" | "float" | "str" | "tuple" | "bytes" | "frozenset", "__new__") if c.module == "builtins" => {
+            let base = c.clone();
+            Some(builtin("__new__", move |mut a: Args| {
+                let Some(V::Class(k)) = a.p.first().cloned() else {
+                    return type_err(format!("{}.__new__(X): X is not a type object", base.name));
+                };
+                a.p.remove(0);
+                if Rc::ptr_eq(&k, &base) {
+                    return match builtin_type_call(&base, &mut a) {
+                        Some(r) => r,
+                        None => Err(unsupported(&format!("{}.__new__({})", base.name, base.name))),
+                    };
+                }
+                if !k.is_sub(&base) {
+                    return type_err(format!("{}.__new__({}): {} is not a subtype of {}", base.name, k.name, k.name, base.name));
+                }
+                if k.module == "typing" || k.meta.borrow().is_some() || (is_enum(&k) && k.own("__bv_in_progress__").is_none()) || builtin_of_bt(k.base_bt()).name != base.name {
+                    return Err(unsupported(&format!("{}.__new__({})", base.name, k.name)));
+                }
+                let o = Obj::new(k.clone());
+                match builtin_type_call(&base, &mut a) {
+                    Some(r) => o.set_inner(Some(r?)),
+                    None => return Err(unsupported(&format!("{}.__new__({})", base.name, k.name))),
+                }
+                Ok(V::Obj(o))
+            }))
+        }
+        // object.__str__(x) is type(x).__repr__(x), whatever __str__ the class has
+        ("object", "__str__") => Some(builtin("__str__", |a: Args| match a.p.first() {
+            Some(me) if a.p.len() == 1 => Ok(st(repr(me)?)),
+            Some(_) => type_err(format!("expected 0 arguments, got {}", a.p.len() - 1)),
+            None => type_err("descriptor '__str__' of 'object' object needs an argument".into()),
+        })),
         // an instance of a plain class, its __init__ not run
         ("object", "__new__") => Some(builtin("__new__", |a: Args| match a.p.first() {
-            Some(V::Class(c)) if matches!(c.base_bt(), BT::Object | BT::Other) && c.module != "typing" && !is_enum(c) => Ok(V::Obj(Obj::new(c.clone()))),
+            Some(V::Class(c)) if matches!(c.base_bt(), BT::Object | BT::Other) && c.module != "typing" && (!is_enum(c) || c.own("__bv_in_progress__").is_some()) => Ok(V::Obj(Obj::new(c.clone()))),
             Some(V::Class(c)) => Err(unsupported(&format!("object.__new__({})", c.name))),
             _ => type_err("object.__new__(X): X is not a type object".into()),
         })),
@@ -2805,8 +2863,10 @@ fn str_join(me: &S, it: &V) -> R {
     Ok(txt_v(out))
 }
 pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
-    // str subclasses (StrEnum members) as arguments: their str
-    for x in a.p.iter_mut().chain(a.k.iter_mut().map(|(_, v)| v)) {
+    // str subclasses (StrEnum members) as arguments: their str (format and format_map keep them, as each is
+    // formatted through its own __format__ and __str__)
+    let keep = matches!(name, "format" | "format_map");
+    for x in a.p.iter_mut().chain(a.k.iter_mut().map(|(_, v)| v)).filter(|_| !keep) {
         if let V::Obj(_) = x {
             if let Some(i @ V::Str(_)) = inner_of(x) {
                 *x = i;

@@ -558,6 +558,9 @@ fn make_class_impl(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, mut
         };
         call(&f, Args::p(vec![V::Class(c.clone())]))?;
     }
+    if is_enum(&c) {
+        enum_made(&c);
+    }
     Ok(V::Class(c))
 }
 // ABCMeta's test: getattr(value, "__isabstractmethod__", False) is true. A def has it when @abstractmethod set
@@ -806,8 +809,11 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
         return r;
     }
     if c.module == "enum" || is_enum(c) {
-        if is_enum(c) {
+        if is_enum(c) || c.is_sub(&enum_base()) {
             return enum_call(c, a);
+        }
+        if Rc::ptr_eq(c, &eprop_class()) {
+            return eprop_new(a);
         }
         return Err(unsupported(&format!("enum.{}()", c.name)));
     }
@@ -1232,10 +1238,14 @@ pub fn object_setattr(me: &V, a: &[V]) -> R {
 pub fn nobind(f: &Func) -> bool {
     f.kind.get() == 3 && f.attrs.borrow().iter().any(|(k, _)| *k == "__bv_nobind__")
 }
+// staticmethod.__get__: the function it wraps (staticmethod(f) read from a class or instance is f)
+fn static_get(f: &Rc<Func>, v: &V) -> V {
+    f.attrs.borrow().iter().find(|(n, _)| *n == "__bv_wrapped__").map(|x| x.1.clone()).unwrap_or_else(|| v.clone())
+}
 fn bind_attr(v: V, me: &V, from_class_lookup: bool) -> V {
     match &v {
         V::Func(f) => match f.kind.get() {
-            1 => v.clone(),
+            1 => static_get(f, &v),
             3 if nobind(f) => v.clone(),
             2 => {
                 let cls = match me {
@@ -1510,6 +1520,7 @@ fn class_getattr(o: &V, c: &Rc<Class>, name: &str) -> R {
     if let Some(v) = c.lookup(name) {
         return Ok(match &v {
             V::Func(f) if f.kind.get() == 2 => V::Bound(Rc::new((o.clone(), v.clone()))),
+            V::Func(f) if f.kind.get() == 1 => static_get(f, &v),
             // a descriptor of the program read from the class: __get__(None, cls)
             V::Obj(d) if d.cls.lookup("__get__").is_some() => return desc_get(&v, &V::None, o),
             _ => {
@@ -2058,6 +2069,9 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
             Ok(())
         }
         V::Class(c) => {
+            if let Some(e) = enum_setattr_block(c, &name.to_string()) {
+                return Err(e);
+            }
             if let Some(r) = meta_setattr(o, c, name, &v) {
                 return r;
             }
@@ -2213,6 +2227,7 @@ pub fn delattr(o: &V, name: &str) -> Result<(), E> {
         V::Class(c) if c.meta.borrow().as_ref().is_some_and(|m| meta_lookup(m, name).is_some_and(|d| matches!(d, V::Prop(_)) || is_data_desc(&d))) => {
             Err(unsupported("deleting a class attribute its metaclass defines as a descriptor"))
         }
+        V::Class(c) if enum_delattr_block(c, name).is_some() => Err(enum_delattr_block(c, name).unwrap()),
         V::Class(c) if c.del_exact(name) => Ok(()),
         V::Class(c) => Err(exc("AttributeError", format!("type object '{}' has no attribute '{}'", c.name, name))),
         // a def's user attribute: from its __dict__ once that has been made, else from its attrs (as setattr stores it)
