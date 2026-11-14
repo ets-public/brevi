@@ -446,6 +446,7 @@ fn __hash_key() -> (u64, u64) {
     let t = v.to_string_lossy();
     if t.is_empty() || t == "random" {
         use std::hash::{BuildHasher, Hasher};
+        HASH_RANDOM.store(true, std::sync::atomic::Ordering::Relaxed);
         let r = std::collections::hash_map::RandomState::new();
         let mut a = r.build_hasher();
         a.write_u8(0);
@@ -821,6 +822,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         let disk = std::fs::read_to_string(path).unwrap_or_else(|_| src.clone());
         bridge.srcs.insert(m.clone(), (abs, disk));
     }
+    bridge.own = own_mods.clone();
     // bytearray is checked against CPython for the builtins, re and the standard modules Brevi copies; the
     // library ports (numpy, httpx, tokenizers, sqlite3, ...) have not been, so such a program runs in CPython.
     let user_src = || texts.iter().filter(|(m, _)| !own_mods.contains(*m)).map(|(_, (_, src))| src.as_str());

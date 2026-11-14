@@ -1601,6 +1601,8 @@ pub struct Bridge {
     pub files: HashMap<String, String>,
     // module -> (its absolute path, its source), for the warnings the runtime issues at a line of it
     pub srcs: HashMap<String, (String, String)>,
+    // the modules Brevi builds from its own copies (src/dynpy/py), not from the program's files
+    pub own: HashSet<String>,
 }
 impl Bridge {
     pub fn has(&self, m: &str) -> bool {
@@ -1760,7 +1762,7 @@ fn foldable(e: &Ex) -> bool {
 // already interned as another object: an identifier of the module (the parser interns every name) or, for the main
 // module (compiled before anything runs), a string CPython interned at startup (interned_313.txt, written by
 // tools/gen_interned.py). A module compiled at import time sees whatever earlier imports interned: Unsure, which
-// const_fset refuses when the order is visible.
+// const_fset refuses when the order is visible (in a module Brevi copies, a run-time check).
 #[derive(Clone, Copy, PartialEq)]
 enum Rebuilds {
     One,
@@ -2144,6 +2146,10 @@ impl Em {
             Rebuilds::Two => "fset_rebuild2",
             // the 1x and 2x layouts of 2 or more items differ under some PYTHONHASHSEED (a str hash puts them in
             // one probe chain), and the build cannot know the seed: refused rather than stopped at run time
+            // In a module Brevi copies (jinja2's LoopControlExtension.tags), CPython's own copy is compiled or
+            // unmarshalled at import, so the order is unknowable too, but refusing would refuse every program
+            // using that library: the program stops at run time when the 2 layouts differ at a fixed seed.
+            Rebuilds::Unsure if distinct >= 2 && self.bridge.own.contains(&self.module) => "fset_rebuild_unsure",
             Rebuilds::Unsure if distinct >= 2 => return Err(err(line, "a set literal of strings whose order CPython takes from the strings already interned when it compiles the module (an imported module, or a name the build cannot read) is not supported in dynamic builds: write the items as a list or tuple, or use sorted()")),
             Rebuilds::Unsure => "fset_rebuild",
         };
