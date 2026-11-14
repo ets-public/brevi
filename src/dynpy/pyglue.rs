@@ -1513,7 +1513,11 @@ fn pickle_lookup_fn(a: Args) -> R {
 fn pickle_missing(m: &str, q: &str, what: &str) -> E {
     match m {
         "builtins" | "itertools" => exc("AttributeError", format!("Can't get {what}'{q}' on <module '{m}' (built-in)>")),
-        _ => unsupported("loading a pickle that names a missing attribute of a module of the program"),
+        // CPython names the module by its repr (refused where Brevi cannot give it exactly)
+        _ => match module_repr(m) {
+            Ok(r) => exc("AttributeError", format!("Can't get {what}'{q}' on {r}")),
+            Err(e) => e,
+        },
     }
 }
 fn pickle_missing_fn(a: Args) -> R {

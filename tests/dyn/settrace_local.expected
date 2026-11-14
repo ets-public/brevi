@@ -1,0 +1,21 @@
+global call work
+  local line 1
+  local line 2
+  local line 3
+  local return 3
+7
+global call quiet
+global call work
+  local line 1
+  local line 2
+  local line 3
+  local return 3
+3
+stopper call work 1
+stopper line work 2
+stopper line work 3
+raised stop None
+global call halfway
+  local line 1
+  local line 2
+2 None

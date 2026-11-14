@@ -9,48 +9,48 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 925,
-"refused": 11,
+"matched": 937,
+"refused": 0,
 "by_design": 83,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 26,
+"not_extractable": 25,
 "unstable": 248,
 "excluded": 44,
 "total": 1337,
 "scored": 962,
 "matched_through_cpython": 0,
 "matched_silent": 98,
-"coverage": 0.9615,
+"coverage": 0.974,
 "wrong": 0,
-"matched_asserting": 827,
-"assert_coverage": 0.8597,
+"matched_asserting": 839,
+"assert_coverage": 0.8721,
 "matched_typed": 27,
-"typed_share": 0.0292
+"typed_share": 0.0288
 },
 "dyn": {
-"matched": 925,
-"refused": 11,
+"matched": 937,
+"refused": 0,
 "by_design": 83,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 26,
+"not_extractable": 25,
 "unstable": 248,
 "excluded": 44,
 "total": 1337,
 "scored": 962,
 "matched_through_cpython": 0,
 "matched_silent": 98,
-"coverage": 0.9615,
+"coverage": 0.974,
 "wrong": 0,
-"matched_asserting": 827,
-"assert_coverage": 0.8597,
+"matched_asserting": 839,
+"assert_coverage": 0.8721,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -394,7 +394,7 @@
 },
 "test_richcmp": {
 "normal": {
-"matched": 9,
+"matched": 10,
 "refused": 0,
 "by_design": 0,
 "string_model": 0,
@@ -402,22 +402,22 @@
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 1,
+"not_extractable": 0,
 "unstable": 1,
 "excluded": 0,
 "total": 11,
 "scored": 10,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.9,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 9,
-"assert_coverage": 0.9,
+"matched_asserting": 10,
+"assert_coverage": 1.0,
 "matched_typed": 1,
-"typed_share": 0.1111
+"typed_share": 0.1
 },
 "dyn": {
-"matched": 9,
+"matched": 10,
 "refused": 0,
 "by_design": 0,
 "string_model": 0,
@@ -425,17 +425,17 @@
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 1,
+"not_extractable": 0,
 "unstable": 1,
 "excluded": 0,
 "total": 11,
 "scored": 10,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.9,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 9,
-"assert_coverage": 0.9,
+"matched_asserting": 10,
+"assert_coverage": 1.0,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -490,8 +490,8 @@
 },
 "test_patma": {
 "normal": {
-"matched": 266,
-"refused": 11,
+"matched": 277,
+"refused": 0,
 "by_design": 44,
 "string_model": 0,
 "cpython_private": 0,
@@ -505,16 +505,16 @@
 "scored": 279,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.9534,
+"coverage": 0.9928,
 "wrong": 0,
-"matched_asserting": 266,
-"assert_coverage": 0.9534,
+"matched_asserting": 277,
+"assert_coverage": 0.9928,
 "matched_typed": 0,
 "typed_share": 0.0
 },
 "dyn": {
-"matched": 266,
-"refused": 11,
+"matched": 277,
+"refused": 0,
 "by_design": 44,
 "string_model": 0,
 "cpython_private": 0,
@@ -528,10 +528,10 @@
 "scored": 279,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.9534,
+"coverage": 0.9928,
 "wrong": 0,
-"matched_asserting": 266,
-"assert_coverage": 0.9534,
+"matched_asserting": 277,
+"assert_coverage": 0.9928,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -539,13 +539,13 @@
 },
 "paths": {
 "normal": {
-"dynamic": 1024,
-"refused": 94,
+"dynamic": 1036,
+"refused": 83,
 "typed": 27
 },
 "dyn": {
-"dynamic": 1051,
-"refused": 94
+"dynamic": 1063,
+"refused": 83
 }
 },
 "tests": [
@@ -3137,7 +3137,7 @@
 "id": "test_list.ListTest.test_imul",
 "file": "test_list",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output is not reproducible: 3 runs at PYTHONHASHSEED=1 all differ"
 },
 {
 "id": "test_list.ListTest.test_index",
@@ -3387,7 +3387,7 @@
 "id": "test_list.ListTest.test_repeat",
 "file": "test_list",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output is not reproducible: 3 runs at PYTHONHASHSEED=1 all differ"
 },
 {
 "id": "test_list.ListTest.test_repr",
@@ -3805,7 +3805,7 @@
 "id": "test_dict.DictTest.test_copy_fuzz",
 "file": "test_dict",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output is not reproducible: 3 runs at PYTHONHASHSEED=1 all differ"
 },
 {
 "id": "test_dict.DictTest.test_copy_maintains_tracking",
@@ -3989,7 +3989,7 @@
 "id": "test_dict.DictTest.test_fromkeys",
 "file": "test_dict",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_dict.DictTest.test_fromkeys_operator_modifying_dict_operand",
@@ -4135,7 +4135,7 @@
 "id": "test_dict.DictTest.test_items_symmetric_difference",
 "file": "test_dict",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output is not reproducible: 3 runs at PYTHONHASHSEED=1 all differ"
 },
 {
 "id": "test_dict.DictTest.test_iterator_pickling",
@@ -4155,7 +4155,7 @@
 "id": "test_dict.DictTest.test_keys",
 "file": "test_dict",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_dict.DictTest.test_keys_contained",
@@ -4189,7 +4189,7 @@
 "id": "test_dict.DictTest.test_literal_constructor",
 "file": "test_dict",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output is not reproducible: 3 runs at PYTHONHASHSEED=1 all differ"
 },
 {
 "id": "test_dict.DictTest.test_merge_and_mutate",
@@ -5474,14 +5474,22 @@
 {
 "id": "test_richcmp.MiscTest.test_recursion",
 "file": "test_richcmp",
-"category": "not_extractable",
-"detail": "decorator @support.no_tracing"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_richcmp.DictTest.test_dicts",
 "file": "test_richcmp",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output is not reproducible: 3 runs at PYTHONHASHSEED=1 all differ"
 },
 {
 "id": "test_richcmp.ListTest.test_badentry",
@@ -5529,13 +5537,13 @@
 "id": "test_set.TestSet.test_add",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSet.test_and",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSet.test_badcmp",
@@ -5611,7 +5619,7 @@
 "id": "test_set.TestSet.test_copy",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSet.test_cyclical_repr",
@@ -5645,13 +5653,13 @@
 "id": "test_set.TestSet.test_difference",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSet.test_difference_update",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSet.test_discard",
@@ -5685,7 +5693,7 @@
 "id": "test_set.TestSet.test_equality",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSet.test_free_after_iterating",
@@ -5753,25 +5761,25 @@
 "id": "test_set.TestSet.test_init",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSet.test_inplace_on_self",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSet.test_intersection",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSet.test_intersection_update",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSet.test_ior",
@@ -5819,7 +5827,7 @@
 "id": "test_set.TestSet.test_iterator_pickling",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSet.test_ixor",
@@ -5867,13 +5875,13 @@
 "id": "test_set.TestSet.test_or",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSet.test_pickling",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSet.test_pop",
@@ -6019,7 +6027,7 @@
 "id": "test_set.TestSet.test_sub",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED=3"
+"detail": "rule 2: CPython's output at PYTHONHASHSEED=3 differs from seeds 1 and 2 (reproduced)"
 },
 {
 "id": "test_set.TestSet.test_sub_and_super",
@@ -6053,19 +6061,19 @@
 "id": "test_set.TestSet.test_symmetric_difference",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSet.test_symmetric_difference_update",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSet.test_union",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSet.test_uniquification",
@@ -6085,31 +6093,31 @@
 "id": "test_set.TestSet.test_update",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSet.test_weakref",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSet.test_xor",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSetSubclass.test_add",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSetSubclass.test_and",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSetSubclass.test_badcmp",
@@ -6185,7 +6193,7 @@
 "id": "test_set.TestSetSubclass.test_copy",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSetSubclass.test_cyclical_repr",
@@ -6219,13 +6227,13 @@
 "id": "test_set.TestSetSubclass.test_difference",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSetSubclass.test_difference_update",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSetSubclass.test_discard",
@@ -6259,7 +6267,7 @@
 "id": "test_set.TestSetSubclass.test_equality",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSetSubclass.test_free_after_iterating",
@@ -6327,25 +6335,25 @@
 "id": "test_set.TestSetSubclass.test_init",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSetSubclass.test_inplace_on_self",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSetSubclass.test_intersection",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSetSubclass.test_intersection_update",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSetSubclass.test_ior",
@@ -6393,7 +6401,7 @@
 "id": "test_set.TestSetSubclass.test_iterator_pickling",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSetSubclass.test_ixor",
@@ -6455,13 +6463,13 @@
 "id": "test_set.TestSetSubclass.test_or",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSetSubclass.test_pickling",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSetSubclass.test_pop",
@@ -6607,7 +6615,7 @@
 "id": "test_set.TestSetSubclass.test_sub",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED=3"
+"detail": "rule 2: CPython's output at PYTHONHASHSEED=3 differs from seeds 1 and 2 (reproduced)"
 },
 {
 "id": "test_set.TestSetSubclass.test_sub_and_super",
@@ -6641,19 +6649,19 @@
 "id": "test_set.TestSetSubclass.test_symmetric_difference",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSetSubclass.test_symmetric_difference_update",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSetSubclass.test_union",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSetSubclass.test_uniquification",
@@ -6673,25 +6681,25 @@
 "id": "test_set.TestSetSubclass.test_update",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSetSubclass.test_weakref",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSetSubclass.test_xor",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestFrozenSet.test_and",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestFrozenSet.test_badcmp",
@@ -6711,7 +6719,7 @@
 "id": "test_set.TestFrozenSet.test_constructor_identity",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output is not reproducible: 3 runs at PYTHONHASHSEED=1 all differ"
 },
 {
 "id": "test_set.TestFrozenSet.test_container_iterator",
@@ -6745,7 +6753,7 @@
 "id": "test_set.TestFrozenSet.test_copy",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output is not reproducible: 3 runs at PYTHONHASHSEED=1 all differ"
 },
 {
 "id": "test_set.TestFrozenSet.test_cyclical_repr",
@@ -6779,7 +6787,7 @@
 "id": "test_set.TestFrozenSet.test_difference",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestFrozenSet.test_do_not_rehash_dict_keys",
@@ -6799,7 +6807,7 @@
 "id": "test_set.TestFrozenSet.test_equality",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestFrozenSet.test_free_after_iterating",
@@ -6811,7 +6819,7 @@
 "id": "test_set.TestFrozenSet.test_frozen_as_dictkey",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestFrozenSet.test_gc",
@@ -6831,13 +6839,13 @@
 "id": "test_set.TestFrozenSet.test_hash",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestFrozenSet.test_hash_caching",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestFrozenSet.test_hash_effectiveness",
@@ -6857,13 +6865,13 @@
 "id": "test_set.TestFrozenSet.test_init",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestFrozenSet.test_intersection",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestFrozenSet.test_isdisjoint",
@@ -6883,7 +6891,7 @@
 "id": "test_set.TestFrozenSet.test_iterator_pickling",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestFrozenSet.test_len",
@@ -6917,13 +6925,13 @@
 "id": "test_set.TestFrozenSet.test_or",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestFrozenSet.test_pickling",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestFrozenSet.test_setOfFrozensets",
@@ -6943,7 +6951,7 @@
 "id": "test_set.TestFrozenSet.test_sub",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED=3"
+"detail": "rule 2: CPython's output at PYTHONHASHSEED=3 differs from seeds 1 and 2 (reproduced)"
 },
 {
 "id": "test_set.TestFrozenSet.test_sub_and_super",
@@ -6977,13 +6985,13 @@
 "id": "test_set.TestFrozenSet.test_symmetric_difference",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestFrozenSet.test_union",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestFrozenSet.test_uniquification",
@@ -7003,13 +7011,13 @@
 "id": "test_set.TestFrozenSet.test_xor",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestFrozenSetSubclass.test_and",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestFrozenSetSubclass.test_badcmp",
@@ -7113,7 +7121,7 @@
 "id": "test_set.TestFrozenSetSubclass.test_difference",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestFrozenSetSubclass.test_do_not_rehash_dict_keys",
@@ -7133,7 +7141,7 @@
 "id": "test_set.TestFrozenSetSubclass.test_equality",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestFrozenSetSubclass.test_free_after_iterating",
@@ -7145,7 +7153,7 @@
 "id": "test_set.TestFrozenSetSubclass.test_frozen_as_dictkey",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestFrozenSetSubclass.test_gc",
@@ -7165,13 +7173,13 @@
 "id": "test_set.TestFrozenSetSubclass.test_hash",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestFrozenSetSubclass.test_hash_caching",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestFrozenSetSubclass.test_hash_effectiveness",
@@ -7191,13 +7199,13 @@
 "id": "test_set.TestFrozenSetSubclass.test_init",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestFrozenSetSubclass.test_intersection",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestFrozenSetSubclass.test_isdisjoint",
@@ -7217,7 +7225,7 @@
 "id": "test_set.TestFrozenSetSubclass.test_iterator_pickling",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestFrozenSetSubclass.test_keywords_in_subclass",
@@ -7279,13 +7287,13 @@
 "id": "test_set.TestFrozenSetSubclass.test_or",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestFrozenSetSubclass.test_pickling",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestFrozenSetSubclass.test_setOfFrozensets",
@@ -7319,7 +7327,7 @@
 "id": "test_set.TestFrozenSetSubclass.test_sub",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED=3"
+"detail": "rule 2: CPython's output at PYTHONHASHSEED=3 differs from seeds 1 and 2 (reproduced)"
 },
 {
 "id": "test_set.TestFrozenSetSubclass.test_sub_and_super",
@@ -7353,13 +7361,13 @@
 "id": "test_set.TestFrozenSetSubclass.test_symmetric_difference",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestFrozenSetSubclass.test_union",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestFrozenSetSubclass.test_uniquification",
@@ -7379,7 +7387,7 @@
 "id": "test_set.TestFrozenSetSubclass.test_xor",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestBasicOpsEmpty.test_copy",
@@ -8365,13 +8373,13 @@
 "id": "test_set.TestBasicOpsTriple.test_copy",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED=3"
+"detail": "rule 2: CPython's output at PYTHONHASHSEED=3 differs from seeds 1 and 2 (reproduced)"
 },
 {
 "id": "test_set.TestBasicOpsTriple.test_empty_difference",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestBasicOpsTriple.test_empty_difference_rev",
@@ -8419,19 +8427,19 @@
 "id": "test_set.TestBasicOpsTriple.test_empty_symmetric_difference",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestBasicOpsTriple.test_empty_union",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED=3"
+"detail": "rule 2: CPython's output at PYTHONHASHSEED=3 differs from seeds 1 and 2 (reproduced)"
 },
 {
 "id": "test_set.TestBasicOpsTriple.test_equivalent_equality",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED=3"
+"detail": "rule 2: CPython's output at PYTHONHASHSEED=3 differs from seeds 1 and 2 (reproduced)"
 },
 {
 "id": "test_set.TestBasicOpsTriple.test_intersection_empty",
@@ -8549,13 +8557,13 @@
 "id": "test_set.TestBasicOpsTriple.test_self_equality",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED=3"
+"detail": "rule 2: CPython's output at PYTHONHASHSEED=3 differs from seeds 1 and 2 (reproduced)"
 },
 {
 "id": "test_set.TestBasicOpsTriple.test_self_intersection",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED=3"
+"detail": "rule 2: CPython's output at PYTHONHASHSEED=3 differs from seeds 1 and 2 (reproduced)"
 },
 {
 "id": "test_set.TestBasicOpsTriple.test_self_isdisjoint",
@@ -8589,25 +8597,25 @@
 "id": "test_set.TestBasicOpsTriple.test_self_union",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED=3"
+"detail": "rule 2: CPython's output at PYTHONHASHSEED=3 differs from seeds 1 and 2 (reproduced)"
 },
 {
 "id": "test_set.TestBasicOpsTriple.test_union_empty",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED=3"
+"detail": "rule 2: CPython's output at PYTHONHASHSEED=3 differs from seeds 1 and 2 (reproduced)"
 },
 {
 "id": "test_set.TestBasicOpsString.test_copy",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestBasicOpsString.test_empty_difference",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestBasicOpsString.test_empty_difference_rev",
@@ -8655,19 +8663,19 @@
 "id": "test_set.TestBasicOpsString.test_empty_symmetric_difference",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestBasicOpsString.test_empty_union",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestBasicOpsString.test_equivalent_equality",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestBasicOpsString.test_intersection_empty",
@@ -8785,13 +8793,13 @@
 "id": "test_set.TestBasicOpsString.test_self_equality",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestBasicOpsString.test_self_intersection",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestBasicOpsString.test_self_isdisjoint",
@@ -8825,25 +8833,25 @@
 "id": "test_set.TestBasicOpsString.test_self_union",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestBasicOpsString.test_union_empty",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestBasicOpsBytes.test_copy",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestBasicOpsBytes.test_empty_difference",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestBasicOpsBytes.test_empty_difference_rev",
@@ -8891,19 +8899,19 @@
 "id": "test_set.TestBasicOpsBytes.test_empty_symmetric_difference",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestBasicOpsBytes.test_empty_union",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestBasicOpsBytes.test_equivalent_equality",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestBasicOpsBytes.test_intersection_empty",
@@ -9021,13 +9029,13 @@
 "id": "test_set.TestBasicOpsBytes.test_self_equality",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestBasicOpsBytes.test_self_intersection",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestBasicOpsBytes.test_self_isdisjoint",
@@ -9061,13 +9069,13 @@
 "id": "test_set.TestBasicOpsBytes.test_self_union",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestBasicOpsBytes.test_union_empty",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestBasicOpsMixedStringBytes.test_copy",
@@ -9779,19 +9787,19 @@
 "id": "test_set.TestMutate.test_add_absent",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestMutate.test_add_present",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestMutate.test_add_until_full",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestMutate.test_clear",
@@ -9811,13 +9819,13 @@
 "id": "test_set.TestMutate.test_discard_absent",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestMutate.test_discard_present",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestMutate.test_pop",
@@ -9851,7 +9859,7 @@
 "id": "test_set.TestMutate.test_remove_present",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestMutate.test_remove_until_empty",
@@ -9871,19 +9879,19 @@
 "id": "test_set.TestMutate.test_update_empty_tuple",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestMutate.test_update_unit_tuple_non_overlap",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestMutate.test_update_unit_tuple_overlap",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestSubsetEqualEmpty.test_issubset",
@@ -11289,7 +11297,7 @@
 "id": "test_set.TestIdentities.test_commutativity",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestIdentities.test_exclusion",
@@ -11309,7 +11317,7 @@
 "id": "test_set.TestIdentities.test_summations",
 "file": "test_set",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_set.TestVariousIteratorArgs.test_constructor",
@@ -16571,25 +16579,25 @@
 "id": "test_patma.TestPatma.test_patma_218",
 "file": "test_patma",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_patma.TestPatma.test_patma_219",
 "file": "test_patma",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_patma.TestPatma.test_patma_220",
 "file": "test_patma",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_patma.TestPatma.test_patma_221",
 "file": "test_patma",
 "category": "unstable",
-"detail": "CPython's output changes with PYTHONHASHSEED"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_patma.TestPatma.test_patma_222",
@@ -17072,12 +17080,12 @@
 "file": "test_patma",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found P"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "typing: isinstance with a Protocol class needs CPython's typing"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -17086,12 +17094,12 @@
 "file": "test_patma",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`__bv_ms4` and a value kept elsewhere name the same list in Python, and `__bv_ms4` is changed (by a function the proof does not follow) while a value kept elsewhere is still used; the typed build woul"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "typing: isinstance with a Protocol class needs CPython's typing"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -17100,12 +17108,12 @@
 "file": "test_patma",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`__bv_ms4` and a value kept elsewhere name the same list in Python, and `__bv_ms4` is changed (by a function the proof does not follow) while a value kept elsewhere is still used; the typed build woul"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "typing: isinstance with a Protocol class needs CPython's typing"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -17842,12 +17850,12 @@
 "file": "test_patma",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found P"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "typing: isinstance with a Protocol class needs CPython's typing"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -17856,12 +17864,12 @@
 "file": "test_patma",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found P"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "typing: isinstance with a Protocol class needs CPython's typing"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -17890,12 +17898,12 @@
 "file": "test_patma",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`__bv_ms1` and a value kept elsewhere name the same list in Python, and `__bv_ms1` is changed (by a function the proof does not follow) while a value kept elsewhere is still used; the typed build woul"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys.gettrace is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -17904,12 +17912,12 @@
 "file": "test_patma",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`__bv_ms1` and a value kept elsewhere name the same list in Python, and `__bv_ms1` is changed (by a function the proof does not follow) while a value kept elsewhere is still used; the typed build woul"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys.gettrace is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -17918,12 +17926,12 @@
 "file": "test_patma",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`__bv_ms1` and a value kept elsewhere name the same list in Python, and `__bv_ms1` is changed (by a function the proof does not follow) while a value kept elsewhere is still used; the typed build woul"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys.gettrace is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -17932,12 +17940,12 @@
 "file": "test_patma",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected a name, found **"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys.gettrace is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -17946,12 +17954,12 @@
 "file": "test_patma",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected a name, found **"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys.gettrace is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -17974,12 +17982,12 @@
 "file": "test_patma",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected a name, found **"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys.gettrace is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 }
