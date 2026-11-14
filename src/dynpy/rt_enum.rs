@@ -891,9 +891,10 @@ pub fn enum_setup(c: &Rc<Class>) -> Result<(), E> {
             } else {
                 match call(&V::Class(mt.clone()), Args::p(args.clone())) {
                     Ok(x) => x,
-                    // a builtin data type: _new_member_ (its __new__) failed first with these same arguments, and
-                    // that error is the one raised
-                    Err(e) if mt.module == "builtins" => return Err(e),
+                    // a builtin data type and no __new__ of the class's own: _new_member_ (the data type's __new__)
+                    // failed first with these same arguments, and that error is the one raised. After a custom
+                    // __new__ that left _value_ unset, enum.py wraps the data type's error.
+                    Err(e) if mt.module == "builtins" && new_fn.is_none() => return Err(e),
                     Err(e) => {
                         let ne = exc("TypeError", "_value_ not set in __new__, unable to create it".into());
                         if let V::Obj(x) = &ne.0 {

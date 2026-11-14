@@ -13,3 +13,4 @@ TypeError str() argument 'encoding' must be str, not NoneType
 TypeError str() argument 'errors' must be str, not NoneType
 ''
 VE invalid literal for int() with base 10: 'x'
+TE _value_ not set in __new__, unable to create it | TypeError str() argument 'encoding' must be str, not int

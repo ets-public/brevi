@@ -41,3 +41,13 @@ try:
         a = 'x'
 except ValueError as e:
     print("VE", e)
+# a __new__ of the class's own that leaves _value_ unset: enum.py wraps the data type's error
+try:
+    class N(str, Enum):
+        def __new__(cls, value, seq):
+            m = str.__new__(cls, value)
+            m.seq = seq
+            return m
+        a = 'x', 0
+except TypeError as e:
+    print("TE", e, "|", type(e.__cause__).__name__, e.__cause__)
