@@ -961,7 +961,7 @@ fn verified(files: &mut Files, t: String, err: bool) -> (String, bool) {
     (out, err)
 }
 
-fn python() -> String {
+fn python() -> Result<String, String> {
     crate::python_exe()
 }
 
@@ -976,7 +976,10 @@ fn run_cpython(files: &mut Files, args: &[String], stdin: &str, limit: Duration,
     a.extend(args.iter().cloned());
     files.path = Some(CPYTHON_ONLY.into());
     // (the path line goes at the end of the reply, as for any run off the typed path: with_path)
-    run_bin(Path::new(&python()), &a, stdin, limit, lims, None)
+    match python() {
+        Ok(py) => run_bin(Path::new(&py), &a, stdin, limit, lims, None),
+        Err(m) => (m, true),
+    }
 }
 
 // Whether a case's output is what it expects: (matches, failed run).
@@ -994,12 +997,16 @@ fn cpython_cases(files: &mut Files, args: &[String], cases: &[J], per_case: Dura
     let mut a = vec![files.main()];
     a.extend(args.iter().cloned());
     files.path = Some(CPYTHON_ONLY.into());
+    let py = match python() {
+        Ok(p) => p,
+        Err(m) => return (m, true),
+    };
     let mut out = vec![];
     let mut failed = 0;
     for (i, c) in cases.iter().enumerate() {
         let stdin = c.get("stdin").and_then(|v| v.str()).unwrap_or("");
         let want = c.get("expect").and_then(|v| v.str()).unwrap_or("");
-        let (got, bad) = run_bin(Path::new(&python()), &a, stdin, per_case, lims, None);
+        let (got, bad) = run_bin(Path::new(&py), &a, stdin, per_case, lims, None);
         if case_ok(&got, bad, want) {
             out.push(format!("case {}: ok", i + 1));
         } else {
@@ -1085,10 +1092,11 @@ fn run_cases(files: &mut Files, extra: &[String], cases: &[J], sandboxed: bool, 
         if !via_run {
             native_failed += 1;
             // CPython on the same case: when it gives the expected output, the wrong answer is Brevi's.
-            if !sandboxed && main_py.ends_with(".py") {
+            // (with no CPython 3.13 here there is nothing to compare with, so no case is called Brevi's)
+            if let (false, true, Ok(py)) = (sandboxed, main_py.ends_with(".py"), python()) {
                 let mut pa = vec![main_py.clone()];
                 pa.extend(args.iter().cloned());
-                let (pg, pbad) = run_bin(Path::new(&python()), &pa, stdin, per_case, lims, None);
+                let (pg, pbad) = run_bin(Path::new(&py), &pa, stdin, per_case, lims, None);
                 if case_ok(&pg, pbad, want) {
                     brevi_bug = true;
                     out.push(format!("case {}: differs from expect", i + 1));

@@ -262,10 +262,13 @@ fn key(args: &[String], file: &str, envs: &[(&str, &str)], me: &Path) -> Option<
     vars.sort();
     parts.extend(vars.into_iter().map(|(k, v)| format!("{k}={v}")));
     // The Python that library calls link against (an upgrade in place leaves PATH as it was).
-    let py = crate::python_exe();
-    let found = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).map(|d| d.join(&py)).find(|f| f.is_file())).flatten();
-    if let Some(m) = found.and_then(|f| std::fs::canonicalize(f).ok()).and_then(|f| std::fs::metadata(&f).ok().map(|m| (f, m))) {
-        parts.push(format!("{} {} {:?}", m.0.display(), m.1.len(), m.1.modified().ok()));
+    // Every interpreter the CPython 3.13 search would look at (src/cpython.rs), by file, without starting one:
+    // installing, removing or upgrading any of them can change which one is found.
+    for f in crate::cpython::candidates() {
+        let f = if f.components().count() == 1 { std::env::var_os("PATH").and_then(|p| std::env::split_paths(&p).map(|d| d.join(&f)).find(|x| x.is_file())).unwrap_or(f) } else { f };
+        if let Some(m) = std::fs::canonicalize(&f).ok().and_then(|f| std::fs::metadata(&f).ok().map(|m| (f, m))) {
+            parts.push(format!("{} {} {:?}", m.0.display(), m.1.len(), m.1.modified().ok()));
+        }
     }
     let path = std::fs::canonicalize(file).ok()?;
     parts.push(path.to_string_lossy().into());

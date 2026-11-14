@@ -557,8 +557,7 @@ fn to_rust_np2(file: &str) -> Result<String, (String, usize, String)> {
 // loaded first: asked of python3 when the program is built, without importing duckdb.
 fn duck_libs() -> (Vec<String>, String) {
     const Q: &str = "import importlib.util, glob, os, sys, sysconfig\ns = importlib.util.find_spec('duckdb')\nd = os.path.dirname(list(s.submodule_search_locations)[0]) if s and s.submodule_search_locations else ''\nlibs = sorted(glob.glob(os.path.join(d, '_duckdb*.so')) + glob.glob(os.path.join(d, '*duckdb*.dll')) + glob.glob(os.path.join(d, '_duckdb*.pyd'))) if d else []\nlib = os.path.join(sys.base_prefix, 'python%d%d.dll' % sys.version_info[:2]) if os.name == 'nt' else os.path.join(sysconfig.get_config_var('LIBDIR') or '', sysconfig.get_config_var('INSTSONAME') or sysconfig.get_config_var('LDLIBRARY') or '')\nprint('\\x01'.join([lib] + libs))";
-    let exe = crate::python_exe();
-    let out = std::process::Command::new(&exe).args(["-c", Q]).output().map(|o| String::from_utf8_lossy(&o.stdout).trim_end().to_string()).unwrap_or_default();
+    let out = crate::python_exe().ok().and_then(|exe| std::process::Command::new(&exe).args(["-c", Q]).output().ok()).map(|o| String::from_utf8_lossy(&o.stdout).trim_end().to_string()).unwrap_or_default();
     let mut parts = out.split('\u{1}').map(String::from);
     let pre = parts.next().unwrap_or_default();
     (parts.filter(|x| !x.is_empty()).collect(), pre)
@@ -589,13 +588,15 @@ fn pins(files: &[String]) -> Vec<(String, String)> {
 // Windows program never loads (or trusts) a DLL or bundle from its own folder or PATH.
 fn python_ssl_dir() -> String {
     const Q: &str = "import os, sys\nfor d in (os.path.join(sys.base_prefix, 'DLLs'), os.path.dirname(sys.executable)):\n    if os.path.isfile(os.path.join(d, 'libssl-1_1.dll')) or os.path.isfile(os.path.join(d, 'libssl-3-x64.dll')) or os.path.isfile(os.path.join(d, 'libssl-3.dll')):\n        print(d)\n        break";
-    let out = std::process::Command::new(crate::python_exe()).args(["-I", "-c", Q]).output();
+    let Ok(exe) = crate::python_exe() else { return String::new() };
+    let out = std::process::Command::new(exe).args(["-I", "-c", Q]).output();
     out.map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default()
 }
 
 fn python_ca_file() -> String {
     const Q: &str = "try:\n    import certifi\n    print(certifi.where())\nexcept Exception:\n    import ssl\n    p = ssl.get_default_verify_paths().cafile or ''\n    print(p if p and __import__('os').path.isfile(p) else '')";
-    let out = std::process::Command::new(crate::python_exe()).args(["-I", "-c", Q]).output();
+    let Ok(exe) = crate::python_exe() else { return String::new() };
+    let out = std::process::Command::new(exe).args(["-I", "-c", Q]).output();
     out.map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default()
 }
 
@@ -605,7 +606,7 @@ const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap, argparse, loggin
 // program is built, without importing onnxruntime.
 fn ort_libs() -> Vec<String> {
     const Q: &str = "import importlib.util, glob, os\ns = importlib.util.find_spec('onnxruntime')\nd = list(s.submodule_search_locations)[0] if s and s.submodule_search_locations else ''\nlibs = sorted(glob.glob(os.path.join(d, 'capi', 'libonnxruntime.so*')) + glob.glob(os.path.join(d, 'capi', 'libonnxruntime*.dylib')) + glob.glob(os.path.join(d, 'capi', 'onnxruntime*.dll'))) if d else []\nprint('\\x01'.join(libs))";
-    let exe = crate::python_exe();
+    let Ok(exe) = crate::python_exe() else { return vec![] };
     let Ok(o) = std::process::Command::new(&exe).args(["-I", "-c", Q]).output() else { return vec![] };
     String::from_utf8_lossy(&o.stdout).trim().split('\x01').filter(|s| !s.is_empty()).map(|s| s.to_string()).collect()
 }
@@ -1597,7 +1598,7 @@ fn lib_classes(mods: &[emit::Module], texts: &HashMap<String, (String, String)>,
         if want.is_empty() {
             continue;
         }
-        let exe = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
+        let exe = crate::python_exe().map_err(|why| (path.clone(), want[0].0, format!("class {} is built on a library class, which CPython runs: {why}", want[0].1)))?;
         let ask = format!("{{\"src\":{},\"lines\":[{}]}}", jq(&src), want.iter().map(|w| w.0.to_string()).collect::<Vec<_>>().join(","));
         let got = (|| -> Option<String> {
             use std::io::Write;
@@ -1681,9 +1682,9 @@ fn jq(s: &str) -> String {
 // importlib.metadata.version's table: each distribution installed for the build machine's python3 whose name
 // the program spells as a string, with its version. A name not in it raises PackageNotFoundError.
 fn dist_table(texts: &[String]) -> String {
-    let exe = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
+    let exe = crate::python_exe();
     const Q: &str = "import importlib.metadata as m\nfor d in m.distributions():\n    n = d.metadata['Name']\n    if n: print(n + '\\t' + d.version)";
-    let out = std::process::Command::new(&exe).args(["-I", "-c", Q]).output().map(|o| String::from_utf8_lossy(&o.stdout).to_string()).unwrap_or_default();
+    let out = exe.ok().and_then(|exe| std::process::Command::new(&exe).args(["-I", "-c", Q]).output().ok()).map(|o| String::from_utf8_lossy(&o.stdout).to_string()).unwrap_or_default();
     let mut named: HashSet<String> = HashSet::new();
     for t in texts {
         for q in ['"', '\''] {

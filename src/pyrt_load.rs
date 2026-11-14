@@ -168,10 +168,33 @@ fn ax_pyb_conf() -> Result<(String, String, Vec<String>), String> {
     if let Some(c) = parse(AX_PYB_CONF).filter(|c| std::path::Path::new(&c.0).is_file()) {
         return Ok(c);
     }
-    let exe = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| ax_default_python());
-    let out = std::process::Command::new(&exe).args(["-c", AX_PYB_QUERY]).output().map_err(|e| format!("cannot start {exe}: {e}"))?;
-    let s = String::from_utf8_lossy(&out.stdout).trim_end().to_string();
-    parse(&s).filter(|c| !c.0.is_empty()).ok_or_else(|| format!("{exe} has no shared library (libpython) to load"))
+    // The library moved: asked again of BREVI_PYTHON, else python3.13, else python3 (python on Windows). Only a
+    // CPython 3.13 answers; ax_pyb_load checks the library's own version too.
+    let names: Vec<String> = match std::env::var("BREVI_PYTHON") {
+        Ok(p) if !p.is_empty() => vec![p],
+        _ => vec!["python3.13".into(), ax_default_python()],
+    };
+    let mut why = String::new();
+    for exe in &names {
+        let q = format!("import sys\nif (sys.implementation.name, sys.version_info[:2]) != ('cpython', (3, 13)):\n    print('\\x02%s %d.%d.%d' % ((sys.implementation.name,) + tuple(sys.version_info[:3])))\n    sys.exit()\n{AX_PYB_QUERY}");
+        let out = match std::process::Command::new(exe).args(["-c", &q]).output() {
+            Ok(o) => o,
+            Err(e) => {
+                why = format!("cannot start {exe}: {e}");
+                continue;
+            }
+        };
+        let s = String::from_utf8_lossy(&out.stdout).trim_end().to_string();
+        if let Some(v) = s.strip_prefix('\u{2}') {
+            why = format!("{exe} is {v}, and Brevi answers as CPython 3.13 does, so it loads only CPython 3.13: set BREVI_PYTHON to a CPython 3.13");
+            continue;
+        }
+        match parse(&s).filter(|c| !c.0.is_empty()) {
+            Some(c) => return Ok(c),
+            None => why = format!("{exe} has no shared library (libpython) to load"),
+        }
+    }
+    Err(why)
 }
 
 // The CPython a standalone build carries (appended by pybundle.py): unpacked once into a cache folder
@@ -751,6 +774,21 @@ fn ax_pyb_load() -> Result<ax_pyffi::Api, String> {
     let h = unsafe { ax_pyffi::ax_open(c.as_ptr(), 2 | 0x100) };
     if h.is_null() {
         return Err(format!("cannot load {lib}"));
+    }
+    // Brevi answers as CPython 3.13 does: a library of another version (one swapped in at the same path, a moved
+    // install found again, a BREVI_PYTHON of another version) is refused before it runs anything.
+    {
+        let c = CString::new("Py_GetVersion").unwrap();
+        let p = unsafe { ax_pyffi::ax_sym(h, c.as_ptr()) };
+        if p.is_null() {
+            return Err(format!("{lib} has no Py_GetVersion"));
+        }
+        let get: unsafe extern "C" fn() -> *const std::os::raw::c_char = unsafe { std::mem::transmute(p) };
+        let v = unsafe { std::ffi::CStr::from_ptr(get()) }.to_string_lossy().to_string();
+        let v = v.split_whitespace().next().unwrap_or("").to_string();
+        if !v.strip_prefix("3.13").is_some_and(|r| r.starts_with('.')) {
+            return Err(format!("{lib} is CPython {v}, and Brevi answers as CPython 3.13 does, so it loads only CPython 3.13: set BREVI_PYTHON to a CPython 3.13, or rebuild the program where python3.13 is found"));
+        }
     }
     let sym = |n: &str| -> Result<ax_pyffi::P, String> {
         let c = CString::new(n).unwrap();

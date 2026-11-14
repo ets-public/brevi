@@ -897,9 +897,10 @@ for f in tests/standalone/*.py; do
   $BREVI build "$f" --native --standalone -o "$t/prog" >/dev/null 2>&1
   out=$(env -i HOME="$t" PATH=/nonexistent BREVI_PY_CACHE="$t/cache" "$t/prog" 2>&1; ls "$t"/cache/*/.brevi-ok >/dev/null 2>&1 || echo "bundle not unpacked")
   if unshare -r true 2>/dev/null; then
-    mkdir -p "$t/root/tmp"; cp "$t/prog" "$t/root/prog"
+    # /dev/urandom too, as every machine has it: uv's CPython builds read it when they start.
+    mkdir -p "$t/root/tmp" "$t/root/dev"; touch "$t/root/dev/urandom"; cp "$t/prog" "$t/root/prog"
     for l in $(ldd "$t/prog" | grep -o '/[^ ]*') $(ldconfig -p | grep -E '/(libm|libpthread|libdl|librt|libutil)\.so\.[0-9]+$' | grep -o '/[^ ]*$'); do mkdir -p "$t/root$(dirname "$l")"; cp -L "$l" "$t/root$l"; done
-    bare=$(unshare -r env -i HOME=/tmp "$(command -v chroot)" "$t/root" /prog 2>&1)
+    bare=$(unshare -r -m sh -c 'mount --bind /dev/urandom "$1/dev/urandom" 2>/dev/null; exec env -i HOME=/tmp "$2" "$1" /prog' sh "$t/root" "$(command -v chroot)" 2>&1)
     [ "$bare" = "$out" ] || out="$out
 in an empty root: $bare"
   fi
@@ -1029,6 +1030,14 @@ exp=tests/run_verify.expected
 if [ "$1" = "--update" ]; then printf '%s\n' "$rvout" > "$exp"
 elif [ "$rvout" != "$(cat "$exp")" ]; then echo "FAIL brevi run --verify"; printf '%s\n' "$rvout" | diff "$exp" - ; fail=1
 else echo "ok   brevi run --verify"; fi
+# Only CPython 3.13 (src/cpython.rs): one of another version is refused by the fallback, verify and brevi-python,
+# never run (tests/verify/py314.sh says it is 3.14).
+o=$(BREVI_PYTHON=tests/verify/py314.sh $BREVI run tests/fallback/globals_write.py 2>&1
+  BREVI_PYTHON=tests/verify/py314.sh $BREVI verify tests/verify/sq.py --input tests/verify/sq 2>&1
+  echo 'print(6 * 7)' | BREVI_PYTHON=tests/verify/py314.sh $BREVI python - 2>&1)
+n=$(printf '%s\n' "$o" | grep -c "is cpython 3.14.0, and Brevi answers as CPython 3.13 does")
+if [ "$n" != 3 ] || printf '%s\n' "$o" | grep -qx 42; then echo "FAIL only CPython 3.13 ($n of 3 refused)"; printf '%s\n' "$o"; fail=1
+else echo "ok   only CPython 3.13"; fi
 exp=tests/cache.expected
 if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"
 elif [ "$out" != "$(cat "$exp")" ]; then echo "FAIL result cache"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
