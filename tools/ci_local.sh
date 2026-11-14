@@ -6,7 +6,8 @@
 #                                 branch changes (against origin/main) can affect them. GitHub CI runs them all.
 #   sh tools/ci_local.sh --full   everything, as the daily run and a release do
 #   sh tools/ci_local.sh --quick  skip the old-solutions rebuild (only for changes outside the compiler)
-# The language tests run in parallel (tests/check_parallel.py, one job per CPU; JOBS=N to change that).
+# The language tests run in parallel (tests/check_parallel.py, one job per CPU; JOBS=N to change that). The
+# conformance ratchets run JOBS tests at once too when JOBS is set (else conformance.py's default of 4).
 set -e
 step() { printf '\n== %s  (%s)\n' "$1" "$(date +%H:%M:%S)"; }
 # Room for every test program and old solution, so a second run finds them all cached (the default 1 GB evicts mid-run).
@@ -89,10 +90,13 @@ fi
 if [ $compat = 1 ] || [ $conf = 1 ] || [ "$mode" = --full ]; then
   step "CPython conformance ratchet (CPython 3.13.13 via uv; ~10 min)"
   if command -v uv >/dev/null 2>&1 && uv python install 3.13.13 --quiet 2>/dev/null; then
-    python3 tools/conformance.py --check --python "$(uv python find 3.13.13)" --out /tmp/brevi-conformance
+    # The same JOBS as the language tests (the PC's runs export JOBS=16); conformance.py alone defaults to 4. Every
+    # test runs in its own folder and processes, so only how many run at once changes, not what any of them does.
+    cj=${JOBS:+--jobs $JOBS}
+    python3 tools/conformance.py $cj --check --python "$(uv python find 3.13.13)" --out /tmp/brevi-conformance
     if [ $stdlib = 1 ]; then
       step "CPython conformance ratchet, stdlib slice (~6 min)"
-      python3 tools/conformance.py --slice stdlib --check --python "$(uv python find 3.13.13)" --out /tmp/brevi-conformance-stdlib
+      python3 tools/conformance.py $cj --slice stdlib --check --python "$(uv python find 3.13.13)" --out /tmp/brevi-conformance-stdlib
     else
       echo "(stdlib slice skipped: nothing here can change it; main runs it after the merge)"
     fi
