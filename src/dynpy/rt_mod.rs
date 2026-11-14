@@ -2956,6 +2956,15 @@ pub fn sys_fn(name: &str, a: Args) -> R {
             Ok(V::None)
         }
         "getrecursionlimit" => Ok(V::Int(REC_LIMIT.with(|l| l.get()) as i64)),
+        "getdefaultencoding" => {
+            if !a.k.is_empty() {
+                return type_err("sys.getdefaultencoding() takes no keyword arguments".into());
+            }
+            if !a.p.is_empty() {
+                return type_err(format!("sys.getdefaultencoding() takes no arguments ({} given)", a.p.len()));
+            }
+            Ok(s("utf-8"))
+        }
         "set_int_max_str_digits" => {
             let mut a = a;
             let kw = a.kw("maxdigits");
