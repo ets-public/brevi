@@ -723,9 +723,17 @@ for c in 'import sys\nprint(len(sys.modules))\n|only as `k in sys.modules`' \
   o=$(BREVI_DYN=1 $BREVI build "$t/sm.py" -o "$t/sm" 2>&1)
   case "$o" in *"${c#*|}"*) echo "ok   sys.modules refused: ${c#*|}" ;; *) echo "FAIL sys.modules not refused: ${c#*|}"; printf '%s\n' "$o"; fail=1 ;; esac
 done
-printf 'import sys, json\nk = "re"\nprint(k in sys.modules)\n' > "$t/sm.py"
-o=$(BREVI_DYN=1 $BREVI run "$t/sm.py" 2>&1); c=$?
-case "$c:$o" in "1:"*'sys.modules `in` with the key "re" (CPython 3.13 may'*) echo "ok   an unsure sys.modules key known only at run time stops the program" ;; *) echo "FAIL an unsure sys.modules key at run time ($c)"; printf '%s\n' "$o"; fail=1 ;; esac
+# a key known only at run time is refused when it builds, never at run time (even when every import is quiet),
+# unless it is a parameter whose every call passes a literal (tests/dyn/sys_modules_param.py)
+for c in 'import sys, json\nk = "re"\nprint(k in sys.modules)\n' 'import sys\nfor k in ["os", "x"]:\n    print(sys.modules.get(k))\n' \
+         'import sys\ndef mod(n):\n    return sys.modules[n]\nprint(mod("sys"), mod("x" * 2))\n' 'import sys\ndef mod(n):\n    return sys.modules[n]\ng = mod\nprint(mod("sys"))\n' \
+         'import sys\ndef mod(n):\n    return sys.modules[n]\nprint(mod("sys"), globals())\n' 'import sys\ndef mod(n):\n    return sys.modules[n]\nprint(mod("__main__"))\n' \
+         'import sys\ndef mod(n):\n    n = "os"\n    return sys.modules[n]\nprint(mod("sys"))\n' 'import sys\ndef mod(n):\n    return sys.modules[n]\nprint(mod(*["sys"]))\n' \
+         'import sys\nprint(1)\nimport json, functools\nprint(sys.modules["json"] is json)\n'; do
+  printf "$c" > "$t/sm.py"
+  o=$(BREVI_DYN=1 $BREVI build "$t/sm.py" -o "$t/sm" 2>&1)
+  case "$o" in *"is not supported in dynamic builds"*) echo "ok   sys.modules key refused at build: $(printf "$c" | tail -n 1)" ;; *) echo "FAIL sys.modules key not refused at build"; printf '%s\n' "$o"; fail=1 ;; esac
+done
 printf 'def f():\n    "\\ud800"\n' > "$t/d.py"
 o=$(BREVI_DYN=1 $BREVI run "$t/d.py" 2>&1)
 case "$o" in *"a docstring with a lone surrogate (U+D800..U+DFFF) is not supported"*) echo "ok   a docstring with a lone surrogate is refused" ;; *) echo "FAIL a docstring with a lone surrogate"; printf '%s\n' "$o"; fail=1 ;; esac

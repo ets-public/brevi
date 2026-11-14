@@ -3223,82 +3223,52 @@ pub fn sys_modules() -> V {
         V::Dict(s.get_or_insert_with(|| Rc::new(RefCell::new(Dict::new()))).clone())
     })
 }
-// The reads of sys.modules a dynamic build compiles, with what emit.rs (sysmod_key) knew of the key: Dict, the
-// dict alone decides (what the program imported and stored); Startup, CPython 3.13 had it when the script
-// started (with the module, when the read takes it); Dyn, a key only known now (Dyn below).
+// The reads of sys.modules a dynamic build compiles, with what emit.rs (sysmod_key) knew of the key, always a
+// literal: Dict, the dict alone decides (what the program imported and stored); Startup, CPython 3.13 had it when
+// the script started (with the module, when the read takes it); Lits, the key is a parameter whose every call
+// passes one of these strs, each decided as that literal is (emit.rs sysmod_param_lits).
 pub enum SysKey {
     Dict,
     Startup(Option<V>),
-    // the program's files, the library modules it imports, and whether every key is sure: the program imports
-    // only quiet library modules (emit.rs SYSMOD_QUIET), so what is not in the dict is not in CPython's and
-    // everything in it is (Brevi's own library copies, which may load modules CPython's do not, are not loaded)
-    Dyn(&'static [&'static str], &'static [&'static str], bool),
+    Lits(&'static [&'static str], Vec<SysKey>),
 }
-thread_local! {
-    // the keys `sys.modules[k] = v` in the program stored
-    static SYS_MODS_STORED: RefCell<std::collections::HashSet<String>> = RefCell::new(std::collections::HashSet::new());
+impl SysKey {
+    // the literal's own SysKey; a value no call passes reached the def by reflection the build did not see
+    fn pick(self, k: &V) -> Result<SysKey, E> {
+        let SysKey::Lits(ls, keys) = self else { return Ok(self) };
+        let at = if let V::Str(t) = k { ls.iter().position(|l| *l == t.text()) } else { None };
+        match at {
+            Some(i) => keys.into_iter().nth(i).unwrap().pick(k),
+            None => Err(unsupported("sys.modules read with a key the calls of its def do not pass (the def was reached by reflection)")),
+        }
+    }
 }
 pub fn is_sys_mod(v: &V) -> bool {
     matches!(v, V::Module(m) if m.0 == "sys")
 }
 pub fn sysmod_store(k: &V, v: V) -> Result<(), E> {
-    SYS_MODS_STORED.with(|s| s.borrow_mut().insert(sysmod_name(k)));
     setitem(&sys_modules(), k, v)
 }
-fn sysmod_name(k: &V) -> String {
-    if let V::Str(t) = k { t.text().to_string() } else { String::new() }
-}
-fn sysmod_unknown(k: &V, what: &str) -> E {
-    unsupported(&format!("sys.modules {what} with the key {:?} (CPython 3.13 may or may not have that module loaded here)", sysmod_name(k)))
-}
-// Whether CPython has a Dyn key: Ok(Some(true)) / Ok(Some(false)) when that is sure, given whether Brevi's dict has
-// it; refused when not. A str key is decided as emit.rs decides a literal; another key is in the dict only once
-// the program stored it.
-fn sysmod_dyn(k: &V, in_dict: bool, prog: &[&str], libs: &[&str], all_sure: bool, what: &str) -> Result<bool, E> {
-    let V::Str(_) = k else { return Ok(in_dict) };
-    let n = sysmod_name(k);
-    let mine = n == "__main__" || prog.contains(&n.as_str());
-    if in_dict {
-        if all_sure || mine || libs.contains(&n.as_str()) || sysmod_startup(&n) || SYS_MODS_STORED.with(|s| s.borrow().contains(&n)) {
-            return Ok(true);
-        }
-        return Err(sysmod_unknown(k, what));
-    }
-    if sysmod_startup(&n) {
-        return Ok(true);
-    }
-    if mine || (all_sure && !sysmod_unsure(&n)) {
-        return Ok(false);
-    }
-    Err(sysmod_unknown(k, what))
-}
 pub fn sysmod_has(k: &V, key: SysKey) -> Result<bool, E> {
-    let in_dict = contains(&sys_modules(), k)?;
-    match key {
+    match key.pick(k)? {
         SysKey::Startup(_) => Ok(true),
-        SysKey::Dict => Ok(in_dict),
-        SysKey::Dyn(prog, libs, sure) => sysmod_dyn(k, in_dict, prog, libs, sure, "`in`"),
+        _ => contains(&sys_modules(), k),
     }
 }
 pub fn sysmod_item(k: &V, key: SysKey) -> R {
     let d = sys_modules();
-    let in_dict = contains(&d, k)?;
-    match key {
-        SysKey::Startup(Some(m)) if !in_dict => {
+    match key.pick(k)? {
+        SysKey::Startup(Some(m)) if !contains(&d, k)? => {
             setitem(&d, k, m.clone())?;
             Ok(m)
         }
-        SysKey::Dyn(prog, libs, sure) if sysmod_dyn(k, in_dict, prog, libs, sure, "read")? && !in_dict => Err(sysmod_unknown(k, "read of a startup module")),
         _ => getitem(&d, k),
     }
 }
 pub fn sysmod_get(k: &V, default: V, key: SysKey) -> R {
-    let in_dict = contains(&sys_modules(), k)?;
-    match key {
-        SysKey::Startup(_) => sysmod_item(k, key),
-        SysKey::Dyn(prog, libs, sure) if !sysmod_dyn(k, in_dict, prog, libs, sure, "get()")? => Ok(default),
-        SysKey::Dyn(..) if !in_dict => Err(sysmod_unknown(k, "get() of a startup module")),
-        SysKey::Dict if !in_dict => Ok(default),
+    match key.pick(k)? {
+        st @ SysKey::Startup(_) => sysmod_item(k, st),
+        SysKey::Dict if !contains(&sys_modules(), k)? => Ok(default),
         _ => getitem(&sys_modules(), k),
     }
 }

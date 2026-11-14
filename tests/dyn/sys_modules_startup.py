@@ -22,6 +22,5 @@ def later():
 print("itertools" in sys.modules, later(), "itertools" in sys.modules)
 sys.modules["mine"] = 42
 print("mine" in sys.modules, sys.modules["mine"], sys.modules.get("mine"))
-for k in ["os", "math", "json", "mine", "never"]:
-    print(k, k in sys.modules, k not in sys.modules)
-print([sys.modules.get(k, "-") for k in ["math", "json", "mine", "never"]][1:])
+print("os" in sys.modules, "math" not in sys.modules, "json" in sys.modules, "mine" not in sys.modules, "never" in sys.modules)
+print([sys.modules.get("json", "-"), sys.modules.get("mine", "-"), sys.modules.get("never", "-")])

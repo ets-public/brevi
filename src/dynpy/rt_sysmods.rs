@@ -1,6 +1,6 @@
 // ---------- sys.modules at startup ----------
-// What CPython 3.13 has there before a script runs, shared by the compiler (emit.rs, which
-// decides at build time which reads are exact) and the runtime (rt_mod.rs, for keys only known when it runs).
+// What CPython 3.13 has there before a script runs, read by the compiler (emit.rs sysmod_key, which
+// decides at build time which reads are exact; a key known only at run time is refused).
 // As CPython 3.13 has it when `python3.13 script.py` starts (site on; no .pth file, sitecustomize or
 // PYTHON* variable adds to it), measured on Linux and read from CPython's Lib for Windows. A name starting with an
 // underscore, encodings and its codecs and the modules an environment may add are left out: no answer is sure
