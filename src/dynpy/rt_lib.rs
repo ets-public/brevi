@@ -1154,6 +1154,12 @@ pub fn abc_register(a: Args) -> R {
     if !abc_has(&c.abc_registry.borrow(), s) {
         c.abc_registry.borrow_mut().push(s.clone());
     }
+    // registering on Sequence or Mapping (or a subclass) marks the class for match statements, as CPython sets
+    // Py_TPFLAGS_SEQUENCE/MAPPING on it (never on a builtin type, which is immutable)
+    let f = pm_class_flags(c);
+    if f != 0 && s.made.get() != 0 && pm_own_flags(s) != f {
+        s.set_exact("__bv_flags__", V::Int(f));
+    }
     ABC_TOKEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     Ok(a.p[1].clone())
 }
@@ -2042,6 +2048,10 @@ pub fn builtin_fn(name: &str) -> Option<fn(Args) -> R> {
         "__brevi_afor_await" => bi___brevi_afor_await,
         "__brevi_eg_split" => bi___brevi_eg_split,
         "__brevi_eg_reraise" => bi___brevi_eg_reraise,
+        "__brevi_pm_seq" => bi___brevi_pm_seq,
+        "__brevi_pm_ismap" => bi___brevi_pm_ismap,
+        "__brevi_pm_map" => bi___brevi_pm_map,
+        "__brevi_pm_cls" => bi___brevi_pm_cls,
         _ => return None,
     })
 }
