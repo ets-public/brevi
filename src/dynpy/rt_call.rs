@@ -383,7 +383,53 @@ fn meta_from_base(m: &Rc<Class>, name: Sym, qualname: Sym, module: Sym, bases: V
     meta_call(m, Args::p(vec![s(name), tup(bases), ns]))
 }
 #[allow(clippy::too_many_arguments)]
-fn make_class_impl(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, attrs: Vec<(Sym, V)>, fields: Vec<Sym>, stmt: Option<(i64, Vec<Sym>)>, meta: Option<Rc<Class>>) -> R {
+fn make_class_impl(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, mut attrs: Vec<(Sym, V)>, fields: Vec<Sym>, stmt: Option<(i64, Vec<Sym>)>, meta: Option<Rc<Class>>) -> R {
+    // `class C[T](...)` (PEP 695): Generic[T, ...] comes last. As CPython's: a Generic of the class's own among its
+    // bases is a TypeError, and so is `object` (no MRO puts it before Generic). __parameters__ is the class's own
+    // type parameters (Generic.__init_subclass__ sets it in the class's dict).
+    let pep695 = match bases.last() {
+        Some(V::Ext(e)) => e.any().downcast_ref::<TForm>().and_then(|f| f.pep695.clone()),
+        _ => None,
+    };
+    if let Some(tv) = pep695 {
+        let others = &bases[..bases.len() - 1];
+        let generic = |b: &V| match b {
+            V::Class(k) => k.module == "typing" && k.name == "Generic",
+            V::Ext(e) => e.any().downcast_ref::<TForm>().is_some_and(|f| f.name == "Generic"),
+            _ => false,
+        };
+        if others.iter().any(generic) {
+            return type_err("Cannot inherit from Generic[...] multiple times.".into());
+        }
+        let object = |b: &V| matches!(b, V::Class(k) if k.module == "builtins" && k.name == "object");
+        if others.iter().any(object) {
+            if others.len() == 1 {
+                return type_err("Cannot create a consistent method resolution order (MRO) for bases object, Generic".into());
+            }
+            return Err(unsupported("a generic class (PEP 695) with object and other bases"));
+        }
+        if meta.is_some() {
+            return Err(unsupported("a generic class (PEP 695) with a metaclass"));
+        }
+        attrs.push((sym("__parameters__"), tup(tv)));
+    } else {
+        // a subclass of a PEP 695 class: Generic.__init_subclass__ gives it its own __parameters__, () on a plain
+        // base; on a subscripted one (`class D(C[int])`) it is worked out from arguments this runtime does not keep
+        let p695 = |k: &Rc<Class>| k.lookup("__parameters__").is_some() && k.lookup("__type_params__").is_some();
+        let mut plain = false;
+        for b in &bases {
+            match b {
+                V::Class(k) if p695(k) => plain = true,
+                V::Ext(e) if e.any().downcast_ref::<TForm>().is_some_and(|f| f.origin.as_ref().is_some_and(p695)) => {
+                    return Err(unsupported("a class on a subscripted generic class (PEP 695)"));
+                }
+                _ => {}
+            }
+        }
+        if plain && !attrs.iter().any(|(n, _)| *n == "__parameters__") {
+            attrs.push((sym("__parameters__"), tup(vec![])));
+        }
+    }
     // a class on Generic, Protocol or a typing alias (which typing_class takes out of the bases), or on such a class
     // (Class.made: 2 when how its subscript goes is not worked out here, 3 for none of its own type parameters, as
     // with `class B(G)` or `class P(Protocol)`, 10 + n for `class G(Generic[T, ...])` with n of them)
@@ -1539,8 +1585,8 @@ fn class_getattr(o: &V, c: &Rc<Class>, name: &str) -> R {
             }))
         }
         "__doc__" => Ok(V::None),
-        // a class that is not generic (Brevi has no `class C[T]`): CPython's empty tuple
-        "__type_params__" => Ok(tup(vec![])),
+        // a PEP 695 class's own (in its dict), else CPython's empty tuple (type's getter reads only the class's own)
+        "__type_params__" => Ok(c.own("__type_params__").unwrap_or_else(|| tup(vec![]))),
         // the class's own names in the order its body bound them (CPython's is a read-only view
         // with a few more dunder names)
         // CPython's type dict, as a read-only view (rt_tdict.rs; refused where Brevi cannot give it exactly)

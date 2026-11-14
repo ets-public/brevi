@@ -2042,6 +2042,10 @@ pub fn builtin_fn(name: &str) -> Option<fn(Args) -> R> {
         "__brevi_afor_await" => bi___brevi_afor_await,
         "__brevi_eg_split" => bi___brevi_eg_split,
         "__brevi_eg_reraise" => bi___brevi_eg_reraise,
+        "__brevi_typevar" => bi___brevi_typevar,
+        "__brevi_tparams" => bi___brevi_tparams,
+        "__brevi_typealias" => bi___brevi_typealias,
+        "__brevi_generic" => bi___brevi_generic,
         _ => return None,
     })
 }

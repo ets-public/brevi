@@ -300,7 +300,7 @@ fn is_missing_builtin(n: &str) -> bool {
 fn is_builtin_name(n: &str) -> bool {
     matches!(
         n,
-        "print" | "input" | "len" | "repr" | "ascii" | "abs" | "min" | "max" | "sum" | "sorted" | "reversed" | "enumerate" | "zip" | "map" | "filter" | "any" | "all" | "iter" | "next" | "isinstance" | "issubclass" | "hasattr" | "getattr" | "setattr" | "delattr" | "callable" | "ord" | "chr" | "hex" | "oct" | "bin" | "round" | "divmod" | "pow" | "hash" | "id" | "format" | "vars" | "dir" | "exit" | "quit" | "staticmethod" | "classmethod" | "property" | "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "slice" | "super" | "NotImplemented" | "Ellipsis" | "__name__" | "bytes" | "bytearray" | "memoryview" | "__bytes_lit" | "__brevi_lone_str" | "complex" | "__complex_lit" | "aiter" | "anext" | "__brevi_aenter" | "__brevi_aexit" | "__brevi_awith" | "__brevi_afor_await" | "__brevi_eg_split" | "__brevi_eg_reraise"
+        "print" | "input" | "len" | "repr" | "ascii" | "abs" | "min" | "max" | "sum" | "sorted" | "reversed" | "enumerate" | "zip" | "map" | "filter" | "any" | "all" | "iter" | "next" | "isinstance" | "issubclass" | "hasattr" | "getattr" | "setattr" | "delattr" | "callable" | "ord" | "chr" | "hex" | "oct" | "bin" | "round" | "divmod" | "pow" | "hash" | "id" | "format" | "vars" | "dir" | "exit" | "quit" | "staticmethod" | "classmethod" | "property" | "int" | "float" | "str" | "bool" | "list" | "tuple" | "dict" | "set" | "frozenset" | "object" | "type" | "range" | "slice" | "super" | "NotImplemented" | "Ellipsis" | "__name__" | "bytes" | "bytearray" | "memoryview" | "__bytes_lit" | "__brevi_lone_str" | "complex" | "__complex_lit" | "aiter" | "anext" | "__brevi_aenter" | "__brevi_aexit" | "__brevi_awith" | "__brevi_afor_await" | "__brevi_eg_split" | "__brevi_eg_reraise" | "__brevi_typevar" | "__brevi_tparams" | "__brevi_typealias" | "__brevi_generic"
     ) || is_exc_name(n)
 }
 fn is_exc_name(n: &str) -> bool {
@@ -1930,7 +1930,11 @@ impl Em {
     // CPython's __qualname__ for a def, lambda, class or genexpr named `name` defined in the current scope:
     // `outer.<locals>.f` inside a function, `Outer.f` inside a class, plain `name` at module level.
     fn qualname_of(&self, name: &str) -> String {
-        let parent = self.fstack.last().unwrap();
+        let mut parent = self.fstack.last().unwrap();
+        // a PEP 695 annotation scope (the parser's hidden __brevi_gp_ def) is not in CPython's qualnames
+        if parent.qname.rsplit('.').next().is_some_and(|l| l.starts_with("__brevi_gp_")) && self.fstack.len() >= 2 {
+            parent = &self.fstack[self.fstack.len() - 2];
+        }
         if parent.is_module {
             name.to_string()
         } else if parent.is_class {

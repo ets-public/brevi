@@ -218,7 +218,8 @@ fn stmt(s: &mut Stmt, cls: Option<&str>) -> PR<()> {
                 ex(v, cls);
             }
             c.static_attrs = static_attrs(&c.body);
-            let own = c.name.clone();
+            // (a PEP 695 class keeps its own name in disp under a hidden one: its body mangles with its own)
+            let own = c.disp.clone().unwrap_or_else(|| c.name.clone());
             if let Some(k) = cls {
                 if let Some(x) = mangled(k, &c.name) {
                     c.disp = Some(std::mem::replace(&mut c.name, x));
