@@ -923,6 +923,20 @@ fn int_flag_value(v: &V) -> Result<(), E> {
         _ => Ok(()),
     }
 }
+// Flag's operators on a member whose value is None (enum.py: "'F.E' cannot be combined with other flags
+// with |", "'F.E' cannot be inverted"); `op` None is __invert__
+fn flag_none_check(v: &V, op: Option<char>) -> Result<(), E> {
+    if let V::Obj(o) = v {
+        if matches!(o.get("_value_"), Some(V::None)) {
+            let t = to_str(v)?;
+            return type_err(match op {
+                Some(op) => format!("'{t}' cannot be combined with other flags with {op}"),
+                None => format!("'{t}' cannot be inverted"),
+            });
+        }
+    }
+    Ok(())
+}
 fn flag_int(v: &V) -> i64 {
     match v {
         V::Obj(o) => match o.get("_value_") {
@@ -1009,6 +1023,13 @@ fn flag_member(c: &Rc<Class>, value: i64) -> R {
         neg = Some(value);
         value = all + 1 + value;
     }
+    // a member (or pseudo-member) already made for the value is the one returned (enum.py's setdefault)
+    if neg.is_some() {
+        if let Some(m) = Dict::get_cell(&v2m, &V::Int(value))? {
+            Dict::set_cell(&v2m, V::Int(neg.unwrap()), m.clone())?;
+            return Ok(m);
+        }
+    }
     let unknown0 = value & !fm;
     let aliases = value & !sm;
     let member_value = value & sm;
@@ -1080,6 +1101,12 @@ fn flag_methods(fl: &Rc<Class>) {
     fn other_val(c: &Rc<Class>, x: &V) -> Option<i64> {
         match x {
             V::Obj(o) if o.cls.is_sub(c) => Some(flag_int(x)),
+            // an instance of the mixed-in int (another IntFlag's member, an int subclass): its int value
+            V::Obj(o) if !matches!(c.base_bt(), BT::Object | BT::Other) && matches!(o.cls.base_bt(), BT::Int) => match inner_of(x) {
+                Some(V::Int(i)) => Some(i),
+                Some(V::Bool(b)) => Some(b as i64),
+                _ => None,
+            },
             V::Int(i) if !matches!(c.base_bt(), BT::Object | BT::Other) => Some(*i),
             V::Bool(b) if !matches!(c.base_bt(), BT::Object | BT::Other) => Some(*b as i64),
             _ => None,
@@ -1089,6 +1116,8 @@ fn flag_methods(fl: &Rc<Class>) {
         fl.set(name, builtin(name, move |a: Args| {
             let c = me_cls(&a)?;
             let Some(o) = a.p.get(1).and_then(|x| other_val(&c, x)) else { return Ok(V::NotImpl) };
+            flag_none_check(&a.p[0], Some(op))?;
+            flag_none_check(&a.p[1], Some(op))?;
             int_flag_value(&a.p[0])?;
             int_flag_value(&a.p[1])?;
             let v = flag_int(&a.p[0]);
@@ -1101,6 +1130,7 @@ fn flag_methods(fl: &Rc<Class>) {
     }
     fl.set("__invert__", builtin("__invert__", |a: Args| {
         let c = me_cls(&a)?;
+        flag_none_check(&a.p[0], None)?;
         int_flag_value(&a.p[0])?;
         let v = flag_int(&a.p[0]);
         if c.lookup("__bv_keep__").is_some() {
@@ -1387,6 +1417,12 @@ pub fn enum_lookup(c: &Rc<Class>, v: &V) -> R {
             }
         }
     }
+    // Enum.__new__'s first step: the value map (a Flag's members that do not iterate, like a None member)
+    if let Some(V::Dict(d)) = c.own("_value2member_map_") {
+        if let Ok(Some(m)) = Dict::get_cell(&d, v) {
+            return Ok(m);
+        }
+    }
     if is_flag(c) && user_missing(c).is_none() {
         match v {
             V::Int(i) => return flag_member(c, *i),
@@ -1506,7 +1542,12 @@ pub fn enum_fn(n: &str, a: Args) -> R {
             }
             Ok(c)
         }
-        _ => Err(unsupported(&format!("enum.{n}"))),
+        // enum.Enum(...), enum.IntFlag(...): a call of the class, as through its value
+        "Enum" => call(&V::Class(enum_base()), a),
+        _ => match enum_class(n) {
+            Some(k) => call(&V::Class(k), a),
+            None => Err(unsupported(&format!("enum.{n}"))),
+        },
     }
 }
 // ---------- re.RegexFlag ----------
@@ -1957,19 +1998,26 @@ pub fn enum_class_dict(c: &Rc<Class>, values: bool) -> Result<Vec<(Sym, V)>, E> 
     if let Some(why) = t.inexact.get().filter(|w| *w != "changed by Brevi's runtime") {
         return refuse(why);
     }
-    if c.own("__bv_einit__").is_none() {
+    // still being made: __init_subclass__ is running, after type.__new__ and before EnumType.__new__'s own
+    // later settings (enum_post), with what it has set so far
+    let making = c.own("__bv_einit__").is_none();
+    if making && c.own("_member_map_").is_none() {
         return refuse("an enum class still being made");
     }
     let attrs = c.attrs.borrow().clone();
     let get = |n: &str| attrs.iter().find(|(k, _)| *k == n).map(|x| x.1.clone());
     let body = enum_names(c, "__bv_ebody__");
-    let init = enum_names(c, "__bv_einit__");
+    let init: Vec<String> = if making {
+        attrs.iter().filter(|(k, _)| !body.iter().any(|b| b == k)).map(|(k, _)| k.to_string()).collect()
+    } else {
+        enum_names(c, "__bv_einit__")
+    };
     let members: Vec<String> = match c.own("_member_map_") {
         Some(m @ V::Dict(_)) => to_vec(&m)?.iter().map(to_str).collect::<Result<_, _>>()?,
         _ => vec![],
     };
     let is_member = |n: &str| members.iter().any(|m| m == n);
-    let post = enum_post(c)?;
+    let post = if making { vec![] } else { enum_post(c)? };
     let mut out: Vec<(Sym, Option<V>)> = vec![];
     fn push(out: &mut Vec<(Sym, Option<V>)>, k: Sym, v: Option<V>) {
         if !out.iter().any(|(n, _)| *n == k) {
@@ -2003,13 +2051,24 @@ pub fn enum_class_dict(c: &Rc<Class>, values: bool) -> Result<Vec<(Sym, V)>, E> 
         None => push(&mut out, "__module__", Some(module)),
     }
     let mut made = vec!["_new_member_", "_use_args_", "_member_names_", "_member_map_", "_value2member_map_", "_hashable_values_", "_unhashable_values_", "_unhashable_values_map_", "_member_type_", "_value_repr_"];
-    if is_flag(c) {
+    if is_flag(c) && !making {
         made.extend(["_boundary_", "_flag_mask_", "_singles_mask_", "_all_bits_", "_inverted_"]);
     }
     for n in made {
         if let Some(v) = get(n) {
             push(&mut out, n, Some(v));
         }
+    }
+    if making {
+        // the Flag structures every enum class has while type.__new__ runs (enum.py removes them from a
+        // non-Flag after, and fills a Flag's in), and the in-progress marker
+        let b = if is_flag(c) { get("_boundary_") } else { Some(V::None) };
+        push(&mut out, "_boundary_", b);
+        for n in ["_flag_mask_", "_singles_mask_", "_all_bits_"] {
+            push(&mut out, n, Some(V::Int(0)));
+        }
+        push(&mut out, "_inverted_", Some(V::None));
+        push(&mut out, sym(&format!("_{}__in_progress", c.name)), Some(V::Bool(true)));
     }
     if t.add_dict {
         push(&mut out, "__dict__", Some(tdesc(2, c, "__dict__")));
