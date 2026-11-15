@@ -331,6 +331,7 @@ pub fn ax_needs_dyn(msg: &str) -> Option<&str> {
 }
 fn ax_i64_stop(what: &str) -> String {
     let why = AX_I64_WHY.get().copied().unwrap_or("it was not built as a Python file");
+    let lacks = if what.starts_with("a regex with ") { "which the typed build's regex matcher does not have" } else { "which its 64-bit numbers cannot hold exactly" };
     match std::env::var_os("BREVI_I64_REPLAY") {
         Some(p) if why.is_empty() => {
             use std::io::Write;
@@ -348,9 +349,9 @@ fn ax_i64_stop(what: &str) -> String {
             }
             format!("the typed build stopped: {what}, and the dynamic build could not be started")
         }
-        Some(_) => format!("the typed build stopped: {what}, which its 64-bit numbers cannot hold exactly; Brevi cannot re-run this program on the dynamic build because {why}. Run it with BREVI_DYN=1 for Python's exact values"),
-        None if std::env::var("BREVI_STRICT").is_ok_and(|v| !v.is_empty() && v != "0") => format!("the typed build stopped: {what}, which its 64-bit numbers cannot hold exactly; --strict allows no re-run on the dynamic build (drop --strict, or build it with BREVI_DYN=1)"),
-        None => format!("the typed build stopped: {what}, which its 64-bit numbers cannot hold exactly; `brevi run` re-runs such a program on the dynamic build, or build it with BREVI_DYN=1"),
+        Some(_) => format!("the typed build stopped: {what}, {lacks}; Brevi cannot re-run this program on the dynamic build because {why}. Run it with BREVI_DYN=1 for Python's exact values"),
+        None if std::env::var("BREVI_STRICT").is_ok_and(|v| !v.is_empty() && v != "0") => format!("the typed build stopped: {what}, {lacks}; --strict allows no re-run on the dynamic build (drop --strict, or build it with BREVI_DYN=1)"),
+        None => format!("the typed build stopped: {what}, {lacks}; `brevi run` re-runs such a program on the dynamic build, or build it with BREVI_DYN=1"),
     }
 }
 pub const AX_REPLAY_EXIT: i32 = 70;
@@ -8013,6 +8014,12 @@ fn ax_rx(p: &str) -> std::rc::Rc<(AxRx, usize)> {
     AX_RX.with(|c| {
         if let Some(r) = c.borrow().get(p) {
             return r.clone();
+        }
+        // The build checks literal patterns; one built at run time is checked here, by the same function
+        // (src/rx_typed.rs): syntax this matcher lacks stops the run (a Python file's `brevi run` then re-runs
+        // it on the dynamic build, src/replay.rs) instead of matching wrongly.
+        if let Some(why) = rx_typed_unsupported(p) {
+            panic!("AX_DYN: a regex with {why}, built at run time");
         }
         c.borrow_mut()
             .entry(p.to_string())
