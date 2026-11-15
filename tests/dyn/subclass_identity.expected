@@ -1,0 +1,52 @@
+s[:] str False False False
+b[:] bytes False False False
+t[:] tuple False False False
+s+'' str False False False
+''+s str False False False
+s*1 str False False False
+t+() tuple False False False
+()+t tuple False False False
+t*1 tuple False False False
+str() str False False False
+bytes() bytes False False False
+tuple() tuple False False False
+replace str False False False
+strip str False False False
+bound strip str False False False
+lower str False False False
+expandtabs str False False False
+format str False False False
+%s str False False False
+f str False False False
+join str False False False
+ljust str False False False
+center str False False False
+zfill str False False False
+removeprefix str False False False
+b.replace bytes False False False
+b.strip bytes False False False
+b.ljust bytes False False False
+b+'' bytes False False False
+b*1 bytes False False False
+split0 str False False False
+splitlines0 str False False False
+partition0 S False True True
+rpartition2 S False True True
+b.split0 bytes False False False
+b.partition0 B False True True
+copy S False False False
+deepcopy t T False False False
+str.__str__ str False False False
+0 b'(lp0\nVhello world\np1\naVhello world\np2\naVhello world\np3\na.' b'(lp0\n(I1\nI2\nI3\ntp1\na(I1\nI2\nI3\ntp2\na(I1\nI2\nI3\ntp3\na.' b'(lp0\nc_codecs\nencode\np1\n(Vhello\np2\nVlatin1\np3\ntp4\nRp5\nag1\n(Vhello\np6\ng3\ntp7\nRp8\nag1\n(Vhello\np9\ng3\ntp10\nRp11\na.'
+1 b']q\x00(X\x0b\x00\x00\x00hello worldq\x01X\x0b\x00\x00\x00hello worldq\x02X\x0b\x00\x00\x00hello worldq\x03e.' b']q\x00((K\x01K\x02K\x03tq\x01(K\x01K\x02K\x03tq\x02(K\x01K\x02K\x03tq\x03e.' b']q\x00(c_codecs\nencode\nq\x01(X\x05\x00\x00\x00helloq\x02X\x06\x00\x00\x00latin1q\x03tq\x04Rq\x05h\x01(X\x05\x00\x00\x00helloq\x06h\x03tq\x07Rq\x08h\x01(X\x05\x00\x00\x00helloq\th\x03tq\nRq\x0be.'
+2 b'\x80\x02]q\x00(X\x0b\x00\x00\x00hello worldq\x01X\x0b\x00\x00\x00hello worldq\x02X\x0b\x00\x00\x00hello worldq\x03e.' b'\x80\x02]q\x00(K\x01K\x02K\x03\x87q\x01K\x01K\x02K\x03\x87q\x02K\x01K\x02K\x03\x87q\x03e.' b'\x80\x02]q\x00(c_codecs\nencode\nq\x01X\x05\x00\x00\x00helloq\x02X\x06\x00\x00\x00latin1q\x03\x86q\x04Rq\x05h\x01X\x05\x00\x00\x00helloq\x06h\x03\x86q\x07Rq\x08h\x01X\x05\x00\x00\x00helloq\th\x03\x86q\nRq\x0be.'
+3 b'\x80\x03]q\x00(X\x0b\x00\x00\x00hello worldq\x01X\x0b\x00\x00\x00hello worldq\x02X\x0b\x00\x00\x00hello worldq\x03e.' b'\x80\x03]q\x00(K\x01K\x02K\x03\x87q\x01K\x01K\x02K\x03\x87q\x02K\x01K\x02K\x03\x87q\x03e.' b'\x80\x03]q\x00(C\x05helloq\x01C\x05helloq\x02C\x05helloq\x03e.'
+4 b'\x80\x04\x95/\x00\x00\x00\x00\x00\x00\x00]\x94(\x8c\x0bhello world\x94\x8c\x0bhello world\x94\x8c\x0bhello world\x94e.' b'\x80\x04\x95\x1d\x00\x00\x00\x00\x00\x00\x00]\x94(K\x01K\x02K\x03\x87\x94K\x01K\x02K\x03\x87\x94K\x01K\x02K\x03\x87\x94e.' b'\x80\x04\x95\x1d\x00\x00\x00\x00\x00\x00\x00]\x94(C\x05hello\x94C\x05hello\x94C\x05hello\x94e.'
+5 b'\x80\x05\x95/\x00\x00\x00\x00\x00\x00\x00]\x94(\x8c\x0bhello world\x94\x8c\x0bhello world\x94\x8c\x0bhello world\x94e.' b'\x80\x05\x95\x1d\x00\x00\x00\x00\x00\x00\x00]\x94(K\x01K\x02K\x03\x87\x94K\x01K\x02K\x03\x87\x94K\x01K\x02K\x03\x87\x94e.' b'\x80\x05\x95\x1d\x00\x00\x00\x00\x00\x00\x00]\x94(C\x05hello\x94C\x05hello\x94C\x05hello\x94e.'
+True True
+True True
+TypeError intern() argument must be str, not int
+TypeError can't intern S
+TypeError sys.intern() takes exactly one argument (0 given)
+TypeError sys.intern() takes exactly one argument (2 given)
+TypeError sys.intern() takes no keyword arguments

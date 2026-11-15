@@ -1,0 +1,145 @@
+s replace same True
+s replace same 3 True
+s replace none True
+s replace 0 True
+s replace real False
+s expandtabs True
+s expandtabs 8 True
+s expandtabs tab False
+s format True
+s format s True
+s __format__ True
+s format 1 True
+s format <1 True
+s format wide False
+s format prec False
+s slice True
+s slice 0:n True
+s slice ::1 True
+s slice big True
+s getitem slice True
+s slice part False
+s slice rev False
+s mul 1 True
+s rmul 1 True
+s mul 2 False
+s add empty True
+s empty add True
+s join 1 True
+s join 1 sep True
+s join tuple True
+s join gen True
+s join 2 False
+s join subclass False
+s pct s True
+s pct tuple True
+s pct pad False
+s fmt {} True
+s fmt {0} True
+s fmt_map True
+s fmt {!s} True
+s fmt pad False
+s fstr True
+s fstr !s True
+s fstr spec True
+s fstr lit False
+s fstr !r False
+s split True
+s rsplit True
+s split hit False
+s split ws False
+s splitlines True
+s splitlines nl False
+s str True
+s str object= True
+s Template True
+s Template text False
+s lower False
+s upper False
+s title False
+s swapcase False
+s casefold False
+s capitalize False
+u replace same True
+u replace same 3 True
+u replace none True
+u replace 0 True
+u replace real False
+u expandtabs True
+u expandtabs 8 True
+u expandtabs tab False
+u format True
+u format s True
+u __format__ True
+u format 1 True
+u format <1 True
+u format wide False
+u format prec False
+u slice True
+u slice 0:n True
+u slice ::1 True
+u slice big True
+u getitem slice True
+u slice part False
+u slice rev False
+u mul 1 True
+u rmul 1 True
+u mul 2 False
+u add empty True
+u empty add True
+u join 1 True
+u join 1 sep True
+u join tuple True
+u join gen True
+u join 2 False
+u join subclass False
+u pct s True
+u pct tuple True
+u pct pad False
+u fmt {} True
+u fmt {0} True
+u fmt_map True
+u fmt {!s} True
+u fmt pad False
+u fstr True
+u fstr !s True
+u fstr spec True
+u fstr lit False
+u fstr !r False
+u split True
+u rsplit True
+u split hit False
+u split ws False
+u splitlines True
+u splitlines nl False
+u str True
+u str object= True
+u Template True
+u Template text False
+u lower False
+u upper False
+u title False
+u swapcase False
+u casefold False
+u capitalize False
+sub slice False
+sub mul False
+sub add False
+sub format False
+sub replace False
+t slice True
+t slice 0:n True
+t slice ::1 True
+t slice big True
+t add () True
+t () add True
+t mul 1 True
+t rmul 1 True
+t mul 2 False
+t slice part False
+t add more False
+tuple() True
+copy True
+re nomatch True
+re whole True
+re part False

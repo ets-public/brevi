@@ -7,6 +7,7 @@ mod ast;
 mod bigint;
 mod caps;
 mod cgroup;
+mod cpython;
 mod diag;
 mod dynpy;
 mod emit;
@@ -159,10 +160,10 @@ fn print_diag(d: &Diag) {
     explain(&d.msg, d.fix.as_deref().unwrap_or(""));
 }
 
-/// The CPython to run when a library program falls back, or when verify compares: `python` on Windows
-/// (there `python3` is often a Store alias), `python3` elsewhere.
-pub fn python_exe() -> String {
-    std::env::var("BREVI_PYTHON").unwrap_or_else(|_| if cfg!(windows) { "python".into() } else { "python3".into() })
+/// The CPython to run when a program falls back, or when verify compares: always a CPython 3.13
+/// (src/cpython.rs), or why there is none.
+pub fn python_exe() -> Result<String, String> {
+    cpython::exe()
 }
 
 /// A program's source file, read as Python reads it: a UTF-8 byte order mark at the start is not part of the text.
@@ -230,6 +231,14 @@ fn quiet_on_closed_pipe() {
 }
 
 fn main() {
+    // `brevi __copy FROM TO` (copy_exe): before anything else, so this process starts no thread and no child.
+    {
+        let mut a = std::env::args_os().skip(1);
+        if a.next().is_some_and(|c| c == "__copy") {
+            let (Some(from), Some(to), None) = (a.next(), a.next(), a.next()) else { exit(2) };
+            exit(if copy_job(Path::new(&from), Path::new(&to)) { 0 } else { 1 });
+        }
+    }
     tm("start");
     if let Some(args) = shim::args() {
         shim::main(args);
@@ -1042,7 +1051,16 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
         }
         Ok(o) => {
             let out = String::from_utf8_lossy(&o.stdout).to_string();
-            let python = python_exe();
+            let python = match python_exe() {
+                Ok(p) => p,
+                Err(why) => {
+                    // No CPython 3.13 here: show Brevi's errors as a strict run would, and why nothing else ran.
+                    print!("{out}");
+                    std::io::stderr().write_all(&o.stderr).ok();
+                    eprintln!("note: not run with CPython: {why}");
+                    exit(1);
+                }
+            };
             // On a sure mistake the note already names the error, so CPython's traceback is cut to its last
             // line (`--traceback` or BREVI_TRACEBACK=1 shows all of it).
             let short = o.code == Some(3) && !TRACEBACK.load(std::sync::atomic::Ordering::Relaxed);
@@ -1501,7 +1519,7 @@ fn compile_once(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>
         match engine::glue(&mods, &froms, &items) {
             Some(g) => foreign.rust_top.push_str(&g),
             None => {
-                pybridge::python_ok().map_err(|m| vec![Diag::new("check", 1, 1, &m).fix_hint("run the program with python3")])?;
+                pybridge::python_ok().map_err(|m| vec![Diag::new("check", 1, 1, &m).fix_hint("install CPython 3.13 with its shared library (libpython), or set BREVI_PYTHON to one")])?;
                 foreign.rust_top.push_str(&pybridge::runtime());
             }
         }
@@ -1862,7 +1880,7 @@ fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &
             // A fresh file, never a write into the old one: `out` may be a hard link to a cached program (copy_bin)
             // that another process is running.
             std::fs::remove_file(out).ok();
-            if std::fs::copy(&e, out).is_err() {
+            if !copy_exe(Path::new(&e), out) {
                 println!("{{\"e\":\"io\",\"msg\":\"cannot write {}\"}}", esc(&out.to_string_lossy()));
                 return None;
             }
@@ -2018,7 +2036,7 @@ fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Op
     if use_cache && std::fs::create_dir_all(&cdir).is_ok() {
         let tmp = cdir.join(format!("{key}.{}", std::process::id()));
         let saved = match &r {
-            Ok(()) if link => std::fs::copy(out, &tmp).is_ok(),
+            Ok(()) if link => copy_exe(out, &tmp),
             Ok(()) => std::fs::write(&tmp, "").is_ok(),
             Err(e) if about_code => std::fs::write(&tmp, e).is_ok(),
             Err(_) => false,
@@ -2240,7 +2258,53 @@ pub(crate) fn copy_bin(from: &Path, to: &Path) -> bool {
         return true;
     }
     let tmp = to.with_extension(format!("tmp{}", std::process::id()));
-    std::fs::copy(from, &tmp).is_ok() && std::fs::rename(&tmp, to).is_ok()
+    let ok = copy_exe(from, &tmp) && std::fs::rename(&tmp, to).is_ok();
+    if !ok {
+        std::fs::remove_file(&tmp).ok();
+    }
+    ok
+}
+
+// Copies a program (a file that is run afterwards, here or by another process through a link) to `to`, a fresh
+// path. Every copy of one goes through here: the only other `std::fs::copy` in Brevi is in copy_job.
+//
+// Unix: the copy is made by a child process (`brevi __copy FROM TO`) that does nothing else, never this one.
+// A handle open for writing on a program makes every exec of it fail with ETXTBSY ("Text file busy", os error
+// 26), and a process that starts a child (fork) while one of its threads holds such a handle gives the child
+// that handle too, until the child's own exec. Brevi starts children from other threads (the rustc probe at
+// start-up, the MCP server's calls, verify's runs), so a copy written here could be held open, by a child
+// still starting, at the moment the program is run. That failed about one run in sixty when the cache and the
+// build folder were on different file systems or mounts (no hard links, so every cached program is copied), as
+// on a CI machine whose /tmp is a bind mount. The helper is single-threaded and starts nothing, so its handle
+// is closed when it exits, before the wait here returns. Windows: handles Brevi opens are never inherited, so
+// the copy is made in this process.
+pub(crate) fn copy_exe(from: &Path, to: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        let Ok(me) = std::env::current_exe() else { return false };
+        // argv[0] "brevi": the helper must not take itself for the python3 shim (src/shim.rs), whatever this
+        // binary is called.
+        Command::new(me)
+            .arg0("brevi")
+            .arg("__copy")
+            .arg(from)
+            .arg(to)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+    }
+    #[cfg(not(unix))]
+    {
+        copy_job(from, to)
+    }
+}
+
+// The copy itself: `brevi __copy FROM TO` on Unix (copy_exe), in-process elsewhere.
+fn copy_job(from: &Path, to: &Path) -> bool {
+    std::fs::copy(from, to).is_ok()
 }
 
 // Marks a cache entry as just used (the cache evicts the least recently used). Its time is set through a
@@ -2650,6 +2714,33 @@ mod path_tests {
         assert!(build_lock(&lock, &|| false));
         assert!(lock.exists());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // copy_exe's guarantee holds only if every copy of a program goes through it: a `std::fs::copy` anywhere
+    // else in Brevi's own code could be a program written by a process with other threads (ETXTBSY).
+    #[test]
+    fn programs_are_copied_only_by_the_helper() {
+        // the needle split in two, so this test's own line is not a hit
+        fn walk(d: &Path, hits: &mut Vec<String>) {
+            let needle = ["fs::", "copy("].concat();
+            for e in std::fs::read_dir(d).unwrap().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, hits);
+                } else if p.extension().is_some_and(|x| x == "rs") {
+                    let text = std::fs::read_to_string(&p).unwrap();
+                    for (i, l) in text.lines().enumerate() {
+                        if l.contains(&needle) && !l.trim_start().starts_with("//") {
+                            hits.push(format!("{}:{}: {}", p.display(), i + 1, l.trim()));
+                        }
+                    }
+                }
+            }
+        }
+        let mut hits = vec![];
+        walk(&Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut hits);
+        assert_eq!(hits.len(), 1, "copy programs with copy_exe, not std::fs::copy: {hits:#?}");
+        assert!(hits[0].contains("src/main.rs") && hits[0].ends_with("(from, to).is_ok()"), "{hits:#?}");
     }
 
     #[test]

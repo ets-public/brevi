@@ -1,0 +1,108 @@
+# `is` on the results of str and tuple operations: CPython returns the same object for an exact str or tuple
+# when nothing changes (pickle's memo relies on it), and a new one when anything is made.
+import copy, string, re
+
+s = "".join(["hel", "lo wor", "ld"])
+u = "".join(["héllo ", "wörld"])
+T = tuple([1, [2], "x"])
+
+
+class S2(str):
+    pass
+
+
+def row(name, r):
+    print(name, r)
+
+
+for nm, v in (("s", s), ("u", u)):
+    row(nm + " replace same", v.replace("l", "l") is v)
+    row(nm + " replace same 3", v.replace("lo", "lo", 1) is v)
+    row(nm + " replace none", v.replace("q", "z") is v)
+    row(nm + " replace 0", v.replace("l", "z", 0) is v)
+    row(nm + " replace real", v.replace("l", "z") is v)
+    row(nm + " expandtabs", v.expandtabs() is v)
+    row(nm + " expandtabs 8", v.expandtabs(8) is v)
+    row(nm + " expandtabs tab", (v + "\t").expandtabs() is v)
+    row(nm + " format", format(v) is v)
+    row(nm + " format s", format(v, "s") is v)
+    row(nm + " __format__", v.__format__("") is v)
+    row(nm + " format 1", format(v, "1") is v)
+    row(nm + " format <1", format(v, "<1") is v)
+    row(nm + " format wide", format(v, "30") is v)
+    row(nm + " format prec", format(v, ".3") is v)
+    row(nm + " slice", v[:] is v)
+    row(nm + " slice 0:n", v[0:len(v)] is v)
+    row(nm + " slice ::1", v[::1] is v)
+    row(nm + " slice big", v[-100:100] is v)
+    row(nm + " getitem slice", v.__getitem__(slice(None)) is v)
+    row(nm + " slice part", v[1:] is v)
+    row(nm + " slice rev", v[::-1] is v)
+    row(nm + " mul 1", v * 1 is v)
+    row(nm + " rmul 1", 1 * v is v)
+    row(nm + " mul 2", v * 2 is v)
+    row(nm + " add empty", v + "" is v)
+    row(nm + " empty add", "" + v is v)
+    row(nm + " join 1", "".join([v]) is v)
+    row(nm + " join 1 sep", "x".join([v]) is v)
+    row(nm + " join tuple", "".join((v,)) is v)
+    row(nm + " join gen", "".join(x for x in [v]) is v)
+    row(nm + " join 2", "".join([v, v]) is v)
+    row(nm + " join subclass", "".join([S2(v)]) is v)
+    row(nm + " pct s", "%s" % v is v)
+    row(nm + " pct tuple", "%s" % (v,) is v)
+    row(nm + " pct pad", "%s " % v is v)
+    row(nm + " fmt {}", "{}".format(v) is v)
+    row(nm + " fmt {0}", "{0}".format(v) is v)
+    row(nm + " fmt_map", "{x}".format_map({"x": v}) is v)
+    row(nm + " fmt {!s}", "{!s}".format(v) is v)
+    row(nm + " fmt pad", "{} ".format(v) is v)
+    row(nm + " fstr", f"{v}" is v)
+    row(nm + " fstr !s", f"{v!s}" is v)
+    row(nm + " fstr spec", f"{v:}" is v)
+    row(nm + " fstr lit", f"{v}!" is v)
+    row(nm + " fstr !r", f"{v!r}" is v)
+    row(nm + " split", v.split("q")[0] is v)
+    row(nm + " rsplit", v.rsplit("q")[0] is v)
+    row(nm + " split hit", v.split("o")[0] is v)
+    row(nm + " split ws", v.split()[0] is v)
+    row(nm + " splitlines", v.splitlines()[0] is v)
+    row(nm + " splitlines nl", (v + "\n").splitlines()[0] is v)
+    row(nm + " str", str(v) is v)
+    row(nm + " str object=", str(object=v) is v)
+    row(nm + " Template", string.Template("$x").substitute(x=v) is v)
+    row(nm + " Template text", string.Template("$x!").substitute(x=v) is v)
+    row(nm + " lower", v.lower() is v)
+    row(nm + " upper", v.upper() is v)
+    row(nm + " title", v.title() is v)
+    row(nm + " swapcase", v.swapcase() is v)
+    row(nm + " casefold", v.casefold() is v)
+    row(nm + " capitalize", v.capitalize() is v)
+
+# a str subclass is never handed back as it is
+x = S2(s)
+row("sub slice", x[:] is x)
+row("sub mul", x * 1 is x)
+row("sub add", x + "" is x)
+row("sub format", format(x) is x)
+row("sub replace", x.replace("q", "z") is x)
+
+# tuples
+row("t slice", T[:] is T)
+row("t slice 0:n", T[0:len(T)] is T)
+row("t slice ::1", T[::1] is T)
+row("t slice big", T[-9:9] is T)
+row("t add ()", T + () is T)
+row("t () add", () + T is T)
+row("t mul 1", T * 1 is T)
+row("t rmul 1", 1 * T is T)
+row("t mul 2", T * 2 is T)
+row("t slice part", T[1:] is T)
+row("t add more", T + (1,) is T)
+row("tuple()", tuple(T) is T)
+row("copy", copy.copy(T) is T)
+
+# re.sub: no match gives the subject, a callable's str for the whole subject is that str
+row("re nomatch", re.sub("q", "z", s) is s)
+row("re whole", re.sub("^.*$", lambda m: u, s) is u)
+row("re part", re.sub("o", "0", s) is s)

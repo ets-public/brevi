@@ -242,6 +242,23 @@ pub fn ose_str(o: &Rc<Obj>, args: &V) -> Result<String, E> {
         _ => repr(args)?,
     })
 }
+// CPython's module repr: `<module 'helper' from '/abs/helper.py'>` for a file of the program (its path as
+// the build found it), and a library module's as the build machine's CPython printed it (emit.rs
+// lib_mod_reprs). A module that CPython could not import when the program was built, and sys.stdout's or a
+// decimal context's repr (they depend on the run's locale and the context's flags), stop the program.
+pub fn module_repr(m: &str) -> Result<String, E> {
+    if let Some(p) = USER_MOD_FILE.with(|u| u.get()).and_then(|f| f(m)) {
+        return Ok(format!("<module {} from {}>", str_repr(m), str_repr(p)));
+    }
+    if let Some(r) = LIB_MOD_REPR.with(|u| u.get()).and_then(|f| f(m)) {
+        return Ok(r.to_string());
+    }
+    match m {
+        "sys" | "builtins" => Ok(format!("<module '{m}' (built-in)>")),
+        "sys.stdin" | "sys.stdout" | "sys.stderr" | "decimal.context" => Err(unsupported(&format!("the repr of {m}"))),
+        _ => Err(unsupported(&format!("the repr of module {m}"))),
+    }
+}
 pub fn repr(v: &V) -> Result<String, E> {
     if let V::Ext(_) = v {
         if let Some(r) = sig_str(v, true) {
@@ -351,6 +368,9 @@ pub fn repr(v: &V) -> Result<String, E> {
                 format!("<{} '{}'>", if is_flag(c) { "flag" } else { "enum" }, c.name)
             } else if c.module == "builtins" {
                 format!("<class '{}'>", c.name)
+            } else if c.module == "typing" && matches!(c.name, "ClassVar" | "Final") && is_form(c) {
+                // typing._SpecialForm.__repr__
+                format!("typing.{}", c.name)
             } else {
                 format!("<class '{}.{}'>", c.module, c.qualname.get())
             }
@@ -496,7 +516,7 @@ pub fn repr(v: &V) -> Result<String, E> {
                 None => format!("deque([{}])", items),
             }
         }
-        V::Module(m) => format!("<module '{}'>", m),
+        V::Module(m) => module_repr(m)?,
         V::View(x) => {
             // kind 3 is a mappingproxy: the dict's own repr in `mappingproxy({...})`.
             if x.1 == 3 {
@@ -1098,7 +1118,51 @@ pub fn format_spec(v: &V, spec: &str) -> Result<String, E> {
         }
     }
 }
+// A str spec that leaves the text as it is (no width past its length, no cut by a precision, type s or none):
+// CPython's str.__format__ then returns the str itself.
+fn str_spec_noop(x: &S, spec: &str) -> bool {
+    if spec.is_empty() {
+        return true;
+    }
+    let c: Vec<char> = spec.chars().collect();
+    let mut i = 0;
+    if c.len() >= 2 && matches!(c[1], '<' | '>' | '^') {
+        i = 2;
+    } else if matches!(c[0], '<' | '>' | '^') {
+        i = 1;
+    }
+    let num = |i: &mut usize| -> Option<usize> {
+        let st = *i;
+        while *i < c.len() && c[*i].is_ascii_digit() {
+            *i += 1;
+        }
+        (*i > st).then(|| c[st..*i].iter().collect::<String>().parse::<usize>().unwrap_or(usize::MAX))
+    };
+    // a leading 0 is the zero-fill flag, not a width
+    if c.get(i) == Some(&'0') {
+        return false;
+    }
+    let w = num(&mut i);
+    let mut p = None;
+    if c.get(i) == Some(&'.') {
+        i += 1;
+        p = Some(match num(&mut i) {
+            Some(p) => p,
+            None => return false,
+        });
+    }
+    if c.get(i) == Some(&'s') {
+        i += 1;
+    }
+    let n = x.nchars();
+    i == c.len() && w.map_or(true, |w| w <= n) && p.map_or(true, |p| p >= n)
+}
 pub fn fmt_v(v: &V, spec: &str) -> R {
+    if let V::Str(x) = v {
+        if str_spec_noop(x, spec) {
+            return Ok(v.clone());
+        }
+    }
     Ok(V::Str(Rc::new(fmt_s(v, spec)?)))
 }
 

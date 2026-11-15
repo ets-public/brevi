@@ -221,7 +221,7 @@ pub fn definite(diags: &[Diag], src: &str, dir: &std::path::Path) -> Vec<Diag> {
                 e
             })
         } else if let Some(m) = named("unknown method .", "()") {
-            (!caught(&code, "AttributeError") && no_such_method(&m, &code, dir, line_code)).then(|| {
+            (!caught(&code, "AttributeError") && no_such_method(&m, &code, src, dir, line_code)).then(|| {
                 let mut e = Diag::new("check", d.line, 1, &format!("no Python type has a method .{m}()"));
                 e.fix = Some(method_fix(&m));
                 e
@@ -562,15 +562,16 @@ fn lone_eq(s: &str) -> bool {
 
 // A method no Python type or common module has, that the file itself never names except as `.m(` calls, in a
 // file that only imports modules whose methods are known (or its own files).
-fn no_such_method(m: &str, code: &str, dir: &std::path::Path, line_code: &str) -> bool {
+fn no_such_method(m: &str, code: &str, src: &str, dir: &std::path::Path, line_code: &str) -> bool {
     if m.is_empty() || m.starts_with("ax_") || m.starts_with('_') || METHODS.split_whitespace().any(|x| x == m) {
         return false;
     }
     if !line_code.contains(&format!(".{m}(")) {
         return false;
     }
-    // Any other mention (a def, `self.m = f`, an attribute read) could make it real, here or in the
-    // program's other files.
+    // Any other mention (a def, `self.m = f`, an attribute read, or the name in a string: a namespace
+    // dict for make_dataclass or type(), setattr, getattr) could make it real, here or in the program's other
+    // files. The raw source is read, strings and comments included, so a mention there counts too.
     let only_calls = |code: &str| {
         let mut from = 0;
         while let Some(p) = code[from..].find(m).map(|p| p + from) {
@@ -584,11 +585,11 @@ fn no_such_method(m: &str, code: &str, dir: &std::path::Path, line_code: &str) -
         }
         true
     };
-    if !only_calls(code) {
+    if !only_calls(code) || !only_calls(src) {
         return false;
     }
     for p in py_files(dir) {
-        if crate::read_src(&p).is_ok_and(|t| !only_calls(&blank(&t))) {
+        if crate::read_src(&p).is_ok_and(|t| !only_calls(&t)) {
             return false;
         }
     }

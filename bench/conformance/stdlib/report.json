@@ -2,55 +2,55 @@
 "brevi": "brevi 0.27.1",
 "python": "3.13.13",
 "tag": "v3.13.13",
-"date": "2026-11-14",
+"date": "2026-11-15",
 "platform": "linux",
 "sandboxed": false,
 "timeout_s": 20,
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 1834,
-"refused": 88,
+"matched": 1935,
+"refused": 48,
 "by_design": 6,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 75,
-"unstable": 72,
-"excluded": 156,
+"not_extractable": 11,
+"unstable": 71,
+"excluded": 160,
 "total": 2231,
-"scored": 1997,
-"matched_through_cpython": 3,
-"matched_silent": 49,
-"coverage": 0.9169,
+"scored": 1994,
+"matched_through_cpython": 2,
+"matched_silent": 53,
+"coverage": 0.9694,
 "wrong": 0,
-"matched_asserting": 1783,
-"assert_coverage": 0.8928,
+"matched_asserting": 1881,
+"assert_coverage": 0.9433,
 "matched_typed": 23,
-"typed_share": 0.0126
+"typed_share": 0.0119
 },
 "dyn": {
-"matched": 1834,
-"refused": 88,
+"matched": 1935,
+"refused": 48,
 "by_design": 6,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 75,
-"unstable": 72,
-"excluded": 156,
+"not_extractable": 11,
+"unstable": 71,
+"excluded": 160,
 "total": 2231,
-"scored": 1997,
+"scored": 1994,
 "matched_through_cpython": 0,
-"matched_silent": 49,
-"coverage": 0.9184,
+"matched_silent": 53,
+"coverage": 0.9704,
 "wrong": 0,
-"matched_asserting": 1785,
-"assert_coverage": 0.8938,
+"matched_asserting": 1882,
+"assert_coverage": 0.9438,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -250,7 +250,7 @@
 },
 "test_functools": {
 "normal": {
-"matched": 180,
+"matched": 181,
 "refused": 0,
 "by_design": 0,
 "string_model": 0,
@@ -259,21 +259,21 @@
 "wrong_exit": 0,
 "crash_or_timeout": 0,
 "not_extractable": 0,
-"unstable": 3,
+"unstable": 2,
 "excluded": 105,
 "total": 288,
-"scored": 180,
+"scored": 181,
 "matched_through_cpython": 0,
 "matched_silent": 3,
 "coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 177,
-"assert_coverage": 0.9833,
+"matched_asserting": 178,
+"assert_coverage": 0.9834,
 "matched_typed": 0,
 "typed_share": 0.0
 },
 "dyn": {
-"matched": 180,
+"matched": 181,
 "refused": 0,
 "by_design": 0,
 "string_model": 0,
@@ -282,16 +282,16 @@
 "wrong_exit": 0,
 "crash_or_timeout": 0,
 "not_extractable": 0,
-"unstable": 3,
+"unstable": 2,
 "excluded": 105,
 "total": 288,
-"scored": 180,
+"scored": 181,
 "matched_through_cpython": 0,
 "matched_silent": 3,
 "coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 177,
-"assert_coverage": 0.9833,
+"matched_asserting": 178,
+"assert_coverage": 0.9834,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -490,96 +490,96 @@
 },
 "test_dataclasses": {
 "normal": {
-"matched": 216,
-"refused": 23,
+"matched": 224,
+"refused": 20,
 "by_design": 0,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 7,
-"unstable": 1,
-"excluded": 2,
-"total": 249,
-"scored": 246,
-"matched_through_cpython": 1,
-"matched_silent": 2,
-"coverage": 0.874,
-"wrong": 0,
-"matched_asserting": 213,
-"assert_coverage": 0.8659,
-"matched_typed": 0,
-"typed_share": 0.0
-},
-"dyn": {
-"matched": 216,
-"refused": 23,
-"by_design": 0,
-"string_model": 0,
-"cpython_private": 0,
-"wrong_output": 0,
-"wrong_exit": 0,
-"crash_or_timeout": 0,
-"not_extractable": 7,
+"not_extractable": 2,
 "unstable": 1,
 "excluded": 2,
 "total": 249,
 "scored": 246,
 "matched_through_cpython": 0,
 "matched_silent": 2,
-"coverage": 0.878,
+"coverage": 0.9106,
 "wrong": 0,
-"matched_asserting": 214,
-"assert_coverage": 0.8699,
+"matched_asserting": 222,
+"assert_coverage": 0.9024,
+"matched_typed": 0,
+"typed_share": 0.0
+},
+"dyn": {
+"matched": 224,
+"refused": 20,
+"by_design": 0,
+"string_model": 0,
+"cpython_private": 0,
+"wrong_output": 0,
+"wrong_exit": 0,
+"crash_or_timeout": 0,
+"not_extractable": 2,
+"unstable": 1,
+"excluded": 2,
+"total": 249,
+"scored": 246,
+"matched_through_cpython": 0,
+"matched_silent": 2,
+"coverage": 0.9106,
+"wrong": 0,
+"matched_asserting": 222,
+"assert_coverage": 0.9024,
 "matched_typed": 0,
 "typed_share": 0.0
 }
 },
 "test_enum": {
 "normal": {
-"matched": 893,
-"refused": 65,
+"matched": 985,
+"refused": 28,
 "by_design": 1,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 68,
+"not_extractable": 9,
 "unstable": 50,
-"excluded": 0,
+"excluded": 4,
 "total": 1077,
-"scored": 1026,
+"scored": 1022,
 "matched_through_cpython": 0,
-"matched_silent": 4,
-"coverage": 0.8704,
+"matched_silent": 8,
+"coverage": 0.9638,
 "wrong": 0,
-"matched_asserting": 889,
-"assert_coverage": 0.8665,
+"matched_asserting": 977,
+"assert_coverage": 0.956,
 "matched_typed": 0,
 "typed_share": 0.0
 },
 "dyn": {
-"matched": 893,
-"refused": 65,
+"matched": 985,
+"refused": 28,
 "by_design": 1,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 68,
+"not_extractable": 9,
 "unstable": 50,
-"excluded": 0,
+"excluded": 4,
 "total": 1077,
-"scored": 1026,
+"scored": 1022,
 "matched_through_cpython": 0,
-"matched_silent": 4,
-"coverage": 0.8704,
+"matched_silent": 8,
+"coverage": 0.9638,
 "wrong": 0,
-"matched_asserting": 889,
-"assert_coverage": 0.8665,
+"matched_asserting": 977,
+"assert_coverage": 0.956,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -587,14 +587,14 @@
 },
 "paths": {
 "normal": {
-"dynamic": 1809,
-"refused": 94,
+"dynamic": 1911,
+"refused": 54,
 "typed": 23,
-"pybridge": 3
+"pybridge": 2
 },
 "dyn": {
-"dynamic": 1835,
-"refused": 94
+"dynamic": 1936,
+"refused": 54
 }
 },
 "tests": [
@@ -9057,8 +9057,16 @@
 {
 "id": "test_functools.TestLRUC.test_lru_cache_threaded3",
 "file": "test_functools",
-"category": "unstable",
-"detail": "rule 1: CPython's output is not reproducible: 3 runs at PYTHONHASHSEED=1 all differ"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_functools.TestLRUC.test_lru_cache_typed_is_not_recursive",
@@ -9126,7 +9134,7 @@
 "id": "test_functools.TestLRUC.test_lru_recursion",
 "file": "test_functools",
 "category": "excluded",
-"detail": "skipped by CPython: get_c_recursion_limit() requires _testcapi, which the reference build lacks"
+"detail": "measures the recursion depth with _testinternalcapi (CPython's C internals)"
 },
 {
 "id": "test_functools.TestLRUC.test_lru_reentrancy_with_len",
@@ -11943,12 +11951,12 @@
 "file": "test_dataclasses",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found C"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "typing: .__annotations__ of a class annotated with a type expression (such as int | None or list[int]) needs CPython's typing"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -11971,12 +11979,12 @@
 "file": "test_dataclasses",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found C"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "typing: .__annotations__ of a class annotated with a type expression (such as int | None or list[int]) needs CPython's typing"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -13957,12 +13965,12 @@
 "file": "test_dataclasses",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found NotFrozen"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "unexpected Op(\"*\")"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -14589,20 +14597,44 @@
 {
 "id": "test_dataclasses.TestStringAnnotations.test_classvar",
 "file": "test_dataclasses",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: TypeError: test_classvar.<locals>.C.__init__() missing 1 required positional argument: 'x'"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_dataclasses.TestStringAnnotations.test_classvar_module_level_import",
 "file": "test_dataclasses",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'dataclass_module_1' is not defined"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "`c` and a value kept elsewhere name the same list in Python, and `c` is changed (by a function the proof does not follow) while a value kept elsewhere is still used; the typed build would change only "
+},
+"dyn": {
+"category": "refused",
+"detail": "typing: `typing.ClassVar` used as a value needs CPython's typing"
+}
+}
 },
 {
 "id": "test_dataclasses.TestStringAnnotations.test_initvar",
 "file": "test_dataclasses",
-"category": "not_extractable",
-"detail": "assertRaises saw no exception in the extracted test"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_dataclasses.TestStringAnnotations.test_isnt_classvar",
@@ -14635,8 +14667,16 @@
 {
 "id": "test_dataclasses.TestStringAnnotations.test_text_annotations",
 "file": "test_dataclasses",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: NameError: name 'dataclass_textanno' is not defined"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "unknown function type()"
+},
+"dyn": {
+"category": "refused",
+"detail": "typing: typing.get_type_hints needs CPython's typing"
+}
+}
 },
 {
 "id": "test_dataclasses.TestMakeDataclass.test_base",
@@ -14686,11 +14726,11 @@
 "modes": {
 "normal": {
 "category": "matched",
-"path": "pybridge"
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "typing: a subscripted typing form used as a value needs CPython's typing"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -14825,12 +14865,12 @@
 "file": "test_dataclasses",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown function type()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "typing: a subscripted typing form used as a value needs CPython's typing"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -14853,8 +14893,8 @@
 "file": "test_dataclasses",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "no Python type has a method .add_one()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
 "category": "matched",
@@ -15173,8 +15213,16 @@
 {
 "id": "test_dataclasses.TestKeywordArgs.test_KW_ONLY_as_string",
 "file": "test_dataclasses",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: TypeError: test_KW_ONLY_as_string.<locals>.A.__init__() missing 1 required positional argument: '_'"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_dataclasses.TestKeywordArgs.test_KW_ONLY_twice",
@@ -15279,12 +15327,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found ,"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum._is_dunder is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -15293,12 +15341,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found foo"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum._is_descriptor is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -15307,12 +15355,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found ,"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum._is_private is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -15321,12 +15369,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown function type()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum._iter_bits_lsb is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -15335,12 +15383,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found ,"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum._is_sunder is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -15431,8 +15479,16 @@
 {
 "id": "test_enum.TestPlainEnumClass.test_contains_tf",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "uses unittest beyond mock"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestPlainEnumClass.test_dir_on_class",
@@ -15605,12 +15661,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -15883,8 +15939,16 @@
 {
 "id": "test_enum.TestPlainEnumFunction.test_contains_tf",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "uses unittest beyond mock"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestPlainEnumFunction.test_dir_on_class",
@@ -16057,12 +16121,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -16349,8 +16413,16 @@
 {
 "id": "test_enum.TestPlainFlagClass.test_contains_tf",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "uses unittest beyond mock"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestPlainFlagClass.test_default_missing_with_wrong_type_value",
@@ -16537,12 +16609,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -16579,12 +16651,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EJECT is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -16857,8 +16929,16 @@
 {
 "id": "test_enum.TestPlainFlagFunction.test_contains_tf",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "uses unittest beyond mock"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestPlainFlagFunction.test_default_missing_with_wrong_type_value",
@@ -17045,12 +17125,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -17073,12 +17153,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EJECT is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -17337,8 +17417,16 @@
 {
 "id": "test_enum.TestIntEnumClass.test_contains_tf",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "uses unittest beyond mock"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestIntEnumClass.test_copy",
@@ -17539,12 +17627,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -17831,8 +17919,16 @@
 {
 "id": "test_enum.TestIntEnumFunction.test_contains_tf",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "uses unittest beyond mock"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestIntEnumFunction.test_copy",
@@ -18033,12 +18129,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -18325,8 +18421,16 @@
 {
 "id": "test_enum.TestStrEnumClass.test_contains_tf",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "uses unittest beyond mock"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestStrEnumClass.test_copy",
@@ -18527,12 +18631,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -18819,8 +18923,16 @@
 {
 "id": "test_enum.TestStrEnumFunction.test_contains_tf",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "uses unittest beyond mock"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestStrEnumFunction.test_copy",
@@ -19021,12 +19133,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -19327,8 +19439,16 @@
 {
 "id": "test_enum.TestIntFlagClass.test_contains_tf",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "uses unittest beyond mock"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestIntFlagClass.test_copy",
@@ -19543,12 +19663,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -19571,12 +19691,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EJECT is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -19849,8 +19969,16 @@
 {
 "id": "test_enum.TestIntFlagFunction.test_contains_tf",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "uses unittest beyond mock"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestIntFlagFunction.test_copy",
@@ -20065,12 +20193,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -20093,12 +20221,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EJECT is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -20357,8 +20485,16 @@
 {
 "id": "test_enum.TestMixedIntClass.test_contains_tf",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "uses unittest beyond mock"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestMixedIntClass.test_dir_on_class",
@@ -20531,12 +20667,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -20809,8 +20945,16 @@
 {
 "id": "test_enum.TestMixedIntFunction.test_contains_tf",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "uses unittest beyond mock"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestMixedIntFunction.test_dir_on_class",
@@ -20983,12 +21127,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -21261,8 +21405,16 @@
 {
 "id": "test_enum.TestMixedStrClass.test_contains_tf",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "uses unittest beyond mock"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestMixedStrClass.test_dir_on_class",
@@ -21435,12 +21587,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -21713,8 +21865,16 @@
 {
 "id": "test_enum.TestMixedStrFunction.test_contains_tf",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "uses unittest beyond mock"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestMixedStrFunction.test_dir_on_class",
@@ -21887,12 +22047,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -22179,8 +22339,16 @@
 {
 "id": "test_enum.TestMixedIntFlagClass.test_contains_tf",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "uses unittest beyond mock"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestMixedIntFlagClass.test_default_missing_with_wrong_type_value",
@@ -22367,12 +22535,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -22395,12 +22563,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EJECT is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -22673,8 +22841,16 @@
 {
 "id": "test_enum.TestMixedIntFlagFunction.test_contains_tf",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "uses unittest beyond mock"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestMixedIntFlagFunction.test_default_missing_with_wrong_type_value",
@@ -22861,12 +23037,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -22889,12 +23065,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EJECT is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -23153,8 +23329,16 @@
 {
 "id": "test_enum.TestMixedDateClass.test_contains_tf",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "uses unittest beyond mock"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestMixedDateClass.test_dir_on_class",
@@ -23327,12 +23511,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -23605,8 +23789,16 @@
 {
 "id": "test_enum.TestMixedDateFunction.test_contains_tf",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "uses unittest beyond mock"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestMixedDateFunction.test_dir_on_class",
@@ -23779,12 +23971,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -24057,8 +24249,16 @@
 {
 "id": "test_enum.TestMinimalDateClass.test_contains_tf",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "uses unittest beyond mock"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestMinimalDateClass.test_copy",
@@ -24259,12 +24459,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -24537,8 +24737,16 @@
 {
 "id": "test_enum.TestMinimalDateFunction.test_contains_tf",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "uses unittest beyond mock"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestMinimalDateFunction.test_copy",
@@ -24739,12 +24947,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -25017,8 +25225,16 @@
 {
 "id": "test_enum.TestMixedFloatClass.test_contains_tf",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "uses unittest beyond mock"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestMixedFloatClass.test_dir_on_class",
@@ -25191,12 +25407,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -25469,8 +25685,16 @@
 {
 "id": "test_enum.TestMixedFloatFunction.test_contains_tf",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "uses unittest beyond mock"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestMixedFloatFunction.test_dir_on_class",
@@ -25643,12 +25867,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -25921,8 +26145,16 @@
 {
 "id": "test_enum.TestMinimalFloatClass.test_contains_tf",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "uses unittest beyond mock"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestMinimalFloatClass.test_copy",
@@ -26123,12 +26355,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -26401,8 +26633,16 @@
 {
 "id": "test_enum.TestMinimalFloatFunction.test_contains_tf",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "uses unittest beyond mock"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestMinimalFloatFunction.test_copy",
@@ -26603,12 +26843,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -26939,12 +27179,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found Season"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys.getdefaultencoding is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -26965,8 +27205,8 @@
 {
 "id": "test_enum.TestSpecial.test_dir_with_custom_dunders",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "decorator @unittest.skip"
+"category": "excluded",
+"detail": "skipped by CPython: to-do list"
 },
 {
 "id": "test_enum.TestSpecial.test_duplicate_name_error",
@@ -27041,8 +27281,16 @@
 {
 "id": "test_enum.TestSpecial.test_enum_function_with_qualname",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "decorator @reraise_if_not_enum"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestSpecial.test_enum_of_generic_aliases",
@@ -27077,12 +27325,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.nonmember is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -27180,7 +27428,7 @@
 },
 "dyn": {
 "category": "refused",
-"detail": "enum.EnumMeta is not supported in dynamic builds"
+"detail": "a subclass of enum.EnumType (EnumMeta) is not supported in dynamic builds"
 }
 }
 },
@@ -27201,8 +27449,16 @@
 {
 "id": "test_enum.TestSpecial.test_floatenum_fromhex",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "decorator @reraise_if_not_enum"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestSpecial.test_flufl_enum",
@@ -27263,8 +27519,16 @@
 {
 "id": "test_enum.TestSpecial.test_inherited_data_type",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "unittest API assertIs"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+},
+"dyn": {
+"category": "refused",
+"detail": "globals() is supported in dynamic builds only as globals()[name], globals().get(name) and name in globals()"
+}
+}
 },
 {
 "id": "test_enum.TestSpecial.test_inherited_new_from_enhanced_enum",
@@ -27339,8 +27603,16 @@
 {
 "id": "test_enum.TestSpecial.test_intenum_from_bytes",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "decorator @reraise_if_not_enum"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestSpecial.test_intenum_transitivity",
@@ -27555,26 +27827,34 @@
 {
 "id": "test_enum.TestSpecial.test_nested_classes_in_enum_are_members",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "skip condition `python_version >= (3, 13)` cannot be decided"
+"category": "excluded",
+"detail": "skipped by CPython: inner classes are not members"
 },
 {
 "id": "test_enum.TestSpecial.test_nested_classes_in_enum_are_not_members",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "skip condition `python_version < (3, 13)` cannot be decided"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestSpecial.test_nested_classes_in_enum_with_member",
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`Inner` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 5: enum.member is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.member is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -27583,12 +27863,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`Inner` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 5: enum.nonmember is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.nonmember is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -27707,44 +27987,100 @@
 {
 "id": "test_enum.TestSpecial.test_pickle_enum",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "decorator @reraise_if_not_enum"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestSpecial.test_pickle_enum_function",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "decorator @reraise_if_not_enum"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestSpecial.test_pickle_enum_function_with_module",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "decorator @reraise_if_not_enum"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestSpecial.test_pickle_explodes",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "unittest API assertRaises"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "with is only supported with open(path) or open(path, mode)"
+},
+"dyn": {
+"category": "refused",
+"detail": "globals() is supported in dynamic builds only as globals()[name], globals().get(name) and name in globals()"
+}
+}
 },
 {
 "id": "test_enum.TestSpecial.test_pickle_float",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "decorator @reraise_if_not_enum"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestSpecial.test_pickle_int",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "decorator @reraise_if_not_enum"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestSpecial.test_pickle_nested_class",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "unittest API assertIs"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestSpecial.test_private_variable_is_normal_attribute",
@@ -27947,12 +28283,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found Season"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys.getdefaultencoding is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -28001,44 +28337,100 @@
 {
 "id": "test_enum.TestSpecial.test_subclasses_with_direct_pickle_support",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "unittest API assertIs"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+},
+"dyn": {
+"category": "refused",
+"detail": "globals() is supported in dynamic builds only as globals()[name], globals().get(name) and name in globals()"
+}
+}
 },
 {
 "id": "test_enum.TestSpecial.test_subclasses_with_getnewargs",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "unittest API assertEqual"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+},
+"dyn": {
+"category": "refused",
+"detail": "globals() is supported in dynamic builds only as globals()[name], globals().get(name) and name in globals()"
+}
+}
 },
 {
 "id": "test_enum.TestSpecial.test_subclasses_with_getnewargs_ex",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "unittest API assertEqual"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+},
+"dyn": {
+"category": "refused",
+"detail": "globals() is supported in dynamic builds only as globals()[name], globals().get(name) and name in globals()"
+}
+}
 },
 {
 "id": "test_enum.TestSpecial.test_subclasses_with_reduce",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "unittest API assertEqual"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+},
+"dyn": {
+"category": "refused",
+"detail": "globals() is supported in dynamic builds only as globals()[name], globals().get(name) and name in globals()"
+}
+}
 },
 {
 "id": "test_enum.TestSpecial.test_subclasses_with_reduce_ex",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "unittest API assertEqual"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+},
+"dyn": {
+"category": "refused",
+"detail": "globals() is supported in dynamic builds only as globals()[name], globals().get(name) and name in globals()"
+}
+}
 },
 {
 "id": "test_enum.TestSpecial.test_subclasses_without_direct_pickle_support",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "unittest API assertIs"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+},
+"dyn": {
+"category": "refused",
+"detail": "globals() is supported in dynamic builds only as globals()[name], globals().get(name) and name in globals()"
+}
+}
 },
 {
 "id": "test_enum.TestSpecial.test_subclassing",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "decorator @reraise_if_not_enum"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestSpecial.test_too_many_data_types",
@@ -28059,23 +28451,19 @@
 {
 "id": "test_enum.TestSpecial.test_tuple_subclass",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "unittest API assertIs"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+},
+"dyn": {
+"category": "refused",
+"detail": "globals() is supported in dynamic builds only as globals()[name], globals().get(name) and name in globals()"
+}
+}
 },
 {
 "id": "test_enum.TestSpecial.test_tuple_subclass_with_auto_1",
-"file": "test_enum",
-"category": "not_extractable",
-"detail": "unittest API assertIs"
-},
-{
-"id": "test_enum.TestSpecial.test_tuple_subclass_with_auto_2",
-"file": "test_enum",
-"category": "not_extractable",
-"detail": "unittest API assertIs"
-},
-{
-"id": "test_enum.TestSpecial.test_using_members_as_nonmember",
 "file": "test_enum",
 "modes": {
 "normal": {
@@ -28084,7 +28472,35 @@
 },
 "dyn": {
 "category": "refused",
-"detail": "enum.nonmember is not supported in dynamic builds"
+"detail": "globals() is supported in dynamic builds only as globals()[name], globals().get(name) and name in globals()"
+}
+}
+},
+{
+"id": "test_enum.TestSpecial.test_tuple_subclass_with_auto_2",
+"file": "test_enum",
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+},
+"dyn": {
+"category": "refused",
+"detail": "globals() is supported in dynamic builds only as globals()[name], globals().get(name) and name in globals()"
+}
+}
+},
+{
+"id": "test_enum.TestSpecial.test_using_members_as_nonmember",
+"file": "test_enum",
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -28469,8 +28885,16 @@
 {
 "id": "test_enum.OldTestFlag.test_pickle",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "decorator @reraise_if_not_enum"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.OldTestFlag.test_programatic_function_from_dict",
@@ -28545,8 +28969,16 @@
 {
 "id": "test_enum.OldTestFlag.test_unique_composite",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "decorator @threading_helper.reap_threads"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.OldTestFlag.test_xor",
@@ -28649,20 +29081,44 @@
 {
 "id": "test_enum.OldTestIntFlag.test_global_enum_str",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "decorator @reraise_if_not_enum"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "`inner` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 27: enum.global_enum is not supported in dynamic builds)"
+},
+"dyn": {
+"category": "refused",
+"detail": "enum.global_enum is not supported in dynamic builds"
+}
+}
 },
 {
 "id": "test_enum.OldTestIntFlag.test_global_repr_conform1",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "decorator @reraise_if_not_enum"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected a name, found **"
+},
+"dyn": {
+"category": "refused",
+"detail": "class keyword arguments are not supported"
+}
+}
 },
 {
 "id": "test_enum.OldTestIntFlag.test_global_repr_keep",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "decorator @reraise_if_not_enum"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected a name, found **"
+},
+"dyn": {
+"category": "refused",
+"detail": "class keyword arguments are not supported"
+}
+}
 },
 {
 "id": "test_enum.OldTestIntFlag.test_invert",
@@ -28877,8 +29333,16 @@
 {
 "id": "test_enum.OldTestIntFlag.test_unique_composite",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "decorator @threading_helper.reap_threads"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.OldTestIntFlag.test_xor",
@@ -28969,12 +29433,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`Silly` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 5: enum.UNIQUE is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.UNIQUE is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -28983,12 +29447,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`Bizarre` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 5: enum.NAMED_FLAGS is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.NAMED_FLAGS is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -28997,12 +29461,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`Auto` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 3: enum.CONTINUOUS is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.CONTINUOUS is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -29011,12 +29475,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`Color` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 4: enum.NAMED_FLAGS is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.NAMED_FLAGS is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -29025,12 +29489,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`Clean` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 5: enum.UNIQUE is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.UNIQUE is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -29039,12 +29503,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`Dirty` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 5: enum.UNIQUE is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.UNIQUE is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -29053,38 +29517,54 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`Silly` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 5: enum.UNIQUE is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum.UNIQUE is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
 {
 "id": "test_enum.TestInternals.test_auto_garbage_corrected_fail",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "skip condition `python_version < (3, 13)` cannot be decided"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestInternals.test_auto_garbage_corrected_ok",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "skip condition `python_version >= (3, 13)` cannot be decided"
+"category": "excluded",
+"detail": "skipped by CPython: mixed types with auto() no longer supported"
 },
 {
 "id": "test_enum.TestInternals.test_auto_garbage_fail",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "skip condition `python_version < (3, 13)` cannot be decided"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestInternals.test_auto_garbage_ok",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "skip condition `python_version >= (3, 13)` cannot be decided"
+"category": "excluded",
+"detail": "skipped by CPython: mixed types with auto() no longer supported"
 },
 {
 "id": "test_enum.TestInternals.test_auto_name",
@@ -29159,20 +29639,28 @@
 {
 "id": "test_enum.TestInternals.test_auto_with_aliases",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "skip condition `python_version < (3, 13)` cannot be decided"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_enum.TestInternals.test_dunder",
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found ,"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum._is_dunder is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -29195,12 +29683,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found ,"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum._is_private is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -29223,12 +29711,12 @@
 "file": "test_enum",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found ,"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "enum._is_sunder is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -29242,7 +29730,7 @@
 },
 "dyn": {
 "category": "refused",
-"detail": "enum.EnumType is not supported in dynamic builds"
+"detail": "a method of enum.EnumType read through an Enum class is not supported in dynamic builds"
 }
 }
 },

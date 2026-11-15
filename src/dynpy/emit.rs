@@ -60,6 +60,9 @@ pub fn names_narrow(src: &str) -> bool {
 // The numpy functions native for float32 and int32 arrays (the runtime's np_narrow_ok has the same list).
 // float32 ufuncs whose numpy SIMD loops the runtime reproduces, for numpy's AVX-512 (SkylakeX) dispatch only
 // (rt_npfn.rs np_exp_f32 and the rest). On another CPU numpy runs other code, so the program goes to CPython.
+// sys.stdlib_module_names of CPython 3.13, for its wording of a missing attribute on a program module that
+// shadows one (Objects/moduleobject.c)
+const STDLIB_NAMES: &str = "__future__ _abc _aix_support _android_support _apple_support _ast _asyncio _bisect _blake2 _bz2 _codecs _codecs_cn _codecs_hk _codecs_iso2022 _codecs_jp _codecs_kr _codecs_tw _collections _collections_abc _colorize _compat_pickle _compression _contextvars _csv _ctypes _curses _curses_panel _datetime _dbm _decimal _elementtree _frozen_importlib _frozen_importlib_external _functools _gdbm _hashlib _heapq _imp _interpchannels _interpqueues _interpreters _io _ios_support _json _locale _lsprof _lzma _markupbase _md5 _multibytecodec _multiprocessing _opcode _opcode_metadata _operator _osx_support _overlapped _pickle _posixshmem _posixsubprocess _py_abc _pydatetime _pydecimal _pyio _pylong _pyrepl _queue _random _scproxy _sha1 _sha2 _sha3 _signal _sitebuiltins _socket _sqlite3 _sre _ssl _stat _statistics _string _strptime _struct _suggestions _symtable _sysconfig _thread _threading_local _tkinter _tokenize _tracemalloc _typing _uuid _warnings _weakref _weakrefset _winapi _wmi _zoneinfo abc antigravity argparse array ast asyncio atexit base64 bdb binascii bisect builtins bz2 cProfile calendar cmath cmd code codecs codeop collections colorsys compileall concurrent configparser contextlib contextvars copy copyreg csv ctypes curses dataclasses datetime dbm decimal difflib dis doctest email encodings ensurepip enum errno faulthandler fcntl filecmp fileinput fnmatch fractions ftplib functools gc genericpath getopt getpass gettext glob graphlib grp gzip hashlib heapq hmac html http idlelib imaplib importlib inspect io ipaddress itertools json keyword linecache locale logging lzma mailbox marshal math mimetypes mmap modulefinder msvcrt multiprocessing netrc nt ntpath nturl2path numbers opcode operator optparse os pathlib pdb pickle pickletools pkgutil platform plistlib poplib posix posixpath pprint profile pstats pty pwd py_compile pyclbr pydoc pydoc_data pyexpat queue quopri random re readline reprlib resource rlcompleter runpy sched secrets select selectors shelve shlex shutil signal site smtplib socket socketserver sqlite3 sre_compile sre_constants sre_parse ssl stat statistics string stringprep struct subprocess symtable sys sysconfig syslog tabnanny tarfile tempfile termios textwrap this threading time timeit tkinter token tokenize tomllib trace traceback tracemalloc tty turtle turtledemo types typing unicodedata unittest urllib uuid venv warnings wave weakref webbrowser winreg winsound wsgiref xml xmlrpc zipapp zipfile zipimport zlib zoneinfo";
 const NP_F32_SIMD: &[&str] = &["exp", "tanh", "log1p", "sin", "cos"];
 fn np_f32_simd_here() -> bool {
     #[cfg(target_arch = "x86_64")]
@@ -227,7 +230,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "numpy" => return np_func_kw(n).is_some() && (!np_narrow() || NP_NARROW_FUNCS.contains(&n) || (NP_F32_SIMD.contains(&n) && np_f32_simd_here()) || (matches!(n, "dot" | "matmul") && np_f32_simd_here())),
         "numpy.random" => return np_rand_kw(n).is_some(),
         "numpy.linalg" => return np_linalg_kw(n).is_some() && (!np_narrow() || n == "norm"),
-        "sys" => &["exit", "setrecursionlimit", "getrecursionlimit", "getsizeof", "intern", "set_int_max_str_digits", "get_int_max_str_digits", "stdin", "stdout", "stderr", "__stdin__", "__stdout__", "__stderr__", "argv", "maxsize", "platform", "byteorder", "version_info", "flags", "version", "modules", "path", "exception", "exc_info"],
+        "sys" => &["exit", "setrecursionlimit", "getrecursionlimit", "getdefaultencoding", "getsizeof", "intern", "set_int_max_str_digits", "get_int_max_str_digits", "stdin", "stdout", "stderr", "__stdin__", "__stdout__", "__stderr__", "argv", "maxsize", "platform", "byteorder", "version_info", "flags", "version", "modules", "path", "exception", "exc_info"],
         "math" => &["acos", "asin", "atan", "atan2", "ceil", "comb", "copysign", "cos", "cosh", "degrees", "dist", "exp", "fabs", "factorial", "floor", "fmod", "frexp", "fsum", "gcd", "hypot", "isclose", "isfinite", "isinf", "isnan", "isqrt", "lcm", "ldexp", "log", "log10", "log1p", "log2", "modf", "perm", "pow", "prod", "radians", "remainder", "sin", "sinh", "sqrt", "tan", "tanh", "trunc", "pi", "e", "tau", "inf", "nan"],
         "atexit" => &["register", "unregister", "_run_exitfuncs", "_clear", "_ncallbacks"],
         "heapq" => &["heapify", "heappop", "heappush", "heappushpop", "heapreplace", "merge", "nlargest", "nsmallest"],
@@ -237,9 +240,14 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "copy" => &["copy", "deepcopy"],
         "operator" => &["add", "and_", "attrgetter", "contains", "eq", "floordiv", "ge", "getitem", "gt", "index", "is_", "is_not", "itemgetter", "le", "length_hint", "lshift", "lt", "methodcaller", "mod", "mul", "ne", "neg", "not_", "or_", "pow", "rshift", "sub", "truediv", "truth", "xor", "__lt__", "__le__", "__gt__", "__ge__", "__eq__", "__ne__", "__and__", "__or__", "__xor__", "__sub__"],
         "string" => &["ascii_lowercase", "ascii_uppercase", "ascii_letters", "digits", "hexdigits", "octdigits", "punctuation", "whitespace", "printable"],
+        // adding strptime (CPython imports _strptime and re for it) takes time off SYSMOD_QUIET
         "time" => &["time", "perf_counter", "monotonic", "process_time", "sleep", "time_ns", "perf_counter_ns", "monotonic_ns", "process_time_ns", "gmtime", "strftime"],
         "abc" => &["ABC", "ABCMeta", "abstractmethod", "_abc_register", "_check_methods"],
-        "enum" => &["Enum", "IntEnum", "StrEnum", "Flag", "IntFlag", "auto", "unique", "property", "ReprEnum"],
+        "enum" => &[
+            "Enum", "IntEnum", "StrEnum", "Flag", "IntFlag", "auto", "unique", "property", "ReprEnum", "EnumType", "EnumMeta", "member", "nonmember", "verify", "EnumCheck",
+            "UNIQUE", "CONTINUOUS", "NAMED_FLAGS", "FlagBoundary", "STRICT", "CONFORM", "EJECT", "KEEP", "show_flag_values", "_is_dunder", "_is_sunder", "_is_private", "_is_descriptor",
+            "_iter_bits_lsb",
+        ],
         "_brevi_term" => &["columns"],
         "hashlib" => &["new", "md5", "sha1", "sha224", "sha256", "sha384", "sha512"],
         "base64" => &["b64encode", "b64decode", "standard_b64encode", "standard_b64decode", "urlsafe_b64encode", "urlsafe_b64decode", "encodebytes", "decodebytes", "b16encode", "b16decode"],
@@ -439,6 +447,324 @@ fn mentions_annotations(body: &[Stmt]) -> bool {
     found
 }
 
+// SYSMOD_STARTUP, SYSMOD_STARTUP_OS and sysmod_unsure, shared with the runtime
+include!("rt_sysmods.rs");
+// Library modules whose import adds no module to sys.modules but itself (and names sysmod_unsure leaves out),
+// with no function that imports one later: CPython 3.13's Lib read for the .py ones (keyword, colorsys, bisect's
+// and struct's are C), the C ones (math, itertools, ...) import nothing. Any other library import may add
+// modules (json adds re, enum, functools, ...; os.path.expandvars imports re). time is quiet for what dynamic
+// builds have of it (module_has): its strptime, which imports _strptime and re, is not one of them.
+const SYSMOD_QUIET: &[&str] = &["sys", "time", "builtins", "math", "cmath", "gc", "itertools", "bisect", "atexit", "binascii", "zlib", "marshal", "errno", "keyword", "colorsys", "abc", "stat", "struct", "__future__"];
+// The names `import sys` and `import sys as n` bind in these files, in any scope.
+fn sys_binds(body: &[Stmt], out: &mut BTreeSet<String>) {
+    let mut nested: Vec<&[Stmt]> = vec![body];
+    while let Some(b) = nested.pop() {
+        for s in b {
+            match &s.st {
+                St::Import(v) => out.extend(v.iter().filter(|(m, _)| m == "sys").map(|(m, a)| a.clone().unwrap_or(m.clone()))),
+                St::Def(d) => nested.push(&d.body),
+                St::Class(c) => nested.push(&c.body),
+                St::If(arms, els) => {
+                    arms.iter().for_each(|(_, x)| nested.push(x));
+                    nested.extend(els.as_deref());
+                }
+                St::For(_, _, x, e) | St::While(_, x, e) => {
+                    nested.push(x);
+                    nested.extend(e.as_deref());
+                }
+                St::Try(x, hs, e, f) => {
+                    nested.push(x);
+                    hs.iter().for_each(|h| nested.push(&h.body));
+                    nested.extend(e.as_deref());
+                    nested.extend(f.as_deref());
+                }
+                St::With(_, x) => nested.push(x),
+                _ => {}
+            }
+        }
+    }
+}
+// Every module an import statement of these files names: `import a.b.c` a, a.b and a.b.c; `from m import n` m and
+// m.n (n may be a submodule). `if TYPE_CHECKING:` blocks too: more names only refuse more.
+const SYSMOD_DYN_KEY: &str = "sys.modules with a key that is not a string literal (or __name__, or a parameter of a def whose every call passes one) is not supported in dynamic builds: CPython's answer for a key known only at run time may not be sure";
+// Every statement of a body, nested bodies included.
+fn each_stmt<'a>(body: &'a [Stmt], f: &mut dyn FnMut(&'a Stmt)) {
+    for s in body {
+        f(s);
+        match &s.st {
+            St::Def(d) => each_stmt(&d.body, f),
+            St::Class(c) => each_stmt(&c.body, f),
+            St::If(arms, els) => {
+                arms.iter().for_each(|(_, b)| each_stmt(b, f));
+                els.iter().for_each(|b| each_stmt(b, f));
+            }
+            St::For(_, _, b, e) | St::While(_, b, e) => {
+                each_stmt(b, f);
+                e.iter().for_each(|b| each_stmt(b, f));
+            }
+            St::Try(b, hs, e, fi) => {
+                each_stmt(b, f);
+                hs.iter().for_each(|h| each_stmt(&h.body, f));
+                e.iter().chain(fi.iter()).for_each(|b| each_stmt(b, f));
+            }
+            St::With(_, b) => each_stmt(b, f),
+            _ => {}
+        }
+    }
+}
+fn target_binds(t: &Ex, n: &str) -> bool {
+    match t {
+        Ex::Name(x) => x == n,
+        Ex::Tuple(v) | Ex::List(v) => v.iter().any(|x| target_binds(x, n)),
+        Ex::Star(x) => target_binds(x, n),
+        _ => false,
+    }
+}
+// How many places in a body (nested scopes included, so an over-count) may bind the name n.
+fn bind_count(body: &[Stmt], n: &str) -> usize {
+    let mut c = 0;
+    each_stmt(body, &mut |s| {
+        c += match &s.st {
+            St::Assign(ts, _) => ts.iter().filter(|t| target_binds(t, n)).count(),
+            St::AugAssign(t, _, _) | St::AnnAssign(t, _, _, _) | St::For(t, _, _, _) => target_binds(t, n) as usize,
+            St::With(items, _) => items.iter().filter(|(_, t)| t.as_ref().is_some_and(|t| target_binds(t, n))).count(),
+            St::Del(ts) => ts.iter().filter(|t| target_binds(t, n)).count(),
+            St::Global(ns) | St::Nonlocal(ns) => ns.iter().filter(|x| *x == n).count(),
+            St::Import(v) => v.iter().filter(|(m, a)| a.as_deref().unwrap_or(m.split('.').next().unwrap_or(m)) == n).count(),
+            St::ImportFrom(_, v) => v.iter().filter(|(m, a)| m == "*" || a.as_deref().unwrap_or(m) == n).count(),
+            St::Def(d) => (d.name == n) as usize,
+            St::Class(k) => (k.name == n) as usize,
+            St::Try(_, hs, _, _) => hs.iter().filter(|h| h.name.as_deref() == Some(n)).count(),
+            _ => 0,
+        };
+    });
+    visit_any(body, &mut |e| match e {
+        Ex::Walrus(x, _) if x == n => c += 1,
+        Ex::Comp(_, _, _, fs) => c += fs.iter().filter(|f| target_binds(&f.target, n)).count(),
+        Ex::Lambda(p, _) => c += p.pos.iter().chain(p.kwonly.iter()).filter(|(x, _)| x == n).count() + [&p.star, &p.kwstar].iter().filter(|x| x.as_deref() == Some(n)).count(),
+        _ => {}
+    });
+    c
+}
+// A one-file program's module-level defs whose str parameters key sys.modules reads: for each (def, parameter),
+// every str its calls pass, when the program reaches the def only by calling it by name (no other read of the
+// name, which is bound once, by the def; no decorator but contextlib.contextmanager, whose wrapper passes its
+// arguments on as given) with that parameter a literal or a literal default, and never rebinds the parameter.
+// Ways to reach a def or a module's namespace otherwise (globals(), a frame's or function's globals, the
+// __main__ module object, importlib, inspect, gc) leave the map empty. (`x.__dict__` is no way in: only the __main__
+// module object's holds the defs, and nothing here hands that out.)
+fn sysmod_param_lits(body: &[Stmt]) -> HashMap<(String, String), Vec<String>> {
+    let mut out = HashMap::new();
+    let mut escape = false;
+    let mods_at = |e: &Ex| matches!(e, Ex::Attr(_, m) if m == "modules");
+    let (mut mods, mut mods_keyed) = (0, 0);
+    visit_any(body, &mut |e| match e {
+        Ex::Name(n) if matches!(n.as_str(), "globals" | "vars" | "locals" | "__import__" | "__builtins__" | "eval" | "exec") => escape = true,
+        Ex::Attr(_, a) if matches!(a.as_str(), "__globals__" | "f_globals" | "f_locals" | "__wrapped__" | "__closure__" | "__code__" | "__self__" | "__func__") => escape = true,
+        Ex::Attr(_, m) if m == "modules" => mods += 1,
+        _ => {}
+    });
+    // sys.modules only read by key (the __main__ module object, which reaches every def, stays out of reach)
+    visit_any(body, &mut |e| {
+        let key = match e {
+            Ex::Index(o, k) if mods_at(o) => Some(&**k),
+            Ex::Call(f, a) => match (&**f, a.first()) {
+                (Ex::Attr(o, g), Some(Arg::Pos(k))) if g == "get" && mods_at(o) => Some(k),
+                _ => None,
+            },
+            Ex::Cmp(k, rest) if rest.len() == 1 && matches!(rest[0].0, "in" | "not in") && mods_at(&rest[0].1) => {
+                mods_keyed += 1;
+                None
+            }
+            _ => None,
+        };
+        if let Some(k) = key {
+            mods_keyed += 1;
+            if matches!(k, Ex::Str(m) if m == "__main__") || matches!(k, Ex::Name(m) if m == "__name__") {
+                escape = true;
+            }
+        }
+    });
+    each_stmt(body, &mut |s| {
+        let reach = |m: &str| matches!(m.split('.').next(), Some("__main__" | "importlib" | "inspect" | "gc" | "ctypes"));
+        match &s.st {
+            St::Import(v) if v.iter().any(|(m, _)| reach(m)) => escape = true,
+            St::ImportFrom(m, _) if reach(m) => escape = true,
+            _ => {}
+        }
+    });
+    if escape || mods != mods_keyed {
+        return out;
+    }
+    let cm_ok = bind_count(body, "contextlib") == 1 && body.iter().any(|s| matches!(&s.st, St::Import(v) if v.iter().any(|(m, a)| m == "contextlib" && a.is_none())));
+    for s in body {
+        let St::Def(d) = &s.st else { continue };
+        let deco_ok = match d.decorators.as_slice() {
+            [] => true,
+            [Ex::Attr(c, a)] => a == "contextmanager" && matches!(&**c, Ex::Name(c) if c == "contextlib") && cm_ok,
+            _ => false,
+        };
+        if !deco_ok || d.is_async || bind_count(body, &d.name) != 1 {
+            continue;
+        }
+        let ps = &d.params;
+        let names: Vec<&(String, Option<Ex>)> = ps.pos.iter().chain(ps.kwonly.iter()).collect();
+        let mut lits: Vec<Option<BTreeSet<String>>> = names.iter().map(|_| Some(BTreeSet::new())).collect();
+        let (mut loads, mut calls) = (0, 0);
+        visit_any(body, &mut |e| match e {
+            Ex::Name(n) if *n == d.name => loads += 1,
+            Ex::Call(f, args) if matches!(&**f, Ex::Name(n) if *n == d.name) => {
+                calls += 1;
+                let spread = args.iter().any(|a| matches!(a, Arg::Star(_) | Arg::KwStar(_)));
+                let pos: Vec<&Ex> = args.iter().filter_map(|a| if let Arg::Pos(x) = a { Some(x) } else { None }).collect();
+                for (i, (pn, dflt)) in names.iter().enumerate() {
+                    let mut given: Vec<&Ex> = vec![];
+                    if i < ps.pos.len() {
+                        given.extend(pos.get(i).copied());
+                    }
+                    if i >= ps.posonly {
+                        given.extend(args.iter().filter_map(|a| match a { Arg::Kw(k, x) if k == pn => Some(x), _ => None }));
+                    }
+                    if given.is_empty() {
+                        given.extend(dflt.as_ref());
+                    }
+                    let Some(set) = lits[i].as_mut() else { continue };
+                    if spread || given.iter().any(|x| !matches!(x, Ex::Str(_))) {
+                        lits[i] = None;
+                        continue;
+                    }
+                    for x in given {
+                        if let Ex::Str(t) = x {
+                            set.insert(t.clone());
+                        }
+                    }
+                }
+            }
+            _ => {}
+        });
+        if loads != calls {
+            continue;
+        }
+        for (i, (pn, _)) in names.iter().enumerate() {
+            if let Some(set) = &lits[i] {
+                if bind_count(&d.body, pn) == 0 {
+                    out.insert((d.name.clone(), pn.clone()), set.iter().cloned().collect());
+                }
+            }
+        }
+    }
+    // a def passed "__main__" hands out the module object, and with it every def
+    if out.values().any(|v: &Vec<String>| v.iter().any(|l| l == "__main__")) {
+        out.clear();
+    }
+    out
+}
+// A one-file program's leading imports (after its docstring, before any statement that may run its own code):
+// each module they load is in sys.modules before any read of the program's, in CPython and in Brevi, and stays
+// there unless the program deletes it (then the set is empty).
+fn sysmod_early(body: &[Stmt]) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    let mut dels = false;
+    each_stmt(body, &mut |s| {
+        if let St::Del(ts) = &s.st {
+            dels |= ts.iter().any(|t| matches!(t, Ex::Index(o, _) if matches!(&**o, Ex::Attr(_, m) if m == "modules")));
+        }
+    });
+    if dels {
+        return out;
+    }
+    // a dotted import is left out (which of its packages Brevi registers is not checked here)
+    let mut add = |m: &str| {
+        if !m.contains('.') {
+            out.insert(m.to_string());
+        }
+    };
+    for (i, s) in body.iter().enumerate() {
+        match &s.st {
+            St::Expr(Ex::Str(_)) if i == 0 => {}
+            St::Import(v) => v.iter().for_each(|(m, _)| add(m)),
+            St::ImportFrom(m, _) if !m.starts_with('.') => add(m),
+            _ => break,
+        }
+    }
+    out
+}
+fn sys_imports(body: &[Stmt], out: &mut BTreeSet<String>) {
+    fn dotted(m: &str, out: &mut BTreeSet<String>) {
+        let parts: Vec<&str> = m.split('.').collect();
+        for k in 1..=parts.len() {
+            out.insert(parts[..k].join("."));
+        }
+    }
+    for s in body {
+        match &s.st {
+            St::Import(v) => v.iter().for_each(|(m, _)| dotted(m, out)),
+            St::ImportFrom(m, v) => {
+                if !m.starts_with('.') {
+                    dotted(m, out);
+                    v.iter().filter(|(n, _)| n != "*").for_each(|(n, _)| dotted(&format!("{m}.{n}"), out));
+                }
+            }
+            St::Def(d) => sys_imports(&d.body, out),
+            St::Class(c) => sys_imports(&c.body, out),
+            St::If(arms, els) => {
+                arms.iter().for_each(|(_, b)| sys_imports(b, out));
+                if let Some(b) = els {
+                    sys_imports(b, out);
+                }
+            }
+            St::For(_, _, b, e) | St::While(_, b, e) => {
+                sys_imports(b, out);
+                if let Some(e) = e {
+                    sys_imports(e, out);
+                }
+            }
+            St::Try(b, hs, e, f) => {
+                sys_imports(b, out);
+                hs.iter().for_each(|h| sys_imports(&h.body, out));
+                for x in [e, f].into_iter().flatten() {
+                    sys_imports(x, out);
+                }
+            }
+            St::With(_, b) => sys_imports(b, out),
+            _ => {}
+        }
+    }
+}
+// A codec looked up by name imports encodings.<name>, and a few of those import more (idna: re, stringprep;
+// base64_codec: base64; quopri_codec: quopri, io; ...): true when the program may look one of those up, that is
+// names one in a string literal (CPython's normalization: case, spaces and hyphens), or passes a codec that is
+// not a literal to .encode()/.decode(), encoding=, str()/bytes()/bytearray() or open().
+fn codec_lookups(body: &[Stmt]) -> bool {
+    fn risky(c: &str) -> bool {
+        let n = c.trim().to_ascii_lowercase().replace([' ', '-'], "_");
+        matches!(n.as_str(), "idna" | "base64" | "base_64" | "base64_codec" | "bz2" | "bz2_codec" | "hex" | "hex_codec" | "quopri" | "quoted_printable" | "quotedprintable" | "quopri_codec" | "uu" | "uu_codec" | "zip" | "zlib" | "zlib_codec")
+    }
+    let lit = |e: &Ex| matches!(e, Ex::Str(_));
+    let mut found = false;
+    visit_any(body, &mut |e| match e {
+        Ex::Str(c) if risky(c) => found = true,
+        Ex::Call(f, args) => {
+            if args.iter().any(|a| matches!(a, Arg::Kw(k, v) if k == "encoding" && !lit(v))) {
+                found = true;
+            }
+            let star = args.iter().any(|a| matches!(a, Arg::Star(_) | Arg::KwStar(_)));
+            let pos = |i: usize| match args.get(i) {
+                Some(Arg::Pos(x)) => lit(x),
+                Some(_) => false,
+                None => true,
+            };
+            match &**f {
+                Ex::Attr(_, m) if m == "encode" || m == "decode" => found |= star || !pos(0),
+                Ex::Name(n) if matches!(n.as_str(), "str" | "bytes" | "bytearray") => found |= star || !pos(1),
+                Ex::Name(n) if n == "open" => found |= star || !pos(3),
+                _ => {}
+            }
+        }
+        _ => {}
+    });
+    found
+}
 pub fn visit_any(body: &[Stmt], f: &mut dyn FnMut(&Ex)) {
     fn lam(e: &Ex, f: &mut dyn FnMut(&Ex)) {
         visit_ex(e, &mut |x| {
@@ -1583,6 +1909,9 @@ struct Func {
 pub struct Module {
     pub name: String,
     pub body: Vec<Stmt>,
+    // A file of the program (its __main__ or a module it imports): the file's absolute path, as CPython's
+    // __file__ and module repr give it. None for Brevi's own copies of library modules.
+    pub path: Option<String>,
 }
 
 // Python libraries the program imports that Brevi lacks, run by CPython inside the program (pyglue.rs), and
@@ -1662,6 +1991,29 @@ fn int_key(t: &str) -> (bool, Vec<u32>) {
     }
     let zero = mag.len() == 1 && mag[0] == 0;
     (neg && !zero, mag)
+}
+
+// CPython's constant key (_PyCode_ConstantKey) for a folded constant: equal keys are one object.
+fn cv_key(c: &super::constfold::CV) -> ConstKey {
+    use super::constfold::CV;
+    match c {
+        CV::Int(i) => {
+            let (neg, mag) = int_key(&i.to_string());
+            ConstKey::Int(neg, mag)
+        }
+        CV::BigLit(t) => {
+            let (neg, mag) = int_key(t);
+            ConstKey::Int(neg, mag)
+        }
+        CV::Float(f) => ConstKey::Float(f.to_bits()),
+        CV::Imag(f) => ConstKey::Complex(0f64.to_bits(), f.to_bits()),
+        CV::Str(s) => ConstKey::Str(s.clone()),
+        CV::Bytes(b) => ConstKey::Bytes(b.clone()),
+        CV::NoneV => ConstKey::NoneV,
+        CV::Bool(b) => ConstKey::Bool(*b),
+        CV::Ellipsis => ConstKey::Ellipsis,
+        CV::Tuple(xs) => ConstKey::Tuple(xs.iter().map(cv_key).collect()),
+    }
 }
 
 fn const_key(e: &Ex) -> ConstKey {
@@ -1893,12 +2245,32 @@ pub struct Em {
     globals: HashMap<(String, String), usize>,
     nglobals: usize,
     consts: Vec<String>,
-    const_idx: HashMap<String, usize>,
+    // (module, text): a str constant's slot; the module is "" for one CPython interns (constfold::all_name_chars)
+    const_idx: HashMap<(String, String), usize>,
+    // slots holding a bytes or tuple constant (a module's, as CPython's constant cache shares them): the Rust code
+    // that makes it, by slot, and the slot of each (module, constant)
+    kraw: HashMap<usize, String>,
+    kraw_idx: HashMap<(String, ConstKey), usize>,
     // str constants with a lone surrogate: hex code points -> slot in consts (whose text there is unused)
-    lone_idx: HashMap<String, usize>,
+    lone_idx: HashMap<(String, String), usize>,
     fstack: Vec<Func>,
     module: String,
     user_modules: Vec<String>,
+    // the program's own files (__main__ and the modules it imports): name -> (absolute path, docstring,
+    // __package__), the module attributes CPython's import sets on them
+    mod_info: HashMap<String, (String, Option<String>, Option<String>)>,
+    // the program's own modules other than __main__ (not Brevi's copies): each keeps its import state at run time
+    // (ST_<module>: 0 not run, 1 running, 2 done), and a package's submodule is set on it once imported
+    prog_mods: BTreeSet<String>,
+    // (package, name) slots made only for a submodule CPython's import sets on its package (the package itself
+    // never assigns the name): unbound until the submodule is imported
+    sub_slots: HashSet<(String, String)>,
+    // the modules other than the program's files that any file of the program imports, and whether the program
+    // may run a codec lookup that imports modules (sys.modules reads, sysmod_key)
+    sys_libs: BTreeSet<String>,
+    // every name an `import sys [as n]` of the program binds, in any scope
+    sys_names: BTreeSet<String>,
+    codec_imports: bool,
     // module-level defs that can be called directly: (module, name) -> (rust fn, nparams, default slots, defaults count)
     direct: HashMap<(String, String), (String, usize, Vec<usize>)>,
     // module-level names bound only once by import of a builtin module
@@ -1949,6 +2321,12 @@ pub struct Em {
     warn_names: HashSet<(String, String)>,
     // module + value set -> the first display's items in source order (CPython's constant merging)
     set_lits: HashMap<(String, BTreeSet<ConstKey>), Vec<Ex>>,
+    // (def, parameter) -> every str a call of that module-level def of a one-file program passes for it, when
+    // those calls are all it can get (sysmod_param_lits): sys.modules read by that parameter is decided per literal
+    sysmod_lits: HashMap<(String, String), Vec<String>>,
+    // the library modules a one-file program imports before any other statement runs, when it never deletes from
+    // sys.modules (sysmod_early): in CPython's dict and Brevi's from then on, whatever else the program imports
+    sysmod_early: BTreeSet<String>,
     // sys.settrace: the main module's lines when the program is built with trace hooks (trace_check.rs)
     trace: Option<super::trace_check::TLines>,
     // emitting a def or class body (a traced frame, whose hooks name `__tf`), not module code
@@ -2207,13 +2585,54 @@ impl Em {
         }
         self.ex(e, line)
     }
+    // A str constant: one object for equal ones in the module, or in the program for one CPython interns.
     fn konst(&mut self, s: &str) -> String {
-        let i = match self.const_idx.get(s) {
+        let key = (if super::constfold::all_name_chars(s) { String::new() } else { self.module.clone() }, s.to_string());
+        let i = match self.const_idx.get(&key) {
             Some(&i) => i,
             None => {
                 let i = self.consts.len();
                 self.consts.push(s.to_string());
-                self.const_idx.insert(s.to_string(), i);
+                self.const_idx.insert(key, i);
+                i
+            }
+        };
+        format!("kc({i})")
+    }
+    // A constant CPython's compiler makes (constfold): a str, bytes or tuple is one object for equal ones in the
+    // module (a tuple's items are such constants too); a number is its value.
+    fn konst_cv(&mut self, c: &super::constfold::CV) -> String {
+        use super::constfold::CV;
+        let code = match c {
+            CV::Str(s) => return self.konst(s),
+            CV::Int(i) => {
+                return match i64::try_from(*i) {
+                    Ok(v) => format!("V::Int({v}i64)"),
+                    Err(_) => format!("parse_int({}, 10).unwrap()", lit(&i.to_string())),
+                };
+            }
+            CV::BigLit(t) => return self.ex(&Ex::Int(t.clone()), 0).unwrap(),
+            CV::Float(f) if f.is_infinite() => return (if *f > 0.0 { "V::Float(f64::INFINITY)" } else { "V::Float(f64::NEG_INFINITY)" }).into(),
+            CV::Float(f) => return format!("V::Float({f:?}f64)"),
+            CV::NoneV => return "V::None".into(),
+            CV::Bool(b) => return format!("V::Bool({b})"),
+            CV::Ellipsis => return "V::Ellipsis".into(),
+            CV::Imag(x) if x.is_infinite() => format!("bi___complex_lit(Args::p(vec![V::Float(f64::{})]))?", if *x > 0.0 { "INFINITY" } else { "NEG_INFINITY" }),
+            CV::Imag(x) => format!("bi___complex_lit(Args::p(vec![V::Float({x:?}f64)]))?"),
+            CV::Bytes(b) => format!("bi___bytes_lit(Args::p(vec![s({})]))?", lit(b)),
+            CV::Tuple(xs) => {
+                let items: Vec<String> = xs.iter().map(|x| self.konst_cv(x)).collect();
+                if items.is_empty() { "tup(vec![])".into() } else { format!("tupa([{}])", items.join(", ")) }
+            }
+        };
+        let key = (self.module.clone(), cv_key(c));
+        let i = match self.kraw_idx.get(&key) {
+            Some(&i) => i,
+            None => {
+                let i = self.consts.len();
+                self.consts.push(String::new());
+                self.kraw.insert(i, code);
+                self.kraw_idx.insert(key, i);
                 i
             }
         };
@@ -2222,12 +2641,13 @@ impl Em {
     // A str literal with a lone surrogate (the parser's __brevi_lone_str call): one constant per distinct value,
     // as CPython keeps one object for equal constants.
     fn konst_lone(&mut self, hex: &str) -> String {
-        let i = match self.lone_idx.get(hex) {
+        let key = (self.module.clone(), hex.to_string());
+        let i = match self.lone_idx.get(&key) {
             Some(&i) => i,
             None => {
                 let i = self.consts.len();
                 self.consts.push(String::new());
-                self.lone_idx.insert(hex.to_string(), i);
+                self.lone_idx.insert(key, i);
                 i
             }
         };
@@ -2253,6 +2673,10 @@ impl Em {
         }
     }
     // `expr?` or a jump to the innermost try block
+    // the program uses pickle, which writes each object once and then refers to it by identity
+    fn pickles(&self) -> bool {
+        ["pickle", "_pickle", "shelve", "copyreg", "multiprocessing"].iter().any(|m| self.bridge.modules.contains(*m))
+    }
     fn q(&self, code: &str) -> String {
         for fr in self.fstack.last().unwrap().frames.iter().rev() {
             match fr {
@@ -2340,6 +2764,12 @@ impl Em {
         if name == "__name__" {
             return Ok(self.konst(&self.module.clone()).replace("kc", "kc"));
         }
+        // a program file's own __doc__ and __package__ (its __file__ is written into the text, modules.rs)
+        if name != "__file__" && name != "__dict__" {
+            if let Some(d) = self.mod_dunder(&self.module.clone(), name) {
+                return d.map_err(|()| err(line, &format!("{name} is not supported in dynamic builds")));
+            }
+        }
         if is_builtin_name(name) {
             if is_exc_name(name) {
                 let n = match name {
@@ -2407,6 +2837,24 @@ impl Em {
 
     // ---- expressions ----
     fn ex(&mut self, e: &Ex, line: usize) -> ER<String> {
+        // a str, bytes or tuple CPython's compiler folds to a constant (constfold): the module's one object
+        let foldable = match e {
+            Ex::Tuple(v) => !v.is_empty(),
+            Ex::Bin("+" | "*", ..) => true,
+            Ex::Call(f, _) => matches!(&**f, Ex::Name(n) if n == "__bytes_lit" || n == "__complex_lit"),
+            _ => false,
+        };
+        if foldable {
+            use super::constfold::{fold, Fold, CV};
+            match fold(e) {
+                Fold::Const(c @ (CV::Str(_) | CV::Bytes(_) | CV::Tuple(_) | CV::Imag(_))) => return Ok(self.konst_cv(&c)),
+                // which tuple object it is, pickle writes (its memo is by identity)
+                Fold::Unknown if matches!(e, Ex::Tuple(_)) && self.pickles() => {
+                    return Err(err(line, "a tuple of constants whose folding CPython's compiler does differently (2 ** 0.5, 1 << 200, complex or big-int arithmetic) in a program that pickles is not supported in dynamic builds"));
+                }
+                _ => {}
+            }
+        }
         Ok(match e {
             Ex::Name(n) if self.ann_tvars.contains(n) => format!("pep695_typevar({})", lit(n)),
             Ex::Name(n) => self.load(n, line)?,
@@ -2441,6 +2889,15 @@ impl Em {
             Ex::True => "V::Bool(true)".into(),
             Ex::False => "V::Bool(false)".into(),
             Ex::Ellipsis => "V::Ellipsis".into(),
+            // f"{x}", f"{x!s}", f"{x:}": format(x, "") is the exact str itself
+            Ex::FStr(parts) if matches!(&parts[..], [FPart::Expr(_, None | Some('s'), spec, _)] if spec.is_empty()) => {
+                let FPart::Expr(e, _, _, _) = &parts[0] else { unreachable!() };
+                // f"{sys.stdout}" is refused at build time, as in any other f-string
+                self.lib_repr_check(e, line)?;
+                let ee = self.ex(e, line)?;
+                let t = self.q("to_str(&__x)");
+                format!("{{ let __x = {ee}; if let V::Str(_) = &__x {{ __x }} else {{ let mut __s = Txt::new(); __s.push_str(&{t}); txt_v(__s) }} }}")
+            }
             Ex::FStr(parts) => {
                 let body = self.fparts(parts, line)?;
                 format!("txt_v({{ let mut __s = Txt::new(); {body} __s }})")
@@ -2504,6 +2961,9 @@ impl Em {
                 }
                 if let Some(m) = self.static_module(o) {
                     lib_attr_check(&m, n, line)?;
+                    if m == "sys" && n == "modules" {
+                        return Err(err(line, "sys.modules is supported in dynamic builds only as `k in sys.modules`, `sys.modules[k]`, `sys.modules.get(k)` and `sys.modules[k] = v`: its length, keys and other methods depend on CPython's environment"));
+                    }
                     if m == "collections" && n == "abc" && self.user_modules.iter().any(|u| u == "collections.abc") {
                         let init = self.q(&format!("init_{}()", rust_ident("collections.abc")));
                         return Ok(self.q(&format!("{{ {init}; Ok::<V, E>(V::Module(&ModName(\"collections.abc\"))) }}")));
@@ -2536,6 +2996,18 @@ impl Em {
             Ex::Index(o, i) if self.is_globals(o) => {
                 let ii = self.ex(i, line)?;
                 self.q(&format!("glob_item({}, &{ii})", self.gtab()))
+            }
+            Ex::Index(o, i) if self.is_sys_modules(o) => {
+                let (kk, st) = self.sysmod_key(i, true, line)?;
+                self.q(&format!("sysmod_item(&{kk}, {st})"))
+            }
+            Ex::Index(o, i) if matches!(self.sys_split(o, line)?, Some(_)) => {
+                let base = self.sys_split(o, line)?.unwrap();
+                let (kk, st) = self.sysmod_key(i, true, line)?;
+                let a = self.q(&format!("sysmod_item(&{kk}, {st})"));
+                let g = self.modules_attr();
+                let b = self.q(&format!("getitem(&{g}, &{kk})"));
+                format!("{{ let __o = {base}; if is_sys_mod(&__o) {{ {a} }} else {{ {b} }} }}")
             }
             Ex::Index(o, i) => {
                 let oo = self.ex(o, line)?;
@@ -2689,6 +3161,7 @@ impl Em {
             match p {
                 FPart::Lit(s) => write!(b, "__s.push_str({}); ", lit(s)).unwrap(),
                 FPart::Expr(e, conv, spec, _) => {
+                    self.lib_repr_check(e, line)?;
                     let ee = self.ex(e, line)?;
                     let v = match conv {
                         Some('r') => format!("st({})", self.q(&format!("repr(&{ee})"))),
@@ -2718,6 +3191,23 @@ impl Em {
                     let bb = self.ex(&rest[0].1, line)?;
                     let c = self.q(&format!("cmp_v(&{aa}, &{bb}, {})", lit(rest[0].0)));
                     return Ok(self.q(&format!("truth(&{c})")));
+                }
+                if rest.len() == 1 && matches!(rest[0].0, "in" | "not in") && self.is_sys_modules(&rest[0].1) {
+                    let op = rest[0].0;
+                    let (kk, st) = self.sysmod_key(a, false, line)?;
+                    let h = self.q(&format!("sysmod_has(&{kk}, {st})"));
+                    return Ok(if op == "in" { h } else { format!("!{h}") });
+                }
+                if rest.len() == 1 && matches!(rest[0].0, "in" | "not in") {
+                    if let Some(base) = self.sys_split(&rest[0].1, line)? {
+                        // CPython reads the container first, then the key
+                        let (kk, st) = self.sysmod_key(a, false, line)?;
+                        let h = self.q(&format!("sysmod_has(&__k, {st})"));
+                        let g = self.modules_attr();
+                        let c = self.q(&format!("contains(&{g}, &__k)"));
+                        let r = format!("{{ let __k = {kk}; let __o = {base}; if is_sys_mod(&__o) {{ {h} }} else {{ {c} }} }}");
+                        return Ok(if rest[0].0 == "in" { r } else { format!("!{r}") });
+                    }
                 }
                 if rest.len() == 1 {
                     let aa = self.ex(a, line)?;
@@ -2853,13 +3343,80 @@ impl Em {
         }
         None
     }
+    // sys.stdin/stdout/stderr or decimal.getcontext() whose str or repr the program asks for where the build can
+    // see it (`print(sys.stdout)`, `f"{decimal.getcontext()}"`): refused here rather than stopped at run time
+    // (rt_fmt.rs module_repr). The first names the run's locale encoding, the second the context's flags.
+    fn lib_repr_check(&self, e: &Ex, line: usize) -> ER<()> {
+        let what = match e {
+            Ex::Attr(o, n) if matches!(n.as_str(), "stdin" | "stdout" | "stderr") && self.static_module(o).as_deref() == Some("sys") => Some(format!("the repr of sys.{n}")),
+            Ex::Call(f, a) if a.is_empty() && matches!(&**f, Ex::Attr(o, n) if n == "getcontext" && self.static_module(o).as_deref() == Some("decimal")) => Some("the repr of decimal.getcontext()".to_string()),
+            _ => None,
+        };
+        match what {
+            Some(w) => Err(err(line, &format!("{w} is not supported in dynamic builds"))),
+            None => Ok(()),
+        }
+    }
     fn user_mod_load(&mut self, m: &str, n: &str, line: usize) -> ER<String> {
         if !self.mod_names.get(m).is_some_and(|s| s.contains(n)) {
-            return Ok(self.q(&format!("Err::<V, E>(exc(\"AttributeError\", {}.into()))", lit(&format!("module '{m}' has no attribute '{n}'")))));
+            if let Some(d) = self.mod_dunder(m, n) {
+                return match d {
+                    Ok(v) => Ok(self.q(&format!("Ok::<V, E>({v})"))),
+                    Err(()) => Err(err(line, &format!("{m}.{n} is not supported in dynamic builds"))),
+                };
+            }
+            let e = self.mod_attr_err(m, &lit(n), false);
+            return Ok(self.q(&format!("Err::<V, E>({e})")));
         }
         let i = self.gslot(m, n);
         let _ = line;
-        Ok(self.q(&format!("gl({i}, {})", lit(n))))
+        let g = self.mod_slot_read(m, n, i);
+        Ok(self.q(&g))
+    }
+    // The submodules of a program package (one level down), by their name in it.
+    fn sub_children(&self, pkg: &str) -> Vec<String> {
+        let pre = format!("{pkg}.");
+        self.prog_mods.iter().filter_map(|x| x.strip_prefix(&pre)).filter(|c| !c.contains('.')).map(String::from).collect()
+    }
+    // Reading global slot i of module m as an attribute of the module object: an unbound slot is CPython's
+    // AttributeError, with its circular-import wording while m (or the submodule named n) is still running.
+    fn mod_slot_read(&self, m: &str, n: &str, i: usize) -> String {
+        let e = self.mod_attr_err(m, &lit(n), self.prog_mods.contains(&format!("{m}.{n}")));
+        format!("gla({i}, || {e})")
+    }
+    // The AttributeError CPython 3.13 raises for name `n` (a Rust &str expression) missing from module m
+    // (module_getattro): its file's state, whether n is a submodule of it, and whether the file could shadow a
+    // library (a top-level module or package in the script's directory, which is sys.path[0]).
+    fn mod_attr_err(&self, m: &str, n: &str, n_is_sub: bool) -> String {
+        let st = |x: &str| if self.prog_mods.contains(x) { format!("ST_{}.with(|c| c.get())", rust_ident(x)) } else { "2".into() };
+        let sub_st = if n_is_sub { st(&format!("{m}.{}", n.trim_matches('"'))) } else { "0".into() };
+        let (shadow, origin) = match (self.prog_mods.contains(m), self.mod_info.get(m), self.mod_info.get("__main__")) {
+            (true, Some((p, _, _)), Some((mp, _, _))) => {
+                let p = std::path::Path::new(p);
+                let dir = if p.file_name().is_some_and(|f| f == "__init__.py") { p.parent().and_then(|d| d.parent()) } else { p.parent() };
+                let shadow = dir.is_some() && dir == std::path::Path::new(mp).parent();
+                let sh = if !shadow { 0 } else if STDLIB_NAMES.split(' ').any(|x| x == m) { 2 } else { 1 };
+                (sh, p.to_string_lossy().into_owned())
+            }
+            _ => (0, String::new()),
+        };
+        format!("mod_attr_err({}, {n}, {}, {sub_st}, {shadow}, {})", lit(m), st(m), lit(&origin))
+    }
+    // A module attribute CPython's import sets on a file of the program, for a name the file does not assign:
+    // Ok(the V expression) for the ones Brevi gives exactly, Err for the ones it refuses (the spec, loader and
+    // cached .pyc name are CPython's import machinery; a package's __path__ is its search list). None otherwise.
+    fn mod_dunder(&mut self, m: &str, n: &str) -> Option<Result<String, ()>> {
+        let (path, doc, pkg) = self.mod_info.get(m).cloned()?;
+        let opt = |e: &mut Self, x: Option<String>| x.map(|x| e.konst(&x)).unwrap_or_else(|| "V::None".into());
+        Some(match n {
+            "__name__" => Ok(self.konst(m)),
+            "__file__" => Ok(self.konst(&path)),
+            "__doc__" => Ok(opt(self, doc)),
+            "__package__" => Ok(opt(self, pkg)),
+            "__spec__" | "__loader__" | "__cached__" | "__builtins__" | "__dict__" => Err(()),
+            "__path__" if path.ends_with("__init__.py") => Err(()),
+            _ => return None,
+        })
     }
     fn args(&mut self, args: &[Arg], line: usize, prepend: Option<String>) -> ER<String> {
         let simple = args.iter().all(|a| matches!(a, Arg::Pos(_) | Arg::Kw(..)));
@@ -2908,6 +3465,80 @@ impl Em {
         Ok(b)
     }
     // `globals()` (the builtin, not shadowed)
+    // `n.modules` where n may be sys only when it runs (`import sys` in a function): the code that reads n, for
+    // a read that takes the sys.modules path when n is sys and the attribute's otherwise
+    fn sys_split(&mut self, e: &Ex, line: usize) -> ER<Option<String>> {
+        match e {
+            Ex::Attr(o, n) if n == "modules" && matches!(&**o, Ex::Name(x) if self.sys_names.contains(x)) && self.static_module(o).as_deref() != Some("sys") => Ok(Some(self.ex(o, line)?)),
+            _ => Ok(None),
+        }
+    }
+    fn modules_attr(&mut self) -> String {
+        let ic = new_ic();
+        self.q(&format!("getattr_ic(&__o, \"modules\", &IC{ic})"))
+    }
+    fn is_sys_modules(&self, e: &Ex) -> bool {
+        matches!(e, Ex::Attr(o, n) if n == "modules" && self.static_module(o).as_deref() == Some("sys"))
+    }
+    // A read of sys.modules by key (`k in sys.modules`, `sys.modules[k]`, `sys.modules.get(k)`), as CPython 3.13
+    // answers it: the key's Rust value, and the runtime's argument for it (sysmod_arg). The dict holds what the
+    // program imported and stored, and everything in it CPython has too; a startup module is there all along;
+    // any other key is there only once imported. Refused at build time when the answer is not sure: a module only
+    // some environments have at startup, or one an import of the program's might add besides the module it names.
+    // A key that is not a literal (or __name__) is refused: whether CPython has it is not known until it runs, and
+    // a program never stops at run time over an answer Brevi is unsure of.
+    fn sysmod_key(&mut self, k: &Ex, want_value: bool, line: usize) -> ER<(String, String)> {
+        let kk = self.ex(k, line)?;
+        let name = match k {
+            Ex::Str(n) => n.clone(),
+            Ex::Name(n) if n == "__name__" && matches!(self.lookup(n), None | Some(Var::Global(_))) && !self.mod_names.get(&self.module).is_some_and(|s| s.contains(n)) => self.module.clone(),
+            Ex::Name(n) if self.module == "__main__" && !matches!(self.lookup(n), None | Some(Var::Global(_))) && self.class_ctx.is_none() => {
+                let f = self.fstack.last().filter(|f| !f.is_module && !f.is_class).map(|f| f.qname.clone()).unwrap_or_default();
+                let Some(lits) = self.sysmod_lits.get(&(f, n.clone())).cloned() else {
+                    return Err(err(line, SYSMOD_DYN_KEY));
+                };
+                // each str the def's calls pass is decided as that literal is; any other value can reach it only by
+                // reflection the analysis did not see, and stops (rt_mod.rs SysKey::pick)
+                let mut sts = vec![];
+                for l in &lits {
+                    sts.push(self.sysmod_key(&Ex::Str(l.clone()), want_value, line)?.1);
+                }
+                let ls: Vec<String> = lits.iter().map(|l| lit(l)).collect();
+                return Ok((kk, format!("SysKey::Lits(&[{}], vec![{}])", ls.join(", "), sts.join(", "))));
+            }
+            _ => return Err(err(line, SYSMOD_DYN_KEY)),
+        };
+        if sysmod_startup(&name) {
+            if !want_value {
+                return Ok((kk, "SysKey::Startup(None)".into()));
+            }
+            // the program's module is in the dict from its start; a library module is the same object as its import
+            if name == "__main__" || name == self.module || self.prog_mods.contains(&name) {
+                return Ok((kk, "SysKey::Dict".into()));
+            }
+            if builtin_mod(&name) {
+                return Ok((kk, format!("SysKey::Startup(Some(V::Module(&ModName({}))))", lit(&name))));
+            }
+            return Err(err(line, &format!("sys.modules[{name:?}] (a module CPython loads at startup that this program does not import as Brevi's) is not supported in dynamic builds")));
+        }
+        if name == "__main__" || self.prog_mods.contains(&name) {
+            return Ok((kk, "SysKey::Dict".into()));
+        }
+        if sysmod_unsure(&name) {
+            return Err(err(line, &format!("{name:?} in sys.modules is not supported in dynamic builds: CPython's answer depends on its environment or on its builtins' own imports")));
+        }
+        // the dict has it once an import of it ran (Brevi registers its builtin modules and its own copies on
+        // import), but CPython's import of another library module may add this one too: sure only when every library
+        // import is quiet (even a module the program imports itself may be there before its own import runs).
+        let noisy = self.sys_libs.iter().find(|m| !SYSMOD_QUIET.contains(&m.as_str()) && **m != name).cloned();
+        if (noisy.is_some() || self.codec_imports) && !(self.module == "__main__" && self.sysmod_early.contains(&name) && (builtin_mod(&name) || self.user_modules.contains(&name))) {
+            return Err(err(line, &match noisy {
+                Some(m) => format!("{name:?} in sys.modules is not supported in dynamic builds when the program imports {m}: CPython's import of {m} may add modules besides {m}"),
+                None => format!("{name:?} in sys.modules is not supported in dynamic builds when the program may look up a codec by name: the codec's module may import more"),
+            }));
+        }
+        Ok((kk, "SysKey::Dict".into()))
+    }
     fn is_globals(&self, e: &Ex) -> bool {
         matches!(e, Ex::Call(f, a) if a.is_empty() && matches!(&**f, Ex::Name(n) if n == "globals") && self.lookup("globals").is_none())
     }
@@ -2915,6 +3546,34 @@ impl Em {
         format!("gtab_{}", rust_ident(&self.module))
     }
     fn call(&mut self, f: &Ex, args: &[Arg], line: usize) -> ER<String> {
+        // sys.modules.get(k[, default])
+        if let Ex::Attr(o, m) = f {
+            if m == "get" && self.is_sys_modules(o) && (1..=2).contains(&args.len()) && args.iter().all(|a| matches!(a, Arg::Pos(_))) {
+                let (Arg::Pos(k), d) = (&args[0], args.get(1)) else { unreachable!() };
+                let (kk, st) = self.sysmod_key(k, true, line)?;
+                let dd = match d {
+                    Some(Arg::Pos(d)) => self.ex(d, line)?,
+                    _ => "V::None".into(),
+                };
+                return Ok(self.q(&format!("sysmod_get(&{kk}, {dd}, {st})")));
+            }
+            if m == "get" && (1..=2).contains(&args.len()) && args.iter().all(|a| matches!(a, Arg::Pos(_))) {
+                if let Some(base) = self.sys_split(o, line)? {
+                    let (Arg::Pos(k), d) = (&args[0], args.get(1)) else { unreachable!() };
+                    let (kk, st) = self.sysmod_key(k, true, line)?;
+                    let dd = match d {
+                        Some(Arg::Pos(d)) => self.ex(d, line)?,
+                        _ => "V::None".into(),
+                    };
+                    let a = self.q(&format!("sysmod_get(&__k, __d, {st})"));
+                    let g = self.modules_attr();
+                    let ic = new_ic();
+                    let f = self.q(&format!("getattr_ic(&{g}, \"get\", &IC{ic})"));
+                    let b = self.q(&format!("call(&{f}, Args::p(vec![__k, __d]))"));
+                    return Ok(format!("{{ let __o = {base}; let __k = {kk}; let __d = {dd}; if is_sys_mod(&__o) {{ {a} }} else {{ {b} }} }}"));
+                }
+            }
+        }
         // `types.coroutine(f)` called (a method call never goes through the attribute check below)
         if let Ex::Attr(o, m) = f {
             if matches!(&**o, Ex::Name(x) if self.types_alias.contains(&(self.module.clone(), x.clone()))) {
@@ -2934,6 +3593,17 @@ impl Em {
                     if let Some(v) = lvl {
                         if !matches!(v, Ex::Int(n) if n.parse::<i64>().is_ok_and(|n| n <= 1)) {
                             return Err(err(line, "warnings.warn with a stacklevel above 1 is not supported in dynamic builds"));
+                        }
+                    }
+                }
+            }
+        }
+        if let Ex::Name(n) = f {
+            if matches!(n.as_str(), "print" | "repr" | "str" | "ascii" | "format") && self.lookup(n).is_none() {
+                for (k, a) in args.iter().enumerate() {
+                    if let Arg::Pos(x) = a {
+                        if n == "print" || k == 0 {
+                            self.lib_repr_check(x, line)?;
                         }
                     }
                 }
@@ -3556,6 +4226,19 @@ impl Em {
                 format!("{{ let __v = {val}; {c}; }}")
             }
             Ex::Index(o, i) => {
+                // `sys.modules[k] = v` stores into the dict the reads above see
+                if self.is_sys_modules(o) {
+                    let ii = self.ex(i, line)?;
+                    let c = self.q("sysmod_store(&__i, __v)");
+                    return Ok(format!("{{ let __v = {val}; let __i = {ii}; {c}; }}"));
+                }
+                if let Some(base) = self.sys_split(o, line)? {
+                    let ii = self.ex(i, line)?;
+                    let c = self.q("sysmod_store(&__i, __v)");
+                    let g = self.modules_attr();
+                    let d = self.q(&format!("setitem(&{g}, &__i, __v)"));
+                    return Ok(format!("{{ let __v = {val}; let __o = {base}; let __i = {ii}; if is_sys_mod(&__o) {{ {c}; }} else {{ {d}; }} }}"));
+                }
                 let oo = self.ex(o, line)?;
                 let ii = self.ex(i, line)?;
                 let c = self.q(&format!("setitem(&__o, &__i, __v)"));
@@ -3926,6 +4609,11 @@ impl Em {
                         let v = format!("V::Module(&ModName({}))", lit(&target));
                         let reg = self.q(&format!("sys_modules_set({}, &__m{id})", lit(&target)));
                         write!(b, "let __m{id} = {v}; {reg}; {init}; ").unwrap();
+                        // `import pkg.sub` runs pkg, then pkg.sub (which sets itself on pkg), and binds pkg
+                        if target != *m && self.prog_mods.contains(m) {
+                            let sub = self.q(&format!("init_{}()", rust_ident(m)));
+                            write!(b, "{sub}; ").unwrap();
+                        }
                         b.push_str(&self.store(&bind, &format!("__m{id}")));
                     } else if self.bridge.has(m) {
                         self.bridged_used.insert(m.split('.').next().unwrap_or(m).to_string());
@@ -3983,13 +4671,28 @@ impl Em {
                     write!(b, "{reg}; ").unwrap();
                 }
                 for (n, a) in names {
+                    if m == "sys" && n == "modules" {
+                        return Err(err(line, "from sys import modules is not supported in dynamic builds: read sys.modules[k], k in sys.modules or sys.modules.get(k)"));
+                    }
                     if n == "*" {
                         if m == "collections.abc" {
                             return Err(err(line, "from collections.abc import * is not supported in dynamic builds"));
                         }
+                        // the names a star import of a program file binds are not known when the importing file's
+                        // scope is (they read as unbound): refused rather than a NameError CPython does not raise
+                        if self.prog_mods.contains(m) {
+                            return Err(err(line, &format!("from {m} import * (a file of the program) is not supported in dynamic builds")));
+                        }
                         if user {
                             let all: Vec<String> = self.mod_names.get(m).cloned().unwrap_or_default().into_iter().filter(|x| !x.starts_with('_')).collect();
                             for x in all {
+                                if self.sub_slots.contains(&(m.clone(), x.clone())) {
+                                    // a submodule's slot is in the package's namespace only once it was imported
+                                    let i = self.gslot(m, &x);
+                                    let st = self.store(&x, &format!("gr({i})"));
+                                    write!(b, "if !matches!(gr({i}), V::Unbound) {{ {st} }} ").unwrap();
+                                    continue;
+                                }
                                 let v = self.user_mod_load(m, &x, line)?;
                                 b.push_str(&self.store(&x, &v));
                             }
@@ -4020,7 +4723,7 @@ impl Em {
                         return Err(err(line, &format!("{m}.{n} is not supported in dynamic builds")));
                     }
                     let sub = format!("{m}.{n}");
-                    if user && self.user_modules.contains(&sub) && (self.module == *m || !self.mod_names.get(m).is_some_and(|s| s.contains(n))) {
+                    if user && self.user_modules.contains(&sub) && (self.module == *m || self.sub_slots.contains(&(m.clone(), n.clone())) || !self.mod_names.get(m).is_some_and(|s| s.contains(n))) {
                         // `from pkg import sub`: the package's module sub
                         let init = self.q(&format!("init_{}()", rust_ident(&sub)));
                         let reg = self.q(&format!("sys_modules_set({}, &V::Module(&ModName({})))", lit(&sub), lit(&sub)));
@@ -4792,8 +5495,12 @@ impl Em {
                 }
             }
         }
+        let starred = c.bases.iter().any(|b| matches!(b, Ex::Star(_)));
         for b in &c.bases {
-            bases.push(self.ex(b, c.line)?);
+            bases.push(match b {
+                Ex::Star(x) => self.ex(x, c.line)?,
+                b => self.ex(b, c.line)?,
+            });
         }
         // Bases are evaluated before the class body, as CPython does; the body needs them to know
         // whether it is defining an Enum (auto() turns into its value on assignment).
@@ -4804,6 +5511,27 @@ impl Em {
             write!(base_decls, "let {vn}: V = {b}; ").unwrap();
             base_vars.push(vn);
         }
+        // the bases as a slice of references, a tuple and a Vec, in the emitted code; with `*bases` among them,
+        // one Vec made at run time (each starred value unpacked in place, as CPython's BUILD_LIST/LIST_EXTEND)
+        let (base_refs, base_tup, base_vec) = if starred {
+            let bs = format!("__bases{id}");
+            write!(base_decls, "let {bs}: Vec<V> = {{ let mut __v: Vec<V> = vec![]; ").unwrap();
+            for (b, vn) in c.bases.iter().zip(&base_vars) {
+                if matches!(b, Ex::Star(_)) {
+                    write!(base_decls, "__v.extend(to_vec(&{vn})?); ").unwrap();
+                } else {
+                    write!(base_decls, "__v.push({vn}.clone()); ").unwrap();
+                }
+            }
+            write!(base_decls, "__v }}; ").unwrap();
+            (format!("&{bs}.iter().collect::<Vec<&V>>()"), format!("tup({bs}.clone())"), format!("{bs}.clone()"))
+        } else {
+            (
+                format!("&[{}]", base_vars.iter().map(|v| format!("&{v}")).collect::<Vec<_>>().join(", ")),
+                format!("tup(vec![{}])", base_vars.iter().map(|v| format!("{v}.clone()")).collect::<Vec<_>>().join(", ")),
+                format!("vec![{}]", base_vars.join(", ")),
+            )
+        };
         // the class body runs with its own namespace: class-level names are Rust locals here,
         // invisible to the methods. When the body has an annotated statement, __annotations__ starts as
         // CPython's SETUP_ANNOTATIONS does: an empty dict, filled as the statements run. (Never under
@@ -4897,13 +5625,13 @@ impl Em {
         let av = format!("__auto_last{id}");
         let mut decls = String::new();
         write!(decls, "{base_decls}").unwrap();
-        write!(decls, "let mut {ctx}: EnumCtx = enum_auto_ctx({}, &[{}]); let mut {av}: Vec<V> = vec![]; ", lit(&c.name), base_vars.iter().map(|v| format!("&{v}")).collect::<Vec<_>>().join(", ")).unwrap();
+        write!(decls, "let mut {ctx}: EnumCtx = enum_auto_ctx({}, {base_refs}); let mut {av}: Vec<V> = vec![]; ", lit(&c.name)).unwrap();
         if let Some(mx) = meta {
             // as __build_class__: the metaclass after the bases, then its __prepare__, then the body's own first
             // stores (__module__, __qualname__, __firstlineno__, SETUP_ANNOTATIONS, the docstring)
             let mv = self.ex(mx, c.line)?;
             write!(decls, "let __meta{id}: V = {mv}; ").unwrap();
-            let prep = self.q(&format!("meta_prepare(&__meta{id}, {}, &tup(vec![{}]))", lit(&c.name), base_vars.iter().map(|v| format!("{v}.clone()")).collect::<Vec<_>>().join(", ")));
+            let prep = self.q(&format!("meta_prepare(&__meta{id}, {}, &{base_tup})", lit(&c.name)));
             write!(decls, "let mut {ns_var}: V = {prep}; ").unwrap();
             for (k, v) in [("__module__", format!("s({})", lit(if self.module == "__main__" { "__main__" } else { &self.module }))), ("__qualname__", format!("s({})", lit(&qualname))), ("__firstlineno__", format!("V::Int({first})"))] {
                 let set = self.q(&format!("setitem(&{ns_var}, &s(\"{k}\"), {v})"));
@@ -5028,12 +5756,12 @@ impl Em {
                 let set = self.q(&format!("setitem(&{ns_var}, &s(\"__static_attributes__\"), tup(vec![{}]))", sa.join(", ")));
                 let ig = self.q(&format!("enum_ignore_ns(&{ctx}, &{ns_var}, true)"));
                 let set = format!("{set}; {ig}");
-                let mk = self.q(&format!("meta_build(&__meta{id}, {}, {}, {}, vec![{}], {ns_var}.clone(), vec![{}])", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", ")));
+                let mk = self.q(&format!("meta_build(&__meta{id}, {}, {}, {}, {base_vec}, {ns_var}.clone(), vec![{}])", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), fields.join(", ")));
                 format!("{{ {decls}\n{body}\n{set}; {w} let __c = {mk}; __c }}")
             } else {
             let attrs = String::new();
             let items = self.q(&format!("dict_sym_items(&{ns_var})"));
-            let mk = self.q(&format!("make_class_s({}, {}, {}, vec![{}], {items}, vec![{}], {}, &[{}], {})", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", "), first, sattrs, lit(why)));
+            let mk = self.q(&format!("make_class_s({}, {}, {}, {base_vec}, {items}, vec![{}], {}, &[{}], {})", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), fields.join(", "), first, sattrs, lit(why)));
             // a docstring is the body's first store (CPython's STORE_NAME __doc__), after SETUP_ANNOTATIONS
             let doc_set = match docstring(&c.body) {
                 Some(d) => {
@@ -5093,7 +5821,7 @@ impl Em {
                 let r = format!("a{id}_{}", rust_ident(n));
                 write!(attrs, "if !matches!({r}, V::Unbound) {{ __at.push(({}, {r})); }} ", lit(n)).unwrap();
             }
-            let mk = self.q(&format!("make_class_s({}, {}, {}, vec![{}], __at, vec![{}], {}, &[{}], {})", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), base_vars.join(", "), fields.join(", "), first, sattrs, lit(why)));
+            let mk = self.q(&format!("make_class_s({}, {}, {}, {base_vec}, __at, vec![{}], {}, &[{}], {})", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), fields.join(", "), first, sattrs, lit(why)));
             format!("{{ {decls}\n{body}\nlet mut __at: Vec<(Sym, V)> = vec![]; {attrs} enum_ignore_drop(&{ctx}, &mut __at); {w} let __c = {mk}; {abcm} __c }}")
         };
         for dec in c.decorators.iter().rev() {
@@ -5128,7 +5856,71 @@ fn ann_kind(a: &Ex) -> Option<&'static str> {
     ["ClassVar", "InitVar", "KW_ONLY"].into_iter().find(|k| name == *k)
 }
 
-// The docstring of a def or class body.
+// The module names a built program can hold as values: each `ModName("x")` the emitted program spells, and
+// those the runtime spells (re._constants, numpy.random, sys) where the program spells their top package. The
+// pseudo-modules (sys.stdout, decimal.context) and Brevi's private _brevi_* modules are left out.
+fn module_values(text: &str, mine: &HashSet<String>) -> Vec<String> {
+    fn scan(t: &str, into: &mut std::collections::BTreeSet<String>) {
+        for part in t.split("ModName(\"").skip(1) {
+            if let Some(end) = part.find('"') {
+                let n = &part[..end];
+                if !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.') {
+                    into.insert(n.to_string());
+                }
+            }
+        }
+    }
+    let mut prog = std::collections::BTreeSet::new();
+    scan(text, &mut prog);
+    let mut rt = std::collections::BTreeSet::new();
+    scan(crate::dynpy::RUNTIME, &mut rt);
+    let tops: HashSet<String> = prog.iter().map(|n| n.split('.').next().unwrap_or("").to_string()).collect();
+    for n in rt {
+        if n == "sys" || tops.contains(n.split('.').next().unwrap_or("")) {
+            prog.insert(n);
+        }
+    }
+    prog.into_iter()
+        .filter(|n| !mine.contains(n) && !n.starts_with("_brevi") && !matches!(n.as_str(), "decimal.context") && !n.starts_with("sys.std"))
+        .collect()
+}
+// CPython's repr of each library module the program can hold, as the build machine's CPython 3.13 (src/cpython.rs)
+// prints it after importing the module: `<module 'math' from '/usr/lib/...'>`, `(built-in)` or
+// `(frozen)`. The same choice the build makes for a program file's __file__: the binary names the build
+// machine's copy. A module CPython cannot import there (or no CPython at all) is left out: its repr stops the
+// program at run time (rt_fmt.rs module_repr). The import's own output is thrown away.
+fn lib_mod_reprs(text: &str, mine: &HashSet<String>) -> Vec<(String, String)> {
+    let names = module_values(text, mine);
+    if names.is_empty() {
+        return vec![];
+    }
+    const Q: &str = "import sys, os, importlib\nout = os.fdopen(os.dup(1), 'w')\nnull = os.open(os.devnull, os.O_RDWR)\nfor fd in (0, 1, 2):\n    os.dup2(null, fd)\nfor n in sys.argv[1:]:\n    try:\n        r = repr(importlib.import_module(n))\n    except BaseException:\n        continue\n    if '\\n' not in r and '\\t' not in r:\n        out.write(n + '\\t' + r + '\\n')\nout.flush()\nos._exit(0)\n";
+    let Ok(exe) = crate::python_exe() else { return vec![] };
+    let Ok(o) = std::process::Command::new(&exe).arg("-P").arg("-c").arg(Q).args(&names).stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null()).output() else {
+        return vec![];
+    };
+    if !o.status.success() {
+        return vec![];
+    }
+    String::from_utf8_lossy(&o.stdout)
+        .lines()
+        .filter_map(|l| l.split_once('\t'))
+        .filter(|(n, r)| names.iter().any(|x| x == n) && r.starts_with("<module "))
+        .map(|(n, r)| (n.to_string(), r.to_string()))
+        .collect()
+}
+// CPython's __package__ for a file of the program: None for the script, the package for a package's
+// __init__.py, else the name up to its last dot ("" for a top-level module).
+fn mod_package(name: &str, path: &str) -> Option<String> {
+    if name == "__main__" {
+        return None;
+    }
+    if path.ends_with("__init__.py") {
+        return Some(name.to_string());
+    }
+    Some(name.rsplit_once('.').map(|(p, _)| p.to_string()).unwrap_or_default())
+}
+// The docstring of a def, class or module body.
 // A def's or class's docstring as CPython 3.13 stores it: tabs expanded, the first line's leading spaces and the
 // common indentation of the later lines removed (_PyCompile_CleanDoc).
 fn docstring(body: &[Stmt]) -> Option<String> {
@@ -5288,10 +6080,18 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         nglobals: 0,
         consts: vec![],
         const_idx: HashMap::new(),
+        kraw: HashMap::new(),
+        kraw_idx: HashMap::new(),
         lone_idx: HashMap::new(),
         fstack: vec![],
         module: String::new(),
         user_modules: mods.iter().skip(1).map(|m| m.name.clone()).collect(),
+        mod_info: mods.iter().filter_map(|m| m.path.as_ref().map(|p| (m.name.clone(), (p.clone(), docstring(&m.body), mod_package(&m.name, p))))).collect(),
+        prog_mods: BTreeSet::new(),
+        sub_slots: HashSet::new(),
+        sys_libs: BTreeSet::new(),
+        sys_names: BTreeSet::new(),
+        codec_imports: false,
         direct: HashMap::new(),
         mod_alias: HashMap::new(),
         types_alias: HashSet::new(),
@@ -5316,6 +6116,8 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         lam_line: None,
         warn_names: HashSet::new(),
         set_lits: HashMap::new(),
+        sysmod_lits: HashMap::new(),
+        sysmod_early: BTreeSet::new(),
         trace,
         tr_on: false,
         skip_doc: false,
@@ -5338,6 +6140,18 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     // dataclasses reads a class's __annotations__ (field types, __doc__, classes made by type()), so importing it
     // keeps them too.
     let copies = OWN_COPIES.lock().unwrap().clone();
+    em.prog_mods = users.iter().filter(|m| m.name != "__main__" && !copies.contains(&m.name) && em.mod_info.contains_key(&m.name)).map(|m| m.name.clone()).collect();
+    for m in users.iter().filter(|m| m.name == "__main__" || em.prog_mods.contains(&m.name)) {
+        let mut imps = BTreeSet::new();
+        sys_imports(&m.body, &mut imps);
+        em.sys_libs.extend(imps.into_iter().filter(|x| !x.starts_with('.') && !em.prog_mods.contains(x)));
+        em.codec_imports |= codec_lookups(&m.body);
+        if m.name == "__main__" && em.prog_mods.is_empty() {
+            em.sysmod_lits = sysmod_param_lits(&m.body);
+            em.sysmod_early = sysmod_early(&m.body);
+        }
+        sys_binds(&m.body, &mut em.sys_names);
+    }
     let users_read_ann = !PYD_ON.load(std::sync::atomic::Ordering::Relaxed)
         && users.iter().any(|m| !copies.contains(&m.name) && (mentions_annotations(&m.body) || super::typing::imports(&m.body, "dataclasses")));
     for (gi, group) in [libs.clone(), users].into_iter().enumerate() {
@@ -5448,6 +6262,21 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
                     }
                 }
             }
+            // `import pkg.sub` sets `sub` on pkg: a slot for each submodule of a program package
+            if gi == 1 {
+                for c in em.sub_children(&m.name) {
+                    // importing the submodule rebinds the name: never a def called directly or a fixed alias
+                    let k = (m.name.clone(), c.clone());
+                    em.direct_ok.remove(&k);
+                    em.direct.remove(&k);
+                    em.mod_alias.remove(&k);
+                    em.types_once.remove(&k);
+                    em.types_alias.remove(&k);
+                    if names.insert(c.clone()) {
+                        em.sub_slots.insert(k);
+                    }
+                }
+            }
             for n in &names {
                 em.gslot(&m.name, n);
             }
@@ -5472,7 +6301,21 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
             let nm = lit(&m.name);
             // a copy's classes follow Brevi's copy, whose __class_getitem__s are not all CPython's (class_subscript)
             let mark = if IN_COPY.with(|c| c.get()) || gi == 0 { format!("copy_module({nm}); ") } else { String::new() };
-            write!(inits, "thread_local! {{ static DONE_{ident}: Cell<bool> = Cell::new(false); }}\nfn init_{ident}() -> Result<(), E> {{ if DONE_{ident}.with(|d| d.replace(true)) {{ return Ok(()); }} {mark}gs({name_slot}, s({nm}));\n{body}\nOk(()) }}\n").unwrap();
+            if em.prog_mods.contains(&m.name) {
+                // CPython's import of a program module: its package first (which may import it in turn), then
+                // sys.modules holds it while it runs, and once it has run its package gets it as an attribute
+                let parent = m.name.rsplit_once('.').map(|(p, c)| (p.to_string(), c.to_string())).filter(|(p, _)| em.prog_mods.contains(p));
+                let (pre, post) = match parent {
+                    Some((p, c)) => {
+                        let slot = em.gslot(&p, &c);
+                        (format!("init_{}()?; ", rust_ident(&p)), format!("gs({slot}, V::Module(&ModName({nm}))); "))
+                    }
+                    None => (String::new(), String::new()),
+                };
+                write!(inits, "thread_local! {{ static DONE_{ident}: Cell<bool> = Cell::new(false); static ST_{ident}: Cell<u8> = Cell::new(0); }}\nfn init_{ident}() -> Result<(), E> {{ {pre}if DONE_{ident}.with(|d| d.replace(true)) {{ return Ok(()); }} ST_{ident}.with(|c| c.set(1)); sys_modules_set({nm}, &V::Module(&ModName({nm})))?; {mark}gs({name_slot}, s({nm}));\n{body}\nST_{ident}.with(|c| c.set(2)); {post}Ok(()) }}\n").unwrap();
+            } else {
+                write!(inits, "thread_local! {{ static DONE_{ident}: Cell<bool> = Cell::new(false); }}\nfn init_{ident}() -> Result<(), E> {{ if DONE_{ident}.with(|d| d.replace(true)) {{ return Ok(()); }} {mark}gs({name_slot}, s({nm}));\n{body}\nOk(()) }}\n").unwrap();
+            }
         }
         if gi == 0 && !libs.is_empty() {
             lib_part.push_str(&std::mem::take(&mut em.items));
@@ -5490,24 +6333,77 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     out.push_str(&inits);
     // user module attribute hook
     let mut hook = String::from("fn user_mod(m: &str, n: &str) -> Option<R> { match m { ");
-    for m in mods.iter().skip(1) {
+    // __main__ too: sys.modules['__main__'] is the script's module
+    for m in mods.iter() {
         write!(hook, "{} => {{ match n {{ ", lit(&m.name)).unwrap();
-        for nm in em.mod_names[&m.name].clone() {
+        let names = em.mod_names[&m.name].clone();
+        for nm in names.iter().cloned() {
             let i = em.gslot(&m.name, &nm);
-            write!(hook, "{} => Some(gl({i}, {})), ", lit(&nm), lit(&nm)).unwrap();
+            let g = em.mod_slot_read(&m.name, &nm, i);
+            write!(hook, "{} => Some({g}), ", lit(&nm)).unwrap();
         }
-        write!(hook, "_ => Some(Err(exc(\"AttributeError\", format!(\"module '{{}}' has no attribute '{{}}'\", m, n)))) }} }} ").unwrap();
+        for nm in ["__name__", "__file__", "__doc__", "__package__", "__spec__", "__loader__", "__cached__", "__builtins__", "__dict__", "__path__"] {
+            if names.contains(nm) {
+                continue;
+            }
+            match em.mod_dunder(&m.name, nm) {
+                Some(Ok(v)) => write!(hook, "{} => Some(Ok({v})), ", lit(nm)).unwrap(),
+                Some(Err(())) => write!(hook, "{} => Some(Err(unsupported({}))), ", lit(nm), lit(&format!("{}.{nm}", m.name))).unwrap(),
+                None => {}
+            }
+        }
+        let e = em.mod_attr_err(&m.name, "n", false);
+        write!(hook, "_ => Some(Err({e})) }} }} ").unwrap();
     }
     hook.push_str("_ => None } }\n");
     out.push_str(&hook);
+    // `m.n = v` through a module object, for the program's own files: a name the file has a slot for is set as the
+    // file's global; a new name is refused (the file's globals are fixed when it is built). The probe name ""
+    // only asks whether m is one of them.
+    let mut set = String::from("fn user_mod_set(m: &str, n: &str, v: V) -> Option<Result<(), E>> { match m { ");
+    let settable = em.prog_mods.clone();
+    for m in mods.iter().filter(|m| m.name == "__main__" || settable.contains(&m.name)) {
+        write!(set, "{} => Some(match n {{ \"\" => Ok(()), ", lit(&m.name)).unwrap();
+        for nm in em.mod_names[&m.name].clone() {
+            let k = (m.name.clone(), nm.clone());
+            // a def the file calls directly, or an import alias it reads as the module itself, is fixed when built
+            if em.direct_ok.contains(&k) || em.mod_alias.contains_key(&k) || em.types_once.contains(&k) {
+                write!(set, "{} => {{ let _ = v; Err(unsupported({})) }} ", lit(&nm), lit(&format!("rebinding {}.{nm} through the module object", m.name))).unwrap();
+                continue;
+            }
+            let i = em.gslot(&m.name, &nm);
+            write!(set, "{} => {{ gs({i}, v); Ok(()) }} ", lit(&nm)).unwrap();
+        }
+        write!(set, "_ => {{ let _ = v; Err(unsupported(&format!(\"setting a new attribute {{}}.{{}} through the module object\", m, n))) }} }}), ").unwrap();
+    }
+    set.push_str("_ => None } }\n");
+    out.push_str(&set);
+    // the program's files by module name, for a module's repr
+    let mut files = String::from("fn user_mod_file(m: &str) -> Option<&'static str> { match m { ");
+    for m in mods.iter() {
+        if let Some(p) = &m.path {
+            write!(files, "{} => Some({}), ", lit(&m.name), lit(p)).unwrap();
+        }
+    }
+    files.push_str("_ => None } }\n");
+    // each library module the program can hold, as the build machine's CPython prints it (lib_mod_reprs)
+    let mine: HashSet<String> = mods.iter().filter(|m| m.path.is_some()).map(|m| m.name.clone()).collect();
+    files.push_str("fn lib_mod_repr(m: &str) -> Option<&'static str> { match m { ");
+    for (n, r) in lib_mod_reprs(&out, &mine) {
+        write!(files, "{} => Some({}), ", lit(&n), lit(&r)).unwrap();
+    }
+    files.push_str("_ => None } }\n");
+    out.push_str(&files);
     // name -> global slot, per module, for globals()
     for m in mods.iter().filter(|m| !libs.iter().any(|l| l.name == m.name)) {
         out.push_str(&gtab(&em, &m.name));
     }
-    let lone: HashMap<usize, &String> = em.lone_idx.iter().map(|(h, &i)| (i, h)).collect();
-    let consts: Vec<String> = em.consts.iter().enumerate().map(|(i, c)| match lone.get(&i) {
-        Some(h) => format!("lone_lit({})", lit(h)),
-        None => format!("s({})", lit(c)),
+    let lone: HashMap<usize, &String> = em.lone_idx.iter().map(|(h, &i)| (i, &h.1)).collect();
+    // one slot at a time: a tuple constant reads the slots of its items, made before it
+    let consts: Vec<String> = em.consts.iter().enumerate().map(|(i, c)| match (lone.get(&i), em.kraw.get(&i)) {
+        (Some(h), _) => format!("{{ let k = lone_lit({}); (*std::ptr::addr_of_mut!(K)).push(k); }}", lit(h)),
+        (_, Some(code)) => format!("{{ let k = {code}; (*std::ptr::addr_of_mut!(K)).push(k); }}"),
+        _ => format!("{{ let k = s({}); (*std::ptr::addr_of_mut!(K)).push(k); }}", lit(c)),
     }).collect();
     // re's \N{NAME}: the name table goes into programs whose source may hold such a pattern
     let uname = em.uses_re && em.bridge.srcs.values().any(|(_, t)| t.contains("\\N{"));
@@ -5532,9 +6428,9 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     };
     write!(
         out,
-        "fn __run() -> Result<(), E> {{ unsafe {{ GL = vec![V::Unbound; {}]; K = vec![{}]; }} USER_MOD.with(|u| u.set(Some(user_mod))); MAIN_GTAB.with(|u| u.set(Some(gtab___main__))); {}{}{}{} let r = init___main__(); fin_point(); r }}\nfn main() {{ run_main(__run); }}\n",
+        "fn __run() -> Result<(), E> {{ unsafe {{ GL = vec![V::Unbound; {}]; K = Vec::new(); {} }} USER_MOD.with(|u| u.set(Some(user_mod))); USER_MOD_FILE.with(|u| u.set(Some(user_mod_file))); LIB_MOD_REPR.with(|u| u.set(Some(lib_mod_repr))); USER_MOD_SET.with(|u| u.set(Some(user_mod_set))); MAIN_GTAB.with(|u| u.set(Some(gtab___main__))); sys_modules_set(\"__main__\", &V::Module(&ModName(\"__main__\")))?; {}{}{}{} let r = init___main__(); fin_point(); r }}\nfn main() {{ run_main(__run); }}\n",
         em.nglobals.max(1),
-        consts.join(", "),
+        consts.join(" "),
         del_on,
         // the program uses CPython's warnings module: the warnings the runtime issues go through it
         if em.bridged_used.contains("warnings") { " set_warn_bridge(pyd_warn_at); pyd_warn_install()?;" } else { "" },

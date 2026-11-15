@@ -2,6 +2,7 @@
 // dynamic value type (runtime in rt_*.rs), so mixed-type values work as they do in CPython.
 pub mod emit;
 pub mod parse;
+pub mod constfold;
 pub mod mangle;
 pub mod cpy_lines;
 pub mod pyd;
@@ -200,6 +201,10 @@ fn walk_imports(body: &[parse::Stmt], out: &mut Vec<String>) {
             St::Import(v) => {
                 for (m, a) in v {
                     out.push(if a.is_some() { m.clone() } else { m.split('.').next().unwrap().to_string() });
+                    // `import a.b.c` loads a.b and a.b.c too: marked, the caller keeps the ones that are files of the program
+                    if a.is_none() && m.contains('.') {
+                        out.push(format!("\u{1}{m}"));
+                    }
                     // `import collections.abc` loads collections.abc too: Brevi's ABCs, not its typing forms
                     if a.is_none() && m == "collections.abc" {
                         out.push(m.clone());
@@ -533,7 +538,7 @@ fn add_collections(mods: &mut Vec<emit::Module>, own_mods: &mut HashSet<String>)
     let Some(py) = sandbox_module("collections") else { return Ok(()) };
     let body = parse::parse(py).map_err(|(l, msg)| ("<collections>".into(), l, msg))?;
     own_mods.insert("collections".into());
-    mods.push(emit::Module { name: "collections".into(), body });
+    mods.push(emit::Module { name: "collections".into(), body, path: None });
     Ok(())
 }
 pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
@@ -594,8 +599,7 @@ fn to_rust_np2(file: &str) -> Result<String, (String, usize, String)> {
 // loaded first: asked of python3 when the program is built, without importing duckdb.
 fn duck_libs() -> (Vec<String>, String) {
     const Q: &str = "import importlib.util, glob, os, sys, sysconfig\ns = importlib.util.find_spec('duckdb')\nd = os.path.dirname(list(s.submodule_search_locations)[0]) if s and s.submodule_search_locations else ''\nlibs = sorted(glob.glob(os.path.join(d, '_duckdb*.so')) + glob.glob(os.path.join(d, '*duckdb*.dll')) + glob.glob(os.path.join(d, '_duckdb*.pyd'))) if d else []\nlib = os.path.join(sys.base_prefix, 'python%d%d.dll' % sys.version_info[:2]) if os.name == 'nt' else os.path.join(sysconfig.get_config_var('LIBDIR') or '', sysconfig.get_config_var('INSTSONAME') or sysconfig.get_config_var('LDLIBRARY') or '')\nprint('\\x01'.join([lib] + libs))";
-    let exe = crate::python_exe();
-    let out = std::process::Command::new(&exe).args(["-c", Q]).output().map(|o| String::from_utf8_lossy(&o.stdout).trim_end().to_string()).unwrap_or_default();
+    let out = crate::python_exe().ok().and_then(|exe| std::process::Command::new(&exe).args(["-c", Q]).output().ok()).map(|o| String::from_utf8_lossy(&o.stdout).trim_end().to_string()).unwrap_or_default();
     let mut parts = out.split('\u{1}').map(String::from);
     let pre = parts.next().unwrap_or_default();
     (parts.filter(|x| !x.is_empty()).collect(), pre)
@@ -626,13 +630,15 @@ fn pins(files: &[String]) -> Vec<(String, String)> {
 // Windows program never loads (or trusts) a DLL or bundle from its own folder or PATH.
 fn python_ssl_dir() -> String {
     const Q: &str = "import os, sys\nfor d in (os.path.join(sys.base_prefix, 'DLLs'), os.path.dirname(sys.executable)):\n    if os.path.isfile(os.path.join(d, 'libssl-1_1.dll')) or os.path.isfile(os.path.join(d, 'libssl-3-x64.dll')) or os.path.isfile(os.path.join(d, 'libssl-3.dll')):\n        print(d)\n        break";
-    let out = std::process::Command::new(crate::python_exe()).args(["-I", "-c", Q]).output();
+    let Ok(exe) = crate::python_exe() else { return String::new() };
+    let out = std::process::Command::new(exe).args(["-I", "-c", Q]).output();
     out.map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default()
 }
 
 fn python_ca_file() -> String {
     const Q: &str = "try:\n    import certifi\n    print(certifi.where())\nexcept Exception:\n    import ssl\n    p = ssl.get_default_verify_paths().cafile or ''\n    print(p if p and __import__('os').path.isfile(p) else '')";
-    let out = std::process::Command::new(crate::python_exe()).args(["-I", "-c", Q]).output();
+    let Ok(exe) = crate::python_exe() else { return String::new() };
+    let out = std::process::Command::new(exe).args(["-I", "-c", Q]).output();
     out.map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default()
 }
 
@@ -642,7 +648,7 @@ const BEYOND_COPIES: &str = "os, pathlib, random, io, textwrap, argparse, loggin
 // program is built, without importing onnxruntime.
 fn ort_libs() -> Vec<String> {
     const Q: &str = "import importlib.util, glob, os\ns = importlib.util.find_spec('onnxruntime')\nd = list(s.submodule_search_locations)[0] if s and s.submodule_search_locations else ''\nlibs = sorted(glob.glob(os.path.join(d, 'capi', 'libonnxruntime.so*')) + glob.glob(os.path.join(d, 'capi', 'libonnxruntime*.dylib')) + glob.glob(os.path.join(d, 'capi', 'onnxruntime*.dll'))) if d else []\nprint('\\x01'.join(libs))";
-    let exe = crate::python_exe();
+    let Ok(exe) = crate::python_exe() else { return vec![] };
     let Ok(o) = std::process::Command::new(&exe).args(["-I", "-c", Q]).output() else { return vec![] };
     String::from_utf8_lossy(&o.stdout).trim().split('\x01').filter(|s| !s.is_empty()).map(|s| s.to_string()).collect()
 }
@@ -671,7 +677,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     let src = crate::pygen::rewrite(&src);
     let body = parse::parse(&src).map_err(|(l, m)| (file.to_string(), l, m))?;
     let dir = Path::new(file).parent().map(|p| p.to_path_buf()).unwrap_or_default();
-    let mut mods = vec![emit::Module { name: "__main__".into(), body }];
+    let mut mods = vec![emit::Module { name: "__main__".into(), body, path: Some(crate::modules::abs_path(Path::new(file))) }];
     // Brevi's own random and path-text copies stand in for CPython's only when no file of the program uses
     // more of os, pathlib or random than they have.
     let pure = |s: &str| crate::caps::path_uses(s).map_or(true, |v| v.is_empty()) && int_seeds(s);
@@ -699,6 +705,18 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         }
         let mut imps = vec![];
         walk_imports(&mods[k].body, &mut imps);
+        let dotted: Vec<String> = imps.iter().filter_map(|m| m.strip_prefix('\u{1}')).map(String::from).collect();
+        imps.retain(|m| !m.starts_with('\u{1}'));
+        for m in dotted {
+            let parts: Vec<&str> = m.split('.').collect();
+            for k in 2..=parts.len() {
+                let (pkg, n) = (parts[..k - 1].join("."), parts[k - 1]);
+                let d = dir.join(pkg.replace('.', "/"));
+                if d.join("__init__.py").is_file() && (d.join(format!("{n}.py")).is_file() || d.join(n).join("__init__.py").is_file()) {
+                    imps.push(parts[..k].join("."));
+                }
+            }
+        }
         // a module of a package of the program's, named in `from pkg import sub`
         let mut fr = vec![];
         from_names(&mods[k].body, &mut fr);
@@ -765,7 +783,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
                     own_used = true;
                     own_mods.insert(m.clone());
                     let body = parse::parse(src).map_err(|(l, msg)| (format!("<{m}>"), l, msg))?;
-                    mods.push(emit::Module { name: m, body });
+                    mods.push(emit::Module { name: m, body, path: None });
                     continue;
                 }
             }
@@ -778,7 +796,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
                 absolutize(&mut body, &m, p.ends_with("__init__.py"));
                 own_ok &= pure(&src);
                 texts.insert(m.clone(), (ps.clone(), src.to_string()));
-                mods.push(emit::Module { name: m, body });
+                mods.push(emit::Module { name: m, body, path: Some(crate::modules::abs_path(&p)) });
             } else if m == "asyncio" || m.starts_with("asyncio.") {
                 // Brevi's coroutines run only on Brevi's own asyncio.
                 return Err((file.to_string(), 0, format!("module {m} beyond Brevi's own asyncio runs in CPython")));
@@ -797,6 +815,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     {
         let user: Vec<(&str, &[parse::Stmt])> = mods.iter().filter(|m| !own_mods.contains(&m.name)).map(|m| (m.name.as_str(), m.body.as_slice())).collect();
         typing::OWN_PYDANTIC.store(own_mods.contains("pydantic"), Ordering::Relaxed);
+        typing::BRIDGED.store(bridge.on, Ordering::Relaxed);
         if let Err((m, l, why)) = typing::check(&user) {
             let (m, l, why) = typing::string_as_code(&user).unwrap_or((m, l, why));
             let f = texts.get(&m).map_or(file.to_string(), |t| t.0.clone());
@@ -1359,7 +1378,7 @@ fn build(rust: &str, dir: &Path, out: &Path, opt: &str, cache: &Path, rustc_v: &
     }
     if use_cache && std::fs::create_dir_all(&cdir).is_ok() {
         let tmp = cdir.join(format!("{key}.{}", std::process::id()));
-        if std::fs::copy(out, &tmp).is_ok() && std::fs::rename(&tmp, &cached).is_ok() {
+        if crate::copy_exe(out, &tmp) && std::fs::rename(&tmp, &cached).is_ok() {
             if used != rust {
                 std::fs::write(cached.with_extension("plain"), "").ok();
             }
@@ -1637,7 +1656,7 @@ fn lib_classes(mods: &[emit::Module], texts: &HashMap<String, (String, String)>,
         if want.is_empty() {
             continue;
         }
-        let exe = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
+        let exe = crate::python_exe().map_err(|why| (path.clone(), want[0].0, format!("class {} is built on a library class, which CPython runs: {why}", want[0].1)))?;
         let ask = format!("{{\"src\":{},\"lines\":[{}]}}", jq(&src), want.iter().map(|w| w.0.to_string()).collect::<Vec<_>>().join(","));
         let got = (|| -> Option<String> {
             use std::io::Write;
@@ -1721,9 +1740,9 @@ fn jq(s: &str) -> String {
 // importlib.metadata.version's table: each distribution installed for the build machine's python3 whose name
 // the program spells as a string, with its version. A name not in it raises PackageNotFoundError.
 fn dist_table(texts: &[String]) -> String {
-    let exe = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| "python3".into());
+    let exe = crate::python_exe();
     const Q: &str = "import importlib.metadata as m\nfor d in m.distributions():\n    n = d.metadata['Name']\n    if n: print(n + '\\t' + d.version)";
-    let out = std::process::Command::new(&exe).args(["-I", "-c", Q]).output().map(|o| String::from_utf8_lossy(&o.stdout).to_string()).unwrap_or_default();
+    let out = exe.ok().and_then(|exe| std::process::Command::new(&exe).args(["-I", "-c", Q]).output().ok()).map(|o| String::from_utf8_lossy(&o.stdout).to_string()).unwrap_or_default();
     let mut named: HashSet<String> = HashSet::new();
     for t in texts {
         for q in ['"', '\''] {

@@ -1,10 +1,9 @@
-{"path":"dynamic","line":3,"why":"sys.modules runs in CPython, which needs allow native"}
-Traceback (most recent call last):
-KeyError: 'os'
+{"line":3,"msg":"sys.modules runs in CPython, which needs allow native","fix":"do without it, or the caller grants it: --allow-py sys (MCP tools: \"allow_py\": [\"sys\"])"}
+{"line":3,"msg":"unknown method .system()","fix":"did you mean .step()?"}
+note: not run with python3: with --sandbox or an allow line, Brevi never falls back to CPython, which cannot enforce allow lines
 exit 1
 -- dynamic
-Traceback (most recent call last):
-KeyError: 'os'
+{"e":"dyn","at":"tests/sandbox/sys_modules.py","line":3,"msg":"sys.modules[\"os\"] (a module CPython loads at startup that this program does not import as Brevi's) is not supported in dynamic builds"}
 exit 1
 -- typed
 {"line":3,"msg":"sys.modules runs in CPython, which needs allow native","fix":"do without it, or the caller grants it: --allow-py sys (MCP tools: \"allow_py\": [\"sys\"])"}

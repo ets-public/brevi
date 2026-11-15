@@ -1,0 +1,55 @@
+True True True [<Color.RED: 1>, <Color.RED: 1>, <N.A: 1>]
+True True True [<Color.RED: 1>, <Color.RED: 1>, <N.A: 1>]
+True True True [<Color.RED: 1>, <Color.RED: 1>, <N.A: 1>]
+True True True [<Color.RED: 1>, <Color.RED: 1>, <N.A: 1>]
+True True True [<Color.RED: 1>, <Color.RED: 1>, <N.A: 1>]
+True True True [<Color.RED: 1>, <Color.RED: 1>, <N.A: 1>]
+1 <enum 'N'>
+<class '__main__.I'>
+<class '__main__.G'> 1.0
+0x1.8000000000000p+0 F.X
+'0x1.8p0' 1.5 0x1.8000000000000p+0
+'-0x1p-1074' -5e-324 -0x0.0000000000001p-1022
+'0x1p-1075' 0.0 0x0.0p+0
+'0x3p-1076' 5e-324 0x0.0000000000001p-1022
+'0x1.fffffffffffff8p1023' OverflowError hexadecimal value too large to represent as a float
+'0x1.fffffffffffff7ffp1023' 1.7976931348623157e+308 0x1.fffffffffffffp+1023
+' 0X1.ffffp10 ' 2047.984375 0x1.ffff000000000p+10
+'inf' inf inf
+'-Infinity' -inf -inf
+'nan' nan nan
+'1' 1.0 0x1.0000000000000p+0
+'0x.8' 0.5 0x1.0000000000000p-1
+'0x1.' 1.0 0x1.0000000000000p+0
+'0' 0.0 0x0.0p+0
+'-0x0p0' -0.0 -0x0.0p+0
+'0x1p99999999999999999999' OverflowError hexadecimal value too large to represent as a float
+'0x0p99999999999999' 0.0 0x0.0p+0
+'0x1p-99999999999999999' 0.0 0x0.0p+0
+'1.0000000000000011102230246251565404236316680908203125' 1.0 0x1.0000000000000p+0
+'x' ValueError invalid hexadecimal floating-point string
+'0x' ValueError invalid hexadecimal floating-point string
+'0x1p' ValueError invalid hexadecimal floating-point string
+'0xp1' ValueError invalid hexadecimal floating-point string
+'0x1p+' ValueError invalid hexadecimal floating-point string
+'infin' ValueError invalid hexadecimal floating-point string
+'0x1.0000000000000800000000000001p0' 1.0000000000000002 0x1.0000000000001p+0
+'0x1.00000000000008p0' 1.0 0x1.0000000000000p+0
+'0x1.00000000000018p0' 1.0000000000000004 0x1.0000000000002p+0
+'0x0.0000000000001p-1022' 5e-324 0x0.0000000000001p-1022
+'0x1.0000000000001p-1023' 1.1125369292536007e-308 0x0.8000000000000p-1022
+'0x0.00000000000008p-1022' 0.0 0x0.0p+0
+'0x0.00000000000018p-1022' 1e-323 0x0.0000000000002p-1022
+'0x1p-1074' 5e-324 0x0.0000000000001p-1022
+'0x1.8p-1074' 1e-323 0x0.0000000000002p-1022
+'0x1.8p-1075' 5e-324 0x0.0000000000001p-1022
+0x0.0p+0
+-0x0.0p+0
+0x1.0000000000000p+0
+0x0.0000000000001p-1022
+0x1.0000000000000p-1022
+0x1.fffffffffffffp+1023
+-0x1.91eb851eb851fp+1
+inf
+nan
+0x0.012688b70e62bp-1022
