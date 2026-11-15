@@ -1,1 +1,0 @@
-- **Fixed a silent wrong answer in the typed build's regex engine:** a repeated group whose last iteration matched empty (`^((x|y)*)*` on `"xyyzy"`) lost that iteration's captures, so `m.group(1)` printed `None` where CPython prints `""`. Written by DeepSeek, reviewed by Claude.

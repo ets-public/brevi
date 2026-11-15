@@ -68,7 +68,9 @@ Brevi tries the fastest path first. The **typed build** works out a fixed type f
 
 Brevi also has its own shorter Python-like language for `.bv` files, checked fully before it runs: [BREVI.md](BREVI.md) (3,589 tokens, served by `brevi guide`), [REFERENCE.md](REFERENCE.md) and [LIBRARIES.md](LIBRARIES.md) (Rust crates and Python from Brevi). Agents finish tasks more cheaply in plain Python, so the agent tools ask for Python.
 
-## Status: v0.28.0
+## Status: v0.28.1
+
+v0.28.1 is a fix release on v0.28.0: `re.IGNORECASE` and the str case methods use CPython 3.13's own Unicode tables in both builds instead of rustc's, so Rust 1.100 and newer no longer refuse IGNORECASE patterns or change case answers; `namedtuple` checks field names with CPython's `str.isidentifier()`; and regex back-references the native engine cannot match exactly are refused instead of answered. The numbers below were measured at v0.28.0; nothing else changed.
 
 v0.28.0 (15 November 2026) brings `match` statements, metaclasses, PEP 695 generics, `bytearray` and `memoryview`, CPython 3.13's own str hashing and set order, and many more of CPython's own tests to the dynamic build, with no known wrong answer on either conformance slice. Brevi now uses only CPython 3.13 wherever it runs or asks CPython. Full list: [CHANGELOG.md](CHANGELOG.md).
 
