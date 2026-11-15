@@ -1087,4 +1087,30 @@ if [ -n "$t4bad" ]; then
   echo "FAIL the build cache marks a running program as used:$t4bad"; cat "$t4"/build* 2>/dev/null; fail=1
 else echo "ok   the build cache marks a running program as used"; fi
 rm -rf "$t4"
+# With the build folder (TMPDIR) on another file system or mount than the cache, cached programs are copied,
+# not hard linked, and a copy written by a brevi process with other threads (the rustc probe at start-up) could
+# still be open in a child that thread was starting when the program ran: "Text file busy" in about 1 run in 60
+# at 8 at once. Copies are made by a single-threaded helper (copy_exe), so none of these runs may fail.
+t5=$(mktemp -d)
+t5t=/dev/shm/brevi-check-$$
+t5k="${BREVI_CACHE:-$HOME/.cache/brevi}"
+mkdir -p "$t5k"
+if mkdir -p "$t5t" 2>/dev/null && [ "$(stat -c %d "$t5t")" != "$(stat -c %d "$t5k")" ]; then
+  printf 'import sys\nprint(sys.argv[1:], %s)\n' "$$" > "$t5/p.py"
+  BREVI_DYN=1 BREVI_TIERED=0 TMPDIR="$t5t" $BREVI run "$t5/p.py" --native w > /dev/null 2>&1
+  for j in 1 2 3 4 5 6 7 8; do
+    ( mkdir -p "$t5t/t$j"; i=0; while [ $i -lt 60 ]; do
+        BREVI_DYN=1 BREVI_TIERED=0 TMPDIR="$t5t/t$j" $BREVI run "$t5/p.py" --native $j $i 2>&1; i=$((i + 1)); done > "$t5/out$j" ) &
+  done
+  wait
+  t5bad=0; j=1
+  while [ $j -le 8 ]; do
+    i=0; while [ $i -lt 60 ]; do echo "['$j', '$i'] $$"; i=$((i + 1)); done | cmp -s - "$t5/out$j" || t5bad=$((t5bad + 1)); j=$((j + 1))
+  done
+  if [ $t5bad = 0 ]; then echo "ok   cached programs copied across file systems run (480 runs, 8 at once)"
+  else echo "FAIL cached programs copied across file systems run: $t5bad of 8 loops went wrong"; grep -hv "^\[" "$t5"/out* | sort | uniq -c | head; fail=1; fi
+else
+  echo "ok   cached programs copied across file systems run (skipped: no /dev/shm on another file system than the cache)"
+fi
+rm -rf "$t5" "$t5t"
 exit $fail

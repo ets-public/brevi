@@ -1319,7 +1319,7 @@ fn build(rust: &str, dir: &Path, out: &Path, opt: &str, cache: &Path, rustc_v: &
     }
     if use_cache && std::fs::create_dir_all(&cdir).is_ok() {
         let tmp = cdir.join(format!("{key}.{}", std::process::id()));
-        if std::fs::copy(out, &tmp).is_ok() && std::fs::rename(&tmp, &cached).is_ok() {
+        if crate::copy_exe(out, &tmp) && std::fs::rename(&tmp, &cached).is_ok() {
             if used != rust {
                 std::fs::write(cached.with_extension("plain"), "").ok();
             }
