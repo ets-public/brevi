@@ -8015,11 +8015,14 @@ fn ax_rx(p: &str) -> std::rc::Rc<(AxRx, usize)> {
         if let Some(r) = c.borrow().get(p) {
             return r.clone();
         }
-        // The build checks literal patterns; one built at run time is checked here, by the same function
-        // (src/rx_typed.rs): syntax this matcher lacks stops the run (a Python file's `brevi run` then re-runs
-        // it on the dynamic build, src/replay.rs) instead of matching wrongly.
-        if let Some(why) = rx_typed_unsupported(p) {
-            panic!("AX_DYN: a regex with {why}, built at run time");
+        // The build checks literal re patterns; one built at run time is checked here, by the same
+        // function (src/rx_typed.rs): syntax this matcher lacks stops the run (`brevi run` then re-runs it on the
+        // dynamic build, src/replay.rs) instead of matching wrongly. Only in a .py file, which promises CPython's
+        // answer: a .bv program's patterns are Brevi's own and keep the matcher they always had.
+        if AX_PY_FILE.load(std::sync::atomic::Ordering::Relaxed) {
+            if let Some(why) = rx_typed_unsupported(p) {
+                panic!("AX_DYN: a regex with {why}, built at run time");
+            }
         }
         c.borrow_mut()
             .entry(p.to_string())
