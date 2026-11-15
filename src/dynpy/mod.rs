@@ -200,6 +200,10 @@ fn walk_imports(body: &[parse::Stmt], out: &mut Vec<String>) {
             St::Import(v) => {
                 for (m, a) in v {
                     out.push(if a.is_some() { m.clone() } else { m.split('.').next().unwrap().to_string() });
+                    // `import a.b.c` loads a.b and a.b.c too: marked, the caller keeps the ones that are files of the program
+                    if a.is_none() && m.contains('.') {
+                        out.push(format!("\u{1}{m}"));
+                    }
                     // `import collections.abc` loads collections.abc too: Brevi's ABCs, not its typing forms
                     if a.is_none() && m == "collections.abc" {
                         out.push(m.clone());
@@ -662,6 +666,18 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         }
         let mut imps = vec![];
         walk_imports(&mods[k].body, &mut imps);
+        let dotted: Vec<String> = imps.iter().filter_map(|m| m.strip_prefix('\u{1}')).map(String::from).collect();
+        imps.retain(|m| !m.starts_with('\u{1}'));
+        for m in dotted {
+            let parts: Vec<&str> = m.split('.').collect();
+            for k in 2..=parts.len() {
+                let (pkg, n) = (parts[..k - 1].join("."), parts[k - 1]);
+                let d = dir.join(pkg.replace('.', "/"));
+                if d.join("__init__.py").is_file() && (d.join(format!("{n}.py")).is_file() || d.join(n).join("__init__.py").is_file()) {
+                    imps.push(parts[..k].join("."));
+                }
+            }
+        }
         // a module of a package of the program's, named in `from pkg import sub`
         let mut fr = vec![];
         from_names(&mods[k].body, &mut fr);
@@ -760,6 +776,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     {
         let user: Vec<(&str, &[parse::Stmt])> = mods.iter().filter(|m| !own_mods.contains(&m.name)).map(|m| (m.name.as_str(), m.body.as_slice())).collect();
         typing::OWN_PYDANTIC.store(own_mods.contains("pydantic"), Ordering::Relaxed);
+        typing::BRIDGED.store(bridge.on, Ordering::Relaxed);
         if let Err((m, l, why)) = typing::check(&user) {
             let (m, l, why) = typing::string_as_code(&user).unwrap_or((m, l, why));
             let f = texts.get(&m).map_or(file.to_string(), |t| t.0.clone());
@@ -1319,7 +1336,7 @@ fn build(rust: &str, dir: &Path, out: &Path, opt: &str, cache: &Path, rustc_v: &
     }
     if use_cache && std::fs::create_dir_all(&cdir).is_ok() {
         let tmp = cdir.join(format!("{key}.{}", std::process::id()));
-        if std::fs::copy(out, &tmp).is_ok() && std::fs::rename(&tmp, &cached).is_ok() {
+        if crate::copy_exe(out, &tmp) && std::fs::rename(&tmp, &cached).is_ok() {
             if used != rust {
                 std::fs::write(cached.with_extension("plain"), "").ok();
             }

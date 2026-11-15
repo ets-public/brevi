@@ -720,6 +720,19 @@ case "$o" in *"the repr of sys.stdout is not supported in dynamic builds"*) echo
 printf 'import decimal\nc = [decimal.getcontext()]\nprint(c)\n' > "$t/m5.py"
 o=$(BREVI_DYN=1 $BREVI run "$t/m5.py" 2>&1)
 case "$o" in *"NotImplementedError: brevi: the repr of decimal.context is not supported in dynamic builds") echo "ok   a decimal context's repr the build cannot see stops" ;; *) echo "FAIL a decimal context's repr at run time"; printf '%s\n' "$o"; fail=1 ;; esac
+# A missing attribute of a program file that shadows a standard library module is CPython 3.13's AttributeError
+# (it names the file); `from FILE import *` of a program file, and a new attribute set through a program
+# module object, are refused (the file's names are fixed when it is built).
+printf 'X = 1\n' > "$t/tabnanny.py"
+printf 'import tabnanny\ntry:\n    tabnanny.nope\nexcept AttributeError as e:\n    print(e)\n' > "$t/m6.py"
+o=$(BREVI_DYN=1 $BREVI run "$t/m6.py" 2>&1)
+if [ "$o" = "$(python3 "$t/m6.py" 2>&1)" ]; then echo "ok   a missing attribute of a file shadowing the stdlib"; else echo "FAIL a missing attribute of a file shadowing the stdlib"; printf '%s\n' "$o"; fail=1; fi
+printf 'from helper import *\nprint(X)\n' > "$t/m7.py"
+o=$(BREVI_DYN=1 $BREVI run "$t/m7.py" 2>&1)
+case "$o" in *"from helper import * (a file of the program) is not supported in dynamic builds"*) echo "ok   a star import of a program file is refused" ;; *) echo "FAIL a star import of a program file"; printf '%s\n' "$o"; fail=1 ;; esac
+printf 'import helper\nm = helper\nm.X = 2\nprint(helper.X)\nm.Z = 3\n' > "$t/m8.py"
+o=$(BREVI_DYN=1 $BREVI run "$t/m8.py" 2>&1)
+case "$o" in "2"*"NotImplementedError: brevi: setting a new attribute helper.Z through the module object is not supported in dynamic builds") echo "ok   a new attribute through a program module object stops" ;; *) echo "FAIL a new attribute through a program module object"; printf '%s\n' "$o"; fail=1 ;; esac
 printf 'import json\ntry:\n    print(json.loads(chr(34) + chr(0xd800) + chr(34)))\nexcept BaseException:\n    print("caught")\nprint("after")\n' > "$t/s.py"
 o=$(BREVI_DYN=1 $BREVI run "$t/s.py" 2>&1); c=$?
 case "$c:$o" in "1:NotImplementedError: brevi: this operation on a str with a lone surrogate (U+D800..U+DFFF) is not supported in dynamic builds yet"*) echo "ok   a lone surrogate on an unwritten path stops the program" ;; *) echo "FAIL a lone surrogate on an unwritten path ($c)"; printf '%s\n' "$o"; fail=1 ;; esac
@@ -784,6 +797,17 @@ printf 'import asyncio\nfrom brlib import apply\nasync def f(x):\n    return x\n
 B=$BREVI; case $B in /*) ;; *) B=$PWD/$B ;; esac
 o=$(cd "$t" && BREVI_DYN=1 $B run m.py 2>&1)
 case "$o" in *"async code with a library CPython runs (brlib)"*) echo "ok   async code handing a coroutine to a bridged library is refused" ;; *) echo "FAIL async code handing a coroutine to a bridged library"; printf '%s\n' "$o"; fail=1 ;; esac
+rm -rf "$t"
+# A compiled function has no CPython bytecode: a bridged library that reads it (dis loaded through importlib,
+# inspect.signature reading co_argcount) gets the dynamic build's refusal, never a TypeError CPython would not raise.
+t=$(mktemp -d)
+printf 'import importlib\ndis = importlib.import_module("dis")\ndef f(x):\n    return x\ntry:\n    print(list(dis.get_instructions(f)))\nexcept TypeError as e:\n    print("TypeError", e)\n' > "$t/via_dis.py"
+printf 'import importlib\ndef f(x, y=2):\n    return x\nprint(importlib.import_module("inspect").signature(f))\n' > "$t/via_sig.py"
+for c in "dis:brevi: the code object's co_code" "sig:brevi: the code object's co_argcount"; do
+  n=${c%%:*}; want=${c#*:}
+  o=$(cd "$t" && BREVI_DYN=1 $B run via_$n.py 2>&1)
+  case "$o" in *"$want"*) echo "ok   a bridged library reading a compiled function's bytecode is refused ($n)" ;; *) echo "FAIL a bridged library reading a compiled function's bytecode is refused ($n)"; printf '%s\n' "$o" | tail -3; fail=1 ;; esac
+done
 rm -rf "$t"
 # Under the C locale (no LANG), text files a bridged library reads decode as UTF-8, as in python3 (#211).
 f=tests/bridge/c_locale/read_utf8.py
@@ -1087,4 +1111,30 @@ if [ -n "$t4bad" ]; then
   echo "FAIL the build cache marks a running program as used:$t4bad"; cat "$t4"/build* 2>/dev/null; fail=1
 else echo "ok   the build cache marks a running program as used"; fi
 rm -rf "$t4"
+# With the build folder (TMPDIR) on another file system or mount than the cache, cached programs are copied,
+# not hard linked, and a copy written by a brevi process with other threads (the rustc probe at start-up) could
+# still be open in a child that thread was starting when the program ran: "Text file busy" in about 1 run in 60
+# at 8 at once. Copies are made by a single-threaded helper (copy_exe), so none of these runs may fail.
+t5=$(mktemp -d)
+t5t=/dev/shm/brevi-check-$$
+t5k="${BREVI_CACHE:-$HOME/.cache/brevi}"
+mkdir -p "$t5k"
+if mkdir -p "$t5t" 2>/dev/null && [ "$(stat -c %d "$t5t")" != "$(stat -c %d "$t5k")" ]; then
+  printf 'import sys\nprint(sys.argv[1:], %s)\n' "$$" > "$t5/p.py"
+  BREVI_DYN=1 BREVI_TIERED=0 TMPDIR="$t5t" $BREVI run "$t5/p.py" --native w > /dev/null 2>&1
+  for j in 1 2 3 4 5 6 7 8; do
+    ( mkdir -p "$t5t/t$j"; i=0; while [ $i -lt 60 ]; do
+        BREVI_DYN=1 BREVI_TIERED=0 TMPDIR="$t5t/t$j" $BREVI run "$t5/p.py" --native $j $i 2>&1; i=$((i + 1)); done > "$t5/out$j" ) &
+  done
+  wait
+  t5bad=0; j=1
+  while [ $j -le 8 ]; do
+    i=0; while [ $i -lt 60 ]; do echo "['$j', '$i'] $$"; i=$((i + 1)); done | cmp -s - "$t5/out$j" || t5bad=$((t5bad + 1)); j=$((j + 1))
+  done
+  if [ $t5bad = 0 ]; then echo "ok   cached programs copied across file systems run (480 runs, 8 at once)"
+  else echo "FAIL cached programs copied across file systems run: $t5bad of 8 loops went wrong"; grep -hv "^\[" "$t5"/out* | sort | uniq -c | head; fail=1; fi
+else
+  echo "ok   cached programs copied across file systems run (skipped: no /dev/shm on another file system than the cache)"
+fi
+rm -rf "$t5" "$t5t"
 exit $fail

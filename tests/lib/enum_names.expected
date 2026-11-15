@@ -1,0 +1,26 @@
+<class 'enum.EnumType'> <class 'enum.EnumType'> True True <class 'enum.EnumType'> True
+<E.A: 1> (<enum 'E'>, <enum 'S'>, <enum 'Enum'>, <class 'object'>) <class 'enum.EnumType'> <enum 'S'> 0 [] True
+<FlagBoundary.EJECT: 'eject'> <EnumCheck.UNIQUE: 'one name per value'> one name per value True [<EnumCheck.CONTINUOUS: 'no skipped integer values'>, <EnumCheck.NAMED_FLAGS: 'multi-flag aliases may not contain unnamed flags'>, <EnumCheck.UNIQUE: 'one name per value'>]
+True False
+[<MyTypes.i: <class 'int'>>, <MyTypes.s: <class 'str'>>] True
+[<Ex.A: 1>, <Ex.B: 2>] 3 <class 'int'>
+[<Outer.a: 1>, <Outer.Inner: <enum 'Inner'>>] True [<Inner.foo: 10>] In2.x
+aliases found in <enum 'Dirtier'>: double -> single, turkey -> triple
+invalid enum 'Missing': missing values 5, 6, 7, 8, 9, 10, 12
+invalid flag 'Incomplete': missing values 32
+invalid Flag 'Bizarre': aliases b and d are missing combined values of 0x3 [use enum.show_flag_values(value) for details]
+invalid Flag 'Bizarre': alias d is missing value 0x2 [use enum.show_flag_values(value) for details]
+[1, 2] [1, 2, 4]
+-8 is not a positive integer
+True True True False
+False
+True
+
+Forces item to become an Enum member during class creation.
+ <class 'enum.verify'>
+nonmember.__init__() missing 1 required positional argument: 'value'
+EnumType True True <class 'enum.EnumType'> <enum 'Color'>
+unsupported operand type(s) for +: 'EnumType' and 'int'
+object of type 'int' has no len()
+<enum 'FlagBoundary'> True one name per value eject eject
+<enum 'FlagBoundary'> ['STRICT', 'CONFORM', 'EJECT', 'KEEP']
