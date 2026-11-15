@@ -7,7 +7,8 @@
 # A release ships only what it tested: the full Linux suite (toolchains.yml with release: true: unit, language and
 # MCP tests, every old solution, both CPython conformance slices held to their release gates (core 90%, stdlib
 # 80%, no known-wrong result), the fuzz corpus) runs on the commit being released,
-# Windows runs tests/windows/check.ps1 on the brevi.exe unpacked from the zip it ships, every archive is unpacked and
+# Windows runs tests/windows/check.ps1 and the core conformance slice (its Windows floor, known-wrong list and release
+# gate: 90%, no wrong result) on the brevi.exe unpacked from the zip it ships, every archive is unpacked and
 # run (tools/archive_check.py), and SHA256SUMS is checked against the files as published. Nothing is released or
 # published unless every platform built and passed. dry_run does all of that and stops before the release.
 name: release
@@ -99,7 +100,7 @@ jobs:
           - { os: macos-15, targets: aarch64-apple-darwin x86_64-apple-darwin }
           - { os: windows-2022, targets: x86_64-pc-windows-msvc, test: true }
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Rust (pinned in .github/rust-version)
@@ -160,6 +161,16 @@ jobs:
           $env:BREVI = $env:BREVI_SHIPPED
           pwsh -NoProfile -File tests/windows/check.ps1
           if ($LASTEXITCODE -ne 0) { throw "tests/windows/check.ps1 failed" }
+      # The Windows conformance gate, on the same brevi.exe: the core slice held to the Windows floor and known-wrong
+      # list (compat/conformance_windows_*) and to the Windows release gate (90%, no wrong result). About 16 minutes.
+      - name: CPython conformance on Windows, on the brevi.exe from the zip (core slice; floor, known-wrong list, release gate)
+        if: ${{ matrix.test }}
+        shell: bash
+        run: |
+          python -m pip install --quiet uv
+          uv python install 3.13.13 --quiet
+          BREVI="$BREVI_SHIPPED" python tools/conformance.py --check --release-gate --python "$(uv python find 3.13.13)" --jobs 4 --out conformance-windows
+          cat conformance-windows/report.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: brevi-${{ matrix.os }}
@@ -252,7 +263,7 @@ jobs:
         run: |
           # Release notes: this tag's section of CHANGELOG.md, then the install note, then the run that tested it.
           python3 tools/release_notes.py "$TAG" > notes.md
-          printf '\n**Tested:** these binaries were built from %s and passed the full Linux suite, the Windows platform checks and the archive checks in [this run](%s/%s/actions/runs/%s).\n' \
+          printf '\n**Tested:** these binaries were built from %s and passed the full Linux suite, the Windows platform checks, the Windows conformance gate and the archive checks in [this run](%s/%s/actions/runs/%s).\n' \
             "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> notes.md
           gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
             gh release create "$TAG" -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Brevi $TAG" --notes-file notes.md
