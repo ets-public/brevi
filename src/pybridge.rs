@@ -1241,6 +1241,16 @@ pub fn set_file(f: &str) {
     FILE.set(f.to_string()).ok();
 }
 
+// `brevi build --standalone`: compiled into the program (AX_PYB_STANDALONE), which then loads only the CPython
+// it carries and is refused if that is missing, never falling back to one installed on the machine.
+static STANDALONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub fn set_standalone(on: bool) {
+    STANDALONE.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+pub fn standalone() -> bool {
+    STANDALONE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 // What python3 answers to QUERY (asked once).
 fn conf() -> &'static Result<String, String> {
     static C: std::sync::OnceLock<Result<String, String>> = std::sync::OnceLock::new();
@@ -1284,7 +1294,7 @@ fn consts() -> String {
         None => String::new(),
     };
     let subs = SUBS.with(|x| x.borrow().clone());
-    format!("const AX_PYB_SUBS: &[&str] = &{subs:?};\nconst AX_PYB_CONF: &str = {conf:?};\nconst AX_PYB_QUERY: &str = {QUERY:?};\nconst AX_PYB_FILE: &str = {file:?};\nconst AX_PYB_HOLD: AxPybHold = {};\nconst AX_PYB_NET: u8 = {};\n", fs_hold(), net_hold())
+    format!("const AX_PYB_SUBS: &[&str] = &{subs:?};\nconst AX_PYB_CONF: &str = {conf:?};\nconst AX_PYB_QUERY: &str = {QUERY:?};\nconst AX_PYB_FILE: &str = {file:?};\nconst AX_PYB_HOLD: AxPybHold = {};\nconst AX_PYB_NET: u8 = {};\nconst AX_PYB_STANDALONE: bool = {};\n", fs_hold(), net_hold(), STANDALONE.load(std::sync::atomic::Ordering::Relaxed))
 }
 
 // Under --sandbox, CPython's network is held by the kernel too (Linux seccomp, pyrt_load.rs ax_pyb_nonet):
@@ -1333,11 +1343,11 @@ fn fs_hold() -> String {
 const BUNDLER: &str = include_str!("pybundle.py");
 
 // `brevi build --standalone`: appends CPython (libpython, its shared libraries, the standard library and the
-// packages the program imports) to the binary, which then runs where no Python is installed. pyrt.rs unpacks
-// it into a cache folder on first run. Linux only for now.
+// packages the program imports) to the binary, which then runs where no Python is installed. pyrt_load.rs
+// unpacks it into a cache folder on first run. Linux and Windows; macOS is refused.
 pub fn bundle(file: &str, bin: &std::path::Path) -> Result<String, String> {
-    if !cfg!(target_os = "linux") {
-        return Err("--standalone builds of programs that use Python libraries need Linux for now".into());
+    if !cfg!(any(target_os = "linux", windows)) {
+        return Err("--standalone builds of programs that use Python libraries need Linux or Windows for now".into());
     }
     let conf = conf().clone()?;
     let lib = conf.split('\u{1}').next().unwrap_or_default().to_string();
@@ -1347,6 +1357,9 @@ pub fn bundle(file: &str, bin: &std::path::Path) -> Result<String, String> {
         .output()
         .map_err(|e| format!("cannot start {exe}: {e}"))?;
     let err = String::from_utf8_lossy(&out.stderr).to_string();
+    if let Some(why) = err.lines().find_map(|l| l.strip_prefix("brevi: refused: ")) {
+        return Err(format!("--standalone refused: {why}"));
+    }
     if !out.status.success() {
         return Err(format!("bundling Python failed: {}", err.trim().lines().last().unwrap_or("")));
     }

@@ -1,8 +1,10 @@
 # Run by `brevi build --standalone` (see pybridge::bundle) with the python3 the program was built against:
 #   python3 -c <this> SOURCE BINARY
 # Appends this CPython to BINARY so the program runs on a machine without Python: libpython, the shared
-# libraries it and the extension modules need (glibc aside), the standard library, and the installed
-# packages the program imports with everything they require. pyrt.rs unpacks it on first run.
+# libraries it and the extension modules need (glibc aside; on Windows, Windows' own DLLs aside), the standard
+# library, and the installed packages the program imports with everything they require. pyrt_load.rs unpacks
+# it on first run. On Windows the layout is a python.org install's (python313.dll, Lib, DLLs,
+# Lib/site-packages), so CPython's own Windows start-up finds everything as it does there.
 #
 # Layout of what is appended:
 #   entries, each: kind u8 (0 deflate, 1 stored), mode u32, mtime u64, path len u16, path, size u32,
@@ -18,23 +20,47 @@ before = set(sys.modules)
 sys.path[:] = [p for p in sys.path if p not in ('', '.', os.getcwd())]
 lib = sys.argv[3] if len(sys.argv) > 3 else ''
 
+WIN = sys.platform == 'win32'
 real = os.path.realpath
 stdlib = real(sysconfig.get_paths()['stdlib'])
-dynload = real(sysconfig.get_config_var('DESTSHARED') or os.path.join(stdlib, 'lib-dynload'))
 ver = 'python%d.%d' % sys.version_info[:2]
 platlib = getattr(sys, 'platlibdir', 'lib')
-STD = '%s/%s' % (platlib, ver)
-SITE = 'site-packages'
+if WIN:
+    # A python.org (or uv) install: python3XX.dll and vcruntime beside python.exe, extension modules in DLLs.
+    dynload = real(os.path.join(sys.base_prefix, 'DLLs'))
+    STD, DYN, SITE = 'Lib', 'DLLs', 'Lib/site-packages'
+else:
+    dynload = real(sysconfig.get_config_var('DESTSHARED') or os.path.join(stdlib, 'lib-dynload'))
+    STD = '%s/%s' % (platlib, ver)
+    DYN, SITE = STD + '/lib-dynload', 'site-packages'
 THIRD = ('site-packages', 'dist-packages')
 
 
+def fold(p):
+    return os.path.normcase(p)
+
+
 def under(p, root):
-    return p == root or p.startswith(root.rstrip('/') + '/')
+    p, root = fold(p), fold(root)
+    return p == root or p.startswith(root.rstrip(os.sep) + os.sep)
+
+
+def rel(p, root):
+    return os.path.relpath(p, root).replace(os.sep, '/')
 
 
 def is_std(p):
     p = real(p)
-    return (under(p, stdlib) or under(p, dynload)) and not any('/%s/' % t in p + '/' for t in THIRD)
+    return (under(p, stdlib) or under(p, dynload)) and not any(os.sep + t + os.sep in fold(p) + os.sep for t in THIRD)
+
+
+def refuse(why):
+    print('brevi: refused: ' + why, file=sys.stderr)
+    sys.exit(2)
+
+
+if WIN and '\\windowsapps\\' in fold(real(sys.base_prefix)) + '\\':
+    refuse('this is the Microsoft Store Python, whose files cannot be bundled: install CPython 3.13 from python.org (or with uv) and build with that')
 
 
 files = {}  # path in bundle -> path here
@@ -48,15 +74,17 @@ def add(dest, path):
 SKIP_STD = {'site-packages', 'dist-packages', 'test', 'tests', 'idle_test', 'idlelib', 'tkinter', 'turtledemo',
             'ensurepip', 'lib2to3', '__pycache__', '__phello__'}
 for root in [stdlib] + ([dynload] if not under(dynload, stdlib) else []):
-    base = STD if root == stdlib else STD + '/lib-dynload'
+    base = STD if root == stdlib else DYN
     for d, ds, fs in os.walk(root):
         ds[:] = [x for x in ds if x not in SKIP_STD and not x.startswith('config-')]
         for f in fs:
-            if f.endswith(('.pyc', '.pyo', '.a', '.exe')) or f.startswith('_tkinter') or f == 'turtle.py':
+            if f.endswith(('.pyc', '.pyo', '.a', '.exe', '.pdb', '.ico')) or f.startswith('_tkinter') or f == 'turtle.py':
+                continue
+            if WIN and re.match(r'(tcl|tk)\d+t?\.dll$', f, re.I):
                 continue
             p = os.path.join(d, f)
             if os.path.isfile(p):
-                add(base + '/' + os.path.relpath(p, root), p)
+                add(base + '/' + rel(p, root), p)
 
 # The program's imports, and every installed (non standard) module importing them loads.
 text = open(src, encoding='utf-8', errors='replace').read()
@@ -147,7 +175,7 @@ while todo:
         if not r or '__pycache__' in p or p.endswith('.pyc') or not os.path.isfile(p) or is_std(p):
             continue
         found = True
-        add(SITE + '/' + os.path.relpath(p, r), p)
+        add(SITE + '/' + rel(p, r), p)
     if not found:
         for t in (dist.read_text('top_level.txt') or '').split():
             spec = importlib.util.find_spec(t)
@@ -163,52 +191,208 @@ for top, f in tops:
             ds[:] = [x for x in ds if x != '__pycache__']
             for x in fs:
                 if not x.endswith('.pyc'):
-                    add(SITE + '/' + os.path.relpath(os.path.join(d, x), r), os.path.join(d, x))
+                    add(SITE + '/' + rel(os.path.join(d, x), r), os.path.join(d, x))
     else:
-        add(SITE + '/' + os.path.relpath(real(f), r), real(f))
+        add(SITE + '/' + rel(real(f), r), real(f))
 
-# libpython, and the shared libraries everything needs that are not part of the C library itself (which
-# every Linux has, and which must match the system's own loader).
-GLIBC = re.compile(r'^(ld-linux.*|ld64.*|linux-vdso.*|linux-gate.*|lib(c|m|mvec|pthread|dl|rt|util|resolv|nsl|anl|BrokenLocale|thread_db)\.so.*|libnss_.*)$')
-libdest = '%s/%s' % (platlib, os.path.basename(lib))
-add(libdest, real(lib))
-deps, order = {}, []
-inside = [stdlib, dynload] + roots
+if WIN:
+    # Windows has no ldd: each bundled .pyd and .dll's own import tables (PE import and delay-import
+    # directories) say which DLLs it needs, and this process's loaded modules say which ones the program's
+    # imports really loaded. A DLL that is part of Windows (System32, the API sets) is left to the system; any
+    # other is bundled, the Visual C++ runtime included (it is not part of Windows). One found beside
+    # python.exe (vcruntime140.dll, python3.dll) or nowhere in the bundle goes beside python3XX.dll and is
+    # loaded first by its full path, so later loads of that name find it, as Windows reuses a loaded module of
+    # the same name.
+    import ctypes
+    k32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    buf = ctypes.create_unicode_buffer(32768)
+    k32.GetSystemDirectoryW(buf, 32768)
+    sysdir = real(buf.value)
+    k32.GetWindowsDirectoryW(buf, 32768)
+    windir = real(buf.value)
+    REDIST = re.compile(r'^(vcruntime|msvcp|concrt|vccorlib|vcomp|vcamp|mfc)\d.*\.dll$', re.I)
 
+    def pe(path):
+        # (machine, [imported DLL names]) of a PE file, None if it is not one.
+        try:
+            with open(path, 'rb') as fh:
+                d = fh.read()
+            if d[:2] != b'MZ':
+                return None
+            o = struct.unpack_from('<I', d, 0x3c)[0]
+            if d[o:o + 4] != b'PE\0\0':
+                return None
+            machine, nsec = struct.unpack_from('<HH', d, o + 4)
+            optsize = struct.unpack_from('<H', d, o + 20)[0]
+            opt = o + 24
+            if struct.unpack_from('<H', d, opt)[0] == 0x20b:
+                base, ndd, dd = struct.unpack_from('<Q', d, opt + 24)[0], struct.unpack_from('<I', d, opt + 108)[0], opt + 112
+            else:
+                base, ndd, dd = struct.unpack_from('<I', d, opt + 28)[0], struct.unpack_from('<I', d, opt + 92)[0], opt + 96
+            secs = [struct.unpack_from('<IIII', d, opt + optsize + 40 * i + 8) for i in range(nsec)]
 
-def need(path):
+            def off(rva):
+                for vsize, va, rawsize, rawptr in secs:
+                    if va <= rva < va + max(vsize, rawsize):
+                        return rva - va + rawptr
+                return None
+
+            def name(rva):
+                p = off(rva)
+                return None if p is None else d[p:d.index(b'\0', p)].decode('ascii', 'replace')
+
+            got = []
+            if ndd > 1:
+                rva = struct.unpack_from('<I', d, dd + 8)[0]
+                p = off(rva) if rva else None
+                while p is not None and p + 20 <= len(d):
+                    oft, _, _, nrva, ft = struct.unpack_from('<IIIII', d, p)
+                    if not (oft or nrva or ft):
+                        break
+                    n = name(nrva)
+                    if n:
+                        got.append(n)
+                    p += 20
+            if ndd > 13:
+                rva = struct.unpack_from('<I', d, dd + 13 * 8)[0]
+                p = off(rva) if rva else None
+                while p is not None and p + 32 <= len(d):
+                    attrs, nrva = struct.unpack_from('<II', d, p)
+                    if not nrva:
+                        break
+                    n = name(nrva if attrs & 1 else nrva - base)
+                    if n:
+                        got.append(n)
+                    p += 32
+            return machine, got
+        except (OSError, struct.error, ValueError):
+            return None
+
+    MACHINE = {0x14c: 'x86', 0x8664: 'x64', 0xaa64: 'ARM64'}
+    lm, bm = (pe(lib) or (None,))[0], (pe(binary) or (None,))[0]
+    if lm != bm:
+        refuse('%s is a %s DLL but the program is a %s binary: build with a CPython 3.13 for the same CPU' % (os.path.basename(lib), MACHINE.get(lm, lm), MACHINE.get(bm, bm)))
+    libdest = os.path.basename(lib)
+    add(libdest, real(lib))
+    order = []
+
+    def os_dll(p):
+        return under(p, windir) and not REDIST.match(os.path.basename(p))
+
+    # sys.path on Windows holds python.exe's own folder too: a DLL there (vcruntime140.dll) is not a package's.
+    homes = {fold(real(sys.base_prefix)), fold(real(sys.prefix))}
+    places = sorted({r for r in roots + [dynload, stdlib] if fold(r) not in homes}, key=len, reverse=True)
+
+    def place(p):
+        # Where a DLL found here goes in the bundle: its own place under the standard library or a package
+        # folder, else beside python3XX.dll (and loaded first).
+        for r in places:
+            if under(p, r):
+                base = DYN if r == dynload else STD if r == stdlib else SITE
+                return base + '/' + rel(p, r), False
+        return os.path.basename(p), True
+
+    have = {fold(p) for p in files.values()}
+    dllnames = {os.path.basename(d).lower() for d in files}
+    todo = [p for d, p in sorted(files.items()) if d.lower().endswith(('.pyd', '.dll'))]
+
+    def take(p):
+        p = real(p)
+        if fold(p) in have or os_dll(p) or p.lower().endswith('.exe'):
+            return
+        dest, first = place(p)
+        if dest.lower() in (x.lower() for x in files):
+            return
+        add(dest, p)
+        have.add(fold(p))
+        dllnames.add(os.path.basename(p).lower())
+        if first:
+            order.append(dest)
+        todo.append(p)
+
+    # What importing the program's modules loaded into this process.
     try:
-        out = subprocess.run(['ldd', path], capture_output=True, text=True).stdout
-    except Exception:
-        return []
-    got = []
-    for line in out.splitlines():
-        m = re.match(r'\s*(\S+)\s*=>\s*(/\S+)', line)
-        if not m or GLIBC.match(m.group(1)) or real(m.group(2)) == real(lib):
+        import ctypes.wintypes as wt
+        psapi = ctypes.WinDLL('psapi')
+        k32.GetCurrentProcess.restype = wt.HANDLE
+        proc = k32.GetCurrentProcess()
+        psapi.EnumProcessModules.argtypes = [wt.HANDLE, ctypes.c_void_p, wt.DWORD, ctypes.POINTER(wt.DWORD)]
+        k32.GetModuleFileNameW.argtypes = [wt.HMODULE, wt.LPWSTR, wt.DWORD]
+        got = wt.DWORD(1024 * ctypes.sizeof(wt.HMODULE))
+        while True:
+            hs = (wt.HMODULE * (got.value // ctypes.sizeof(wt.HMODULE) + 64))()
+            if not psapi.EnumProcessModules(proc, hs, ctypes.sizeof(hs), ctypes.byref(got)):
+                raise ctypes.WinError(ctypes.get_last_error())
+            if got.value <= ctypes.sizeof(hs):
+                break
+        loaded = [buf.value for h in hs[:got.value // ctypes.sizeof(wt.HMODULE)] if h and k32.GetModuleFileNameW(h, buf, 32768)]
+    except Exception as e:
+        refuse('cannot list the DLLs this Python loaded (%s)' % e)
+    for p in loaded:
+        take(p)
+    seen_pe = set()
+    while todo:
+        p = todo.pop()
+        if fold(p) in seen_pe:
             continue
-        p = real(m.group(2))
-        if any(under(p, r) for r in inside if r != '/'):
+        seen_pe.add(fold(p))
+        info = pe(p)
+        if not info:
             continue
-        got.append((m.group(1), p))
-    return got
+        for n in info[1]:
+            lo = n.lower()
+            if lo.startswith(('api-ms-', 'ext-ms-')) or lo in dllnames:
+                continue
+            hit = next((c for c in (os.path.join(os.path.dirname(p), n), os.path.join(sys.base_prefix, n), os.path.join(sysdir, n)) if os.path.isfile(c)), None)
+            if hit:
+                take(hit)
+            else:
+                print('brevi: %s (needed by %s) is not on this machine, so that file cannot load from the bundle either' % (n, os.path.basename(p)), file=sys.stderr)
+    conf = '\n'.join([libdest, 'app', STD, DYN, SITE]) + '\n'
+    pre = ''.join(d + '\n' for d in order)
+else:
+    # libpython, and the shared libraries everything needs that are not part of the C library itself (which
+    # every Linux has, and which must match the system's own loader).
+    GLIBC = re.compile(r'^(ld-linux.*|ld64.*|linux-vdso.*|linux-gate.*|lib(c|m|mvec|pthread|dl|rt|util|resolv|nsl|anl|BrokenLocale|thread_db)\.so.*|libnss_.*)$')
+    libdest = '%s/%s' % (platlib, os.path.basename(lib))
+    add(libdest, real(lib))
+    deps, order = {}, []
+    inside = [stdlib, dynload] + roots
 
 
-for dest, p in sorted(files.items()):
-    if re.search(r'\.so(\.|$)', dest):
-        for so, p2 in need(p):
-            if so not in deps:
-                deps[so] = p2
-                order.append(so)
-for so in list(order):
-    for so2, p2 in need(deps[so]):
-        if so2 not in deps:
-            deps[so2] = p2
-            order.append(so2)
-for so in order:
-    add('%s/brevi-deps/%s' % (platlib, so), deps[so])
+    def need(path):
+        try:
+            out = subprocess.run(['ldd', path], capture_output=True, text=True).stdout
+        except Exception:
+            return []
+        got = []
+        for line in out.splitlines():
+            m = re.match(r'\s*(\S+)\s*=>\s*(/\S+)', line)
+            if not m or GLIBC.match(m.group(1)) or real(m.group(2)) == real(lib):
+                continue
+            p = real(m.group(2))
+            if any(under(p, r) for r in inside if r != '/'):
+                continue
+            got.append((m.group(1), p))
+        return got
 
-conf = '\n'.join([libdest, 'app', STD, STD + '/lib-dynload', SITE]) + '\n'
-pre = ''.join('%s/brevi-deps/%s\n' % (platlib, so) for so in order)
+
+    for dest, p in sorted(files.items()):
+        if re.search(r'\.so(\.|$)', dest):
+            for so, p2 in need(p):
+                if so not in deps:
+                    deps[so] = p2
+                    order.append(so)
+    for so in list(order):
+        for so2, p2 in need(deps[so]):
+            if so2 not in deps:
+                deps[so2] = p2
+                order.append(so2)
+    for so in order:
+        add('%s/brevi-deps/%s' % (platlib, so), deps[so])
+
+    conf = '\n'.join([libdest, 'app', STD, DYN, SITE]) + '\n'
+    pre = ''.join('%s/brevi-deps/%s\n' % (platlib, so) for so in order)
 
 # Write the binary again (never in place: it may share its file with Brevi's build cache) with the bundle.
 body = io.BytesIO()
