@@ -576,7 +576,7 @@ fn auto_next(ctx: i64, name: &str, last: &[V]) -> R {
         return Ok(V::Int(1i64 << (hb + 1)));
     }
     if ctx & 4 != 0 {
-        return Ok(st(name.to_lowercase()));
+        return Ok(st(py_lower(&name)));
     }
     let mut best: Option<V> = None;
     for x in last {
@@ -1628,7 +1628,7 @@ fn gen_next(gnv: &Option<V>, kind: i64, name: &str, start: &V, count: usize, las
         return call(&f, Args::p(vec![s(name), start.clone(), V::Int(count as i64), list(last.to_vec())]));
     }
     if kind & 4 != 0 {
-        return Ok(st(name.to_lowercase()));
+        return Ok(st(py_lower(&name)));
     }
     if kind & 2 != 0 {
         if count == 0 {
