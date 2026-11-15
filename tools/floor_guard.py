@@ -12,7 +12,7 @@ usage: floor_guard.py BASE    (BASE: the commit the branch is compared with, e.g
 """
 import json, subprocess, sys
 
-FILES = ["compat/conformance_floor.json", "compat/conformance_stdlib_floor.json"]
+FILES = ["compat/conformance_floor.json", "compat/conformance_stdlib_floor.json", "compat/conformance_windows_floor.json"]
 REPORTS = ["bench/conformance/report.md", "bench/conformance/report.json",
            "bench/conformance/stdlib/report.md", "bench/conformance/stdlib/report.json"]
 
