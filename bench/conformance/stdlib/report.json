@@ -2,7 +2,7 @@
 "brevi": "brevi 0.27.1",
 "python": "3.13.13",
 "tag": "v3.13.13",
-"date": "2026-11-14",
+"date": "2026-11-15",
 "platform": "linux",
 "sandboxed": false,
 "timeout_s": 20,
@@ -9058,7 +9058,7 @@
 "id": "test_functools.TestLRUC.test_lru_cache_threaded3",
 "file": "test_functools",
 "category": "unstable",
-"detail": "rule 2: CPython's output at PYTHONHASHSEED=4 differs from seeds 1 and 2 (reproduced)"
+"detail": "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
 },
 {
 "id": "test_functools.TestLRUC.test_lru_cache_typed_is_not_recursive",
