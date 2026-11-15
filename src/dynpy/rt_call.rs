@@ -4,6 +4,8 @@
 thread_local! {
     pub static USER_MOD: Cell<Option<fn(&str, &str) -> Option<R>>> = Cell::new(None);
     // a file of the program by module name -> its absolute path (for the module's repr)
+    // `m.n = v` on a file of the program (by module name): Some when m is one
+    pub static USER_MOD_SET: Cell<Option<fn(&str, &str, V) -> Option<Result<(), E>>>> = Cell::new(None);
     pub static USER_MOD_FILE: Cell<Option<fn(&str) -> Option<&'static str>>> = Cell::new(None);
     // a library module's repr as the build machine's CPython printed it (emit.rs lib_mod_reprs)
     pub static LIB_MOD_REPR: Cell<Option<fn(&str) -> Option<&'static str>>> = Cell::new(None);
@@ -68,6 +70,12 @@ pub fn call(f: &V, a: Args) -> R {
             if let Some(k) = kw_dup(&a.k) {
                 let n = if c.module == "builtins" { c.name.to_string() } else { format!("{}.{}", c.module, c.name) };
                 return type_err(format!("{}() got multiple values for keyword argument '{}'", n, k));
+            }
+            if is_enum_shell(c) {
+                return Err(enum_shell_refused("calling"));
+            }
+            if is_enum_type(c) {
+                return Err(unsupported("calling enum.EnumType"));
             }
             instantiate(c, a)
         }
@@ -830,7 +838,7 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
     if let Some(r) = typed_dict_call(c, Args { p: a.p.clone(), k: a.k.clone() }) {
         return r;
     }
-    if c.module == "enum" || is_enum(c) {
+    if (c.module == "enum" && !enum_plain_class(c)) || is_enum(c) {
         if is_enum(c) || c.is_sub(&enum_base()) {
             return enum_call(c, a);
         }
@@ -1710,6 +1718,16 @@ fn class_getattr(o: &V, c: &Rc<Class>, name: &str) -> R {
                     return Ok(builtin("fromhex", move |a: Args| call(&k, Args::p(vec![bytes_fromhex(a)?]))));
                 }
             }
+            // int.from_bytes and float.fromhex on a subclass (an IntEnum, a float mixin Enum): CPython calls the
+            // subclass with the value the base makes (cls(int.from_bytes(...)), cls(float.fromhex(s)))
+            if c.base_bt() == BT::Int && name == "from_bytes" {
+                let k = V::Class(c.clone());
+                return Ok(builtin("from_bytes", move |a: Args| call(&k, Args::p(vec![int_from_bytes(&V::None, a)?]))));
+            }
+            if c.base_bt() == BT::Float && name == "fromhex" {
+                let k = V::Class(c.clone());
+                return Ok(builtin("fromhex", move |a: Args| call(&k, Args::p(vec![float_fromhex(a)?]))));
+            }
             // A base's builtin_class_attr answers any name (a generic unbound method), so a base other
             // than object is asked only for a method that type really has.
             for k in c.mro.borrow().iter().skip(1) {
@@ -1895,10 +1913,18 @@ pub fn getattr(o: &V, name: &str) -> R {
             Err(exc("AttributeError", format!("'{}' object has no attribute '{}'", ob.cls.name, name)))
         }
         V::Class(c) => {
+            // EnumType itself: its names and its place among the classes; its methods are not modelled
+            if is_enum_type(c) && !matches!(name, "__name__" | "__qualname__" | "__module__" | "__doc__" | "__mro__" | "__bases__" | "__base__" | "__class__") {
+                return Err(unsupported(&format!("enum.EnumType.{name}")));
+            }
             if c.meta.borrow().is_some() {
                 return meta_getattr(o, c, name);
             }
-            class_getattr(o, c, name)
+            match class_getattr(o, c, name) {
+                // a name CPython finds on EnumType (Color.__contains__, Color._find_new_): not modelled
+                Err(e) if is_exc(&e.0, "AttributeError") && enum_type_name(name) && enum_meta_of(c).is_some() => Err(unsupported(&format!("EnumType.{name} read through an Enum class"))),
+                r => r,
+            }
         }
         V::Module(m) => {
             // a module's annotations (its annotated top-level names) are not kept
@@ -2169,6 +2195,9 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
         }
         V::NTF(_) => Err(exc("AttributeError", format!("'collections._tuplegetter' object has no attribute '{}' and no __dict__ for setting new attributes", name))),
         V::Module(&ModName("decimal.context")) => decimal_context_set(name, &v),
+        V::Module(m) if USER_MOD_SET.with(|u| u.get()).is_some_and(|f| f(m.0, "", V::None).is_some()) => {
+            USER_MOD_SET.with(|u| u.get()).unwrap()(m.0, &name.to_string(), v).unwrap()
+        }
         V::Module(m) if mod_assignable(m.0, name) => {
             mod_assign(m.0, &name.to_string(), Some(v));
             Ok(())
@@ -2552,6 +2581,10 @@ fn is_abc_meta_sub(c: &Rc<Class>) -> bool {
     c.mro.borrow().iter().any(|k| k.module == "abc" && k.name == "ABCMeta")
 }
 fn meta_class_check(c: &Rc<Class>) -> Result<(), E> {
+    // EnumType's subclasses get an EnumDict namespace and EnumType.__new__'s steps, which Brevi does not model
+    if c.mro.borrow().iter().any(is_enum_type) {
+        return Err(unsupported("a subclass of enum.EnumType (EnumMeta)"));
+    }
     // a subclass of abc.ABCMeta may be defined and read; making a class with it is refused (meta_call, type_new)
     if is_abc_meta_sub(c) {
         return Ok(());
@@ -2620,6 +2653,9 @@ fn meta_getattr(o: &V, c: &Rc<Class>, name: &str) -> R {
     if name == "__class__" {
         return Ok(V::Class(m));
     }
+    if is_enum_type(&m) && !enum_shell_attr_ok(name) {
+        return Err(enum_shell_refused(&format!("reading {name}")));
+    }
     let mv = meta_lookup(&m, name);
     // a data descriptor of the metaclass wins over the class's own attribute
     if let Some(d) = &mv {
@@ -2642,6 +2678,9 @@ fn meta_setattr(o: &V, c: &Rc<Class>, name: &str, v: &V) -> Option<Result<(), E>
         return Some(Err(unsupported(&format!("setting {name} on a metaclass"))));
     }
     let m = c.meta.borrow().clone()?;
+    if is_enum_type(&m) {
+        return Some(Err(enum_shell_refused(&format!("setting {name}"))));
+    }
     let d = meta_lookup(&m, name)?;
     match &d {
         V::Prop(p) => Some(if matches!(p.1, V::None) {
@@ -2663,6 +2702,15 @@ fn bases_meta(bases: &[V]) -> Result<Option<Rc<Class>>, E> {
     for b in bases {
         if let V::Class(k) = b {
             abc |= k.abc.get();
+            // a base made by EnumType without being an Enum: with an Enum among the bases EnumType makes the class
+            // (an Enum class here, meta None); without one CPython's _get_mixins_ refuses it, as Brevi does
+            if is_enum_shell(k) {
+                let en = enum_base();
+                if !bases.iter().any(|x| matches!(x, V::Class(e) if e.is_sub(&en))) {
+                    return Err(enum_shell_refused("a class built"));
+                }
+                continue;
+            }
             if let Some(m) = k.meta.borrow().clone() {
                 w = Some(match w {
                     None => m,
@@ -2815,6 +2863,7 @@ pub fn ns_annotations(ns: &V) -> R {
 pub fn meta_build(m: &V, name: Sym, qualname: Sym, module: Sym, bases: Vec<V>, ns: V, fields: Vec<Sym>) -> R {
     match m {
         V::Class(k) if is_type_class(k) => make_class_f(name, qualname, module, bases, dict_sym_items(&ns)?.into_iter().filter(|(k, _)| !matches!(*k, "__module__" | "__qualname__")).collect(), fields),
+        V::Class(k) if is_enum_type(k) => enum_type_build(name, qualname, module, bases, &ns, fields),
         V::Class(k) if is_metaclass(k) => {
             PENDING_FIELDS.with(|p| *p.borrow_mut() = Some(fields));
             let r = meta_call(k, Args::p(vec![s(name), tup(bases), ns]));

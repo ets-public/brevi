@@ -268,6 +268,59 @@ class Reach(unittest.TestCase):
         self.assertIn("(_conf_TestCase)", s)
         self.assertEqual(run(s).stdout, "1\n1\n")
 
+    def test_enter_context_enters_now_and_exits_after_tear_down(self):
+        s = cut("    def setUp(self):\n        self.x = self.enterContext(M())\n    def tearDown(self):\n        print('down')\n"
+                "    def test_a(self):\n        print(self.x)\n",
+                head="import unittest\nclass M:\n    def __enter__(self):\n        print('in')\n        return 7\n"
+                     "    def __exit__(self, *a):\n        print('out', a)\n" + HEAD.split("\n", 1)[1])
+        self.assertEqual(run(s).stdout, "in\n7\ndown\nout (None, None, None)\n")
+
+    def test_an_assertion_passed_as_a_value_prints_like_the_inline_one(self):
+        head = ("import unittest\ndef check(assertion, a, b):\n    assertion(a, b)\n"
+                "def boom(assertion):\n    with assertion(KeyError):\n        {}['k']\n" + HEAD.split("\n", 1)[1])
+        s = cut("    def test_a(self):\n        check(self.assertIs, None, None)\n        check(self.assertEqual, 1, 2)\n"
+                "        boom(self.assertRaises)\n", head=head)
+        self.assertEqual(run(s).stdout, "True\n1\n2\nraises KeyError\n")
+        with self.assertRaisesRegex(c.CantExtract, "assertCountEqual"):
+            cut("    def test_a(self):\n        check(self.assertCountEqual, [], [])\n", head=head)
+
+    def test_which_test_class_runs_is_compared_by_name(self):
+        head = HEAD + "    def test_a(self):\n        print(type(self) not in (U, V), type(self) is T)\n"
+        body = "class U(unittest.TestCase):\n    pass\nclass V(unittest.TestCase):\n    pass\n"
+        s = cut(body, head=head)
+        self.assertNotIn("unittest", s.split("\n", 2)[2])
+        self.assertEqual(run(s).stdout, "True True\n")
+
+    def test_a_decorator_the_file_defines_is_applied_as_written(self):
+        head = ("import unittest\ndef deco(tag):\n    def wrap(f):\n        def inner(*a):\n            print(tag)\n"
+                "            return f(*a)\n        return inner\n    return wrap\n" + HEAD.split("\n", 1)[1])
+        s = cut("    @deco('d')\n    def test_a(self):\n        print(self.k)\n    k = 3\n", head=head)
+        self.assertEqual(run(s).stdout, "d\n3\n")
+
+    def test_unittest_skip_is_excluded(self):
+        with self.assertRaisesRegex(c.Excluded, "skipped by CPython: to-do"):
+            cut("    @unittest.skip('to-do')\n    def test_a(self):\n        pass\n")
+
+    def test_python_version_condition_needs_the_files_own_binding(self):
+        def make(binding, cond):
+            u = universe(f"    @unittest.skipIf({cond}, 'old')\n    def test_a(self):\n        print(1)\n",
+                         head=f"import sys\nimport unittest\n{binding}\n" + HEAD.split("\n", 1)[1])
+            u.python = sys.executable
+            return u.extract("test_x", "T", "test_a")
+        self.assertEqual(run(make("python_version = sys.version_info[:2]", "python_version < (3, 0)")).stdout, "1\n")
+        with self.assertRaisesRegex(c.Excluded, "skipped by CPython: old"):
+            make("python_version = sys.version_info[:2]", "python_version >= (3, 0)")
+        with self.assertRaisesRegex(c.CantExtract, "cannot be decided"):
+            make("python_version = (3, 13)", "python_version < (3, 0)")
+
+    def test_string_annotations_get_the_files_bindings(self):
+        head = "import typing\nimport unittest\nfrom dataclasses import *\n" + HEAD.split("\n", 1)[1]
+        s = cut("    def test_a(self):\n        @dataclass\n        class C:\n            x: 'typing.ClassVar[int]'\n"
+                "            y: 'InitVar[int]'\n        C(1)\n        print(fields(C))\n", head=head)
+        self.assertIn("import typing", s)
+        self.assertIn("from dataclasses import InitVar", s)
+        self.assertEqual(run(s).stdout, "()\n")
+
     def test_a_subprocess_cpython_test_is_excluded(self):
         with self.assertRaisesRegex(c.Excluded, "subprocess"):
             cut("    def test_a(self):\n        assert_python_ok('-c', 'pass')\n")

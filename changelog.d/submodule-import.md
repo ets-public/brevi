@@ -1,0 +1,4 @@
+- Dynamic builds: `import pkg.sub` now loads the program's `pkg/sub.py` and sets it on `pkg` as CPython does (it raised AttributeError on `pkg.sub`). `from pkg import sub` sets it on `pkg` too, and `import a.b.c` loads every level.
+- Dynamic builds: `sys.modules['__main__']` is the script's module (it raised KeyError). Its names read and assign through it.
+- Dynamic builds: a missing attribute of a program file raises CPython 3.13's AttributeError wording, including a circular import ("partially initialized module", "cannot access submodule") and a file that shadows a library or a standard library module. It raised NameError for a name the file had not bound yet.
+- Dynamic builds: `from FILE import *` of a program file, and a new attribute set through a program module object, are refused (the names read as unbound before). The program runs in CPython instead.
