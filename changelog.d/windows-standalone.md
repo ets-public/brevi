@@ -1,0 +1,3 @@
+- `brevi build --standalone` works on Windows: one .exe carrying CPython 3.13, the standard library, the imported packages and the DLLs they need, which runs on a machine with no Python. It is refused at build time with Microsoft Store Python or a Python for another CPU.
+- A `--standalone` binary now uses only the Python it carries. If its bundle is missing (the file was cut short, or code signing appended to it), it refuses to run rather than quietly using an installed Python.
+- Dynamic builds with `--standalone` now carry CPython too. Before, they were built without it and needed Python installed.

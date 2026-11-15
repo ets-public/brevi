@@ -49,6 +49,6 @@ Under `--sandbox` (and in the MCP tools by default) nothing runs in CPython unle
 | --- | --- | --- | --- |
 | typed and dynamic builds | yes | yes | yes, beta (from v0.27.0) |
 | pybridge (CPython loaded into the program) | yes | yes | yes, needs the Python DLLs (from v0.27.0) |
-| `--standalone` | yes | no | no |
+| `--standalone` | yes | no | yes |
 | Landlock holding CPython to file grants | Linux 5.13+ | no | no |
 | Resource limits | see the table above | see the table above | see the table above |
