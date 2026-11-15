@@ -21,6 +21,34 @@ pub fn gl(i: usize, name: &str) -> R {
         v => Ok(v.clone()),
     }
 }
+// Global slot i of a module read as an attribute of the module object (`m.n`): unbound is the module's
+// AttributeError (the emitter's mod_attr_err).
+pub fn gla(i: usize, err: impl FnOnce() -> E) -> R {
+    match gref(i) {
+        V::Unbound => Err(err()),
+        v => Ok(v.clone()),
+    }
+}
+// CPython 3.13's AttributeError for name n missing from module m (Objects/moduleobject.c, module_getattro).
+// state: the module's import (0 not run, 1 running, 2 done); sub: the same for its submodule named n (0 when n
+// names none); shadow: 1 when its file could shadow a library (a top-level module of the script's directory,
+// sys.path[0]), 2 when that library is in sys.stdlib_module_names; origin: its file.
+pub fn mod_attr_err(m: &str, n: &str, state: u8, sub: u8, shadow: u8, origin: &str) -> E {
+    exc(
+        "AttributeError",
+        if shadow == 2 {
+            format!("module '{m}' has no attribute '{n}' (consider renaming '{origin}' since it has the same name as the standard library module named '{m}' and prevents importing that standard library module)")
+        } else if state == 1 && shadow == 1 {
+            format!("module '{m}' has no attribute '{n}' (consider renaming '{origin}' if it has the same name as a library you intended to import)")
+        } else if state == 1 {
+            format!("partially initialized module '{m}' has no attribute '{n}' (most likely due to a circular import)")
+        } else if sub == 1 {
+            format!("cannot access submodule '{n}' of module '{m}' (most likely due to a circular import)")
+        } else {
+            format!("module '{m}' has no attribute '{n}'")
+        },
+    )
+}
 // a global that may shadow a builtin
 pub fn glb(i: usize, name: &str) -> R {
     match gref(i) {

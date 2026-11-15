@@ -158,6 +158,17 @@ class Inlining(unittest.TestCase):
             cut("    @support.cpython_only\n    def test_a(self):\n        pass\n")
 
 
+    def test_no_tracing_is_the_identity_and_infinite_recursion_lowers_the_limit(self):
+        head = "import unittest\nfrom test import support\nclass T(unittest.TestCase):\n"
+        s = cut("    @support.no_tracing\n    @support.infinite_recursion(25)\n    def test_a(self):\n        def f(): f()\n"
+                "        self.assertRaises(RecursionError, f)\n", head)
+        self.assertIn("_conf_infinite_recursion(25)(test_a)()", s)
+        self.assertNotIn("no_tracing", s)
+        r = run(s)
+        self.assertEqual((r.returncode, r.stdout), (0, "raises RecursionError\n"), r.stderr)
+        with self.assertRaisesRegex(c.CantExtract, "infinite_recursion"):
+            cut("    @support.infinite_recursion()\n    def test_a(self):\n        pass\n", head)
+
 class Classify(unittest.TestCase):
     want = c.Run(0, b"1\n2\n", b"", "")
 

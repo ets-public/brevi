@@ -324,10 +324,33 @@ pub fn bi_str(mut a: Args) -> R {
     if a.p.is_empty() {
         return Ok(s(""));
     }
-    if a.p.len() > 1 || !a.k.is_empty() {
-        return Err(unsupported("str() with an encoding"));
+    if !a.k.is_empty() {
+        return Err(unsupported("str() with keyword arguments"));
     }
-    str_v(&a.p[0])
+    if a.p.len() > 3 {
+        return type_err(format!("str() takes at most 3 arguments ({} given)", a.p.len()));
+    }
+    if a.p.len() == 1 {
+        return str_v(&a.p[0]);
+    }
+    // str(object, encoding[, errors]): the argument types first, then the object decoded as bytes.decode() does
+    for (i, what) in [(1, "encoding"), (2, "errors")] {
+        if let Some(x) = a.p.get(i).filter(|x| !matches!(x, V::Str(_))) {
+            return type_err(format!("str() argument '{what}' must be str, not {}", tn(x)));
+        }
+    }
+    let is_bytes = |x: &V| matches!(x, V::Ext(e) if e.any().is::<BytesV>() || e.any().is::<ByteArrayV>());
+    match &a.p[0] {
+        x if is_bytes(x) => {
+            let b = bytes_of(x).unwrap_or_default();
+            bytes_decode(&b, a.p.get(1), a.p.get(2))
+        }
+        V::Str(_) => type_err("decoding str is not supported".into()),
+        x @ (V::None | V::Bool(_) | V::Int(_) | V::Big(_) | V::Float(_) | V::List(_) | V::Tuple(_) | V::Dict(_) | V::Set(_) | V::FSet(_)) => {
+            type_err(format!("decoding to str: need a bytes-like object, {} found", tn(x)))
+        }
+        _ => Err(unsupported("str() with an encoding of a value other than bytes or bytearray")),
+    }
 }
 pub fn bi_int(mut a: Args) -> R {
     let base = a.kw("base");
@@ -942,6 +965,9 @@ pub fn isinstance(x: &V, c: &V) -> Result<bool, E> {
             if let Some(r) = abc_bridge(k, x, false) {
                 return r;
             }
+            if let Some(p) = proto_info(k) {
+                return proto_instancecheck(k, &p, x);
+            }
             if k.abc.get() {
                 // CPython's exact-type shortcut comes before the metaclass's __instancecheck__
                 if let V::Obj(o) = x {
@@ -1217,6 +1243,8 @@ pub fn type_of(x: &V) -> Result<Rc<Class>, E> {
         V::None => tclass(12, "NoneType"),
         // a collections.abc class (or a subclass of one) is made by abc.ABCMeta, a subclass of type
         V::Class(k) if k.meta.borrow().is_some() => k.meta.borrow().clone().unwrap(),
+        // Enum and every class built on it are made by enum.EnumType
+        V::Class(k) if enum_meta_of(k).is_some() => enum_meta_of(k).unwrap(),
         V::Class(k) if k.abc.get() => abc_meta_class(),
         V::Class(_) => tclass(13, "type"),
         V::Func(f) if f.kind.get() == 3 => ext_class("builtin_function_or_method"),
@@ -1570,10 +1598,6 @@ pub fn bi_type(a: Args) -> R {
         return make_class(name, "__main__", bases, attrs);
     }
     let x = a1(&a, "type")?;
-    // an Enum class's type is EnumType, which Brevi's enum classes do not have (they are made by type)
-    if matches!(&x, V::Class(c) if c.is_sub(&enum_base())) {
-        return Err(unsupported("type() of an Enum class (EnumType)"));
-    }
     Ok(V::Class(type_of(&x)?))
 }
 pub fn bi_issubclass(a: Args) -> R {
@@ -1593,6 +1617,9 @@ pub fn bi_issubclass(a: Args) -> R {
                 let Some(sub) = &sub else {
                     return type_err("issubclass() arg 1 must be a class".into());
                 };
+                if proto_info(k).is_some() {
+                    return Err(unsupported("issubclass() with a Protocol class"));
+                }
                 if k.abc.get() {
                     abc_subclasscheck(k, sub)
                 } else {

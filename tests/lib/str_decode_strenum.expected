@@ -1,0 +1,16 @@
+utf-8 <built-in function getdefaultencoding>
+TE encoding must be a string, not <built-in function getdefaultencoding>
+TE str() argument 'encoding' must be str, not builtin_function_or_method
+TE str() argument 'errors' must be str, not int
+<D.two: '2'>
+TE sys.getdefaultencoding() takes no arguments (1 given)
+UnicodeDecodeError 'ascii' codec can't decode byte 0xff in position 1: ordinal not in range(128)
+'a�'
+'hi'
+TypeError decoding str is not supported
+TypeError decoding to str: need a bytes-like object, int found
+TypeError str() argument 'encoding' must be str, not NoneType
+TypeError str() argument 'errors' must be str, not NoneType
+''
+VE invalid literal for int() with base 10: 'x'
+TE _value_ not set in __new__, unable to create it | TypeError str() argument 'encoding' must be str, not int

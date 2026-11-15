@@ -9,6 +9,7 @@ pub mod pyd;
 pub mod tok;
 pub mod hf;
 pub mod typing;
+pub mod trace_check;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -57,6 +58,7 @@ pub const RUNTIME: &str = concat!(
     include_str!("rt_thread.rs"),
     include_str!("rt_async.rs"),
     include_str!("rt_patma.rs"),
+    include_str!("rt_trace.rs"),
     include_str!("rt_enum.rs"),
     include_str!("rt_typing.rs"),
     include_str!("rt_rand.rs"),
@@ -199,6 +201,10 @@ fn walk_imports(body: &[parse::Stmt], out: &mut Vec<String>) {
             St::Import(v) => {
                 for (m, a) in v {
                     out.push(if a.is_some() { m.clone() } else { m.split('.').next().unwrap().to_string() });
+                    // `import a.b.c` loads a.b and a.b.c too: marked, the caller keeps the ones that are files of the program
+                    if a.is_none() && m.contains('.') {
+                        out.push(format!("\u{1}{m}"));
+                    }
                     // `import collections.abc` loads collections.abc too: Brevi's ABCs, not its typing forms
                     if a.is_none() && m == "collections.abc" {
                         out.push(m.clone());
@@ -495,7 +501,7 @@ fn add_collections(mods: &mut Vec<emit::Module>, own_mods: &mut HashSet<String>)
     let Some(py) = sandbox_module("collections") else { return Ok(()) };
     let body = parse::parse(py).map_err(|(l, msg)| ("<collections>".into(), l, msg))?;
     own_mods.insert("collections".into());
-    mods.push(emit::Module { name: "collections".into(), body });
+    mods.push(emit::Module { name: "collections".into(), body, path: None });
     Ok(())
 }
 pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
@@ -633,7 +639,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     let src = crate::pygen::rewrite(&src);
     let body = parse::parse(&src).map_err(|(l, m)| (file.to_string(), l, m))?;
     let dir = Path::new(file).parent().map(|p| p.to_path_buf()).unwrap_or_default();
-    let mut mods = vec![emit::Module { name: "__main__".into(), body }];
+    let mut mods = vec![emit::Module { name: "__main__".into(), body, path: Some(crate::modules::abs_path(Path::new(file))) }];
     // Brevi's own random and path-text copies stand in for CPython's only when no file of the program uses
     // more of os, pathlib or random than they have.
     let pure = |s: &str| crate::caps::path_uses(s).map_or(true, |v| v.is_empty()) && int_seeds(s);
@@ -661,6 +667,18 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         }
         let mut imps = vec![];
         walk_imports(&mods[k].body, &mut imps);
+        let dotted: Vec<String> = imps.iter().filter_map(|m| m.strip_prefix('\u{1}')).map(String::from).collect();
+        imps.retain(|m| !m.starts_with('\u{1}'));
+        for m in dotted {
+            let parts: Vec<&str> = m.split('.').collect();
+            for k in 2..=parts.len() {
+                let (pkg, n) = (parts[..k - 1].join("."), parts[k - 1]);
+                let d = dir.join(pkg.replace('.', "/"));
+                if d.join("__init__.py").is_file() && (d.join(format!("{n}.py")).is_file() || d.join(n).join("__init__.py").is_file()) {
+                    imps.push(parts[..k].join("."));
+                }
+            }
+        }
         // a module of a package of the program's, named in `from pkg import sub`
         let mut fr = vec![];
         from_names(&mods[k].body, &mut fr);
@@ -727,7 +745,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
                     own_used = true;
                     own_mods.insert(m.clone());
                     let body = parse::parse(src).map_err(|(l, msg)| (format!("<{m}>"), l, msg))?;
-                    mods.push(emit::Module { name: m, body });
+                    mods.push(emit::Module { name: m, body, path: None });
                     continue;
                 }
             }
@@ -740,7 +758,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
                 absolutize(&mut body, &m, p.ends_with("__init__.py"));
                 own_ok &= pure(&src);
                 texts.insert(m.clone(), (ps.clone(), src.to_string()));
-                mods.push(emit::Module { name: m, body });
+                mods.push(emit::Module { name: m, body, path: Some(crate::modules::abs_path(&p)) });
             } else if m == "asyncio" || m.starts_with("asyncio.") {
                 // Brevi's coroutines run only on Brevi's own asyncio.
                 return Err((file.to_string(), 0, format!("module {m} beyond Brevi's own asyncio runs in CPython")));
@@ -759,6 +777,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     {
         let user: Vec<(&str, &[parse::Stmt])> = mods.iter().filter(|m| !own_mods.contains(&m.name)).map(|m| (m.name.as_str(), m.body.as_slice())).collect();
         typing::OWN_PYDANTIC.store(own_mods.contains("pydantic"), Ordering::Relaxed);
+        typing::BRIDGED.store(bridge.on, Ordering::Relaxed);
         if let Err((m, l, why)) = typing::check(&user) {
             let (m, l, why) = typing::string_as_code(&user).unwrap_or((m, l, why));
             let f = texts.get(&m).map_or(file.to_string(), |t| t.0.clone());
@@ -1318,7 +1337,7 @@ fn build(rust: &str, dir: &Path, out: &Path, opt: &str, cache: &Path, rustc_v: &
     }
     if use_cache && std::fs::create_dir_all(&cdir).is_ok() {
         let tmp = cdir.join(format!("{key}.{}", std::process::id()));
-        if std::fs::copy(out, &tmp).is_ok() && std::fs::rename(&tmp, &cached).is_ok() {
+        if crate::copy_exe(out, &tmp) && std::fs::rename(&tmp, &cached).is_ok() {
             if used != rust {
                 std::fs::write(cached.with_extension("plain"), "").ok();
             }

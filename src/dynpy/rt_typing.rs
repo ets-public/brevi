@@ -35,7 +35,8 @@ pub fn typing_call(n: &str, mut a: Args) -> R {
     let first = a.p.first().cloned().unwrap_or(V::None);
     match n {
         "cast" => Ok(a.p.get(1).cloned().unwrap_or(V::None)),
-        "assert_type" | "overload" | "final" | "override" | "no_type_check" | "runtime_checkable" => Ok(first),
+        "assert_type" | "overload" | "final" | "override" | "no_type_check" => Ok(first),
+        "runtime_checkable" => runtime_checkable(first),
         "reveal_type" => {
             err_write(&format!("Runtime type is {}\n", repr(&s(&tn(&first)))?));
             Ok(first)
@@ -376,7 +377,7 @@ impl Ext for TypeAliasV {
 }
 // __brevi_generic(T, ...): the typing.Generic[T, ...] a PEP 695 class gets after its bases
 pub fn bi___brevi_generic(a: Args) -> R {
-    Ok(V::Ext(ExtRc::new(TForm { name: sym("Generic"), params: a.p.len(), origin: None, pep695: Some(a.p.clone()) })))
+    Ok(V::Ext(ExtRc::new(TForm { name: sym("Generic"), params: a.p.len(), origin: None, pep695: Some(a.p.clone()), arg: None })))
 }
 
 // ---------- typing values: types.UnionType (`int | str`), typing.List[int] and friends, typing.Union ----------
@@ -796,19 +797,31 @@ pub struct TForm {
     pub origin: Option<Rc<Class>>,
     // the Generic[T, ...] a PEP 695 class statement adds after its bases: its type parameters
     pub pep695: Option<Vec<V>>,
+    // ClassVar[C], Final[C] and their kin over a class C (not a TypeVar): C, so the alias prints and compares as
+    // CPython's (`typing.ClassVar[int]`); over anything else the argument is not kept
+    pub arg: Option<V>,
 }
 impl Ext for TForm {
     fn tname(&self) -> &'static str {
         "typing._GenericAlias"
     }
     fn repr(&self) -> String {
-        format!("typing.{}[...]", self.name)
+        match &self.arg {
+            Some(a) => format!("typing.{}[{}]", self.name, typing_type_repr(a)),
+            None => format!("typing.{}[...]", self.name),
+        }
     }
     fn any(&self) -> &dyn std::any::Any {
         self
     }
+    // hash((origin, args)): CPython's value rests on the form's id, so only its agreement with == is kept
+    fn hash(&self) -> Option<i64> {
+        let a = self.arg.as_ref()?;
+        py_hash(&tup(vec![s(self.name), a.clone()])).ok()
+    }
+    // _GenericAlias.__eq__: the same form over the same argument
     fn eq(&self, o: &V) -> Option<bool> {
-        Some(matches!(o, V::Ext(e) if e.any().downcast_ref::<TForm>().is_some_and(|b| std::ptr::eq(self, b))))
+        Some(matches!(o, V::Ext(e) if e.any().downcast_ref::<TForm>().is_some_and(|b| std::ptr::eq(self, b) || matches!((&self.arg, &b.arg), (Some(x), Some(y)) if self.name == b.name && is(x, y)))))
     }
     fn attr(&self, _me: &V, n: &str) -> Option<R> {
         if n == "__class__" {
@@ -844,7 +857,7 @@ fn swallowed(e: &E) -> bool {
     is("Exception") && !(is("NotImplementedError") && to_str(&e.0).is_ok_and(|m| m.contains("is not supported in dynamic builds")))
 }
 fn tform(n: Sym) -> R {
-    Ok(V::Ext(ExtRc::new(TForm { name: n, params: 0, origin: None, pep695: None })))
+    Ok(V::Ext(ExtRc::new(TForm { name: n, params: 0, origin: None, pep695: None, arg: None })))
 }
 // a typing form of the runtime's own (typing_form), not a TypeVar or another class of module "typing"
 fn is_form(k: &Rc<Class>) -> bool {
@@ -970,7 +983,8 @@ pub fn typing_getitem(k: &Rc<Class>, i: &V) -> R {
                 return type_err(format!("{head} Got {}.", arg_repr100(i)?));
             }
             type_arg_ok(i, &what)?;
-            tform(n)
+            let arg = matches!(i, V::Class(_)).then(|| i.clone()).filter(|a| !is_typevar(a));
+            Ok(V::Ext(ExtRc::new(TForm { name: n, params: 0, origin: None, pep695: None, arg })))
         }
         "Literal" => tform(n),
         "Annotated" => {
@@ -1014,7 +1028,7 @@ pub fn typing_getitem(k: &Rc<Class>, i: &V) -> R {
                     }
                 }
             }
-            Ok(V::Ext(ExtRc::new(TForm { name: n, params: args.len(), origin: None, pep695: None })))
+            Ok(V::Ext(ExtRc::new(TForm { name: n, params: args.len(), origin: None, pep695: None, arg: None })))
         }
         "Self" | "NoReturn" | "Never" | "LiteralString" | "TypeAlias" => type_err(format!("typing.{n} is not subscriptable")),
         "Any" => type_err("type 'Any' is not subscriptable".into()),
@@ -1051,7 +1065,7 @@ pub fn class_subscript(k: &Rc<Class>, i: &V) -> R {
             if got < want {
                 return type_err(format!("Too few arguments for {kr}; actual {got}, expected at least {}", got + 1));
             }
-            return Ok(V::Ext(ExtRc::new(TForm { name: k.name, params: 0, origin: Some(k.clone()), pep695: None })));
+            return Ok(V::Ext(ExtRc::new(TForm { name: k.name, params: 0, origin: Some(k.clone()), pep695: None, arg: None })));
         }
         _ => {}
     }
@@ -1114,4 +1128,260 @@ pub fn class_subscript(k: &Rc<Class>, i: &V) -> R {
         }
     }
     type_err(format!("type '{tp_name}' is not subscriptable"))
+}
+
+// ---------- typing.Protocol classes ----------
+// A class with Protocol among its own bases is a protocol (CPython's _is_protocol); make_class drops Protocol from
+// its bases, so the runtime keeps here what CPython's _ProtocolMeta keeps on the class: __protocol_attrs__ (worked
+// out when the class is made, from the dicts and annotations along its MRO, as _get_protocol_attrs does), whether
+// @runtime_checkable marked it, and the members that decorator found not callable. isinstance() against one
+// follows _ProtocolMeta.__instancecheck__ (rt_lib.rs isinstance); issubclass() against one is refused.
+pub struct ProtoInfo {
+    attrs: Vec<Sym>,
+    // why the attributes could not be worked out exactly; isinstance() then refuses
+    inexact: Option<String>,
+    runtime: Cell<bool>,
+    noncallable: RefCell<Vec<Sym>>,
+    // no class along the MRO defines __init__: Protocol.__init_subclass__ gave the class typing's
+    // _no_init_or_replace_init, so calling it is the TypeError
+    pub no_init: bool,
+}
+thread_local! {
+    static PROTOS: RefCell<Vec<(Rc<Class>, Rc<ProtoInfo>)>> = const { RefCell::new(vec![]) };
+}
+// typing's _TYPING_INTERNALS and _SPECIAL_NAMES (CPython 3.13): never protocol members
+const PROTO_EXCLUDED: &[&str] = &[
+    "__parameters__", "__orig_bases__", "__orig_class__", "_is_protocol", "_is_runtime_protocol", "__protocol_attrs__",
+    "__non_callable_proto_members__", "__type_params__", "__abstractmethods__", "__annotations__", "__dict__", "__doc__",
+    "__init__", "__module__", "__new__", "__slots__", "__subclasshook__", "__weakref__", "__class_getitem__", "__match_args__",
+    "__static_attributes__", "__firstlineno__", "_MutableMapping__marker",
+];
+pub fn proto_info(c: &Rc<Class>) -> Option<Rc<ProtoInfo>> {
+    // only a class made on Protocol (Class.made 3, or 10 + n with type parameters) can be one
+    let m = c.made.get();
+    if m < 3 || m == 5 {
+        return None;
+    }
+    PROTOS.with(|p| p.borrow().iter().find(|(k, _)| Rc::ptr_eq(k, c)).map(|(_, i)| i.clone()))
+}
+fn is_protocol_form(b: &V) -> bool {
+    match b {
+        V::Class(k) => k.module == "typing" && k.name == "Protocol",
+        V::Ext(e) => e.any().downcast_ref::<TForm>().is_some_and(|f| f.name == "Protocol" && f.origin.is_none()),
+        _ => false,
+    }
+}
+// _ProtocolMeta.__new__: whether a class with these bases is a protocol, and the TypeError for a protocol that
+// inherits from a class that is not one
+pub fn proto_bases_check(bases: &[V]) -> Result<bool, E> {
+    if !bases.iter().any(is_protocol_form) {
+        return Ok(false);
+    }
+    for b in bases {
+        let ok = match b {
+            _ if is_protocol_form(b) => true,
+            V::Class(k) if k.module == "builtins" && k.name == "object" => true,
+            V::Class(k) if k.module == "typing" && k.name == "Generic" => true,
+            V::Class(k) if proto_info(k).is_some() => true,
+            // typing's _PROTO_ALLOWLIST: collections.abc and contextlib ABCs, which Brevi's Protocol does not follow
+            V::Class(k) if matches!(&*k.module, "collections.abc" | "contextlib" | "_collections_abc") => {
+                return Err(unsupported(&format!("a Protocol class on {}.{}", k.module, k.name)));
+            }
+            V::Class(_) => false,
+            V::Ext(e) => match e.any().downcast_ref::<TForm>() {
+                Some(f) if f.name == "Generic" && f.origin.is_none() => true,
+                Some(TForm { origin: Some(k), .. }) if proto_info(k).is_some() => true,
+                Some(TForm { origin: Some(_), .. }) => false,
+                _ => return Err(unsupported("a Protocol class on a subscripted typing form")),
+            },
+            _ => return Err(unsupported("a Protocol class on a base that is not a class")),
+        };
+        if !ok {
+            let shown = match b {
+                V::Ext(e) => match e.any().downcast_ref::<TForm>() {
+                    Some(TForm { origin: Some(k), .. }) => repr(&V::Class(k.clone()))?,
+                    _ => repr(b)?,
+                },
+                _ => repr(b)?,
+            };
+            return type_err(format!("Protocols can only inherit from other protocols, got {shown}"));
+        }
+    }
+    Ok(true)
+}
+// _get_protocol_attrs: every name in the dicts and annotations along the MRO (object left out), less typing's own
+pub fn proto_register(c: &Rc<Class>) {
+    let mut attrs: Vec<Sym> = vec![];
+    let mut inexact = None;
+    for k in c.mro.borrow().iter() {
+        if k.module == "builtins" && k.name == "object" {
+            continue;
+        }
+        let why = tinfo(k).and_then(|t| t.inexact.get());
+        // a class whose annotations Brevi did not keep lacks only __annotations__, which is no member; the
+        // annotated names come from Class.fields
+        if let Some(w) = why.filter(|w| *w != "annotations Brevi did not keep") {
+            inexact = Some(format!("the members of Protocol class {} ({w})", k.qualname.get()));
+            continue;
+        }
+        let keys: Vec<Sym> = match class_dict_with(k, false) {
+            Ok(v) => v.into_iter().map(|(n, _)| n).collect(),
+            Err(_) => {
+                inexact = Some(format!("the members of Protocol class {}", k.qualname.get()));
+                continue;
+            }
+        };
+        let anns: Vec<Sym> = k.fields.borrow().iter().map(|f| match f.rfind(':') {
+            Some(i) => sym(&f[i + 1..]),
+            None => *f,
+        }).collect();
+        for n in keys.into_iter().chain(anns) {
+            if !n.starts_with("_abc_") && !PROTO_EXCLUDED.contains(&n) && !attrs.contains(&n) {
+                attrs.push(n);
+            }
+        }
+    }
+    let no_init = !c.lookup("__init__").is_some_and(|i| !is_builtin_init(&i));
+    let info = Rc::new(ProtoInfo { attrs, inexact, runtime: Cell::new(false), noncallable: RefCell::new(vec![]), no_init });
+    PROTOS.with(|p| p.borrow_mut().push((c.clone(), info)));
+}
+// @runtime_checkable: a protocol class only; the members whose class attribute is not callable are noted, as
+// CPython notes them in __non_callable_proto_members__
+fn runtime_checkable(cls: V) -> R {
+    let p = match &cls {
+        V::Class(k) => proto_info(k),
+        _ => None,
+    };
+    let Some(p) = p else {
+        return type_err(format!("@runtime_checkable can be only applied to protocol classes, got {}", repr(&cls)?));
+    };
+    if let Some(w) = &p.inexact {
+        return Err(unsupported(w));
+    }
+    let mut nc = vec![];
+    for a in &p.attrs {
+        let v = match getattr(&cls, a) {
+            Ok(v) => v,
+            Err(e) if is_exc(&e.0, "AttributeError") => V::None,
+            Err(_) => return type_err(format!("Failed to determine whether protocol member {} is a method member", repr(&s(a))?)),
+        };
+        if !truth(&bi_callable(Args::p(vec![v]))?)? {
+            nc.push(*a);
+        }
+    }
+    *p.noncallable.borrow_mut() = nc;
+    p.runtime.set(true);
+    Ok(cls)
+}
+// The entries of a class's __dict__ that a protocol check reads: CPython's exactly, or the refusal
+fn proto_dict(k: &Rc<Class>) -> Result<Vec<(Sym, V)>, E> {
+    if k.attrs.borrow().iter().any(|(n, _)| *n == "__dict__") {
+        return Err(unsupported("isinstance() with a Protocol class on a class that defines __dict__"));
+    }
+    // a member is never __annotations__, the one entry a class whose annotations Brevi did not keep lacks
+    match tinfo(k).and_then(|t| t.inexact.get()) {
+        Some("annotations Brevi did not keep") => class_dict_with(k, false),
+        _ => class_dict(k),
+    }
+}
+// _ProtocolMeta.__instancecheck__ for a protocol class: the TypeError unless @runtime_checkable marked it, then
+// ABCMeta's check with _proto_hook as __subclasshook__, then inspect.getattr_static of each member on the value
+pub fn proto_instancecheck(cls: &Rc<Class>, p: &ProtoInfo, x: &V) -> Result<bool, E> {
+    if !p.runtime.get() {
+        return type_err("Instance and class checks can only be used with @runtime_checkable protocols".into());
+    }
+    if let Some(w) = &p.inexact {
+        return Err(unsupported(w));
+    }
+    // getattr_static of a class looks through its metaclass too
+    match x {
+        V::Obj(_) | V::None | V::Bool(_) | V::Int(_) | V::Big(_) | V::Float(_) | V::Str(_) | V::List(_) | V::Tuple(_) | V::Dict(_) | V::Set(_) | V::FSet(_) => {}
+        _ => return Err(unsupported(&format!("isinstance() of a {} value with a Protocol class", tn(x)))),
+    }
+    let t = type_of(x)?;
+    if t.meta.borrow().is_some() {
+        return Err(unsupported("isinstance() with a Protocol class of an instance of a class with a metaclass"));
+    }
+    // ABCMeta's caches, then the hook, then a nominal subclass (protocols take no register() here)
+    if abc_has(&cls.abc_cache.borrow(), &t) {
+        return Ok(true);
+    }
+    let token = ABC_TOKEN.load(std::sync::atomic::Ordering::Relaxed);
+    if cls.abc_neg_ver.get() < token {
+        cls.abc_neg_cache.borrow_mut().clear();
+        cls.abc_neg_ver.set(token);
+    }
+    if !abc_has(&cls.abc_neg_cache.borrow(), &t) {
+        let mro: Vec<Rc<Class>> = t.mro.borrow().clone();
+        let mut dicts = vec![];
+        for k in &mro {
+            dicts.push(proto_dict(k)?);
+        }
+        // _proto_hook(cls, type(x)): every member in some dict along the MRO, the first one found not None
+        let mut hook = true;
+        for a in &p.attrs {
+            match dicts.iter().find_map(|d| d.iter().find(|(n, _)| n == a)) {
+                Some((_, V::None)) | None => {
+                    hook = false;
+                    break;
+                }
+                Some(_) => {}
+            }
+        }
+        if hook || t.is_sub(cls) {
+            cls.abc_cache.borrow_mut().push(t.clone());
+            return Ok(true);
+        }
+        cls.abc_neg_cache.borrow_mut().push(t.clone());
+    }
+    // inspect.getattr_static, member by member: the instance's own __dict__, then the dicts along the MRO (a data
+    // descriptor there comes first); a member found None that is a method member fails the check
+    let own = |a: &str| -> Result<Option<V>, E> {
+        match x {
+            V::Obj(o) => o.get_attr(a),
+            _ => Ok(None),
+        }
+    };
+    for a in &p.attrs {
+        let mut klass = None;
+        for k in t.mro.borrow().iter() {
+            if let Some((_, v)) = proto_dict(k)?.into_iter().find(|(n, _)| n == a) {
+                klass = Some(v);
+                break;
+            }
+        }
+        let inst = own(a)?;
+        if let (V::Obj(o), Some(_)) = (x, &inst) {
+            if o.cls.is_slot(a) || a.starts_with("__pydantic_") || a.starts_with("__bv_") || (*a == "args" && o.cls.base_bt() == BT::Exc) {
+                return Err(unsupported(&format!("isinstance() with a Protocol class reading the slot {a}")));
+            }
+        }
+        let none = match (&inst, &klass) {
+            (None, None) => return Ok(false),
+            (Some(i), None) => matches!(i, V::None),
+            (None, Some(k)) => matches!(k, V::None),
+            // whether the class attribute is a data descriptor only matters for an instance value of None
+            (Some(V::None), Some(k)) => match k {
+                V::None | V::Bool(_) | V::Int(_) | V::Big(_) | V::Float(_) | V::Str(_) | V::List(_) | V::Tuple(_) | V::Dict(_) | V::Set(_) | V::FSet(_) | V::Func(_) => true,
+                _ => return Err(unsupported(&format!("isinstance() with a Protocol class where the class attribute {a} may be a descriptor"))),
+            },
+            (Some(_), Some(_)) => false,
+        };
+        if none && !p.noncallable.borrow().contains(a) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+// Calling a protocol class: the TypeError of typing's _no_init_or_replace_init (after object.__new__, which does
+// nothing a program sees; a __new__ of the program's own is refused rather than run first)
+pub fn proto_call_check(c: &Rc<Class>) -> Result<(), E> {
+    let Some(p) = proto_info(c) else { return Ok(()) };
+    if !p.no_init {
+        return Ok(());
+    }
+    if c.mro.borrow().iter().any(|k| k.made.get() != 0 && k.own("__new__").is_some()) {
+        return Err(unsupported("calling a Protocol class that defines __new__"));
+    }
+    type_err("Protocols cannot be instantiated".into())
 }

@@ -2739,6 +2739,8 @@ pub struct Func {
     pub code_flags: Cell<u32>,
     // the plain Rust function behind a def that takes exactly n positional arguments, for calls with n of them
     pub fast: Cell<FastFn>,
+    // the def's code object in a program built with trace hooks (rt_trace.rs), None otherwise
+    pub tcode: Cell<Option<&'static TraceCode>>,
 }
 #[derive(Clone, Copy)]
 pub enum FastFn {
@@ -2749,10 +2751,10 @@ pub enum FastFn {
     F4(fn(V, V, V, V) -> R),
 }
 pub fn func(name: Sym, f: impl Fn(Args) -> R + 'static) -> V {
-    V::Func(Rc::new(Func { name: Cell::new(name), qualname: Cell::new(name), fq: Cell::new(name), f: Box::new(f), kind: Cell::new(0), attrs: RefCell::new(vec![]), closure: RefCell::new(None), code_flags: Cell::new(0), fast: Cell::new(FastFn::No) }))
+    V::Func(Rc::new(Func { name: Cell::new(name), qualname: Cell::new(name), fq: Cell::new(name), f: Box::new(f), kind: Cell::new(0), attrs: RefCell::new(vec![]), closure: RefCell::new(None), code_flags: Cell::new(0), fast: Cell::new(FastFn::No), tcode: Cell::new(None) }))
 }
 pub fn builtin(name: Sym, f: impl Fn(Args) -> R + 'static) -> V {
-    V::Func(Rc::new(Func { name: Cell::new(name), qualname: Cell::new(name), fq: Cell::new(name), f: Box::new(f), kind: Cell::new(3), attrs: RefCell::new(vec![]), closure: RefCell::new(None), code_flags: Cell::new(0), fast: Cell::new(FastFn::No) }))
+    V::Func(Rc::new(Func { name: Cell::new(name), qualname: Cell::new(name), fq: Cell::new(name), f: Box::new(f), kind: Cell::new(3), attrs: RefCell::new(vec![]), closure: RefCell::new(None), code_flags: Cell::new(0), fast: Cell::new(FastFn::No), tcode: Cell::new(None) }))
 }
 // a def's function value, with the qualified name duplicate-keyword errors print
 pub fn with_fq(f: V, fq: Sym) -> V {
@@ -2795,9 +2797,11 @@ pub fn with_closure(f: V, cells: Vec<Rc<RefCell<V>>>) -> V {
 pub struct CodeObj {
     pub name: Sym,
     pub flags: u32,
+    // co_firstlineno (0: not known here, so not answered)
+    pub first: i64,
 }
 pub fn mk_code(name: Sym, flags: u32) -> V {
-    V::Ext(ExtRc::new(CodeObj { name, flags }))
+    V::Ext(ExtRc::new(CodeObj { name, flags, first: 0 }))
 }
 impl Ext for CodeObj {
     fn tname(&self) -> &'static str {
@@ -2813,6 +2817,10 @@ impl Ext for CodeObj {
         Some(match n {
             "co_name" => Ok(st(self.name.to_string())),
             "co_flags" => Ok(V::Int(self.flags as i64)),
+            "co_firstlineno" if self.first > 0 => Ok(V::Int(self.first)),
+            // CPython's code object has these; compiled code has no true value for them (no bytecode, no CPython
+            // locals layout): refused, never an AttributeError that `hasattr` would turn into a wrong answer
+            _ if n.starts_with("co_") || matches!(n, "replace" | "__replace__" | "_varname_from_oparg") => Err(unsupported(&format!("the code object's {n} (compiled functions have no CPython bytecode)"))),
             _ => Err(exc("AttributeError", format!("'code' object has no attribute '{n}'"))),
         })
     }
@@ -4042,6 +4050,7 @@ pub fn type_name(v: &V) -> String {
         V::Func(f) => if f.kind.get() == 3 { "builtin_function_or_method".into() } else { "function".into() },
         V::Class(c) => match c.meta.borrow().as_ref() {
             Some(m) => m.name.into(),
+            None if enum_meta_of(c).is_some() => "EnumType".into(),
             None => "type".into(),
         },
         V::Obj(o) => o.cls.name.into(),

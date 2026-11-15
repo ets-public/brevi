@@ -1535,7 +1535,12 @@ impl P {
                         return Err(err(line, "class keyword arguments are not supported"));
                     }
                 }
-                bases.push(self.expr()?);
+                // `class C(*bases)`: the bases unpacked at run time (dynpy/emit.rs class)
+                if self.eat_op("*") {
+                    bases.push(Ex::Star(Box::new(self.expr()?)));
+                } else {
+                    bases.push(self.expr()?);
+                }
                 if !self.eat_op(",") {
                     break;
                 }
