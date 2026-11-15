@@ -113,8 +113,8 @@ jobs:
 
       # The last release's zip, as users install it, against today's runner image and Python. The
       # programs are copies from tests/windows that every release since v0.27.0 supports.
-      # The ARM64 zip ships from v0.29.0: a release before that has none, so there is nothing to canary on ARM64 yet.
-      # A release from v0.29.0 on that lacks it fails here.
+      # The ARM64 zip ships from v0.28.1: a release before that has none, so there is nothing to canary on ARM64 yet.
+      # A release from v0.28.1 on that lacks it fails here.
       - name: Canary (the last release's Windows zip)
         if: github.event_name != 'pull_request'
         shell: pwsh
@@ -125,8 +125,8 @@ jobs:
           $zip = "brevi-$env:TARGET.zip"
           $tag = gh release view -R $env:GITHUB_REPOSITORY --json tagName --jq .tagName
           if ($LASTEXITCODE -ne 0 -or -not $tag) { throw "could not read the last release's tag" }
-          if ($env:TARGET -eq "aarch64-pc-windows-msvc" -and [version]($tag.TrimStart("v")) -lt [version]"0.29.0") {
-            Write-Host "SKIP canary: $tag predates the ARM64 Windows zip (first in v0.29.0)"
+          if ($env:TARGET -eq "aarch64-pc-windows-msvc" -and [version]($tag.TrimStart("v")) -lt [version]"0.28.1") {
+            Write-Host "SKIP canary: $tag predates the ARM64 Windows zip (first in v0.28.1)"
             exit 0
           }
           $dir = Join-Path $env:RUNNER_TEMP "canary"

@@ -18,7 +18,7 @@ curl -fsSL https://raw.githubusercontent.com/ets-public/brevi/main/install.sh | 
 
 The script installs the Rust toolchain if it is missing (Brevi compiles through `rustc`), then the prebuilt `brevi` for your machine from the [latest release](https://github.com/ets-public/brevi/releases/latest) into `~/.cargo/bin`, verified against the release's `SHA256SUMS`, or builds it with `cargo install` when no prebuilt one fits.
 
-Windows: install Rust with [rustup](https://rustup.rs), then unzip `brevi-x86_64-pc-windows-msvc.zip` from the [latest release](https://github.com/ets-public/brevi/releases/latest) and put `brevi.exe` on your PATH. From v0.27.0, Python files that import libraries build too: their library calls run in CPython through the bridge (the `python` on PATH needs its DLL).
+Windows: install Rust with [rustup](https://rustup.rs), then unzip `brevi-x86_64-pc-windows-msvc.zip` (`brevi-aarch64-pc-windows-msvc.zip` on ARM64, from v0.28.1) from the [latest release](https://github.com/ets-public/brevi/releases/latest) and put `brevi.exe` on your PATH. From v0.27.0, Python files that import libraries build too: their library calls run in CPython through the bridge (the `python` on PATH needs its DLL).
 
 With a package manager (Rust is still needed, from [rustup](https://rustup.rs)):
 
