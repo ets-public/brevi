@@ -701,6 +701,11 @@ rm -rf "$t"
 # A str with a lone surrogate on a path not yet written for one stops the program, even inside try/except: never a
 # different answer (handoffs/string-model-design.md).
 t=$(mktemp -d)
+# A namedtuple field name NFKC normalization may change stops the program, even inside try/except: CPython compiles
+# __new__ from the normalized names ('\ufb01' and 'fi' collide there), so Brevi refuses rather than answer differently.
+printf 'from collections import namedtuple\ntry:\n    T = namedtuple("T", ["\\ufb01"])\n    print(T._fields)\nexcept Exception as e:\n    print("caught", e)\n' > "$t/nt_nfkc.py"
+o=$(BREVI_DYN=1 $BREVI run "$t/nt_nfkc.py" 2>&1)
+case "$o" in "NotImplementedError: brevi: a namedtuple field name NFKC normalization may change ('"*"') is not supported in dynamic builds") echo "ok   a namedtuple field name NFKC may change stops" ;; *) echo "FAIL a namedtuple field name NFKC may change"; printf '%s\n' "$o"; fail=1 ;; esac
 # A module attribute or repr Brevi cannot give as CPython does is refused, never a different answer: the import
 # machinery's __spec__ when the program is built, or read through a variable when the program runs; the repr of
 # sys.stdout or a decimal context likewise. A library module's repr is the build machine's CPython's.
