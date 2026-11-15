@@ -46,6 +46,13 @@ fn uni_tab_has(tab: &[(u32, u32)], u: u32) -> bool {
     tab.binary_search_by(|&(a, b)| if b < u { std::cmp::Ordering::Less } else if a > u { std::cmp::Ordering::Greater } else { std::cmp::Ordering::Equal }).is_ok()
 }
 
+// A str CPython's compiler leaves as it is when it NFKC-normalizes an identifier: true when every character is
+// ASCII or outside AX_NFKC_MAY_CHANGE (each such character is NFKC-invariant alone, a starter, and never the
+// second half of a composition, so no sequence of them changes). False means it may change, not that it does.
+pub fn py_nfkc_stable(t: &str) -> bool {
+    t.chars().all(|c| c.is_ascii() || !uni_tab_has(AX_NFKC_MAY_CHANGE, c as u32))
+}
+
 pub fn py_is_decimal(c: char) -> bool {
     if c.is_ascii() {
         return c.is_ascii_digit();
@@ -151,6 +158,24 @@ def sre_lower(c):
     return chr(t)
 
 
+SECONDS = None
+
+
+def nfkc_may_change(c):
+    global SECONDS
+    if SECONDS is None:
+        SECONDS = set()
+        for _, x in chars():
+            d = unicodedata.decomposition(x)
+            if d and not d.startswith("<"):
+                SECONDS.update(chr(int(h, 16)) for h in d.split()[1:])
+        SECONDS.update(map(chr, range(0x1161, 0x1176)))
+        SECONDS.update(map(chr, range(0x11A8, 0x11C3)))
+    first = unicodedata.normalize("NFKD", c)[0]
+    return (unicodedata.normalize("NFKC", c) != c or unicodedata.combining(c) != 0 or c in SECONDS
+            or unicodedata.combining(first) != 0 or first in SECONDS)
+
+
 def render():
     v = sys.version_info
     s = HEADER.format(py=f"{v.major}.{v.minor}", ud=unicodedata.unidata_version)
@@ -167,6 +192,10 @@ def render():
     s += "// Ranges of non-ASCII characters str.isnumeric() accepts beyond str.isdigit(): Numeric_Type=Numeric\n"
     s += "// (fractions, number words, and the Unihan numerals), not Nd or Digit (those are in AX_DIGIT above).\n"
     s += f"const AX_NUMERIC: &[(u32, u32)] = {ranges(lambda c: c.isnumeric() and not c.isdigit())};\n\n"
+    s += "// Ranges of non-ASCII characters a string's NFKC form may differ at: those NFKC changes alone, those with\n"
+    s += "// a nonzero combining class or whose NFKD starts with one, and those that can be the second character of a\n"
+    s += "// canonical composition (including Hangul medial and final jamo). Used by py_nfkc_stable.\n"
+    s += f"const AX_NFKC_MAY_CHANGE: &[(u32, u32)] = {ranges(nfkc_may_change)};\n\n"
     s += "// _sre's case mappings (re.IGNORECASE): the first character of each non-ASCII code point's full\n"
     s += "// lowercase / uppercase mapping (_PyUnicode_ToLowercase / _PyUnicode_ToUppercase), as runs\n"
     s += "// (first, last, delta, step): first, first + step, ... last map to themselves + delta, the code points\n"

@@ -1,0 +1,30 @@
+'abc' ok
+'_x' Field names cannot start with an underscore: '_x'
+'a\xb7b' ok
+'\u2118x' ok
+'x\u2118' ok
+'a\xb2' Type names and field names must be valid identifiers: 'a²'
+'\xb2a' Type names and field names must be valid identifiers: '²a'
+'\u037a' Type names and field names must be valid identifiers: 'ͺ'
+'a\u037a' Type names and field names must be valid identifiers: 'aͺ'
+'caf\xe9' ok
+'x\u0660' ok
+'\u0660x' Type names and field names must be valid identifiers: '٠x'
+'\u1885' ok
+'a\u1885' ok
+'x\u2e2f' Type names and field names must be valid identifiers: 'xⸯ'
+'\u2e2f' Type names and field names must be valid identifiers: 'ⸯ'
+'a\u309b' Type names and field names must be valid identifiers: 'a゛'
+'\u212e' ok
+'a\u19da' ok
+'\U0001d7ce' Type names and field names must be valid identifiers: '𝟎'
+'\U000e0100' Type names and field names must be valid identifiers: '󠄀'
+'x\U000e0100' ok
+'def' Type names and field names cannot be a keyword: 'def'
+'match' ok
+'type' ok
+Type names and field names must be valid identifiers: 'P²'
+True
+Type names and field names cannot be a keyword: 'class'
+('a', 'b', 'c', 'd', 'e', 'f')
+133364 135466 14564080133 14874094703 5920
