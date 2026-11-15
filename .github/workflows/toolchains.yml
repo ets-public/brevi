@@ -103,9 +103,9 @@ jobs:
         env:
           FULL: ${{ inputs.full }}
         run: |
-          stable='{"rust":"stable","python":"3.x"}'
+          stable='{"rust":"stable","python":"3.13"}'
           next='{"rust":"stable","python":"next"}'
-          weekly='{"rust":"beta","python":"3.x"},{"rust":"nightly","python":"3.x"}'
+          weekly='{"rust":"beta","python":"3.13"},{"rust":"nightly","python":"3.13"}'
           if [ "${{ github.event_name }}" = schedule ] && [ "$(date -u +%u)" = 1 ] || [ "$FULL" = true ]; then
             m="[$stable,$next,$weekly]"
           elif [ "${{ github.event_name }}" = schedule ]; then
@@ -155,6 +155,15 @@ jobs:
         with:
           python-version: ${{ matrix.python == 'next' && needs.versions.outputs.next_python || matrix.python }}
           allow-prereleases: true
+
+      - name: CPython 3.13 beside the next Python
+        # Brevi answers as CPython 3.13 does and runs no other CPython (src/cpython.rs), so the next-Python run gives
+        # Brevi a 3.13 too; python3 stays the next Python for the comparisons that watch it.
+        if: matrix.python == 'next'
+        run: |
+          python3 -m pip install --quiet uv
+          uv python install 3.13.13 --quiet
+          echo "BREVI_PYTHON=$(uv python find 3.13.13)" >> "$GITHUB_ENV"
 
       - name: Toolchain fingerprint
         id: fp
@@ -245,7 +254,7 @@ jobs:
       # newest Python may have no wheels for them yet). The daily run and the release run them on CPython 3.13 with the
       # pinned packages, where a section that cannot run fails instead of skipping.
       - name: Native copies against the real duckdb, onnxruntime and mcp (daily and release; never skipped)
-        if: steps.seen.outputs.cache-hit != 'true' && github.event_name != 'pull_request' && matrix.rust == 'stable' && matrix.python == '3.x'
+        if: steps.seen.outputs.cache-hit != 'true' && github.event_name != 'pull_request' && matrix.rust == 'stable' && matrix.python == '3.13'
         env:
           BREVI: ./target/release/brevi
           CHECK_REQUIRE_LIBS: "1"
@@ -262,7 +271,7 @@ jobs:
       # as the daily run, without duckdb and onnxruntime, about a minute), so a change to Brevi's mcp or pydantic copy,
       # or a pin bump without new transcripts, fails on the PR instead of the next day.
       - name: MCP servers against the real mcp (pull requests; never skipped)
-        if: steps.seen.outputs.cache-hit != 'true' && github.event_name == 'pull_request' && matrix.rust == 'stable' && matrix.python == '3.x'
+        if: steps.seen.outputs.cache-hit != 'true' && github.event_name == 'pull_request' && matrix.rust == 'stable' && matrix.python == '3.13'
         env:
           BREVI: ./target/release/brevi
           CHECK_REQUIRE_LIBS: "1"
@@ -310,7 +319,7 @@ jobs:
       - name: CPython conformance ratchet (CPython's own tests; the score may not drop, the known-wrong list only shrinks)
         # Only when the compiler could have changed, on one toolchain: the run takes about 10 minutes. The pinned
         # test files come from python/cpython at the tag in tools/conformance.py and are checked against their hashes.
-        if: steps.seen.outputs.cache-hit != 'true' && steps.scope.outputs.compat == 'true' && matrix.rust == 'stable' && matrix.python == '3.x'
+        if: steps.seen.outputs.cache-hit != 'true' && steps.scope.outputs.compat == 'true' && matrix.rust == 'stable' && matrix.python == '3.13'
         env:
           RELEASE: ${{ inputs.release }}
         run: |
@@ -331,7 +340,7 @@ jobs:
         # Pull requests replay the saved corpus (bench/fuzz/corpus: once-failing cases that must stay fixed); the daily
         # run also tries 60 fresh batches of 12 cases, seeded by the date so a failure reproduces. Wrong answers are
         # listed in the summary, not failed on, until the known ones are fixed.
-        if: steps.seen.outputs.cache-hit != 'true' && steps.scope.outputs.compat == 'true' && matrix.rust == 'stable' && matrix.python == '3.x'
+        if: steps.seen.outputs.cache-hit != 'true' && steps.scope.outputs.compat == 'true' && matrix.rust == 'stable' && matrix.python == '3.13'
         run: |
           python3 tools/fuzz.py --replay bench/fuzz/corpus --jobs 4
           if [ "${{ github.event_name }}" = schedule ]; then
@@ -363,7 +372,7 @@ jobs:
 
       - name: Drop the replay cache and machine-specific paths before saving
         if: >
-          success() && steps.seen.outputs.cache-hit != 'true' && matrix.rust == 'stable' && matrix.python == '3.x' &&
+          success() && steps.seen.outputs.cache-hit != 'true' && matrix.rust == 'stable' && matrix.python == '3.13' &&
           github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: rm -rf ~/.cache/brevi/runs ~/.cache/brevi/toolchain
 
@@ -371,7 +380,7 @@ jobs:
         # Only the daily (and manual main) run saves it, so a PR can never seed what other PRs reuse. The run
         # started cold, so every entry came from this commit's compiler. One entry per day; GitHub evicts old ones.
         if: >
-          success() && steps.seen.outputs.cache-hit != 'true' && matrix.rust == 'stable' && matrix.python == '3.x' &&
+          success() && steps.seen.outputs.cache-hit != 'true' && matrix.rust == 'stable' && matrix.python == '3.13' &&
           github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
