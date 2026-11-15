@@ -1,0 +1,35 @@
+upper 1770434494
+lower 1995334160
+title 1626811179
+swapcase 1045506533
+casefold 187426804
+sigma after cased 136673169
+sigma at start 514024538
+sigma before 1149121337
+swapcase sigma 260191825
+title after cased 736902083
+capitalize 710337059
+predicates 1933066153
+split strip 111756042
+split words 301
+'\u0264' '\u0264' '\u0264' '\u0264' '\u0264' '\u0264' False True False True True False ['\u0264'] '\u0264'
+'\ua7cb' '\ua7cb' '\ua7cb' '\ua7cb' '\ua7cb' '\ua7cb' False False False False False False ['\ua7cb'] '\ua7cb'
+'\U00010d50' '\U00010d50' '\U00010d50' '\U00010d50' '\U00010d50' '\U00010d50' False False False False False False ['\U00010d50'] '\U00010d50'
+'\U00010d70' '\U00010d70' '\U00010d70' '\U00010d70' '\U00010d70' '\U00010d70' False False False False False False ['\U00010d70'] '\U00010d70'
+'\u01c6' '\u01c4' '\u01c6' '\u01c5' '\u01c5' '\u01c4' False True False True True False ['\u01c6'] '\u01c6'
+'\u01c6a' '\u01c4A' '\u01c6a' '\u01c5a' '\u01c5a' '\u01c4A' False True False True True False ['\u01c6a'] '\u01c6a'
+'\u01c5' '\u01c4' '\u01c6' '\u01c5' '\u01c5' '\u01c5' False False True True True False ['\u01c5'] '\u01c5'
+'\xdf' 'SS' '\xdf' 'Ss' 'Ss' 'SS' False True False True True False ['\xdf'] '\xdf'
+'\ufb01x' 'FIX' '\ufb01x' 'Fix' 'Fix' 'FIX' False True False True True False ['\ufb01x'] '\ufb01x'
+'\u1fb3' '\u0391\u0399' '\u1fb3' '\u1fbc' '\u1fbc' '\u0391\u0399' False True False True True False ['\u1fb3'] '\u1fb3'
+'\u0130' '\u0130' 'i\u0307' '\u0130' '\u0130' 'i\u0307' True False True True True False ['\u0130'] '\u0130'
+'\u10d0' '\u1c90' '\u10d0' '\u10d0' '\u10d0' '\u1c90' False True False True True False ['\u10d0'] '\u10d0'
+'\u4e2da' '\u4e2dA' '\u4e2da' '\u4e2dA' '\u4e2da' '\u4e2dA' False True False True True False ['\u4e2da'] '\u4e2da'
+'\u0391\u03a3' '\u0391\u03a3' '\u03b1\u03c2' '\u0391\u03c2' '\u0391\u03c2' '\u03b1\u03c2' True False False True True False ['\u0391\u03a3'] '\u0391\u03a3'
+"\u0391\u03a3'" "\u0391\u03a3'" "\u03b1\u03c2'" "\u0391\u03c2'" "\u0391\u03c2'" "\u03b1\u03c2'" True False False False False False ["\u0391\u03a3'"] "\u0391\u03a3'"
+"\u0391'\u03a3" "\u0391'\u03a3" "\u03b1'\u03c2" "\u0391'\u03a3" "\u0391'\u03c2" "\u03b1'\u03c2" True False True False False False ["\u0391'\u03a3"] "\u0391'\u03a3"
+'\u03a3' '\u03a3' '\u03c3' '\u03a3' '\u03a3' '\u03c3' True False True True True False ['\u03a3'] '\u03a3'
+'\u0391\u03a3\u0391' '\u0391\u03a3\u0391' '\u03b1\u03c3\u03b1' '\u0391\u03c3\u03b1' '\u0391\u03c3\u03b1' '\u03b1\u03c3\u03b1' True False False True True False ['\u0391\u03a3\u0391'] '\u0391\u03a3\u0391'
+"they're" "THEY'RE" "they're" "They'Re" "They're" "THEY'RE" False True False False False False ["they're"] "they're"
+'\x1c' '\x1c' '\x1c' '\x1c' '\x1c' '\x1c' False False False False False True [] ''
+'a\x1cb\x1fc' 'A\x1cB\x1fC' 'a\x1cb\x1fc' 'A\x1cB\x1fC' 'A\x1cb\x1fc' 'A\x1cB\x1fC' False True False False False False ['a', 'b', 'c'] 'a\x1cb\x1fc'

@@ -6,17 +6,29 @@ use std::collections::{HashMap, HashSet};
 
 // The allocator comes first so that the inner attribute can lead the file.
 pub const PRELUDE: &str = concat!("#![allow(warnings)]\n", include_str!("alloc_rt.rs"), include_str!("fsscope.rs"), include_str!("prelude.rs"));
-// The Unicode tables for str.casefold() and str.isdigit(): ~1500 lines, so they are appended only to
-// programs that use one of these methods (the dynamic runtime compiles them once, in its library).
-pub const UNICODE: &str = include_str!("unicode.rs");
+// The Unicode tables for str.casefold(), str.isdigit() and the case methods (upper, lower, title, capitalize,
+// isupper, islower, isalpha, isalnum, isspace): CPython 3.13's, never rustc's. ~4800 lines, so they are appended
+// only to programs that use one of these methods (the dynamic runtime compiles them once, in its library).
+pub const UNICODE: &str = concat!(include_str!("unicode.rs"), include_str!("unicode_case.rs"));
+// The typed build's names for those methods; a call to one goes through the AxUni trait below.
+const UNICODE_METHODS: &[&str] = &["casefold", "is_digit", "lower", "upper", "title", "capitalize", "is_upper", "is_lower", "is_alpha", "is_alnum", "is_space"];
 // How the typed build calls them: one trait for every receiver a str method can have.
 const UNICODE_TRAIT: &str = "
-pub trait AxUni { fn ax_uni_casefold(&self) -> String; fn ax_uni_is_digit(&self) -> bool; }
-impl AxUni for str { fn ax_uni_casefold(&self) -> String { py_casefold(self) } fn ax_uni_is_digit(&self) -> bool { py_str_isdigit(self) } }
-impl AxUni for String { fn ax_uni_casefold(&self) -> String { py_casefold(self) } fn ax_uni_is_digit(&self) -> bool { py_str_isdigit(self) } }
+pub trait AxUni { fn ax_uni_casefold(&self) -> String; fn ax_uni_is_digit(&self) -> bool; fn ax_uni_lower(&self) -> String; fn ax_uni_upper(&self) -> String; fn ax_uni_title(&self) -> String; fn ax_uni_capitalize(&self) -> String; fn ax_uni_is_upper(&self) -> bool; fn ax_uni_is_lower(&self) -> bool; fn ax_uni_is_alpha(&self) -> bool; fn ax_uni_is_alnum(&self) -> bool; fn ax_uni_is_space(&self) -> bool; }
+impl AxUni for str { fn ax_uni_casefold(&self) -> String { py_casefold(self) } fn ax_uni_is_digit(&self) -> bool { py_str_isdigit(self) } fn ax_uni_lower(&self) -> String { py_lower(self) } fn ax_uni_upper(&self) -> String { py_upper(self) } fn ax_uni_title(&self) -> String { py_title(self) } fn ax_uni_capitalize(&self) -> String { py_capitalize(self) } fn ax_uni_is_upper(&self) -> bool { py_str_isupper(self) } fn ax_uni_is_lower(&self) -> bool { py_str_islower(self) } fn ax_uni_is_alpha(&self) -> bool { py_str_isalpha(self) } fn ax_uni_is_alnum(&self) -> bool { py_str_isalnum(self) } fn ax_uni_is_space(&self) -> bool { py_str_isspace(self) } }
+impl AxUni for String { fn ax_uni_casefold(&self) -> String { py_casefold(self) } fn ax_uni_is_digit(&self) -> bool { py_str_isdigit(self) } fn ax_uni_lower(&self) -> String { py_lower(self) } fn ax_uni_upper(&self) -> String { py_upper(self) } fn ax_uni_title(&self) -> String { py_title(self) } fn ax_uni_capitalize(&self) -> String { py_capitalize(self) } fn ax_uni_is_upper(&self) -> bool { py_str_isupper(self) } fn ax_uni_is_lower(&self) -> bool { py_str_islower(self) } fn ax_uni_is_alpha(&self) -> bool { py_str_isalpha(self) } fn ax_uni_is_alnum(&self) -> bool { py_str_isalnum(self) } fn ax_uni_is_space(&self) -> bool { py_str_isspace(self) } }
 impl AxUni for Json {
     fn ax_uni_casefold(&self) -> String { py_casefold(self.ax_jtext(\"casefold\")) }
     fn ax_uni_is_digit(&self) -> bool { py_str_isdigit(self.ax_jtext(\"isdigit\")) }
+    fn ax_uni_lower(&self) -> String { py_lower(self.ax_jtext(\"lower\")) }
+    fn ax_uni_upper(&self) -> String { py_upper(self.ax_jtext(\"upper\")) }
+    fn ax_uni_title(&self) -> String { py_title(self.ax_jtext(\"title\")) }
+    fn ax_uni_capitalize(&self) -> String { py_capitalize(self.ax_jtext(\"capitalize\")) }
+    fn ax_uni_is_upper(&self) -> bool { py_str_isupper(self.ax_jtext(\"isupper\")) }
+    fn ax_uni_is_lower(&self) -> bool { py_str_islower(self.ax_jtext(\"islower\")) }
+    fn ax_uni_is_alpha(&self) -> bool { py_str_isalpha(self.ax_jtext(\"isalpha\")) }
+    fn ax_uni_is_alnum(&self) -> bool { py_str_isalnum(self.ax_jtext(\"isalnum\")) }
+    fn ax_uni_is_space(&self) -> bool { py_str_isspace(self.ax_jtext(\"isspace\")) }
 }
 ";
 
@@ -1462,8 +1474,8 @@ impl Emitter {
         let items_dbg = format!("{items:?}");
         let prelude = if items_dbg.contains("\"re_") { PRELUDE } else { &PRELUDE[..PRELUDE.find("// @regex").unwrap_or(PRELUDE.len())] };
         let mut out = String::from(prelude);
-        // The Unicode tables are left out of programs that do not use casefold() or isdigit().
-        if items_dbg.contains("\"casefold\"") || items_dbg.contains("\"is_digit\"") {
+        // The Unicode tables are left out of programs that use none of UNICODE_METHODS.
+        if UNICODE_METHODS.iter().any(|m| items_dbg.contains(&format!("{m:?}"))) {
             out.push_str(UNICODE);
             out.push_str(UNICODE_TRAIT);
         }
@@ -2776,10 +2788,10 @@ impl Emitter {
                 } else {
                     self.place(recv)
                 };
-                // str.casefold() and str.isdigit() follow CPython's Unicode tables (src/unicode.rs, appended
-                // above only when a program uses them) through the AxUni trait, which covers str, String and
-                // Json receivers alike, so the prelude does not depend on the tables.
-                if matches!(name.as_str(), "casefold" | "is_digit") && args.is_empty() {
+                // str.casefold(), isdigit() and the case methods follow CPython's Unicode tables (src/unicode.rs
+                // and src/unicode_case.rs, appended above only when a program uses them) through the AxUni trait,
+                // which covers str, String and Json receivers alike, so the prelude does not depend on the tables.
+                if UNICODE_METHODS.contains(&name.as_str()) && args.is_empty() {
                     return format!("{{ ax_l({line}); ({r}).ax_uni_{name}() }}");
                 }
                 // A lambda inside the lambda that can fail (`[[int(x) for x in r] for r in rows]`) fails this one too.

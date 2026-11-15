@@ -1,0 +1,23 @@
+upper 1770434494
+lower 1995334160
+title 1626811179
+sigma after cased 136673169
+title after cased 736902083
+capitalize 710337059
+predicates 537517766
+casefold 133377320
+612 612 612 612 612 False True True True False
+42955 42955 42955 42955 42955 False False False False False
+68944 68944 68944 68944 68944 False False False False False
+454-97 452-65 454-97 453-97 453-97 False True True True False
+453 452 454 453 453 False False True True False
+223 83-83 223 83-115 83-115 False True True True False
+64257-120 70-73-88 64257-120 70-105-120 70-105-120 False True True True False
+8115 913-921 8115 8124 8124 False True True True False
+304 304 105-775 304 304 True False True True False
+4304 7312 4304 4304 4304 False True True True False
+20013-97 20013-65 20013-97 20013-65 20013-97 False True True True False
+913-931 913-931 945-962 913-962 913-962 True False True True False
+913-39-931 913-39-931 945-39-962 913-39-931 913-39-962 True False False False False
+116-104-101-121-39-114-101 84-72-69-89-39-82-69 116-104-101-121-39-114-101 84-104-101-121-39-82-101 84-104-101-121-39-114-101 False True False False False
+28 28 28 28 28 False False False False True

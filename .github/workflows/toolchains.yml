@@ -300,6 +300,10 @@ jobs:
         if: steps.seen.outputs.cache-hit != 'true'
         run: python3 tools/version_sync.py
 
+      - name: The case tables in src/unicode_case.rs are CPython 3.13's (str.upper, lower, title, isalpha, ...)
+        if: steps.seen.outputs.cache-hit != 'true'
+        run: '"${BREVI_PYTHON:-python3}" tools/gen_unicode_case.py --check'
+
       - name: Changelog fragments are CHANGELOG lines
         if: steps.seen.outputs.cache-hit != 'true'
         run: python3 tools/changelog.py --check

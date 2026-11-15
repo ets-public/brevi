@@ -2743,17 +2743,17 @@ fn char_at_byte(st: &S, b: usize) -> usize {
 }
 fn py_split_ws(t: &str, maxsplit: i64) -> Vec<V> {
     let mut out = vec![];
-    let mut rest = t.trim_start_matches(|c: char| c.is_whitespace());
+    let mut rest = t.trim_start_matches(py_ch_isspace);
     let mut n = 0;
     while !rest.is_empty() {
         if maxsplit >= 0 && n >= maxsplit {
             out.push(s(rest));
             return out;
         }
-        match rest.find(|c: char| c.is_whitespace()) {
+        match rest.find(py_ch_isspace) {
             Some(i) => {
                 out.push(s(&rest[..i]));
-                rest = rest[i..].trim_start_matches(|c: char| c.is_whitespace());
+                rest = rest[i..].trim_start_matches(py_ch_isspace);
                 n += 1;
             }
             None => {
@@ -2766,18 +2766,18 @@ fn py_split_ws(t: &str, maxsplit: i64) -> Vec<V> {
 }
 fn py_rsplit_ws(t: &str, maxsplit: i64) -> Vec<V> {
     let mut out = vec![];
-    let mut rest = t.trim_end_matches(|c: char| c.is_whitespace());
+    let mut rest = t.trim_end_matches(py_ch_isspace);
     let mut n = 0;
     while !rest.is_empty() {
         if maxsplit >= 0 && n >= maxsplit {
             out.push(s(rest));
             break;
         }
-        match rest.rfind(|c: char| c.is_whitespace()) {
+        match rest.rfind(py_ch_isspace) {
             Some(i) => {
                 let c = rest[i..].chars().next().unwrap();
                 out.push(s(&rest[i + c.len_utf8()..]));
-                rest = rest[..i].trim_end_matches(|c: char| c.is_whitespace());
+                rest = rest[..i].trim_end_matches(py_ch_isspace);
                 n += 1;
             }
             None => {
@@ -2791,24 +2791,6 @@ fn py_rsplit_ws(t: &str, maxsplit: i64) -> Vec<V> {
 }
 fn is_linebreak(c: char) -> bool {
     matches!(c, '\n' | '\r' | '\x0b' | '\x0c' | '\x1c' | '\x1d' | '\x1e' | '\u{85}' | '\u{2028}' | '\u{2029}')
-}
-fn py_title(t: &str) -> String {
-    let mut out = String::new();
-    let mut prev_cased = false;
-    for c in t.chars() {
-        if c.is_alphabetic() {
-            if prev_cased {
-                out.extend(c.to_lowercase());
-            } else {
-                out.extend(c.to_uppercase());
-            }
-            prev_cased = true;
-        } else {
-            out.push(c);
-            prev_cased = false;
-        }
-    }
-    out
 }
 fn strip_set(a: &Args, f: &str) -> Result<Option<Vec<char>>, E> {
     match a.p.first() {
@@ -3010,7 +2992,7 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             let cs = strip_set(&a, name)?;
             let f = |c: char| match &cs {
                 Some(v) => v.contains(&c),
-                None => c.is_whitespace(),
+                None => py_ch_isspace(c),
             };
             let r = match name {
                 "strip" => t.trim_matches(f),
@@ -3099,27 +3081,22 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             }
             V::Bool(r)
         }
-        "upper" => st(t.to_uppercase()),
-        "lower" => st(t.to_lowercase()),
+        // The case methods follow CPython 3.13's Unicode tables (src/unicode_case.rs), not rustc's.
+        "upper" => st(py_upper(t)),
+        "lower" => st(py_lower(t)),
         "casefold" => st(py_casefold(t)),
         "title" => st(py_title(t)),
-        "capitalize" => {
-            let mut cs = t.chars();
-            match cs.next() {
-                Some(c) => st(c.to_uppercase().collect::<String>() + &cs.as_str().to_lowercase()),
-                None => s(""),
-            }
-        }
-        "swapcase" => st(t.chars().map(|c| if c.is_uppercase() { c.to_lowercase().collect::<String>() } else { c.to_uppercase().collect() }).collect()),
+        "capitalize" => st(py_capitalize(t)),
+        "swapcase" => st(py_swapcase(t)),
         "isdigit" => V::Bool(py_str_isdigit(t)),
         "isdecimal" => V::Bool(py_str_isdecimal(t)),
         "isnumeric" => V::Bool(py_str_isnumeric(t)),
-        "isalpha" => V::Bool(!t.is_empty() && t.chars().all(|c| c.is_alphabetic())),
-        "isalnum" => V::Bool(!t.is_empty() && t.chars().all(|c| c.is_alphanumeric())),
-        "isspace" => V::Bool(!t.is_empty() && t.chars().all(|c| c.is_whitespace())),
-        "isupper" => V::Bool(t.chars().any(|c| c.is_uppercase()) && !t.chars().any(|c| c.is_lowercase())),
-        "islower" => V::Bool(t.chars().any(|c| c.is_lowercase()) && !t.chars().any(|c| c.is_uppercase())),
-        "istitle" => V::Bool(t.chars().any(|c| c.is_alphabetic()) && py_title(t) == t),
+        "isalpha" => V::Bool(py_str_isalpha(t)),
+        "isalnum" => V::Bool(py_str_isalnum(t)),
+        "isspace" => V::Bool(py_str_isspace(t)),
+        "isupper" => V::Bool(py_str_isupper(t)),
+        "islower" => V::Bool(py_str_islower(t)),
+        "istitle" => V::Bool(py_str_istitle(t)),
         "isascii" => V::Bool(t.is_ascii()),
         "isprintable" => V::Bool(t.chars().all(|c| if c.is_ascii() { (' '..='~').contains(&c) } else { !tab_has(PY_NOPRINT, c) })),
         "isidentifier" => V::Bool(py_isidentifier(t)),
