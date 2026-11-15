@@ -30,7 +30,7 @@ __HEADER__
           <a class="btn ghost" href="__GITHUB__" rel="noopener">__GHICON__View on GitHub</a>
           <a class="more" href="/docs/agents">Set up an agent →</a>
         </div>
-        <p class="fine">It aims to print exactly what CPython prints and to refuse what it cannot match; today it matches <strong>80% of CPython's own tests</strong>, so it is a preview, not a drop-in <code>python3</code>. When Brevi cannot build a file, it says why in one line of JSON.</p>
+        <p class="fine">It aims to print exactly what CPython prints and to refuse what it cannot match; today it matches <strong>97% of the CPython 3.13 tests it scores</strong>, so it is a preview, not a drop-in <code>python3</code>. When Brevi cannot build a file, it says why in one line of JSON.</p>
         <p class="status jl">__STATUS__</p>
       </div>
       <div class="term" aria-label="Example program and output">
@@ -53,7 +53,7 @@ cat: 1</pre>
     <div class="wrap">
       <div class="stats">
         <div class="stat"><span class="num">9.3x</span><span class="lab">Median speed over CPython</span><span class="sub">1.6x to 37.9x on 12 compute benchmarks, default build</span></div>
-        <div class="stat"><span class="num">250 of 311</span><span class="lab">CPython 3.13 tests matched</span><span class="sub">80% in v__VERSION__. <a href="/docs/compatibility#in-numbers">All the numbers</a></span></div>
+        <div class="stat"><span class="num">1,047 of 1,076</span><span class="lab">CPython 3.13 tests matched</span><span class="sub">97.3% in v__VERSION__, none answer differently. <a href="/docs/compatibility#in-numbers">All the numbers</a></span></div>
         <div class="stat"><span class="num">591 of 591</span><span class="lab">Saved agent programs still match</span><span class="sub">A regression check, not a measure of Python coverage</span></div>
         <div class="stat"><span class="num">1 line</span><span class="lab">Per error, as JSON</span><span class="sub">With the line number and, where it can, a fix</span></div>
       </div>
@@ -105,12 +105,12 @@ cat: 1</pre>
       <div class="conf">
         <div class="bars">
           <div class="bar-row">
-            <div class="cap"><span>v__VERSION__, the current release</span><b>250 <small>of 311 match</small></b></div>
-            <div class="bar" role="img" aria-label="Of 311 tests: 250 match, 38 refused, 8 answer differently, none crash, 15 could not be extracted"><i class="seg-match" style="width: 80.4%"></i><i class="seg-refused" style="width: 12.2%"></i><i class="seg-differ" style="width: 2.6%"></i><i class="seg-other" style="width: 4.8%"></i></div>
+            <div class="cap"><span>v__VERSION__, the current release (1,076 tests)</span><b>1,047 <small>of 1,076 match</small></b></div>
+            <div class="bar" role="img" aria-label="Of 1,076 tests: 1,047 match, 26 refused, none answer differently, none crash, 3 could not be extracted"><i class="seg-match" style="width: 97.3%"></i><i class="seg-refused" style="width: 2.4%"></i><i class="seg-other" style="width: 0.3%"></i></div>
           </div>
           <div class="bar-row">
-            <div class="cap"><span>v0.26.0, the release before</span><b>181 <small>of 311 match</small></b></div>
-            <div class="bar" role="img" aria-label="Of 311 tests: 181 match, 66 refused, 44 answer differently, 5 crash, 15 could not be extracted"><i class="seg-match" style="width: 58.2%"></i><i class="seg-refused" style="width: 21.2%"></i><i class="seg-differ" style="width: 14.1%"></i><i class="seg-crash" style="width: 1.6%"></i><i class="seg-other" style="width: 4.8%"></i></div>
+            <div class="cap"><span>v0.27.0 (311 tests)</span><b>250 <small>of 311 match</small></b></div>
+            <div class="bar" role="img" aria-label="Of 311 tests: 250 match, 38 refused, 8 answer differently, none crash, 15 could not be extracted"><i class="seg-match" style="width: 80.4%"></i><i class="seg-refused" style="width: 12.2%"></i><i class="seg-differ" style="width: 2.6%"></i><i class="seg-other" style="width: 4.8%"></i></div>
           </div>
           <ul class="legend">
             <li><i class="seg-match"></i>Prints what CPython prints</li>
