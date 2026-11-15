@@ -3,7 +3,7 @@
   "normal": 1042,
   "dyn": 1042
  },
- "note": "tools/conformance.py --check on Windows fails below these; the weekly conformance job in windows.yml raises them on main, PRs never do",
+ "note": "tools/conformance.py --check on Windows fails when fewer tests match natively (not through the CPython bridge); the weekly conformance job in windows.yml raises them on main, PRs never do",
  "release_gate": {
   "coverage": 0.9,
   "wrong": 0,

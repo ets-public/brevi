@@ -6,7 +6,8 @@ import os, re, subprocess, sys
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 # The files the conformance run itself writes (main commits them after measuring), so they may differ between the
 # measured commit and the release.
-MEASURED_OUTPUTS = ("bench/conformance", "compat/conformance_floor.json", "compat/conformance_stdlib_floor.json")
+MEASURED_OUTPUTS = ("bench/conformance", "compat/conformance_floor.json", "compat/conformance_stdlib_floor.json",
+                    "compat/conformance_windows_floor.json")
 
 
 def check_reports(tag):
