@@ -1,7 +1,7 @@
 {
  "matched": {
-  "normal": 0,
-  "dyn": 0
+  "normal": 1042,
+  "dyn": 1042
  },
  "note": "tools/conformance.py --check on Windows fails below these; the weekly conformance job in windows.yml raises them on main, PRs never do",
  "release_gate": {
