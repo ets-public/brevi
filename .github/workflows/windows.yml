@@ -171,13 +171,18 @@ jobs:
           if [ -n "$n" ]; then gh issue comment "$n" --body-file body.md; else gh issue create --title "$title" --label windows --body-file body.md; fi
 
   # CPython conformance on Windows: the same pinned CPython tests as the Linux ratchet (tools/conformance.py, core
-  # slice), built and run here, so a Windows number exists next to the Linux one. Weekly and on demand only
-  # (Windows minutes count double). It reports; it does not gate yet: a Windows known-wrong list and floor come
-  # from its first results.
+  # slice), built and run here. On Windows the ratchet reads its own floor and known-wrong list
+  # (compat/conformance_windows_floor.json, compat/conformance_windows_known_wrong/), and a release runs the same
+  # check plus the release gate on the brevi.exe it ships (release.yml), so a Windows regression blocks a release.
+  # Weekly and on demand only (Windows minutes count double). On main, the floor goes up to what this run measures
+  # and is committed, as conformance-main.yml does for Linux; a failure opens or updates a "conformance" issue.
   conformance:
     if: github.event.schedule == '17 7 * * 0' || github.event_name == 'workflow_dispatch'
     runs-on: windows-2022
     timeout-minutes: 90
+    permissions:
+      contents: write
+      issues: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -197,12 +202,13 @@ jobs:
       - name: Build Brevi
         run: cargo build --release --locked
 
-      - name: CPython conformance (core slice; report only)
+      - name: CPython conformance (core slice; the Windows score may not drop, its known-wrong list only shrinks)
         shell: bash
         run: |
           python -m pip install --quiet uv
           uv python install 3.13.13 --quiet
-          python tools/conformance.py --python "$(uv python find 3.13.13)" --jobs 4 --out conformance-windows
+          raise=; [ "$GITHUB_REF" = refs/heads/main ] && raise=--raise-floor
+          python tools/conformance.py --check $raise --python "$(uv python find 3.13.13)" --jobs 4 --out conformance-windows
           cat conformance-windows/report.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the report
@@ -211,3 +217,35 @@ jobs:
         with:
           name: conformance-windows
           path: conformance-windows
+
+      - name: Commit the raised Windows floor to main
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          git diff --quiet -- compat/conformance_windows_floor.json && { echo "Windows floor unchanged"; exit 0; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -q -m "Windows conformance floor: what main measures" -- compat/conformance_windows_floor.json
+          # Only this job writes this file, so a newer merge never conflicts with this commit.
+          for i in 1 2 3; do git pull -q --rebase origin main && git push -q origin HEAD:main && exit 0; sleep 5; done
+          exit 1
+
+      - name: Open or update an issue
+        if: failure() && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Windows conformance dropped on main"
+          {
+            echo "The weekly CPython conformance run on Windows failed on main: a new wrong result, a score below compat/conformance_windows_floor.json, or a stale entry in compat/conformance_windows_known_wrong/. A release runs the same check on the brevi.exe it ships, so no release goes out until this is fixed."
+            echo
+            echo "- Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "- Commit $GITHUB_SHA"
+            echo
+            [ -f conformance-windows/report.md ] && sed -n '1,40p' conformance-windows/report.md
+            echo "See the run log for the ratchet's own message."
+          } > body.md
+          gh label create conformance --color D93F0B --description "CPython conformance dropped" 2>/dev/null || true
+          n=$(gh issue list --state open --label conformance --search "\"$title\" in:title" --json number,title --jq ".[] | select(.title == \"$title\") | .number" | head -1)
+          if [ -n "$n" ]; then gh issue comment "$n" --body-file body.md; else gh issue create --title "$title" --label conformance --body-file body.md; fi

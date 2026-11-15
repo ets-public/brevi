@@ -37,6 +37,7 @@ fn bridge_ok() -> bool {
 pub const RUNTIME: &str = concat!(
     include_str!("rt_core.rs"),
     include_str!("../unicode.rs"),
+    include_str!("../unicode_sre.rs"),
     include_str!("../unicode_case.rs"),
     include_str!("rt_ops.rs"),
     include_str!("rt_fmt.rs"),
