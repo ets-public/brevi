@@ -2818,6 +2818,9 @@ impl Ext for CodeObj {
             "co_name" => Ok(st(self.name.to_string())),
             "co_flags" => Ok(V::Int(self.flags as i64)),
             "co_firstlineno" if self.first > 0 => Ok(V::Int(self.first)),
+            // CPython's code object has these; compiled code has no true value for them (no bytecode, no CPython
+            // locals layout): refused, never an AttributeError that `hasattr` would turn into a wrong answer
+            _ if n.starts_with("co_") || matches!(n, "replace" | "__replace__" | "_varname_from_oparg") => Err(unsupported(&format!("the code object's {n} (compiled functions have no CPython bytecode)"))),
             _ => Err(exc("AttributeError", format!("'code' object has no attribute '{n}'"))),
         })
     }

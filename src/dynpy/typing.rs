@@ -127,6 +127,9 @@ pub static ANN_DEFS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBo
 // Set while the program names `from_callable` (inspect.Signature.from_callable) and its defs keep their
 // annotations (ANN_DEFS, which the use turns on under the same conditions): every def and lambda then records its
 // parameters and defaults (with_sig in rt_sig.rs). Without ANN_DEFS a from_callable call is refused at build time.
+// Set while the program imports a library CPython runs (the bridge, pyglue.rs): such a library may read a def's
+// __annotations__ (functools.wraps, inspect), so the defs keep them as when the program reads them itself.
+pub static BRIDGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 pub static SIG_DEFS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
@@ -177,11 +180,12 @@ pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
         walk_all(b, &mut |e, _| r |= matches!(e, Ex::Attr(_, a) if a == "from_callable") || matches!(e, Ex::Str(t) if t == "from_callable"));
         r
     });
-    let defs = (reads || sig)
+    let defs = (reads || sig || BRIDGED.load(std::sync::atomic::Ordering::Relaxed))
         && !OWN_PYDANTIC.load(std::sync::atomic::Ordering::Relaxed)
         && mods.iter().all(|(m, b)| !names[*m].lazy && !odd_def_annotation(b) && !typing_def_annotation(b, &names[*m]));
     ANN_DEFS.store(defs, std::sync::atomic::Ordering::Relaxed);
-    SIG_DEFS.store(sig && defs, std::sync::atomic::Ordering::Relaxed);
+    // a library CPython runs may read a def's __defaults__ and __kwdefaults__ (kept with the signature)
+    SIG_DEFS.store((sig || BRIDGED.load(std::sync::atomic::Ordering::Relaxed)) && defs, std::sync::atomic::Ordering::Relaxed);
     for (m, body) in mods {
         let nm = &names[*m];
         stmts(body, nm).map_err(|(l, w)| (m.to_string(), l, w))?;
