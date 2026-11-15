@@ -46,8 +46,8 @@ else
   case "$(python3 -V 2>&1)" in "Python 3.13."*) ;; *) echo "ci_local: needs CPython 3.13 (install uv, https://docs.astral.sh/uv/, which fetches 3.13.13), and python3 is $(python3 -V 2>&1)" >&2; exit 1;; esac
 fi
 step "Toolchain"; rustc -V; python3 -V
-# The same Rust as GitHub CI (.github/rust-version), or results differ: a newer rustc's Unicode tables change what
-# re.IGNORECASE accepts. Fix with: rustup toolchain install X && rustup default X
+# The same Rust as GitHub CI (.github/rust-version), or results can differ (a new rustc can change what compiles or
+# how fast it runs). Fix with: rustup toolchain install X && rustup default X
 pin=$(cat .github/rust-version)
 case "$(rustc -V)" in "rustc $pin "*) ;; *) echo "ci_local: rustc must be $pin, as in GitHub CI (rustup default $pin)" >&2; exit 1;; esac
 step "Build"; cargo build --release -q

@@ -148,8 +148,6 @@ struct RP<'a> {
     pat: Option<V>,
     // a lone backslash at the end: CPython's tokenizer raises for it as soon as the token before it is read
     tail_bs: Option<usize>,
-    // Unicode IGNORECASE was used (refused when Rust's Unicode tables are not ones case_after_15_1 covers)
-    uni_fold: Cell<bool>,
     // the warnings CPython's parser issues while it reads the pattern (category, message), in order
     warns: &'a RefCell<Vec<(&'static str, String)>>,
     // the pattern is a str with lone surrogates: `c` holds each one as LONE_PH + (cp - 0xD800), see LONE_PH;
@@ -230,7 +228,6 @@ impl<'a> RP<'a> {
         if self.bytes || (self.flags & F_A != 0 && self.flags & 32 == 0) {
             FOLD_ASCII
         } else {
-            self.uni_fold.set(true);
             FOLD_UNI
         }
     }
@@ -1036,16 +1033,10 @@ impl<'a> RP<'a> {
         }
     }
 }
-// CPython 3.13 has Unicode 15.1; Rust's tables can be newer. These characters gained case mappings after 15.1
-// (up to Unicode 17), so for re they keep CPython's identity mapping. A Rust newer than Unicode 17 may have more:
-// IGNORECASE patterns are then refused (see UNI_FOLD_OK).
+// IGNORECASE uses CPython 3.13's own case tables (src/unicode.rs, generated from _sre), never rustc's, whose
+// Unicode version follows the toolchain that builds the program.
 // The engine works on code points (u32), as CPython's sre does: a str may hold lone surrogates (U+D800..U+DFFF).
 // A surrogate is category Cs: not a word, digit or space character, uncased, and it folds to itself.
-fn case_after_15_1(c: u32) -> bool {
-    matches!(c, 0x19b | 0x264 | 0x1c89..=0x1c8a | 0xa7cb..=0xa7cf | 0xa7d2..=0xa7d5 | 0xa7da..=0xa7dc
-        | 0x10d50..=0x10d65 | 0x10d70..=0x10d85 | 0x16ea0..=0x16eb8 | 0x16ebb..=0x16ed3)
-}
-const UNI_FOLD_OK: bool = char::UNICODE_VERSION.0 >= 15 && char::UNICODE_VERSION.0 <= 17;
 #[inline]
 fn a_lower(c: u32) -> u32 {
     if (0x41..=0x5a).contains(&c) { c + 32 } else { c }
@@ -1063,23 +1054,13 @@ fn is_a_alnum(c: u32) -> bool {
     is_a_alpha(c) || (0x30..=0x39).contains(&c)
 }
 // _sre.unicode_tolower: the simple lowercase (the first character of the full mapping, as for U+0130)
+#[inline]
 fn lower_uni(c: u32) -> u32 {
-    if c < 0x80 {
-        return a_lower(c);
-    }
-    match char::from_u32(c) {
-        Some(ch) if !case_after_15_1(c) => ch.to_lowercase().next().map_or(c, |x| x as u32),
-        _ => c,
-    }
+    py_sre_lower(c)
 }
+#[inline]
 fn upper_uni(c: u32) -> u32 {
-    if c < 0x80 {
-        return a_upper(c);
-    }
-    match char::from_u32(c) {
-        Some(ch) if !case_after_15_1(c) => ch.to_uppercase().next().map_or(c, |x| x as u32),
-        _ => c,
-    }
+    py_sre_upper(c)
 }
 #[inline(never)]
 fn fold_slow(c: u32, fold: u8) -> u32 {
@@ -1096,12 +1077,7 @@ fn is_cased(c: u32, fold: u8) -> bool {
     if fold == FOLD_ASCII || c < 0x80 {
         return is_a_alpha(c);
     }
-    if case_after_15_1(c) {
-        return false;
-    }
-    let Some(ch) = char::from_u32(c) else { return false };
-    let (mut l, mut u) = (ch.to_lowercase(), ch.to_uppercase());
-    !(l.next() == Some(ch) && l.next().is_none() && u.next() == Some(ch) && u.next().is_none())
+    py_sre_iscased(c)
 }
 // re._casefix._EXTRA_CASES (CPython 3.13): other lowercase characters with the same uppercase
 fn extra_cases(c: u32) -> &'static [u32] {
@@ -1521,7 +1497,6 @@ fn re_compile3(src: &str, flags: i64, pat: Option<V>, lone: Option<V>, warns: &R
         global_ok: true,
         cond_refs: vec![],
         bytes: pat.is_some(),
-        uni_fold: Cell::new(false),
         warns,
         tail_bs: (chars.iter().rev().take_while(|&&c| c == '\\').count() % 2 == 1).then(|| chars.len() - 1),
         pat,
@@ -1548,9 +1523,6 @@ fn re_compile3(src: &str, flags: i64, pat: Option<V>, lone: Option<V>, warns: &R
     }
     if p.i < chars.len() {
         return p.err("unbalanced parenthesis", p.i);
-    }
-    if p.uni_fold.get() && !UNI_FOLD_OK {
-        return Err(unsupported("re.IGNORECASE with this Rust toolchain's Unicode tables"));
     }
     for &(g, pos) in &p.cond_refs {
         if g > p.ngroups {
