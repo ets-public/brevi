@@ -20,7 +20,7 @@ brevi --version
 | GitHub Action | `ets-public/brevi/setup` at a newer tag | `uses: ets-public/brevi/setup@v0.27.0`, or the `version` input |
 | Dev container feature | set `version` to `latest` (the default) | `"version": "0.27.0"` |
 | Python and Node SDKs | upgrade the pip or npm package | pin the package version |
-| Windows | unzip `brevi-x86_64-pc-windows-msvc.zip` from the release over the old `brevi.exe` | download that release's zip |
+| Windows | unzip `brevi-x86_64-pc-windows-msvc.zip` (or `brevi-aarch64-pc-windows-msvc.zip` on ARM64) from the release over the old `brevi.exe` | download that release's zip |
 
 Notes:
 
@@ -34,6 +34,14 @@ Notes:
 ## Behaviour changes by version
 
 Newest first. Only changes that can affect programs or setups that already work.
+
+### Next release
+
+These are on `main` now and ship with the next release.
+
+- **Unicode case follows CPython 3.13.** `str.upper()`, `lower()`, `title()`, `capitalize()`, `swapcase()` and the `is*` case and space tests use CPython 3.13's Unicode 15.1 tables in both builds, with its title-case, final-sigma and word rules. Characters added to Unicode after 15.1 and a few title-case letters gave different answers before. `\x1c` to `\x1f` count as whitespace in `isspace()`, `split()` and `strip()`.
+- **`re.IGNORECASE` builds on any Rust.** It folds case with CPython 3.13's tables, so Unicode IGNORECASE patterns no longer refuse on Rust 1.100 and newer. Building Brevi from source is tested on Rust 1.100.0.
+- **`namedtuple` names** are checked with CPython 3.13's `str.isidentifier()` (`'a²'` is refused and `'a·b'` accepted, as in CPython).
 
 ### v0.28.0
 

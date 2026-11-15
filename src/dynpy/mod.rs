@@ -37,6 +37,7 @@ fn bridge_ok() -> bool {
 pub const RUNTIME: &str = concat!(
     include_str!("rt_core.rs"),
     include_str!("../unicode.rs"),
+    include_str!("../unicode_sre.rs"),
     include_str!("../unicode_case.rs"),
     include_str!("rt_ops.rs"),
     include_str!("rt_fmt.rs"),
@@ -611,8 +612,13 @@ fn duck_libs() -> (Vec<String>, String) {
 const LIBPIN: &str = include_str!("libpin.rs");
 include!("libpin.rs");
 
-// The libssl DLL names Windows' OpenSSL comes as (libcrypto's are the same with libcrypto), newest first.
+// The libssl DLL names Windows' OpenSSL comes as (libcrypto's are the same with libcrypto), newest first, for
+// this machine's architecture (an ARM64 Python ships libssl-3-arm64.dll). Programs are built for the host, so
+// the compiler's architecture is the program's.
+#[cfg(not(target_arch = "aarch64"))]
 pub(crate) const SSL_NAMES: [&str; 4] = ["libssl-3-x64.dll", "libssl-3.dll", "libssl-1_1-x64.dll", "libssl-1_1.dll"];
+#[cfg(target_arch = "aarch64")]
+pub(crate) const SSL_NAMES: [&str; 4] = ["libssl-3-arm64.dll", "libssl-3.dll", "libssl-1_1-arm64.dll", "libssl-1_1.dll"];
 
 // Each file that is there, with the SHA-256 of its bytes now. The build's result cache keeps the result only
 // while each file is unchanged (runcache::depends_on), so an upgraded library means a fresh build.
@@ -630,9 +636,9 @@ fn pins(files: &[String]) -> Vec<(String, String)> {
 // The Python DLL folder that holds libssl/libcrypto, and certifi's CA bundle, embedded at build time so a
 // Windows program never loads (or trusts) a DLL or bundle from its own folder or PATH.
 fn python_ssl_dir() -> String {
-    const Q: &str = "import os, sys\nfor d in (os.path.join(sys.base_prefix, 'DLLs'), os.path.dirname(sys.executable)):\n    if os.path.isfile(os.path.join(d, 'libssl-1_1.dll')) or os.path.isfile(os.path.join(d, 'libssl-3-x64.dll')) or os.path.isfile(os.path.join(d, 'libssl-3.dll')):\n        print(d)\n        break";
+    const Q: &str = "import os, sys\nfor d in (os.path.join(sys.base_prefix, 'DLLs'), os.path.dirname(sys.executable)):\n    if any(os.path.isfile(os.path.join(d, n)) for n in sys.argv[1:]):\n        print(d)\n        break";
     let Ok(exe) = crate::python_exe() else { return String::new() };
-    let out = std::process::Command::new(exe).args(["-I", "-c", Q]).output();
+    let out = std::process::Command::new(exe).args(["-I", "-c", Q]).args(SSL_NAMES).output();
     out.map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default()
 }
 

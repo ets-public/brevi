@@ -7,7 +7,9 @@
 # A release ships only what it tested: the full Linux suite (toolchains.yml with release: true: unit, language and
 # MCP tests, every old solution, both CPython conformance slices held to their release gates (core 90%, stdlib
 # 80%, no known-wrong result), the fuzz corpus) runs on the commit being released,
-# Windows runs tests/windows/check.ps1 on the brevi.exe unpacked from the zip it ships, every archive is unpacked and
+# Windows (x86-64 and ARM64, each on its own kind of machine) runs tests/windows/check.ps1 and the core conformance
+# slice (its Windows floor, known-wrong list and release gate: 90%, no wrong result) on the brevi.exe unpacked from the
+# zip it ships, every archive is unpacked and
 # run (tools/archive_check.py), and SHA256SUMS is checked against the files as published. Nothing is released or
 # published unless every platform built and passed. dry_run does all of that and stops before the release.
 name: release
@@ -89,8 +91,11 @@ jobs:
           # Intel Mac images are being retired, so the Intel binary is cross-built on Apple silicon (and run under Rosetta).
           - { os: macos-15, targets: aarch64-apple-darwin x86_64-apple-darwin }
           - { os: windows-2022, targets: x86_64-pc-windows-msvc, test: true }
+          # Built and checked on real ARM64 Windows (a standard runner, free on public repositories), never cross-built
+          # untested: the same archive checks and Windows platform checks as x86-64.
+          - { os: windows-11-arm, targets: aarch64-pc-windows-msvc, test: true }
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Rust (pinned in .github/rust-version)
@@ -137,9 +142,21 @@ jobs:
             a=brevi-$t.tar.gz; [ "$RUNNER_OS" = Windows ] && a=brevi-$t.zip
             arch=; [ "$RUNNER_OS" = macOS ] && [ "$t" = x86_64-apple-darwin ] && arch="--arch x86_64"
             python tools/archive_check.py "$a" "$TAG" $arch | tee check.log
-            [ "$t" = x86_64-pc-windows-msvc ] && echo "BREVI_SHIPPED=$(tail -1 check.log | tr -d '\r')" >> "$GITHUB_ENV"
+            case "$t" in *-windows-msvc) echo "BREVI_SHIPPED=$(tail -1 check.log | tr -d '\r')" >> "$GITHUB_ENV" ;; esac
           done
           rm -f check.log
+      # cryptography (mcp's server imports it, and the MCP checks run that server) has no win_arm64 wheel after
+      # 46.0.3, whose wheels carry open advisories. So on ARM64 pip builds the current cryptography from source,
+      # linked statically against an OpenSSL that vcpkg builds here (both come with the runner image).
+      - name: OpenSSL for building cryptography (ARM64)
+        if: matrix.targets == 'aarch64-pc-windows-msvc'
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install openssl:arm64-windows-static-md
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg could not build OpenSSL for arm64" }
+          "OPENSSL_DIR=$env:VCPKG_INSTALLATION_ROOT\installed\arm64-windows-static-md" >> $env:GITHUB_ENV
+          "OPENSSL_STATIC=1" >> $env:GITHUB_ENV
+
       # Required, never optional: a green job means every native-copy check ran.
       - name: Python packages the Windows checks compare with (pinned)
         if: ${{ matrix.test }}
@@ -151,6 +168,16 @@ jobs:
           $env:BREVI = $env:BREVI_SHIPPED
           pwsh -NoProfile -File tests/windows/check.ps1
           if ($LASTEXITCODE -ne 0) { throw "tests/windows/check.ps1 failed" }
+      # The Windows conformance gate, on the same brevi.exe: the core slice held to the Windows floor and known-wrong
+      # list (compat/conformance_windows_*) and to the Windows release gate (90%, no wrong result). About 16 minutes.
+      - name: CPython conformance on Windows, on the brevi.exe from the zip (core slice; floor, known-wrong list, release gate)
+        if: ${{ matrix.test }}
+        shell: bash
+        run: |
+          python -m pip install --quiet uv
+          uv python install 3.13.13 --quiet
+          BREVI="$BREVI_SHIPPED" python tools/conformance.py --check --release-gate --python "$(uv python find 3.13.13)" --jobs 4 --out conformance-windows
+          cat conformance-windows/report.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: brevi-${{ matrix.os }}
@@ -243,7 +270,7 @@ jobs:
         run: |
           # Release notes: this tag's section of CHANGELOG.md, then the install note, then the run that tested it.
           python3 tools/release_notes.py "$TAG" > notes.md
-          printf '\n**Tested:** these binaries were built from %s and passed the full Linux suite, the Windows platform checks and the archive checks in [this run](%s/%s/actions/runs/%s).\n' \
+          printf '\n**Tested:** these binaries were built from %s and passed the full Linux suite, the Windows platform checks, the Windows conformance gate and the archive checks in [this run](%s/%s/actions/runs/%s).\n' \
             "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> notes.md
           gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
             gh release create "$TAG" -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Brevi $TAG" --notes-file notes.md

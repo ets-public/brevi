@@ -44,7 +44,7 @@ Brevi's aim is that a build either prints what CPython prints or is refused. A d
 ## Platforms
 
 - Linux and macOS are the main platforms. Release binaries come for Linux x86-64 and arm64, and macOS arm64 and x86-64.
-- **Windows is beta, x86-64 only** (`x86_64-pc-windows-msvc`). Bug reports are welcome and follow the same targets. What it refuses is in [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
+- **Windows is beta**, on x86-64 (`x86_64-pc-windows-msvc`) and, from v0.28.1, ARM64 (`aarch64-pc-windows-msvc`). Both are built and checked on real machines of that kind. Bug reports are welcome and follow the same targets. What it refuses is in [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
 ## Where to ask
 

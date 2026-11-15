@@ -281,7 +281,7 @@ A Python file keeps Python's run-time behaviour: a mistake Python only finds whe
 
 ## Platforms
 
-| | Linux | macOS | Windows |
+| | Linux | macOS | Windows (x86-64; ARM64 from v0.28.1) |
 | --- | --- | --- | --- |
 | Typed and dynamic builds | yes | yes | yes |
 | Library calls through CPython | yes | yes | from v0.27.0 |

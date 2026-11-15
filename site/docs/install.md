@@ -9,7 +9,7 @@ Brevi turns programs into Rust and calls `rustc` to build them, so it needs the 
 | --- | --- | --- |
 | `rustc` (Rust stable) | Brevi compiles every program through it | Installed by the script if missing. Any recent stable works; CI tests stable daily and beta and nightly weekly. |
 | `python3` (optional) | The CPython fallback of `brevi run`, and programs that import libraries such as numpy | Not needed for programs that use only the standard library. Library programs need `libpython` where they run, unless built with `--standalone`. |
-| Linux, macOS or Windows | Prebuilt binaries for x86-64 and ARM64 Linux, Apple silicon and Intel Macs, and x86-64 Windows | Library calls through CPython work on Windows from v0.27.0 (the `python` on PATH needs its DLL); `--standalone` builds are Linux only for now. |
+| Linux, macOS or Windows | Prebuilt binaries for x86-64 and ARM64 Linux, Apple silicon and Intel Macs, and x86-64 and ARM64 Windows (ARM64 from v0.28.1) | Library calls through CPython work on Windows from v0.27.0 (the `python` on PATH needs its DLL); `--standalone` builds are Linux only for now. |
 
 ## Linux and macOS: the install script
 
@@ -41,7 +41,7 @@ $ printf 'print(sum(range(10)))\n' > hello.py && brevi run hello.py
 ## Windows
 
 1. Install Rust with [rustup](https://rustup.rs). It also asks for the Microsoft C++ build tools, which `rustc` needs to link programs.
-2. Download `brevi-x86_64-pc-windows-msvc.zip` from the latest [GitHub release](__GITHUB__/releases/latest), unzip it, and put `brevi.exe` on your PATH (for example in `%USERPROFILE%\.cargo\bin`, next to `rustc`).
+2. Download `brevi-x86_64-pc-windows-msvc.zip` (or `brevi-aarch64-pc-windows-msvc.zip` on ARM64 Windows, from v0.28.1) from the latest [GitHub release](__GITHUB__/releases/latest), unzip it, and put `brevi.exe` on your PATH (for example in `%USERPROFILE%\.cargo\bin`, next to `rustc`).
 3. In PowerShell or cmd: `brevi --version`.
 
 Standard-library programs build and run natively on Windows. From v0.27.0, Python files that import packages build too: their library calls run in CPython through the bridge, as on Linux and macOS (the `python` on PATH needs its DLL). `--standalone` is not available on Windows yet.
@@ -57,6 +57,7 @@ Every [GitHub release](__GITHUB__/releases) carries these archives, each with th
 | macOS, Apple silicon | `brevi-aarch64-apple-darwin.tar.gz` |
 | macOS, Intel | `brevi-x86_64-apple-darwin.tar.gz` |
 | Windows x86-64 | `brevi-x86_64-pc-windows-msvc.zip` |
+| Windows ARM64 (from v0.28.1) | `brevi-aarch64-pc-windows-msvc.zip` |
 
 Each release also carries `SHA256SUMS`, with the SHA-256 of every archive. The install script checks its download against it.
 
@@ -87,7 +88,7 @@ Each release is published to these registries with the same prebuilt binaries as
 
 | Channel | Command | Notes |
 | --- | --- | --- |
-| PyPI | `pip install brevi`, or `uvx brevi mcp` without installing | Wheels for Linux (glibc 2.34 or later, x86-64 and ARM64), macOS 11+ (Apple silicon) and 10.12+ (Intel), and Windows x86-64. |
+| PyPI | `pip install brevi`, or `uvx brevi mcp` without installing | Wheels for Linux (glibc 2.34 or later, x86-64 and ARM64), macOS 11+ (Apple silicon) and 10.12+ (Intel), and Windows x86-64 and ARM64 (ARM64 from v0.28.1). |
 | npm | `npm install -g brevi`, or `npx brevi mcp` | The first run downloads the matching release binary into `~/.cache/brevi/VERSION`. Needs Node 18 or later. |
 | crates.io | `cargo install brevi` | Builds from source, from v0.26.0 on. |
 | MCP registry | `io.github.ets-public/brevi` | Lists the PyPI and npm packages, running `brevi mcp`. |
