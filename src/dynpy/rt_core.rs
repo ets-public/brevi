@@ -493,6 +493,14 @@ pub fn lone_stop(at: &std::panic::Location) -> ! {
     ));
     std::process::exit(1)
 }
+// A runtime value Brevi cannot treat as CPython does: stop as lone_stop does, so no `except` can turn the
+// refusal into a different answer.
+#[cold]
+pub fn refuse_stop(what: &str) -> ! {
+    out_flush();
+    err_write(&format!("NotImplementedError: brevi: {what} is not supported in dynamic builds\n"));
+    std::process::exit(1)
+}
 // A one-character str for a code point, a lone surrogate or not.
 pub fn cp1(c: u32) -> V {
     match char::from_u32(c) {
