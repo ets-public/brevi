@@ -1033,7 +1033,7 @@ impl<'a> RP<'a> {
         }
     }
 }
-// IGNORECASE uses CPython 3.13's own case tables (src/unicode.rs, generated from _sre), never rustc's, whose
+// IGNORECASE uses CPython 3.13's own case tables (src/unicode_sre.rs, generated from _sre), never rustc's, whose
 // Unicode version follows the toolchain that builds the program.
 // The engine works on code points (u32), as CPython's sre does: a str may hold lone surrogates (U+D800..U+DFFF).
 // A surrogate is category Cs: not a word, digit or space character, uncased, and it folds to itself.
@@ -1079,61 +1079,10 @@ fn is_cased(c: u32, fold: u8) -> bool {
     }
     py_sre_iscased(c)
 }
-// re._casefix._EXTRA_CASES (CPython 3.13): other lowercase characters with the same uppercase
+// re._casefix._EXTRA_CASES (CPython 3.13, src/unicode_sre.rs): other lowercase characters with the same uppercase
+#[inline]
 fn extra_cases(c: u32) -> &'static [u32] {
-    match c {
-        0x0069 => &[0x131],
-        0x0073 => &[0x17f],
-        0x00b5 => &[0x3bc],
-        0x0131 => &[0x69],
-        0x017f => &[0x73],
-        0x0345 => &[0x3b9, 0x1fbe],
-        0x0390 => &[0x1fd3],
-        0x03b0 => &[0x1fe3],
-        0x03b2 => &[0x3d0],
-        0x03b5 => &[0x3f5],
-        0x03b8 => &[0x3d1],
-        0x03b9 => &[0x345, 0x1fbe],
-        0x03ba => &[0x3f0],
-        0x03bc => &[0xb5],
-        0x03c0 => &[0x3d6],
-        0x03c1 => &[0x3f1],
-        0x03c2 => &[0x3c3],
-        0x03c3 => &[0x3c2],
-        0x03c6 => &[0x3d5],
-        0x03d0 => &[0x3b2],
-        0x03d1 => &[0x3b8],
-        0x03d5 => &[0x3c6],
-        0x03d6 => &[0x3c0],
-        0x03f0 => &[0x3ba],
-        0x03f1 => &[0x3c1],
-        0x03f5 => &[0x3b5],
-        0x0432 => &[0x1c80],
-        0x0434 => &[0x1c81],
-        0x043e => &[0x1c82],
-        0x0441 => &[0x1c83],
-        0x0442 => &[0x1c84, 0x1c85],
-        0x044a => &[0x1c86],
-        0x0463 => &[0x1c87],
-        0x1c80 => &[0x432],
-        0x1c81 => &[0x434],
-        0x1c82 => &[0x43e],
-        0x1c83 => &[0x441],
-        0x1c84 => &[0x442, 0x1c85],
-        0x1c85 => &[0x442, 0x1c84],
-        0x1c86 => &[0x44a],
-        0x1c87 => &[0x463],
-        0x1c88 => &[0xa64b],
-        0x1e61 => &[0x1e9b],
-        0x1e9b => &[0x1e61],
-        0x1fbe => &[0x345, 0x3b9],
-        0x1fd3 => &[0x390],
-        0x1fe3 => &[0x3b0],
-        0xa64b => &[0x1c88],
-        0xfb05 => &[0xfb06],
-        0xfb06 => &[0xfb05],
-        _ => &[],
-    }
+    py_sre_extra_cases(c)
 }
 // A literal under IGNORECASE, as CPython's compiler emits it.
 fn fold_literal(c: u32, fold: u8, ascii: bool) -> RNode {

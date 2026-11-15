@@ -7518,6 +7518,121 @@ pub enum AxRx {
     Alt(Vec<AxRx>),
     Cat(Vec<AxRx>),
     Rep(Box<AxRx>, usize, usize, bool),
+    // A cased character or set under re.IGNORECASE, as CPython 3.13 compiles it (LITERAL_UNI_IGNORE,
+    // IN_UNI_IGNORE, IN_IGNORE): see AxIc.
+    IClass(Box<AxIc>),
+}
+// re.IGNORECASE's character test: the text's character is folded first (_sre.unicode_tolower from
+// src/unicode_sre.rs, or ASCII only under re.ASCII: never rustc's tables), then looked up in `rs` and `uni`
+// (as AxRx::Class does). `rs` already holds the folded set members and their re._casefix extra cases; \d \w \s
+// inside the brackets are asked about the folded character too, as CPython does. `big` holds the parts of
+// ranges past U+FFFF, which CPython leaves unexpanded: a folded character in one matches, and without re.ASCII
+// so does its uppercase (RANGE_UNI_IGNORE).
+#[derive(Debug)]
+pub struct AxIc {
+    rs: Vec<(char, char)>,
+    uni: u8,
+    neg: bool,
+    ascii: bool,
+    big: Vec<(u32, u32)>,
+}
+fn ax_ic_fold(c: char, ascii: bool) -> char {
+    if ascii {
+        c.to_ascii_lowercase()
+    } else {
+        char::from_u32(py_sre_lower(c as u32)).unwrap_or(c)
+    }
+}
+// _sre.unicode_iscased, or _sre.ascii_iscased under re.ASCII
+fn ax_ic_cased(c: u32, ascii: bool) -> bool {
+    if ascii || c < 0x80 {
+        c < 0x80 && (c as u8).is_ascii_alphabetic()
+    } else {
+        py_sre_iscased(c)
+    }
+}
+fn ax_ic_in(ic: &AxIc, c: char) -> bool {
+    let f = ax_ic_fold(c, ic.ascii);
+    let u = f as u32;
+    let hit = ax_rx_in(&ic.rs, ic.uni, f)
+        || ic.big.iter().any(|&(a, b)| {
+            (a <= u && u <= b) || (!ic.ascii && {
+                let up = py_sre_upper(u);
+                a <= up && up <= b
+            })
+        });
+    hit != ic.neg
+}
+// A literal under re.IGNORECASE: itself when uncased, else its fold and the fold's extra cases.
+fn ax_ic_char(c: char, ascii: bool) -> AxRx {
+    if !ax_ic_cased(c as u32, ascii) {
+        return AxRx::Char(c);
+    }
+    ax_ic_set(&[(c, c, false)], vec![], 0, false, ascii)
+}
+// A set under re.IGNORECASE, as CPython's _optimize_charset builds it. `items` are the members as written
+// ((lo, hi, is_range): a range's own code points decide whether the set is cased, a single character's fold
+// does), `cat` the ASCII ranges of the \d \w \s classes inside it (never folded, as categories are not).
+// A set with no cased member matches as written (IN): AxRx::Class.
+fn ax_ic_set(items: &[(char, char, bool)], cat: Vec<(char, char)>, uni: u8, neg: bool, ascii: bool) -> AxRx {
+    let mut chars: Vec<u32> = vec![];
+    let mut big = vec![];
+    let mut cased = false;
+    let mut add = |chars: &mut Vec<u32>, x: u32| -> u32 {
+        let l = if ascii {
+            if (0x41..=0x5a).contains(&x) { x + 32 } else { x }
+        } else {
+            py_sre_lower(x)
+        };
+        chars.push(l);
+        if !ascii {
+            chars.extend_from_slice(py_sre_extra_cases(l));
+        }
+        l
+    };
+    for &(a, b, range) in items {
+        let (a, b) = (a as u32, b as u32);
+        if !range {
+            let l = add(&mut chars, a);
+            cased |= ax_ic_cased(l, ascii);
+            continue;
+        }
+        // every code point up to U+FFFF, surrogates included (they fold to themselves), as CPython's charmap
+        for x in a..=b.min(0xFFFF) {
+            add(&mut chars, x);
+            cased = cased || ax_ic_cased(x, ascii);
+        }
+        if b > 0xFFFF {
+            big.push(if ascii { (a.max(0x10000), b) } else { (a, b) });
+            cased = true;
+        }
+    }
+    if !cased {
+        let mut rs: Vec<(char, char)> = items.iter().map(|&(a, b, _)| (a, b)).collect();
+        rs.extend(cat);
+        return AxRx::Class(rs, uni, neg);
+    }
+    chars.sort_unstable();
+    chars.dedup();
+    let mut rs = cat;
+    let mut k = 0;
+    while k < chars.len() {
+        let mut e = k;
+        while e + 1 < chars.len() && chars[e + 1] == chars[e] + 1 {
+            e += 1;
+        }
+        // as char ranges: a text never holds a surrogate, so the surrogate part of a run is left out
+        let (lo, hi) = (chars[k], chars[e]);
+        for (x, y) in [(lo, hi.min(0xD7FF)), (lo.max(0xE000), hi)] {
+            if let (Some(x), Some(y)) = (char::from_u32(x), char::from_u32(y)) {
+                if x <= y {
+                    rs.push((x, y));
+                }
+            }
+        }
+        k = e + 1;
+    }
+    AxRx::IClass(Box::new(AxIc { rs, uni, neg, ascii, big }))
 }
 struct AxRxP {
     c: Vec<char>,
@@ -7528,6 +7643,8 @@ struct AxRxP {
     // (?s) and (?m) at the front: re.DOTALL and re.MULTILINE.
     dotall: bool,
     multiline: bool,
+    // (?i) at the front: re.IGNORECASE
+    icase: bool,
 }
 impl AxRxP {
     // The character after a backslash (already read): `\x00`, `\u00e9` and `\n` name characters.
@@ -7718,7 +7835,9 @@ impl AxRxP {
                 if neg {
                     self.i += 1;
                 }
-                let mut rs = Vec::new();
+                // members as written (lo, hi, is_range), and the ASCII ranges of \d \w \s inside
+                let mut rs: Vec<(char, char, bool)> = Vec::new();
+                let mut cat: Vec<(char, char)> = Vec::new();
                 let mut uni = 0u8;
                 let mut first = true;
                 while let Some(c) = self.peek() {
@@ -7733,13 +7852,13 @@ impl AxRxP {
                         if let Some((cs, m, cneg)) = ax_rx_class(e, self.ascii) {
                             if cneg {
                                 // [\D]: the ASCII characters outside \d, and every non-ASCII one outside it
-                                rs.extend(ax_rx_ascii_not(&cs));
+                                cat.extend(ax_rx_ascii_not(&cs));
                                 uni |= m << 3;
                                 if self.ascii {
-                                    rs.push(('\u{80}', char::MAX));
+                                    cat.push(('\u{80}', char::MAX));
                                 }
                             } else {
-                                rs.extend(cs);
+                                cat.extend(cs);
                                 uni |= m;
                             }
                             continue;
@@ -7756,13 +7875,17 @@ impl AxRxP {
                             self.i += 1;
                             hi = self.esc(e);
                         }
-                        rs.push((lo, hi));
+                        rs.push((lo, hi, true));
                     } else {
-                        rs.push((lo, lo));
+                        rs.push((lo, lo, false));
                     }
                 }
                 self.i += 1;
-                AxRx::Class(rs, uni, neg)
+                if self.icase {
+                    return ax_ic_set(&rs, cat, uni, neg, self.ascii);
+                }
+                rs.extend(cat.into_iter().map(|(a, b)| (a, b, true)));
+                AxRx::Class(rs.into_iter().map(|(a, b, _)| (a, b)).collect(), uni, neg)
             }
             '\\' => {
                 let e = self.c[self.i];
@@ -7779,9 +7902,11 @@ impl AxRxP {
                 }
                 match ax_rx_class(e, self.ascii) {
                     Some((cs, m, neg)) => AxRx::Class(cs, m, neg),
+                    None if self.icase => ax_ic_char(self.esc(e), self.ascii),
                     None => AxRx::Char(self.esc(e)),
                 }
             }
+            c if self.icase => ax_ic_char(c, self.ascii),
             c => AxRx::Char(c),
         }
     }
@@ -7795,6 +7920,7 @@ fn ax_rx_m(n: &AxRx, s: &[char], i: usize, caps: &mut AxCaps, k: &mut dyn FnMut(
         AxRx::Char(c) => i < s.len() && s[i] == *c && k(i + 1, caps),
         AxRx::Any => i < s.len() && s[i] != '\n' && k(i + 1, caps),
         AxRx::Class(rs, uni, neg) => i < s.len() && ax_rx_in(rs, *uni, s[i]) != *neg && k(i + 1, caps),
+        AxRx::IClass(ic) => i < s.len() && ax_ic_in(ic, s[i]) && k(i + 1, caps),
         AxRx::Start => i == 0 && k(i, caps),
         AxRx::End => i == s.len() && k(i, caps),
         AxRx::AnyNl => i < s.len() && k(i + 1, caps),
@@ -7829,6 +7955,7 @@ fn ax_rx_one(n: &AxRx, c: char) -> Option<bool> {
         AxRx::Any => Some(c != '\n'),
         AxRx::AnyNl => Some(true),
         AxRx::Class(rs, uni, neg) => Some(ax_rx_in(rs, *uni, c) != *neg),
+        AxRx::IClass(ic) => Some(ax_ic_in(ic, c)),
         _ => None,
     }
 }
@@ -7890,8 +8017,13 @@ fn ax_rx(p: &str) -> std::rc::Rc<(AxRx, usize)> {
         c.borrow_mut()
             .entry(p.to_string())
             .or_insert_with(|| {
+                // Python's re.IGNORECASE, written as `(?i)` in front (the parser writes re.I this way)
+                let (icase, p) = match p.strip_prefix("(?i)") {
+                    Some(rest) => (true, rest),
+                    None => (false, p),
+                };
                 let (dotall, multiline, ascii, body) = ax_rx_flags(p);
-                let mut ps = AxRxP { c: body.chars().collect(), i: 0, groups: 0, ascii, dotall, multiline };
+                let mut ps = AxRxP { c: body.chars().collect(), i: 0, groups: 0, ascii, dotall, multiline, icase };
                 let r = ps.alt();
                 std::rc::Rc::new((r, ps.groups))
             })
@@ -7904,25 +8036,6 @@ fn ax_rx_search(p: &str, s: &[char], from: usize, full: bool) -> Option<(usize, 
 }
 // `anchored`: only a match starting at `from` counts (Python's re.match).
 fn ax_rx_search_at(p: &str, s: &[char], from: usize, full: bool, anchored: bool) -> Option<(usize, AxCaps)> {
-    // Python's re.IGNORECASE, written as `(?i)` in front: match lowercased text with a lowercased
-    // pattern (escapes such as \D keep their case); positions are the same in the original text.
-    if let Some(rest) = p.strip_prefix("(?i)") {
-        let low: Vec<char> = s.iter().map(|c| c.to_lowercase().next().unwrap_or(*c)).collect();
-        let mut lp = String::new();
-        let mut esc = false;
-        for c in rest.chars() {
-            if esc {
-                lp.push(c);
-                esc = false;
-            } else if c == '\\' {
-                lp.push(c);
-                esc = true;
-            } else {
-                lp.extend(c.to_lowercase());
-            }
-        }
-        return ax_rx_search_at(&lp, &low, from, full, anchored);
-    }
     // The matcher recurses about once per repetition of a group, so `(x)*` over a long text would overflow the
     // main thread's stack: long texts are matched on a thread whose stack grows with the text, as CPython's
     // matcher does not recurse at all.
