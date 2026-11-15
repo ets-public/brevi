@@ -137,8 +137,7 @@ jobs:
           fetch-depth: 2
 
       - name: Install Rust ${{ matrix.rust }}
-        # "stable" means the pinned version in .github/rust-version, so a new Rust release can't turn every PR red
-        # (Rust 1.100's Unicode 18 tables did: re.IGNORECASE is refused until they are checked against CPython).
+        # "stable" means the pinned version in .github/rust-version, so a new Rust release can't turn every PR red.
         # Only the daily schedule tests the real latest stable, so the watch still reports a new release.
         run: |
           v=${{ matrix.rust }}
@@ -304,6 +303,10 @@ jobs:
       - name: Changelog fragments are CHANGELOG lines
         if: steps.seen.outputs.cache-hit != 'true'
         run: python3 tools/changelog.py --check
+
+      - name: The Unicode tables in src/unicode.rs are CPython 3.13's (str.casefold, isdigit, re.IGNORECASE)
+        if: steps.seen.outputs.cache-hit != 'true'
+        run: '"${BREVI_PYTHON:-python3}" tools/gen_unicode.py --check'
 
       - name: Grammar accepts every test program, and the GBNF copy is current
         if: steps.seen.outputs.cache-hit != 'true' && steps.scope.outputs.grammar == 'true'
