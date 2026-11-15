@@ -45,7 +45,7 @@ Under `--sandbox` (and in the MCP tools by default) nothing runs in CPython unle
 
 ### Platforms
 
-| | Linux x86-64 | macOS | Windows x86-64 |
+| | Linux x86-64 | macOS | Windows x86-64 and ARM64 (ARM64 from v0.28.1) |
 | --- | --- | --- | --- |
 | typed and dynamic builds | yes | yes | yes, beta (from v0.27.0) |
 | pybridge (CPython loaded into the program) | yes | yes | yes, needs the Python DLLs (from v0.27.0) |

@@ -4,8 +4,9 @@ use crate::ast::*;
 use crate::diag::Diag;
 use std::collections::{HashMap, HashSet};
 
-// The allocator comes first so that the inner attribute can lead the file.
-pub const PRELUDE: &str = concat!("#![allow(warnings)]\n", include_str!("alloc_rt.rs"), include_str!("fsscope.rs"), include_str!("prelude.rs"));
+// The allocator comes first so that the inner attribute can lead the file. re.IGNORECASE's case tables
+// (src/unicode_sre.rs) come last, in the regex part that only programs with regexes get.
+pub const PRELUDE: &str = concat!("#![allow(warnings)]\n", include_str!("alloc_rt.rs"), include_str!("fsscope.rs"), include_str!("prelude.rs"), include_str!("unicode_sre.rs"), include_str!("rx_typed.rs"));
 // The Unicode tables for str.casefold(), str.isdigit() and the case methods (upper, lower, title, capitalize,
 // isupper, islower, isalpha, isalnum, isspace): CPython 3.13's, never rustc's. ~4800 lines, so they are appended
 // only to programs that use one of these methods (the dynamic runtime compiles them once, in its library).

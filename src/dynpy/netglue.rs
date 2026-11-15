@@ -7,7 +7,7 @@
 // compiler) and reads no environment variables.
 // Unix: file descriptors, connect/fcntl/poll/close and dlopen'd libssl. Windows: Winsock SOCKET handles
 // (ioctlsocket for non-blocking, select for a connecting socket, WSAPoll for readiness, closesocket) and the
-// OpenSSL DLLs (libssl-1_1.dll / libssl-3-x64.dll with libcrypto-1_1.dll / libcrypto-3-x64.dll, which
+// OpenSSL DLLs (libssl-3-x64.dll / libssl-1_1.dll with libcrypto-3-x64.dll / libcrypto-1_1.dll; -arm64 on ARM64; which
 // Python's DLLs folder holds; BREVI_SSL_LIB / BREVI_SSL_DIR name another copy). OpenSSL on Windows has no
 // path to the system certificate store, so verification falls back to a CA bundle (SSL_CERT_FILE,
 // REQUESTS_CA_BUNDLE or certifi next to a Python on PATH).
@@ -589,7 +589,7 @@ mod brevi_netglue {
         #[cfg(unix)]
         let msg = "brevi: HTTPS needs the system's OpenSSL (libssl.so.3 or libssl.so.1.1), which was not found".to_string();
         #[cfg(windows)]
-        let msg = "brevi: HTTPS needs the OpenSSL DLLs (libssl-1_1.dll or libssl-3-x64.dll, with libcrypto-1_1.dll / libcrypto-3-x64.dll; Python's DLLs folder has them, or set BREVI_SSL_LIB / BREVI_SSL_DIR)".to_string();
+        let msg = format!("brevi: HTTPS needs the OpenSSL DLLs ({}, with the libcrypto DLL of the same name; Python's DLLs folder has them, or set BREVI_SSL_LIB / BREVI_SSL_DIR)", SSL_DLLS.join(" or "));
         NetErr { kind: "ssl.SSLError", msg }
     }
 
@@ -655,6 +655,12 @@ mod brevi_netglue {
     // paths are tried: BREVI_SSL_LIB (a libssl file), BREVI_SSL_DIR, and the Python DLL folder embedded at
     // build time (BREVI_SSL_DIR const). No program-folder, CWD, PATH or bare-name candidate: a planted
     // libssl must never run.
+    // The libssl DLL names for this architecture, newest first (dynpy/mod.rs SSL_NAMES).
+    #[cfg(all(windows, not(target_arch = "aarch64")))]
+    const SSL_DLLS: [&str; 4] = ["libssl-3-x64.dll", "libssl-3.dll", "libssl-1_1-x64.dll", "libssl-1_1.dll"];
+    #[cfg(all(windows, target_arch = "aarch64"))]
+    const SSL_DLLS: [&str; 4] = ["libssl-3-arm64.dll", "libssl-3.dll", "libssl-1_1-arm64.dll", "libssl-1_1.dll"];
+
     #[cfg(windows)]
     unsafe fn ssl_handles() -> Option<(P, P)> {
         // The caller's own copy (BREVI_SSL_LIB, BREVI_SSL_DIR; never read under the sandbox): not pinned, but
@@ -665,7 +671,7 @@ mod brevi_netglue {
                 files.push(p);
             }
             if let Ok(d) = std::env::var("BREVI_SSL_DIR") {
-                for n in ["libssl-3-x64.dll", "libssl-3.dll", "libssl-1_1-x64.dll", "libssl-1_1.dll"] {
+                for n in SSL_DLLS {
                     files.push(format!("{d}\\{n}"));
                 }
             }
