@@ -736,6 +736,29 @@ case "$o" in "2"*"NotImplementedError: brevi: setting a new attribute helper.Z t
 printf 'import json\ntry:\n    print(json.loads(chr(34) + chr(0xd800) + chr(34)))\nexcept BaseException:\n    print("caught")\nprint("after")\n' > "$t/s.py"
 o=$(BREVI_DYN=1 $BREVI run "$t/s.py" 2>&1); c=$?
 case "$c:$o" in "1:NotImplementedError: brevi: this operation on a str with a lone surrogate (U+D800..U+DFFF) is not supported in dynamic builds yet"*) echo "ok   a lone surrogate on an unwritten path stops the program" ;; *) echo "FAIL a lone surrogate on an unwritten path ($c)"; printf '%s\n' "$o"; fail=1 ;; esac
+# sys.modules: a read whose CPython answer is not sure is refused when it builds (tests/dyn/sys_modules_startup.py
+# has the exact ones).
+for c in 'import sys\nprint(len(sys.modules))\n|only as `k in sys.modules`' \
+         'import sys, json\nprint("re" in sys.modules)\n|when the program imports json' \
+         'import sys\nprint("encodings.utf_8" in sys.modules)\n|depends on its environment' \
+         'import sys\nprint("x".encode("idna"), "re" in sys.modules)\n|look up a codec by name' \
+         'from sys import modules\n|from sys import modules is not supported' \
+         'import sys\nprint(sys.modules["os"].sep)\n|a module CPython loads at startup'; do
+  printf "${c%%|*}" > "$t/sm.py"
+  o=$(BREVI_DYN=1 $BREVI build "$t/sm.py" -o "$t/sm" 2>&1)
+  case "$o" in *"${c#*|}"*) echo "ok   sys.modules refused: ${c#*|}" ;; *) echo "FAIL sys.modules not refused: ${c#*|}"; printf '%s\n' "$o"; fail=1 ;; esac
+done
+# a key known only at run time is refused when it builds, never at run time (even when every import is quiet),
+# unless it is a parameter whose every call passes a literal (tests/dyn/sys_modules_param.py)
+for c in 'import sys, json\nk = "re"\nprint(k in sys.modules)\n' 'import sys\nfor k in ["os", "x"]:\n    print(sys.modules.get(k))\n' \
+         'import sys\ndef mod(n):\n    return sys.modules[n]\nprint(mod("sys"), mod("x" * 2))\n' 'import sys\ndef mod(n):\n    return sys.modules[n]\ng = mod\nprint(mod("sys"))\n' \
+         'import sys\ndef mod(n):\n    return sys.modules[n]\nprint(mod("sys"), globals())\n' 'import sys\ndef mod(n):\n    return sys.modules[n]\nprint(mod("__main__"))\n' \
+         'import sys\ndef mod(n):\n    n = "os"\n    return sys.modules[n]\nprint(mod("sys"))\n' 'import sys\ndef mod(n):\n    return sys.modules[n]\nprint(mod(*["sys"]))\n' \
+         'import sys\nprint(1)\nimport json, functools\nprint(sys.modules["json"] is json)\n'; do
+  printf "$c" > "$t/sm.py"
+  o=$(BREVI_DYN=1 $BREVI build "$t/sm.py" -o "$t/sm" 2>&1)
+  case "$o" in *"is not supported in dynamic builds"*) echo "ok   sys.modules key refused at build: $(printf "$c" | tail -n 1)" ;; *) echo "FAIL sys.modules key not refused at build"; printf '%s\n' "$o"; fail=1 ;; esac
+done
 # locals() in an Enum's body is enum.EnumDict, whose writes check names (a member set twice is a TypeError); Brevi's
 # namespace is a plain dict, so a class that may be an Enum and calls locals() is refused when it builds.
 printf 'import enum\nclass E(enum.Enum):\n    A = 1\n    locals().update({"B": 2}, **{"A": 3})\nprint(list(E))\n' > "$t/el.py"
