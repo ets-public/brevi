@@ -2052,7 +2052,7 @@ def main():
             # Never half enforced: a Windows ratchet with no measured floor would pass anything.
             measured = read_floor().get("matched", {})
             if (cfg.check or cfg.release_gate) and not (measured and all(measured.values()) and read_floor().get("release_gate")):
-                sys.exit(f"{FLOOR.relative_to(ROOT)} has no measured floor or release_gate: nothing to check against")
+                sys.exit(f"compat/{FLOOR.name} has no measured floor or release_gate: nothing to check against")
     if cfg.candidates:
         if gates:
             sys.exit("--candidates only measures: it never checks, gates, or writes a floor or a baseline")

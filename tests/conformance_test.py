@@ -451,5 +451,36 @@ class Instability(unittest.TestCase):
         self.assertTrue(r["detail"].startswith("rule 1:"))
 
 
+
+class WindowsRatchet(unittest.TestCase):
+    """On Windows the core slice uses its own floor and known-wrong list, and nothing checks against an unmeasured one."""
+    def gate(self, argv, floor=None):
+        import json, unittest.mock as m
+        with tempfile.TemporaryDirectory() as t:
+            f = Path(t) / "floor.json"
+            if floor is not None:
+                f.write_text(json.dumps(floor))
+            slices = {"core": (Path(t) / "known_wrong", f)}
+            with m.patch.object(c, "WINDOWS", True), m.patch.object(c, "WINDOWS_SLICES", slices), m.patch.object(c, "FLOOR", c.FLOOR), \
+                    m.patch.object(c, "BASELINE", c.BASELINE), m.patch.object(c, "SCOPE", c.SCOPE), \
+                    m.patch.object(sys, "argv", ["conformance.py", *argv]), self.assertRaises(SystemExit) as e:
+                c.main()
+            return str(e.exception.code)
+
+    def test_stdlib_only_measures_on_windows(self):
+        for flag in ("--check", "--raise-floor", "--release-gate", "--write-baseline"):
+            self.assertIn("no Windows floor", self.gate(["--slice", "stdlib", flag]))
+
+    def test_unmeasured_windows_floor_refuses(self):
+        gate = {"coverage": 0.9, "wrong": 0}
+        for floor in (None, {"release_gate": gate}, {"matched": {"normal": 0, "dyn": 0}, "release_gate": gate},
+                      {"matched": {"normal": 900, "dyn": 900}}):
+            self.assertIn("no measured floor", self.gate(["--check"], floor))
+            self.assertIn("no measured floor", self.gate(["--release-gate"], floor))
+
+    def test_address_ordered_triples_are_unstable(self):
+        for t in ("test_empty_union", "test_self_equality", "test_self_intersection", "test_union_empty"):
+            self.assertIn(f"test_set.TestBasicOpsTriple.{t}", c.ADDRESS_ORDER)
+
 if __name__ == "__main__":
     unittest.main()
