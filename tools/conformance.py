@@ -77,6 +77,13 @@ SLICES = {
                "test_graphlib", "test_colorsys", "test_deque", "test_dataclasses", "test_enum"],
                ROOT / "compat" / "conformance_stdlib_known_wrong", ROOT / "compat" / "conformance_stdlib_floor.json"),
 }
+# Windows holds the core slice to its own floor and known-wrong list: a program can be right on Linux and wrong on
+# Windows (paths, newlines, the C runtime), so neither platform's ratchet may stand in for the other's. The release
+# runs it on the brevi.exe it ships (release.yml); the weekly job in windows.yml raises the floor. The stdlib slice has
+# no Windows floor, so on Windows it measures only: --check, --raise-floor, --release-gate and --write-baseline refuse.
+WINDOWS_SLICES = {
+    "core": (ROOT / "compat" / "conformance_windows_known_wrong", ROOT / "compat" / "conformance_windows_floor.json"),
+}
 # Module name -> (path under Lib/, SHA-256). The helpers are only read for the definitions tests use.
 SOURCES = {
     "test.support": ("test/support/__init__.py", "79347b3f68109a2a1315bba9c7769acc631908ade382ddeef473bfb72aa75ca9"),
@@ -381,8 +388,10 @@ EXCLUDED_SOURCE = [
 RANDOM_OUTPUT = re.compile(r"^test_set\.Test(BinaryOps|Methods)Mutating_\w+\.test_\w+_with_mutation$")
 # Tests whose CPython output is ordered by memory addresses (a set of classes hashes by id): one CPython build agrees
 # with itself, so the two-seed check cannot see it, but no other build has to. Classed unstable like RANDOM_OUTPUT.
+_TRIPLE = "CPython prints the set {0, 'zero', operator.add}; the builtin function hashes by its address, so the order differs between CPython builds (Windows prints it in another order than Linux)"
 ADDRESS_ORDER = {
     "test_enum.TestSpecial.test_too_many_data_types": "CPython's TypeError message prints a set of classes, which orders them by memory address",
+    **{f"test_set.TestBasicOpsTriple.{t}": _TRIPLE for t in ("test_empty_union", "test_self_equality", "test_self_intersection", "test_union_empty")},
 }
 RECEIVERS = {"self", "testcase"}
 SAME_AS_EQUAL = {"assertEqual", "assertListEqual", "assertTupleEqual", "assertDictEqual", "assertSetEqual",
@@ -2033,8 +2042,19 @@ def main():
     cfg = ap.parse_args()
     global BASELINE, FLOOR, SCOPE
     SCOPE, BASELINE, FLOOR = SLICES[cfg.slice]
+    gates = cfg.check or cfg.raise_floor or cfg.release_gate or cfg.write_baseline
+    if WINDOWS:
+        if cfg.slice not in WINDOWS_SLICES:
+            if gates:
+                sys.exit(f"the {cfg.slice} slice has no Windows floor or known-wrong list: on Windows it only measures")
+        else:
+            BASELINE, FLOOR = WINDOWS_SLICES[cfg.slice]
+            # Never half enforced: a Windows ratchet with no measured floor would pass anything.
+            measured = read_floor().get("matched", {})
+            if (cfg.check or cfg.release_gate) and not (measured and all(measured.values()) and read_floor().get("release_gate")):
+                sys.exit(f"{FLOOR.relative_to(ROOT)} has no measured floor or release_gate: nothing to check against")
     if cfg.candidates:
-        if cfg.check or cfg.raise_floor or cfg.release_gate or cfg.write_baseline:
+        if gates:
             sys.exit("--candidates only measures: it never checks, gates, or writes a floor or a baseline")
         if not cfg.out:
             sys.exit("--candidates needs --out (a folder outside bench/conformance)")

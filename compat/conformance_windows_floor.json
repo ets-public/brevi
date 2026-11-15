@@ -1,0 +1,12 @@
+{
+ "matched": {
+  "normal": 0,
+  "dyn": 0
+ },
+ "note": "tools/conformance.py --check on Windows fails below these; the weekly conformance job in windows.yml raises them on main, PRs never do",
+ "release_gate": {
+  "coverage": 0.9,
+  "wrong": 0,
+  "note": "tools/conformance.py --release-gate on Windows: the release bar (absolute coverage of the normal build, no known-wrong result), checked on the shipped brevi.exe by release.yml"
+ }
+}
