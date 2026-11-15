@@ -957,7 +957,9 @@ for f in tests/standalone/*.py; do
 in an empty root: $bare"
   fi
   # The dynamic build carries its CPython too.
-  BREVI_DYN=1 $BREVI build "$f" --standalone -o "$t/dyn" >/dev/null 2>&1
+  # Brevi's own sqlite3 would load the system's libsqlite3, which the binary does not carry: CPython runs it.
+  BREVI_DYN=1 $BREVI build "$f" --standalone --explain -o "$t/dyn" 2>&1 | grep -q '"py":\[[^]]*"sqlite3"' || out="$out
+dynamic build: sqlite3 not handed to the bundled CPython"
   dyn=$(env -i HOME="$t" PATH=/nonexistent BREVI_PY_CACHE="$t/cache" "$t/dyn" 2>&1)
   [ "$dyn" = "$(cat "$exp")" ] || out="$out
 dynamic build: $dyn"
