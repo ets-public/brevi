@@ -41,7 +41,7 @@ Under `--sandbox` (and in the MCP tools by default) nothing runs in CPython unle
 | Other installed libraries (pandas, yaml, ...) | `pybridge` (or `dynamic` with `py`) | Library calls run in CPython inside the native program; Linux, macOS and Windows (Windows from v0.27.0). |
 | Classes built on a library's classes | `dynamic` with `py` | CPython runs the class as a whole. |
 | `eval`/`exec` of text known only at run time | `cpython` | `brevi build`, `check`, `--native` and `--strict` refuse them. |
-| `match` statements | `cpython` at v0.27.x; `dynamic` from the next release | Before the next release `brevi build`, `check`, `--native` and `--strict` refuse them. |
+| `match` statements | `cpython` at v0.27.x; `dynamic` from v0.28.0 | Before v0.28.0, `brevi build`, `check`, `--native` and `--strict` refuse them. |
 
 ### Platforms
 

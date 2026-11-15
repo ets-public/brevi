@@ -38,7 +38,7 @@ if os.path.exists(report):
     wrong = re.search(r"\*\*Wrong: (\d+)\*\*", r)
     if cov and wrong:
         print(f"**Standard library:** {cov.group(2)} of {cov.group(3)} tests from CPython's tests of the modules agents use most "
-              f"(itertools, collections, re, textwrap, functools, string; {cov.group(1)}) match, and {wrong.group(1)} give a different answer "
+              f"(itertools, collections, re, textwrap, functools, string, graphlib, colorsys, deque, dataclasses, enum; {cov.group(1)}) match, and {wrong.group(1)} give a different answer "
               f"([report](https://github.com/ets-public/brevi/blob/{tag}/bench/conformance/stdlib/report.md)).")
         print()
 # Which path the conformance programs took (the report's "paths", normal build): how much ran on the typed fast

@@ -122,7 +122,7 @@ cat: 1</pre>
         </div>
         <div>
           <h3>CPython's own tests</h3>
-          <p>Of 311 tests from CPython 3.13's own suite, 250 build natively and print exactly what CPython prints, 38 are refused with a reason, 8 still build and answer differently, and none crash (v0.26.0: 181, 66, 44 and 5). Those 8 are bugs, and they are what we fix first. Of CPython's tests for the standard-library modules agents use most, 250 of 554 match and 22 answer differently. On main, from the next release, with ten more CPython test files scored (among them `test_set`, `test_patma`, `test_dataclasses` and `test_enum`), 937 of 962 core tests and 1,840 of 1,998 stdlib tests match (tests that run a string as code are left out by design) and none answer differently. <a href="/docs/compatibility#in-numbers">The numbers</a></p>
+          <p>At v0.28.0, of 1,076 tests from CPython 3.13's own suite (ten files, among them <code>test_set</code> and <code>test_patma</code>), 1,047 build natively and print exactly what CPython prints, the rest are refused with a reason, and none answer differently or crash. Of 2,052 of CPython's tests for the standard-library modules agents use most, 1,988 match and none answer differently (tests that run a string as code are left out by design). At v0.27.0 it was 250 of 311 core tests with 8 answering differently, and 250 of 554 stdlib tests with 22. <a href="/docs/compatibility#in-numbers">The numbers</a></p>
         </div>
       </div>
       <div class="grid3">
@@ -208,7 +208,7 @@ IndexError: list index out of range</pre>
             <table>
               <thead><tr><th>Model cost, Brevi vs CPython</th><th class="n">Sonnet</th><th class="n">Haiku</th></tr></thead>
               <tbody>
-                <tr><td>Release test, 24 tasks (v0.27.0, two runs)</td><td class="n">1.08x</td><td class="n">0.97x</td></tr>
+                <tr><td>Release test, 24 tasks (v0.28.0, two runs)</td><td class="n">1.08x</td><td class="n">1.00x</td></tr>
                 <tr><td>4 heavy tasks, Brevi side told "write it plainly" (no CPython control yet)</td><td class="n">0.58x</td><td class="n">0.53x</td></tr>
               </tbody>
             </table>
