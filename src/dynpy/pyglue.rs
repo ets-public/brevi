@@ -34,6 +34,10 @@ static PYD_DEQ: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atom
 static PYD_DEQIT: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_BRNEW: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_MKOBJ: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+// CPython's collections.defaultdict and Counter (set when Python starts): the program's defaultdict and Counter go
+// into Python as these (pickle saves them as CPython does), and objects of exactly these types come back as them
+static PYD_DDICT: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+static PYD_CTR: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 // _BrFn and _BrMeth (see PYD_HELPERS): the stand-ins a library sees for the program's defs and bound methods
 static PYD_BRFN: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_BRMETH: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
@@ -242,11 +246,21 @@ _d.red = _BrRed
 import collections as _co
 _d.deq_t = _co.deque
 _d.deqit_t = type(iter(_co.deque()))
+_d.dd_t = _co.defaultdict
+_d.ctr_t = _co.Counter
 class _BrNew:
     __slots__ = ('c', 'a', 's', 'x')
     def __init__(s, c, a): s.c = c; s.a = a; s.s = None; s.x = []
     def __setstate__(s, st): s.s = (st,)
     def extend(s, xs): s.x.extend(xs)
+# functools.partial (or a program subclass of it) as find_class gives it: REDUCE's cls(func) makes a _BrNew,
+# BUILD gives it partial's state, and it comes out as the program's partial (pyd_brnew)
+def _pt_mk(c):
+    if not _d._ispt(c):
+        return c
+    def mk(*a):
+        return _BrNew(c, a)
+    return mk
 def _mkobj(c, a):
     return _BrNew(c, a)
 _mkobj.__module__ = '_brevi_dyn'
@@ -271,7 +285,7 @@ def _pmod():
             # total_ordering's helpers (functools._gt_from_lt) are the program's own functions too
             if module == 'functools' and (name in _TO_HELPERS or name == 'partial'):
                 _s.audit('pickle.find_class', module, name)
-                return _d._lookup(module, name)
+                return _pt_mk(_d._lookup(module, name))
             if module == '__main__' or _d._progmod(module):
                 _s.audit('pickle.find_class', module, name)
                 if '.' in name:
@@ -280,18 +294,30 @@ def _pmod():
                         raise NotImplementedError("brevi: loading a pickle that names a dotted attribute of the program from a file that cannot seek is not supported in dynamic builds")
                     if p < 4:
                         _d._missing(module, name)
-                return _d._lookup(module, name)
+                return _pt_mk(_d._lookup(module, name))
             obj = super().find_class(module, name)
             # below protocol 4 a method or nested class loads as getattr(class, name): on a class of the
             # program, the program's getattr
             if obj is _b.getattr:
                 return _pk_getattr
             # a module's function the program has read (operator.add): the program's own again
-            if type(obj) is type(len) and '.' not in name and obj.__module__ != 'builtins':
-                try:
-                    return _d._lookup(module, name)
-                except Exception:
-                    pass
+            # a module's function the program has read (operator.add, json.dumps): the program's own again. It is
+            # found by the module and qualname of CPython's own function (a protocol 2 pickle names functools.reduce
+            # __builtin__.reduce), and CPython's _operator.add is the program's operator.add when it is that function
+            if isinstance(obj, (type(len), _t.FunctionType)) and '.' not in name and obj.__module__ not in (None, 'builtins'):
+                om, on = obj.__module__, getattr(obj, '__qualname__', name)
+                for mm in ((module, om, om[1:]) if om.startswith('_') else (module, om)):
+                    if mm != module and mm != om:
+                        import importlib
+                        try:
+                            if getattr(importlib.import_module(mm), on, None) is not obj:
+                                continue
+                        except Exception:
+                            continue
+                    try:
+                        return _d._lookup(mm, on if mm != module else name)
+                    except Exception:
+                        pass
             if isinstance(obj, type) and (obj.__module__ == 'itertools' or obj.__module__ == 'builtins' and name in ('map', 'filter', 'zip', 'enumerate')):
                 try:
                     return _d._lookup(obj.__module__, obj.__name__)
@@ -453,9 +479,15 @@ def _bf_reduce(f, o=None):
         raise AttributeError(r[1])
     if r[0] == 3:
         t = r[1]
-        return (_rebuild, (t[0], t[1], t[2] if len(t) > 2 else None))
+        # partial's own __reduce__ as it is, so pickle writes CPython's bytes: (cls, (func,), state)
+        return t
+    m, q = r[1], r[2]
+    if r[0] == 4:
+        import importlib
+        g = getattr(importlib.import_module(m), q)
+        m, q = g.__module__, g.__qualname__
     # o: the _BrFn a library holds for f, which pickle checks the lookup gives back (its __module__ is the program's)
-    return _pk_global(f, r[1], r[2]) if o is None else _pk_global(o, r[1], r[2], False)
+    return _pk_global(f, m, q) if o is None else _pk_global(o, m, q, False)
 import copyreg as _cr
 _cr.dispatch_table[type(len)] = _bf_reduce
 # A def or lambda of the program (_BrFn) or one of its bound methods (_BrMeth), as a library sees it. A plain
@@ -984,7 +1016,11 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
         return done(cplx(re, im));
     }
     if t == a.TUni {
+        // the same str object twice (a pickle's memo) comes back as one str of the program
         let s = pyd_s(p);
+        if let (true, Ok(v)) = (deep, &s) {
+            from_memo_put(p, v);
+        }
         (a.DecRef)(p);
         return s;
     }
@@ -994,8 +1030,11 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
             (a.DecRef)(p);
             return Err(pyd_err());
         }
-        let v = std::slice::from_raw_parts(b as *const u8, n as usize).to_vec();
-        return done(bytesv(v));
+        let v = bytesv(std::slice::from_raw_parts(b as *const u8, n as usize).to_vec());
+        if deep {
+            from_memo_put(p, &v);
+        }
+        return done(v);
     }
     if t == a.TTuple {
         let n = (a.TupleSize)(p);
@@ -1011,7 +1050,11 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
                 }
             }
         }
-        return done(tup(out));
+        let v = tup(out);
+        if deep && n > 0 {
+            from_memo_put(p, &v);
+        }
+        return done(v);
     }
     if deep && t == a.TList {
         let n = (a.ListSize)(p);
@@ -1067,8 +1110,29 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
         (a.DecRef)(p);
         return r.map(|_| me);
     }
-    if deep && t == a.TDict {
-        let cell = Rc::new(RefCell::new(Dict::new()));
+    let (dd, ctr) = (t == pyd_ptr(&PYD_DDICT), t == pyd_ptr(&PYD_CTR));
+    if deep && (t == a.TDict || dd || ctr) {
+        let mut n = Dict::new();
+        if dd {
+            // CPython's defaultdict: the program's, its default_factory brought back first (pickle.loads made it)
+            let f = (a.GetAttr)(p, c"default_factory".as_ptr());
+            if f.is_null() {
+                (a.DecRef)(p);
+                return Err(pyd_err());
+            }
+            n.kind = 1;
+            n.dflt = match pyd_wrap(f, true) {
+                Ok(V::None) => None,
+                Ok(f) => Some(f),
+                Err(e) => {
+                    (a.DecRef)(p);
+                    return Err(e);
+                }
+            };
+        } else if ctr {
+            n.kind = 2;
+        }
+        let cell = Rc::new(RefCell::new(n));
         let me = V::Dict(cell.clone());
         from_memo_put(p, &me);
         let mut pos: isize = 0;
@@ -1247,8 +1311,8 @@ unsafe fn pyd_deque_iter(p: P) -> Result<Option<V>, E> {
     got
 }
 
-// A _BrNew (an instance of a deque subclass of the program, as pickle.loads rebuilt it): cls(*args), then
-// extend(items) and its state, in the order pickle gives them.
+// A _BrNew (an instance of a deque subclass of the program, or a functools.partial, as pickle.loads rebuilt
+// it): cls(*args), then extend(items) and its state, in the order pickle gives them.
 unsafe fn pyd_brnew(p: P) -> R {
     let a = pyd_api();
     let part = |n: &std::ffi::CStr| pyd_own((a.GetAttr)(p, n.as_ptr()));
@@ -1256,13 +1320,22 @@ unsafe fn pyd_brnew(p: P) -> R {
     let cls = pyd_callable_v(c);
     (a.DecRef)(c);
     let Some(cls @ V::Class(_)) = cls else {
-        return Err(unsupported("loading a pickled deque subclass that is not a class of the program"));
+        return Err(unsupported("loading a pickled deque subclass or partial that is not a class of the program"));
     };
     let V::Tuple(args) = pyd_wrap(part(c"a")?, true)? else {
         return Err(unsupported("loading a pickled deque subclass without its arguments"));
     };
     let o = call(&cls, Args::p(args.to_vec()))?;
     from_memo_put(p, &o);
+    // a functools.partial: partial.__setstate__ with the state pickle gave (it may hold the partial itself)
+    if is_partial_v(&o) {
+        if let V::Tuple(t) = pyd_wrap(part(c"s")?, true)? {
+            if let Some(st) = t.first() {
+                call_method(&o, "__setstate__", Args::p(vec![st.clone()]))?;
+            }
+        }
+        return Ok(o);
+    }
     let x = part(c"x")?;
     let items = pyd_items(x);
     (a.DecRef)(x);
@@ -1477,6 +1550,7 @@ unsafe fn pyd_register(a: &ax_pyffi::Api) -> bool {
         (c"_ref", func(sym("_ref"), pickle_ref)),
         (c"_lookup", func(sym("_lookup"), pickle_lookup_fn)),
         (c"_progmod", func(sym("_progmod"), pickle_progmod)),
+        (c"_ispt", func(sym("_ispt"), |a: Args| Ok(V::Bool(matches!(a.p.first(), Some(V::Class(c)) if c.is_sub(&partial_class())))))),
         (c"_missing", func(sym("_missing"), pickle_missing_fn)),
         (c"setstate", setstate),
         (c"_rebuild_obj", func(sym("_rebuild_obj"), pickle_rebuild)),
@@ -1516,7 +1590,7 @@ unsafe fn pyd_register(a: &ax_pyffi::Api) -> bool {
         }
     }
     // kept for the program's life (the references are never given back)
-    for (n, at) in [(c"deq_t", &PYD_DEQ), (c"deqit_t", &PYD_DEQIT), (c"brnew_t", &PYD_BRNEW), (c"_mkobj", &PYD_MKOBJ), (c"fn_t", &PYD_BRFN), (c"meth_t", &PYD_BRMETH), (c"mkfn", &PYD_MKFN), (c"mkmeth", &PYD_MKMETH)] {
+    for (n, at) in [(c"deq_t", &PYD_DEQ), (c"deqit_t", &PYD_DEQIT), (c"brnew_t", &PYD_BRNEW), (c"_mkobj", &PYD_MKOBJ), (c"dd_t", &PYD_DDICT), (c"ctr_t", &PYD_CTR), (c"fn_t", &PYD_BRFN), (c"meth_t", &PYD_BRMETH), (c"mkfn", &PYD_MKFN), (c"mkmeth", &PYD_MKMETH)] {
         if !ok {
             break;
         }
@@ -1575,7 +1649,9 @@ fn pickle_ref(a: Args) -> R {
             let V::Str(m) = m else { return Err(unsupported("pickling a builtin function")) };
             let n = f.name.get();
             return match modfn_cached(m.text(), n) {
-                Some(found) if is(&found, &v) => Ok(tup(vec![V::Int(0), st(m.text().to_string()), s(n)])),
+                // (4, ...): pickled under the module and qualname CPython's own function has (operator.add is
+                // _operator.add)
+                Some(found) if is(&found, &v) => Ok(tup(vec![V::Int(4), st(m.text().to_string()), s(n)])),
                 _ => Err(unsupported("pickling a builtin function")),
             };
         }
@@ -1960,12 +2036,19 @@ fn memo_key(v: &V) -> Option<usize> {
         V::Set(x) => Some(Rc::as_ptr(x) as *const u8 as usize),
         V::FSet(x) => Some(Rc::as_ptr(x) as *const u8 as usize),
         V::Deque(x) => Some(Rc::as_ptr(x) as *const u8 as usize),
+        // a str, tuple or bytes too: pickle writes one object once and then refers to it (its memo is by id), so
+        // the same one twice (`[s, s]`) must be one object, and equal ones that are not the same must not be
+        V::Str(x) => Some(Rc::as_ptr(x) as *const u8 as usize),
+        V::Tuple(t) if !t.is_empty() => Some(Tup::as_ptr(t) as usize),
+        V::Ext(x) if is_bytes_v(v) || x.any().downcast_ref::<CplxV>().is_some() => Some(ExtRc::as_ptr(x) as usize),
         // a def or class: one callable per library call, so pickle memoizes `[f, f]` as CPython does
         V::Func(x) => Some(Rc::as_ptr(x) as *const u8 as usize),
         V::Class(x) => Some(Rc::as_ptr(x) as *const u8 as usize),
         V::Obj(o) if matches!(o.inner(), Some(V::Deque(_))) => Some(Rc::as_ptr(o) as *const u8 as usize),
         // an Enum member (see pyd_enum_red): one _BrRed per library call, so pickle memoizes it as CPython does
         V::Obj(o) if is_enum(&o.cls) && o.get("_value_").is_some() => Some(Rc::as_ptr(o) as *const u8 as usize),
+        // a functools.partial: one Python callable per library call, so pickle memoizes `[p, p]` as CPython does
+        V::Obj(o) if is_partial_v(v) => Some(Rc::as_ptr(o) as *const u8 as usize),
         // a tee link: one Python object per pickle, so tees that share it share it again when loaded
         V::Ext(_) => teedata_of(v).map(|l| Rc::as_ptr(&l) as *const u8 as usize),
         _ => None,
@@ -2022,7 +2105,11 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
             pyd_own((a.LongFromStr)(c.as_ptr(), std::ptr::null_mut(), 10))?
         }
         V::Float(f) => (a.FloatFrom)(*f),
-        V::Str(x) => pyd_own(pyd_s_obj(x))?,
+        V::Str(x) => {
+            let p = pyd_own(pyd_s_obj(x))?;
+            to_memo_put(v, p);
+            p
+        }
         V::Tuple(t) => {
             let p = (a.TupleNew)(t.len() as isize);
             for (i, x) in t.iter().enumerate() {
@@ -2036,6 +2123,7 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
                     }
                 }
             }
+            to_memo_put(v, p);
             p
         }
         V::List(l) => {
@@ -2095,8 +2183,21 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
             p
         }
         V::Dict(d) => {
-            let items = d.borrow().items();
-            let p = (a.DictNew)();
+            let (items, kind, dflt) = {
+                let d = d.borrow();
+                (d.items(), d.kind, d.dflt.clone())
+            };
+            // a defaultdict goes in as CPython's, with its default_factory; a Counter as CPython's Counter
+            let p = match kind {
+                1 => {
+                    let f = pyd_to(dflt.as_ref().unwrap_or(&V::None))?;
+                    let p = pyd_call_raw(pyd_ptr(&PYD_DDICT), &[f]);
+                    (a.DecRef)(f);
+                    p?
+                }
+                2 => pyd_call_raw(pyd_ptr(&PYD_CTR), &[])?,
+                _ => (a.DictNew)(),
+            };
             to_memo_put(v, p);
             for (k, x) in items {
                 let r = pyd_to(&k).and_then(|kk| match pyd_to(&x) {
@@ -2204,10 +2305,14 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
                 return Err(unsupported("a bytearray or memoryview passed to a library CPython runs"));
             }
             if let Some(b) = bytes_of(v) {
-                return pyd_own((a.BytesFrom)(b.as_ptr() as *const c_char, b.len() as isize));
+                let p = pyd_own((a.BytesFrom)(b.as_ptr() as *const c_char, b.len() as isize))?;
+                to_memo_put(v, p);
+                return Ok(p);
             }
             if let Some((re, im)) = cplx_of(v) {
-                return pyd_own((a.ComplexFrom)(re, im));
+                let p = pyd_own((a.ComplexFrom)(re, im))?;
+                to_memo_put(v, p);
+                return Ok(p);
             }
             match x.tname().rsplit('.').next().unwrap_or("") {
                 "Decimal" => pyd_str_arg("decimal", "Decimal", &to_str(v)?)?,
@@ -2355,6 +2460,11 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
             p
         }
         V::BMeth(_) => pyd_callable(v)?,
+        V::Obj(_) if is_partial_v(v) => {
+            let p = pyd_callable(v)?;
+            to_memo_put(v, p);
+            p
+        }
         V::Obj(o) if o.cls.lookup("__call__").is_some() => pyd_callable(v)?,
         _ => return type_err(format!("brevi: a '{}' object cannot be passed to a Python library in a dynamic build", tn(v))),
     })

@@ -2,6 +2,7 @@
 // dynamic value type (runtime in rt_*.rs), so mixed-type values work as they do in CPython.
 pub mod emit;
 pub mod parse;
+pub mod constfold;
 pub mod mangle;
 pub mod cpy_lines;
 pub mod pyd;
