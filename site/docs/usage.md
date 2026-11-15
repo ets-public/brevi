@@ -36,7 +36,7 @@ A file can import its sibling `.py` files and packages as usual (`import util`, 
 | --- | --- | --- |
 | `--release` | run, build | Optimise fully (rustc opt-level 3, the runtime inlined into the program). Builds take a few seconds longer; programs often run up to twice as fast as with the default build. Use it for a binary you keep. |
 | `--native` | run | Never fall back to CPython: print Brevi's errors instead. `BREVI_NATIVE=1` does the same. |
-| `--strict` | run, build, check, verify | From the next release: no fallback of any kind, for CI and production jobs (see [Strict builds](#strict-builds)). `BREVI_STRICT=1` does the same. |
+| `--strict` | run, build, check, verify | From v0.28.0: no fallback of any kind, for CI and production jobs (see [Strict builds](#strict-builds)). `BREVI_STRICT=1` does the same. |
 | `--standalone` | build | For Python files that import libraries: pack CPython, the standard library and the imported packages into the binary, so it runs on a Linux machine with no Python. Linux only. |
 | `--sandbox` | run, check, test | Refuse file access, native code and Python libraries unless the caller grants them (see [Sandbox](#sandbox)). |
 | `--allow read,write,net,native` | run, check, test | Under the sandbox, grant these capabilities (implies `--sandbox`). |
@@ -95,7 +95,7 @@ Use `brevi run --native`, `brevi build` or `brevi check` when you need to know a
 
 ### Strict builds
 
-From the next release, `--strict` (or `BREVI_STRICT=1`, which reaches every `brevi` and `brevi-python` a job starts) fails closed on any fallback, so a CI or production job can require the typed fast path:
+From v0.28.0, `--strict` (or `BREVI_STRICT=1`, which reaches every `brevi` and `brevi-python` a job starts) fails closed on any fallback, so a CI or production job can require the typed fast path:
 
 - Only the typed build may answer. A `pybridge` build is the typed build with the libraries it imports in CPython, and passes (its path line names them).
 - A file the typed build refuses, or one it would answer differently from CPython (the guard), is refused with one error line on stdout instead of being built over dynamic values: `{"e":"strict","path":"dynamic","line":3,"fn":"show","msg":"--strict allows no fallback, ...","fix":"rewrite show so the typed build takes it ..."}`, exit code 1. A file the dynamic build refuses too gets the typed build's own errors, as `--native` does.

@@ -35,9 +35,9 @@ Notes:
 
 Newest first. Only changes that can affect programs or setups that already work.
 
-### Next release
+### v0.28.0
 
-These are on `main` now and ship with the next release.
+These changed in v0.28.0 (15 Nov 2026).
 
 - **Sandboxed CPython has no network without a grant (Linux).** Under `--sandbox`, a program that loads CPython (`--allow-py`, `--allow native`) and has no network grant gets `PermissionError` from `socket()`, in CPython, its C extensions and every process they start. A sandboxed program that starts CPython with hosts named by `--allow-net` is refused on every OS, because CPython cannot be held to those hosts. Grant `--allow net`, or leave CPython out.
 - **DuckDB and ONNX Runtime libraries are pinned to the build.** A program loads the library only if its bytes still match the ones it was built against. After upgrading duckdb or onnxruntime, `brevi run` rebuilds by itself, but a binary from `brevi build` must be built again.

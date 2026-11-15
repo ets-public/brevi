@@ -13,7 +13,7 @@ Each measure links to where its number comes from. Notes on the marked numbers a
 
 | Measure | Now | In 90 days | In 12 months |
 |---|---|---|---|
-| [CPython conformance](https://github.com/ets-public/brevi/blob/main/bench/conformance/report.md): tests whose output matches CPython's | **97.4%** (937/962)<sup>5</sup> | 70% | 90% |
+| [CPython conformance](https://github.com/ets-public/brevi/blob/main/bench/conformance/report.md): tests whose output matches CPython's | **97.3%** (1047/1076)<sup>5</sup> | 70% | 90% |
 | [Wrong answers](https://github.com/ets-public/brevi/tree/main/compat/conformance_known_wrong): built, but answered differently | **0 tests**<sup>5</sup> | ≤ 25 | 0 |
 
 ### Waiting on each edit (median)
@@ -42,11 +42,11 @@ Each measure links to where its number comes from. Notes on the marked numbers a
 
 **Notes**
 
-1. **Measured on main with fixes that ship in the next release.** In v0.27.0 and v0.27.1 a new safety check wrongly sent the test program to the slower dynamic build, so these were 160 ms, 160 ms, 1.18 s and 0.43 s. At v0.26.0 they were 16 ms, 94 ms and 0.87 s; the safety check still costs about 6 ms of `check --fast`.
+1. **Measured on main with fixes that shipped in v0.28.0.** In v0.27.0 and v0.27.1 a new safety check wrongly sent the test program to the slower dynamic build, so these were 160 ms, 160 ms, 1.18 s and 0.43 s. At v0.26.0 they were 16 ms, 94 ms and 0.87 s; the safety check still costs about 6 ms of `check --fast`.
 2. Measured at v0.25.0.
 3. Measured at v0.26.0, one run each with Haiku and Sonnet, with Brevi's errors shown to the model.
 4. Possible since v0.27.0 with the [brevi-sandbox image](https://github.com/ets-public/brevi/blob/main/docs/SDK_AND_IMAGES.md).
-5. On main, from the next release, 14 November (CPython's core tests; the 83 that run a string as code are left out as refused by design). The standard-library slice is 92.1% (1840 of 1998) with none wrong. That covers the 21 files scored (ten added from 12 to 14 November: `test_set` and `test_patma` in core, `test_dataclasses` and `test_enum` in stdlib among them, which is why stdlib fell from 99.7%); more files are measured for planning but not scored yet. At v0.27.0: 80.4% (250 of 311) and 8 wrong; at v0.26.0, 44 wrong.
+5. At v0.28.0, 15 November (CPython's core tests, at `PYTHONHASHSEED=0`; the 83 that run a string as code are left out as refused by design). The standard-library slice is 96.9% (1988 of 2052) with none wrong. That covers the 21 files scored (ten added from 12 to 14 November: `test_set` and `test_patma` in core, `test_dataclasses` and `test_enum` in stdlib among them); more files are measured for planning but not scored yet. At v0.27.0: 80.4% (250 of 311) and 8 wrong; at v0.26.0, 44 wrong.
 
 Unless marked, numbers are from v0.27.0 (11 November 2026). Edit times are from one 4-core Xeon @ 2.10 GHz, the same kind of machine as the v0.26.0 numbers.
 
@@ -55,7 +55,7 @@ The north star is the share of real agent-written programs that build natively, 
 ## Now (the next 30 days)
 
 - **Tell the truth everywhere.** One source for every public number, no absolute claims, measured speed ranges, and the conformance score first in the numbers table.
-- **Conformance in CI.** The CPython conformance run becomes a release gate that fails on any new wrong result, with a public dashboard and the known-wrong list burned down in public, one fix at a time. Shipped in v0.27.0: `tools/conformance.py --check` fails CI on any new wrong result, and conformance is up from 58.2% to 80.4% (250 of 311). From the next release: every known-wrong entry names an issue, an owner and an expiry date, and the release itself does not ship below core 90%, stdlib 80% or with any known-wrong result (`--release-gate` runs in release.yml). On main (14 November) core reads 97.4% and stdlib 92.1% with no wrong answers, after ten more of CPython's test files were scored; the next step is scoring more of them (`--candidates` measures the rest).
+- **Conformance in CI.** The CPython conformance run becomes a release gate that fails on any new wrong result, with a public dashboard and the known-wrong list burned down in public, one fix at a time. Shipped in v0.27.0: `tools/conformance.py --check` fails CI on any new wrong result, and conformance is up from 58.2% to 80.4% (250 of 311). From v0.28.0: every known-wrong entry names an issue, an owner and an expiry date, and the release itself does not ship below core 90%, stdlib 80% or with any known-wrong result (`--release-gate` runs in release.yml). On main (14 November) core reads 97.4% and stdlib 92.1% with no wrong answers, after ten more of CPython's test files were scored; the next step is scoring more of them (`--candidates` measures the rest).
 - **Fuzzing.** Generated programs run natively and under CPython and compared; a crash is a top-priority bug, and a signal is treated as a security bug until it is understood. Shipped in v0.27.0: `tools/fuzz.py` writes seeded random agent-style Python, including shared-list cases, and compares the builds with CPython.
 - **Verify by default.** `brevi verify` (v0.26.0) checks a program against CPython on your inputs and prints a certificate. Next, `brevi run --verify` and the MCP `run` tool check every run where it is safe and cheap, and answer with CPython's output if the two ever differ. [Design](https://github.com/ets-public/brevi/blob/main/docs/VERIFY_BY_DEFAULT.md). Shipped in v0.27.0: `brevi run --verify` and the MCP `run` tool do this.
 - **Measure the loop.** `bench/latency.py` times every command an agent runs after an edit, and the release test now records how often the first check builds natively and what it costs to reach a passing answer with Brevi's errors shown to the model.
@@ -74,7 +74,7 @@ The north star is the share of real agent-written programs that build natively, 
 ## Later (to 1.0)
 
 - **brevi.run, hosted.** A closed beta of the compiler as a sandboxed API for agents, only once the platform's VM or microVM isolation and an outside security review are in place.
-- **Windows parity.** From v0.27.0, library programs, generators and `async` build on Windows (CPython bridge and Win32 fibers). From the next release, `os.path` is `ntpath` and `sys.platform` is `win32` on Windows, and conformance runs on Windows every week. `--standalone` on Windows and macOS is next.
+- **Windows parity.** From v0.27.0, library programs, generators and `async` build on Windows (CPython bridge and Win32 fibers). From v0.28.0, `os.path` is `ntpath` and `sys.platform` is `win32` on Windows, and conformance runs on Windows every week. `--standalone` on Windows and macOS is next.
 - **1.0** when conformance reaches 90% with no known wrong results, the typed path covers 90% of agent programs, `brevi check` answers in 30 ms, an outside security review is done, and three harnesses ship Brevi. Until then Brevi stays 0.x.
 
 ## Paused until 1.0
@@ -87,7 +87,7 @@ The north star is the share of real agent-written programs that build natively, 
 
 Each item is in the [changelog](/docs/changelog) with its release.
 
-- **On main, from the next release:** `--strict`; core conformance 97.4% and stdlib 92.1% over 21 files with no wrong answers; `match` statements; complex numbers, metaclasses, `def f[T]`, threads that take turns, `weakref.proxy`, strs with lone surrogates, and exact `vars()`/`dir()` in dynamic builds; releases held to the conformance gates, with an SBOM, provenance attestations and a reproducible-build check; native `bytearray`, `memoryview`, `collections.abc`, `ChainMap` and the `User*` classes, `functools.singledispatch`, `partialmethod` and `cached_property`, `string.Template`, `itertools.tee` and `batched`, warnings with the program's lines, and bytes patterns in `re`; sandboxed CPython gets no network without a grant; engine libraries pinned by hash; Windows paths as `ntpath`.
+- **In v0.28.0:** `--strict`; core conformance 97.3% and stdlib 96.9% over 21 files with no wrong answers; `match` statements; complex numbers, metaclasses, `def f[T]`, threads that take turns, `weakref.proxy`, strs with lone surrogates, and exact `vars()`/`dir()` in dynamic builds; releases held to the conformance gates, with an SBOM, provenance attestations and a reproducible-build check; native `bytearray`, `memoryview`, `collections.abc`, `ChainMap` and the `User*` classes, `functools.singledispatch`, `partialmethod` and `cached_property`, `string.Template`, `itertools.tee` and `batched`, warnings with the program's lines, and bytes patterns in `re`; sandboxed CPython gets no network without a grant; engine libraries pinned by hash; Windows paths as `ntpath`.
 - **In v0.27.1:** `brevi-python` works on macOS; releases run the whole suite on the commit they release, check every archive they ship and check Windows on the shipped zip.
 - **In v0.27.0:** `brevi run --verify`; the Python and Node SDKs, `brevi-python` and the published sandbox image; tiered builds after an edit; conformance 58.2% to 80.4% with a CI ratchet and a fuzzer; `eval()` of literal text, `__del__`, `weakref` and lazy itertools on the dynamic build; Windows library calls, generators, async, `--limit mem` and native requests, httpx, sqlite3, duckdb, onnxruntime and MCP servers; sandbox and MCP fixes from the 10 November review.
 - **v0.26.0:** `brevi verify`; resource limits (`--limit`); folder and host grants (`--allow-read`, `--allow-write`, `--allow-net`); Landlock holding CPython under the sandbox on Linux; agent platform templates and the [weekly benchmark](/docs/benchmarks#weekly-agent-code-benchmark); native async; native tiktoken, pydantic, jinja2, polars, sqlite3, duckdb, safetensors, onnxruntime, httpx and the Anthropic and OpenAI SDKs; `.bv` files using the same native libraries; MCP over HTTP.
