@@ -1,5 +1,5 @@
 {
-"brevi": "brevi 0.27.1",
+"brevi": "brevi 0.28.0",
 "python": "3.13.13",
 "tag": "v3.13.13",
 "date": "2026-11-15",
@@ -9,7 +9,7 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 1047,
+"matched": 1043,
 "refused": 26,
 "by_design": 83,
 "string_model": 0,
@@ -18,21 +18,21 @@
 "wrong_exit": 0,
 "crash_or_timeout": 0,
 "not_extractable": 3,
-"unstable": 134,
+"unstable": 138,
 "excluded": 44,
 "total": 1337,
-"scored": 1076,
+"scored": 1072,
 "matched_through_cpython": 0,
 "matched_silent": 98,
-"coverage": 0.973,
+"coverage": 0.9729,
 "wrong": 0,
-"matched_asserting": 949,
-"assert_coverage": 0.882,
+"matched_asserting": 945,
+"assert_coverage": 0.8815,
 "matched_typed": 27,
-"typed_share": 0.0258
+"typed_share": 0.0259
 },
 "dyn": {
-"matched": 1047,
+"matched": 1043,
 "refused": 26,
 "by_design": 83,
 "string_model": 0,
@@ -41,16 +41,16 @@
 "wrong_exit": 0,
 "crash_or_timeout": 0,
 "not_extractable": 3,
-"unstable": 134,
+"unstable": 138,
 "excluded": 44,
 "total": 1337,
-"scored": 1076,
+"scored": 1072,
 "matched_through_cpython": 0,
 "matched_silent": 98,
-"coverage": 0.973,
+"coverage": 0.9729,
 "wrong": 0,
-"matched_asserting": 949,
-"assert_coverage": 0.882,
+"matched_asserting": 945,
+"assert_coverage": 0.8815,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -442,7 +442,7 @@
 },
 "test_set": {
 "normal": {
-"matched": 463,
+"matched": 459,
 "refused": 26,
 "by_design": 5,
 "string_model": 0,
@@ -451,21 +451,21 @@
 "wrong_exit": 0,
 "crash_or_timeout": 0,
 "not_extractable": 0,
-"unstable": 128,
+"unstable": 132,
 "excluded": 4,
 "total": 626,
-"scored": 489,
+"scored": 485,
 "matched_through_cpython": 0,
 "matched_silent": 51,
-"coverage": 0.9468,
+"coverage": 0.9464,
 "wrong": 0,
-"matched_asserting": 412,
-"assert_coverage": 0.8425,
+"matched_asserting": 408,
+"assert_coverage": 0.8412,
 "matched_typed": 0,
 "typed_share": 0.0
 },
 "dyn": {
-"matched": 463,
+"matched": 459,
 "refused": 26,
 "by_design": 5,
 "string_model": 0,
@@ -474,16 +474,16 @@
 "wrong_exit": 0,
 "crash_or_timeout": 0,
 "not_extractable": 0,
-"unstable": 128,
+"unstable": 132,
 "excluded": 4,
 "total": 626,
-"scored": 489,
+"scored": 485,
 "matched_through_cpython": 0,
 "matched_silent": 51,
-"coverage": 0.9468,
+"coverage": 0.9464,
 "wrong": 0,
-"matched_asserting": 412,
-"assert_coverage": 0.8425,
+"matched_asserting": 408,
+"assert_coverage": 0.8412,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -9034,12 +9034,14 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "matched",
-"path": "dynamic"
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython prints the set {0, 'zero', operator.add}; the builtin function hashes by its address, so the order differs between CPython builds (Windows prints it in another order than Linux) (checked for crashes and exit code only)"
 },
 "dyn": {
-"category": "matched",
-"path": "dynamic"
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython prints the set {0, 'zero', operator.add}; the builtin function hashes by its address, so the order differs between CPython builds (Windows prints it in another order than Linux) (checked for crashes and exit code only)"
 }
 }
 },
@@ -9174,12 +9176,14 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "matched",
-"path": "dynamic"
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython prints the set {0, 'zero', operator.add}; the builtin function hashes by its address, so the order differs between CPython builds (Windows prints it in another order than Linux) (checked for crashes and exit code only)"
 },
 "dyn": {
-"category": "matched",
-"path": "dynamic"
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython prints the set {0, 'zero', operator.add}; the builtin function hashes by its address, so the order differs between CPython builds (Windows prints it in another order than Linux) (checked for crashes and exit code only)"
 }
 }
 },
@@ -9188,12 +9192,14 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "matched",
-"path": "dynamic"
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython prints the set {0, 'zero', operator.add}; the builtin function hashes by its address, so the order differs between CPython builds (Windows prints it in another order than Linux) (checked for crashes and exit code only)"
 },
 "dyn": {
-"category": "matched",
-"path": "dynamic"
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython prints the set {0, 'zero', operator.add}; the builtin function hashes by its address, so the order differs between CPython builds (Windows prints it in another order than Linux) (checked for crashes and exit code only)"
 }
 }
 },
@@ -9244,12 +9250,14 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "matched",
-"path": "dynamic"
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython prints the set {0, 'zero', operator.add}; the builtin function hashes by its address, so the order differs between CPython builds (Windows prints it in another order than Linux) (checked for crashes and exit code only)"
 },
 "dyn": {
-"category": "matched",
-"path": "dynamic"
+"category": "unstable",
+"path": "dynamic",
+"detail": "CPython prints the set {0, 'zero', operator.add}; the builtin function hashes by its address, so the order differs between CPython builds (Windows prints it in another order than Linux) (checked for crashes and exit code only)"
 }
 }
 },
