@@ -1,0 +1,20 @@
+'ClassVar[int]' [] _FIELD_CLASSVAR
+' ClassVar ' [] _FIELD_CLASSVAR
+'typing.ClassVar[str]' [] _FIELD_CLASSVAR
+'typing .ClassVar[str]' [] _FIELD_CLASSVAR
+'typing. ClassVar' [] _FIELD_CLASSVAR
+'typing.ClassVar.[int]' [] _FIELD_CLASSVAR
+'typing.ClassVar+' [] _FIELD_CLASSVAR
+'InitVar' [] _FIELD_INITVAR
+'dataclasses.InitVar [ str]' [] _FIELD_INITVAR
+'dataclasses.InitVar+' [] _FIELD_INITVAR
+'int' ['x'] _FIELD
+'List[int]' ['x'] _FIELD
+'foo.ClassVar' ['x'] _FIELD
+'dataclasses.ClassVar' ['x'] _FIELD
+'typing.InitVar' ['x'] _FIELD
+'' ['x'] _FIELD
+'+ClassVar' ['x'] _FIELD
+K(a=1, b=3) [False, True]
+post_init 5
+I(a=1) False
