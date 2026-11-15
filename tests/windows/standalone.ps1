@@ -35,7 +35,8 @@ function Check-Standalone([string]$file, [string]$want, [string]$dyn) {
     $exe = Join-Path $work "$name.exe"
     $old = $env:BREVI_DYN
     if ($dyn) { $env:BREVI_DYN = "1" }
-    $flags = if ($dyn) { @("--standalone") } else { @("--native", "--standalone") }
+    # Typed as an array: a one-item array from an if expression would unroll to a string.
+    [string[]]$flags = if ($dyn) { @("--standalone") } else { @("--native", "--standalone") }
     $b = Lines (& $brevi build $file @flags -o $exe 2>&1)
     $code = $LASTEXITCODE
     $env:BREVI_DYN = $old
