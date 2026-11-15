@@ -89,6 +89,9 @@ jobs:
           # Intel Mac images are being retired, so the Intel binary is cross-built on Apple silicon (and run under Rosetta).
           - { os: macos-15, targets: aarch64-apple-darwin x86_64-apple-darwin }
           - { os: windows-2022, targets: x86_64-pc-windows-msvc, test: true }
+          # Built and checked on real ARM64 Windows (a standard runner, free on public repositories), never cross-built
+          # untested: the same archive checks and Windows platform checks as x86-64.
+          - { os: windows-11-arm, targets: aarch64-pc-windows-msvc, test: true }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -137,7 +140,7 @@ jobs:
             a=brevi-$t.tar.gz; [ "$RUNNER_OS" = Windows ] && a=brevi-$t.zip
             arch=; [ "$RUNNER_OS" = macOS ] && [ "$t" = x86_64-apple-darwin ] && arch="--arch x86_64"
             python tools/archive_check.py "$a" "$TAG" $arch | tee check.log
-            [ "$t" = x86_64-pc-windows-msvc ] && echo "BREVI_SHIPPED=$(tail -1 check.log | tr -d '\r')" >> "$GITHUB_ENV"
+            case "$t" in *-windows-msvc) echo "BREVI_SHIPPED=$(tail -1 check.log | tr -d '\r')" >> "$GITHUB_ENV" ;; esac
           done
           rm -f check.log
       # Required, never optional: a green job means every native-copy check ran.
