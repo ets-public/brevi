@@ -1734,6 +1734,7 @@ pub fn contains(c: &V, x: &V) -> Result<bool, E> {
         }
     }
     Ok(match c {
+        V::Class(k) if is_enum_shell(k) => return Err(enum_shell_refused("`in`")),
         V::Class(k) if is_enum(k) => enum_contains(k, x)?,
         V::Ext(e) if e.is_py() || e.any().is::<BytesV>() => match e.method(c, "__contains__", &mut Args::p(vec![x.clone()])) {
             Some(r) => truth(&r?)?,
@@ -2093,6 +2094,7 @@ pub fn getitem(c: &V, i: &V) -> R {
             }
             return type_err(format!("'{}' object is not subscriptable", tn(c)));
         }
+        (V::Class(k), _) if is_enum_shell(k) => return Err(enum_shell_refused("[]")),
         (V::Class(k), _) if is_enum(k) => return enum_getitem(k, i),
         (V::Class(k), _) if k.lookup("__bv_namedtuple__").is_some() || k.lookup("__bv_galias__").is_some() => {
             let args = match i {
@@ -2670,6 +2672,7 @@ pub fn odict_iter(d: &Rc<RefCell<Dict>>, kind: u8) -> It {
 }
 pub fn iter(v: &V) -> Result<It, E> {
     Ok(match v {
+        V::Class(c) if is_enum_shell(c) => It::Done,
         V::Class(c) if is_enum(c) => match enum_members(c) {
             V::List(l) => It::List(l, 0),
             _ => It::Done,
@@ -2758,7 +2761,7 @@ fn iter_kind(v: &V) -> ItKind {
         },
         V::Set(_) | V::FSet(_) => ItKind::SetIter,
         V::Deque(_) => ItKind::DequeIter,
-        V::Class(c) if is_enum(c) => ItKind::Generator,
+        V::Class(c) if is_enum(c) || is_enum_shell(c) => ItKind::Generator,
         V::Obj(_) => match inner_of(v) {
             // iter() of a str subclass goes through its __iter__, which CPython gives str_iterator
             // even for ASCII strings (the ascii fast path only applies to str itself).
