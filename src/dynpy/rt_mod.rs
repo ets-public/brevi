@@ -4029,13 +4029,10 @@ fn abc_class() -> Rc<Class> {
     })
 }
 
-// The same checks CPython's namedtuple makes, on the str values field_names was mapped with str().
+// The same checks CPython's namedtuple makes, on the str values field_names was mapped with str():
+// str.isidentifier() (CPython 3.13's XID tables) and keyword.iskeyword() (hard keywords only).
 fn py_ident(s: &str) -> bool {
-    let mut cs = s.chars();
-    match cs.next() {
-        Some(c) if c == '_' || c.is_alphabetic() => cs.all(|c| c == '_' || c.is_alphanumeric()),
-        _ => false,
-    }
+    py_isidentifier(s)
 }
 fn py_keyword(s: &str) -> bool {
     matches!(s,
@@ -4071,7 +4068,8 @@ fn namedtuple_with(mut a: Args, check_name: bool) -> R {
     a.want("namedtuple", 2, 2)?;
     let name = sym(&to_str(&a.p[0])?);
     let mut fields: Vec<Sym> = match &a.p[1] {
-        V::Str(x) => x.text().replace(',', " ").split_whitespace().map(sym).collect(),
+        // str.split() with no arguments: CPython's whitespace (\x1c-\x1f included), not Rust's
+        V::Str(x) => x.text().replace(',', " ").split(py_ch_isspace).filter(|w| !w.is_empty()).map(sym).collect(),
         x => {
             let mut out = vec![];
             for f in to_vec(x)? {
@@ -4107,6 +4105,12 @@ fn namedtuple_with(mut a: Args, check_name: bool) -> R {
             return val_err(format!("Encountered duplicate field name: {}", str_repr(f)));
         }
         seen.push(*f);
+    }
+    // CPython compiles __new__ from the field names, NFKC-normalizing them as identifiers: then 'ﬁ' and 'fi'
+    // are a duplicate argument (SyntaxError) and keyword arguments go by the normalized name. Names that may
+    // change under NFKC stop the program (uncatchably, since CPython may succeed) rather than build differently.
+    if let Some(f) = fields.iter().find(|f| !py_nfkc_stable(f)) {
+        refuse_stop(&format!("a namedtuple field name NFKC normalization may change ({})", str_repr(f)));
     }
     let defaults_given = matches!(&defaults, Some(d) if !matches!(d, V::None));
     let dflt: Vec<V> = match &defaults {
