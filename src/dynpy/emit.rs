@@ -2285,6 +2285,8 @@ impl Em {
             // f"{x}", f"{x!s}", f"{x:}": format(x, "") is the exact str itself
             Ex::FStr(parts) if matches!(&parts[..], [FPart::Expr(_, None | Some('s'), spec, _)] if spec.is_empty()) => {
                 let FPart::Expr(e, _, _, _) = &parts[0] else { unreachable!() };
+                // f"{sys.stdout}" is refused at build time, as in any other f-string
+                self.lib_repr_check(e, line)?;
                 let ee = self.ex(e, line)?;
                 let t = self.q("to_str(&__x)");
                 format!("{{ let __x = {ee}; if let V::Str(_) = &__x {{ __x }} else {{ let mut __s = Txt::new(); __s.push_str(&{t}); txt_v(__s) }} }}")
