@@ -536,7 +536,8 @@ def _count_body(messages, model, cache_control, output_config, speed, system, th
 
 # ---------- structured outputs (messages.parse, output_format) ----------
 
-_SUPPORTED_STRING_FORMATS = {"date-time", "time", "date", "duration", "email", "hostname", "uri", "ipv4", "ipv6", "uuid"}
+# looked up only (a tuple: a set literal in a module Brevi copies has no CPython order, emit.rs const_fset)
+_SUPPORTED_STRING_FORMATS = ("date-time", "time", "date", "duration", "email", "hostname", "uri", "ipv4", "ipv6", "uuid")
 
 
 def transform_schema(json_schema):
