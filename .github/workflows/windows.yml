@@ -88,6 +88,18 @@ jobs:
           python-version: "3.13"
           architecture: ${{ matrix.target == 'aarch64-pc-windows-msvc' && 'arm64' || 'x64' }}
 
+      # cryptography (mcp's server imports it, and the MCP checks run that server) has no win_arm64 wheel after
+      # 46.0.3, whose wheels carry open advisories. So on ARM64 pip builds the current cryptography from source,
+      # linked statically against an OpenSSL that vcpkg builds here (both come with the runner image).
+      - name: OpenSSL for building cryptography (ARM64)
+        if: matrix.target == 'aarch64-pc-windows-msvc'
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install openssl:arm64-windows-static-md
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg could not build OpenSSL for arm64" }
+          "OPENSSL_DIR=$env:VCPKG_INSTALLATION_ROOT\installed\arm64-windows-static-md" >> $env:GITHUB_ENV
+          "OPENSSL_STATIC=1" >> $env:GITHUB_ENV
+
       # Required, never optional: a green run means every native-copy check ran.
       - name: Python packages the checks compare with (pinned)
         run: python -m pip install --quiet -r tests/requirements-native.txt
