@@ -284,29 +284,31 @@ if [ "$np_kern" != none ] && [ "$1" != "--update" ]; then
   fi
 fi
 # A binary built here and copied to a CPU without a modelled kernel must raise NotImplementedError at each float
-# BLAS/LAPACK call (rt_np.rs np_blas_ok), never print other digits: an emulated CPU without AVX2 or FMA (qemu) stands
-# in for that CPU, qemu's Haswell (no AVX-512) for the float32 kernels. The first of SandyBridge, Haswell without FMA,
-# Haswell without AVX2 that this system's own programs run on is used (GitHub's Ubuntu 26.04 runner's /bin/true stops
-# with an illegal instruction on qemu 10.2's Westmere and SandyBridge). BREVI_QEMU_TESTS=1 (GitHub CI) makes a skip a failure.
+# BLAS/LAPACK call (rt_np.rs np_blas_ok), never print other digits. qemu stands in for that CPU: SandyBridge (no AVX2
+# or FMA) for the float64 kernels, Haswell (no AVX-512) for the float32 ones. Where this system's own libraries need
+# a newer CPU (GitHub's Ubuntu 26.04 runner: /bin/true stops with an illegal instruction on qemu's SandyBridge), the
+# binary runs on an ubuntu:24.04 container's libraries instead (docker, with this qemu if it is static).
+# BREVI_QEMU_TESTS=1 (GitHub CI) makes a skip a failure.
 if [ "$np_kern" != none ] && [ "$1" != "--update" ] && [ "$(uname -m)" = x86_64 ]; then
   if ! command -v qemu-x86_64 >/dev/null; then
     if [ "${BREVI_QEMU_TESTS:-}" = 1 ]; then echo "FAIL numpy runtime refusal (qemu-x86_64 not installed)"; fail=1
     else echo "skip numpy runtime refusal (no qemu-x86_64)"; fi
   else
     npq=$(mktemp -d)
-    old=none
-    for c in SandyBridge Haswell,-fma Haswell,-avx2; do qemu-x86_64 -cpu "$c" /bin/true 2>/dev/null && { old=$c; break; }; done
-    for t in blas_refusal:$old f32_refusal:Haswell; do
+    npq_run() { # npq_run CPU PROGRAM: PROGRAM on qemu's CPU, on this system's libraries or else ubuntu:24.04's
+      if qemu-x86_64 -cpu "$1" /bin/true 2>/dev/null; then qemu-x86_64 -cpu "$1" "$2"
+      else docker run --rm -v "$npq:$npq:ro" -v "$(command -v qemu-x86_64):/usr/local/bin/qemu-x86_64:ro" ubuntu:24.04 qemu-x86_64 -cpu "$1" "$2"; fi
+    }
+    for t in blas_refusal:SandyBridge f32_refusal:Haswell; do
       f=tests/numpy_cpu/${t%%:*}.py cpu=${t##*:}
-      [ "$cpu" = none ] && { echo "FAIL $f (this system's own programs run on none of qemu's CPUs without AVX2 or FMA)"; fail=1; continue; }
       # float32 products are Brevi's only on AVX-512 CPUs: elsewhere the build already sends them to CPython
       [ "$cpu" = Haswell ] && [ "$np_kern" != skx ] && { echo "skip $f (needs AVX-512 to build natively)"; continue; }
-      if ! qemu-x86_64 -cpu "$cpu" /bin/true 2>/dev/null; then
-        echo "FAIL $f (this system's own programs do not run on qemu's $cpu CPU)"; fail=1
+      if ! npq_run "$cpu" /bin/true >/dev/null 2>&1; then
+        echo "FAIL $f (no system runs on qemu's $cpu CPU here: docker with ubuntu:24.04 and a static qemu-x86_64 are needed)"; fail=1
       elif ! BREVI_PATH=1 timeout 600 $BREVI build "$f" -o "$npq/b" --no-cache 2>"$npq/err" >/dev/null || ! grep -q '"path":"dynamic"' "$npq/err"; then
         echo "FAIL $f (not built with Brevi's numpy)"; cat "$npq/err"; fail=1
-      elif [ "$(qemu-x86_64 -cpu "$cpu" "$npq/b" 2>/dev/null)" != "$(cat "${f%.py}.expected")" ]; then
-        echo "FAIL $f (on a $cpu CPU)"; qemu-x86_64 -cpu "$cpu" "$npq/b" 2>&1 | diff "${f%.py}.expected" - | head -20; fail=1
+      elif [ "$(npq_run "$cpu" "$npq/b" 2>/dev/null)" != "$(cat "${f%.py}.expected")" ]; then
+        echo "FAIL $f (on a $cpu CPU)"; npq_run "$cpu" "$npq/b" 2>&1 | diff "${f%.py}.expected" - | head -20; fail=1
       else
         echo "ok   $f (refused on a $cpu CPU)"
       fi

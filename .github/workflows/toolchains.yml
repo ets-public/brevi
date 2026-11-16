@@ -257,6 +257,9 @@ jobs:
         run: |
           sudo apt-get install -y -q qemu-user >/dev/null || { sudo apt-get update -q >/dev/null && sudo apt-get install -y -q qemu-user >/dev/null; }
           qemu-x86_64 --version | head -1
+          # this runner's own libraries need AVX2: check.sh runs the binary on ubuntu:24.04's under a static qemu
+          file -L "$(command -v qemu-x86_64)"
+          docker pull -q ubuntu:24.04
           echo "BREVI_QEMU_TESTS=1" >> "$GITHUB_ENV"
 
       - name: Language tests (tests/run, tests/errors)
