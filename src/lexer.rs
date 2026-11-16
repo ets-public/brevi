@@ -430,6 +430,8 @@ fn triple_strings(src: &str) -> String {
 }
 
 pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
+    // CRLF or CR line ends read as `\n`, as CPython reads source (crate::read_src does the same for files)
+    let src = &*crate::universal_newlines(src);
     let src_in = src;
     let src = &triple_strings(&drop_py_imports(src));
     let chars: Vec<char> = src.chars().collect();

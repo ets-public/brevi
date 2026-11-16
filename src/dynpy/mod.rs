@@ -475,6 +475,50 @@ fn __ctype_locale() -> Option<String> {
 }
 "#;
 
+// re.LOCALE's C library answers (rt_text.rs LOC_CTYPE). python3 sets LC_CTYPE from the environment at startup
+// (setlocale(LC_CTYPE, ""), Python/pylifecycle.c), and the program does the same here, so a later
+// locale.setlocale that reaches the C library is seen too. sre asks tolower, toupper and isalnum, or on macOS
+// towlower, towupper and iswalnum of btowc (Modules/_sre/sre.c); the casts are sre's.
+const LOC_CTYPE_FN: &str = r#"
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd", windows))]
+const __LC_CTYPE: std::ffi::c_int = 2;
+#[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd", windows)))]
+const __LC_CTYPE: std::ffi::c_int = 0;
+fn __set_ctype_locale() {
+    extern "C" {
+        fn setlocale(cat: std::ffi::c_int, loc: *const std::ffi::c_char) -> *mut std::ffi::c_char;
+    }
+    unsafe {
+        setlocale(__LC_CTYPE, b"\0".as_ptr() as *const std::ffi::c_char);
+    }
+}
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+fn __loc_ctype(c: u32) -> (u32, u32, bool) {
+    use std::ffi::c_int;
+    extern "C" {
+        fn tolower(c: c_int) -> c_int;
+        fn toupper(c: c_int) -> c_int;
+        fn isalnum(c: c_int) -> c_int;
+    }
+    let c = c as c_int;
+    unsafe { (tolower(c) as u32, toupper(c) as u32, isalnum(c) != 0) }
+}
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn __loc_ctype(c: u32) -> (u32, u32, bool) {
+    use std::ffi::c_int;
+    extern "C" {
+        fn btowc(c: c_int) -> u32;
+        fn towlower(c: u32) -> u32;
+        fn towupper(c: u32) -> u32;
+        fn iswalnum(c: u32) -> c_int;
+    }
+    unsafe {
+        let w = btowc(c as c_int);
+        (towlower(w), towupper(w), iswalnum(w) != 0)
+    }
+}
+"#;
+
 // The str/bytes hash key (rt_core.rs HASH_KEY) as CPython 3.13 draws it at startup from PYTHONHASHSEED
 // (Python/initconfig.c config_init_hash_seed, bootstrap_hash.c): unset, empty or "random" draws a random key;
 // a decimal integer (strtoul: leading spaces and a sign allowed) from 0 to 4294967295 gives that seed's key, 0 the
@@ -875,9 +919,9 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         lib_classes(&mods, &texts, &mut bridge)?;
     }
     for (m, (path, src)) in &texts {
-        let abs = std::fs::canonicalize(path).map(|p| p.to_string_lossy().to_string()).unwrap_or(path.clone());
+        let abs = crate::modules::abs_path(Path::new(path));
         // the file as on disk (CPython's warning shows that line), not the text with __file__ filled in
-        let disk = std::fs::read_to_string(path).unwrap_or_else(|_| src.clone());
+        let disk = crate::read_src(path).unwrap_or_else(|_| src.clone());
         bridge.srcs.insert(m.clone(), (abs, disk));
     }
     bridge.own = own_mods.clone();
@@ -1112,6 +1156,8 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         rust.push_str(STDOUT_ERRS_FN);
         rust = rust.replacen("fn main() { ", "fn main() { HASH_KEY.set(__hash_key()).ok(); ", 1);
         rust.push_str(HASH_KEY_FN);
+        rust = rust.replacen("fn main() { ", "fn main() { __set_ctype_locale(); LOC_CTYPE.set(__loc_ctype).ok(); ", 1);
+        rust.push_str(LOC_CTYPE_FN);
     }
     if mods.iter().any(|m| m.name == "argparse") && crate::pybridge::py_allowed("argparse") {
         rust = rust.replacen("run_main(__run); }", "TERM_COLS.set(__term_cols).ok(); run_main(__run); }", 1);
@@ -1743,7 +1789,7 @@ fn lib_classes(mods: &[emit::Module], texts: &HashMap<String, (String, String)>,
             imports.push_str(l);
         }
         bridge.imports.insert(m.name.clone(), imports);
-        bridge.files.insert(m.name.clone(), std::fs::canonicalize(&path).map(|p| p.to_string_lossy().to_string()).unwrap_or(path.clone()));
+        bridge.files.insert(m.name.clone(), crate::modules::abs_path(Path::new(&path)));
     }
     // A class of the program built on such a class of another file: refused.
     for m in mods {

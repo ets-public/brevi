@@ -247,7 +247,9 @@ def procs_in(d):
     return n
 
 q = raw_start("--trust-calls")
-work = os.path.realpath(os.path.join(__import__("tempfile").gettempdir(), f"brevi-mcp-{q.pid}"))
+# The server's work folder is in Brevi's private temp folder (main.rs tmp_root): TMPDIR/brevi-UID on unix.
+_priv = os.path.join(__import__("tempfile").gettempdir(), f"brevi-{os.geteuid()}") if hasattr(os, "geteuid") else __import__("tempfile").gettempdir()
+work = os.path.realpath(os.path.join(_priv, f"brevi-mcp-{q.pid}"))
 raw_send(q, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "t", "version": "1"}}})
 r = raw_recv(q)["result"]
 want("version echoed", r["protocolVersion"] == "2025-06-18", r)

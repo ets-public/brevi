@@ -15,7 +15,8 @@ curl -fsSL https://raw.githubusercontent.com/ets-public/brevi/main/install.sh | 
 ```
 
 Rust links programs with the system's C linker: on a bare Linux machine install it first (`sudo apt install
-build-essential`, or your distribution's `gcc`); on macOS, `xcode-select --install`.
+build-essential`, or your distribution's `gcc`); on macOS, `xcode-select --install`. From the next release, on Linux x86-64 and macOS, brevi fetches its own
+pinned Rust and, with no C linker, links with zig ([Install](/docs/install)).
 
 Windows: install Rust with [rustup](https://rustup.rs) (it also asks for the Microsoft C++ build tools), then unzip
 `brevi.exe` from the [latest release](__GITHUB__/releases/latest) onto your PATH. Every option: [Install](/docs/install).
@@ -26,7 +27,7 @@ Windows: install Rust with [rustup](https://rustup.rs) (it also asks for the Mic
 
 ```
 $ brevi --version
-brevi 0.28.1
+brevi __FULLVERSION__
 ```
 
 ## 2. The agent writes main.py

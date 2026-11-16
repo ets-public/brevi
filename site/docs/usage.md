@@ -326,7 +326,12 @@ window "tk"
 ## Libraries
 
 - **Python packages** in Python files: `import numpy as np`, `pandas`, `yaml`, `pathlib`, `subprocess` or any other installed module works. Its calls run in CPython inside the native program, so results are CPython's own. The program needs `libpython` where it runs, unless built with `--standalone`.
-- **Standalone binaries**: `brevi build x.py --standalone` carries CPython, the standard library and the imported packages (with what they require). The first run unpacks them once into `~/.cache/brevi/py` (`%LOCALAPPDATA%\brevi\py` on Windows), about 1 to 3 seconds; later runs start at normal speed. Expect about 13 MB for a standard-library program and 30 to 45 MB with numpy or pandas. Linux and Windows. A standalone binary uses only the Python it carries: if the file is changed after the build (code signing appends to it), it refuses to run instead of using an installed Python. On Windows the build is refused with Microsoft Store Python or a Python for another CPU.
+- **Standalone binaries**: `brevi build x.py --standalone` carries CPython, the standard library and the imported packages (with what they require). The first run unpacks them once into `~/.cache/brevi/py` (`%LOCALAPPDATA%\brevi\py` on Windows), about 1 to 3 seconds; later runs start at normal speed. Expect about 13 MB for a standard-library program and 30 to 45 MB with numpy or pandas. Linux and Windows. A standalone binary uses only the Python it carries: if the file is changed after the build (code signing appends to it), it refuses to run instead of using an installed Python. On Windows the build is refused with Microsoft Store Python or a Python for another CPU. It is one file to copy, but it does not run in place: what it cannot carry or do:
+  - **Run without a writable cache.** The first run unpacks CPython into `BREVI_PY_CACHE`; on Windows a cache path that would put an unpacked file past 260 characters is refused (set `BREVI_PY_CACHE` shorter).
+  - **Desktop and build tooling from the standard library:** `tkinter`, `turtle`, IDLE, the Tcl/Tk DLLs, `ensurepip`, `lib2to3` and the `test` packages are left out.
+  - **Imports it cannot see at build time:** it carries the packages the program imports and what they import as they load, so a module imported only later, while the program runs (by a name built at run time, or lazily inside a library function), may be missing.
+  - **Survive changes to the file:** code signing or anything else that appends to the binary makes it refuse to run (never falling back to an installed Python).
+  - **macOS:** not yet; `--standalone` is refused there.
 - **Rust crates and Python code from Brevi programs**: `use sha2 "0.10"` with a `rust fn`, or a `py fn` with a Python body. See [Libraries](/docs/libraries).
 
 ## Speed and the build cache
@@ -335,7 +340,7 @@ Running `brevi check`, `build` or `run` again on files that did not change repla
 
 From v0.27.0, `brevi run` and `brevi test` after an edit don't wait for the optimised build. They build the program unoptimised (rustc opt-level 0), run it at once, and build the optimised binary (opt-level 1, the default) in the background into the cache. The next run of the unchanged program uses the optimised one. On a 200-line program, a run after an edit went from 0.82 s to 0.32 s on the typed path, and from 1.50 s to 0.50 s on the dynamic path. The unoptimised binary runs slower (often 2x to 5x slower on loops), so for a long computation use `--release`, or set `BREVI_TIERED=0`. `brevi build` always makes the optimised binary, and so does a run with `--no-cache`. The very first build after installing Brevi, or after a Rust update, also builds Brevi's runtime library once, which takes about 5 to 15 seconds.
 
-Write the plain, direct program. Brevi runs plain loops over ints and lists several times faster than CPython (1.6x to 37.9x, median 9.3x, on our 12 compute benchmarks), so code hand-tuned for CPython (bit tricks, packing values into big integers) is usually slower under Brevi, not faster.
+Write the plain, direct program. Brevi runs plain loops over ints and lists several times faster than CPython (typed build: 1.6x to 37.9x, median 9.3x, on our 12 compute benchmarks; when values change type it falls back to the dynamic build, median 0.85x), so code hand-tuned for CPython (bit tricks, packing values into big integers) is usually slower under Brevi, not faster.
 
 ## Environment variables
 

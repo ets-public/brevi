@@ -1,6 +1,6 @@
 {
 "brevi": "brevi 0.28.1",
-"commit": "1a86b518b773",
+"commit": "3ab1e59c64a0",
 "python": "3.13.13",
 "tag": "v3.13.13",
 "date": "2026-11-16",
@@ -25,12 +25,12 @@
 "scored": 1072,
 "matched_through_cpython": 0,
 "matched_silent": 98,
-"coverage": 0.9729,
+"coverage": 0.9729477611940298,
 "wrong": 0,
 "matched_asserting": 945,
-"assert_coverage": 0.8815,
+"assert_coverage": 0.8815298507462687,
 "matched_typed": 27,
-"typed_share": 0.0259
+"typed_share": 0.02588686481303931
 },
 "dyn": {
 "matched": 1043,
@@ -48,10 +48,10 @@
 "scored": 1072,
 "matched_through_cpython": 0,
 "matched_silent": 98,
-"coverage": 0.9729,
+"coverage": 0.9729477611940298,
 "wrong": 0,
 "matched_asserting": 945,
-"assert_coverage": 0.8815,
+"assert_coverage": 0.8815298507462687,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -77,9 +77,9 @@
 "coverage": 1.0,
 "wrong": 0,
 "matched_asserting": 28,
-"assert_coverage": 0.5283,
+"assert_coverage": 0.5283018867924528,
 "matched_typed": 17,
-"typed_share": 0.3208
+"typed_share": 0.32075471698113206
 },
 "dyn": {
 "matched": 53,
@@ -100,7 +100,7 @@
 "coverage": 1.0,
 "wrong": 0,
 "matched_asserting": 28,
-"assert_coverage": 0.5283,
+"assert_coverage": 0.5283018867924528,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -173,9 +173,9 @@
 "coverage": 1.0,
 "wrong": 0,
 "matched_asserting": 27,
-"assert_coverage": 0.871,
+"assert_coverage": 0.8709677419354839,
 "matched_typed": 2,
-"typed_share": 0.0645
+"typed_share": 0.06451612903225806
 },
 "dyn": {
 "matched": 31,
@@ -196,7 +196,7 @@
 "coverage": 1.0,
 "wrong": 0,
 "matched_asserting": 27,
-"assert_coverage": 0.871,
+"assert_coverage": 0.8709677419354839,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -221,9 +221,9 @@
 "coverage": 1.0,
 "wrong": 0,
 "matched_asserting": 60,
-"assert_coverage": 0.9836,
+"assert_coverage": 0.9836065573770492,
 "matched_typed": 1,
-"typed_share": 0.0164
+"typed_share": 0.01639344262295082
 },
 "dyn": {
 "matched": 61,
@@ -244,7 +244,7 @@
 "coverage": 1.0,
 "wrong": 0,
 "matched_asserting": 60,
-"assert_coverage": 0.9836,
+"assert_coverage": 0.9836065573770492,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -269,9 +269,9 @@
 "coverage": 1.0,
 "wrong": 0,
 "matched_asserting": 88,
-"assert_coverage": 0.8713,
+"assert_coverage": 0.8712871287128713,
 "matched_typed": 3,
-"typed_share": 0.0297
+"typed_share": 0.0297029702970297
 },
 "dyn": {
 "matched": 101,
@@ -292,7 +292,7 @@
 "coverage": 1.0,
 "wrong": 0,
 "matched_asserting": 88,
-"assert_coverage": 0.8713,
+"assert_coverage": 0.8712871287128713,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -362,12 +362,12 @@
 "scored": 12,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.9167,
+"coverage": 0.9166666666666666,
 "wrong": 0,
 "matched_asserting": 11,
-"assert_coverage": 0.9167,
+"assert_coverage": 0.9166666666666666,
 "matched_typed": 1,
-"typed_share": 0.0909
+"typed_share": 0.09090909090909091
 },
 "dyn": {
 "matched": 11,
@@ -385,10 +385,10 @@
 "scored": 12,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.9167,
+"coverage": 0.9166666666666666,
 "wrong": 0,
 "matched_asserting": 11,
-"assert_coverage": 0.9167,
+"assert_coverage": 0.9166666666666666,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -458,10 +458,10 @@
 "scored": 485,
 "matched_through_cpython": 0,
 "matched_silent": 51,
-"coverage": 0.9464,
+"coverage": 0.9463917525773196,
 "wrong": 0,
 "matched_asserting": 408,
-"assert_coverage": 0.8412,
+"assert_coverage": 0.8412371134020619,
 "matched_typed": 0,
 "typed_share": 0.0
 },
@@ -481,10 +481,10 @@
 "scored": 485,
 "matched_through_cpython": 0,
 "matched_silent": 51,
-"coverage": 0.9464,
+"coverage": 0.9463917525773196,
 "wrong": 0,
 "matched_asserting": 408,
-"assert_coverage": 0.8412,
+"assert_coverage": 0.8412371134020619,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -506,10 +506,10 @@
 "scored": 283,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.9929,
+"coverage": 0.9929328621908127,
 "wrong": 0,
 "matched_asserting": 281,
-"assert_coverage": 0.9929,
+"assert_coverage": 0.9929328621908127,
 "matched_typed": 0,
 "typed_share": 0.0
 },
@@ -529,10 +529,10 @@
 "scored": 283,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.9929,
+"coverage": 0.9929328621908127,
 "wrong": 0,
 "matched_asserting": 281,
-"assert_coverage": 0.9929,
+"assert_coverage": 0.9929328621908127,
 "matched_typed": 0,
 "typed_share": 0.0
 }

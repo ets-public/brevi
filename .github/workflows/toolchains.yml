@@ -37,6 +37,7 @@ on:
       - "!compat/conformance_known_wrong/**"
       - "!compat/conformance_stdlib_known_wrong/**"
       - "!compat/conformance_windows_known_wrong/**"
+      - "!compat/conformance_windows_stdlib_known_wrong/**"
       - "!compat/conformance_by_design.txt"
       - "!compat/conformance_cpython_private.txt"
       - "!compat/conformance_needs_string_model.txt"
@@ -88,6 +89,10 @@ jobs:
         run: python3 tools/limits_check.py
       - name: Every src file says what it holds (tools/code_map.py), and the agent hooks hold
         run: python3 tools/code_map.py --check && python3 tests/agent_hooks_test.py
+      - name: Conformance extractor, classifier and published shares; release-notes figure checks
+        run: python3 tests/conformance_test.py && python3 tests/release_notes_test.py
+      - name: Published numbers (docs/NUMBERS.md is its release tag's; no headline quoted without its scope)
+        run: python3 tools/published_numbers.py --check && python3 tests/published_numbers_test.py
       - id: py
         name: Find the next Python release (pre-release)
         # Never blocks the matrix: if the lookup fails, fall back to a guess.
@@ -249,6 +254,16 @@ jobs:
           BREVI: ./target/release/brevi
         # check.sh in parallel, one job per CPU (the same checks, the same report)
         run: python3 tests/check_parallel.py
+
+      # Brevi's temp folders stay private when another local user plants folders first (src/privdir.rs). The test
+      # needs root and a second user, so it runs here under sudo (GitHub's runners have it), never skipped:
+      # BREVI_ROOT_TESTS=1 makes a skip a failure. The box (tools/modelbox.py) finds the toolchains under /root; -B so
+      # root leaves no __pycache__ in the checkout that later steps cannot write.
+      - name: Private temp folders (as root, with a second user)
+        if: steps.seen.outputs.cache-hit != 'true' && matrix.rust == 'stable' && matrix.python == '3.13'
+        run: |
+          for t in .cargo .rustup; do sudo mkdir -p "/root/$t" && sudo mount --bind "$HOME/$t" "/root/$t"; done
+          sudo env "PATH=$PATH" BREVI_ROOT_TESTS=1 BREVI="$PWD/target/release/brevi" python3 -B tests/privtmp_test.py
 
       # The language tests above skip these sections (this runner's Python has no duckdb, onnxruntime or mcp, and the
       # newest Python may have no wheels for them yet). The daily run and the release run them on CPython 3.13 with the
