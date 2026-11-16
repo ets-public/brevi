@@ -126,6 +126,8 @@ Re-measured alone on a Ryzen 9 5950X (32 threads) under WSL2 Ubuntu 24.04, Brevi
 
 The ranges are 1.6x to 37.9x (default), 2.1x to 38.8x (`--release`) and 0.5x to 1.4x (dynamic). The dynamic build (`BREVI_DYN=1`, with `--release`) is what a program whose values change type gets; it runs at about CPython's speed, slower on numeric loops. Median cold build: 0.2 s default, 1.1 s `--release`, 0.3 s dynamic. The 3 November figures came from a different machine, so the two sets are not a like-for-like comparison.
 
+These 12 programs all take the typed build. Which build agent-written programs actually take, and what that means for their speed, is measured on 587 of them in [Speed by build path](/docs/path-split).
+
 Library and dynamic-path cases (`bench/speed/gaps`, median of 3): polars on a large frame 2.0x faster than CPython; an asyncio loop 1.2x slower; sqlite point queries 1.3x slower; a Jinja chat template 2.9x slower; bulk pydantic validation 10.2x slower. A small autograd program shaped like microgpt (100 steps) ran 1.18x faster than CPython with 13% more memory.
 
 ## Rerunning
