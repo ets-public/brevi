@@ -581,5 +581,11 @@ class WindowsRatchet(unittest.TestCase):
         for t in ("test_empty_union", "test_self_equality", "test_self_intersection", "test_union_empty"):
             self.assertIn(f"test_set.TestBasicOpsTriple.{t}", c.ADDRESS_ORDER)
 
+    def test_threads_printing_at_once_are_unstable(self):
+        # CPython's OS scheduler orders (and splits) these lines, so its output must never decide the score
+        for t in ("threaded", "threaded2", "threaded3"):
+            self.assertIn(f"test_functools.TestLRUC.test_lru_cache_{t}", c.ALWAYS_UNSTABLE)
+        self.assertLessEqual(set(c.ADDRESS_ORDER), set(c.ALWAYS_UNSTABLE))
+
 if __name__ == "__main__":
     unittest.main()
