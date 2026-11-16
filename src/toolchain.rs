@@ -23,7 +23,14 @@ include!("toolchain_pins.rs");
 
 // Hosts where the pinned toolchain (with zig as the linker) passed pinned-toolchain.yml.
 // macOS Intel was checked as the x86-64 brevi under Rosetta on an Apple silicon runner (as release.yml builds it).
-const VERIFIED: &[&str] = &["x86_64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-apple-darwin"];
+const VERIFIED: &[&str] = &[
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+];
 
 const EXE: &str = std::env::consts::EXE_SUFFIX;
 
@@ -226,9 +233,18 @@ pub(crate) fn cc_main() -> ! {
             }
         }
     }
-    // rustc's Windows targets unwind with LLVM's libunwind, which zig builds when asked.
+    // rustc's Windows targets unwind with LLVM's libunwind, which zig builds when asked; and the shim below.
     if cfg!(windows) {
         c.arg("-lunwind");
+        match win_shim(dir) {
+            Ok(o) => {
+                c.arg(o);
+            }
+            Err(e) => {
+                eprintln!("brevi-cc: {e}");
+                std::process::exit(1)
+            }
+        }
     }
     // zig keeps the C runtime it builds for the target here, beside itself, not in the user's ~/.cache/zig.
     let cache = dir.join("cache");
@@ -260,6 +276,48 @@ fn cc_arg(a: &str) -> Option<Result<Option<&'static str>, String>> {
         "-lsynchronization" if cfg!(windows) => Some(Ok(Some("-lapi-ms-win-core-synch-l1-2-0"))),
         _ => None,
     }
+}
+
+// Windows: functions rustc's code calls that zig's MinGW C library lacks. LLVM turns sin(x) and cos(x) of one x
+// into one sincos call on the GNU targets, as llvm-mingw's library provides; here it is sin and cos, the same
+// values CPython gets. Compiled with -fno-builtin, so the compiler cannot turn the pair back into a sincos call.
+const WIN_SHIM: &str = "double sin(double), cos(double);\nfloat sinf(float), cosf(float);\n\
+void sincos(double x, double *s, double *c) { *s = sin(x); *c = cos(x); }\n\
+void sincosf(float x, float *s, float *c) { *s = sinf(x); *c = cosf(x); }\n";
+
+// The shim's object file beside zig, compiled once (the name changes with its source).
+fn win_shim(dir: &Path) -> Result<PathBuf, String> {
+    let h = WIN_SHIM.bytes().fold(0xcbf29ce484222325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100000001b3));
+    let obj = dir.join(format!("brevi-shim-{h:016x}.o"));
+    if obj.is_file() {
+        return Ok(obj);
+    }
+    let id = std::process::id();
+    let src = dir.join(format!(".brevi-shim-{id}.c"));
+    let tmp = dir.join(format!(".brevi-shim-{id}.o"));
+    std::fs::write(&src, WIN_SHIM).map_err(|e| format!("{}: {e}", src.display()))?;
+    let cache = dir.join("cache");
+    let o = Command::new(dir.join("zig").join(format!("zig{EXE}")))
+        .args(["cc", "-target", &zig_target(), "-O2", "-fno-builtin", "-c"])
+        .arg(&src)
+        .arg("-o")
+        .arg(&tmp)
+        .env("ZIG_GLOBAL_CACHE_DIR", &cache)
+        .env("ZIG_LOCAL_CACHE_DIR", &cache)
+        .stdin(Stdio::null())
+        .output();
+    std::fs::remove_file(&src).ok();
+    match o {
+        Ok(o) if o.status.success() => {}
+        Ok(o) => return Err(format!("could not compile its C shim: {}", String::from_utf8_lossy(&o.stderr).trim())),
+        Err(e) => return Err(format!("could not run zig: {e}")),
+    }
+    // Another link may have made it meanwhile: either file is the same.
+    if std::fs::rename(&tmp, &obj).is_err() && !obj.is_file() {
+        return Err(format!("could not save {}", obj.display()));
+    }
+    std::fs::remove_file(&tmp).ok();
+    Ok(obj)
 }
 
 // Why zig cannot link for this machine: one of its cores is an Arm Cortex-A53 (implementer 0x41, part 0xd03, as in
