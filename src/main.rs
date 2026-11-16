@@ -31,11 +31,13 @@ mod share_guard;
 mod typed_guard;
 mod unicode_names;
 mod pysentinel;
+mod privdir;
 mod pystd;
 mod pygen;
 mod scoped;
 mod runcache;
 mod tier;
+mod toolchain;
 mod shim;
 mod verify;
 
@@ -166,13 +168,25 @@ pub fn python_exe() -> Result<String, String> {
     cpython::exe()
 }
 
-/// A program's source file, read as Python reads it: a UTF-8 byte order mark at the start is not part of the text.
+/// A program's source file, read as Python reads it: a UTF-8 byte order mark at the start is not part of the text,
+/// and every line ends in `\n` (universal newlines: `\r\n` and a lone `\r` become `\n`, so a file saved on Windows
+/// gives the same string literals and line continuations as on Linux).
 pub fn read_src(p: impl AsRef<Path>) -> std::io::Result<String> {
     let s = std::fs::read_to_string(p)?;
-    Ok(match s.strip_prefix('\u{feff}') {
+    let s = match s.strip_prefix('\u{feff}') {
         Some(t) => t.to_string(),
         None => s,
-    })
+    };
+    Ok(universal_newlines(&s).into_owned())
+}
+
+/// Python's universal newlines on source text: `\r\n` and a lone `\r` become `\n`, as CPython's tokenizer reads them.
+/// Text that has no `\r` comes back borrowed.
+pub fn universal_newlines(s: &str) -> std::borrow::Cow<'_, str> {
+    if !s.contains('\r') {
+        return std::borrow::Cow::Borrowed(s);
+    }
+    std::borrow::Cow::Owned(s.replace("\r\n", "\n").replace('\r', "\n"))
 }
 
 // `brevi run` options that take a value in the next argument (or after `=`).
@@ -239,6 +253,10 @@ fn main() {
             exit(if copy_job(Path::new(&from), Path::new(&to)) { 0 } else { 1 });
         }
     }
+    // `brevi-cc`: the linker rustc runs when zig links (src/toolchain.rs).
+    if toolchain::is_cc() {
+        toolchain::cc_main();
+    }
     tm("start");
     if let Some(args) = shim::args() {
         shim::main(args);
@@ -272,6 +290,9 @@ fn main() {
     }
     if argv.first().map(|a| a.as_str()) == Some("__tier") {
         tier::job(&argv[1..]);
+    }
+    if argv.first().map(|a| a.as_str()) == Some("toolchain") {
+        toolchain::main(&argv[1..]);
     }
     if matches!(argv.first().map(|a| a.as_str()), Some("--help" | "-h" | "help")) {
         println!("{USAGE}");
@@ -1089,18 +1110,22 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
             if short {
                 cmd.stderr(std::process::Stdio::piped());
             }
+            // The note goes out before CPython starts: printed after the spawn, it raced the program's own output
+            // and could land after lines the program had already written (stderr and stdout often share one pipe).
+            // python_exe() has just run this interpreter, so the spawn below fails only if it vanished since.
+            say_cpython(file, &python, &out, &String::from_utf8_lossy(&o.stderr));
             match cmd.spawn() {
                 Ok(mut child) => {
-                    say_cpython(file, &python, &out, &String::from_utf8_lossy(&o.stderr));
                     if let Some(err) = child.stderr.take() {
                         last_traceback_line(err);
                     }
                     child.wait().map(proc::code).unwrap_or(1)
                 }
-                Err(_) => {
-                    // No Python here: show Brevi's errors as a strict run would.
+                Err(e) => {
+                    // CPython could not start after all: say so, and show Brevi's errors as a strict run would.
                     print!("{out}");
                     std::io::stderr().write_all(&o.stderr).ok();
+                    eprintln!("note: not run with CPython: {python} did not start ({e})");
                     1
                 }
             }
@@ -1728,7 +1753,30 @@ pub fn build_dir_path(file: &str) -> PathBuf {
     for b in abs.to_string_lossy().bytes() {
         h = (h ^ b as u64).wrapping_mul(1099511628211);
     }
-    std::env::temp_dir().join(format!("brevi-{h:x}"))
+    tmp_root().join(format!("brevi-{h:x}"))
+}
+
+// Where Brevi keeps its temporary folders (build folders, MCP work folders, ...). On unix a private folder of
+// this user's (privdir.rs): $TMPDIR/brevi-UID, else ~/.cache/brevi/tmp. Another local user can read nothing in
+// it and change nothing, so a build cannot be swapped between being made and being run. When neither is
+// private, brevi stops with the reason rather than build in a folder someone else controls.
+pub(crate) fn tmp_root() -> PathBuf {
+    #[cfg(unix)]
+    {
+        static ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+        ROOT.get_or_init(|| match privdir::ax_priv::root("brevi", "tmp") {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("brevi: {e}");
+                std::process::exit(1)
+            }
+        })
+        .clone()
+    }
+    #[cfg(not(unix))]
+    {
+        std::env::temp_dir()
+    }
 }
 
 // The builds to try in order: with inferred types for empty values, then without (the errors shown come
@@ -1826,8 +1874,12 @@ pub(crate) fn cache_dir() -> PathBuf {
         // Absolute, so a background build (src/tier.rs), which runs in its own folder, finds the same cache.
         return std::path::absolute(&d).unwrap_or_else(|_| PathBuf::from(d));
     }
-    let home = std::env::var("HOME").map(PathBuf::from).unwrap_or_else(|_| std::env::temp_dir());
-    home.join(".cache").join("brevi")
+    // With no home folder, in the private temp folder: never a shared one (a cache in /tmp/.cache could be
+    // filled with binaries by another user).
+    match std::env::var("HOME") {
+        Ok(h) if !h.is_empty() => PathBuf::from(h).join(".cache").join("brevi"),
+        _ => tmp_root().join("cache"),
+    }
 }
 
 // Builds with cargo, for programs that use crates. Same results as compile().
@@ -1851,7 +1903,7 @@ fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &
     // On the first line, so rustc's line numbers still match the generated code.
     std::fs::write(dir.join("main.rs"), format!("#![allow(warnings)] {rust}")).expect("write generated rust");
     let test = extra.contains(&"--test");
-    let mut c = Command::new("cargo");
+    let mut c = toolchain::cargo_cmd(Path::new(rustc_cmd().get_program()));
     if extra.contains(&"--emit=metadata") {
         c.arg("check");
     } else if test {
@@ -2040,7 +2092,8 @@ fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Op
             Err(String::from_utf8_lossy(&o.stderr).to_string())
         }
         Err(e) => {
-            println!("{{\"e\":\"io\",\"msg\":\"rustc not found: {}\"}}", esc(&e.to_string()));
+            let why = toolchain::why().map(|w| format!(" ({w})")).unwrap_or_default();
+            println!("{{\"e\":\"io\",\"msg\":\"rustc not found: {}{}\"}}", esc(&e.to_string()), esc(&why));
             return None;
         }
     };
@@ -2194,36 +2247,44 @@ pub(crate) fn rustc_version() -> &'static str {
     V.get_or_init(|| rustc_cmd().arg("-vV").output().map(|o| String::from_utf8_lossy(&o.stdout).to_string()).unwrap_or_default())
 }
 
+// The rustc builds use, with `-C linker=...` when zig links (src/toolchain.rs): the rustc on PATH, or Brevi's
+// pinned Rust when there is none (fetched once) or BREVI_TOOLCHAIN=pinned.
+pub(crate) fn rustc_cmd() -> Command {
+    static P: std::sync::OnceLock<(PathBuf, Vec<String>)> = std::sync::OnceLock::new();
+    let (path, args) = P.get_or_init(|| {
+        let system = system_rustc();
+        let pinned = toolchain::rustc(system.as_deref());
+        let linker = toolchain::linker_args(pinned.is_some());
+        (pinned.or(system).unwrap_or_else(|| PathBuf::from("rustc")), linker)
+    });
+    let mut c = Command::new(path);
+    c.args(args);
+    c
+}
+
 // rustc itself rather than the rustup proxy on PATH: each call through the proxy costs 20 to 50 ms, and a
 // build makes two or three. The toolchain is still the one the proxy picks. Its answer is remembered in the
 // cache under a key of everything rustup decides by (PATH, RUSTUP_* settings, rustup's settings file and any
-// rust-toolchain file above the working directory), so a toolchain switch asks the proxy again.
-pub(crate) fn rustc_cmd() -> Command {
-    static P: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-    Command::new(P.get_or_init(|| {
-        let saved = toolchain_key().map(|k| cache_dir().join("toolchain").join(k));
-        if let Some(p) = saved.as_ref().and_then(|f| std::fs::read_to_string(f).ok()).map(PathBuf::from) {
-            if p.is_file() {
-                return p;
-            }
+// rust-toolchain file above the working directory), so a toolchain switch asks the proxy again. None: no rustc.
+pub(crate) fn system_rustc() -> Option<PathBuf> {
+    let saved = toolchain_key().map(|k| cache_dir().join("toolchain").join(k));
+    if let Some(p) = saved.as_ref().and_then(|f| std::fs::read_to_string(f).ok()).map(PathBuf::from) {
+        if p.is_file() {
+            return Some(p);
         }
-        let real = Command::new("rustc").args(["--print", "sysroot"]).output().ok().filter(|o| o.status.success()).map(|o| {
-            PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()).join("bin").join(format!("rustc{}", std::env::consts::EXE_SUFFIX))
-        });
-        match real.filter(|p| p.is_file()) {
-            Some(p) => {
-                if let Some(f) = saved {
-                    let tmp = f.with_extension(format!("tmp{}", std::process::id()));
-                    let ok = std::fs::create_dir_all(f.parent().unwrap()).is_ok() && std::fs::write(&tmp, p.to_string_lossy().as_bytes()).is_ok();
-                    if !(ok && std::fs::rename(&tmp, &f).is_ok()) {
-                        std::fs::remove_file(&tmp).ok();
-                    }
-                }
-                p
-            }
-            None => PathBuf::from("rustc"),
+    }
+    let real = Command::new("rustc").args(["--print", "sysroot"]).output().ok().filter(|o| o.status.success()).map(|o| {
+        PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()).join("bin").join(format!("rustc{}", std::env::consts::EXE_SUFFIX))
+    });
+    let p = real.filter(|p| p.is_file())?;
+    if let Some(f) = saved {
+        let tmp = f.with_extension(format!("tmp{}", std::process::id()));
+        let ok = std::fs::create_dir_all(f.parent().unwrap()).is_ok() && std::fs::write(&tmp, p.to_string_lossy().as_bytes()).is_ok();
+        if !(ok && std::fs::rename(&tmp, &f).is_ok()) {
+            std::fs::remove_file(&tmp).ok();
         }
-    }))
+    }
+    Some(p)
 }
 
 // What rustup's choice of toolchain depends on, hashed. None (always ask the proxy) without a working directory.
@@ -2719,6 +2780,40 @@ pub fn python_style(src: &str) -> bool {
 #[cfg(test)]
 mod path_tests {
     use super::*;
+
+    // privdir.rs takes only a real folder of this user's that no one else can open, under folders no one else
+    // can change (tests/privtmp_test.py covers folders made by another user, which needs root).
+    #[cfg(unix)]
+    #[test]
+    fn private_folders_only() {
+        use privdir::ax_priv::{check, make};
+        use std::os::unix::fs::PermissionsExt;
+        let set = |p: &Path, m: u32| std::fs::set_permissions(p, std::fs::Permissions::from_mode(m)).unwrap();
+        let base = std::env::temp_dir().join(format!("brevi-priv-test-{}", std::process::id()));
+        std::fs::remove_dir_all(&base).ok();
+        std::fs::create_dir(&base).unwrap();
+        set(&base, 0o700);
+        let ok = make(&base.join("new")).unwrap();
+        assert_eq!(std::fs::metadata(&ok).unwrap().permissions().mode() & 0o777, 0o700);
+        assert!(make(&ok).is_ok(), "an existing private folder is taken again");
+        let open = base.join("open");
+        std::fs::create_dir(&open).unwrap();
+        set(&open, 0o755);
+        assert!(make(&open).unwrap_err().contains("open to other users"));
+        std::os::unix::fs::symlink(&ok, base.join("link")).unwrap();
+        assert!(make(&base.join("link")).unwrap_err().contains("not a folder"));
+        std::fs::write(base.join("file"), "").unwrap();
+        assert!(make(&base.join("file")).is_err());
+        // a folder above that others can change (not sticky): refused; sticky (as /tmp): fine
+        let shared = base.join("shared");
+        std::fs::create_dir(&shared).unwrap();
+        set(&shared, 0o777);
+        assert!(make(&shared.join("x")).unwrap_err().contains("not sticky"));
+        set(&shared, 0o1777);
+        assert!(make(&shared.join("y")).is_ok());
+        assert!(check(&shared.join("x")).is_ok(), "x was made private before it was refused for its parent");
+        std::fs::remove_dir_all(&base).ok();
+    }
 
     #[test]
     fn build_lock_makes_its_folder() {

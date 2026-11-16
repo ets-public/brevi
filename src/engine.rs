@@ -134,7 +134,7 @@ fn stub(mods: &[String], froms: &[(String, String)], calls: &[String]) -> (Strin
 
 fn build(mods: &[String], froms: &[(String, String)], calls: &[String]) -> Result<String, String> {
     let (src, mtab, ftab) = stub(mods, froms, calls);
-    let dir = std::env::temp_dir().join(format!("brevi-engine-{}", std::process::id()));
+    let dir = crate::tmp_root().join(format!("brevi-engine-{}", std::process::id()));
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let file = dir.join("__bv_libs.py");
     std::fs::write(&file, &src).map_err(|e| e.to_string())?;

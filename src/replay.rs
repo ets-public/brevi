@@ -129,7 +129,7 @@ pub fn run(mut c: Command, file: &str, args: &[String], release: bool) -> std::i
         return crate::proc::run(c);
     }
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-    let mark = std::env::temp_dir().join(format!("brevi-i64-{}-{nanos}", std::process::id()));
+    let mark = crate::tmp_root().join(format!("brevi-i64-{}-{nanos}", std::process::id()));
     let _ = std::fs::remove_file(&mark);
     // stdout and stderr stay the program's own (no copy through this process): the prelude counts and hashes
     // what it writes, for the second run to skip.

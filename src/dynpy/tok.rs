@@ -137,7 +137,7 @@ fn fetch(file: &str, sha: &str) -> Result<Vec<u8>, String> {
             }
         }
     }
-    let tmp = std::env::temp_dir().join(format!("brevi-tok-{}-{file}", std::process::id()));
+    let tmp = crate::tmp_root().join(format!("brevi-tok-{}-{file}", std::process::id()));
     let ok = std::process::Command::new("curl")
         .args(["-fsSL", "--retry", "2", "--max-time", "120", "-o"])
         .arg(&tmp)
@@ -151,8 +151,12 @@ fn fetch(file: &str, sha: &str) -> Result<Vec<u8>, String> {
     }
     if let Some(c) = &cache {
         if std::fs::create_dir_all(c).is_ok() {
+            // tiktoken's default cache is /tmp/data-gym-cache, which other users can write: the file is made new
+            // (never through a link or a file someone left under that name), and what is read back is checked
+            // against its hash above, so a file put there by someone else is never used.
             let t = c.join(format!("{key}.brevi{}.tmp", std::process::id()));
-            if std::fs::write(&t, &d).is_ok() {
+            let made = std::fs::OpenOptions::new().write(true).create_new(true).open(&t).and_then(|mut f| std::io::Write::write_all(&mut f, &d));
+            if made.is_ok() {
                 let _ = std::fs::rename(&t, c.join(&key));
             }
         }

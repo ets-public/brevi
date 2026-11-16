@@ -1,6 +1,6 @@
 # Known issues
 
-This page describes `main` as of v0.28.1 (16 November 2026). It lists limits that are known and tracked. It is not a list of every bug: open issues are on [GitHub](https://github.com/ets-public/brevi/issues). Report anything new as described in [SUPPORT.md](SUPPORT.md). For security problems, use [SECURITY.md](../SECURITY.md).
+This page describes `main` as of v0.28.2 (16 November 2026). It lists limits that are known and tracked. It is not a list of every bug: open issues are on [GitHub](https://github.com/ets-public/brevi/issues). Report anything new as described in [SUPPORT.md](SUPPORT.md). For security problems, use [SECURITY.md](../SECURITY.md).
 
 ## Correctness and conformance
 
@@ -15,10 +15,10 @@ Brevi's aim is that a build prints what CPython prints, or is refused. Two outco
 | --- | ---: | ---: | ---: | ---: |
 | Core: `test_grammar`, `test_scope`, `test_int`, `test_list`, `test_dict` ([report](../bench/conformance/report.md)) | 250 of 311 (80.4%) | 38 | 8, all exit status | 0 |
 | Stdlib: `itertools`, `collections`, `re`, `textwrap`, `functools`, `string` ([report](../bench/conformance/stdlib/report.md)) | 250 of 554 (45.1%) | 170 | 22 (3 output, 19 exit status) | 1 |
-| Core at v0.28.1, 16 November (10 files with `test_contains`, `test_binop`, `test_richcmp`, `test_set`, `test_patma`; at `PYTHONHASHSEED=0`; 83 by-design refusals left out; 3 not extractable) | 1043 of 1072 (97.3%) | 26 | 0 | 0 |
+| Core at v0.28.1, 16 November (10 files with `test_contains`, `test_binop`, `test_richcmp`, `test_set`, `test_patma`; at `PYTHONHASHSEED=0`; 83 by-design refusals left out; 3 not extractable) | 1043 of 1072 (97.3% of the scored suite, with 83 string-as-code tests excluded) | 26 | 0 | 0 |
 | Stdlib at v0.28.1, 16 November (11 files with `test_graphlib`, `test_colorsys`, `test_deque`, `test_dataclasses`, `test_enum`; 6 by-design refusals left out; 11 not extractable; 2 match only through the CPython bridge) | 1989 of 2053 (96.9%) | 51 | 0 | 0 |
 
-Forced dynamic builds score 97.3% (core) and 97.0% (stdlib), also with 0 wrong. 88.2% of core tests and 94.3% of stdlib tests are matches that print something to compare (the rest print nothing), and 2.6% and 1.2% of the native matches took the typed build.
+Forced dynamic builds score 97.3% (core, of the scored suite, with 83 string-as-code tests excluded) and 97.0% (stdlib), also with 0 wrong. 88.2% of core tests and 94.3% of stdlib tests are matches that print something to compare (the rest print nothing), and 2.6% and 1.2% of the native matches took the typed build.
 
 Things to know when reading these numbers:
 
@@ -45,6 +45,7 @@ Windows builds, runs and verifies programs natively, including library calls thr
 - Windows' own SQLite can be a different version from CPython's, so version-specific output may differ.
 - DuckDB and ONNX Runtime need their libraries installed (`pip install duckdb`, onnxruntime 1.16 or later).
 - Windows x86-64 and ARM64 (from v0.28.1) are built.
+- Conformance on Windows is gated for both slices. Each release runs CPython's core and standard-library tests on the shipped `brevi.exe` (windows-2022 and windows-11-arm) and refuses to ship below the floor, below 90% (core) or 80% (stdlib), or with any wrong answer. The 23 Windows-only stdlib wrong answers measured after v0.28.1 (`\\?\` source paths [#587](https://github.com/ets-public/brevi/issues/587), CRLF string literals [#588](https://github.com/ets-public/brevi/issues/588), no cp1252 codec [#589](https://github.com/ets-public/brevi/issues/589)) are fixed in v0.28.2, and both Windows known-wrong lists are empty.
 - In v0.27.x, dynamic builds on Windows use POSIX path rules (`os.path.basename("C:\\a\\b.txt")` gives the whole path) and report `sys.platform` as `linux`. From v0.28.0 `os.path` is `ntpath`, `sys.platform` is `win32`, and `pathlib` runs in CPython.
 
 Tests: [tests/windows/check.ps1](../tests/windows/check.ps1).

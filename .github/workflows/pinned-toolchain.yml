@@ -1,0 +1,103 @@
+# Brevi's pinned toolchain (src/toolchain.rs): with no Rust installed, brevi fetches the pinned Rust and links
+# with zig. This checks that on a real machine of every kind brevi ships for, with BREVI_TOOLCHAIN=pinned and
+# BREVI_LINKER=zig (the runners have Rust and a C compiler, so the pinned path is forced). A platform goes into
+# toolchain.rs's VERIFIED list, where the fetch happens on its own, only after its job here passes; until then
+# brevi refuses the automatic fetch there and says why.
+# Linux also runs the whole language suite, Windows its platform checks, on the pinned toolchain.
+# Runs once when a PR that changes the toolchain code is opened or marked ready, and by hand (workflow_dispatch).
+# Not on every push: macOS minutes count ten times, so later pushes re-run it only by hand, and never nightly.
+name: pinned-toolchain
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+    paths:
+      - "src/toolchain.rs"
+      - "src/toolchain_pins.rs"
+      - "tools/toolchain_pins.py"
+      - "tests/pinned_toolchain_test.py"
+      - ".github/workflows/pinned-toolchain.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pinned-toolchain-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pinned:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, target: x86_64-unknown-linux-gnu, suite: linux }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, suite: linux }
+          - { os: macos-15, target: aarch64-apple-darwin }
+          # Intel Mac images are being retired: the Intel brevi runs under Rosetta, as in release.yml.
+          - { os: macos-15, target: x86_64-apple-darwin }
+          - { os: windows-2022, target: x86_64-pc-windows-msvc, suite: windows }
+          - { os: windows-11-arm, target: aarch64-pc-windows-msvc, suite: windows }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Rust to build brevi itself (pinned in .github/rust-version)
+        shell: bash
+        run: |
+          v=$(cat .github/rust-version)
+          rustup toolchain install "$v" --profile minimal --no-self-update
+          rustup target add --toolchain "$v" "${{ matrix.target }}"
+          rustup default "$v"
+
+      - name: Python 3.13
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.13"
+          architecture: ${{ matrix.target == 'aarch64-pc-windows-msvc' && 'arm64' || (matrix.target == 'x86_64-apple-darwin' && 'x64' || '') }}
+
+      - name: Build brevi
+        shell: bash
+        run: |
+          cargo build --release --locked --target ${{ matrix.target }}
+          mkdir -p target/release
+          cp target/${{ matrix.target }}/release/brevi* target/release/ 2>/dev/null || true
+
+      - name: Pins match .github/rust-version
+        run: python tools/toolchain_pins.py --check
+
+      - name: Pinned toolchain checks (fetch, typed, dynamic, stdlib, --release)
+        shell: bash
+        env:
+          BREVI: target/release/brevi${{ runner.os == 'Windows' && '.exe' || '' }}
+        run: python tests/pinned_toolchain_test.py
+
+      # Fetched once up front into one folder the whole suite shares: tests that start from an empty cache would
+      # otherwise fetch it again, and the one-time fetch notice would land in the output they compare.
+      - name: Language suite on the pinned toolchain (Linux)
+        if: matrix.suite == 'linux'
+        shell: bash
+        env:
+          BREVI_TOOLCHAIN: pinned
+          BREVI_LINKER: zig
+          BREVI: ./target/release/brevi
+        run: |
+          export BREVI_TOOLCHAIN_DIR="$RUNNER_TEMP/brevi-toolchain"
+          "$BREVI" toolchain
+          python tests/check_parallel.py
+
+      - name: Python packages the Windows checks compare with (pinned)
+        if: matrix.suite == 'windows'
+        run: python -m pip install --quiet -r tests/requirements-native.txt
+
+      - name: Windows platform and parity checks on the pinned toolchain
+        if: matrix.suite == 'windows'
+        env:
+          BREVI_TOOLCHAIN: pinned
+          BREVI_LINKER: zig
+        run: |
+          pwsh -NoProfile -File tests/windows/check.ps1
+          pwsh -NoProfile -File tests/windows/parity.ps1
