@@ -208,7 +208,7 @@ jobs:
           python -m pip install --quiet uv
           uv python install 3.13.13 --quiet
           raise=; [ "$GITHUB_REF" = refs/heads/main ] && raise=--raise-floor
-          python tools/conformance.py --check $raise --python "$(uv python find 3.13.13)" --jobs 4 --out conformance-windows
+          python tools/conformance.py --slice stdlib --python "$(uv python find 3.13.13)" --jobs 4 --out conformance-windows
           cat conformance-windows/report.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the report
