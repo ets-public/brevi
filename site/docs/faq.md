@@ -24,7 +24,7 @@ No. Write Python. Brevi also has its own language for `.bv` files, but measureme
 
 ## Will my program give the same answer?
 
-That is the aim, and usually yes, but not always yet. Brevi tries to refuse at build time anything it cannot match, and every change is checked against hundreds of saved programs and behaviour traps. On CPython 3.13's own tests, though, 80% match, 12% are refused, and 8 of 311 tests (3%) still build and answer differently, and none crash ([In numbers](/docs/compatibility#in-numbers)). For a program that matters, run `brevi verify x.py --input tests/`: it runs the native build and CPython on the same inputs and certifies them only if they agree. If you find a difference, it is a bug, so please report it.
+That is the aim, and usually yes, but not always yet. Brevi tries to refuse at build time anything it cannot match, and every change is checked against hundreds of saved programs and behaviour traps. On CPython 3.13's own tests, 97.3% match (1,043 of 1,072, at v0.28.1), 26 are refused at build time, and none build and answer differently or crash ([In numbers](/docs/compatibility#in-numbers)). For a program that matters, run `brevi verify x.py --input tests/`: it runs the native build and CPython on the same inputs and certifies them only if they agree. If you find a difference, it is a bug, so please report it.
 
 ## What happens when Brevi cannot build my file?
 

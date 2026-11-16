@@ -1,6 +1,6 @@
 # Known issues
 
-This page describes `main` as of v0.27.0 (11 November 2026). It lists limits that are known and tracked. It is not a list of every bug: open issues are on [GitHub](https://github.com/ets-public/brevi/issues). Report anything new as described in [SUPPORT.md](SUPPORT.md). For security problems, use [SECURITY.md](../SECURITY.md).
+This page describes `main` as of v0.28.1 (16 November 2026). It lists limits that are known and tracked. It is not a list of every bug: open issues are on [GitHub](https://github.com/ets-public/brevi/issues). Report anything new as described in [SUPPORT.md](SUPPORT.md). For security problems, use [SECURITY.md](../SECURITY.md).
 
 ## Correctness and conformance
 
@@ -15,16 +15,18 @@ Brevi's aim is that a build prints what CPython prints, or is refused. Two outco
 | --- | ---: | ---: | ---: | ---: |
 | Core: `test_grammar`, `test_scope`, `test_int`, `test_list`, `test_dict` ([report](../bench/conformance/report.md)) | 250 of 311 (80.4%) | 38 | 8, all exit status | 0 |
 | Stdlib: `itertools`, `collections`, `re`, `textwrap`, `functools`, `string` ([report](../bench/conformance/stdlib/report.md)) | 250 of 554 (45.1%) | 170 | 22 (3 output, 19 exit status) | 1 |
-| Core at v0.28.0, 15 November (10 files with `test_contains`, `test_binop`, `test_richcmp`, `test_set`, `test_patma`; at `PYTHONHASHSEED=0`; 83 by-design refusals left out; 3 not extractable) | 1047 of 1076 (97.3%) | 26 | 0 | 0 |
-| Stdlib at v0.28.0, 15 November (11 files with `test_graphlib`, `test_colorsys`, `test_deque`, `test_dataclasses`, `test_enum`; 6 by-design refusals left out; 11 not extractable; 2 match only through the CPython bridge) | 1988 of 2052 (96.9%) | 51 | 0 | 0 |
+| Core at v0.28.1, 16 November (10 files with `test_contains`, `test_binop`, `test_richcmp`, `test_set`, `test_patma`; at `PYTHONHASHSEED=0`; 83 by-design refusals left out; 3 not extractable) | 1043 of 1072 (97.3%) | 26 | 0 | 0 |
+| Stdlib at v0.28.1, 16 November (11 files with `test_graphlib`, `test_colorsys`, `test_deque`, `test_dataclasses`, `test_enum`; 6 by-design refusals left out; 11 not extractable; 2 match only through the CPython bridge) | 1989 of 2053 (96.9%) | 51 | 0 | 0 |
+
+Forced dynamic builds score 97.3% (core) and 97.0% (stdlib), also with 0 wrong. 88.2% of core tests and 94.3% of stdlib tests are matches that print something to compare (the rest print nothing), and 2.6% and 1.2% of the native matches took the typed build.
 
 Things to know when reading these numbers:
 
 - 46 of the 250 core matches print nothing, so they show only that the program built and exited cleanly.
-- Weak modules in the stdlib set at v0.27.0: `test_string` 2.6%, `test_functools` 12.2%, `test_collections` 35.7% (all 100% at v0.28.0).
-- The v0.28.0 score covers the 21 files scored, not all of CPython: more test files are measured with `tools/conformance.py --candidates` for planning and are not in the score yet.
+- Weak modules in the stdlib set at v0.27.0: `test_string` 2.6%, `test_functools` 12.2%, `test_collections` 35.7% (all 100% at v0.28.1).
+- The v0.28.1 score covers the 21 files scored, not all of CPython: more test files are measured with `tools/conformance.py --candidates` for planning and are not in the score yet.
 - Tests that depend on CPython internals, or that cannot be cut into a standalone script, are left out of the score.
-- Known wrong results are listed in [compat/conformance_known_wrong/](../compat/conformance_known_wrong/) (core) and [compat/conformance_stdlib_known_wrong/](../compat/conformance_stdlib_known_wrong/). At v0.27.0 the core ones were pickling of dict and list iterators and two `test_scope` cell cases; in v0.28.0 both folders are empty. CI fails if a line stops being wrong or a new wrong result appears, so the lists only shrink.
+- Known wrong results are listed in [compat/conformance_known_wrong/](../compat/conformance_known_wrong/) (core) and [compat/conformance_stdlib_known_wrong/](../compat/conformance_stdlib_known_wrong/). At v0.27.0 the core ones were pickling of dict and list iterators and two `test_scope` cell cases; at v0.28.1 both folders are empty. CI fails if a line stops being wrong or a new wrong result appears, so the lists only shrink.
 - The score floors are in [compat/conformance_floor.json](../compat/conformance_floor.json). The score can only go up: after each merge, main raises the floors to what the merged tree measures (`.github/workflows/conformance-main.yml`), and pull requests leave them alone (`tools/floor_guard.py`).
 - [compat/baseline.txt](../compat/baseline.txt) lists saved programs that once passed and must keep passing. It is a regression set, not a measure of how much Python works.
 
@@ -34,15 +36,15 @@ Module objects: a file of the program gives `__file__`, `__name__`, `__doc__`, `
 
 Outside the aim: text on stderr, and output CPython itself changes between runs (the order of a set of strings, `__del__` timing).
 
-## Windows (beta, x86-64 only)
+## Windows (beta)
 
 Windows builds, runs and verifies programs natively, including library calls through CPython (the `python` on PATH needs its DLL). Differences:
 
 - `--limit cpu`, `file`, `fds` and `threads` are refused, not half enforced. `--limit mem` works (a Job Object). `time` and `output` work as on Linux.
-- `--standalone` works (one .exe carrying CPython, unpacked once into `%LOCALAPPDATA%\brevi\py`). It is refused at build time with Microsoft Store Python or a Python for another CPU. A cache folder deep enough to push an unpacked file past 260 characters is refused at run time (set `BREVI_PY_CACHE` shorter). A standalone .exe changed after the build, for example by code signing, refuses to run rather than use an installed Python.
+- `--standalone` works (from v0.28.1; one .exe carrying CPython, unpacked once into `%LOCALAPPDATA%\brevi\py`). It is refused at build time with Microsoft Store Python or a Python for another CPU. A cache folder deep enough to push an unpacked file past 260 characters is refused at run time (set `BREVI_PY_CACHE` shorter). A standalone .exe changed after the build, for example by code signing, refuses to run rather than use an installed Python.
 - Windows' own SQLite can be a different version from CPython's, so version-specific output may differ.
 - DuckDB and ONNX Runtime need their libraries installed (`pip install duckdb`, onnxruntime 1.16 or later).
-- Only x86-64 is built. There is no Windows arm64 build.
+- Windows x86-64 and ARM64 (from v0.28.1) are built.
 - In v0.27.x, dynamic builds on Windows use POSIX path rules (`os.path.basename("C:\\a\\b.txt")` gives the whole path) and report `sys.platform` as `linux`. From v0.28.0 `os.path` is `ntpath`, `sys.platform` is `win32`, and `pathlib` runs in CPython.
 
 Tests: [tests/windows/check.ps1](../tests/windows/check.ps1).

@@ -1527,7 +1527,13 @@ def last_line(data):
 
 
 def build(script, folder, mode, cfg):
-    """(built binary or None, path report, why not built, build crashed or timed out)."""
+    """(built binary or None, path report, why not built, build crashed or timed out, seconds the build took)."""
+    begun = time.monotonic()
+    got = build_once(script, folder, mode, cfg)
+    return (*got, round(time.monotonic() - begun, 1))
+
+
+def build_once(script, folder, mode, cfg):
     env = {k: v for k, v in os.environ.items() if k not in ("BREVI_DYN", "BREVI_PATH", "BREVI_NATIVE")}
     env.update(BREVI_PATH="1", BREVI_PYTHON=cfg.python)
     if mode == "dyn":
@@ -1537,7 +1543,7 @@ def build(script, folder, mode, cfg):
         r = subprocess.run([cfg.brevi, "build", script.name, "-o", str(exe)], cwd=folder, env=env, stdin=subprocess.DEVNULL,
                            capture_output=True, text=True, errors="replace", timeout=cfg.build_timeout)
     except subprocess.TimeoutExpired:
-        return None, None, "build timed out", True
+        return None, None, f"build timed out after {cfg.build_timeout:g} s", True
     path, why = None, ""
     for line in (r.stdout + "\n" + r.stderr).splitlines():
         if line.startswith("{"):
@@ -1720,7 +1726,7 @@ def run_case(case, cfg):
         return {**case, "category": "excluded", "detail": f"skipped by CPython at run time: {why}"}
     modes = {}
     for mode in ("normal", "dyn"):
-        exe, path, why, crashed = build(script, folder, mode, cfg)
+        exe, path, why, crashed, build_s = build(script, folder, mode, cfg)
         got = masked(run_limited([str(exe)], str(folder), run_env(folder, REF_SEED), cfg.timeout, cfg.mem_mb, cfg.sandbox)) if exe else None
         category, detail = classify(a, (exe is not None, why, crashed), got)
         if random_output and category in ("matched", "wrong_output"):
@@ -1728,10 +1734,11 @@ def run_case(case, cfg):
         if category == "wrong_output":
             unstable, note = reproducible(ref, a)
             if unstable:
-                return {**case, "category": "unstable", "detail": unstable}
+                # Name what the build printed too: a load-dependent test leaves the score this way, in both builds.
+                return {**case, "category": "unstable", "detail": f"{unstable}; the {mode} build's output differed ({detail})"}
             detail += note
         modes[mode] = {"category": category, "path": (path or {}).get("path"), "detail": detail, "silent": not a.out,
-                       "stderr": last_line(got.err) if got else ""}
+                       "stderr": last_line(got.err) if got else "", "build_s": build_s}
     shutil.rmtree(folder, ignore_errors=True)
     return {**case, "modes": modes}
 
@@ -1980,6 +1987,71 @@ def markdown(rep, results):
     return "\n".join(lines) + "\n"
 
 
+# The report main last published for each slice (conformance-main.yml writes it with --raise-floor): the run a
+# ratchet failure is traced against.
+PUBLISHED = {"core": ROOT / "bench" / "conformance" / "report.json", "stdlib": ROOT / "bench" / "conformance" / "stdlib" / "report.json"}
+
+
+def read_published(slice_name):
+    """The slice's published report as read before this run (a run with --out bench/conformance overwrites it), or None
+    when it is missing or from another platform (a Windows run is not traced against Linux's report)."""
+    path = PUBLISHED.get(slice_name)
+    try:
+        rep = json.loads(path.read_text())
+    except (OSError, ValueError, AttributeError):
+        return None
+    return rep if rep.get("platform") == sys.platform else None
+
+
+def native_matches(rows, mode):
+    return {r["id"] for r in rows if "modes" in r and r["modes"][mode]["category"] == "matched" and r["modes"][mode].get("path") != "pybridge"}
+
+
+def lost_matches(published, results):
+    """[(id, {mode: (category, detail)})] for every test that matched natively in the published report and does not now,
+    so a ratchet that falls short names the tests it lost and why (a build timeout, a CPython reference run that timed
+    out, a test turned unstable), never only a count. Rows held back for SECURITY.md are counted, not named."""
+    if not published:
+        return [], 0
+    ran, lost, held = {r["id"]: r for r in results}, {}, 0
+    for mode in ("normal", "dyn"):
+        for i in sorted(native_matches(published["tests"], mode) - native_matches(results, mode)):
+            r = ran.get(i)
+            if r is None:
+                continue  # --filter or --files left it out
+            if "modes" in r:
+                x = r["modes"][mode]
+                lost.setdefault(i, {})[mode] = (x["category"], x.get("path") or "", x["detail"])
+            else:  # the whole test left the score (unstable, not extractable): one line for both builds
+                lost.setdefault(i, {}).setdefault("both builds", (r["category"], "", r["detail"]))
+    out = []
+    for i, modes in lost.items():
+        if any(is_private(d) for _, _, d in modes.values()):
+            held += 1
+        else:
+            out.append((i, modes))
+    return out, held
+
+
+def lost_lines(lost, held, published):
+    if not lost and not held:
+        return []
+    lines = [f"{len(lost) + held} tests matched natively in the published report (commit {published.get('commit', '?')}) and do not now:"]
+    for i, modes in lost:
+        for mode, (category, path, detail) in modes.items():
+            how = "matched through the CPython bridge" if category == "matched" and path == "pybridge" else category
+            lines.append(f"  {i} ({mode}): {how}: {detail}")
+    if held:
+        lines.append(f"  {held} more ended on a signal; those are looked at privately first (see SECURITY.md).")
+    return lines
+
+
+def slowest_builds(results, n=10):
+    """The n slowest builds of this run, slowest first: (seconds, id, mode)."""
+    times = [(x["build_s"], r["id"], m) for r in results for m, x in r.get("modes", {}).items() if x.get("build_s") is not None]
+    return sorted(times, reverse=True)[:n]
+
+
 CANDIDATES = ROOT / "tools" / "conformance_candidates.json"
 
 
@@ -2069,6 +2141,8 @@ def main():
             sys.exit("--candidates never writes into bench/conformance (main publishes those reports)")
         SCOPE = use_candidates(cfg.slice)
     cfg.files = cfg.files or ",".join(SCOPE)
+    # Read before the run: conformance-main.yml writes this run's report over it.
+    published = None if cfg.candidates else read_published(cfg.slice)
     names = cfg.files.split(",")
     unknown = [n for n in names if "test." + n not in SOURCES]
     if unknown:
@@ -2131,7 +2205,10 @@ def main():
     out = cfg.out or cache
     out.mkdir(parents=True, exist_ok=True)
     (out / "report.json").write_text(json.dumps({**rep, "tests": public_rows(results)}, indent=0) + "\n")
-    (out / "report.md").write_text(markdown(rep, results))
+    lost, held = lost_matches(published, results)
+    traced = lost_lines(lost, held, published or {})
+    lost_md = "\n## Lost since the published report\n\n```\n" + "\n".join(traced) + "\n```\n" if traced else ""
+    (out / "report.md").write_text(markdown(rep, results) + lost_md)
     private = [{"id": r["id"], "mode": m, "detail": x["detail"], "stderr": x["stderr"]} for r in results
                for m, x in r.get("modes", {}).items() if is_private(x["detail"])]
     (cache / "private_signals.json").write_text(json.dumps(private, indent=1) + "\n")
@@ -2140,6 +2217,11 @@ def main():
           f"{n['by_design']} refused by design (strings run as code, not counted), "
           f"{n['string_model']} need the string model, {n['cpython_private']} call CPython-private helpers "
           f"(both counted as not matched); report in {out}")
+    if traced:
+        print("\n".join(traced))
+    slow = slowest_builds(results)
+    if slow:
+        print("slowest builds: " + ", ".join(f"{i} ({m}) {sec:g} s" for sec, i, m in slow), file=sys.stderr)
     bad = set(bad_ids(results))
     # The floor holds native matches, the coverage numerator: a match that moved to the CPython bridge (pybridge)
     # lowers coverage, so it must not pass the floor.

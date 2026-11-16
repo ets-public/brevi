@@ -13,7 +13,7 @@ Each measure links to where its number comes from. Notes on the marked numbers a
 
 | Measure | Now | In 90 days | In 12 months |
 |---|---|---|---|
-| [CPython conformance](https://github.com/ets-public/brevi/blob/main/bench/conformance/report.md): tests whose output matches CPython's | **97.3%** (1047/1076)<sup>5</sup> | 70% | 90% |
+| [CPython conformance](https://github.com/ets-public/brevi/blob/main/bench/conformance/report.md): tests whose output matches CPython's | **97.3%** (1043/1072)<sup>5</sup> | 70% | 90% |
 | [Wrong answers](https://github.com/ets-public/brevi/tree/main/compat/conformance_known_wrong): built, but answered differently | **0 tests**<sup>5</sup> | ≤ 25 | 0 |
 
 ### Waiting on each edit (median)
@@ -46,7 +46,7 @@ Each measure links to where its number comes from. Notes on the marked numbers a
 2. Measured at v0.25.0.
 3. Measured at v0.26.0, one run each with Haiku and Sonnet, with Brevi's errors shown to the model.
 4. Possible since v0.27.0 with the [brevi-sandbox image](https://github.com/ets-public/brevi/blob/main/docs/SDK_AND_IMAGES.md).
-5. At v0.28.0, 15 November (CPython's core tests, at `PYTHONHASHSEED=0`; the 83 that run a string as code are left out as refused by design). The standard-library slice is 96.9% (1988 of 2052) with none wrong. That covers the 21 files scored (ten added from 12 to 14 November: `test_set` and `test_patma` in core, `test_dataclasses` and `test_enum` in stdlib among them); more files are measured for planning but not scored yet. At v0.27.0: 80.4% (250 of 311) and 8 wrong; at v0.26.0, 44 wrong.
+5. At v0.28.1, 16 November (CPython's core tests, at `PYTHONHASHSEED=0`; the 83 that run a string as code are left out as refused by design). The standard-library slice is 96.9% (1989 of 2053) with none wrong. That covers the 21 files scored (ten added from 12 to 14 November: `test_set` and `test_patma` in core, `test_dataclasses` and `test_enum` in stdlib among them); more files are measured for planning but not scored yet. At v0.27.0: 80.4% (250 of 311) and 8 wrong; at v0.26.0, 44 wrong.
 
 Unless marked, numbers are from v0.27.0 (11 November 2026). Edit times are from one 4-core Xeon @ 2.10 GHz, the same kind of machine as the v0.26.0 numbers.
 
@@ -74,7 +74,7 @@ The north star is the share of real agent-written programs that build natively, 
 ## Later (to 1.0)
 
 - **brevi.run, hosted.** A closed beta of the compiler as a sandboxed API for agents, only once the platform's VM or microVM isolation and an outside security review are in place.
-- **Windows parity.** From v0.27.0, library programs, generators and `async` build on Windows (CPython bridge and Win32 fibers). From v0.28.0, `os.path` is `ntpath` and `sys.platform` is `win32` on Windows, and conformance runs on Windows every week. `--standalone` on Windows and macOS is next.
+- **Windows parity.** From v0.27.0, library programs, generators and `async` build on Windows (CPython bridge and Win32 fibers). From v0.28.0, `os.path` is `ntpath` and `sys.platform` is `win32` on Windows, and conformance runs on Windows every week. `--standalone` works on Windows from v0.28.1 and Windows ARM64 builds ship from v0.28.1; `--standalone` on macOS is next.
 - **1.0** when conformance reaches 90% with no known wrong results, the typed path covers 90% of agent programs, `brevi check` answers in 30 ms, an outside security review is done, and three harnesses ship Brevi. Until then Brevi stays 0.x.
 
 ## Paused until 1.0
