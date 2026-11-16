@@ -445,7 +445,7 @@ def head(title, desc, extra=""):
 </head>""" % (html.escape(title), html.escape(desc, quote=True), extra)
 
 
-INSTALL = "curl -fsSL https://raw.githubusercontent.com/ets-public/brevi/main/install.sh | sh"
+INSTALL = "uvx --python 3.13 brevi run --verify main.py"
 
 # The theme the reader picked is applied before the first paint; without a pick the page follows the system.
 THEME_HEAD = """<script>try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}</script>
@@ -505,7 +505,7 @@ def footer(site="org", public=False):
   <div class="wrap get">
     <div>
       <h2>Install Brevi</h2>
-      <p>One command on Linux and macOS. Windows binaries and other ways to install are in the <a href="%s/docs/install">install guide</a>. Free and open source under Apache-2.0.</p>
+      <p>One command with <a href="https://docs.astral.sh/uv/" rel="noopener">uv</a>, no Rust needed, on Linux x86-64 and macOS; on Linux ARM64 and Windows from the next release (Rust from rustup until then). The install script, pip, npm and Docker are in the <a href="%s/docs/install">install guide</a>. Free and open source under Apache-2.0.</p>
     </div>
     <div>
       %s

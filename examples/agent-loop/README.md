@@ -10,7 +10,8 @@ bash examples/agent-loop/demo.sh
 
 Needs `brevi` on PATH and CPython 3.13 (`python3`, or `BREVI_PYTHON`) for the comparison. Every step checks its own
 result, so the script is also the smoke test the [install tests](../../.github/workflows/install-test.yml) run (by hand and on each
-release) on a fresh Ubuntu container and GitHub's macOS and Windows runners.
+release) on a fresh Ubuntu container and GitHub's macOS and Windows runners, after `install_check.sh` has run the
+quickstart's install (`uvx --python 3.13 brevi run --verify main.py`, then `uv tool install --python 3.13 brevi`).
 
 | File | What it is |
 |---|---|
@@ -18,6 +19,7 @@ release) on a fresh Ubuntu container and GitHub's macOS and Windows runners.
 | `main.py` | The same program after the agent fixes the one line Brevi named |
 | `mcp_run.py` | A 30-line harness: sends a program to `brevi mcp` over stdio and prints the reply (standard library only) |
 | `demo.sh` | Runs the loop and checks each step |
+| `install_check.sh` | The quickstart's install, checked: `uvx` run with `--verify`, then `uv tool install` (install-test runs it first) |
 
 ## What it printed
 
