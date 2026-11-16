@@ -35,6 +35,7 @@ NAV = [
         ("compatibility", "What works, and limits", "compatibility.md"),
         ("benchmarks", "Benchmarks", "benchmarks.md"),
         ("showcases", "Showcases", "showcases.md"),
+        ("path-split", "Speed by build path", "repo:docs/PATH_SPLIT.md"),
     ]),
     ("Brevi language (.bv)", [
         ("language", "Language guide", "repo:BREVI.md"),
@@ -56,6 +57,7 @@ INTROS = {
     "repo:LIBRARIES.md": "Other `.bv` files, Rust crates and Python code from Brevi programs, and Python libraries from Python files (`brevi guide Libraries`).",
     "repo:CHANGELOG.md": "What changed in each release, newest first, with what is on main for the next one under Unreleased. Built from [CHANGELOG.md](repo:CHANGELOG.md) in the repository; each release's section is also its GitHub release notes.",
     "repo:docs/ARCHITECTURE.md": "This page is built from [docs/ARCHITECTURE.md](repo:docs/ARCHITECTURE.md) in the repository, so it always describes the code that shipped.",
+    "repo:docs/PATH_SPLIT.md": "This page is built from [docs/PATH_SPLIT.md](repo:docs/PATH_SPLIT.md) in the repository; its data is [bench/pathsplit](repo:bench/pathsplit/).",
 }
 
 # Search descriptions for pages made from repo files (site/docs pages carry their own <!-- description: -->).
@@ -64,6 +66,7 @@ REPO_DESCS = {
     "repo:BREVI.md": "The Brevi language guide for .bv files: syntax, types, errors, concurrency and the standard library, written for models and people.",
     "repo:REFERENCE.md": "Brevi language reference: the details kept out of the core guide, looked up one name at a time with brevi guide WORD.",
     "repo:LIBRARIES.md": "Using libraries from Brevi: other .bv files, Rust crates, Python code, and Python packages imported from Python programs.",
+    "repo:docs/PATH_SPLIT.md": "Which build agent-written Python takes in Brevi (typed, dynamic or CPython bridge), and how fast each runs against CPython, measured on 587 programs.",
     "repo:CHANGELOG.md": "Every Brevi release, newest first: new features, fixes and breaking changes, with what is on main for the next release.",
 }
 
