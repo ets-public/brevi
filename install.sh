@@ -1,7 +1,9 @@
 #!/bin/sh
-# Installs the brevi compiler. brevi turns programs into Rust, so it needs rustc: the Rust toolchain is
-# fetched first if it is missing. Then a prebuilt brevi is downloaded from the latest GitHub release when
-# one exists for this machine and checked against the release's SHA256SUMS, or brevi is built from source.
+# Installs the brevi compiler. A prebuilt brevi is downloaded from the latest GitHub release when one exists
+# for this machine and checked against the release's SHA256SUMS, or brevi is built from source. brevi turns
+# programs into Rust, so it needs rustc: with none on PATH, `brevi toolchain` fetches Brevi's pinned Rust (and
+# zig to link, if there is no C linker) into Brevi's cache, with no Rust install. Where brevi cannot do that
+# (a release without `brevi toolchain`, or a machine the pinned toolchain is not verified on yet), rustup installs Rust.
 # It also links brevi-python, the brevi binary acting as python3 (native when Brevi can build the program).
 # usage: sh install.sh            (BREVI_FROM_SOURCE=1 always builds from source;
 #                                  BREVI_VERSION=0.28.2 installs that release instead of the latest)
@@ -11,11 +13,11 @@ die() {
   printf 'brevi was not installed: %s\nBREVI_FROM_SOURCE=1 builds from source instead.\n' "$1" >&2
   rm -rf "$tmp"; exit 1
 }
-if ! command -v rustc >/dev/null 2>&1; then
+rustup() {
   echo "installing the Rust toolchain (rustup)"
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
   . "$HOME/.cargo/env"
-fi
+}
 case "$(uname -s)-$(uname -m)" in
   Linux-x86_64) target=x86_64-unknown-linux-gnu ;;
   Linux-aarch64|Linux-arm64) target=aarch64-unknown-linux-gnu ;;
@@ -44,8 +46,12 @@ if [ -z "$BREVI_FROM_SOURCE" ] && [ -n "$target" ] && curl -fsSL "$release/$arch
   echo "installed prebuilt brevi to $dest"
 else
   [ -n "$BREVI_VERSION" ] && tag="--tag v${BREVI_VERSION#v}"
+  command -v cargo >/dev/null 2>&1 || rustup
   cargo install --git https://github.com/ets-public/brevi $tag brevi
 fi
 rm -rf "$tmp"
 ln -sf brevi "$dest/brevi-python"
+if ! command -v rustc >/dev/null 2>&1 && ! "$dest/brevi" toolchain; then
+  rustup
+fi
 "$dest/brevi" --version

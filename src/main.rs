@@ -37,6 +37,7 @@ mod pygen;
 mod scoped;
 mod runcache;
 mod tier;
+mod toolchain;
 mod shim;
 mod verify;
 
@@ -252,6 +253,10 @@ fn main() {
             exit(if copy_job(Path::new(&from), Path::new(&to)) { 0 } else { 1 });
         }
     }
+    // `brevi-cc`: the linker rustc runs when zig links (src/toolchain.rs).
+    if toolchain::is_cc() {
+        toolchain::cc_main();
+    }
     tm("start");
     if let Some(args) = shim::args() {
         shim::main(args);
@@ -285,6 +290,9 @@ fn main() {
     }
     if argv.first().map(|a| a.as_str()) == Some("__tier") {
         tier::job(&argv[1..]);
+    }
+    if argv.first().map(|a| a.as_str()) == Some("toolchain") {
+        toolchain::main(&argv[1..]);
     }
     if matches!(argv.first().map(|a| a.as_str()), Some("--help" | "-h" | "help")) {
         println!("{USAGE}");
@@ -1895,7 +1903,7 @@ fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &
     // On the first line, so rustc's line numbers still match the generated code.
     std::fs::write(dir.join("main.rs"), format!("#![allow(warnings)] {rust}")).expect("write generated rust");
     let test = extra.contains(&"--test");
-    let mut c = Command::new("cargo");
+    let mut c = toolchain::cargo_cmd(Path::new(rustc_cmd().get_program()));
     if extra.contains(&"--emit=metadata") {
         c.arg("check");
     } else if test {
@@ -2084,7 +2092,8 @@ fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Op
             Err(String::from_utf8_lossy(&o.stderr).to_string())
         }
         Err(e) => {
-            println!("{{\"e\":\"io\",\"msg\":\"rustc not found: {}\"}}", esc(&e.to_string()));
+            let why = toolchain::why().map(|w| format!(" ({w})")).unwrap_or_default();
+            println!("{{\"e\":\"io\",\"msg\":\"rustc not found: {}{}\"}}", esc(&e.to_string()), esc(&why));
             return None;
         }
     };
@@ -2238,36 +2247,44 @@ pub(crate) fn rustc_version() -> &'static str {
     V.get_or_init(|| rustc_cmd().arg("-vV").output().map(|o| String::from_utf8_lossy(&o.stdout).to_string()).unwrap_or_default())
 }
 
+// The rustc builds use, with `-C linker=...` when zig links (src/toolchain.rs): the rustc on PATH, or Brevi's
+// pinned Rust when there is none (fetched once) or BREVI_TOOLCHAIN=pinned.
+pub(crate) fn rustc_cmd() -> Command {
+    static P: std::sync::OnceLock<(PathBuf, Vec<String>)> = std::sync::OnceLock::new();
+    let (path, args) = P.get_or_init(|| {
+        let system = system_rustc();
+        let pinned = toolchain::rustc(system.as_deref());
+        let linker = toolchain::linker_args(pinned.is_some());
+        (pinned.or(system).unwrap_or_else(|| PathBuf::from("rustc")), linker)
+    });
+    let mut c = Command::new(path);
+    c.args(args);
+    c
+}
+
 // rustc itself rather than the rustup proxy on PATH: each call through the proxy costs 20 to 50 ms, and a
 // build makes two or three. The toolchain is still the one the proxy picks. Its answer is remembered in the
 // cache under a key of everything rustup decides by (PATH, RUSTUP_* settings, rustup's settings file and any
-// rust-toolchain file above the working directory), so a toolchain switch asks the proxy again.
-pub(crate) fn rustc_cmd() -> Command {
-    static P: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-    Command::new(P.get_or_init(|| {
-        let saved = toolchain_key().map(|k| cache_dir().join("toolchain").join(k));
-        if let Some(p) = saved.as_ref().and_then(|f| std::fs::read_to_string(f).ok()).map(PathBuf::from) {
-            if p.is_file() {
-                return p;
-            }
+// rust-toolchain file above the working directory), so a toolchain switch asks the proxy again. None: no rustc.
+pub(crate) fn system_rustc() -> Option<PathBuf> {
+    let saved = toolchain_key().map(|k| cache_dir().join("toolchain").join(k));
+    if let Some(p) = saved.as_ref().and_then(|f| std::fs::read_to_string(f).ok()).map(PathBuf::from) {
+        if p.is_file() {
+            return Some(p);
         }
-        let real = Command::new("rustc").args(["--print", "sysroot"]).output().ok().filter(|o| o.status.success()).map(|o| {
-            PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()).join("bin").join(format!("rustc{}", std::env::consts::EXE_SUFFIX))
-        });
-        match real.filter(|p| p.is_file()) {
-            Some(p) => {
-                if let Some(f) = saved {
-                    let tmp = f.with_extension(format!("tmp{}", std::process::id()));
-                    let ok = std::fs::create_dir_all(f.parent().unwrap()).is_ok() && std::fs::write(&tmp, p.to_string_lossy().as_bytes()).is_ok();
-                    if !(ok && std::fs::rename(&tmp, &f).is_ok()) {
-                        std::fs::remove_file(&tmp).ok();
-                    }
-                }
-                p
-            }
-            None => PathBuf::from("rustc"),
+    }
+    let real = Command::new("rustc").args(["--print", "sysroot"]).output().ok().filter(|o| o.status.success()).map(|o| {
+        PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()).join("bin").join(format!("rustc{}", std::env::consts::EXE_SUFFIX))
+    });
+    let p = real.filter(|p| p.is_file())?;
+    if let Some(f) = saved {
+        let tmp = f.with_extension(format!("tmp{}", std::process::id()));
+        let ok = std::fs::create_dir_all(f.parent().unwrap()).is_ok() && std::fs::write(&tmp, p.to_string_lossy().as_bytes()).is_ok();
+        if !(ok && std::fs::rename(&tmp, &f).is_ok()) {
+            std::fs::remove_file(&tmp).ok();
         }
-    }))
+    }
+    Some(p)
 }
 
 // What rustup's choice of toolchain depends on, hashed. None (always ask the proxy) without a working directory.

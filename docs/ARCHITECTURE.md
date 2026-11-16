@@ -324,6 +324,7 @@ For `brevi run x.py` without `--native`, Brevi runs a strict build of itself as 
 | Why did `brevi run` use CPython? | The `{"path":"cpython"}` line on stderr names the first error and its function; `brevi run --native x.py` shows them all |
 | A wrong answer compared with CPython | `tools/parity_probe.py`; typed fixes go in `infer.rs`/`emit.rs`/`prelude.rs`, dynamic ones in `dynpy/rt_*.rs` |
 | A new Python library | `pybridge.rs` (`NATIVE` list decides what stays native); for `.bv` files also `engine.rs` (`OWN`) |
+| Which rustc and linker a build uses, or a machine with no Rust | `brevi toolchain` prints them; `toolchain.rs` (the pinned Rust and zig, fetched when none is installed; pins from `tools/toolchain_pins.py`), called from `rustc_cmd` in `main.rs` |
 
 ## Tests
 

@@ -16,7 +16,9 @@ Linux and macOS:
 curl -fsSL https://raw.githubusercontent.com/ets-public/brevi/main/install.sh | sh
 ```
 
-The script installs the Rust toolchain if it is missing (Brevi compiles through `rustc`), then the prebuilt `brevi` for your machine from the [latest release](https://github.com/ets-public/brevi/releases/latest) into `~/.cargo/bin`, verified against the release's `SHA256SUMS`, or builds it with `cargo install` when no prebuilt one fits.
+No Rust install is needed on Linux x86-64 and macOS from the next release: with no `rustc` on the PATH, brevi fetches the Rust release it is tested with (and zig to link, if there is no C linker) on its first build, checked against SHA-256 sums compiled into brevi; with [uv](https://docs.astral.sh/uv/), `uvx --python 3.13 brevi run --verify main.py` is the whole install. Linux ARM64 and Windows follow as each passes CI ([the pinned toolchain](https://brevi-lang.org/docs/install#the-pinned-toolchain)).
+
+The script installs the prebuilt `brevi` for your machine from the [latest release](https://github.com/ets-public/brevi/releases/latest) into `~/.cargo/bin`, verified against the release's `SHA256SUMS`, or builds it with `cargo install` when no prebuilt one fits, then fetches the pinned toolchain, or installs Rust with rustup where that is not verified yet.
 
 Windows: install Rust with [rustup](https://rustup.rs), then unzip `brevi-x86_64-pc-windows-msvc.zip` (`brevi-aarch64-pc-windows-msvc.zip` on ARM64, from v0.28.1) from the [latest release](https://github.com/ets-public/brevi/releases/latest) and put `brevi.exe` on your PATH. From v0.27.0, Python files that import libraries build too: their library calls run in CPython through the bridge (the `python` on PATH needs its DLL).
 
