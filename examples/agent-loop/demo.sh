@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
 # The agent loop, end to end, with real output from the machine it runs on:
-#   1. an agent writes plain Python (draft.py, with a typo)
-#   2. Brevi compiles it and answers with one JSON line naming the line and a fix
-#   3. the agent fixes that line (main.py), and `brevi run --verify` runs it natively and checks it against CPython
-#   4. a program Brevi cannot check safely is refused visibly, never run unchecked as if verified
-#   5. the same program through the MCP server, as a harness would call it
-#   6. latency against CPython on a bigger input, timed here
+#   1. an agent's plain-Python draft (draft.py, with a typo) gets one JSON line naming the line and a fix
+#   2. the agent fixes that line (main.py), and `brevi run --verify` runs it natively and checks it against CPython
+#   3. a program Brevi cannot check safely is refused visibly, never run unchecked as if verified
+#   4. the same program through the MCP server, as a harness would call it
+#   5. latency against CPython on a bigger input, timed here
 # Needs: brevi on PATH, and CPython 3.13 (python3, or BREVI_PYTHON) for the CPython comparison.
 # Each step checks its own result, so CI uses this script as the install smoke test: it exits non-zero
 # when any step answers differently from what is written here.
 set -euo pipefail
 cd "$(dirname "$0")"
-# The CPython used for MCP and timing: the 3.13 Brevi compares against, found the way Brevi finds it
+# The CPython used for MCP and timing: CPython 3.13 (BREVI_PYTHON, python3.13, uv, then python3)
 PY=${BREVI_PYTHON:-$(command -v python3.13 || uv python find 3.13 2>/dev/null || command -v python3 || command -v python)}
 "$PY" -c 'import sys; assert sys.version_info[:2] == (3, 13), "demo needs CPython 3.13: uv python install 3.13"' 
 work=$(mktemp -d)

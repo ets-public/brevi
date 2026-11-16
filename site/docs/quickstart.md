@@ -1,5 +1,5 @@
 # Quickstart for agents
-<!-- description: Ten minutes from install to a verified run: write main.py, read Brevi's one-line JSON error, fix the line, and get a certificate that the native run matches CPython. -->
+<!-- description: A few commands from install to a verified run: write main.py, read Brevi's one-line JSON error, fix the line, and get a certificate that the native run matches CPython. -->
 
 Brevi is the verified native runtime for the Python your agent writes. The agent writes plain Python; Brevi compiles
 it to a native binary, checks the run against CPython 3.13, and says so in one line of JSON whenever it cannot build
@@ -90,14 +90,18 @@ code and stderr on this input. Log it; it carries the hashes of the file and the
 
 What `--verify` does when it cannot certify a run:
 
-| Last line on stderr | Meaning | What you get |
+| Verdict line on stderr | Meaning | What you get |
 |---|---|---|
 | `{"verify":"identical",...}` | Native and CPython agree on this input | The native answer |
-| `{"verify":"differs","line":N,"brevi":...,"cpython":...}` | They disagree: a Brevi bug | **CPython's** answer and exit code; logged for `brevi report` |
+| `{"verify":"differs","on":"stdout","line":N,"brevi":...,"cpython":...,...}` | They disagree: almost always a Brevi bug (output CPython itself varies, such as a printed set of strings, can differ too; `--strict` runs CPython twice and reports `unstable`) | **CPython's** answer and exit code; logged for `brevi report` |
 | `{"verify":"refused","why":"reads the clock",...}` | Running it twice could change the answer or repeat a side effect (clock, unseeded random, environment, file writes, network) | The program's own answer, marked unchecked |
+| `{"verify":"timeout",...}` | CPython had not finished well after the native run, or hit the limit | The native answer, marked unverified |
+| `{"verify":"refused","why":"Brevi answers as CPython 3.13 does, so it runs only CPython 3.13, and ...",...}` | No CPython 3.13 was found | The program's own answer, marked unchecked |
 | `{"path":"cpython",...}` | Brevi could not build it natively | CPython ran it; the line says which line and function stopped the build |
 
-So your harness never gets an unchecked native answer presented as checked. `--verify` costs one CPython run per call;
+`identical`, `differs` and `timeout` come after the program's output; `refused` and `{"path":"cpython"}` come before it.
+
+So your harness never gets an unchecked answer presented as checked. `--verify` costs one CPython run per call;
 on heavy programs, verify on the test inputs and then run with plain `brevi run` or a built binary
 (`brevi build main.py -o app --release`).
 
@@ -105,7 +109,7 @@ on heavy programs, verify on the test inputs and then run with plain `brevi run`
 
 - **MCP:** `brevi mcp` serves `check`, `run`, `verify` and the edit tools over stdio (Claude Code:
   `claude mcp add brevi -- brevi mcp`). `run` checks by default; under the sandbox, which is the default, the check
-  is against Brevi's dynamic build, because CPython cannot be held to the sandbox (`"against":"dynamic"`). A server
+  is against Brevi's dynamic build, because CPython cannot be held to the sandbox (`"against":"dynamic"`). Only programs on the typed build are compared this way; others get `{"verify":"refused","against":"dynamic",...}`. A server
   started with `--trust-calls` can take `sandbox: false` and check against CPython. [For AI agents](/docs/agents)
 - **Python SDK:** `pip install brevi`, then `brevi.run(code, stdin=...)` and `brevi.verify(code, inputs=[...])`.
 - **A runnable demo** of this whole loop, MCP included, with the timings it measured:
@@ -115,8 +119,8 @@ on heavy programs, verify on the test inputs and then run with plain `brevi run`
 
 - It checks **your program on your inputs**. That is the guarantee; it is not a claim that all of Python works.
   How much of CPython's own test suite Brevi matches is in [What works, and limits](/docs/compatibility).
-- It is **not cheaper in model tokens** on ordinary tasks: in our release test the API bill came out within a few
-  percent of plain CPython ([Benchmarks](/docs/benchmarks)). What you get is a native binary, one-line errors and a
+- It is **not cheaper in model tokens** on ordinary tasks: in our release test the API bill came out within 8% of
+  plain CPython (Sonnet 1.08x, Haiku 1.00x) ([Benchmarks](/docs/benchmarks)). What you get is a native binary, one-line errors and a
   per-run check.
 - The sandbox is a policy layer, not an isolation boundary: run untrusted code in a container or VM as well
   ([threat model](__GITHUB__/blob/main/docs/THREAT_MODEL.md)).
