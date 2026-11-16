@@ -111,7 +111,24 @@ fn np_blas_cpu() -> u8 {
 // kernels and OPENBLAS_CORETYPE, as np_blas_kind_here reads them), for the result cache's key (runcache.rs): a
 // build kept under one must not be replayed under another.
 pub fn np_path_inputs() -> String {
-    format!("numpy cpu={} OPENBLAS_CORETYPE={:?}", np_blas_cpu(), std::env::var_os("OPENBLAS_CORETYPE").unwrap_or_default())
+    let mut s = format!("numpy cpu={} OPENBLAS_CORETYPE={:?}", np_blas_cpu(), std::env::var_os("OPENBLAS_CORETYPE").unwrap_or_default());
+    let mut np: Vec<_> = np_settings().collect();
+    np.sort();
+    for (k, v) in np {
+        s.push_str(&format!(" {k:?}={v:?}"));
+    }
+    s
+}
+// numpy's own settings in the environment: NPY_DISABLE_CPU_FEATURES and NPY_ENABLE_CPU_FEATURES choose which SIMD
+// loops it runs (the float32 exp/tanh/log1p/sin/cos and float64 loops whose last digits Brevi's numpy reproduces
+// for the CPU's own dispatch only), NPY_PROMOTION_STATE makes it warn, and a later numpy may read more. With any
+// NPY_* or NUMPY_* variable set (even empty) the build uses CPython's numpy (dynpy/mod.rs to_rust), and the
+// result cache keys on them (np_path_inputs).
+fn np_settings() -> impl Iterator<Item = (std::ffi::OsString, std::ffi::OsString)> {
+    std::env::vars_os().filter(|(k, _)| k.to_str().is_some_and(|k| k.starts_with("NPY_") || k.starts_with("NUMPY_")))
+}
+pub fn np_settings_set() -> bool {
+    np_settings().next().is_some()
 }
 // The numpy functions that run OpenBLAS (with numpy.linalg's, and the .dot method and `@`)
 const NP_BLAS_FUNCS: &[&str] = &["dot", "matmul", "inner", "vdot", "cov", "corrcoef", "polyfit"];

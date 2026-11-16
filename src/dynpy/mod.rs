@@ -622,7 +622,9 @@ fn add_collections(mods: &mut Vec<emit::Module>, own_mods: &mut HashSet<String>)
 pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
     BRIDGED.lock().unwrap().clear();
     use std::sync::atomic::Ordering::Relaxed;
-    let np_off = std::env::var("BREVI_NUMPY").is_ok_and(|v| v == "0");
+    // numpy settings in the environment (NPY_DISABLE_CPU_FEATURES and the rest, emit::np_settings) change what
+    // numpy computes or prints in ways Brevi's numpy does not model: CPython's numpy runs the program then.
+    let np_off = std::env::var("BREVI_NUMPY").is_ok_and(|v| v == "0") || emit::np_settings_set();
     emit::NP_NATIVE.store(!np_off, Relaxed);
     let r = to_rust_np(file);
     emit::NP_ON.store(false, Relaxed);
