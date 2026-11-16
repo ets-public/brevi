@@ -118,6 +118,16 @@ jobs:
           "$BREVI" toolchain
           python tests/check_parallel.py
 
+      # As in windows.yml: cryptography has no current win_arm64 wheel, so pip builds it against vcpkg's OpenSSL.
+      - name: OpenSSL for building cryptography (ARM64)
+        if: matrix.target == 'aarch64-pc-windows-msvc'
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install openssl:arm64-windows-static-md
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg could not build OpenSSL for arm64" }
+          "OPENSSL_DIR=$env:VCPKG_INSTALLATION_ROOT\installed\arm64-windows-static-md" >> $env:GITHUB_ENV
+          "OPENSSL_STATIC=1" >> $env:GITHUB_ENV
+
       - name: Python packages the Windows checks compare with (pinned)
         if: matrix.suite == 'windows'
         run: python -m pip install --quiet -r tests/requirements-native.txt
