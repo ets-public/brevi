@@ -875,7 +875,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         lib_classes(&mods, &texts, &mut bridge)?;
     }
     for (m, (path, src)) in &texts {
-        let abs = std::fs::canonicalize(path).map(|p| p.to_string_lossy().to_string()).unwrap_or(path.clone());
+        let abs = crate::modules::abs_path(Path::new(path));
         // the file as on disk (CPython's warning shows that line), not the text with __file__ filled in
         let disk = std::fs::read_to_string(path).unwrap_or_else(|_| src.clone());
         bridge.srcs.insert(m.clone(), (abs, disk));
@@ -1743,7 +1743,7 @@ fn lib_classes(mods: &[emit::Module], texts: &HashMap<String, (String, String)>,
             imports.push_str(l);
         }
         bridge.imports.insert(m.name.clone(), imports);
-        bridge.files.insert(m.name.clone(), std::fs::canonicalize(&path).map(|p| p.to_string_lossy().to_string()).unwrap_or(path.clone()));
+        bridge.files.insert(m.name.clone(), crate::modules::abs_path(Path::new(&path)));
     }
     // A class of the program built on such a class of another file: refused.
     for m in mods {

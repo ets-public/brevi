@@ -1283,7 +1283,7 @@ pub fn dyn_runtime() -> String {
 fn consts() -> String {
     let file = FILE.get().cloned().unwrap_or_default();
     let conf = conf().clone().unwrap_or_default();
-    let abs = std::fs::canonicalize(&file).map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|_| file.clone());
+    let abs = crate::modules::abs_path(std::path::Path::new(&file));
     let dir = std::path::Path::new(&abs).parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
     // sys.path[0] is the script's folder, as python3 sets it.
     let conf = match conf.split_once('\u{1}') {
