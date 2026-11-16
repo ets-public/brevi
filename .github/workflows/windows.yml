@@ -170,20 +170,17 @@ jobs:
           n=$(gh issue list --state open --label windows --search "\"$title\" in:title" --json number,title --jq ".[] | select(.title == \"$title\") | .number" | head -1)
           if [ -n "$n" ]; then gh issue comment "$n" --body-file body.md; else gh issue create --title "$title" --label windows --body-file body.md; fi
 
-  # CPython conformance on Windows: the same pinned CPython tests as the Linux ratchet (tools/conformance.py, core
-  # slice), built and run here. On Windows the ratchet reads its own floor and known-wrong list
-  # (compat/conformance_windows_floor.json, compat/conformance_windows_known_wrong/), and a release runs the same
-  # check plus the release gate on the brevi.exe it ships (release.yml), so a Windows regression blocks a release.
-  # Weekly and on demand only (Windows minutes count double). On main, the floor goes up to what this run measures
-  # and is committed, as conformance-main.yml does for Linux; a failure opens or updates a "conformance" issue.
+  # CPython conformance on Windows: the same pinned CPython tests as the Linux ratchet (tools/conformance.py, core and
+  # stdlib slices), built and run here. On Windows the ratchet reads each slice's own floor and known-wrong list
+  # (compat/conformance_windows_floor.json and _known_wrong/, compat/conformance_windows_stdlib_floor.json and
+  # _stdlib_known_wrong/), and a release runs the same checks plus the release gates on the brevi.exe it ships
+  # (release.yml), so a Windows regression in either slice blocks a release. Weekly and on demand only (Windows
+  # minutes count double). On main, the floors go up to what this run measures and are committed, as
+  # conformance-main.yml does for Linux; a failure opens or updates a "conformance" issue.
   conformance:
     if: github.event.schedule == '17 7 * * 0' || github.event_name == 'workflow_dispatch'
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-2022, windows-11-arm]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    runs-on: windows-2022
+    timeout-minutes: 120
     permissions:
       contents: write
       issues: write
@@ -212,25 +209,39 @@ jobs:
           python -m pip install --quiet uv
           uv python install 3.13.13 --quiet
           raise=; [ "$GITHUB_REF" = refs/heads/main ] && raise=--raise-floor
-          python tools/conformance.py --slice stdlib --python "$(uv python find 3.13.13)" --jobs 4 --out conformance-windows
+          python tools/conformance.py --check $raise --python "$(uv python find 3.13.13)" --jobs 4 --out conformance-windows
           cat conformance-windows/report.md >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Keep the report
+      # Runs even when the core slice failed, so one run reports both slices.
+      - name: CPython conformance (stdlib slice; the same ratchet with its own Windows floor and known-wrong list)
+        if: success() || failure()
+        shell: bash
+        run: |
+          raise=; [ "$GITHUB_REF" = refs/heads/main ] && raise=--raise-floor
+          python tools/conformance.py --slice stdlib --check $raise --python "$(uv python find 3.13.13)" --jobs 4 --out conformance-windows-stdlib
+          cat conformance-windows-stdlib/report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the reports
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: conformance-windows-${{ matrix.os }}
-          path: conformance-windows
+          name: conformance-windows
+          path: |
+            conformance-windows
+            conformance-windows-stdlib
 
-      - name: Commit the raised Windows floor to main
-        if: github.ref == 'refs/heads/main'
+      # Each slice's step writes its floor only after its own ratchet held, so whatever changed here is safe to commit,
+      # even when the other slice failed.
+      - name: Commit the raised Windows floors to main
+        if: (success() || failure()) && github.ref == 'refs/heads/main'
         shell: bash
         run: |
-          git diff --quiet -- compat/conformance_windows_floor.json && { echo "Windows floor unchanged"; exit 0; }
+          floors="compat/conformance_windows_floor.json compat/conformance_windows_stdlib_floor.json"
+          git diff --quiet -- $floors && { echo "Windows floors unchanged"; exit 0; }
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -q -m "Windows conformance floor: what main measures" -- compat/conformance_windows_floor.json
-          # Only this job writes this file, so a newer merge never conflicts with this commit.
+          git commit -q -m "Windows conformance floors: what main measures" -- $floors
+          # Only this job writes these files, so a newer merge never conflicts with this commit.
           for i in 1 2 3; do git pull -q --rebase origin main && git push -q origin HEAD:main && exit 0; sleep 5; done
           exit 1
 
@@ -242,12 +253,12 @@ jobs:
         run: |
           title="Windows conformance dropped on main"
           {
-            echo "The weekly CPython conformance run on Windows failed on main: a new wrong result, a score below compat/conformance_windows_floor.json, or a stale entry in compat/conformance_windows_known_wrong/. A release runs the same check on the brevi.exe it ships, so no release goes out until this is fixed."
+            echo "The weekly CPython conformance run on Windows failed on main: a new wrong result, a score below a Windows floor (compat/conformance_windows_floor.json, compat/conformance_windows_stdlib_floor.json), or a stale entry in a Windows known-wrong list (compat/conformance_windows_known_wrong/, compat/conformance_windows_stdlib_known_wrong/). A release runs the same check on the brevi.exe it ships, so no release goes out until this is fixed."
             echo
             echo "- Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
             echo "- Commit $GITHUB_SHA"
             echo
-            [ -f conformance-windows/report.md ] && sed -n '1,40p' conformance-windows/report.md
+            for r in conformance-windows conformance-windows-stdlib; do [ -f $r/report.md ] && { sed -n '1,40p' $r/report.md; echo; }; done
             echo "See the run log for the ratchet's own message."
           } > body.md
           gh label create conformance --color D93F0B --description "CPython conformance dropped" 2>/dev/null || true

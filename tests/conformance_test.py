@@ -453,7 +453,7 @@ class Instability(unittest.TestCase):
 
 
 class WindowsRatchet(unittest.TestCase):
-    """On Windows the core slice uses its own floor and known-wrong list, and nothing checks against an unmeasured one."""
+    """On Windows each slice uses its own floor and known-wrong list, and nothing checks against an unmeasured one."""
     def gate(self, argv, floor=None):
         import json, unittest.mock as m
         with tempfile.TemporaryDirectory() as t:
@@ -467,9 +467,26 @@ class WindowsRatchet(unittest.TestCase):
                 c.main()
             return str(e.exception.code)
 
-    def test_stdlib_only_measures_on_windows(self):
+    def test_a_slice_without_windows_files_only_measures_on_windows(self):
+        # gate() patches WINDOWS_SLICES to core only, so stdlib stands for any slice with no Windows floor.
         for flag in ("--check", "--raise-floor", "--release-gate", "--write-baseline"):
             self.assertIn("no Windows floor", self.gate(["--slice", "stdlib", flag]))
+
+    def test_every_slice_has_its_own_measured_windows_floor(self):
+        # The release gates both slices on Windows (release.yml), so each needs Windows files of its own, never the
+        # Linux ones, and a floor that was measured (an unmeasured one refuses, which would fail every release).
+        import json
+        self.assertEqual(set(c.WINDOWS_SLICES), set(c.SLICES))
+        for name, (known_wrong, floor) in c.WINDOWS_SLICES.items():
+            _, linux_known_wrong, linux_floor = c.SLICES[name]
+            self.assertNotEqual(known_wrong, linux_known_wrong)
+            self.assertNotEqual(floor, linux_floor)
+            self.assertTrue(known_wrong.is_dir(), known_wrong)
+            data = json.loads(floor.read_text())
+            self.assertEqual(set(data["matched"]), {"normal", "dyn"}, floor)
+            self.assertTrue(all(n > 0 for n in data["matched"].values()), floor)
+            self.assertEqual(data["release_gate"]["wrong"], 0, floor)
+            self.assertEqual(data["release_gate"]["coverage"], json.loads(linux_floor.read_text())["release_gate"]["coverage"], floor)
 
     def test_unmeasured_windows_floor_refuses(self):
         gate = {"coverage": 0.9, "wrong": 0}

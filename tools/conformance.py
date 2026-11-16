@@ -77,12 +77,13 @@ SLICES = {
                "test_graphlib", "test_colorsys", "test_deque", "test_dataclasses", "test_enum"],
                ROOT / "compat" / "conformance_stdlib_known_wrong", ROOT / "compat" / "conformance_stdlib_floor.json"),
 }
-# Windows holds the core slice to its own floor and known-wrong list: a program can be right on Linux and wrong on
+# Windows holds each slice to its own floor and known-wrong list: a program can be right on Linux and wrong on
 # Windows (paths, newlines, the C runtime), so neither platform's ratchet may stand in for the other's. The release
-# runs it on the brevi.exe it ships (release.yml); the weekly job in windows.yml raises the floor. The stdlib slice has
-# no Windows floor, so on Windows it measures only: --check, --raise-floor, --release-gate and --write-baseline refuse.
+# runs both slices on the brevi.exe it ships (release.yml); the weekly job in windows.yml raises the floors. A slice
+# with no entry here would only measure on Windows: --check, --raise-floor, --release-gate and --write-baseline refuse.
 WINDOWS_SLICES = {
     "core": (ROOT / "compat" / "conformance_windows_known_wrong", ROOT / "compat" / "conformance_windows_floor.json"),
+    "stdlib": (ROOT / "compat" / "conformance_windows_stdlib_known_wrong", ROOT / "compat" / "conformance_windows_stdlib_floor.json"),
 }
 # Module name -> (path under Lib/, SHA-256). The helpers are only read for the definitions tests use.
 SOURCES = {
