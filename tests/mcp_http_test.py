@@ -94,6 +94,14 @@ p, U = server("--token", TOK)
 check("no token", post(U, req(1, "ping"))[0], 401)
 check("wrong token", post(U, req(1, "ping"), headers={"Authorization": "Bearer nope"})[0], 401)
 check("token", post(U, req(1, "ping"), headers={"Authorization": "Bearer " + TOK})[0], 200)
+# Connections are capped (64) before any token check: past the cap a connection gets 503 at once, and the
+# server answers again as soon as connections close.
+held = [socket.create_connection(("127.0.0.1", int(U.split(":")[2].split("/")[0]))) for _ in range(64)]
+time.sleep(0.5)
+check("connection cap", post(U, req(1, "ping"), headers={"Authorization": "Bearer " + TOK})[0], 503)
+[c.close() for c in held]
+time.sleep(0.5)
+check("after the cap", post(U, req(1, "ping"), headers={"Authorization": "Bearer " + TOK})[0], 200)
 try:
     import asyncio
     import httpx2

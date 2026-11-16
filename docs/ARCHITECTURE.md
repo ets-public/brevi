@@ -305,7 +305,7 @@ For `brevi run x.py` without `--native`, Brevi runs a strict build of itself as 
 | `diag.rs` | The JSON error format: `{"line":..,"msg":..,"fix":..}`, plus machine-applicable edits used by autofix and `brevi fix`. |
 | `patch.rs` | `brevi patch`: edit by whole items, so a retry costs only the change. |
 | `mcp.rs` | `brevi mcp`: keeps the program in the server so tools can send only changes. |
-| `mcp_http.rs` | `brevi mcp --http`: each POST one JSON-RPC message, passed to a `brevi mcp` child over stdio, with the token, Origin and body-size checks. |
+| `mcp_http.rs` | `brevi mcp --http`: each POST one JSON-RPC message, passed to a `brevi mcp` child over stdio, with the token, Origin and body-size checks, read timeouts and a 64-connection cap. |
 | `json.rs` | Minimal JSON reader for rustc's error output. |
 | `proc.rs` | Starts the programs Brevi builds and stops whole process trees (`brevi run`, `brevi mcp`); holds the `--limit` wall-clock, output and thread limits. `LIMIT_PLATFORMS` is the one table of where each limit holds; a limit a platform cannot enforce is refused, never half held. On Windows (beta from v0.27.0) a `mem` limit is a Job Object the program starts suspended in; `cpu`, `file`, `fds` and `threads` are refused there ([SUPPORT_MATRIX.md](SUPPORT_MATRIX.md)). |
 | `bvpy.rs` | What in a Python-style `.bv` file is Brevi's and not Python's; the line-for-line rewrite to Python for the dynamic build. |
