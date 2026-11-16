@@ -8,7 +8,7 @@
 version: 2
 updates:
   - package-ecosystem: cargo
-    directories: ["/", "/runtime/brevi_tk"]
+    directories: ["/", "/runtime/brevi_tk", "/fuzz"]
     schedule: { interval: weekly, day: saturday }
     groups:
       cargo:

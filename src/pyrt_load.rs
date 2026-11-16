@@ -355,8 +355,9 @@ fn ax_pyb_unpack(r: &mut impl std::io::Read, dir: &std::path::Path, room: usize)
             let fh = std::fs::File::open(&out);
             #[cfg(not(unix))]
             let fh = std::fs::File::options().write(true).open(&out);
-            if let Ok(fh) = fh {
-                fh.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(mtime)).ok();
+            // (checked: a time past what SystemTime holds is skipped, not a panic; fuzz/ bundle_unpack)
+            if let (Ok(fh), Some(t)) = (fh, std::time::UNIX_EPOCH.checked_add(std::time::Duration::from_secs(mtime))) {
+                fh.set_modified(t).ok();
             }
         }
     }

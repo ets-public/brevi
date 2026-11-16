@@ -210,12 +210,12 @@ fn set(msg: &mut J, k: &str, v: J) {
     }
 }
 
-struct Req {
-    method: String,
-    path: String,
-    headers: Vec<(String, String)>,
-    body: Vec<u8>,
-    close: bool,
+pub(crate) struct Req {
+    pub(crate) method: String,
+    pub(crate) path: String,
+    pub(crate) headers: Vec<(String, String)>,
+    pub(crate) body: Vec<u8>,
+    pub(crate) close: bool,
 }
 
 impl Req {
@@ -224,13 +224,14 @@ impl Req {
     }
 }
 
-enum Read_ {
+pub(crate) enum Read_ {
     Req(Req),
     Bad(u16, &'static str),
     Gone,
 }
 
-fn read_req<R: BufRead>(r: &mut R) -> Read_ {
+// Generic over the reader so tests and fuzz/ can drive it from bytes.
+pub(crate) fn read_req<R: BufRead>(r: &mut R) -> Read_ {
     let mut line = String::new();
     // a blank line before the request line is allowed (RFC 9112 2.2)
     loop {
