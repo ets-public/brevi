@@ -4,7 +4,8 @@
 # toolchain.rs's VERIFIED list, where the fetch happens on its own, only after its job here passes; until then
 # brevi refuses the automatic fetch there and says why.
 # Linux also runs the whole language suite, Windows its platform checks, on the pinned toolchain.
-# Runs once when a PR that changes the toolchain code is opened or marked ready, and by hand (workflow_dispatch).
+# Runs once when a PR that changes the toolchain code is opened or marked ready, and by hand (workflow_dispatch,
+# which can name only the targets to re-check).
 # Not on every push: macOS minutes count ten times, so later pushes re-run it only by hand, and never nightly.
 name: pinned-toolchain
 
@@ -18,6 +19,11 @@ on:
       - "tests/pinned_toolchain_test.py"
       - ".github/workflows/pinned-toolchain.yml"
   workflow_dispatch:
+    inputs:
+      targets:
+        description: "Space-separated targets to check (empty: all six). Re-check only what a fix touched: macOS minutes count ten times."
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -27,19 +33,42 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  pinned:
+  # The targets to check: all six, or the ones a workflow_dispatch names.
+  plan:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-24.04
+    outputs:
+      include: ${{ steps.m.outputs.include }}
+    steps:
+      - id: m
+        env:
+          TARGETS: ${{ inputs.targets }}
+        shell: python
+        run: |
+          import json, os
+          all_ = [
+              {"os": "ubuntu-24.04", "target": "x86_64-unknown-linux-gnu", "suite": "linux"},
+              {"os": "ubuntu-24.04-arm", "target": "aarch64-unknown-linux-gnu", "suite": "linux"},
+              {"os": "macos-15", "target": "aarch64-apple-darwin"},
+              # Intel Mac images are being retired: the Intel brevi runs under Rosetta, as in release.yml.
+              {"os": "macos-15", "target": "x86_64-apple-darwin"},
+              {"os": "windows-2022", "target": "x86_64-pc-windows-msvc", "suite": "windows"},
+              {"os": "windows-11-arm", "target": "aarch64-pc-windows-msvc", "suite": "windows"},
+          ]
+          want = (os.environ.get("TARGETS") or "").split()
+          bad = [t for t in want if t not in {m["target"] for m in all_}]
+          if bad:
+              raise SystemExit(f"unknown targets: {bad}")
+          pick = [m for m in all_ if not want or m["target"] in want]
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("include=" + json.dumps(pick) + "\n")
+
+  pinned:
+    needs: plan
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { os: ubuntu-24.04, target: x86_64-unknown-linux-gnu, suite: linux }
-          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, suite: linux }
-          - { os: macos-15, target: aarch64-apple-darwin }
-          # Intel Mac images are being retired: the Intel brevi runs under Rosetta, as in release.yml.
-          - { os: macos-15, target: x86_64-apple-darwin }
-          - { os: windows-2022, target: x86_64-pc-windows-msvc, suite: windows }
-          - { os: windows-11-arm, target: aarch64-pc-windows-msvc, suite: windows }
+        include: ${{ fromJSON(needs.plan.outputs.include) }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:

@@ -796,7 +796,8 @@ fn dyn_fallback(cmd: &str, file: &str, argv: &[String], why: Why) -> bool {
         // builds at once, a full disk) or rustc may have been stopped. The refusal printed next names the typed
         // build's reason, which a later build (after the machine is fine) would not stop at.
         runcache::not_kept();
-        *DYN_BLOCKED.lock().unwrap() = Some((file.to_string(), 0, "internal: the dynamic build's code did not compile".into()));
+        let why = link_failure(&e).map_or_else(|| "internal: the dynamic build's code did not compile".into(), |w| format!("the dynamic build could not link: {w}"));
+        *DYN_BLOCKED.lock().unwrap() = Some((file.to_string(), 0, why));
         return false;
     }
     let (wfile, line, func, why, extra, relocate) = why;
@@ -961,7 +962,10 @@ fn dyn_cmd(cmd: &str, file: &str, argv: &[String]) -> ! {
     let out_path = argv[..dash].iter().position(|a| a == "-o").and_then(|i| argv.get(i + 1)).map(PathBuf::from);
     let bin = if cmd == "build" { out_path.unwrap_or_else(|| PathBuf::from(&stem)) } else { dir.join(format!("{stem}-dyn")) };
     if let Err(e) = dynpy::compile(&rust, &dir, &bin, release, &cache_dir(), rustc_version()) {
-        println!("{{\"e\":\"dyn\",\"msg\":\"internal: generated code did not compile\"}}");
+        match link_failure(&e) {
+            Some(w) => println!("{{\"e\":\"dyn\",\"msg\":\"the dynamic build could not link: {}\"}}", esc(&w)),
+            None => println!("{{\"e\":\"dyn\",\"msg\":\"internal: generated code did not compile\"}}"),
+        }
         eprintln!("{e}");
         exit(1);
     }
@@ -1340,8 +1344,54 @@ fn enclosing_def(src: &str, line: usize) -> Option<String> {
     Some(parts.join("."))
 }
 
+// What the linker said, when rustc's error is "linking with ... failed": its own error lines (rustc puts them
+// in a note after the command line), so a refusal names the cause instead of only an exit code. Reads rustc's
+// JSON (--error-format=json) and its text output.
+pub(crate) fn link_failure(stderr: &str) -> Option<String> {
+    let mut text = String::new();
+    let mut found = false;
+    for l in stderr.lines() {
+        if let Some(j) = json::parse(l) {
+            if j.get("message").and_then(|v| v.str()).is_some_and(|m| m.starts_with("linking with")) {
+                found = true;
+                for c in j.get("children").map(|c| c.arr()).unwrap_or(&[]) {
+                    text.push_str(c.get("message").and_then(|v| v.str()).unwrap_or(""));
+                    text.push('\n');
+                }
+            }
+        } else if found {
+            text.push_str(l);
+            text.push('\n');
+        } else if l.contains("error: linking with") {
+            found = true;
+        }
+    }
+    if !found {
+        return None;
+    }
+    let lines: Vec<&str> = text
+        .lines()
+        .map(|l| l.trim().trim_start_matches('|').trim().trim_start_matches("= note:").trim())
+        .filter(|l| !l.is_empty() && !l.starts_with('"') && !l.starts_with("some arguments are omitted") && !l.starts_with("error: aborting due to") && !l.starts_with("For more information"))
+        .take(4)
+        .collect();
+    let mut s = lines.join("; ");
+    if s.len() > 600 {
+        let mut end = 600;
+        while !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        s.truncate(end);
+        s.push_str("...");
+    }
+    Some(s).filter(|s| !s.is_empty())
+}
+
 // The first error of a failed rustc run over the typed build's code, in one line.
 fn rustc_first_error(stderr: &str) -> String {
+    if let Some(why) = link_failure(stderr) {
+        return format!("the typed build could not link ({why})");
+    }
     for l in stderr.lines() {
         if let Some(j) = json::parse(l) {
             if j.get("level").and_then(|v| v.str()) == Some("error") {
@@ -2438,6 +2488,11 @@ fn report(rust: &str, stderr: &str) {
         };
         let aline = line_map.get(rline.saturating_sub(1)).copied().unwrap_or(0);
         let mut text = to_brevi_words(msg);
+        if msg.starts_with("linking with") {
+            if let Some(why) = link_failure(stderr) {
+                text = format!("{text}: {why}");
+            }
+        }
         if code == "E0596" || code == "E0384" {
             let name = msg.split_whitespace().skip_while(|w| *w != "borrow" && *w != "variable").nth(1).unwrap_or("it").replace('`', "");
             text = format!("cannot change {name}: it was declared with let");
@@ -2876,5 +2931,15 @@ mod path_tests {
         assert_eq!(rustc_first_error(&format!("{{\"level\":\"warning\",\"message\":\"unused\"}}\n{j}")), "the typed build's Rust did not compile (mismatched types)");
         assert_eq!(rustc_first_error("error[E0308]: mismatched types\n"), "the typed build's Rust did not compile (mismatched types)");
         assert_eq!(rustc_first_error(""), "the typed build's Rust did not compile");
+    }
+
+    #[test]
+    fn link_failure_names_what_the_linker_said() {
+        let j = r#"{"message":"linking with `brevi-cc` failed: exit status: 1","level":"error","spans":[],"children":[{"message":" \"brevi-cc\" \"-nolibc\"","level":"note"},{"message":"some arguments are omitted. use `--verbose` to show all linker arguments","level":"note"},{"message":"error: unable to find dynamic system library \"msvcrt\"\n  searched paths:","level":"note"}]}"#;
+        assert_eq!(link_failure(j).as_deref(), Some("error: unable to find dynamic system library \"msvcrt\"; searched paths:"));
+        assert_eq!(rustc_first_error(j), "the typed build could not link (error: unable to find dynamic system library \"msvcrt\"; searched paths:)");
+        let t = "error: linking with `cc` failed: exit status: 1\n  |\n  = note:  \"cc\" \"-m64\"\n  = note: some arguments are omitted. use `--verbose` to show all linker arguments\n  = note: error: unsupported linker arg: --fix-cortex-a53-843419\n\nerror: aborting due to 1 previous error\n";
+        assert_eq!(link_failure(t).as_deref(), Some("error: unsupported linker arg: --fix-cortex-a53-843419"));
+        assert_eq!(link_failure("error[E0308]: mismatched types\n"), None);
     }
 }

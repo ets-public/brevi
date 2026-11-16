@@ -104,6 +104,10 @@ pub(crate) fn rustc(system: Option<&Path>) -> Option<PathBuf> {
     let Some(dir) = rust_dir() else {
         return refuse(format!("brevi has no pinned Rust for this machine ({} {}): install Rust from https://rustup.rs", std::env::consts::OS, std::env::consts::ARCH));
     };
+    // zig links on Linux only without a working cc (linker_args), and cannot link for a Cortex-A53 machine.
+    if let Some(why) = cortex_a53().filter(|_| std::env::var("BREVI_LINKER").unwrap_or_default().trim() != "cc" && !cc_works()) {
+        return refuse(format!("no rustc on PATH, and brevi's pinned toolchain cannot be used here: {why}"));
+    }
     if !VERIFIED.contains(&host()) {
         if mode != "pinned" {
             return refuse(format!(
@@ -207,8 +211,25 @@ pub(crate) fn cc_main() -> ! {
     let dir = me.parent().unwrap_or(Path::new("."));
     let mut c = Command::new(dir.join("zig").join(format!("zig{EXE}")));
     c.arg("cc").arg("-target").arg(zig_target());
-    // rustc's gcc-style arguments pass through; zig warns about, and ignores, the GNU-ld optimisation level.
-    c.args(std::env::args_os().skip(1).filter(|a| a != "-Wl,-O1"));
+    for a in std::env::args_os().skip(1) {
+        match a.to_str().and_then(cc_arg) {
+            Some(Ok(Some(r))) => {
+                c.arg(r);
+            }
+            Some(Ok(None)) => {}
+            Some(Err(e)) => {
+                eprintln!("brevi-cc: {e}");
+                std::process::exit(1)
+            }
+            None => {
+                c.arg(a);
+            }
+        }
+    }
+    // rustc's Windows targets unwind with LLVM's libunwind, which zig builds when asked.
+    if cfg!(windows) {
+        c.arg("-lunwind");
+    }
     // zig keeps the C runtime it builds for the target here, beside itself, not in the user's ~/.cache/zig.
     let cache = dir.join("cache");
     c.env("ZIG_GLOBAL_CACHE_DIR", &cache).env("ZIG_LOCAL_CACHE_DIR", &cache);
@@ -219,6 +240,41 @@ pub(crate) fn cc_main() -> ! {
             std::process::exit(1)
         }
     }
+}
+
+// How brevi-cc passes one of rustc's linker arguments to zig cc: None keeps it, Ok(None) drops it, Ok(Some(x))
+// passes x instead, Err refuses the link with the reason.
+fn cc_arg(a: &str) -> Option<Result<Option<&'static str>, String>> {
+    match a {
+        // GNU ld's optimisation level: zig warns about it and ignores it.
+        "-Wl,-O1" => Some(Ok(None)),
+        // rustc asks the linker to patch around Cortex-A53 erratum 843419 on ARM64 Linux; zig cannot pass that on
+        // to its linker. Programs built here run here, so it is only dropped where no core has the erratum.
+        "-Wl,--fix-cortex-a53-843419" => Some(match cortex_a53() {
+            None => Ok(None),
+            Some(why) => Err(why),
+        }),
+        // Windows: zig's MinGW libraries are UCRT ones, so its C runtime stands in for msvcrt (as llvm-mingw's
+        // libmsvcrt.a does), and synchronization.lib's functions (WaitOnAddress and the rest) live in this one.
+        "-lmsvcrt" if cfg!(windows) => Some(Ok(None)),
+        "-lsynchronization" if cfg!(windows) => Some(Ok(Some("-lapi-ms-win-core-synch-l1-2-0"))),
+        _ => None,
+    }
+}
+
+// Why zig cannot link for this machine: one of its cores is an Arm Cortex-A53 (implementer 0x41, part 0xd03, as in
+// a Raspberry Pi 3), whose erratum 843419 needs a linker fix zig's linker is not given.
+fn cortex_a53() -> Option<String> {
+    if !cfg!(all(target_os = "linux", target_arch = "aarch64")) {
+        return None;
+    }
+    let info = std::fs::read_to_string("/proc/cpuinfo").unwrap_or_default();
+    a53_in(&info).then(|| "this machine has an Arm Cortex-A53 core, and zig cannot apply the linker fix for its erratum 843419: install a C compiler (gcc) or Rust from https://rustup.rs".to_string())
+}
+
+fn a53_in(cpuinfo: &str) -> bool {
+    let field = |b: &str, k: &str| b.lines().find_map(|l| l.split_once(':').filter(|(n, _)| n.trim() == k).map(|(_, v)| v.trim().to_lowercase()));
+    cpuinfo.split("\n\n").any(|b| field(b, "CPU implementer").as_deref() == Some("0x41") && field(b, "CPU part").as_deref() == Some("0xd03"))
 }
 
 fn zig_target() -> String {
@@ -457,6 +513,26 @@ mod tests {
         for p in super::PINS {
             assert!(p.2.iter().any(|c| c.0 == "rustc") && p.2.iter().any(|c| c.0 == "rust-std"), "{}", p.0);
             assert!(p.2.iter().chain([&("zig", p.3 .0, p.3 .1)]).all(|c| c.1.starts_with("https://") && c.2.len() == 64), "{}", p.0);
+        }
+    }
+
+    #[test]
+    fn cortex_a53_is_found_in_cpuinfo() {
+        let core = |part: &str| format!("processor\t: 0\nCPU implementer\t: 0x41\nCPU part\t: {part}\n");
+        assert!(super::a53_in(&format!("{}\n{}", core("0xd08"), core("0xd03"))));
+        assert!(!super::a53_in(&core("0xd0c")));
+        assert!(!super::a53_in("processor\t: 0\nCPU implementer\t: 0x51\nCPU part\t: 0xd03\n"));
+    }
+
+    #[test]
+    fn brevi_cc_maps_rustc_linker_arguments() {
+        assert_eq!(super::cc_arg("-Wl,-O1"), Some(Ok(None)));
+        assert_eq!(super::cc_arg("-lkernel32"), None);
+        if cfg!(windows) {
+            assert_eq!(super::cc_arg("-lmsvcrt"), Some(Ok(None)));
+            assert_eq!(super::cc_arg("-lsynchronization"), Some(Ok(Some("-lapi-ms-win-core-synch-l1-2-0"))));
+        } else {
+            assert_eq!(super::cc_arg("-lmsvcrt"), None);
         }
     }
 
