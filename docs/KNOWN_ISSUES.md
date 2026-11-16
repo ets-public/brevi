@@ -39,7 +39,7 @@ Outside the aim: text on stderr, and output CPython itself changes between runs 
 Windows builds, runs and verifies programs natively, including library calls through CPython (the `python` on PATH needs its DLL). Differences:
 
 - `--limit cpu`, `file`, `fds` and `threads` are refused, not half enforced. `--limit mem` works (a Job Object). `time` and `output` work as on Linux.
-- `--standalone` builds of programs that use Python libraries need Linux for now.
+- `--standalone` works (one .exe carrying CPython, unpacked once into `%LOCALAPPDATA%\brevi\py`). It is refused at build time with Microsoft Store Python or a Python for another CPU. A cache folder deep enough to push an unpacked file past 260 characters is refused at run time (set `BREVI_PY_CACHE` shorter). A standalone .exe changed after the build, for example by code signing, refuses to run rather than use an installed Python.
 - Windows' own SQLite can be a different version from CPython's, so version-specific output may differ.
 - DuckDB and ONNX Runtime need their libraries installed (`pip install duckdb`, onnxruntime 1.16 or later).
 - Only x86-64 is built. There is no Windows arm64 build.
@@ -66,6 +66,6 @@ The full model is [THREAT_MODEL.md](THREAT_MODEL.md). No outside security review
 - `--limit mem` is refused on macOS. `--limit threads` works only on Linux with a cgroup Brevi can create.
 - Native float32 numpy (`@`, `dot`, `matmul`, `exp`, `tanh`, `sin`, `cos`, `log1p`, `norm`) runs in Brevi only on AVX-512 CPUs. Other CPUs run them in CPython, as does float32 matrix @ vector with 6 or 7 columns.
 - The dev container feature works on Debian, Ubuntu and Fedora based images (glibc), not Alpine.
-- `--standalone` is Linux only.
+- `--standalone` works on Linux and Windows, not macOS.
 
 Where each item is tracked: the [roadmap](ROADMAP.md) and the [changelog](../CHANGELOG.md).

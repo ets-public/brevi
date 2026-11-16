@@ -312,6 +312,38 @@ fn os_nt(src: &str) -> String {
     }
     s
 }
+// Brevi's own modules that load a library from outside the program at run time: DuckDB's and ONNX Runtime's
+// engines from the installed packages, OpenSSL (the system's, or Python's on Windows) for the network, and the
+// system's libsqlite3 (Windows' own winsqlite3 is part of Windows). A --standalone build carries only what it
+// bundles, so these go to CPython (bundled with the program) instead; see outside_lib.
+fn outside_engine(m: &str) -> bool {
+    matches!(m, "_brevi_duckdb" | "_brevi_ort" | "_brevi_net") || (m == "_brevi_sqlite" && !cfg!(windows))
+}
+
+// Whether Brevi's own copy of `m` (or a module it imports, transitively) needs an outside_engine library.
+fn outside_lib(m: &str) -> bool {
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut todo = vec![m.to_string()];
+    while let Some(m) = todo.pop() {
+        if outside_engine(&m) {
+            return true;
+        }
+        if !seen.insert(m.clone()) {
+            continue;
+        }
+        let Some(src) = sandbox_module(&m) else { continue };
+        for line in src.lines() {
+            let w: Vec<&str> = line.split_whitespace().collect();
+            match w.as_slice() {
+                ["import", rest @ ..] => todo.extend(rest.join(" ").split(',').filter_map(|x| x.split_whitespace().next()).map(String::from)),
+                ["from", name, "import", ..] if !name.starts_with('.') => todo.push(name.to_string()),
+                _ => {}
+            }
+        }
+    }
+    false
+}
+
 fn sandbox_module(m: &str) -> Option<&'static str> {
     Some(match m {
         "random" => include_str!("py/random.py"),
@@ -785,7 +817,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
             let p = if p.exists() && (m.contains('.') || p.ends_with("__init__.py")) && !package_native(&dir.join(top), top) { dir.join("\0") } else { p };
             // Outside the sandbox too, when every use of these modules is one Brevi's copies have (checked
             // over all the program's files below). random's generator core is native (rt_rand.rs).
-            if !p.exists() && ((copies && own_ok) || !crate::pybridge::py_allowed(&m)) {
+            if !p.exists() && ((copies && own_ok && !(crate::pybridge::standalone() && outside_lib(&m))) || !crate::pybridge::py_allowed(&m)) {
                 if let Some(src) = sandbox_module(&m) {
                     own_used = true;
                     own_mods.insert(m.clone());
@@ -1035,6 +1067,15 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     if zone_used {
         rust = rust.replacen("fn main() { ", "fn main() { ZONE_FS.set(brevi_zoneglue::ops()).ok(); ", 1);
         rust.push_str(include_str!("zoneglue.rs"));
+    }
+    // --standalone: only CPython (bundled) may stand in for these; Brevi's own copy remains only where CPython is
+    // not allowed (--sandbox without the module granted), and that copy would load a library the program does
+    // not carry, so the build is refused.
+    if crate::pybridge::standalone() {
+        let outside: Vec<&str> = [(duck_used, "duckdb"), (ort_used, "onnxruntime"), (net_used, "the network (OpenSSL)"), (sql_used && !cfg!(windows), "sqlite3 (libsqlite3)")].iter().filter(|x| x.0).map(|x| x.1).collect();
+        if !outside.is_empty() {
+            return Err((file.to_string(), 0, format!("--standalone: Brevi's own {} would load a library from outside the program at run time; grant the module to CPython (--allow-py) so the bundled CPython runs it", outside.join(", "))));
+        }
     }
     if fs_used || sql_used || duck_used || ort_used || net_used {
         rust.push_str(&fs_consts());

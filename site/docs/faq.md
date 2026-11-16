@@ -52,7 +52,7 @@ About the same. In the v0.28.0 release test (24 tasks, two runs), Brevi cost 1.0
 
 ## Which platforms?
 
-Linux, macOS and Windows on x86-64 and ARM64 (Windows ARM64 from v0.28.1). Library calls through CPython work on Windows too from v0.27.0 (the Python on PATH must have its DLL); `--standalone` builds are Linux only for now. See [Platforms](/docs/compatibility#platforms).
+Linux, macOS and Windows on x86-64 and ARM64 (Windows ARM64 from v0.28.1). Library calls through CPython work on Windows too from v0.27.0 (the Python on PATH must have its DLL); `--standalone` builds work on Linux and Windows from v0.28.1, not yet on macOS. See [Platforms](/docs/compatibility#platforms).
 
 ## Is it free? What is brevi.run?
 

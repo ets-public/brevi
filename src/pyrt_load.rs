@@ -165,6 +165,11 @@ fn ax_pyb_conf() -> Result<(String, String, Vec<String>), String> {
     if let Some(c) = ax_pyb_bundle()? {
         return Ok(c);
     }
+    // Built with --standalone but carrying no bundle now (the file was cut short, or something such as code
+    // signing appended to it after the build): refused, never a quiet switch to whatever Python is installed.
+    if AX_PYB_STANDALONE {
+        return Err("this program was built with --standalone, but its bundled Python is missing from the file (it was changed after the build, for example by signing it); build it again and do not change the file afterwards".into());
+    }
     if let Some(c) = parse(AX_PYB_CONF).filter(|c| std::path::Path::new(&c.0).is_file()) {
         return Ok(c);
     }
@@ -200,8 +205,8 @@ fn ax_pyb_conf() -> Result<(String, String, Vec<String>), String> {
 // The CPython a standalone build carries (appended by pybundle.py): unpacked once into a cache folder
 // named by its hash, then loaded from there. None for a binary without one.
 fn ax_pyb_bundle() -> Result<Option<(String, String, Vec<String>)>, String> {
-    // A standalone bundle is built on Linux only for now; a Windows/macOS binary has none to find.
-    if !cfg!(unix) {
+    // Standalone bundles are built on Linux and Windows; a macOS binary has none to find.
+    if !AX_PYB_STANDALONE || cfg!(target_os = "macos") {
         return Ok(None);
     }
     use std::io::{Read, Seek, SeekFrom};
@@ -221,6 +226,10 @@ fn ax_pyb_bundle() -> Result<Option<(String, String, Vec<String>)>, String> {
     let tag = String::from_utf8_lossy(&t[8..24]).to_string();
     let base = match std::env::var_os("BREVI_PY_CACHE") {
         Some(d) => std::path::PathBuf::from(d),
+        None if cfg!(windows) => match std::env::var_os("LOCALAPPDATA") {
+            Some(d) if !d.is_empty() => std::path::PathBuf::from(d).join("brevi").join("py"),
+            _ => std::env::temp_dir().join("brevi-py"),
+        },
         None => match (std::env::var_os("XDG_CACHE_HOME"), std::env::var_os("HOME")) {
             (Some(x), _) if !x.is_empty() => std::path::PathBuf::from(x).join("brevi").join("py"),
             (_, Some(h)) if !h.is_empty() => std::path::PathBuf::from(h).join(".cache").join("brevi").join("py"),
@@ -232,22 +241,47 @@ fn ax_pyb_bundle() -> Result<Option<(String, String, Vec<String>)>, String> {
         std::fs::create_dir_all(&base).map_err(|e| format!("cannot create {}: {e}", base.display()))?;
         let tmp = base.join(format!(".{tag}.{}", std::process::id()));
         std::fs::remove_dir_all(&tmp).ok();
+        if len > size - 32 {
+            return Err("this program's bundled Python is damaged (shorter than its trailer says); build it again".into());
+        }
         f.seek(SeekFrom::Start(size - 32 - len)).map_err(|e| e.to_string())?;
-        let r = ax_pyb_unpack(&mut std::io::BufReader::with_capacity(1 << 20, f.take(len)), &tmp);
+        // CPython opens its files with paths of at most 259 characters (this program has no long-path
+        // manifest), so on Windows every unpacked file's full path must fit, checked before it is written.
+        let room = if cfg!(windows) { 259usize.saturating_sub(root.as_os_str().len() + 1) } else { usize::MAX };
+        let r = ax_pyb_unpack(&mut std::io::BufReader::with_capacity(1 << 20, f.take(len)), &tmp, room);
         if let Err(e) = r {
             std::fs::remove_dir_all(&tmp).ok();
+            if e.kind() == std::io::ErrorKind::InvalidInput {
+                return Err(format!("{e} under {}: set BREVI_PY_CACHE to a shorter folder, such as C:\\brevi-py", root.display()));
+            }
             return Err(format!("cannot unpack the bundled Python into {}: {e}", base.display()));
         }
         std::fs::write(tmp.join(".brevi-ok"), "").map_err(|e| e.to_string())?;
-        // Another run of the program may have unpacked it first.
-        if std::fs::rename(&tmp, &root).is_err() {
-            std::fs::remove_dir_all(&tmp).ok();
-            if !root.join(".brevi-ok").is_file() {
-                return Err(format!("cannot unpack the bundled Python into {}", root.display()));
+        // Another run of the program may have unpacked it first. On Windows a virus scanner may still hold a
+        // just-written file for a moment, which fails the rename: tried again for up to five seconds.
+        let mut tries = 0;
+        loop {
+            match std::fs::rename(&tmp, &root) {
+                Ok(()) => break,
+                Err(_) if root.join(".brevi-ok").is_file() => {
+                    std::fs::remove_dir_all(&tmp).ok();
+                    break;
+                }
+                Err(e) if !cfg!(windows) || tries >= 50 => {
+                    std::fs::remove_dir_all(&tmp).ok();
+                    return Err(format!("cannot unpack the bundled Python into {}: {e}", root.display()));
+                }
+                Err(_) => {
+                    tries += 1;
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
             }
         }
     }
-    let at = |p: &str| root.join(p).to_string_lossy().to_string();
+    let at = |p: &str| {
+        let p = if cfg!(windows) { p.replace('/', "\\") } else { p.to_string() };
+        root.join(p).to_string_lossy().to_string()
+    };
     let conf = std::fs::read_to_string(root.join(".brevi-conf")).map_err(|e| e.to_string())?;
     let mut lines = conf.lines();
     let lib = at(lines.next().unwrap_or(""));
@@ -271,7 +305,8 @@ fn ax_pyb_bundle() -> Result<Option<(String, String, Vec<String>)>, String> {
     Ok(Some((lib, root.to_string_lossy().to_string(), path)))
 }
 
-fn ax_pyb_unpack(r: &mut impl std::io::Read, dir: &std::path::Path) -> std::io::Result<()> {
+// `room`: the longest path a file may have under the folder it ends up in (Windows' 259 characters).
+fn ax_pyb_unpack(r: &mut impl std::io::Read, dir: &std::path::Path, room: usize) -> std::io::Result<()> {
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     let bad = || std::io::Error::new(std::io::ErrorKind::InvalidData, "damaged bundle");
@@ -291,8 +326,11 @@ fn ax_pyb_unpack(r: &mut impl std::io::Read, dir: &std::path::Path) -> std::io::
         let raw = u32::from_le_bytes(p[plen..plen + 4].try_into().unwrap()) as usize;
         let dlen = u32::from_le_bytes(p[plen + 4..].try_into().unwrap()) as usize;
         let name = String::from_utf8(p[..plen].to_vec()).map_err(|_| bad())?;
-        if name.starts_with('/') || name.split('/').any(|c| c == "..") {
+        if name.starts_with('/') || name.split('/').any(|c| c == "..") || cfg!(windows) && (name.contains('\\') || name.contains(':')) {
             return Err(bad());
+        }
+        if name.encode_utf16().count() > room {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("the bundled Python has a file ({name}) whose path would pass Windows' 260-character limit")));
         }
         let mut data = vec![0u8; dlen];
         r.read_exact(&mut data)?;

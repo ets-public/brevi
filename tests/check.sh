@@ -956,6 +956,19 @@ for f in tests/standalone/*.py; do
     [ "$bare" = "$out" ] || out="$out
 in an empty root: $bare"
   fi
+  # The dynamic build carries its CPython too.
+  # Brevi's own sqlite3 would load the system's libsqlite3, which the binary does not carry: CPython runs it.
+  BREVI_DYN=1 $BREVI build "$f" --standalone --explain -o "$t/dyn" 2>&1 | grep -q '"py":\[[^]]*"sqlite3"' || out="$out
+dynamic build: sqlite3 not handed to the bundled CPython"
+  dyn=$(env -i HOME="$t" PATH=/nonexistent BREVI_PY_CACHE="$t/cache" "$t/dyn" 2>&1)
+  [ "$dyn" = "$(cat "$exp")" ] || out="$out
+dynamic build: $dyn"
+  # Bytes appended after the build (as code signing does) hide the bundle: refused, even with python3 on PATH,
+  # never run on the installed Python instead.
+  cp "$t/prog" "$t/signed"; printf 'appended after the build' >> "$t/signed"
+  cut=$(BREVI_PY_CACHE="$t/cache2" "$t/signed" 2>&1; echo "exit $?")
+  printf '%s\n' "$cut" | grep -q 'built with --standalone, but its bundled Python is missing' && ! printf '%s\n' "$cut" | grep -qx 'exit 0' || out="$out
+appended to: $cut"
   rm -rf "$t"
   if [ "$1" = "--update" ]; then python3 "$f" > "$exp" 2>&1; continue; fi
   if [ "$out" != "$(cat "$exp")" ]; then

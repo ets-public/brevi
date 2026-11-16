@@ -265,7 +265,7 @@ A Python file that imports a module Brevi does not build itself (pandas, yaml, P
 Limits today:
 
 - Under `--sandbox` (and in the MCP tools, which sandbox by default) a program that imports such a library is refused unless the caller grants it with `--allow-py pydantic` (MCP: `allow_py`) or `--allow native`; an `# allow native` line in the file grants nothing there (from v0.24.6; from v0.24.1 to v0.24.5 the line was enough). Path functions of `os` and `pathlib` and the common `random` functions work without it (from v0.24.2; see [Sandbox](/docs/usage#sandbox)).
-- The built program needs `python3` with its shared library (`libpython`) on the machine where it runs, unless built with `--standalone`, which carries CPython and the imported packages in the binary (Linux only).
+- The built program needs `python3` with its shared library (`libpython`) on the machine where it runs, unless built with `--standalone`, which carries CPython and the imported packages in the binary (Linux and Windows).
 - A library program the typed build rejects goes to the dynamic build, which calls the library through CPython the same way and keeps the rest native (from v0.24.6). Classes built on a library's classes (`class Post(BaseModel)`) run in CPython as a whole. Such a class falls back to CPython for the whole file if it sits inside a function, uses a name of the program that is not an import, or is subclassed in another file. The path line lists what CPython runs (`"py":[...]`).
 - `async` code next to such a library keeps the dynamic build and Brevi's own event loop (from v0.26.0), unless a coroutine could cross between the two: a coroutine function or lambda handed to the library, an async method on a subclass of one of its classes, an `async def` it decorates, or something it made being awaited or handed to asyncio (an async library such as `aiohttp`). Those programs run in CPython.
 - On Windows (from v0.27.0), library calls run in CPython through the bridge too (the `python` on PATH must have its DLL), and generators and `async` build there too (Win32 fibers); Brevi's own sqlite3, duckdb, onnxruntime, requests/httpx and mcp (stdio and HTTP/SSE) also run natively there (each needs its engine's Windows library: Windows' own `winsqlite3.dll`, the duckdb wheel's C API, `capi/onnxruntime.dll` from onnxruntime 1.16+, and Python's OpenSSL DLLs; mcp needs none). `--standalone` is Linux only.
@@ -285,7 +285,7 @@ A Python file keeps Python's run-time behaviour: a mistake Python only finds whe
 | --- | --- | --- | --- |
 | Typed and dynamic builds | yes | yes | yes |
 | Library calls through CPython | yes | yes | from v0.27.0 |
-| `--standalone` | yes | not yet | not yet |
+| `--standalone` | yes | not yet | yes |
 | GUI (tkinter) programs, headless and `--window` | yes | yes | yes |
 
 ## Known gaps

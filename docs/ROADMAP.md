@@ -153,7 +153,7 @@ Adoption is about zero because installing needs `rustc` and no harness bundles B
   (the templates in `templates/` are the start), offered upstream.
 - A GitHub Action and a devcontainer feature for CI agents.
 - **Hosted (`brevi.run`):** a closed beta for a handful of harness teams, only after WS7.
-- Windows parity for library programs, and macOS `--standalone`.
+- Windows parity for library programs (Windows `--standalone` from v0.28.1), and macOS `--standalone`.
 
 Design: [SDK_AND_IMAGES.md](SDK_AND_IMAGES.md).
 *Done when:* zero to a native run in ≤60 s with no Rust installed; one third-party platform ships Brevi in a base
