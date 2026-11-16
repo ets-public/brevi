@@ -799,6 +799,12 @@ done
 printf 'import re\nprint(re.match(b"a", b"A", re.L | re.I))\n' > "$t/locsb.py"
 o=$(BREVI_DYN=1 $BREVI run --sandbox "$t/locsb.py" 2>&1); c=$?
 case "$c:$o" in *"1:NotImplementedError: brevi: re.LOCALE under --sandbox"*) echo "ok   re.LOCALE under --sandbox stops" ;; *) echo "FAIL re.LOCALE under --sandbox ($c)"; printf '%s\n' "$o"; fail=1 ;; esac
+# UTF-8 mode (PYTHONUTF8=1) reaches the embedded CPython, which Py_InitializeEx alone ignores: the preferred
+# encoding is 'utf-8' as in python3, not the locale's (ASCII under C here, the ANSI code page on Windows; #589).
+printf 'import locale\nprint(locale.getpreferredencoding())\n' > "$t/penc.py"
+want=$(LC_ALL=C PYTHONUTF8=1 python3 "$t/penc.py" 2>&1)
+got=$(LC_ALL=C PYTHONUTF8=1 BREVI_DYN=1 $BREVI run "$t/penc.py" 2>&1)
+if [ "$want" = utf-8 ] && [ "$got" = "$want" ]; then echo "ok   PYTHONUTF8=1 preferred encoding"; else echo "FAIL PYTHONUTF8=1 preferred encoding: want $want got $got"; fail=1; fi
 # What a native coroutine cannot give is refused when the program is built (test_coroutines): its frame and code
 # objects, and types.coroutine (which marks a code object) in every spelling the build can see, except as the
 # innermost decorator of a generator function (tests/lib/coroutine_protocol.py).
