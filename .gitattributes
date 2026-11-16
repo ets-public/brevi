@@ -1,0 +1,2 @@
+tests/typed/crlf_source.py -text
+tests/dyn/crlf_source.py -text
