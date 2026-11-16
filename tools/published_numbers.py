@@ -34,6 +34,10 @@ def git(*a, check=True):
     return r
 
 
+def shallow():
+    return git("rev-parse", "--is-shallow-repository", check=False).stdout.strip() == "true"
+
+
 def have_tag(tag):
     """Fetches the tag when a shallow CI checkout lacks it. Exits when it does not exist at all."""
     if git("rev-parse", "-q", "--verify", f"refs/tags/{tag}^{{commit}}", check=False).returncode:
@@ -70,6 +74,10 @@ def provenance(tag, tag_commit=None):
     if full.returncode:
         sys.exit(f"{tag}: measured commit {short} not found")
     full = full.stdout.strip()
+    if git("merge-base", "--is-ancestor", full, tag_commit, check=False).returncode and shallow():
+        # A tag fetched with --depth=1 is a shallow root: its parents are cut off, so ancestry cannot be seen until
+        # the tag's own history is deepened (deepening the branch alone leaves that root in place).
+        git("fetch", "-q", "--deepen=50", "origin", f"refs/tags/{tag}:refs/tags/{tag}", check=False)
     if git("merge-base", "--is-ancestor", full, tag_commit, check=False).returncode:
         sys.exit(f"{tag}: measured commit {short} is not an ancestor of the tag's commit {tag_commit[:12]}")
     changed = git("diff", "--name-only", full, tag_commit).stdout.split()

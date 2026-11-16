@@ -1,5 +1,5 @@
 """tools/published_numbers.py: the speed medians, and the scan that refuses a headline figure quoted without its scope."""
-import sys, unittest
+import os, subprocess, sys, tempfile, unittest
 from decimal import Decimal
 from pathlib import Path
 
@@ -46,6 +46,46 @@ class Scan(unittest.TestCase):
 
     def test_passes_a_typed_median_with_the_dynamic_one(self):
         self.assertEqual(pn.scan("x.md", "typed median 9.3x, dynamic median 0.85x", C, MED), [])
+
+
+class ShallowTag(unittest.TestCase):
+    """A tag fetched with --depth=1 is a shallow root, so the measured commit looked unrelated to it (PC ci_local)."""
+
+    def run_git(self, cwd, *a):
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t",
+                   GIT_COMMITTER_EMAIL="t@t")
+        return subprocess.run(["git", "-C", cwd, *a], check=True, capture_output=True, text=True, env=env).stdout.strip()
+
+    def commit(self, repo, path, text, msg):
+        full = os.path.join(repo, path)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "w") as f:
+            f.write(text)
+        self.run_git(repo, "add", "-A")
+        self.run_git(repo, "commit", "-q", "-m", msg)
+        return self.run_git(repo, "rev-parse", "HEAD")
+
+    def test_deepens_a_shallow_tag_to_see_the_measured_commit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            origin, clone = os.path.join(tmp, "origin"), os.path.join(tmp, "clone")
+            self.run_git(tmp, "init", "-q", "-b", "main", origin)
+            measured = self.commit(origin, "src/a.rs", "fn a() {}\n", "release")
+            head = f"Brevi 0.0.1 (commit {measured[:12]}) against CPython 3.13\n"
+            self.commit(origin, "bench/conformance/report.md", head, "core report")
+            tagged = self.commit(origin, "bench/conformance/stdlib/report.md", head, "stdlib report")
+            self.run_git(origin, "tag", "v0.0.1")
+            self.commit(origin, "src/b.rs", "fn b() {}\n", "later")
+            self.run_git(tmp, "clone", "-q", "--depth=1", "--no-tags", "file://" + origin, clone)
+            self.run_git(clone, "fetch", "-q", "--depth=1", "origin", "refs/tags/v0.0.1:refs/tags/v0.0.1")
+            self.run_git(clone, "fetch", "-q", "--depth=1", "origin", measured)
+            old = pn.ROOT
+            pn.ROOT = clone
+            try:
+                got, tag_commit, changed = pn.provenance("v0.0.1")
+            finally:
+                pn.ROOT = old
+            self.assertEqual((got, tag_commit), (measured, tagged))
+            self.assertEqual(sorted(changed), ["bench/conformance/report.md", "bench/conformance/stdlib/report.md"])
 
 
 if __name__ == "__main__":
