@@ -53,7 +53,7 @@ A crash that has been fixed stays fixed: its input is kept in `fuzz/regressions/
 | `caps_check` | 26,514 | 14,411 | nothing |
 | `mcp_json` | — | 507 | **a bug, fixed:** a number beyond f64's range (`1e999`) was read as infinity and written back as `inf`, which is not JSON. The reader now refuses it. It had no security impact: the worst case was an invalid reply to the client that sent it. |
 | `mcp_grants` | 7,487,332 | 1,142 | nothing |
-| `mcp_http` | 2,204,603 | 726 | nothing in this run. A finding in the same code from review is listed under "Open findings". |
+| `mcp_http` | 2,204,603 | 726 | nothing in this run. A finding in the same code from review is listed under "Findings" (fixed in v0.28.2). |
 | `limits` | 3,426,075 | 761 | nothing |
 | `fs_scope` | 4,685,796 | 165 | nothing |
 | `bundle_inflate` | 721,420 | 246 | nothing |
@@ -74,11 +74,11 @@ Each attempt tries to break one promise in THREAT_MODEL.md. Attempts are written
 | R7 | Bridge crash: crash CPython through the bridge and check that the program fails cleanly without escaping its holds | Landlock and seccomp hold every thread | planned |
 | R8 | `brevi mcp --http` from a web page (DNS rebinding, missing Origin, a token sent to the wrong host) | only the token holder or the local machine reaches the server | planned |
 
-### Open findings
+### Findings
 
 Findings are listed with their details once a fixed release has shipped. Before that, only their existence is listed, so nothing is disclosed before users can upgrade.
 
-| Found | How | Area | Status |
-| --- | --- | --- | --- |
-| 2026-11-16 | code review | build folders on Linux | fix in progress, for a security point release |
-| 2026-11-16 | fuzzing and code review | `brevi mcp --http` request handling | fix in progress, for a security point release |
+| Found | How | Area | What it was | Fixed in |
+| --- | --- | --- | --- | --- |
+| 2026-11-16 | code review | temp folders on Linux and other unix | Build folders, cargo projects, MCP work folders, background build slots and, with no home folder, the unpacked CPython used shared, predictable names in the temp folder. Another local user could create one first and have Brevi build or run from a folder they control. Now every temp folder sits under `$TMPDIR/brevi-UID` (else `~/.cache/brevi/tmp`), used only when it is a real folder owned by the user, mode 0700, under folders no one else can change; otherwise Brevi stops and says why. Test: `tests/privtmp_test.py` (run as root with a second user in CI). | v0.28.2 (#602) |
+| 2026-11-16 | fuzzing (`mcp_http`) and code review | `brevi mcp --http` request handling | Before the token was checked, a client could make the server reserve memory for a declared body size it never sent, and chunk sizes could add up past the 4 MiB limit by wrapping. Any client that could reach the port could exhaust memory without the token. Now chunk sizes are added with an overflow check and refused past the limit (413), a body is stored only as its bytes arrive, a connection silent for 30 s or a request not whole within 120 s is closed, and at most 64 connections are served at once (503 past that). Test: `tests/mcp_http_test.py`. | v0.28.2 (#603) |
