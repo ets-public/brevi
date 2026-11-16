@@ -1,6 +1,6 @@
 # Known issues
 
-This page describes `main` as of v0.28.1 (16 November 2026). It lists limits that are known and tracked. It is not a list of every bug: open issues are on [GitHub](https://github.com/ets-public/brevi/issues). Report anything new as described in [SUPPORT.md](SUPPORT.md). For security problems, use [SECURITY.md](../SECURITY.md).
+This page describes `main` as of v0.28.2 (16 November 2026). It lists limits that are known and tracked. It is not a list of every bug: open issues are on [GitHub](https://github.com/ets-public/brevi/issues). Report anything new as described in [SUPPORT.md](SUPPORT.md). For security problems, use [SECURITY.md](../SECURITY.md).
 
 ## Correctness and conformance
 
@@ -45,7 +45,7 @@ Windows builds, runs and verifies programs natively, including library calls thr
 - Windows' own SQLite can be a different version from CPython's, so version-specific output may differ.
 - DuckDB and ONNX Runtime need their libraries installed (`pip install duckdb`, onnxruntime 1.16 or later).
 - Windows x86-64 and ARM64 (from v0.28.1) are built.
-- Conformance on Windows is gated for the core slice only. Each release runs CPython's core tests on the shipped `brevi.exe` (windows-2022 and windows-11-arm) and refuses to ship below 90% or with any wrong answer; v0.28.1 passed with none wrong. The standard-library slice is not gated on Windows in v0.28.1. Measured on Windows after the release (16 November), it matched 1,967 of 2,053 tests (95.7%) and gave **23 wrong answers** that all match on Linux: source paths keep the `\\?\` prefix ([#587](https://github.com/ets-public/brevi/issues/587), 9 tests in re, functools and enum), CRLF source keeps `\r` in string literals ([#588](https://github.com/ets-public/brevi/issues/588), 13 tests, mostly textwrap), and there is no cp1252 codec ([#589](https://github.com/ets-public/brevi/issues/589), 1 test). Until those are fixed, check Windows programs that touch these with `brevi verify`. A Windows gate for the stdlib slice is in review ([#590](https://github.com/ets-public/brevi/pull/590)).
+- Conformance on Windows is gated for both slices. Each release runs CPython's core and standard-library tests on the shipped `brevi.exe` (windows-2022 and windows-11-arm) and refuses to ship below the floor, below 90% (core) or 80% (stdlib), or with any wrong answer. The 23 Windows-only stdlib wrong answers measured after v0.28.1 (`\\?\` source paths [#587](https://github.com/ets-public/brevi/issues/587), CRLF string literals [#588](https://github.com/ets-public/brevi/issues/588), no cp1252 codec [#589](https://github.com/ets-public/brevi/issues/589)) are fixed in v0.28.2, and both Windows known-wrong lists are empty.
 - In v0.27.x, dynamic builds on Windows use POSIX path rules (`os.path.basename("C:\\a\\b.txt")` gives the whole path) and report `sys.platform` as `linux`. From v0.28.0 `os.path` is `ntpath`, `sys.platform` is `win32`, and `pathlib` runs in CPython.
 
 Tests: [tests/windows/check.ps1](../tests/windows/check.ps1).

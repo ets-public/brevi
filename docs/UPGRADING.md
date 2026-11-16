@@ -35,6 +35,15 @@ Notes:
 
 Newest first. Only changes that can affect programs or setups that already work.
 
+### v0.28.2
+
+These changed in v0.28.2 (16 Nov 2026).
+
+- **Private temp folders (Linux and other unix).** Build folders, cargo projects, MCP work folders and the background build slots live in `$TMPDIR/brevi-UID` (else `~/.cache/brevi/tmp`), used only when it is a real folder owned by you with no access for anyone else. If neither can be used, brevi stops and says why instead of falling back to a shared name. With no home folder, the cache moves into the private folder too.
+- **`brevi mcp --http` closes slow or oversized requests.** A body past 4 MiB (chunked ones included) gets 413, a connection silent for 30 s or a request not whole within 120 s is closed, and past 64 connections at once the server answers 503.
+- **Windows:** CRLF source reads as CPython reads it (no `\r` kept in triple-quoted strings); source paths have no `\\?\` prefix; the cp1252 codec works and bytes `re.LOCALE` follows the C library's locale. With `PYTHONUTF8=1`, bridged CPython runs in UTF-8 mode, so `locale.getpreferredencoding()` is `utf-8`, as in python3.
+- **Bytes patterns with `re.LOCALE`** take case and word characters from the environment's LC_CTYPE locale on every platform, as CPython does. Under `--sandbox` such a match stops the program.
+
 ### v0.28.1
 
 These changed in v0.28.1 (16 Nov 2026).
