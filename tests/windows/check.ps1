@@ -1,4 +1,4 @@
-# Windows platform checks: library bridge (typed and dynamic), output parity, and the
+# Windows platform checks: library bridge (typed and dynamic), output parity, --standalone builds, and the
 # resource limits (mem in a Job Object; cpu, file and fds refused). Run from the repository root after `cargo build --release`
 # (or set BREVI to the brevi.exe to check, as the release does for the binary it ships).
 # Every check runs: the duckdb, onnxruntime, requests and PyYAML checks need those packages
@@ -114,6 +114,8 @@ if ($LASTEXITCODE -ne 0) { throw "requests is not installed: $needs" }
     }
 }
 $env:BREVI = $brevi
+# --standalone: one .exe carrying its own CPython, run with Python out of reach (standalone.ps1 throws on a failure).
+& (Join-Path $root "tests\windows\standalone.ps1")
 & python (Join-Path $root "tests\windows\mcp_check.py")
 if ($LASTEXITCODE -ne 0) { throw "mcp_check.py exited $LASTEXITCODE" }
 Write-Host "all Windows checks passed"

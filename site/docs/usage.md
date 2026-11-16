@@ -37,7 +37,7 @@ A file can import its sibling `.py` files and packages as usual (`import util`, 
 | `--release` | run, build | Optimise fully (rustc opt-level 3, the runtime inlined into the program). Builds take a few seconds longer; programs often run up to twice as fast as with the default build. Use it for a binary you keep. |
 | `--native` | run | Never fall back to CPython: print Brevi's errors instead. `BREVI_NATIVE=1` does the same. |
 | `--strict` | run, build, check, verify | From v0.28.0: no fallback of any kind, for CI and production jobs (see [Strict builds](#strict-builds)). `BREVI_STRICT=1` does the same. |
-| `--standalone` | build | For Python files that import libraries: pack CPython, the standard library and the imported packages into the binary, so it runs on a Linux machine with no Python. Linux only. |
+| `--standalone` | build | For Python files that import libraries: pack CPython, the standard library and the imported packages into the binary, so it runs on a machine with no Python. Linux and Windows. |
 | `--sandbox` | run, check, test | Refuse file access, native code and Python libraries unless the caller grants them (see [Sandbox](#sandbox)). |
 | `--allow read,write,net,native` | run, check, test | Under the sandbox, grant these capabilities (implies `--sandbox`). |
 | `--allow-read DIRS`, `--allow-write DIRS` | run, check, test | Under the sandbox, let the program read (or write) files only inside these folders or files, such as `--allow-read data --allow-write out` (implies `--sandbox`; from v0.26.0). |
@@ -326,7 +326,7 @@ window "tk"
 ## Libraries
 
 - **Python packages** in Python files: `import numpy as np`, `pandas`, `yaml`, `pathlib`, `subprocess` or any other installed module works. Its calls run in CPython inside the native program, so results are CPython's own. The program needs `libpython` where it runs, unless built with `--standalone`.
-- **Standalone binaries**: `brevi build x.py --standalone` carries CPython, the standard library and the imported packages (with what they require). The first run unpacks them once into `~/.cache/brevi/py`, about 1 to 3 seconds; later runs start at normal speed. Expect about 13 MB for a standard-library program and 30 to 45 MB with numpy or pandas. Linux only.
+- **Standalone binaries**: `brevi build x.py --standalone` carries CPython, the standard library and the imported packages (with what they require). The first run unpacks them once into `~/.cache/brevi/py` (`%LOCALAPPDATA%\brevi\py` on Windows), about 1 to 3 seconds; later runs start at normal speed. Expect about 13 MB for a standard-library program and 30 to 45 MB with numpy or pandas. Linux and Windows. A standalone binary uses only the Python it carries: if the file is changed after the build (code signing appends to it), it refuses to run instead of using an installed Python. On Windows the build is refused with Microsoft Store Python or a Python for another CPU.
 - **Rust crates and Python code from Brevi programs**: `use sha2 "0.10"` with a `rust fn`, or a `py fn` with a Python body. See [Libraries](/docs/libraries).
 
 ## Speed and the build cache
@@ -349,7 +349,7 @@ Write the plain, direct program. Brevi runs plain loops over ints and lists seve
 | `BREVI_CACHE_MB` | Most megabytes of builds the cache keeps (default 1024); the least recently used go first. |
 | `BREVI_TIME=1` | Print how long each build stage took, in ms, on stderr. |
 | `BREVI_TIERED=0` | From v0.27.0: `run` and `test` always wait for the optimised build instead of running an unoptimised one first. |
-| `BREVI_PY_CACHE` | Where `--standalone` binaries unpack CPython (default `~/.cache/brevi/py`). |
+| `BREVI_PY_CACHE` | Where `--standalone` binaries unpack CPython (default `~/.cache/brevi/py`; on Windows `%LOCALAPPDATA%\brevi\py`). |
 | `BREVI_GUI=headless` | Run a `--window` GUI build headless. |
 | `BREVI_DYN=1` / `BREVI_DYN=0` | Force the dynamic build, or turn it off (to see the typed build's errors). |
 | `BREVI_PATH=1` / `BREVI_PATH=0` | Print [which path ran](#which-path-ran) for every build, including typed ones, or never. |

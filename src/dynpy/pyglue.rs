@@ -627,7 +627,7 @@ fn pyd_api() -> &'static ax_pyffi::Api {
         Ok(a) => a,
         Err(e) => {
             out_flush();
-            let fix = if e.starts_with("brevi: --sandbox:") { "change what the message names, or run without --sandbox" } else { "install a CPython 3.13 that has its shared library (libpython), or set BREVI_PYTHON to one" };
+            let fix = if e.starts_with("brevi: --sandbox:") { "change what the message names, or run without --sandbox" } else if AX_PYB_STANDALONE { "do what the message says: a --standalone program uses only the Python it carries, never an installed one" } else { "install a CPython 3.13 that has its shared library (libpython), or set BREVI_PYTHON to one" };
             eprintln!("{{\"e\":\"runtime\",\"msg\":{e:?},\"fix\":{fix:?}}}");
             std::process::exit(1)
         }

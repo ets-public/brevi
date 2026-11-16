@@ -429,6 +429,7 @@ fn main() {
         PY_FILE.store(true, std::sync::atomic::Ordering::Relaxed);
     }
     // An unchanged program is not built again: check, build and strict runs replay the build from the cache.
+    pybridge::set_standalone(standalone && cmd == "build");
     if matches!(cmd, "check" | "build" | "run") && !(cmd == "run" && is_py(&file) && !native) && !standalone && runcache::on() && !runcache::in_child() {
         let mut flags: Vec<String> = vec![];
         for (on, f) in [(fast, "--fast"), (sandbox, "--sandbox"), (gui::window(), "--window"), (EXPLAIN.load(std::sync::atomic::Ordering::Relaxed), "--explain"), (native, "--native")] {
@@ -679,15 +680,8 @@ fn main() {
                 fail(cmd);
             }
             if cmd == "build" {
-                // --standalone: a program that calls Python libraries carries its own CPython.
-                if standalone && pybridge::active() {
-                    match pybridge::bundle(&file, &bin) {
-                        Ok(note) => eprintln!("note: {note}"),
-                        Err(m) => {
-                            print_diag(&Diag::new("build", 1, 1, &m).fix_hint("build without --standalone; the program then needs python3 and its libraries installed"));
-                            exit(1);
-                        }
-                    }
+                if pybridge::active() {
+                    standalone_bundle(&file, &bin);
                 }
                 say_typed();
                 return;
@@ -786,6 +780,9 @@ fn dyn_fallback(cmd: &str, file: &str, argv: &[String], why: Why) -> bool {
     }
     let (wfile, line, func, why, extra, relocate) = why;
     say_path("dynamic", &wfile, line, func, &why, &format!("{extra}{}", dyn_py_field()), relocate);
+    if cmd == "build" && !dynpy::bridged().is_empty() {
+        standalone_bundle(file, &bin);
+    }
     if cmd == "run" {
         let mut c = proc::script(&bin, file);
         c.args(argv.get(dash + 1..).unwrap_or(&[]));
@@ -908,6 +905,21 @@ fn dyn_blocked_note() {
     }
 }
 
+// --standalone: a program that calls Python libraries (typed or dynamic build) carries its own CPython. A build
+// that cannot bundle it fails, and leaves a binary that refuses to run rather than one using installed Python.
+fn standalone_bundle(file: &str, bin: &Path) {
+    if !pybridge::standalone() {
+        return;
+    }
+    match pybridge::bundle(file, bin) {
+        Ok(note) => eprintln!("note: {note}"),
+        Err(m) => {
+            print_diag(&Diag::new("build", 1, 1, &m).fix_hint("build without --standalone; the program then needs python3 and its libraries installed"));
+            exit(1);
+        }
+    }
+}
+
 // Builds (and runs) a Python file through the dynamic-value path. Never returns.
 fn dyn_cmd(cmd: &str, file: &str, argv: &[String]) -> ! {
     let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
@@ -934,6 +946,9 @@ fn dyn_cmd(cmd: &str, file: &str, argv: &[String]) -> ! {
     }
     say_path("dynamic", "", 0, None, "BREVI_DYN=1", &dyn_py_field(), false);
     if cmd == "build" {
+        if !dynpy::bridged().is_empty() {
+            standalone_bundle(file, &bin);
+        }
         exit(0);
     }
     let mut c = proc::script(&bin, file);
