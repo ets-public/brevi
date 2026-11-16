@@ -3,7 +3,8 @@ that another local user made first in a shared temp folder is never used, nor on
 others. Brevi then builds in ~/.cache/brevi/tmp, and with no home folder it stops with the reason.
 
 Needs two users, so Linux and root: the other user's folders are made here, as root, and brevi runs as nobody in
-tools/modelbox.py (skipped elsewhere, e.g. GitHub's non-root runners). BREVI: the brevi to test."""
+tools/modelbox.py. Skipped elsewhere, except that GitHub's Linux job runs it under sudo with BREVI_ROOT_TESTS=1,
+where a skip fails. BREVI: the brevi to test."""
 import os, sys
 from pathlib import Path
 
@@ -11,6 +12,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 
 if not sys.platform.startswith("linux") or os.geteuid() != 0:
+    if os.environ.get("BREVI_ROOT_TESTS") == "1":  # CI runs it as root (toolchains.yml): a skip there is a failure
+        sys.exit("privtmp: FAIL: BREVI_ROOT_TESTS=1 but this is not Linux as root, so the test cannot run")
     print("privtmp: skipped (needs Linux and root)")
     sys.exit(0)
 

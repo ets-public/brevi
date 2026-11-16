@@ -253,6 +253,15 @@ jobs:
         # check.sh in parallel, one job per CPU (the same checks, the same report)
         run: python3 tests/check_parallel.py
 
+      # Brevi's temp folders stay private when another local user plants folders first (src/privdir.rs). The test
+      # needs root and a second user, so it runs here under sudo (GitHub's runners have it), never skipped:
+      # BREVI_ROOT_TESTS=1 makes a skip a failure. The box (tools/modelbox.py) finds the toolchains under /root.
+      - name: Private temp folders (as root, with a second user)
+        if: steps.seen.outputs.cache-hit != 'true' && matrix.rust == 'stable' && matrix.python == '3.13'
+        run: |
+          for t in .cargo .rustup; do sudo mkdir -p "/root/$t" && sudo mount --bind "$HOME/$t" "/root/$t"; done
+          sudo env "PATH=$PATH" BREVI_ROOT_TESTS=1 BREVI="$PWD/target/release/brevi" python3 tests/privtmp_test.py
+
       # The language tests above skip these sections (this runner's Python has no duckdb, onnxruntime or mcp, and the
       # newest Python may have no wheels for them yet). The daily run and the release run them on CPython 3.13 with the
       # pinned packages, where a section that cannot run fails instead of skipping.
