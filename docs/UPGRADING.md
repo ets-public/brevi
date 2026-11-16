@@ -35,13 +35,17 @@ Notes:
 
 Newest first. Only changes that can affect programs or setups that already work.
 
-### Next release
+### v0.28.1
 
-These are on `main` now and ship with the next release.
+These changed in v0.28.1 (16 Nov 2026).
 
 - **Unicode case follows CPython 3.13.** `str.upper()`, `lower()`, `title()`, `capitalize()`, `swapcase()` and the `is*` case and space tests use CPython 3.13's Unicode 15.1 tables in both builds, with its title-case, final-sigma and word rules. Characters added to Unicode after 15.1 and a few title-case letters gave different answers before. `\x1c` to `\x1f` count as whitespace in `isspace()`, `split()` and `strip()`.
 - **`re.IGNORECASE` builds on any Rust.** It folds case with CPython 3.13's tables, so Unicode IGNORECASE patterns no longer refuse on Rust 1.100 and newer. Building Brevi from source is tested on Rust 1.100.0.
 - **`namedtuple` names** are checked with CPython 3.13's `str.isidentifier()` (`'a²'` is refused and `'a·b'` accepted, as in CPython).
+- **Regex patterns built at run time** in a typed build of a .py file are checked like literal ones: syntax the typed matcher lacks (back-references, named groups, look-arounds) stops the typed run, and `brevi run` re-runs it on the dynamic build.
+- **`--standalone` binaries use only the Python they carry.** One whose bundle is missing now refuses to run instead of using an installed Python, and dynamic `--standalone` builds carry CPython too. With `--standalone`, duckdb, onnxruntime, the network modules and (Linux, macOS) sqlite3 run in the bundled CPython.
+- **Windows:** `--standalone` works; HTTPS trusts the Windows certificate store when no CA file is given; ARM64 builds ship (`brevi-aarch64-pc-windows-msvc.zip`, `win_arm64` wheel, npm `win32-arm64`); a release is gated on Windows conformance.
+- **Conformance floors count native matches only** (a match through the CPython bridge no longer counts), and 4 `test_set.TestBasicOpsTriple` results are unstable on every platform, so core is scored over 1072 tests.
 
 ### v0.28.0
 
