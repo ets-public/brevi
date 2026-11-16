@@ -15,14 +15,14 @@ cat: 1
 ## Who it is for
 
 - **Coding agents** that write Python to solve a task: Brevi takes the place of `python3` in the loop. The agent needs no guide, and gets faster programs and shorter errors. Start with [For AI agents](/docs/agents).
-- **People who run agent-written code**: one native binary to ship, the same output as CPython, and a sandbox the program declares. Start with [Install](/docs/install) and [Using Brevi](/docs/usage).
+- **People who run agent-written code**: one native binary to ship, the same output as CPython, and a sandbox the caller controls. Start with [Install](/docs/install) and [Using Brevi](/docs/usage).
 - **Anyone curious how a Python-to-Rust compiler can stay exact**: [Architecture](/docs/architecture) and [What works, and limits](/docs/compatibility).
 
 ## What makes it different
 
 - **AI-first.** Every design choice is measured by what it costs a model to get a working program: tokens written, errors read, retries. The [release test](/docs/benchmarks#the-release-test) has Claude models solve 24 tasks in Python, run once by CPython and once by Brevi, and Brevi must cost no more.
 - **Fast.** Most Python builds into plain Rust with fixed types. Programs whose types change at run time build over dynamic values, still native.
-- **Safe.** Rust's memory safety underneath, integers that never silently overflow, and a declared sandbox for file access and native code.
+- **Held to what you grant.** Integers never silently overflow, and under `--sandbox` a program touches only the files, hosts and native code the caller grants. The sandbox is a policy layer, not an isolation boundary: run untrusted code in a container or VM, and know that `--allow-py` and `--allow native` are full trust. No external security audit yet ([Security](https://github.com/ets-public/brevi/blob/main/SECURITY.md#where-brevi-stands)).
 - **Exact.** A program Brevi builds gives CPython's output, or Brevi refuses at build time. It does not guess. On 591 saved agent programs, every build matched CPython byte for byte.
 
 ## Where to go next

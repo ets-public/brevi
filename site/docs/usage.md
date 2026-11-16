@@ -180,7 +180,14 @@ Other mistakes that Python only finds when the line runs (an index out of range,
 
 ## Sandbox
 
-**What it is, and what it is not.** The sandbox is a cheap capability and limit layer for agent code you mostly trust. It is not an isolation boundary for hostile code. Brevi's own generated code enforces it: there is no seccomp filter, namespace or VM around the program, so the guarantee rests on Brevi being right. `--allow-py` and `--allow native` are full trust, Landlock holds CPython to the file grants on Linux 5.13 and later only, a file check and the open that follows are two steps, and no outside security review has been done yet. Run untrusted code inside a container or VM as well, and use the sandbox as a second layer inside it.
+**What it is, and what it is not.**
+
+- **No external security audit yet.** We have not had an external audit; we are seeking funding for one. Until then, do not run hostile code under the sandbox.
+- **The sandbox is a policy layer, not an isolation boundary.** It is a cheap capability and limit layer for agent code you mostly trust. Brevi's own build check and runtime code enforce it: there is no namespace, container or VM around the program, so the guarantee rests on Brevi being right. Only a program that loads CPython is held by the kernel as well, on Linux only (Landlock for files on 5.13 and later, a seccomp filter against the network). A file check and the open that follows are two steps.
+- **Run untrusted code in a container or VM**, and use the sandbox as a second layer inside it.
+- **`--allow-py` and `--allow native` are full trust.** Grant them only to code you would run without a sandbox.
+
+Who should use Brevi today is in [SECURITY.md](https://github.com/ets-public/brevi/blob/main/SECURITY.md#who-should-use-brevi-today); what each layer covers is in the [threat model](https://github.com/ets-public/brevi/blob/main/docs/THREAT_MODEL.md).
 
 With `--sandbox` (and in the MCP tools, which sandbox by default), **only the caller grants capabilities**: `--allow read,write,net,native`, `--allow-net api.example.com` to let the program reach just those hosts, `--allow-read data` and `--allow-write out` to let it read or write files only inside those folders, or `--allow-py yaml,pandas` to let CPython run just those libraries (the MCP tools' `allow`, `allow_net`, `allow_read`, `allow_write` and `allow_py` arguments). The code being sandboxed cannot grant itself anything: an `allow` line in it that asks for more than the caller granted is refused (from v0.24.6; before it, an allow line in the file was enough).
 

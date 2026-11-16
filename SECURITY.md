@@ -2,6 +2,25 @@
 
 Brevi is in public preview and still 0.x. The latest minor release gets every fix. The previous minor gets fixes for Critical and High security issues only, for 4 weeks after its successor ships. Older releases get nothing. See [docs/SUPPORT.md](docs/SUPPORT.md).
 
+## Where Brevi stands
+
+- **No external security audit yet.** We have not had an external audit; we are seeking funding for one. Until then, do not run hostile code under the sandbox.
+- **The sandbox is a policy layer, not an isolation boundary.** `--sandbox` (the default in the `brevi mcp` tools and the SDKs) checks at build time what the program may touch, and, without `--allow-py` or `--allow native`, the program reaches files and the network only through Brevi's own code, which checks the caller's grants. There is no namespace, container or VM around the program, and it runs as the same OS user as `brevi`. Only a program that loads CPython gets kernel holds on files and the network as well: on Linux, Landlock for files (5.13 or later, with Landlock on) and a seccomp filter against the network when none is granted. The sandbox stops agent code from touching what the caller did not grant; it is not built to hold code that is trying to break out, and a bug in Brevi's checks or runtime can be a way out.
+- **Run untrusted code in a container or VM.** Run `brevi` itself inside one, with no credentials in it, and use the sandbox as a second layer inside it.
+- **`--allow-py` and `--allow native` are full trust.** Once CPython or native code is loaded, the program can do anything the user running `brevi` can, apart from the kernel holds and limits the threat model lists. Grant them only to code you would run without a sandbox.
+
+The details, and what each layer does and does not cover, are in [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md). How we test it is in [docs/SECURITY_TESTING.md](docs/SECURITY_TESTING.md).
+
+### Who should use Brevi today
+
+| Use | What it needs first |
+| --- | --- |
+| A design partner running its own trusted agent code inside its existing container or VM | Nothing more: this is a fair use today, with the four points above understood. No audit is needed, because nobody relies on the sandbox as the boundary. |
+| A public beta | An independent security review of a fixed scope (the sandbox checks, the MCP server, DLL loading on Windows) is strongly recommended. |
+| Offering the sandbox as a boundary for hostile code (not before an audit) | A paid external audit. We will not make that claim before one is done. |
+
+The external audit is on the [roadmap](docs/ROADMAP.md#ws7-safety-at-scale-gates-the-hosted-service); it does not hold up the pilot use above.
+
 ## Reporting a vulnerability
 
 Report it privately. Never open a public issue for a vulnerability.
@@ -70,4 +89,4 @@ The target is containment within 24 hours of confirmation.
 
 ## Scope notes
 
-No outside security review has been done yet. The sandbox is a compile-time capability check plus a runtime with nothing in it, not an operating-system jail. For code you have reason to distrust, run `brevi` itself in a container or VM with no credentials. See [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
+See [Where Brevi stands](#where-brevi-stands) at the top: no external audit yet, the sandbox is a policy layer and not an isolation boundary, and code you have reason to distrust belongs in a container or VM with no credentials. See [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).

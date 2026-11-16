@@ -10,6 +10,11 @@ platform gives each run a throwaway machine. Brevi adds two things a VM cannot s
 - **Limits the caller sets.** `--limit cpu=10,mem=512,time=20,output=256,file=16` stops a runaway program and says
   which limit stopped it (`{"e":"limit","on":"mem",...}`, exit code 124), well before the platform's own timeout.
 
+Brevi's sandbox is a policy layer, not an isolation boundary, and there has been no external security audit
+yet: the platform's machine is the isolation. Run untrusted code in a container or VM, as these templates do, and
+never pass `--allow-py` or `--allow native` to code you would not run unsandboxed: `--allow-py` and `--allow native`
+are full trust.
+
 The model never chooses either. `brevi_tool.py` gives it one tool, `run_python(code, stdin)`, with no field
 for permissions; grants and limits come from your code.
 

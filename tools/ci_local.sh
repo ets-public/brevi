@@ -33,8 +33,8 @@ if [ "$mode" = pr ]; then
   fi
 fi
 # The GitHub-only "versions" job checks, for the PRs GitHub CI skips (docs, site, conformance lists).
-step "Workflows, credentials, built files, --limit claims"
-python3 tools/workflow_guard.py && python3 tools/secret_scan.py && python3 tools/no_binaries.py && python3 tools/limits_check.py
+step "Workflows, credentials, built files, --limit and security claims"
+python3 tools/workflow_guard.py && python3 tools/secret_scan.py && python3 tools/no_binaries.py && python3 tools/limits_check.py && python3 tools/security_claims.py
 # Brevi answers as CPython 3.13 does and runs no other CPython (src/cpython.rs), so the checks run with python3 =
 # CPython 3.13.13 (uv's build, the one conformance compares with), as GitHub CI runs them with 3.13. The machine's
 # own python3 (another version, say 3.15) stays out of the run, except for the model box check below.

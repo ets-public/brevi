@@ -8,6 +8,8 @@ Docs: **[brevi-lang.org/docs](https://brevi-lang.org/docs/)** · Releases: [GitH
 
 **Public preview.** Brevi works today and is tested against CPython on every change, but it is young: expect rough edges, and expect the CLI and Brevi's own syntax to change between releases. It is **not yet a drop-in `python3`**: on CPython's own tests some built programs still answer differently (see Status), `brevi run` quietly falls back to `python3` for files it cannot build (`--native` turns that off), and the sandbox is a policy layer, not an isolation boundary. Bug reports are very welcome ([CONTRIBUTING.md](CONTRIBUTING.md)).
 
+**Security, plainly.** No external security audit yet: we have not had an external audit; we are seeking funding for one. Until then, do not run hostile code under the sandbox. The sandbox is a policy layer, not an isolation boundary: Brevi's own checks hold the program, with no container or VM around it. Run untrusted code in a container or VM, and use the sandbox as a second layer inside it. `--allow-py` and `--allow native` are full trust. Who should use Brevi today, and what a public launch needs first: [SECURITY.md](SECURITY.md#where-brevi-stands).
+
 ## Install
 
 Linux and macOS:
@@ -137,7 +139,7 @@ Never remove a line from `compat/baseline.txt` to make a check pass.
 
 ## Contributing and security
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for bug reports and pull requests, and [SECURITY.md](SECURITY.md) to report a vulnerability privately. For anything else, email [support@brevi-lang.org](mailto:support@brevi-lang.org).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for bug reports and pull requests, and [SECURITY.md](SECURITY.md) to report a vulnerability privately and for what the sandbox does and does not cover. For anything else, email [support@brevi-lang.org](mailto:support@brevi-lang.org).
 
 ## License
 
