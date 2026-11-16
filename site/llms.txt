@@ -7,6 +7,7 @@ Security: no external security audit yet. The sandbox (`--sandbox`, on by defaul
 ## Docs
 
 - [Agent skill](https://brevi-lang.org/skill.md): setup and the write, run, fix loop for coding agents. Start here.
+- [Quickstart for agents](https://brevi-lang.org/docs/quickstart.md): install, write main.py, read the one-line JSON error, fix it, and `brevi run --verify` for a certificate that the native run matches CPython.
 - [For AI agents](https://brevi-lang.org/docs/agents.md): the MCP server's tools, the skill and plugin, and prompting advice.
 - [Using Brevi](https://brevi-lang.org/docs/usage.md): commands, flags, error formats, which path ran (typed, dynamic, pybridge or CPython) and why, the CPython fallback, sandbox and GUI test mode.
 - [Install](https://brevi-lang.org/docs/install.md): release binaries, the install script, Docker and building from source.

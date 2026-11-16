@@ -129,7 +129,7 @@ header.top .bar { display: flex; align-items: center; gap: 24px; min-height: var
 .s { color: var(--str); }
 .c { color: var(--com); }
 .term .out { color: #b3bdb9; }
-pre.wrapline { white-space: pre-wrap; word-break: break-word; }
+pre.wrapline { white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
 
 /* A Brevi-style JSON line, used for small status notes */
 .jl { font: 0.8125rem/1.6 var(--mono); color: var(--muted); margin: 0; overflow-wrap: anywhere; }
@@ -169,6 +169,7 @@ section.band { border-top: 1px solid var(--line); padding-block: 96px; }
 .point h3 { font: 500 1.0625rem/1.35 var(--sans); margin: 0 0 8px; }
 .point p { color: var(--fg2); margin: 0; font-size: 0.9375rem; }
 .steps { counter-reset: step; list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--card); overflow: hidden; }
+.steps.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .steps li { counter-increment: step; padding: 28px 28px 32px; min-width: 0; }
 .steps li + li { border-left: 1px solid var(--line); }
 .steps li::before { content: counter(step); font: 500 0.8125rem/24px var(--mono); color: var(--accent); background: var(--tint); display: inline-block; width: 24px; height: 24px; text-align: center; border-radius: 6px; margin-bottom: 16px; }
@@ -397,7 +398,7 @@ footer.site .about p { margin: 12px 0 0; max-width: 22rem; }
   .stat:nth-child(n+3) { border-top: 1px solid var(--line); }
   .grid3, .cards { grid-template-columns: minmax(0, 1fr); gap: 24px; }
   .cards { gap: 12px; }
-  .steps { grid-template-columns: minmax(0, 1fr); }
+  .steps, .steps.four { grid-template-columns: minmax(0, 1fr); }
   .steps li + li { border-left: 0; border-top: 1px solid var(--line); }
   .grid2, .split, .prose .cards, .plans, .conf, .rows, .cta { grid-template-columns: minmax(0, 1fr); }
   .conf { padding: 20px; margin-bottom: 40px; }
