@@ -1,0 +1,92 @@
+# Coverage-guided fuzzing of Brevi's own input handling (docs/SECURITY_TESTING.md). Separate from the compiler's
+# package so the shipped crate keeps zero dependencies: `cargo +nightly fuzz run TARGET` from the repository root.
+[package]
+name = "brevi-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+libfuzzer-sys = "=0.4.10"
+
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "parse_bv"
+path = "fuzz_targets/parse_bv.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_py"
+path = "fuzz_targets/parse_py.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "caps_check"
+path = "fuzz_targets/caps_check.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mcp_json"
+path = "fuzz_targets/mcp_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mcp_grants"
+path = "fuzz_targets/mcp_grants.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mcp_http"
+path = "fuzz_targets/mcp_http.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "limits"
+path = "fuzz_targets/limits.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fs_scope"
+path = "fuzz_targets/fs_scope.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bundle_inflate"
+path = "fuzz_targets/bundle_inflate.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bundle_unpack"
+path = "fuzz_targets/bundle_unpack.rs"
+test = false
+doc = false
+bench = false

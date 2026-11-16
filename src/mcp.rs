@@ -38,7 +38,7 @@ const INSTRUCTIONS: &str = "Write plain Python: Brevi compiles it to native code
 
 // A 2026-07-28 request's envelope: Ok(true) for one, Ok(false) for a request without one (the handshake era),
 // Err(the error object) when the envelope names a version this server lacks or leaves a key out.
-fn envelope(params: &J) -> Result<bool, String> {
+pub(crate) fn envelope(params: &J) -> Result<bool, String> {
     let Some(meta) = params.get("_meta") else { return Ok(false) };
     let Some(v) = meta.get(K_VERSION) else { return Ok(false) };
     let asked = v.str().unwrap_or("");
@@ -128,7 +128,7 @@ fn spec(tool: &str) -> Option<&'static [(&'static str, Kind, bool)]> {
 // Checks a call's arguments against the tool's spec, so a misspelt or mistyped argument is reported instead
 // of silently ignored. Forgiving where the meaning is clear: null is the same as leaving an argument out,
 // numbers are accepted as text, and "3" / "true" as an integer / boolean.
-fn validate(tool: &str, a: &J) -> Result<J, String> {
+pub(crate) fn validate(tool: &str, a: &J) -> Result<J, String> {
     let sp = spec(tool).unwrap_or(&[]);
     let kv = match a {
         J::Obj(kv) => kv,
@@ -327,7 +327,7 @@ fn parse_cfg(argv: &[String]) -> Result<Cfg, String> {
 }
 
 // Whether the server lets a call have this grant (caps.rs spelling): it, or a wider one, was given to brevi mcp.
-fn within(ceiling: &[String], g: &str) -> bool {
+pub(crate) fn within(ceiling: &[String], g: &str) -> bool {
     if ceiling.iter().any(|c| c == g) {
         return true;
     }
@@ -679,14 +679,13 @@ fn brevi(files: &mut Files, cmd: &str, extra: &[String], stdin: &str, limit: Dur
     (t, err)
 }
 
-fn call(files: &mut Files, name: &str, a: &J) -> (String, bool) {
-    let s = |k: &str| a.get(k).and_then(|v| v.str()).unwrap_or("").to_string();
-    let n = |k: &str| a.get(k).and_then(|v| v.num()).map(|x| x as i64);
-    // Sandboxed unless the call says otherwise, and the call may say so only on a server started with
-    // --trust-calls: the model writes the calls, so it cannot turn its own sandbox off.
+// Whether the call runs sandboxed, and the sandbox flags it passes on: what it asks for (allow, allow_py, allow_net,
+// allow_read, allow_write), inside what the server allows (`ceiling`) unless the server trusts its calls. Kept apart
+// from `call` so fuzz/ (mcp_grants) can check that nothing a call sends gets past the server's policy.
+pub(crate) fn grants(name: &str, a: &J, trust: bool, ceiling: &[String]) -> Result<(bool, Vec<String>), String> {
     let sandboxed = a.get("sandbox").map_or(true, |v| v.truthy());
-    if !sandboxed && !cfg().trust && name != "guide" && name != "show" {
-        return ("sandbox false is refused: this server keeps every program sandboxed. The person who starts brevi mcp can allow unsandboxed calls with --trust-calls; run checks plain Python under the sandbox against Brevi's dynamic build".into(), true);
+    if !sandboxed && !trust && name != "guide" && name != "show" {
+        return Err("sandbox false is refused: this server keeps every program sandboxed. The person who starts brevi mcp can allow unsandboxed calls with --trust-calls; run checks plain Python under the sandbox against Brevi's dynamic build".into());
     }
     let mut sandbox: Vec<String> = if sandboxed { vec!["--sandbox".into()] } else { vec![] };
     // What the call grants the sandboxed program, inside what the server allows: an allow line in the code
@@ -701,7 +700,7 @@ fn call(files: &mut Files, name: &str, a: &J) -> (String, bool) {
             // passes must see what is granted).
             let paths = k == "allow_read" || k == "allow_write";
             if let Some(bad) = list.iter().find(|x| if paths { x.contains(',') } else { x.contains([',', ' ', '\t', '\n']) }) {
-                return (format!("{k}: {bad:?} holds a comma{}: pass one {} per item", if paths { "" } else { " or space" }, if paths { "folder or file" } else { "name" }), true);
+                return Err(format!("{k}: {bad:?} holds a comma{}: pass one {} per item", if paths { "" } else { " or space" }, if paths { "folder or file" } else { "name" }));
             }
             let parsed = match k {
                 "allow_net" => crate::caps::parse_net(&list.join(",")),
@@ -711,23 +710,34 @@ fn call(files: &mut Files, name: &str, a: &J) -> (String, bool) {
             };
             let words = |m: String| m.replace("--allow-py", "allow_py").replace("--allow-net", "allow_net").replace("--allow-read", "allow_read").replace("--allow-write", "allow_write").replace("--allow", "allow");
             if let Ok(g) = &parsed {
-                if !cfg().trust {
-                    if let Some(over) = g.iter().find(|g| !within(&cfg().ceiling, g)) {
-                        return (
-                            format!("{k}: {over} is more than this server allows ({}). The model cannot widen its own access: the person who starts brevi mcp grants it, for example brevi mcp --allow-read ./data", policy_words(&cfg().ceiling)),
-                            true,
+                if !trust {
+                    if let Some(over) = g.iter().find(|g| !within(ceiling, g)) {
+                        return Err(
+                            format!("{k}: {over} is more than this server allows ({}). The model cannot widen its own access: the person who starts brevi mcp grants it, for example brevi mcp --allow-read ./data", policy_words(ceiling)),
                         );
                     }
                 }
             }
             let value = match parsed {
-                Err(m) => return (words(m), true),
+                Err(m) => return Err(words(m)),
                 Ok(g) if k == "allow_read" || k == "allow_write" => g.iter().filter_map(|x| x.split_once(':').map(|(_, p)| p.to_string())).collect::<Vec<_>>().join(","),
                 Ok(_) => list.join(","),
             };
             sandbox.extend([flag.to_string(), value]);
         }
     }
+    Ok((sandboxed, sandbox))
+}
+
+fn call(files: &mut Files, name: &str, a: &J) -> (String, bool) {
+    let s = |k: &str| a.get(k).and_then(|v| v.str()).unwrap_or("").to_string();
+    let n = |k: &str| a.get(k).and_then(|v| v.num()).map(|x| x as i64);
+    // Sandboxed unless the call says otherwise, and the call may say so only on a server started with
+    // --trust-calls: the model writes the calls, so it cannot turn its own sandbox off.
+    let (sandboxed, sandbox) = match grants(name, a, cfg().trust, &cfg().ceiling) {
+        Ok(g) => g,
+        Err(m) => return (m, true),
+    };
     let limit = Duration::from_secs(n("timeout").map_or(cfg().timeout, |t| t.clamp(1, 600) as u64));
     // The caller's resource limits on the program (validate checked each one).
     let mut lims = crate::proc::Limits::default();
