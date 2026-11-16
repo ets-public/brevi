@@ -1,7 +1,7 @@
 # Install Brevi
 <!-- description: Install the Brevi compiler on Linux, macOS or Windows from the GitHub release, pip, npm, Docker, or from source. -->
 
-Brevi turns programs into Rust and calls `rustc` to build them. You do not need to install Rust: when no `rustc` is on the PATH, brevi fetches the Rust release it is tested with on its first build, and, when the machine has no C linker either, zig to link with. Both are checked against SHA-256 sums compiled into brevi and kept in Brevi's own folder (see [The pinned toolchain](#the-pinned-toolchain)). From the next release, Linux x86-64 and macOS (Apple silicon and Intel); Linux ARM64 and Windows follow as each passes CI, and until then brevi asks for Rust there.
+Brevi turns programs into Rust and calls `rustc` to build them. You do not need to install Rust: when no `rustc` is on the PATH, brevi fetches the Rust release it is tested with on its first build, and, when the machine has no C linker either, zig to link with. Both are checked against SHA-256 sums compiled into brevi and kept in Brevi's own folder (see [The pinned toolchain](#the-pinned-toolchain)). This works from v0.28.2 on Linux x86-64 and macOS (Apple silicon and Intel); Linux ARM64 and Windows follow as each passes CI, and until then brevi asks for Rust there.
 
 ## One command (with uv)
 
@@ -64,8 +64,8 @@ When a build needs `rustc` and none is on the PATH, brevi downloads the Rust rel
 
 | Platform | Pinned toolchain |
 | --- | --- |
-| Linux x86-64 | Used automatically (from the next release) |
-| macOS, Apple silicon and Intel | Used automatically (from the next release). With Apple's Command Line Tools installed it links with them, otherwise with zig. |
+| Linux x86-64 | Used automatically (from v0.28.2) |
+| macOS, Apple silicon and Intel | Used automatically (from v0.28.2). With Apple's Command Line Tools installed it links with them, otherwise with zig. |
 | Linux ARM64, Windows x86-64 and ARM64 | Not verified yet (linking with zig fails there today): brevi asks you to install Rust instead, or set `BREVI_TOOLCHAIN=pinned` to try it. Each is enabled once it passes the same checks in CI. On Windows it is the GNU-ABI (`gnullvm`) Rust with zig, so Visual Studio is not needed. |
 
 | Setting | Effect |
@@ -115,7 +115,7 @@ Or `cargo install --git __GITHUB__ brevi`. See [Contributing](/docs/contributing
 
 ## Package managers
 
-Each release is published to these registries with the same prebuilt binaries as the GitHub release. They need the Rust toolchain on the PATH too ([rustup.rs](https://rustup.rs)).
+Each release is published to these registries with the same prebuilt binaries as the GitHub release. On Linux x86-64 and macOS they fetch the pinned toolchain like any other install (from v0.28.2); on Linux ARM64 and Windows they need the Rust toolchain on the PATH ([rustup.rs](https://rustup.rs)).
 
 | Channel | Command | Notes |
 | --- | --- | --- |

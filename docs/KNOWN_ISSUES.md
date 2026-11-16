@@ -15,18 +15,18 @@ Brevi's aim is that a build prints what CPython prints, or is refused. Two outco
 | --- | ---: | ---: | ---: | ---: |
 | Core: `test_grammar`, `test_scope`, `test_int`, `test_list`, `test_dict` ([report](../bench/conformance/report.md)) | 250 of 311 (80.4%) | 38 | 8, all exit status | 0 |
 | Stdlib: `itertools`, `collections`, `re`, `textwrap`, `functools`, `string` ([report](../bench/conformance/stdlib/report.md)) | 250 of 554 (45.1%) | 170 | 22 (3 output, 19 exit status) | 1 |
-| Core at v0.28.1, 16 November (10 files with `test_contains`, `test_binop`, `test_richcmp`, `test_set`, `test_patma`; at `PYTHONHASHSEED=0`; 83 by-design refusals left out; 3 not extractable) | 1043 of 1072 (97.3% of the scored suite, with 83 string-as-code tests excluded) | 26 | 0 | 0 |
-| Stdlib at v0.28.1, 16 November (11 files with `test_graphlib`, `test_colorsys`, `test_deque`, `test_dataclasses`, `test_enum`; 6 by-design refusals left out; 11 not extractable; 2 match only through the CPython bridge) | 1989 of 2053 (96.9%) | 51 | 0 | 0 |
+| Core at v0.28.2, 16 November (10 files with `test_contains`, `test_binop`, `test_richcmp`, `test_set`, `test_patma`; at `PYTHONHASHSEED=0`; 83 by-design refusals left out; 3 not extractable) | 1043 of 1072 (97.3% of the scored suite, with 83 string-as-code tests excluded) | 26 | 0 | 0 |
+| Stdlib at v0.28.2, 16 November (11 files with `test_graphlib`, `test_colorsys`, `test_deque`, `test_dataclasses`, `test_enum`; 6 by-design refusals left out; 11 not extractable; 2 match only through the CPython bridge) | 1989 of 2053 (96.9%) | 51 | 0 | 0 |
 
 Forced dynamic builds score 97.3% (core, of the scored suite, with 83 string-as-code tests excluded) and 97.0% (stdlib), also with 0 wrong. 88.2% of core tests and 94.3% of stdlib tests are matches that print something to compare (the rest print nothing), and 2.6% and 1.2% of the native matches took the typed build.
 
 Things to know when reading these numbers:
 
 - 46 of the 250 core matches print nothing, so they show only that the program built and exited cleanly.
-- Weak modules in the stdlib set at v0.27.0: `test_string` 2.6%, `test_functools` 12.2%, `test_collections` 35.7% (all 100% at v0.28.1).
-- The v0.28.1 score covers the 21 files scored, not all of CPython: more test files are measured with `tools/conformance.py --candidates` for planning and are not in the score yet.
+- Weak modules in the stdlib set at v0.27.0: `test_string` 2.6%, `test_functools` 12.2%, `test_collections` 35.7% (all 100% at v0.28.2).
+- The v0.28.2 score covers the 21 files scored, not all of CPython: more test files are measured with `tools/conformance.py --candidates` for planning and are not in the score yet.
 - Tests that depend on CPython internals, or that cannot be cut into a standalone script, are left out of the score.
-- Known wrong results are listed in [compat/conformance_known_wrong/](../compat/conformance_known_wrong/) (core) and [compat/conformance_stdlib_known_wrong/](../compat/conformance_stdlib_known_wrong/). At v0.27.0 the core ones were pickling of dict and list iterators and two `test_scope` cell cases; at v0.28.1 both folders are empty. CI fails if a line stops being wrong or a new wrong result appears, so the lists only shrink.
+- Known wrong results are listed in [compat/conformance_known_wrong/](../compat/conformance_known_wrong/) (core) and [compat/conformance_stdlib_known_wrong/](../compat/conformance_stdlib_known_wrong/). At v0.27.0 the core ones were pickling of dict and list iterators and two `test_scope` cell cases; at v0.28.2 both folders are empty. CI fails if a line stops being wrong or a new wrong result appears, so the lists only shrink.
 - The score floors are in [compat/conformance_floor.json](../compat/conformance_floor.json). The score can only go up: after each merge, main raises the floors to what the merged tree measures (`.github/workflows/conformance-main.yml`), and pull requests leave them alone (`tools/floor_guard.py`).
 - [compat/baseline.txt](../compat/baseline.txt) lists saved programs that once passed and must keep passing. It is a regression set, not a measure of how much Python works.
 

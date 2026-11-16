@@ -15,7 +15,7 @@ curl -fsSL https://raw.githubusercontent.com/ets-public/brevi/main/install.sh | 
 ```
 
 Rust links programs with the system's C linker: on a bare Linux machine install it first (`sudo apt install
-build-essential`, or your distribution's `gcc`); on macOS, `xcode-select --install`. From the next release, on Linux x86-64 and macOS, brevi fetches its own
+build-essential`, or your distribution's `gcc`); on macOS, `xcode-select --install`. From v0.28.2, on Linux x86-64 and macOS, brevi fetches its own
 pinned Rust and, with no C linker, links with zig ([Install](/docs/install)).
 
 Windows: install Rust with [rustup](https://rustup.rs) (it also asks for the Microsoft C++ build tools), then unzip
@@ -83,7 +83,7 @@ The agent changes line 16 to `print("sum", total)` and runs again:
 $ echo 1000 | brevi run --verify main.py
 168 primes below 1000
 sum 76127
-{"verify":"identical","file":"main.py","sha256":"…","inputs":["sha256:…"],"args":[],"path":"typed","exit":0,"stdout_same":true,"stderr_same":true,"brevi_ms":5,"cpython_ms":13,"speedup":2.6,"brevi":"0.28.1","cpython":"3.13.18"}
+{"verify":"identical","file":"main.py","sha256":"…","inputs":["sha256:…"],"args":[],"path":"typed","exit":0,"stdout_same":true,"stderr_same":true,"brevi_ms":5,"cpython_ms":13,"speedup":2.6,"brevi":"0.28.2","cpython":"3.13.18"}
 ```
 
 The answer is on stdout and the certificate on stderr: the native build and CPython 3.13 gave the same stdout, exit
