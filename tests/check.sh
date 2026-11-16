@@ -311,6 +311,27 @@ if [ "$np_kern" != none ] && [ "$1" != "--update" ]; then
   fi
   rm -rf "$npc"
 fi
+# numpy's own settings (NPY_DISABLE_CPU_FEATURES, NPY_ENABLE_CPU_FEATURES and any other NPY_* / NUMPY_*) change
+# which SIMD loops numpy runs, so its float32 exp/tanh/... digits: with one set the build uses CPython's numpy
+# (dynpy/mod.rs to_rust, emit::np_settings), and the result cache keys on them, so a native build kept without
+# them is not replayed under them, nor the CPython build once they are unset (runcache.rs key).
+if [ "$1" != "--update" ]; then
+  npf=tests/numpy/compound_interest.py; [ "$np_avx512" = 1 ] && npf=tests/numpy/float32_ufuncs_avx512.py
+  npc=$(mktemp -d); cp "$npf" "$npc/main.py"
+  # Brevi's numpy: path dynamic with no "py" list naming numpy; CPython's: path pybridge or cpython, or a dynamic
+  # build calling numpy through the bridge ("py":["numpy"]).
+  npp() {
+    l=$(env BREVI_CACHE="$npc/cache" BREVI_PATH=1 "$@" timeout 600 $BREVI run "$npc/main.py" 2>&1 >/dev/null | grep '^{"path":' | head -1)
+    case "$l" in '{"path":"dynamic"'*) case "$l" in *'"py":['*'"numpy'*) echo cpython ;; *) echo native ;; esac ;; '{"path":"pybridge"'* | '{"path":"cpython"'*) echo cpython ;; *) echo "other: $l" ;; esac
+  }
+  npc_out="$(npp; npp NPY_DISABLE_CPU_FEATURES=AVX512_SKX; npp "NPY_ENABLE_CPU_FEATURES=SSE SSE2 SSE3"; npp NPY_DISABLE_CPU_FEATURES=; npp)"
+  if [ "$(echo $npc_out)" = "native cpython cpython cpython native" ]; then
+    echo "ok   numpy CPU feature settings go to CPython (and key the result cache)"
+  else
+    echo "FAIL numpy CPU feature settings (path lines: none, DISABLE, ENABLE, DISABLE empty, none)"; printf '%s\n' "$npc_out"; fail=1
+  fi
+  rm -rf "$npc"
+fi
 # A binary built here and copied to a CPU without a modelled kernel must raise NotImplementedError at each float
 # BLAS/LAPACK call (rt_np.rs np_blas_ok), never print other digits. qemu stands in for that CPU: SandyBridge (no AVX2
 # or FMA) for the float64 kernels, Haswell (no AVX-512) for the float32 ones. Where this system's own libraries need
