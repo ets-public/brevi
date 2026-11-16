@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>brevi.run: hosted Brevi for AI agents</title>
-<meta name="description" content="brevi.run will compile, run and test Python and Brevi programs for AI coding agents, with no toolchain on the agent's machine. Coming soon; the compiler is available now.">
+<meta name="description" content="brevi.run will be the verified native runtime for agent-written Python as an API: send Python, get the native run checked against CPython, with no toolchain on the agent's machine. Coming soon; the compiler is available now.">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -22,7 +22,7 @@ __HEADER__
       <div>
         <p class="eyebrow">Hosted service, coming</p>
         <h1>Compile and run your agent's Python with nothing to install</h1>
-        <p class="lede">brevi.run will be the Brevi compiler as an API. An agent sends a Python or Brevi program with its input and tests, and gets back the output, the test results or the error lines. The agent's machine needs <strong>no Rust toolchain, no Python and no sandbox</strong>.</p>
+        <p class="lede">brevi.run will be the verified native runtime for agent-written Python, as an API. An agent sends a Python program with its input and tests, and gets back the native output with a check against CPython, the test results, or one JSON line per error. The agent's machine needs <strong>no Rust toolchain, no Python and no sandbox</strong>.</p>
         <div class="actions">
           <a class="btn primary" href="https://brevi-lang.org/pricing#hosted">Join the waitlist</a>
           <a class="btn ghost" href="__GITHUB__" rel="noopener">__GHICON__View on GitHub</a>
@@ -36,7 +36,7 @@ __HEADER__
 <pre class="wrapline">{"files": {"main.py": "import sys\nprint(sum(map(int, sys.stdin.read().split())))"},
  "stdin": "3 4 5"}</pre>
         <div class="tbar"><span>200 OK</span><span>response</span></div>
-<pre class="wrapline">{"ok": true, "native": true, "stdout": "12\n", "ms": 4}</pre>
+<pre class="wrapline">{"ok": true, "native": true, "stdout": "12\n", "ms": 4, "verify": "identical"}</pre>
         <div class="tbar"><span>POST /check</span><span>when something is wrong</span></div>
 <pre class="out wrapline">{"ok": false, "errors": [{"line": 2, "msg": "expected ')', found end of line", "fix": "insert ')'"}]}</pre>
       </div>

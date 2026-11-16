@@ -8,6 +8,8 @@ Brevi turns programs into Rust and calls `rustc` to build them, so it needs the 
 | What | Why | Notes |
 | --- | --- | --- |
 | `rustc` (Rust stable) | Brevi compiles every program through it | Installed by the script if missing. Any recent stable works; CI tests stable daily and beta and nightly weekly. |
+| A C linker | `rustc` links every binary with it | Usually there already. On a bare Linux machine: `sudo apt install build-essential` (or your distribution's `gcc`); on macOS: `xcode-select --install`; on Windows, the Microsoft C++ build tools that rustup asks for. |
+| CPython 3.13 (for `--verify`) | `brevi run --verify` and `brevi verify` compare each run with CPython 3.13, and use no other version | Brevi takes `BREVI_PYTHON` when set, else the first 3.13 among `python3`, `python3.13` and `python` on PATH, then (Windows) the `py` launcher, then `uv python find 3.13`, so `uv python install 3.13` is enough. |
 | `python3` (optional) | The CPython fallback of `brevi run`, and programs that import libraries such as numpy | Not needed for programs that use only the standard library. Library programs need `libpython` where they run, unless built with `--standalone`. |
 | Linux, macOS or Windows | Prebuilt binaries for x86-64 and ARM64 Linux, Apple silicon and Intel Macs, and x86-64 and ARM64 Windows (ARM64 from v0.28.1) | Library calls through CPython work on Windows from v0.27.0 (the `python` on PATH needs its DLL); `--standalone` builds work on Linux and Windows from v0.28.1. |
 
