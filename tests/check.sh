@@ -283,6 +283,30 @@ if [ "$np_kern" != none ] && [ "$1" != "--update" ]; then
     echo "FAIL numpy BLAS refusal (lstsq.py built natively under OPENBLAS_CORETYPE=Prescott)"; fail=1
   fi
 fi
+# A binary built here and copied to a CPU without a modelled kernel must raise NotImplementedError at each float
+# BLAS/LAPACK call (rt_np.rs np_blas_ok), never print other digits: qemu's Westmere (no AVX2/FMA) stands in for
+# that CPU, its Haswell (no AVX-512) for the float32 kernels. BREVI_QEMU_TESTS=1 (GitHub CI) makes a skip a failure.
+if [ "$np_kern" != none ] && [ "$1" != "--update" ] && [ "$(uname -m)" = x86_64 ]; then
+  if ! command -v qemu-x86_64 >/dev/null; then
+    if [ "${BREVI_QEMU_TESTS:-}" = 1 ]; then echo "FAIL numpy runtime refusal (qemu-x86_64 not installed)"; fail=1
+    else echo "skip numpy runtime refusal (no qemu-x86_64)"; fi
+  else
+    npq=$(mktemp -d)
+    for t in blas_refusal:Westmere f32_refusal:Haswell; do
+      f=tests/numpy_cpu/${t%%:*}.py cpu=${t##*:}
+      # float32 products are Brevi's only on AVX-512 CPUs: elsewhere the build already sends them to CPython
+      [ "$cpu" = Haswell ] && [ "$np_kern" != skx ] && { echo "skip $f (needs AVX-512 to build natively)"; continue; }
+      if ! BREVI_PATH=1 timeout 600 $BREVI build "$f" -o "$npq/b" --no-cache 2>"$npq/err" >/dev/null || ! grep -q '"path":"dynamic"' "$npq/err"; then
+        echo "FAIL $f (not built with Brevi's numpy)"; cat "$npq/err"; fail=1
+      elif [ "$(qemu-x86_64 -cpu "$cpu" "$npq/b" 2>/dev/null)" != "$(cat "${f%.py}.expected")" ]; then
+        echo "FAIL $f (on a $cpu CPU)"; qemu-x86_64 -cpu "$cpu" "$npq/b" 2>&1 | diff "${f%.py}.expected" - | head -20; fail=1
+      else
+        echo "ok   $f (refused on a $cpu CPU)"
+      fi
+    done
+    rm -rf "$npq"
+  fi
+fi
 
 #== tiktoken split
 # tiktoken programs must print what CPython's tiktoken prints, with Brevi's own tiktoken: never CPython. The

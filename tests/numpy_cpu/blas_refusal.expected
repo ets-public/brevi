@@ -1,0 +1,22 @@
+refused a @ a
+refused a @ v
+refused v @ v
+refused a.dot(a)
+refused np.dot
+refused np.inner
+refused np.vdot
+refused np.matmul
+refused a @ a.T
+refused np.cov
+refused np.corrcoef
+refused np.polyfit
+refused norm
+refused norm fro
+refused det
+refused slogdet
+refused solve
+refused inv
+refused lstsq
+refused @=
+int ok [[1 2]
+ [3 4]]

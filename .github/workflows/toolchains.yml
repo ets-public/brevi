@@ -250,6 +250,15 @@ jobs:
         if: steps.seen.outputs.cache-hit != 'true'
         run: cargo test --release
 
+      # check.sh runs a numpy binary on qemu's older CPUs to see it refuse float BLAS calls there (tests/numpy_cpu);
+      # BREVI_QEMU_TESTS=1 makes a missing qemu a failure instead of a skip.
+      - name: qemu for the numpy runtime refusal check
+        if: steps.seen.outputs.cache-hit != 'true' && matrix.rust == 'stable' && matrix.python == '3.13'
+        run: |
+          sudo apt-get install -y -q qemu-user >/dev/null || { sudo apt-get update -q >/dev/null && sudo apt-get install -y -q qemu-user >/dev/null; }
+          qemu-x86_64 --version | head -1
+          echo "BREVI_QEMU_TESTS=1" >> "$GITHUB_ENV"
+
       - name: Language tests (tests/run, tests/errors)
         if: steps.seen.outputs.cache-hit != 'true'
         env:
