@@ -1,0 +1,3 @@
+refused norm f32
+refused f @ f
+refused f.dot
