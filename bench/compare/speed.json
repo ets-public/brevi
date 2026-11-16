@@ -1,0 +1,23 @@
+{
+ "note": "The speed figures the docs quote (docs/NUMBERS.md, written by tools/numbers.py). Speed-up over CPython for each of bench/compare's 12 --corpus speed programs, best of 5, one at a time. typed = the default build (each of these 12 builds typed); release = --release; dynamic = BREVI_DYN=1 --release, the build a program whose values change type gets. Every program printed CPython's output in all three builds.",
+ "date": "2026-11-12",
+ "brevi_commit": "b1004c2",
+ "brevi": "0.27.1",
+ "machine": "AMD Ryzen 9 5950X (32 threads), WSL2 Ubuntu 24.04, 15 GB; run alone",
+ "cpython": "3.13.13",
+ "rustc": "1.99.1",
+ "programs": {
+  "objects":  {"typed": 37.9, "release": 38.8, "dynamic": 1.4},
+  "spectral": {"typed": 31.0, "release": 34.2, "dynamic": 0.9},
+  "dp_lcs":   {"typed": 28.9, "release": 31.4, "dynamic": 0.7},
+  "nbody":    {"typed": 22.5, "release": 26.4, "dynamic": 0.5},
+  "set_bfs":  {"typed": 12.9, "release": 14.2, "dynamic": 1.0},
+  "sieve":    {"typed": 12.0, "release": 11.7, "dynamic": 1.1},
+  "trees":    {"typed": 6.6,  "release": 7.8,  "dynamic": 1.2},
+  "graph":    {"typed": 6.4,  "release": 7.0,  "dynamic": 1.0},
+  "words":    {"typed": 5.3,  "release": 5.0,  "dynamic": 0.7},
+  "fannkuch": {"typed": 2.8,  "release": 3.5,  "dynamic": 0.5},
+  "strings":  {"typed": 2.0,  "release": 2.6,  "dynamic": 0.8},
+  "records":  {"typed": 1.6,  "release": 2.1,  "dynamic": 0.5}
+ }
+}

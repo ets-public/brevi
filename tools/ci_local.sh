@@ -83,6 +83,7 @@ step "Code map summaries and agent hooks"; python3 tools/code_map.py --check && 
 step "Conformance and release-notes figures"; python3 tests/conformance_test.py && python3 tests/release_notes_test.py
 step "Package versions"; python3 tools/version_sync.py
 step "Changelog fragments"; python3 tools/changelog.py --check
+step "Published numbers: docs/NUMBERS.md and every quoted headline's scope"; python3 tools/published_numbers.py --check && python3 tests/published_numbers_test.py
 if [ "$mode" = pr ] && [ -n "$base" ]; then step "Conformance floors left to main"; python3 tools/floor_guard.py "$base"; fi
 if [ "$mode" = pr ] && [ -n "$base" ]; then step "CHANGELOG.md and published scores left alone"; PR_TITLE="$(git log -1 --format=%s)" python3 tools/pr_guard.py "$base"; fi
 if [ $grammar = 1 ]; then
