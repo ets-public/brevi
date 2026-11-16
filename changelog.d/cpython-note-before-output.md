@@ -1,1 +1,0 @@
-- `brevi run` on a file it hands to CPython now prints its `{"path":"cpython",...}` note before CPython starts, so the note always comes before the program's output (it was printed after the spawn and could land after lines the program had already written). If CPython then fails to start, a `note: not run with CPython` line says so.
