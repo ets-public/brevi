@@ -98,12 +98,16 @@ if core and std:
           f"({c['who'].group(3)}). Each test must print exactly what CPython prints.\n")
     print(f"| | [Core language]({blob}report.md) | [Standard library]({blob}stdlib/report.md) |")
     print("| --- | ---: | ---: |")
-    row("Match CPython", lambda f: f"{f['cov'].group(2)} of {f['cov'].group(3)} ({f['cov'].group(1)})")
+    # Shares are worked out here from the report's counts, rounded half up once: a report written before
+    # tools/conformance.py's pct() rounded twice (945 of 1072 read 88.1%, not 88.2%).
+    pct = lambda a, b: f"{(int(a) * 2000 // int(b) + 1) // 2 / 10:.1f}%" if int(b) else "0.0%"
+    share = lambda m: f"{m.group(2)} of {m.group(3)} ({pct(m.group(2), m.group(3))})"
+    row("Match CPython", lambda f: share(f["cov"]))
     row("Give a different answer", lambda f: f["wrong"].group(1))
     row("Refused by design, left out of the count", lambda f: f["design"].group(1))
-    row("Matches that print something to compare", lambda f: f"{f['asserting'].group(2)} of {f['asserting'].group(3)} ({f['asserting'].group(1)})")
+    row("Matches that print something to compare", lambda f: share(f["asserting"]))
     row("Matches that print nothing (built and exited 0)", lambda f: f["asserting"].group(4))
-    row("Matches that took the typed build", lambda f: f"{f['typed'].group(2)} of {f['typed'].group(3)} ({f['typed'].group(1)})")
+    row("Matches that took the typed build", lambda f: share(f["typed"]))
     print()
     print("Refused by design means the test runs a string as code (compile, exec or eval), which a sandboxed native "
           "binary refuses on purpose. A match that prints nothing only shows the program built and exited 0. The "
