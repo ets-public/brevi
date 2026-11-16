@@ -6,6 +6,9 @@ Each week Claude Sonnet, Claude Haiku and DeepSeek V4.1 Flash solve the 24 tasks
 
 | Date | Brevi | Model | Cost per run, Brevi / CPython | Ratio | Tasks finished, Brevi / CPython | Built natively | Programs run, Brevi / CPython | Speed |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 2026-11-16 | v0.28.2 | Sonnet 5.5 | $0.751 / $0.699 | **1.07x** | 48/48 / 48/48 | 48/48 | 0.71 s / 4.41 s | 6.23x |
+| 2026-11-16 | v0.28.2 | Haiku 5.5 | $0.083 / $0.082 | **1.00x** | 48/48 / 48/48 | 48/48 | 0.64 s / 4.74 s | 7.4x |
+| 2026-11-16 | v0.28.2 | DeepSeek V4.1 Flash | $0.358 / $0.339 | **1.06x** | 47/48 / 47/48 | 47/48 | 0.85 s / 4.30 s | 5.07x |
 | 2026-11-09 | v0.26.0 | Sonnet 5.5 | $0.746 / $0.698 | **1.07x** | 48/48 / 48/48 | 47/48 | 1.51 s / 4.56 s | 3.02x |
 | 2026-11-09 | v0.26.0 | Haiku 5.5 | $0.084 / $0.084 | **1.01x** | 48/48 / 48/48 | 48/48 | 0.56 s / 4.49 s | 8.0x |
 | 2026-11-09 | v0.26.0 | DeepSeek V4.1 Flash | $0.377 / $0.314 | **1.20x** | 47/48 / 47/48 | 45/48 | 0.76 s / 4.53 s | 5.94x |
