@@ -1101,18 +1101,22 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
             if short {
                 cmd.stderr(std::process::Stdio::piped());
             }
+            // The note goes out before CPython starts: printed after the spawn, it raced the program's own output
+            // and could land after lines the program had already written (stderr and stdout often share one pipe).
+            // python_exe() has just run this interpreter, so the spawn below fails only if it vanished since.
+            say_cpython(file, &python, &out, &String::from_utf8_lossy(&o.stderr));
             match cmd.spawn() {
                 Ok(mut child) => {
-                    say_cpython(file, &python, &out, &String::from_utf8_lossy(&o.stderr));
                     if let Some(err) = child.stderr.take() {
                         last_traceback_line(err);
                     }
                     child.wait().map(proc::code).unwrap_or(1)
                 }
-                Err(_) => {
-                    // No Python here: show Brevi's errors as a strict run would.
+                Err(e) => {
+                    // CPython could not start after all: say so, and show Brevi's errors as a strict run would.
                     print!("{out}");
                     std::io::stderr().write_all(&o.stderr).ok();
+                    eprintln!("note: not run with CPython: {python} did not start ({e})");
                     1
                 }
             }
