@@ -146,7 +146,8 @@ fn unescape_at(body: &str, line: usize, lone: &mut Option<&mut Vec<(usize, u32)>
 }
 
 pub fn lex(src: &str) -> Result<Lexed, (usize, String)> {
-    let cs: Vec<char> = src.chars().collect();
+    // CRLF or CR line ends read as `\n`, as CPython reads source (crate::read_src does the same for files)
+    let cs: Vec<char> = crate::universal_newlines(src).chars().collect();
     let mut toks: Vec<(Tok, usize)> = vec![];
     let mut i = 0;
     let mut line = 1;
