@@ -43,6 +43,7 @@ const reply = await handle(toolUse.input);        // run a model's run_python ca
 A `Result` has `stdout`, `stderr`, `exitCode`, `path`, `limit`, `certificate`, `ok`, `ms` and `forModel()`. Grants and limits (`allow`, `allowPy`, `allowNet`, `allowRead`, `allowWrite`, `limits`, `timeout`, `sandbox`) come only from your code, per call or as `new Session({...})` defaults; `TOOL` gives the model no field for them. Each session is one `brevi mcp` process, and its calls are taken in turn. TypeScript types are included, and `require("brevi")` works too.
 
 - **For agents:** add the MCP server as the command `brevi` with the argument `mcp` (Claude Code: `claude mcp add brevi -- brevi mcp`). Its tools sandbox by default. [For AI agents](https://brevi-lang.org/docs/agents)
+- **Security:** No external security audit yet. The sandbox is a policy layer, not an isolation boundary. Run untrusted code in a container or VM. `--allow-py` and `--allow native` are full trust. [Where Brevi stands](https://github.com/ets-public/brevi/blob/main/SECURITY.md#where-brevi-stands)
 - **Same answers as CPython:** every saved agent program and large test program matches CPython's output and exit status. Imports of installed packages (numpy, pandas, requests, ...) work; most numpy code builds natively.
 - **Public preview:** Brevi works today and is tested against CPython on every change, but expect the CLI to change between releases.
 

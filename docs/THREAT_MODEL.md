@@ -1,11 +1,20 @@
 # Threat model: the sandbox and resource limits
 
-This page says what `brevi run --sandbox` (and the `brevi mcp` tools, which sandbox by default) protects against, how, and what it does not cover. It is written for people deciding whether to run code an AI agent wrote through Brevi. It describes `main`; the user docs are [Sandbox](https://brevi-lang.org/docs/usage#sandbox) and [Resource limits](https://brevi-lang.org/docs/usage#resource-limits). No outside security review has been done yet.
+This page says what `brevi run --sandbox` (and the `brevi mcp` tools, which sandbox by default) protects against, how, and what it does not cover. It is written for people deciding whether to run code an AI agent wrote through Brevi. It describes `main`; the user docs are [Sandbox](https://brevi-lang.org/docs/usage#sandbox) and [Resource limits](https://brevi-lang.org/docs/usage#resource-limits).
+
+**In short:**
+
+- **No external security audit yet.** We have not had an external audit; we are seeking funding for one. Until then, do not run hostile code under the sandbox.
+- **The sandbox is a policy layer, not an isolation boundary.** It is a capability check plus Brevi's own runtime code, with no namespace, container or VM around the program (details below).
+- **Run untrusted code in a container or VM**, with no credentials in it, and use the sandbox as a second layer inside it.
+- **`--allow-py` and `--allow native` are full trust.** Grant them only to code you would run without a sandbox.
+
+Who should use Brevi today, and what each kind of launch needs first, is in [SECURITY.md](../SECURITY.md#who-should-use-brevi-today).
 
 ## The setting
 
 - **The caller** is the person or agent harness that runs `brevi`. It is trusted. It chooses the grants (`--allow`, `--allow-net`, `--allow-py`) and the limits (`--limit`). Over MCP the model writes the calls, so the caller is the person who starts `brevi mcp`: by default (from v0.27.0) a call may not turn the sandbox off or grant anything, and the most a call may ask for is set by flags on `brevi mcp` (`--allow`, `--allow-py`, `--allow-net`, `--allow-read`, `--allow-write`). `brevi mcp --trust-calls` makes the calls' own arguments trusted too, and is for a client you trust as much as yourself. The Python and Node SDKs start it that way, because there the calls are the host program's code.
-- **The program** is untrusted Python (or Brevi) source, typically written by a model. It may be careless or hostile, and it may try to free itself.
+- **The program** is Python (or Brevi) source the caller did not write, typically written by a model. It may be careless or overreaching, and the checks below assume it may try to get past them; but with no outside review, they are not yet a defence to rely on against code written to escape.
 - **The machine** is whatever runs `brevi`: the caller's laptop, a CI runner or a container. The program runs as the same OS user as `brevi`.
 
 ## What the sandbox promises
@@ -48,7 +57,7 @@ The sandbox is **a compile-time capability check plus a runtime with nothing in 
 - **`--allow read` and `--allow write` are whole-account grants**: a program with `--allow write` can write anywhere the user can. `--allow-read DIR` and `--allow-write DIR` hold it to folders instead. Brevi resolves each path the program opens (`..` and symlinks) and opens the resolved path only if it lies inside a granted folder. The check and the open are two steps, so another process that swaps a folder for a symlink between them could redirect the open; the program itself has no way to make a symlink. Under `--allow-py` or `--allow native` the kernel holds CPython to the same folders on Linux (see above).
 - **The network grant matches host names, not addresses.** `--allow-net api.example.com` lets the program reach whatever that name resolves to. Under `--allow net` the program can reach anything the machine can, including services on `localhost` and cloud metadata endpoints.
 
-For hostile code, the sandbox and limits are a first layer. Running `brevi` itself inside a container or VM with no credentials is still the advice for code you have reason to distrust.
+The sandbox and limits are not a boundary for hostile code. Run untrusted code in a container or VM: run `brevi` itself inside one with no credentials, and keep the sandbox and limits as a second layer inside it.
 
 ## What is not covered
 
