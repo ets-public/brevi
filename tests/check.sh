@@ -284,17 +284,21 @@ if [ "$np_kern" != none ] && [ "$1" != "--update" ]; then
   fi
 fi
 # A binary built here and copied to a CPU without a modelled kernel must raise NotImplementedError at each float
-# BLAS/LAPACK call (rt_np.rs np_blas_ok), never print other digits: qemu's SandyBridge (AVX, no AVX2/FMA) stands in
-# for that CPU, its Haswell (no AVX-512) for the float32 kernels. (Not Westmere: a build stopped with an illegal
-# instruction there on GitHub's Ubuntu 26.04 runner, qemu 10.2.) BREVI_QEMU_TESTS=1 (GitHub CI) makes a skip a failure.
+# BLAS/LAPACK call (rt_np.rs np_blas_ok), never print other digits: an emulated CPU without AVX2 or FMA (qemu) stands
+# in for that CPU, qemu's Haswell (no AVX-512) for the float32 kernels. The first of SandyBridge, Haswell without FMA,
+# Haswell without AVX2 that this system's own programs run on is used (GitHub's Ubuntu 26.04 runner's /bin/true stops
+# with an illegal instruction on qemu 10.2's Westmere and SandyBridge). BREVI_QEMU_TESTS=1 (GitHub CI) makes a skip a failure.
 if [ "$np_kern" != none ] && [ "$1" != "--update" ] && [ "$(uname -m)" = x86_64 ]; then
   if ! command -v qemu-x86_64 >/dev/null; then
     if [ "${BREVI_QEMU_TESTS:-}" = 1 ]; then echo "FAIL numpy runtime refusal (qemu-x86_64 not installed)"; fail=1
     else echo "skip numpy runtime refusal (no qemu-x86_64)"; fi
   else
     npq=$(mktemp -d)
-    for t in blas_refusal:SandyBridge f32_refusal:Haswell; do
+    old=none
+    for c in SandyBridge Haswell,-fma Haswell,-avx2; do qemu-x86_64 -cpu "$c" /bin/true 2>/dev/null && { old=$c; break; }; done
+    for t in blas_refusal:$old f32_refusal:Haswell; do
       f=tests/numpy_cpu/${t%%:*}.py cpu=${t##*:}
+      [ "$cpu" = none ] && { echo "FAIL $f (this system's own programs run on none of qemu's CPUs without AVX2 or FMA)"; fail=1; continue; }
       # float32 products are Brevi's only on AVX-512 CPUs: elsewhere the build already sends them to CPython
       [ "$cpu" = Haswell ] && [ "$np_kern" != skx ] && { echo "skip $f (needs AVX-512 to build natively)"; continue; }
       if ! qemu-x86_64 -cpu "$cpu" /bin/true 2>/dev/null; then

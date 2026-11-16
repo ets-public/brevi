@@ -1,5 +1,5 @@
 # A Brevi build of this program copied to a CPU whose OpenBLAS kernels Brevi does not model must refuse every
-# float BLAS/LAPACK call with NotImplementedError (rt_np.rs np_blas_ok). check.sh runs it under qemu-x86_64 -cpu SandyBridge.
+# float BLAS/LAPACK call with NotImplementedError (rt_np.rs np_blas_ok). check.sh runs it on a CPU without AVX2 or FMA (qemu).
 import numpy as np
 a = np.array([[2.0, 1.0, 0.5], [1.0, 3.0, 0.25], [0.5, 0.25, 4.0]])
 v = np.array([1.0, 2.0, 3.0])
