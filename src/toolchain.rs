@@ -22,7 +22,8 @@ use std::sync::OnceLock;
 include!("toolchain_pins.rs");
 
 // Hosts where the pinned toolchain (with zig as the linker) passed pinned-toolchain.yml.
-const VERIFIED: &[&str] = &["x86_64-unknown-linux-gnu"];
+// macOS Intel was checked as the x86-64 brevi under Rosetta on an Apple silicon runner (as release.yml builds it).
+const VERIFIED: &[&str] = &["x86_64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-apple-darwin"];
 
 const EXE: &str = std::env::consts::EXE_SUFFIX;
 
@@ -337,7 +338,8 @@ fn install_rust(dir: &Path) -> Result<(), String> {
     if dir.join("bin").join(format!("rustc{EXE}")).is_file() {
         return Ok(());
     }
-    note(&format!("Rust {RUST}, the version Brevi is tested with, because no rustc is on PATH"), 260, dir);
+    let why = if mode() == "pinned" { "because BREVI_TOOLCHAIN=pinned" } else { "because no rustc is on PATH" };
+    note(&format!("Rust {RUST}, the version Brevi is tested with, {why}"), 260, dir);
     let tmp = parent.join(format!(".tmp-rust-{}", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let r = (|| {
@@ -376,7 +378,14 @@ fn install_zig(dir: &Path, (url, sha): (&str, &str)) -> Result<(), String> {
     if zig.is_file() {
         return Ok(());
     }
-    note(&format!("zig {ZIG} to link programs, because no C linker is installed"), 55, dir);
+    let why = if std::env::var("BREVI_LINKER").unwrap_or_default().trim() == "zig" {
+        "because BREVI_LINKER=zig"
+    } else if cfg!(windows) {
+        "because the pinned Rust links with zig on Windows"
+    } else {
+        "because no C linker is installed"
+    };
+    note(&format!("zig {ZIG} to link programs, {why}"), 55, dir);
     let tmp = parent.join(format!(".tmp-zig-{}", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let r = (|| {

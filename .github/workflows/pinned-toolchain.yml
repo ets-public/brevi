@@ -75,6 +75,8 @@ jobs:
           BREVI: target/release/brevi${{ runner.os == 'Windows' && '.exe' || '' }}
         run: python tests/pinned_toolchain_test.py
 
+      # Fetched once up front into one folder the whole suite shares: tests that start from an empty cache would
+      # otherwise fetch it again, and the one-time fetch notice would land in the output they compare.
       - name: Language suite on the pinned toolchain (Linux)
         if: matrix.suite == 'linux'
         shell: bash
@@ -82,7 +84,10 @@ jobs:
           BREVI_TOOLCHAIN: pinned
           BREVI_LINKER: zig
           BREVI: ./target/release/brevi
-        run: python tests/check_parallel.py
+        run: |
+          export BREVI_TOOLCHAIN_DIR="$RUNNER_TEMP/brevi-toolchain"
+          "$BREVI" toolchain
+          python tests/check_parallel.py
 
       - name: Python packages the Windows checks compare with (pinned)
         if: matrix.suite == 'windows'
