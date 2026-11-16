@@ -149,6 +149,20 @@ def main():
         row("Matches that print nothing (built and exited 0)", lambda f: f["asserting"].group(4))
         row("Matches that took the typed build", lambda f: share(f["typed"]))
         print()
+        # The headline is never quoted without its scope (tools/published_numbers.py --check scans these notes too).
+        for label, f in (("Core", c), ("Standard library", s)):
+            print(f"{label}: {f['cov'].group(2)} of {f['cov'].group(3)} match, {pct(f['cov'].group(2), f['cov'].group(3))} "
+                  f"of the scored suite, with {f['design'].group(1)} string-as-code tests excluded.")
+        print()
+        # Which commit the numbers describe: the reports measured the release PR's merge, and the tag is the commit
+        # that adds those reports, so the two hashes differ. Say so, checked: only reports and floors may differ.
+        import published_numbers
+        tagged = subprocess.run(["git", "-C", ROOT, "rev-parse", "-q", "--verify", f"refs/tags/{tag}^{{commit}}"],
+                                capture_output=True, text=True).stdout.strip()
+        tagged = tagged or subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        print("**Provenance:** " + published_numbers.provenance_line(tag, tagged) + " All published numbers: "
+              f"[docs/NUMBERS.md](https://github.com/ets-public/brevi/blob/main/docs/NUMBERS.md).")
+        print()
         print("Refused by design means the test runs a string as code (compile, exec or eval), which a sandboxed native "
               "binary refuses on purpose. A match that prints nothing only shows the program built and exited 0. The "
               "standard library tests cover itertools, collections, re, textwrap, functools, string, graphlib, colorsys, "
