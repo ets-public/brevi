@@ -37,6 +37,7 @@ on:
       - "!compat/conformance_known_wrong/**"
       - "!compat/conformance_stdlib_known_wrong/**"
       - "!compat/conformance_windows_known_wrong/**"
+      - "!compat/conformance_windows_stdlib_known_wrong/**"
       - "!compat/conformance_by_design.txt"
       - "!compat/conformance_cpython_private.txt"
       - "!compat/conformance_needs_string_model.txt"
@@ -88,6 +89,8 @@ jobs:
         run: python3 tools/limits_check.py
       - name: Every src file says what it holds (tools/code_map.py), and the agent hooks hold
         run: python3 tools/code_map.py --check && python3 tests/agent_hooks_test.py
+      - name: Conformance extractor, classifier and published shares; release-notes figure checks
+        run: python3 tests/conformance_test.py && python3 tests/release_notes_test.py
       - id: py
         name: Find the next Python release (pre-release)
         # Never blocks the matrix: if the lookup fails, fall back to a guess.
@@ -336,13 +339,28 @@ jobs:
           # A release also holds each slice to its absolute bar (release_gate in compat/conformance*_floor.json: core 90%,
           # stdlib 80%, no known-wrong result). Below it, nothing is released or published.
           gate=""; [ "$RELEASE" = true ] && gate="--release-gate"
-          python3 tools/conformance.py --check $gate --python "$(uv python find 3.13.13)" --out conformance-report
-          cat conformance-report/report.md >> "$GITHUB_STEP_SUMMARY"
+          # A failing check still adds its report to the summary (it names each test lost against main's published
+          # report, and why), and the step after this one keeps the report folders; the step still fails.
+          rc=0
+          python3 tools/conformance.py --check $gate --python "$(uv python find 3.13.13)" --out conformance-report || rc=$?
+          [ -f conformance-report/report.md ] && cat conformance-report/report.md >> "$GITHUB_STEP_SUMMARY"
+          [ "$rc" = 0 ] || exit "$rc"
           # The stdlib slice (itertools, collections, re, ...) takes as long again, so only the daily run and a release check it.
           if [ "${{ github.event_name }}" = schedule ] || [ "$RELEASE" = true ]; then
-            python3 tools/conformance.py --slice stdlib --check $gate --python "$(uv python find 3.13.13)" --out conformance-stdlib
-            cat conformance-stdlib/report.md >> "$GITHUB_STEP_SUMMARY"
+            python3 tools/conformance.py --slice stdlib --check $gate --python "$(uv python find 3.13.13)" --out conformance-stdlib || rc=$?
+            [ -f conformance-stdlib/report.md ] && cat conformance-stdlib/report.md >> "$GITHUB_STEP_SUMMARY"
+            [ "$rc" = 0 ] || exit "$rc"
           fi
+
+      - name: Keep the conformance reports of a failed check
+        if: failure() && (hashFiles('conformance-report/report.json') != '' || hashFiles('conformance-stdlib/report.json') != '')
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: conformance-reports
+          path: |
+            conformance-report/
+            conformance-stdlib/
+          if-no-files-found: ignore
 
       - name: Fuzz for panics (generated programs; a panic, signal or compiler crash fails the run)
         # Pull requests replay the saved corpus (bench/fuzz/corpus: once-failing cases that must stay fixed); the daily

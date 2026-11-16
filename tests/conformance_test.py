@@ -426,15 +426,15 @@ class Instability(unittest.TestCase):
     def run_case(self, runs):
         """run_case with CPython's runs scripted per seed and a build that refuses (no compiler needed)."""
         import types
-        saved = c.reference, c.build
+        saved = c.reference, c.build_once
         c.reference = lambda py, script, folder, seed, cfg: runs[seed].pop(0)
-        c.build = lambda script, folder, mode, cfg: (None, None, "refused here", False)
+        c.build_once = lambda script, folder, mode, cfg: (None, None, "refused here", False)
         try:
             with tempfile.TemporaryDirectory() as t:
                 cfg = types.SimpleNamespace(work=Path(t), python="python3", timeout=1, mem_mb=64, sandbox=False)
                 return c.run_case({"id": "test_x.T.test_a", "file": "test_x", "script": "print(1)\n"}, cfg)
         finally:
-            c.reference, c.build = saved
+            c.reference, c.build_once = saved
 
     def test_run_case_scores_a_test_whose_reference_run_was_disturbed_once(self):
         r = self.run_case({0: [self.ok, self.timeout, self.ok]})
@@ -451,9 +451,91 @@ class Instability(unittest.TestCase):
         self.assertTrue(r["detail"].startswith("rule 1:"))
 
 
+    def test_rule_2_unstable_names_what_the_build_printed(self):
+        import types, unittest.mock as m
+        runs = {0: [self.ok, self.ok, self.ok, self.other]}
+        with m.patch.object(c, "reference", lambda py, script, folder, seed, cfg: runs[seed].pop(0)), \
+                m.patch.object(c, "build_once", lambda script, folder, mode, cfg: (folder / "prog", None, "", False)), \
+                m.patch.object(c, "run_limited", lambda *a: c.Run(0, b"3\n", b"", "")), tempfile.TemporaryDirectory() as t:
+            cfg = types.SimpleNamespace(work=Path(t), python="python3", timeout=1, mem_mb=64, sandbox=False)
+            r = c.run_case({"id": "test_x.T.test_a", "file": "test_x", "script": "print(1)\n"}, cfg)
+        self.assertEqual(r["category"], "unstable")
+        self.assertTrue(r["detail"].startswith("rule 2:"))
+        self.assertIn("the normal build's output differed (line 1: expected '1', got '3')", r["detail"])
+
+    def test_run_case_times_each_build(self):
+        r = self.run_case({0: [self.ok, self.ok]})
+        self.assertIsInstance(r["modes"]["dyn"]["build_s"], float)
+
+    def test_a_build_timeout_names_the_limit(self):
+        import types, unittest.mock as m
+        cfg = types.SimpleNamespace(python="python3", brevi="brevi", build_timeout=300)
+        with tempfile.TemporaryDirectory() as t, \
+                m.patch.object(c.subprocess, "run", side_effect=c.subprocess.TimeoutExpired("brevi", 300)):
+            got = c.build(Path(t) / "case.py", Path(t), "normal", cfg)
+        self.assertEqual(got[2:4], ("build timed out after 300 s", True))
+
+
+class LostMatches(unittest.TestCase):
+    """A ratchet that falls short names each test it lost against the published report, and why."""
+    def row(self, i, normal, dyn=None, path="dynamic", detail=""):
+        return {"id": i, "file": "test_x", "modes": {"normal": {"category": normal, "path": path, "detail": detail},
+                                                      "dyn": {"category": dyn or normal, "path": path, "detail": detail}}}
+
+    published = {"commit": "abc", "platform": sys.platform, "tests": [
+        {"id": "a", "file": "test_x", "modes": {"normal": {"category": "matched", "path": "dynamic"}, "dyn": {"category": "matched", "path": "dynamic"}}},
+        {"id": "b", "file": "test_x", "modes": {"normal": {"category": "matched", "path": "typed"}, "dyn": {"category": "matched", "path": "dynamic"}}},
+        {"id": "c", "file": "test_x", "modes": {"normal": {"category": "matched", "path": "dynamic"}, "dyn": {"category": "matched", "path": "dynamic"}}},
+        {"id": "d", "file": "test_x", "modes": {"normal": {"category": "matched", "path": "dynamic"}, "dyn": {"category": "matched", "path": "dynamic"}}},
+        {"id": "e", "file": "test_x", "modes": {"normal": {"category": "refused", "path": "", "detail": "x"}, "dyn": {"category": "refused", "path": "", "detail": "x"}}}]}
+
+    def test_names_each_lost_test_with_its_reason(self):
+        results = [self.row("a", "matched"),
+                   self.row("b", "crash_or_timeout", "matched", detail="build timed out after 300 s"),
+                   {"id": "c", "file": "test_x", "category": "unstable", "detail": "rule 2: run 3 differs"},
+                   self.row("e", "matched")]  # d: left out by --filter
+        lost, held = c.lost_matches(self.published, results)
+        self.assertEqual(held, 0)
+        self.assertEqual([i for i, _ in lost], ["b", "c"])
+        text = "\n".join(c.lost_lines(lost, held, self.published))
+        self.assertIn("2 tests matched natively in the published report (commit abc)", text)
+        self.assertIn("b (normal): crash_or_timeout: build timed out after 300 s", text)
+        self.assertNotIn("b (dyn)", text)
+        self.assertIn("c (both builds): unstable: rule 2: run 3 differs", text)
+        self.assertEqual(text.count("c ("), 1)
+
+    def test_a_match_moved_to_the_bridge_is_lost(self):
+        lost, _ = c.lost_matches(self.published, [self.row("a", "matched", path="pybridge")])
+        self.assertIn("matched through the CPython bridge", "\n".join(c.lost_lines(lost, 0, self.published)))
+
+    def test_signals_held_for_security_are_counted_not_named(self):
+        sig = next(iter(c.PRIVATE_SIGNALS))
+        lost, held = c.lost_matches(self.published, [self.row("a", "crash_or_timeout", detail=f"signal {sig}")])
+        self.assertEqual((lost, held), ([], 1))
+        self.assertIn("1 more ended on a signal", "\n".join(c.lost_lines(lost, held, self.published)))
+
+    def test_nothing_lost_prints_nothing(self):
+        self.assertEqual(c.lost_lines(*c.lost_matches(self.published, [self.row("a", "matched")]), self.published), [])
+        self.assertEqual(c.lost_matches(None, [self.row("a", "refused")]), ([], 0))
+
+    def test_another_platforms_report_is_not_traced_against(self):
+        import json, unittest.mock as m
+        with tempfile.TemporaryDirectory() as t:
+            f = Path(t) / "report.json"
+            f.write_text(json.dumps({**self.published, "platform": "elsewhere"}))
+            with m.patch.dict(c.PUBLISHED, {"core": f}):
+                self.assertIsNone(c.read_published("core"))
+                f.write_text(json.dumps(self.published))
+                self.assertEqual(c.read_published("core")["commit"], "abc")
+
+    def test_slowest_builds_come_first(self):
+        r = self.row("a", "matched")
+        r["modes"]["normal"]["build_s"], r["modes"]["dyn"]["build_s"] = 12.5, 40.0
+        self.assertEqual(c.slowest_builds([r], 1), [(40.0, "a", "dyn")])
+
 
 class WindowsRatchet(unittest.TestCase):
-    """On Windows the core slice uses its own floor and known-wrong list, and nothing checks against an unmeasured one."""
+    """On Windows each slice uses its own floor and known-wrong list, and nothing checks against an unmeasured one."""
     def gate(self, argv, floor=None):
         import json, unittest.mock as m
         with tempfile.TemporaryDirectory() as t:
@@ -467,9 +549,26 @@ class WindowsRatchet(unittest.TestCase):
                 c.main()
             return str(e.exception.code)
 
-    def test_stdlib_only_measures_on_windows(self):
+    def test_a_slice_without_windows_files_only_measures_on_windows(self):
+        # gate() patches WINDOWS_SLICES to core only, so stdlib stands for any slice with no Windows floor.
         for flag in ("--check", "--raise-floor", "--release-gate", "--write-baseline"):
             self.assertIn("no Windows floor", self.gate(["--slice", "stdlib", flag]))
+
+    def test_every_slice_has_its_own_measured_windows_floor(self):
+        # The release gates both slices on Windows (release.yml), so each needs Windows files of its own, never the
+        # Linux ones, and a floor that was measured (an unmeasured one refuses, which would fail every release).
+        import json
+        self.assertEqual(set(c.WINDOWS_SLICES), set(c.SLICES))
+        for name, (known_wrong, floor) in c.WINDOWS_SLICES.items():
+            _, linux_known_wrong, linux_floor = c.SLICES[name]
+            self.assertNotEqual(known_wrong, linux_known_wrong)
+            self.assertNotEqual(floor, linux_floor)
+            self.assertTrue(known_wrong.is_dir(), known_wrong)
+            data = json.loads(floor.read_text())
+            self.assertEqual(set(data["matched"]), {"normal", "dyn"}, floor)
+            self.assertTrue(all(n > 0 for n in data["matched"].values()), floor)
+            self.assertEqual(data["release_gate"]["wrong"], 0, floor)
+            self.assertEqual(data["release_gate"]["coverage"], json.loads(linux_floor.read_text())["release_gate"]["coverage"], floor)
 
     def test_unmeasured_windows_floor_refuses(self):
         gate = {"coverage": 0.9, "wrong": 0}

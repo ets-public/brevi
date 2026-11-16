@@ -921,7 +921,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     for (m, (path, src)) in &texts {
         let abs = std::fs::canonicalize(path).map(|p| p.to_string_lossy().to_string()).unwrap_or(path.clone());
         // the file as on disk (CPython's warning shows that line), not the text with __file__ filled in
-        let disk = std::fs::read_to_string(path).unwrap_or_else(|_| src.clone());
+        let disk = crate::read_src(path).unwrap_or_else(|_| src.clone());
         bridge.srcs.insert(m.clone(), (abs, disk));
     }
     bridge.own = own_mods.clone();

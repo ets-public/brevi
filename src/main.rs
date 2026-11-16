@@ -166,13 +166,25 @@ pub fn python_exe() -> Result<String, String> {
     cpython::exe()
 }
 
-/// A program's source file, read as Python reads it: a UTF-8 byte order mark at the start is not part of the text.
+/// A program's source file, read as Python reads it: a UTF-8 byte order mark at the start is not part of the text,
+/// and every line ends in `\n` (universal newlines: `\r\n` and a lone `\r` become `\n`, so a file saved on Windows
+/// gives the same string literals and line continuations as on Linux).
 pub fn read_src(p: impl AsRef<Path>) -> std::io::Result<String> {
     let s = std::fs::read_to_string(p)?;
-    Ok(match s.strip_prefix('\u{feff}') {
+    let s = match s.strip_prefix('\u{feff}') {
         Some(t) => t.to_string(),
         None => s,
-    })
+    };
+    Ok(universal_newlines(&s).into_owned())
+}
+
+/// Python's universal newlines on source text: `\r\n` and a lone `\r` become `\n`, as CPython's tokenizer reads them.
+/// Text that has no `\r` comes back borrowed.
+pub fn universal_newlines(s: &str) -> std::borrow::Cow<'_, str> {
+    if !s.contains('\r') {
+        return std::borrow::Cow::Borrowed(s);
+    }
+    std::borrow::Cow::Owned(s.replace("\r\n", "\n").replace('\r', "\n"))
 }
 
 // `brevi run` options that take a value in the next argument (or after `=`).
