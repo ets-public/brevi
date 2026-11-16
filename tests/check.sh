@@ -12,6 +12,25 @@ has() {
   if [ "$CHECK_REQUIRE_LIBS" = 1 ]; then echo "FAIL python3 cannot import $1 (CHECK_REQUIRE_LIBS=1; pip install -r tests/requirements-native.txt)"; fail=1; fi
   return 1
 }
+# Float matrix products, norms and linear algebra are Brevi's only where it models the OpenBLAS kernels numpy
+# runs (see the numpy section). np_to_cpython FILE: FILE uses them and this CPU has no model, so Brevi must send it
+# to CPython or refuse it (the numpy, bv_libs and sandbox sections use it).
+np_avx512=1
+for fl in avx512f avx512dq avx512cd avx512bw avx512vl; do grep -qw "$fl" /proc/cpuinfo 2>/dev/null || np_avx512=0; done
+np_fma=1
+for fl in avx2 fma; do grep -qw "$fl" /proc/cpuinfo 2>/dev/null || np_fma=0; done
+case "$(printf '%s' "${OPENBLAS_CORETYPE:-}" | tr A-Z a-z)" in
+  "") np_kern=none; [ "$np_fma" = 1 ] && np_kern=hsw; [ "$np_avx512" = 1 ] && np_kern=skx ;;
+  skylakex) np_kern=none; [ "$np_avx512" = 1 ] && np_kern=skx ;;
+  haswell | zen) np_kern=none; [ "$np_fma" = 1 ] && [ "$np_avx512" = 0 ] && np_kern=hsw ;;
+  *) np_kern=none ;;
+esac
+np_uses_blas() { grep -Eq '[])A-Za-z0-9_] *@=? |\.dot\(|np\.(dot|matmul|inner|vdot|cov|corrcoef|polyfit)\(|linalg' "$1"; }
+np_to_cpython() {
+  np_uses_blas "$1" || return 1
+  [ "$np_kern" = none ] && return 0
+  [ "$np_kern" = hsw ] && grep -q float32 "$1"
+}
 #== run split
 # tests/run and tests/errors check what the typed build makes of each file, Python-style ones included: a .bv
 # file in plain Python is kept off the .py path here (BREVI_BV_PY=0, BREVI_BV_DYN=0; tests/bv_py checks that path).
@@ -203,7 +222,14 @@ for f in tests/bv_libs/*.bv tests/bv_py/*.bv; do
   exp="${f%.bv}.expected"
   out=$(cd "$(dirname "$f")" && BREVI_PATH=1 timeout 600 ../../$BREVI run "$(basename "$f")" 2>/tmp/brevi_bv_err)
   if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
-  if grep -q '"path":"\(pybridge\|cpython\)"' /tmp/brevi_bv_err; then
+  # Where this CPU has no OpenBLAS model, a file using float BLAS goes to CPython (CI has no numpy: only the path
+  # line counts) or stops at the refused call with what it printed before matching.
+  if np_to_cpython "$f" && grep -q '"path":"\(pybridge\|cpython\)"' /tmp/brevi_bv_err; then
+    echo "ok   $f (CPython: no OpenBLAS model for this CPU)"
+  elif [ "$out" != "$(cat "$exp")" ] && np_to_cpython "$f" && grep -q OpenBLAS /tmp/brevi_bv_err \
+     && case "$(cat "$exp")" in "$out"*) true ;; *) false ;; esac; then
+    echo "ok   $f (refused: no OpenBLAS model for this CPU)"
+  elif grep -q '"path":"\(pybridge\|cpython\)"' /tmp/brevi_bv_err; then
     echo "FAIL $f (ran in CPython)"; cat /tmp/brevi_bv_err; fail=1
   elif [ "$out" != "$(cat "$exp")" ]; then
     echo "FAIL $f"; cat /tmp/brevi_bv_err; printf '%s\n' "$out" | diff "$exp" - ; fail=1
@@ -216,7 +242,11 @@ done
 # natively there too (never CPython, which a sandbox without a grant refuses).
 for f in tests/bv_libs/*.bv; do
   out=$(cd "$(dirname "$f")" && BREVI_PATH=1 timeout 600 ../../$BREVI run --sandbox "$(basename "$f")" 2>/tmp/brevi_bv_err)
-  if grep -q '"path":"\(pybridge\|cpython\)"' /tmp/brevi_bv_err || [ "$out" != "$(cat "${f%.bv}.expected")" ]; then
+  # No OpenBLAS model on this CPU: the build refuses the BLAS call (CPython would need a grant) and prints nothing else.
+  if [ "$out" != "$(cat "${f%.bv}.expected")" ] && np_to_cpython "$f" && ! grep -q '"path":"\(pybridge\|cpython\)"' /tmp/brevi_bv_err \
+     && printf '%s\n' "$out" | grep -q "CPython's .*numpy needs a grant" && ! printf '%s\n' "$out" | grep -qv '^{\|^note: '; then
+    echo "ok   $f (--sandbox, refused: no OpenBLAS model for this CPU)"
+  elif grep -q '"path":"\(pybridge\|cpython\)"' /tmp/brevi_bv_err || [ "$out" != "$(cat "${f%.bv}.expected")" ]; then
     echo "FAIL $f (--sandbox)"; cat /tmp/brevi_bv_err; fail=1
   else
     echo "ok   $f (--sandbox)"
@@ -231,22 +261,6 @@ done
 # runs (rt_np.rs np_blas): SkylakeX on AVX-512 CPUs, Haswell on AVX2+FMA ones (float64 only), with no
 # OPENBLAS_CORETYPE naming other kernels. Elsewhere (ARM64, older x86-64) a test using them must go to CPython instead
 # (only its path line is checked: CI has no numpy).
-np_avx512=1
-for fl in avx512f avx512dq avx512cd avx512bw avx512vl; do grep -qw "$fl" /proc/cpuinfo 2>/dev/null || np_avx512=0; done
-np_fma=1
-for fl in avx2 fma; do grep -qw "$fl" /proc/cpuinfo 2>/dev/null || np_fma=0; done
-case "$(printf '%s' "${OPENBLAS_CORETYPE:-}" | tr A-Z a-z)" in
-  "") np_kern=none; [ "$np_fma" = 1 ] && np_kern=hsw; [ "$np_avx512" = 1 ] && np_kern=skx ;;
-  skylakex) np_kern=none; [ "$np_avx512" = 1 ] && np_kern=skx ;;
-  haswell | zen) np_kern=none; [ "$np_fma" = 1 ] && [ "$np_avx512" = 0 ] && np_kern=hsw ;;
-  *) np_kern=none ;;
-esac
-np_uses_blas() { grep -Eq '[])A-Za-z0-9_] *@=? |\.dot\(|np\.(dot|matmul|inner|vdot|cov|corrcoef|polyfit)\(|linalg' "$1"; }
-np_to_cpython() {
-  np_uses_blas "$1" || return 1
-  [ "$np_kern" = none ] && return 0
-  [ "$np_kern" = hsw ] && grep -q float32 "$1"
-}
 for f in tests/numpy/*.py; do
   exp="${f%.py}.expected"
   if [ "$1" = "--update" ]; then
@@ -947,7 +961,10 @@ for f in tests/sandbox/*.py; do
   g=$(cat "${f%.py}.flags" 2>/dev/null)
   out=$($BREVI run --sandbox $g "$f" 2>&1; echo "exit $?"; echo "-- dynamic"; BREVI_DYN=1 $BREVI run --sandbox $g "$f" 2>&1; echo "exit $?"; echo "-- typed"; BREVI_DYN=0 $BREVI run --sandbox $g --native "$f" 2>&1; echo "exit $?")
   if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
-  if [ "$out" != "$(cat "$exp")" ]; then
+  if [ "$out" != "$(cat "$exp")" ] && np_to_cpython "$f" && ! printf '%s\n' "$out" | grep -q '^exit 0$' \
+     && printf '%s\n' "$out" | grep -q 'OpenBLAS kernels Brevi does not model'; then
+    echo "ok   $f (refused on every path: no OpenBLAS model for this CPU)"
+  elif [ "$out" != "$(cat "$exp")" ]; then
     echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
   else
     echo "ok   $f"
