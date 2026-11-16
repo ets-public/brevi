@@ -37,6 +37,7 @@ on:
       - "!compat/conformance_known_wrong/**"
       - "!compat/conformance_stdlib_known_wrong/**"
       - "!compat/conformance_windows_known_wrong/**"
+      - "!compat/conformance_windows_stdlib_known_wrong/**"
       - "!compat/conformance_by_design.txt"
       - "!compat/conformance_cpython_private.txt"
       - "!compat/conformance_needs_string_model.txt"
