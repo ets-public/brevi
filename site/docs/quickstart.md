@@ -8,22 +8,28 @@ or cannot check a program. This page is the whole loop, as your harness will dri
 ## 1. Install
 
 <!-- install-line: the one place this page names the install command; swap it when the install changes -->
-Linux and macOS:
+With [uv](https://docs.astral.sh/uv/) installed, one command installs Brevi and runs a program (step 2 writes `main.py`):
 
 ```
-curl -fsSL https://raw.githubusercontent.com/ets-public/brevi/main/install.sh | sh
+uvx --python 3.13 brevi run --verify main.py
 ```
 
-Rust links programs with the system's C linker: on a bare Linux machine install it first (`sudo apt install
-build-essential`, or your distribution's `gcc`); on macOS, `xcode-select --install`. From v0.28.2, on Linux x86-64 and macOS, brevi fetches its own
-pinned Rust and, with no C linker, links with zig ([Install](/docs/install)).
+It downloads brevi and CPython 3.13 (the version `--verify` checks against), and on the first build the Rust release
+Brevi is tested with, plus zig to link with when the machine has no C linker, each checked against a SHA-256 compiled
+into brevi. That is about 300 MB once and a minute or two; later builds take seconds. Fetching uses `curl` and `tar`
+(macOS and Windows have both; a bare Linux container needs `curl`, `ca-certificates` and `xz-utils`).
 
-Windows: install Rust with [rustup](https://rustup.rs) (it also asks for the Microsoft C++ build tools), then unzip
-`brevi.exe` from the [latest release](__GITHUB__/releases/latest) onto your PATH. Every option: [Install](/docs/install).
+Nothing else is needed on Linux x86-64 and macOS, from v0.28.2. Linux ARM64 and Windows get the same from the next
+release; until then, install Rust with [rustup](https://rustup.rs) first (on Windows it also asks for the Microsoft
+C++ build tools), then run the same command.
+
+The commands below say `brevi`: write `uvx --python 3.13 brevi` instead, or keep it on your PATH with
+`uv tool install --python 3.13 brevi`. The install script, pip, npm, Docker and the release archives:
+[Install](/docs/install).
 <!-- /install-line -->
 
 `--verify` compares against CPython 3.13 and no other version. Brevi finds one as `python3`, `python3.13` or
-`python` on PATH, through `uv`, or named by `BREVI_PYTHON`; if you have none, `uv python install 3.13`.
+`python` on PATH, through `uv` (so the CPython `uvx --python 3.13` fetched counts), or named by `BREVI_PYTHON`.
 
 ```
 $ brevi --version

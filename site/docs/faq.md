@@ -62,7 +62,7 @@ The compiler is open source under Apache-2.0 and will stay that way. brevi.run i
 
 ## Can I install it with pip, npm or Homebrew?
 
-pip and npm, yes: `pip install brevi` or `npm install -g brevi` (or `uvx brevi mcp` / `npx brevi mcp` without installing), and the crate is on crates.io. Homebrew not yet. See [Install](/docs/install).
+pip and npm, yes: `pip install brevi` or `npm install -g brevi` (or `uvx --python 3.13 brevi run --verify main.py`, `uvx brevi mcp` or `npx brevi mcp` without installing), and the crate is on crates.io. Homebrew not yet. See [Install](/docs/install).
 
 ## Who makes Brevi?
 

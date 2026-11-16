@@ -13,6 +13,8 @@ brevi --version
 | Channel | Upgrade | Pin a version |
 | --- | --- | --- |
 | `install.sh` | run the install command again (see the README) | `BREVI_VERSION=0.27.0 sh install.sh` |
+| uvx | `uvx --python 3.13 brevi@latest run --verify main.py` (plain `uvx` reuses its cached copy) | `uvx --python 3.13 brevi@0.28.2 run --verify main.py` |
+| uv tool | `uv tool upgrade brevi` | `uv tool install --python 3.13 brevi==0.28.2` |
 | pip | `pip install --upgrade brevi` | `pip install brevi==0.27.0` |
 | npm | `npm install -g brevi@latest` | `npm install -g brevi@0.27.0` |
 | cargo | `cargo install brevi --force` | `cargo install brevi --version 0.27.0 --force` |

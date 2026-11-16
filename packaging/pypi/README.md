@@ -3,6 +3,7 @@
 Brevi is a compiler built for AI coding agents. The agent writes the plain Python it already writes best; Brevi builds it through Rust into a native binary that runs 1.6x to 37.9x faster than CPython on our 12 compute benchmarks with the default typed build (median 9.3x; a program on the dynamic build runs at about CPython's speed, median 0.85x), and aims to print exactly what CPython prints (at v0.28.2, 97.3% of the scored suite, with 83 string-as-code tests excluded match CPython 3.13's own tests, and none build and differ). Anything it cannot build comes back as one short JSON line the agent can act on.
 
 ```
+uvx --python 3.13 brevi run --verify main.py   # install and run in one command
 pip install brevi        # or run it without installing: uvx brevi mcp
 ```
 
