@@ -86,23 +86,32 @@ fn np_sgemm_here() -> bool {
 // 2: SkylakeX kernels, 1: Haswell, 0: none modelled. The runtime picks by the CPU alone (it reads no environment),
 // so an OPENBLAS_CORETYPE naming other kernels than the CPU's own makes numpy add in an order Brevi's would not.
 fn np_blas_kind_here() -> u8 {
+    let cpu = np_blas_cpu();
+    if let Some(c) = std::env::var_os("OPENBLAS_CORETYPE").filter(|c| !c.is_empty()) {
+        let named = match c.to_string_lossy().to_ascii_lowercase().as_str() {
+            "skylakex" => 2,
+            "haswell" | "zen" => 1,
+            _ => 0,
+        };
+        return if named == cpu { cpu } else { 0 };
+    }
+    cpu
+}
+// The kernels this CPU alone would get: 2 SkylakeX (AVX-512), 1 Haswell (AVX2 and FMA), 0 none modelled
+fn np_blas_cpu() -> u8 {
     #[cfg(target_arch = "x86_64")]
     {
-        let skx = np_f32_simd_here();
         let hsw = std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma");
-        let cpu = if skx { 2 } else if hsw { 1 } else { 0 };
-        if let Some(c) = std::env::var_os("OPENBLAS_CORETYPE").filter(|c| !c.is_empty()) {
-            let named = match c.to_string_lossy().to_ascii_lowercase().as_str() {
-                "skylakex" => 2,
-                "haswell" | "zen" => 1,
-                _ => 0,
-            };
-            return if named == cpu { cpu } else { 0 };
-        }
-        return cpu;
+        return if np_f32_simd_here() { 2 } else if hsw { 1 } else { 0 };
     }
     #[allow(unreachable_code)]
     0
+}
+// Every input outside the program that decides which numpy code is Brevi's and which goes to CPython (the CPU's
+// kernels and OPENBLAS_CORETYPE, as np_blas_kind_here reads them), for the result cache's key (runcache.rs): a
+// build kept under one must not be replayed under another.
+pub fn np_path_inputs() -> String {
+    format!("numpy cpu={} OPENBLAS_CORETYPE={:?}", np_blas_cpu(), std::env::var_os("OPENBLAS_CORETYPE").unwrap_or_default())
 }
 // The numpy functions that run OpenBLAS (with numpy.linalg's, and the .dot method and `@`)
 const NP_BLAS_FUNCS: &[&str] = &["dot", "matmul", "inner", "vdot", "cov", "corrcoef", "polyfit"];

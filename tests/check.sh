@@ -295,6 +295,21 @@ if [ "$np_kern" != none ] && [ "$1" != "--update" ]; then
   else
     echo "FAIL numpy BLAS refusal (lstsq.py built natively under OPENBLAS_CORETYPE=Prescott)"; fail=1
   fi
+  # The result cache keys on what chose the path: a native build kept without OPENBLAS_CORETYPE is not replayed
+  # under one naming other kernels, nor that CPython build once it is unset again (runcache.rs key).
+  npc=$(mktemp -d); cp tests/numpy/lstsq.py "$npc/main.py"
+  npp() { env BREVI_CACHE="$npc/cache" BREVI_PATH=1 "$@" timeout 600 $BREVI run "$npc/main.py" 2>&1 >/dev/null | grep -o '^{"path":"[a-z]*"' | head -1; }
+  npc_out="$(npp; npp OPENBLAS_CORETYPE=Prescott; npp)"
+  if [ "$npc_out" = '{"path":"dynamic"
+{"path":"pybridge"
+{"path":"dynamic"' ] || [ "$npc_out" = '{"path":"dynamic"
+{"path":"cpython"
+{"path":"dynamic"' ]; then
+    echo "ok   result cache keys on OPENBLAS_CORETYPE"
+  else
+    echo "FAIL result cache keys on OPENBLAS_CORETYPE (path lines: no env, Prescott, no env)"; printf '%s\n' "$npc_out"; fail=1
+  fi
+  rm -rf "$npc"
 fi
 # A binary built here and copied to a CPU without a modelled kernel must raise NotImplementedError at each float
 # BLAS/LAPACK call (rt_np.rs np_blas_ok), never print other digits. qemu stands in for that CPU: SandyBridge (no AVX2
