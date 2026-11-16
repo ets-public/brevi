@@ -15,10 +15,9 @@ has() {
 # Float matrix products, norms and linear algebra are Brevi's only where it models the OpenBLAS kernels numpy
 # runs (see the numpy section). np_to_cpython FILE: FILE uses them and this CPU has no model, so Brevi must send it
 # to CPython or refuse it (the numpy, bv_libs and sandbox sections use it).
-np_avx512=1
-for fl in avx512f avx512dq avx512cd avx512bw avx512vl; do grep -qw "$fl" /proc/cpuinfo 2>/dev/null || np_avx512=0; done
-np_fma=1
-for fl in avx2 fma; do grep -qw "$fl" /proc/cpuinfo 2>/dev/null || np_fma=0; done
+np_flags() { for fl in "$@"; do grep -qw "$fl" /proc/cpuinfo 2>/dev/null || return 1; done; }
+np_avx512=0; np_flags avx512f avx512dq avx512cd avx512bw avx512vl && np_avx512=1
+np_fma=0; np_flags avx2 fma && np_fma=1
 case "$(printf '%s' "${OPENBLAS_CORETYPE:-}" | tr A-Z a-z)" in
   "") np_kern=none; [ "$np_fma" = 1 ] && np_kern=hsw; [ "$np_avx512" = 1 ] && np_kern=skx ;;
   skylakex) np_kern=none; [ "$np_avx512" = 1 ] && np_kern=skx ;;
