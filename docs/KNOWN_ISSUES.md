@@ -18,7 +18,7 @@ Brevi's aim is that a build prints what CPython prints, or is refused. Two outco
 | Core at v0.28.1, 16 November (10 files with `test_contains`, `test_binop`, `test_richcmp`, `test_set`, `test_patma`; at `PYTHONHASHSEED=0`; 83 by-design refusals left out; 3 not extractable) | 1043 of 1072 (97.3%) | 26 | 0 | 0 |
 | Stdlib at v0.28.1, 16 November (11 files with `test_graphlib`, `test_colorsys`, `test_deque`, `test_dataclasses`, `test_enum`; 6 by-design refusals left out; 11 not extractable; 2 match only through the CPython bridge) | 1989 of 2053 (96.9%) | 51 | 0 | 0 |
 
-Forced dynamic builds score 97.3% (core) and 97.0% (stdlib), also with 0 wrong. 88.1% of core tests and 94.3% of stdlib tests are matches that print something to compare (the rest print nothing), and 2.6% and 1.2% of the native matches took the typed build.
+Forced dynamic builds score 97.3% (core) and 97.0% (stdlib), also with 0 wrong. 88.2% of core tests and 94.3% of stdlib tests are matches that print something to compare (the rest print nothing), and 2.6% and 1.2% of the native matches took the typed build.
 
 Things to know when reading these numbers:
 
