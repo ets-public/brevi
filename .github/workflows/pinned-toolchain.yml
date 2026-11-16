@@ -4,12 +4,13 @@
 # toolchain.rs's VERIFIED list, where the fetch happens on its own, only after its job here passes; until then
 # brevi refuses the automatic fetch there and says why.
 # Linux also runs the whole language suite, Windows its platform checks, on the pinned toolchain.
-# Runs on PRs that change the toolchain code, and by hand. macOS minutes count ten times, so it never runs nightly.
+# Runs once when a PR that changes the toolchain code is opened or marked ready, and by hand (workflow_dispatch).
+# Not on every push: macOS minutes count ten times, so later pushes re-run it only by hand, and never nightly.
 name: pinned-toolchain
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, reopened, ready_for_review]
     paths:
       - "src/toolchain.rs"
       - "src/toolchain_pins.rs"
