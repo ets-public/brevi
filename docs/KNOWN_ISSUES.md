@@ -40,7 +40,7 @@ Outside the aim: text on stderr, and output CPython itself changes between runs 
 
 Windows builds, runs and verifies programs natively, including library calls through CPython (the `python` on PATH needs its DLL). Differences:
 
-- `--limit cpu`, `file`, `fds` and `threads` are refused, not half enforced. `--limit mem` works (a Job Object). `time` and `output` work as on Linux.
+- `--limit mem` and `cpu` work, held by a Job Object around the program and every process it starts (`cpu` counts their user and kernel time together). `time`, `output`, `written`, `net` and `files` work as on Linux. `--limit file`, `fds` and `threads` are refused with an error, not half enforced: Windows has no limit on the size of one file or on the handles a process opens, and a Job Object can cap processes but not threads.
 - `--standalone` works (from v0.28.1; one .exe carrying CPython, unpacked once into `%LOCALAPPDATA%\brevi\py`). It is refused at build time with Microsoft Store Python or a Python for another CPU. A cache folder deep enough to push an unpacked file past 260 characters is refused at run time (set `BREVI_PY_CACHE` shorter). A standalone .exe changed after the build, for example by code signing, refuses to run rather than use an installed Python.
 - Windows' own SQLite can be a different version from CPython's, so version-specific output may differ.
 - DuckDB and ONNX Runtime need their libraries installed (`pip install duckdb`, onnxruntime 1.16 or later).
