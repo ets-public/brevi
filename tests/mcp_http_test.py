@@ -3,10 +3,36 @@ reply as JSON, notifications 202; bad bodies, media types, methods, paths and or
 token is checked; two clients using the same ids get their own replies; cancelling ends the waiting POST; a
 non-local address needs a token. With the official mcp client too, where python3 has it.
 usage: python3 tests/mcp_http_test.py [BREVI]"""
-import json, os, socket, subprocess, sys, threading, time, urllib.error, urllib.request
+import atexit, json, os, signal, socket, subprocess, sys, threading, time, urllib.error, urllib.request
 
 B = sys.argv[1] if len(sys.argv) > 1 else "target/release/brevi"
 fails = 0
+# Every server is stopped however this script ends (a failed check that raises, the deadline below): a server
+# left running keeps the caller's stdout open, so a caller waiting for it to close would wait forever.
+servers = []
+
+
+def stop_all():
+    for p in servers:
+        if p.poll() is None:
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except OSError:
+                pass
+            p.wait()
+
+
+atexit.register(stop_all)
+
+
+def too_long(*_):
+    print("FAIL mcp http: still running after 15 minutes")
+    sys.stdout.flush()
+    os._exit(stop_all() or 1)
+
+
+signal.signal(signal.SIGALRM, too_long)
+signal.alarm(900)
 
 
 def free_port():
@@ -26,18 +52,22 @@ def check(label, got, want):
 
 def server(*extra):
     port = free_port()
-    p = subprocess.Popen([B, "mcp", "--http", str(port), *extra], stderr=subprocess.PIPE, text=True)
+    # its own process group, so stop_all also stops the stdio server and its builds
+    p = subprocess.Popen([B, "mcp", "--http", str(port), *extra], stderr=subprocess.PIPE, text=True, start_new_session=True)
+    servers.append(p)
     line = p.stderr.readline()
     check("start line", "Streamable HTTP on http://127.0.0.1:%d/mcp" % port in line, True)
+    # the rest of the server's stderr is read, so a full pipe never stops it
+    threading.Thread(target=lambda: [None for _ in p.stderr], daemon=True).start()
     return p, "http://127.0.0.1:%d/mcp" % port
 
 
-def post(url, msg=None, headers=None, raw=None, method="POST"):
+def post(url, msg=None, headers=None, raw=None, method="POST", timeout=120):
     h = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
     h.update(headers or {})
     data = raw if raw is not None else (json.dumps(msg).encode() if msg is not None else None)
     try:
-        with urllib.request.urlopen(urllib.request.Request(url, data=data, headers=h, method=method), timeout=120) as f:
+        with urllib.request.urlopen(urllib.request.Request(url, data=data, headers=h, method=method), timeout=timeout) as f:
             return f.status, f.read().decode()
     except urllib.error.HTTPError as e:
         return e.code, e.read().decode()
@@ -56,7 +86,9 @@ check("initialize", (s, json.loads(b)["result"]["protocolVersion"], json.loads(b
 check("notification", post(U, {"jsonrpc": "2.0", "method": "notifications/initialized"}), (202, ""))
 s, b = post(U, req("a", "tools/list"))
 check("tools/list", (s, json.loads(b)["id"], len(json.loads(b)["result"]["tools"])), (200, "a", 8))
-s, b = post(U, req(7, "tools/call", {"name": "run", "arguments": {"code": "print(6 * 7)"}}))
+# The first call waits for the server's warm-up build of the runtime libraries (up to 5 minutes on a cold
+# cache, outside the call's own limit), so it gets longer than the others.
+s, b = post(U, req(7, "tools/call", {"name": "run", "arguments": {"code": "print(6 * 7)"}}), timeout=420)
 check("tools/call", (s, json.loads(b)["id"], json.loads(b)["result"]["content"][0]["text"].split()[0]), (200, 7, "42"))
 check("bad JSON", post(U, raw=b"{bad")[0], 400)
 check("bad JSON code", json.loads(post(U, raw=b"{bad")[1])["error"]["code"], -32700)
@@ -122,13 +154,15 @@ else:
                     tools = await s.list_tools()
                     res = await s.call_tool("run", {"code": "print(6 * 7)"})
                     return info.server_info.name, len(tools.tools), res.content[0].text.split()[0], res.is_error
-    check("official client", asyncio.run(official()), ("brevi", 8, "42", False))
+    # the client waits for replies with no limit of its own
+    check("official client", asyncio.run(asyncio.wait_for(official(), 300)), ("brevi", 8, "42", False))
 p.terminate()
 p.wait()
 
-q = subprocess.run([B, "mcp", "--http", "0.0.0.0:%d" % free_port()], capture_output=True, text=True)
+q = subprocess.run([B, "mcp", "--http", "0.0.0.0:%d" % free_port()], capture_output=True, text=True, timeout=60)
 check("non-local needs a token", (q.returncode, "needs a bearer token" in q.stderr), (2, True))
-q = subprocess.run([B, "mcp", "--http", "0.0.0.0:%d" % free_port(), "--token", "short"], capture_output=True, text=True)
+q = subprocess.run([B, "mcp", "--http", "0.0.0.0:%d" % free_port(), "--token", "short"], capture_output=True, text=True, timeout=60)
 check("short token", (q.returncode, "at least 16" in q.stderr), (2, True))
+signal.alarm(0)
 print("mcp http: %d failed" % fails if fails else "mcp http: all passed")
 sys.exit(1 if fails else 0)
