@@ -115,7 +115,7 @@ Or `cargo install --git __GITHUB__ brevi`. See [Contributing](/docs/contributing
 
 ## Package managers
 
-Each release is published to these registries with the same prebuilt binaries as the GitHub release. They need the Rust toolchain on the PATH too ([rustup.rs](https://rustup.rs)).
+Each release is published to these registries with the same prebuilt binaries as the GitHub release. They fetch the pinned toolchain like any other install where brevi does (Linux x86-64 and macOS from v0.28.2); elsewhere they need the Rust toolchain on the PATH ([rustup.rs](https://rustup.rs)).
 
 | Channel | Command | Notes |
 | --- | --- | --- |

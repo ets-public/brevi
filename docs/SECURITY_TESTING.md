@@ -53,7 +53,7 @@ A crash that has been fixed stays fixed: its input is kept in `fuzz/regressions/
 | `caps_check` | 26,514 | 14,411 | nothing |
 | `mcp_json` | — | 507 | **a bug, fixed:** a number beyond f64's range (`1e999`) was read as infinity and written back as `inf`, which is not JSON. The reader now refuses it. It had no security impact: the worst case was an invalid reply to the client that sent it. |
 | `mcp_grants` | 7,487,332 | 1,142 | nothing |
-| `mcp_http` | 2,204,603 | 726 | nothing in this run. A finding in the same code from review is listed under "Open findings". |
+| `mcp_http` | 2,204,603 | 726 | nothing in this run. A finding in the same code from review is listed under "Findings" (fixed in v0.28.2). |
 | `limits` | 3,426,075 | 761 | nothing |
 | `fs_scope` | 4,685,796 | 165 | nothing |
 | `bundle_inflate` | 721,420 | 246 | nothing |
@@ -74,11 +74,11 @@ Each attempt tries to break one promise in THREAT_MODEL.md. Attempts are written
 | R7 | Bridge crash: crash CPython through the bridge and check that the program fails cleanly without escaping its holds | Landlock and seccomp hold every thread | planned |
 | R8 | `brevi mcp --http` from a web page (DNS rebinding, missing Origin, a token sent to the wrong host) | only the token holder or the local machine reaches the server | planned |
 
-### Open findings
+### Findings
 
-Findings are listed with their details once a fixed release has shipped. Before that, only their existence is listed, so nothing is disclosed before users can upgrade.
+A finding is listed with its details once a fixed release has shipped. Before that, only its existence is listed, so nothing is disclosed before users can upgrade. Each fix ships in its own security point release, with a GitHub security advisory.
 
-| Found | How | Area | Status |
-| --- | --- | --- | --- |
-| 2026-11-16 | code review | build folders on Linux | fix in progress, for a security point release |
-| 2026-11-16 | fuzzing and code review | `brevi mcp --http` request handling | fix in progress, for a security point release |
+| Found | How | Finding | Affected | Fixed |
+| --- | --- | --- | --- | --- |
+| 2026-11-16 | code review | Temporary folders (build folders, cargo projects, MCP work folders, background build slots, a `--standalone` binary's CPython with no home folder) had fixed names in the shared temp folder, so another local user on a unix machine could create them first and read or change what Brevi built or ran. Now every one lives in `$TMPDIR/brevi-UID` (else `~/.cache/brevi/tmp`), used only when it is owned by the user, private, and under parents no one else can change. Windows was not affected. | v0.28.1 and earlier, Linux, macOS and other unix | v0.28.2 (#602) |
+| 2026-11-16 | fuzzing and code review | `brevi mcp --http` read a request before checking its token with no bound on chunked body size, time or connections, so a client without the token could make it hold a lot of memory or keep connections open (denial of service; no code execution, no token bypass). Now a body past 4 MiB gets 413, a silent or slow request is closed (30 s idle, 120 s whole), and at most 64 connections are served. stdio `brevi mcp` was not affected. | v0.26.0 to v0.28.1, only with `--http` | v0.28.2 (#603) |

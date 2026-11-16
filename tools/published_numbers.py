@@ -142,6 +142,11 @@ def render(tag):
     c, s = slice_numbers(tag, "report.json"), slice_numbers(tag, "stdlib/report.json")
     sp, med = speed()
     wfloor = json.loads(at_tag(tag, "compat/conformance_windows_floor.json"))["matched"]["normal"]
+    # The stdlib slice gates a Windows release only when the tag's release.yml runs it with --release-gate (v0.28.2 on).
+    wstd = None
+    if any("--slice stdlib" in ln and "--release-gate" in ln
+           for ln in at_tag(tag, ".github/workflows/release.yml").splitlines()):
+        wstd = json.loads(at_tag(tag, "compat/conformance_windows_stdlib_floor.json"))["matched"]["normal"]
     blob = f"{REPO}/blob/{tag}/"
     num = lambda x: f"{x:,}"
     share = lambda a, b: f"{num(a)} of {num(b)} ({pct(a, b)})"
@@ -221,9 +226,13 @@ def render(tag):
         "",
         "## Windows",
         "",
-        f"The {tag} release gate held the core slice on the shipped `brevi.exe` (at least 90%, no wrong answer; Windows "
-        f"floor {num(wfloor)} native matches). The standard-library slice was not gated on Windows in {tag}; its limits "
-        "are in [KNOWN_ISSUES.md](KNOWN_ISSUES.md#windows-beta).",
+        (f"The {tag} release gate held the core slice on the shipped `brevi.exe` (at least 90%, no wrong answer; Windows "
+         f"floor {num(wfloor)} native matches), on x86-64 and ARM64, and the standard-library slice too (at least 80%, "
+         f"no wrong answer; Windows floor {num(wstd)} native matches). Windows limits are in "
+         "[KNOWN_ISSUES.md](KNOWN_ISSUES.md#windows-beta)." if wstd is not None else
+         f"The {tag} release gate held the core slice on the shipped `brevi.exe` (at least 90%, no wrong answer; Windows "
+         f"floor {num(wfloor)} native matches). The standard-library slice was not gated on Windows in {tag}; its limits "
+         "are in [KNOWN_ISSUES.md](KNOWN_ISSUES.md#windows-beta)."),
         "",
     ]
     return "\n".join(L)

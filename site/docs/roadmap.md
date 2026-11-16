@@ -46,7 +46,7 @@ Each measure links to where its number comes from. Notes on the marked numbers a
 2. Measured at v0.25.0.
 3. Measured at v0.26.0, one run each with Haiku and Sonnet, with Brevi's errors shown to the model.
 4. Possible since v0.27.0 with the [brevi-sandbox image](https://github.com/ets-public/brevi/blob/main/docs/SDK_AND_IMAGES.md).
-5. At v0.28.1, 16 November (CPython's core tests, at `PYTHONHASHSEED=0`; the 83 that run a string as code are left out as refused by design). The standard-library slice is 96.9% (1989 of 2053) with none wrong. That covers the 21 files scored (ten added from 12 to 14 November: `test_set` and `test_patma` in core, `test_dataclasses` and `test_enum` in stdlib among them); more files are measured for planning but not scored yet. At v0.27.0: 80.4% (250 of 311) and 8 wrong; at v0.26.0, 44 wrong.
+5. At v0.28.2, 16 November (CPython's core tests, at `PYTHONHASHSEED=0`; the 83 that run a string as code are left out as refused by design). The standard-library slice is 96.9% (1989 of 2053) with none wrong. That covers the 21 files scored (ten added from 12 to 14 November: `test_set` and `test_patma` in core, `test_dataclasses` and `test_enum` in stdlib among them); more files are measured for planning but not scored yet. At v0.27.0: 80.4% (250 of 311) and 8 wrong; at v0.26.0, 44 wrong.
 
 Unless marked, numbers are from v0.27.0 (11 November 2026). Edit times are from one 4-core Xeon @ 2.10 GHz, the same kind of machine as the v0.26.0 numbers.
 

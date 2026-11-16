@@ -102,5 +102,17 @@ class CheckCommand(unittest.TestCase):
         self.assertIn("do not hold", str(e.exception.code))
 
 
+class InstallLine(unittest.TestCase):
+    def test_from_v0_28_2_no_rust_install_on_linux_x86_64_and_macos(self):
+        for tag in ("v0.28.2", "v0.28.10", "v0.29.0", "v1.0.0"):
+            line = rn.install_line(tag)
+            self.assertIn("no Rust install is needed", line)
+            self.assertNotIn("still needs rustc", line)
+
+    def test_older_releases_keep_the_line_they_shipped(self):
+        for tag in ("v0.28.1", "v0.27.9", "v0.9.30"):
+            self.assertIn("brevi still needs rustc on the PATH", rn.install_line(tag))
+
+
 if __name__ == "__main__":
     unittest.main()
