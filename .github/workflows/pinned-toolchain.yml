@@ -106,16 +106,6 @@ jobs:
 
       # Fetched once up front into one folder the whole suite shares: tests that start from an empty cache would
       # otherwise fetch it again, and the one-time fetch notice would land in the output they compare.
-      - name: TEMP lstsq with the system toolchain vs pinned (ARM64)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        shell: bash
-        run: |
-          BREVI_TOOLCHAIN=system BREVI_LINKER=cc BREVI_CACHE=$RUNNER_TEMP/c1 BREVI_PATH=1 ./target/release/brevi run tests/numpy/lstsq.py --native > $RUNNER_TEMP/sys.out
-          BREVI_TOOLCHAIN=pinned BREVI_LINKER=zig BREVI_TOOLCHAIN_DIR=$RUNNER_TEMP/brevi-toolchain BREVI_CACHE=$RUNNER_TEMP/c2 BREVI_PATH=1 ./target/release/brevi run tests/numpy/lstsq.py --native > $RUNNER_TEMP/pin.out
-          cmp $RUNNER_TEMP/sys.out $RUNNER_TEMP/pin.out && echo "SAME OUTPUT system vs pinned"
-          diff $RUNNER_TEMP/sys.out tests/numpy/lstsq.avx2.expected | head -5 || true
-          python3 -c "import numpy" 2>/dev/null && echo has-numpy || pip install --quiet numpy==2.5.4 && OPENBLAS_VERBOSE=2 python3 tests/numpy/lstsq.py > $RUNNER_TEMP/np.out && (cmp $RUNNER_TEMP/np.out $RUNNER_TEMP/sys.out && echo "BREVI MATCHES ARM64 NUMPY" || diff $RUNNER_TEMP/np.out $RUNNER_TEMP/sys.out | head -8)
-
       - name: Language suite on the pinned toolchain (Linux)
         if: matrix.suite == 'linux'
         shell: bash
