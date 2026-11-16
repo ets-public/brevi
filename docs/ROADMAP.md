@@ -16,10 +16,10 @@ on 9 November 2026; where the review's figure and ours differ, ours is given wit
 ## If we only do three things
 
 1. **Verify by default.** Every agent run can check the native build against CPython on the program's own inputs
-   and report a certificate or the first difference. No other Python compiler offers that, and it turns today's
-   58.2% conformance score from a weakness into a product feature. (`brevi verify` exists since v0.26.0; the work
+   and report a certificate or the first difference. No other Python compiler offers that, and it turns any
+   gap in conformance (97.3% core at v0.28.1, 58.2% at v0.26.0) from a weakness into a product feature. (`brevi verify` exists since v0.26.0; the work
    is making it the default.)
-2. **A fast inner loop with no `rustc` in it.** `brevi check --fast` already answers in about 16 ms; the full check
+2. **A fast inner loop with no `rustc` in it.** `brevi check --fast` already answers in about 22 ms; the full check
    (94 ms) and a build after an edit (0.87 s typed, 1.5 s dynamic) are what an agent waits for. A warm daemon, and
    later a dev backend, take `rustc` out of the edit loop; full codegen stays for `brevi build`.
 3. **Be in the image, not on the website.** A harness SDK, a `python3` shim, and Brevi preinstalled in the E2B,
@@ -53,9 +53,9 @@ match CPython on their own tests, and do so on the first check. Fast, correct an
 | Metric | v0.26.0 baseline | 90 days | 12 months | Measured by |
 |---|---:|---:|---:|---|
 | ANER (real agent code) | not measured | 60% | 90% | opt-in alpha traffic sample |
-| Conformance (CPython 3.13.13 slice) | 97.3% (1047/1076; stdlib 1988/2052) at v0.28.0; 80.4% (250/311) at v0.27.0 | ≥70% | ≥90% | `tools/conformance.py` |
-| Known-wrong allowlist | 0 at v0.28.0; 8 tests, 16 test-mode pairs at v0.27.0 (44 and 88 at v0.26.0) | ≤25 tests | 0 | `compat/conformance_known_wrong/` |
-| Crash or timeout (conformance) | 0 at v0.28.0; 0 of 311 tests at v0.27.0 | 0 on fuzz corpus | 0 on fuzz corpus | fuzz harness (WS1) |
+| Conformance (CPython 3.13.13 slice) | 97.3% (1043/1072; stdlib 1989/2053, 96.9%) at v0.28.1; 80.4% (250/311) at v0.27.0 | ≥70% | ≥90% | `tools/conformance.py` |
+| Known-wrong allowlist | 0 at v0.28.1; 8 tests, 16 test-mode pairs at v0.27.0 (44 and 88 at v0.26.0) | ≤25 tests | 0 | `compat/conformance_known_wrong/` |
+| Crash or timeout (conformance) | 0 at v0.28.1; 0 of 311 tests at v0.27.0 | 0 on fuzz corpus | 0 on fuzz corpus | fuzz harness (WS1) |
 | `brevi check --fast` p50 / p95 | 22 / 24 ms on main (d91ca4b; shipped in v0.28.0); 160 / 174 ms at v0.27.0, when a false refusal sent the fixture dynamic; 16 / 18 ms at v0.26.0 | ≤20 ms p50 | ≤10 ms p50 | `bench/latency.py` |
 | `brevi check` p50 / p95 | 94 / 107 ms on main; 160 / 209 ms at v0.27.0; 94 / 114 ms at v0.26.0 | ≤50 / ≤150 ms | ≤30 / ≤80 ms | `bench/latency.py` |
 | Build after an edit, p50 | 0.91 s typed, 1.6 s dynamic on main; `brevi run` after an edit 0.35 s with tiered builds; 1.18 s at v0.27.0; 0.87 s typed, 1.5 s dynamic at v0.26.0 | ≤500 ms | ≤300 ms | `bench/latency.py` |

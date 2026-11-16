@@ -89,7 +89,7 @@ cat: 1</pre>
             <tr><td>Memory safety</td><td>Garbage collector</td><td>Checked by the compiler</td><td class="win">Checked by the compiler, no annotations</td></tr>
             <tr><td>Integer overflow</td><td>Unlimited integers</td><td>Wraps in release builds unless checked</td><td class="win">Unlimited, like Python: past 64 bits a value becomes a big integer</td></tr>
             <tr><td>Errors the agent reads</td><td>Multi-line tracebacks</td><td>Long compiler messages</td><td class="win">One JSON line with the line number and a fix</td></tr>
-            <tr><td>Deployment</td><td>An interpreter and its packages</td><td>One binary</td><td class="win">One binary (library programs need Python's shared library, or <code>--standalone</code> on Linux to carry it)</td></tr>
+            <tr><td>Deployment</td><td>An interpreter and its packages</td><td>One binary</td><td class="win">One binary (library programs need Python's shared library, or <code>--standalone</code> on Linux and Windows to carry it)</td></tr>
           </tbody>
         </table>
       </div>
