@@ -42,6 +42,9 @@ import argparse, ast, collections, concurrent.futures as cf, hashlib, json, os, 
 import functools, importlib, subprocess, symtable, sys, tempfile, time, urllib.request, warnings
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from share import pct  # noqa: E402  (every published share is printed one way)
+
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE = ROOT / "compat" / "conformance_known_wrong"  # one file per known-wrong entry (see read_baseline)
 FLOOR = ROOT / "compat" / "conformance_floor.json"  # the match counts a run may not fall below
@@ -1760,9 +1763,9 @@ def tally(results, mode):
     asserting = sum(1 for r in native_rows if not r["modes"][mode]["silent"])
     typed = sum(1 for r in native_rows if r["modes"][mode]["path"] == "typed")
     return {**counts, "total": len(results), "scored": total, "matched_through_cpython": bridged, "matched_silent": silent,
-            "coverage": round(native / total, 4) if total else 0, "wrong": counts["wrong_output"] + counts["wrong_exit"],
-            "matched_asserting": asserting, "assert_coverage": round(asserting / total, 4) if total else 0,
-            "matched_typed": typed, "typed_share": round(typed / native, 4) if native else 0}
+            "coverage": native / total if total else 0, "wrong": counts["wrong_output"] + counts["wrong_exit"],
+            "matched_asserting": asserting, "assert_coverage": asserting / total if total else 0,
+            "matched_typed": typed, "typed_share": typed / native if native else 0}
 
 
 def read_by_design():
@@ -1887,12 +1890,6 @@ def public_rows(results):
 
 def normalise(why):
     return re.sub(r"\d+", "N", re.sub(r"'[^']*'|\"[^\"]*\"|`[^`]*`", "X", why))[:90]
-
-
-def pct(a, b):
-    """a/b as a percentage to one decimal, rounded half up from the counts themselves. Formatting the 4-place
-    rounded share instead rounds twice: 945/1072 is 88.153%, stored as 0.8815, printed as 88.1%."""
-    return f"{(a * 2000 // b + 1) // 2 / 10:.1f}%" if b else "0.0%"
 
 
 def native(t):
@@ -2221,7 +2218,7 @@ def main():
         gate, n, problems = read_floor().get("release_gate", {}), rep["totals"]["normal"], []
         if not gate:
             sys.exit(f"no release_gate in {FLOOR.relative_to(ROOT)}")
-        if native(n) < gate.get("coverage", 0) * n["scored"]:  # the counts, not the 4-place rounded share
+        if native(n) < gate.get("coverage", 0) * n["scored"]:  # the counts, not a rounded share
             problems.append(f"coverage {pct(native(n), n['scored'])} is below the release gate of {gate['coverage'] * 100:.0f}%")
         if gate.get("wrong", 0) == 0 and bad:
             problems.append(f"{len(bad)} wrong results or crashes; the release gate allows none")
