@@ -178,7 +178,11 @@ jobs:
   # and is committed, as conformance-main.yml does for Linux; a failure opens or updates a "conformance" issue.
   conformance:
     if: github.event.schedule == '17 7 * * 0' || github.event_name == 'workflow_dispatch'
-    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-11-arm]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     permissions:
       contents: write
@@ -215,7 +219,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: conformance-windows
+          name: conformance-windows-${{ matrix.os }}
           path: conformance-windows
 
       - name: Commit the raised Windows floor to main
