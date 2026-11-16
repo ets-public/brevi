@@ -161,7 +161,8 @@ def render(tag):
         row("Not scored: output unstable between CPython runs, or excluded by the harness",
             lambda x: num(x["n"]["unstable"] + x["n"]["excluded"])),
         row("**Scored**", lambda x: f"**{num(x['n']['scored'])}**"),
-        row("**Match CPython, native build**", lambda x: f"**{share(x['native'], x['n']['scored'])}**"),
+        row("**Match CPython, native build**", lambda x: f"**{num(x['native'])} of {num(x['n']['scored'])}** "
+            f"({x['cov']} {scope(x)})"),
         row("Give a different answer", lambda x: num(x["n"]["wrong"])),
         row("Refused at build time (count as not matched)", lambda x: num(x["n"]["refused"])),
         row("Could not be extracted (count as not matched)", lambda x: num(x["n"]["not_extractable"])),
@@ -170,7 +171,8 @@ def render(tag):
             lambda x: share(x["n"]["matched_asserting"], x["n"]["scored"])),
         row("Matches that print nothing (built and exited 0)", lambda x: num(x["n"]["matched_silent"])),
         row("Matches that took the typed build (typed share)", lambda x: share(x["n"]["matched_typed"], x["native"])),
-        row("Forced dynamic build (`BREVI_DYN=1`): match", lambda x: share(x["dyn_native"], x["n"]["scored"])),
+        row("Forced dynamic build (`BREVI_DYN=1`): match", lambda x: f"{num(x['dyn_native'])} of {num(x['n']['scored'])} "
+            f"({x['dyn_cov']} {scope(x)})"),
         "",
         f"**How to quote the headline:** {c['cov']} {scope(c)} ({num(c['native'])} of {num(c['n']['scored'])}). "
         f"The standard library slice: {s['cov']} {scope(s)}. Never quote a coverage share without its scope; "
@@ -194,13 +196,13 @@ def render(tag):
         f"Measured {sp['date']} on Brevi {sp['brevi']} (`{sp['brevi_commit']}`), {sp['machine']}; not yet re-measured "
         f"on {tag}. Data: [{SPEED}](../{SPEED}).",
         "",
-        "| Build | Median | Range | Slower than CPython |",
+        "| | Typed, default build | Typed, `--release` | Dynamic (`BREVI_DYN=1 --release`) |",
         "| --- | ---: | ---: | ---: |",
     ]
-    for build, label in (("typed", "Typed, default build"), ("release", "Typed, `--release`"),
-                         ("dynamic", "Dynamic (`BREVI_DYN=1 --release`)")):
-        m = med[build]
-        L.append(f"| {label} | **{m['median']}** | {m['lo']} to {m['hi']} | {m['slower']} of {len(sp['programs'])} |")
+    builds = ("typed", "release", "dynamic")
+    L.append("| **Median** | " + " | ".join(f"**{med[b]['median']}**" for b in builds) + " |")
+    L.append("| Range | " + " | ".join(f"{med[b]['lo']} to {med[b]['hi']}" for b in builds) + " |")
+    L.append("| Slower than CPython | " + " | ".join(f"{med[b]['slower']} of {len(sp['programs'])}" for b in builds) + " |")
     L += [
         "",
         f"**How to quote the speed:** typed median {med['typed']['median']}, dynamic median {med['dynamic']['median']}. "

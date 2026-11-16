@@ -90,6 +90,8 @@ jobs:
         run: python3 tools/code_map.py --check && python3 tests/agent_hooks_test.py
       - name: Conformance extractor, classifier and published shares; release-notes figure checks
         run: python3 tests/conformance_test.py && python3 tests/release_notes_test.py
+      - name: Published numbers (docs/NUMBERS.md is its release tag's; no headline quoted without its scope)
+        run: python3 tools/published_numbers.py --check && python3 tests/published_numbers_test.py
       - id: py
         name: Find the next Python release (pre-release)
         # Never blocks the matrix: if the lookup fails, fall back to a guess.

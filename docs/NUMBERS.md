@@ -14,7 +14,7 @@ Native builds of CPython 3.13.13's own tests, Linux, at `PYTHONHASHSEED=0`. Each
 | Refused by design (run a string as code), excluded | 83 | 6 |
 | Not scored: output unstable between CPython runs, or excluded by the harness | 182 | 172 |
 | **Scored** | **1,072** | **2,053** |
-| **Match CPython, native build** | **1,043 of 1,072 (97.3%)** | **1,989 of 2,053 (96.9%)** |
+| **Match CPython, native build** | **1,043 of 1,072** (97.3% of the scored suite, with 83 string-as-code tests excluded) | **1,989 of 2,053** (96.9% of the scored suite, with 6 string-as-code tests excluded) |
 | Give a different answer | 0 | 0 |
 | Refused at build time (count as not matched) | 26 | 51 |
 | Could not be extracted (count as not matched) | 3 | 11 |
@@ -22,7 +22,7 @@ Native builds of CPython 3.13.13's own tests, Linux, at `PYTHONHASHSEED=0`. Each
 | Matches that print something to compare (assertion-bearing) | 945 of 1,072 (88.2%) | 1,937 of 2,053 (94.3%) |
 | Matches that print nothing (built and exited 0) | 98 | 53 |
 | Matches that took the typed build (typed share) | 27 of 1,043 (2.6%) | 23 of 1,989 (1.2%) |
-| Forced dynamic build (`BREVI_DYN=1`): match | 1,043 of 1,072 (97.3%) | 1,991 of 2,053 (97.0%) |
+| Forced dynamic build (`BREVI_DYN=1`): match | 1,043 of 1,072 (97.3% of the scored suite, with 83 string-as-code tests excluded) | 1,991 of 2,053 (97.0% of the scored suite, with 6 string-as-code tests excluded) |
 
 **How to quote the headline:** 97.3% of the scored suite, with 83 string-as-code tests excluded (1,043 of 1,072). The standard library slice: 96.9% of the scored suite, with 6 string-as-code tests excluded. Never quote a coverage share without its scope; CI refuses a page that does.
 
@@ -34,11 +34,11 @@ Which build the conformance programs took (normal build, every program, not just
 
 bench/compare's 12 compute programs, speed-up over CPython 3.13.13 (best of 5, one at a time). Measured 2026-11-12 on Brevi 0.27.1 (`b1004c2`), AMD Ryzen 9 5950X (32 threads), WSL2 Ubuntu 24.04, 15 GB; run alone; not yet re-measured on v0.28.1. Data: [bench/compare/speed.json](../bench/compare/speed.json).
 
-| Build | Median | Range | Slower than CPython |
+| | Typed, default build | Typed, `--release` | Dynamic (`BREVI_DYN=1 --release`) |
 | --- | ---: | ---: | ---: |
-| Typed, default build | **9.3x** | 1.6x to 37.9x | 0 of 12 |
-| Typed, `--release` | **9.8x** | 2.1x to 38.8x | 0 of 12 |
-| Dynamic (`BREVI_DYN=1 --release`) | **0.85x** | 0.5x to 1.4x | 7 of 12 |
+| **Median** | **9.3x** | **9.8x** | **0.85x** |
+| Range | 1.6x to 37.9x | 2.1x to 38.8x | 0.5x to 1.4x |
+| Slower than CPython | 0 of 12 | 0 of 12 | 7 of 12 |
 
 **How to quote the speed:** typed median 9.3x, dynamic median 0.85x. The 9.3x figure holds only on the typed path: all 12 of these programs build typed, but only 2.6% of core and 1.2% of standard-library conformance matches took the typed build. A program whose values change type gets the dynamic build, which runs at about CPython's speed or slower. CI refuses a page that quotes a typed median without the dynamic one.
 

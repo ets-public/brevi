@@ -142,17 +142,14 @@ def main():
         # Shares are worked out here from the report's counts with pct(): a report written before tools/share.py
         # rounded twice (945 of 1072 read 88.1%, not 88.2%).
         share = lambda m: f"{m.group(2)} of {m.group(3)} ({pct(m.group(2), m.group(3))})"
-        row("Match CPython", lambda f: share(f["cov"]))
+        # The headline is never quoted without its scope (tools/published_numbers.py --check scans these notes too).
+        row("Match CPython", lambda f: f"{f['cov'].group(2)} of {f['cov'].group(3)} ({pct(f['cov'].group(2), f['cov'].group(3))} "
+            f"of the scored suite, with {f['design'].group(1)} string-as-code tests excluded)")
         row("Give a different answer", lambda f: f["wrong"].group(1))
         row("Refused by design, left out of the count", lambda f: f["design"].group(1))
         row("Matches that print something to compare", lambda f: share(f["asserting"]))
         row("Matches that print nothing (built and exited 0)", lambda f: f["asserting"].group(4))
         row("Matches that took the typed build", lambda f: share(f["typed"]))
-        print()
-        # The headline is never quoted without its scope (tools/published_numbers.py --check scans these notes too).
-        for label, f in (("Core", c), ("Standard library", s)):
-            print(f"{label}: {f['cov'].group(2)} of {f['cov'].group(3)} match, {pct(f['cov'].group(2), f['cov'].group(3))} "
-                  f"of the scored suite, with {f['design'].group(1)} string-as-code tests excluded.")
         print()
         # Which commit the numbers describe: the reports measured the release PR's merge, and the tag is the commit
         # that adds those reports, so the two hashes differ. Say so, checked: only reports and floors may differ.
