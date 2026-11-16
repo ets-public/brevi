@@ -24,6 +24,7 @@ A sure mistake is reported before anything runs, as one line with a fix:
 Brevi compiles through `rustc`, so a Rust toolchain must be on the PATH ([rustup.rs](https://rustup.rs)).
 
 - **For agents:** add the MCP server as the command `brevi` with the argument `mcp` (Claude Code: `claude mcp add brevi -- brevi mcp`). Its tools sandbox by default. [For AI agents](https://brevi-lang.org/docs/agents)
+- **Security:** No external security audit yet. The sandbox is a policy layer, not an isolation boundary. Run untrusted code in a container or VM. `--allow-py` and `--allow native` are full trust. [Where Brevi stands](https://github.com/ets-public/brevi/blob/main/SECURITY.md#where-brevi-stands)
 - **Same answers as CPython:** every saved agent program and large test program matches CPython's output and exit status. Imports of installed packages (numpy, pandas, requests, ...) work; most numpy code builds natively.
 - **Public preview:** Brevi works today and is tested against CPython on every change, but expect the CLI to change between releases.
 

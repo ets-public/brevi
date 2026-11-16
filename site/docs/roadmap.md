@@ -73,7 +73,8 @@ The north star is the share of real agent-written programs that build natively, 
 
 ## Later (to 1.0)
 
-- **brevi.run, hosted.** A closed beta of the compiler as a sandboxed API for agents, only once the platform's VM or microVM isolation and an outside security review are in place.
+- **brevi.run, hosted.** A closed beta of the compiler as a sandboxed API for agents, only once runs are held in the platform's VM or microVM and an outside security review is done.
+- **An external security audit.** We have not had an external audit; we are seeking funding for one. Until then, do not run hostile code under the sandbox: it is a policy layer, not an isolation boundary, so run untrusted code in a container or VM. Pilots with design partners running their own trusted code in their own container do not wait on it; a public beta should have a fixed-scope independent review first; the sandbox will not be offered as a boundary for hostile code before a paid audit. [Where Brevi stands](https://github.com/ets-public/brevi/blob/main/SECURITY.md#where-brevi-stands).
 - **Windows parity.** From v0.27.0, library programs, generators and `async` build on Windows (CPython bridge and Win32 fibers). From v0.28.0, `os.path` is `ntpath` and `sys.platform` is `win32` on Windows, and conformance runs on Windows every week. `--standalone` works on Windows from v0.28.1 and Windows ARM64 builds ship from v0.28.1; `--standalone` on macOS is next.
 - **1.0** when conformance reaches 90% with no known wrong results, the typed path covers 90% of agent programs, `brevi check` answers in 30 ms, an outside security review is done, and three harnesses ship Brevi. Until then Brevi stays 0.x.
 

@@ -19,6 +19,8 @@ Check that `brevi --version` works. If it does not, run the repository's `instal
 4. Off the fast path, one `{"path":...}` line on stderr says what ran and why: `dynamic` (still native, slower) or `pybridge` (library calls in CPython) are fine; when speed matters, rewrite only the `fn` it names so it keeps one type per value. `cpython` means Brevi did not build it at all.
 5. If Brevi still cannot build a Python construct after one small change, keep the Python as it is, run it with `python3 main.py`, and say that it ran without Brevi.
 
+Security: `--sandbox` is a policy layer, not an isolation boundary, and there has been no external security audit yet. Run untrusted code in a container or VM. `--allow-py` and `--allow native` are full trust.
+
 ## Writing Brevi itself
 
 Only for `.bv` files or when Brevi syntax is asked for: run `brevi guide` once and read the guide it prints; `brevi guide WORD` prints the lines about one name. `brevi patch NAME.bv patch.bv` replaces whole functions by name, `brevi fix NAME.bv` applies suggested renames, and `brevi guide Libraries` covers Rust crates (`rust fn`) and Python (`py fn`) inside Brevi.

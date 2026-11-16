@@ -87,6 +87,8 @@ jobs:
         run: python3 tools/no_binaries.py
       - name: The --limit platform claims (MCP schema, docs) match the code
         run: python3 tools/limits_check.py
+      - name: Security statements present, and no page calls the sandbox an isolation boundary
+        run: python3 tools/security_claims.py
       - name: Every src file says what it holds (tools/code_map.py), and the agent hooks hold
         run: python3 tools/code_map.py --check && python3 tests/agent_hooks_test.py
       - name: Conformance extractor, classifier and published shares; release-notes figure checks

@@ -52,9 +52,9 @@ Tests: [tests/windows/check.ps1](../tests/windows/check.ps1).
 
 ## Sandbox and limits
 
-The full model is [THREAT_MODEL.md](THREAT_MODEL.md). No outside security review has been done. The sandbox is a compile-time capability check plus a runtime with nothing in it, not an operating-system jail. In short:
+The full model is [THREAT_MODEL.md](THREAT_MODEL.md). No external security audit yet: we have not had an external audit; we are seeking funding for one. Until then, do not run hostile code under the sandbox. The sandbox is a policy layer, not an isolation boundary: a compile-time capability check plus Brevi's own runtime code, with no container or VM around the program. Run untrusted code in a container or VM. In short:
 
-- `--allow-py` and `--allow native` are full trust. Only files are held, and only on Linux 5.13 or later with Landlock. Where Landlock is missing, named folders are refused, and with none named CPython keeps full file access.
+- `--allow-py` and `--allow native` are full trust. For CPython, files are held on Linux 5.13 or later with Landlock, and the network on Linux x86-64 and arm64 with seccomp (next line); a `rust fn` or crate is not held at all. Where Landlock is missing, named folders are refused, and with none named CPython keeps full file access.
 - Processes and the `files`, `net` and `written` limits are not held for CPython. The network is held for it only on Linux, from v0.28.0 (no network without a grant; hosts named with `--allow-net` are refused); on macOS and Windows CPython keeps the network.
 - `--allow read` and `--allow write` are whole-account grants. A swap of a folder for a symlink by another process between check and open can redirect an open.
 - The network grant matches host names. `--allow net` reaches anything the machine can, including `localhost` and cloud metadata.

@@ -8,6 +8,8 @@ Docs: **[brevi-lang.org/docs](https://brevi-lang.org/docs/)** · Releases: [GitH
 
 **Public preview.** Brevi works today and is tested against CPython on every change, but it is young: expect rough edges, and expect the CLI and Brevi's own syntax to change between releases. It is **not yet a drop-in `python3`**: on CPython's own tests some built programs still answer differently (see Status), `brevi run` quietly falls back to `python3` for files it cannot build (`--native` turns that off), and the sandbox is a policy layer, not an isolation boundary. Bug reports are very welcome ([CONTRIBUTING.md](CONTRIBUTING.md)).
 
+**Security, plainly.** No external security audit yet: we have not had an external audit; we are seeking funding for one. Until then, do not run hostile code under the sandbox. The sandbox is a policy layer, not an isolation boundary: Brevi's own checks hold the program, with no container or VM around it. Run untrusted code in a container or VM, and use the sandbox as a second layer inside it. `--allow-py` and `--allow native` are full trust. Who should use Brevi today, and what a public launch needs first: [SECURITY.md](SECURITY.md#where-brevi-stands).
+
 ## Install
 
 Linux and macOS:
@@ -16,7 +18,7 @@ Linux and macOS:
 curl -fsSL https://raw.githubusercontent.com/ets-public/brevi/main/install.sh | sh
 ```
 
-No Rust install is needed from the next release, on Linux, macOS and Windows (x86-64 and ARM64): with no `rustc` on the PATH, brevi fetches the Rust release it is tested with (and zig to link, if there is no C linker) on its first build, checked against SHA-256 sums compiled into brevi; with [uv](https://docs.astral.sh/uv/), `uvx --python 3.13 brevi run --verify main.py` is the whole install. See [the pinned toolchain](https://brevi-lang.org/docs/install#the-pinned-toolchain).
+No Rust install is needed on Linux x86-64 and macOS from v0.28.2, and on Linux ARM64 and Windows (x86-64 and ARM64) from the next release: with no `rustc` on the PATH, brevi fetches the Rust release it is tested with (and zig to link, if there is no C linker) on its first build, checked against SHA-256 sums compiled into brevi; with [uv](https://docs.astral.sh/uv/), `uvx --python 3.13 brevi run --verify main.py` is the whole install. See [the pinned toolchain](https://brevi-lang.org/docs/install#the-pinned-toolchain).
 
 The script installs the prebuilt `brevi` for your machine from the [latest release](https://github.com/ets-public/brevi/releases/latest) into `~/.cargo/bin`, verified against the release's `SHA256SUMS`, or builds it with `cargo install` when no prebuilt one fits, then fetches the pinned toolchain, or installs Rust with rustup where that is not verified yet.
 
@@ -72,7 +74,7 @@ Brevi also has its own shorter Python-like language for `.bv` files, checked ful
 
 ## Status: v0.28.2
 
-v0.28.2 (16 November 2026) is a security and Windows point release on v0.28.1. On Linux and other unix, Brevi's temporary folders are private to the user (`$TMPDIR/brevi-UID`, owner and mode checked); before, another local user could create them first. `brevi mcp --http` bounds how much a client can make it read and hold before the token is checked. On Windows, CRLF source files, `\\?\` source paths and the cp1252 codec now give CPython's answers, which fixes the 23 Windows-only stdlib wrong answers, and a release is gated on Windows stdlib conformance as well as core. Conformance numbers below are at v0.28.1 (v0.28.2's are in its release notes); speed and release-test numbers were measured at v0.28.0.
+v0.28.2 (16 November 2026) is a security and Windows point release on v0.28.1. On Linux and other unix, Brevi's temporary folders are private to the user (`$TMPDIR/brevi-UID`, owner and mode checked); before, another local user could create them first. `brevi mcp --http` bounds how much a client can make it read and hold before the token is checked. On Windows, CRLF source files, `\\?\` source paths and the cp1252 codec now give CPython's answers, which fixes the 23 Windows-only stdlib wrong answers, and a release is gated on Windows stdlib conformance as well as core. With no `rustc` on the PATH, brevi now fetches the pinned Rust it is tested with (and zig to link, if needed) on Linux x86-64 and macOS, each checked by SHA-256. The security posture is stated plainly: no external audit yet, and the sandbox is a policy layer, not an isolation boundary. Conformance numbers below are at v0.28.1 (v0.28.2's are in its release notes); speed and release-test numbers were measured at v0.28.0.
 
 v0.28.0 (15 November 2026) brings `match` statements, metaclasses, PEP 695 generics, `bytearray` and `memoryview`, CPython 3.13's own str hashing and set order, and many more of CPython's own tests to the dynamic build, with no known wrong answer on either conformance slice. Brevi now uses only CPython 3.13 wherever it runs or asks CPython. Full list: [CHANGELOG.md](CHANGELOG.md).
 
@@ -139,7 +141,7 @@ Never remove a line from `compat/baseline.txt` to make a check pass.
 
 ## Contributing and security
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for bug reports and pull requests, and [SECURITY.md](SECURITY.md) to report a vulnerability privately. For anything else, email [support@brevi-lang.org](mailto:support@brevi-lang.org).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for bug reports and pull requests, and [SECURITY.md](SECURITY.md) to report a vulnerability privately and for what the sandbox does and does not cover. For anything else, email [support@brevi-lang.org](mailto:support@brevi-lang.org).
 
 ## License
 
