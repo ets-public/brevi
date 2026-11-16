@@ -32,17 +32,22 @@ REQUIRED = [
     "site/index.html", "site/llms.txt", "site/docs/usage.md", "site/docs/faq.md", "site/docs/agents.md",
     "skills/brevi/SKILL.md", "plugins/brevi/skills/brevi/SKILL.md",
     "packaging/pypi/README.md", "packaging/npm/README.md", "packaging/crates/README.md",
-    "templates/README.md", "integrations/README.md",
+    "templates/README.md", "integrations/README.md", "site/docs/index.md", "docs/KNOWN_ISSUES.md",
 ]
+# Pages about the planned hosted service and pricing: they must at least say what the sandbox is not.
+POLICY_ONLY = ["site/run/index.html", "site/pricing.html"]
 FUNDING = [
     "README.md", "SECURITY.md", "docs/THREAT_MODEL.md", "docs/ROADMAP.md",
-    "site/index.html", "site/docs/usage.md", "site/docs/faq.md", "site/docs/roadmap.md",
+    "site/index.html", "site/docs/usage.md", "site/docs/faq.md", "site/docs/roadmap.md", "docs/KNOWN_ISSUES.md",
 ]
 SCANNED_GLOBS = [
     "*.md", "docs/**/*.md", "site/**/*.html", "site/**/*.md", "site/**/*.txt",
     "skills/**/*.md", "plugins/**/*.md", "plugins/**/*.json", "packaging/**/*.md", "packaging/**/*.json",
     "packaging/**/*.toml", "templates/**/*.md", "integrations/**/*.md", "devcontainer/**/*.json",
     "server.json", "Cargo.toml",
+    # What agents and SDK users read: the SDKs' docstrings and types, and the MCP tool descriptions.
+    "packaging/**/*.py", "packaging/**/*.js", "packaging/**/*.mjs", "packaging/**/*.d.ts", "templates/**/*.py",
+    "src/mcp.rs",
 ]
 # History, not claims: past changelog entries say what a release did in its own words, and the security-testing
 # log records attacks tried against the sandbox.
@@ -50,13 +55,20 @@ SKIPPED = {"CHANGELOG.md", "docs/SECURITY_TESTING.md"}
 SKIPPED_DIRS = ("site/out", "site/node_modules", "packaging/npm/node_modules", "site/docs/img")
 
 SANDBOX = re.compile(r"sandbox|\bbrevi\b|capability check|allow lines?\b|runtime|program|\bcode\b|\bruns?\b|\beach\b")
+# Claims no negation can save: each one says the sandbox holds.
+STRONG = re.compile(
+    r"\b(cannot|can't|can ?not|unable to) (escape|break out)|\bno (way to )?escape\b|unescapable|escape[- ]proof"
+    r"|airtight|bullet[- ]?proof|kernel[- ]enforced sandbox|\bsecure sandbox|\b(runs?|lives?|executes?) in (its|their) own sandbox"
+    r"|\b(fully|completely|totally|strongly) (isolated|sandboxed|contained)")
+# Boundary words: a claim unless a negation stands in the few words just before them ("not an isolation boundary").
 BOUNDARY = re.compile(
-    r"\bisolat\w*|\bjail\w*|\bcontain(s|ed|ment)? (hostile|malicious|untrusted|adversarial)"
-    r"|escape[- ]proof|airtight|bullet[- ]?proof|\bsecure sandbox|\bsecurity boundary"
-    r"|\bsafe(ly)?\b.{0,30}\b(untrusted|hostile|malicious)\b|\b(untrusted|hostile|malicious)\b.{0,40}\bsafe(ly)?\b"
+    r"\bisolat\w*|\bjail\w*|\bcontain(s|ed|ment)? (hostile|malicious|untrusted|adversarial)|\bsecure\b"
+    r"|\bsecurity boundary|\bsafe(ly)?\b.{0,30}\b(untrusted|hostile|malicious)\b"
+    r"|\b(untrusted|hostile|malicious)\b.{0,40}\bsafe(ly)?\b"
     r"|\b(keeps?|protects?) (your|the) (machine|host|system|computer)")
 HOSTILE = re.compile(r"\b(hostile|malicious|adversarial) (code|programs?|scripts?)\b")
-NEGATION = re.compile(r"\b(not|no|never|nor|without|cannot|until|before)\b|n't\b|\bdo not\b")
+NEGATION = re.compile(r"\b(not|no|never|nor|without|cannot|isn't|aren't|don't)\b|\bdo not\b")
+NEAR = 6  # words before a boundary word that may hold its negation
 
 
 def norm(text):
@@ -103,6 +115,13 @@ MUST_FAIL = [
     "Run hostile code under --sandbox.",
     "The sandbox keeps your machine safe from agent code.",
     "It contains malicious programs.",
+    "Brevi is safe for untrusted code, no setup needed.",
+    "Programs cannot escape the sandbox.",
+    "A secure sandbox for agents, with no VM needed.",
+    "Sandboxing that is not a toy: fully isolated.",
+    "Each program runs in its own sandbox.",
+    "A kernel-enforced sandbox for agent code.",
+    "Brevi runs code in a secure runtime, with no setup.",
 ]
 MUST_PASS = [
     "The sandbox is a policy layer, not an isolation boundary.",
@@ -110,11 +129,26 @@ MUST_PASS = [
     "Run untrusted code in a container or VM.",
     "--allow-py and --allow native are full trust.",
     "It is not built to hold code that is trying to break out.",
+    "There is no namespace, container or VM around the program.",
+    "Offering the sandbox as a boundary for hostile code (not before an audit).",
+    "The sandbox is not a security boundary.",
 ]
 
 
+def negated(s, start, words):
+    before = s[:start].split()[-words:]
+    return bool(NEGATION.search(" ".join(before)))
+
+
 def claim(s):
-    return not NEGATION.search(s) and bool((SANDBOX.search(s) and BOUNDARY.search(s)) or HOSTILE.search(s))
+    if not SANDBOX.search(s):
+        return False
+    if STRONG.search(s):
+        return True
+    if any(not negated(s, m.start(), NEAR) for m in BOUNDARY.finditer(s)):
+        return True
+    # "do not run hostile code", "not before an audit: ... hostile code": a negation anywhere in the sentence
+    return bool(HOSTILE.search(s)) and not NEGATION.search(s)
 
 
 def self_test():
@@ -133,6 +167,9 @@ def main():
         for key, phrase in STATEMENTS.items():
             if phrase not in t:
                 errors.append("%s: missing the statement %r" % (rel, phrase))
+    for rel in POLICY_ONLY:
+        if STATEMENTS["policy"] not in norm(read(rel)):
+            errors.append("%s: missing the statement %r" % (rel, STATEMENTS["policy"]))
     for rel in FUNDING:
         if FUNDING_TEXT not in norm(read(rel)):
             errors.append("%s: missing the audit-funding statement %r" % (rel, FUNDING_TEXT))
@@ -148,7 +185,7 @@ def main():
         print("security_claims: %d problem(s). The sandbox is a policy layer, not an isolation boundary; "
               "say so, or reword (SECURITY.md, 'Where Brevi stands')." % len(errors))
         return 1
-    print("security_claims: %d files scanned, %d pages carry the security statements" % (n, len(REQUIRED)))
+    print("security_claims: %d files scanned, %d pages carry the security statements" % (n, len(REQUIRED) + len(POLICY_ONLY)))
     return 0
 
 

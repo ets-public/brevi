@@ -51,7 +51,7 @@ __HEADER__
       </div>
       <div class="grid3">
         <div class="point"><span class="fig">run · check · test</span><h3>The same tools as the MCP server</h3><p>The calls <code>brevi mcp</code> serves locally, over HTTPS: check a program, run it with input, or run test cases and get <code>ok</code> or the first differing line for each.</p></div>
-        <div class="point"><span class="fig">VM first</span><h3>Behind VM isolation</h3><p>The service opens only once runs are held in a VM or microVM and an outside security review is done. Inside it, Brevi's sandbox, a policy layer and not an isolation boundary, gives the program no files, network or environment unless the request grants them.</p></div>
+        <div class="point"><span class="fig">VM first</span><h3>Behind VM isolation</h3><p>The service opens only once runs are held in a VM or microVM and an outside security review is done. Inside it, Brevi's sandbox (a policy layer, not an isolation boundary) gives the program no files, network or environment unless the request grants them.</p></div>
         <div class="point"><span class="fig">cached builds</span><h3>Cached builds</h3><p>Builds are cached by content, so when an agent reruns its tests after a one-line fix, only the changed program is rebuilt.</p></div>
       </div>
     </div>

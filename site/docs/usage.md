@@ -183,7 +183,7 @@ Other mistakes that Python only finds when the line runs (an index out of range,
 **What it is, and what it is not.**
 
 - **No external security audit yet.** We have not had an external audit; we are seeking funding for one. Until then, do not run hostile code under the sandbox.
-- **The sandbox is a policy layer, not an isolation boundary.** It is a cheap capability and limit layer for agent code you mostly trust. Brevi's own build check and runtime code enforce it: there is no namespace, container or VM around the program, so the guarantee rests on Brevi being right. Only a program that loads CPython is held by the kernel as well, on Linux only (Landlock for files on 5.13 and later, a seccomp filter against the network). A file check and the open that follows are two steps.
+- **The sandbox is a policy layer, not an isolation boundary.** It is a cheap capability and limit layer for agent code you mostly trust. Brevi's own build check and runtime code enforce it: there is no namespace, container or VM around the program, so the guarantee rests on Brevi being right. Only a program that loads CPython is held by the kernel as well, on Linux only: Landlock for files on 5.13 and later (where it is missing, named folders are refused and otherwise CPython keeps full file access), and on x86-64 and arm64 a seccomp filter against the network when none is granted. A file check and the open that follows are two steps.
 - **Run untrusted code in a container or VM**, and use the sandbox as a second layer inside it.
 - **`--allow-py` and `--allow native` are full trust.** Grant them only to code you would run without a sandbox.
 
