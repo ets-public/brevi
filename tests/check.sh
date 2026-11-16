@@ -227,8 +227,26 @@ done
 # The .expected files come from real numpy (numpy 2.5.4, see tools/upstream_pins.json; CI has none): `--update` needs it installed.
 # A test that prints full precision can differ between numpy's AVX-512 and AVX2 kernels: it keeps the AVX2 output
 # in NAME.avx2.expected, which a CPU without AVX-512 checks against.
+# Float matrix products, norms and linear algebra are Brevi's only where it models the OpenBLAS kernels numpy
+# runs (rt_np.rs np_blas): SkylakeX on AVX-512 CPUs, Haswell on AVX2+FMA ones (float64 only), with no
+# OPENBLAS_CORETYPE naming other kernels. Elsewhere (ARM64, older x86-64) a test using them must go to CPython instead
+# (only its path line is checked: CI has no numpy).
 np_avx512=1
 for fl in avx512f avx512dq avx512cd avx512bw avx512vl; do grep -qw "$fl" /proc/cpuinfo 2>/dev/null || np_avx512=0; done
+np_fma=1
+for fl in avx2 fma; do grep -qw "$fl" /proc/cpuinfo 2>/dev/null || np_fma=0; done
+case "$(printf '%s' "${OPENBLAS_CORETYPE:-}" | tr A-Z a-z)" in
+  "") np_kern=none; [ "$np_fma" = 1 ] && np_kern=hsw; [ "$np_avx512" = 1 ] && np_kern=skx ;;
+  skylakex) np_kern=none; [ "$np_avx512" = 1 ] && np_kern=skx ;;
+  haswell | zen) np_kern=none; [ "$np_fma" = 1 ] && [ "$np_avx512" = 0 ] && np_kern=hsw ;;
+  *) np_kern=none ;;
+esac
+np_uses_blas() { grep -Eq '[])A-Za-z0-9_] *@=? |\.dot\(|np\.(dot|matmul|inner|vdot|cov|corrcoef|polyfit)\(|linalg' "$1"; }
+np_to_cpython() {
+  np_uses_blas "$1" || return 1
+  [ "$np_kern" = none ] && return 0
+  [ "$np_kern" = hsw ] && grep -q float32 "$1"
+}
 for f in tests/numpy/*.py; do
   exp="${f%.py}.expected"
   if [ "$1" = "--update" ]; then
@@ -236,9 +254,17 @@ for f in tests/numpy/*.py; do
     [ -f "${f%.py}.avx2.expected" ] && OPENBLAS_CORETYPE=Haswell python3 "$f" > "${f%.py}.avx2.expected" 2>/dev/null
     continue
   fi
-  [ "$np_avx512" = 0 ] && [ -f "${f%.py}.avx2.expected" ] && exp="${f%.py}.avx2.expected"
+  [ "$np_kern" != skx ] && [ -f "${f%.py}.avx2.expected" ] && exp="${f%.py}.avx2.expected"
   # NAME_avx512.py: Brevi reproduces this numpy code for AVX-512 CPUs only; elsewhere the program goes to CPython
   case "$f" in *_avx512.py) [ "$np_avx512" = 0 ] && { echo "skip $f (needs AVX-512)"; continue; } ;; esac
+  if np_to_cpython "$f"; then
+    if BREVI_PATH=1 timeout 600 $BREVI run "$f" --no-cache 2>&1 >/dev/null | grep -q '^{"path":"\(pybridge\|cpython\)"'; then
+      echo "ok   $f (CPython: no OpenBLAS model for this CPU)"
+    else
+      echo "FAIL $f (float matrix products must go to CPython on this CPU)"; fail=1
+    fi
+    continue
+  fi
   out=$(BREVI_PATH=1 timeout 600 $BREVI run "$f" --native 2>/tmp/brevi_np_err)
   if ! grep -q '"path":"dynamic"' /tmp/brevi_np_err; then
     echo "FAIL $f (not built with Brevi's numpy)"; cat /tmp/brevi_np_err; fail=1
@@ -248,6 +274,16 @@ for f in tests/numpy/*.py; do
     echo "ok   $f"
   fi
 done
+# Where the model exists, an OPENBLAS_CORETYPE naming other kernels stands in for an ARM64 CPU: the build sends
+# the program to CPython rather than print numpy's last digits wrong.
+if [ "$np_kern" != none ] && [ "$1" != "--update" ]; then
+  if OPENBLAS_CORETYPE=Prescott BREVI_PATH=1 timeout 600 $BREVI run tests/numpy/lstsq.py --no-cache 2>&1 >/dev/null | grep -q '^{"path":"\(pybridge\|cpython\)"'; then
+    echo "ok   numpy BLAS refusal"
+  else
+    echo "FAIL numpy BLAS refusal (lstsq.py built natively under OPENBLAS_CORETYPE=Prescott)"; fail=1
+  fi
+fi
+
 #== tiktoken split
 # tiktoken programs must print what CPython's tiktoken prints, with Brevi's own tiktoken: never CPython. The
 # .expected files come from tiktoken 0.14 (CI has none): `--update` needs it installed. Building one gets OpenAI's

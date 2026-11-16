@@ -51,6 +51,7 @@ struct Lk {
     q: usize,
 }
 fn lk() -> Lk {
+    assert!(np_blas() != Blas::Plain, "np_blas_ok was not checked");
     if np_blas() == Blas::Skx {
         Lk { skx: true, um: 16, un: 2, q: 384 }
     } else {
@@ -528,6 +529,9 @@ fn np_det_parts(a: &NdArr) -> Result<(f64, f64), E> {
 pub fn np_linalg_call(n: &str, a: &mut Args) -> R {
     let a = &*a;
     let first = || -> Result<V, E> { a.p.first().cloned().ok_or_else(|| exc("TypeError", format!("{n}() missing required argument"))) };
+    if matches!(n, "det" | "slogdet" | "solve" | "inv") {
+        np_blas_ok(&format!("np.linalg.{n}"))?;
+    }
     match n {
         "det" => {
             let x = np_float_arr(&first()?)?;
@@ -629,7 +633,8 @@ fn np_dtype_v(d: NT) -> V {
 }
 fn np_norm(a: &Args) -> R {
     let x0 = npa(a, 0, "x").ok_or_else(|| exc("TypeError", "norm() missing required argument 'x' (pos 0)".into()))?;
-    // float32: numpy computes the default (Frobenius / 2) norm in float32: squares, its pairwise sum, sqrt.
+    // float32: numpy computes the default (Frobenius / 2) norm in float32 as sqrt(x.ravel('K').dot(x)): OpenBLAS's
+    // sdot, which only the SkylakeX kernels model.
     let xa = np_as(&x0)?;
     if xa.dt() == NT::F32 {
         let ord = npa(a, 1, "ord").filter(|v| !matches!(v, V::None));
@@ -642,9 +647,21 @@ fn np_norm(a: &Args) -> R {
         let nd = xa.ndim();
         let fro = ord.is_none() || (matches!(ord_s.as_deref(), Some("f" | "fro")) && nd == 2) || (ord_f == Some(2.0) && nd == 1);
         if axis.is_none() && fro {
-            let xv = np_arr(xa.clone());
-            let s = np_binop(&xv, &xv, "*").unwrap()?;
-            let t = np_meth(&s, "sum", vec![], vec![])?;
+            if !np_f32_simd() {
+                return Err(np_unsup("np.linalg.norm of a float32 array on this CPU (OpenBLAS sdot, AVX-512 only)"));
+            }
+            // ravel('K'): memory order, which is the transpose's for a Fortran-ordered matrix
+            let fort = nd == 2 && xa.st[0] == 1 && xa.st[1] == xa.shape[0] as isize;
+            let flat = if nd <= 1 || xa.contig() {
+                xa.vals()
+            } else if fort {
+                np_transpose(&xa, None)?.vals()
+            } else {
+                return Err(np_unsup("np.linalg.norm of a strided float32 array"));
+            };
+            let n = xa.size();
+            let v = np_arr(NdArr::new(flat, vec![n]));
+            let t = np_dot(&v, &v)?;
             return np_call("sqrt", vec![t], vec![]);
         }
         return Err(np_unsup("np.linalg.norm of a float32 array (only the default Frobenius/2-norm)"));
@@ -665,6 +682,7 @@ fn np_norm(a: &Args) -> R {
             if !x.contig() {
                 x = x.copy();
             }
+            np_blas_ok("np.linalg.norm")?;
             let v = x.fv();
             let r = np_ddot(&v, &v, true).sqrt();
             if keepdims {
@@ -877,6 +895,7 @@ pub fn np_histogram(a: &Args) -> R {
 
 // np.cov(m, y=None, rowvar=True, bias=False, ddof=None)
 fn np_cov_arr(a: &Args, name: &str) -> Result<NdArr, E> {
+    np_blas_ok(&format!("np.{name}"))?;
     let m0 = npa(a, 0, if name == "cov" { "m" } else { "x" }).ok_or_else(|| exc("TypeError", format!("{name}() missing required argument")))?;
     let rowvar = npa(a, 2, "rowvar").map_or(Ok(true), |v| truth(&v))?;
     let (bias, ddof) = if name == "cov" {
