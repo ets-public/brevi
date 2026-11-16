@@ -194,7 +194,7 @@ def report(path):
         print(f"  {n:4}  {w[:150]}")
 
 
-KINDS = (("set or dict order: CPython's hash order", ("hash order",)),
+KINDS = (("walking a set: CPython's hash order", ("hash order",)),
          ("`is` needs object identity", ("`is` between",)),
          ("two names share one list and one changes", ("name the same list", "a copy of", "shares a list")),
          ("the typed build's generated Rust did not compile", ("Rust did not compile",)),

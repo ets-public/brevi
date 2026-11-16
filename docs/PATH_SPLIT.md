@@ -34,7 +34,7 @@ The one program that stopped (`n1-sonnet-python/stack_vm.py`) masks numbers with
 
 The median program here is 48 lines. Short, single-purpose task solutions mostly build typed; programs of a few hundred lines, and 30 of the 32 multi-file programs, mostly do not. The same pattern shows in Brevi's other samples, so the typed share depends heavily on what is measured:
 
-- The final programs of the weekly agent benchmark on v0.28.2 (`w1116a` and `w1116b`, Sonnet, Haiku and DeepSeek on the 24 `rel` tasks, [logs](../bench/logs/e2e)): typed 45 of 143 (31.5%), dynamic 98, pybridge 0.
+- The final programs of the weekly agent benchmark on v0.28.2 (`w1116a` and `w1116b`, Sonnet, Haiku and DeepSeek on the 24 `rel` tasks, [logs](../bench/logs/e2e)): typed 45 of 143 (31.5%), dynamic 98, pybridge 0 (the 144th run ended without a program).
 - CPython 3.13's own conformance tests at v0.28.1 ([NUMBERS.md](NUMBERS.md)): typed 2.1% of core programs and 1.1% of standard-library programs; nearly all the rest built dynamic.
 
 So the typed path covers most small agent scripts but only a small fraction of larger programs and of CPython's test suite.
@@ -46,7 +46,7 @@ The build prints its first reason. Grouped, over the 221 dynamic programs:
 | Programs | Reason |
 | ---: | --- |
 | 57 | Two names share one list and one of them is changed while the other is still used (the typed build would change a copy) |
-| 40 | A loop, comprehension or `str()` over a set: CPython walks it in hash order, which the typed build would not reproduce |
+| 40 | A loop, comprehension, `list()`, `str()` or `%` over a set: CPython walks it in hash order, which the typed build would not reproduce |
 | 30 | `is` between values other than `None`, `True`, `False` and `Ellipsis` needs object identity |
 | 29 | The typed build's generated Rust did not compile |
 | 19 | A value changes type |
