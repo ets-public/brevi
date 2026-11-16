@@ -3,7 +3,7 @@
   "normal": 1043,
   "dyn": 1043
  },
- "note": "tools/conformance.py --check fails below these; main raises them after each merge (conformance-main.yml), PRs never do",
+ "note": "tools/conformance.py --check fails when fewer tests match natively (not through the CPython bridge); main raises them after each merge (conformance-main.yml), PRs never do",
  "release_gate": {
   "coverage": 0.9,
   "wrong": 0,

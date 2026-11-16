@@ -1,1 +1,0 @@
-- Conformance: CPython's `test_dataclasses` joins the stdlib slice (212 of 246 tests match in both builds, no wrong result; the rest are refused with a clear message).

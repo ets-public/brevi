@@ -45,10 +45,19 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
       - name: Version check
         env:
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: python3 tools/version_sync.py --tag "$TAG"
+      # The release notes quote bench/conformance/: both reports must have been measured by this version on this
+      # tree (conformance-main.yml commits them after the release PR merges; release from that commit).
+      - name: The conformance reports measured this release
+        if: ${{ !inputs.from_release }}
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: python3 tools/release_notes.py --check "$TAG"
       # (A dry run attaches nothing, so it may rehearse a tag already released from an earlier commit.)
       - name: The tag, if it exists, is this commit
         if: ${{ !inputs.from_release && !inputs.dry_run }}

@@ -1,1 +1,0 @@
-- The MCP `limits` descriptions and the docs now agree on where each `--limit` is enforced (`mem` is Linux and Windows, not macOS; `cpu`, `file` and `fds` are Linux and macOS; `threads` is Linux), a table in `docs/SUPPORT_MATRIX.md` lists them, and CI (`tools/limits_check.py`) keeps them in step with the code.
