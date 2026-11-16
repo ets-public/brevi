@@ -75,7 +75,7 @@ step "Language tests"; BREVI=./target/release/brevi CHECK_SKIP=mcp_sdk,mcp_http 
 step "MCP servers against the pinned mcp"; PATH="$mcp_path" BREVI=./target/release/brevi CHECK_ONLY=mcp_sdk,mcp_http python3 tests/check_parallel.py --quiet $fast
 step "MCP server"; python3 tests/mcp_test.py && PATH="$mcp_path" python3 tests/mcp_http_test.py
 # (with the machine's own python3: the box hides $HOME, where uv keeps its CPython)
-step "Model box"; "$sys_py" tests/modelbox_test.py
+step "Model box"; "$sys_py" tests/modelbox_test.py && "$sys_py" tests/privtmp_test.py
 step "Python SDK and brevi-python"; BREVI=./target/release/brevi python3 tests/sdk_test.py
 BREVI=./target/release/brevi node tests/sdk_node_test.mjs
 step "Guide budget"; python3 tools/guide_budget.py

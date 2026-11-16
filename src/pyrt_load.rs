@@ -233,6 +233,11 @@ fn ax_pyb_bundle() -> Result<Option<(String, String, Vec<String>)>, String> {
         None => match (std::env::var_os("XDG_CACHE_HOME"), std::env::var_os("HOME")) {
             (Some(x), _) if !x.is_empty() => std::path::PathBuf::from(x).join("brevi").join("py"),
             (_, Some(h)) if !h.is_empty() => std::path::PathBuf::from(h).join(".cache").join("brevi").join("py"),
+            // No home folder: a private folder (privdir.rs), never a shared /tmp/brevi-py, whose unpacked
+            // CPython another user could have put there for this program to load.
+            #[cfg(unix)]
+            _ => ax_priv::root("brevi-py", "py")?,
+            #[cfg(not(unix))]
             _ => std::env::temp_dir().join("brevi-py"),
         },
     };

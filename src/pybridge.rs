@@ -1207,9 +1207,9 @@ fn expr_pat(e: &Expr) -> Option<Pat> {
 
 // ------------------------------------------------------------------------------------------- the runtime
 
-const RUNTIME: &str = concat!(include_str!("pyrt_load.rs"), include_str!("pyrt.rs"));
+const RUNTIME: &str = concat!(include_str!("privdir.rs"), include_str!("pyrt_load.rs"), include_str!("pyrt.rs"));
 // The loader alone, for the dynamic builds' bridge (dynpy/pyglue.rs).
-pub const LOADER: &str = include_str!("pyrt_load.rs");
+pub const LOADER: &str = concat!(include_str!("privdir.rs"), include_str!("pyrt_load.rs"));
 
 // Asked of python3 when the program is built: libpython's path, PYTHONHOME and sys.path (minus the script's
 // folder), joined by \x01.

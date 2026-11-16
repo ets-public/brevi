@@ -357,7 +357,7 @@ static SHUTTING: AtomicBool = AtomicBool::new(false);
 static WARM: (Mutex<bool>, std::sync::Condvar) = (Mutex::new(false), std::sync::Condvar::new());
 
 fn warm_dir() -> PathBuf {
-    std::env::temp_dir().join(format!("brevi-mcp-{}-warm", std::process::id()))
+    crate::tmp_root().join(format!("brevi-mcp-{}-warm", std::process::id()))
 }
 
 fn warm_up() {
@@ -405,7 +405,7 @@ fn wait_warm() {
 
 fn work_dir() -> &'static PathBuf {
     static W: OnceLock<PathBuf> = OnceLock::new();
-    W.get_or_init(|| std::env::temp_dir().join(format!("brevi-mcp-{}", std::process::id())))
+    W.get_or_init(|| crate::tmp_root().join(format!("brevi-mcp-{}", std::process::id())))
 }
 
 // Writes the kept files to a clean work directory.
@@ -1240,7 +1240,7 @@ fn clean(built: &BTreeSet<String>) {
 
 // Work directories of servers that are no longer running.
 fn clean_stale() {
-    let Ok(rd) = std::fs::read_dir(std::env::temp_dir()) else { return };
+    let Ok(rd) = std::fs::read_dir(crate::tmp_root()) else { return };
     for e in rd.flatten() {
         let name = e.file_name().to_string_lossy().to_string();
         let Some(rest) = name.strip_prefix("brevi-mcp-") else { continue };

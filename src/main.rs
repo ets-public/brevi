@@ -31,6 +31,7 @@ mod share_guard;
 mod typed_guard;
 mod unicode_names;
 mod pysentinel;
+mod privdir;
 mod pystd;
 mod pygen;
 mod scoped;
@@ -1740,7 +1741,30 @@ pub fn build_dir_path(file: &str) -> PathBuf {
     for b in abs.to_string_lossy().bytes() {
         h = (h ^ b as u64).wrapping_mul(1099511628211);
     }
-    std::env::temp_dir().join(format!("brevi-{h:x}"))
+    tmp_root().join(format!("brevi-{h:x}"))
+}
+
+// Where Brevi keeps its temporary folders (build folders, MCP work folders, ...). On unix a private folder of
+// this user's (privdir.rs): $TMPDIR/brevi-UID, else ~/.cache/brevi/tmp. Another local user can read nothing in
+// it and change nothing, so a build cannot be swapped between being made and being run. When neither is
+// private, brevi stops with the reason rather than build in a folder someone else controls.
+pub(crate) fn tmp_root() -> PathBuf {
+    #[cfg(unix)]
+    {
+        static ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+        ROOT.get_or_init(|| match privdir::ax_priv::root("brevi", "tmp") {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("brevi: {e}");
+                std::process::exit(1)
+            }
+        })
+        .clone()
+    }
+    #[cfg(not(unix))]
+    {
+        std::env::temp_dir()
+    }
 }
 
 // The builds to try in order: with inferred types for empty values, then without (the errors shown come
@@ -1838,8 +1862,12 @@ pub(crate) fn cache_dir() -> PathBuf {
         // Absolute, so a background build (src/tier.rs), which runs in its own folder, finds the same cache.
         return std::path::absolute(&d).unwrap_or_else(|_| PathBuf::from(d));
     }
-    let home = std::env::var("HOME").map(PathBuf::from).unwrap_or_else(|_| std::env::temp_dir());
-    home.join(".cache").join("brevi")
+    // With no home folder, in the private temp folder: never a shared one (a cache in /tmp/.cache could be
+    // filled with binaries by another user).
+    match std::env::var("HOME") {
+        Ok(h) if !h.is_empty() => PathBuf::from(h).join(".cache").join("brevi"),
+        _ => tmp_root().join("cache"),
+    }
 }
 
 // Builds with cargo, for programs that use crates. Same results as compile().
@@ -2731,6 +2759,40 @@ pub fn python_style(src: &str) -> bool {
 #[cfg(test)]
 mod path_tests {
     use super::*;
+
+    // privdir.rs takes only a real folder of this user's that no one else can open, under folders no one else
+    // can change (tests/privtmp_test.py covers folders made by another user, which needs root).
+    #[cfg(unix)]
+    #[test]
+    fn private_folders_only() {
+        use privdir::ax_priv::{check, make};
+        use std::os::unix::fs::PermissionsExt;
+        let set = |p: &Path, m: u32| std::fs::set_permissions(p, std::fs::Permissions::from_mode(m)).unwrap();
+        let base = std::env::temp_dir().join(format!("brevi-priv-test-{}", std::process::id()));
+        std::fs::remove_dir_all(&base).ok();
+        std::fs::create_dir(&base).unwrap();
+        set(&base, 0o700);
+        let ok = make(&base.join("new")).unwrap();
+        assert_eq!(std::fs::metadata(&ok).unwrap().permissions().mode() & 0o777, 0o700);
+        assert!(make(&ok).is_ok(), "an existing private folder is taken again");
+        let open = base.join("open");
+        std::fs::create_dir(&open).unwrap();
+        set(&open, 0o755);
+        assert!(make(&open).unwrap_err().contains("open to other users"));
+        std::os::unix::fs::symlink(&ok, base.join("link")).unwrap();
+        assert!(make(&base.join("link")).unwrap_err().contains("not a folder"));
+        std::fs::write(base.join("file"), "").unwrap();
+        assert!(make(&base.join("file")).is_err());
+        // a folder above that others can change (not sticky): refused; sticky (as /tmp): fine
+        let shared = base.join("shared");
+        std::fs::create_dir(&shared).unwrap();
+        set(&shared, 0o777);
+        assert!(make(&shared.join("x")).unwrap_err().contains("not sticky"));
+        set(&shared, 0o1777);
+        assert!(make(&shared.join("y")).is_ok());
+        assert!(check(&shared.join("x")).is_ok(), "x was made private before it was refused for its parent");
+        std::fs::remove_dir_all(&base).ok();
+    }
 
     #[test]
     fn build_lock_makes_its_folder() {
