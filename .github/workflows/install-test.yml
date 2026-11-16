@@ -54,6 +54,9 @@ jobs:
         run: |
           mv "$HOME/.cargo" "$HOME/.cargo-runner" 2>/dev/null || true
           mv "$HOME/.rustup" "$HOME/.rustup-runner" 2>/dev/null || true
+          # The macOS image also ships Homebrew's rustup (/opt/homebrew/opt/rustup/bin on PATH)
+          for f in rustup rust; do brew uninstall --ignore-dependencies --force "$f" 2>/dev/null || true; done
+          hash -r
           ! command -v rustc
       - name: Install (as documented)
         run: curl -fsSL https://raw.githubusercontent.com/ets-public/brevi/main/install.sh | sh
