@@ -7,7 +7,7 @@ toolchain.rs's VERIFIED list only after this and that platform's usual checks pa
 BREVI_TOOLCHAIN=pinned and BREVI_LINKER=zig.
 
 It fetches the toolchain into a fresh folder, then builds and runs, checked against CPython, a typed program, a
-dynamic one, a standard-library one and a --release build, and checks they were built by the pinned rustc and
+dynamic one, a standard-library one, one that raises and catches exceptions, and a --release build, and checks they were built by the pinned rustc and
 linked by zig.
 """
 import json
@@ -30,6 +30,12 @@ PROGRAMS = {
         "import json, re, collections\nc = collections.Counter('hello world')\n"
         "print(json.dumps(sorted(c.items())[:3]), re.findall(r'o\\w', 'foo bow'))\n",
         '[[" ", 1], ["d", 1], ["e", 1]] [\'oo\', \'ow\']\n',
+    ),
+    # Exceptions raised and caught in native code: the unwinder (on Windows, zig's libunwind) must work.
+    "errors.py": (
+        "def f(x: int) -> int:\n    return 1 // x\ntry:\n    f(0)\nexcept ZeroDivisionError as e:\n    print('caught', e)\n"
+        "try:\n    {}['k']\nexcept KeyError as e:\n    print('caught', repr(e))\n",
+        "caught integer division or modulo by zero\ncaught KeyError('k')\n",
     ),
 }
 
