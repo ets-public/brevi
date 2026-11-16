@@ -1,0 +1,1 @@
+- Security: `brevi mcp --http` now bounds what a client can make it hold before the token is checked. Chunk sizes that would add up past the 4 MiB body limit are refused (413) instead of wrapping, a body is stored only as its bytes arrive, a connection silent for 30 s or a request not whole within 120 s is closed, and at most 64 connections are served at once (503 past that).

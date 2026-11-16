@@ -274,7 +274,13 @@ pub fn split_back(segs: &[Seg], joined: &str) -> Vec<(PathBuf, String)> {
 // A program file's absolute path, as CPython 3.9+ gives a script's and an imported module's __file__.
 // On Windows canonicalize gives the verbatim form (\\?\C:\..., \\?\UNC\host\...), which CPython never shows.
 pub fn abs_path(path: &Path) -> String {
-    let p = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()).to_string_lossy().to_string();
+    plain_path(std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()).to_string_lossy().to_string())
+}
+
+// A path without the Windows verbatim prefix, as CPython shows it: \\?\C:\x -> C:\x, \\?\UNC\h\s -> \\h\s.
+// Every path canonicalize gives that reaches the program (__file__, warnings, tracebacks, sys.path, realpath)
+// goes through here. Other verbatim forms (\\?\Volume{..}) have no plain spelling and stay as they are.
+pub fn plain_path(p: String) -> String {
     if let Some(r) = p.strip_prefix(r"\\?\UNC\") {
         return format!(r"\\{r}");
     }
@@ -358,4 +364,19 @@ pub fn fill_file_name(src: &str, path: &Path) -> String {
     }
     out.push_str(&src[last..]);
     out
+}
+
+#[cfg(test)]
+mod plain_path_tests {
+    use super::plain_path;
+
+    #[test]
+    fn strips_the_verbatim_prefix_as_cpython_shows_paths() {
+        assert_eq!(plain_path(r"\\?\C:\Users\a\case.py".into()), r"C:\Users\a\case.py");
+        assert_eq!(plain_path(r"\\?\UNC\host\share\x.py".into()), r"\\host\share\x.py");
+        // no plain spelling: kept
+        assert_eq!(plain_path(r"\\?\Volume{1234}\x.py".into()), r"\\?\Volume{1234}\x.py");
+        assert_eq!(plain_path("/home/a/case.py".into()), "/home/a/case.py");
+        assert_eq!(plain_path(r"C:\x.py".into()), r"C:\x.py");
+    }
 }

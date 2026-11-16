@@ -1,6 +1,6 @@
 {
 "brevi": "brevi 0.28.1",
-"commit": "1a86b518b773",
+"commit": "b5fb4f1a12c7",
 "python": "3.13.13",
 "tag": "v3.13.13",
 "date": "2026-11-16",
@@ -25,12 +25,12 @@
 "scored": 2053,
 "matched_through_cpython": 2,
 "matched_silent": 53,
-"coverage": 0.9688,
+"coverage": 0.9688261081344374,
 "wrong": 0,
 "matched_asserting": 1937,
-"assert_coverage": 0.9435,
+"assert_coverage": 0.9434973209936678,
 "matched_typed": 23,
-"typed_share": 0.0116
+"typed_share": 0.011563599798893917
 },
 "dyn": {
 "matched": 1991,
@@ -48,10 +48,10 @@
 "scored": 2053,
 "matched_through_cpython": 0,
 "matched_silent": 53,
-"coverage": 0.9698,
+"coverage": 0.9698002922552362,
 "wrong": 0,
 "matched_asserting": 1938,
-"assert_coverage": 0.944,
+"assert_coverage": 0.9439844130540672,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -77,9 +77,9 @@
 "coverage": 1.0,
 "wrong": 0,
 "matched_asserting": 92,
-"assert_coverage": 0.7667,
+"assert_coverage": 0.7666666666666667,
 "matched_typed": 2,
-"typed_share": 0.0167
+"typed_share": 0.016666666666666666
 },
 "dyn": {
 "matched": 120,
@@ -100,7 +100,7 @@
 "coverage": 1.0,
 "wrong": 0,
 "matched_asserting": 92,
-"assert_coverage": 0.7667,
+"assert_coverage": 0.7666666666666667,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -170,12 +170,12 @@
 "scored": 146,
 "matched_through_cpython": 0,
 "matched_silent": 3,
-"coverage": 0.9863,
+"coverage": 0.9863013698630136,
 "wrong": 0,
 "matched_asserting": 141,
-"assert_coverage": 0.9658,
+"assert_coverage": 0.9657534246575342,
 "matched_typed": 16,
-"typed_share": 0.1111
+"typed_share": 0.1111111111111111
 },
 "dyn": {
 "matched": 144,
@@ -193,10 +193,10 @@
 "scored": 146,
 "matched_through_cpython": 0,
 "matched_silent": 3,
-"coverage": 0.9863,
+"coverage": 0.9863013698630136,
 "wrong": 0,
 "matched_asserting": 141,
-"assert_coverage": 0.9658,
+"assert_coverage": 0.9657534246575342,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -269,7 +269,7 @@
 "coverage": 1.0,
 "wrong": 0,
 "matched_asserting": 178,
-"assert_coverage": 0.9834,
+"assert_coverage": 0.9834254143646409,
 "matched_typed": 0,
 "typed_share": 0.0
 },
@@ -292,7 +292,7 @@
 "coverage": 1.0,
 "wrong": 0,
 "matched_asserting": 178,
-"assert_coverage": 0.9834,
+"assert_coverage": 0.9834254143646409,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -362,10 +362,10 @@
 "scored": 14,
 "matched_through_cpython": 1,
 "matched_silent": 0,
-"coverage": 0.9286,
+"coverage": 0.9285714285714286,
 "wrong": 0,
 "matched_asserting": 13,
-"assert_coverage": 0.9286,
+"assert_coverage": 0.9285714285714286,
 "matched_typed": 0,
 "typed_share": 0.0
 },
@@ -458,12 +458,12 @@
 "scored": 71,
 "matched_through_cpython": 1,
 "matched_silent": 9,
-"coverage": 0.9859,
+"coverage": 0.9859154929577465,
 "wrong": 0,
 "matched_asserting": 62,
-"assert_coverage": 0.8732,
+"assert_coverage": 0.8732394366197183,
 "matched_typed": 5,
-"typed_share": 0.0714
+"typed_share": 0.07142857142857142
 },
 "dyn": {
 "matched": 71,
@@ -484,7 +484,7 @@
 "coverage": 1.0,
 "wrong": 0,
 "matched_asserting": 62,
-"assert_coverage": 0.8732,
+"assert_coverage": 0.8732394366197183,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -506,10 +506,10 @@
 "scored": 247,
 "matched_through_cpython": 0,
 "matched_silent": 2,
-"coverage": 0.9109,
+"coverage": 0.9109311740890689,
 "wrong": 0,
 "matched_asserting": 223,
-"assert_coverage": 0.9028,
+"assert_coverage": 0.902834008097166,
 "matched_typed": 0,
 "typed_share": 0.0
 },
@@ -529,10 +529,10 @@
 "scored": 247,
 "matched_through_cpython": 0,
 "matched_silent": 2,
-"coverage": 0.9109,
+"coverage": 0.9109311740890689,
 "wrong": 0,
 "matched_asserting": 223,
-"assert_coverage": 0.9028,
+"assert_coverage": 0.902834008097166,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -554,10 +554,10 @@
 "scored": 1071,
 "matched_through_cpython": 0,
 "matched_silent": 8,
-"coverage": 0.9645,
+"coverage": 0.9645191409897292,
 "wrong": 0,
 "matched_asserting": 1025,
-"assert_coverage": 0.957,
+"assert_coverage": 0.9570494864612512,
 "matched_typed": 0,
 "typed_share": 0.0
 },
@@ -577,10 +577,10 @@
 "scored": 1071,
 "matched_through_cpython": 0,
 "matched_silent": 8,
-"coverage": 0.9645,
+"coverage": 0.9645191409897292,
 "wrong": 0,
 "matched_asserting": 1025,
-"assert_coverage": 0.957,
+"assert_coverage": 0.9570494864612512,
 "matched_typed": 0,
 "typed_share": 0.0
 }

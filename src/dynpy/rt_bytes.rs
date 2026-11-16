@@ -283,10 +283,10 @@ fn arg_tn(x: &V) -> String {
     }
 }
 
-// The codec CPython's lookup finds for `name`, among the three Brevi has: the name lower-cased with spaces as
+// The codec CPython's lookup finds for `name`, among the four Brevi has: the name lower-cased with spaces as
 // underscores (_PyCodec_Lookup), then encodings.normalize_encoding (each run of characters other than ASCII
 // letters, digits and '.' becomes one '_', none at the ends), then the codec's own name or an alias from
-// encodings.aliases (CPython 3.13's table for ascii, utf_8 and latin_1), tried also with '.' as '_'.
+// encodings.aliases (CPython 3.13's table for ascii, utf_8, latin_1 and cp1252), tried also with '.' as '_'.
 fn codec_alias(name: &str) -> Option<&'static str> {
     let low: String = name.chars().map(|c| if c == ' ' { '_' } else { c.to_ascii_lowercase() }).collect();
     let mut norm = String::new();
@@ -307,9 +307,12 @@ fn codec_alias(name: &str) -> Option<&'static str> {
     const ASCII: &[&str] = &["ascii", "646", "ansi_x3.4_1968", "ansi_x3.4_1986", "ansi_x3_4_1968", "cp367", "csascii", "ibm367", "iso646_us", "iso_646.irv_1991", "iso_ir_6", "us", "us_ascii"];
     const UTF8: &[&str] = &["utf_8", "cp65001", "u8", "utf", "utf8", "utf8_ucs2", "utf8_ucs4"];
     const LATIN1: &[&str] = &["latin_1", "8859", "cp819", "csisolatin1", "ibm819", "iso8859", "iso8859_1", "iso_8859_1", "iso_8859_1_1987", "iso_ir_100", "l1", "latin", "latin1"];
+    const CP1252_NAMES: &[&str] = &["cp1252", "1252", "windows_1252"];
     let alt = norm.replace('.', "_");
     [norm.as_str(), alt.as_str()].iter().find_map(|k| {
-        if UTF8.contains(k) {
+        if CP1252_NAMES.contains(k) {
+            Some("cp1252")
+        } else if UTF8.contains(k) {
             Some("utf-8")
         } else if ASCII.contains(k) {
             Some("ascii")
@@ -319,6 +322,36 @@ fn codec_alias(name: &str) -> Option<&'static str> {
             None
         }
     })
+}
+
+// CPython 3.13 Lib/encodings/cp1252.py decoding table for bytes 0x80..0xFF; 0 marks an undefined byte.
+const CP1252: [u16; 128] = [
+    0x20AC, 0x0000, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021,
+    0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0x0000, 0x017D, 0x0000,
+    0x0000, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014,
+    0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x0000, 0x017E, 0x0178,
+    0x00A0, 0x00A1, 0x00A2, 0x00A3, 0x00A4, 0x00A5, 0x00A6, 0x00A7,
+    0x00A8, 0x00A9, 0x00AA, 0x00AB, 0x00AC, 0x00AD, 0x00AE, 0x00AF,
+    0x00B0, 0x00B1, 0x00B2, 0x00B3, 0x00B4, 0x00B5, 0x00B6, 0x00B7,
+    0x00B8, 0x00B9, 0x00BA, 0x00BB, 0x00BC, 0x00BD, 0x00BE, 0x00BF,
+    0x00C0, 0x00C1, 0x00C2, 0x00C3, 0x00C4, 0x00C5, 0x00C6, 0x00C7,
+    0x00C8, 0x00C9, 0x00CA, 0x00CB, 0x00CC, 0x00CD, 0x00CE, 0x00CF,
+    0x00D0, 0x00D1, 0x00D2, 0x00D3, 0x00D4, 0x00D5, 0x00D6, 0x00D7,
+    0x00D8, 0x00D9, 0x00DA, 0x00DB, 0x00DC, 0x00DD, 0x00DE, 0x00DF,
+    0x00E0, 0x00E1, 0x00E2, 0x00E3, 0x00E4, 0x00E5, 0x00E6, 0x00E7,
+    0x00E8, 0x00E9, 0x00EA, 0x00EB, 0x00EC, 0x00ED, 0x00EE, 0x00EF,
+    0x00F0, 0x00F1, 0x00F2, 0x00F3, 0x00F4, 0x00F5, 0x00F6, 0x00F7,
+    0x00F8, 0x00F9, 0x00FA, 0x00FB, 0x00FC, 0x00FD, 0x00FE, 0x00FF,
+];
+
+fn cp1252_enc(c: u32) -> Option<u8> {
+    if c < 0x80 {
+        return Some(c as u8);
+    }
+    if c > 0xFFFF {
+        return None;
+    }
+    CP1252.iter().position(|&x| x as u32 == c).map(|i| (i + 0x80) as u8)
 }
 
 fn codec_name(v: Option<&V>) -> Result<&'static str, E> {
@@ -364,6 +397,24 @@ pub fn bytes_decode(b: &[u8], enc: Option<&V>, errors: Option<&V>) -> R {
     }
     match codec {
         "latin-1" => Ok(st(b.iter().map(|&c| c as char).collect())),
+        "cp1252" => {
+            let mut out = Txt::new();
+            for (i, &c) in b.iter().enumerate() {
+                let u = if c < 0x80 { c as u32 } else { CP1252[c as usize - 0x80] as u32 };
+                if u != 0 || c == 0 {
+                    out.push_cp(u);
+                } else if errors == "surrogateescape" {
+                    out.push_cp(0xDC00 + c as u32);
+                } else if errors == "strict" || errors == "surrogatepass" {
+                    return Err(udec_err("charmap", b, i, i + 1, "character maps to <undefined>"));
+                } else if errors == "replace" {
+                    out.push('\u{fffd}');
+                } else if errors == "backslashreplace" {
+                    out.push_str(&format!("\\x{c:02x}"));
+                }
+            }
+            Ok(txt_v(out))
+        }
         "ascii" => {
             let mut out = Txt::new();
             for (i, &c) in b.iter().enumerate() {
@@ -497,8 +548,17 @@ pub fn str_encode(sv: &S, enc: Option<&V>, errors: Option<&V>) -> R {
     let cs = sv.cps();
     let utf8 = codec == "utf-8";
     let lim: u32 = if codec == "ascii" { 128 } else { 256 };
-    let bad = |c: u32| if utf8 { is_surrogate(c) } else { c >= lim };
-    let reason = if utf8 { "surrogates not allowed".to_string() } else { format!("ordinal not in range({lim})") };
+    let cp = codec == "cp1252";
+    let bad = |c: u32| if utf8 { is_surrogate(c) } else if cp { cp1252_enc(c).is_none() } else { c >= lim };
+    let reason = if utf8 {
+        "surrogates not allowed".to_string()
+    } else if cp {
+        "character maps to <undefined>".to_string()
+    } else {
+        format!("ordinal not in range({lim})")
+    };
+    // the codec name in errors: cp1252 is a charmap codec
+    let ename = if cp { "charmap" } else { codec };
     let mut out = vec![];
     let mut i = 0;
     while i < cs.len() {
@@ -507,6 +567,8 @@ pub fn str_encode(sv: &S, enc: Option<&V>, errors: Option<&V>) -> R {
             if utf8 {
                 let mut b = [0u8; 4];
                 out.extend_from_slice(char::from_u32(c).unwrap().encode_utf8(&mut b).as_bytes());
+            } else if cp {
+                out.push(cp1252_enc(c).unwrap());
             } else {
                 out.push(c as u8);
             }
@@ -518,13 +580,20 @@ pub fn str_encode(sv: &S, enc: Option<&V>, errors: Option<&V>) -> R {
             j += 1;
         }
         match errors.as_str() {
-            "strict" => return Err(uenc_err(codec, &cs, i, j, &reason)),
+            "strict" => return Err(uenc_err(ename, &cs, i, j, &reason)),
             "surrogatepass" if utf8 => {
                 for &c in &cs[i..j] {
                     out.extend_from_slice(&[0xE0 | (c >> 12) as u8, 0x80 | ((c >> 6) & 0x3F) as u8, 0x80 | (c & 0x3F) as u8]);
                 }
             }
-            "surrogatepass" => return Err(uenc_err(codec, &cs, i, j, &reason)),
+            "surrogatepass" => return Err(uenc_err(ename, &cs, i, j, &reason)),
+            // a charmap codec reports the whole unencodable run
+            "surrogateescape" if cp => {
+                if cs[i..j].iter().any(|c| !(0xDC80..=0xDCFF).contains(c)) {
+                    return Err(uenc_err(ename, &cs, i, j, &reason));
+                }
+                out.extend(cs[i..j].iter().map(|&c| (c - 0xDC00) as u8));
+            }
             "surrogateescape" => {
                 for k in i..j {
                     if !(0xDC80..=0xDCFF).contains(&cs[k]) {

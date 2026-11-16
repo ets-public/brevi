@@ -233,6 +233,11 @@ fn ax_pyb_bundle() -> Result<Option<(String, String, Vec<String>)>, String> {
         None => match (std::env::var_os("XDG_CACHE_HOME"), std::env::var_os("HOME")) {
             (Some(x), _) if !x.is_empty() => std::path::PathBuf::from(x).join("brevi").join("py"),
             (_, Some(h)) if !h.is_empty() => std::path::PathBuf::from(h).join(".cache").join("brevi").join("py"),
+            // No home folder: a private folder (privdir.rs), never a shared /tmp/brevi-py, whose unpacked
+            // CPython another user could have put there for this program to load.
+            #[cfg(unix)]
+            _ => ax_priv::root("brevi-py", "py")?,
+            #[cfg(not(unix))]
             _ => std::env::temp_dir().join("brevi-py"),
         },
     };
@@ -934,8 +939,15 @@ fn ax_pyb_load() -> Result<ax_pyffi::Api, String> {
     // Python's output goes straight out, so it keeps its place among the program's own lines.
     std::env::set_var("PYTHONUNBUFFERED", "1");
     // python3 under the C or POSIX locale reads and writes text as UTF-8 (PEP 538/540); an embedded Python
-    // does not unless told, and decodes files as ASCII (#211).
-    if std::env::var_os("PYTHONUTF8").is_none() {
+    // does not unless told, and decodes files as ASCII (#211). Py_InitializeEx reads only the legacy flag, never
+    // PYTHONUTF8, so PYTHONUTF8=1 is applied here too: without it locale.getpreferredencoding() gave the ANSI code
+    // page (cp1252) on Windows where python3 gives 'utf-8' (test_re test_locale_flag, #589).
+    let utf8 = std::env::var_os("PYTHONUTF8").filter(|v| !v.is_empty());
+    if utf8.as_deref() == Some(std::ffi::OsStr::new("1")) {
+        // No guess without the flag: a libpython that lacks it fails to load here.
+        let p = sym("Py_UTF8Mode")?;
+        unsafe { *(p as *mut std::ffi::c_int) = 1 };
+    } else if utf8.is_none() {
         let ctype = ["LC_ALL", "LC_CTYPE", "LANG"].iter().find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty())).unwrap_or_default();
         if matches!(ctype.as_str(), "" | "C" | "POSIX") {
             // Py_InitializeEx reads the legacy flag, not PYTHONUTF8.

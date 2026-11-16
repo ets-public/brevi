@@ -9,11 +9,11 @@ pub enum RNode {
     Eol(bool),
     StrStart,
     StrEnd,
-    WordB(bool, bool), // boundary? (else \B), ASCII-only word characters
+    WordB(bool, u8), // boundary? (else \B), word characters: W_UNI, W_ASCII or W_LOC
     Group(Rc<Vec<Vec<RNode>>>, Option<usize>),
     // behind?, negative?, and a look-behind's fixed width (set by the width pass after parsing)
     Look(Rc<Vec<Vec<RNode>>>, bool, bool, Cell<usize>),
-    Backref(usize, u8), // group, IGNORECASE fold in scope (0, FOLD_UNI, FOLD_ASCII)
+    Backref(usize, u8), // group, IGNORECASE fold in scope (0, FOLD_UNI, FOLD_ASCII, FOLD_LOC)
     Repeat(Box<RNode>, usize, usize, bool),
     Atomic(Rc<Vec<Vec<RNode>>>),
     // (?(1)yes|no)
@@ -30,14 +30,23 @@ pub struct RClass {
 }
 const FOLD_UNI: u8 = 1;
 const FOLD_ASCII: u8 = 2;
-// bytes under LOCALE|IGNORECASE: sets match when the lower or upper case of a byte is in them (C locale)
+// bytes under LOCALE|IGNORECASE: a set matches when the locale's lower or upper case of a byte is in it
+// (IN_LOC_IGNORE); FOLD_LOC_LIT is a one-literal set or a literal, which also matches the byte itself
+// (LITERAL_LOC_IGNORE's char_loc_ignore). A backreference compares the locale's lower cases.
 const FOLD_LOC: u8 = 3;
+const FOLD_LOC_LIT: u8 = 4;
+// which characters \w and \b take as word characters: Unicode's, ASCII's, or the locale's (bytes under LOCALE)
+const W_UNI: u8 = 0;
+const W_ASCII: u8 = 1;
+const W_LOC: u8 = 2;
 #[derive(Clone, Debug)]
 enum CItem {
     Ch(u32),
     Range(u32, u32),
     Digit(bool),
     Word(bool),
+    // \w under LOCALE (bytes): CATEGORY_LOC_WORD, the locale's isalnum() or '_'
+    LocWord(bool),
     Space(bool),
     // CPython's RANGE_UNI_IGNORE (a range reaching past the BMP under Unicode IGNORECASE): the lowercased input
     // character or its uppercase is in the range
@@ -232,7 +241,19 @@ impl<'a> RP<'a> {
         }
     }
     fn backref(&self, g: usize) -> RNode {
-        RNode::Backref(g, if self.flags & F_I != 0 { self.fold_mode() } else { 0 })
+        RNode::Backref(g, if self.flags & F_I == 0 { 0 } else if self.loc() { FOLD_LOC } else { self.fold_mode() })
+    }
+    // a bytes pattern under LOCALE: case and word characters are the C library's, in the locale's LC_CTYPE
+    fn loc(&self) -> bool {
+        self.bytes && self.flags & F_L != 0
+    }
+    // \w in scope: CATEGORY_LOC_WORD under LOCALE, else CATEGORY_WORD
+    fn word_item(&self, neg: bool) -> CItem {
+        if self.loc() {
+            CItem::LocWord(neg)
+        } else {
+            CItem::Word(neg)
+        }
     }
     fn token_at(&self, i: usize) -> String {
         match self.c.get(i) {
@@ -619,7 +640,7 @@ impl<'a> RP<'a> {
                 self.i += 1;
                 let item = match e {
                     'd' | 'D' => CItem::Digit(e == 'D'),
-                    'w' | 'W' => CItem::Word(e == 'W'),
+                    'w' | 'W' => self.word_item(e == 'W'),
                     's' | 'S' => CItem::Space(e == 'S'),
                     'b' => CItem::Ch(0x08),
                     'x' => CItem::Ch(self.hex_escape(e, back)?),
@@ -670,7 +691,7 @@ impl<'a> RP<'a> {
                     self.i += 1;
                     let item = match e {
                         'd' | 'D' => CItem::Digit(e == 'D'),
-                        'w' | 'W' => CItem::Word(e == 'W'),
+                        'w' | 'W' => self.word_item(e == 'W'),
                         's' | 'S' => CItem::Space(e == 'S'),
                         'b' => CItem::Ch(0x08),
                         'x' => CItem::Ch(self.hex_escape(e, back)?),
@@ -693,7 +714,7 @@ impl<'a> RP<'a> {
                 } else {
                     (CItem::Ch(self.cp(that)), that.to_string())
                 };
-                let is_cat = |x: &CItem| matches!(x, CItem::Digit(_) | CItem::Word(_) | CItem::Space(_));
+                let is_cat = |x: &CItem| matches!(x, CItem::Digit(_) | CItem::Word(_) | CItem::LocWord(_) | CItem::Space(_));
                 // CPython names the range by its tokens (an escape is `\\` and one character) and puts the
                 // position that many characters back from the end of the range
                 let back = (self.i).saturating_sub(lo_disp.chars().count() + 1 + hi_disp.chars().count());
@@ -712,10 +733,10 @@ impl<'a> RP<'a> {
         let ascii = self.bytes || (self.flags & F_A != 0 && self.flags & 32 == 0);
         let mut fold = 0;
         // bytes with LOCALE|IGNORECASE: CPython compiles the set unfolded (IN_LOC_IGNORE) and tests the
-        // lowercase and uppercase of each character against it, negation included. A one-literal set is
-        // a (NOT_)LITERAL at parse time, which ASCII folding matches exactly.
-        if self.flags & F_I != 0 && self.bytes && self.flags & F_L != 0 && !(items.len() == 1 && matches!(items[0], CItem::Ch(_))) {
-            fold = FOLD_LOC;
+        // locale's lowercase and uppercase of each character against it, negation included. A one-literal set
+        // is a (NOT_)LITERAL at parse time: (NOT_)LITERAL_LOC_IGNORE.
+        if self.flags & F_I != 0 && self.loc() {
+            fold = if items.len() == 1 && matches!(items[0], CItem::Ch(_)) { FOLD_LOC_LIT } else { FOLD_LOC };
         } else if self.flags & F_I != 0 {
             (items, fold) = fold_set(items, self.fold_mode());
         }
@@ -728,7 +749,17 @@ impl<'a> RP<'a> {
         let ic = self.flags & F_I != 0;
         let ascii = self.bytes || (self.flags & F_A != 0 && self.flags & 32 == 0);
         let fm = if ic { self.fold_mode() } else { 0 };
-        let ch = |c: u32| if ic { fold_literal(c, fm, ascii) } else { RNode::Char(c) };
+        let loc = self.loc();
+        let wm = if loc { W_LOC } else if ascii { W_ASCII } else { W_UNI };
+        let ch = |c: u32| {
+            if ic && loc {
+                RNode::Class(Rc::new(RClass { items: vec![CItem::Ch(c)], neg: false, ascii, fold: FOLD_LOC_LIT }))
+            } else if ic {
+                fold_literal(c, fm, ascii)
+            } else {
+                RNode::Char(c)
+            }
+        };
         Ok(Some(match c {
             '.' => RNode::Any(self.flags & F_S != 0),
             '^' => RNode::Bol(self.flags & F_M != 0),
@@ -748,10 +779,10 @@ impl<'a> RP<'a> {
                 self.i += 1;
                 match e {
                     'd' | 'D' => RNode::Class(Rc::new(RClass { items: vec![CItem::Digit(e == 'D')], neg: false, ascii, fold: 0 })),
-                    'w' | 'W' => RNode::Class(Rc::new(RClass { items: vec![CItem::Word(e == 'W')], neg: false, ascii, fold: 0 })),
+                    'w' | 'W' => RNode::Class(Rc::new(RClass { items: vec![self.word_item(e == 'W')], neg: false, ascii, fold: 0 })),
                     's' | 'S' => RNode::Class(Rc::new(RClass { items: vec![CItem::Space(e == 'S')], neg: false, ascii, fold: 0 })),
-                    'b' => RNode::WordB(true, ascii),
-                    'B' => RNode::WordB(false, ascii),
+                    'b' => RNode::WordB(true, wm),
+                    'B' => RNode::WordB(false, wm),
                     'A' => RNode::StrStart,
                     'Z' => RNode::StrEnd,
                     '0' => ch(self.octal_escape(e, back)?),
@@ -1070,6 +1101,7 @@ fn fold_char(c: u32, fold: u8) -> u32 {
     match fold {
         FOLD_UNI => lower_uni(c),
         FOLD_ASCII => a_lower(c),
+        FOLD_LOC => loc_lower(c),
         _ => c,
     }
 }
@@ -1146,6 +1178,32 @@ fn fold_set(items: Vec<CItem>, fold: u8) -> (Vec<CItem>, u8) {
     out.extend(tail);
     (out, if cased { fold } else { 0 })
 }
+// re.LOCALE asks the C library, in the LC_CTYPE locale the process has, as CPython's sre does at match time
+// (Modules/_sre/sre.c sre_tolower, sre_toupper, sre_isalnum; through btowc and the wide functions on macOS).
+// The locale is the environment's, set at startup as python3 sets it: outside the sandbox dynpy::to_rust sets
+// the reader (LOC_CTYPE_FN in mod.rs); under it the hook stays unset and the program stops instead of guessing.
+pub static LOC_CTYPE: std::sync::OnceLock<fn(u32) -> (u32, u32, bool)> = std::sync::OnceLock::new();
+#[cold]
+#[inline(never)]
+fn loc_ctype(c: u32) -> (u32, u32, bool) {
+    if c > 0xff {
+        return (c, c, false);
+    }
+    match LOC_CTYPE.get() {
+        Some(f) => f(c),
+        None => refuse_stop("re.LOCALE under --sandbox (the locale is the environment's)"),
+    }
+}
+fn loc_lower(c: u32) -> u32 {
+    loc_ctype(c).0
+}
+fn loc_upper(c: u32) -> u32 {
+    loc_ctype(c).1
+}
+// SRE_LOC_IS_WORD
+fn loc_word(c: u32) -> bool {
+    c == 0x5f || loc_ctype(c).2
+}
 fn is_word(c: u32, ascii: bool) -> bool {
     if c < 0x80 {
         is_a_alnum(c) || c == 0x5f
@@ -1180,7 +1238,7 @@ impl RClass {
     fn matches(&self, c: u32, ascii: bool) -> bool {
         let c = if self.fold == 0 {
             c
-        } else if self.fold == FOLD_LOC {
+        } else if self.fold >= FOLD_LOC {
             return self.loc_ignore(c, ascii);
         } else {
             fold_slow(c, self.fold)
@@ -1190,26 +1248,29 @@ impl RClass {
     #[cold]
     #[inline(never)]
     fn loc_ignore(&self, c: u32, ascii: bool) -> bool {
-        let (lo, up) = (a_lower(c), a_upper(c));
+        let (lo, up) = (loc_lower(c), loc_upper(c));
+        if self.fold == FOLD_LOC_LIT {
+            // char_loc_ignore: the byte, its lower or its upper case is the literal; NOT_LITERAL negates that
+            let hit = self.inside(c, ascii) || self.inside(lo, ascii) || self.inside(up, ascii);
+            return hit != self.neg;
+        }
         self.raw(lo, ascii) || (up != lo && self.raw(up, ascii))
     }
     #[inline]
     fn raw(&self, c: u32, ascii: bool) -> bool {
-        let mut hit = false;
-        for it in &self.items {
-            if match it {
-                CItem::Ch(x) => *x == c,
-                CItem::Range(a, b) => *a <= c && c <= *b,
-                CItem::Digit(n) => is_digit(c, ascii) != *n,
-                CItem::Word(n) => is_word(c, ascii) != *n,
-                CItem::Space(n) => is_space(c, ascii) != *n,
-                CItem::RangeUI(a, b) => range_ui(*a, *b, c),
-            } {
-                hit = true;
-                break;
-            }
-        }
-        hit != self.neg
+        self.inside(c, ascii) != self.neg
+    }
+    #[inline]
+    fn inside(&self, c: u32, ascii: bool) -> bool {
+        self.items.iter().any(|it| match it {
+            CItem::Ch(x) => *x == c,
+            CItem::Range(a, b) => *a <= c && c <= *b,
+            CItem::Digit(n) => is_digit(c, ascii) != *n,
+            CItem::Word(n) => is_word(c, ascii) != *n,
+            CItem::LocWord(n) => loc_word(c) != *n,
+            CItem::Space(n) => is_space(c, ascii) != *n,
+            CItem::RangeUI(a, b) => range_ui(*a, *b, c),
+        })
     }
 }
 
@@ -1565,9 +1626,10 @@ impl<'a> Ctx<'a> {
             }
             RNode::StrStart => pos == 0 && self.seq(rest, pos, k),
             RNode::StrEnd => pos == self.s.len() && self.seq(rest, pos, k),
-            RNode::WordB(want, wa) => {
-                let a = pos > 0 && is_word(self.s[pos - 1], *wa);
-                let b = pos < self.s.len() && is_word(self.s[pos], *wa);
+            RNode::WordB(want, wm) => {
+                let w = |c: u32| if *wm == W_LOC { loc_word(c) } else { is_word(c, *wm == W_ASCII) };
+                let a = pos > 0 && w(self.s[pos - 1]);
+                let b = pos < self.s.len() && w(self.s[pos]);
                 // CPython 3.13: \B never matches in an empty string
                 if (a != b) == *want && (*want || !self.s.is_empty()) {
                     self.seq(rest, pos, k)

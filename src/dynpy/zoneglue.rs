@@ -47,9 +47,18 @@ mod brevi_zoneglue {
         std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink())
     }
 
-    // os.path.realpath: the canonical path, or the path as given when it cannot be resolved
+    // os.path.realpath: the canonical path, or the path as given when it cannot be resolved. Without the Windows
+    // verbatim prefix, as CPython gives it (the same rule as modules::plain_path in the compiler).
     fn realpath(p: &str) -> String {
-        std::fs::canonicalize(p).map(|x| x.to_string_lossy().into_owned()).unwrap_or_else(|_| p.to_string())
+        let Ok(x) = std::fs::canonicalize(p) else { return p.to_string() };
+        let x = x.to_string_lossy().into_owned();
+        if let Some(r) = x.strip_prefix(r"\\?\UNC\") {
+            return format!(r"\\{r}");
+        }
+        match x.strip_prefix(r"\\?\") {
+            Some(r) if r.as_bytes().get(1) == Some(&b':') => r.to_string(),
+            _ => x,
+        }
     }
 
     pub fn ops() -> ZoneOps {

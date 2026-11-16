@@ -142,7 +142,10 @@ fn slots() -> usize {
 fn slot_dir() -> PathBuf {
     #[cfg(unix)]
     {
-        PathBuf::from(format!("/tmp/brevi-tier-{}", unsafe { getuid() }))
+        // A private folder (privdir.rs): one made there first by another user is refused, and the slots then
+        // live in this user's own temp folder (shared by fewer jobs, never by another user).
+        let d = PathBuf::from(format!("/tmp/brevi-tier-{}", unsafe { getuid() }));
+        crate::privdir::ax_priv::make(&d).unwrap_or_else(|_| crate::tmp_root().join("tier"))
     }
     #[cfg(not(unix))]
     {
