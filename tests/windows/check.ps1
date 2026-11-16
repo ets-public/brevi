@@ -80,13 +80,20 @@ Write-Host "PASS run under a mem limit"
 # limit of user and kernel time together, counting every process the program starts
 Check-Limit "limit_cpu.py" "cpu=1" "cpu"
 Check-Limit "limit_cpu_child.py" "cpu=1" "cpu"
-# a program spending most of its time in kernel mode stops near the limit, not after the user-mode part of it
-# reaches it (which would take several times longer)
-$clock = [System.Diagnostics.Stopwatch]::StartNew()
-Check-Limit "limit_cpu_kernel.py" "cpu=2" "cpu"
-$clock.Stop()
-if ($clock.Elapsed.TotalSeconds -gt 4.5) { throw "limit cpu=2 on limit_cpu_kernel.py took $($clock.Elapsed.TotalSeconds) s: kernel-mode time was not counted" }
-Write-Host "PASS limit cpu counts kernel time ($([math]::Round($clock.Elapsed.TotalSeconds, 2)) s)"
+# a program spending much of its time in kernel mode is stopped once user and kernel time together reach the
+# limit, before its user time alone does (its last line is its own user and kernel seconds; no wall clock,
+# which would count the build too)
+$raw = & $brevi run --limit cpu=2 (Join-Path $root "tests\windows\limit_cpu_kernel.py") 2>&1
+$code = $LASTEXITCODE
+$out = ($raw | ForEach-Object { "$_" }) -join "`n"
+if ($code -ne 124 -or $out -notmatch '"on":"cpu"') { throw "limit cpu=2 on limit_cpu_kernel.py exited $code without naming cpu`n$out" }
+$times = @($raw | ForEach-Object { "$_" } | Where-Object { $_ -match '^\d+\.\d+ \d+\.\d+$' })
+if ($times.Count -eq 0) { throw "limit_cpu_kernel.py printed no CPU times`n$out" }
+$user, $kern = $times[-1].Split(' ') | ForEach-Object { [double]$_ }
+if ($kern -lt 0.2) { throw "limit_cpu_kernel.py spent only $kern s in kernel mode: the check needs more" }
+if ($user -ge 1.9) { throw "limit cpu=2 stopped limit_cpu_kernel.py only after $user s of user time ($kern s kernel): kernel-mode time was not counted" }
+if ($user + $kern -lt 1.7) { throw "limit cpu=2 stopped limit_cpu_kernel.py early, at $user s user + $kern s kernel" }
+Write-Host "PASS limit cpu counts kernel time (stopped at $user s user + $kern s kernel)"
 $raw = & $brevi run --limit cpu=30 (Join-Path $root "tests\windows\plain.py") 2>&1
 $out = ($raw | ForEach-Object { "$_" }) -join "`n"
 if ($LASTEXITCODE -ne 0 -or $out -ne "45") { throw "plain.py under a cpu limit exited $LASTEXITCODE`n$out" }
