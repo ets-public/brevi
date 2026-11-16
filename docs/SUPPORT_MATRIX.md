@@ -6,7 +6,7 @@ Where each `--limit` is enforced. A limit marked `-` is refused on that platform
 
 | Limit | Linux | macOS | Windows |
 | --- | --- | --- | --- |
-| `cpu` | yes | yes | - |
+| `cpu` | yes | yes | yes |
 | `mem` | yes | - | yes |
 | `time` | yes | yes | yes |
 | `output` | yes | yes | yes |
