@@ -7,10 +7,12 @@
 // compiler) and reads no environment variables.
 // Unix: file descriptors, connect/fcntl/poll/close and dlopen'd libssl. Windows: Winsock SOCKET handles
 // (ioctlsocket for non-blocking, select for a connecting socket, WSAPoll for readiness, closesocket) and the
-// OpenSSL DLLs (libssl-1_1.dll / libssl-3-x64.dll with libcrypto-1_1.dll / libcrypto-3-x64.dll, which
-// Python's DLLs folder holds; BREVI_SSL_LIB / BREVI_SSL_DIR name another copy). OpenSSL on Windows has no
-// path to the system certificate store, so verification falls back to a CA bundle (SSL_CERT_FILE,
-// REQUESTS_CA_BUNDLE or certifi next to a Python on PATH).
+// OpenSSL DLLs (libssl-3-x64.dll / libssl-1_1.dll with libcrypto-3-x64.dll / libcrypto-1_1.dll; -arm64 on ARM64; which
+// Python's DLLs folder holds; BREVI_SSL_LIB / BREVI_SSL_DIR name another copy). OpenSSL on Windows cannot
+// read the system certificate store itself, so verification loads it as CPython's
+// SSLContext.load_default_certs() does (the "CA" and "ROOT" stores, certificates trusted for server
+// authentication; see windows_store_certs), plus a CA bundle (SSL_CERT_FILE, REQUESTS_CA_BUNDLE or
+// CURL_CA_BUNDLE, else certifi next to the Python the program was built with).
 #[allow(non_snake_case, non_camel_case_types, dead_code)]
 mod brevi_netglue {
     use super::*;
@@ -40,6 +42,31 @@ mod brevi_netglue {
     #[cfg(windows)]
     unsafe extern "system" {
         fn GetProcAddress(h: P, s: *const c_char) -> *mut c_void;
+    }
+    // The Windows certificate store (crypt32), read as CPython's _ssl.enum_certificates reads it
+    #[cfg(windows)]
+    #[repr(C)]
+    struct CertContext {
+        encoding: u32,
+        der: *const u8,
+        der_len: u32,
+        info: P,
+        store: P,
+    }
+    #[cfg(windows)]
+    #[repr(C)]
+    struct CertEnhkeyUsage {
+        count: u32,
+        oids: *const *const c_char,
+    }
+    #[cfg(windows)]
+    #[link(name = "crypt32")]
+    unsafe extern "system" {
+        fn CertOpenStore(provider: *const c_char, encoding: u32, prov: usize, flags: u32, para: *const c_void) -> P;
+        fn CertAddStoreToCollection(collection: P, sibling: P, update_flags: u32, priority: u32) -> c_int;
+        fn CertEnumCertificatesInStore(store: P, prev: *const CertContext) -> *const CertContext;
+        fn CertGetEnhancedKeyUsage(cert: *const CertContext, flags: u32, usage: *mut CertEnhkeyUsage, size: *mut u32) -> c_int;
+        fn CertCloseStore(store: P, flags: u32) -> c_int;
     }
     #[cfg(windows)]
     #[link(name = "ws2_32")]
@@ -575,6 +602,12 @@ mod brevi_netglue {
         ERR_get_error: unsafe extern "C" fn() -> u64,
         ERR_clear_error: unsafe extern "C" fn(),
         ERR_reason_error_string: unsafe extern "C" fn(u64) -> *const c_char,
+        #[cfg(windows)]
+        d2i_X509: unsafe extern "C" fn(*mut P, *mut *const u8, c_long) -> P,
+        #[cfg(windows)]
+        SSL_CTX_get_cert_store: unsafe extern "C" fn(P) -> P,
+        #[cfg(windows)]
+        X509_STORE_add_cert: unsafe extern "C" fn(P, P) -> c_int,
     }
     unsafe impl Send for Ssl {}
     unsafe impl Sync for Ssl {}
@@ -589,7 +622,7 @@ mod brevi_netglue {
         #[cfg(unix)]
         let msg = "brevi: HTTPS needs the system's OpenSSL (libssl.so.3 or libssl.so.1.1), which was not found".to_string();
         #[cfg(windows)]
-        let msg = "brevi: HTTPS needs the OpenSSL DLLs (libssl-1_1.dll or libssl-3-x64.dll, with libcrypto-1_1.dll / libcrypto-3-x64.dll; Python's DLLs folder has them, or set BREVI_SSL_LIB / BREVI_SSL_DIR)".to_string();
+        let msg = format!("brevi: HTTPS needs the OpenSSL DLLs ({}, with the libcrypto DLL of the same name; Python's DLLs folder has them, or set BREVI_SSL_LIB / BREVI_SSL_DIR)", SSL_DLLS.join(" or "));
         NetErr { kind: "ssl.SSLError", msg }
     }
 
@@ -655,6 +688,12 @@ mod brevi_netglue {
     // paths are tried: BREVI_SSL_LIB (a libssl file), BREVI_SSL_DIR, and the Python DLL folder embedded at
     // build time (BREVI_SSL_DIR const). No program-folder, CWD, PATH or bare-name candidate: a planted
     // libssl must never run.
+    // The libssl DLL names for this architecture, newest first (dynpy/mod.rs SSL_NAMES).
+    #[cfg(all(windows, not(target_arch = "aarch64")))]
+    const SSL_DLLS: [&str; 4] = ["libssl-3-x64.dll", "libssl-3.dll", "libssl-1_1-x64.dll", "libssl-1_1.dll"];
+    #[cfg(all(windows, target_arch = "aarch64"))]
+    const SSL_DLLS: [&str; 4] = ["libssl-3-arm64.dll", "libssl-3.dll", "libssl-1_1-arm64.dll", "libssl-1_1.dll"];
+
     #[cfg(windows)]
     unsafe fn ssl_handles() -> Option<(P, P)> {
         // The caller's own copy (BREVI_SSL_LIB, BREVI_SSL_DIR; never read under the sandbox): not pinned, but
@@ -665,7 +704,7 @@ mod brevi_netglue {
                 files.push(p);
             }
             if let Ok(d) = std::env::var("BREVI_SSL_DIR") {
-                for n in ["libssl-3-x64.dll", "libssl-3.dll", "libssl-1_1-x64.dll", "libssl-1_1.dll"] {
+                for n in SSL_DLLS {
                     files.push(format!("{d}\\{n}"));
                 }
             }
@@ -729,6 +768,9 @@ mod brevi_netglue {
             ERR_get_error: sym!("ERR_get_error"),
             ERR_clear_error: sym!("ERR_clear_error"),
             ERR_reason_error_string: sym!("ERR_reason_error_string"),
+            d2i_X509: sym!("d2i_X509"),
+            SSL_CTX_get_cert_store: sym!("SSL_CTX_get_cert_store"),
+            X509_STORE_add_cert: sym!("X509_STORE_add_cert"),
         })
     }
 
@@ -750,6 +792,118 @@ mod brevi_netglue {
             return Some(BREVI_CA_FILE.to_string());
         }
         None
+    }
+
+    // The Windows certificate store, as CPython 3.13's SSLContext.load_default_certs(Purpose.SERVER_AUTH)
+    // loads it before set_default_verify_paths(): for each of the "CA" and "ROOT" stores, a read-only
+    // collection of the system stores _ssl.c's ssl_collect_certificates opens (local machine, its enterprise
+    // and group policy stores, current user and its group policy store, services, users); of its certificates,
+    // those X.509 encoded whose enhanced key usage (the store's property, else the certificate's extension)
+    // is absent, meaning every purpose, or names server authentication. Read once per process and parsed
+    // once; each new context's X509_STORE takes a reference to every certificate.
+    #[cfg(windows)]
+    struct StoreCerts(Vec<P>);
+    #[cfg(windows)]
+    unsafe impl Send for StoreCerts {}
+    #[cfg(windows)]
+    unsafe impl Sync for StoreCerts {}
+    #[cfg(windows)]
+    static STORE_CERTS: std::sync::OnceLock<StoreCerts> = std::sync::OnceLock::new();
+
+    #[cfg(windows)]
+    fn windows_store_certs(s: &Ssl) -> &'static [P] {
+        &STORE_CERTS.get_or_init(|| unsafe { StoreCerts(read_windows_store(s)) }).0
+    }
+
+    // Whether a store certificate is trusted for server authentication, as CPython's parseKeyUsage and
+    // enum_certificates read it: the store's usage property, and only when that is absent, the certificate's
+    // extended key usage extension; absent from both means every purpose.
+    #[cfg(windows)]
+    enum Usage {
+        Any,
+        Listed(bool),
+        Unreadable,
+    }
+
+    #[cfg(windows)]
+    fn last_error() -> u32 {
+        std::io::Error::last_os_error().raw_os_error().unwrap_or(0) as u32
+    }
+
+    #[cfg(windows)]
+    unsafe fn key_usage(cert: *const CertContext, flags: u32) -> Usage {
+        const CRYPT_E_NOT_FOUND: u32 = 0x8009_2004;
+        const SERVER_AUTH: &[u8] = b"1.3.6.1.5.5.7.3.1";
+        let mut size = 0u32;
+        if CertGetEnhancedKeyUsage(cert, flags, std::ptr::null_mut(), &mut size) == 0 {
+            return if last_error() == CRYPT_E_NOT_FOUND { Usage::Any } else { Usage::Unreadable };
+        }
+        // u64 words keep the buffer aligned for the struct and its pointer array
+        let mut buf = vec![0u64; (size as usize).div_ceil(8).max(2)];
+        let u = buf.as_mut_ptr() as *mut CertEnhkeyUsage;
+        if CertGetEnhancedKeyUsage(cert, flags, u, &mut size) == 0 {
+            return if last_error() == CRYPT_E_NOT_FOUND { Usage::Any } else { Usage::Unreadable };
+        }
+        let u = &*u;
+        let oids = if u.count == 0 || u.oids.is_null() { &[][..] } else { std::slice::from_raw_parts(u.oids, u.count as usize) };
+        Usage::Listed(oids.iter().any(|o| !o.is_null() && CStr::from_ptr(*o).to_bytes() == SERVER_AUTH))
+    }
+
+    // A certificate whose usage cannot be read is left out (CPython raises there; leaving it out only trusts less).
+    #[cfg(windows)]
+    unsafe fn server_auth_trusted(cert: *const CertContext) -> bool {
+        const CERT_FIND_EXT_ONLY_ENHKEY_USAGE_FLAG: u32 = 0x2;
+        const CERT_FIND_PROP_ONLY_ENHKEY_USAGE_FLAG: u32 = 0x4;
+        let u = match key_usage(cert, CERT_FIND_PROP_ONLY_ENHKEY_USAGE_FLAG) {
+            Usage::Any => key_usage(cert, CERT_FIND_EXT_ONLY_ENHKEY_USAGE_FLAG),
+            u => u,
+        };
+        matches!(u, Usage::Any | Usage::Listed(true))
+    }
+
+    #[cfg(windows)]
+    unsafe fn read_windows_store(s: &Ssl) -> Vec<P> {
+        const CERT_STORE_PROV_SYSTEM_A: usize = 9;
+        const CERT_STORE_PROV_COLLECTION: usize = 11;
+        const CERT_STORE_OPEN_EXISTING_FLAG: u32 = 0x0000_4000;
+        const CERT_STORE_READONLY_FLAG: u32 = 0x0000_8000;
+        const X509_ASN_ENCODING: u32 = 1;
+        // CERT_SYSTEM_STORE_* = location id << 16, in ssl_collect_certificates' order
+        const LOCATIONS: [u32; 7] = [2 << 16, 9 << 16, 8 << 16, 1 << 16, 7 << 16, 5 << 16, 6 << 16];
+        let mut out = vec![];
+        for name in [c"CA", c"ROOT"] {
+            let coll = CertOpenStore(CERT_STORE_PROV_COLLECTION as *const c_char, 0, 0, 0, std::ptr::null());
+            if coll.is_null() {
+                continue;
+            }
+            for loc in LOCATIONS {
+                let st = CertOpenStore(CERT_STORE_PROV_SYSTEM_A as *const c_char, 0, 0, CERT_STORE_OPEN_EXISTING_FLAG | CERT_STORE_READONLY_FLAG | loc, name.as_ptr() as *const c_void);
+                if !st.is_null() {
+                    CertAddStoreToCollection(coll, st, 0, 0);
+                    // the collection holds its own reference
+                    CertCloseStore(st, 0);
+                }
+            }
+            let mut cert: *const CertContext = std::ptr::null();
+            loop {
+                cert = CertEnumCertificatesInStore(coll, cert);
+                if cert.is_null() {
+                    break;
+                }
+                let c = &*cert;
+                if c.encoding != X509_ASN_ENCODING || c.der.is_null() || !server_auth_trusted(cert) {
+                    continue;
+                }
+                let mut p = c.der;
+                let x = (s.d2i_X509)(std::ptr::null_mut(), &mut p, c.der_len as c_long);
+                if !x.is_null() {
+                    out.push(x);
+                }
+            }
+            CertCloseStore(coll, 0);
+        }
+        (s.ERR_clear_error)();
+        out
     }
 
     fn ssl_reason(s: &Ssl) -> String {
@@ -789,9 +943,18 @@ mod brevi_netglue {
                 (s.SSL_CTX_set_verify)(ctx, 1, std::ptr::null_mut());
                 if cafile.is_empty() && capath.is_empty() {
                     (s.SSL_CTX_set_default_verify_paths)(ctx);
-                    // Windows: OpenSSL's default paths hold no certificates; add a CA bundle when one is found
+                    // Windows: OpenSSL's default paths hold no certificates; add the system certificate store
+                    // (as CPython's load_default_certs) and a CA bundle when one is found
                     #[cfg(windows)]
                     {
+                        let store = (s.SSL_CTX_get_cert_store)(ctx);
+                        if !store.is_null() {
+                            for x in windows_store_certs(s) {
+                                // a certificate in both stores is already there: not an error
+                                (s.X509_STORE_add_cert)(store, *x);
+                            }
+                            (s.ERR_clear_error)();
+                        }
                         if let Some(b) = ca_bundle() {
                             let f = CString::new(b).unwrap_or_default();
                             (s.SSL_CTX_load_verify_locations)(ctx, f.as_ptr(), std::ptr::null());

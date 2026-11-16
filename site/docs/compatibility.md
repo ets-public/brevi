@@ -163,7 +163,7 @@ From v0.26.0, a Python file that uses `requests` or `httpx` builds with Brevi's 
 
 Under `--sandbox` they need the network granted: `--allow net`, or `--allow-net api.example.com,localhost` for named hosts only, which the program cannot widen (see [Sandbox](/docs/usage#sandbox)). They need no `allow native`.
 
-Differences from CPython: with `verify=True` Brevi trusts the system's certificates on Linux and macOS (`$SSL_CERT_FILE` / `$SSL_CERT_DIR` override), where requests and httpx trust certifi's bundle; on Windows (from v0.27.0) it loads OpenSSL from the Python installation's DLLs and verifies against `$SSL_CERT_FILE`, `$REQUESTS_CA_BUNDLE`, `$CURL_CA_BUNDLE` or certifi (the Windows ROOT store is not read); requests guesses the encoding of a body that names none as ASCII, UTF-8 or Windows-1252, where requests asks charset_normalizer; `~/.netrc` is not read. Not native yet (the program runs with CPython's library, or `--native` refuses it): HTTP/2, `files=` (multipart uploads), custom transports and adapters (`mounts=`, `transport=`, `MockTransport`, `Session.mount`), client certificates (`cert=`), `ssl.SSLContext` values for `verify`, SOCKS proxies, `requests` hooks and `raw`, `DigestAuth`.
+Differences from CPython: with `verify=True` Brevi trusts the system's certificates on Linux and macOS (`$SSL_CERT_FILE` / `$SSL_CERT_DIR` override), where requests and httpx trust certifi's bundle; on Windows (from v0.27.0) it loads OpenSSL from the Python installation's DLLs and verifies against the Windows certificate store as CPython's `ssl.create_default_context()` reads it (the "CA" and "ROOT" stores, certificates trusted for server authentication; from v0.28.1) together with `$SSL_CERT_FILE`, `$REQUESTS_CA_BUNDLE`, `$CURL_CA_BUNDLE` or certifi; requests guesses the encoding of a body that names none as ASCII, UTF-8 or Windows-1252, where requests asks charset_normalizer; `~/.netrc` is not read. Not native yet (the program runs with CPython's library, or `--native` refuses it): HTTP/2, `files=` (multipart uploads), custom transports and adapters (`mounts=`, `transport=`, `MockTransport`, `Session.mount`), client certificates (`cert=`), `ssl.SSLContext` values for `verify`, SOCKS proxies, `requests` hooks and `raw`, `DigestAuth`.
 
 Speed: on a local server Brevi's requests and `httpx.Client` take about the same time per request as CPython's (the server is the limit), and 100 requests at once through `httpx.AsyncClient` finish in about half CPython's time.
 
@@ -281,7 +281,7 @@ A Python file keeps Python's run-time behaviour: a mistake Python only finds whe
 
 ## Platforms
 
-| | Linux | macOS | Windows |
+| | Linux | macOS | Windows (x86-64; ARM64 from v0.28.1) |
 | --- | --- | --- | --- |
 | Typed and dynamic builds | yes | yes | yes |
 | Library calls through CPython | yes | yes | from v0.27.0 |

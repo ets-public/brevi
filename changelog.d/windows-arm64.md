@@ -1,0 +1,1 @@
+- Windows ARM64: releases ship `brevi-aarch64-pc-windows-msvc.zip`, a `win_arm64` PyPI wheel and npm support for `win32-arm64`, and the setup action installs it on ARM64 Windows runners. It is built and checked on a real ARM64 Windows machine (the same archive, platform and parity checks as x86-64), never cross-built untested.

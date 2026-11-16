@@ -20,7 +20,7 @@ brevi --version
 | GitHub Action | `ets-public/brevi/setup` at a newer tag | `uses: ets-public/brevi/setup@v0.27.0`, or the `version` input |
 | Dev container feature | set `version` to `latest` (the default) | `"version": "0.27.0"` |
 | Python and Node SDKs | upgrade the pip or npm package | pin the package version |
-| Windows | unzip `brevi-x86_64-pc-windows-msvc.zip` from the release over the old `brevi.exe` | download that release's zip |
+| Windows | unzip `brevi-x86_64-pc-windows-msvc.zip` (or `brevi-aarch64-pc-windows-msvc.zip` on ARM64) from the release over the old `brevi.exe` | download that release's zip |
 
 Notes:
 

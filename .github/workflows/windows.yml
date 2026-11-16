@@ -43,7 +43,15 @@ jobs:
   platform:
     # Draft PRs skip CI (AGENTS.md), and so does this job.
     if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && github.event.schedule != '17 7 * * 0'
-    runs-on: windows-2022
+    # x86-64 and ARM64 Windows both ship a zip, so both run every check here on a real machine of that kind
+    # (windows-11-arm is a standard runner: free on public repositories). Nothing is emulated or cross-built.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-2022, target: x86_64-pc-windows-msvc }
+          - { os: windows-11-arm, target: aarch64-pc-windows-msvc }
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -53,7 +61,7 @@ jobs:
       - name: What the checks depend on
         id: tree
         shell: bash
-        run: echo "key=windows-passed-$(git rev-parse HEAD:src HEAD:runtime HEAD:Cargo.toml HEAD:Cargo.lock HEAD:tests/windows HEAD:tests/requirements-native.txt HEAD:.github/workflows/windows.yml | sha256sum | cut -c1-20)" >> "$GITHUB_OUTPUT"
+        run: echo "key=windows-${{ matrix.target }}-passed-$(git rev-parse HEAD:src HEAD:runtime HEAD:Cargo.toml HEAD:Cargo.lock HEAD:tests/windows HEAD:tests/requirements-native.txt HEAD:.github/workflows/windows.yml | sha256sum | cut -c1-20)" >> "$GITHUB_OUTPUT"
 
       - name: Already passed with this tree?
         id: seen
@@ -72,11 +80,25 @@ jobs:
           rustup toolchain install "$v" --profile minimal --no-self-update
           rustup default "$v"
           rustc -V
+          rustc -vV | grep -qx "host: ${{ matrix.target }}" || { echo "::error::rustc's host is not ${{ matrix.target }}"; exit 1; }
 
       - name: Python 3.13
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.13"
+          architecture: ${{ matrix.target == 'aarch64-pc-windows-msvc' && 'arm64' || 'x64' }}
+
+      # cryptography (mcp's server imports it, and the MCP checks run that server) has no win_arm64 wheel after
+      # 46.0.3, whose wheels carry open advisories. So on ARM64 pip builds the current cryptography from source,
+      # linked statically against an OpenSSL that vcpkg builds here (both come with the runner image).
+      - name: OpenSSL for building cryptography (ARM64)
+        if: matrix.target == 'aarch64-pc-windows-msvc'
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install openssl:arm64-windows-static-md
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg could not build OpenSSL for arm64" }
+          "OPENSSL_DIR=$env:VCPKG_INSTALLATION_ROOT\installed\arm64-windows-static-md" >> $env:GITHUB_ENV
+          "OPENSSL_STATIC=1" >> $env:GITHUB_ENV
 
       # Required, never optional: a green run means every native-copy check ran.
       - name: Python packages the checks compare with (pinned)
@@ -103,22 +125,32 @@ jobs:
 
       # The last release's zip, as users install it, against today's runner image and Python. The
       # programs are copies from tests/windows that every release since v0.27.0 supports.
+      # The ARM64 zip ships from v0.28.1: a release before that has none, so there is nothing to canary on ARM64 yet.
+      # A release from v0.28.1 on that lacks it fails here.
       - name: Canary (the last release's Windows zip)
         if: github.event_name != 'pull_request'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          TARGET: ${{ matrix.target }}
         run: |
+          $zip = "brevi-$env:TARGET.zip"
+          $tag = gh release view -R $env:GITHUB_REPOSITORY --json tagName --jq .tagName
+          if ($LASTEXITCODE -ne 0 -or -not $tag) { throw "could not read the last release's tag" }
+          if ($env:TARGET -eq "aarch64-pc-windows-msvc" -and [version]($tag.TrimStart("v")) -lt [version]"0.28.1") {
+            Write-Host "SKIP canary: $tag predates the ARM64 Windows zip (first in v0.28.1)"
+            exit 0
+          }
           $dir = Join-Path $env:RUNNER_TEMP "canary"
-          gh release download -R $env:GITHUB_REPOSITORY -p "brevi-x86_64-pc-windows-msvc.zip" -p SHA256SUMS -D $dir
-          if ($LASTEXITCODE -ne 0) { throw "could not download the last release's Windows zip" }
+          gh release download $tag -R $env:GITHUB_REPOSITORY -p $zip -p SHA256SUMS -D $dir
+          if ($LASTEXITCODE -ne 0) { throw "could not download $zip from $tag" }
           Push-Location $dir
-          $want = (Get-Content SHA256SUMS | Where-Object { $_ -match 'brevi-x86_64-pc-windows-msvc\.zip$' }) -split '\s+' | Select-Object -First 1
-          $got = (Get-FileHash brevi-x86_64-pc-windows-msvc.zip -Algorithm SHA256).Hash.ToLower()
+          $want = (Get-Content SHA256SUMS | Where-Object { $_ -match ([regex]::Escape($zip) + '$') }) -split '\s+' | Select-Object -First 1
+          $got = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
           if (-not $want -or $want -ne $got) { throw "the release zip's SHA-256 $got does not match SHA256SUMS ($want)" }
-          Expand-Archive brevi-x86_64-pc-windows-msvc.zip -DestinationPath .
+          Expand-Archive $zip -DestinationPath .
           Pop-Location
-          $brevi = Join-Path $dir "brevi-x86_64-pc-windows-msvc\brevi.exe"
+          $brevi = Join-Path $dir "brevi-$env:TARGET\brevi.exe"
           & $brevi --version
           foreach ($p in @("plain.py", "bridge_yaml.py", "sqlite.py", "duckdb_native.py")) {
             $out = (& $brevi verify (Join-Path "tests\windows" $p) 2>&1 | ForEach-Object { "$_" }) -join "`n"
