@@ -2,7 +2,7 @@
 
 # Brevi
 
-**The verified native runtime for agent-written Python.** Your agent writes the plain Python it already writes best. Brevi compiles it through Rust into a native binary, checks each run against CPython 3.13 with `brevi run --verify`, and says so in one line of JSON whenever it cannot build or cannot check a program. The agent gets back either a certified native answer or CPython's own answer, never an unchecked one presented as checked:
+**The verified native runtime for agent-written Python.** Your agent writes the plain Python it already writes best. Brevi compiles it through Rust into a native binary, checks each run against CPython 3.13 with `brevi run --verify`, and says so in one line of JSON whenever it cannot build or cannot check a program. The agent gets back a certified native answer, CPython's own answer, or an answer marked unchecked in one JSON line, never an unchecked one presented as checked:
 
 ```
 $ brevi check main.py
@@ -10,10 +10,10 @@ $ brevi check main.py
 $ echo 1000 | brevi run --verify main.py          # after the agent fixes line 16
 168 primes below 1000
 sum 76127
-{"verify":"identical","path":"typed","exit":0,"stdout_same":true,"stderr_same":true,"brevi_ms":5,"cpython_ms":13,...}
+{"verify":"identical",...,"path":"typed","exit":0,"stdout_same":true,"stderr_same":true,...}
 ```
 
-That loop is the product: one-line errors the model can act on, a per-run certificate a harness can log, and a native binary. In numbers, at v0.28.1: on the CPython 3.13 tests Brevi scores, 97.3% of the 1,072 core tests and 96.9% of 2,053 standard-library tests match and none build and answer differently, with the tests that run a string as code (83 core, 6 stdlib) excluded as refused by design; counting only matches that print something to compare, 88.2% and 94.3%, and only 2.6% and 1.2% of the matches take the typed fast path, the rest the dynamic build. On 12 compute benchmarks the typed build runs 1.6x to 37.9x faster than CPython (median 9.3x), while the dynamic build runs at 0.5x to 1.4x (median 0.85x). Details and every qualifier: [Status](#status-v0281). Ten minutes from install to a verified run: **[Quickstart for agents](https://brevi-lang.org/docs/quickstart)**, and the whole loop with MCP and timings in [examples/agent-loop](examples/agent-loop/README.md). The model never writes lifetimes, borrows or semicolons, and needs no guide to start.
+That loop is the product: one-line errors the model can act on, a per-run certificate a harness can log, and a native binary. In numbers, at v0.28.1: on the CPython 3.13 tests Brevi scores, 97.3% of the 1,072 core tests and 96.9% of 2,053 standard-library tests match and none build and answer differently, with the tests that run a string as code (83 core, 6 stdlib) excluded as refused by design; counting only matches that print something to compare, 88.2% and 94.3%, and only 2.6% and 1.2% of the matches take the typed fast path, the rest the dynamic build. On 12 compute benchmarks the typed build, which only that small share of programs takes, runs 1.6x to 37.9x faster than CPython (median 9.3x), while the dynamic build, which most programs take, runs at 0.5x to 1.4x (median 0.85x, measured with `--release`). Details and every qualifier: [Status](#status-v0281). A few commands from install to a verified run: **[Quickstart for agents](https://brevi-lang.org/docs/quickstart)**, and the whole loop with MCP and timings in [examples/agent-loop](examples/agent-loop/README.md). The model never writes lifetimes, borrows or semicolons, and needs no guide to start.
 
 Docs: **[brevi-lang.org/docs](https://brevi-lang.org/docs/)** · Releases: [GitHub](https://github.com/ets-public/brevi/releases/latest) · Changes: [CHANGELOG.md](CHANGELOG.md)
 

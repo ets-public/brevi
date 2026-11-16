@@ -9,8 +9,8 @@ bash examples/agent-loop/demo.sh
 ```
 
 Needs `brevi` on PATH and CPython 3.13 (`python3`, or `BREVI_PYTHON`) for the comparison. Every step checks its own
-result, so the script is also the smoke test the [install tests](../../.github/workflows/install-test.yml) run on
-clean Linux, macOS and Windows machines.
+result, so the script is also the smoke test the [install tests](../../.github/workflows/install-test.yml) run (by hand and on each
+release) on a fresh Ubuntu container and GitHub's macOS and Windows runners.
 
 | File | What it is |
 |---|---|
@@ -61,12 +61,12 @@ native 396 ms, CPython 2327 ms: 5.9x (best of 3, same output)
   uses the network cannot be compared by running it twice, so `--verify` says so in one line and the result is
   marked unchecked. When the native answer and CPython's **differ**, `--verify` prints CPython's answer, exits with
   CPython's code and puts the first differing line on stderr:
-  `{"verify":"differs","line":3,"brevi":"...","cpython":"..."}` (logged for `brevi report`). Brevi has no known
+  `{"verify":"differs","on":"stdout","line":3,"brevi":"...","cpython":"...",...}` (logged for `brevi report`). Brevi has no known
   wrong answer on its scored CPython tests, so this demo cannot show a real one; `tests/verify/fakepy.sh` is the
   stand-in CPython the test suite uses to check that path.
 - **Step 4** is the same loop through MCP. Under the sandbox, which the MCP server uses by default, CPython cannot be
   held to the sandbox, so the check is against Brevi's own dynamic build (`"against":"dynamic"`), a weaker check
-  than CPython. A server started with `brevi mcp --trust-calls` can take `sandbox: false` and check against CPython.
+  than CPython, and only for programs on the typed build; others get `{"verify":"refused","against":"dynamic",...}`. A server started with `brevi mcp --trust-calls` can take `sandbox: false` and check against CPython.
 - **Step 5** is speed, on the typed build. Not every program takes it: a program whose values change type gets
   the dynamic build, which runs at about CPython's speed. Measured figures for both builds are in
   [Benchmarks](https://brevi-lang.org/docs/benchmarks).
