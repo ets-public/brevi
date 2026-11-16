@@ -268,12 +268,12 @@ The sandbox decides what a program may touch; `--limit` decides how much it may 
 | `mem` | MB | address space on Linux; committed memory of the program and everything it starts on Windows | the kernel (`RLIMIT_AS`); on Windows a Job Object, from v0.27.0; not on macOS |
 | `time` | seconds | wall-clock time, waiting included | `brevi`, which stops the program |
 | `output` | KB | stdout and stderr together | `brevi`, which passes output on and stops the program at the limit |
-| `file` | MB | the size of any one file the program writes | the kernel (`RLIMIT_FSIZE`); refused on Windows |
+| `file` | MB | the size of any one file the program writes | the kernel (`RLIMIT_FSIZE`); refused on Windows, which has no limit on one file's size |
 | `written` | MB | bytes written to files in all (stdout and stderr are `output`, network bytes are `net`; from v0.27.0, on every OS) | Brevi's own file code in the program, which counts before each write; `--sandbox` without `--allow-py` or `native` only |
 | `files` | count | files the program creates | Brevi's own file code in the program; `--sandbox` without `--allow-py` or `native` only |
 | `net` | MB | bytes sent and received over the network | Brevi's own network code in the program; `--sandbox` without `--allow-py` or `native` only |
-| `threads` | count | threads at once, the program's and those of every process it starts, Linux only | the kernel: the program runs in a cgroup of its own whose `pids.max` is the limit, so the thread or process past it is never created; refused where Brevi cannot make that cgroup (from v0.27.0) |
-| `fds` | count | files and sockets open at once | the kernel (`RLIMIT_NOFILE`): an open past it fails with `OSError: Too many open files`, it does not stop the program; refused on Windows |
+| `threads` | count | threads at once, the program's and those of every process it starts, Linux only | the kernel: the program runs in a cgroup of its own whose `pids.max` is the limit, so the thread or process past it is never created; refused where Brevi cannot make that cgroup (from v0.27.0), and on macOS and Windows (a Windows Job Object can cap processes but not threads) |
+| `fds` | count | files and sockets open at once | the kernel (`RLIMIT_NOFILE`): an open past it fails with `OSError: Too many open files`, it does not stop the program; refused on Windows, which has no limit on a process's open handles |
 
 Plain numbers use those units; `mem=1gb`, `output=512kb`, `time=1.5` and `time=500ms` work too. Join limits with commas:
 
