@@ -1,0 +1,105 @@
+# Install test: the documented install, on machines with nothing of ours on them, then the agent loop.
+# Each job follows site/docs/quickstart.md step 1 exactly as a new user would (the install script on Linux and macOS;
+# rustup plus the release zip on Windows), installs CPython 3.13 with uv as the page says, then runs
+# examples/agent-loop/demo.sh, which checks every step of the loop (check, run --verify, a refusal, MCP, a timing).
+# A failure here is a first-ten-minutes bug: a step a new user hits that the docs do not cover.
+# Runs only by hand and when a release is published, because Actions minutes are limited (macOS counts 10x).
+# Linux runs in a bare ubuntu:24.04 container; macOS and Windows runners come with Rust, which each job moves out of
+# the way first, so the install really fetches it.
+# When the Rust-free install lands, change the "Install (as documented)" steps here and the install block of
+# site/docs/quickstart.md together.
+name: install-test
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: install-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    container: ubuntu:24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: What the quickstart says a bare machine needs (curl, and a C linker for rustc)
+        run: apt-get update -qq && apt-get install -y -qq curl ca-certificates build-essential >/dev/null
+      - name: Install (as documented)
+        shell: bash
+        run: curl -fsSL https://raw.githubusercontent.com/ets-public/brevi/main/install.sh | sh
+      - name: CPython 3.13 (as documented)
+        shell: bash
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          "$HOME/.local/bin/uv" python install 3.13
+      - name: Agent loop
+        shell: bash
+        run: |
+          export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+          bash examples/agent-loop/demo.sh
+
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Move the runner's Rust out of the way
+        run: |
+          mv "$HOME/.cargo" "$HOME/.cargo-runner" 2>/dev/null || true
+          mv "$HOME/.rustup" "$HOME/.rustup-runner" 2>/dev/null || true
+          ! command -v rustc
+      - name: Install (as documented)
+        run: curl -fsSL https://raw.githubusercontent.com/ets-public/brevi/main/install.sh | sh
+      - name: CPython 3.13 (as documented)
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          "$HOME/.local/bin/uv" python install 3.13
+      - name: Agent loop
+        run: |
+          export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+          BREVI_PYTHON="$("$HOME/.local/bin/uv" python find 3.13)" bash examples/agent-loop/demo.sh
+
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-2022, zip: brevi-x86_64-pc-windows-msvc.zip, rustup: x86_64-pc-windows-msvc }
+          - { os: windows-11-arm, zip: brevi-aarch64-pc-windows-msvc.zip, rustup: aarch64-pc-windows-msvc }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Move the runner's Rust out of the way
+        shell: pwsh
+        run: |
+          foreach ($d in "$env:USERPROFILE\.cargo", "$env:USERPROFILE\.rustup") { if (Test-Path $d) { Rename-Item $d "$d-runner" } }
+      - name: Install (as documented) - rustup
+        shell: pwsh
+        run: |
+          Invoke-WebRequest "https://static.rust-lang.org/rustup/dist/${{ matrix.rustup }}/rustup-init.exe" -OutFile rustup-init.exe
+          .\rustup-init.exe -y --profile minimal
+      - name: Install (as documented) - the release zip onto PATH
+        shell: pwsh
+        run: |
+          Invoke-WebRequest "https://github.com/ets-public/brevi/releases/latest/download/${{ matrix.zip }}" -OutFile brevi.zip
+          Expand-Archive brevi.zip -DestinationPath brevi-zip
+          $exe = Get-ChildItem brevi-zip -Recurse -Filter brevi.exe | Select-Object -First 1
+          Copy-Item $exe.FullName "$env:USERPROFILE\.cargo\bin\brevi.exe"
+      - name: CPython 3.13 (as documented)
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+          & "$env:USERPROFILE\.local\bin\uv.exe" python install 3.13
+      - name: Agent loop
+        shell: bash
+        run: |
+          export PATH="$(cygpath -u "$USERPROFILE")/.cargo/bin:$(cygpath -u "$USERPROFILE")/.local/bin:$PATH"
+          BREVI_PYTHON="$(uv python find 3.13)" bash examples/agent-loop/demo.sh

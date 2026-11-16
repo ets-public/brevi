@@ -2,11 +2,24 @@
 
 # Brevi
 
-**The fast, safe target for AI-written Python.** Brevi is a compiler built for AI coding agents. The agent writes the plain Python it already writes best; Brevi builds it through Rust into a native binary that runs 1.6x to 37.9x faster than CPython on our 12 compute benchmarks with the default typed build (median 9.3x; a program that falls back to the dynamic build runs at about CPython's speed, median 0.85x: [numbers](docs/NUMBERS.md)), and aims to print exactly what CPython prints (at v0.28.1, 97.3% of the scored suite, with 83 string-as-code tests excluded (1,043 of 1,072 from CPython 3.13's own suite) match and none build and differ; 96.9% of 2,053 tests for the most used standard-library modules, 6 left out the same way. Counting only matches that print something to compare, 88.2% and 94.3%; 2.6% and 1.2% of the matches take the typed fast path, the rest the dynamic build), and it answers anything it cannot build with one short JSON line the agent can act on. The model never writes lifetimes, borrows or semicolons, and needs no guide to start.
+**The verified native runtime for agent-written Python.** Your agent writes the plain Python it already writes best. Brevi compiles it through Rust into a native binary, checks each run against CPython 3.13 with `brevi run --verify`, and says so in one line of JSON whenever it cannot build or cannot check a program. The agent gets back a certified native answer, CPython's own answer, or an answer marked unchecked in one JSON line, never an unchecked one presented as checked:
+
+```
+$ brevi check main.py
+{"line":16,"msg":"name 'totl' is not defined","fix":"did you mean total?"}
+$ echo 1000 | brevi run --verify main.py          # after the agent fixes line 16
+168 primes below 1000
+sum 76127
+{"verify":"identical",...,"path":"typed","exit":0,"stdout_same":true,"stderr_same":true,...}
+```
+
+That loop is the product: one-line errors the model can act on, a per-run certificate a harness can log, and a native binary. In numbers, at v0.28.1: 97.3% of the scored suite, with 83 string-as-code tests excluded (1,043 of 1,072 from CPython 3.13's own suite), match and none build and differ; 96.9% of 2,053 tests for the most used standard-library modules, 6 left out the same way; counting only matches that print something to compare, 88.2% and 94.3%, and only 2.6% and 1.2% of the matches take the typed fast path, the rest the dynamic build. On 12 compute benchmarks the typed build, which only that small share of programs takes, runs 1.6x to 37.9x faster than CPython (median 9.3x), while the dynamic build, which most programs take, runs at 0.5x to 1.4x (median 0.85x, measured with `--release`). Details and every qualifier: [numbers](docs/NUMBERS.md) and [Status](#status-v0281). A few commands from install to a verified run: **[Quickstart for agents](https://brevi-lang.org/docs/quickstart)**, and the whole loop with MCP and timings in [examples/agent-loop](examples/agent-loop/README.md). The model never writes lifetimes, borrows or semicolons, and needs no guide to start.
 
 Docs: **[brevi-lang.org/docs](https://brevi-lang.org/docs/)** · Releases: [GitHub](https://github.com/ets-public/brevi/releases/latest) · Changes: [CHANGELOG.md](CHANGELOG.md)
 
 **Public preview.** Brevi works today and is tested against CPython on every change, but it is young: expect rough edges, and expect the CLI and Brevi's own syntax to change between releases. It is **not yet a drop-in `python3`**: on CPython's own tests some built programs still answer differently (see Status), `brevi run` quietly falls back to `python3` for files it cannot build (`--native` turns that off), and the sandbox is a policy layer, not an isolation boundary. Bug reports are very welcome ([CONTRIBUTING.md](CONTRIBUTING.md)).
+
+**Security, plainly.** No external security audit yet: we have not had an external audit; we are seeking funding for one. Until then, do not run hostile code under the sandbox. The sandbox is a policy layer, not an isolation boundary: Brevi's own checks hold the program, with no container or VM around it. Run untrusted code in a container or VM, and use the sandbox as a second layer inside it. `--allow-py` and `--allow native` are full trust. Who should use Brevi today, and what a public launch needs first: [SECURITY.md](SECURITY.md#where-brevi-stands).
 
 ## Install
 
@@ -16,7 +29,9 @@ Linux and macOS:
 curl -fsSL https://raw.githubusercontent.com/ets-public/brevi/main/install.sh | sh
 ```
 
-The script installs the Rust toolchain if it is missing (Brevi compiles through `rustc`), then the prebuilt `brevi` for your machine from the [latest release](https://github.com/ets-public/brevi/releases/latest) into `~/.cargo/bin`, verified against the release's `SHA256SUMS`, or builds it with `cargo install` when no prebuilt one fits.
+No Rust install is needed on Linux x86-64 and macOS from the next release: with no `rustc` on the PATH, brevi fetches the Rust release it is tested with (and zig to link, if there is no C linker) on its first build, checked against SHA-256 sums compiled into brevi; with [uv](https://docs.astral.sh/uv/), `uvx --python 3.13 brevi run --verify main.py` is the whole install. Linux ARM64 and Windows follow as each passes CI ([the pinned toolchain](https://brevi-lang.org/docs/install#the-pinned-toolchain)).
+
+The script installs the prebuilt `brevi` for your machine from the [latest release](https://github.com/ets-public/brevi/releases/latest) into `~/.cargo/bin`, verified against the release's `SHA256SUMS`, or builds it with `cargo install` when no prebuilt one fits, then fetches the pinned toolchain, or installs Rust with rustup where that is not verified yet.
 
 Windows: install Rust with [rustup](https://rustup.rs), then unzip `brevi-x86_64-pc-windows-msvc.zip` (`brevi-aarch64-pc-windows-msvc.zip` on ARM64, from v0.28.1) from the [latest release](https://github.com/ets-public/brevi/releases/latest) and put `brevi.exe` on your PATH. From v0.27.0, Python files that import libraries build too: their library calls run in CPython through the bridge (the `python` on PATH needs its DLL).
 
@@ -35,6 +50,7 @@ npm install -g brevi       # or: npx brevi mcp
 $ printf 'print(sum(i * i for i in range(10)))\n' > main.py
 $ brevi run main.py                     # build natively (cached), then run
 285
+$ brevi run --verify main.py            # the same, checked against CPython: certificate on stderr
 $ brevi check main.py                   # build without running: errors only
 $ brevi build main.py -o app --release  # an optimised binary to keep or ship
 $ brevi verify main.py --input tests/   # run it and python3 on each input: a certificate if they agree
@@ -54,7 +70,7 @@ Mistakes that Python itself only finds when a line runs raise there, as in CPyth
 - **MCP server:** `brevi mcp` serves `check`, `run`, `test`, `verify`, `patch`, `edit`, `show` and `guide` over stdio, or over Streamable HTTP with `brevi mcp --http [HOST:]PORT` (a bearer token is required off 127.0.0.1). Add it as the command `brevi` with the argument `mcp` (Claude Code: `claude mcp add brevi -- brevi mcp`). The agent sends plain Python as `code` once; the server keeps it, and `patch` (whole `def`s and classes by name) or `edit` (a range of lines) change only what they are sent and check again, so a retry costs only the changed lines. `run` with `cases` builds once and prints `ok` or the first differing line per case; `verify` runs the native build and CPython on the same inputs and returns a certificate when they agree. The tools sandbox by default, and from v0.27.0 a plain `brevi mcp` refuses a call that turns the sandbox off or grants anything (`--allow`, `--allow-net` and the other grant flags set what calls may ask for, `--trust-calls` restores the old behaviour); `verify`, which runs CPython, needs `sandbox: false` and so `--trust-calls`. Claude Desktop setup (it needs the full path to `brevi`), time and memory limits and troubleshooting: [For AI agents](https://brevi-lang.org/docs/agents#mcp-server).
 - **Python SDK** (from v0.27.0): `pip install brevi` also gives `import brevi`. `brevi.run(code, stdin=..., limits=..., allow_read=[...])` builds and runs the program sandboxed with only what your code grants and returns its `stdout`, `stderr`, `exit_code` and `path`; `brevi.verify(code, inputs=[...])` returns the certificate; `brevi.TOOL` and `brevi.handle(tool_input)` are the `run_python` tool and its reply for a model. It talks to one `brevi mcp` process, so the build cache stays warm. The npm package has the same calls for Node (`import { run } from "brevi"`). `brevi-python` is a drop-in for `python3`: native when Brevi builds the program, CPython otherwise, with CPython's output. [packaging/pypi/README.md](packaging/pypi/README.md#python-sdk)
 - **Sandbox image** (from v0.27.0): `ghcr.io/ets-public/brevi-sandbox:latest` has Brevi, the Rust toolchain, python3, the SDK and a warm build cache; `:python3` has `brevi-python` as `python3`. [templates/README.md](templates/README.md#published-image)
-- **GitHub Action** (from v0.27.0): `uses: ets-public/brevi/setup@v0.28.1` puts Brevi and its toolchain on a runner, with the build cache kept between runs. [setup/README.md](setup/README.md)
+- **GitHub Action** (from v0.27.0): `uses: ets-public/brevi/setup@v0.28.2` puts Brevi and its toolchain on a runner, with the build cache kept between runs. [setup/README.md](setup/README.md)
 - **Dev container feature** (from v0.27.0): `"features": {"ghcr.io/ets-public/features/brevi:1": {}}` in `devcontainer.json`. [devcontainer/README.md](devcontainer/README.md)
 - **Skill and plugin:** [skills/brevi/SKILL.md](skills/brevi/SKILL.md) is an Agent Skills package (setup, then write plain Python and fix only the lines an error names). In Claude Code, `/plugin marketplace add ets-public/brevi` and `/plugin install brevi@brevi` add the skill and the MCP server together.
 - **llms.txt:** [brevi-lang.org/llms.txt](https://brevi-lang.org/llms.txt), [llms-full.txt](https://brevi-lang.org/llms-full.txt), and every docs page as Markdown (add `.md` to its address).
@@ -68,9 +84,9 @@ Brevi tries the fastest path first. The **typed build** works out a fixed type f
 
 Brevi also has its own shorter Python-like language for `.bv` files, checked fully before it runs: [BREVI.md](BREVI.md) (3,589 tokens, served by `brevi guide`), [REFERENCE.md](REFERENCE.md) and [LIBRARIES.md](LIBRARIES.md) (Rust crates and Python from Brevi). Agents finish tasks more cheaply in plain Python, so the agent tools ask for Python.
 
-## Status: v0.28.1
+## Status: v0.28.2
 
-v0.28.1 (16 November 2026) is a point release on v0.28.0. `re.IGNORECASE` and the str case methods use CPython 3.13's own Unicode tables in both builds instead of rustc's, so Rust 1.100 and newer neither refuse IGNORECASE patterns nor change case answers. `namedtuple` checks names with CPython's `str.isidentifier()`, and regex patterns built at run time that the typed matcher cannot match exactly re-run on the dynamic build. On Windows, `--standalone` works, HTTPS trusts the system certificate store, ARM64 builds ship, and a release is gated on Windows conformance. Conformance numbers below are at v0.28.1; speed and release-test numbers were measured at v0.28.0.
+v0.28.2 (16 November 2026) is a security and Windows point release on v0.28.1. On Linux and other unix, Brevi's temporary folders are private to the user (`$TMPDIR/brevi-UID`, owner and mode checked); before, another local user could create them first. `brevi mcp --http` bounds how much a client can make it read and hold before the token is checked. On Windows, CRLF source files, `\\?\` source paths and the cp1252 codec now give CPython's answers, which fixes the 23 Windows-only stdlib wrong answers, and a release is gated on Windows stdlib conformance as well as core. With no `rustc` on the PATH, brevi now fetches the pinned Rust it is tested with (and zig to link, if needed) on Linux x86-64 and macOS, each checked by SHA-256. The security posture is stated plainly: no external audit yet, and the sandbox is a policy layer, not an isolation boundary. Conformance numbers below are at v0.28.1 (v0.28.2's are in its release notes); speed and release-test numbers were measured at v0.28.0.
 
 v0.28.0 (15 November 2026) brings `match` statements, metaclasses, PEP 695 generics, `bytearray` and `memoryview`, CPython 3.13's own str hashing and set order, and many more of CPython's own tests to the dynamic build, with no known wrong answer on either conformance slice. Brevi now uses only CPython 3.13 wherever it runs or asks CPython. Full list: [CHANGELOG.md](CHANGELOG.md).
 
@@ -137,7 +153,7 @@ Never remove a line from `compat/baseline.txt` to make a check pass.
 
 ## Contributing and security
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for bug reports and pull requests, and [SECURITY.md](SECURITY.md) to report a vulnerability privately. For anything else, email [support@brevi-lang.org](mailto:support@brevi-lang.org).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for bug reports and pull requests, and [SECURITY.md](SECURITY.md) to report a vulnerability privately and for what the sandbox does and does not cover. For anything else, email [support@brevi-lang.org](mailto:support@brevi-lang.org).
 
 ## License
 

@@ -44,7 +44,9 @@ About 0.25 s for a tiny new program and a median of about 1.2 s for a typical ag
 
 ## Is it safe to run code an agent wrote?
 
-Brevi programs are memory-safe, and integers never silently overflow. A program can declare what it touches (`allow read, write`, and `allow native` for crates and Python libraries), and `--sandbox` refuses anything the caller did not grant (`--allow`, `--allow-py`) on every build path, whatever the program's own allow lines say. A sandboxed program never falls back to CPython (from v0.24.1). Running untrusted code in a container or VM as well is still wise. See [Sandbox](/docs/usage#sandbox).
+Code you trust, yes; code that may be hostile, not on Brevi's sandbox alone. **No external security audit yet**: we have not had an external audit; we are seeking funding for one. Until then, do not run hostile code under the sandbox.
+
+**The sandbox is a policy layer, not an isolation boundary.** Under `--sandbox` (the default in the MCP tools and the SDKs, except `verify`, which runs CPython) a program may touch only what the caller grants (`--allow`, `--allow-net`, `--allow-read`, `--allow-write`, `--allow-py`), checked before every build path and, for folders and hosts, again when the program runs, and its own `allow` lines grant nothing; a sandboxed program never falls back to CPython. That holds careless or overreaching agent code. But Brevi's own checks and runtime enforce it, with no container or VM around the program, so **run untrusted code in a container or VM** and use the sandbox as a second layer inside it. **`--allow-py` and `--allow native` are full trust**: grant them only to code you would run without a sandbox. Brevi builds programs as Rust and integers never silently overflow, which rules out some classes of bug, not the need for isolation. See [Sandbox](/docs/usage#sandbox).
 
 ## Does it cost more tokens than Python?
 

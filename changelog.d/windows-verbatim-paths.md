@@ -1,1 +1,0 @@
-- Windows: warnings, `functools.partial` methods, `sys.path[0]` and `os.path.realpath` give paths as CPython does (`C:\...`), never with the `\\?\` prefix (#587).

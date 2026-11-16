@@ -1,1 +1,0 @@
-- Source files with Windows line ends (CRLF, or a lone CR) now read as CPython reads them: every line end is a newline before lexing, so a triple-quoted string no longer keeps the `\r`, and a backslash before a CRLF inside a string is a line continuation again. This fixes 13 stdlib conformance tests (textwrap, `re` error positions) that gave wrong answers on Windows only (#588).

@@ -180,7 +180,14 @@ Other mistakes that Python only finds when the line runs (an index out of range,
 
 ## Sandbox
 
-**What it is, and what it is not.** The sandbox is a cheap capability and limit layer for agent code you mostly trust. It is not an isolation boundary for hostile code. Brevi's own generated code enforces it: there is no seccomp filter, namespace or VM around the program, so the guarantee rests on Brevi being right. `--allow-py` and `--allow native` are full trust, Landlock holds CPython to the file grants on Linux 5.13 and later only, a file check and the open that follows are two steps, and no outside security review has been done yet. Run untrusted code inside a container or VM as well, and use the sandbox as a second layer inside it.
+**What it is, and what it is not.**
+
+- **No external security audit yet.** We have not had an external audit; we are seeking funding for one. Until then, do not run hostile code under the sandbox.
+- **The sandbox is a policy layer, not an isolation boundary.** It is a cheap capability and limit layer for agent code you mostly trust. Brevi's own build check and runtime code enforce it: there is no namespace, container or VM around the program, so the guarantee rests on Brevi being right. Only a program that loads CPython is held by the kernel as well, on Linux only: Landlock for files on 5.13 and later (where it is missing, named folders are refused and otherwise CPython keeps full file access), and on x86-64 and arm64 a seccomp filter against the network when none is granted. A file check and the open that follows are two steps.
+- **Run untrusted code in a container or VM**, and use the sandbox as a second layer inside it.
+- **`--allow-py` and `--allow native` are full trust.** Grant them only to code you would run without a sandbox.
+
+Who should use Brevi today is in [SECURITY.md](https://github.com/ets-public/brevi/blob/main/SECURITY.md#who-should-use-brevi-today); what each layer covers is in the [threat model](https://github.com/ets-public/brevi/blob/main/docs/THREAT_MODEL.md).
 
 With `--sandbox` (and in the MCP tools, which sandbox by default), **only the caller grants capabilities**: `--allow read,write,net,native`, `--allow-net api.example.com` to let the program reach just those hosts, `--allow-read data` and `--allow-write out` to let it read or write files only inside those folders, or `--allow-py yaml,pandas` to let CPython run just those libraries (the MCP tools' `allow`, `allow_net`, `allow_read`, `allow_write` and `allow_py` arguments). The code being sandboxed cannot grant itself anything: an `allow` line in it that asks for more than the caller granted is refused (from v0.24.6; before it, an allow line in the file was enough).
 
@@ -326,7 +333,12 @@ window "tk"
 ## Libraries
 
 - **Python packages** in Python files: `import numpy as np`, `pandas`, `yaml`, `pathlib`, `subprocess` or any other installed module works. Its calls run in CPython inside the native program, so results are CPython's own. The program needs `libpython` where it runs, unless built with `--standalone`.
-- **Standalone binaries**: `brevi build x.py --standalone` carries CPython, the standard library and the imported packages (with what they require). The first run unpacks them once into `~/.cache/brevi/py` (`%LOCALAPPDATA%\brevi\py` on Windows), about 1 to 3 seconds; later runs start at normal speed. Expect about 13 MB for a standard-library program and 30 to 45 MB with numpy or pandas. Linux and Windows. A standalone binary uses only the Python it carries: if the file is changed after the build (code signing appends to it), it refuses to run instead of using an installed Python. On Windows the build is refused with Microsoft Store Python or a Python for another CPU.
+- **Standalone binaries**: `brevi build x.py --standalone` carries CPython, the standard library and the imported packages (with what they require). The first run unpacks them once into `~/.cache/brevi/py` (`%LOCALAPPDATA%\brevi\py` on Windows), about 1 to 3 seconds; later runs start at normal speed. Expect about 13 MB for a standard-library program and 30 to 45 MB with numpy or pandas. Linux and Windows. A standalone binary uses only the Python it carries: if the file is changed after the build (code signing appends to it), it refuses to run instead of using an installed Python. On Windows the build is refused with Microsoft Store Python or a Python for another CPU. It is one file to copy, but it does not run in place: what it cannot carry or do:
+  - **Run without a writable cache.** The first run unpacks CPython into `BREVI_PY_CACHE`; on Windows a cache path that would put an unpacked file past 260 characters is refused (set `BREVI_PY_CACHE` shorter).
+  - **Desktop and build tooling from the standard library:** `tkinter`, `turtle`, IDLE, the Tcl/Tk DLLs, `ensurepip`, `lib2to3` and the `test` packages are left out.
+  - **Imports it cannot see at build time:** it carries the packages the program imports and what they import as they load, so a module imported only later, while the program runs (by a name built at run time, or lazily inside a library function), may be missing.
+  - **Survive changes to the file:** code signing or anything else that appends to the binary makes it refuse to run (never falling back to an installed Python).
+  - **macOS:** not yet; `--standalone` is refused there.
 - **Rust crates and Python code from Brevi programs**: `use sha2 "0.10"` with a `rust fn`, or a `py fn` with a Python body. See [Libraries](/docs/libraries).
 
 ## Speed and the build cache

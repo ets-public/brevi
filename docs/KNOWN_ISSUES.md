@@ -1,6 +1,6 @@
 # Known issues
 
-This page describes `main` as of v0.28.1 (16 November 2026). It lists limits that are known and tracked. It is not a list of every bug: open issues are on [GitHub](https://github.com/ets-public/brevi/issues). Report anything new as described in [SUPPORT.md](SUPPORT.md). For security problems, use [SECURITY.md](../SECURITY.md).
+This page describes `main` as of v0.28.2 (16 November 2026). It lists limits that are known and tracked. It is not a list of every bug: open issues are on [GitHub](https://github.com/ets-public/brevi/issues). Report anything new as described in [SUPPORT.md](SUPPORT.md). For security problems, use [SECURITY.md](../SECURITY.md).
 
 ## Correctness and conformance
 
@@ -45,16 +45,16 @@ Windows builds, runs and verifies programs natively, including library calls thr
 - Windows' own SQLite can be a different version from CPython's, so version-specific output may differ.
 - DuckDB and ONNX Runtime need their libraries installed (`pip install duckdb`, onnxruntime 1.16 or later).
 - Windows x86-64 and ARM64 (from v0.28.1) are built.
-- Conformance on Windows is gated for the core slice only. Each release runs CPython's core tests on the shipped `brevi.exe` (windows-2022 and windows-11-arm) and refuses to ship below 90% or with any wrong answer; v0.28.1 passed with none wrong. The standard-library slice is not gated on Windows in v0.28.1. Measured on Windows after the release (16 November), it matched 1,967 of 2,053 tests (95.7%) and gave **23 wrong answers** that all match on Linux: source paths keep the `\\?\` prefix ([#587](https://github.com/ets-public/brevi/issues/587), 9 tests in re, functools and enum), CRLF source keeps `\r` in string literals ([#588](https://github.com/ets-public/brevi/issues/588), 13 tests, mostly textwrap), and there is no cp1252 codec ([#589](https://github.com/ets-public/brevi/issues/589), 1 test). Until those are fixed, check Windows programs that touch these with `brevi verify`. A Windows gate for the stdlib slice is in review ([#590](https://github.com/ets-public/brevi/pull/590)).
+- Conformance on Windows is gated for both slices. Each release runs CPython's core and standard-library tests on the shipped `brevi.exe` (windows-2022 and windows-11-arm) and refuses to ship below the floor, below 90% (core) or 80% (stdlib), or with any wrong answer. The 23 Windows-only stdlib wrong answers measured after v0.28.1 (`\\?\` source paths [#587](https://github.com/ets-public/brevi/issues/587), CRLF string literals [#588](https://github.com/ets-public/brevi/issues/588), no cp1252 codec [#589](https://github.com/ets-public/brevi/issues/589)) are fixed in v0.28.2, and both Windows known-wrong lists are empty.
 - In v0.27.x, dynamic builds on Windows use POSIX path rules (`os.path.basename("C:\\a\\b.txt")` gives the whole path) and report `sys.platform` as `linux`. From v0.28.0 `os.path` is `ntpath`, `sys.platform` is `win32`, and `pathlib` runs in CPython.
 
 Tests: [tests/windows/check.ps1](../tests/windows/check.ps1).
 
 ## Sandbox and limits
 
-The full model is [THREAT_MODEL.md](THREAT_MODEL.md). No outside security review has been done. The sandbox is a compile-time capability check plus a runtime with nothing in it, not an operating-system jail. In short:
+The full model is [THREAT_MODEL.md](THREAT_MODEL.md). No external security audit yet: we have not had an external audit; we are seeking funding for one. Until then, do not run hostile code under the sandbox. The sandbox is a policy layer, not an isolation boundary: a compile-time capability check plus Brevi's own runtime code, with no container or VM around the program. Run untrusted code in a container or VM. In short:
 
-- `--allow-py` and `--allow native` are full trust. Only files are held, and only on Linux 5.13 or later with Landlock. Where Landlock is missing, named folders are refused, and with none named CPython keeps full file access.
+- `--allow-py` and `--allow native` are full trust. For CPython, files are held on Linux 5.13 or later with Landlock, and the network on Linux x86-64 and arm64 with seccomp (next line); a `rust fn` or crate is not held at all. Where Landlock is missing, named folders are refused, and with none named CPython keeps full file access.
 - Processes and the `files`, `net` and `written` limits are not held for CPython. The network is held for it only on Linux, from v0.28.0 (no network without a grant; hosts named with `--allow-net` are refused); on macOS and Windows CPython keeps the network.
 - `--allow read` and `--allow write` are whole-account grants. A swap of a folder for a symlink by another process between check and open can redirect an open.
 - The network grant matches host names. `--allow net` reaches anything the machine can, including `localhost` and cloud metadata.

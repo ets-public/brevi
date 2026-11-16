@@ -73,7 +73,8 @@ The north star is the share of real agent-written programs that build natively, 
 
 ## Later (to 1.0)
 
-- **brevi.run, hosted.** A closed beta of the compiler as a sandboxed API for agents, only once the platform's VM or microVM isolation and an outside security review are in place.
+- **brevi.run, hosted.** A closed beta of the compiler as a sandboxed API for agents, only once runs are held in the platform's VM or microVM and an outside security review is done.
+- **An external security audit.** We have not had an external audit; we are seeking funding for one. Until then, do not run hostile code under the sandbox: it is a policy layer, not an isolation boundary, so run untrusted code in a container or VM. Pilots with design partners running their own trusted code in their own container do not wait on it; a public beta should have a fixed-scope independent review first; the sandbox will not be offered as a boundary for hostile code before a paid audit. [Where Brevi stands](https://github.com/ets-public/brevi/blob/main/SECURITY.md#where-brevi-stands).
 - **Windows parity.** From v0.27.0, library programs, generators and `async` build on Windows (CPython bridge and Win32 fibers). From v0.28.0, `os.path` is `ntpath` and `sys.platform` is `win32` on Windows, and conformance runs on Windows every week. `--standalone` works on Windows from v0.28.1 and Windows ARM64 builds ship from v0.28.1; `--standalone` on macOS is next.
 - **1.0** when conformance reaches 90% with no known wrong results, the typed path covers 90% of agent programs, `brevi check` answers in 30 ms, an outside security review is done, and three harnesses ship Brevi. Until then Brevi stays 0.x.
 
@@ -87,6 +88,7 @@ The north star is the share of real agent-written programs that build natively, 
 
 Each item is in the [changelog](/docs/changelog) with its release.
 
+- **In v0.28.2:** security fixes for temp folders (private to the user on Linux and other unix) and `brevi mcp --http` (requests bounded before the token check); on Windows, CRLF source, source paths without `\\?\`, the cp1252 codec and `re.LOCALE`, and the standard-library conformance slice gates a release.
 - **In v0.28.1:** `re.IGNORECASE` and str case methods answer with CPython 3.13's Unicode tables on any Rust toolchain (Rust 1.100 pinned); `namedtuple` names checked as CPython checks them; run-time regex patterns the typed matcher lacks re-run on the dynamic build; Windows `--standalone`, the Windows certificate store, Windows ARM64, and Windows conformance as a release gate.
 - **In v0.28.0:** `--strict`; core conformance 97.3% (of the scored suite, with 83 string-as-code tests excluded) and stdlib 96.9% over 21 files with no wrong answers; `match` statements; complex numbers, metaclasses, `def f[T]`, threads that take turns, `weakref.proxy`, strs with lone surrogates, and exact `vars()`/`dir()` in dynamic builds; releases held to the conformance gates, with an SBOM, provenance attestations and a reproducible-build check; native `bytearray`, `memoryview`, `collections.abc`, `ChainMap` and the `User*` classes, `functools.singledispatch`, `partialmethod` and `cached_property`, `string.Template`, `itertools.tee` and `batched`, warnings with the program's lines, and bytes patterns in `re`; sandboxed CPython gets no network without a grant; engine libraries pinned by hash; Windows paths as `ntpath`.
 - **In v0.27.1:** `brevi-python` works on macOS; releases run the whole suite on the commit they release, check every archive they ship and check Windows on the shipped zip.

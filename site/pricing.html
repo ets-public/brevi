@@ -42,7 +42,7 @@ __HEADER__
             <li>Typed and dynamic builds, the library bridge, big integers</li>
             <li><code>--standalone</code> builds that carry CPython (Linux and Windows)</li>
             <li><code>brevi mcp</code>, the Agent Skill and the Claude Code plugin</li>
-            <li><code>--sandbox</code> capability checks</li>
+            <li><code>--sandbox</code> capability checks (a policy layer, not an isolation boundary; no external security audit yet)</li>
             <li>Apache-2.0: commercial use, changes and redistribution allowed</li>
           </ul>
           <a class="btn primary" href="/docs/install">Get started</a>
@@ -78,7 +78,7 @@ __HEADER__
           <p class="who">For agent platforms that run model-written code in the cloud.</p>
           <ul>
             <li>Check, run and test over HTTPS, like <code>brevi mcp</code></li>
-            <li>Each program sandboxed, with only the access the request grants</li>
+            <li>Runs held in a VM or microVM, with only the access the request grants; opens only after an outside security review</li>
             <li>Builds cached by content, so re-runs after a fix are fast</li>
             <li>Nothing to install: no Rust toolchain or Python on your side</li>
           </ul>

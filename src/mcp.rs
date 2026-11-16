@@ -626,7 +626,7 @@ fn brevi_done(files: &mut Files, cmd: &str, extra: &[String], stdin: &str, limit
         return (text, true, after, Some(done));
     };
     if text.contains("rustc not found") {
-        text.push_str("Brevi needs the Rust toolchain: install it from https://rustup.rs, then restart the MCP client.\n");
+        text.push_str("Brevi needs a Rust compiler: it fetches its pinned one when none is installed (see the message above), or install Rust from https://rustup.rs, then restart the MCP client.\n");
     }
     if !st.success() && text.trim().is_empty() {
         text = format!("failed with exit code {} and no output", st.code().map_or("?".into(), |c| c.to_string()));

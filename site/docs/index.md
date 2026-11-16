@@ -1,7 +1,9 @@
 # Brevi documentation
 <!-- description: Brevi documentation: install, use, connect agents, and how the compiler works. -->
 
-Brevi is a compiler built for AI coding agents. The agent writes ordinary Python, and Brevi builds it through Rust into a native program. On our 12 compute benchmarks the default typed build runs 1.6x to 37.9x faster than CPython (median 9.3x); a program on the dynamic build runs at about CPython's speed (the dynamic build's median is 0.85x). Brevi aims to print exactly what CPython prints and to refuse what it cannot match; on CPython 3.13's own tests it matches 97.3% of the scored suite, with 83 string-as-code tests excluded at v0.28.1 and gets none wrong, but it is a preview, not a drop-in `python3` ([the numbers](/docs/compatibility#in-numbers)). When Brevi cannot build something, it says so in one short JSON line the agent can act on.
+**The verified native runtime for agent-written Python.** The agent writes plain Python; Brevi runs it native and `brevi run --verify` checks each run against CPython 3.13. New here? [Quickstart for agents](/docs/quickstart) goes from install to a verified run in a few commands.
+
+Brevi is a compiler built for AI coding agents. The agent writes ordinary Python, and Brevi builds it through Rust into a native program. On our 12 compute benchmarks the typed build runs 1.6x to 37.9x faster than CPython (median 9.3x), but only a small share of programs take it; the dynamic build most programs get runs at about CPython's speed (median 0.85x). Brevi aims to print exactly what CPython prints and to refuse what it cannot match; on CPython 3.13's own tests it matches 97.3% of the scored suite, with 83 string-as-code tests excluded, at v0.28.1 and gets none wrong, but it is a preview, not a drop-in `python3` ([the numbers](/docs/compatibility#in-numbers)). When Brevi cannot build something, it says so in one short JSON line the agent can act on.
 
 Brevi is written in Rust and released under the Apache-2.0 license.
 
@@ -15,14 +17,14 @@ cat: 1
 ## Who it is for
 
 - **Coding agents** that write Python to solve a task: Brevi takes the place of `python3` in the loop. The agent needs no guide, and gets faster programs and shorter errors. Start with [For AI agents](/docs/agents).
-- **People who run agent-written code**: one native binary to ship, the same output as CPython, and a sandbox the program declares. Start with [Install](/docs/install) and [Using Brevi](/docs/usage).
+- **People who run agent-written code**: one native binary to ship, the same output as CPython, and a sandbox the caller controls. Start with [Install](/docs/install) and [Using Brevi](/docs/usage).
 - **Anyone curious how a Python-to-Rust compiler can stay exact**: [Architecture](/docs/architecture) and [What works, and limits](/docs/compatibility).
 
 ## What makes it different
 
 - **AI-first.** Every design choice is measured by what it costs a model to get a working program: tokens written, errors read, retries. The [release test](/docs/benchmarks#the-release-test) has Claude models solve 24 tasks in Python, run once by CPython and once by Brevi, and Brevi must cost no more.
 - **Fast.** Most Python builds into plain Rust with fixed types. Programs whose types change at run time build over dynamic values, still native.
-- **Safe.** Rust's memory safety underneath, integers that never silently overflow, and a declared sandbox for file access and native code.
+- **Held to what you grant.** Integers never silently overflow, and under `--sandbox` a program touches only the files, hosts and native code the caller grants. The sandbox is a policy layer, not an isolation boundary: run untrusted code in a container or VM, and know that `--allow-py` and `--allow native` are full trust. No external security audit yet ([Security](https://github.com/ets-public/brevi/blob/main/SECURITY.md#where-brevi-stands)).
 - **Exact.** A program Brevi builds gives CPython's output, or Brevi refuses at build time. It does not guess. On 591 saved agent programs, every build matched CPython byte for byte.
 
 ## Where to go next

@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Brevi: compile the Python your AI agent writes</title>
-<meta name="description" content="Brevi is built for AI coding agents: the agent writes ordinary Python, and Brevi builds it through Rust into a fast, memory-safe native binary, checked against CPython's own tests.">
+<title>Brevi: the verified native runtime for agent-written Python</title>
+<meta name="description" content="Brevi is the verified native runtime for agent-written Python: the agent writes ordinary Python, Brevi compiles it through Rust into a native binary, checks each run against CPython, and says in one line of JSON when it cannot.">
 <link rel="alternate" type="text/plain" href="/llms.txt" title="llms.txt">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -21,33 +21,27 @@ __HEADER__
   <div class="hero-band ink">
     <div class="wrap hero">
       <div>
-        <p class="eyebrow">A compiler for AI coding agents</p>
-        <h1>Run the Python your agent writes as a native binary</h1>
-        <p class="lede">Your agent keeps writing ordinary Python. Brevi compiles it through Rust into a native binary that runs <strong>1.6x to 37.9x faster</strong> than CPython (median 9.3x) on our compute benchmarks, on its typed build. Programs on its dynamic build run at about CPython's speed (median 0.85x).</p>
+        <p class="eyebrow">The verified native runtime for agent-written Python</p>
+        <h1>Your agent writes Python. Brevi runs it native, checked against CPython.</h1>
+        <p class="lede">Brevi compiles the plain Python your agent writes into a native binary, and <code>brevi run --verify</code> checks each run against CPython 3.13. Your harness gets a certified native answer, CPython's own answer, or an answer marked unchecked, never an unchecked one passed off as checked, and every refusal is <strong>one line of JSON</strong> the model can act on.</p>
         <div class="install" aria-label="Install command"><span class="p">$</span><code>curl -fsSL https://raw.githubusercontent.com/ets-public/brevi/main/install.sh | sh</code><button class="copy" type="button" data-copy>Copy</button></div>
         <div class="actions">
-          <a class="btn primary" href="/docs/install">Get started</a>
+          <a class="btn primary" href="/docs/quickstart">Quickstart for agents</a>
           <a class="btn ghost" href="__GITHUB__" rel="noopener">__GHICON__View on GitHub</a>
           <a class="more" href="/docs/agents">Set up an agent →</a>
         </div>
         <p class="fine">It aims to print exactly what CPython prints and to refuse what it cannot match; today it matches <strong>97% of the CPython 3.13 tests it scores</strong>, so it is a preview, not a drop-in <code>python3</code>. When Brevi cannot build a file, it says why in one line of JSON.</p>
         <p class="status jl">__STATUS__</p>
       </div>
-      <div class="term" aria-label="Example program and output">
-        <div class="tbar"><span>top.py</span><span>plain Python</span></div>
-<pre><span class="k">import</span> sys
-<span class="k">from</span> collections <span class="k">import</span> Counter
-
-<span class="c"># Three most common words on stdin</span>
-counts = Counter(sys.stdin.read().lower().split())
-<span class="k">for</span> word, n <span class="k">in</span> counts.most_common(3):
-    print(<span class="s">f"{word}: {n}"</span>)</pre>
-        <div class="tbar"><span>$ brevi run top.py &lt; text.txt</span><span>native binary</span></div>
-<pre class="out">the: 3
-and: 2
-cat: 1</pre>
-        <div class="tbar"><span>$ brevi check broken.py</span><span>one line per error</span></div>
-<pre class="out wrapline">{"line":8,"msg":"name 'totl' is not defined","fix":"did you mean total?"}</pre>
+      <div class="term" aria-label="The agent loop: check, fix, verify">
+        <div class="tbar"><span>$ brevi check main.py</span><span>agent's first draft</span></div>
+<pre class="out wrapline">{"line":16,"msg":"name 'totl' is not defined","fix":"did you mean total?"}</pre>
+        <div class="tbar"><span>$ echo 1000 | brevi run --verify main.py</span><span>after fixing line 16</span></div>
+<pre class="out wrapline">168 primes below 1000
+sum 76127
+{"verify":"identical",...,"path":"typed","exit":0,"stdout_same":true,"stderr_same":true,...}</pre>
+        <div class="tbar"><span>$ brevi run --verify clock.py</span><span>cannot be checked: said so</span></div>
+<pre class="out wrapline">{"verify":"refused","why":"reads the clock","msg":"not checked against CPython: ..."}</pre>
       </div>
     </div>
     <div class="wrap">
@@ -63,13 +57,14 @@ cat: 1</pre>
   <section class="band" id="how">
     <div class="wrap">
       <div class="band-head">
-        <h2>Python in, Rust speed out</h2>
-        <p>The model has no new syntax to learn and no guide to load. Brevi replaces <code>python3</code> in the agent's loop.</p>
+        <h2>One loop: write, check, verify, run</h2>
+        <p>The model has no new syntax to learn and no guide to load. Brevi replaces <code>python3</code> in the agent's loop, and adds a check CPython alone cannot give: that the fast answer is the right one. <a href="__GITHUB__/tree/main/examples/agent-loop">Run the whole loop yourself</a>.</p>
       </div>
-      <ol class="steps">
+      <ol class="steps four">
         <li><h3>The agent writes Python</h3><p>Ordinary Python 3, with the standard library or installed packages, in one file or many. No type annotations needed.</p></li>
-        <li><h3>Brevi compiles it</h3><p>It infers the type of every value and writes Rust. Where a type changes at run time, it writes Rust over dynamic values instead. <code>rustc</code> makes the binary.</p></li>
-        <li><h3>Checked against CPython</h3><p>Where Brevi knows it cannot match CPython, it refuses at build time, and <code>brevi run</code> runs the file with python3 instead and says so in one line (<code>--native</code> turns that off). It does not catch every difference yet, so check programs that matter with <code>brevi verify</code>.</p></li>
+        <li><h3>Brevi compiles it</h3><p>It infers the type of every value and writes Rust; where a type changes at run time, Rust over dynamic values instead. A sure mistake comes back before anything runs, as one JSON line with the line number and a fix.</p></li>
+        <li><h3><code>--verify</code> checks it against CPython</h3><p>Each run is compared with CPython 3.13 on the same input. Same answer: a certificate the harness can log. Different: CPython's answer, and a <code>{"verify":"differs"}</code> line. Cannot be compared (clock, files, network): a <code>{"verify":"refused"}</code> line, never a silent pass.</p></li>
+        <li><h3>Native, or through MCP</h3><p>The checked program runs as a native binary, or through <code>brevi mcp</code>, where <code>run</code> checks by default: under its default sandbox, a program on the typed build is checked against Brevi's dynamic build, and any other run says it was not checked. Outside the sandbox, a file Brevi cannot build runs in CPython, and one line says which line stopped the build.</p></li>
       </ol>
     </div>
   </section>
@@ -128,7 +123,7 @@ cat: 1</pre>
       <div class="grid3">
         <div class="point"><span class="fig">591 of 591</span><h3>No regressions on agent programs</h3><p>All 591 saved programs from our own benchmark runs still build and match CPython byte for byte, with the same exit status. They passed once and are kept so nothing breaks again: a regression check, not a measure of how much Python works.</p></div>
         <div class="point"><span class="fig">{"line":N,"msg":…,"fix":…}</span><h3>One-line errors</h3><p>Build and run-time errors are one line that names the source line, a fraction of a traceback's tokens. The agent fixes that line and runs again.</p></div>
-        <div class="point"><span class="fig">allow read, write</span><h3>Only the caller grants access</h3><p>Under <code>brevi run --sandbox</code> and in the MCP tools, a program cannot read or write files, call native code or load libraries unless the caller allows it. <code>allow</code> lines in the source grant nothing. It is a limit layer, not a security boundary: no seccomp or VM, <code>--allow-py</code> is full trust, and no outside review yet. Run untrusted code in a container too.</p></div>
+        <div class="point"><span class="fig">allow read, write</span><h3>Only the caller grants access</h3><p>Under <code>brevi run --sandbox</code> and in the MCP tools, a program cannot read or write files, call native code or load libraries unless the caller allows it. <code>allow</code> lines in the source grant nothing. The sandbox is a policy layer, not an isolation boundary: there is no container or VM around the program, and <code>--allow-py</code> and <code>--allow native</code> are full trust. Run untrusted code in a container or VM. No external security audit yet: we have not had an external audit; we are seeking funding for one. Until then, do not run hostile code under the sandbox. <a href="https://github.com/ets-public/brevi/blob/main/SECURITY.md#where-brevi-stands">Security</a></p></div>
         <div class="point"><span class="fig">numpy · requests · pydantic</span><h3>Installed packages work</h3><p>numpy, requests, pydantic, the LLM SDKs, MCP servers, sqlite3 and other common libraries build with Brevi's own native copies; other installed packages, such as pandas, run in CPython inside the native program. tkinter apps build too, and can be tested without a screen.</p></div>
         <div class="point"><span class="fig">Rust stable · beta · nightly</span><h3>Tested against new toolchains</h3><p>CI builds daily on Rust stable and the newest and next Python, and weekly on Rust beta and nightly. Every benchmark program that once passed must keep passing.</p></div>
       </div>

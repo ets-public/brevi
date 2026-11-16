@@ -1,7 +1,7 @@
 {
  "matched": {
-  "normal": 1965,
-  "dyn": 1967
+  "normal": 1964,
+  "dyn": 1966
  },
  "note": "tools/conformance.py --slice stdlib --check on Windows fails when fewer tests match natively (not through the CPython bridge); the weekly conformance job in windows.yml raises them on main, PRs never do",
  "release_gate": {
