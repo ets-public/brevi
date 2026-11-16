@@ -1,5 +1,6 @@
-# Rewrites an existing release's notes from its section of CHANGELOG.md (tools/release_notes.py),
-# so release pages stay current when the changelog is corrected after a release.
+# Rewrites an existing release's notes (tools/release_notes.py): the conformance numbers in full, read from the
+# reports the tag holds, then the tag's section of CHANGELOG.md, so release pages stay current when the changelog
+# or the notes' layout changes after a release. The "Tested:" line release.yml wrote is kept as it was.
 name: Release notes
 
 on:
@@ -18,9 +19,15 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0  # the tags: the numbers come from the reports the tag holds, not from main's
       - env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.inputs.tag }}
         run: |
+          git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || { echo "no tag $TAG"; exit 1; }
           python3 tools/release_notes.py "$TAG" > notes.md
+          # Keep the line naming the run that tested these binaries; only release.yml can write it.
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json body -q .body | grep '^\*\*Tested:\*\*' > tested.md || true
+          if [ -s tested.md ]; then { echo; cat tested.md; } >> notes.md; fi
           gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --notes-file notes.md
