@@ -1,6 +1,6 @@
-"""Prints the GitHub release notes for a tag: its section of CHANGELOG.md plus the install note.
+"""Prints the GitHub release notes for a tag: the conformance numbers in full, then its section of CHANGELOG.md, then the install note.
 usage: python3 tools/release_notes.py v0.18.0
-       python3 tools/release_notes.py --check v0.18.0   (release.yml preflight: the conformance reports measured this tree)"""
+       python3 tools/release_notes.py --check v0.18.0   (release.yml preflight: the conformance reports measured this tree and hold every figure the notes quote)"""
 import os, re, subprocess, sys
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
@@ -38,8 +38,43 @@ def check_reports(tag):
     print(f"conformance reports measured {tag} on this tree")
 
 
+def read_report(tag, rel):
+    """A published report as the tag holds it (so rewriting an old release's notes never quotes a later main's
+    numbers), or the working tree's copy before the tag exists (release.yml writes the notes from the tag's own
+    commit, so both are the same file). None when neither has it."""
+    path = "bench/conformance/" + rel
+    r = subprocess.run(["git", "-C", ROOT, "show", f"refs/tags/{tag}:{path}"], capture_output=True, text=True)
+    if r.returncode == 0:
+        return r.stdout
+    exists = subprocess.run(["git", "-C", ROOT, "rev-parse", "-q", "--verify", f"refs/tags/{tag}"], capture_output=True)
+    if exists.returncode == 0:
+        return None  # the tag exists and has no such report: quote nothing rather than another tree's numbers
+    f = os.path.join(ROOT, path)
+    return open(f).read() if os.path.exists(f) else None
+
+
+def figures(r, rel):
+    """Every number the release notes lead with, from one report. A report missing any of them stops the notes:
+    they quote the full set or nothing, never the headline alone."""
+    pats = {
+        "cov": r"\*\*Coverage ([\d.]+%)\*\* \((\d+) of (\d+) tests",
+        "wrong": r"\*\*Wrong: (\d+)\*\*",
+        "design": r"\*\*Refused by design: (\d+)\*\*",
+        "asserting": r"\*\*Assertion-bearing coverage ([\d.]+%)\*\* \((\d+) of (\d+):[^;]*; (\d+) matches print nothing",
+        "typed": r"\*\*Typed-path share ([\d.]+%)\*\* \((\d+) of (\d+) native matches",
+        "who": r"^Brevi (\S+)(?: \(commit [0-9a-f]+(?:-dirty)?\))? against CPython (\S+)[^,]*, (\d{4}-\d\d-\d\d)",
+    }
+    got = {k: re.search(v, r, re.M) for k, v in pats.items()}
+    missing = [k for k, m in got.items() if not m]
+    if missing:
+        sys.exit(f"bench/conformance/{rel}: no {', '.join(missing)} figure; the release notes quote every figure or none")
+    return got
+
+
 if sys.argv[1] == "--check":
     check_reports(sys.argv[2])
+    for rel in ("report.md", "stdlib/report.md"):
+        figures(open(os.path.join(ROOT, "bench", "conformance", rel)).read(), rel)
     sys.exit(0)
 tag = sys.argv[1]
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -48,63 +83,46 @@ text = changelog.changelog()  # CHANGELOG.md with any changelog.d/ fragments in 
 # A section starts at "## v0.18.0 (date)" and runs to the next "## ".
 m = re.search(r"^## " + re.escape(tag) + r"\b[^\n]*\n(.*?)(?=^## |\Z)", text, re.S | re.M)
 body = m.group(1).strip() if m else "See CHANGELOG.md."
-print(body)
-print()
-# Outside contributors, thanked by handle in the section's entries ("thanks @name"), are listed by name too.
-thanked = sorted(set(re.findall(r"thanks (@[A-Za-z0-9-]+)", body)), key=str.lower)
-if thanked:
-    print("**Contributors:** thanks to " + ", ".join(thanked) + " for their work in this release.")
+
+# The notes lead with the CPython conformance numbers in full: not only the headline share, but what it leaves out
+# (tests refused by design), how strong its matches are (the share that printed something to compare) and how many
+# took the typed build. Core is CPython's own language tests; stdlib is its tests of the modules agents use most
+# (tools/conformance.py --slice stdlib).
+core, std = read_report(tag, "report.md"), read_report(tag, "stdlib/report.md")
+if core and std:
+    c, s = figures(core, "report.md"), figures(std, "stdlib/report.md")
+    blob = f"https://github.com/ets-public/brevi/blob/{tag}/bench/conformance/"
+    row = lambda label, f: print(f"| {label} | {f(c)} | {f(s)} |")
+    print(f"## Conformance, in full\n")
+    print(f"Native builds of CPython {c['who'].group(2)}'s own tests, measured on Brevi {c['who'].group(1)} "
+          f"({c['who'].group(3)}). Each test must print exactly what CPython prints.\n")
+    print(f"| | [Core language]({blob}report.md) | [Standard library]({blob}stdlib/report.md) |")
+    print("| --- | ---: | ---: |")
+    row("Match CPython", lambda f: f"{f['cov'].group(2)} of {f['cov'].group(3)} ({f['cov'].group(1)})")
+    row("Give a different answer", lambda f: f["wrong"].group(1))
+    row("Refused by design, left out of the count", lambda f: f["design"].group(1))
+    row("Matches that print something to compare", lambda f: f"{f['asserting'].group(2)} of {f['asserting'].group(3)} ({f['asserting'].group(1)})")
+    row("Matches that print nothing (built and exited 0)", lambda f: f["asserting"].group(4))
+    row("Matches that took the typed build", lambda f: f"{f['typed'].group(2)} of {f['typed'].group(3)} ({f['typed'].group(1)})")
     print()
-def scope(r, *more):
-    """What a coverage figure leaves out and how strong its matches are, read from a report: the tests refused by
-    design (not in the denominator) and the assertion-bearing share (matches that printed something to compare)."""
-    design = re.search(r"\*\*Refused by design: (\d+)\*\*", r)
-    asserting = re.search(r"\*\*Assertion-bearing coverage ([\d.]+%)\*\* \((\d+) of", r)
-    parts = []
-    if design:
-        parts.append(f"{design.group(1)} tests that run a string as code are refused by design and left out")
-    if asserting:
-        parts.append(f"counting only matches that print something to compare, {asserting.group(1)}")
-    parts += more
-    return (" (" + "; ".join(parts) + ")") if parts else ""
+    print("Refused by design means the test runs a string as code (compile, exec or eval), which a sandboxed native "
+          "binary refuses on purpose. A match that prints nothing only shows the program built and exited 0. The "
+          "standard library tests cover itertools, collections, re, textwrap, functools, string, graphlib, colorsys, "
+          "deque, dataclasses and enum. Check your own program the same way with `brevi verify`.")
+    print()
+elif core or std:
+    sys.exit("only one of the two conformance reports exists for " + tag + "; the release notes quote both or neither")
 
-
-# The latest CPython conformance run (tools/conformance.py writes the report): how often a native build of
-# CPython's own tests gives a different answer, published with every release.
-report = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "bench", "conformance", "report.md")
-if os.path.exists(report):
-    r = open(report).read()
-    who = re.search(r"^Brevi (\S+)(?: \(commit [0-9a-f]+(?:-dirty)?\))? against CPython (\S+)[^,]*, (\d{4}-\d\d-\d\d)", r, re.M)
-    cov = re.search(r"\*\*Coverage ([\d.]+%)\*\* \((\d+) of (\d+) tests", r)
-    wrong = re.search(r"\*\*Wrong: (\d+)\*\*", r)
-    if who and cov and wrong:
-        print(f"**CPython conformance:** {cov.group(2)} of {cov.group(3)} scored tests from CPython {who.group(2)}'s own suite ({cov.group(1)}) "
-              f"print exactly what CPython prints from a native build, and {wrong.group(1)} give a different answer"
-              + scope(r, f"Brevi {who.group(1)}, {who.group(3)}, [report](https://github.com/ets-public/brevi/blob/{tag}/bench/conformance/report.md)")
-              + ". "
-              "Check your own program the same way with `brevi verify`.")
-        print()
-# The second published number: the stdlib modules agents use most (tools/conformance.py --slice stdlib).
-report = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "bench", "conformance", "stdlib", "report.md")
-if os.path.exists(report):
-    r = open(report).read()
-    cov = re.search(r"\*\*Coverage ([\d.]+%)\*\* \((\d+) of (\d+) tests", r)
-    wrong = re.search(r"\*\*Wrong: (\d+)\*\*", r)
-    if cov and wrong:
-        print(f"**Standard library:** {cov.group(2)} of {cov.group(3)} tests from CPython's tests of the modules agents use most "
-              f"(itertools, collections, re, textwrap, functools, string, graphlib, colorsys, deque, dataclasses, enum; {cov.group(1)}) match, and {wrong.group(1)} give a different answer"
-              + scope(r, f"[report](https://github.com/ets-public/brevi/blob/{tag}/bench/conformance/stdlib/report.md)") + ".")
-        print()
 # Which path the conformance programs took (the report's "paths", normal build): how much ran on the typed fast
 # path, how much fell back to the dynamic build, and how much Brevi refused (python3 would have run it, or
 # --strict / --native refuse it). One line per slice.
+import json
 paths_lines = []
-for name, rel in (("core", "report.json"), ("stdlib", os.path.join("stdlib", "report.json"))):
-    f = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "bench", "conformance", rel)
-    if not os.path.exists(f):
+for name, rel in (("core", "report.json"), ("stdlib", "stdlib/report.json")):
+    raw = read_report(tag, rel)
+    if not raw:
         continue
-    import json
-    p = json.load(open(f)).get("paths", {}).get("normal", {})
+    p = json.loads(raw).get("paths", {}).get("normal", {})
     total = sum(p.values())
     if not total:
         continue
@@ -115,6 +133,16 @@ if paths_lines:
     print("**Paths taken:** " + "; ".join(paths_lines) + ". Only typed and pybridge pass `--strict`, "
           "which fails closed on any fallback; every build reports its path ([support matrix](https://github.com/ets-public/brevi/blob/"
           + tag + "/docs/SUPPORT_MATRIX.md)).")
+    print()
+
+if core and std:
+    print("## Changes\n")
+print(body)
+print()
+# Outside contributors, thanked by handle in the section's entries ("thanks @name"), are listed by name too.
+thanked = sorted(set(re.findall(r"thanks (@[A-Za-z0-9-]+)", body)), key=str.lower)
+if thanked:
+    print("**Contributors:** thanks to " + ", ".join(thanked) + " for their work in this release.")
     print()
 print("Prebuilt brevi compiler for Linux, macOS and Windows. brevi still needs rustc on the PATH to build programs. "
       "On Linux and macOS, `sh install.sh` installs rustc if it is missing and picks the right download; on Windows, "
