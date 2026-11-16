@@ -781,6 +781,24 @@ if [ -n "$want" ] && [ "$got" = "$want" ]; then echo "ok   a lone surrogate on s
 # Under --sandbox the program reads no environment, so it cannot name stdout's error handler: it stops instead.
 o=$(BREVI_DYN=1 $BREVI run --sandbox "$t/c.py" 2>&1); c=$?
 case "$c:$o" in "1:NotImplementedError: brevi: this operation on a str with a lone surrogate"*) echo "ok   a lone surrogate on stdout under --sandbox stops" ;; *) echo "FAIL a lone surrogate on stdout under --sandbox ($c)"; printf '%s\n' "$o"; fail=1 ;; esac
+# re.LOCALE on bytes asks the C library in the environment's LC_CTYPE locale, as CPython's sre does (#589: Windows'
+# cp1252 locale). Compared with python3 under single-byte locales built here (skipped where localedef cannot).
+printf 'import re\nfor b in range(256):\n    c = bytes([b])\n    print(b, bool(re.match(re.escape(c), c.lower(), re.L | re.I)), bool(re.match(re.escape(c), c.upper(), re.L | re.I)), bool(re.match(rb"\\w", c, re.L)), bool(re.match(b"[" + re.escape(c) + b"]", c.swapcase(), re.L | re.I)), bool(re.match(rb"(.)\\1", c + c.swapcase(), re.L | re.I)), len(re.findall(rb"\\b", b"a" + c + b" ", re.L)))\nprint(re.findall(rb"(?Li)[\\xc0-\\xc5]+|\\w+", b"\\xe0\\xe5\\xc0 ab\\xff_"))\n' > "$t/loc.py"
+mkdir -p "$t/locs"
+for loc in "ISO-8859-1 en_US" "CP1252 en_US" "ISO-8859-9 tr_TR"; do
+  cm=${loc% *}; li=${loc#* }
+  if localedef -f "$cm" -i "$li" "$t/locs/$li.$cm" >/dev/null 2>&1 || [ -d "$t/locs/$li.$cm" ]; then
+    want=$(LOCPATH="$t/locs" LC_ALL="$li.$cm" python3 "$t/loc.py" 2>&1)
+    got=$(LOCPATH="$t/locs" LC_ALL="$li.$cm" BREVI_DYN=1 $BREVI run "$t/loc.py" 2>/dev/null)
+    if [ -n "$want" ] && [ "$got" = "$want" ]; then echo "ok   re.LOCALE under $li.$cm"; else echo "FAIL re.LOCALE under $li.$cm"; printf 'want %s\ngot  %s\n' "$(printf '%s\n' "$want" | head -3)" "$(printf '%s\n' "$got" | head -3)"; fail=1; fi
+  else
+    echo "skip re.LOCALE under $li.$cm (localedef cannot build it here)"
+  fi
+done
+# Under --sandbox the program reads no environment, so it cannot know the locale re.LOCALE asks: it stops instead.
+printf 'import re\nprint(re.match(b"a", b"A", re.L | re.I))\n' > "$t/locsb.py"
+o=$(BREVI_DYN=1 $BREVI run --sandbox "$t/locsb.py" 2>&1); c=$?
+case "$c:$o" in *"1:NotImplementedError: brevi: re.LOCALE under --sandbox"*) echo "ok   re.LOCALE under --sandbox stops" ;; *) echo "FAIL re.LOCALE under --sandbox ($c)"; printf '%s\n' "$o"; fail=1 ;; esac
 # What a native coroutine cannot give is refused when the program is built (test_coroutines): its frame and code
 # objects, and types.coroutine (which marks a code object) in every spelling the build can see, except as the
 # innermost decorator of a generator function (tests/lib/coroutine_protocol.py).
