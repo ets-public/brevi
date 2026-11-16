@@ -227,8 +227,26 @@ done
 # The .expected files come from real numpy (numpy 2.5.4, see tools/upstream_pins.json; CI has none): `--update` needs it installed.
 # A test that prints full precision can differ between numpy's AVX-512 and AVX2 kernels: it keeps the AVX2 output
 # in NAME.avx2.expected, which a CPU without AVX-512 checks against.
+# Float matrix products, norms and linear algebra are Brevi's only where it models the OpenBLAS kernels numpy
+# runs (rt_np.rs np_blas): SkylakeX on AVX-512 CPUs, Haswell on AVX2+FMA ones (float64 only), with no
+# OPENBLAS_CORETYPE naming other kernels. Elsewhere (ARM64, older x86-64) a test using them must go to CPython instead
+# (only its path line is checked: CI has no numpy).
 np_avx512=1
 for fl in avx512f avx512dq avx512cd avx512bw avx512vl; do grep -qw "$fl" /proc/cpuinfo 2>/dev/null || np_avx512=0; done
+np_fma=1
+for fl in avx2 fma; do grep -qw "$fl" /proc/cpuinfo 2>/dev/null || np_fma=0; done
+case "$(printf '%s' "${OPENBLAS_CORETYPE:-}" | tr A-Z a-z)" in
+  "") np_kern=none; [ "$np_fma" = 1 ] && np_kern=hsw; [ "$np_avx512" = 1 ] && np_kern=skx ;;
+  skylakex) np_kern=none; [ "$np_avx512" = 1 ] && np_kern=skx ;;
+  haswell | zen) np_kern=none; [ "$np_fma" = 1 ] && [ "$np_avx512" = 0 ] && np_kern=hsw ;;
+  *) np_kern=none ;;
+esac
+np_uses_blas() { grep -Eq '[])A-Za-z0-9_] *@=? |\.dot\(|np\.(dot|matmul|inner|vdot|cov|corrcoef|polyfit)\(|linalg' "$1"; }
+np_to_cpython() {
+  np_uses_blas "$1" || return 1
+  [ "$np_kern" = none ] && return 0
+  [ "$np_kern" = hsw ] && grep -q float32 "$1"
+}
 for f in tests/numpy/*.py; do
   exp="${f%.py}.expected"
   if [ "$1" = "--update" ]; then
@@ -236,9 +254,17 @@ for f in tests/numpy/*.py; do
     [ -f "${f%.py}.avx2.expected" ] && OPENBLAS_CORETYPE=Haswell python3 "$f" > "${f%.py}.avx2.expected" 2>/dev/null
     continue
   fi
-  [ "$np_avx512" = 0 ] && [ -f "${f%.py}.avx2.expected" ] && exp="${f%.py}.avx2.expected"
+  [ "$np_kern" != skx ] && [ -f "${f%.py}.avx2.expected" ] && exp="${f%.py}.avx2.expected"
   # NAME_avx512.py: Brevi reproduces this numpy code for AVX-512 CPUs only; elsewhere the program goes to CPython
   case "$f" in *_avx512.py) [ "$np_avx512" = 0 ] && { echo "skip $f (needs AVX-512)"; continue; } ;; esac
+  if np_to_cpython "$f"; then
+    if BREVI_PATH=1 timeout 600 $BREVI run "$f" --no-cache 2>&1 >/dev/null | grep -q '^{"path":"\(pybridge\|cpython\)"'; then
+      echo "ok   $f (CPython: no OpenBLAS model for this CPU)"
+    else
+      echo "FAIL $f (float matrix products must go to CPython on this CPU)"; fail=1
+    fi
+    continue
+  fi
   out=$(BREVI_PATH=1 timeout 600 $BREVI run "$f" --native 2>/tmp/brevi_np_err)
   if ! grep -q '"path":"dynamic"' /tmp/brevi_np_err; then
     echo "FAIL $f (not built with Brevi's numpy)"; cat /tmp/brevi_np_err; fail=1
@@ -248,6 +274,49 @@ for f in tests/numpy/*.py; do
     echo "ok   $f"
   fi
 done
+# Where the model exists, an OPENBLAS_CORETYPE naming other kernels stands in for an ARM64 CPU: the build sends
+# the program to CPython rather than print numpy's last digits wrong.
+if [ "$np_kern" != none ] && [ "$1" != "--update" ]; then
+  if OPENBLAS_CORETYPE=Prescott BREVI_PATH=1 timeout 600 $BREVI run tests/numpy/lstsq.py --no-cache 2>&1 >/dev/null | grep -q '^{"path":"\(pybridge\|cpython\)"'; then
+    echo "ok   numpy BLAS refusal"
+  else
+    echo "FAIL numpy BLAS refusal (lstsq.py built natively under OPENBLAS_CORETYPE=Prescott)"; fail=1
+  fi
+fi
+# A binary built here and copied to a CPU without a modelled kernel must raise NotImplementedError at each float
+# BLAS/LAPACK call (rt_np.rs np_blas_ok), never print other digits. qemu stands in for that CPU: SandyBridge (no AVX2
+# or FMA) for the float64 kernels, Haswell (no AVX-512) for the float32 ones. Where this system's own libraries need
+# a newer CPU (GitHub's Ubuntu 26.04 runner: /bin/true stops with an illegal instruction on qemu's SandyBridge), the
+# binary runs on an ubuntu:24.04 container's libraries instead (docker, with this qemu if it is static).
+# BREVI_QEMU_TESTS=1 (GitHub CI) makes a skip a failure.
+if [ "$np_kern" != none ] && [ "$1" != "--update" ] && [ "$(uname -m)" = x86_64 ]; then
+  if ! command -v qemu-x86_64 >/dev/null; then
+    if [ "${BREVI_QEMU_TESTS:-}" = 1 ]; then echo "FAIL numpy runtime refusal (qemu-x86_64 not installed)"; fail=1
+    else echo "skip numpy runtime refusal (no qemu-x86_64)"; fi
+  else
+    npq=$(mktemp -d)
+    npq_run() { # npq_run CPU PROGRAM: PROGRAM on qemu's CPU, on this system's libraries or else ubuntu:24.04's
+      if qemu-x86_64 -cpu "$1" /bin/true 2>/dev/null; then qemu-x86_64 -cpu "$1" "$2"
+      else docker run --rm -v "$npq:$npq:ro" -v "$(command -v qemu-x86_64):/usr/local/bin/qemu-x86_64:ro" ubuntu:24.04 qemu-x86_64 -cpu "$1" "$2"; fi
+    }
+    for t in blas_refusal:SandyBridge f32_refusal:Haswell; do
+      f=tests/numpy_cpu/${t%%:*}.py cpu=${t##*:}
+      # float32 products are Brevi's only on AVX-512 CPUs: elsewhere the build already sends them to CPython
+      [ "$cpu" = Haswell ] && [ "$np_kern" != skx ] && { echo "skip $f (needs AVX-512 to build natively)"; continue; }
+      if ! npq_run "$cpu" /bin/true >/dev/null 2>&1; then
+        echo "FAIL $f (no system runs on qemu's $cpu CPU here: docker with ubuntu:24.04 and a static qemu-x86_64 are needed)"; fail=1
+      elif ! BREVI_PATH=1 timeout 600 $BREVI build "$f" -o "$npq/b" --no-cache 2>"$npq/err" >/dev/null || ! grep -q '"path":"dynamic"' "$npq/err"; then
+        echo "FAIL $f (not built with Brevi's numpy)"; cat "$npq/err"; fail=1
+      elif [ "$(npq_run "$cpu" "$npq/b" 2>/dev/null)" != "$(cat "${f%.py}.expected")" ]; then
+        echo "FAIL $f (on a $cpu CPU)"; npq_run "$cpu" "$npq/b" 2>&1 | diff "${f%.py}.expected" - | head -20; fail=1
+      else
+        echo "ok   $f (refused on a $cpu CPU)"
+      fi
+    done
+    rm -rf "$npq"
+  fi
+fi
+
 #== tiktoken split
 # tiktoken programs must print what CPython's tiktoken prints, with Brevi's own tiktoken: never CPython. The
 # .expected files come from tiktoken 0.14 (CI has none): `--update` needs it installed. Building one gets OpenAI's

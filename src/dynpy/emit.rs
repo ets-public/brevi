@@ -73,6 +73,39 @@ fn np_f32_simd_here() -> bool {
     #[allow(unreachable_code)]
     false
 }
+// Whether numpy here runs OpenBLAS kernels the runtime models (rt_np.rs np_blas: x86-64 with AVX2 and FMA, and
+// no OPENBLAS_CORETYPE naming others). Elsewhere (ARM64, older x86-64) a program with a float matrix product, norm or
+// linear algebra routine goes to CPython: Brevi's results would differ from numpy's in the last digits.
+fn np_blas_here() -> bool {
+    np_blas_kind_here() > 0
+}
+// float32 dot / matmul / `@`: only OpenBLAS's SkylakeX kernels are reproduced (rt_np.rs np_f32_simd)
+fn np_sgemm_here() -> bool {
+    np_blas_kind_here() == 2
+}
+// 2: SkylakeX kernels, 1: Haswell, 0: none modelled. The runtime picks by the CPU alone (it reads no environment),
+// so an OPENBLAS_CORETYPE naming other kernels than the CPU's own makes numpy add in an order Brevi's would not.
+fn np_blas_kind_here() -> u8 {
+    #[cfg(target_arch = "x86_64")]
+    {
+        let skx = np_f32_simd_here();
+        let hsw = std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma");
+        let cpu = if skx { 2 } else if hsw { 1 } else { 0 };
+        if let Some(c) = std::env::var_os("OPENBLAS_CORETYPE").filter(|c| !c.is_empty()) {
+            let named = match c.to_string_lossy().to_ascii_lowercase().as_str() {
+                "skylakex" => 2,
+                "haswell" | "zen" => 1,
+                _ => 0,
+            };
+            return if named == cpu { cpu } else { 0 };
+        }
+        return cpu;
+    }
+    #[allow(unreachable_code)]
+    0
+}
+// The numpy functions that run OpenBLAS (with numpy.linalg's, and the .dot method and `@`)
+const NP_BLAS_FUNCS: &[&str] = &["dot", "matmul", "inner", "vdot", "cov", "corrcoef", "polyfit"];
 const NP_NARROW_FUNCS: &[&str] = &[
     "pi", "e", "inf", "nan", "euler_gamma", "newaxis", "True_", "False_", "float64", "double", "int64", "int_", "intp", "bool_", "bool", "ndarray",
     "integer", "signedinteger", "floating", "number", "generic", "inexact", "float32", "single", "int32", "intc",
@@ -207,7 +240,10 @@ fn np_attr_check(n: &str, kws: &[&str], line: usize) -> ER<()> {
     if n == "metadata" && NP_ATTR_ST.load(std::sync::atomic::Ordering::Relaxed) {
         return Ok(());
     }
-    if np_narrow() && matches!(n, "dot" | "trace") && !(n == "dot" && np_f32_simd_here()) {
+    if n == "dot" && !np_blas_here() {
+        return Err(err(line, "numpy: .dot on a CPU whose OpenBLAS kernels Brevi does not model"));
+    }
+    if np_narrow() && matches!(n, "dot" | "trace") && !(n == "dot" && np_sgemm_here()) {
         return Err(err(line, &format!("numpy: .{n} of float32 arrays is not in Brevi's native numpy")));
     }
     match NP_ATTR_OK.iter().find(|(a, _)| *a == n) {
@@ -227,9 +263,9 @@ pub fn module_has(m: &str, n: &str) -> bool {
     let names: &[&str] = match m {
         "__future__" => return true,
         "typing" | "typing_extensions" => return super::typing::module_has(m, n),
-        "numpy" => return np_func_kw(n).is_some() && (!np_narrow() || NP_NARROW_FUNCS.contains(&n) || (NP_F32_SIMD.contains(&n) && np_f32_simd_here()) || (matches!(n, "dot" | "matmul") && np_f32_simd_here())),
+        "numpy" => return np_func_kw(n).is_some() && (np_blas_here() || !NP_BLAS_FUNCS.contains(&n)) && (!np_narrow() || NP_NARROW_FUNCS.contains(&n) || (NP_F32_SIMD.contains(&n) && np_f32_simd_here()) || (matches!(n, "dot" | "matmul") && np_sgemm_here())),
         "numpy.random" => return np_rand_kw(n).is_some(),
-        "numpy.linalg" => return np_linalg_kw(n).is_some() && (!np_narrow() || n == "norm"),
+        "numpy.linalg" => return np_linalg_kw(n).is_some() && (np_blas_here() || n == "LinAlgError") && (!np_narrow() || (n == "norm" && np_sgemm_here())),
         "sys" => &["exit", "setrecursionlimit", "getrecursionlimit", "getdefaultencoding", "getsizeof", "intern", "set_int_max_str_digits", "get_int_max_str_digits", "stdin", "stdout", "stderr", "__stdin__", "__stdout__", "__stderr__", "argv", "maxsize", "platform", "byteorder", "version_info", "flags", "version", "modules", "path", "exception", "exc_info"],
         "math" => &["acos", "asin", "atan", "atan2", "ceil", "comb", "copysign", "cos", "cosh", "degrees", "dist", "exp", "fabs", "factorial", "floor", "fmod", "frexp", "fsum", "gcd", "hypot", "isclose", "isfinite", "isinf", "isnan", "isqrt", "lcm", "ldexp", "log", "log10", "log1p", "log2", "modf", "perm", "pow", "prod", "radians", "remainder", "sin", "sinh", "sqrt", "tan", "tanh", "trunc", "pi", "e", "tau", "inf", "nan"],
         "atexit" => &["register", "unregister", "_run_exitfuncs", "_clear", "_ncallbacks"],
@@ -3026,7 +3062,10 @@ impl Em {
             }
             Ex::Call(f, args) => self.call(f, args, line)?,
             Ex::Bin(op, a, b) => {
-                if *op == "@" && np_on() && np_narrow() && !np_f32_simd_here() {
+                if *op == "@" && np_on() && !np_blas_here() {
+                    return Err(err(line, "numpy: @ on a CPU whose OpenBLAS kernels Brevi does not model"));
+                }
+                if *op == "@" && np_on() && np_narrow() && !np_sgemm_here() {
                     return Err(err(line, "numpy: @ with float32 arrays (OpenBLAS sgemm) is not in Brevi's native numpy"));
                 }
                 let aa = self.ex(a, line)?;
@@ -4434,7 +4473,10 @@ impl Em {
                 code
             }
             St::AugAssign(t, op, v) => {
-                if *op == "@" && np_on() && np_narrow() && !np_f32_simd_here() {
+                if *op == "@" && np_on() && !np_blas_here() {
+                    return Err(err(line, "numpy: @= on a CPU whose OpenBLAS kernels Brevi does not model"));
+                }
+                if *op == "@" && np_on() && np_narrow() && !np_sgemm_here() {
                     return Err(err(line, "numpy: @= with float32 arrays (OpenBLAS sgemm) is not in Brevi's native numpy"));
                 }
                 let vv = self.ex(v, line)?;

@@ -24,6 +24,7 @@ NAV = [
     ("Start", [
         ("index", "Overview", "index.md"),
         ("install", "Install", "install.md"),
+        ("quickstart", "Quickstart for agents", "quickstart.md"),
         ("usage", "Using Brevi", "usage.md"),
     ]),
     ("For AI agents", [

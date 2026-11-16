@@ -25,7 +25,8 @@ helper (re._compile, functools._c3_mro); it is printed beside the score and coun
 self.skipTest() under the reference CPython is excluded as skipped by CPython, like a skip decorator.
 CPython and both built programs run at one fixed PYTHONHASHSEED (REF_SEED): Brevi hashes str and bytes exactly as
 CPython 3.13 does at the same seed, so a set of strings must print in CPython's own order. unstable is a test whose
-CPython output is not reproducible at that seed (object addresses, the clock, unseeded random numbers), and only a
+CPython output is not reproducible at that seed (object addresses, the clock, unseeded random numbers, threads that
+print at once; the known ones are always unstable: ALWAYS_UNSTABLE, RANDOM_OUTPUT), and only a
 reproduced difference counts: a CPython run that timed out or died is retried, then reported as not_extractable, never
 as unstable (rule 1: a second run at the seed, settled by a third when they differ; rule 2: three more runs, tried for a
 wrong result).
@@ -397,6 +398,14 @@ ADDRESS_ORDER = {
     "test_enum.TestSpecial.test_too_many_data_types": "CPython's TypeError message prints a set of classes, which orders them by memory address",
     **{f"test_set.TestBasicOpsTriple.{t}": _TRIPLE for t in ("test_empty_union", "test_self_equality", "test_self_intersection", "test_union_empty")},
 }
+# Tests whose threads print at the same time: CPython's OS threads interleave the lines in scheduler order, and split a
+# line when a thread switch falls between print's text and its newline, so CPython's output changes from run to run
+# (test_lru_cache_threaded3 flipped between matched and unstable and failed the stdlib floor by one on the PC and on
+# GitHub; threaded2 splits lines on a busy box). Classed unstable like RANDOM_OUTPUT, so the scheduler never moves the
+# floor; both builds still run them, so a crash, a wrong exit code or a refusal still counts.
+_THREADS = "CPython's threads print at the same time, so the OS scheduler orders the lines and can split one between print's text and its newline"
+THREAD_ORDER = {f"test_functools.TestLRUC.test_lru_cache_{t}": _THREADS for t in ("threaded", "threaded2", "threaded3")}
+ALWAYS_UNSTABLE = {**ADDRESS_ORDER, **THREAD_ORDER}  # test id -> why CPython's output can't be compared
 RECEIVERS = {"self", "testcase"}
 SAME_AS_EQUAL = {"assertEqual", "assertListEqual", "assertTupleEqual", "assertDictEqual", "assertSetEqual",
                  "assertSequenceEqual", "assertMultiLineEqual"}
@@ -1710,7 +1719,7 @@ def run_case(case, cfg):
         (folder / rel).parent.mkdir(parents=True, exist_ok=True)
         (folder / rel).write_bytes(data)
     ref = Reference(lambda seed: reference(cfg.python, script, folder, seed, cfg))
-    random_output = bool(RANDOM_OUTPUT.match(case["id"])) or case["id"] in ADDRESS_ORDER
+    random_output = bool(RANDOM_OUTPUT.match(case["id"])) or case["id"] in ALWAYS_UNSTABLE
     try:
         a, unstable = stable_reference(ref, random_output)
     except ReferenceFailed as e:
@@ -1731,7 +1740,7 @@ def run_case(case, cfg):
         got = masked(run_limited([str(exe)], str(folder), run_env(folder, REF_SEED), cfg.timeout, cfg.mem_mb, cfg.sandbox)) if exe else None
         category, detail = classify(a, (exe is not None, why, crashed), got)
         if random_output and category in ("matched", "wrong_output"):
-            category, detail = "unstable", ADDRESS_ORDER.get(case["id"], "CPython's output depends on unseeded random numbers") + " (checked for crashes and exit code only)"
+            category, detail = "unstable", ALWAYS_UNSTABLE.get(case["id"], "CPython's output depends on unseeded random numbers") + " (checked for crashes and exit code only)"
         if category == "wrong_output":
             unstable, note = reproducible(ref, a)
             if unstable:
@@ -1962,9 +1971,10 @@ def markdown(rep, results):
               f"CPython and the built programs run at PYTHONHASHSEED={REF_SEED}. Rule 1: a second CPython run, settled by a "
               "third when they differ. Rule 2: three more runs, tried when a build's output differs.", ""]
     lines += [f"- `{r['id']}`: {r['detail']}" for r in results if r.get("category") == "unstable"]
-    random = sum(1 for r in results if any(x["category"] == "unstable" for x in r.get("modes", {}).values()))
-    if random:
-        lines.append(f"- {random} more print unseeded random numbers (checked for crashes and exit code only).")
+    # The tests that are always unstable (RANDOM_OUTPUT, ALWAYS_UNSTABLE) still ran in both builds: counted by reason
+    always = collections.Counter(next(x["detail"] for x in r["modes"].values() if x["category"] == "unstable") for r in results
+                                 if any(x["category"] == "unstable" for x in r.get("modes", {}).values()))
+    lines += [f"- {n} more: {why}." for why, n in sorted(always.items())]
     lines += ["", "## Top refusals (normal build)", ""]
     why = collections.Counter(normalise(r["modes"]["normal"]["detail"]) for r in results
                               if "modes" in r and r["modes"]["normal"]["category"] == "refused")

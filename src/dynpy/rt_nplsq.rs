@@ -307,9 +307,6 @@ fn lq_gemv_t(m: usize, n: usize, c: &[f64], co: usize, ldc: usize, v: &[f64]) ->
     if m == 0 || n == 0 {
         return vec![0.0; n];
     }
-    if np_blas() == Blas::Plain {
-        return (0..n).map(|j| dot_f(&c[co + j * ldc..co + j * ldc + m], v)).collect();
-    }
     np_gemv_t_ld(c, co, ldc, n, m, v)
 }
 // dgemv 'N', alpha 1, beta 0: w(i) = sum_t C(i, t) v(t); `unit` whether v was contiguous
@@ -320,9 +317,6 @@ fn lq_gemv_n(m: usize, n: usize, c: &[f64], co: usize, ldc: usize, v: &[f64], un
     let mut a = Vec::with_capacity(m * n);
     for j in 0..n {
         a.extend_from_slice(&c[co + j * ldc..co + j * ldc + m]);
-    }
-    if np_blas() == Blas::Plain {
-        return (0..m).map(|i| (0..n).fold(0.0, |s, t| s + a[i + t * m] * v[t])).collect();
     }
     np_gemv_n_ld(&a, m, n, v, unit, ldc == m)
 }
@@ -1130,18 +1124,8 @@ fn lq_lalsd(k: &Lk, lower: bool, n: usize, nrhs: usize, d: &mut [f64], e: &mut [
     }
     // dgemm('T', 'N', n, nrhs, n, 1, work, n, b, ldb, 0, ...)
     let xv: Vec<f64> = (0..nrhs).flat_map(|j| b[j * ldb..j * ldb + n].to_vec()).collect();
-    let prod = if np_blas() == Blas::Plain {
-        let mut c = vec![0.0; n * nrhs];
-        for j in 0..nrhs {
-            for i in 0..n {
-                c[j * n + i] = dot_f(&w[i * n..(i + 1) * n], &xv[j * n..(j + 1) * n]);
-            }
-        }
-        c
-    } else {
-        let yv: Vec<f64> = (0..n * n).map(|q| w[q / n + (q % n) * n]).collect();
-        np_gemm(&xv, &yv, nrhs, n, n, false, true)
-    };
+    let yv: Vec<f64> = (0..n * n).map(|q| w[q / n + (q % n) * n]).collect();
+    let prod = np_gemm(&xv, &yv, nrhs, n, n, false, true);
     for j in 0..nrhs {
         for i in 0..n {
             b[i + j * ldb] = prod[j * n + i];
@@ -1290,6 +1274,7 @@ fn lq_orml2_ln_t(k: &Lk, m: usize, n: usize, kk: usize, a: &[f64], ao: usize, ld
 // numpy's lstsq for float a (m x n) and b (m x nrhs), both C order: (x n x nrhs C order, residuals when
 // numpy returns them, rank, singular values)
 fn np_lstsq_parts(av: &[f64], m: usize, n: usize, bv: &[f64], nrhs: usize, rcond: f64) -> Result<(Vec<f64>, Option<Vec<f64>>, usize, Vec<f64>), E> {
+    np_blas_ok("np.linalg.lstsq")?;
     if m == 0 || n == 0 || nrhs == 0 {
         return Err(np_unsup("np.linalg.lstsq of an empty matrix"));
     }
@@ -1347,6 +1332,7 @@ fn lq_rcond(v: Option<V>, dflt: f64) -> Result<f64, E> {
     }
 }
 pub fn np_lstsq(a: &Args) -> R {
+    np_blas_ok("np.linalg.lstsq")?;
     npa_kw_ok(a, "lstsq", &["a", "b", "rcond"])?;
     let av = npa(a, 0, "a").ok_or_else(|| exc("TypeError", "lstsq() missing required argument 'a' (pos 0)".into()))?;
     let bv = npa(a, 1, "b").ok_or_else(|| exc("TypeError", "lstsq() missing required argument 'b' (pos 1)".into()))?;
@@ -1379,6 +1365,7 @@ thread_local! {
 }
 pub fn np_polyfit(a: &Args) -> R {
     npa_kw_ok(a, "polyfit", &["x", "y", "deg", "rcond", "full", "w", "cov"])?;
+    np_blas_ok("np.polyfit")?;
     let need = |i: usize, nm: &str| npa(a, i, nm).ok_or_else(|| exc("TypeError", format!("polyfit() missing required argument '{nm}' (pos {i})")));
     let (x0, y0, d0) = (need(0, "x")?, need(1, "y")?, need(2, "deg")?);
     let deg = to_int(&d0)?;

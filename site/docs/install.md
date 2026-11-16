@@ -19,6 +19,7 @@ The first build fetches about 300 MB once (Rust and zig) and builds Brevi's runt
 | --- | --- | --- |
 | `rustc` (Rust stable) | Brevi compiles every program through it | Fetched by brevi when none is on the PATH (the pinned toolchain), where that is verified; elsewhere installed by the script with rustup. Any recent stable works; CI tests stable daily and beta and nightly weekly. |
 | a C linker (`cc`) | rustc links programs with it | Not needed: with no working `cc` (Linux without the C library's development files, macOS without the Command Line Tools), brevi links with zig, fetched once. |
+| CPython 3.13 (for `--verify`) | `brevi run --verify` and `brevi verify` compare each run with CPython 3.13, and use no other version | Brevi takes `BREVI_PYTHON` when set, else the first 3.13 among `python3`, `python3.13` and `python` on PATH, then (Windows) the `py` launcher, then `uv python find 3.13`, so `uv python install 3.13` is enough. |
 | `python3` (optional) | The CPython fallback of `brevi run`, and programs that import libraries such as numpy | Not needed for programs that use only the standard library. Library programs need `libpython` where they run, unless built with `--standalone`. |
 | Linux, macOS or Windows | Prebuilt binaries for x86-64 and ARM64 Linux, Apple silicon and Intel Macs, and x86-64 and ARM64 Windows (ARM64 from v0.28.1) | Library calls through CPython work on Windows from v0.27.0 (the `python` on PATH needs its DLL); `--standalone` builds work on Linux and Windows from v0.28.1. |
 
