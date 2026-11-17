@@ -2290,7 +2290,7 @@ impl Emitter {
                     }
                     (_, "+=") => {
                         let p = self.place_mut(target);
-                        format!("{{ let __v = {v}; let __p = &mut {p}; *__p = ax_ck(Plus::plus(std::mem::take(__p), __v)); }}")
+                        format!("{{ let __v = {v}; let __p = &mut {p}; *__p = ax_ck(PlusEq::plus_eq(std::mem::take(__p), __v)); }}")
                     }
                     (_, op @ ("-=" | "*=")) => {
                         let p = self.place_mut(target);

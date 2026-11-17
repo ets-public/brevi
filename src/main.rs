@@ -479,7 +479,11 @@ fn main() {
     if is_py(&file) && matches!(cmd, "build" | "run" | "emit") {
         emit::I64_WHY.set(replay::why_not(&file)).ok();
     }
-    if is_py(&file) && matches!(cmd, "build" | "run" | "check" | "emit") && std::env::var("BREVI_DYN").map_or(true, |v| v != "0") {
+    // BREVI_DYN=0 keeps the guard: it only turns the dynamic build off, so what the guard sends there is refused.
+    // Only the compiler's own typed tests turn it off (BREVI_DYN=0 BREVI_GUARD=off: the typed build of a file
+    // whose answer may then differ from CPython's); never under --strict.
+    let guard_off = std::env::var("BREVI_GUARD").is_ok_and(|v| v == "off") && std::env::var("BREVI_DYN").is_ok_and(|v| v == "0") && !strict();
+    if is_py(&file) && matches!(cmd, "build" | "run" | "check" | "emit") && !guard_off {
         let guard;
         tm("guard: start");
         (guard, unread) = guard_files(&file);
@@ -825,7 +829,8 @@ fn guard_refusal(cmd: &str, file: &str, argv: &[String], line: usize, why: &str,
         if cmd != "emit" {
             refuse_sure(&file, pydiag::scan);
         }
-        if cmd == "emit" {
+        let dyn_off = std::env::var("BREVI_DYN").is_ok_and(|v| v == "0");
+        if cmd == "emit" && !dyn_off {
             dyn_cmd(cmd, &file, &argv);
         }
         let gsrc = crate::read_src(&gfile).unwrap_or_default();
@@ -841,6 +846,7 @@ fn guard_refusal(cmd: &str, file: &str, argv: &[String], line: usize, why: &str,
         let blocked = match DYN_BLOCKED.lock().unwrap().as_ref() {
             Some((f, l, m)) if *l > 0 => format!(" ({} line {l}: {m})", Path::new(f).file_name().unwrap_or_default().to_string_lossy()),
             Some((_, _, m)) => format!(" ({m})"),
+            None if dyn_off => " (BREVI_DYN=0 turns the dynamic build off)".to_string(),
             None => String::new(),
         };
         let mut d = Diag::new("check", line, 1, &format!("{why}, and this file cannot be built over dynamic values{blocked}"));
@@ -1629,7 +1635,8 @@ fn compile_once(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>
         if !errs.is_empty() {
             return Err(errs);
         }
-        let errs = alias::share_marks(&mut items);
+        let mut errs = alias::share_marks(&mut items);
+        errs.extend(alias::share_writebacks());
         if !errs.is_empty() {
             return Err(errs);
         }

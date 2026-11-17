@@ -33,6 +33,10 @@ pub struct Required {
     // (line, name, depth): the object at that depth of the name must be a handle in the typed build (a class
     // instance, a dict record, a row), whose copies are the same object; rustc checks it (see alias::share_marks).
     pub marks: BTreeSet<(usize, String, u8)>,
+    // (line, name, container): `m = q[k]` (or `q.setdefault(k, d)`, `q.get(k)`) then a change of m at that line,
+    // while q is still read: the typed build must write m back (`q[k] = m`) right after the statement (alias.rs
+    // writeback, checked by alias::share_writebacks).
+    pub wbs: BTreeSet<(usize, String, String)>,
     // Module-level names a function uses and the module binds again: the typed build must keep one variable
     // for each (a rebinding of another type starts a new variable there, which the function would not see).
     pub globals: BTreeMap<String, usize>,
@@ -50,6 +54,7 @@ pub fn required() -> Required {
         out.muts.extend(r.muts.iter().cloned());
         out.iters.extend(r.iters.iter().map(|(l, n)| (l + off, n.clone())));
         out.marks.extend(r.marks.iter().map(|(l, n, d)| (l + off, n.clone(), *d)));
+        out.wbs.extend(r.wbs.iter().map(|(l, n, q)| (l + off, n.clone(), q.clone())));
         out.globals.extend(r.globals.iter().map(|(n, l)| (n.clone(), l + off)));
     }
     out
@@ -62,6 +67,7 @@ fn add_required(path: &std::path::Path, r: Required) {
             have.muts.extend(r.muts);
             have.iters.extend(r.iters);
             have.marks.extend(r.marks);
+            have.wbs.extend(r.wbs);
             have.globals.extend(r.globals);
         }
         None => g.push((path.to_path_buf(), r)),
@@ -226,6 +232,9 @@ pub fn check(body: &[Stmt]) -> Option<(usize, String)> {
     }
     for (l, n, d) in req.marks {
         parts[l / SHIFT].marks.insert((l % SHIFT, n, d));
+    }
+    for (l, n, q) in req.wbs {
+        parts[l / SHIFT].wbs.insert((l % SHIFT, n, q));
     }
     for (n, l) in req.globals {
         parts[l / SHIFT].globals.insert(n, l % SHIFT);
@@ -463,6 +472,7 @@ fn check_body(body: &[Stmt]) -> Result<Required, (usize, String)> {
         req.muts.extend(cx.req_muts.drain());
         req.iters.extend(cx.req_iters.drain());
         req.marks.extend(cx.req_marks.iter().cloned());
+        req.wbs.extend(cx.req_wbs.iter().cloned());
         global_edges.extend(cx.global_edges.iter().cloned());
         if p.as_value.contains(&f) {
             let s = &p.sums[f];
@@ -481,6 +491,7 @@ fn check_body(body: &[Stmt]) -> Result<Required, (usize, String)> {
         req.muts.extend(cx.req_muts.drain());
         req.iters.extend(cx.req_iters.drain());
         req.marks.extend(cx.req_marks.iter().cloned());
+        req.wbs.extend(cx.req_wbs.iter().cloned());
         global_edges.extend(cx.global_edges.iter().cloned());
     }
     // A field or global changed by a callback (at times the proof cannot see) must share with nothing.
@@ -2060,7 +2071,14 @@ impl<'p, 'a> KCx<'p, 'a> {
                     let c = match m.as_str() {
                         "split" | "rsplit" | "splitlines" | "keys" | "findall" => K::list(K::S),
                         "partition" | "rpartition" => K::T(vec![K::S, K::S, K::S]),
-                        "pop" | "popleft" | "get" | "setdefault" => ko.elem().join(ks.get(1).unwrap_or(&K::S)),
+                        // `d.setdefault(k, [0, 0])` also stores the default in d: d's items may be lists.
+                        "setdefault" => {
+                            if let Some(kd) = ks.get(1) {
+                                self.deepen(o, K::list(kd.clone()));
+                            }
+                            ko.elem().join(ks.get(1).unwrap_or(&K::S))
+                        }
+                        "pop" | "popleft" | "get" => ko.elem().join(ks.get(1).unwrap_or(&K::S)),
                         "popitem" => K::T(vec![K::S, ko.elem()]),
                         "copy" => ko.clone(),
                         "values" => K::list(ko.elem()),
@@ -2113,6 +2131,97 @@ fn module_fn_kind(mo: &str, m: &str, ks: &[K], k0: &K) -> K {
         ("itertools", _) => K::list(K::T(ks.iter().map(|k| k.elem()).collect())).join(&K::list(ks.iter().fold(K::S, |a, b| a.join(&b.elem())))),
         _ => K::U,
     }
+}
+
+// How a function binds name n: (binding statements the proof follows through assign_target: `=`, `for`,
+// `with ... as`; whether any other kind binds it: `+=`, walrus, del, import, def, class, except-as, global).
+fn bind_sites(body: &[Stmt], n: &str, out: &mut (usize, bool)) {
+    for s in body {
+        let mut t = HashSet::new();
+        match &s.st {
+            St::Assign(ts, _) => ts.iter().for_each(|x| target_names(x, &mut t)),
+            St::AnnAssign(x, _, _, _) | St::For(x, _, _, _) => target_names(x, &mut t),
+            St::With(items, _) => items.iter().for_each(|(_, a)| {
+                if let Some(a) = a {
+                    target_names(a, &mut t)
+                }
+            }),
+            _ => {}
+        }
+        if t.contains(n) {
+            out.0 += 1;
+        }
+        let mut other = HashSet::new();
+        let mut g = HashSet::new();
+        match &s.st {
+            St::Assign(..) | St::AnnAssign(..) | St::For(..) | St::With(..) => {}
+            st => {
+                let mut one = s.clone();
+                // only this statement's own binding, not its blocks' (those are walked below)
+                match &mut one.st {
+                    St::If(arms, els) => {
+                        arms.iter_mut().for_each(|(_, b)| b.clear());
+                        *els = None;
+                    }
+                    St::While(_, b, e) => {
+                        b.clear();
+                        *e = None;
+                    }
+                    St::Try(b, hs, e, f) => {
+                        b.clear();
+                        hs.iter_mut().for_each(|h| h.body.clear());
+                        *e = None;
+                        *f = None;
+                    }
+                    _ => {}
+                }
+                let _ = st;
+                assigned(std::slice::from_ref(&one), &mut other, &mut g);
+            }
+        }
+        if other.contains(n) || g.contains(n) || format!("{:?}", s.st).contains(&format!("Walrus({n:?}")) {
+            out.1 = true;
+        }
+        if !matches!(s.st, St::Def(_) | St::Class(_)) {
+            for_child_blocks(s, &mut |b| bind_sites(b, n, out));
+        }
+    }
+}
+
+// `m = q[k]` or `m = q.setdefault(k, d)`, with q a name and k a constant, a name or a constant item or slice of
+// a name: (m, q, the key's name).
+fn wb_form(s: &Stmt) -> Option<(String, String, Option<String>)> {
+    let St::Assign(ts, v) = &s.st else { return None };
+    let [Ex::Name(m)] = ts.as_slice() else { return None };
+    let (q, key) = match v {
+        Ex::Index(c, k) if !matches!(k.as_ref(), Ex::Slice(..)) => (c.as_ref(), k.as_ref()),
+        Ex::Call(f, args) => match (f.as_ref(), args.as_slice()) {
+            (Ex::Attr(c, a), [Arg::Pos(k), Arg::Pos(_)]) if a == "setdefault" => (c.as_ref(), k),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    let Ex::Name(q) = q else { return None };
+    let konst = |e: &Ex| matches!(e, Ex::Int(_) | Ex::Str(_)) || matches!(e, Ex::Unary(_, x) if matches!(x.as_ref(), Ex::Int(_)));
+    let kn = match key {
+        k if konst(k) => None,
+        Ex::Name(k) => Some(k.clone()),
+        Ex::Index(b, i) => match (b.as_ref(), i.as_ref()) {
+            (Ex::Name(k), i) if konst(i) => Some(k.clone()),
+            (Ex::Name(k), Ex::Slice(a, b, c)) if [a, b, c].iter().all(|x| x.as_deref().map_or(true, konst)) => Some(k.clone()),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    if q == m || kn.as_deref() == Some(m.as_str()) || kn.as_deref() == Some(q.as_str()) {
+        return None;
+    }
+    Some((m.clone(), q.clone(), kn))
+}
+
+fn nwb(m: &str) -> Edge {
+    let t = Pl::L(format!("#nwb:{m}"));
+    (t.clone(), 0, t, 0)
 }
 
 // ---------------------------------------------------------------- liveness
@@ -2267,6 +2376,11 @@ struct Cx<'p, 'a> {
     req_muts: HashSet<(String, String)>,
     req_iters: HashSet<(usize, String)>,
     req_marks: BTreeSet<(usize, String, u8)>,
+    req_wbs: BTreeSet<(usize, String, String)>,
+    // Names bound once, by `m = q[k]` (see Required::wbs): m -> (q, the key's name). While the binding holds
+    // (no `#nwb:m` token in st: m, q and the key name not bound again, q's items not replaced or removed on
+    // any path), a change of m written back right after it changes q as Python's does.
+    wb: HashMap<String, (String, Option<String>)>,
     global_edges: BTreeSet<Edge>,
     // summary
     mutp: BTreeMap<String, u8>,
@@ -2299,6 +2413,8 @@ impl<'p, 'a> Cx<'p, 'a> {
             req_muts: HashSet::new(),
             req_iters: HashSet::new(),
             req_marks: BTreeSet::new(),
+            req_wbs: BTreeSet::new(),
+            wb: HashMap::new(),
             global_edges: BTreeSet::new(),
             mutp: BTreeMap::new(),
             mutf: BTreeMap::new(),
@@ -2310,6 +2426,54 @@ impl<'p, 'a> Cx<'p, 'a> {
             dead: false,
             loop_acc: vec![],
             try_acc: vec![],
+        }
+    }
+
+    // The `m = q[k]` bindings a change of m may be written back from (see wb).
+    fn find_wb(&mut self, body: &[Stmt]) {
+        if self.f == MODULE {
+            return;
+        }
+        let prog = self.p;
+        let fi = &prog.fns[self.f];
+        let mut found = vec![];
+        let mut each = |b: &[Stmt], found: &mut Vec<(String, String, Option<String>)>| {
+            fn rec(b: &[Stmt], found: &mut Vec<(String, String, Option<String>)>) {
+                for s in b {
+                    if let Some(f) = wb_form(s) {
+                        found.push(f);
+                    }
+                    if !matches!(s.st, St::Def(_) | St::Class(_)) {
+                        for_child_blocks(s, &mut |c| rec(c, found));
+                    }
+                }
+            }
+            rec(b, found)
+        };
+        each(body, &mut found);
+        for (m, q, kn) in found {
+            let sites = |n: &str| {
+                let mut o = (0, false);
+                bind_sites(body, n, &mut o);
+                o
+            };
+            let (mb, mo) = sites(&m);
+            if mb != 1 || mo || fi.params.contains(&m) || fi.captured.contains(&m) || self.always_live.contains(&m) || !fi.locals.contains(&m) {
+                continue;
+            }
+            if sites(&q).1 || !fi.locals.contains(&q) && !fi.params.contains(&q) || fi.captured.contains(&q) {
+                continue;
+            }
+            if let Some(k) = &kn {
+                if sites(k).1 || fi.captured.contains(k) || self.ex_kind(&Ex::Name(k.clone())) != 0 {
+                    continue;
+                }
+            }
+            self.wb.insert(m, (q, kn));
+        }
+        // Until bound, no write-back holds.
+        for m in self.wb.keys().cloned().collect::<Vec<_>>() {
+            self.st.insert(nwb(&m));
         }
     }
 
@@ -2361,6 +2525,7 @@ impl<'p, 'a> Cx<'p, 'a> {
             })
         });
         self.always_live.extend(lam);
+        self.find_wb(body);
         self.live.block(body, &HashSet::new());
         self.block(body);
         self.at_exit();
@@ -2598,7 +2763,44 @@ impl<'p, 'a> Cx<'p, 'a> {
         if matches!(p, Pl::Ext) {
             return;
         }
+        // q's items replaced or removed (anything but a setdefault, which keeps every item there): a name bound
+        // from one of them may no longer be q's own item.
+        if what != "setdefault" && !self.wb.is_empty() {
+            let mut changed: Vec<Pl> = self.partners(p).into_iter().filter(|(_, dq, dp)| *dq == 0 && *dp == d).map(|(q, _, _)| q).collect();
+            if d == 0 {
+                changed.push(p.clone());
+            }
+            for (m, (q, _)) in self.wb.clone() {
+                if changed.contains(&self.place(&q)) {
+                    self.st.insert(nwb(&m));
+                }
+            }
+        }
+        // `d = labels.setdefault(s, {})`, `lst = d.setdefault(k, [])`, then lst changed: lst is written back into
+        // d, then d into labels (each binding still holding): d at depth 1, labels at depth 2.
+        let mut wb_to: Vec<(Pl, u8, String, String)> = vec![];
+        if let Pl::L(m0) = p {
+            let mut m = m0.clone();
+            while let Some((q, _)) = self.wb.get(&m).filter(|_| !self.st.contains(&nwb(&m)) && wb_to.len() < 4) {
+                if wb_to.iter().any(|(_, _, a, _)| a == q) || q == m0 {
+                    break;
+                }
+                wb_to.push((self.place(q), wb_to.len() as u8 + 1, m.clone(), q.clone()));
+                m = q.clone();
+            }
+        }
         for (q, dq, dp) in self.partners(p) {
+            // `m = q[k]` still holding, then m changed: written back to q[k] after this statement.
+            if dp == 0 && matches!(q, Pl::L(_)) && wb_to.iter().any(|(w, k, _, _)| *w == q && *k == dq) {
+                if self.report {
+                    for (_, k, a, b) in &wb_to {
+                        if *k <= dq {
+                            self.req_wbs.insert((self.line, a.clone(), b.clone()));
+                        }
+                    }
+                }
+                continue;
+            }
             if d >= dp && self.is_live(&q) {
                 // Both names hold a handle there (an object, a dict record): the typed build shares it too.
                 let named = |x: &Pl| match x {
@@ -2652,6 +2854,18 @@ impl<'p, 'a> Cx<'p, 'a> {
     }
 
     fn mutate_ex(&mut self, e: &Ex, d: u8, what: &str, own_key: bool) {
+        // `d.setdefault(k, []).append(v)`: the setdefault runs (it may store the default), then d's own item changes.
+        if let Ex::Call(f, args) = e {
+            if let (Ex::Attr(o, m), [Arg::Pos(_), Arg::Pos(_)]) = (f.as_ref(), args.as_slice()) {
+                if m == "setdefault" {
+                    if let Some((r, rd)) = self.place_of(o) {
+                        self.eval(e);
+                        self.mutate_place(&r, add_d(add_d(rd, 1), d), what, own_key);
+                        return;
+                    }
+                }
+            }
+        }
         match self.place_of(e) {
             Some((r, rd)) => self.mutate_place(&r, add_d(rd, d), what, own_key),
             None => {
@@ -2688,6 +2902,11 @@ impl<'p, 'a> Cx<'p, 'a> {
                     return;
                 }
                 let p = self.place(n);
+                for (m, (q, k)) in self.wb.clone() {
+                    if &m == n || &q == n || k.as_ref() == Some(n) {
+                        self.st.insert(nwb(&m));
+                    }
+                }
                 let srcs: Vec<Src> = srcs.into_iter().filter(|(q, _, _)| !matches!(q, Pl::L(m) if rebound.contains(m))).collect();
                 if matches!(p, Pl::G(_) | Pl::Ext) {
                     // a global set inside a function (`global x`) or from module code: the old value's sharing goes
@@ -2778,6 +2997,11 @@ impl<'p, 'a> Cx<'p, 'a> {
                 }
                 for t in ts {
                     self.assign_target(t, srcs.clone(), &rebound);
+                }
+                if let Some((m, q, k)) = wb_form(s) {
+                    if self.wb.get(&m) == Some(&(q, k)) {
+                        self.st.remove(&nwb(&m));
+                    }
                 }
             }
             St::AnnAssign(t, Some(v), _, _) => {
