@@ -314,7 +314,10 @@ class _BrOT(type):
     def __call__(c, *a, **k):
         if _d._steager(c, 'call', len(a) + len(k)):
             return _d._stnow(c, 'call', [a, k])
-        return type.__call__(c, *a, **k)
+        # recorded as a call, made once the load has finished (_BrInst.__new__ is then only NEWOBJ's)
+        o = object.__new__(c)
+        o._ops = [['call', a, k]]
+        return o
 class _BrInst(metaclass=_BrOT):
     __slots__ = ('_r', '_bv', '_ops')
     def __new__(cls, *a, **k):
@@ -3006,7 +3009,7 @@ fn st_eager(c: &Rc<Class>, kind: &str, args: bool) -> bool {
     let base = matches!(cat, BT::Int | BT::Tuple);
     match kind {
         "recon" => base,
-        "new" => base || args || pk_own(c, "__new__").is_some(),
+        "new" => base || (args && cat == BT::Object) || pk_own(c, "__new__").is_some(),
         "call" => base || pk_own(c, "__new__").is_some() || pk_own(c, "__init__").is_some(),
         _ => false,
     }
