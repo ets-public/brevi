@@ -1,6 +1,6 @@
 """Checks `brevi mcp --http`: Streamable HTTP in JSON-response mode over the stdio server. Requests get their
 reply as JSON, notifications 202; bad bodies, media types, methods, paths and origins are refused; the bearer
-token is checked; two clients using the same ids get their own replies; cancelling ends the waiting POST; a
+token is checked, and wrong tokens back off; a server without a token answers only local Host names; two clients using the same ids get their own replies; cancelling ends the waiting POST; a
 non-local address needs a token. With the official mcp client too, where python3 has it.
 usage: python3 tests/mcp_http_test.py [BREVI]"""
 import atexit, json, os, signal, socket, subprocess, sys, threading, time, urllib.error, urllib.request
@@ -100,6 +100,9 @@ check("DELETE", post(U, method="DELETE")[0], 405)
 check("path", post(U.replace("/mcp", "/other"), req(2, "ping"))[0], 404)
 check("foreign origin", post(U, req(2, "ping"), headers={"Origin": "http://evil.example"})[0], 403)
 check("local origin", post(U, req(2, "ping"), headers={"Origin": "http://localhost:3000"}), (200, '{"jsonrpc":"2.0","id":2,"result":{}}'))
+# Without a token only local Host names are answered (DNS rebinding with no Origin header).
+check("foreign host", post(U, req(2, "ping"), headers={"Host": "rebind.example:%s" % U.split(":")[2].split("/")[0]})[0], 403)
+check("localhost host", post(U, req(2, "ping"), headers={"Host": "localhost:%s" % U.split(":")[2].split("/")[0]})[0], 200)
 out = {}
 
 
@@ -134,6 +137,14 @@ check("connection cap", post(U, req(1, "ping"), headers={"Authorization": "Beare
 [c.close() for c in held]
 time.sleep(0.5)
 check("after the cap", post(U, req(1, "ping"), headers={"Authorization": "Bearer " + TOK})[0], 200)
+# Five wrong tokens in a row from one address: then 429 (Retry-After 1 s), even for the right token, until
+# the wait is over; a right token clears the count. A server with a token takes any Host.
+for _ in range(5):
+    post(U, req(1, "ping"), headers={"Authorization": "Bearer nope"})
+check("wrong tokens back off", post(U, req(1, "ping"), headers={"Authorization": "Bearer " + TOK})[0], 429)
+time.sleep(1.2)
+check("after the wait", post(U, req(1, "ping"), headers={"Authorization": "Bearer " + TOK, "Host": "box.example"})[0], 200)
+check("count cleared", post(U, req(1, "ping"), headers={"Authorization": "Bearer nope"})[0], 401)
 try:
     import asyncio
     import httpx2

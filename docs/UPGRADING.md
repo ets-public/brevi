@@ -41,6 +41,9 @@ Newest first. Only changes that can affect programs or setups that already work.
 
 These are on `main` now and ship with the next release.
 
+- **Crate lines are checked.** A version must be a Cargo version requirement and features Cargo feature names, and under `--sandbox` every crate needs a version: add `use NAME "VERSION"` for a crate the rust code names without one.
+- **`brevi mcp --http` without a token answers only local Host names** (localhost, 127.0.0.1, [::1]). A tunnel that forwards to 127.0.0.1 with its own host name (cloudflared does by default) needs `--allow-host NAME`, or better a token. With a token, five wrong tokens in a row from one address get 429 for a growing wait (up to 60 s).
+
 - **`--limit cpu` works on Windows**, held by a Job Object and a watch thread over user and kernel time. `file`, `fds` and `threads` stay refused there.
 - **`BREVI_DYN=0` keeps the wrong-answer guard.** A file the guard sends to the dynamic build is refused instead of built typed.
 - **Pickle and copy refusals stop the program** instead of raising an exception a `try` could catch. Pickles of the program's own classes, int and tuple subclasses and namedtuples now have CPython's exact bytes, and `copy` honours a class's `__reduce__`, `__getstate__` and `__setstate__` (they were skipped before).

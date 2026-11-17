@@ -560,6 +560,11 @@ fn main() {
     }
     let foreign = ffi::split(&src).1;
     let mut deps = ffi::all_deps(&foreign);
+    let dep_errs = ffi::dep_errors(&deps, sandbox);
+    if !dep_errs.is_empty() {
+        dep_errs.iter().for_each(|(line, msg, fix)| print_diag(&Diag::new("check", (*line).max(1), 1, msg).fix_hint(fix)));
+        exit(1);
+    }
     // A tkinter program built with --window draws through eframe.
     if gui::window() && src.lines().any(|l| (l.starts_with("import tkinter") || l.starts_with("from tkinter")) && !deps.iter().any(|d| d.name == "eframe")) {
         deps.push(gui::window_dep());
