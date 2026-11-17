@@ -14,3 +14,4 @@ Two('y', 3.5) [Two('y', 3.5)]
 Pair(1, 5)
 Empty()
 Named!
+bad token AtLine('bad token') 0

@@ -97,3 +97,16 @@ try:
     raise Named("n")
 except Named as e:
     print(repr(e))
+
+
+# A default: every call gives one arg, so the message is that arg.
+class AtLine(Exception):
+    def __init__(self, msg, line=0):
+        self.msg = msg
+        self.line = line
+
+
+try:
+    raise AtLine("bad token")
+except AtLine as e:
+    print(str(e), repr(e), e.line)

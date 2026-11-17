@@ -50,6 +50,8 @@ pub struct Parser {
     exc_init: Vec<String>,
     exc_str_ok: Vec<String>,
     exc_repr_own: Vec<String>,
+    // An error class whose message is the args of its calls: how many each call gives.
+    exc_nargs: HashMap<String, usize>,
 }
 
 type Sig = (Vec<String>, Vec<Option<Expr>>, Option<usize>);
@@ -85,7 +87,7 @@ fn parse_once(src: &str) -> R<Vec<Item>> {
         (Tok::Kw("fn"), Tok::Ident(n)) => Some(n.clone()),
         _ => None,
     }).collect();
-    let mut p = Parser { toks, pos: 0, ret_map: false, user_fns, children: vec![], hoisted: vec![], pending: vec![], set_names: vec![], py: false, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false, attr_tys: vec![], type_names: HashMap::new(), exc_bases: HashMap::new(), in_handler: 0, exc_rich: vec![], threads: vec![], in_exc_class: false, exc_str_own: vec![], exc_init: vec![], exc_str_ok: vec![], exc_repr_own: vec![] };
+    let mut p = Parser { toks, pos: 0, ret_map: false, user_fns, children: vec![], hoisted: vec![], pending: vec![], set_names: vec![], py: false, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false, attr_tys: vec![], type_names: HashMap::new(), exc_bases: HashMap::new(), in_handler: 0, exc_rich: vec![], threads: vec![], in_exc_class: false, exc_str_own: vec![], exc_init: vec![], exc_str_ok: vec![], exc_repr_own: vec![], exc_nargs: HashMap::new() };
     p.py = crate::python_style(src);
     // Python error classes, from every file, before any `except` that names one is read (the main file comes first).
     if p.py {
@@ -788,10 +790,10 @@ impl Parser {
     // Python's str() of an error object without its own `__str__` is made of its args: "" for none, str(a) for
     // one, the tuple's repr for more. The args are what `super().__init__(...)` (or `Exception.__init__(self,
     // ...)`) was given, or, with no such call, the positional args the class was called with. The class gets a
-    // hidden `ax_exc_msg` field holding that text, set where the args are set, and a `__str__` giving it. The
+    // hidden `ax_exc_msg` field holding that text, set where the args are set, and a `__str__` giving it (and `ax_exc_args`, the args' reprs, for `__repr__`). The
     // text is made at that point, so only args whose value cannot change later qualify: str, int, float and
     // bool (ax_exc_str's trait bound; another type fails the typed build, which then goes dynamic). Args the
-    // build cannot see (a keyword or `*xs` call, defaults, an `__init__` of the program's own base, a call
+    // build cannot see (a keyword or `*xs` call, `*args` in __init__, calls giving a defaulted __init__ different numbers of args, an `__init__` of the program's own base, a call
     // inside an if) make the class refused here, so the file goes to the dynamic build, when anything could
     // take an error object's str() (an `except ... as`, or the class called outside `raise`).
     fn exc_str(&mut self, name: &str, line: usize, bases: &[String], methods: &mut Vec<Item>) -> R<()> {
@@ -807,9 +809,16 @@ impl Parser {
             Ok(None)
         } else if !own_init {
             // `class NotFound(AppError): pass`-like: AppError's __init__ and __str__ serve, if they give the
-            // message and the class is only called with positional args.
+            // message and the class is called as AppError's message needs (positional args only, as many as
+            // AppError's calls give when its message is made of them).
+            let calls = self.exc_call_counts(name);
             match bases {
-                [b] if self.exc_str_ok.contains(b) && self.exc_calls_positional(name) => Ok(None),
+                [b] if self.exc_str_ok.contains(b) && calls.as_ref().is_some_and(|c| self.exc_nargs.get(b).map_or(true, |k| c.iter().all(|n| n == k))) => {
+                    if let Some(k) = self.exc_nargs.get(b).copied() {
+                        self.exc_nargs.insert(name.to_string(), k);
+                    }
+                    Ok(None)
+                }
                 _ => Err("it has no __init__ the typed build can read its message from".to_string()),
             }
         } else {
@@ -836,12 +845,25 @@ impl Parser {
                 _ => vec![],
             };
             if calls == 0 {
-                if self.sigs.contains_key("__init__") {
-                    Err("its __init__ has defaults or *args, so its message depends on each call".to_string())
-                } else if !self.exc_calls_positional(name) {
+                // Python's args are the call's positional args: with defaults, as many as each call gives, so
+                // every call must give the same number.
+                let nparams = params.len() - 1;
+                let counts = self.exc_call_counts(name);
+                let one = counts.as_ref().and_then(|c| c.first().copied().filter(|k| c.iter().all(|n| n == k)));
+                if self.sigs.get("__init__").is_some_and(|s| s.2.is_some()) {
+                    Err("its __init__ takes *args, so its message depends on each call".to_string())
+                } else if counts.is_none() {
                     Err("it is called with keyword or * args, which Python leaves out of its message".to_string())
                 } else {
-                    Ok(Some((0, params.iter().skip(1).map(|p| Expr::Ident(p.name.clone())).collect())))
+                    // Not called anywhere (or only by a subclass): the message would be all its params.
+                    let k = if counts.as_ref().is_some_and(|c| c.is_empty()) { Some(nparams) } else { one.filter(|k| *k <= nparams) };
+                    match k {
+                        None => Err("its calls give different numbers of args, and Python's message is the args each call gives".to_string()),
+                        Some(k) => {
+                            self.exc_nargs.insert(name.to_string(), k);
+                            Ok(Some((0, params.iter().skip(1).take(k).map(|p| Expr::Ident(p.name.clone())).collect())))
+                        }
+                    }
                 }
             } else if calls > 1 || top.len() != 1 {
                 Err("its super().__init__(...) is not one plain statement of __init__".to_string())
@@ -906,7 +928,7 @@ impl Parser {
                 self.exc_str_ok.push(name.to_string());
                 Some(field("ax_exc_msg"))
             }
-            Err(why) if may_str => {
+            Err(why) if may_str && self.py => {
                 return Err(Diag::new("parse", line, 1, &format!("str() of an object of the error class {name}: the typed build cannot tell what CPython's message is, because {why}")));
             }
             // Nothing in the file can take the message: a str() or repr() that cannot happen stops the run if it does.
@@ -940,34 +962,58 @@ impl Parser {
         }
         Ok(())
     }
-    // Whether the class is only ever called with positional args (`E(a, b)`, not `E(a, code=b)` or `E(*xs)`).
-    fn exc_calls_positional(&self, name: &str) -> bool {
+    // How many positional args each call of the class gives (`E(a, b)`: 2, a bare `raise E`: 0), or None if a
+    // call gives keyword or * args (`E(a, code=b)`, `E(*xs)`), which Python leaves out of the error's args.
+    fn exc_call_counts(&self, name: &str) -> Option<Vec<usize>> {
         let t: Vec<&Tok> = self.toks.iter().map(|t| &t.tok).collect();
+        let mut counts = Vec::new();
         for i in 0..t.len() {
-            if !(matches!(t[i], Tok::Ident(n) if n == name) && matches!(t.get(i + 1), Some(Tok::Sym("(")))) {
+            if !matches!(t[i], Tok::Ident(n) if n == name) {
+                continue;
+            }
+            let after_raise = i > 0 && matches!(t[i - 1], Tok::Ident(w) if w == "raise");
+            if !matches!(t.get(i + 1), Some(Tok::Sym("("))) {
+                if after_raise {
+                    counts.push(0);
+                }
                 continue;
             }
             if i > 0 && matches!(t[i - 1], Tok::Ident(w) if w == "class") {
                 continue;
             }
-            let mut depth = 0;
+            let (mut depth, mut commas, mut empty, mut last_comma) = (0, 0, true, false);
             for j in i + 1..t.len() {
                 match t[j] {
-                    Tok::Sym("(") | Tok::Sym("[") | Tok::Sym("{") => depth += 1,
+                    Tok::Sym("(") | Tok::Sym("[") | Tok::Sym("{") => {
+                        if depth >= 1 {
+                            empty = false;
+                            last_comma = false;
+                        }
+                        depth += 1;
+                    }
                     Tok::Sym(")") | Tok::Sym("]") | Tok::Sym("}") => {
                         depth -= 1;
                         if depth == 0 {
                             break;
                         }
                     }
-                    Tok::Sym("*") | Tok::Sym("**") if depth == 1 && matches!(t[j - 1], Tok::Sym("(") | Tok::Sym(",")) => return false,
-                    Tok::Ident(_) if depth == 1 && matches!(t.get(j + 1), Some(Tok::Sym("="))) => return false,
+                    Tok::Sym("*") | Tok::Sym("**") if depth == 1 && matches!(t[j - 1], Tok::Sym("(") | Tok::Sym(",")) => return None,
+                    Tok::Ident(_) if depth == 1 && matches!(t.get(j + 1), Some(Tok::Sym("="))) => return None,
+                    Tok::Sym(",") if depth == 1 => {
+                        commas += 1;
+                        last_comma = true;
+                    }
                     Tok::Eof => break,
-                    _ => {}
+                    Tok::Newline => {}
+                    _ => {
+                        empty = false;
+                        last_comma = false;
+                    }
                 }
             }
+            counts.push(if empty { 0 } else { commas + 1 - usize::from(last_comma) });
         }
-        true
+        Some(counts)
     }
     // Whether anything in the file could take an error object's str(): an `except ... as e`, or an error class
     // of the program called other than right after `raise`.
@@ -3543,7 +3589,7 @@ impl Parser {
                         d.line = line;
                         d
                     })?;
-                    let mut sub = Parser { toks, pos: 0, ret_map: false, user_fns: self.user_fns.clone(), children: vec![], hoisted: vec![], pending: vec![], set_names: vec![], py: self.py, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false, attr_tys: vec![], type_names: HashMap::new(), exc_bases: self.exc_bases.clone(), in_handler: 0, exc_rich: self.exc_rich.clone(), threads: self.threads.clone(), in_exc_class: false, exc_str_own: self.exc_str_own.clone(), exc_init: self.exc_init.clone(), exc_str_ok: self.exc_str_ok.clone(), exc_repr_own: self.exc_repr_own.clone() };
+                    let mut sub = Parser { toks, pos: 0, ret_map: false, user_fns: self.user_fns.clone(), children: vec![], hoisted: vec![], pending: vec![], set_names: vec![], py: self.py, sigs: HashMap::new(), class_names: vec![], held: vec![], yields: false, attr_tys: vec![], type_names: HashMap::new(), exc_bases: self.exc_bases.clone(), in_handler: 0, exc_rich: self.exc_rich.clone(), threads: self.threads.clone(), in_exc_class: false, exc_str_own: self.exc_str_own.clone(), exc_init: self.exc_init.clone(), exc_str_ok: self.exc_str_ok.clone(), exc_repr_own: self.exc_repr_own.clone(), exc_nargs: self.exc_nargs.clone() };
                     let e = sub.expr().map_err(|mut d| {
                         d.line = line;
                         d
