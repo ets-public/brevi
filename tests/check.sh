@@ -104,7 +104,7 @@ if [ "$1" != "--update" ]; then
   printf 'from itertools import repeat\ndef f():\n    for cls in (repeat, zip):\n        class S(cls):\n            pass\n        print(S.__name__, S.__mro__[1].__name__, issubclass(S, cls))\nf()\n' > "$it_dir/b.py"
   for p in a b; do
     out=$(BREVI_DYN=1 $BREVI build "$it_dir/$p.py" -o "$it_dir/prog" 2>&1 && "$it_dir/prog" 2>&1)
-    if [ "$out" = "$(python3 "$it_dir/$p.py" 2>&1)" ]; then
+    if [ "$out" = "$("${BREVI_PYTHON:-python3}" "$it_dir/$p.py" 2>&1)" ]; then
       echo "ok   dynamic build subclasses an iterator type ($p)"
     else
       echo "FAIL dynamic build subclasses an iterator type ($p)"; printf '%s\n' "$out" | tail -3; fail=1
@@ -884,7 +884,7 @@ for c in "pk1:pickling an object of the program whose __reduce__ gives a global 
 done
 printf 'import copy\nclass A:\n    def __reduce__(self):\n        return (A, (), None, None, None, None)\nfor f in (copy.copy, copy.deepcopy):\n    try:\n        f(A())\n    except TypeError as e:\n        print(e)\nclass B:\n    def __reduce__(self):\n        return (B,)\ntry:\n    copy.copy(B())\nexcept TypeError as e:\n    print(e)\n' > "$t/pk4.py"
 o=$(BREVI_DYN=1 $BREVI run "$t/pk4.py" 2>&1)
-if [ "$o" = "$(python3 "$t/pk4.py" 2>&1)" ]; then echo "ok   copy of a __reduce__ tuple of the wrong length is CPython's TypeError"; else echo "FAIL copy of a __reduce__ tuple of the wrong length"; printf '%s\n' "$o"; fail=1; fi
+if [ "$o" = "$("${BREVI_PYTHON:-python3}" "$t/pk4.py" 2>&1)" ]; then echo "ok   copy of a __reduce__ tuple of the wrong length is CPython's TypeError"; else echo "FAIL copy of a __reduce__ tuple of the wrong length"; printf '%s\n' "$o"; fail=1; fi
 # A module attribute or repr Brevi cannot give as CPython does is refused, never a different answer: the import
 # machinery's __spec__ when the program is built, or read through a variable when the program runs; the repr of
 # sys.stdout or a decimal context likewise. A library module's repr is the build machine's CPython's.
@@ -896,7 +896,7 @@ printf 'import helper\nm = helper\nprint(m.__loader__)\n' > "$t/m2.py"
 o=$(BREVI_DYN=1 $BREVI run "$t/m2.py" 2>&1)
 case "$o" in *"NotImplementedError: brevi: helper.__loader__ is not supported in dynamic builds") echo "ok   a program module's __loader__ through a variable stops" ;; *) echo "FAIL a program module's __loader__ through a variable"; printf '%s\n' "$o"; fail=1 ;; esac
 printf 'import math, sys, json, re\nprint(sys, f"{math}", [json])\nd = {"m": re}\nprint(d, str(re) == repr(re))\n' > "$t/m3.py"
-o=$(BREVI_DYN=1 $BREVI build "$t/m3.py" -o "$t/m3" 2>&1 && "$t/m3" 2>&1); w=$(python3 "$t/m3.py" 2>&1)
+o=$(BREVI_DYN=1 $BREVI build "$t/m3.py" -o "$t/m3" 2>&1 && "$t/m3" 2>&1); w=$("${BREVI_PYTHON:-python3}" "$t/m3.py" 2>&1)
 if [ "$o" = "$w" ]; then echo "ok   a library module's repr is CPython's"; else echo "FAIL a library module's repr"; printf '%s\n' "$o" "$w"; fail=1; fi
 printf 'import sys\nprint(f"{sys.stdout}")\n' > "$t/m4.py"
 o=$(BREVI_DYN=1 $BREVI build "$t/m4.py" -o "$t/m4" 2>&1)
@@ -910,7 +910,7 @@ case "$o" in *"NotImplementedError: brevi: the repr of decimal.context is not su
 printf 'X = 1\n' > "$t/tabnanny.py"
 printf 'import tabnanny\ntry:\n    tabnanny.nope\nexcept AttributeError as e:\n    print(e)\n' > "$t/m6.py"
 o=$(BREVI_DYN=1 $BREVI run "$t/m6.py" 2>&1)
-if [ "$o" = "$(python3 "$t/m6.py" 2>&1)" ]; then echo "ok   a missing attribute of a file shadowing the stdlib"; else echo "FAIL a missing attribute of a file shadowing the stdlib"; printf '%s\n' "$o"; fail=1; fi
+if [ "$o" = "$("${BREVI_PYTHON:-python3}" "$t/m6.py" 2>&1)" ]; then echo "ok   a missing attribute of a file shadowing the stdlib"; else echo "FAIL a missing attribute of a file shadowing the stdlib"; printf '%s\n' "$o"; fail=1; fi
 printf 'from helper import *\nprint(X)\n' > "$t/m7.py"
 o=$(BREVI_DYN=1 $BREVI run "$t/m7.py" 2>&1)
 case "$o" in *"from helper import * (a file of the program) is not supported in dynamic builds"*) echo "ok   a star import of a program file is refused" ;; *) echo "FAIL a star import of a program file"; printf '%s\n' "$o"; fail=1 ;; esac
@@ -973,7 +973,7 @@ case "$o" in *"a docstring with a lone surrogate (U+D800..U+DFFF) is not support
 # python3's stdout under the C locale is UTF-8 with surrogateescape: \udc80 is written as the byte 0x80, and \ud800
 # still raises (the same answer both builds give: compare bytes with python3's).
 printf 'import sys\nprint("a" + chr(0xdc80) + "b")\nsys.stdout.write(chr(0xdcff) + "\\n")\ntry:\n    print(chr(0xd800))\nexcept UnicodeEncodeError as e:\n    print(e)\n' > "$t/c.py"
-want=$(env -u LANG -u LC_ALL -u LC_CTYPE -u PYTHONIOENCODING -u PYTHONUTF8 python3 "$t/c.py" 2>&1 | od -An -tx1)
+want=$(env -u LANG -u LC_ALL -u LC_CTYPE -u PYTHONIOENCODING -u PYTHONUTF8 "${BREVI_PYTHON:-python3}" "$t/c.py" 2>&1 | od -An -tx1)
 got=$(env -u LANG -u LC_ALL -u LC_CTYPE -u PYTHONIOENCODING -u PYTHONUTF8 BREVI_DYN=1 $BREVI run "$t/c.py" 2>&1 | od -An -tx1)
 if [ -n "$want" ] && [ "$got" = "$want" ]; then echo "ok   a lone surrogate on stdout under the C locale"; else echo "FAIL a lone surrogate on stdout under the C locale"; echo "want $want"; echo "got  $got"; fail=1; fi
 # Under --sandbox the program reads no environment, so it cannot name stdout's error handler: it stops instead.
@@ -986,7 +986,7 @@ mkdir -p "$t/locs"
 for loc in "ISO-8859-1 en_US" "CP1252 en_US" "ISO-8859-9 tr_TR"; do
   cm=${loc% *}; li=${loc#* }
   if localedef -f "$cm" -i "$li" "$t/locs/$li.$cm" >/dev/null 2>&1 || [ -d "$t/locs/$li.$cm" ]; then
-    want=$(LOCPATH="$t/locs" LC_ALL="$li.$cm" python3 "$t/loc.py" 2>&1)
+    want=$(LOCPATH="$t/locs" LC_ALL="$li.$cm" "${BREVI_PYTHON:-python3}" "$t/loc.py" 2>&1)
     got=$(LOCPATH="$t/locs" LC_ALL="$li.$cm" BREVI_DYN=1 $BREVI run "$t/loc.py" 2>/dev/null)
     if [ -n "$want" ] && [ "$got" = "$want" ]; then echo "ok   re.LOCALE under $li.$cm"; else echo "FAIL re.LOCALE under $li.$cm"; printf 'want %s\ngot  %s\n' "$(printf '%s\n' "$want" | head -3)" "$(printf '%s\n' "$got" | head -3)"; fail=1; fi
   else
@@ -1000,7 +1000,7 @@ case "$c:$o" in *"1:NotImplementedError: brevi: re.LOCALE under --sandbox"*) ech
 # UTF-8 mode (PYTHONUTF8=1) reaches the embedded CPython, which Py_InitializeEx alone ignores: the preferred
 # encoding is 'utf-8' as in python3, not the locale's (ASCII under C here, the ANSI code page on Windows; #589).
 printf 'import locale\nprint(locale.getpreferredencoding())\n' > "$t/penc.py"
-want=$(LC_ALL=C PYTHONUTF8=1 python3 "$t/penc.py" 2>&1)
+want=$(LC_ALL=C PYTHONUTF8=1 "${BREVI_PYTHON:-python3}" "$t/penc.py" 2>&1)
 got=$(LC_ALL=C PYTHONUTF8=1 BREVI_DYN=1 $BREVI run "$t/penc.py" 2>&1)
 if [ "$want" = utf-8 ] && [ "$got" = "$want" ]; then echo "ok   PYTHONUTF8=1 preferred encoding"; else echo "FAIL PYTHONUTF8=1 preferred encoding: want $want got $got"; fail=1; fi
 # What a native coroutine cannot give is refused when the program is built (test_coroutines): its frame and code
@@ -1209,13 +1209,13 @@ done
 # is no comment, and an uncaught error on the typed build names its class.
 for d in 0 1; do
   for c in "a b|a b" "a --native b|a --native b" "a -- --x|a -- --x" "-- --x a|--x a" "--fast a b|a b" "a b -- c|a b -- c"; do
-    out=$(BREVI_DYN=$d $BREVI run tests/cli/argv.py --native ${c%%|*} 2>&1); want=$(python3 tests/cli/argv.py ${c#*|})
+    out=$(BREVI_DYN=$d $BREVI run tests/cli/argv.py --native ${c%%|*} 2>&1); want=$("${BREVI_PYTHON:-python3}" tests/cli/argv.py ${c#*|})
     if [ "$out" = "$want" ]; then echo "ok   cli args ($d: ${c%%|*})"; else echo "FAIL cli args ($d: ${c%%|*})"; echo "want $want"; echo "got  $out"; fail=1; fi
   done
   out=$(BREVI_DYN=$d $BREVI run tests/cli/argv.py --native --sandbx 2>&1; echo "exit $?")
   if printf '%s\n' "$out" | grep -q 'no option --sandbx' && printf '%s\n' "$out" | grep -qx 'exit 2'; then echo "ok   cli unknown option refused ($d)"; else echo "FAIL cli unknown option refused ($d)"; printf '%s\n' "$out"; fail=1; fi
   for f in fstring_spec bom; do
-    out=$(BREVI_DYN=$d $BREVI run tests/cli/$f.py --native 2>&1); want=$(python3 tests/cli/$f.py 2>&1)
+    out=$(BREVI_DYN=$d $BREVI run tests/cli/$f.py --native 2>&1); want=$("${BREVI_PYTHON:-python3}" tests/cli/$f.py 2>&1)
     if [ "$out" = "$want" ]; then echo "ok   cli $f ($d)"; else echo "FAIL cli $f ($d)"; printf '%s\n' "$want" | diff - "$(printf '%s\n' "$out" > /tmp/brevi_cli_$$; echo /tmp/brevi_cli_$$)"; fail=1; fi
   done
 done
@@ -1233,7 +1233,7 @@ if printf '%s\n' "$out" | grep -q 'f-string value the typed build cannot read' &
 out=$(BREVI_DYN=0 $BREVI run tests/cli/guard_dyn0.py --native 2>&1; echo "exit $?")
 if printf '%s\n' "$out" | grep -q "CPython's hash order, and this file cannot be built over dynamic values (BREVI_DYN=0 turns the dynamic build off)" && printf '%s\n' "$out" | grep -qx 'exit 1'; then echo "ok   cli BREVI_DYN=0 keeps the guard"; else echo "FAIL cli BREVI_DYN=0 keeps the guard"; printf '%s\n' "$out"; fail=1; fi
 out=$($BREVI run tests/cli/fstring_brace_field.py --native 2>/dev/null)
-if [ "$out" = "$(python3 tests/cli/fstring_brace_field.py)" ]; then echo "ok   cli f-string field"; else echo "FAIL cli f-string field"; printf '%s\n' "$out"; fail=1; fi
+if [ "$out" = "$("${BREVI_PYTHON:-python3}" tests/cli/fstring_brace_field.py)" ]; then echo "ok   cli f-string field"; else echo "FAIL cli f-string field"; printf '%s\n' "$out"; fail=1; fi
 # A reader that stops early ends brevi report quietly (it panicked on the closed pipe).
 t=$(mktemp -d); i=0
 while [ $i -lt 400 ]; do mkdir -p "$t/differs/r$i"; printf '{"file":"x.py","on":"stdout"}\n' > "$t/differs/r$i/verdict.json"; i=$((i+1)); done
