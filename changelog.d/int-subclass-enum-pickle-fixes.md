@@ -1,0 +1,3 @@
+- Dynamic builds: hex(), oct(), bin(), `%x`/`%o`, range() and round() accept int subclasses and objects with `__index__` as CPython does (they raised TypeError).
+- Dynamic builds: fixed silent wrong answers: auto() inside a namedtuple (or other tuple subclass) Enum value now gets its value; a pickled Enum member with a namedtuple mixin loads as the member itself; `getattr is getattr` (and every other builtin function) is True; a class attribute named `__name__` (such as a property for the instances) no longer hides the class's name, and assigning `C.__name__` / `C.__qualname__` works; `@builtins.property` makes a working property.
+- Dynamic builds: builtin functions such as getattr pickle as CPython pickles them and load back as the program's own.

@@ -724,11 +724,18 @@ pub fn enum_ignore_ns(ctx: &EnumCtx, ns: &V, meta: bool) -> Result<(), E> {
 fn enum_member_store(last: &mut Vec<V>, ctx: &mut EnumCtx, name: &str, v: V) -> R {
     let au = enum_classes().1;
     let is_auto = |x: &V| matches!(x, V::Obj(o) if Rc::ptr_eq(&o.cls, &au));
-    // EnumDict.__setitem__: an auto(), alone or in a plain tuple, gets its value (the same auto() assigned
-    // again keeps the value it was given first); only those values are remembered then
+    // EnumDict.__setitem__: an auto(), alone or in a tuple, gets its value (the same auto() assigned again keeps
+    // the value it was given first); only those values are remembered then. A tuple subclass (a namedtuple) is
+    // made again as CPython does: t(values), or t(*values) when that raises TypeError.
+    let mut sub: Option<Rc<Class>> = None;
     let (items, single) = match &v {
         x if is_auto(x) => (vec![x.clone()], true),
         V::Tuple(xs) if xs.iter().any(|x| is_auto(x)) => (xs.to_vec(), false),
+        V::Obj(o) if matches!(o.inner(), Some(V::Tuple(ref xs)) if xs.iter().any(|x| is_auto(x))) => {
+            sub = Some(o.cls.clone());
+            let Some(V::Tuple(xs)) = o.inner() else { unreachable!() };
+            (xs.to_vec(), false)
+        }
         _ => {
             last.push(v.clone());
             ctx.count += 1;
@@ -758,6 +765,13 @@ fn enum_member_store(last: &mut Vec<V>, ctx: &mut EnumCtx, name: &str, v: V) -> 
         out.push(val);
     }
     ctx.count += 1;
+    if let Some(c) = sub {
+        let t = V::Class(c);
+        return match call(&t, Args::p(vec![list(out.clone())])) {
+            Err(E(e)) if is_exc(&e, "TypeError") => call(&t, Args::p(out)),
+            r => r,
+        };
+    }
     Ok(if single { out.pop().unwrap_or(V::None) } else { tup(out) })
 }
 // EnumType._find_data_type_: the type the members are instances of (object for a plain Enum).

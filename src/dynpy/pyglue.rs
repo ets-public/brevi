@@ -46,6 +46,9 @@ static PYD_MKFN: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::ato
 static PYD_MKMETH: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 // _brevi_dyn's _BrOT: the metaclass of the stand-in classes pickle sees for the program's classes (see _BrInst)
 static PYD_BROT: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+// _brevi_dyn's _pk_getattr, which the program's Unpickler gives for builtins.getattr: the program's getattr when it
+// comes back as a value
+static PYD_PKGA: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_PDUMPS: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_PDUMP: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 thread_local! {
@@ -549,6 +552,7 @@ def _pk_getattr(o, *a):
     if isinstance(o, _BrOT):
         return _pt_mk(_d._stand(_d._lookup('builtins', 'getattr')(o, *a)))
     return _b.getattr(o, *a)
+_d.pk_getattr = _pk_getattr
 def _pk_global(f, m, q, setmod=True):
     # interned, as CPython's __module__ and __qualname__ are, so pickle memoizes the module name once
     m, q = _s.intern(m), _s.intern(q)
@@ -1123,6 +1127,9 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
         if let Some(c) = pyd_builtin_exc(p).or_else(|| pyd_types_class(p)) {
             return done(V::Class(c));
         }
+        if let Some(v) = pyd_builtin_fn_back(p) {
+            return done(v);
+        }
     }
     if t == a.TLong {
         let mut over = 0;
@@ -1364,10 +1371,19 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
         (a.DecRef)(p);
         return r;
     }
+    if p == pyd_ptr(&PYD_PKGA) && !p.is_null() {
+        if let Some(v) = builtin_value("getattr") {
+            return done(v);
+        }
+    }
     if t == a.TCFunction {
         if let Some(v) = pyd_callable_v(p) {
             (a.DecRef)(p);
             return Ok(v);
+        }
+        // CPython's own builtin function (pickle.loads found builtins.getattr): the program's, so `is` holds
+        if let Some(v) = pyd_builtin_fn_back(p) {
+            return done(v);
         }
     }
     if deep {
@@ -1744,7 +1760,7 @@ unsafe fn pyd_register(a: &ax_pyffi::Api) -> bool {
         }
     }
     // kept for the program's life (the references are never given back)
-    for (n, at) in [(c"deq_t", &PYD_DEQ), (c"deqit_t", &PYD_DEQIT), (c"brnew_t", &PYD_BRNEW), (c"_mkobj", &PYD_MKOBJ), (c"dd_t", &PYD_DDICT), (c"ctr_t", &PYD_CTR), (c"fn_t", &PYD_BRFN), (c"meth_t", &PYD_BRMETH), (c"mkfn", &PYD_MKFN), (c"mkmeth", &PYD_MKMETH), (c"brot", &PYD_BROT)] {
+    for (n, at) in [(c"deq_t", &PYD_DEQ), (c"deqit_t", &PYD_DEQIT), (c"brnew_t", &PYD_BRNEW), (c"_mkobj", &PYD_MKOBJ), (c"dd_t", &PYD_DDICT), (c"ctr_t", &PYD_CTR), (c"fn_t", &PYD_BRFN), (c"meth_t", &PYD_BRMETH), (c"mkfn", &PYD_MKFN), (c"mkmeth", &PYD_MKMETH), (c"brot", &PYD_BROT), (c"pk_getattr", &PYD_PKGA)] {
         if !ok {
             break;
         }
@@ -1809,6 +1825,8 @@ fn pickle_ref(a: Args) -> R {
                 _ => Err(unsupported_stop("pickling a builtin function")),
             };
         }
+        // a builtin function (getattr), which pickle met as CPython's own (pyd_to): pickled as CPython pickles it
+        V::Func(f) if pickle_lookup("builtins", f.name.get()).is_ok_and(|k| is(&k, &v)) && unsafe { pyd_builtin_fn(f.name.get()) } => return Ok(V::None),
         V::Func(_) => return Err(unsupported_stop("pickling a builtin function")),
         V::Bound(_) | V::BMeth(_) => return Err(unsupported_stop("pickling a bound method")),
         _ => return Ok(V::None),
@@ -2019,6 +2037,55 @@ unsafe fn pyd_raise(e: &E) {
 fn pyd_builtin_class_named(n: &str) -> Option<Rc<Class>> {
     let c = BUILTIN_CLASSES.with(|b| b.borrow().get(n).cloned())?;
     (c.module == "builtins").then_some(c)
+}
+// The program's own value for CPython's builtins.<name> when p is that very object: a builtin function (pickle
+// found builtins.getattr), or property, staticmethod or classmethod (`@builtins.property` in a class body), which
+// the program's classes must see as their own
+unsafe fn pyd_builtin_fn_back(p: P) -> Option<V> {
+    let a = pyd_api();
+    let n = match pyd_own((a.GetAttr)(p, c"__name__".as_ptr())) {
+        Ok(n) => n,
+        Err(_) => {
+            (a.ErrClear)();
+            return None;
+        }
+    };
+    let name = pyd_text(n);
+    (a.DecRef)(n);
+    let name = name.ok()?;
+    let same = match pyd_builtins_attr(&name) {
+        Ok(q) => {
+            (a.DecRef)(q);
+            q == p
+        }
+        Err(_) => {
+            (a.ErrClear)();
+            false
+        }
+    };
+    if !same {
+        return None;
+    }
+    match builtin_value(&name) {
+        Some(v @ V::Func(_)) if builtin_fn(&name).is_some() => Some(v),
+        Some(v) if matches!(name.as_str(), "property" | "staticmethod" | "classmethod") => Some(v),
+        _ => None,
+    }
+}
+// CPython's builtins has a builtin function (not a class) named n
+unsafe fn pyd_builtin_fn(n: &str) -> bool {
+    let a = pyd_api();
+    match pyd_builtins_attr(n) {
+        Ok(q) => {
+            let r = pyd_type_is(q, a.TCFunction);
+            (a.DecRef)(q);
+            r
+        }
+        Err(_) => {
+            (a.ErrClear)();
+            false
+        }
+    }
 }
 // Whether CPython's builtins module has a class named `n` (and not some other value).
 unsafe fn pyd_has_builtin(n: &str) -> bool {
@@ -2580,7 +2647,11 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
         // builtins.int, as CPython does. It comes back as the program's class (pyd_builtin_exc). Elsewhere it
         // stays a callable of the program: an Unpickler calls the map class it found as the program's map.
         V::Class(c) if c.module == "builtins" && PYD_PICKLING.with(|x| x.get()) && pickle_lookup("builtins", c.name).is_ok_and(|k| is(&k, v)) && pyd_has_builtin(c.name) => pyd_builtins_attr(c.name)?,
-        V::Obj(o) if o.cls.lookup("__bv_namedtuple__").is_some() => pyd_namedtuple(v)?,
+        // a builtin function (getattr) going into pickle: CPython's own, which pickle saves as builtins.getattr; the
+        // program's Unpickler finds the program's again (pickle_lookup)
+        V::Func(f) if f.kind.get() == 3 && PYD_PICKLING.with(|x| x.get()) && pickle_lookup("builtins", f.name.get()).is_ok_and(|k| is(&k, v)) && pyd_builtin_fn(f.name.get()) => pyd_builtins_attr(f.name.get())?,
+        // (an Enum member with a namedtuple mixin going into or out of pickle reduces as a member, below)
+        V::Obj(o) if o.cls.lookup("__bv_namedtuple__").is_some() && !((PYD_PICKLING.with(|c| c.get()) || PYD_UNPICKLING.with(|c| c.get()) > 0) && is_enum(&o.cls) && o.get("_value_").is_some()) => pyd_namedtuple(v)?,
         // a class of the program going into pickle.dumps or pickle.dump, when it is one pickle rebuilds instances
         // of with object's or set's rules: its stand-in class (one for the program's life), which pickles by
         // reference as the class does, and which the instances' reductions name
