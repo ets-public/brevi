@@ -137,6 +137,8 @@ def _warn_at(msg, cat, file, line, module):
 # before the registry or the line is looked at); anything else is refused.
 def _at_unknown(message, category, module):
     import warnings as _w
+    # CPython makes the frame's registry before it looks at the filters
+    _d.regs.setdefault(module, {})
     if isinstance(message, Warning):
         text = str(message)
         category = message.__class__
@@ -150,6 +152,11 @@ def _at_unknown(message, category, module):
             break
     raise NotImplementedError("brevi: a warning at a line of the program the dynamic build does not know is not supported in dynamic builds")
 _d.regs = {}
+# a warning attributed to a library's own frame: that module's globals got a __warningregistry__
+_d.lib_reg = False
+def _regs_clean():
+    return not _d.regs and not _d.lib_reg
+_d.regs_clean = _regs_clean
 _d.warn_at = _warn_at
 # The program uses the warnings module. A program frame is no Python frame, so CPython's warnings.warn would
 # report a warning that points at the program (warnings.warn called by it, or a library's warn whose
@@ -208,6 +215,7 @@ def _install_warn(site):
         if i < P:
             fm = fr[i]
             g = fm.f_globals
+            _d.lib_reg = True
             module = g['__name__'] if '__name__' in g else '<string>'
             return _w.warn_explicit(message, category, fm.f_code.co_filename, fm.f_lineno, module, g.setdefault('__warningregistry__', {}), g, source)
         if i == P and s is not None:
@@ -908,6 +916,13 @@ pub fn pyd_warn_install() -> Result<(), E> {
     }
     PYD_WARN_ON.store(true, std::sync::atomic::Ordering::Relaxed);
     Ok(())
+}
+// no module has a __warningregistry__ yet (rt_text's no_warn_registry)
+pub fn pyd_regs_clean() -> Result<bool, E> {
+    unsafe {
+        let _g = PydGil::take();
+        truth(&pyd_helper("regs_clean", &[])?)
+    }
 }
 unsafe fn pyd_type_is(p: P, t: P) -> bool {
     let a = pyd_api();

@@ -1364,6 +1364,10 @@ thread_local! {
     static RE_SITE: Cell<Option<ReSite>> = const { Cell::new(None) };
     // the program uses the warnings module (CPython's, through the bridge): warnings go through it
     static WARN_BRIDGE: Cell<Option<WarnFn>> = const { Cell::new(None) };
+    // the bridge's answer to "no module has a __warningregistry__ yet" (pyglue's pyd_regs_clean)
+    static REGS_CLEAN: Cell<Option<fn() -> Result<bool, E>>> = const { Cell::new(None) };
+    // the runtime issued a warning (through the bridge or not)
+    static WARNED: Cell<bool> = const { Cell::new(false) };
     // what the default filters already showed: (module, message, category, line), shown once ("default")
     static WARN_SHOWN: RefCell<std::collections::HashSet<(&'static str, String, &'static str, usize)>> = RefCell::new(std::collections::HashSet::new());
 }
@@ -1410,9 +1414,25 @@ pub fn set_name_lookup(f: fn(&str) -> Option<char>) {
 pub fn set_warn_bridge(f: WarnFn) {
     WARN_BRIDGE.set(Some(f));
 }
+pub fn set_regs_clean(f: fn() -> Result<bool, E>) {
+    REGS_CLEAN.set(Some(f));
+}
+// No module's globals hold a __warningregistry__: CPython makes one in the globals of the frame a warning is
+// attributed to, and Brevi's runtime (re_warn) or the bridge's warn (_d.regs, _d.lib_reg) is where every
+// warning of a program goes. None: that is not known (a warning was issued).
+pub fn no_warn_registry() -> Result<bool, E> {
+    if WARNED.get() {
+        return Ok(false);
+    }
+    match REGS_CLEAN.get() {
+        Some(f) => f(),
+        None => Ok(true),
+    }
+}
 // warnings.warn(msg, cat, stacklevel=<the caller>) as CPython issues it, for a warning Brevi's runtime issues
 // where CPython's C code would (re's, int()'s).
 pub fn re_warn(cat: &'static str, msg: String) -> Result<(), E> {
+    WARNED.set(true);
     let site = RE_SITE.get();
     if let Some(warn) = WARN_BRIDGE.get() {
         let Some(s) = site else {
@@ -1445,6 +1465,7 @@ pub fn re_warn(cat: &'static str, msg: String) -> Result<(), E> {
 // is "<copy>" for copy.py, which the bridge names by CPython's own copy.__file__. With no bridge the default
 // filters apply: a DeprecationWarning outside __main__ is ignored.
 pub fn re_warn_at(cat: &'static str, msg: String, file: &str, line: usize, module: &str) -> Result<(), E> {
+    WARNED.set(true);
     if let Some(warn) = WARN_BRIDGE.get() {
         return warn(cat, &msg, file, line, module);
     }
