@@ -264,7 +264,7 @@ The sandbox decides what a program may touch; `--limit` decides how much it may 
 
 | Limit | Unit | Holds | How |
 | --- | --- | --- | --- |
-| `cpu` | seconds | CPU time, all threads together | the kernel (`RLIMIT_CPU`); on Windows a Job Object, counting every process the program starts too |
+| `cpu` | seconds | CPU time, all threads together | the kernel (`RLIMIT_CPU`); on Windows, from the next release, a Job Object, counting every process the program starts too |
 | `mem` | MB | address space on Linux; committed memory of the program and everything it starts on Windows | the kernel (`RLIMIT_AS`); on Windows a Job Object, from v0.27.0; not on macOS |
 | `time` | seconds | wall-clock time, waiting included | `brevi`, which stops the program |
 | `output` | KB | stdout and stderr together | `brevi`, which passes output on and stops the program at the limit |

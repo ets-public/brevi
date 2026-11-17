@@ -37,6 +37,16 @@ Notes:
 
 Newest first. Only changes that can affect programs or setups that already work.
 
+### Next release
+
+These are on `main` now and ship with the next release.
+
+- **`--limit cpu` works on Windows**, held by a Job Object and a watch thread over user and kernel time. `file`, `fds` and `threads` stay refused there.
+- **`BREVI_DYN=0` keeps the wrong-answer guard.** A file the guard sends to the dynamic build is refused instead of built typed.
+- **Pickle and copy refusals stop the program** instead of raising an exception a `try` could catch. Pickles of the program's own classes, int and tuple subclasses and namedtuples now have CPython's exact bytes, and `copy` honours a class's `__reduce__`, `__getstate__` and `__setstate__` (they were skipped before).
+- **numpy with `NPY_*` or `NUMPY_*` settings** in the environment runs with CPython's numpy, not Brevi's.
+- **Typed build:** a loop over a JSON number, bool or None raises Python's `TypeError` (it looped zero times), and `split()`, `strip()` and `isspace()` treat U+001C to U+001F as whitespace.
+
 ### v0.28.2
 
 These changed in v0.28.2 (16 Nov 2026).

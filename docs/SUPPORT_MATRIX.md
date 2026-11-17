@@ -2,7 +2,7 @@
 
 ## Resource limits by platform
 
-Where each `--limit` is enforced. A limit marked `-` is refused on that platform, never ignored. `written`, `net` and `files` are counted by Brevi's own code, so they also need `--sandbox` without `--allow native` or `--allow-py`. `threads` also needs a pids cgroup Brevi can create. Source of truth: `LIMIT_PLATFORMS` in `src/proc.rs`; `tools/limits_check.py` checks this table.
+Where each `--limit` is enforced. A limit marked `-` is refused on that platform, never ignored. `written`, `net` and `files` are counted by Brevi's own code, so they also need `--sandbox` without `--allow native` or `--allow-py`. `threads` also needs a pids cgroup Brevi can create. Source of truth: `LIMIT_PLATFORMS` in `src/proc.rs`; `tools/limits_check.py` checks this table. The table shows `main`: Windows `cpu` is from the next release (v0.28.2 and earlier refuse it).
 
 | Limit | Linux | macOS | Windows |
 | --- | --- | --- | --- |
