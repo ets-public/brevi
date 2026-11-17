@@ -12,6 +12,8 @@ brevi check main.py                    # build without running: errors only
 brevi build main.py -o app --release   # an optimised binary to keep or ship
 ```
 
+Every command refuses an option it does not have (exit code 2, naming the nearest real one), so a misspelt `--sandbox` stops the build instead of building without the sandbox. Words after `--` always go to the program.
+
 A file can import its sibling `.py` files and packages as usual (`import util`, `from models import Order`); Brevi joins them into one program, and errors name the right file.
 
 ## Commands
