@@ -99,6 +99,29 @@ pub fn call(f: &V, a: Args) -> R {
         _ => type_err(format!("'{}' object is not callable", tn(f))),
     }
 }
+// A descriptor's __set__/__delete__ or an attribute's __set_name__, found on its class, called as CPython's slots
+// call it (vectorcall_method, _PyObject_LookupSpecial): with the descriptor first, except a Python object whose
+// type has no __get__ (a unittest.mock object the program stored there), which is called as it is.
+pub fn call_slot(f: &V, me: V, mut rest: Vec<V>) -> R {
+    if let V::Ext(x) = f {
+        if x.plain_slot() {
+            return call(f, Args::p(rest));
+        }
+    }
+    rest.insert(0, me);
+    call(f, Args::p(rest))
+}
+// A callable Python object whose type has no __get__ (a unittest.mock object) stored on a class of the program under a
+// special name (__x__ or _x_) other than those call_slot calls and __get__: the runtime calls such a name's value
+// with the instance first, which CPython's slots would not pass, so the program stops here.
+pub fn plain_slot_check(name: &str, v: &V) -> Result<(), E> {
+    let V::Ext(x) = v else { return Ok(()) };
+    let special = (name.len() > 4 && name.starts_with("__") && name.ends_with("__")) || (name.len() > 2 && name.starts_with('_') && name.ends_with('_') && !name.starts_with("__"));
+    if special && !matches!(name, "__get__" | "__set__" | "__delete__" | "__set_name__" | "__doc__" | "__module__") && x.plain_slot() {
+        return Err(unsupported_stop(&format!("a callable Python library object with no __get__ (such as a unittest.mock object) stored as {name} of a class of the program")));
+    }
+    Ok(())
+}
 pub fn call0(f: &V) -> R {
     call(f, Args::p(vec![]))
 }
@@ -573,6 +596,10 @@ fn make_class_impl(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, mut
             }
         }
     }
+    let own: Vec<(Sym, V)> = c.attrs.borrow().iter().filter(|(_, v)| matches!(v, V::Ext(_))).map(|(k, v)| (*k, v.clone())).collect();
+    for (k, v) in own {
+        plain_slot_check(&k, &v)?;
+    }
     // a __slots__ name that the class body also binds is refused, as CPython refuses it
     if let Some(sv) = c.own("__slots__") {
         let mut own_slots = vec![];
@@ -604,7 +631,7 @@ fn make_class_impl(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, mut
         })
         .collect();
     for (k, v, f) in hooks {
-        call(&f, Args::p(vec![v, V::Class(c.clone()), s(k)]))?;
+        call_slot(&f, v, vec![V::Class(c.clone()), s(k)])?;
     }
     if is_enum(&c) {
         // EnumType.__new__'s own keywords: boundary= (a Flag's FlagBoundary; rt_enum.rs enum_setup)
@@ -1616,6 +1643,7 @@ pub fn is_data_desc(v: &V) -> bool {
 pub fn desc_get(d: &V, obj: &V, cls: &V) -> R {
     let V::Obj(dd) = d else { return Ok(d.clone()) };
     match dd.cls.lookup("__get__") {
+        // slot_tp_descr_get passes the descriptor itself whatever __get__ is (CPython's typeobject.c)
         Some(f) => call(&f, Args::p(vec![d.clone(), obj.clone(), cls.clone()])),
         None => Ok(d.clone()),
     }
@@ -2244,7 +2272,7 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
                 Some(d @ V::Obj(_)) if is_data_desc(&d) => {
                     let V::Obj(dd) = &d else { unreachable!() };
                     return match dd.cls.lookup("__set__") {
-                        Some(f) => call(&f, Args::p(vec![d.clone(), o.clone(), v])).map(|_| ()),
+                        Some(f) => call_slot(&f, d.clone(), vec![o.clone(), v]).map(|_| ()),
                         None => Err(exc("AttributeError", "__set__".into())),
                     };
                 }
@@ -2277,6 +2305,7 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
             if name == "__set__" || name == "__delete__" {
                 USER_DATA_DESC.store(true, std::sync::atomic::Ordering::Relaxed);
             }
+            plain_slot_check(&name, &v)?;
             // type's __name__ and __qualname__ setters: a str only, kept apart from the class's own attributes of
             // those names (class_getattr)
             if name == "__name__" || name == "__qualname__" {
@@ -2384,7 +2413,7 @@ pub fn object_delattr(o: &V, name: &str) -> Result<(), E> {
             if is_data_desc(&d) {
                 let V::Obj(dd) = &d else { unreachable!() };
                 return match dd.cls.lookup("__delete__") {
-                    Some(f) => call(&f, Args::p(vec![d.clone(), o.clone()])).map(|_| ()),
+                    Some(f) => call_slot(&f, d.clone(), vec![o.clone()]).map(|_| ()),
                     None => Err(exc("AttributeError", "__delete__".into())),
                 };
             }
@@ -2799,7 +2828,7 @@ fn meta_setattr(o: &V, c: &Rc<Class>, name: &str, v: &V) -> Option<Result<(), E>
             call(&p.1, Args::p(vec![o.clone(), v.clone()])).map(|_| ())
         }),
         V::Obj(x) if is_data_desc(&d) => Some(match x.cls.lookup("__set__") {
-            Some(f) => call(&f, Args::p(vec![d.clone(), o.clone(), v.clone()])).map(|_| ()),
+            Some(f) => call_slot(&f, d.clone(), vec![o.clone(), v.clone()]).map(|_| ()),
             None => Err(exc("AttributeError", "__set__".into())),
         }),
         _ => None,

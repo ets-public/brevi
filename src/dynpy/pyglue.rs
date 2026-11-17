@@ -27,6 +27,9 @@ static PYD_BRIT: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::ato
 // back as the program's own (pickle.loads of a pickled pattern)
 static PYD_REPAT: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_BRRED: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+// the type of _brevi_dyn's _BrOpq (an object of the program a unittest.mock object was called with), once one has
+// been made
+static PYD_BROPQ: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 // CPython's collections.deque, its iterator type, _brevi_dyn's _BrNew and _mkobj (set when Python starts), and
 // pickle.dumps and pickle.dump once the program imports pickle: a deque goes into Python only for those two
 // (pyd_invoke sets PYD_PICKLING), since any other library would get a copy whose changes the program never sees
@@ -67,6 +70,9 @@ thread_local! {
     // how many results of Python calls are being made (pyd_invoke): Python calls made meanwhile, by Brevi's glue
     // or by the program's own __setstate__, are not the end of a load
     static PYD_BCONV: Cell<i64> = const { Cell::new(0) };
+    // the Python callable pyd_invoke is building arguments for: an object of the program with no Python form goes
+    // to a unittest.mock object sealed (_BrOpq), since a mock only keeps what it is called with
+    static PYD_CALLEE: Cell<usize> = const { Cell::new(0) };
 }
 // _brevi_dyn's own functions (pyd_register): Brevi's glue, not code of the program, when Python calls them
 static PYD_GLUE: std::sync::Mutex<Vec<usize>> = std::sync::Mutex::new(Vec::new());
@@ -269,6 +275,35 @@ def _buf(o):
         return m.tobytes()
 _d.buf = _buf
 _d.red = _BrRed
+# An object of the program a unittest.mock object is called with (`D.__set__ = Mock()`: the program calls it with its
+# own objects), which has no Python form: the mock keeps it and gives it back (call_args, side_effect) as the
+# program's object. Python doing anything else with it (repr, ==, hash, an attribute) stops the program, since
+# CPython would use the object itself there; the build refuses the reads that show what a mock was called with.
+class _BrOpq:
+    __slots__ = ('b',)
+    def __init__(s, b): object.__setattr__(s, 'b', b)
+def _opq_stop(*a, **k):
+    _d._stop('a Python library using an object of the program that a unittest.mock object was called with')
+for _n in ('__getattr__', '__setattr__', '__delattr__', '__repr__', '__str__', '__format__', '__bytes__', '__eq__',
+           '__ne__', '__lt__', '__le__', '__gt__', '__ge__', '__hash__', '__bool__', '__len__', '__iter__', '__next__',
+           '__reversed__', '__contains__', '__getitem__', '__setitem__', '__delitem__', '__call__', '__reduce__',
+           '__reduce_ex__', '__getstate__', '__setstate__', '__copy__', '__deepcopy__', '__dir__', '__sizeof__',
+           '__int__', '__float__', '__complex__', '__index__', '__round__', '__trunc__', '__floor__', '__ceil__',
+           '__neg__', '__pos__', '__abs__', '__invert__', '__enter__', '__exit__', '__await__', '__aiter__',
+           '__anext__', '__aenter__', '__aexit__', '__get__', '__set__', '__delete__', '__set_name__',
+           '__instancecheck__', '__subclasscheck__', '__init_subclass__', '__class_getitem__', '__mro_entries__',
+           '__fspath__', '__buffer__', '__release_buffer__', '__length_hint__', '__missing__', '__matmul__', '__rmatmul__'):
+    setattr(_BrOpq, _n, _opq_stop)
+for _n in ('add', 'sub', 'mul', 'truediv', 'floordiv', 'mod', 'divmod', 'pow', 'lshift', 'rshift', 'and', 'or', 'xor'):
+    for _p in ('__%s__', '__r%s__', '__i%s__'):
+        setattr(_BrOpq, _p % _n, _opq_stop)
+del _n, _p
+_d.opq = _BrOpq
+def _ismock(f):
+    m = _s.modules.get('unittest.mock')
+    return m is not None and _b.isinstance(f, m.NonCallableMock)
+_d.ismock = _ismock
+_d.plain_slot = lambda f: _b.callable(f) and not _b.hasattr(type(f), '__get__')
 # A deque pickled here (CPython's deque.__reduce__ form): the deque type and its iterator's, which come back as
 # the program's own; an instance of a program's deque subclass loads as a _BrNew that holds what pickle gives
 # it (its class and arguments, its items, its state) until the loaded value comes back to the program, which
@@ -1507,7 +1542,7 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
         (a.DecRef)(p);
         return r;
     }
-    if t == PYD_BRIT.load(std::sync::atomic::Ordering::Relaxed) || t == PYD_BRRED.load(std::sync::atomic::Ordering::Relaxed) || t == pyd_ptr(&PYD_BRFN) || t == pyd_ptr(&PYD_BRMETH) {
+    if t == PYD_BRIT.load(std::sync::atomic::Ordering::Relaxed) || t == PYD_BRRED.load(std::sync::atomic::Ordering::Relaxed) || t == pyd_ptr(&PYD_BROPQ) || t == pyd_ptr(&PYD_BRFN) || t == pyd_ptr(&PYD_BRMETH) {
         // an iterator of the program that went into Python (a library returned it, or types.coroutine)
         let b = (a.GetAttr)(p, c"b".as_ptr());
         if !b.is_null() {
@@ -2498,6 +2533,24 @@ unsafe fn to_memo_exit() {
     held.into_iter().for_each(|(p, _)| (pyd_api().DecRef)(p)); // the program's values drop here, after
 }
 
+// Whether the Python callable pyd_invoke is building arguments for is a unittest.mock object (see _BrOpq)
+unsafe fn pyd_callee_mock() -> bool {
+    let a = pyd_api();
+    let f = PYD_CALLEE.with(|c| c.get()) as P;
+    if f.is_null() {
+        return false;
+    }
+    let r = pyd_mod_call("_brevi_dyn", "ismock", &[f]);
+    match r {
+        Ok(r) => {
+            let yes = (a.IsTrue)(r) == 1;
+            (a.DecRef)(r);
+            yes
+        }
+        Err(_) => false,
+    }
+}
+
 unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
     let a = pyd_api();
     Ok(match v {
@@ -2894,6 +2947,17 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
             p
         }
         V::Obj(o) if o.cls.lookup("__call__").is_some() => pyd_callable(v)?,
+        _ if pyd_callee_mock() => {
+            let b = pyd_callable(v)?;
+            let o = pyd_mod_call("_brevi_dyn", "opq", &[b]);
+            (a.DecRef)(b);
+            let o = o?;
+            to_memo_put(v, o);
+            let t = (a.Type)(o);
+            (a.DecRef)(t);
+            PYD_BROPQ.store(t, std::sync::atomic::Ordering::Relaxed);
+            o
+        }
         _ => return type_err(format!("brevi: a '{}' object cannot be passed to a Python library in a dynamic build", tn(v))),
     })
 }
@@ -3533,7 +3597,9 @@ unsafe fn pyd_invoke(f: P, pre: &[V], args: &Args, deep: bool) -> R {
     let was = PYD_PICKLING.with(|c| c.replace(dump));
     let was_unp = PYD_UNPICKLING.with(|c| c.replace(0));
     let hold = LOAD_HOLD.with(|h| h.get());
+    let callee = PYD_CALLEE.with(|c| c.replace(f as usize));
     let pa = pyd_args(f, pre, args);
+    PYD_CALLEE.with(|c| c.set(callee));
     let r = match &pa {
         Ok(pa) => (a.Call)(f, pa.t, pa.kw),
         Err(_) => std::ptr::null_mut(),
@@ -4114,6 +4180,10 @@ impl Ext for PyV {
     }
     fn is_class(&self, cls: &Class) -> bool {
         pyd_exc_pytype(cls) == Some(self.p)
+    }
+    fn plain_slot(&self) -> bool {
+        let _g = PydGil::take();
+        matches!(unsafe { pyd_helper("plain_slot", &[self.p]) }, Ok(V::Bool(true)))
     }
     fn native(&self) -> Option<R> {
         let _g = PydGil::take();

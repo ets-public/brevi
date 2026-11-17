@@ -147,6 +147,11 @@ pub trait Ext {
     fn descriptor(&self, _me: &V, _obj: &V, _cls: &V) -> Option<R> {
         None
     }
+    // A callable Python object stored on a class of the program as a special method (`D.__set__ = Mock()`) whose type
+    // has no __get__: CPython's slots (and type.__new__'s __set_name__) call it as it is, without the instance.
+    fn plain_slot(&self) -> bool {
+        false
+    }
     fn binop(&self, _me: &V, _op: &str, _o: &V, _right: bool) -> Option<R> {
         None
     }

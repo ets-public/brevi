@@ -1,0 +1,11 @@
+2 1
+1 0
+['D', 'C', 'type'] ['D', 'NoneType', 'type']
+1 1 1 2
+True
+2
+1 got 3
+2
+True True 3
+True
+[['T', 'int'], ['T']]

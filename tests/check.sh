@@ -962,6 +962,25 @@ done
 printf 'class D:\n    def __del__(self):\n        pass\nk = "x"\nglobals()[k] = 1\n' > "$t/gk.py"
 o=$(BREVI_DYN=1 $BREVI build "$t/gk.py" -o "$t/gk" 2>&1)
 case "$o" in *"globals()[key] = value is not supported in dynamic builds in a program with __del__"*) echo "ok   globals by key under __del__ is refused" ;; *) echo "FAIL globals by key under __del__"; printf '%s\n' "$o"; fail=1 ;; esac
+# A unittest.mock object stored on a class of the program (tests/dyn/mock_on_class.py has the answers) builds only
+# under a plain name or as __set__/__delete__/__set_name__/__get__, of a Mock or MagicMock, in a program that reads
+# nothing showing what a mock was called with; one stored under another special name where the build cannot see it
+# stops when stored, and Python using a sealed object of the program (a repr of call_args) stops the program.
+for c in 'from unittest.mock import Mock\nclass D:\n    pass\nD.__len__ = Mock(return_value=3)\nprint(len(D()))\n|a Mock stored as __len__' \
+         'from unittest.mock import Mock\nclass D:\n    pass\nD.__set__ = Mock()\nclass C:\n    x = D()\nC().x = 1\nprint(D.__set__.call_args)\n|call_args of a program with a Mock' \
+         'from unittest.mock import PropertyMock\nclass D:\n    pass\nD.p = PropertyMock(return_value=3)\nprint(D().p)\n|PropertyMock stored on a class' \
+         'from unittest.mock import Mock\nclass E:\n    _missing_ = Mock()\nprint(1)\n|a Mock stored as _missing_' \
+         'from unittest.mock import Mock\nclass D:\n    pass\nsetattr(D, "__s" + "et__", Mock())\n|under a name the build cannot see'; do
+  printf "${c%%|*}" > "$t/mk.py"
+  o=$(BREVI_DYN=1 $BREVI build "$t/mk.py" -o "$t/mk" 2>&1)
+  case "$o" in *"${c#*|}"*"needs CPython"*) echo "ok   mock on a class refused at build: ${c#*|}" ;; *) echo "FAIL mock on a class not refused at build: ${c#*|}"; printf '%s\n' "$o"; fail=1 ;; esac
+done
+for c in 'from unittest.mock import Mock\nclass D:\n    pass\nm = Mock(return_value=3)\nD.__len__ = m\nprint(len(D()))\n|stored as __len__ of a class of the program' \
+         'from unittest.mock import Mock\nclass D:\n    pass\nm = Mock()\nm(D())\ntry:\n    print(m.call_args)\nexcept Exception as e:\n    print("caught", e)\n|a Python library using an object of the program that a unittest.mock object was called with'; do
+  printf "${c%%|*}" > "$t/mk.py"
+  o=$(BREVI_DYN=1 $BREVI run "$t/mk.py" 2>&1)
+  case "$o" in "NotImplementedError: brevi: "*"${c#*|}"*) echo "ok   mock on a class stops: ${c#*|}" ;; *) echo "FAIL mock on a class does not stop: ${c#*|}"; printf '%s\n' "$o"; fail=1 ;; esac
+done
 # locals() in an Enum's body is enum.EnumDict, whose writes check names (a member set twice is a TypeError); Brevi's
 # namespace is a plain dict, so a class that may be an Enum and calls locals() is refused when it builds.
 printf 'import enum\nclass E(enum.Enum):\n    A = 1\n    locals().update({"B": 2}, **{"A": 3})\nprint(list(E))\n' > "$t/el.py"
