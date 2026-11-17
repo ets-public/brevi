@@ -10,7 +10,7 @@ thread_local! {
     // a library module's repr as the build machine's CPython printed it (emit.rs lib_mod_reprs)
     pub static LIB_MOD_REPR: Cell<Option<fn(&str) -> Option<&'static str>>> = Cell::new(None);
     // __main__'s name -> global slot table (its gtab), for lookups by name at run time (pickle by reference)
-    pub static MAIN_GTAB: Cell<Option<fn(&str) -> Option<usize>>> = Cell::new(None);
+    pub static MAIN_GTAB: Cell<Option<&'static GMod>> = Cell::new(None);
     pub static DEPTH: Cell<usize> = Cell::new(0);
     // the frames of the program's own functions among DEPTH's (not Brevi's library copies), kept only by
     // programs that call sys._getframe (PDepth): CPython has at least this many frames below the running one

@@ -2056,6 +2056,7 @@ pub fn enum_fn(n: &str, a: Args) -> R {
     match n {
         "auto" => Ok(V::Obj(Obj::new(enum_classes().1))),
         "property" => eprop_new(a),
+        "global_enum" => global_enum(a),
         "unique" => {
             let c = a.p.first().cloned().unwrap_or(V::None);
             if let V::Class(k) = &c {
@@ -3097,4 +3098,190 @@ pub fn enum_type_name(n: &str) -> bool {
         "__bool__" | "__call__" | "__contains__" | "__delattr__" | "__dir__" | "__getitem__" | "__iter__" | "__len__" | "__members__" | "__new__" | "__prepare__" | "__repr__"
             | "__reversed__" | "__setattr__" | "_add_member_" | "_check_for_existing_members_" | "_convert_" | "_create_" | "_find_data_repr_" | "_find_data_type_" | "_find_new_" | "_get_mixins_"
     )
+}
+
+// ---------- enum.global_enum and EnumType._convert_ (CPython 3.13 enum.py) ----------
+// They export a class's members into its module's globals (rt_glue's GMod: a name the build fixed, or one the
+// program reads by name without binding it, is refused there), so the class's module must be a file of the program.
+fn enum_gmod(c: &Rc<Class>, what: &str) -> Result<&'static GMod, E> {
+    let m = to_str(&getattr(&V::Class(c.clone()), "__module__")?)?;
+    gmod_named(&m).ok_or_else(|| unsupported(&format!("{what} for a class whose module ({m}) is not a file of the program")))
+}
+// `sys.modules[cls.__module__].__dict__.update(cls.__members__)`: aliases too, in definition order
+fn enum_export(c: &Rc<Class>, g: &GMod) -> Result<(), E> {
+    let mm = getattr(&V::Class(c.clone()), "__members__")?;
+    for (k, v) in dict_items_of(&call_method(&mm, "copy", Args::p(vec![]))?)? {
+        glob_set_name(g, &to_str(&k)?, v)?;
+    }
+    Ok(())
+}
+fn genum_parts(me: &V) -> Result<(String, String, V, V), E> {
+    let V::Obj(o) = me else { return type_err("descriptor needs an Enum member".into()) };
+    let m = to_str(&getattr(&V::Class(o.cls.clone()), "__module__")?)?;
+    let module = m.rsplit('.').next().unwrap_or("").to_string();
+    Ok((module, o.cls.name.to_string(), getattr(me, "_name_")?, getattr(me, "_value_")?))
+}
+fn global_enum_repr(a: Args) -> R {
+    let (module, _, name, _) = genum_parts(a.p.first().unwrap_or(&V::None))?;
+    Ok(s(&format!("{module}.{}", to_str(&name)?)))
+}
+fn global_flag_repr(a: Args) -> R {
+    let me = a.p.first().unwrap_or(&V::None);
+    let (module, cls_name, name, value) = genum_parts(me)?;
+    if matches!(name, V::None) {
+        return Ok(s(&format!("{module}.{cls_name}({})", repr(&value)?)));
+    }
+    let single = match &value {
+        V::Int(i) => *i > 0 && i & (i - 1) == 0,
+        V::Bool(b) => *b,
+        _ => return Err(unsupported("a global Flag member whose value is not a small int")),
+    };
+    let name = to_str(&name)?;
+    if single {
+        return Ok(s(&format!("{module}.{name}")));
+    }
+    let V::Obj(o) = me else { unreachable!() };
+    let keep = boundary_of(&o.cls) == "KEEP";
+    let parts: Vec<String> = name.split('|').map(|n| if keep && n.chars().next().is_some_and(|c| c.is_ascii_digit()) { n.to_string() } else { format!("{module}.{n}") }).collect();
+    Ok(s(&parts.join("|")))
+}
+fn global_str(a: Args) -> R {
+    let (_, cls_name, name, value) = genum_parts(a.p.first().unwrap_or(&V::None))?;
+    if matches!(name, V::None) {
+        return Ok(s(&format!("{cls_name}({})", repr(&value)?)));
+    }
+    Ok(s(&to_str(&name)?))
+}
+// enum.global_enum(cls, update_str=False)
+pub fn global_enum(a: Args) -> R {
+    let mut update_str = a.p.get(1).cloned();
+    for (k, v) in &a.k {
+        match &**k {
+            "update_str" if update_str.is_none() => update_str = Some(v.clone()),
+            _ => return Err(unsupported(&format!("enum.global_enum with the keyword {k}"))),
+        }
+    }
+    if a.p.len() > 2 || a.p.is_empty() {
+        return Err(unsupported("enum.global_enum with these arguments"));
+    }
+    let cls = a.p[0].clone();
+    let V::Class(c) = &cls else { return Err(unsupported("enum.global_enum on a value that is not an Enum class")) };
+    if !is_enum(c) {
+        return Err(unsupported("enum.global_enum on a class that is not an Enum"));
+    }
+    let g = enum_gmod(c, "enum.global_enum")?;
+    if is_flag(c) {
+        setattr(&cls, sym("__repr__"), builtin(sym("global_flag_repr"), global_flag_repr))?;
+    } else {
+        setattr(&cls, sym("__repr__"), builtin(sym("global_enum_repr"), global_enum_repr))?;
+    }
+    if !is_repr_enum(c) || update_str.as_ref().map(truth).transpose()?.unwrap_or(false) {
+        setattr(&cls, sym("__str__"), builtin(sym("global_str"), global_str))?;
+    }
+    enum_export(c, g)?;
+    Ok(cls)
+}
+// A value whose comparisons run no code of the program's and give one consistent answer: then the order in which
+// _convert_'s sort compares them cannot show.
+fn convert_plain(v: &V, nested: bool) -> bool {
+    match v {
+        V::None | V::Bool(_) | V::Int(_) | V::Big(_) | V::Str(_) => true,
+        V::Float(f) => !f.is_nan(),
+        V::Ext(_) => matches!(tn(v).as_str(), "complex" | "bytes"),
+        V::Tuple(t) if !nested => t.to_vec().iter().all(|x| convert_plain(x, true)),
+        _ => false,
+    }
+}
+// the names CPython 3.13 puts in a script's or a module's globals itself
+const MOD_DUNDERS: [&str; 9] = ["__name__", "__doc__", "__package__", "__loader__", "__spec__", "__annotations__", "__builtins__", "__file__", "__cached__"];
+// `cls._convert_(name, module, filter, source=None, *, boundary=None, as_global=False)`, called with `f` the
+// attribute the program read. The build sends a call here only when filter is a lambda that runs no code of the
+// program's and has no effects (emit.rs pure_name_filter), so the order CPython calls it in cannot show; the
+// members come from the module's globals as they are now, sorted by (value, name) or, when two values cannot be
+// compared, by name, exactly as enum.py does. The class is made as _simple_enum makes it from a plain class.
+// `o._convert_` as the program reads it: None when that is EnumType's own (an Enum class whose classes and
+// metaclass define no _convert_ of their own), which the build calls as enum_convert_call
+pub fn enum_convert_attr(o: &V) -> Result<Option<V>, E> {
+    if let V::Class(c) = o {
+        // (Brevi's EnumType stub, which refuses a call, is the only builtin named _convert_)
+        if c.is_sub(&enum_base()) && c.lookup("_convert_").is_none_or(|f| matches!(&f, V::Func(x) if x.kind.get() == 3 && x.name.get() == "_convert_")) {
+            return Ok(None);
+        }
+    }
+    getattr(o, "_convert_").map(Some)
+}
+pub fn enum_convert_call(o: &V, f: Option<V>, a: Args) -> R {
+    let Some(f) = f else { return enum_convert(o, a) };
+    call(&f, a)
+}
+fn enum_convert(o: &V, a: Args) -> R {
+    let V::Class(c) = o else { return Err(unsupported("_convert_")) };
+    if is_flag(c) {
+        return Err(unsupported("_convert_ on a Flag"));
+    }
+    if matches!(c.lookup("_member_map_"), Some(V::Dict(d)) if d.borrow().len() > 0) {
+        return Err(unsupported("_convert_ on an Enum class with members"));
+    }
+    let mut p = a.p.clone();
+    let mut as_global = V::Bool(false);
+    for (k, v) in &a.k {
+        match &**k {
+            "filter" if p.len() == 2 => p.push(v.clone()),
+            "as_global" => as_global = v.clone(),
+            "source" | "boundary" if matches!(v, V::None) => {}
+            _ => return Err(unsupported(&format!("_convert_ with the argument {k}"))),
+        }
+    }
+    if p.len() != 3 {
+        return Err(unsupported("_convert_ with these arguments"));
+    }
+    let (V::Str(_), V::Str(mn)) = (&p[0], &p[1]) else { return Err(unsupported("_convert_ with a name or module that is not a str")) };
+    let module = mn.text().to_string();
+    let g = gmod_named(&module).ok_or_else(|| unsupported(&format!("_convert_ from module {module}, which is not a file of the program")))?;
+    let filter = p[2].clone();
+    for d in MOD_DUNDERS {
+        if truth(&call(&filter, Args::p(vec![s(d)]))?)? {
+            return Err(unsupported("_convert_ with a filter that takes the module's own dunder names"));
+        }
+    }
+    let mut members: Vec<(String, V)> = vec![];
+    for (n, v) in glob_pairs(g) {
+        if truth(&call(&filter, Args::p(vec![s(&n)]))?)? {
+            if !convert_plain(&v, false) {
+                return Err(unsupported(&format!("_convert_ of the global {n}, whose value's comparisons the build cannot follow")));
+            }
+            members.push((n, v));
+        }
+    }
+    // members.sort(key=lambda t: (t[1], t[0])), or by name when that raises TypeError
+    let keys: Vec<V> = members.iter().map(|(n, v)| tup(vec![v.clone(), s(n)])).collect();
+    let mut by_value = true;
+    'pairs: for i in 0..keys.len() {
+        for j in i + 1..keys.len() {
+            if let Err(e) = lt(&keys[i], &keys[j]) {
+                if matches!(&e.0, V::Obj(o) if o.cls.name == "TypeError") {
+                    by_value = false;
+                    break 'pairs;
+                }
+                return Err(e);
+            }
+        }
+    }
+    let mut idx: Vec<usize> = (0..members.len()).collect();
+    if by_value {
+        idx.sort_by(|&x, &y| if lt(&keys[x], &keys[y]).unwrap_or(false) { std::cmp::Ordering::Less } else if lt(&keys[y], &keys[x]).unwrap_or(false) { std::cmp::Ordering::Greater } else { std::cmp::Ordering::Equal });
+    } else {
+        idx.sort_by(|&x, &y| members[x].0.cmp(&members[y].0));
+    }
+    let names = list(idx.iter().map(|&i| tup(vec![s(&members[i].0), members[i].1.clone()])).collect());
+    let cls = enum_create(c, &p[0], names, p[1].clone(), V::None, V::None, V::Int(1))?;
+    setattr(&cls, sym("__doc__"), s("An enumeration."))?;
+    let V::Class(k) = &cls else { return Err(unsupported("_convert_ that made no class")) };
+    if truth(&as_global)? {
+        global_enum(Args::p(vec![cls.clone()]))?;
+    } else {
+        enum_export(k, g)?;
+    }
+    glob_set_name(g, &to_str(&p[0])?, cls.clone())?;
+    Ok(cls)
 }

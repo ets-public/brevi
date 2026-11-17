@@ -308,7 +308,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "enum" => &[
             "Enum", "IntEnum", "StrEnum", "Flag", "IntFlag", "auto", "unique", "property", "ReprEnum", "EnumType", "EnumMeta", "member", "nonmember", "verify", "EnumCheck",
             "UNIQUE", "CONTINUOUS", "NAMED_FLAGS", "FlagBoundary", "STRICT", "CONFORM", "EJECT", "KEEP", "show_flag_values", "_is_dunder", "_is_sunder", "_is_private", "_is_descriptor",
-            "_iter_bits_lsb",
+            "_iter_bits_lsb", "global_enum",
         ],
         "_brevi_term" => &["columns"],
         "hashlib" => &["new", "md5", "sha1", "sha224", "sha256", "sha384", "sha512"],
@@ -554,6 +554,45 @@ const SYSMOD_DYN_KEY: &str = "sys.modules with a key that is not a string litera
 // with or without a default, both positional. Any other key is refused when the program is built.
 fn fglob_get_args(a: &[Arg]) -> bool {
     matches!(a, [Arg::Pos(Ex::Str(k))] | [Arg::Pos(Ex::Str(k)), Arg::Pos(_)] if k == "__warningregistry__")
+}
+// Takes one off the count of each plain name a store target binds (rt_glue GMod's free names).
+fn name_targets(t: &Ex, seen: &mut HashMap<String, isize>) {
+    match t {
+        Ex::Name(n) => *seen.entry(n.clone()).or_default() -= 1,
+        Ex::Tuple(v) | Ex::List(v) => v.iter().for_each(|x| name_targets(x, seen)),
+        Ex::Star(x) => name_targets(x, seen),
+        _ => {}
+    }
+}
+// A `lambda n: ...` that, given a str, runs no code of the program's and has no effects: its body uses only n,
+// literals, str methods that read (called on n or on such a value, with such arguments), not/and/or, if-else,
+// comparisons and indexing. enum's _convert_ calls it on every global's name, in an order the build does not keep.
+fn pure_name_filter(e: &Ex) -> bool {
+    let Ex::Lambda(p, body) = e else { return false };
+    let [(n, None)] = p.pos.as_slice() else { return false };
+    if p.star.is_some() || p.kwstar.is_some() || !p.kwonly.is_empty() {
+        return false;
+    }
+    fn pure(e: &Ex, n: &str) -> bool {
+        match e {
+            Ex::Name(x) => x == n,
+            Ex::Str(_) | Ex::Int(_) | Ex::NoneV | Ex::True | Ex::False => true,
+            Ex::Tuple(v) => v.iter().all(|x| pure(x, n)),
+            Ex::Unary("not", x) => pure(x, n),
+            Ex::And(a, b) | Ex::Or(a, b) => pure(a, n) && pure(b, n),
+            Ex::IfExp(a, b, c) => pure(a, n) && pure(b, n) && pure(c, n),
+            Ex::Cmp(a, rest) => pure(a, n) && rest.iter().all(|(op, x)| matches!(*op, "==" | "!=" | "in" | "not in") && pure(x, n)),
+            Ex::Index(a, i) => pure(a, n) && pure(i, n),
+            Ex::Slice(a, b, c) => [a, b, c].iter().all(|x| x.as_deref().is_none_or(|x| pure(x, n))),
+            Ex::Call(f, args) => {
+                let Ex::Attr(o, m) = &**f else { return false };
+                const READS: [&str; 16] = ["startswith", "endswith", "isupper", "islower", "isidentifier", "isalpha", "isdigit", "isalnum", "upper", "lower", "strip", "lstrip", "rstrip", "removeprefix", "removesuffix", "casefold"];
+                READS.contains(&m.as_str()) && pure(o, n) && args.iter().all(|a| matches!(a, Arg::Pos(x) if pure(x, n)))
+            }
+            _ => false,
+        }
+    }
+    pure(body, n)
 }
 // The str literal keys of `globals()['name'] = v` stores anywhere in a file (targets of assignments, nested
 // in tuples and lists too), when the file does not bind `globals` itself.
@@ -2003,6 +2042,9 @@ struct Func {
     // locals that only ever hold a frame from sys._getframe(n), read only as `x.f_globals.get('__warningregistry__')`
     // (frame_vars)
     fvars: HashSet<String>,
+    // locals that only ever hold this module's globals(): bound only by `g = globals()` and used only as g[k] (read
+    // or store), g.get(...) and `k in g` (glob_vars)
+    gvars: HashSet<String>,
 }
 
 pub struct Module {
@@ -2412,6 +2454,10 @@ pub struct Em {
     track_warn: bool,
     // (module, name) a `globals()['name'] = v` stores to: names nothing else in the module binds
     gstore: HashSet<(String, String)>,
+    // (module, name): names a def, class or import of the file binds, which a store by key may not change (rt_glue GMod)
+    gfixed: BTreeSet<(String, String)>,
+    // (module, name): names the file reads without binding them (builtins, NameError), which a store by key may not add
+    gfree: BTreeSet<(String, String)>,
     // the program calls sys._getframe: its own functions count their frames (PDepth)
     uses_getframe: bool,
     // module -> the lines whose logical line runs over more than one line (None: the module did not lex)
@@ -3710,12 +3756,79 @@ impl Em {
         }
     }
     fn is_globals(&self, e: &Ex) -> bool {
-        matches!(e, Ex::Call(f, a) if a.is_empty() && matches!(&**f, Ex::Name(n) if n == "globals") && self.lookup("globals").is_none())
+        match e {
+            Ex::Call(f, a) => a.is_empty() && matches!(&**f, Ex::Name(n) if n == "globals") && self.lookup("globals").is_none(),
+            Ex::Name(n) => self.fstack.last().is_some_and(|f| f.gvars.contains(n)) && matches!(self.lookup(n), Some(Var::Local(_))),
+            _ => false,
+        }
+    }
+    // The plain locals of a def (`cands`) that only ever hold the module's globals(): bound only by `g = globals()`,
+    // and used only as g[k] (a read, or the target of a plain assignment or for loop), g.get(...) and `k in g` /
+    // `k not in g`, in a def that never hands its locals out. No dict is made: each use is the globals() use it
+    // stands for. Any other use (passing g on, g.items(), del g[k], g[k] += v) leaves g a plain local, and
+    // globals() as a value stays refused.
+    fn glob_vars<'a>(&self, body: &[Stmt], cands: impl Iterator<Item = &'a String>) -> HashSet<String> {
+        let mut out = HashSet::new();
+        let is_g = |e: &Ex| matches!(e, Ex::Call(f, a) if a.is_empty() && matches!(&**f, Ex::Name(n) if n == "globals"));
+        let mut any = false;
+        visit_any(body, &mut |e| any |= is_g(e));
+        if !any || self.lookup("globals").is_some() || bind_count(body, "globals") > 0 {
+            return out;
+        }
+        let mut leaks = false;
+        visit_any(body, &mut |e| leaks |= matches!(e, Ex::Name(x) if matches!(x.as_str(), "locals" | "vars" | "dir" | "eval" | "exec")));
+        if leaks {
+            return out;
+        }
+        for n in cands {
+            let is_n = |e: &Ex| matches!(e, Ex::Name(x) if x == n);
+            let (mut total, mut uses, mut bad) = (0, 0, false);
+            visit_any(body, &mut |e| match e {
+                Ex::Name(x) if x == n => total += 1,
+                Ex::Walrus(x, _) if x == n => bad = true,
+                Ex::Index(o, _) if is_n(o) => uses += 1,
+                Ex::Call(f, _) if matches!(&**f, Ex::Attr(o, m) if m == "get" && is_n(o)) => uses += 1,
+                Ex::Cmp(_, rest) if rest.len() == 1 && matches!(rest[0].0, "in" | "not in") && is_n(&rest[0].1) => uses += 1,
+                _ => {}
+            });
+            let mut takes = 0;
+            each_stmt(body, &mut |st| match &st.st {
+                St::Assign(ts, v) if matches!(ts.as_slice(), [Ex::Name(x)] if x == n) && is_g(v) => takes += 1,
+                St::AugAssign(x, _, _) | St::AnnAssign(x, _, _, _) if matches!(x, Ex::Index(o, _) if is_n(o)) => bad = true,
+                St::Del(ts) if ts.iter().any(|x| matches!(x, Ex::Index(o, _) if is_n(o))) => bad = true,
+                _ => {}
+            });
+            if !bad && takes > 0 && total == takes + uses && bind_count(body, n) == takes {
+                out.insert(n.clone());
+            }
+        }
+        out
     }
     fn gtab(&self) -> String {
-        format!("gtab_{}", rust_ident(&self.module))
+        format!("&GMOD_{}", rust_ident(&self.module))
     }
     fn call(&mut self, f: &Ex, args: &[Arg], line: usize) -> ER<String> {
+        // `cls._convert_(name, module, filter=lambda n: ...)` with a filter that runs no code of the program's
+        // (pure_name_filter): rt_enum's enum_convert_call, which makes the class when the attribute is EnumType's own
+        if let Ex::Attr(o, m) = f {
+            if m == "_convert_" {
+                let filt = args.iter().find_map(|a| match a {
+                    Arg::Kw(k, v) if k == "filter" => Some(v),
+                    _ => None,
+                });
+                let filt = filt.or_else(|| match args.get(2) {
+                    Some(Arg::Pos(v)) => Some(v),
+                    _ => None,
+                });
+                if filt.is_some_and(pure_name_filter) {
+                    let oo = self.ex(o, line)?;
+                    let g = self.q("enum_convert_attr(&__o)");
+                    let a = self.args(args, line, None)?;
+                    let c = self.q("enum_convert_call(&__o, __f, __a)");
+                    return Ok(format!("{{ let __o = {oo}; let __f = {g}; let __a = {a}; {c} }}"));
+                }
+            }
+        }
         // sys.modules.get(k[, default])
         if let Ex::Attr(o, m) = f {
             if m == "get" && self.is_sys_modules(o) && (1..=2).contains(&args.len()) && args.iter().all(|a| matches!(a, Arg::Pos(_))) {
@@ -4166,7 +4279,7 @@ impl Em {
         let gq = self.qualname_of("<genexpr>");
         let gq_lit = lit(&gq);
         let (class_expr, self_name) = (parent.class_expr.clone(), parent.self_name.clone());
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, qname: gq, exc_vars: vec![], is_module: false, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: true, direct_defs: HashMap::new(), cells: format!("g{id}_"), order: vec![], ns: None, fvars: HashSet::new() };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, qname: gq, exc_vars: vec![], is_module: false, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: true, direct_defs: HashMap::new(), cells: format!("g{id}_"), order: vec![], ns: None, fvars: HashSet::new(), gvars: HashSet::new() };
         let mut tdecl = String::new();
         for n in &names {
             if inner_free.contains(n) {
@@ -4433,7 +4546,12 @@ impl Em {
                         return Ok(format!("gs({slot}, {val});"));
                     }
                 }
-                return Err(err(line, "globals()[key] = value is supported in dynamic builds only with a str literal key naming a global nothing else in the file binds (and no __del__ in the program)"));
+                if self.has_del {
+                    return Err(err(line, "globals()[key] = value is not supported in dynamic builds in a program with __del__"));
+                }
+                let ii = self.ex(i, line)?;
+                let c = self.q(&format!("glob_set({}, &__i, __v)", self.gtab()));
+                return Ok(format!("{{ let __v = {val}; let __i = {ii}; {c}; }}"));
             }
             Ex::Index(o, i) => {
                 // `sys.modules[k] = v` stores into the dict the reads above see
@@ -4618,6 +4736,12 @@ impl Em {
                         let c = self.q(&format!("getframe_check({k})"));
                         let a = self.assign(&ts[0], "V::None", line)?;
                         return Ok(format!("{c}; {a}"));
+                    }
+                }
+                // `g = globals()` for a glob_vars local: nothing is made
+                if let [Ex::Name(n)] = ts.as_slice() {
+                    if self.f().gvars.contains(n) && matches!(self.lookup(n), Some(Var::Local(_))) && matches!(v, Ex::Call(..)) && self.is_globals(v) {
+                        return self.assign(&ts[0], "V::None", line);
                     }
                 }
                 let vv = self.ex(v, line)?;
@@ -5471,11 +5595,12 @@ impl Em {
         // this function's frame
         let parent = self.fstack.last().unwrap();
         let (class_expr, self_name) = if self.class_ctx.is_some() { (self.class_ctx.clone(), p.pos.first().map(|x| x.0.clone())) } else { (parent.class_expr.clone(), parent.self_name.clone()) };
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, qname: qualname.to_string(), exc_vars: vec![], is_module: false, is_class: false, enum_cnv: None, is_async, is_agen: is_async && is_gen, is_gen, direct_defs: HashMap::new(), cells: format!("k{id}_"), order: vec![], ns: None, fvars: HashSet::new() };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, qname: qualname.to_string(), exc_vars: vec![], is_module: false, is_class: false, enum_cnv: None, is_async, is_agen: is_async && is_gen, is_gen, direct_defs: HashMap::new(), cells: format!("k{id}_"), order: vec![], ns: None, fvars: HashSet::new(), gvars: HashSet::new() };
         for (n, r) in &captures {
             fr.vars.insert(n.clone(), Var::Cell(r.clone()));
         }
         fr.fvars = self.frame_vars(body, sc.locals.iter().filter(|n| !params.contains(n) && !inner_free.contains(*n)));
+        fr.gvars = self.glob_vars(body, sc.locals.iter().filter(|n| !params.contains(n) && !inner_free.contains(*n)));
         {
             let text = format!("{body:?}");
             let at = |n: &String| text.find(&format!("{n:?}")).unwrap_or(usize::MAX);
@@ -5843,7 +5968,7 @@ impl Em {
         let ns_var = format!("__ns{id}");
         // sys.settrace: a class body is its own frame (a closure here), so its errors leave it by `?`
         let class_frames = if self.trace.is_some() { vec![] } else { parent.frames.clone() };
-        let mut fr = Func { vars: HashMap::new(), frames: class_frames, class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), qname: qualname.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![], ns: dict_mode.then_some(ns_var.clone()), fvars: HashSet::new() };
+        let mut fr = Func { vars: HashMap::new(), frames: class_frames, class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), qname: qualname.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![], ns: dict_mode.then_some(ns_var.clone()), fvars: HashSet::new(), gvars: HashSet::new() };
         let ctx = format!("__auto_ctx{id}");
         let av = format!("__auto_last{id}");
         let mut decls = String::new();
@@ -6319,6 +6444,8 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         globals: HashMap::new(),
         nglobals: 0,
         gstore: HashSet::new(),
+        gfixed: BTreeSet::new(),
+        gfree: BTreeSet::new(),
         uses_getframe: false,
         consts: vec![],
         const_idx: HashMap::new(),
@@ -6453,6 +6580,39 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
                     }
                 }
             }
+            // names a def, class or import binds anywhere in the file: fixed for stores by key
+            each_stmt(&m.body, &mut |s| {
+                let mut add = |n: &str| {
+                    em.gfixed.insert((m.name.clone(), n.to_string()));
+                };
+                match &s.st {
+                    St::Import(v) => v.iter().for_each(|(x, a)| add(a.as_deref().unwrap_or(x.split('.').next().unwrap_or(x)))),
+                    St::ImportFrom(_, v) => v.iter().for_each(|(x, a)| add(a.as_deref().unwrap_or(x))),
+                    St::Def(d) => add(&d.name),
+                    St::Class(c) => add(&c.name),
+                    _ => {}
+                }
+            });
+            // every name the file reads anywhere (some compile as builtins or NameError, some calls straight to the
+            // runtime): a store by key may not add one
+            // (a name only ever stored to, such as a class body's member names, is not read)
+            let mut seen: HashMap<String, isize> = HashMap::new();
+            visit_any(&m.body, &mut |e| match e {
+                Ex::Name(n) => *seen.entry(n.clone()).or_default() += 1,
+                Ex::Comp(_, _, _, fs) => fs.iter().for_each(|f| name_targets(&f.target, &mut seen)),
+                _ => {}
+            });
+            each_stmt(&m.body, &mut |s| match &s.st {
+                St::Assign(ts, _) => ts.iter().for_each(|x| name_targets(x, &mut seen)),
+                St::For(x, _, _, _) | St::AnnAssign(x, _, _, _) => name_targets(x, &mut seen),
+                St::With(items, _) => items.iter().filter_map(|(_, x)| x.as_ref()).for_each(|x| name_targets(x, &mut seen)),
+                _ => {}
+            });
+            for (n, c) in seen {
+                if c > 0 {
+                    em.gfree.insert((m.name.clone(), n));
+                }
+            }
             // how often each name is bound at module level (top level statements only)
             let mut binds: HashMap<String, usize> = HashMap::new();
             let mut import_of: HashMap<String, String> = HashMap::new();
@@ -6539,7 +6699,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
             em.lazy = future_annotations(&m.body);
             IN_COPY.with(|c| c.set(OWN_COPIES.lock().unwrap().contains(&m.name)));
             em.eval_ann = !em.lazy && gi == 1 && !copies.contains(&m.name) && !BV_SPELLING.load(std::sync::atomic::Ordering::Relaxed);
-            let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, qname: String::new(), exc_vars: vec![], is_module: true, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![], ns: None, fvars: HashSet::new() };
+            let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, qname: String::new(), exc_vars: vec![], is_module: true, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![], ns: None, fvars: HashSet::new(), gvars: HashSet::new() };
             for n in em.mod_names[&m.name].clone() {
                 let i = em.gslot(&m.name, &n);
                 fr.vars.insert(n.clone(), Var::Global(i));
@@ -6604,7 +6764,8 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
             }
         }
         let e = em.mod_attr_err(&m.name, "n", false);
-        write!(hook, "_ => Some(Err({e})) }} }} ").unwrap();
+        // a key set at run time (rt_glue GOVER)
+        write!(hook, "_ => Some(match gover_get({}, n) {{ Some(v) => Ok(v), None => Err({e}) }}) }} }} ", lit(&m.name)).unwrap();
     }
     hook.push_str("_ => None } }\n");
     out.push_str(&hook);
@@ -6646,9 +6807,12 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     files.push_str("_ => None } }\n");
     out.push_str(&files);
     // name -> global slot, per module, for globals()
-    for m in mods.iter().filter(|m| !libs.iter().any(|l| l.name == m.name)) {
+    let gm: Vec<&Module> = mods.iter().filter(|m| !libs.iter().any(|l| l.name == m.name)).collect();
+    for m in &gm {
         out.push_str(&gtab(&em, &m.name));
     }
+    let all: Vec<String> = gm.iter().map(|m| format!("&GMOD_{}", rust_ident(&m.name))).collect();
+    write!(out, "static GMOD_ALL: &[&GMod] = &[{}];\n", all.join(", ")).unwrap();
     let lone: HashMap<usize, &String> = em.lone_idx.iter().map(|(h, &i)| (i, &h.1)).collect();
     // one slot at a time: a tuple constant reads the slots of its items, made before it
     let consts: Vec<String> = em.consts.iter().enumerate().map(|(i, c)| match (lone.get(&i), em.kraw.get(&i)) {
@@ -6679,7 +6843,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     };
     write!(
         out,
-        "fn __run() -> Result<(), E> {{ unsafe {{ GL = vec![V::Unbound; {}]; K = Vec::new(); {} }} USER_MOD.with(|u| u.set(Some(user_mod))); USER_MOD_FILE.with(|u| u.set(Some(user_mod_file))); LIB_MOD_REPR.with(|u| u.set(Some(lib_mod_repr))); USER_MOD_SET.with(|u| u.set(Some(user_mod_set))); MAIN_GTAB.with(|u| u.set(Some(gtab___main__))); sys_modules_set(\"__main__\", &V::Module(&ModName(\"__main__\")))?; {}{}{}{} MAIN_RUNNING.with(|m| m.set(true)); let r = init___main__(); MAIN_RUNNING.with(|m| m.set(false)); fin_point(); r }}\nfn main() {{ run_main(__run); }}\n",
+        "fn __run() -> Result<(), E> {{ unsafe {{ GL = vec![V::Unbound; {}]; K = Vec::new(); {} }} USER_MOD.with(|u| u.set(Some(user_mod))); USER_MOD_FILE.with(|u| u.set(Some(user_mod_file))); LIB_MOD_REPR.with(|u| u.set(Some(lib_mod_repr))); USER_MOD_SET.with(|u| u.set(Some(user_mod_set))); MAIN_GTAB.with(|u| u.set(Some(&GMOD___main__))); GMODS.with(|u| u.set(GMOD_ALL)); sys_modules_set(\"__main__\", &V::Module(&ModName(\"__main__\")))?; {}{}{}{} MAIN_RUNNING.with(|m| m.set(true)); let r = init___main__(); MAIN_RUNNING.with(|m| m.set(false)); fin_point(); r }}\nfn main() {{ run_main(__run); }}\n",
         em.nglobals.max(1),
         consts.join(" "),
         del_on,
@@ -6745,6 +6909,24 @@ fn gtab(em: &Em, m: &str) -> String {
         write!(out, "{} => Some({i}), ", lit(&n)).unwrap();
     }
     out.push_str("_ => None } }\n");
+    let list = |v: Vec<&String>| v.iter().map(|n| lit(n)).collect::<Vec<_>>().join(", ");
+    let mut names: Vec<&String> = em.globals.keys().filter(|(mm, n)| mm == m && !n.starts_with('<')).map(|(_, n)| n).collect();
+    names.sort();
+    let mut fixed: Vec<&String> = em.gfixed.iter().filter(|(mm, _)| mm == m).map(|(_, n)| n).collect();
+    fixed.sort();
+    let mut free: Vec<&String> = em.gfree.iter().filter(|(mm, _)| mm == m).map(|(_, n)| n).collect();
+    free.sort();
+    write!(
+        out,
+        "#[allow(dead_code)] static GMOD_{r}: GMod = GMod {{ name: {}, tab: gtab_{r}, names: &[{}], fixed: &[{}], free: &[{}], dyn_ok: {} }};\n",
+        lit(m),
+        list(names),
+        list(fixed),
+        list(free),
+        !em.has_del,
+        r = rust_ident(m)
+    )
+    .unwrap();
     out
 }
 

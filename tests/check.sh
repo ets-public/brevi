@@ -943,6 +943,25 @@ for c in 'import sys, json\nk = "re"\nprint(k in sys.modules)\n' 'import sys\nfo
   o=$(BREVI_DYN=1 $BREVI build "$t/sm.py" -o "$t/sm" 2>&1)
   case "$o" in *"is not supported in dynamic builds"*) echo "ok   sys.modules key refused at build: $(printf "$c" | tail -n 1)" ;; *) echo "FAIL sys.modules key not refused at build"; printf '%s\n' "$o"; fail=1 ;; esac
 done
+# globals() by a key known only at run time, Enum._convert_ and enum.global_enum (tests/dyn/enum_convert_global.py
+# has the answers): a store that would change a name the build fixed, add one the program reads by name, or a
+# _convert_ whose filter or values the build cannot follow stops the program; under __del__ it is refused when built.
+for c in 'def f():\n    pass\nk = "f"\nglobals()[k] = 1\n|rebinding '"'"'f'"'"' (bound by a def, class or import' \
+         'import os\nk = "os"\nglobals()[k] = 1\n|rebinding '"'"'os'"'"'' \
+         'k = "zz"\nglobals()[k] = 1\nprint(zz)\n|adding the global '"'"'zz'"'"' by key, which the program reads by name' \
+         'k = "__doc__"\nglobals()[k] = 1\n|globals() store to '"'"'__doc__'"'"'' \
+         'import enum\nA_X = 1\nE = enum.Enum._convert_("E", __name__, filter=lambda n: n.startswith("__"))\n|a filter that takes the module'"'"'s own dunder names' \
+         'import enum\nclass P:\n    pass\nA_X = P()\nE = enum.Enum._convert_("E", __name__, filter=lambda n: n.startswith("A_"))\n|whose value'"'"'s comparisons the build cannot follow' \
+         'import enum\nA_X = 1\nE = enum.Flag._convert_("E", __name__, filter=lambda n: n.startswith("A_"))\n|_convert_ on a Flag' \
+         'import enum\nA_X = 1\nE = enum.Enum._convert_("E", __name__, filter=lambda n: print(n) or n.startswith("A_"))\n|EnumType._convert_ read through an Enum class' \
+         'import enum\n@enum.global_enum\nclass C(enum.Enum):\n    A = 1\nprint(A)\n|adding the global '"'"'A'"'"' by key'; do
+  printf "${c%%|*}" > "$t/gk.py"
+  o=$(BREVI_DYN=1 $BREVI run "$t/gk.py" 2>&1)
+  case "$o" in *"NotImplementedError: brevi: "*"${c#*|}"*) echo "ok   globals by key stops: ${c#*|}" ;; *) echo "FAIL globals by key does not stop: ${c#*|}"; printf '%s\n' "$o"; fail=1 ;; esac
+done
+printf 'class D:\n    def __del__(self):\n        pass\nk = "x"\nglobals()[k] = 1\n' > "$t/gk.py"
+o=$(BREVI_DYN=1 $BREVI build "$t/gk.py" -o "$t/gk" 2>&1)
+case "$o" in *"globals()[key] = value is not supported in dynamic builds in a program with __del__"*) echo "ok   globals by key under __del__ is refused" ;; *) echo "FAIL globals by key under __del__"; printf '%s\n' "$o"; fail=1 ;; esac
 # locals() in an Enum's body is enum.EnumDict, whose writes check names (a member set twice is a TypeError); Brevi's
 # namespace is a plain dict, so a class that may be an Enum and calls locals() is refused when it builds.
 printf 'import enum\nclass E(enum.Enum):\n    A = 1\n    locals().update({"B": 2}, **{"A": 3})\nprint(list(E))\n' > "$t/el.py"

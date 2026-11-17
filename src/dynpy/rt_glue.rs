@@ -286,24 +286,62 @@ pub fn range_int(v: &V) -> Result<i64, E> {
 }
 
 // ---------- globals() ----------
-// `globals()[k]`, `globals().get(k[, d])` and `k in globals()` read the module's
-// global slots through a name -> slot table. Anything else on globals() is refused
-// when the program is built. Keys the table cannot answer (dunder names CPython
-// sets itself, keys of other types) stop the run rather than give a different answer.
-fn glob_slot(tab: fn(&str) -> Option<usize>, k: &V) -> Result<Option<usize>, E> {
+// A module's globals as `globals()` and enum's _convert_ and global_enum see them: the file's global slots through a
+// name -> slot table, and, for names no slot has, the keys set at run time (`globals()[k] = v` with a key known only
+// then, enum.global_enum exporting members). Keys the table cannot answer (dunder names CPython sets itself, keys
+// of other types) stop the run rather than give a different answer. A store by key never changes a name the build
+// fixed (`fixed`: every name a def, class or import of the file binds, which the build may call, alias or read
+// directly), never adds a name the file reads by name without binding it (`free`: the build compiled those reads as
+// builtins or NameError), and is refused in a program with __del__ (whose exit order follows the slots).
+pub struct GMod {
+    pub name: &'static str,
+    pub tab: fn(&str) -> Option<usize>,
+    // every slot name, sorted
+    pub names: &'static [&'static str],
+    pub fixed: &'static [&'static str],
+    pub free: &'static [&'static str],
+    pub dyn_ok: bool,
+}
+// keys set at run time that no slot has: (module, name, value), in the order first set
+pub static mut GOVER: Vec<(&'static str, String, V)> = Vec::new();
+thread_local! {
+    pub static GMODS: std::cell::Cell<&'static [&'static GMod]> = const { std::cell::Cell::new(&[]) };
+}
+fn gover() -> &'static mut Vec<(&'static str, String, V)> {
+    unsafe { &mut *std::ptr::addr_of_mut!(GOVER) }
+}
+pub fn gmod_named(m: &str) -> Option<&'static GMod> {
+    GMODS.with(|g| g.get()).iter().copied().find(|g| g.name == m)
+}
+// a run-time key of module m, as `sys.modules[m].__dict__` holds it
+pub fn gover_get(m: &str, n: &str) -> Option<V> {
+    gover().iter().find(|(mm, k, _)| *mm == m && k == n).map(|x| x.2.clone())
+}
+enum GHit {
+    Slot(usize),
+    Over(V),
+    No,
+}
+fn is_dunder_key(n: &str) -> bool {
+    n.len() > 4 && n.starts_with("__") && n.ends_with("__")
+}
+fn glob_find(g: &GMod, k: &V) -> Result<GHit, E> {
     match k {
         V::Str(x) => {
-            if let Some(i) = tab(&x.text()) {
+            let n = &x.text();
+            if let Some(i) = (g.tab)(n) {
                 return Ok(match gref(i) {
-                    V::Unbound => None,
-                    _ => Some(i),
+                    V::Unbound => GHit::No,
+                    _ => GHit::Slot(i),
                 });
             }
-            let n = &x.text();
-            if n.len() > 4 && n.starts_with("__") && n.ends_with("__") {
+            if is_dunder_key(n) {
                 return Err(unsupported(&format!("globals() lookup of '{n}'")));
             }
-            Ok(None)
+            Ok(match gover_get(g.name, n) {
+                Some(v) => GHit::Over(v),
+                None => GHit::No,
+            })
         }
         V::Obj(_) | V::Ext(_) => {
             py_hash(k)?;
@@ -311,24 +349,78 @@ fn glob_slot(tab: fn(&str) -> Option<usize>, k: &V) -> Result<Option<usize>, E> 
         }
         _ => {
             py_hash(k)?;
-            Ok(None)
+            Ok(GHit::No)
         }
     }
 }
-pub fn glob_item(tab: fn(&str) -> Option<usize>, k: &V) -> R {
-    match glob_slot(tab, k)? {
-        Some(i) => Ok(gr(i)),
-        None => Err(exc_v("KeyError", k.clone())),
+pub fn glob_item(g: &GMod, k: &V) -> R {
+    match glob_find(g, k)? {
+        GHit::Slot(i) => Ok(gr(i)),
+        GHit::Over(v) => Ok(v),
+        GHit::No => Err(exc_v("KeyError", k.clone())),
     }
 }
-pub fn glob_get(tab: fn(&str) -> Option<usize>, k: &V, d: V) -> R {
-    Ok(match glob_slot(tab, k)? {
-        Some(i) => gr(i),
-        None => d,
+#[inline]
+pub fn glob_get(g: &GMod, k: &V, d: V) -> R {
+    Ok(match glob_find(g, k)? {
+        GHit::Slot(i) => gr(i),
+        GHit::Over(v) => v,
+        GHit::No => d,
     })
 }
-pub fn glob_has(tab: fn(&str) -> Option<usize>, k: &V) -> Result<bool, E> {
-    Ok(glob_slot(tab, k)?.is_some())
+pub fn glob_has(g: &GMod, k: &V) -> Result<bool, E> {
+    Ok(!matches!(glob_find(g, k)?, GHit::No))
+}
+// `globals()[k] = v` (and the stores of enum's _convert_ and global_enum) for a key the build did not give a slot of its own
+pub fn glob_set(g: &GMod, k: &V, v: V) -> Result<(), E> {
+    let V::Str(x) = k else {
+        py_hash(k)?;
+        return Err(unsupported("a globals() key that is not a str"));
+    };
+    let n = x.text().to_string();
+    glob_set_name(g, &n, v)
+}
+pub fn glob_set_name(g: &GMod, n: &str, v: V) -> Result<(), E> {
+    if !g.dyn_ok {
+        return Err(unsupported(&format!("setting the global '{n}' by key in a program with __del__")));
+    }
+    if is_dunder_key(n) {
+        return Err(unsupported(&format!("globals() store to '{n}'")));
+    }
+    if g.fixed.binary_search(&n).is_ok() {
+        return Err(unsupported(&format!("rebinding '{n}' (bound by a def, class or import, which the build fixed) by key")));
+    }
+    if let Some(i) = (g.tab)(n) {
+        gs(i, v);
+        return Ok(());
+    }
+    if g.free.binary_search(&n).is_ok() {
+        return Err(unsupported(&format!("adding the global '{n}' by key, which the program reads by name")));
+    }
+    let o = gover();
+    match o.iter_mut().find(|(mm, kk, _)| *mm == g.name && kk == n) {
+        Some(e) => e.2 = v,
+        None => o.push((g.name, n.to_string(), v)),
+    }
+    Ok(())
+}
+// The module's (name, value) pairs as its __dict__ holds them now, without the dunder names CPython sets itself;
+// in no particular order (callers must not let the order show).
+pub fn glob_pairs(g: &GMod) -> Vec<(String, V)> {
+    let mut out: Vec<(String, V)> = vec![];
+    for n in g.names {
+        if let Some(i) = (g.tab)(n) {
+            if !matches!(gref(i), V::Unbound) {
+                out.push((n.to_string(), gr(i)));
+            }
+        }
+    }
+    for (m, k, v) in gover().iter() {
+        if *m == g.name {
+            out.push((k.clone(), v.clone()));
+        }
+    }
+    out
 }
 
 // ---------- sys._getframe(n).f_globals ----------
