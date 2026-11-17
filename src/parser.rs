@@ -1024,6 +1024,13 @@ impl Parser {
 
     fn stmt(&mut self) -> R<Stmt> {
         let line = self.line();
+        // Python's `class C:` inside a function or block: the typed build takes classes only at the top of the
+        // file. Name it here, or it parses as the name `class` followed by "expected end of line, found C".
+        if self.py && matches!(self.peek(), Tok::Ident(w) if w == "class") && matches!(self.peek_at(1), Tok::Ident(_)) {
+            let name = tok_text(self.peek_at(1));
+            return Err(self.err(&format!("class {name} is defined inside a function or block, which the typed build does not take"))
+                .fix_hint("move the class to the top level of the file"));
+        }
         // Python's `del m[k]` and `del xs[i]`.
         if matches!(self.peek(), Tok::Ident(w) if w == "del") && !matches!(self.peek_at(1), Tok::Newline | Tok::Sym("=" | "(" | "." | "[")) {
             self.next();

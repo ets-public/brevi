@@ -20,7 +20,7 @@ exit 1
 {"verify":"limit","file":"tests/verify/spin.py","sha256":"2057c7f529612f2fbba3540e64b27b26976bb35414759a44fbdc6fcd53016fee","inputs":[{"input":"(empty stdin)","sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}],"args":[],"compared":"stdout, exit code and stderr, one CPython run","differ":0,"unstable":0,"timeout":0,"limit":1}
 exit 1
 -- tests/verify/refused.py
-{"line":1,"msg":"unknown function exec()"}
+{"line":1,"msg":"unknown function exec(), and this file cannot be built over dynamic values (refused.py line 1: exec() is not supported in dynamic builds)"}
 {"verify":"not built","file":"tests/verify/refused.py","sha256":"031842a41a546eebefec695e94f81f91060e544f7458b2e7153a2a01411c7b23","msg":"Brevi could not build this file natively, so there is nothing to compare; brevi run would hand it to CPython"}
 exit 1
 -- tests/verify/sq.py

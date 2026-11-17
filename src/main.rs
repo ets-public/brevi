@@ -636,7 +636,16 @@ fn main() {
             dyn_blocked_note();
             // --sandbox without CPython: Brevi's own library (numpy, polars, ...) lacks what the program uses, so
             // say what, in place of the typed build's "a call CPython runs needs allow native".
-            let diags = own_lib_refusal(diags);
+            let mut diags = own_lib_refusal(diags);
+            // A Python file: name what stopped the dynamic build too, since fixing only the typed build's reason
+            // (a class inside a function, a form the typed parser lacks) would still leave the file unbuilt.
+            if is_py(&file) {
+                if let (Some(b), Some(d)) = (dyn_blocked_text(), diags.first_mut()) {
+                    if !DYN_BLOCKED.lock().unwrap().as_ref().is_some_and(|(_, _, m)| d.msg.contains(m.as_str())) {
+                        d.msg = format!("{}, and this file cannot be built over dynamic values ({b})", d.msg);
+                    }
+                }
+            }
             for d in diags {
                 print_diag(&d);
             }
@@ -843,12 +852,7 @@ fn guard_refusal(cmd: &str, file: &str, argv: &[String], line: usize, why: &str,
         }
         dyn_blocked_note();
         // Name what stopped the dynamic build too: fixing only the typed reason would still leave the file unbuilt.
-        let blocked = match DYN_BLOCKED.lock().unwrap().as_ref() {
-            Some((f, l, m)) if *l > 0 => format!(" ({} line {l}: {m})", Path::new(f).file_name().unwrap_or_default().to_string_lossy()),
-            Some((_, _, m)) => format!(" ({m})"),
-            None if dyn_off => " (BREVI_DYN=0 turns the dynamic build off)".to_string(),
-            None => String::new(),
-        };
+        let blocked = dyn_blocked_text().map_or_else(|| if dyn_off { " (BREVI_DYN=0 turns the dynamic build off)".to_string() } else { String::new() }, |b| format!(" ({b})"));
         let mut d = Diag::new("check", line, 1, &format!("{why}, and this file cannot be built over dynamic values{blocked}"));
         if why.contains(" set") {
             d.fix = Some("sort it first (sorted(s)) where the order shows".into());
@@ -916,6 +920,13 @@ fn own_lib_refusal(diags: Vec<Diag>) -> Vec<Diag> {
     let mut out = vec![d];
     out.extend(diags.into_iter().filter(|d| !generic(d)));
     out
+}
+
+// Why the dynamic build refused the file, as "f.py line N: msg" (or the bare msg without a line), if it did.
+fn dyn_blocked_text() -> Option<String> {
+    DYN_BLOCKED.lock().unwrap().as_ref().map(|(f, l, m)| {
+        if *l > 0 { format!("{} line {l}: {m}", Path::new(f).file_name().unwrap_or_default().to_string_lossy()) } else { m.clone() }
+    })
 }
 
 // Why the dynamic build refused the file (file, line, msg), for the path report of a CPython run.

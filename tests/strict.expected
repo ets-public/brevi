@@ -6,7 +6,7 @@ exit 0
 {"e":"strict","path":"dynamic","line":3,"fn":"show","msg":"--strict allows no fallback, and the typed build refused this file (print() of a set shows CPython's hash order, so the typed build would differ from CPython), so it would have been built over dynamic values","fix":"rewrite show so the typed build takes it (brevi check --explain lists every typed error), or drop --strict"}
 exit 1
 -- run cpython_only
-{"line":2,"msg":"unknown function exec()"}
+{"line":2,"msg":"unknown function exec(), and this file cannot be built over dynamic values (cpython_only.py line 2: exec() is not supported in dynamic builds)"}
 exit 1
 -- run pybridge
 {"path":"pybridge","why":"colorsys run in CPython","py":["colorsys"]}

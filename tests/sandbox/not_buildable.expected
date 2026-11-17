@@ -1,4 +1,4 @@
-{"line":4,"msg":"unknown name 'super_'","fix":"set it first: super_ = ..."}
+{"line":4,"msg":"unknown name 'super_', and this file cannot be built over dynamic values (not_buildable.py line 4: super used as a value is not supported)","fix":"set it first: super_ = ..."}
 note: not run with python3: with --sandbox or an allow line, Brevi never falls back to CPython, which cannot enforce allow lines
 exit 1
 -- dynamic

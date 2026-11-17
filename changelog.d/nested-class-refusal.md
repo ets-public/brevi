@@ -1,0 +1,1 @@
+- A class defined inside a function or block no longer refuses the typed build with "expected end of line, found <Name>": the message names the class. When the dynamic build refuses the file too, every typed-build refusal of a Python file now also names the dynamic build's reason, which is the one to fix.
