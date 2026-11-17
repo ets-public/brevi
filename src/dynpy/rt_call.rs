@@ -2085,9 +2085,10 @@ pub fn getattr(o: &V, name: &str) -> R {
             },
             "__call__" => Ok(o.clone()),
             // a def's defaults, from the signature it recorded when it was made (DFLT_DEFS in typing.rs)
-            "__defaults__" | "__kwdefaults__" if f.kind.get() == 0 => match sig_defaults(f, name == "__kwdefaults__") {
+            // (a function the runtime makes, a namedtuple's __new__, carries CPython's own in its attrs)
+            "__defaults__" | "__kwdefaults__" if f.kind.get() == 0 => match f.attrs.borrow().iter().find(|(k, _)| *k == name).map(|(_, v)| v.clone()).or_else(|| sig_defaults(f, name == "__kwdefaults__")) {
                 Some(v) => Ok(v),
-                None => Err(unsupported_stop(&format!("{name} of a function whose defaults this build did not record (the program names it only through a string computed at run time)"))),
+                None => Err(unsupported_stop(&format!("{name} of a function whose defaults this build did not record (one the runtime makes, or a def read through a name computed at run time)"))),
             },
             // an assigned __code__ is kept in attrs; otherwise one is made from the def's flags
             "__code__" if f.attrs.borrow().iter().all(|(k, _)| *k != "__code__") => match f.code_flags.get() {
