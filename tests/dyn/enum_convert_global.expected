@@ -1,0 +1,15 @@
+BB CC dflt True True
+AA True
+<UnittestConvert.CONVERT_TEST_NAME_A: 5> 'CONVERT_TEST_NAME_A' <UnittestConvert.CONVERT_TEST_NAME_E: 6> [<UnittestConvert.CONVERT_TEST_NAME_A: 5>, <UnittestConvert.CONVERT_TEST_NAME_E: 6>] An enumeration. __main__ UnittestConvert
+<UnittestConvert.CONVERT_TEST_NAME_A: 5> True True
+['CONVERT_TEST_NAME_A', 'CONVERT_TEST_NAME_B', 'CONVERT_TEST_NAME_C', 'CONVERT_TEST_NAME_D', 'CONVERT_TEST_NAME_E']
+BB CC dflt True True
+5
+[<Uncomparable.UNCOMPARABLE_A: 5>, <Uncomparable.UNCOMPARABLE_B: (9, 1)>, <Uncomparable.UNCOMPARABLE_C: 'value'>] [5, (9, 1), 'value']
+[<Cplx.COMPLEX_A: 2j>, <Cplx.COMPLEX_B: 3j>, <Cplx.COMPLEX_C: 1j>]
+[<StrConvert.CONVERT_STR_TEST_2: 'goodbye'>, <StrConvert.CONVERT_STR_TEST_1: 'hello'>] <StrConvert.CONVERT_STR_TEST_1: 'hello'> goodbye hello
+[__main__.FLT_A, __main__.FLT_B] __main__.FLT_A FLT_B True
+__main__.RED GREEN __main__.RED True
+__main__.R __main__.R|__main__.W __main__.Perm(0) R|X Perm(0)
+__main__.OFF __main__.LOW|20 __main__.Lights(8) 1 3
+__main__.SAD HAPPY HAPPY True
