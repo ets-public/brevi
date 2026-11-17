@@ -118,7 +118,7 @@ pub fn plain_slot_check(name: &str, v: &V) -> Result<(), E> {
     let V::Ext(x) = v else { return Ok(()) };
     let special = (name.len() > 4 && name.starts_with("__") && name.ends_with("__")) || (name.len() > 2 && name.starts_with('_') && name.ends_with('_') && !name.starts_with("__"));
     if special && !matches!(name, "__get__" | "__set__" | "__delete__" | "__set_name__" | "__doc__" | "__module__") && x.plain_slot() {
-        return Err(unsupported_stop(&format!("a callable Python library object with no __get__ (such as a unittest.mock object) stored as {name} of a class of the program")));
+        return Err(unsupported(&format!("a callable Python library object with no __get__ (such as a unittest.mock object) stored as {name} of a class of the program")));
     }
     Ok(())
 }
@@ -892,7 +892,7 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
         if let Some(r) = iter_class_call(c, a) {
             return r;
         }
-        return Err(exc("NotImplementedError", format!("brevi: calling the {}.{} class is not supported in dynamic builds", c.module, c.name)));
+        return Err(refusal("NotImplementedError", &format!("brevi: calling the {}.{} class is not supported in dynamic builds", c.module, c.name)));
     }
     if plain_new(c) {
         let me = V::Obj(Obj::new(c.clone()));

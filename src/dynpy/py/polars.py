@@ -5,6 +5,7 @@
 # interop, plugins) sends the program to CPython's polars (src/caps.rs POLARS_LACKS), or is refused under
 # --sandbox. Files are read and written through _brevi_fs, which the read / write grants hold.
 
+import _brevi_stop
 import math
 import json as _json
 import re as _re
@@ -1746,10 +1747,10 @@ class Series:
         return self._x(lambda e: e.cast(dtype, strict=strict, wrap_numerical=wrap_numerical))
 
     def to_numpy(self):
-        raise NotImplementedError("brevi: Series.to_numpy() is not in Brevi's polars")
+        _brevi_stop.stop("NotImplementedError", "brevi: Series.to_numpy() is not in Brevi's polars")
 
     def __array__(self):
-        raise NotImplementedError("brevi: numpy arrays from a polars Series are not in Brevi's polars")
+        _brevi_stop.stop("NotImplementedError", "brevi: numpy arrays from a polars Series are not in Brevi's polars")
 
     @property
     def str(self):
@@ -2342,7 +2343,7 @@ class Expr:
         return function(self, *args, **kwargs)
 
     def hash(self, seed=0, seed_1=None, seed_2=None, seed_3=None):
-        raise NotImplementedError("brevi: Expr.hash is not in Brevi's polars")
+        _brevi_stop.stop("NotImplementedError", "brevi: Expr.hash is not in Brevi's polars")
 
     # -- window / ordering --
     def shift(self, n=1, fill_value=None):
@@ -2560,7 +2561,7 @@ class Expr:
         return self._f("implode")
 
     def agg_groups(self):
-        raise NotImplementedError("brevi: Expr.agg_groups is not in Brevi's polars")
+        _brevi_stop.stop("NotImplementedError", "brevi: Expr.agg_groups is not in Brevi's polars")
 
     def value_counts(self, sort=False, parallel=False, name=None, normalize=False):
         return self._f("value_counts", sort, name, normalize)
@@ -2591,7 +2592,7 @@ class Expr:
 
     @property
     def dt(self):
-        raise NotImplementedError("brevi: temporal expressions (.dt) are not in Brevi's polars")
+        _brevi_stop.stop("NotImplementedError", "brevi: temporal expressions (.dt) are not in Brevi's polars")
 
 
 def _x(v, keep_str=False):
@@ -2763,7 +2764,7 @@ class _StrNS:
         return self._f("split", by, inclusive)
 
     def split_exact(self, by, n, inclusive=False):
-        raise NotImplementedError("brevi: str.split_exact (a struct) is not in Brevi's polars")
+        _brevi_stop.stop("NotImplementedError", "brevi: str.split_exact (a struct) is not in Brevi's polars")
 
     def zfill(self, length):
         return self._f("zfill", length)
@@ -2799,10 +2800,10 @@ class _StrNS:
         return self._f("join", "-" if delimiter is None else delimiter, ignore_nulls)
 
     def encode(self, encoding):
-        raise NotImplementedError("brevi: str.encode is not in Brevi's polars")
+        _brevi_stop.stop("NotImplementedError", "brevi: str.encode is not in Brevi's polars")
 
     def json_decode(self, *a, **k):
-        raise NotImplementedError("brevi: str.json_decode is not in Brevi's polars")
+        _brevi_stop.stop("NotImplementedError", "brevi: str.json_decode is not in Brevi's polars")
 
 
 class _ListNS:
@@ -2897,7 +2898,7 @@ class _ListNS:
         return Expr("fn", "list", self._e, ("concat", _x(other, True)), {})
 
     def eval(self, expr):
-        raise NotImplementedError("brevi: list.eval is not in Brevi's polars")
+        _brevi_stop.stop("NotImplementedError", "brevi: list.eval is not in Brevi's polars")
 
 
 # Expressions that give one value (per group in an aggregation)
@@ -3240,7 +3241,7 @@ def reduce(function, exprs, *, returns_scalar=False, return_dtype=None):
 
 
 def cum_fold(acc, function, exprs, *, returns_scalar=False, return_dtype=None, include_init=False):
-    raise NotImplementedError("brevi: cum_fold (a struct) is not in Brevi's polars")
+    _brevi_stop.stop("NotImplementedError", "brevi: cum_fold (a struct) is not in Brevi's polars")
 
 
 def sum_horizontal(*exprs, ignore_nulls=True):
@@ -5943,7 +5944,7 @@ class DataFrame:
         return self.height == 0
 
     def estimated_size(self, unit="b"):
-        raise NotImplementedError("brevi: DataFrame.estimated_size is not in Brevi's polars")
+        _brevi_stop.stop("NotImplementedError", "brevi: DataFrame.estimated_size is not in Brevi's polars")
 
     def __repr__(self):
         return _frame_str(self)
@@ -6438,10 +6439,10 @@ class DataFrame:
         return {c.name: c.to_list() for c in self._cols}
 
     def to_numpy(self, *a, **k):
-        raise NotImplementedError("brevi: DataFrame.to_numpy() is not in Brevi's polars")
+        _brevi_stop.stop("NotImplementedError", "brevi: DataFrame.to_numpy() is not in Brevi's polars")
 
     def to_pandas(self, *a, **k):
-        raise NotImplementedError("brevi: DataFrame.to_pandas() is not in Brevi's polars")
+        _brevi_stop.stop("NotImplementedError", "brevi: DataFrame.to_pandas() is not in Brevi's polars")
 
     def equals(self, other, null_equal=True):
         if self.columns != other.columns or self.dtypes != other.dtypes:
@@ -6677,7 +6678,7 @@ class DataFrame:
         return DataFrame._of([Series("map", res, dtype=return_dtype)])
 
     def sample(self, *a, **k):
-        raise NotImplementedError("brevi: DataFrame.sample is not in Brevi's polars")
+        _brevi_stop.stop("NotImplementedError", "brevi: DataFrame.sample is not in Brevi's polars")
 
     # -- writing --
     def write_csv(self, file=None, include_bom=False, include_header=True, separator=",", line_terminator="\n", quote_char='"', batch_size=1024, datetime_format=None, date_format=None, time_format=None, float_scientific=None, float_precision=None, decimal_comma=False, null_value=None, quote_style=None):
@@ -6699,7 +6700,7 @@ class DataFrame:
         return _write_out(file, "".join(out))
 
     def write_parquet(self, *a, **k):
-        raise NotImplementedError("brevi: parquet is not in Brevi's polars")
+        _brevi_stop.stop("NotImplementedError", "brevi: parquet is not in Brevi's polars")
 
 
 class TooManyRowsReturnedError(PolarsError):
@@ -7306,7 +7307,7 @@ def concat(items, how="vertical", rechunk=False, parallel=True):
             out.append(_new(n, vals, dts[n]))
         return DataFrame._of(out)
     if how == "align":
-        raise NotImplementedError("brevi: concat(how='align') is not in Brevi's polars")
+        _brevi_stop.stop("NotImplementedError", "brevi: concat(how='align') is not in Brevi's polars")
     raise ValueError("DataFrame `how` must be one of {'vertical', 'vertical_relaxed', 'diagonal', 'diagonal_relaxed', 'horizontal', 'align'}, got " + repr(how))
 
 
@@ -7425,10 +7426,10 @@ class LazyFrame:
         return self
 
     def explain(self, *a, **k):
-        raise NotImplementedError("brevi: LazyFrame.explain is not in Brevi's polars (it runs each step at once)")
+        _brevi_stop.stop("NotImplementedError", "brevi: LazyFrame.explain is not in Brevi's polars (it runs each step at once)")
 
     def show_graph(self, *a, **k):
-        raise NotImplementedError("brevi: LazyFrame.show_graph is not in Brevi's polars")
+        _brevi_stop.stop("NotImplementedError", "brevi: LazyFrame.show_graph is not in Brevi's polars")
 
     def fetch(self, n_rows=500):
         return self._df.head(n_rows)
@@ -7599,7 +7600,7 @@ def _read_in(source):
     if p is not None:
         import _brevi_fs
         if "://" in p:
-            raise NotImplementedError("brevi: reading a URL with polars is not in Brevi's polars")
+            _brevi_stop.stop("NotImplementedError", "brevi: reading a URL with polars is not in Brevi's polars")
         try:
             return _brevi_fs.read(p)
         except ValueError as e:
@@ -7689,7 +7690,7 @@ def _infer_field(v, quoted):
     if _INT_RE.fullmatch(v):
         if _I64_MIN <= int(v) <= _I64_MAX:
             return Int64
-        raise NotImplementedError("brevi: Int128 columns are not in Brevi's polars")
+        _brevi_stop.stop("NotImplementedError", "brevi: Int128 columns are not in Brevi's polars")
     return String
 
 
@@ -7729,9 +7730,9 @@ def read_csv(source, has_header=True, columns=None, new_columns=None, separator=
              row_index_offset=0, sample_size=1024, eol_char="\n", raise_if_empty=True, truncate_ragged_lines=False, decimal_comma=False,
              glob=True, dtypes=None):
     if try_parse_dates:
-        raise NotImplementedError("brevi: read_csv(try_parse_dates=True) (temporal dtypes) is not in Brevi's polars")
+        _brevi_stop.stop("NotImplementedError", "brevi: read_csv(try_parse_dates=True) (temporal dtypes) is not in Brevi's polars")
     if decimal_comma:
-        raise NotImplementedError("brevi: read_csv(decimal_comma=True) is not in Brevi's polars")
+        _brevi_stop.stop("NotImplementedError", "brevi: read_csv(decimal_comma=True) is not in Brevi's polars")
     text = _read_in(source)
     if skip_lines:
         text = "\n".join(text.split("\n")[skip_lines:])
@@ -7885,7 +7886,7 @@ def scan_ndjson(source, **kwargs):
 
 def _no(what):
     def f(*a, **k):
-        raise NotImplementedError("brevi: " + what + " is not in Brevi's polars")
+        _brevi_stop.stop("NotImplementedError", "brevi: " + what + " is not in Brevi's polars")
     return f
 
 

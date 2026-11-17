@@ -7,6 +7,7 @@
 # Not here (caps.rs DUCKDB_LACKS sends a program using them to CPython's duckdb): pandas / numpy / Arrow / polars
 # interop, Python UDFs, extensions, filesystems, expressions (duckdb.col and the like), file readers and writers of
 # the API (SQL's read_csv etc. work), sql_query, explain, describe, materialize and the rest of the relation API.
+import _brevi_stop
 import _brevi_duckdb as _d
 
 __version__ = "2.0.0"
@@ -644,7 +645,7 @@ class DuckDBPyConnection:
         return DuckDBPyRelation._new(self, "SELECT * FROM (VALUES " + ", ".join(groups) + ")", _unnamed(), params)
 
     def get_table_names(self, query, qualified=False):
-        raise NotImplementedError("brevi: Brevi's duckdb has no get_table_names")
+        _brevi_stop.stop("NotImplementedError", "brevi: Brevi's duckdb has no get_table_names")
 
 
 _COUNTER = [0]
@@ -776,7 +777,7 @@ class DuckDBPyRelation:
     # -- building
     def _from(self):
         if self._held is not None:
-            raise NotImplementedError("brevi: Brevi's duckdb cannot build on the result of a statement that is not a SELECT")
+            _brevi_stop.stop("NotImplementedError", "brevi: Brevi's duckdb cannot build on the result of a statement that is not a SELECT")
         return "(" + self._wrapped() + ") AS " + _plain(self._alias)
 
     def _wrapped(self):
@@ -826,7 +827,7 @@ class DuckDBPyRelation:
 
     def distinct(self, on=None):
         if on is not None:
-            raise NotImplementedError("brevi: Brevi's duckdb has no distinct(on=...)")
+            _brevi_stop.stop("NotImplementedError", "brevi: Brevi's duckdb has no distinct(on=...)")
         return self._derive("SELECT DISTINCT * FROM " + self._from(), keep=True)
 
     def unique(self, unique_aggr):
@@ -845,7 +846,7 @@ class DuckDBPyRelation:
         if groups and window_spec:
             raise InvalidInputException("Invalid Input Error: Either groups or window must be set (can't be both at the same time)")
         if window_spec:
-            raise NotImplementedError("brevi: Brevi's duckdb has no window_spec")
+            _brevi_stop.stop("NotImplementedError", "brevi: Brevi's duckdb has no window_spec")
         pieces = _split_list(columns)
         if fname == "count" and not pieces:
             pieces = ["*"]
@@ -969,7 +970,7 @@ class DuckDBPyRelation:
             raise InvalidInputException("Invalid Input Error: No relation provided for join")
         other = self._other(other_rel)
         if suffix is not None:
-            raise NotImplementedError("brevi: Brevi's duckdb has no join(suffix=...)")
+            _brevi_stop.stop("NotImplementedError", "brevi: Brevi's duckdb has no join(suffix=...)")
         kind = str(how).strip().lower()
         if kind not in _JOINS:
             listed = ", ".join("'" + k + "'" for k in _JOINS)
@@ -1133,7 +1134,7 @@ class DuckDBPyRelation:
     def _box(self, max_width=None, max_rows=None, max_col_width=None, null_value=None, render_mode=None):
         self._con._check_rel()
         if render_mode is not None:
-            raise NotImplementedError("brevi: Brevi's duckdb has no render_mode")
+            _brevi_stop.stop("NotImplementedError", "brevi: Brevi's duckdb has no render_mode")
         cols = self._cols
         if self._held is not None:
             rows = [[None if v is None else _text(v) for v in row] for row in self._held[:_BOX_LIMIT]]

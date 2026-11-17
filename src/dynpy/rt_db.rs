@@ -49,7 +49,7 @@ pub struct SqlOps {
 pub static SQL: std::sync::OnceLock<SqlOps> = std::sync::OnceLock::new();
 
 fn sql_ops() -> Result<&'static SqlOps, E> {
-    SQL.get().ok_or_else(|| exc("OSError", "brevi: this program was built without SQLite".into()))
+    SQL.get().ok_or_else(|| refusal("OSError", "brevi: this program was built without SQLite"))
 }
 
 fn db_i(v: &V) -> i64 {
@@ -913,7 +913,7 @@ pub struct DuckOps {
 pub static DUCK: std::sync::OnceLock<DuckOps> = std::sync::OnceLock::new();
 
 fn duck_ops() -> Result<&'static DuckOps, E> {
-    DUCK.get().ok_or_else(|| exc("OSError", "brevi: this program was built without DuckDB".into()))
+    DUCK.get().ok_or_else(|| refusal("OSError", "brevi: this program was built without DuckDB"))
 }
 
 fn duck_err(m: String) -> E {
@@ -971,7 +971,7 @@ fn duck_py(d: DuckV) -> R {
             }
             V::Dict(Rc::new(RefCell::new(d)))
         }
-        DuckV::Bad(t) => return Err(exc("NotImplementedError", format!("brevi: Brevi's duckdb cannot turn a {t} value into Python"))),
+        DuckV::Bad(t) => return Err(refusal("NotImplementedError", &format!("brevi: Brevi's duckdb cannot turn a {t} value into Python"))),
     })
 }
 
@@ -990,7 +990,7 @@ fn py_duck(v: &V) -> Result<DuckV, E> {
             for (k, x) in d.borrow().items() {
                 match &k {
                     V::Str(s) => kv.push((s.text().to_string(), py_duck(&x)?)),
-                    _ => return Err(exc("NotImplementedError", "brevi: Brevi's duckdb binds dicts with str keys only".into())),
+                    _ => return Err(refusal("NotImplementedError", "brevi: Brevi's duckdb binds dicts with str keys only")),
                 }
             }
             DuckV::Struct(kv)
@@ -1000,7 +1000,7 @@ fn py_duck(v: &V) -> Result<DuckV, E> {
                 DuckV::Blob(b.0.clone())
             } else if let Some(d) = x.any().downcast_ref::<DTV>() {
                 if d.0.tz.is_some() {
-                    return Err(exc("NotImplementedError", "brevi: Brevi's duckdb does not bind aware datetimes".into()));
+                    return Err(refusal("NotImplementedError", "brevi: Brevi's duckdb does not bind aware datetimes"));
                 }
                 let days = d.0.ord - ymd_to_ord(1970, 1, 1);
                 if d.0.has_time {
@@ -1016,10 +1016,10 @@ fn py_duck(v: &V) -> Result<DuckV, E> {
             } else if x.any().is::<DecV>() {
                 DuckV::Dec(x.str_())
             } else {
-                return Err(exc("NotImplementedError", format!("brevi: Brevi's duckdb cannot bind a {} value", x.tname())));
+                return Err(refusal("NotImplementedError", &format!("brevi: Brevi's duckdb cannot bind a {} value", x.tname())));
             }
         }
-        _ => return Err(exc("NotImplementedError", format!("brevi: Brevi's duckdb cannot bind a {} value", tn(v)))),
+        _ => return Err(refusal("NotImplementedError", &format!("brevi: Brevi's duckdb cannot bind a {} value", tn(v)))),
     })
 }
 

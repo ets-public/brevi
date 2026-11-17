@@ -2481,7 +2481,7 @@ pub fn getitem(c: &V, i: &V) -> R {
                 return call(&f, Args::p(vec![i.clone()]));
             }
             if k.mro.borrow().iter().any(|b| b.module == "collections.abc" && b.name == "Callable") {
-                return Err(exc("NotImplementedError", "brevi: collections.abc.Callable[...] is not supported in dynamic builds".into()));
+                return Err(refusal("NotImplementedError", "brevi: collections.abc.Callable[...] is not supported in dynamic builds"));
             }
             let args = match i {
                 V::Tuple(t) => t.to_vec(),

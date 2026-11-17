@@ -82,7 +82,7 @@ pub struct OrtOps {
 pub static ORT: std::sync::OnceLock<OrtOps> = std::sync::OnceLock::new();
 
 fn ort_ops() -> Result<&'static OrtOps, E> {
-    ORT.get().ok_or_else(|| exc("OSError", "brevi: this program was built without ONNX Runtime".into()))
+    ORT.get().ok_or_else(|| refusal("OSError", "brevi: this program was built without ONNX Runtime"))
 }
 
 // onnxruntime's Python errors: the copy raises the class named by the code with the message

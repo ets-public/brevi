@@ -53,4 +53,7 @@ print(repr(cabc.Iterable[int]), repr(vars(cabc.Iterable)['__class_getitem__']))
 try:
     vars(cabc.Callable)
 except NotImplementedError as e:
-    print("refused")  # Brevi: Callable has no _CallableGenericAlias, so its dict refuses (CPython prints nothing here)
+    print("caught")
+# Brevi: Callable has no _CallableGenericAlias, so its dict refuses, and the refusal stops the program (CPython
+# goes on and prints this)
+print("after")

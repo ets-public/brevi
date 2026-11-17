@@ -1868,7 +1868,7 @@ fn enum_create(c: &Rc<Class>, name: &V, names: V, module: V, qualname: V, ty: V,
 }
 // An instance of types.DynamicClassAttribute (enum.property's base), which _add_member_ treats as enum.property
 fn is_dca(v: &V) -> bool {
-    match type_of(v) {
+    match soft_refusals(|| type_of(v)) {
         Ok(t) => t.name == "DynamicClassAttribute" && (t.module == "types" || getattr(&V::Class(t.clone()), "__module__").is_ok_and(|m| matches!(&m, V::Str(x) if x.text() == "types"))),
         Err(_) => false,
     }
@@ -2456,8 +2456,8 @@ fn ident_value(who: &str) -> Option<V> {
         "Enum" => enum_base().own(n),
         "Flag" => enum_more()[2].own(n),
         // the builtin type's own dict entry (made once, so `is` holds)
-        "int" | "str" | "object" | "float" | "bytes" | "tuple" | "complex" | "bool" => class_dict(&bclass(cn)).ok()?.into_iter().find(|(k, _)| *k == n).map(|x| x.1),
-        "datetime.date" => class_dict(&ext_class("datetime.date")).ok()?.into_iter().find(|(k, _)| *k == n).map(|x| x.1),
+        "int" | "str" | "object" | "float" | "bytes" | "tuple" | "complex" | "bool" => soft_refusals(|| class_dict(&bclass(cn))).ok()?.into_iter().find(|(k, _)| *k == n).map(|x| x.1),
+        "datetime.date" => soft_refusals(|| class_dict(&ext_class("datetime.date"))).ok()?.into_iter().find(|(k, _)| *k == n).map(|x| x.1),
         _ => None,
     }?;
     EIDENT_VALS.with(|m| m.borrow_mut().insert(who.to_string(), v.clone()));

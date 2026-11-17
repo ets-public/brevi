@@ -922,11 +922,11 @@ pub fn is_np(v: &V) -> bool {
 }
 
 pub fn np_unsup(what: &str) -> E {
-    exc("NotImplementedError", format!("{what} is not supported by Brevi's native numpy yet"))
+    refusal("NotImplementedError", &format!("{what} is not supported by Brevi's native numpy yet"))
 }
 // Math on a storage dtype (SD): refused, naming the cast that makes it work.
 pub fn np_store_err(d: NT, what: &str) -> E {
-    exc("NotImplementedError", format!("{what} of {} values is not supported by Brevi's native numpy yet (it reads them: use .astype(np.float32) or .astype(np.int64) first)", d.name()))
+    refusal("NotImplementedError", &format!("{what} of {} values is not supported by Brevi's native numpy yet (it reads them: use .astype(np.float32) or .astype(np.int64) first)", d.name()))
 }
 
 thread_local! {

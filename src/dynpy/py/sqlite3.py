@@ -281,6 +281,7 @@ _ERRNAMES = {
     8458: 'SQLITE_IOERR_CORRUPTFS',
 }
 
+import _brevi_stop
 import datetime
 import _brevi_sqlite as _s
 
@@ -1201,7 +1202,7 @@ _LEVELS = ("", "DEFERRED", "IMMEDIATE", "EXCLUSIVE")
 
 
 def _lacks(what):
-    raise NotImplementedError("brevi: sqlite3 " + what + " is not in Brevi's sqlite3")
+    _brevi_stop.stop("NotImplementedError", "brevi: sqlite3 " + what + " is not in Brevi's sqlite3")
 
 
 class Connection:

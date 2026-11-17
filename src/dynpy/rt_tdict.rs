@@ -394,7 +394,7 @@ pub fn class_dict(c: &Rc<Class>) -> Result<Vec<(Sym, V)>, E> {
 // x.__dict__ as Brevi's own module copies read it: a class's namespace as Brevi keeps it, never refused
 pub fn own_dict_of(x: &V) -> R {
     let V::Class(c) = x else { return getattr(x, "__dict__") };
-    let items = match class_dict_with(c, false) {
+    let items = match soft_refusals(|| class_dict_with(c, false)) {
         Ok(v) => v,
         Err(_) => {
             let mut v: Vec<(Sym, V)> = vec![("__module__", s(c.module))];

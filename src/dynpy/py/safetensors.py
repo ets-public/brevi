@@ -7,6 +7,7 @@
 # devices other than the CPU.
 # F16, the 8- and 16-bit and unsigned integers and C64 tensors become numpy arrays of those dtypes (shape, printing,
 # indexing and astype; math on them needs an astype first). BF16, F8 and F4 fail as with numpy, which lacks them.
+import _brevi_stop
 import _brevi_fs as _fs
 import _brevi_st as _st
 
@@ -118,7 +119,7 @@ class safe_open:
         if fw is None:
             raise SafetensorError("framework " + str(framework) + " is invalid")
         if fw != "numpy":
-            raise NotImplementedError("brevi: Brevi's safetensors reads numpy arrays (framework='np'), not " + fw)
+            _brevi_stop.stop("NotImplementedError", "brevi: Brevi's safetensors reads numpy arrays (framework='np'), not " + fw)
         if device not in ("cpu", None):
             raise SafetensorError("Device " + str(device) + " is not supported for framework " + fw)
         if backend not in ("mmap", "pread"):
