@@ -243,6 +243,9 @@ PUBLIC = re.compile(r"^(README\.md|BREVI\.md|REFERENCE\.md|CHANGELOG\.md|changel
                     r"bench/README\.md|bench/[^/]+/README\.md|src/mcp\.rs)$")
 
 
+FEW = re.compile(r"small (fraction|share)", re.I)
+
+
 def scan(name, text, c, med):
     """Lines of one published text that quote a headline figure without its scope."""
     problems = []
@@ -258,9 +261,17 @@ def scan(name, text, c, med):
                 if need not in line:
                     problems.append(f"{name}:{i}: quotes {share} without \"{need}\"")
                     break
+        for share in core_shares:
+            whole = str(round(float(share[:-1])))
+            if re.search(r"(?<![\d.])" + whole + r"\s?%(?![\d])", line) and need not in line:
+                problems.append(f"{name}:{i}: quotes a rounded {whole}% without \"{need}\"")
+                break
         for t in typed:
-            if re.search(r"(?<![\d.])" + re.escape(t) + r"(?![\d])", line) and dyn not in line:
-                problems.append(f"{name}:{i}: quotes the typed median {t} without the dynamic median {dyn}")
+            if re.search(r"(?<![\d.])" + re.escape(t) + r"(?![\d])", line):
+                if dyn not in line:
+                    problems.append(f"{name}:{i}: quotes the typed median {t} without the dynamic median {dyn}")
+                elif name != OUT and not line.lstrip().startswith("|") and not FEW.search(line) and not (c.get("typed") and c["typed"] in line):
+                    problems.append(f"{name}:{i}: quotes the typed median {t} without saying only a small fraction of programs take the typed build")
     return problems
 
 
