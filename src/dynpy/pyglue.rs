@@ -894,13 +894,26 @@ unsafe fn pyd_exc_of(v: P) -> E {
 thread_local! {
     // Python exception class (name, module) -> the program's class for it.
     static PYD_EXC: RefCell<std::collections::HashMap<(String, String), Rc<Class>>> = RefCell::new(std::collections::HashMap::new());
+    // the program's class for a Python exception class (by address: PYD_EXC keeps it alive) -> that Python class
+    // (a reference held for good), so issubclass and `is` answer as CPython does for type(e)
+    static PYD_EXC_T: RefCell<std::collections::HashMap<usize, usize>> = RefCell::new(std::collections::HashMap::new());
+}
+// The Python class the program's class c stands for, when c was made for a Python exception class (borrowed).
+fn pyd_exc_pytype(c: &Class) -> Option<P> {
+    PYD_EXC_T.with(|m| m.borrow().get(&(c as *const Class as usize)).map(|p| *p as P))
 }
 
 unsafe fn pyd_exc_class(v: P) -> Rc<Class> {
     let a = pyd_api();
     let t = (a.Type)(v);
-    let mro = pyd_helper("mro", &[t]).ok().and_then(|m| to_vec(&m).ok()).unwrap_or_default();
+    let c = pyd_exc_class_of(t);
     (a.DecRef)(t);
+    c
+}
+// pyd_exc_class for Python exception class t (borrowed).
+unsafe fn pyd_exc_class_of(t: P) -> Rc<Class> {
+    let a = pyd_api();
+    let mro = pyd_helper("mro", &[t]).ok().and_then(|m| to_vec(&m).ok()).unwrap_or_default();
     let names: Vec<(String, String)> = mro.iter().filter_map(|x| to_vec(x).ok()).filter(|p| p.len() == 2).map(|p| (to_str(&p[0]).unwrap_or_default(), to_str(&p[1]).unwrap_or_default())).collect();
     let known = |n: &str| BUILTIN_CLASSES.with(|b| b.borrow().get(n).is_some_and(|c| c.bt == BT::Exc || c.is_sub(&exc_class("BaseException"))));
     let base = names.iter().find(|(n, m)| m == "builtins" && known(n)).map(|(n, _)| exc_class(n)).unwrap_or_else(|| exc_class("Exception"));
@@ -911,7 +924,47 @@ unsafe fn pyd_exc_class(v: P) -> Rc<Class> {
     if let Some(c) = PYD_EXC.with(|m| m.borrow().get(&(name.clone(), module.clone())).cloned()) {
         return c;
     }
-    let c = Class::new(sym(&name), sym(&module), vec![base.clone()], base.bt);
+    // its bases as CPython has them (pickle.PicklingError: PickleError, then Exception), so __mro__, __bases__
+    // and except clauses see the same chain; a base that is not an exception class (a mixin) is left out
+    let mut bases = vec![];
+    let bs = (a.GetAttr)(t, c"__bases__".as_ptr());
+    if bs.is_null() {
+        (a.ErrClear)();
+    } else {
+        if let Ok(be) = pyd_builtins_attr("BaseException") {
+            for i in 0..(a.TupleSize)(bs) {
+                let b = (a.TupleGet)(bs, i);
+                match (a.IsSubclass)(b, be) {
+                    1 => bases.push(pyd_exc_class_of(b)),
+                    r => {
+                        if r < 0 {
+                            (a.ErrClear)();
+                        }
+                    }
+                }
+            }
+            (a.DecRef)(be);
+        } else {
+            (a.ErrClear)();
+        }
+        (a.DecRef)(bs);
+    }
+    if bases.is_empty() {
+        bases.push(base.clone());
+    }
+    let bt = bases[0].bt;
+    let c = Class::new(sym(&name), sym(&module), bases, bt);
+    // calling it (raise type(e)('again')) makes the Python exception, as calling the Python class does
+    (a.IncRef)(t);
+    let pt = pyv(t, false);
+    let me = Rc::downgrade(&c);
+    c.set("__new__", func(sym("__new__"), move |mut a: Args| {
+        let k = if a.p.is_empty() { V::None } else { a.p.remove(0) };
+        match (&k, me.upgrade()) {
+            (V::Class(k), Some(c)) if Rc::ptr_eq(k, &c) => call(&pt, a),
+            _ => Err(unsupported_stop("a subclass of a Python library's exception class")),
+        }
+    }));
     let py = |o: &V| -> Option<V> {
         match o {
             V::Obj(o) => o.get("__pyexc__"),
@@ -930,6 +983,8 @@ unsafe fn pyd_exc_class(v: P) -> Rc<Class> {
         }
     }));
     PYD_EXC.with(|m| m.borrow_mut().insert((name, module), c.clone()));
+    (a.IncRef)(t);
+    PYD_EXC_T.with(|m| m.borrow_mut().insert(Rc::as_ptr(&c) as usize, t as usize));
     c
 }
 
@@ -2767,6 +2822,12 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
         }
         // a builtin exception class: CPython's own, so a library's isinstance and except clauses see the very class
         V::Class(c) if c.module == "builtins" && (c.bt == BT::Exc || c.is_sub(&exc_class("BaseException"))) => pyd_builtins_attr(c.name)?,
+        // the program's class for a Python exception class (type(e) of a PicklingError pickle raised): that class
+        V::Class(c) if pyd_exc_pytype(c).is_some() => {
+            let t = pyd_exc_pytype(c).unwrap();
+            (a.IncRef)(t);
+            t
+        }
         // any other builtin class (int, list, map) going into pickle: CPython's own, which pickle saves as
         // builtins.int, as CPython does. It comes back as the program's class (pyd_builtin_exc). Elsewhere it
         // stays a callable of the program: an Unpickler calls the map class it found as the program's map.
@@ -3692,6 +3753,11 @@ impl Ext for PyV {
         self
     }
     fn hash(&self) -> Option<i64> {
+        // a Python exception class the program has a class for hashes as that class (rt_core hash_of), so the
+        // two find one dict slot, as the one object they are in CPython
+        if let Some(c) = PYD_EXC_T.with(|m| m.borrow().iter().find(|(_, t)| **t == self.p as usize).map(|(c, _)| *c)) {
+            return Some((c >> 4) as i64);
+        }
         let _g = PydGil::take();
         let a = pyd_api();
         let h = unsafe { (a.Hash)(self.p) };
@@ -3971,7 +4037,17 @@ impl Ext for PyV {
                     (a.DecRef)(m);
                     pyd_own(r)
                 };
+                // the program's class for a Python exception (type(e)), or a subclass of one: that Python class
+                let exc_t = match sub {
+                    V::Class(k) => k.mro.borrow().iter().find_map(|c| pyd_exc_pytype(c)),
+                    _ => pyv_of(sub).map(|p| p.p),
+                };
                 let sp = match sub {
+                    _ if exc_t.is_some() => {
+                        let t = exc_t.unwrap();
+                        (a.IncRef)(t);
+                        t
+                    }
                     V::Class(k) if k.module == "builtins" => pyd_builtins_attr(k.name)?,
                     V::Class(k) if k.module == "collections" => collections_attr(k.name)?,
                     V::Class(k) => match k.base_bt() {
@@ -3996,6 +4072,48 @@ impl Ext for PyV {
                 if r < 0 { Err(pyd_err()) } else { Ok(r == 1) }
             })()
         })
+    }
+    // issubclass(me, cls): cls a builtin or collections class (its CPython twin), the program's class for a
+    // Python exception (that Python class), or any other class of the program, which no Python class derives from
+    fn subclass_of(&self, cls: &Rc<Class>) -> Option<Result<bool, E>> {
+        let _g = PydGil::take();
+        let a = pyd_api();
+        Some(unsafe {
+            (|| {
+                let kp = if let Some(t) = pyd_exc_pytype(cls) {
+                    (a.IncRef)(t);
+                    t
+                } else if cls.module == "builtins" || cls.module == "collections" {
+                    let m = CString::new(cls.module.to_string()).unwrap();
+                    let mp = pyd_own((a.Import)(m.as_ptr()))?;
+                    let n = CString::new(cls.name.to_string()).unwrap();
+                    let r = (a.GetAttr)(mp, n.as_ptr());
+                    (a.DecRef)(mp);
+                    if r.is_null() {
+                        (a.ErrClear)();
+                        return Err(unsupported_stop(&format!("issubclass() of a Python class and {}", cls.name)));
+                    }
+                    r
+                } else if cls.abc.get() {
+                    return Err(unsupported_stop("issubclass() of a Python class and an ABC of the program"));
+                } else {
+                    // CPython still checks that arg 1 is a class
+                    let ty = pyd_own((a.Import)(c"builtins".as_ptr()))?;
+                    let o = (a.GetAttr)(ty, c"object".as_ptr());
+                    (a.DecRef)(ty);
+                    let o = pyd_own(o)?;
+                    let r = (a.IsSubclass)(self.p, o);
+                    (a.DecRef)(o);
+                    return if r < 0 { Err(pyd_err()) } else { Ok(false) };
+                };
+                let r = (a.IsSubclass)(self.p, kp);
+                (a.DecRef)(kp);
+                if r < 0 { Err(pyd_err()) } else { Ok(r == 1) }
+            })()
+        })
+    }
+    fn is_class(&self, cls: &Class) -> bool {
+        pyd_exc_pytype(cls) == Some(self.p)
     }
     fn native(&self) -> Option<R> {
         let _g = PydGil::take();

@@ -1618,6 +1618,13 @@ pub fn bi_issubclass(a: Args) -> R {
                     return r;
                 }
                 let Some(sub) = &sub else {
+                    // a Python class against a builtin class or the program's class for a Python exception
+                    // (issubclass(pickle.PicklingError, Exception)): CPython answers
+                    if let V::Ext(e) = &a.p[0] {
+                        if let Some(r) = e.subclass_of(k) {
+                            return r;
+                        }
+                    }
                     return type_err("issubclass() arg 1 must be a class".into());
                 };
                 if proto_info(k).is_some() {
@@ -1629,7 +1636,11 @@ pub fn bi_issubclass(a: Args) -> R {
                     Ok(sub.is_sub(k))
                 }
             }
-            V::Ext(e) => match e.subclasscheck(&V::Class(sub.clone().ok_or_else(|| exc("TypeError", "issubclass() arg 1 must be a class".into()))?)) {
+            // a Python class goes to subclasscheck as itself (issubclass(pickle.PicklingError, pickle.PickleError))
+            V::Ext(e) => match e.subclasscheck(&match &sub {
+                Some(c) => V::Class(c.clone()),
+                None => a.p[0].clone(),
+            }) {
                 Some(r) => r,
                 None => type_err("issubclass() arg 2 must be a class, a tuple of classes, or a union".into()),
             },

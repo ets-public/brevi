@@ -1,0 +1,35 @@
+True
+pickle_by_global_name pickle_by_enum_name enum
+RED (<built-in function getattr>, (<enum 'Color'>, 'GREEN'))
+(<built-in function getattr>, (<enum 'Color'>, 'RED'))
+True
+PicklingError Can't pickle <Shape.SQ: 1>: attribute lookup SQ on __main__ failed
+True
+None
+['__module__', '__reduce_ex__'] <unknown> _break_on_call_reduce _make_class_unpicklable.<locals>._break_on_call_reduce
+TE <Color.RED: 1> cannot be pickled
+TE pickle_by_enum_name() missing 1 required positional argument: 'proto'
+<unknown>
+TE <W.A: 1> cannot be pickled
+TE <W.A: 1> cannot be pickled
+PE PicklingError
+(<class '_pickle.PicklingError'>, <class '_pickle.PickleError'>, <class 'Exception'>, <class 'BaseException'>, <class 'object'>)
+(<class '_pickle.PickleError'>,)
+PicklingError PicklingError
+True True
+caught PicklingError again
+(<built-in function getattr>, (<enum 'Color'>, 'RED'))
+TE pickle_by_enum_name() takes 2 positional arguments but 3 were given
+(<class 'json.decoder.JSONDecodeError'>, <class 'ValueError'>, <class 'Exception'>, <class 'BaseException'>, <class 'object'>) Expecting property name enclosed in double quotes 1
+<class '_pickle.PicklingError'>
+True True False True False
+True True
+True True False
+True True True True
+True False False False
+True False True
+False False
+True True
+TE issubclass() arg 1 must be a class
+True
+1 2 True 1
