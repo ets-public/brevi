@@ -1,0 +1,26 @@
+set x AttributeError 'builtin_function_or_method' object has no attribute 'x' and no __dict__ for setting new attributes
+del x AttributeError 'builtin_function_or_method' object has no attribute 'x' and no __dict__ for setting new attributes
+set __doc__ AttributeError attribute '__doc__' of 'builtin_function_or_method' objects is not writable
+del __doc__ AttributeError attribute '__doc__' of 'builtin_function_or_method' objects is not writable
+set __name__ AttributeError attribute '__name__' of 'builtin_function_or_method' objects is not writable
+del __name__ AttributeError attribute '__name__' of 'builtin_function_or_method' objects is not writable
+set y AttributeError 'builtin_function_or_method' object has no attribute 'y' and no __dict__ for setting new attributes
+del y AttributeError 'builtin_function_or_method' object has no attribute 'y' and no __dict__ for setting new attributes
+set __call__ AttributeError 'builtin_function_or_method' object attribute '__call__' is read-only
+del __call__ AttributeError 'builtin_function_or_method' object attribute '__call__' is read-only
+set __dict__ AttributeError 'builtin_function_or_method' object has no attribute '__dict__' and no __dict__ for setting new attributes
+del __dict__ AttributeError 'builtin_function_or_method' object has no attribute '__dict__' and no __dict__ for setting new attributes
+TypeError can't delete __class__ attribute
+elsewhere
+None
+m2
+method random randint Random.randint ['Return random integer in range [a, b], including both end points.']
+method random choice Random.choice ['Choose a random element from a non-empty sequence.']
+method random shuffle Random.shuffle ['Shuffle list x in place, and return None.']
+method random seed Random.seed ['Initialize internal state from a seed.']
+function textwrap dedent dedent ['Remove any common leading whitespace from every line in `text`.']
+function textwrap wrap wrap ['Wrap a single paragraph of text, returning a list of wrapped lines.']
+function posixpath join join ["Join two or more pathname components, inserting '/' as needed."]
+_randbelow_with_getrandbits
+3
+AttributeError 'method' object has no attribute 'tag' and no __dict__ for setting new attributes

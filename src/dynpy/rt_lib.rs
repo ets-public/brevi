@@ -1251,7 +1251,8 @@ pub fn type_of(x: &V) -> Result<Rc<Class>, E> {
         V::Class(k) if k.abc.get() => abc_meta_class(),
         V::Class(_) => tclass(13, "type"),
         // a library function: of CPython's type for it (json.dumps is a function), refused when not known
-        V::Func(f) if modfn_row(f) == Some(-1) => return Err(unsupported_stop(&format!("type() of {}.{} (not a function of its module in CPython 3.13)", f.attrs.borrow().iter().find(|(k, _)| *k == "__bv_mod__").map(|(_, v)| if let V::Str(m) = v { m.text().to_string() } else { String::new() }).unwrap_or_default(), f.name.get()))),
+        V::Func(f) if modfn_row(f) == Some(-1) => return Err(unsupported_stop(&format!("type() of {} (CPython's object for it is not known to Brevi)", modfn_what(f)))),
+        V::Func(_) | V::Bound(_) if copyfn_refused(x).is_some() => return Err(unsupported_stop(&format!("type() of {} (CPython's object for it may differ)", copyfn_refused(x).unwrap()))),
         V::Func(f) if f.kind.get() == 3 && !modfn_is_py(f) => ext_class("builtin_function_or_method"),
         V::Func(f) if f.kind.get() == 3 => tclass(14, "function"),
         V::BMeth(_) => ext_class("builtin_function_or_method"),
@@ -2234,6 +2235,9 @@ pub fn builtin_value(name: &str) -> Option<V> {
         let v = builtin(n, f);
         if let V::Func(x) = &v {
             x.attrs.borrow_mut().push(("__bv_nobind__", V::Bool(true)));
+            // a C function in CPython (len), or Brevi's function for what CPython has as another object (exit is a
+            // _sitebuiltins.Quitter): introspecting that one is refused
+            x.attrs.borrow_mut().push(if CPY_BUILTIN_FNS.contains(&name) { ("__bv_cfn__", V::Bool(true)) } else { ("__bv_pyid__", V::Int(-1)) });
         }
         BV_FNS.with(|c| c.borrow_mut().insert(name.to_string(), v.clone()));
         return Some(v);

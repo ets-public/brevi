@@ -866,6 +866,21 @@ for c in "dflt_dyn:__defaults__ of a function whose defaults this build did not 
   o=$(BREVI_DYN=1 $BREVI run "$t/${c%%:*}.py" 2>&1)
   case "$o" in *"NotImplementedError: brevi: ${c#*:}"*" is not supported in dynamic builds") echo "ok   a def's __defaults__ the build cannot answer stops (${c%%:*})" ;; *) echo "FAIL a def's __defaults__ the build cannot answer (${c%%:*})"; printf '%s\n' "$o"; fail=1 ;; esac
 done
+# What CPython is for a function Brevi cannot match is refused, even inside try/except: a method of Brevi's random
+# that is a C method in CPython (random.random), numpy's functions (CPython's type depends on numpy's version),
+# Brevi's exit (a _sitebuiltins.Quitter in CPython); a program's import of Brevi's own _brevi_* modules does not build.
+printf 'import random\ntry:\n    print(type(random.random))\nexcept Exception as e:\n    print("caught", e)\n' > "$t/id_rand.py"
+printf 'import random\ntry:\n    random.random.x = 1\nexcept Exception as e:\n    print("caught", e)\n' > "$t/id_randset.py"
+printf 'import numpy as np\ntry:\n    print(np.sum.__name__)\nexcept Exception as e:\n    print("caught", e)\n' > "$t/id_np.py"
+printf 'import numpy as np\ntry:\n    np.sum.x = 1\nexcept Exception as e:\n    print("caught", e)\n' > "$t/id_npset.py"
+printf 'try:\n    print(type(exit))\nexcept Exception as e:\n    print("caught", e)\n' > "$t/id_exit.py"
+for c in "id_rand:type() of random.Random.random" "id_randset:assigning attribute x of the bound method random.Random.random" "id_np:__name__ of numpy.sum" "id_npset:assigning attribute x of numpy.sum" "id_exit:type() of builtins.exit"; do
+  o=$(BREVI_DYN=1 $BREVI run "$t/${c%%:*}.py" 2>&1)
+  case "$o" in "NotImplementedError: brevi: ${c#*:}"*" is not supported in dynamic builds") echo "ok   a function whose CPython object Brevi cannot match stops (${c%%:*})" ;; *) echo "FAIL a function whose CPython object Brevi cannot match (${c%%:*})"; printf '%s\n' "$o"; fail=1 ;; esac
+done
+printf 'try:\n    import _brevi_mt\nexcept ImportError as e:\n    print("caught", e)\n' > "$t/id_brevi.py"
+o=$(BREVI_DYN=1 $BREVI run "$t/id_brevi.py" 2>&1)
+case "$o" in *"importing _brevi_mt, a module of Brevi's own (CPython has no such module), is not supported in dynamic builds"*) echo "ok   a program's import of a _brevi_ module does not build" ;; *) echo "FAIL a program's import of a _brevi_ module"; printf '%s\n' "$o"; fail=1 ;; esac
 # pickle.loads gives the program's objects their state after CPython's Unpickler has finished: a BUILD that runs
 # the program's code (its own __setstate__) stops the program, even inside try/except, when CPython would run it
 # before code of the program the load ran (a REDUCE of a program function), on an object the result does not

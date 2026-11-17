@@ -2060,6 +2060,9 @@ pub fn getattr(o: &V, name: &str) -> R {
         if let Some(r) = modfn_attr(f, name) {
             return r;
         }
+        if let Some(r) = copyfn_attr(f, name) {
+            return r;
+        }
         match name {
             // one str object per name, as CPython's def keeps its interned __name__ and __qualname__ (so
             // `f.__name__ is f.__name__`, and update_wrapper's copies are the same object)
@@ -2159,6 +2162,12 @@ pub fn getattr(o: &V, name: &str) -> R {
         }
         }
         V::Bound(b) => {
+            // a method of Brevi's copy of a module whose CPython method is a C one (random.random): of another type
+            if let Some(w) = copyfn_refused(o) {
+                if !name.starts_with("__bv_") && name != "__call__" {
+                    return Err(unsupported_stop(&format!("{name} of the bound method {w} (CPython's object for it may differ)")));
+                }
+            }
             // a method bound from a classmethod holds Brevi's classmethod wrapper: CPython's __func__ is the def
             let func = match &b.1 {
                 V::Func(f) if f.kind.get() == 2 => f.attrs.borrow().iter().find(|(k, _)| *k == "__func__").map_or_else(|| b.1.clone(), |(_, v)| v.clone()),
@@ -2360,9 +2369,17 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
             None => Err(exc("AttributeError", format!("'{}' object has no attribute '{}' and no __dict__ for setting new attributes", tn(o), name))),
         },
         V::Func(f) => {
+            // a C function has no __dict__ (len.x = 1 raises); CPython's object not known: refused
+            if let Some(r) = func_setattr_rule(f, &name, Some(&v)) {
+                return r;
+            }
             // CPython's calls then use the new defaults; Brevi's calls keep the ones the def was made with
             if name == "__defaults__" || name == "__kwdefaults__" {
                 return Err(unsupported_stop(&format!("assigning a function's {name}")));
+            }
+            // a nested def of a copy of a module answers the names assigned to it (copyfn_attr)
+            if (name == "__name__" || name == "__qualname__") && copyfn_row(f) == Some(-2) {
+                f.attrs.borrow_mut().push(("__bv_cpyset__", s(name)));
             }
             // the closure tuple is made from the def's captured cells, as in CPython it is read-only
             if name == "__closure__" {
@@ -2388,6 +2405,7 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
             }
             Ok(())
         }
+        V::Bound(_) if copyfn_refused(o).is_some() => Err(unsupported_stop(&format!("assigning attribute {name} of the bound method {} (CPython's object for it may differ)", copyfn_refused(o).unwrap()))),
         V::Dict(d) if d.borrow().kind == 3 && &*name.to_string() != "__class__" => {
             if &*name.to_string() == "__dict__" {
                 let V::Dict(nd) = &v else {
@@ -2496,6 +2514,8 @@ pub fn delattr(o: &V, name: &str) -> Result<(), E> {
         V::Class(c) if enum_delattr_block(c, name).is_some() => Err(enum_delattr_block(c, name).unwrap()),
         V::Class(c) if c.del_exact(name) => Ok(()),
         V::Class(c) => Err(exc("AttributeError", format!("type object '{}' has no attribute '{}'", c.name, name))),
+        V::Func(f) if func_setattr_rule(f, name, None).is_some() => func_setattr_rule(f, name, None).unwrap(),
+        V::Bound(_) if copyfn_refused(o).is_some() => Err(unsupported_stop(&format!("deleting attribute {name} of the bound method {} (CPython's object for it may differ)", copyfn_refused(o).unwrap()))),
         V::Func(_) if name == "__defaults__" || name == "__kwdefaults__" => Err(unsupported_stop(&format!("deleting a function's {name}"))),
         // a def's user attribute: from its __dict__ once that has been made, else from its attrs (as setattr stores it)
         V::Func(f) if !FUNC_SLOT_ATTRS.contains(&name) => {

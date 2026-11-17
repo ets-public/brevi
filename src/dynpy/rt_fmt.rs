@@ -357,7 +357,10 @@ pub fn repr(v: &V) -> Result<String, E> {
                 return Ok(r.text().to_string());
             }
             if modfn_row(f) == Some(-1) {
-                return Err(unsupported_stop(&format!("repr() of the library function {} (not a function of its module in CPython 3.13)", f.name.get())));
+                return Err(unsupported_stop(&format!("repr() of {} (CPython's object for it is not known to Brevi)", modfn_what(f))));
+            }
+            if let Some(w) = copyfn_refused(v) {
+                return Err(unsupported_stop(&format!("repr() of {w} (CPython's object for it may differ)")));
             }
             if f.kind.get() == 3 && !modfn_is_py(f) {
                 format!("<built-in function {}>", f.name.get())
@@ -448,6 +451,9 @@ pub fn repr(v: &V) -> Result<String, E> {
             }
         }
         V::Bound(b) => {
+            if let Some(w) = copyfn_refused(v) {
+                return Err(unsupported_stop(&format!("repr() of the bound method {w} (CPython's object for it may differ)")));
+            }
             let fname = match &b.1 {
                 V::Func(f) => f.qualname.get(),
                 _ => "?",

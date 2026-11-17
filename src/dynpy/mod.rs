@@ -817,6 +817,14 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
         if imps.iter().any(|m| m == "collections") && !imps.iter().any(|m| m == "collections.abc") && texts.get(&mods[k].name).is_some_and(|t| t.1.contains(".abc")) {
             imps.push("collections.abc".into());
         }
+        // Brevi's own _brevi_* modules serve its copies of libraries; CPython has none, so a program's import of
+        // one (that is not a file of the program) does not build rather than reach Brevi's internals
+        if !own_mods.contains(&mods[k].name) {
+            if let Some(m) = imps.iter().find(|m| m.split('.').next().is_some_and(|t| t.starts_with("_brevi")) && !dir.join(format!("{}.py", m.replace('.', "/"))).is_file() && !dir.join(m.replace('.', "/")).join("__init__.py").is_file()) {
+                let f = texts.get(&mods[k].name).map_or(file.to_string(), |t| t.0.clone());
+                return Err((f, 0, format!("importing {m}, a module of Brevi's own (CPython has no such module), is not supported in dynamic builds")));
+            }
+        }
         // the builtin open(): Brevi's, in _brevi_open (emit.rs loads it when the program uses no CPython library)
         if texts.get(&mods[k].name).is_some_and(|t| uses_open(&t.1)) {
             imps.push("_brevi_open".into());

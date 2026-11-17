@@ -3258,16 +3258,16 @@ const PYFN_ONLY: &[&str] = &["__defaults__", "__kwdefaults__", "__code__", "__gl
 // cannot give CPython's answer; None leaves it to getattr's usual reading.
 pub fn modfn_attr(f: &Func, name: &str) -> Option<R> {
     let i = modfn_row(f)?;
-    let what = || f.attrs.borrow().iter().find(|(k, _)| *k == "__bv_mod__").and_then(|(_, v)| if let V::Str(m) = v { Some(m.text().to_string()) } else { None }).unwrap_or_default() + "." + &f.name.get();
     if i < 0 {
-        return match name {
-            "__module__" | "__name__" | "__qualname__" | "__doc__" | "__self__" | "__text_signature__" | "__type_params__" => Some(Err(unsupported_stop(&format!("{name} of {} (not a function of its module in CPython 3.13)", what())))),
-            n if PYFN_ONLY.contains(&n) => Some(Err(unsupported_stop(&format!("{name} of {} (not a function of its module in CPython 3.13)", what())))),
-            _ => None,
-        };
+        // CPython's object is not known (numpy's functions, Brevi's own modules', a name that is not a function
+        // of its module): every attribute but calling it is refused, an AttributeError's type name included
+        return if name == "__call__" || name.starts_with("__bv_") { None } else { Some(Err(unsupported_stop(&format!("{name} of {} (CPython's object for it is not known to Brevi)", modfn_what(f))))) };
     }
+    let what = || modfn_what(f);
     let (_, _, kind, module, _, _, doc, _) = MODFN_IDS[i as usize];
     match name {
+        // a C function's __module__ can be assigned (and deleted, leaving None)
+        "__module__" if kind == 1 && f.attrs.borrow().iter().any(|(k, _)| *k == "__module__") => None,
         "__module__" => Some(Ok(module.map_or(V::None, s))),
         "__doc__" if f.attrs.borrow().iter().all(|(k, _)| *k != "__doc__") => Some(Ok(doc.map_or(V::None, s))),
         "__type_params__" if kind == 0 => Some(Ok(tup(vec![]))),
@@ -3276,6 +3276,149 @@ pub fn modfn_attr(f: &Func, name: &str) -> Option<R> {
         "__self__" | "__text_signature__" if kind == 1 => Some(Err(unsupported_stop(&format!("{name} of the library function {}", what())))),
         _ => None,
     }
+}
+fn modfn_what(f: &Func) -> String {
+    f.attrs.borrow().iter().find(|(k, _)| *k == "__bv_mod__").and_then(|(_, v)| if let V::Str(m) = v { Some(m.text().to_string()) } else { None }).unwrap_or_else(|| "builtins".into()) + "." + &f.name.get()
+}
+// CPython 3.13's builtins of type builtin_function_or_method (`len`, `print`): an assignment to one raises as there
+pub const CPY_BUILTIN_FNS: &[&str] = &[
+    "__build_class__", "__import__", "abs", "aiter", "all", "anext", "any", "ascii", "bin", "breakpoint", "callable", "chr",
+    "compile", "delattr", "dir", "divmod", "eval", "exec", "format", "getattr", "globals", "hasattr", "hash", "hex", "id",
+    "input", "isinstance", "issubclass", "iter", "len", "locals", "max", "min", "next", "oct", "open", "ord", "pow",
+    "print", "repr", "round", "setattr", "sorted", "sum", "vars",
+];
+// A builtin_function_or_method's slot wrappers (dir(len) less its data attributes): read-only there
+const BFM_SLOTS: &[&str] = &[
+    "__call__", "__delattr__", "__dir__", "__eq__", "__format__", "__ge__", "__getattribute__", "__getstate__", "__gt__",
+    "__hash__", "__init__", "__init_subclass__", "__le__", "__lt__", "__ne__", "__new__", "__reduce__", "__reduce_ex__",
+    "__repr__", "__setattr__", "__sizeof__", "__str__", "__subclasshook__",
+];
+// Whether `f` is a C function of CPython's (a builtin such as len, or a library function the table says is one)
+fn c_function(f: &Func) -> bool {
+    f.kind.get() == 3 && f.attrs.borrow().iter().any(|(k, _)| *k == "__bv_cfn__") || modfn_row(f).is_some_and(|i| i >= 0 && MODFN_IDS[i as usize].2 == 1)
+}
+// What assigning (or deleting) attribute `name` of function `f` does in CPython when Brevi's function cannot simply
+// keep it: CPython's error for a C function (no __dict__), a stop when CPython's object is not known; None lets
+// the assignment go ahead. Some(Ok(())) means it was done here.
+pub fn func_setattr_rule(f: &Rc<Func>, name: &str, v: Option<&V>) -> Option<Result<(), E>> {
+    if c_function(f) {
+        let t = "builtin_function_or_method";
+        return Some(match name {
+            "__module__" => {
+                // writable, and None once deleted
+                let v = v.cloned().unwrap_or(V::None);
+                let mut a = f.attrs.borrow_mut();
+                match a.iter_mut().find(|(k, _)| *k == "__module__") {
+                    Some(e) => e.1 = v,
+                    None => a.push(("__module__", v)),
+                }
+                Ok(())
+            }
+            "__class__" if v.is_none() => type_err("can't delete __class__ attribute".into()),
+            "__class__" => Err(unsupported_stop("assigning a builtin function's __class__")),
+            "__doc__" | "__name__" | "__qualname__" | "__self__" | "__text_signature__" => Err(exc("AttributeError", format!("attribute '{name}' of '{t}' objects is not writable"))),
+            n if BFM_SLOTS.contains(&n) => Err(exc("AttributeError", format!("'{t}' object attribute '{name}' is read-only"))),
+            _ => Err(exc("AttributeError", format!("'{t}' object has no attribute '{name}' and no __dict__ for setting new attributes"))),
+        });
+    }
+    let what = if modfn_row(f) == Some(-1) {
+        modfn_what(f)
+    } else if copyfn_row(f).is_some_and(|i| i == -1) {
+        copyfn_what(f)
+    } else {
+        return None;
+    };
+    Some(Err(unsupported_stop(&format!("{} attribute {name} of {what} (CPython's object for it is not known to Brevi)", if v.is_some() { "assigning" } else { "deleting" }))))
+}
+// The row of COPYFN_IDS for the def `q` (qualified name) of Brevi's own copy of module `m`.
+fn copyfn_id(m: &str, q: &str) -> Option<usize> {
+    COPYFN_IDS.binary_search_by(|r| (r.0, r.1).cmp(&(m, q))).ok()
+}
+// A def of Brevi's own copy of a module (emit.rs, IN_COPY), made as CPython's function at the same qualified name
+// when that is a plain Python function: its __module__, names and __doc__ are CPython's (the copy's differ or are
+// missing). Any other def (a C function or method in CPython, a name CPython lacks, a def of a third-party
+// library's copy or of Brevi's own _brevi_* modules) is marked -1, and what CPython would say about it refused.
+pub fn copy_def(f: V, m: &str, q: &str) -> V {
+    if let V::Func(ff) = &f {
+        let row = copyfn_id(m, q).and_then(|i| COPYFN_IDS[i].2.map(|r| (i, r)));
+        let mut a = ff.attrs.borrow_mut();
+        match row {
+            Some((i, (module, name, qual, doc))) => {
+                a.retain(|(k, _)| *k != "__module__" && *k != "__doc__");
+                a.push(("__module__", module.map_or(V::None, s)));
+                a.push(("__doc__", doc.map_or(V::None, s)));
+                a.push(("__bv_cpyid__", V::Int(i as i64)));
+                ff.name.set(sym(name));
+                ff.qualname.set(sym(qual));
+            }
+            None => a.push(("__bv_cpyid__", V::Int(-1))),
+        }
+    }
+    f
+}
+// A def nested in a function of Brevi's own copy of a module: CPython's code may make another object there, so
+// its type, repr and attributes are refused until the copy (or the program) assigns them (functools.wraps).
+pub fn copy_def_nested(f: V) -> V {
+    if let V::Func(ff) = &f {
+        let mut a = ff.attrs.borrow_mut();
+        a.retain(|(k, _)| *k != "__module__" && *k != "__doc__");
+        a.push(("__bv_cpyid__", V::Int(-2)));
+    }
+    f
+}
+// Some(row) for a def of Brevi's own copy of a module (or a staticmethod or classmethod of one): row >= 0 when it
+// is CPython's plain Python function, -1 when CPython's is something else, -2 for a nested def.
+pub fn copyfn_row(f: &Func) -> Option<i64> {
+    let a = f.attrs.borrow();
+    if let Some((_, V::Int(i))) = a.iter().find(|(k, _)| *k == "__bv_cpyid__") {
+        return Some(*i);
+    }
+    match a.iter().find(|(k, _)| *k == "__func__") {
+        Some((_, V::Func(g))) if f.kind.get() == 1 || f.kind.get() == 2 => copyfn_row(g),
+        _ => None,
+    }
+}
+fn copyfn_what(f: &Func) -> String {
+    let m = f.attrs.borrow().iter().find(|(k, _)| *k == "__module__").and_then(|(_, v)| if let V::Str(m) = v { Some(m.text().to_string()) } else { None }).unwrap_or_default();
+    format!("{m}.{}, a function of Brevi's own copy of {m}", f.qualname.get())
+}
+// Whether CPython's answers about `v` (a def of a copy, or a method bound from one) are refused: its type and repr
+// always, its attributes as copyfn_attr says.
+pub fn copyfn_refused(v: &V) -> Option<String> {
+    let f = match v {
+        V::Func(f) => f.clone(),
+        V::Bound(b) => match &b.1 {
+            V::Func(f) => f.clone(),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    if copyfn_row(&f)? >= 0 {
+        return None;
+    }
+    Some(copyfn_what(&f))
+}
+// An attribute of a def of Brevi's own copy of a module, refused when its answer may not be CPython's; None
+// leaves it to getattr's usual reading. A def CPython has as a plain function answers but for what its own
+// code holds (defaults, code, globals, annotations); any other one answers only what has been assigned to it
+// (a nested def that functools.wraps made into a copy of another function).
+pub fn copyfn_attr(f: &Rc<Func>, name: &str) -> Option<R> {
+    let i = copyfn_row(f)?;
+    if name.starts_with("__bv_") || name == "__call__" {
+        return None;
+    }
+    let set = f.attrs.borrow().iter().any(|(k, _)| *k == name) || func_dict(f).is_some_and(|d| d.borrow().get(&s(name)).is_ok_and(|x| x.is_some()));
+    let named = |n: &str| f.attrs.borrow().iter().any(|(k, v)| *k == "__bv_cpyset__" && matches!(v, V::Str(x) if &*x.text() == n));
+    if i >= 0 {
+        if !set && matches!(name, "__defaults__" | "__kwdefaults__" | "__code__" | "__globals__" | "__closure__" | "__annotations__" | "__builtins__") {
+            return Some(Err(unsupported_stop(&format!("{name} of {} (its code is not CPython's)", copyfn_what(f)))));
+        }
+        return None;
+    }
+    if i == -2 && (set || named(name) || name == "__dict__") {
+        return None;
+    }
+    Some(Err(unsupported_stop(&format!("{name} of {} (CPython's object for it may differ)", copyfn_what(f)))))
 }
 fn modfn(m: &'static str, n: &str) -> V {
     // enum.py 3.13: `_reduce_ex_by_global_name = pickle_by_global_name`, one function under two names
@@ -3307,7 +3450,9 @@ fn modfn(m: &'static str, n: &str) -> V {
             f.name.set(sym(name));
             f.qualname.set(sym(qual));
             f.attrs.borrow_mut().push(("__bv_pyid__", V::Int(i as i64)));
-        } else if MODFN_MODULES.contains(&m) {
+        } else {
+            // a name that is not a function of a module the table covers, or a function of a module it does not
+            // cover (numpy's, Brevi's own _brevi_* modules'): CPython's object is not known, so it is refused
             f.attrs.borrow_mut().push(("__bv_pyid__", V::Int(-1)));
         }
         // enum's pickle helpers are Python functions in CPython: set as a class's __reduce_ex__, they bind
