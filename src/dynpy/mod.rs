@@ -91,6 +91,7 @@ pub const RUNTIME: &str = concat!(
     include_str!("rt_ort.rs"),
     include_str!("rt_col.rs"),
     include_str!("rt_deque.rs"),
+    include_str!("rt_pickobj.rs"),
     include_str!("../alloc_rt.rs"),
 );
 

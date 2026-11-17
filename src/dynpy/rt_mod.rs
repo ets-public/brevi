@@ -2603,6 +2603,9 @@ pub fn shallow_copy(x: &V) -> R {
             if let Some(f) = o.cls.lookup("__copy__") {
                 return call(&f, Args::p(vec![x.clone()]));
             }
+            if let Some(r) = pk_copy(x, None) {
+                return r;
+            }
             iter_sub_copy_check(o)?;
             let hooked = copy_slot_sets(o)?;
             let n = Obj::new(o.cls.clone());
@@ -2737,6 +2740,9 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
         V::Obj(o) => {
             if let Some(f) = o.cls.lookup("__deepcopy__") {
                 return call(&f, Args::p(vec![x.clone(), dict_new()]));
+            }
+            if let Some(r) = pk_copy(x, Some(&mut *memo)) {
+                return r;
             }
             iter_sub_copy_check(o)?;
             if o.cls.base_bt() == BT::Exc {
@@ -3511,6 +3517,8 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         // itertools' iterator types are classes, as in CPython: type(chain()) is chain, isinstance, subclassing
         ("itertools", n) if itertools_kind(n).is_some() => V::Class(it_class(itertools_kind(n).unwrap())?),
         ("dataclasses", "MISSING" | "KW_ONLY" | "InitVar" | "Field" | "FrozenInstanceError") => dataclass_attr(name).unwrap(),
+        ("dataclasses", "_dataclass_getstate") => dc_state_fn("_dataclass_getstate"),
+        ("dataclasses", "_dataclass_setstate") => dc_state_fn("_dataclass_setstate"),
         ("abc", "ABC") => V::Class(abc_class()),
         ("abc", "ABCMeta") => V::Class(abc_meta_class()),
         // CPython's re._compiler imports both from re._constants: the same objects
@@ -5492,7 +5500,20 @@ fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> R {
     if o.weakref_slot && !o.slots {
         return type_err("weakref_slot is True but slots is False".into());
     }
-    let c = if o.slots { dc_add_slots(c, &real, o.weakref_slot)? } else { c.clone() };
+    let c = if o.slots {
+        let n = dc_add_slots(c, &real, o.weakref_slot)?;
+        // _add_slots: a frozen class pickles and copies through _dataclass_getstate/_dataclass_setstate
+        if o.frozen {
+            for (k, f) in [("__getstate__", "_dataclass_getstate"), ("__setstate__", "_dataclass_setstate")] {
+                if c.own(k).is_none() {
+                    n.set(k, dc_state_fn(f));
+                }
+            }
+        }
+        n
+    } else {
+        c.clone()
+    };
     dc_update_abstract(&c)?;
     Ok(V::Class(c))
 }

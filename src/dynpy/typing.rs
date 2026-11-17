@@ -271,25 +271,6 @@ pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
         if let Some(l) = at {
             return Err((m.to_string(), l, "dataclasses: field(metadata=...) with a mapping class of the program needs CPython".into()));
         }
-        // pickling a dataclass instance or class
-        if imports(body, "pickle") {
-            let mut dc = false;
-            let mut pk = None;
-            walk_all(body, &mut |e, line| {
-                dc |= matches!(e, Ex::Name(n) | Ex::Attr(_, n) if n == "dataclass" || n == "make_dataclass");
-                if matches!(e, Ex::Attr(o, a) if matches!(a.as_str(), "dumps" | "dump" | "Pickler") && matches!(o.as_ref(), Ex::Name(n) if n == "pickle")) {
-                    pk.get_or_insert(line);
-                }
-            });
-            walk_from(body, &mut |md, ns| {
-                if md == "pickle" && ns.iter().any(|n| matches!(n.as_str(), "dumps" | "dump" | "Pickler")) {
-                    pk.get_or_insert(0);
-                }
-            });
-            if let (true, Some(l)) = (dc, pk) {
-                return Err((m.to_string(), l, "pickle of the program's dataclasses needs CPython".into()));
-            }
-        }
         // a unittest.mock object stored on a class of the program (`D.__set__ = Mock()`, or `x = Mock()` in its
         // body): the runtime would call it with the program's objects
         if imports(body, "unittest") {
@@ -1411,45 +1392,6 @@ pub fn enum_refusal(body: &[Stmt]) -> Option<(usize, &'static str)> {
 // A class built on a datetime class (`class D(date)`, `class E(datetime, Enum)`), or a functional Enum with
 // `type=datetime`: the dynamic build's datetime classes cannot be subclassed (their instances hold no value), so such a
 // program is refused at build time: (line, the class's dotted name).
-// A class statement subclassing set or frozenset in a program that imports pickle: the line and the base.
-// Pickling such an instance would hand it to CPython's pickle, which cannot take it, so the build refuses.
-pub fn pickled_set_subclass(body: &[Stmt]) -> Option<(usize, String)> {
-    let mut pickle = false;
-    fn scan(body: &[Stmt], pickle: &mut bool) {
-        for s in body {
-            match &s.st {
-                St::ImportFrom(m, _) if m == "pickle" || m.starts_with("pickle.") => *pickle = true,
-                St::Import(v) if v.iter().any(|(m, _)| m == "pickle" || m.starts_with("pickle.")) => *pickle = true,
-                _ => {}
-            }
-            blocks(&s.st, &mut |b| scan(b, pickle));
-        }
-    }
-    scan(body, &mut pickle);
-    if !pickle {
-        return None;
-    }
-    let mut found: Option<(usize, String)> = None;
-    fn classes(body: &[Stmt], f: &mut dyn FnMut(&[Ex], usize)) {
-        for s in body {
-            if let St::Class(c) = &s.st {
-                f(&c.bases, s.line);
-            }
-            blocks(&s.st, &mut |b| classes(b, f));
-        }
-    }
-    classes(body, &mut |bases, line| {
-        if found.is_none() {
-            if let Some(n) = bases.iter().find_map(|b| match b {
-                Ex::Name(n) if n == "set" || n == "frozenset" => Some(n.clone()),
-                _ => None,
-            }) {
-                found = Some((line, n));
-            }
-        }
-    });
-    found
-}
 // hash() of a compiled pattern the build can see (`hash(re.compile(...))`, or of a name some assignment binds to
 // re.compile(...)): the module and line. CPython hashes a re.Pattern over its compiled sre code (_sre.c
 // pattern_hash), which Brevi's regex engine does not build; rt_core's py_hash stops on any other Pattern at run time.

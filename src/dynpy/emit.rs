@@ -337,7 +337,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "_brevi_col" => &["fsum", "cmp", "farith", "iarith", "take", "mask", "group1", "infer"],
         "_brevi_mt" => &["new", "seed", "next", "random", "bits", "below", "shuffle"],
         "collections" => &["defaultdict", "Counter", "OrderedDict", "deque", "namedtuple", "abc", "_count_elements"],
-        "dataclasses" => &["asdict", "astuple", "dataclass", "field", "fields", "replace", "is_dataclass", "make_dataclass", "MISSING", "KW_ONLY", "InitVar", "Field", "FrozenInstanceError"],
+        "dataclasses" => &["asdict", "astuple", "dataclass", "field", "fields", "replace", "is_dataclass", "make_dataclass", "MISSING", "KW_ONLY", "InitVar", "Field", "FrozenInstanceError", "_dataclass_getstate", "_dataclass_setstate"],
         "re" => &["compile", "_compile", "escape", "findall", "finditer", "fullmatch", "match", "purge", "search", "split", "sub", "subn", "IGNORECASE", "I", "LOCALE", "L", "MULTILINE", "M", "DOTALL", "S", "VERBOSE", "X", "ASCII", "A", "NOFLAG", "UNICODE", "U", "DEBUG", "RegexFlag", "error", "PatternError", "Pattern", "Match", "Scanner"],
         "re._constants" => &["MAXGROUPS", "MAXREPEAT"],
         "re._compiler" => &["_generate_overlap_table", "MAXGROUPS", "MAXREPEAT"],
@@ -6100,9 +6100,6 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         }
         if let Some((line, what)) = super::typing::enum_refusal(&m.body) {
             return Err((m.name.clone(), line, format!("{what} is not supported in dynamic builds")));
-        }
-        if let Some((line, n)) = super::typing::pickled_set_subclass(&m.body).filter(|_| bridge.srcs.contains_key(&m.name)) {
-            return Err((m.name.clone(), line, format!("pickling an instance of a subclass of {n} is not supported in dynamic builds")));
         }
     }
     let progs: Vec<(&str, &[Stmt])> = mods.iter().filter(|m| bridge.srcs.contains_key(&m.name)).map(|m| (m.name.as_str(), m.body.as_slice())).collect();
