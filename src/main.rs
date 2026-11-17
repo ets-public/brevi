@@ -302,12 +302,6 @@ fn main() {
         println!("brevi {}", env!("CARGO_PKG_VERSION"));
         return;
     }
-    if matches!(argv.first().map(|a| a.as_str()), Some("build" | "run" | "test" | "check" | "fix" | "verify")) {
-        // Find rustc and its version while the front end works.
-        std::thread::spawn(|| {
-            rustc_version();
-        });
-    }
     if argv.first().map(|a| a.as_str()) == Some("verify") {
         verify::main(&argv[1..]);
     }
@@ -460,6 +454,15 @@ fn main() {
         }
         flags.extend(caps::grant_flags());
         cached(cmd, &file, &argv, &flags);
+    }
+    // Above, check, build and native runs hand the build to a child through the result cache, so a replayed
+    // result starts no rustc. When this process builds instead (the cache is off, this is that child, the
+    // command never uses the cache, or a Python run may fall back to CPython without a build here), find rustc
+    // and its version while the front end works.
+    if matches!(cmd, "build" | "check" | "test" | "fix") || (cmd == "run" && (native || !is_py(&file))) {
+        std::thread::spawn(|| {
+            rustc_version();
+        });
     }
     // Capabilities first: a refusal here is final, before any dynamic, pybridge or python3 path can run.
     let held = matches!(cmd, "build" | "run" | "check" | "emit" | "test" | "fix") && hold_to_caps(&file, sandbox);
