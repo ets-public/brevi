@@ -30,6 +30,18 @@ np_to_cpython() {
   [ "$np_kern" = none ] && return 0
   [ "$np_kern" = hsw ] && grep -q float32 "$1"
 }
+# Brevi names the CPython it handed a file to in its path report ("by"): python3 when that is the CPython 3.13 it
+# found first on PATH, else the interpreter's path. With BREVI_PYTHON set (the next-Python lane gives Brevi uv's 3.13
+# while python3 is the newer Python), that path is BREVI_PYTHON itself; by_python3 reads exactly that value as
+# python3, so the .expected files hold on both lanes and any other interpreter named there still fails.
+by_python3() {
+  if [ -n "${BREVI_PYTHON:-}" ]; then
+    by=$(printf '%s' "$BREVI_PYTHON" | sed 's/\\/\\\\/g; s/"/\\"/g; s/[][\\.*^$|]/\\&/g')
+    sed "s|\"by\":\"$by\"|\"by\":\"python3\"|g"
+  else
+    cat
+  fi
+}
 #== run split
 # tests/run and tests/errors check what the typed build makes of each file, Python-style ones included: a .bv
 # file in plain Python is kept off the .py path here (BREVI_BV_PY=0, BREVI_BV_DYN=0; tests/bv_py checks that path).
@@ -40,6 +52,7 @@ for f in tests/run/*.bv tests/errors/*.bv; do
     tests/run/*) inp="${f%.bv}.in"; [ -f "$inp" ] || inp=/dev/null; out=$($BREVI run "$f" < "$inp" 2>&1; $BREVI test "$f" 2>&1 | grep "test result" | sed "s/; finished in .*//") ;;
     *) out=$(cd tests/errors && ../../$BREVI check "$(basename "$f")" 2>&1) ;;
   esac
+  out=$(printf '%s\n' "$out" | by_python3)
   if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
   if [ "$out" != "$(cat "$exp")" ]; then
     echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
@@ -56,6 +69,7 @@ unset BREVI_BV_PY BREVI_BV_DYN
 for f in tests/errors/*.py; do
   exp="${f%.py}.expected"
   out=$(cd tests/errors && b=$(basename "$f") && ../../$BREVI check "$b" 2>&1; echo "check exit $?"; r=$(../../$BREVI run "$b" 2>&1); c=$?; printf '%s\n' "$r" | grep -v '^  \|^Traceback\|^[A-Za-z]*Error'; echo "run exit $c"; echo "run tracebacks $(printf '%s\n' "$r" | grep -c '^Traceback')")
+  out=$(printf '%s\n' "$out" | by_python3)
   if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
   if [ "$out" != "$(cat "$exp")" ]; then
     echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
@@ -69,6 +83,7 @@ no_rustc_words='s/\(Rust did not compile\) ([^"]*)/\1 (rustc: ...)/'
 for f in tests/fallback/*.py; do
   exp="${f%.py}.expected"
   out=$($BREVI run "$f" 2>&1; $BREVI run "$f" --native >/dev/null 2>&1; echo "native exit $?")
+  out=$(printf '%s\n' "$out" | by_python3)
   if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
   # The note quotes rustc's first error, whose wording (how it prints a type, e.g. `Vec<_>` or `Vec<Vec<i64>>`)
   # is rustc's, not Brevi's: compare everything but that quote, so the test holds on any rustc.
@@ -119,6 +134,7 @@ fi
 for f in tests/path/py_*.py; do
   exp="${f%.py}.expected"
   out=$(cd tests/path && b=$(basename "$f") && ../../$BREVI check "$b" 2>&1; ../../$BREVI run "$b" 2>&1 >/dev/null; ../../$BREVI run "$b" --explain 2>&1 >/dev/null)
+  out=$(printf '%s\n' "$out" | by_python3)
   if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
   if [ "$out" != "$(cat "$exp")" ]; then
     echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
