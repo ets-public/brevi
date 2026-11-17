@@ -269,7 +269,7 @@ for f in tests/bv_libs/*.bv; do
 done
 #== numpy split
 # numpy programs must print what CPython's numpy prints, byte for byte, with Brevi's own numpy: never CPython.
-# The .expected files come from real numpy (numpy 2.5.4, see tools/upstream_pins.json; CI has none): `--update` needs it installed.
+# The .expected files come from real numpy (numpy 2.5.5, see tools/upstream_pins.json; CI has none): `--update` needs it installed.
 # A test that prints full precision can differ between numpy's AVX-512 and AVX2 kernels: it keeps the AVX2 output
 # in NAME.avx2.expected, which a CPU without AVX-512 checks against.
 # Float matrix products, norms and linear algebra are Brevi's only where it models the OpenBLAS kernels numpy
@@ -616,7 +616,7 @@ if [ "$1" != "--update" ]; then
   esac
 fi
 #== onnxruntime
-# onnxruntime programs must print what CPython's onnxruntime 1.31 prints (1.29 prints the same), with Brevi's own onnxruntime over ONNX
+# onnxruntime programs must print what CPython's onnxruntime 1.32 prints (1.29 and 1.31 print the same), with Brevi's own onnxruntime over ONNX
 # Runtime's C API (the onnxruntime package's library, or libonnxruntime): never CPython. Skipped without the
 # onnxruntime package (PR CI has none; releases and the daily run install it and fail without it). tests/onnxruntime/models/make_models.py (needs onnx) wrote the models.
 if has onnxruntime; then
@@ -692,7 +692,7 @@ if [ "$1" != "--update" ]; then
 fi
 kill $srv 2>/dev/null
 #== llm split
-# anthropic and openai programs must print what CPython's anthropic 2.6 and openai 3.49 print (models, streams,
+# anthropic and openai programs must print what CPython's anthropic 2.8 and openai 3.51 print (models, streams,
 # tool calls, errors, retries), with Brevi's own copies over its httpx: never CPython. They talk to the mock API in
 # tests/llm/server.py on 18090. `--update` needs both SDKs (and tools/gen_llm_types.py rewrites the types).
 # tests/check_parallel.py starts this server once for all its jobs (CHECK_SERVERS=1).
