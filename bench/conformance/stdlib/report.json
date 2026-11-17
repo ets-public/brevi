@@ -1,6 +1,6 @@
 {
 "brevi": "brevi 0.28.2",
-"commit": "4ff1f995b0d6",
+"commit": "94a5bbce460c",
 "python": "3.13.13",
 "tag": "v3.13.13",
 "date": "2026-11-17",
@@ -10,48 +10,48 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 1990,
-"refused": 50,
+"matched": 1996,
+"refused": 52,
 "by_design": 6,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 11,
+"not_extractable": 3,
 "unstable": 14,
 "excluded": 160,
 "total": 2231,
 "scored": 2051,
 "matched_through_cpython": 2,
 "matched_silent": 53,
-"coverage": 0.9692832764505119,
+"coverage": 0.9722086786933203,
 "wrong": 0,
-"matched_asserting": 1936,
-"assert_coverage": 0.9439297903461726,
+"matched_asserting": 1942,
+"assert_coverage": 0.946855192588981,
 "matched_typed": 23,
-"typed_share": 0.011569416498993963
+"typed_share": 0.011534603811434303
 },
 "dyn": {
-"matched": 1990,
-"refused": 50,
+"matched": 1996,
+"refused": 52,
 "by_design": 6,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 11,
+"not_extractable": 3,
 "unstable": 14,
 "excluded": 160,
 "total": 2231,
 "scored": 2051,
 "matched_through_cpython": 0,
 "matched_silent": 53,
-"coverage": 0.9702584105314481,
+"coverage": 0.9731838127742565,
 "wrong": 0,
-"matched_asserting": 1937,
-"assert_coverage": 0.9444173573866407,
+"matched_asserting": 1943,
+"assert_coverage": 0.947342759629449,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -491,48 +491,48 @@
 },
 "test_dataclasses": {
 "normal": {
-"matched": 225,
-"refused": 20,
+"matched": 231,
+"refused": 15,
 "by_design": 0,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 2,
+"not_extractable": 1,
 "unstable": 0,
 "excluded": 2,
 "total": 249,
 "scored": 247,
 "matched_through_cpython": 0,
 "matched_silent": 2,
-"coverage": 0.9109311740890689,
+"coverage": 0.9352226720647774,
 "wrong": 0,
-"matched_asserting": 223,
-"assert_coverage": 0.902834008097166,
+"matched_asserting": 229,
+"assert_coverage": 0.9271255060728745,
 "matched_typed": 0,
 "typed_share": 0.0
 },
 "dyn": {
-"matched": 225,
-"refused": 20,
+"matched": 231,
+"refused": 15,
 "by_design": 0,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 2,
+"not_extractable": 1,
 "unstable": 0,
 "excluded": 2,
 "total": 249,
 "scored": 247,
 "matched_through_cpython": 0,
 "matched_silent": 2,
-"coverage": 0.9109311740890689,
+"coverage": 0.9352226720647774,
 "wrong": 0,
-"matched_asserting": 223,
-"assert_coverage": 0.902834008097166,
+"matched_asserting": 229,
+"assert_coverage": 0.9271255060728745,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -540,14 +540,14 @@
 "test_enum": {
 "normal": {
 "matched": 1034,
-"refused": 28,
+"refused": 35,
 "by_design": 1,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 9,
+"not_extractable": 2,
 "unstable": 1,
 "excluded": 4,
 "total": 1077,
@@ -563,14 +563,14 @@
 },
 "dyn": {
 "matched": 1034,
-"refused": 28,
+"refused": 35,
 "by_design": 1,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 9,
+"not_extractable": 2,
 "unstable": 1,
 "excluded": 4,
 "total": 1077,
@@ -588,14 +588,14 @@
 },
 "paths": {
 "normal": {
-"dynamic": 1969,
-"refused": 56,
+"dynamic": 1975,
+"refused": 58,
 "typed": 23,
 "pybridge": 2
 },
 "dyn": {
-"dynamic": 1994,
-"refused": 56
+"dynamic": 2000,
+"refused": 58
 }
 },
 "tests": [
@@ -9221,7 +9221,7 @@
 "id": "test_functools.TestLRUC.test_lru_recursion",
 "file": "test_functools",
 "category": "excluded",
-"detail": "skipped by CPython: get_c_recursion_limit() requires _testcapi, which the reference build lacks"
+"detail": "measures the recursion depth with _testinternalcapi (CPython's C internals)"
 },
 {
 "id": "test_functools.TestLRUC.test_lru_reentrancy_with_len",
@@ -12170,12 +12170,12 @@
 "file": "test_dataclasses",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "pickle of the program's dataclasses needs CPython"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -13962,12 +13962,12 @@
 "file": "test_dataclasses",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found C"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "dataclasses._dataclass_getstate is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -14318,20 +14318,28 @@
 "file": "test_dataclasses",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "pickle of the program's dataclasses needs CPython"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
 {
 "id": "test_dataclasses.TestSlots.test_frozen_slots_pickle_custom_state",
 "file": "test_dataclasses",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: AttributeError: 'TestSlots.FrozenSlotsGetStateClass' object has no attribute 'getstate_called'"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_dataclasses.TestSlots.test_generated_slots",
@@ -14806,12 +14814,12 @@
 "file": "test_dataclasses",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "unknown function type()"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "pickle of the program's dataclasses needs CPython"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -14974,12 +14982,12 @@
 "file": "test_dataclasses",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected function, found AxPy"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "pickle of the program's dataclasses needs CPython"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -30326,14 +30334,30 @@
 {
 "id": "test_enum.TestConvert.test_convert_complex",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: AttributeError: type object 'Uncomparable' has no attribute 'COMPLEX_A'"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found j"
+},
+"dyn": {
+"category": "refused",
+"detail": "globals() is supported in dynamic builds only as globals()[name], globals().get(name) and name in globals()"
+}
+}
 },
 {
 "id": "test_enum.TestConvert.test_convert_int",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: AttributeError: type object 'UnittestConvert' has no attribute 'CONVERT_TEST_NAME_F'"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+},
+"dyn": {
+"category": "refused",
+"detail": "globals() is supported in dynamic builds only as globals()[name], globals().get(name) and name in globals()"
+}
+}
 },
 {
 "id": "test_enum.TestConvert.test_convert_raise",
@@ -30352,32 +30376,72 @@
 {
 "id": "test_enum.TestConvert.test_convert_repr_and_str",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: AttributeError: type object 'UnittestConvert' has no attribute 'CONVERT_STRING_TEST_NAME_A'"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected ')', found j"
+},
+"dyn": {
+"category": "refused",
+"detail": "globals() is supported in dynamic builds only as globals()[name], globals().get(name) and name in globals()"
+}
+}
 },
 {
 "id": "test_enum.TestConvert.test_convert_str",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: AttributeError: type object 'UnittestConvert' has no attribute 'CONVERT_STR_TEST_1'"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "`is` between values other than None, True, False and Ellipsis needs object identity, which the typed build does not have (it would compare the values), and this file cannot be built over dynamic value"
+},
+"dyn": {
+"category": "refused",
+"detail": "globals() is supported in dynamic builds only as globals()[name], globals().get(name) and name in globals()"
+}
+}
 },
 {
 "id": "test_enum.TestConvert.test_convert_uncomparable",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: AttributeError: type object 'Uncomparable' has no attribute 'UNCOMPARABLE_A'"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected ')', found j"
+},
+"dyn": {
+"category": "refused",
+"detail": "globals() is supported in dynamic builds only as globals()[name], globals().get(name) and name in globals()"
+}
+}
 },
 {
 "id": "test_enum.TestConvert.test_convert_value_lookup_priority",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: TypeError: <enum 'UnittestConvert'> has no members; specify `names=()` if you meant to create a new, empty, enum"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected ')', found j"
+},
+"dyn": {
+"category": "refused",
+"detail": "globals() is supported in dynamic builds only as globals()[name], globals().get(name) and name in globals()"
+}
+}
 },
 {
 "id": "test_enum.TestEnumDict.test_enum_dict_in_metaclass",
 "file": "test_enum",
-"category": "not_extractable",
-"detail": "generated script fails under CPython: TypeError: '_e' already defined as TypeError(\"'a' already defined as 1\")"
+"modes": {
+"normal": {
+"category": "refused",
+"detail": "expected end of line, found Meta"
+},
+"dyn": {
+"category": "refused",
+"detail": "enum.EnumDict is not supported in dynamic builds"
+}
+}
 },
 {
 "id": "test_enum.TestEnumDict.test_enum_dict_standalone",
