@@ -520,6 +520,10 @@ class _PkPath:
 def _pk_getattr(o, *a):
     if type(o) is type(len) and o.__name__ == 'brevi_function' and type(o.__self__).__name__ == 'PyCapsule':
         return _d._lookup('builtins', 'getattr')(o, *a)
+    # a class of the program found as its stand-in (a nested class below protocol 4: getattr(Outer, 'Inner')):
+    # the program's attribute, as a stand-in again when it is a class pickle rebuilds by object's rules
+    if isinstance(o, _BrOT):
+        return _pt_mk(_d._stand(_d._lookup('builtins', 'getattr')(o, *a)))
     return _b.getattr(o, *a)
 def _pk_global(f, m, q, setmod=True):
     # interned, as CPython's __module__ and __qualname__ are, so pickle memoizes the module name once

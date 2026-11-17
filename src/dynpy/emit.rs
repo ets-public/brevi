@@ -2726,7 +2726,9 @@ impl Em {
         if parent.qname.rsplit('.').next().is_some_and(|l| l.starts_with("__brevi_gp_")) && self.fstack.len() >= 2 {
             parent = &self.fstack[self.fstack.len() - 2];
         }
-        if parent.is_module {
+        // a def or class whose name the enclosing function declares `global` is a module-level qualname (CPython's
+        // compiler_set_qualname: GLOBAL_EXPLICIT in the parent scope)
+        if parent.is_module || (!parent.is_class && matches!(parent.vars.get(name), Some(Var::Global(_)))) {
             name.to_string()
         } else if parent.is_class {
             format!("{}.{}", parent.qname, name)
