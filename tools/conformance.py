@@ -1817,6 +1817,41 @@ def run_case(case, cfg):
     return {**case, "modes": modes}
 
 
+def timed_case(case, cfg):
+    """(run_case's result, wall seconds it took)."""
+    begun = time.monotonic()
+    got = run_case(case, cfg)
+    return got, time.monotonic() - begun
+
+
+# What each test took in this machine's last runs (seconds by id, every slice in one file): the next run starts the
+# slowest first. Only scheduling reads it, never a result, so a missing or stale file changes nothing but the order.
+CASE_TIMES = "case-times.json"
+
+
+def read_case_times(cache):
+    try:
+        got = json.loads((cache / CASE_TIMES).read_text())
+        return {i: float(s) for i, s in got.items()} if isinstance(got, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def write_case_times(cache, took, now):
+    """Adds this run's times to the last ones (a --filter run keeps the rest)."""
+    try:
+        tmp = cache / f"{CASE_TIMES}.{os.getpid()}"
+        tmp.write_text(json.dumps({i: round(s, 1) for i, s in {**took, **now}.items()}, indent=0, sort_keys=True) + "\n")
+        os.replace(tmp, cache / CASE_TIMES)
+    except OSError:
+        pass
+
+
+def longest_first(cases, took):
+    """The cases slowest first by took; tests it has no time for go first, in their own order (stable sort)."""
+    return sorted(cases, key=lambda c: -took.get(c["id"], float("inf")))
+
+
 CATEGORIES = ["matched", "refused", "by_design", "string_model", "cpython_private", "wrong_output", "wrong_exit", "crash_or_timeout", "not_extractable", "unstable", "excluded"]
 # A native program that dies on one of these may be memory-unsafe, which SECURITY.md asks to report privately:
 # the public report only counts them; the test names go to private_signals.json in the cache.
@@ -2237,14 +2272,20 @@ def main():
     cfg.work.mkdir(parents=True, exist_ok=True)
     runnable = [c for c in cases if "script" in c]
     print(f"{len(cases)} tests, {len(runnable)} extracted, jobs {cfg.jobs}", file=sys.stderr)
+    took = read_case_times(cache)
     with cf.ThreadPoolExecutor(cfg.jobs) as ex:
-        futures = {c["id"]: ex.submit(run_case, c, cfg) for c in runnable}
+        # Longest first, by what each test took last time on this machine, so a slow one does not start last and
+        # hold up the run's tail. Only the order changes: each test still runs alone in its own folder, and the
+        # results are read back by id in the slice's order.
+        futures = {c["id"]: ex.submit(timed_case, c, cfg) for c in longest_first(runnable, took)}
         done = 0
         for f in cf.as_completed(futures.values()):
             done += 1
             if done % 50 == 0:
                 print(f"  {done}/{len(runnable)}", file=sys.stderr)
-    results = [futures[c["id"]].result() if "script" in c else c for c in cases]
+    timed = {i: f.result() for i, f in futures.items()}
+    write_case_times(cache, took, {i: sec for i, (_, sec) in timed.items()})
+    results = [timed[c["id"]][0] if "script" in c else c for c in cases]
     for r in results:
         r.pop("script", None)
         r.pop("files", None)

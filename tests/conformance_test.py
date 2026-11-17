@@ -622,5 +622,30 @@ class WindowsRatchet(unittest.TestCase):
             self.assertIn(f"test_functools.TestLRUC.test_lru_cache_{t}", c.ALWAYS_UNSTABLE)
         self.assertLessEqual(set(c.ADDRESS_ORDER), set(c.ALWAYS_UNSTABLE))
 
+class CaseOrder(unittest.TestCase):
+    """Longest first by the last run's times: only the order the tests start in, never which tests run."""
+
+    def test_slowest_first_and_unknown_tests_before_timed_ones(self):
+        cases = [{"id": i} for i in ("a", "b", "new1", "c", "new2")]
+        got = [x["id"] for x in c.longest_first(cases, {"a": 1.0, "b": 163.0, "c": 5.5})]
+        self.assertEqual(got, ["new1", "new2", "b", "c", "a"])
+
+    def test_no_times_keeps_the_slice_order(self):
+        cases = [{"id": i} for i in "zyx"]
+        self.assertEqual(c.longest_first(cases, {}), cases)
+
+    def test_times_merge_and_survive_a_bad_file(self):
+        with tempfile.TemporaryDirectory() as t:
+            cache = Path(t)
+            self.assertEqual(c.read_case_times(cache), {})
+            c.write_case_times(cache, {"a": 2.0, "b": 9.0}, {"b": 3.04})
+            self.assertEqual(c.read_case_times(cache), {"a": 2.0, "b": 3.0})
+            (cache / c.CASE_TIMES).write_text("[1, 2")
+            self.assertEqual(c.read_case_times(cache), {})
+            (cache / c.CASE_TIMES).write_text("[1, 2]")
+            self.assertEqual(c.read_case_times(cache), {})
+            self.assertEqual(sorted(p.name for p in cache.iterdir()), [c.CASE_TIMES])
+
+
 if __name__ == "__main__":
     unittest.main()
