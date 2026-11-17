@@ -2537,7 +2537,7 @@ pub fn copy_fn(name: &str, a: Args) -> R {
 // __reduce__ (the class called again with the base's arguments, and no __dict__), which Brevi does not model
 fn iter_sub_copy_check(o: &Rc<Obj>) -> Result<(), E> {
     match iter_base_of(&o.cls) {
-        Some(b) if matches!(o.inner(), Some(V::Iter(_))) => Err(unsupported(&format!("copying an instance of {}, a subclass of {}", o.cls.name, iter_tp_name(&b)))),
+        Some(b) if matches!(o.inner(), Some(V::Iter(_))) => Err(unsupported_stop(&format!("copying an instance of {}, a subclass of {}", o.cls.name, iter_tp_name(&b)))),
         _ => Ok(()),
     }
 }

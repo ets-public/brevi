@@ -869,6 +869,21 @@ for c in "ps1:in another order than CPython's" "ps2:where the result does not re
     o=$(BREVI_DYN=1 $BREVI run "$t/${c%%:*}.py" 2>&1)
     case "$o" in *"NotImplementedError: brevi: loading a pickle"*"${c#*:}"*" is not supported in dynamic builds") echo "ok   a pickle BUILD running program code out of CPython's order stops (${c%%:*})" ;; *) echo "FAIL a pickle BUILD running program code out of CPython's order (${c%%:*})"; printf '%s\n' "$o"; fail=1 ;; esac
 done
+# Every other refusal on the pickle and copy paths stops the program too, as no `except` may catch it and go on
+# with an answer CPython never gives: a class's own __reduce__, a bound method, items added to a program instance
+# by a load (the Python glue's refusals). A copy whose __reduce__ gives a tuple of the wrong length is CPython's
+# TypeError, not a refusal.
+pk_try='try:\n    %s\nexcept Exception as e:\n    print("caught", type(e).__name__)\nprint("after")\n'
+printf "import pickle\nclass A:\n    def __reduce__(self):\n        return (A, ())\n$pk_try" 'print(pickle.dumps(A()))' > "$t/pk1.py"
+printf "import pickle\nclass T:\n    def k(self):\n        return 1\n$pk_try" 'print(pickle.dumps(T().k))' > "$t/pk2.py"
+printf "import pickle\nclass A:\n    pass\n$pk_try" 'print(pickle.loads(b"\x80\x02c__main__\nA\n)\x81(K\x01e."))' > "$t/pk3.py"
+for c in "pk1:pickling an instance of a class that defines __reduce__" "pk2:pickling a bound method" "pk3:loading a pickle that adds items to an instance of a class of the program"; do
+    o=$(BREVI_DYN=1 $BREVI run "$t/${c%%:*}.py" 2>&1)
+    case "$o" in "NotImplementedError: brevi: ${c#*:} is not supported in dynamic builds") echo "ok   a pickle refusal inside try/except stops (${c%%:*})" ;; *) echo "FAIL a pickle refusal inside try/except (${c%%:*})"; printf '%s\n' "$o"; fail=1 ;; esac
+done
+printf 'import copy\nclass A:\n    def __reduce__(self):\n        return (A, (), None, None, None, None)\nfor f in (copy.copy, copy.deepcopy):\n    try:\n        f(A())\n    except TypeError as e:\n        print(e)\nclass B:\n    def __reduce__(self):\n        return (B,)\ntry:\n    copy.copy(B())\nexcept TypeError as e:\n    print(e)\n' > "$t/pk4.py"
+o=$(BREVI_DYN=1 $BREVI run "$t/pk4.py" 2>&1)
+if [ "$o" = "$(python3 "$t/pk4.py" 2>&1)" ]; then echo "ok   copy of a __reduce__ tuple of the wrong length is CPython's TypeError"; else echo "FAIL copy of a __reduce__ tuple of the wrong length"; printf '%s\n' "$o"; fail=1; fi
 # A module attribute or repr Brevi cannot give as CPython does is refused, never a different answer: the import
 # machinery's __spec__ when the program is built, or read through a variable when the program runs; the repr of
 # sys.stdout or a decimal context likewise. A library module's repr is the build machine's CPython's.

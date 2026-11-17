@@ -1480,7 +1480,7 @@ fn iter_base_attrs(k: &Rc<Class>) {
         a.want("__reduce__", 1, 1)?;
         let it = iter_self(&a.p[0], &b(), "__reduce__")?;
         if let V::Obj(o) = &a.p[0] {
-            return Err(unsupported(&format!("pickling or copying an instance of {}, a subclass of {}", o.cls.name, iter_tp_name(&b()))));
+            return Err(unsupported_stop(&format!("pickling or copying an instance of {}, a subclass of {}", o.cls.name, iter_tp_name(&b()))));
         }
         iter_reduce_v(&it)
     }));
@@ -1489,7 +1489,7 @@ fn iter_base_attrs(k: &Rc<Class>) {
         a.want("__setstate__", 2, 2)?;
         let it = iter_self(&a.p[0], &b(), "__setstate__")?;
         if let V::Obj(o) = &a.p[0] {
-            return Err(unsupported(&format!("__setstate__ of an instance of {}, a subclass of {}", o.cls.name, iter_tp_name(&b()))));
+            return Err(unsupported_stop(&format!("__setstate__ of an instance of {}, a subclass of {}", o.cls.name, iter_tp_name(&b()))));
         }
         iter_setstate_v(&it, &a.p[1])
     }));
