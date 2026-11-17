@@ -193,6 +193,53 @@ pub fn universal_newlines(s: &str) -> std::borrow::Cow<'_, str> {
 const RUN_VALUE_FLAGS: [&str; 9] = ["--allow", "--allow-py", "--allow-net", "--allow-read", "--allow-write", "--limit", "-o", "--timeout", "--input"];
 const RUN_FLAGS: [&str; 13] = ["--release", "--fast", "--native", "--sandbox", "--traceback", "--window", "--explain", "--standalone", "--no-cache", "--verify", "--strict", "--once", "--mcp"];
 
+// Options of build, check, emit, test and fix (before `--`); run takes RUN_FLAGS and RUN_VALUE_FLAGS.
+const BUILD_VALUE_FLAGS: [&str; 7] = ["--allow", "--allow-py", "--allow-net", "--allow-read", "--allow-write", "--limit", "-o"];
+const BUILD_FLAGS: [&str; 10] = ["--release", "--fast", "--native", "--sandbox", "--traceback", "--window", "--explain", "--standalone", "--no-cache", "--strict"];
+// run options that only `brevi run --verify` reads.
+const VERIFY_ONLY: [&str; 4] = ["--once", "--mcp", "--timeout", "--input"];
+
+/// build, run, check, emit, test and fix: every dashed word before `--` must be one of the command's options. An
+/// unknown one is refused, never dropped: a misspelt `--sandbox` would otherwise build or run the program unheld.
+fn refuse_unknown_flags(argv: &[String]) -> Result<(), String> {
+    let cmd = argv[0].as_str();
+    let run = cmd == "run";
+    let (flags, values): (&[&str], &[&str]) = if run { (&RUN_FLAGS, &RUN_VALUE_FLAGS) } else { (&BUILD_FLAGS, &BUILD_VALUE_FLAGS) };
+    let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
+    let verify = run && argv[..dash].iter().any(|a| a == "--verify");
+    let mut i = 1;
+    while i < dash {
+        let a = argv[i].as_str();
+        if !a.starts_with('-') || a == "-" {
+            i += 1;
+            continue;
+        }
+        // `--allow=read` and the like; `-o` takes its value only as the next word.
+        let name = a.split_once('=').map_or(a, |(n, _)| n);
+        let known = if name.len() < a.len() { name != "-o" && values.contains(&name) } else { flags.contains(&a) || values.contains(&a) };
+        if !known {
+            let hint = emit::closest(name, flags.iter().chain(values).copied()).map_or(String::new(), |c| format!(" (did you mean {c}?)"));
+            let pass = match cmd {
+                "run" => format!("; to pass it to the program, put it after -- (brevi run FILE -- {a})"),
+                "test" => format!("; to pass it to the tests, put it after -- (brevi test FILE -- {a})"),
+                _ => String::new(),
+            };
+            return Err(format!("brevi {cmd} has no option {a}{hint}{pass}"));
+        }
+        if run && !verify && VERIFY_ONLY.contains(&name) {
+            return Err(format!("{name} is an option of brevi run --verify and brevi verify: add --verify, or leave it out"));
+        }
+        i += if name.len() == a.len() && values.contains(&a) { 2 } else { 1 };
+    }
+    Ok(())
+}
+
+/// Removes `flag` from before `--` (a word after `--` is the program's): whether it was there.
+fn take_flag(argv: &mut Vec<String>, flag: &str) -> bool {
+    let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
+    argv[..dash].iter().position(|a| a == flag).map(|i| argv.remove(i)).is_some()
+}
+
 /// `brevi run FILE a b`, as `python3 FILE a b`: the first argument after FILE that is not a Brevi option starts the
 /// program's arguments, so a `--` is put before it. A dashed word after FILE that is no Brevi option is refused
 /// rather than guessed at (it may be a misspelt `--sandbox`); `--` passes it to the program.
@@ -267,6 +314,12 @@ fn main() {
     }
     if argv.first().map(|a| a.as_str()) == Some("run") {
         if let Err(m) = split_run_args(&mut argv) {
+            eprintln!("{m}");
+            exit(2);
+        }
+    }
+    if matches!(argv.first().map(|a| a.as_str()), Some("build" | "run" | "check" | "emit" | "test" | "fix")) {
+        if let Err(m) = refuse_unknown_flags(&argv) {
             eprintln!("{m}");
             exit(2);
         }
@@ -354,16 +407,24 @@ fn main() {
         }
         return;
     }
-    if let Some(i) = argv.iter().position(|a| a == "--explain") {
-        argv.remove(i);
+    if argv.first().is_some_and(|c| c == "patch") {
+        eprintln!("usage: brevi patch FILE PATCH");
+        exit(2);
+    }
+    // Only build, run, test, check, fix and emit are left: any other word is no command (never a build).
+    if let Some(c) = argv.first().filter(|c| !matches!(c.as_str(), "build" | "run" | "test" | "check" | "fix" | "emit")) {
+        eprintln!("brevi has no command {c}\n{USAGE}");
+        exit(2);
+    }
+    if take_flag(&mut argv, "--explain") {
         EXPLAIN.store(true, std::sync::atomic::Ordering::Relaxed);
     }
-    let fast = argv.iter().position(|a| a == "--fast").map(|i| argv.remove(i)).is_some();
+    let fast = take_flag(&mut argv, "--fast");
     let dash0 = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
     if argv[..dash0].iter().position(|a| a == "--no-cache").map(|i| argv.remove(i)).is_some() {
         runcache::turn_off();
     }
-    let mut sandbox = argv.iter().position(|a| a == "--sandbox").map(|i| argv.remove(i)).is_some();
+    let mut sandbox = take_flag(&mut argv, "--sandbox");
     // --allow read,write,net,native, --allow-net HOSTS and --allow-py MODULES: what the caller grants a sandboxed program (caps.rs).
     // Either implies --sandbox.
     let mut grant: Vec<String> = vec![];
@@ -422,8 +483,8 @@ fn main() {
     if argv[..traceback].iter().position(|a| a == "--traceback").map(|i| argv.remove(i)).is_some() || std::env::var("BREVI_TRACEBACK").is_ok_and(|v| !v.is_empty() && v != "0") {
         TRACEBACK.store(true, std::sync::atomic::Ordering::Relaxed);
     }
-    let standalone = argv.iter().position(|a| a == "--standalone").map(|i| argv.remove(i)).is_some();
-    if argv.iter().position(|a| a == "--window").map(|i| argv.remove(i)).is_some() {
+    let standalone = take_flag(&mut argv, "--standalone");
+    if take_flag(&mut argv, "--window") {
         gui::WINDOW.store(true, std::sync::atomic::Ordering::Relaxed);
     }
     let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
@@ -502,8 +563,9 @@ fn main() {
             guard_refusal(cmd, &file, &argv, line, &why, &gfile);
         }
     }
-    let release = argv.iter().any(|a| a == "--release");
-    let out_path = argv.iter().position(|a| a == "-o").and_then(|i| argv.get(i + 1)).map(PathBuf::from);
+    let opts = &argv[..argv.iter().position(|a| a == "--").unwrap_or(argv.len())];
+    let release = opts.iter().any(|a| a == "--release");
+    let out_path = opts.iter().position(|a| a == "-o").and_then(|i| opts.get(i + 1)).map(PathBuf::from);
     let prog_args: Vec<String> = argv.iter().position(|a| a == "--").map(|i| argv[i + 1..].to_vec()).unwrap_or_default();
 
     let src = match crate::read_src(&file) {
