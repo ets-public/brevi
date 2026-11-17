@@ -443,6 +443,12 @@ fn enum_more() -> [Rc<Class>; 4] {
         }
         let k = [ie, se, fl, ifl];
         *e.borrow_mut() = Some(k.clone());
+        // `class Flag(Enum, boundary=STRICT)`, `class IntFlag(int, ReprEnum, Flag, boundary=KEEP)`: FlagBoundary is
+        // a StrEnum, made once the four classes are
+        if let (Ok(strict), Ok(keep)) = (flag_boundary("STRICT"), flag_boundary("KEEP")) {
+            k[2].set("_boundary_", strict);
+            k[3].set("_boundary_", keep);
+        }
         k
     })
 }
@@ -790,6 +796,10 @@ fn find_data_type(c: &Rc<Class>) -> Result<Rc<Class>, E> {
 }
 // Called by make_class for a subclass of Enum.
 pub fn enum_setup(c: &Rc<Class>) -> Result<(), E> {
+    enum_setup_b(c, V::None)
+}
+// As enum_setup, with the class statement's boundary= (V::None without one), as EnumType.__new__ takes it
+pub fn enum_setup_b(c: &Rc<Class>, boundary: V) -> Result<(), E> {
     let au = enum_classes().1;
     // EnumType.__prepare__'s _check_for_existing_members_, then _get_mixins_: the last base must be an enum
     for chain in c.bases.iter() {
@@ -1059,7 +1069,7 @@ pub fn enum_setup(c: &Rc<Class>) -> Result<(), E> {
         c.set("__new_member__", f);
         c.del_exact("__new__");
     }
-    enum_cpy_attrs(c, &new_fn, &mt, &members, &seen)?;
+    enum_cpy_attrs(c, &new_fn, &mt, &members, &seen, boundary)?;
     // EnumType.__new__: a __repr__, __str__, __format__ or __reduce_ex__ the class would find on its data type
     // (or object) becomes its first enum base's. Brevi's runtime gives builtin data types theirs already; a
     // program's own data type (a namedtuple, a class with __new__) has its methods in its dict, so they are
@@ -1084,7 +1094,7 @@ pub fn enum_setup(c: &Rc<Class>) -> Result<(), E> {
 // The rest of what EnumType.__new__ keeps on the class (enum.py 3.13): _generate_next_value_ as a staticmethod,
 // the _new_member_ the members were made with, _use_args_, _member_names_, the value maps and lists,
 // _value_repr_, and a Flag's _boundary_ and _inverted_.
-fn enum_cpy_attrs(c: &Rc<Class>, new_fn: &Option<V>, mt: &Rc<Class>, members: &[V], seen: &[(Sym, V, V)]) -> Result<(), E> {
+fn enum_cpy_attrs(c: &Rc<Class>, new_fn: &Option<V>, mt: &Rc<Class>, members: &[V], seen: &[(Sym, V, V)], boundary: V) -> Result<(), E> {
     let gnv = match c.own("_generate_next_value_") {
         Some(f @ V::Obj(_)) if matches!(&f, V::Obj(o) if o.cls.name == "staticmethod") => f,
         Some(f) => bi_staticmethod(Args::p(vec![f]))?,
@@ -1198,7 +1208,17 @@ fn enum_cpy_attrs(c: &Rc<Class>, new_fn: &Option<V>, mt: &Rc<Class>, members: &[
 
     c.set("_value_repr_", data_repr(&c.bases)?);
     if is_flag(c) {
-        c.set("_boundary_", flag_boundary(if c.lookup("__bv_keep__").is_some() { "KEEP" } else { "STRICT" })?);
+        // `boundary or getattr(first_enum, '_boundary_', None)`: the last base's (Flag's STRICT, IntFlag's KEEP)
+        let b = if truth(&boundary)? {
+            boundary
+        } else {
+            match c.bases.last() {
+                Some(last) if !(last.module == "enum" && matches!(last.name, "Flag" | "IntFlag")) && last.lookup("_boundary_").is_some() => last.lookup("_boundary_").unwrap(),
+                Some(last) => flag_boundary(if last.lookup("__bv_keep__").is_some() { "KEEP" } else { "STRICT" })?,
+                None => flag_boundary("STRICT")?,
+            }
+        };
+        c.set("_boundary_", b);
         c.set("_inverted_", V::None);
     }
     Ok(())
@@ -1278,12 +1298,28 @@ thread_local! {
 fn strenum_new() -> V {
     STRENUM_NEW.with(|x| x.borrow_mut().get_or_insert_with(|| builtin("__new__", |_a: Args| Err(unsupported("calling StrEnum.__new__ directly")))).clone())
 }
+// A Flag class's _boundary_, as the name of the FlagBoundary member it is ("" for any other value)
+fn boundary_of(c: &Rc<Class>) -> &'static str {
+    let Some(b) = c.lookup("_boundary_") else {
+        return if c.lookup("__bv_keep__").is_some() { "KEEP" } else { "STRICT" };
+    };
+    for n in ["STRICT", "CONFORM", "EJECT", "KEEP"] {
+        if flag_boundary(n).is_ok_and(|m| is(&m, &b)) {
+            return n;
+        }
+    }
+    ""
+}
 // enum.FlagBoundary's member `n` (a Flag's _boundary_)
 fn flag_boundary(n: &str) -> R {
     let c = match FLAG_BOUNDARY.with(|x| x.borrow().clone()) {
         Some(c) => c,
         None => {
             let se = enum_more()[1].clone();
+            // making the enum classes made FlagBoundary already (Flag's and IntFlag's _boundary_)
+            if let Some(c) = FLAG_BOUNDARY.with(|x| x.borrow().clone()) {
+                return getattr(&V::Class(c), n);
+            }
             let attrs = vec![("__module__", s("enum")), ("__bv_enum_made__", V::Bool(true)), ("STRICT", s("strict")), ("CONFORM", s("conform")), ("EJECT", s("eject")), ("KEEP", s("keep"))];
             let V::Class(c) = make_class_f("FlagBoundary", "FlagBoundary", "enum", vec![V::Class(se)], attrs, vec![])? else { unreachable!() };
             FLAG_BOUNDARY.with(|x| *x.borrow_mut() = Some(c.clone()));
@@ -1385,17 +1421,30 @@ fn flag_member(c: &Rc<Class>, value: i64) -> R {
         return Ok(m);
     }
     let (fm, sm, all) = (cls_int(c, "_flag_mask_"), cls_int(c, "_singles_mask_"), cls_int(c, "_all_bits_"));
-    let keep = c.lookup("__bv_keep__").is_some();
+    let bnd = boundary_of(c);
+    let keep = bnd == "KEEP";
     let mut value = value;
     let mut neg = None;
     if !(!all <= value && value <= all) || value & (all ^ fm) != 0 {
-        if !keep {
+        if bnd == "STRICT" {
             let bl = |x: i64| 64 - (if x >= 0 { x as u64 } else { !(x as u64) }).leading_zeros() as usize;
             let mb = bl(value).max(bl(fm));
             return val_err(format!("<flag '{}'> invalid value {}\n    given {}\n  allowed {}", c.name, value, flag_bin(value, mb), flag_bin(fm, mb)));
         }
-        if value < 0 {
-            let bl = 64 - (!(value as u64)).leading_zeros();
+        if bnd == "CONFORM" {
+            value &= fm;
+        }
+        // EJECT: the plain int (Enum.__new__ returns it as it is)
+        if bnd == "EJECT" {
+            return Ok(V::Int(value));
+        }
+        if bnd.is_empty() {
+            let b = c.lookup("_boundary_").unwrap_or(V::None);
+            return val_err(format!("<flag '{}'> unknown flag boundary {}", c.name, repr(&b)?));
+        }
+        if keep && value < 0 {
+            // CPython's value.bit_length() (of |value|)
+            let bl = 64 - value.unsigned_abs().leading_zeros();
             if bl >= 62 {
                 return Err(unsupported("IntFlag values past 2**62"));
             }
@@ -1406,12 +1455,13 @@ fn flag_member(c: &Rc<Class>, value: i64) -> R {
         neg = Some(value);
         value = all + 1 + value;
     }
-    // a member (or pseudo-member) already made for the value is the one returned (enum.py's setdefault)
-    if neg.is_some() {
-        if let Some(m) = Dict::get_cell(&v2m, &V::Int(value))? {
-            Dict::set_cell(&v2m, V::Int(neg.unwrap()), m.clone())?;
-            return Ok(m);
+    // a member (or pseudo-member) already made for the value is the one returned (enum.py's setdefault): the
+    // value may have changed above (a negative one, CONFORM's mask, KEEP's wrap)
+    if let Some(m) = Dict::get_cell(&v2m, &V::Int(value))? {
+        if let Some(n) = neg {
+            Dict::set_cell(&v2m, V::Int(n), m.clone())?;
         }
+        return Ok(m);
     }
     let unknown0 = value & !fm;
     let aliases = value & !sm;
@@ -1450,7 +1500,7 @@ fn flag_member(c: &Rc<Class>, value: i64) -> R {
         }
         if combined == 0 {
             name = V::None;
-        } else if unknown != 0 && !keep {
+        } else if unknown != 0 && bnd == "STRICT" {
             return val_err(format!("<flag '{}'>: no members with value {unknown}", c.name));
         } else if unknown != 0 {
             name = st(format!("{}|{unknown}", names.join("|")));
@@ -1498,6 +1548,32 @@ fn flag_methods(fl: &Rc<Class>) {
     for (name, op) in [("__or__", '|'), ("__ror__", '|'), ("__and__", '&'), ("__rand__", '&'), ("__xor__", '^'), ("__rxor__", '^')] {
         fl.set(name, builtin(name, move |a: Args| {
             let c = me_cls(&a)?;
+            // a member of another Flag class is `other_value` as it is, so `value | other` is that class's own
+            // operator and the member's name and value then hold that class's members (enum.py's Flag.__or__)
+            if let Some(V::Obj(x)) = a.p.get(1) {
+                if is_flag(&x.cls) && !x.cls.is_sub(&c) && !matches!(c.base_bt(), BT::Object | BT::Other) {
+                    let d = x.cls.clone();
+                    let (v, o) = (flag_int(&a.p[0]), flag_int(&a.p[1]));
+                    let r = match op {
+                        '|' => v | o,
+                        '&' => v & o,
+                        _ => v ^ o,
+                    };
+                    // `value | other` is the other class's own operator: its member (or its error) first
+                    match flag_member(&d, r)? {
+                        V::Obj(_) => {}
+                        V::Int(i) => return flag_member(&c, i),
+                        m => return Ok(m),
+                    }
+                    // then this class's member for it: kept as Brevi keeps it only when its every bit is one of this
+                    // class's single-bit members (no `|<D.X: n>` name part, and a member already made is the one)
+                    let sm = cls_int(&c, "_singles_mask_");
+                    if r < 0 || r & !sm != 0 {
+                        return Err(unsupported("an operator between members of two different IntFlag classes"));
+                    }
+                    return flag_member(&c, r);
+                }
+            }
             let Some(o) = a.p.get(1).and_then(|x| other_val(&c, x)) else { return Ok(V::NotImpl) };
             flag_none_check(&a.p[0], Some(op))?;
             flag_none_check(&a.p[1], Some(op))?;
@@ -1516,7 +1592,16 @@ fn flag_methods(fl: &Rc<Class>) {
         flag_none_check(&a.p[0], None)?;
         int_flag_value(&a.p[0])?;
         let v = flag_int(&a.p[0]);
-        if c.lookup("__bv_keep__").is_some() {
+        // `self._boundary_ in (EJECT, KEEP)`: by == for a boundary that is not a FlagBoundary member
+        let ek = match boundary_of(&c) {
+            "EJECT" | "KEEP" => true,
+            "" => {
+                let b = c.lookup("_boundary_").unwrap_or(V::None);
+                eq(&b, &flag_boundary("EJECT")?)? || eq(&b, &flag_boundary("KEEP")?)?
+            }
+            _ => false,
+        };
+        if ek {
             flag_member(&c, !v)
         } else {
             flag_member(&c, cls_int(&c, "_singles_mask_") & !v)
@@ -1908,7 +1993,7 @@ pub fn enum_contains(c: &Rc<Class>, x: &V) -> Result<bool, E> {
         }
     }
     if is_flag(c) {
-        let keep = c.lookup("__bv_keep__").is_some();
+        let keep = boundary_of(c) == "KEEP";
         let v = match x {
             V::Int(i) => Some(*i),
             V::Bool(b) => Some(*b as i64),
@@ -1925,7 +2010,8 @@ pub fn enum_contains(c: &Rc<Class>, x: &V) -> Result<bool, E> {
             // _missing_ raises ValueError for values it cannot make a member of; EnumType.__contains__ then
             // falls through to the member-value check below (and returns False there).
             return match flag_member(c, v) {
-                Ok(_) => Ok(true),
+                // `isinstance(result, cls)`: an EJECT Flag's _missing_ gives a plain int for a value out of range
+                Ok(m) => Ok(matches!(&m, V::Obj(o) if o.cls.is_sub(c))),
                 Err(e) if is_val_err(&e) => Ok(false),
                 Err(e) => Err(e),
             };

@@ -375,14 +375,20 @@ pub fn make_class(name: Sym, module: Sym, bases: Vec<V>, attrs: Vec<(Sym, V)>) -
 // CPython's dotted __qualname__ (`outer.<locals>.Name` inside a function, `Outer.Inner` inside a class).
 pub fn make_class_f(name: Sym, qualname: Sym, module: Sym, bases: Vec<V>, attrs: Vec<(Sym, V)>, fields: Vec<Sym>) -> R {
     if let Some(m) = bases_meta(&bases)? {
-        return meta_from_base(&m, name, qualname, module, bases, attrs, fields, None);
+        return meta_from_base(&m, name, qualname, module, bases, attrs, fields, None, vec![]);
     }
-    make_class_impl(name, qualname, module, bases, attrs, fields, None, None)
+    make_class_impl(name, qualname, module, bases, attrs, fields, None, None, vec![])
 }
 // A class statement's class: as make_class_f, with what CPython's compiler adds to the namespace
 // (__firstlineno__, __static_attributes__)
 // (and, when not "", why its dict cannot be CPython's: the compiler knows when it is not)
-pub fn make_class_s(name: Sym, mut qualname: Sym, module: Sym, bases: Vec<V>, mut attrs: Vec<(Sym, V)>, fields: Vec<Sym>, first: i64, sattrs: &[&'static str], why: &'static str) -> R {
+pub fn make_class_s(name: Sym, qualname: Sym, module: Sym, bases: Vec<V>, attrs: Vec<(Sym, V)>, fields: Vec<Sym>, first: i64, sattrs: &[&'static str], why: &'static str) -> R {
+    make_class_sk(name, qualname, module, bases, attrs, fields, first, sattrs, why, vec![])
+}
+// As make_class_s, with the class statement's keywords (`class C(B, x=1)`): what is not the metaclass's own
+// goes to __init_subclass__, as type.__new__ passes it (make_class_impl)
+#[allow(clippy::too_many_arguments)]
+pub fn make_class_sk(name: Sym, mut qualname: Sym, module: Sym, bases: Vec<V>, mut attrs: Vec<(Sym, V)>, fields: Vec<Sym>, first: i64, sattrs: &[&'static str], why: &'static str, kw: Vec<(Sym, V)>) -> R {
     // `__qualname__ = '...'` in the body is the class's __qualname__ (type.__new__ takes it out of the dict)
     if let Some(i) = attrs.iter().position(|(k, _)| *k == "__qualname__") {
         match &attrs[i].1 {
@@ -392,8 +398,8 @@ pub fn make_class_s(name: Sym, mut qualname: Sym, module: Sym, bases: Vec<V>, mu
         attrs.remove(i);
     }
     let c = match bases_meta(&bases)? {
-        Some(m) => meta_from_base(&m, name, qualname, module, bases, attrs, fields, Some((first, sattrs)))?,
-        None => make_class_impl(name, qualname, module, bases, attrs, fields, Some((first, sattrs.to_vec())), None)?,
+        Some(m) => meta_from_base(&m, name, qualname, module, bases, attrs, fields, Some((first, sattrs)), kw)?,
+        None => make_class_impl(name, qualname, module, bases, attrs, fields, Some((first, sattrs.to_vec())), None, kw)?,
     };
     if !why.is_empty() {
         if let V::Class(k) = &c {
@@ -405,7 +411,7 @@ pub fn make_class_s(name: Sym, mut qualname: Sym, module: Sym, bases: Vec<V>, mu
 // A base made by a program's metaclass: that metaclass makes the class, as __build_class__ has it do, from the
 // namespace the class body made (with a class statement's __firstlineno__ and __static_attributes__)
 #[allow(clippy::too_many_arguments)]
-fn meta_from_base(m: &Rc<Class>, name: Sym, qualname: Sym, module: Sym, bases: Vec<V>, attrs: Vec<(Sym, V)>, fields: Vec<Sym>, stmt: Option<(i64, &[&'static str])>) -> R {
+fn meta_from_base(m: &Rc<Class>, name: Sym, qualname: Sym, module: Sym, bases: Vec<V>, attrs: Vec<(Sym, V)>, fields: Vec<Sym>, stmt: Option<(i64, &[&'static str])>, kw: Vec<(Sym, V)>) -> R {
     if meta_lookup(m, "__prepare__").is_some() {
         return Err(unsupported("a metaclass's __prepare__ for a class that inherits the metaclass from a base"));
     }
@@ -422,10 +428,10 @@ fn meta_from_base(m: &Rc<Class>, name: Sym, qualname: Sym, module: Sym, bases: V
         setitem(&ns, &s("__static_attributes__"), tup(sa.iter().map(|x| s(x)).collect()))?;
     }
     PENDING_FIELDS.with(|p| *p.borrow_mut() = Some(fields));
-    meta_call(m, Args::p(vec![s(name), tup(bases), ns]))
+    meta_call(m, Args { p: vec![s(name), tup(bases), ns], k: kw })
 }
 #[allow(clippy::too_many_arguments)]
-fn make_class_impl(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, mut attrs: Vec<(Sym, V)>, fields: Vec<Sym>, stmt: Option<(i64, Vec<Sym>)>, meta: Option<Rc<Class>>) -> R {
+fn make_class_impl(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, mut attrs: Vec<(Sym, V)>, fields: Vec<Sym>, stmt: Option<(i64, Vec<Sym>)>, meta: Option<Rc<Class>>, mut kw: Vec<(Sym, V)>) -> R {
     // a class on Protocol is a protocol (rt_typing.rs), which may inherit only from protocols
     let protocol = proto_bases_check(&bases)?;
     // `class C[T](...)` (PEP 695): Generic[T, ...] comes last. As CPython's: a Generic of the class's own among its
@@ -503,6 +509,15 @@ fn make_class_impl(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, mut
     if let Some(r) = typing_class(name, qualname, module, &mut bases, &attrs, &fields) {
         if meta.is_some() {
             return Err(unsupported("a metaclass for a NamedTuple or TypedDict class"));
+        }
+        // a TypedDict's total= (a bool literal: dynpy/typing.rs) has no part in the class Brevi makes
+        if let Ok(V::Class(k)) = &r {
+            if k.own("__bv_typeddict__").is_some() {
+                kw.retain(|(n, _)| *n != "total");
+            }
+        }
+        if !kw.is_empty() {
+            return Err(unsupported("class keyword arguments for a NamedTuple or TypedDict class"));
         }
         return r;
     }
@@ -592,16 +607,32 @@ fn make_class_impl(name: Sym, qualname: Sym, module: Sym, mut bases: Vec<V>, mut
         call(&f, Args::p(vec![v, V::Class(c.clone()), s(k)]))?;
     }
     if is_enum(&c) {
-        enum_setup(&c)?;
+        // EnumType.__new__'s own keywords: boundary= (a Flag's FlagBoundary; rt_enum.rs enum_setup)
+        let mut boundary = V::None;
+        if let Some(i) = kw.iter().position(|(n, _)| *n == "boundary") {
+            boundary = kw.remove(i).1;
+        }
+        if kw.iter().any(|(n, _)| *n == "_simple") {
+            return Err(unsupported("EnumType's _simple= keyword"));
+        }
+        enum_setup_b(&c, boundary)?;
     }
-    // the first __init_subclass__ of a base (an implicit classmethod), called with the new class
+    // the first __init_subclass__ of a base (an implicit classmethod), called with the new class and the class
+    // statement's other keywords; object's takes none
     let hook = c.mro.borrow().iter().skip(1).find_map(|b| b.own("__init_subclass__"));
-    if let Some(f) = hook {
-        let f = match &f {
-            V::Bound(b) => b.1.clone(),
-            f => f.clone(),
-        };
-        call(&f, Args::p(vec![V::Class(c.clone())]))?;
+    match hook {
+        Some(f) => {
+            let f = match &f {
+                V::Bound(b) => b.1.clone(),
+                f => f.clone(),
+            };
+            if !kw.is_empty() && matches!(&f, V::Func(x) if x.kind.get() == 3) {
+                return Err(unsupported("class keyword arguments for a library class's __init_subclass__"));
+            }
+            call(&f, Args { p: vec![V::Class(c.clone())], k: kw })?;
+        }
+        None if !kw.is_empty() => return type_err(format!("{}.__init_subclass__() takes no keyword arguments", c.name)),
+        None => {}
     }
     if is_enum(&c) {
         enum_made(&c);
@@ -1264,7 +1295,20 @@ pub fn super_attr(cls: &V, me: &V, name: &str) -> R {
         }))));
     }
     if name == "__init_subclass__" {
-        return Ok(builtin("__init_subclass__", |_a: Args| Ok(V::None)));
+        // object.__init_subclass__ takes no arguments
+        let who = match me {
+            V::Class(k) => k.name,
+            x => sym(&tn(x)),
+        };
+        return Ok(builtin("__init_subclass__", move |a: Args| {
+            if !a.k.is_empty() {
+                return type_err(format!("{who}.__init_subclass__() takes no keyword arguments"));
+            }
+            if !a.p.is_empty() {
+                return type_err(format!("{who}.__init_subclass__() takes no arguments ({} given)", a.p.len()));
+            }
+            Ok(V::None)
+        }));
     }
     if name == "__delattr__" {
         let me2 = me.clone();
@@ -2782,9 +2826,6 @@ pub fn type_new(mcls: &Rc<Class>, a: Args) -> R {
     if a.p.len() != 3 {
         return type_err(format!("type.__new__() takes exactly 3 arguments ({} given)", a.p.len()));
     }
-    if !a.k.is_empty() {
-        return Err(unsupported("keyword arguments to type.__new__ (for __init_subclass__)"));
-    }
     let name = match &a.p[0] {
         V::Str(x) => sym(&x.text()),
         x => return type_err(format!("type.__new__() argument 1 must be str, not {}", tn(x))),
@@ -2837,7 +2878,7 @@ pub fn type_new(mcls: &Rc<Class>, a: Args) -> R {
     }
     let fields = PENDING_FIELDS.with(|p| p.borrow_mut().take()).unwrap_or_default();
     let meta = if is_type_class(&winner) { None } else { Some(winner) };
-    make_class_impl(name, qualname, module, bases, attrs, fields, None, meta)
+    make_class_impl(name, qualname, module, bases, attrs, fields, None, meta, a.k)
 }
 // Calling a metaclass: M.__new__ (its own, or type's), then M.__init__ when the result is an instance of M.
 pub fn meta_call(m: &Rc<Class>, a: Args) -> R {
@@ -2871,6 +2912,10 @@ pub fn meta_call(m: &Rc<Class>, a: Args) -> R {
 // A class statement's namespace with `metaclass=M`: M.__prepare__(name, bases) when M defines it (a plain dict,
 // holding at most __annotations__: the class body here reads its other names from the body itself).
 pub fn meta_prepare(m: &V, name: &str, bases: &V) -> R {
+    meta_prepare_k(m, name, bases, vec![])
+}
+// As meta_prepare, with the class statement's keywords (other than metaclass=), which __prepare__ also gets
+pub fn meta_prepare_k(m: &V, name: &str, bases: &V, kw: Vec<(Sym, V)>) -> R {
     let ns = match m {
         V::Class(k) if is_metaclass(k) => {
             let w = match bases_meta(&to_vec(bases)?)? {
@@ -2879,7 +2924,7 @@ pub fn meta_prepare(m: &V, name: &str, bases: &V) -> R {
                 _ => k.clone(),
             };
             match meta_lookup(&w, "__prepare__") {
-                Some(f) => call(&bind_meta(f, &V::Class(w.clone()), &w), Args::p(vec![s(name), bases.clone()]))?,
+                Some(f) => call(&bind_meta(f, &V::Class(w.clone()), &w), Args { p: vec![s(name), bases.clone()], k: kw })?,
                 None => dict_new(),
             }
         }
@@ -2909,17 +2954,31 @@ pub fn ns_annotations(ns: &V) -> R {
 }
 // The end of a class statement with `metaclass=M`: M(name, bases, ns) (type itself: an ordinary class).
 pub fn meta_build(m: &V, name: Sym, qualname: Sym, module: Sym, bases: Vec<V>, ns: V, fields: Vec<Sym>) -> R {
+    meta_build_k(m, name, qualname, module, bases, ns, fields, vec![])
+}
+// As meta_build, with the class statement's other keywords: M(name, bases, ns, **kw)
+#[allow(clippy::too_many_arguments)]
+pub fn meta_build_k(m: &V, name: Sym, qualname: Sym, module: Sym, bases: Vec<V>, ns: V, fields: Vec<Sym>, kw: Vec<(Sym, V)>) -> R {
     match m {
+        V::Class(k) if is_type_class(k) && !kw.is_empty() => {
+            // type(name, bases, ns, **kw): a class whose bases' metaclass is type's own gets them in __init_subclass__
+            if bases_meta(&bases)?.is_some() {
+                return Err(unsupported("metaclass=type with class keywords on a base made by another metaclass"));
+            }
+            let attrs = dict_sym_items(&ns)?.into_iter().filter(|(k, _)| !matches!(*k, "__module__" | "__qualname__")).collect();
+            make_class_impl(name, qualname, module, bases, attrs, fields, None, None, kw)
+        }
+        V::Class(k) if is_enum_type(k) && !kw.is_empty() => Err(unsupported("class keywords with metaclass=EnumType")),
         V::Class(k) if is_type_class(k) => make_class_f(name, qualname, module, bases, dict_sym_items(&ns)?.into_iter().filter(|(k, _)| !matches!(*k, "__module__" | "__qualname__")).collect(), fields),
         V::Class(k) if is_enum_type(k) => enum_type_build(name, qualname, module, bases, &ns, fields),
         V::Class(k) if is_metaclass(k) => {
             PENDING_FIELDS.with(|p| *p.borrow_mut() = Some(fields));
-            let r = meta_call(k, Args::p(vec![s(name), tup(bases), ns]));
+            let r = meta_call(k, Args { p: vec![s(name), tup(bases), ns], k: kw });
             PENDING_FIELDS.with(|p| *p.borrow_mut() = None);
             r
         }
         V::Class(_) => Err(unsupported("a class that is not a subclass of type as a metaclass")),
-        f => call(f, Args::p(vec![s(name), tup(bases), ns])),
+        f => call(f, Args { p: vec![s(name), tup(bases), ns], k: kw }),
     }
 }
 fn meta_truth(c: &Rc<Class>, v: &V) -> Result<bool, E> {

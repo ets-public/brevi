@@ -112,6 +112,22 @@ if [ "$1" != "--update" ]; then
   done
   rm -rf "$it_dir"
 fi
+# Flags the dynamic build cannot hold are refused when it builds, never answered wrong: an operator between members
+# of two IntFlag classes (enum.py keeps the other class's member in the result), and a Flag whose __new__ shifts its
+# values past what Brevi's flags hold.
+if [ "$1" != "--update" ]; then
+  fl_dir=$(mktemp -d)
+  printf 'from enum import IntFlag, KEEP\nclass A(IntFlag, boundary=KEEP):\n    X = 1\nclass B(IntFlag):\n    Y = 2\nprint(repr(A.X | B.Y))\n' > "$fl_dir/a.py"
+  printf 'from enum import Flag\nclass F(Flag):\n    def __new__(cls, c):\n        self = object.__new__(cls)\n        self._value_ = 1 << c\n        return self\n    a = 97\nprint(F.a.value)\n' > "$fl_dir/b.py"
+  for p in "a:an operator between members of two different IntFlag classes" "b:a Flag whose __new__ makes its values with << or **"; do
+    out=$(BREVI_DYN=1 $BREVI build "$fl_dir/${p%%:*}.py" -o "$fl_dir/prog" 2>&1)
+    case "$out" in
+      *"${p#*:}"*) echo "ok   dynamic build refuses ${p#*:}" ;;
+      *) echo "FAIL dynamic build refuses ${p#*:}"; printf '%s\n' "$out" | tail -3; fail=1 ;;
+    esac
+  done
+  rm -rf "$fl_dir"
+fi
 # A warning whose line the dynamic build does not know is refused, never placed wrong: stacklevel above 1 when
 # it builds, a call opening on a later line of its statement when it runs.
 if [ "$1" != "--update" ]; then
