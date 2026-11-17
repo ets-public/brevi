@@ -175,13 +175,15 @@ expect("sandbox bad allow_net", call("run", code="print(1)\n", allow_net=["http:
 expect("sandbox off", call("run", code="with open('/etc/hostname') as f:\n    print(len(f.read()) > 0)\n", sandbox=False), "True", False)
 # Resource limits: the caller's limits stop the program at the first one it reaches, and the reply names it.
 spin = "n = 0\nwhile True:\n    n += 1\n"
-expect("limits cpu", call("run", code=spin, limits={"cpu": 1}), '"on":"cpu"', True)
+# CPU limits pass the longest timeout: at nice 19 under load a spin can take far more than 1 s of wall clock to
+# use 1 s of CPU, and the call's own timeout must not be what stops it.
+expect("limits cpu", call("run", code=spin, limits={"cpu": 1}, timeout=600), '"on":"cpu"', True)
 expect("limits time", call("run", code=spin, limits={"time": 0.5}), '"on":"time"', True)
 expect("limits advice", call("run", code=spin, limits={"time": 0.5}), "raise it in limits: time=", True)
 loud = "i = 0\nwhile True:\n    print('line', i)\n    i += 1\n"
 expect("limits output", call("run", code=loud, limits={"output": 1}), '"on":"output"', True)
 expect("limits output in cases", call("run", code=loud, limits={"output": 1}, cases=[{"stdin": "", "expect": "x"}]), '"on":"output"', True)
-expect("limits cpu in cases", call("run", code=spin, limits={"cpu": 1}, cases=[{"stdin": "", "expect": "x"}]), '"on":"cpu"', True)
+expect("limits cpu in cases", call("run", code=spin, limits={"cpu": 1}, timeout=600, cases=[{"stdin": "", "expect": "x"}]), '"on":"cpu"', True)
 expect("limits pass", call("run", code="print(sum(range(10)))\n", limits={"cpu": 2, "time": 5, "output": 64}), "45", False)
 expect("limits pass in cases", call("run", limits={"cpu": 2, "time": 5}, cases=[{"stdin": "", "expect": "45\n"}]), "passed 1/1", False)
 expect("limits test", call("test", code="fn main():\n  print(1)\n\ntest \"spins\":\n  var n = 0\n  while true:\n    n = n + 1\n", limits={"time": 1}), '"on":"time"', True)
@@ -195,7 +197,7 @@ else:
     expect("limits threads within", call("run", code=forks, allow=["native", "read"], limits={"threads": 64}, verify=False), "all started", False)
 expect("limits bad name", call("run", code="print(1)\n", limits={"cpus": 1}), "limits has \"cpus\"", True)
 expect("limits bad value", call("run", code="print(1)\n", limits={"cpu": -1}), "limits cpu must be a number above 0", True)
-expect("limits verify", call("verify", sandbox=False, code=spin, limits={"cpu": 1}), '"verify":"limit"', True)
+expect("limits verify", call("verify", sandbox=False, code=spin, limits={"cpu": 1}, timeout=600), '"verify":"limit"', True)
 
 # Brevi code, recognised by its fn items.
 start()
@@ -245,6 +247,18 @@ def procs_in(d):
         except OSError:
             pass
     return n
+def wait_for(cond, secs):
+    # Polls instead of sleeping a fixed time, so a loaded machine (nice 19, 16 jobs) waits longer, not fails.
+    end = time.time() + secs
+    while not cond() and time.time() < end:
+        time.sleep(0.05)
+    return cond()
+def running(d):
+    # Waits until the call's program runs in d; without /proc (macOS) it cannot see it, so it waits a second.
+    if not os.path.isdir("/proc"):
+        time.sleep(1.0)
+        return True
+    return wait_for(lambda: procs_in(d) > 0, 120)
 
 q = raw_start("--trust-calls")
 # The server's work folder is in Brevi's private temp folder (main.rs tmp_root): TMPDIR/brevi-UID on unix.
@@ -310,36 +324,38 @@ r = raw_recv(q)
 t = text_of(r)
 want("long output is cut, not stuck", not r["result"]["isError"] and "cut" in t and t.rstrip().endswith("line 39999") and len(t) < 30000, t[-200:])
 # A program that never ends: stopped at its timeout with everything it started; the server stays usable.
-t0 = time.time()
+# The reply names the 2 s limit that stopped it (not the 20 s default); a wall-clock bound would also count
+# the wait for the server's warm-up build, which is outside the limit and slow on a loaded machine.
 raw_send(q, tool(12, "run", code="i = 0\nwhile True:\n    i += 1\n", timeout=2))
 r = raw_recv(q)
-want("timeout", "timeout" in text_of(r) and time.time() - t0 < 15, r)
-time.sleep(0.3)
-want("nothing left running after a timeout", procs_in(work) == 0, procs_in(work))
+want("timeout", '"e":"timeout"' in text_of(r) and "stopped after 2 s" in text_of(r) and '"timed_out":true' in json.dumps(r["result"].get("structuredContent", {}), separators=(",", ":")), r)
+want("nothing left running after a timeout", wait_for(lambda: procs_in(work) == 0, 10), procs_in(work))
 # Cancel: ping is answered while a call runs, the cancelled call gets no reply, the next call works.
+# Call 13 never ends before its 60 s timeout, so a ping reply that comes first, while its program still runs,
+# was answered during the call.
 raw_send(q, tool(13, "run", code="while True:\n    pass\n", timeout=60))
-time.sleep(1.0)
-t0 = time.time()
+want("call 13 started", running(work), procs_in(work))
 raw_send(q, {"jsonrpc": "2.0", "id": 14, "method": "ping"})
 r = raw_recv(q)
-want("ping during a call", r["id"] == 14 and time.time() - t0 < 1, r)
+want("ping during a call", r["id"] == 14 and (procs_in(work) > 0 or not os.path.isdir("/proc")), r)
 raw_send(q, {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 13}})
 raw_send(q, tool(15, "run", code="print(7)\n", verify=False))
 r = raw_recv(q)
 want("cancelled call has no reply; next call works", r["id"] == 15 and text_of(r) == "7\n", r)
-want("nothing left running after a cancel", procs_in(work) == 0, procs_in(work))
+want("nothing left running after a cancel", wait_for(lambda: procs_in(work) == 0, 10), procs_in(work))
 raw_send(q, tool(16, "run", code="import sys\nprint(eval(sys.stdin.read()))\n", sandbox=False, cases=[{"stdin": "6*7", "expect": 42}]))
 want("cases for Python only CPython runs", "passed 1/1" in text_of(raw_recv(q)), "")
 # The client goes away mid-call: the server stops the program, removes its folder and exits.
-raw_send(q, tool(17, "run", code="while True:\n    pass\n", timeout=60))
-time.sleep(1.0)
+# The call may run 600 s, so exiting within 60 s means the server stopped it rather than waiting for it.
+raw_send(q, tool(17, "run", code="while True:\n    pass\n", timeout=600))
+want("call 17 started", running(work), procs_in(work))
 q.stdin.close()
-t0 = time.time()
 try:
-    q.wait(10)
+    q.wait(60)
 except subprocess.TimeoutExpired:
     q.kill()
-want("exit on EOF", q.returncode == 0 and time.time() - t0 < 5, q.returncode)
+    q.wait()
+want("exit on EOF", q.returncode == 0, q.returncode)
 want("work folder removed", not os.path.exists(work), work)
 want("nothing left after exit", procs_in(work) == 0, procs_in(work))
 want("stdout only JSON-RPC, stderr quiet", q.stdout.read() == b"" and q.stderr.read() == b"", "")

@@ -111,13 +111,30 @@ ts = [threading.Thread(target=run, args=(t, "print(%r)" % t)) for t in ("x", "y"
 [t.start() for t in ts]
 [t.join() for t in ts]
 check("same ids", [(k, v[0], json.loads(v[1])["id"], json.loads(v[1])["result"]["content"][0]["text"].split()[0]) for k, v in sorted(out.items())], [("x", 200, 1, "x"), ("y", 200, 1, "y")])
-t = threading.Thread(target=run, args=("slow", "import time\ntime.sleep(30)"))
-t0 = time.time()
+# The slow call may run 600 s, so a 202 with no body within 120 s means the cancel ended it. The cancel is sent
+# once its program runs (polled, not a fixed sleep, which a loaded machine can outlast).
+def in_call():
+    # a process of this server's group working in the stdio server's work folder (brevi-mcp-PID)
+    for pid in os.listdir("/proc") if os.path.isdir("/proc") else []:
+        try:
+            if pid.isdigit() and os.getsid(int(pid)) == p.pid and os.path.basename(os.readlink(f"/proc/{pid}/cwd")).startswith("brevi-mcp-"):
+                return True
+        except OSError:
+            pass
+    return False
+t = threading.Thread(target=lambda: out.__setitem__("slow", post(U, req(1, "tools/call", {"name": "run", "arguments": {"code": "import time\ntime.sleep(600)", "timeout": 600}}))))
 t.start()
-time.sleep(3)
+if os.path.isdir("/proc"):
+    started = time.time() + 120
+    while not in_call() and time.time() < started:
+        time.sleep(0.05)
+    check("slow call started", in_call(), True)
+else:
+    time.sleep(3)
+t0 = time.time()
 check("cancel", post(U, {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 1}}), (202, ""))
-t.join(20)
-check("cancelled POST ends", (out.get("slow"), time.time() - t0 < 20), ((202, ""), True))
+t.join(120)
+check("cancelled POST ends", (out.get("slow"), time.time() - t0 < 120), ((202, ""), True))
 p.terminate()
 p.wait()
 
@@ -129,11 +146,17 @@ check("token", post(U, req(1, "ping"), headers={"Authorization": "Bearer " + TOK
 # Connections are capped (64) before any token check: past the cap a connection gets 503 at once, and the
 # server answers again as soon as connections close.
 held = [socket.create_connection(("127.0.0.1", int(U.split(":")[2].split("/")[0]))) for _ in range(64)]
-time.sleep(0.5)
-check("connection cap", post(U, req(1, "ping"), headers={"Authorization": "Bearer " + TOK})[0], 503)
+# Polled (up to 30 s) rather than a fixed sleep: the server may not have accepted all 64 yet, or seen them close.
+def status_becomes(code):
+    end = time.time() + 30
+    while True:
+        got = post(U, req(1, "ping"), headers={"Authorization": "Bearer " + TOK})[0]
+        if got == code or time.time() > end:
+            return got
+        time.sleep(0.1)
+check("connection cap", status_becomes(503), 503)
 [c.close() for c in held]
-time.sleep(0.5)
-check("after the cap", post(U, req(1, "ping"), headers={"Authorization": "Bearer " + TOK})[0], 200)
+check("after the cap", status_becomes(200), 200)
 try:
     import asyncio
     import httpx2
