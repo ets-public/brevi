@@ -1325,7 +1325,7 @@ elif [ "$rvout" != "$(cat "$exp")" ]; then echo "FAIL brevi run --verify"; print
 else echo "ok   brevi run --verify"; fi
 # Only CPython 3.13 (src/cpython.rs): one of another version is refused by the fallback, verify and brevi-python,
 # never run (tests/verify/py314.sh says it is 3.14).
-o=$(BREVI_PYTHON=tests/verify/py314.sh $BREVI run tests/fallback/globals_write.py 2>&1
+o=$(BREVI_PYTHON=tests/verify/py314.sh $BREVI run tests/fallback/py_exec.py 2>&1
   BREVI_PYTHON=tests/verify/py314.sh $BREVI verify tests/verify/sq.py --input tests/verify/sq 2>&1
   echo 'print(6 * 7)' | BREVI_PYTHON=tests/verify/py314.sh $BREVI python - 2>&1)
 n=$(printf '%s\n' "$o" | grep -c "is cpython 3.14.0, and Brevi answers as CPython 3.13 does")
