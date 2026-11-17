@@ -3015,6 +3015,8 @@ pub fn set_context(e: &E) {
 fn cur_exc() -> Option<V> {
     EXC_STACK.with(|s| s.borrow().last().map(|(_, e)| e.clone()))
 }
+// sys.setswitchinterval's interval in microseconds; CPython starts at 5000 (5 ms)
+static SWITCH_US: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(5000);
 pub fn sys_fn(name: &str, a: Args) -> R {
     match name {
         "exit" => bi_exit(a),
@@ -3024,6 +3026,52 @@ pub fn sys_fn(name: &str, a: Args) -> R {
             Ok(V::None)
         }
         "getrecursionlimit" => Ok(V::Int(REC_LIMIT.with(|l| l.get()) as i64)),
+        // Brevi's green threads switch only at blocking calls, so the interval schedules nothing; it is kept in whole
+        // microseconds exactly as CPython keeps it (set truncates, get gives 1e-6 * microseconds)
+        "setswitchinterval" => {
+            if !a.k.is_empty() {
+                return type_err("sys.setswitchinterval() takes no keyword arguments".into());
+            }
+            if a.p.len() != 1 {
+                return type_err(format!("sys.setswitchinterval() takes exactly one argument ({} given)", a.p.len()));
+            }
+            let v = &a.p[0];
+            let real = |v: &V| type_err(format!("must be real number, not {}", tn(v)));
+            let f = match v {
+                V::Float(_) | V::Int(_) | V::Bool(_) | V::Big(_) => to_float(v)?,
+                // as PyFloat_AsDouble: a float subclass instance gives its own value (no __float__ call); an int
+                // subclass calls its own __float__ if it defines one, else converts its value
+                V::Obj(o) if o.cls.base_bt() == BT::Float && o.inner().is_some() => to_float(&o.inner().unwrap())?,
+                V::Obj(o) if o.cls.lookup("__float__").is_some() => to_float(v)?,
+                V::Obj(o) if o.cls.base_bt() == BT::Int && o.inner().is_some() => to_float(&o.inner().unwrap())?,
+                V::Obj(o) if o.cls.lookup("__index__").is_some() => idx_of(v)? as f64,
+                V::Ext(x) => match x.to_f64() {
+                    Some(f) if cplx_of(v).is_none() => f,
+                    _ => return real(v),
+                },
+                _ => return real(v),
+            };
+            if f <= 0.0 {
+                return val_err("switch interval must be strictly positive".into());
+            }
+            // CPython casts 1e6 * interval to a C unsigned long: past 32 bits (or for nan and inf) the result
+            // depends on the platform (Windows' unsigned long is 32 bits), so there is no one answer to give
+            let us = 1e6 * f;
+            if !(us < 4294967296.0) {
+                return Err(unsupported("sys.setswitchinterval() of 4294.967296 seconds or more (CPython's value depends on the platform)"));
+            }
+            SWITCH_US.store(us as u64, std::sync::atomic::Ordering::Relaxed);
+            Ok(V::None)
+        }
+        "getswitchinterval" => {
+            if !a.k.is_empty() {
+                return type_err("sys.getswitchinterval() takes no keyword arguments".into());
+            }
+            if !a.p.is_empty() {
+                return type_err(format!("sys.getswitchinterval() takes no arguments ({} given)", a.p.len()));
+            }
+            Ok(V::Float(1e-6 * SWITCH_US.load(std::sync::atomic::Ordering::Relaxed) as f64))
+        }
         "getdefaultencoding" => {
             if !a.k.is_empty() {
                 return type_err("sys.getdefaultencoding() takes no keyword arguments".into());
