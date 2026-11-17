@@ -363,6 +363,17 @@ pub fn records_with(items: &mut Vec<Item>, mixed: &HashSet<String>, eager: bool)
                     dynamic.insert(n.clone());
                 }
             }
+            // `rates.get(tier, ZERO)` / `tier in rates`: looked up by a computed key.
+            Expr::Method(b, m, args, _) if matches!(m.as_str(), "get" | "get_or" | "has") && args.first().is_some_and(|k| key_name(k).is_none()) => {
+                if let Expr::Ident(n) = b.as_ref() {
+                    dynamic.insert(n.clone());
+                }
+            }
+            Expr::Binary("in" | "not in", k, b) if key_name(k).is_none() => {
+                if let Expr::Ident(n) = b.as_ref() {
+                    dynamic.insert(n.clone());
+                }
+            }
             Expr::For(_, it, _) => {
                 if let Expr::Ident(n) = it.as_ref() {
                     dynamic.insert(n.clone());

@@ -1,0 +1,48 @@
+1
+False x
+2
+2.5 x
+Fizz
+False x
+4
+2.5 True
+Buzz
+True x
+Fizz
+2.5 x
+7
+True x
+8
+2.5 True
+Fizz
+True x
+Buzz
+2.5 x
+11
+True x
+Fizz
+2.5 True
+13
+True x
+14
+2.5 x
+FizzBuzz
+True x
+aaabcccccccccccc zzzzz
+{'a': Decimal('1.75'), 'b': Decimal('2'), 'c': Decimal('0.0')} {'a': 6.5, 'b': 4.0, 'c': 0.0}
+10.00 0 True
+['put', 'a  b c  '] ['put a  b c  '] ['put', 'a', 'b c  '] ['put', 'a', 'b', 'c'] ['put', 'a', 'b', 'c']
+'put a  b c' 'put a  b c  ' '  put a  b c' False
+['get', 'x'] ['get x'] ['get', 'x'] ['get', 'x'] ['get', 'x']
+'get x' 'get x' 'get x' False
+[] [] [] [] []
+'' '' '' False
+[] [] [] [] []
+'' '' '' True
+['one'] ['one'] ['one'] ['one'] ['one']
+'one' 'one' 'one' False
+['a', 'b c'] ['a\x1fb c'] ['a', 'b', 'c'] ['a', 'b', 'c'] ['a', 'b', 'c']
+'a\x1fb c' 'a\x1fb c' 'a\x1fb c' False
+['x'] ['x \x1d'] ['x'] ['x'] ['x']
+'x' 'x \x1d' '\x1c x' False
+4.20
