@@ -1552,7 +1552,26 @@ fn flag_methods(fl: &Rc<Class>) {
             // operator and the member's name and value then hold that class's members (enum.py's Flag.__or__)
             if let Some(V::Obj(x)) = a.p.get(1) {
                 if is_flag(&x.cls) && !x.cls.is_sub(&c) && !matches!(c.base_bt(), BT::Object | BT::Other) {
-                    return Err(unsupported("an operator between members of two different IntFlag classes"));
+                    let d = x.cls.clone();
+                    let (v, o) = (flag_int(&a.p[0]), flag_int(&a.p[1]));
+                    let r = match op {
+                        '|' => v | o,
+                        '&' => v & o,
+                        _ => v ^ o,
+                    };
+                    // `value | other` is the other class's own operator: its member (or its error) first
+                    match flag_member(&d, r)? {
+                        V::Obj(_) => {}
+                        V::Int(i) => return flag_member(&c, i),
+                        m => return Ok(m),
+                    }
+                    // then this class's member for it: kept as Brevi keeps it only when its every bit is one of this
+                    // class's single-bit members (no `|<D.X: n>` name part, and a member already made is the one)
+                    let sm = cls_int(&c, "_singles_mask_");
+                    if r < 0 || r & !sm != 0 {
+                        return Err(unsupported("an operator between members of two different IntFlag classes"));
+                    }
+                    return flag_member(&c, r);
                 }
             }
             let Some(o) = a.p.get(1).and_then(|x| other_val(&c, x)) else { return Ok(V::NotImpl) };
