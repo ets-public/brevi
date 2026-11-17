@@ -356,7 +356,10 @@ pub fn repr(v: &V) -> Result<String, E> {
             if let Some(V::Str(r)) = f.attrs.borrow().iter().find(|(k, _)| *k == "__bv_repr__").map(|(_, v)| v.clone()) {
                 return Ok(r.text().to_string());
             }
-            if f.kind.get() == 3 {
+            if modfn_row(f) == Some(-1) {
+                return Err(unsupported_stop(&format!("repr() of the library function {} (not a function of its module in CPython 3.13)", f.name.get())));
+            }
+            if f.kind.get() == 3 && !modfn_is_py(f) {
                 format!("<built-in function {}>", f.name.get())
             } else {
                 format!("<function {} at 0x{:x}>", f.qualname.get(), Rc::as_ptr(f) as *const u8 as usize)

@@ -5500,7 +5500,7 @@ impl Em {
     // A function value. Module-level functions (and methods of module-level classes) become plain Rust
     // functions plus a wrapper; nested ones are closures capturing the cells they use.
     fn closure(&mut self, name: &str, qualname: &str, p: &Params, body: &[Stmt], line: usize, is_def: bool) -> ER<String> {
-        if !super::typing::SIG_DEFS.load(std::sync::atomic::Ordering::Relaxed) {
+        if !super::typing::SIG_DEFS.load(std::sync::atomic::Ordering::Relaxed) && !super::typing::DFLT_DEFS.load(std::sync::atomic::Ordering::Relaxed) {
             return self.closure_body(name, qualname, p, body, line, is_def, None);
         }
         // the defaults are evaluated once, here, and both the function and its recorded signature hold them

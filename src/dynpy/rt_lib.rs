@@ -1250,7 +1250,10 @@ pub fn type_of(x: &V) -> Result<Rc<Class>, E> {
         V::Class(k) if enum_meta_of(k).is_some() => enum_meta_of(k).unwrap(),
         V::Class(k) if k.abc.get() => abc_meta_class(),
         V::Class(_) => tclass(13, "type"),
-        V::Func(f) if f.kind.get() == 3 => ext_class("builtin_function_or_method"),
+        // a library function: of CPython's type for it (json.dumps is a function), refused when not known
+        V::Func(f) if modfn_row(f) == Some(-1) => return Err(unsupported_stop(&format!("type() of {}.{} (not a function of its module in CPython 3.13)", f.attrs.borrow().iter().find(|(k, _)| *k == "__bv_mod__").map(|(_, v)| if let V::Str(m) = v { m.text().to_string() } else { String::new() }).unwrap_or_default(), f.name.get()))),
+        V::Func(f) if f.kind.get() == 3 && !modfn_is_py(f) => ext_class("builtin_function_or_method"),
+        V::Func(f) if f.kind.get() == 3 => tclass(14, "function"),
         V::BMeth(_) => ext_class("builtin_function_or_method"),
         V::Bound(_) => ext_class("method"),
         // staticmethod(f) and classmethod(f): Brevi's wrapper functions are of CPython's two types

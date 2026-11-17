@@ -1,0 +1,10 @@
+(1, 'x') None None {'b': 2} ([1],) {'c': None} (3,)
+None None
+True ([1, 1],)
+(5,) (5,) (7,) (8,) (8,)
+True True c C.c
+AttributeError: 'staticmethod' object has no attribute '__defaults__'
+AttributeError: 'classmethod' object has no attribute '__defaults__'
+(10,)
+None (1, 'x') {'b': 2}
+AttributeError: 'builtin_function_or_method' object has no attribute '__defaults__'

@@ -3236,20 +3236,85 @@ thread_local! {
 pub fn modfn_cached(m: &str, n: &str) -> Option<V> {
     MODFNS.with(|c| c.borrow().iter().find(|((cm, cn), _)| *cm == m && *cn == n).map(|(_, v)| v.clone()))
 }
+// The row of MODFN_IDS for function `n` of module `m` (the table is sorted by module, then name).
+fn modfn_id(m: &str, n: &str) -> Option<usize> {
+    MODFN_IDS.binary_search_by(|r| (r.0, r.1).cmp(&(m, n))).ok()
+}
+// A library module's function made by modfn: Some(row) when CPython's table lists it (row -1: its module is
+// covered but this name is not a function there), None for any other function.
+pub fn modfn_row(f: &Func) -> Option<i64> {
+    if f.kind.get() != 3 {
+        return None;
+    }
+    f.attrs.borrow().iter().find(|(k, _)| *k == "__bv_pyid__").and_then(|(_, v)| if let V::Int(i) = v { Some(*i) } else { None })
+}
+// Whether `f` is a library function CPython writes in Python (json.dumps): type `function`, not a builtin.
+pub fn modfn_is_py(f: &Func) -> bool {
+    modfn_row(f).is_some_and(|i| i >= 0 && MODFN_IDS[i as usize].2 == 0)
+}
+// The function-only attributes of a def (a CPython function object has them; Brevi's library function does not).
+const PYFN_ONLY: &[&str] = &["__defaults__", "__kwdefaults__", "__code__", "__globals__", "__closure__", "__annotations__", "__builtins__", "__dict__", "__get__", "__wrapped__"];
+// An attribute of a library module's function answered from CPython's table, or refused when Brevi's function
+// cannot give CPython's answer; None leaves it to getattr's usual reading.
+pub fn modfn_attr(f: &Func, name: &str) -> Option<R> {
+    let i = modfn_row(f)?;
+    let what = || f.attrs.borrow().iter().find(|(k, _)| *k == "__bv_mod__").and_then(|(_, v)| if let V::Str(m) = v { Some(m.text().to_string()) } else { None }).unwrap_or_default() + "." + &f.name.get();
+    if i < 0 {
+        return match name {
+            "__module__" | "__name__" | "__qualname__" | "__doc__" | "__self__" | "__text_signature__" | "__type_params__" => Some(Err(unsupported_stop(&format!("{name} of {} (not a function of its module in CPython 3.13)", what())))),
+            n if PYFN_ONLY.contains(&n) => Some(Err(unsupported_stop(&format!("{name} of {} (not a function of its module in CPython 3.13)", what())))),
+            _ => None,
+        };
+    }
+    let (_, _, kind, module, _, _, doc, _) = MODFN_IDS[i as usize];
+    match name {
+        "__module__" => Some(Ok(module.map_or(V::None, s))),
+        "__doc__" if f.attrs.borrow().iter().all(|(k, _)| *k != "__doc__") => Some(Ok(doc.map_or(V::None, s))),
+        "__type_params__" if kind == 0 => Some(Ok(tup(vec![]))),
+        n if kind == 0 && PYFN_ONLY.contains(&n) => Some(Err(unsupported_stop(&format!("{name} of the library function {}", what())))),
+        // a C function's __self__ is its module and __text_signature__ its argument clinic text: not kept
+        "__self__" | "__text_signature__" if kind == 1 => Some(Err(unsupported_stop(&format!("{name} of the library function {}", what())))),
+        _ => None,
+    }
+}
 fn modfn(m: &'static str, n: &str) -> V {
     // enum.py 3.13: `_reduce_ex_by_global_name = pickle_by_global_name`, one function under two names
     let n: Sym = sym(if m == "enum" && n == "_reduce_ex_by_global_name" { "pickle_by_global_name" } else { n });
     if let Some(v) = MODFNS.with(|c| c.borrow().get(&(m, n)).cloned()) {
         return v;
     }
+    // one CPython object under another name (bisect.bisect is bisect_right, statistics.sqrt is math.sqrt): the
+    // same function, so `is`, pickle and the names agree with CPython's
+    if let Some(i) = modfn_id(m, &n) {
+        let c = MODFN_IDS[i].7;
+        if c != i {
+            let v = modfn(MODFN_IDS[c].0, MODFN_IDS[c].1);
+            MODFNS.with(|cc| {
+                cc.borrow_mut().insert((m, n), v.clone());
+            });
+            return v;
+        }
+    }
     let v = builtin(n, move |a: Args| module_call(m, n, a));
     // marked as a module's function, so it never reads as the builtins function of its name (math.pow.__doc__)
     if let V::Func(f) = &v {
         f.attrs.borrow_mut().push(("__bv_mod__", s(m)));
+        // what CPython says the function is (rt_modfn_data.rs): its type, __module__, names and __doc__; -1
+        // when the table covers the module but not this name as a function, so its introspection is refused
+        let id = modfn_id(m, &n);
+        if let Some(i) = id {
+            let (_, _, _, _, name, qual, _, _) = MODFN_IDS[i];
+            f.name.set(sym(name));
+            f.qualname.set(sym(qual));
+            f.attrs.borrow_mut().push(("__bv_pyid__", V::Int(i as i64)));
+        } else if MODFN_MODULES.contains(&m) {
+            f.attrs.borrow_mut().push(("__bv_pyid__", V::Int(-1)));
+        }
         // enum's pickle helpers are Python functions in CPython: set as a class's __reduce_ex__, they bind
         if m == "enum" && enum_binds(&n) {
             f.attrs.borrow_mut().push(("__module__", s("enum")));
-        } else {
+        } else if !id.is_some_and(|i| MODFN_IDS[i].2 == 0) {
+            // a C function is not a descriptor; a Python function (json.dumps) binds as CPython's does
             f.attrs.borrow_mut().push(("__bv_nobind__", V::Bool(true)));
         }
     }

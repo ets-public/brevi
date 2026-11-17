@@ -131,6 +131,10 @@ pub static ANN_DEFS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBo
 // __annotations__ (functools.wraps, inspect), so the defs keep them as when the program reads them itself.
 pub static BRIDGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 pub static SIG_DEFS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+// Set while the program names `__defaults__` or `__kwdefaults__` (as an attribute or a string): every def and
+// lambda then records its parameters and defaults (with_sig), which those reads answer from. A read of a def
+// that recorded none (a name computed at run time in a program that never names them) is refused.
+pub static DFLT_DEFS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
     let mut names: HashMap<String, Names> = HashMap::new();
@@ -186,6 +190,12 @@ pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
     ANN_DEFS.store(defs, std::sync::atomic::Ordering::Relaxed);
     // a library CPython runs may read a def's __defaults__ and __kwdefaults__ (kept with the signature)
     SIG_DEFS.store((sig || BRIDGED.load(std::sync::atomic::Ordering::Relaxed)) && defs, std::sync::atomic::Ordering::Relaxed);
+    let dflt = mods.iter().any(|(_, b)| {
+        let mut r = false;
+        walk_all(b, &mut |e, _| r |= matches!(e, Ex::Attr(_, a) | Ex::Str(a) if a == "__defaults__" || a == "__kwdefaults__"));
+        r
+    });
+    DFLT_DEFS.store(dflt, std::sync::atomic::Ordering::Relaxed);
     for (m, body) in mods {
         let nm = &names[*m];
         stmts(body, nm).map_err(|(l, w)| (m.to_string(), l, w))?;

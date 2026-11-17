@@ -857,6 +857,15 @@ t=$(mktemp -d)
 printf 'from collections import namedtuple\ntry:\n    T = namedtuple("T", ["\\ufb01"])\n    print(T._fields)\nexcept Exception as e:\n    print("caught", e)\n' > "$t/nt_nfkc.py"
 o=$(BREVI_DYN=1 $BREVI run "$t/nt_nfkc.py" 2>&1)
 case "$o" in "NotImplementedError: brevi: a namedtuple field name NFKC normalization may change ('"*"') is not supported in dynamic builds") echo "ok   a namedtuple field name NFKC may change stops" ;; *) echo "FAIL a namedtuple field name NFKC may change"; printf '%s\n' "$o"; fail=1 ;; esac
+# A def's __defaults__ read through a name computed at run time (the program never names it, so no def recorded its
+# defaults) stops, and so does assigning one (CPython's calls would then use the new defaults): never AttributeError
+# or the old defaults.
+printf 'def h(a=1):\n    return a\nn = "__def" + "aults__"\ntry:\n    print(getattr(h, n))\nexcept Exception as e:\n    print("caught", e)\n' > "$t/dflt_dyn.py"
+printf 'def h(a=1):\n    return a\ntry:\n    h.__defaults__ = (5,)\nexcept Exception as e:\n    print("caught", e)\nprint(h())\n' > "$t/dflt_set.py"
+for c in "dflt_dyn:__defaults__ of a function whose defaults this build did not record" "dflt_set:assigning a function's __defaults__"; do
+  o=$(BREVI_DYN=1 $BREVI run "$t/${c%%:*}.py" 2>&1)
+  case "$o" in *"NotImplementedError: brevi: ${c#*:}"*" is not supported in dynamic builds") echo "ok   a def's __defaults__ the build cannot answer stops (${c%%:*})" ;; *) echo "FAIL a def's __defaults__ the build cannot answer (${c%%:*})"; printf '%s\n' "$o"; fail=1 ;; esac
+done
 # pickle.loads gives the program's objects their state after CPython's Unpickler has finished: a BUILD that runs
 # the program's code (its own __setstate__) stops the program, even inside try/except, when CPython would run it
 # before code of the program the load ran (a REDUCE of a program function), on an object the result does not

@@ -1,0 +1,23 @@
+function dataclasses dataclass dataclass ['Add dunder methods based on the fields defined in the class.']
+function dataclasses field field ['Return an object to identify dataclass fields.']
+function dataclasses asdict asdict ['Return the fields of a dataclass instance as a new dictionary mapping']
+function dataclasses replace replace ['Return a new object replacing specified fields with new values.']
+function json dumps dumps ['Serialize ``obj`` to a JSON formatted ``str``.']
+function json loads loads ['Deserialize ``s`` (a ``str``, ``bytes`` or ``bytearray`` instance']
+builtin_function_or_method _functools reduce reduce ['reduce(function, iterable[, initial], /) -> value']
+function functools wraps wraps ['Decorator factory to apply update_wrapper() to a wrapper function']
+builtin_function_or_method math sqrt sqrt ['Return the square root of x.']
+function collections namedtuple namedtuple ['Returns a new subclass of tuple with named fields.']
+function re compile compile ['Compile a regular expression pattern, returning a Pattern object.']
+function re sub sub ['Return the string obtained by replacing the leftmost']
+function copy deepcopy deepcopy ['Deep copy operation on arbitrary Python objects.']
+builtin_function_or_method _heapq heappush heappush ['Push item onto heap, maintaining the heap invariant.']
+builtin_function_or_method _bisect bisect_right bisect_right ['Return the index where to insert item x in list a, assuming a is sorted.']
+builtin_function_or_method _operator add add ['Same as a + b.']
+builtin_function_or_method builtins len len ['Return the number of items in a container.']
+True True ()
+<built-in function sqrt> True
+TypeError: Object of type T is not JSON serializable
+2.0
+AttributeError: 'builtin_function_or_method' object has no attribute '__defaults__'
+True True 2
