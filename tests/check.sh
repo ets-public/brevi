@@ -857,6 +857,18 @@ t=$(mktemp -d)
 printf 'from collections import namedtuple\ntry:\n    T = namedtuple("T", ["\\ufb01"])\n    print(T._fields)\nexcept Exception as e:\n    print("caught", e)\n' > "$t/nt_nfkc.py"
 o=$(BREVI_DYN=1 $BREVI run "$t/nt_nfkc.py" 2>&1)
 case "$o" in "NotImplementedError: brevi: a namedtuple field name NFKC normalization may change ('"*"') is not supported in dynamic builds") echo "ok   a namedtuple field name NFKC may change stops" ;; *) echo "FAIL a namedtuple field name NFKC may change"; printf '%s\n' "$o"; fail=1 ;; esac
+# pickle.loads gives the program's objects their state after CPython's Unpickler has finished: a BUILD that runs
+# the program's code (its own __setstate__) stops the program, even inside try/except, when CPython would run it
+# before code of the program the load ran (a REDUCE of a program function), on an object the result does not
+# reach, or before the load fails (tests/dyn/pickle_setstate_order.py has the orders that match).
+ps_hdr='import pickle\nclass A:\n    def __setstate__(self, s):\n        print("setstate")\n        self.__dict__.update(s)\ndef f(x):\n    print("f", x)\n    return x\n'
+printf "$ps_hdr"'print(pickle.loads(b"\\x80\\x02]q\\x00(c__main__\\nA\\nq\\x01)\\x81q\\x02}q\\x03X\\x01\\x00\\x00\\x00vq\\x04K\\x01sbc__main__\\nf\\nq\\x05X\\x01\\x00\\x00\\x00xq\\x06\\x85q\\x07Rq\\x08e."))\n' > "$t/ps1.py"
+printf "$ps_hdr"'print(pickle.loads(b"\\x80\\x02c__main__\\nA\\n)\\x81}b0N."))\n' > "$t/ps2.py"
+printf "$ps_hdr"'try:\n    pickle.loads(b"\\x80\\x02c__main__\\nA\\n)\\x81}b")\nexcept Exception as e:\n    print(type(e).__name__)\n' > "$t/ps3.py"
+for c in "ps1:in another order than CPython's" "ps2:where the result does not reach it" "ps3:where the result does not reach it or the load fails after it"; do
+    o=$(BREVI_DYN=1 $BREVI run "$t/${c%%:*}.py" 2>&1)
+    case "$o" in *"NotImplementedError: brevi: loading a pickle"*"${c#*:}"*" is not supported in dynamic builds") echo "ok   a pickle BUILD running program code out of CPython's order stops (${c%%:*})" ;; *) echo "FAIL a pickle BUILD running program code out of CPython's order (${c%%:*})"; printf '%s\n' "$o"; fail=1 ;; esac
+done
 # A module attribute or repr Brevi cannot give as CPython does is refused, never a different answer: the import
 # machinery's __spec__ when the program is built, or read through a variable when the program runs; the repr of
 # sys.stdout or a decimal context likewise. A library module's repr is the build machine's CPython's.

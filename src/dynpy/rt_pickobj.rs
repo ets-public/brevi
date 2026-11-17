@@ -130,17 +130,39 @@ pub fn pk_reduce(v: &V, proto: i64) -> Result<(PkHow, Rc<Class>, Vec<V>, V), E> 
     }
 }
 
-// pickle's BUILD and copy._reconstruct's state step on the program's object `o`: its class's own
-// __setstate__(state), or else the __dict__ part stored directly and the slots part set with setattr. `load`:
-// for pickle.loads, which builds the program's objects only once CPython's Unpickler has finished, so any code
-// of the program that would run here (a __setstate__ or __setattr__ of its own) would run out of CPython's
-// order: refused, except dataclasses' own _dataclass_setstate, which only stores.
+// Whether giving an instance of `c` its state runs code of the program: its own __setstate__ (other than
+// dataclasses' _dataclass_setstate, which only stores), a __getattr__ or __getattribute__ that the lookup of
+// __setstate__ goes through, or a __setattr__ that the slots part goes through. pickle.loads builds the
+// program's objects only once CPython's Unpickler has finished (pyglue's pyd_stinst), so such a BUILD runs
+// after the load: pyglue checks that this changes nothing CPython's order would show.
+pub fn pk_build_runs_code(c: &Rc<Class>) -> bool {
+    if let Some(f) = pk_own(c, "__setstate__") {
+        if !is(&f, &dc_state_fn("_dataclass_setstate")) {
+            return true;
+        }
+    }
+    ["__getattr__", "__getattribute__", "__setattr__"].iter().any(|n| pk_own(c, n).is_some())
+}
+
+// pickle's BUILD (load_build, `load`) and copy._reconstruct's state step on the program's object `o`, as CPython
+// 3.13 runs them: __setstate__(state) when the object has one (pickle: getattr(inst, "__setstate__", None);
+// copy: hasattr(y, "__setstate__") and then y.__setstate__, so a __getattr__ of the program runs once or
+// twice), or else the __dict__ part stored in the instance's __dict__ and the slots part set with setattr.
 pub fn pk_setstate(o: &V, state: V, load: bool) -> Result<(), E> {
     let V::Obj(ob) = o else { return Err(unsupported("setting the pickled state of this object")) };
-    if let Some(f) = pk_own(&ob.cls, "__setstate__") {
-        if load && !is(&f, &dc_state_fn("_dataclass_setstate")) {
-            return Err(unsupported("loading a pickle of an instance of a class with its own __setstate__"));
+    let c = ob.cls.clone();
+    let own_ga = pk_own(&c, "__getattribute__").is_some();
+    if own_ga || pk_own(&c, "__getattr__").is_some() {
+        match getattr(o, "__setstate__") {
+            Ok(f) => {
+                let f = if load { f } else { getattr(o, "__setstate__")? };
+                call(&f, Args::p(vec![state]))?;
+                return Ok(());
+            }
+            Err(e) if is_exc(&e.0, "AttributeError") => {}
+            Err(e) => return Err(e),
         }
+    } else if pk_own(&c, "__setstate__").is_some() {
         call_method(o, "__setstate__", Args::p(vec![state]))?;
         return Ok(());
     }
@@ -150,6 +172,17 @@ pub fn pk_setstate(o: &V, state: V, load: bool) -> Result<(), E> {
     };
     match &dict {
         V::None => {}
+        // pickle reads inst.__dict__ for any dictionary, copy only for a non-empty one (`if state:`); through a
+        // __getattribute__ of the program that read is the program's, and the items go into what it gives
+        V::Dict(x) if own_ga => {
+            let items = x.borrow().items();
+            if load || !items.is_empty() {
+                let d = getattr(o, "__dict__")?;
+                for (k, x) in items {
+                    setitem(&d, &k, x)?;
+                }
+            }
+        }
         V::Dict(x) if ob.cls.has_dict() => {
             for (k, x) in x.borrow().items() {
                 let V::Str(k) = k else { return Err(unsupported("a pickled __dict__ key that is not a str")) };
@@ -161,9 +194,6 @@ pub fn pk_setstate(o: &V, state: V, load: bool) -> Result<(), E> {
     match &slots {
         V::None => {}
         V::Dict(x) => {
-            if load && pk_own(&ob.cls, "__setattr__").is_some() {
-                return Err(unsupported("loading a pickle of slots of a class with its own __setattr__"));
-            }
             for (k, x) in x.borrow().items() {
                 let V::Str(k) = k else { return Err(unsupported("a pickled slot name that is not a str")) };
                 setattr(o, sym(k.text()), x)?;

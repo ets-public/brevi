@@ -55,6 +55,21 @@ thread_local! {
     // the stand-in Python class made for each class of the program pickle has met (see _BrInst), kept for the
     // program's life
     static PYD_STAND: RefCell<Vec<(Rc<Class>, usize)>> = const { RefCell::new(Vec::new()) };
+    // pickle.load's BUILDs of stand-in objects (_BrInst.__setstate__), numbered in the order CPython's Unpickler
+    // runs them, that no program object has been given yet: number -> the program's class (see pyd_stinst)
+    static PYD_BPEND: RefCell<std::collections::BTreeMap<i64, Rc<Class>>> = const { RefCell::new(std::collections::BTreeMap::new()) };
+    // the last BUILD number given out, and what it was when code of the program last ran inside a load
+    static PYD_BSEQ: Cell<i64> = const { Cell::new(0) };
+    static PYD_BUSER: Cell<i64> = const { Cell::new(0) };
+    // how many results of Python calls are being made (pyd_invoke): Python calls made meanwhile, by Brevi's glue
+    // or by the program's own __setstate__, are not the end of a load
+    static PYD_BCONV: Cell<i64> = const { Cell::new(0) };
+}
+// _brevi_dyn's own functions (pyd_register): Brevi's glue, not code of the program, when Python calls them
+static PYD_GLUE: std::sync::Mutex<Vec<usize>> = std::sync::Mutex::new(Vec::new());
+fn pyd_is_glue(f: &V) -> bool {
+    let V::Func(f) = f else { return false };
+    PYD_GLUE.lock().map(|g| g.contains(&(Rc::as_ptr(f) as usize))).unwrap_or(false)
 }
 fn pyd_ptr(s: &std::sync::atomic::AtomicPtr<std::ffi::c_void>) -> P {
     s.load(std::sync::atomic::Ordering::Relaxed) as P
@@ -303,7 +318,7 @@ class _BrInst(metaclass=_BrOT):
             ops = s._ops
         except AttributeError:
             ops = s._ops = [['obj', (), {}]]
-        ops.append(state)
+        ops.append((_d._bseq(type(s)), state))
     def __reduce_ex__(s, proto):
         if _d.cr_prog():
             _no('pickling an instance of a class of the program while copyreg holds a reducer for a class or function of the program')
@@ -1697,10 +1712,23 @@ unsafe fn pyd_register(a: &ax_pyffi::Api) -> bool {
             PYD_UNPICKLING.with(|c| c.set(c.get() + d));
             Ok(V::None)
         })),
+        // a BUILD of a stand-in object of the program's class: its number in CPython's order
+        (c"_bseq", func(sym("_bseq"), |a: Args| {
+            let Some(V::Class(c)) = a.p.first() else { return Err(unsupported("a BUILD of a stand-in object whose class of the program is gone")) };
+            let n = PYD_BSEQ.with(|s| {
+                s.set(s.get() + 1);
+                s.get()
+            });
+            PYD_BPEND.with(|m| m.borrow_mut().insert(n, c.clone()));
+            Ok(V::Int(n))
+        })),
     ];
     for (n, f) in fns {
         if !ok {
             break;
+        }
+        if let (V::Func(r), Ok(mut g)) = (&f, PYD_GLUE.lock()) {
+            g.push(Rc::as_ptr(r) as usize);
         }
         match pyd_callable_in(a, &f) {
             Ok(p) => {
@@ -1907,6 +1935,11 @@ unsafe extern "C" fn pyd_tramp(me: P, args: P, kw: P) -> P {
         return std::ptr::null_mut();
     }
     let f = (*f).clone();
+    // code of the program running inside pickle.load: a BUILD numbered before now that runs code of the program
+    // too would run after this one here, but before it in CPython (see pyd_stinst)
+    if PYD_UNPICKLING.with(|c| c.get()) > 0 && !pyd_is_glue(&f) {
+        PYD_BUSER.with(|u| u.set(PYD_BSEQ.with(|s| s.get())));
+    }
     // CPython's frames are under this call: the program's threads may not switch stacks until it returns
     GT_CB.with(|c| c.set(c.get() + 1));
     struct CbGuard;
@@ -2744,8 +2777,12 @@ unsafe fn pyd_obj_red(v: &V, c: &Rc<Class>) -> Result<P, E> {
 // program's Unpickler, the program's object made as pickle asked (copyreg._reconstructor: object.__new__(cls);
 // NEWOBJ: cls.__new__(cls); REDUCE: cls(*args)), then given each BUILD's state (rt_pickobj's pk_setstate). It is
 // made only once the load has finished and the whole result comes back, so code of the program that would run
-// while making it (its own __new__, __init__, __setstate__ or __setattr__) is refused: CPython would run it in
-// the middle of the load.
+// while making it (its own __new__ or __init__) is refused: CPython would run it in the middle of the load. A
+// BUILD that runs code of the program (rt_pickobj's pk_build_runs_code: its own __setstate__, ...) runs here, after
+// the load, only when CPython's order would show no difference: every BUILD numbered before it (_bseq) has been
+// given already, and no code of the program ran inside the load after it was numbered (pyd_tramp). Otherwise,
+// and when such a BUILD never reaches the result (pyd_build_left), the program stops: a refusal a try statement
+// could catch would change what the program prints.
 unsafe fn pyd_stinst(p: P, t: P, deep: bool) -> R {
     let a = pyd_api();
     let b = (a.GetAttr)(p, c"_bv".as_ptr());
@@ -2792,10 +2829,26 @@ unsafe fn pyd_stinst(p: P, t: P, deep: bool) -> R {
         };
         from_memo_put(p, &o);
         let states = (a.TupleGet)(parts, 3);
+        let code = pk_build_runs_code(&cls);
         for i in 0..(a.TupleSize)(states) {
             let x = (a.TupleGet)(states, i);
             (a.IncRef)(x);
-            pk_setstate(&o, pyd_wrap(x, true)?, true)?;
+            // (BUILD number, state)
+            let (n, state) = match pyd_wrap(x, true)? {
+                V::Tuple(t) if t.len() == 2 => match &t[0] {
+                    V::Int(n) => (*n, t[1].clone()),
+                    _ => return Err(unsupported("a BUILD of a stand-in object without its number")),
+                },
+                _ => return Err(unsupported("a BUILD of a stand-in object without its number")),
+            };
+            if code {
+                let first = PYD_BPEND.with(|m| m.borrow().keys().next().copied());
+                if first != Some(n) || PYD_BUSER.with(|u| u.get()) >= n {
+                    refuse_stop(&format!("loading a pickle whose instances of {} would be given their state, which runs code of the program, in another order than CPython's", cls.name));
+                }
+            }
+            PYD_BPEND.with(|m| m.borrow_mut().remove(&n));
+            pk_setstate(&o, state, true)?;
         }
         Ok(o)
     })();
@@ -3119,6 +3172,7 @@ unsafe fn pyd_invoke(f: P, pre: &[V], args: &Args, deep: bool) -> R {
     let pa = pa?;
     if r.is_null() {
         let e = pyd_err();
+        pyd_build_left(true)?;
         pyd_ba_sync(&pa)?;
         return Err(e);
     }
@@ -3127,7 +3181,28 @@ unsafe fn pyd_invoke(f: P, pre: &[V], args: &Args, deep: bool) -> R {
         return Err(e);
     }
     pyd_write_back(&pa)?;
-    pyd_wrap(r, deep)
+    PYD_BCONV.with(|c| c.set(c.get() + 1));
+    let v = pyd_wrap(r, deep);
+    PYD_BCONV.with(|c| c.set(c.get() - 1));
+    pyd_build_left(v.is_ok())?;
+    v
+}
+
+// Once the outermost pickle.load is over and its result made: BUILDs of stand-in objects never given to a program
+// object (an object the result does not reach, or a load that failed after them). CPython ran each when it read
+// it: refused when that ran code of the program (`check`), else dropped. When making the result failed, each one
+// left comes after the failing one, which CPython never ran either.
+fn pyd_build_left(check: bool) -> Result<(), E> {
+    if PYD_UNPICKLING.with(|c| c.get()) > 0 || PYD_BCONV.with(|c| c.get()) > 0 {
+        return Ok(());
+    }
+    let left = PYD_BPEND.with(|m| std::mem::take(&mut *m.borrow_mut()));
+    if check {
+        if let Some(c) = left.values().find(|c| pk_build_runs_code(c)) {
+            refuse_stop(&format!("loading a pickle that gives an instance of {} its state, which runs code of the program, where the result does not reach it or the load fails after it", c.name));
+        }
+    }
+    Ok(())
 }
 
 impl PyV {
