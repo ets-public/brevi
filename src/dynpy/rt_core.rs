@@ -50,7 +50,7 @@ pub enum V {
     Deque(Rc<RefCell<Deq>>),
     Module(&'static ModName),
     View(Rc<(V, u8)>),
-    Prop(Rc<(V, V)>),
+    Prop(Rc<(V, V, V, V)>),
     // a namedtuple field: a read-only descriptor holding the field's index in the wrapped tuple (the Rc
     // gives each descriptor its own identity, so `P.x is P.x` stays true, as in CPython)
     NTF(Rc<Ntf>),

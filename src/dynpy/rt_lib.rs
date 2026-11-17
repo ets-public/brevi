@@ -2079,7 +2079,13 @@ fn rewrap(x: &Rc<Func>, kind: u8) -> V {
 pub fn bi_property(mut a: Args) -> R {
     let getter = a.p.first().cloned().or(a.kw("fget")).unwrap_or(V::None);
     let setter = a.p.get(1).cloned().or(a.kw("fset")).unwrap_or(V::None);
-    Ok(V::Prop(Rc::new((getter, setter))))
+    let deleter = a.p.get(2).cloned().or(a.kw("fdel")).unwrap_or(V::None);
+    let doc = a.p.get(3).cloned().or(a.kw("doc")).unwrap_or(V::None);
+    a.no_kw("property")?;
+    if a.p.len() > 4 {
+        return type_err(format!("property expected at most 4 arguments, got {}", a.p.len()));
+    }
+    Ok(V::Prop(Rc::new((getter, setter, deleter, doc))))
 }
 pub fn bi_object(_a: Args) -> R {
     Ok(V::Obj(Obj::new(bclass("object"))))
@@ -4535,6 +4541,11 @@ pub fn builtin_method(o: &V, name: &str, a: Args) -> R {
                 Some(r) => r,
                 None => bad_method(o, name),
             }
+        }
+        // a property's own methods (p.getter(f), p.setter(f), p.deleter(f)) and its fget/fset/__doc__ lookups
+        V::Prop(_) => {
+            let f = getattr(o, name)?;
+            call(&f, a)
         }
         V::None if name == "__eq__" => Ok(V::Bool(matches!(a.p.first(), Some(V::None)))),
         V::Range(_) => match name {

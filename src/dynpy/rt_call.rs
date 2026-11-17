@@ -2187,18 +2187,20 @@ pub fn getattr(o: &V, name: &str) -> R {
             _ => sl.2.clone(),
         }),
         V::Prop(p) if name == "fget" => Ok(p.0.clone()),
-        // property.__isabstractmethod__: whether its getter or setter is abstract
-        V::Prop(p) if name == "__isabstractmethod__" => Ok(V::Bool(is_abstract_method(&p.0)? || is_abstract_method(&p.1)?)),
+        // property.__isabstractmethod__: whether its getter, setter or deleter is abstract
+        V::Prop(p) if name == "__isabstractmethod__" => Ok(V::Bool(is_abstract_method(&p.0)? || is_abstract_method(&p.1)? || is_abstract_method(&p.2)?)),
         V::Prop(p) if name == "fset" => Ok(p.1.clone()),
+        V::Prop(p) if name == "fdel" => Ok(p.2.clone()),
+        V::Prop(p) if name == "__doc__" => Ok(p.3.clone()),
         V::Prop(p) if matches!(name, "setter" | "getter" | "deleter") => {
             let p = p.clone();
             let which = name.to_string();
             Ok(builtin("setter", move |a: Args| {
                 let f = a1(&a, "setter")?;
                 Ok(V::Prop(Rc::new(match which.as_str() {
-                    "setter" => (p.0.clone(), f),
-                    "getter" => (f, p.1.clone()),
-                    _ => (p.0.clone(), p.1.clone()),
+                    "setter" => (p.0.clone(), f, p.2.clone(), p.3.clone()),
+                    "getter" => (f, p.1.clone(), p.2.clone(), p.3.clone()),
+                    _ => (p.0.clone(), p.1.clone(), f, p.3.clone()),
                 })))
             }))
         }
@@ -2405,6 +2407,14 @@ pub fn object_delattr(o: &V, name: &str) -> Result<(), E> {
         && ob.cls.base_bt() == BT::Exc
     {
         ob.del_attr(name)?;
+        return Ok(());
+    }
+    // a property of the program's class: its deleter, or CPython's message when it has none
+    if let Some(V::Prop(p)) = ob.cls.lookup(name) {
+        if matches!(p.2, V::None) {
+            return Err(exc("AttributeError", format!("property '{name}' of '{}' object has no deleter", ob.cls.name)));
+        }
+        call(&p.2, Args::p(vec![o.clone()]))?;
         return Ok(());
     }
     // a data descriptor of the program: __delete__(obj); one with only __set__ cannot be deleted

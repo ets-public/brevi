@@ -2654,6 +2654,8 @@ pub fn csv_dictreader_class() -> Rc<Class> {
                     o.set("_fieldnames", a.p.get(1).cloned().unwrap_or(V::None));
                     Ok(V::None)
                 }),
+                V::None,
+                V::None,
             ))));
             c.set("__next__", builtin("csv.DictReader.__next__", |a: Args| {
                 let me = a.p.first().cloned().unwrap_or(V::None);

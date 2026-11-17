@@ -4072,7 +4072,7 @@ fn partialmethod_class() -> Rc<Class> {
                 Err(e) => Err(e),
             }
         });
-        c.set("__isabstractmethod__", V::Prop(Rc::new((getter, V::None))));
+        c.set("__isabstractmethod__", V::Prop(Rc::new((getter, V::None, V::None, V::None))));
         *slot.borrow_mut() = Some(c.clone());
         c
     })

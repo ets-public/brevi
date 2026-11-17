@@ -459,7 +459,7 @@ fn gc_edges(v: &V) -> Vec<V> {
         V::Slice(x) => vec![x.0.clone(), x.1.clone(), x.2.clone()],
         V::Bound(x) => vec![x.0.clone(), x.1.clone()],
         V::BMeth(x) => vec![x.0.clone()],
-        V::Prop(x) => vec![x.0.clone(), x.1.clone()],
+        V::Prop(x) => vec![x.0.clone(), x.1.clone(), x.2.clone(), x.3.clone()],
         V::Range(_) => vec![],
         V::Iter(it) => {
             let Ok(it) = it.it.try_borrow() else { return vec![] };

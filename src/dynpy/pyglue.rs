@@ -86,6 +86,9 @@ fn pyd_ptr(s: &std::sync::atomic::AtomicPtr<std::ffi::c_void>) -> P {
 // CPython's collections.OrderedDict type, once a program's OrderedDict has gone into Python: objects of exactly that
 // type come back as the program's OrderedDict (pickle.loads of a pickled one), in their order, not as a plain dict
 static PYD_ODICT: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+// CPython's builtins module, once the program imports it: MOD.NAME(...) calls on it use the program's own value
+// when NAME maps back to one (builtins.property in a class body must be the program's property, not CPython's).
+static PYD_BUILTINS_M: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_MAIN: std::sync::OnceLock<std::thread::ThreadId> = std::sync::OnceLock::new();
 const PYD_CAP: &std::ffi::CStr = c"brevi.dyn.callable";
 
@@ -3723,6 +3726,18 @@ impl PyV {
             }
             _ => {
                 let f = self.attr_raw(n)?;
+                // MOD.NAME(args) on the bridged builtins module: NAME is the very object `NAME` is in the program,
+                // so a call of builtins.property/staticmethod/classmethod (and every other builtin function the
+                // program has) must use the program's own value; calling CPython's property would put a CPython
+                // property into the program's class dict, which its attribute machinery does not run.
+                let bm = pyd_ptr(&PYD_BUILTINS_M);
+                if !bm.is_null() && self.p == bm {
+                    if let Some(v) = pyd_builtin_fn_back(f) {
+                        (api.DecRef)(f);
+                        let taken = Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) };
+                        return call(&v, taken);
+                    }
+                }
                 // Methods of a list, dict or set the library holds hand back what it holds (d.setdefault(k, [])).
                 let r = pyd_invoke(f, &[], a, !self.live);
                 (api.DecRef)(f);
@@ -4211,6 +4226,10 @@ pub fn pyd_import(m: &str, top: bool) -> R {
         }
         let c = CString::new(m).unwrap();
         let p = pyd_own((a.Import)(c.as_ptr()))?;
+        if m == "builtins" {
+            (a.IncRef)(p);
+            PYD_BUILTINS_M.store(p, std::sync::atomic::Ordering::Relaxed);
+        }
         if top && m.contains('.') {
             (a.DecRef)(p);
             let c = CString::new(m.split('.').next().unwrap()).unwrap();

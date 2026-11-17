@@ -341,7 +341,7 @@ fn enum_add_member(c: &Rc<Class>, name: Sym, m: &V) -> Result<(), E> {
             None if b.module == "builtins" && b.name != "object" && !matches!(b.base_bt(), BT::Object | BT::Other) => match getattr(&V::Class(b.clone()), name) {
                 Ok(x) => Some(match x {
                     V::Obj(_) | V::Func(_) | V::Prop(_) | V::Bound(_) | V::BMeth(_) | V::NTF(_) => x,
-                    _ => V::Prop(Rc::new((V::None, V::None))),
+                    _ => V::Prop(Rc::new((V::None, V::None, V::None, V::None))),
                 }),
                 Err(_) => None,
             },
