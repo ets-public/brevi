@@ -46,7 +46,7 @@ use std::path::{Path, PathBuf};
 use std::io::Write;
 use std::process::{exit, Command};
 
-const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--strict] [--sandbox] [--allow read,write,net,native] [--allow-py MODULES] [--allow-net HOSTS] [--allow-read DIRS] [--allow-write DIRS] [--limit cpu=S,mem=MB,time=S,output=KB,file=MB,written=MB,net=MB,threads=N,fds=N,files=N] [--traceback] [--window] [--explain] [--standalone] [-o OUT] [ARGS...] [-- ARGS...] | brevi run --verify FILE.py [--strict] [-- ARGS...] | brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [--limit SPEC] [-- ARGS...] | brevi report [--clear] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp [--http [HOST:]PORT --token TOKEN]";
+const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--strict] [--sandbox] [--allow read,write,net,native] [--allow-py MODULES] [--allow-net HOSTS] [--allow-read DIRS] [--allow-write DIRS] [--allow-unlocked-python] [--limit cpu=S,mem=MB,time=S,output=KB,file=MB,written=MB,net=MB,threads=N,fds=N,files=N] [--traceback] [--window] [--explain] [--standalone] [-o OUT] [ARGS...] [-- ARGS...] | brevi run --verify FILE.py [--strict] [-- ARGS...] | brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [--limit SPEC] [-- ARGS...] | brevi report [--clear] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp [--http [HOST:]PORT --token TOKEN]";
 
 // The language guide, so `brevi guide` and `--explain` can serve parts of it.
 pub const GUIDE: &str = include_str!("../BREVI.md");
@@ -191,7 +191,7 @@ pub fn universal_newlines(s: &str) -> std::borrow::Cow<'_, str> {
 
 // `brevi run` options that take a value in the next argument (or after `=`).
 const RUN_VALUE_FLAGS: [&str; 9] = ["--allow", "--allow-py", "--allow-net", "--allow-read", "--allow-write", "--limit", "-o", "--timeout", "--input"];
-const RUN_FLAGS: [&str; 13] = ["--release", "--fast", "--native", "--sandbox", "--traceback", "--window", "--explain", "--standalone", "--no-cache", "--verify", "--strict", "--once", "--mcp"];
+const RUN_FLAGS: [&str; 14] = ["--allow-unlocked-python", "--release", "--fast", "--native", "--sandbox", "--traceback", "--window", "--explain", "--standalone", "--no-cache", "--verify", "--strict", "--once", "--mcp"];
 
 /// `brevi run FILE a b`, as `python3 FILE a b`: the first argument after FILE that is not a Brevi option starts the
 /// program's arguments, so a `--` is put before it. A dashed word after FILE that is no Brevi option is refused
@@ -392,6 +392,13 @@ fn main() {
                 exit(2);
             }
         }
+        sandbox = true;
+    }
+    // --allow-unlocked-python: let a sandboxed build run CPython where the kernel cannot lock it (it implies
+    // --sandbox; pybridge.rs lock_refusal).
+    let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
+    if argv[..dash].iter().position(|a| a == "--allow-unlocked-python").map(|i| argv.remove(i)).is_some() {
+        caps::UNLOCKED_PY.store(true, std::sync::atomic::Ordering::Relaxed);
         sandbox = true;
     }
     // --limit cpu=2,mem=256,time=5,output=64,file=10: what the program may use while it runs (proc.rs).
@@ -1616,6 +1623,7 @@ fn compile_once(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>
             Some(g) => foreign.rust_top.push_str(&g),
             None => {
                 pybridge::python_ok().map_err(|m| vec![Diag::new("check", 1, 1, &m).fix_hint("install CPython 3.13 with its shared library (libpython), or set BREVI_PYTHON to one")])?;
+                pybridge::lock_refusal().map_err(|m| vec![Diag::new("caps", 1, 1, &m).fix_hint(pybridge::LOCK_FIX)])?;
                 foreign.rust_top.push_str(&pybridge::runtime());
             }
         }

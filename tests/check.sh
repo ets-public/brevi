@@ -1184,6 +1184,10 @@ t=$(mktemp -d); cp -r tests/bridge/brlib tests/bridge/lib_values.py "$t"; sed -i
 out=$(cd "$t" && $B run --sandbox lib_values.py 2>&1; echo "exit $?")
 if printf '%s\n' "$out" | grep -q 'grants nothing under --sandbox' && printf '%s\n' "$out" | grep -qx 'exit 1'; then echo "ok   sandbox ignores # allow native"; else echo "FAIL sandbox ignores # allow native"; printf '%s\n' "$out"; fail=1; fi
 rm -rf "$t"
+# --allow-unlocked-python: on Linux, where the kernel locks CPython, it changes nothing: same output, no warning
+# (off Linux the build is refused without it, pybridge.rs lock_refusal; the PC's Windows checks cover that side).
+out=$(cd tests/bridge && $B run --sandbox --allow-py brlib --allow-unlocked-python lib_values.py 2>&1; echo "exit $?")
+if [ "$(printf '%s\n' "$out" | grep -v '^{"path"')" = "$want" ]; then echo "ok   sandbox bridge --allow-unlocked-python on Linux"; else echo "FAIL sandbox bridge --allow-unlocked-python on Linux"; printf '%s\n' "$out"; fail=1; fi
 #== standalone split
 # brevi build --standalone: a program calling Python libraries carries its own CPython. Run without python3 on
 # PATH and, where user namespaces allow it, in an empty root holding only the C library.

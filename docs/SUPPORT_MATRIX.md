@@ -52,4 +52,5 @@ Under `--sandbox` (and in the MCP tools by default) nothing runs in CPython unle
 | `--standalone` | yes | no | yes |
 | Landlock holding CPython to file grants | Linux 5.13+ | no | no |
 | seccomp holding CPython to no network without a grant (from v0.28.0; Linux arm64 too) | yes | no | no |
+| Sandboxed CPython where a lock is missing (from the next release; `--allow-unlocked-python` runs it with a warning on every start) | refused when it starts (kernel without Landlock or seccomp) | refused at build | refused at build |
 | Resource limits | see the table above | see the table above | see the table above |

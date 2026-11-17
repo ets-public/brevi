@@ -41,6 +41,7 @@ Newest first. Only changes that can affect programs or setups that already work.
 
 These are on `main` now and ship with the next release.
 
+- **Sandboxed CPython is refused where the kernel cannot lock it.** Under `--sandbox` with `--allow-py` or `--allow native`, a program that runs CPython is refused on macOS and Windows at build time, and at start on a Linux kernel without Landlock (or without seccomp, or on an architecture other than x86-64 and arm64, when no network is granted). Before, CPython there kept full file access when no folders were named, and the network on macOS and Windows. Grant `--allow read,write` and `--allow net` if CPython should have them, or pass `--allow-unlocked-python` (`brevi mcp --allow-unlocked-python` for a server) to build it anyway: it then warns on every start.
 - **`--limit cpu` works on Windows**, held by a Job Object and a watch thread over user and kernel time. `file`, `fds` and `threads` stay refused there.
 - **`BREVI_DYN=0` keeps the wrong-answer guard.** A file the guard sends to the dynamic build is refused instead of built typed.
 - **Pickle and copy refusals stop the program** instead of raising an exception a `try` could catch. Pickles of the program's own classes, int and tuple subclasses and namedtuples now have CPython's exact bytes, and `copy` honours a class's `__reduce__`, `__getstate__` and `__setstate__` (they were skipped before).
