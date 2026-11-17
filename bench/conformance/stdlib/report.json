@@ -1,6 +1,6 @@
 {
 "brevi": "brevi 0.28.2",
-"commit": "4d6373180064",
+"commit": "17288ca0d1b6",
 "python": "3.13.13",
 "tag": "v3.13.13",
 "date": "2026-11-17",
@@ -10,8 +10,8 @@
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 2018,
-"refused": 30,
+"matched": 2023,
+"refused": 25,
 "by_design": 6,
 "string_model": 0,
 "cpython_private": 0,
@@ -25,16 +25,16 @@
 "scored": 2051,
 "matched_through_cpython": 2,
 "matched_silent": 53,
-"coverage": 0.9829351535836177,
+"coverage": 0.985372988785958,
 "wrong": 0,
-"matched_asserting": 1964,
-"assert_coverage": 0.9575816674792784,
+"matched_asserting": 1969,
+"assert_coverage": 0.9600195026816187,
 "matched_typed": 23,
-"typed_share": 0.011408730158730158
+"typed_share": 0.011380504700643246
 },
 "dyn": {
-"matched": 2018,
-"refused": 30,
+"matched": 2023,
+"refused": 25,
 "by_design": 6,
 "string_model": 0,
 "cpython_private": 0,
@@ -48,10 +48,10 @@
 "scored": 2051,
 "matched_through_cpython": 0,
 "matched_silent": 53,
-"coverage": 0.9839102876645539,
+"coverage": 0.9863481228668942,
 "wrong": 0,
-"matched_asserting": 1965,
-"assert_coverage": 0.9580692345197465,
+"matched_asserting": 1970,
+"assert_coverage": 0.9605070697220868,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -491,8 +491,8 @@
 },
 "test_dataclasses": {
 "normal": {
-"matched": 231,
-"refused": 15,
+"matched": 236,
+"refused": 10,
 "by_design": 0,
 "string_model": 0,
 "cpython_private": 0,
@@ -506,16 +506,16 @@
 "scored": 247,
 "matched_through_cpython": 0,
 "matched_silent": 2,
-"coverage": 0.9352226720647774,
+"coverage": 0.9554655870445344,
 "wrong": 0,
-"matched_asserting": 229,
-"assert_coverage": 0.9271255060728745,
+"matched_asserting": 234,
+"assert_coverage": 0.9473684210526315,
 "matched_typed": 0,
 "typed_share": 0.0
 },
 "dyn": {
-"matched": 231,
-"refused": 15,
+"matched": 236,
+"refused": 10,
 "by_design": 0,
 "string_model": 0,
 "cpython_private": 0,
@@ -529,10 +529,10 @@
 "scored": 247,
 "matched_through_cpython": 0,
 "matched_silent": 2,
-"coverage": 0.9352226720647774,
+"coverage": 0.9554655870445344,
 "wrong": 0,
-"matched_asserting": 229,
-"assert_coverage": 0.9271255060728745,
+"matched_asserting": 234,
+"assert_coverage": 0.9473684210526315,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -588,14 +588,14 @@
 },
 "paths": {
 "normal": {
-"dynamic": 1997,
-"refused": 36,
+"dynamic": 2002,
+"refused": 31,
 "typed": 23,
 "pybridge": 2
 },
 "dyn": {
-"dynamic": 2022,
-"refused": 36
+"dynamic": 2027,
+"refused": 31
 }
 },
 "tests": [
@@ -14576,12 +14576,12 @@
 "file": "test_dataclasses",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found D"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "unittest.mock: a Mock stored on a class of the program needs CPython"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -14590,12 +14590,12 @@
 "file": "test_dataclasses",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found D"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "unittest.mock: a Mock stored on a class of the program needs CPython"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -14604,12 +14604,12 @@
 "file": "test_dataclasses",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found D"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "unittest.mock: a Mock stored on a class of the program needs CPython"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -14674,12 +14674,12 @@
 "file": "test_dataclasses",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found D"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "unittest.mock: a Mock stored on a class of the program needs CPython"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -14688,12 +14688,12 @@
 "file": "test_dataclasses",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found D"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "unittest.mock: a Mock stored on a class of the program needs CPython"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
