@@ -52,4 +52,5 @@ Under `--sandbox` (and in the MCP tools by default) nothing runs in CPython unle
 | `--standalone` | yes | no | yes |
 | Landlock holding CPython to file grants | Linux 5.13+ | no | no |
 | seccomp holding CPython to no network without a grant (from v0.28.0; Linux arm64 too) | yes | no | no |
+| seccomp keeping held CPython from other processes: ptrace, process_vm_readv/writev, pidfd_open/getfd, userfaultfd (from v0.28.4) | yes | no | no |
 | Resource limits | see the table above | see the table above | see the table above |
