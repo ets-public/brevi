@@ -5,25 +5,78 @@
 // whole MRO is the program's classes plus object, set or frozenset (pk_cat): those are the ones CPython reduces
 // with nothing more than these rules. pyglue.rs hands the result to CPython's pickle.
 
-// object, set or frozenset: the builtin base an instance of `c` is reduced on, when every other class of its MRO
-// is the program's (made by a class statement, type() or a dataclass) and it is no Enum, exception or namedtuple
+// A namedtuple class the program made (collections.namedtuple in __main__ or a module of the program): its own
+// methods (__getnewargs__) are the program's, as a class statement's are
+fn pk_prog_nt(k: &Rc<Class>) -> bool {
+    k.own("__bv_namedtuple__").is_some() && (k.module == "__main__" || USER_MOD.with(|u| u.get()).and_then(|f| f(k.module, "")).is_some())
+}
+// A class of the program: made by a class statement, type() or a dataclass, or a namedtuple it made
+fn pk_prog(k: &Rc<Class>) -> bool {
+    k.made.get() != 0 || pk_prog_nt(k)
+}
+// object, set, frozenset, int or tuple: the builtin base an instance of `c` is reduced on, when every other class
+// of its MRO is the program's (pk_prog) and it is no Enum or exception
 pub fn pk_cat(c: &Rc<Class>) -> Option<BT> {
-    if is_enum(c) || c.lookup("__bv_namedtuple__").is_some() {
+    if is_enum(c) {
         return None;
     }
+    let b = c.base_bt();
+    let base = match b {
+        BT::Object => "object",
+        BT::Set => "set",
+        BT::FSet => "frozenset",
+        BT::Int => "int",
+        BT::Tuple => "tuple",
+        _ => return None,
+    };
     for k in c.mro.borrow().iter() {
-        if k.made.get() == 0 && !(k.module == "builtins" && matches!(k.name, "object" | "set" | "frozenset")) {
+        if !pk_prog(k) && !(k.module == "builtins" && (k.name == "object" || k.name == base)) {
             return None;
         }
     }
-    match c.base_bt() {
-        b @ (BT::Object | BT::Set | BT::FSet) => Some(b),
-        _ => None,
-    }
+    Some(b)
 }
 // `n` defined by one of the program's classes in c's MRO (not by object, set or frozenset)
 pub fn pk_own(c: &Rc<Class>, n: &str) -> Option<V> {
     c.mro.borrow().iter().filter(|k| k.made.get() != 0).find_map(|k| k.own(n))
+}
+// `n` as pickle finds it on the type: the first of c's MRO that is the program's (pk_prog, so a namedtuple's own
+// __getnewargs__ too) and defines it
+fn pk_own_nt(c: &Rc<Class>, n: &str) -> Option<V> {
+    c.mro.borrow().iter().filter(|k| pk_prog(k)).find_map(|k| k.own(n))
+}
+// _PyObject_GetNewArguments: the arguments of cls.__new__ when an instance is made again (reduce_newobj), from the
+// class's own __getnewargs_ex__ or __getnewargs__, else int's and tuple's own __getnewargs__ ((int(self),),
+// (tuple(self),)); None: object, set and frozenset have none
+fn pk_newargs(x: &V, c: &Rc<Class>, cat: BT) -> Result<(Option<Vec<V>>, Vec<(V, V)>), E> {
+    if pk_own_nt(c, "__getnewargs_ex__").is_some() {
+        let r = call_method(x, "__getnewargs_ex__", Args::p(vec![]))?;
+        let V::Tuple(t) = &r else { return type_err(format!("__getnewargs_ex__ should return a tuple, not '{}'", tn(&r))) };
+        if t.len() != 2 {
+            return val_err(format!("__getnewargs_ex__ should return a tuple of length 2, not {}", t.len()));
+        }
+        let V::Tuple(a) = &t[0] else { return type_err(format!("first item of the tuple returned by __getnewargs_ex__ must be a tuple, not '{}'", tn(&t[0]))) };
+        let V::Dict(k) = &t[1] else { return type_err(format!("second item of the tuple returned by __getnewargs_ex__ must be a dict, not '{}'", tn(&t[1]))) };
+        let kw = k.borrow().items();
+        return Ok((Some(a.to_vec()), kw));
+    }
+    if pk_own_nt(c, "__getnewargs__").is_some() {
+        let r = call_method(x, "__getnewargs__", Args::p(vec![]))?;
+        let V::Tuple(t) = &r else { return type_err(format!("__getnewargs__ should return a tuple, not '{}'", tn(&r))) };
+        return Ok((Some(t.to_vec()), vec![]));
+    }
+    Ok(match cat {
+        BT::Int | BT::Tuple => (Some(vec![pk_base_value(x, cat)?]), vec![]),
+        _ => (None, vec![]),
+    })
+}
+// int(self) or tuple(self) of an instance of an int or tuple subclass: the plain value it holds
+fn pk_base_value(x: &V, cat: BT) -> R {
+    match (o_inner(x), cat) {
+        (Some(v @ (V::Int(_) | V::Big(_))), BT::Int) => Ok(v),
+        (Some(V::Tuple(t)), BT::Tuple) => Ok(V::Tuple(t)),
+        _ => Err(unsupported_stop("pickling an int or tuple subclass instance whose value is not a plain int or tuple")),
+    }
 }
 // copyreg._slotnames: each class's own __slots__, in MRO order, without __dict__ and __weakref__, private names
 // mangled
@@ -78,23 +131,38 @@ fn pk_getstate(v: &V, c: &Rc<Class>) -> R {
     pk_default_state(v, c)
 }
 
-// How an instance is made again: copyreg.__newobj__(cls, *args) (cls.__new__(cls, *args)), copyreg._reconstructor
-// (object.__new__(cls)), or a call of the class (set's __reduce__ gives (cls, (list(self),), state))
+// How an instance is made again: copyreg.__newobj__(cls, *args) (cls.__new__(cls, *args)), copyreg.__newobj_ex__
+// (cls, args, kwargs), copyreg._reconstructor (base.__new__(cls[, state]) with base object, int or tuple), or a call
+// of the class (set's __reduce__ gives (cls, (list(self),), state)); Raw: the reduce value the class's own
+// __reduce_ex__ or __reduce__ gave, which pickle saves as it is
 pub enum PkHow {
     NewObj,
+    NewObjEx(Vec<(V, V)>),
     Recon,
     Call,
+    Raw(V),
 }
-// What pickle.dumps saves for the program's object `v` at `proto`: how it is made, the class, the arguments after
-// the class, and the state (None: none). Refused for a class that changes how it pickles in ways not run here.
+// What pickle.dumps saves for the program's object `v` at `proto` (CPython's object.__reduce_ex__: the class's own
+// __reduce_ex__, else its own __reduce__, else set's __reduce__ or reduce_newobj, or copyreg._reduce_ex below
+// protocol 2): how it is made, the class, the arguments after the class, and the state (None: none).
 pub fn pk_reduce(v: &V, proto: i64) -> Result<(PkHow, Rc<Class>, Vec<V>, V), E> {
     let V::Obj(o) = v else { return type_err(format!("cannot pickle '{}' object", tn(v))) };
     let c = o.cls.clone();
     let Some(cat) = pk_cat(&c) else { return type_err(format!("cannot pickle '{}' object", tn(v))) };
-    for n in ["__reduce_ex__", "__reduce__", "__getnewargs__", "__getnewargs_ex__"] {
-        if pk_own(&c, n).is_some() {
-            return Err(unsupported_stop(&format!("pickling an instance of a class that defines {n}")));
+    // pickle calls obj.__reduce_ex__(proto); object's calls an overriding __reduce__
+    let raw = if pk_own_nt(&c, "__reduce_ex__").is_some() {
+        Some(call_method(v, "__reduce_ex__", Args::p(vec![V::Int(proto)]))?)
+    } else if pk_own_nt(&c, "__reduce__").is_some() {
+        Some(call_method(v, "__reduce__", Args::p(vec![]))?)
+    } else {
+        None
+    };
+    if let Some(rv) = raw {
+        // a str names a global, which pickle finds by the module of the object: the stand-in's is not the program's
+        if matches!(rv, V::Str(_)) {
+            return Err(unsupported_stop("pickling an object of the program whose __reduce__ gives a global name"));
         }
+        return Ok((PkHow::Raw(rv), c, vec![], V::None));
     }
     match cat {
         // set_reduce: (type(self), (list(self),), self.__getstate__())
@@ -106,13 +174,28 @@ pub fn pk_reduce(v: &V, proto: i64) -> Result<(PkHow, Rc<Class>, Vec<V>, V), E> 
             let state = pk_getstate(v, &c)?;
             Ok((PkHow::Call, c, vec![list(items)], state))
         }
-        // reduce_newobj: (copyreg.__newobj__, (cls,), state, None, None)
+        // reduce_newobj: (copyreg.__newobj__, (cls, *args), state, None, None), or with keyword arguments
+        // (copyreg.__newobj_ex__, (cls, args, kwargs), ...)
         _ if proto >= 2 => {
+            let (args, kw) = pk_newargs(v, &c, cat)?;
             let state = pk_getstate(v, &c)?;
-            Ok((PkHow::NewObj, c, vec![], state))
+            if kw.is_empty() {
+                Ok((PkHow::NewObj, c, args.unwrap_or_default(), state))
+            } else {
+                // below protocol 4 pickle saves partial(cls.__new__, cls, *args, **kwargs), naming the program's __new__
+                if proto < 4 {
+                    return Err(unsupported_stop("pickling below protocol 4 an object whose __getnewargs_ex__ gives keyword arguments"));
+                }
+                Ok((PkHow::NewObjEx(kw), c, args.unwrap_or_default(), state))
+            }
         }
-        // copyreg._reduce_ex: base is object, so (_reconstructor, (cls, object, None)) and the state when true
+        // copyreg._reduce_ex: (_reconstructor, (cls, base, base(self) or None)) and the state when true
         _ => {
+            let (base, bstate) = match cat {
+                BT::Int => (V::Class(bclass("int")), pk_base_value(v, cat)?),
+                BT::Tuple => (V::Class(bclass("tuple")), pk_base_value(v, cat)?),
+                _ => (V::Class(bclass("object")), V::None),
+            };
             let state = if pk_own(&c, "__getstate__").is_some() {
                 call_method(v, "__getstate__", Args::p(vec![]))?
             } else {
@@ -125,7 +208,7 @@ pub fn pk_reduce(v: &V, proto: i64) -> Result<(PkHow, Rc<Class>, Vec<V>, V), E> 
                 pk_default_state(v, &c)?
             };
             let state = if truth(&state)? { state } else { V::None };
-            Ok((PkHow::Recon, c, vec![V::Class(bclass("object")), V::None], state))
+            Ok((PkHow::Recon, c, vec![base, bstate], state))
         }
     }
 }
@@ -301,28 +384,15 @@ fn pk_copy_red(x: &V, c: &Rc<Class>, cat: BT, mut memo: Option<&mut Vec<(usize, 
                 (How::Call(V::Class(c.clone()), vec![list(items)], vec![]), Some(pk_getstate(x, c)?), None, None)
             }
             _ => {
-                // reduce_newobj: __getnewargs_ex__ or __getnewargs__ give the arguments of cls.__new__
-                let (args, kw) = if pk_own(c, "__getnewargs_ex__").is_some() {
-                    let r = call_method(x, "__getnewargs_ex__", Args::p(vec![]))?;
-                    let V::Tuple(t) = &r else { return type_err(format!("__getnewargs_ex__ should return a tuple, not '{}'", tn(&r))) };
-                    if t.len() != 2 {
-                        return val_err(format!("__getnewargs_ex__ should return a tuple of length 2, not {}", t.len()));
-                    }
-                    let V::Tuple(a) = &t[0] else { return type_err(format!("first item of the tuple returned by __getnewargs_ex__ must be a tuple, not '{}'", tn(&t[0]))) };
-                    let V::Dict(k) = &t[1] else { return type_err(format!("second item of the tuple returned by __getnewargs_ex__ must be a dict, not '{}'", tn(&t[1]))) };
-                    let mut kw = vec![];
-                    for (kk, vv) in k.borrow().items() {
-                        let V::Str(kk) = kk else { return Err(unsupported_stop("__getnewargs_ex__ keywords that are not str")) };
-                        kw.push((sym(kk.text()), vv));
-                    }
-                    (Some(a.to_vec()), kw)
-                } else if pk_own(c, "__getnewargs__").is_some() {
-                    let r = call_method(x, "__getnewargs__", Args::p(vec![]))?;
-                    let V::Tuple(t) = &r else { return type_err(format!("__getnewargs__ should return a tuple, not '{}'", tn(&r))) };
-                    (Some(t.to_vec()), vec![])
-                } else {
-                    (None, vec![])
-                };
+                // reduce_newobj: __getnewargs_ex__ or __getnewargs__ (int's and tuple's own too) give the
+                // arguments of cls.__new__
+                let (args, kw) = pk_newargs(x, c, cat)?;
+                let mut kws = vec![];
+                for (kk, vv) in kw {
+                    let V::Str(kk) = kk else { return Err(unsupported_stop("__getnewargs_ex__ keywords that are not str")) };
+                    kws.push((sym(kk.text()), vv));
+                }
+                let kw = kws;
                 let state = pk_getstate(x, c)?;
                 (How::New(args.unwrap_or_default(), kw), Some(state).filter(|v| !matches!(v, V::None)), None, None)
             }
