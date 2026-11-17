@@ -982,7 +982,7 @@ class Universe:
         script.test_fn = fn
         for w in wrappers:
             if w[0] == "decorator":
-                for n in uses(w[1])[0]:
+                for n in sorted(uses(w[1])[0]):
                     script.need(owner, n)
         if any(isinstance(n, ast.Constant) and isinstance(n.value, str) and STRING_ANNOTATION.search(n.value) for n in ast.walk(fn)):
             # dataclasses reads a string annotation ('typing.ClassVar[int]', 'InitVar') by looking the names up in the
@@ -1004,7 +1004,7 @@ class Universe:
         if plain:
             text = dedent(body, fn.col_offset)
             text = re.sub(r"^def (\w+)\(self(?:, |\))", lambda mo: f"def {mo.group(1)}(" + ("" if mo.group(0).endswith(", ") else ")"), text, count=1)
-            for n in names:
+            for n in sorted(names):
                 script.need(owner, n)
             script.call = wrapped_call(wrappers, method)
             tail = f"{text}\n\n{script.call}\n"
@@ -1284,7 +1284,7 @@ class Script:
             return
         text = mod.block(node)
         self.nodes[key] = text
-        for n in uses(text)[0]:
+        for n in sorted(uses(text)[0]):  # sorted: set order follows the hash seed, and need() can raise
             self.need(mod, n)
 
     def class_shape(self, chain, leaf, method, wrappers):
@@ -1303,7 +1303,7 @@ class Script:
                         continue
                     picked.setdefault(i, {})[node.lineno] = text
                     names, attrs = uses(text)
-                    for n in names:
+                    for n in sorted(names):
                         self.need(mod, n)
                     todo += sorted(attrs | names)
         out, base = [], ""
@@ -1817,41 +1817,6 @@ def run_case(case, cfg):
     return {**case, "modes": modes}
 
 
-def timed_case(case, cfg):
-    """(run_case's result, wall seconds it took)."""
-    begun = time.monotonic()
-    got = run_case(case, cfg)
-    return got, time.monotonic() - begun
-
-
-# What each test took in this machine's last runs (seconds by id, every slice in one file): the next run starts the
-# slowest first. Only scheduling reads it, never a result, so a missing or stale file changes nothing but the order.
-CASE_TIMES = "case-times.json"
-
-
-def read_case_times(cache):
-    try:
-        got = json.loads((cache / CASE_TIMES).read_text())
-        return {i: float(s) for i, s in got.items()} if isinstance(got, dict) else {}
-    except (OSError, ValueError, TypeError):
-        return {}
-
-
-def write_case_times(cache, took, now):
-    """Adds this run's times to the last ones (a --filter run keeps the rest)."""
-    try:
-        tmp = cache / f"{CASE_TIMES}.{os.getpid()}"
-        tmp.write_text(json.dumps({i: round(s, 1) for i, s in {**took, **now}.items()}, indent=0, sort_keys=True) + "\n")
-        os.replace(tmp, cache / CASE_TIMES)
-    except OSError:
-        pass
-
-
-def longest_first(cases, took):
-    """The cases slowest first by took; tests it has no time for go first, in their own order (stable sort)."""
-    return sorted(cases, key=lambda c: -took.get(c["id"], float("inf")))
-
-
 CATEGORIES = ["matched", "refused", "by_design", "string_model", "cpython_private", "wrong_output", "wrong_exit", "crash_or_timeout", "not_extractable", "unstable", "excluded"]
 # A native program that dies on one of these may be memory-unsafe, which SECURITY.md asks to report privately:
 # the public report only counts them; the test names go to private_signals.json in the cache.
@@ -2272,20 +2237,14 @@ def main():
     cfg.work.mkdir(parents=True, exist_ok=True)
     runnable = [c for c in cases if "script" in c]
     print(f"{len(cases)} tests, {len(runnable)} extracted, jobs {cfg.jobs}", file=sys.stderr)
-    took = read_case_times(cache)
     with cf.ThreadPoolExecutor(cfg.jobs) as ex:
-        # Longest first, by what each test took last time on this machine, so a slow one does not start last and
-        # hold up the run's tail. Only the order changes: each test still runs alone in its own folder, and the
-        # results are read back by id in the slice's order.
-        futures = {c["id"]: ex.submit(timed_case, c, cfg) for c in longest_first(runnable, took)}
+        futures = {c["id"]: ex.submit(run_case, c, cfg) for c in runnable}
         done = 0
         for f in cf.as_completed(futures.values()):
             done += 1
             if done % 50 == 0:
                 print(f"  {done}/{len(runnable)}", file=sys.stderr)
-    timed = {i: f.result() for i, f in futures.items()}
-    write_case_times(cache, took, {i: sec for i, (_, sec) in timed.items()})
-    results = [timed[c["id"]][0] if "script" in c else c for c in cases]
+    results = [futures[c["id"]].result() if "script" in c else c for c in cases]
     for r in results:
         r.pop("script", None)
         r.pop("files", None)
