@@ -1653,7 +1653,9 @@ fn class_getattr(o: &V, c: &Rc<Class>, name: &str) -> R {
     if name == "__annotations__" && c.module != "builtins" {
         return Ok(c.annotations());
     }
-    if let Some(v) = c.lookup(name) {
+    // type's __name__ and __qualname__ are data descriptors: a class attribute of that name (a property for the
+    // instances) never hides them
+    if let Some(v) = c.lookup(name).filter(|_| !matches!(name, "__name__" | "__qualname__")) {
         return Ok(match &v {
             V::Func(f) if f.kind.get() == 2 => V::Bound(Rc::new((o.clone(), v.clone()))),
             V::Func(f) if f.kind.get() == 1 => static_get(f, &v),
@@ -1712,7 +1714,10 @@ fn class_getattr(o: &V, c: &Rc<Class>, name: &str) -> R {
     match name {
         // A library type named by its dotted CPython type name ("datetime.date", "numpy.float64"; see
         // ext_class): CPython splits such a name at its last dot into __module__ and __name__.
-        "__name__" => Ok(s(dotted_type_name(c).map_or(c.name, |(_, n)| n))),
+        "__name__" => match c.own("__bv_name__") {
+            Some(v) => Ok(v),
+            None => Ok(s(dotted_type_name(c).map_or(c.name, |(_, n)| n))),
+        },
         "__qualname__" => Ok(s(dotted_type_name(c).map_or(c.qualname.get(), |(_, n)| n))),
         "__module__" => Ok(s(dotted_type_name(c).map_or(c.module, |(m, _)| m))),
         "__mro__" => Ok(tup(c.mro.borrow().iter().map(|k| V::Class(k.clone())).collect())),
@@ -2271,6 +2276,19 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
             }
             if name == "__set__" || name == "__delete__" {
                 USER_DATA_DESC.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            // type's __name__ and __qualname__ setters: a str only, kept apart from the class's own attributes of
+            // those names (class_getattr)
+            if name == "__name__" || name == "__qualname__" {
+                let V::Str(t) = &v else {
+                    return type_err(format!("can only assign string to {}.{name}, not '{}'", to_str(&getattr(o, "__name__")?)?, tn(&v)));
+                };
+                if name == "__qualname__" {
+                    c.qualname.set(sym(&t.text()));
+                } else {
+                    c.set_exact(sym("__bv_name__"), v);
+                }
+                return Ok(());
             }
             c.set_exact(name, v);
             Ok(())
