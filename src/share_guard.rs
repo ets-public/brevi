@@ -2437,7 +2437,7 @@ impl<'p, 'a> Cx<'p, 'a> {
         let prog = self.p;
         let fi = &prog.fns[self.f];
         let mut found = vec![];
-        let mut each = |b: &[Stmt], found: &mut Vec<(String, String, Option<String>)>| {
+        let each = |b: &[Stmt], found: &mut Vec<(String, String, Option<String>)>| {
             fn rec(b: &[Stmt], found: &mut Vec<(String, String, Option<String>)>) {
                 for s in b {
                     if let Some(f) = wb_form(s) {
