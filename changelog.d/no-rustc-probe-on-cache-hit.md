@@ -1,0 +1,1 @@
+- A result-cache hit of `brevi run`, `build` or `check` no longer starts `rustc -vV`: the toolchain probe now runs only in the process that builds, which saves a process per cached run and avoids the probe being killed by SIGPIPE when the replay finished first.
