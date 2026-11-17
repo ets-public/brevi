@@ -9,15 +9,17 @@ Brevi compiles ordinary Python to Rust and builds a native binary. Write the pro
 
 ## Setup
 
-Check that `brevi --version` works. If it does not, run the repository's `install.sh`: it fetches the Rust toolchain if `rustc` is missing (Brevi compiles through it), then a prebuilt `brevi` from the latest release, verified against its `SHA256SUMS`, or builds it with `cargo install --git https://github.com/ets-public/brevi`.
+Check that `brevi --version` works. If it does not and `uv` is installed, write `uvx --python 3.13 brevi` wherever this says `brevi` (or run `uv tool install --python 3.13 brevi` once): it fetches brevi, CPython 3.13 for `--verify`, and on the first build the Rust release Brevi is tested with (Linux x86-64 and macOS; Linux ARM64 and Windows need Rust from rustup until the next release). Without uv, run the repository's `install.sh`: it fetches the Rust toolchain if `rustc` is missing (Brevi compiles through it), then a prebuilt `brevi` from the latest release, verified against its `SHA256SUMS`, or builds it with `cargo install --git https://github.com/ets-public/brevi`.
 
 ## Loop
 
-1. Write normal Python to `main.py` (standard library or installed packages such as numpy; split big programs into `.py` files that import each other). There is no guide to read first. Brevi compiles it to native code, which runs plain loops over ints, lists and strings several times faster than CPython (1.6x to 37.9x, median 9.3x, on our 12 compute benchmarks): write the plain, direct solution and do not hand-optimise it for speed (no bit-packing tricks or big-int bitboards).
+1. Write normal Python to `main.py` (standard library or installed packages such as numpy; split big programs into `.py` files that import each other). There is no guide to read first. Brevi compiles it to native code, which runs plain loops over ints, lists and strings several times faster than CPython (typed build: 1.6x to 37.9x, median 9.3x, on our 12 compute benchmarks; when values change type it falls back to the dynamic build, median 0.85x): write the plain, direct solution and do not hand-optimise it for speed (no bit-packing tricks or big-int bitboards).
 2. Run it with `brevi run main.py < input.txt`, or `brevi check main.py` to build without running. `brevi build main.py -o app --release` makes the fast binary. From v0.27.0, run it with `brevi run --verify main.py < input.txt`: the run is checked against CPython (with `--sandbox`, against Brevi's dynamic build instead), and if Brevi's answer differs you get CPython's output (the dynamic build's, with `--sandbox`) and a `{"verify":"differs"}` line on stderr instead of a wrong answer.
 3. Each error is `{"line":N,"msg":...,"fix":...}`. Change only the lines it names, then run again. Do not rewrite the whole file.
 4. Off the fast path, one `{"path":...}` line on stderr says what ran and why: `dynamic` (still native, slower) or `pybridge` (library calls in CPython) are fine; when speed matters, rewrite only the `fn` it names so it keeps one type per value. `cpython` means Brevi did not build it at all.
 5. If Brevi still cannot build a Python construct after one small change, keep the Python as it is, run it with `python3 main.py`, and say that it ran without Brevi.
+
+Security: `--sandbox` is a policy layer, not an isolation boundary, and there has been no external security audit yet. Run untrusted code in a container or VM. `--allow-py` and `--allow native` are full trust.
 
 ## Writing Brevi itself
 

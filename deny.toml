@@ -1,0 +1,22 @@
+# cargo deny check (tools/security_checks.sh): advisories, licenses and sources for every Cargo.lock Brevi has.
+# The compiler itself has no dependencies; runtime/brevi_tk (GUI programs) and fuzz/ (not shipped) do.
+[graph]
+all-features = true
+
+[advisories]
+# RustSec; an unmaintained crate is a finding to look at, not a failure.
+unmaintained = "workspace"
+yanked = "deny"
+
+[licenses]
+allow = ["Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Unicode-3.0", "Zlib", "CC0-1.0", "BSL-1.0", "MPL-2.0", "OFL-1.1", "Ubuntu-font-1.0", "LicenseRef-UFL-1.0"]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

@@ -1,0 +1,73 @@
+# `is` on the results of bytes operations: CPython returns the same object for an exact bytes when nothing
+# changes, and a new one when anything is made (bytearray and bytes subclasses never come back as they are).
+import copy
+
+b = bytes([104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100])
+ws = bytes([32, 104, 105, 32])
+
+
+class B2(bytes):
+    pass
+
+
+def row(name, r):
+    print(name, r)
+
+
+row("slice", b[:] is b)
+row("slice 0:n", b[0:len(b)] is b)
+row("slice ::1", b[::1] is b)
+row("slice big", b[-100:100] is b)
+row("slice part", b[1:] is b)
+row("slice rev", b[::-1] is b)
+row("mul 1", b * 1 is b)
+row("rmul 1", 1 * b is b)
+row("mul 2", b * 2 is b)
+row("add empty", b + b"" is b)
+row("empty add", b"" + b is b)
+row("add bytearray", b + bytearray() is b)
+row("add more", b + b"!" is b)
+row("bytes()", bytes(b) is b)
+row("bytearray()", bytearray(b) is b)
+row("copy", copy.copy(b) is b)
+row("replace none", b.replace(b"q", b"z") is b)
+row("replace 0", b.replace(b"l", b"z", 0) is b)
+row("replace same", b.replace(b"l", b"l") is b)
+row("replace real", b.replace(b"l", b"z") is b)
+row("strip", b.strip() is b)
+row("lstrip", b.lstrip() is b)
+row("rstrip", b.rstrip() is b)
+row("strip q", b.strip(b"q") is b)
+row("strip ws", ws.strip() is ws)
+row("join 1", b"".join([b]) is b)
+row("join 1 sep", b"x".join([b]) is b)
+row("join 2", b"".join([b, b]) is b)
+row("join sub", b"".join([B2(b)]) is b)
+row("join bytearray", b"".join([bytearray(b)]) is b)
+row("center", b.center(2) is b)
+row("ljust", b.ljust(2) is b)
+row("rjust", b.rjust(2) is b)
+row("zfill", b.zfill(2) is b)
+row("center wide", b.center(40) is b)
+row("expandtabs", b.expandtabs() is b)
+row("split", b.split(b"q")[0] is b)
+row("rsplit", b.rsplit(b"q")[0] is b)
+row("split hit", b.split(b"o")[0] is b)
+row("split ws", b.split()[0] is b)
+row("splitlines", b.splitlines()[0] is b)
+row("splitlines nl", (b + b"\n").splitlines()[0] is b)
+row("partition", b.partition(b"q")[0] is b)
+row("rpartition", b.rpartition(b"q")[2] is b)
+row("partition hit", b.partition(b"o")[0] is b)
+row("removeprefix", b.removeprefix(b"q") is b)
+row("removesuffix", b.removesuffix(b"q") is b)
+row("removeprefix hit", b.removeprefix(b"h") is b)
+row("translate", b.translate(None) is b)
+row("translate delete", b.translate(None, b"q") is b)
+row("translate del hit", b.translate(None, b"l") is b)
+row("lower", b.lower() is b)
+row("upper", b.upper() is b)
+row("title", b.title() is b)
+x = B2(b)
+row("sub mul", x * 1 is x)
+row("sub replace", x.replace(b"q", b"z") is x)

@@ -34,11 +34,11 @@ const VERSIONS: [&str; 4] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-
 const MODERN: [&str; 1] = ["2026-07-28"];
 const K_VERSION: &str = "io.modelcontextprotocol/protocolVersion";
 const K_CAPS: &str = "io.modelcontextprotocol/clientCapabilities";
-const INSTRUCTIONS: &str = "Write plain Python: Brevi compiles it to native code, which runs plain loops several times faster than CPython (1.6x to 37.9x, median 9.3x, on our 12 compute benchmarks), so write the plain, direct solution and do not hand-optimise it. No guide needed (it covers Brevi syntax, .bv files). Pass your program as code once; then fix errors with patch (whole defs by name) or edit (lines), which change only what you send and check again.";
+const INSTRUCTIONS: &str = "Write plain Python: Brevi compiles it to native code, which runs plain loops several times faster than CPython (typed build: 1.6x to 37.9x, median 9.3x, on our 12 compute benchmarks; when values change type it falls back to the dynamic build, median 0.85x), so write the plain, direct solution and do not hand-optimise it. No guide needed (it covers Brevi syntax, .bv files). Pass your program as code once; then fix errors with patch (whole defs by name) or edit (lines), which change only what you send and check again.";
 
 // A 2026-07-28 request's envelope: Ok(true) for one, Ok(false) for a request without one (the handshake era),
 // Err(the error object) when the envelope names a version this server lacks or leaves a key out.
-fn envelope(params: &J) -> Result<bool, String> {
+pub(crate) fn envelope(params: &J) -> Result<bool, String> {
     let Some(meta) = params.get("_meta") else { return Ok(false) };
     let Some(v) = meta.get(K_VERSION) else { return Ok(false) };
     let asked = v.str().unwrap_or("");
@@ -80,13 +80,13 @@ pub(crate) fn to_json(j: &J) -> String {
 }
 
 const TOOLS: &str = r#"[
-{"name":"guide","title":"Brevi guide","description":"The Brevi language guide. Not needed to start: write plain Python (a .py file) and Brevi builds it to native code, which runs plain loops several times faster than CPython (1.6x to 37.9x, median 9.3x, on our 12 compute benchmarks), so write the plain, direct solution and do not hand-optimise it. Ask with a word (sections: Strings, Lists, Python, Libraries) for only the lines about it, e.g. when a build error names something; with no word, the whole core.","inputSchema":{"type":"object","properties":{"word":{"type":"string"}},"additionalProperties":false},"annotations":{"readOnlyHint":true,"openWorldHint":false}},
+{"name":"guide","title":"Brevi guide","description":"The Brevi language guide. Not needed to start: write plain Python (a .py file) and Brevi builds it to native code, which runs plain loops several times faster than CPython (typed build: 1.6x to 37.9x, median 9.3x, on our 12 compute benchmarks; when values change type it falls back to the dynamic build, median 0.85x), so write the plain, direct solution and do not hand-optimise it. Ask with a word (sections: Strings, Lists, Python, Libraries) for only the lines about it, e.g. when a build error names something; with no word, the whole core.","inputSchema":{"type":"object","properties":{"word":{"type":"string"}},"additionalProperties":false},"annotations":{"readOnlyHint":true,"openWorldHint":false}},
 {"name":"check","title":"Check program","description":"Compile without running. OK or one JSON error per line: {line, msg, fix}. The server keeps the program: pass code once, then omit it and change it with patch or edit.","inputSchema":{"type":"object","properties":{"code":{"type":"string","description":"Plain Python"},"file":{"type":"string","description":"Default main.py; other files are modules it imports (util.py for import util)"},"fast":{"type":"boolean","description":"Only Brevi's own checks, without rustc"},"fix":{"type":"boolean","description":"Apply every suggested fix to the kept program"},"sandbox":{"type":"boolean","description":"Default true: files, native code and Python libraries need allow or allow_py. false is refused unless the server was started with --trust-calls"},"allow":{"type":"array","items":{"type":"string","enum":["read","write","net","native"]},"description":"Capabilities granted under the sandbox, within what the server allows (brevi mcp --allow ...); an allow line in the code grants nothing"},"allow_py":{"type":"array","items":{"type":"string"},"description":"Python libraries CPython may run under the sandbox (requests, pydantic)"},"allow_net":{"type":"array","items":{"type":"string"},"description":"Hosts the program may reach under the sandbox (api.example.com); allow net grants every host"},"allow_read":{"type":"array","items":{"type":"string"},"description":"Folders or files the program may read under the sandbox (relative to where brevi mcp started); allow read grants every file"},"allow_write":{"type":"array","items":{"type":"string"},"description":"Folders or files the program may write under the sandbox; allow write grants every file"}},"additionalProperties":false},"annotations":{"openWorldHint":false}},
-{"name":"run","title":"Run program","description":"Compile and run the kept program (or code, plain Python). With cases, runs each and prints ok or the first differing line. Plain Python is checked (verify, on by default): under the sandbox the typed build against Brevi's dynamic build, with sandbox false against CPython. The last line says identical, or the output is the reference's when Brevi's typed answer differs.","inputSchema":{"type":"object","properties":{"code":{"type":"string"},"file":{"type":"string"},"stdin":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"cases":{"type":"array","items":{"type":"object","properties":{"stdin":{"type":"string"},"expect":{"type":"string"}},"additionalProperties":false}},"verify":{"type":"boolean","description":"Default true: check the answer and give the reference's output if they differ (under the sandbox, which cannot hold CPython, against Brevi's dynamic build; with sandbox false, against CPython)"},"sandbox":{"type":"boolean","description":"Default true: files, native code and Python libraries need allow or allow_py. false is refused unless the server was started with --trust-calls"},"allow":{"type":"array","items":{"type":"string","enum":["read","write","net","native"]},"description":"Capabilities granted under the sandbox, within what the server allows (brevi mcp --allow ...); an allow line in the code grants nothing"},"allow_py":{"type":"array","items":{"type":"string"},"description":"Python libraries CPython may run under the sandbox (requests, pydantic)"},"allow_net":{"type":"array","items":{"type":"string"},"description":"Hosts the program may reach under the sandbox (api.example.com); allow net grants every host"},"allow_read":{"type":"array","items":{"type":"string"},"description":"Folders or files the program may read under the sandbox (relative to where brevi mcp started); allow read grants every file"},"allow_write":{"type":"array","items":{"type":"string"},"description":"Folders or files the program may write under the sandbox; allow write grants every file"},"limits":{"type":"object","properties":{"cpu":{"type":"number","description":"CPU seconds (Linux and macOS)"},"mem":{"type":"number","description":"Memory, MB (Linux and Windows)"},"time":{"type":"number","description":"Wall-clock seconds for the program"},"output":{"type":"number","description":"KB of stdout and stderr together"},"file":{"type":"number","description":"Largest file it may write, MB (Linux and macOS)"},"written":{"type":"number","description":"MB written to files (under the sandbox, without allow native or allow_py)"},"net":{"type":"number","description":"MB sent and received over the network"},"threads":{"type":"number","description":"Threads at once, the program's and those of anything it starts (Linux)"},"fds":{"type":"number","description":"Open files at once (Linux and macOS)"},"files":{"type":"number","description":"Files it may create"}},"additionalProperties":false,"description":"Resource limits on the program run (not the build); the program is stopped at the first one it reaches"},"timeout":{"type":"integer","minimum":1,"maximum":600,"description":"Seconds for build and run (default 20; per case 10)"}},"additionalProperties":false}},
-{"name":"test","title":"Run tests","description":"Run the test blocks of the kept program (or code).","inputSchema":{"type":"object","properties":{"code":{"type":"string"},"file":{"type":"string"},"sandbox":{"type":"boolean","description":"Default true: files, native code and Python libraries need allow or allow_py. false is refused unless the server was started with --trust-calls"},"allow":{"type":"array","items":{"type":"string","enum":["read","write","net","native"]},"description":"Capabilities granted under the sandbox, within what the server allows (brevi mcp --allow ...); an allow line in the code grants nothing"},"allow_py":{"type":"array","items":{"type":"string"},"description":"Python libraries CPython may run under the sandbox (requests, pydantic)"},"allow_net":{"type":"array","items":{"type":"string"},"description":"Hosts the program may reach under the sandbox (api.example.com); allow net grants every host"},"allow_read":{"type":"array","items":{"type":"string"},"description":"Folders or files the program may read under the sandbox (relative to where brevi mcp started); allow read grants every file"},"allow_write":{"type":"array","items":{"type":"string"},"description":"Folders or files the program may write under the sandbox; allow write grants every file"},"limits":{"type":"object","properties":{"cpu":{"type":"number","description":"CPU seconds (Linux and macOS)"},"mem":{"type":"number","description":"Memory, MB (Linux and Windows)"},"time":{"type":"number","description":"Wall-clock seconds for the program"},"output":{"type":"number","description":"KB of stdout and stderr together"},"file":{"type":"number","description":"Largest file it may write, MB (Linux and macOS)"},"written":{"type":"number","description":"MB written to files (under the sandbox, without allow native or allow_py)"},"net":{"type":"number","description":"MB sent and received over the network"},"threads":{"type":"number","description":"Threads at once, the program's and those of anything it starts (Linux)"},"fds":{"type":"number","description":"Open files at once (Linux and macOS)"},"files":{"type":"number","description":"Files it may create"}},"additionalProperties":false,"description":"Resource limits on the program run (not the build); the program is stopped at the first one it reaches"},"timeout":{"type":"integer","minimum":1,"maximum":600,"description":"Seconds (default 20)"}},"additionalProperties":false}},
+{"name":"run","title":"Run program","description":"Compile and run the kept program (or code, plain Python). With cases, runs each and prints ok or the first differing line. Plain Python is checked (verify, on by default): under the sandbox the typed build against Brevi's dynamic build, with sandbox false against CPython. The last line says identical, or the output is the reference's when Brevi's typed answer differs.","inputSchema":{"type":"object","properties":{"code":{"type":"string"},"file":{"type":"string"},"stdin":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"cases":{"type":"array","items":{"type":"object","properties":{"stdin":{"type":"string"},"expect":{"type":"string"}},"additionalProperties":false}},"verify":{"type":"boolean","description":"Default true: check the answer and give the reference's output if they differ (under the sandbox, which cannot hold CPython, against Brevi's dynamic build; with sandbox false, against CPython)"},"sandbox":{"type":"boolean","description":"Default true: files, native code and Python libraries need allow or allow_py. false is refused unless the server was started with --trust-calls"},"allow":{"type":"array","items":{"type":"string","enum":["read","write","net","native"]},"description":"Capabilities granted under the sandbox, within what the server allows (brevi mcp --allow ...); an allow line in the code grants nothing"},"allow_py":{"type":"array","items":{"type":"string"},"description":"Python libraries CPython may run under the sandbox (requests, pydantic)"},"allow_net":{"type":"array","items":{"type":"string"},"description":"Hosts the program may reach under the sandbox (api.example.com); allow net grants every host"},"allow_read":{"type":"array","items":{"type":"string"},"description":"Folders or files the program may read under the sandbox (relative to where brevi mcp started); allow read grants every file"},"allow_write":{"type":"array","items":{"type":"string"},"description":"Folders or files the program may write under the sandbox; allow write grants every file"},"limits":{"type":"object","properties":{"cpu":{"type":"number","description":"CPU seconds"},"mem":{"type":"number","description":"Memory, MB (Linux and Windows)"},"time":{"type":"number","description":"Wall-clock seconds for the program"},"output":{"type":"number","description":"KB of stdout and stderr together"},"file":{"type":"number","description":"Largest file it may write, MB (Linux and macOS)"},"written":{"type":"number","description":"MB written to files (under the sandbox, without allow native or allow_py)"},"net":{"type":"number","description":"MB sent and received over the network"},"threads":{"type":"number","description":"Threads at once, the program's and those of anything it starts (Linux)"},"fds":{"type":"number","description":"Open files at once (Linux and macOS)"},"files":{"type":"number","description":"Files it may create"}},"additionalProperties":false,"description":"Resource limits on the program run (not the build); the program is stopped at the first one it reaches"},"timeout":{"type":"integer","minimum":1,"maximum":600,"description":"Seconds for build and run (default 20; per case 10)"}},"additionalProperties":false}},
+{"name":"test","title":"Run tests","description":"Run the test blocks of the kept program (or code).","inputSchema":{"type":"object","properties":{"code":{"type":"string"},"file":{"type":"string"},"sandbox":{"type":"boolean","description":"Default true: files, native code and Python libraries need allow or allow_py. false is refused unless the server was started with --trust-calls"},"allow":{"type":"array","items":{"type":"string","enum":["read","write","net","native"]},"description":"Capabilities granted under the sandbox, within what the server allows (brevi mcp --allow ...); an allow line in the code grants nothing"},"allow_py":{"type":"array","items":{"type":"string"},"description":"Python libraries CPython may run under the sandbox (requests, pydantic)"},"allow_net":{"type":"array","items":{"type":"string"},"description":"Hosts the program may reach under the sandbox (api.example.com); allow net grants every host"},"allow_read":{"type":"array","items":{"type":"string"},"description":"Folders or files the program may read under the sandbox (relative to where brevi mcp started); allow read grants every file"},"allow_write":{"type":"array","items":{"type":"string"},"description":"Folders or files the program may write under the sandbox; allow write grants every file"},"limits":{"type":"object","properties":{"cpu":{"type":"number","description":"CPU seconds"},"mem":{"type":"number","description":"Memory, MB (Linux and Windows)"},"time":{"type":"number","description":"Wall-clock seconds for the program"},"output":{"type":"number","description":"KB of stdout and stderr together"},"file":{"type":"number","description":"Largest file it may write, MB (Linux and macOS)"},"written":{"type":"number","description":"MB written to files (under the sandbox, without allow native or allow_py)"},"net":{"type":"number","description":"MB sent and received over the network"},"threads":{"type":"number","description":"Threads at once, the program's and those of anything it starts (Linux)"},"fds":{"type":"number","description":"Open files at once (Linux and macOS)"},"files":{"type":"number","description":"Files it may create"}},"additionalProperties":false,"description":"Resource limits on the program run (not the build); the program is stopped at the first one it reaches"},"timeout":{"type":"integer","minimum":1,"maximum":600,"description":"Seconds (default 20)"}},"additionalProperties":false}},
 {"name":"patch","title":"Patch program","description":"Replace each def or class in patch by name in the kept program (or add it); del def name removes one. Then checks: prints what changed and OK or the errors.","inputSchema":{"type":"object","properties":{"patch":{"type":"string"},"file":{"type":"string"},"code":{"type":"string"},"sandbox":{"type":"boolean","description":"Default true: files, native code and Python libraries need allow or allow_py. false is refused unless the server was started with --trust-calls"},"allow":{"type":"array","items":{"type":"string","enum":["read","write","net","native"]},"description":"Capabilities granted under the sandbox, within what the server allows (brevi mcp --allow ...); an allow line in the code grants nothing"},"allow_py":{"type":"array","items":{"type":"string"},"description":"Python libraries CPython may run under the sandbox (requests, pydantic)"},"allow_net":{"type":"array","items":{"type":"string"},"description":"Hosts the program may reach under the sandbox (api.example.com); allow net grants every host"},"allow_read":{"type":"array","items":{"type":"string"},"description":"Folders or files the program may read under the sandbox (relative to where brevi mcp started); allow read grants every file"},"allow_write":{"type":"array","items":{"type":"string"},"description":"Folders or files the program may write under the sandbox; allow write grants every file"}},"required":["patch"],"additionalProperties":false},"annotations":{"openWorldHint":false}},
 {"name":"edit","title":"Edit lines","description":"Replace lines from..to (1-based, inclusive) of the kept program with text (empty text deletes; to = from - 1 inserts before from). Then checks like patch.","inputSchema":{"type":"object","properties":{"from":{"type":"integer","minimum":1},"to":{"type":"integer","minimum":0},"text":{"type":"string"},"file":{"type":"string"},"sandbox":{"type":"boolean","description":"Default true: files, native code and Python libraries need allow or allow_py. false is refused unless the server was started with --trust-calls"},"allow":{"type":"array","items":{"type":"string","enum":["read","write","net","native"]},"description":"Capabilities granted under the sandbox, within what the server allows (brevi mcp --allow ...); an allow line in the code grants nothing"},"allow_py":{"type":"array","items":{"type":"string"},"description":"Python libraries CPython may run under the sandbox (requests, pydantic)"},"allow_net":{"type":"array","items":{"type":"string"},"description":"Hosts the program may reach under the sandbox (api.example.com); allow net grants every host"},"allow_read":{"type":"array","items":{"type":"string"},"description":"Folders or files the program may read under the sandbox (relative to where brevi mcp started); allow read grants every file"},"allow_write":{"type":"array","items":{"type":"string"},"description":"Folders or files the program may write under the sandbox; allow write grants every file"}},"required":["from","to","text"],"additionalProperties":false},"annotations":{"openWorldHint":false}},
-{"name":"verify","title":"Verify against CPython","description":"Proof the native build answers as CPython does: builds the kept program (or code, plain Python) natively, runs it and python3 on each input, and compares stdout, exit code and stderr (CPython runs twice, so output that changes run to run is reported, not certified). One JSON line per input, then a certificate {verify: identical, differs, unstable, timeout, limit or not built; sha256, path, speedup}. Runs CPython on the code, which the sandbox cannot hold, so it needs sandbox false (a server started with --trust-calls); run checks sandboxed code against Brevi's dynamic build instead.","inputSchema":{"type":"object","properties":{"code":{"type":"string","description":"Plain Python"},"file":{"type":"string"},"inputs":{"type":"array","items":{"type":"string"},"description":"stdin for each run (default one run, empty stdin)"},"args":{"type":"array","items":{"type":"string"}},"sandbox":{"type":"boolean","description":"Must be false: verify runs python3 on the code"},"once":{"type":"boolean","description":"Run CPython once, not twice"},"limits":{"type":"object","properties":{"cpu":{"type":"number","description":"CPU seconds (Linux and macOS)"},"mem":{"type":"number","description":"Memory, MB (Linux and Windows)"},"time":{"type":"number","description":"Wall-clock seconds for the program"},"output":{"type":"number","description":"KB of stdout and stderr together"},"file":{"type":"number","description":"Largest file it may write, MB (Linux and macOS)"},"written":{"type":"number","description":"MB written to files (under the sandbox, without allow native or allow_py)"},"net":{"type":"number","description":"MB sent and received over the network"},"threads":{"type":"number","description":"Threads at once, the program's and those of anything it starts (Linux)"},"fds":{"type":"number","description":"Open files at once (Linux and macOS)"},"files":{"type":"number","description":"Files it may create"}},"additionalProperties":false,"description":"Resource limits on the program run (not the build); the program is stopped at the first one it reaches"},"timeout":{"type":"integer","minimum":1,"maximum":600,"description":"Seconds for each run (default 20)"}},"additionalProperties":false},"annotations":{"openWorldHint":false}},
+{"name":"verify","title":"Verify against CPython","description":"Proof the native build answers as CPython does: builds the kept program (or code, plain Python) natively, runs it and python3 on each input, and compares stdout, exit code and stderr (CPython runs twice, so output that changes run to run is reported, not certified). One JSON line per input, then a certificate {verify: identical, differs, unstable, timeout, limit or not built; sha256, path, speedup}. Runs CPython on the code, which the sandbox cannot hold, so it needs sandbox false (a server started with --trust-calls); run checks sandboxed code against Brevi's dynamic build instead.","inputSchema":{"type":"object","properties":{"code":{"type":"string","description":"Plain Python"},"file":{"type":"string"},"inputs":{"type":"array","items":{"type":"string"},"description":"stdin for each run (default one run, empty stdin)"},"args":{"type":"array","items":{"type":"string"}},"sandbox":{"type":"boolean","description":"Must be false: verify runs python3 on the code"},"once":{"type":"boolean","description":"Run CPython once, not twice"},"limits":{"type":"object","properties":{"cpu":{"type":"number","description":"CPU seconds"},"mem":{"type":"number","description":"Memory, MB (Linux and Windows)"},"time":{"type":"number","description":"Wall-clock seconds for the program"},"output":{"type":"number","description":"KB of stdout and stderr together"},"file":{"type":"number","description":"Largest file it may write, MB (Linux and macOS)"},"written":{"type":"number","description":"MB written to files (under the sandbox, without allow native or allow_py)"},"net":{"type":"number","description":"MB sent and received over the network"},"threads":{"type":"number","description":"Threads at once, the program's and those of anything it starts (Linux)"},"fds":{"type":"number","description":"Open files at once (Linux and macOS)"},"files":{"type":"number","description":"Files it may create"}},"additionalProperties":false,"description":"Resource limits on the program run (not the build); the program is stopped at the first one it reaches"},"timeout":{"type":"integer","minimum":1,"maximum":600,"description":"Seconds for each run (default 20)"}},"additionalProperties":false},"annotations":{"openWorldHint":false}},
 {"name":"show","title":"Show program","description":"The kept program, or lines from..to of it, with line numbers.","inputSchema":{"type":"object","properties":{"file":{"type":"string"},"from":{"type":"integer","minimum":1},"to":{"type":"integer","minimum":0}},"additionalProperties":false},"annotations":{"readOnlyHint":true,"openWorldHint":false}}
 ]"#;
 
@@ -128,7 +128,7 @@ fn spec(tool: &str) -> Option<&'static [(&'static str, Kind, bool)]> {
 // Checks a call's arguments against the tool's spec, so a misspelt or mistyped argument is reported instead
 // of silently ignored. Forgiving where the meaning is clear: null is the same as leaving an argument out,
 // numbers are accepted as text, and "3" / "true" as an integer / boolean.
-fn validate(tool: &str, a: &J) -> Result<J, String> {
+pub(crate) fn validate(tool: &str, a: &J) -> Result<J, String> {
     let sp = spec(tool).unwrap_or(&[]);
     let kv = match a {
         J::Obj(kv) => kv,
@@ -327,7 +327,7 @@ fn parse_cfg(argv: &[String]) -> Result<Cfg, String> {
 }
 
 // Whether the server lets a call have this grant (caps.rs spelling): it, or a wider one, was given to brevi mcp.
-fn within(ceiling: &[String], g: &str) -> bool {
+pub(crate) fn within(ceiling: &[String], g: &str) -> bool {
     if ceiling.iter().any(|c| c == g) {
         return true;
     }
@@ -357,7 +357,7 @@ static SHUTTING: AtomicBool = AtomicBool::new(false);
 static WARM: (Mutex<bool>, std::sync::Condvar) = (Mutex::new(false), std::sync::Condvar::new());
 
 fn warm_dir() -> PathBuf {
-    std::env::temp_dir().join(format!("brevi-mcp-{}-warm", std::process::id()))
+    crate::tmp_root().join(format!("brevi-mcp-{}-warm", std::process::id()))
 }
 
 fn warm_up() {
@@ -405,7 +405,7 @@ fn wait_warm() {
 
 fn work_dir() -> &'static PathBuf {
     static W: OnceLock<PathBuf> = OnceLock::new();
-    W.get_or_init(|| std::env::temp_dir().join(format!("brevi-mcp-{}", std::process::id())))
+    W.get_or_init(|| crate::tmp_root().join(format!("brevi-mcp-{}", std::process::id())))
 }
 
 // Writes the kept files to a clean work directory.
@@ -626,7 +626,7 @@ fn brevi_done(files: &mut Files, cmd: &str, extra: &[String], stdin: &str, limit
         return (text, true, after, Some(done));
     };
     if text.contains("rustc not found") {
-        text.push_str("Brevi needs the Rust toolchain: install it from https://rustup.rs, then restart the MCP client.\n");
+        text.push_str("Brevi needs a Rust compiler: it fetches its pinned one when none is installed (see the message above), or install Rust from https://rustup.rs, then restart the MCP client.\n");
     }
     if !st.success() && text.trim().is_empty() {
         text = format!("failed with exit code {} and no output", st.code().map_or("?".into(), |c| c.to_string()));
@@ -679,14 +679,13 @@ fn brevi(files: &mut Files, cmd: &str, extra: &[String], stdin: &str, limit: Dur
     (t, err)
 }
 
-fn call(files: &mut Files, name: &str, a: &J) -> (String, bool) {
-    let s = |k: &str| a.get(k).and_then(|v| v.str()).unwrap_or("").to_string();
-    let n = |k: &str| a.get(k).and_then(|v| v.num()).map(|x| x as i64);
-    // Sandboxed unless the call says otherwise, and the call may say so only on a server started with
-    // --trust-calls: the model writes the calls, so it cannot turn its own sandbox off.
+// Whether the call runs sandboxed, and the sandbox flags it passes on: what it asks for (allow, allow_py, allow_net,
+// allow_read, allow_write), inside what the server allows (`ceiling`) unless the server trusts its calls. Kept apart
+// from `call` so fuzz/ (mcp_grants) can check that nothing a call sends gets past the server's policy.
+pub(crate) fn grants(name: &str, a: &J, trust: bool, ceiling: &[String]) -> Result<(bool, Vec<String>), String> {
     let sandboxed = a.get("sandbox").map_or(true, |v| v.truthy());
-    if !sandboxed && !cfg().trust && name != "guide" && name != "show" {
-        return ("sandbox false is refused: this server keeps every program sandboxed. The person who starts brevi mcp can allow unsandboxed calls with --trust-calls; run checks plain Python under the sandbox against Brevi's dynamic build".into(), true);
+    if !sandboxed && !trust && name != "guide" && name != "show" {
+        return Err("sandbox false is refused: this server keeps every program sandboxed. The person who starts brevi mcp can allow unsandboxed calls with --trust-calls; run checks plain Python under the sandbox against Brevi's dynamic build".into());
     }
     let mut sandbox: Vec<String> = if sandboxed { vec!["--sandbox".into()] } else { vec![] };
     // What the call grants the sandboxed program, inside what the server allows: an allow line in the code
@@ -701,7 +700,7 @@ fn call(files: &mut Files, name: &str, a: &J) -> (String, bool) {
             // passes must see what is granted).
             let paths = k == "allow_read" || k == "allow_write";
             if let Some(bad) = list.iter().find(|x| if paths { x.contains(',') } else { x.contains([',', ' ', '\t', '\n']) }) {
-                return (format!("{k}: {bad:?} holds a comma{}: pass one {} per item", if paths { "" } else { " or space" }, if paths { "folder or file" } else { "name" }), true);
+                return Err(format!("{k}: {bad:?} holds a comma{}: pass one {} per item", if paths { "" } else { " or space" }, if paths { "folder or file" } else { "name" }));
             }
             let parsed = match k {
                 "allow_net" => crate::caps::parse_net(&list.join(",")),
@@ -711,23 +710,34 @@ fn call(files: &mut Files, name: &str, a: &J) -> (String, bool) {
             };
             let words = |m: String| m.replace("--allow-py", "allow_py").replace("--allow-net", "allow_net").replace("--allow-read", "allow_read").replace("--allow-write", "allow_write").replace("--allow", "allow");
             if let Ok(g) = &parsed {
-                if !cfg().trust {
-                    if let Some(over) = g.iter().find(|g| !within(&cfg().ceiling, g)) {
-                        return (
-                            format!("{k}: {over} is more than this server allows ({}). The model cannot widen its own access: the person who starts brevi mcp grants it, for example brevi mcp --allow-read ./data", policy_words(&cfg().ceiling)),
-                            true,
+                if !trust {
+                    if let Some(over) = g.iter().find(|g| !within(ceiling, g)) {
+                        return Err(
+                            format!("{k}: {over} is more than this server allows ({}). The model cannot widen its own access: the person who starts brevi mcp grants it, for example brevi mcp --allow-read ./data", policy_words(ceiling)),
                         );
                     }
                 }
             }
             let value = match parsed {
-                Err(m) => return (words(m), true),
+                Err(m) => return Err(words(m)),
                 Ok(g) if k == "allow_read" || k == "allow_write" => g.iter().filter_map(|x| x.split_once(':').map(|(_, p)| p.to_string())).collect::<Vec<_>>().join(","),
                 Ok(_) => list.join(","),
             };
             sandbox.extend([flag.to_string(), value]);
         }
     }
+    Ok((sandboxed, sandbox))
+}
+
+fn call(files: &mut Files, name: &str, a: &J) -> (String, bool) {
+    let s = |k: &str| a.get(k).and_then(|v| v.str()).unwrap_or("").to_string();
+    let n = |k: &str| a.get(k).and_then(|v| v.num()).map(|x| x as i64);
+    // Sandboxed unless the call says otherwise, and the call may say so only on a server started with
+    // --trust-calls: the model writes the calls, so it cannot turn its own sandbox off.
+    let (sandboxed, sandbox) = match grants(name, a, cfg().trust, &cfg().ceiling) {
+        Ok(g) => g,
+        Err(m) => return (m, true),
+    };
     let limit = Duration::from_secs(n("timeout").map_or(cfg().timeout, |t| t.clamp(1, 600) as u64));
     // The caller's resource limits on the program (validate checked each one).
     let mut lims = crate::proc::Limits::default();
@@ -961,7 +971,7 @@ fn verified(files: &mut Files, t: String, err: bool) -> (String, bool) {
     (out, err)
 }
 
-fn python() -> String {
+fn python() -> Result<String, String> {
     crate::python_exe()
 }
 
@@ -976,7 +986,10 @@ fn run_cpython(files: &mut Files, args: &[String], stdin: &str, limit: Duration,
     a.extend(args.iter().cloned());
     files.path = Some(CPYTHON_ONLY.into());
     // (the path line goes at the end of the reply, as for any run off the typed path: with_path)
-    run_bin(Path::new(&python()), &a, stdin, limit, lims, None)
+    match python() {
+        Ok(py) => run_bin(Path::new(&py), &a, stdin, limit, lims, None),
+        Err(m) => (m, true),
+    }
 }
 
 // Whether a case's output is what it expects: (matches, failed run).
@@ -994,12 +1007,16 @@ fn cpython_cases(files: &mut Files, args: &[String], cases: &[J], per_case: Dura
     let mut a = vec![files.main()];
     a.extend(args.iter().cloned());
     files.path = Some(CPYTHON_ONLY.into());
+    let py = match python() {
+        Ok(p) => p,
+        Err(m) => return (m, true),
+    };
     let mut out = vec![];
     let mut failed = 0;
     for (i, c) in cases.iter().enumerate() {
         let stdin = c.get("stdin").and_then(|v| v.str()).unwrap_or("");
         let want = c.get("expect").and_then(|v| v.str()).unwrap_or("");
-        let (got, bad) = run_bin(Path::new(&python()), &a, stdin, per_case, lims, None);
+        let (got, bad) = run_bin(Path::new(&py), &a, stdin, per_case, lims, None);
         if case_ok(&got, bad, want) {
             out.push(format!("case {}: ok", i + 1));
         } else {
@@ -1085,10 +1102,11 @@ fn run_cases(files: &mut Files, extra: &[String], cases: &[J], sandboxed: bool, 
         if !via_run {
             native_failed += 1;
             // CPython on the same case: when it gives the expected output, the wrong answer is Brevi's.
-            if !sandboxed && main_py.ends_with(".py") {
+            // (with no CPython 3.13 here there is nothing to compare with, so no case is called Brevi's)
+            if let (false, true, Ok(py)) = (sandboxed, main_py.ends_with(".py"), python()) {
                 let mut pa = vec![main_py.clone()];
                 pa.extend(args.iter().cloned());
-                let (pg, pbad) = run_bin(Path::new(&python()), &pa, stdin, per_case, lims, None);
+                let (pg, pbad) = run_bin(Path::new(&py), &pa, stdin, per_case, lims, None);
                 if case_ok(&pg, pbad, want) {
                     brevi_bug = true;
                     out.push(format!("case {}: differs from expect", i + 1));
@@ -1232,7 +1250,7 @@ fn clean(built: &BTreeSet<String>) {
 
 // Work directories of servers that are no longer running.
 fn clean_stale() {
-    let Ok(rd) = std::fs::read_dir(std::env::temp_dir()) else { return };
+    let Ok(rd) = std::fs::read_dir(crate::tmp_root()) else { return };
     for e in rd.flatten() {
         let name = e.file_name().to_string_lossy().to_string();
         let Some(rest) = name.strip_prefix("brevi-mcp-") else { continue };

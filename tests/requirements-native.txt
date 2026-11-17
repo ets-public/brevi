@@ -6,7 +6,7 @@
 # stack) are pinned too, to the versions the MCP transcripts pass with. Not watched by Dependabot on purpose: bump
 # a pin together with its .expected files.
 duckdb==2.0.0
-onnxruntime==1.31.1
+onnxruntime==1.32.0
 mcp==2.3.0
 requests==2.34.2
 PyYAML==6.0.3

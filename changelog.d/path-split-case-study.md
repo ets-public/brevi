@@ -1,0 +1,1 @@
+- Docs: a case study of speed by build path on 587 agent-written Python programs at v0.28.2 (typed 62.4%, dynamic 37.6%, no CPython bridge, no wrong answers), with the start-up and compute caveats spelled out ([docs/PATH_SPLIT.md](docs/PATH_SPLIT.md), `bench/pathsplit.py`).

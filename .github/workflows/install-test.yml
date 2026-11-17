@@ -1,0 +1,114 @@
+# Install test: the documented install, on machines with nothing of ours on them, then the agent loop.
+# Each job follows site/docs/quickstart.md step 1 exactly as a new user would: install uv, then the one command
+# `uvx --python 3.13 brevi run --verify main.py` (which fetches brevi, CPython 3.13 and, with no rustc on the PATH,
+# the pinned Rust and zig), then `uv tool install --python 3.13 brevi` to keep `brevi` on the PATH, then runs
+# examples/agent-loop/demo.sh, which checks every step of the loop (check, run --verify, a refusal, MCP, a timing).
+# A failure here is a first-ten-minutes bug: a step a new user hits that the docs do not cover.
+# Runs only by hand and when a release is published, because Actions minutes are limited (macOS counts 10x).
+# On a release it pins brevi to that release (waiting for it to reach PyPI); by hand it takes the input, else the
+# latest on PyPI, exactly as the docs say.
+# Linux runs in a bare ubuntu:24.04 container (no C compiler, so brevi links with zig); macOS and Windows runners
+# come with Rust, which each job moves out of the way first, so the install really fetches it.
+# Windows still installs Rust with rustup first: the quickstart says so until the release after v0.28.2, the first
+# with the pinned toolchain on Windows (and Linux ARM64). Drop the rustup step and that sentence together then.
+# Change these steps and the install block of site/docs/quickstart.md together.
+name: install-test
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "brevi version on PyPI (empty: the latest, as documented)"
+        required: false
+        default: ""
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: install-test-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BREVI_VERSION: ${{ github.event.release.tag_name || inputs.version }}
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    container: ubuntu:24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: What the quickstart says a bare container needs (curl, ca-certificates, xz-utils)
+        run: apt-get update -qq && apt-get install -y -qq curl ca-certificates xz-utils >/dev/null
+      - name: uv (as documented)
+        shell: bash
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      - name: Install and run (as documented)
+        shell: bash
+        run: bash examples/agent-loop/install_check.sh "$HOME/.local/bin/uv"
+      - name: Agent loop
+        shell: bash
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          ! command -v cc && ! command -v rustc
+          bash examples/agent-loop/demo.sh
+
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Move the runner's Rust out of the way
+        run: |
+          mv "$HOME/.cargo" "$HOME/.cargo-runner" 2>/dev/null || true
+          mv "$HOME/.rustup" "$HOME/.rustup-runner" 2>/dev/null || true
+          # The macOS image also ships Homebrew's rustup (/opt/homebrew/opt/rustup/bin on PATH)
+          for f in rustup rust; do brew uninstall --ignore-dependencies --force "$f" 2>/dev/null || true; done
+          hash -r
+          ! command -v rustc
+      - name: uv (as documented)
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      - name: Install and run (as documented)
+        run: bash examples/agent-loop/install_check.sh "$HOME/.local/bin/uv"
+      - name: Agent loop
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          ! command -v rustc
+          BREVI_PYTHON="$(uv python find 3.13)" bash examples/agent-loop/demo.sh
+
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-2022, rustup: x86_64-pc-windows-msvc }
+          - { os: windows-11-arm, rustup: aarch64-pc-windows-msvc }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Move the runner's Rust out of the way
+        shell: pwsh
+        run: |
+          foreach ($d in "$env:USERPROFILE\.cargo", "$env:USERPROFILE\.rustup") { if (Test-Path $d) { Rename-Item $d "$d-runner" } }
+      - name: Rust with rustup (as documented, until the next release)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest "https://static.rust-lang.org/rustup/dist/${{ matrix.rustup }}/rustup-init.exe" -OutFile rustup-init.exe
+          .\rustup-init.exe -y --profile minimal
+      - name: uv (as documented)
+        shell: pwsh
+        run: powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+      - name: Install and run (as documented)
+        shell: bash
+        run: |
+          export PATH="$(cygpath -u "$USERPROFILE")/.cargo/bin:$PATH"
+          bash examples/agent-loop/install_check.sh "$(cygpath -u "$USERPROFILE")/.local/bin/uv.exe"
+      - name: Agent loop
+        shell: bash
+        run: |
+          export PATH="$(cygpath -u "$USERPROFILE")/.cargo/bin:$(cygpath -u "$USERPROFILE")/.local/bin:$PATH"
+          BREVI_PYTHON="$(uv python find 3.13)" bash examples/agent-loop/demo.sh

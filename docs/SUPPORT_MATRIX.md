@@ -6,7 +6,7 @@ Where each `--limit` is enforced. A limit marked `-` is refused on that platform
 
 | Limit | Linux | macOS | Windows |
 | --- | --- | --- | --- |
-| `cpu` | yes | yes | - |
+| `cpu` | yes | yes | yes |
 | `mem` | yes | - | yes |
 | `time` | yes | yes | yes |
 | `output` | yes | yes | yes |
@@ -40,14 +40,16 @@ Under `--sandbox` (and in the MCP tools by default) nothing runs in CPython unle
 | numpy, requests, httpx, pydantic, the LLM SDKs, `mcp`, jinja2, polars, sqlite3, duckdb, tokenizers, safetensors, onnxruntime | `typed` or `dynamic` | Brevi's own native copies. |
 | Other installed libraries (pandas, yaml, ...) | `pybridge` (or `dynamic` with `py`) | Library calls run in CPython inside the native program; Linux, macOS and Windows (Windows from v0.27.0). |
 | Classes built on a library's classes | `dynamic` with `py` | CPython runs the class as a whole. |
-| `match`, `eval`/`exec` of text known only at run time | `cpython` | `brevi build`, `check`, `--native` and `--strict` refuse them. |
+| `eval`/`exec` of text known only at run time | `cpython` | `brevi build`, `check`, `--native` and `--strict` refuse them. |
+| `match` statements | `cpython` at v0.27.x; `dynamic` from v0.28.0 | Before v0.28.0, `brevi build`, `check`, `--native` and `--strict` refuse them. |
 
 ### Platforms
 
-| | Linux x86-64 | macOS | Windows x86-64 |
+| | Linux x86-64 | macOS | Windows x86-64 and ARM64 (ARM64 from v0.28.1) |
 | --- | --- | --- | --- |
 | typed and dynamic builds | yes | yes | yes, beta (from v0.27.0) |
 | pybridge (CPython loaded into the program) | yes | yes | yes, needs the Python DLLs (from v0.27.0) |
-| `--standalone` | yes | no | no |
+| `--standalone` | yes | no | yes |
 | Landlock holding CPython to file grants | Linux 5.13+ | no | no |
+| seccomp holding CPython to no network without a grant (from v0.28.0; Linux arm64 too) | yes | no | no |
 | Resource limits | see the table above | see the table above | see the table above |

@@ -23,9 +23,13 @@ surrogate; it is printed beside the score and counts as not matched. cpython_pri
 conformance_cpython_private.txt, each with an issue) that both builds refuse because it calls a CPython-private module
 helper (re._compile, functools._c3_mro); it is printed beside the score and counts as not matched. A test that calls
 self.skipTest() under the reference CPython is excluded as skipped by CPython, like a skip decorator.
-unstable is a test whose CPython output depends on PYTHONHASHSEED, and only a reproduced difference counts: each seed's
-output is settled by a second run at that seed, and a CPython run that timed out or died is retried, then reported as
-not_extractable, never as unstable (rule 1: seeds 1 and 2; rule 2: seeds 3 to 5, tried for a wrong result).
+CPython and both built programs run at one fixed PYTHONHASHSEED (REF_SEED): Brevi hashes str and bytes exactly as
+CPython 3.13 does at the same seed, so a set of strings must print in CPython's own order. unstable is a test whose
+CPython output is not reproducible at that seed (object addresses, the clock, unseeded random numbers, threads that
+print at once; the known ones are always unstable: ALWAYS_UNSTABLE, RANDOM_OUTPUT), and only a
+reproduced difference counts: a CPython run that timed out or died is retried, then reported as not_extractable, never
+as unstable (rule 1: a second run at the seed, settled by a third when they differ; rule 2: three more runs, tried for a
+wrong result).
 coverage = matched / (all - unstable - excluded - by_design); wrong = wrong_output + wrong_exit among programs that built.
 
 The test files are fetched once from the pinned tag into a cache outside git (not vendored: nothing of
@@ -38,6 +42,9 @@ Env: BREVI (default target/release/brevi), BREVI_CACHE (the cache is its conform
 import argparse, ast, collections, concurrent.futures as cf, hashlib, json, os, re, shlex, shutil, signal
 import functools, importlib, subprocess, symtable, sys, tempfile, time, urllib.request, warnings
 from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from share import pct  # noqa: E402  (every published share is printed one way)
 
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE = ROOT / "compat" / "conformance_known_wrong"  # one file per known-wrong entry (see read_baseline)
@@ -73,6 +80,14 @@ SLICES = {
     "stdlib": (["test_itertools", "test_collections", "test_re", "test_textwrap", "test_functools", "test_string",
                "test_graphlib", "test_colorsys", "test_deque", "test_dataclasses", "test_enum"],
                ROOT / "compat" / "conformance_stdlib_known_wrong", ROOT / "compat" / "conformance_stdlib_floor.json"),
+}
+# Windows holds each slice to its own floor and known-wrong list: a program can be right on Linux and wrong on
+# Windows (paths, newlines, the C runtime), so neither platform's ratchet may stand in for the other's. The release
+# runs both slices on the brevi.exe it ships (release.yml); the weekly job in windows.yml raises the floors. A slice
+# with no entry here would only measure on Windows: --check, --raise-floor, --release-gate and --write-baseline refuse.
+WINDOWS_SLICES = {
+    "core": (ROOT / "compat" / "conformance_windows_known_wrong", ROOT / "compat" / "conformance_windows_floor.json"),
+    "stdlib": (ROOT / "compat" / "conformance_windows_stdlib_known_wrong", ROOT / "compat" / "conformance_windows_stdlib_floor.json"),
 }
 # Module name -> (path under Lib/, SHA-256). The helpers are only read for the definitions tests use.
 SOURCES = {
@@ -113,7 +128,17 @@ COMPANIONS = {
     "test.typinganndata.ann_module": ("test/typinganndata/ann_module.py", "14c92d11f7e53a1d315e9125458a68105097d152dbee27cd063c9f6664c7453c"),
     "test.typinganndata.ann_module2": ("test/typinganndata/ann_module2.py", "2f1214af1113c659b37ff02aa9727f3341812e066c82524c471e4325bcde6f72"),
     "test.typinganndata.ann_module3": ("test/typinganndata/ann_module3.py", "c72c7dfa54f5af1bb9ad263964adf130597666ae1e5cd125f5a435b565d6c15f"),
+    "test.test_dataclasses.dataclass_module_1": ("test/test_dataclasses/dataclass_module_1.py", "b7f5e7b0da4ee72ad65d0c6ef765037c7a26518b1558f32e7b06ecc1a26490d5"),
+    "test.test_dataclasses.dataclass_module_1_str": ("test/test_dataclasses/dataclass_module_1_str.py", "43c54096c3a8f83e1c3461f6fbbb110ed26a913f8cfeec5ed117257cd776f464"),
+    "test.test_dataclasses.dataclass_module_2": ("test/test_dataclasses/dataclass_module_2.py", "d0db5b8fc6e45a2139721b806f1e01199c7754c68d262c2264a8e333791fa90b"),
+    "test.test_dataclasses.dataclass_module_2_str": ("test/test_dataclasses/dataclass_module_2_str.py", "9af63db46e8b76f28aaa4abb86b3dbc35c82e31f94eafeea5784a7669cc42982"),
+    "test.test_dataclasses.dataclass_textanno": ("test/test_dataclasses/dataclass_textanno.py", "1274341e8132110bb9797f33f733800277e6f1ac8c690ba9df6385944236aca1"),
 }
+# A package whose real __init__.py is the test file itself (test_dataclasses): a script that imports one of its companion
+# modules gets an empty __init__.py instead, since the companions read nothing from their package. Only the submodules
+# in COMPANIONS may be imported from it (validate).
+PACKAGE_STANDINS = {"test.test_dataclasses": ("test/test_dataclasses/__init__.py",
+                                              b"# Stand-in written by tools/conformance.py: the real __init__.py is the test file.\n")}
 
 # A generated script may import only these: nothing that reaches files, processes or the network.
 ALLOWED_IMPORTS = {
@@ -146,6 +171,7 @@ EXCLUDED_DECORATORS = {
 CONDITION_PRELUDE = """import os, sys, re, sysconfig
 is_emscripten = sys.platform == "emscripten"
 is_wasi = sys.platform == "wasi"
+python_version = sys.version_info[:2]
 class support:
     is_wasi = is_wasi
 try:
@@ -157,7 +183,9 @@ else:
 """
 CONDITION_BINDINGS = {"sys": ("import", "sys", None), "re": ("import", "re", None), "support": ("from", "test", "support"),
                       "is_emscripten": ("from", "test.support", "is_emscripten"), "is_wasi": ("from", "test.support", "is_wasi")}
-CONDITION_NAMES = {"sys", "re", "hasattr", "is_emscripten", "is_wasi", "support", "multiprocessing", "__debug__"}
+CONDITION_NAMES = {"sys", "re", "hasattr", "is_emscripten", "is_wasi", "support", "multiprocessing", "__debug__", "python_version"}
+# a name a condition may read that the test file binds itself, with the one statement that must bind it (top level, once)
+CONDITION_ASSIGNED = {"python_version": "python_version = sys.version_info[:2]"}
 # support.requires_docstrings is skipUnless(HAVE_DOCSTRINGS, ...); with no -O, HAVE_DOCSTRINGS is `not MISSING_C_DOCSTRINGS`
 # (Lib/test/support/__init__.py: MISSING_C_DOCSTRINGS = check_impl_detail() and platform != 'win32' and no WITH_DOC_STRINGS).
 DOCSTRINGS_CONDITION = 'not (sys.platform != "win32" and not sysconfig.get_config_var("WITH_DOC_STRINGS"))'
@@ -259,6 +287,22 @@ HELPERS = {
     "_conf_Skip": """class _conf_Skip(Exception):
     pass""",
     "_conf_cleanups": """_conf_cleanups = []""",
+    # unittest's enterContext: enters the manager now and adds its __exit__ as a cleanup, run after tearDown
+    "_conf_enterContext": """def _conf_enterContext(cm):
+    cls = type(cm)
+    enter, exit = cls.__enter__, cls.__exit__
+    result = enter(cm)
+    _conf_cleanups.append((exit, (cm, None, None, None)))
+    return result""",
+    # an assertion method passed as a value (`test_pickle_dump_load(self.assertIs, x)`), printing what the inline
+    # rewrite of the same call prints (rewrite_assertion)
+    "_conf_assertIs": """def _conf_assertIs(first, second, msg=None):
+    print((first) is (second))""",
+    "_conf_assertEqual": """def _conf_assertEqual(first, second, msg=None):
+    print(repr(first))
+    print(repr(second))""",
+    "_conf_assertRaises": """def _conf_assertRaises(category):
+    return _conf_Raises(category)""",
     "_conf_run": """def _conf_run(test):
     try:
         test()
@@ -316,8 +360,12 @@ SKIPPED = b"_conf_skipped:"  # what _conf_run prints when the test called skipTe
 HELPER_IMPORTS = {"_conf_Warns": ["import re", "import warnings"], "_conf_pickle_deprecated": ["import warnings"],
                   "_conf_ignore_warnings": ["import warnings"], "_conf_infinite_recursion": ["import sys"], "_conf_search": ["import re"], "_conf_Raises": [],
                   "_conf_Skip": [], "_conf_cleanups": [], "_conf_run": [], "_conf_TestCase": [],
+                  "_conf_enterContext": [], "_conf_assertIs": [], "_conf_assertEqual": [], "_conf_assertRaises": [],
                   "_conf_start_threads": ["import contextlib", "import time"]}
-HELPER_NEEDS = {"_conf_pickle_deprecated": ["_conf_Warns"], "_conf_run": ["_conf_Skip"]}
+HELPER_NEEDS = {"_conf_pickle_deprecated": ["_conf_Warns"], "_conf_run": ["_conf_Skip"], "_conf_enterContext": ["_conf_cleanups"],
+                "_conf_assertRaises": ["_conf_Raises"]}
+STRING_ANNOTATION = re.compile(r"\b(ClassVar|InitVar|KW_ONLY)\b")
+PASSED_ASSERTIONS = {"assertIs", "assertEqual", "assertRaises"}  # the ones with a _conf_ helper for being passed as a value
 EXCLUDED_CLASSES = {
     "PyLongModuleTests": "tests _pylong, a private CPython module",
     "CAPITest": "tests the C API",
@@ -328,6 +376,9 @@ _ODICT_DICT_METHODS = ("dict's own method called on an OrderedDict: tests that C
 EXCLUDED_TESTS = {("test_ordered_dict", m): _ODICT_DICT_METHODS for m in (
     "test_dict_setitem", "test_dict_delitem", "test_dict_clear", "test_dict_pop", "test_dict_popitem",
     "test_dict_setdefault", "test_dict_update")}
+# test_patma's test_refleaks reads its own file and compiles it, so that `-R` runs catch reference leaks in CPython's
+# pattern compiler: a test of CPython's compiler and its refcounts, with nothing of the language in what it checks
+EXCLUDED_TESTS[("test_patma", "test_refleaks")] = "compiles its own source file to find reference leaks in CPython's compiler"
 EXCLUDED_SOURCE = [
     (r"\b_test(capi|internalcapi|limitedcapi)\b", "tests the C API"),
     (r"\bsys\.getrefcount\b|\bcheck_free_after_iterating\b", "depends on reference counts"),
@@ -337,6 +388,7 @@ EXCLUDED_SOURCE = [
     (r"\bassert_python_(ok|failure)\b|\bspawn_python\b", "runs a fresh CPython in a subprocess (a CPython crash regression)"),
     (r"\bmultiprocessing\.Process\b", "starts a child process"),
     (r"\bsre_(compile|constants|parse)\b", "tests CPython's deprecated sre_* modules"),
+    (r"\bdis\.\w+", "inspects CPython's bytecode (dis)"),
 ]
 # Tests whose CPython output comes from unseeded random numbers (test_set's *Mutating* classes print a line only when
 # a random __eq__ happens to raise RuntimeError): two CPython runs agree by luck most of the time, so such a test
@@ -345,15 +397,32 @@ EXCLUDED_SOURCE = [
 RANDOM_OUTPUT = re.compile(r"^test_set\.Test(BinaryOps|Methods)Mutating_\w+\.test_\w+_with_mutation$")
 # Tests whose CPython output is ordered by memory addresses (a set of classes hashes by id): one CPython build agrees
 # with itself, so the two-seed check cannot see it, but no other build has to. Classed unstable like RANDOM_OUTPUT.
+_TRIPLE = "CPython prints the set {0, 'zero', operator.add}; the builtin function hashes by its address, so the order differs between CPython builds (Windows prints it in another order than Linux)"
 ADDRESS_ORDER = {
     "test_enum.TestSpecial.test_too_many_data_types": "CPython's TypeError message prints a set of classes, which orders them by memory address",
+    **{f"test_set.TestBasicOpsTriple.{t}": _TRIPLE for t in ("test_empty_union", "test_self_equality", "test_self_intersection", "test_union_empty")},
 }
+# Tests whose threads print at the same time: CPython's OS threads interleave the lines in scheduler order, and split a
+# line when a thread switch falls between print's text and its newline, so CPython's output changes from run to run
+# (test_lru_cache_threaded3 flipped between matched and unstable and failed the stdlib floor by one on the PC and on
+# GitHub; threaded2 splits lines on a busy box). Classed unstable like RANDOM_OUTPUT, so the scheduler never moves the
+# floor; both builds still run them, so a crash, a wrong exit code or a refusal still counts.
+_THREADS = "CPython's threads print at the same time, so the OS scheduler orders the lines and can split one between print's text and its newline"
+THREAD_ORDER = {f"test_functools.TestLRUC.test_lru_cache_{t}": _THREADS for t in ("threaded", "threaded2", "threaded3")}
+ALWAYS_UNSTABLE = {**ADDRESS_ORDER, **THREAD_ORDER}  # test id -> why CPython's output can't be compared
 RECEIVERS = {"self", "testcase"}
 SAME_AS_EQUAL = {"assertEqual", "assertListEqual", "assertTupleEqual", "assertDictEqual", "assertSetEqual",
                  "assertSequenceEqual", "assertMultiLineEqual"}
 COMPARE = {"assertNotEqual": "!=", "assertIs": "is", "assertIsNot": "is not", "assertIn": "in", "assertNotIn": "not in",
            "assertLess": "<", "assertLessEqual": "<=", "assertGreater": ">", "assertGreaterEqual": ">="}
 TEST_API = {"fail", "skipTest", "subTest", "addCleanup", "addTypeEqualityFunc", "doCleanups", "enterContext"}
+# (file, test method): assertEqual and its kin become `print(a == b)` instead of printing both reprs, where the repr
+# of a side raises under CPython although the comparison never reads what it is missing, each with why
+EQUALITY_ONLY = {
+    ("test.test_dataclasses", "test_frozen_slots_pickle_custom_state"):
+        "the object pickle.loads rebuilds through __getstate__ lacks the compare=False field getstate_called, so "
+        "its repr raises AttributeError, while the dataclass __eq__ that assertEqual calls skips that field",
+}
 NO_RAISE = "NO-RAISE"  # printed where an assertRaises saw nothing: the extraction changed the test
 
 
@@ -475,12 +544,19 @@ class Rewriter(ast.NodeVisitor):
 
     def __init__(self, mod, helper_modules):
         self.m, self.helpers, self.caught, self.alias = mod, helper_modules, set(), {}
+        self.equality = False  # inside a test of EQUALITY_ONLY
+        self.in_class_body = set()  # ids of the with statements written directly in a class body
+
+    def visit_ClassDef(self, node):
+        self.in_class_body.update(id(st) for st in node.body if isinstance(st, ast.With))
+        self.generic_visit(node)
 
     def visit_FunctionDef(self, node):
-        saved, self.caught, saved_alias = self.caught, set(), self.alias
+        saved, self.caught, saved_alias, saved_eq = self.caught, set(), self.alias, self.equality
         self.alias = self.find_aliases(node)
+        self.equality = self.equality or (self.m.name, node.name) in EQUALITY_ONLY
         self.generic_visit(node)
-        self.caught, self.alias = saved, saved_alias
+        self.caught, self.alias, self.equality = saved, saved_alias, saved_eq
 
     def find_aliases(self, fn):
         """`eq = self.assertEqual` inside a test: calls of `eq` are the assertion, if that is all `eq` is used for."""
@@ -520,9 +596,45 @@ class Rewriter(ast.NodeVisitor):
             self.m.imports.setdefault(node.attr, ("from", f"{kind[1]}.{kind[2]}", node.attr))
             self.m.edit(*self.m.span(node), node.attr)
 
+    def visit_Call(self, node):
+        self.generic_visit(node)
+        f = node.func
+        if (isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id in RECEIVERS and f.attr == "enterContext"
+                and len(node.args) == 1 and not node.keywords and not isinstance(node.args[0], ast.Starred)):
+            self.m.edit(*self.m.span(f), "_conf_enterContext")
+        for a in node.args + [k.value for k in node.keywords]:
+            if (isinstance(a, ast.Attribute) and isinstance(a.value, ast.Name) and a.value.id in RECEIVERS
+                    and a.attr in PASSED_ASSERTIONS and isinstance(a.ctx, ast.Load)):
+                self.m.edit(*self.m.span(a), "_conf_" + a.attr)
+
+    def visit_Compare(self, node):
+        """`type(self) not in (TestStrEnumClass, TestStrEnumFunction)`: which test class runs the inherited test. The
+        script keeps only the class that runs, under its own name, so the check compares names (unique in the file)."""
+        self.generic_visit(node)
+        left = node.left
+        if not (len(node.ops) == 1 and isinstance(left, ast.Call) and isinstance(left.func, ast.Name) and left.func.id == "type"
+                and len(left.args) == 1 and isinstance(left.args[0], ast.Name) and left.args[0].id in RECEIVERS and not left.keywords):
+            return
+        right, op = node.comparators[0], node.ops[0]
+        names = right.elts if isinstance(op, (ast.In, ast.NotIn)) and isinstance(right, ast.Tuple) else [right] if isinstance(op, (ast.Is, ast.IsNot, ast.Eq, ast.NotEq)) else []
+        if not names or not all(isinstance(n, ast.Name) and self.is_test_class(n.id) for n in names):
+            return
+        new_op = {ast.Is: "==", ast.IsNot: "!=", ast.Eq: "==", ast.NotEq: "!=", ast.In: "in", ast.NotIn: "not in"}[type(op)]
+        quoted = ", ".join(repr(n.id) for n in names)
+        rhs = f"({quoted},)" if isinstance(right, ast.Tuple) else quoted
+        # __qualname__, not __name__: the extracted class is top level, as the file's test classes are
+        self.m.edit(*self.m.span(node), f"type({left.args[0].id}).__qualname__ {new_op} {rhs}")
+
+    def is_test_class(self, name):
+        defs = self.m.defs.get(name, [])
+        return (len(defs) == 1 and isinstance(defs[0], ast.ClassDef) and defs[0] in self.m.tree.body
+                and sum(isinstance(n, ast.ClassDef) and n.name == name for n in ast.walk(self.m.tree)) == 1
+                and any(ast.unparse(b) == "unittest.TestCase" for b in defs[0].bases))
+
     def visit_ImportFrom(self, node):
         # `from test.re_tests import tests` inside a test: the names come from that fetched module like any other
-        if node.col_offset and node.module in self.helpers and node.level == 0 and self.m.alone(node):
+        if (node.col_offset and node.module in self.helpers and node.level == 0 and self.m.alone(node)
+                and not all(f"{node.module}.{a.name}" in COMPANIONS for a in node.names)):  # a companion module stays an import
             for a in node.names:
                 self.m.imports.setdefault(a.asname or a.name, ("from", node.module, a.name))
             self.m.edit(*self.m.span(node), "pass")
@@ -547,7 +659,7 @@ class Rewriter(ast.NodeVisitor):
         f = call.func
         if isinstance(f, ast.Name) and f.id in self.alias:
             name = self.alias[f.id].value.attr
-            lines = rewrite_assertion(self.m, node, name, call)
+            lines = rewrite_assertion(self.m, node, name, call, self.equality)
             if lines:
                 sep = "\n" + " " * node.col_offset if self.m.alone(node) else "; "
                 if "\n" in sep or not any(ln.startswith((" ", "try:", "except", "else:")) for ln in lines):
@@ -564,7 +676,7 @@ class Rewriter(ast.NodeVisitor):
             fn, *rest = [self.m.expr(a) for a in call.args]
             self.m.edit(*self.m.span(node), f"_conf_cleanups.append(({fn}, ({''.join(r + ', ' for r in rest)})))")
         elif isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id in RECEIVERS:
-            lines = rewrite_assertion(self.m, node, f.attr, call)
+            lines = rewrite_assertion(self.m, node, f.attr, call, self.equality)
             if lines:
                 sep = "\n" + " " * node.col_offset if self.m.alone(node) else "; "
                 if "\n" not in sep and any(ln.startswith((" ", "try:", "except", "else:")) for ln in lines):
@@ -590,6 +702,12 @@ class Rewriter(ast.NodeVisitor):
         elif c.func.attr in ("assertWarns", "assertWarnsRegex") and len(c.args) == (2 if c.func.attr == "assertWarnsRegex" else 1) and not c.keywords:
             # the same block, recorded: _conf_Warns prints whether a matching warning was raised
             self.m.edit(*self.m.span(c), "_conf_Warns(" + ", ".join(self.m.expr(a) for a in c.args) + ")")
+        elif c.func.attr in ("assertRaises", "assertRaisesRegex") and c.args and id(node) in self.in_class_body:
+            # in a class body every name a statement binds lands in the class namespace (`except E as _e` would add
+            # _e to the class, and to an EnumDict a second _e is an error), so the block keeps its with, around the
+            # context manager that prints what the try/except form prints and binds nothing
+            if item.optional_vars is None and not c.keywords and len(c.args) == (2 if c.func.attr == "assertRaisesRegex" else 1):
+                self.m.edit(*self.m.span(c), "_conf_Raises(" + ", ".join(self.m.expr(a) for a in c.args) + ")")
         elif c.func.attr in ("assertRaises", "assertRaisesRegex") and c.args:
             lines = caught_lines(self.m.expr(c.args[0]), c.func.attr == "assertRaisesRegex")
             if item.optional_vars is not None:
@@ -650,7 +768,7 @@ def is_module_name(m, node):
     return isinstance(node, ast.Name) and m.imports.get(node.id, ("",))[0] == "import"
 
 
-def rewrite_assertion(m, stmt, name, call):
+def rewrite_assertion(m, stmt, name, call, equality=False):
     """The lines that replace `self.<name>(...)`, or None to leave it for the final check."""
     if any(k.arg not in ("msg", None) for k in call.keywords) and not name.startswith("assertRaises"):
         return None
@@ -658,8 +776,9 @@ def rewrite_assertion(m, stmt, name, call):
     if any(isinstance(a, ast.Starred) for a in args[:2]):
         return None
     t = [m.expr(a) for a in args]
-    if name in SAME_AS_EQUAL and len(t) >= 2 and any(is_module_name(m, a) for a in args[:2]):
-        # a module's repr names the file it was loaded from, which differs between machines: compare instead
+    if name in SAME_AS_EQUAL and len(t) >= 2 and (equality or any(is_module_name(m, a) for a in args[:2])):
+        # a module's repr names the file it was loaded from, which differs between machines, and EQUALITY_ONLY tests
+        # have a side whose repr raises: compare instead
         return [f"print(({t[0]}) == ({t[1]}))"]
     if name in SAME_AS_EQUAL and len(t) >= 2:
         b = args[1]
@@ -861,6 +980,15 @@ class Universe:
 
         script = Script(self)
         script.test_fn = fn
+        for w in wrappers:
+            if w[0] == "decorator":
+                for n in uses(w[1])[0]:
+                    script.need(owner, n)
+        if any(isinstance(n, ast.Constant) and isinstance(n.value, str) and STRING_ANNOTATION.search(n.value) for n in ast.walk(fn)):
+            # dataclasses reads a string annotation ('typing.ClassVar[int]', 'InitVar') by looking the names up in the
+            # class's module, so the script binds them the way the test file does (each only if the file binds it)
+            for n in ("typing", "dataclasses", "ClassVar", "InitVar", "KW_ONLY"):
+                script.need(owner, n)
         body = owner.bare(fn)
         names, attrs = uses(body)
         # exec("... self.assertEqual(...) ...") keeps its assertions in a string, out of the rewriter's reach: the class
@@ -882,11 +1010,46 @@ class Universe:
             tail = f"{text}\n\n{script.call}\n"
         else:
             tail = script.class_shape(chain, cls_name, method, wrappers)
+        convert_sources(script, owner, list(script.nodes.values()) + [tail])
         header = f"# Extracted by tools/conformance.py from CPython {TAG} Lib/test/{name}.py, {cls_name}.{method}\n"
         header += "# (CPython's test suite is under the PSF licence: https://docs.python.org/3/license.html)\n"
         out = script.finish(header, tail)
-        self.last_files = {COMPANIONS[m][0]: self.companions[m] for m in sorted(script.companions)}
+        self.last_files = dict(PACKAGE_STANDINS[m] if m in PACKAGE_STANDINS else (COMPANIONS[m][0], self.companions[m])
+                               for m in sorted(script.companions))
         return out
+
+
+def code_tree(text):
+    """The tree of a piece of a script: top-level code, or a class member (indented, as Mod.block returns it)."""
+    return parse("class _:\n" + text if text[:1].isspace() else text)
+
+
+def convert_sources(script, mod, texts):
+    """`enum.IntEnum._convert_('Name', MODULE, filter=lambda x: x.startswith('CONVERT_'))` builds an enum from the
+    globals of the module named MODULE (`MODULE = __name__`) that pass the filter: names the test never mentions, so
+    following names cannot find them. The script carries every top-level binding of the test file whose name the
+    filter takes, in the file's order (the order is part of what _convert_ tests). Any other _convert_ call (another
+    module, another filter, a `source=` mapping) cannot be followed and leaves the test not extractable."""
+    for text in texts:
+        for n in ast.walk(code_tree(text)):
+            if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "_convert_"):
+                continue
+            kws = {k.arg: k.value for k in n.keywords}
+            source = n.args[1] if len(n.args) > 1 else kws.get("module")
+            filt = n.args[2] if len(n.args) > 2 else kws.get("filter")
+            ok = (isinstance(source, ast.Name) and [ast.unparse(d) for d in mod.defs.get(source.id, [])] == [f"{source.id} = __name__"]
+                  and None not in kws and "source" not in kws and len(n.args) <= 3
+                  and isinstance(filt, ast.Lambda) and len(filt.args.args) == 1 and not filt.args.defaults
+                  and isinstance(filt.body, ast.Call) and isinstance(filt.body.func, ast.Attribute)
+                  and filt.body.func.attr == "startswith" and isinstance(filt.body.func.value, ast.Name)
+                  and filt.body.func.value.id == filt.args.args[0].arg and len(filt.body.args) == 1 and not filt.body.keywords
+                  and isinstance(filt.body.args[0], ast.Constant) and isinstance(filt.body.args[0].value, str))
+            if not ok:
+                raise CantExtract("_convert_ of names the script cannot pick (another module, filter or source)")
+            prefix = filt.body.args[0].value
+            for name in sorted(set(mod.defs) | set(mod.imports)):
+                if name.startswith(prefix):
+                    script.need(mod, name)
 
 
 SKIPS = {"skipIf": False, "skipUnless": True}  # unittest decorator -> the value of the condition that lets the test run
@@ -908,6 +1071,9 @@ def condition_value(py, mod, test, trusted=False, cache={}):
             bad = True
         elif isinstance(n, ast.Name) and n.id in CONDITION_BINDINGS and mod.imports.get(n.id) != CONDITION_BINDINGS[n.id]:
             bad = True  # the name must be bound the way the prelude binds it
+        elif (isinstance(n, ast.Name) and n.id in CONDITION_ASSIGNED
+              and [ast.unparse(d) for d in mod.defs.get(n.id, [])] != [CONDITION_ASSIGNED[n.id]]):
+            bad = True  # bound by the file in exactly the way the prelude binds it, or not decided
         elif isinstance(n, ast.Name) and n.id == "multiprocessing" and mod.name != "test.test_re":
             bad = True  # test_re binds it with a try/except import, which the prelude copies
         if isinstance(n, ast.Call) and not (isinstance(n.func, ast.Name) and n.func.id == "hasattr"
@@ -928,7 +1094,8 @@ def condition_value(py, mod, test, trusted=False, cache={}):
 def decorator_plan(py, mod, node):
     """What CPython does with the decorators of a test (or test class): Excluded if one skips it or marks it as
     not a language test, CantExtract if one is not understood, else the wrappers the script must apply, outermost first.
-    Each is ("pickle_deprecated",), ("ignore_warnings", category name) or ("infinite_recursion", max_depth)."""
+    Each is ("pickle_deprecated",), ("ignore_warnings", category name), ("infinite_recursion", max_depth) or
+    ("decorator", its source text)."""
     wrappers, excluded, unknown = [], None, None
     for d in node.decorator_list:
         target = d.func if isinstance(d, ast.Call) else d
@@ -965,6 +1132,11 @@ def decorator_plan(py, mod, node):
                 wrappers.append(("infinite_recursion", args[0].value))
             elif dotted == "support.skip_if_pgo_task" and mod.imports.get("support") == ("from", "test", "support"):
                 pass  # support.PGO is False outside the PGO build task, so this is the identity
+            elif dotted == "unittest.skip" and len(args) == 1 and not kws and isinstance(args[0], ast.Constant) and isinstance(args[0].value, str):
+                excluded = excluded or f"skipped by CPython: {args[0].value}"
+            elif (dotted == "threading_helper.reap_threads" and not isinstance(d, ast.Call)
+                  and mod.imports.get("threading_helper") == ("from", "test.support", "threading_helper")):
+                pass  # threading_setup/threading_cleanup around the test: it only warns on stderr about threads left running
             elif dotted == "support.impl_detail" and not kws and mod.imports.get("support") == ("from", "test", "support"):
                 excluded = excluded or "tests CPython internals"  # runs on CPython, but says it is specific to it
             elif dotted == "pickle_deprecated" and mod.name == "test.test_itertools" and not args:
@@ -972,6 +1144,11 @@ def decorator_plan(py, mod, node):
             elif (dotted == "warnings_helper.ignore_warnings" and not args and list(kws) == ["category"]
                   and isinstance(kws["category"], ast.Name) and kws["category"].id in ("DeprecationWarning", "PendingDeprecationWarning", "UserWarning", "ResourceWarning", "RuntimeWarning", "SyntaxWarning")):
                 wrappers.append(("ignore_warnings", kws["category"].id))
+            elif (isinstance(target, ast.Name) and len(mod.defs.get(last, [])) == 1 and isinstance(mod.defs[last][0], ast.FunctionDef)
+                  and mod.defs[last][0] in mod.tree.body and not last.startswith("test")):
+                # a decorator the test file defines at top level (test_enum's reraise_if_not_enum): the script carries
+                # its definition and applies it as written, to the bound test method
+                wrappers.append(("decorator", mod.expr(d)))
             else:
                 raise CantExtract(f"decorator @{dotted}")
         except CantExtract as e:
@@ -990,6 +1167,8 @@ def wrapped_call(wrappers, target):
             target = f"_conf_pickle_deprecated({target})"
         elif w[0] == "infinite_recursion":
             target = f"_conf_infinite_recursion({w[1]})({target})"
+        elif w[0] == "decorator":
+            target = f"({w[1]})({target})"
         else:
             target = f"_conf_ignore_warnings({w[1]})({target})"
     return target + "()"
@@ -1180,11 +1359,11 @@ class Script:
 
     def finish(self, header, tail):
         text = "\n".join(list(self.nodes.values()) + [tail])
-        if re.search(r"\b_conf_(Skip|cleanups)\b", text):
+        if re.search(r"\b_conf_(Skip|cleanups|enterContext)\b", text):
             # skipTest ends the test where it is called; the cleanups run after it (and after tearDown), last first
             head, sep, rest = tail.rpartition(self.call)
             tail = head + f"_conf_run(lambda: {self.call})" + rest
-            if "_conf_cleanups" in text:
+            if re.search(r"\b_conf_(cleanups|enterContext)\b", text):
                 tail += "for _f, _a in reversed(_conf_cleanups):\n    _f(*_a)\n"
             text = "\n".join(list(self.nodes.values()) + [tail])
         used = [h for h in HELPERS if re.search(rf"\b{h}\b", text)]
@@ -1217,6 +1396,11 @@ def validate(script):
     # the attribute reads of a restricted module that are allowed: `io.StringIO`, `unittest.mock`
     allowed_reads = {id(n.value) for n in ast.walk(tree) if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)
                      and n.attr in RESTRICTED_IMPORTS.get(n.value.id, ())}
+    # the unittest module itself as one item of a tuple or list display (`for bad in "0", 0.0, None, Rat, unittest:`
+    # in test_binop, a value Rat must refuse): a plain object there, no unittest code runs (io is never let through
+    # this way, as io.open reaches files)
+    allowed_reads |= {id(e) for n in ast.walk(tree) if isinstance(n, (ast.Tuple, ast.List)) for e in n.elts
+                      if isinstance(e, ast.Name) and e.id == "unittest"}
     for n in ast.walk(tree):
         roots = []
         if isinstance(n, ast.Import):
@@ -1229,7 +1413,7 @@ def validate(script):
                 roots.append(root if root not in RESTRICTED_IMPORTS else a.name)
         elif isinstance(n, ast.ImportFrom):
             root, _, rest = (n.module or "").partition(".")
-            if n.level == 0 and n.module in COMPANIONS and all(f"{n.module}.{a.name}" in COMPANIONS for a in n.names):
+            if n.level == 0 and (n.module in COMPANIONS or n.module in PACKAGE_STANDINS) and all(f"{n.module}.{a.name}" in COMPANIONS for a in n.names):
                 pass
             elif root in RESTRICTED_IMPORTS and n.level == 0:
                 if not (rest in RESTRICTED_IMPORTS[root] or not rest and all(a.name in RESTRICTED_IMPORTS[root] for a in n.names)):
@@ -1417,7 +1601,13 @@ def last_line(data):
 
 
 def build(script, folder, mode, cfg):
-    """(built binary or None, path report, why not built, build crashed or timed out)."""
+    """(built binary or None, path report, why not built, build crashed or timed out, seconds the build took)."""
+    begun = time.monotonic()
+    got = build_once(script, folder, mode, cfg)
+    return (*got, round(time.monotonic() - begun, 1))
+
+
+def build_once(script, folder, mode, cfg):
     env = {k: v for k, v in os.environ.items() if k not in ("BREVI_DYN", "BREVI_PATH", "BREVI_NATIVE")}
     env.update(BREVI_PATH="1", BREVI_PYTHON=cfg.python)
     if mode == "dyn":
@@ -1427,7 +1617,7 @@ def build(script, folder, mode, cfg):
         r = subprocess.run([cfg.brevi, "build", script.name, "-o", str(exe)], cwd=folder, env=env, stdin=subprocess.DEVNULL,
                            capture_output=True, text=True, errors="replace", timeout=cfg.build_timeout)
     except subprocess.TimeoutExpired:
-        return None, None, "build timed out", True
+        return None, None, f"build timed out after {cfg.build_timeout:g} s", True
     path, why = None, ""
     for line in (r.stdout + "\n" + r.stderr).splitlines():
         if line.startswith("{"):
@@ -1478,6 +1668,8 @@ def classify(want, built, got):
 
 REFERENCE_TRIES = 2  # a reference run that timed out, hit the memory limit or died is tried once more
 SETTLE_RUNS = 3  # normal runs at one seed before its output counts as not reproducible
+REF_SEED = 0  # the PYTHONHASHSEED of every CPython reference run and every built program (Brevi follows it exactly)
+RULE2_RUNS = 3  # more CPython runs at REF_SEED before a build's differing output counts as wrong
 
 
 class ReferenceFailed(Exception):
@@ -1508,11 +1700,12 @@ def outcome(run):
 class Reference:
     """CPython's reference runs of one case, kept per PYTHONHASHSEED so both builds share them. A single run can be
     disturbed (a timeout under load, a killed process), so no single run decides what is scored, in either
-    direction: an abnormal run is retried and then reported as an error (ReferenceFailed), and before a seed's output
-    is called different from another seed's, it is settled: two normal runs at that seed must agree."""
+    direction: an abnormal run is retried and then reported as an error (ReferenceFailed), and a seed's output is
+    settled before it counts: two normal runs at that seed must agree."""
 
     def __init__(self, run):
         self.run, self.runs = run, {}  # run(seed) -> Run; seed -> that seed's normal runs, in order
+        self.rule2 = None  # reproducible()'s answer, once asked
 
     def one(self, seed):
         """One more normal run at `seed`, or ReferenceFailed after REFERENCE_TRIES abnormal ones."""
@@ -1546,39 +1739,37 @@ def unreproducible(seed):
 
 
 def stable_reference(ref, random_output):
-    """(CPython's settled Run for the case, None) or (None, the unstable detail). Rule 1: seeds 1 and 2 must agree;
-    when their first runs differ, each seed is settled first, so one disturbed run cannot drop a test from the score."""
-    a = ref.first(1)
+    """(CPython's settled Run for the case, None) or (None, the unstable detail). Rule 1: two runs at REF_SEED must
+    agree; when they differ the seed is settled (two agreeing normal runs out of SETTLE_RUNS), so one disturbed run
+    cannot drop a test from the score, and SETTLE_RUNS runs that all differ make the test unstable."""
+    a = ref.first(REF_SEED)
     if random_output:
         return a, None  # the output is random by design: only the exit code and crashes are compared
-    b = ref.first(2)
-    if outcome(a) == outcome(b):
-        return a, None
-    for seed in (1, 2):
-        if ref.settled(seed) is None:
-            return None, unreproducible(seed)
-    a, b = ref.settled(1), ref.settled(2)
-    if outcome(a) != outcome(b):
-        return None, "rule 1: CPython's output differs between PYTHONHASHSEED=1 and 2 (each seed reproduced)"
-    return a, None
+    if len(ref.runs.get(REF_SEED, [])) < 2:
+        ref.one(REF_SEED)
+    if ref.settled(REF_SEED) is None:
+        return None, unreproducible(REF_SEED)
+    return ref.settled(REF_SEED), None
 
 
-def seed_dependence(ref, want):
-    """Rule 2, for a build whose output differs from CPython's: two seeds can agree by luck on a small str set, so
-    seeds 3 to 5 are tried before calling it Brevi's fault. Returns (unstable detail or None, note for the wrong
-    result or ""). A seed's run that matches `want` needs no second run; one that differs is settled first."""
-    for seed in (3, 4, 5):
+def reproducible(ref, want):
+    """Rule 2, for a build whose output differs from CPython's: runs that agree by luck (an address or the clock in
+    the output) must not make it Brevi's fault, so RULE2_RUNS more runs at REF_SEED must all give `want`. Returns
+    (unstable detail or None, note for the wrong result or ""). The runs are kept, so both builds share them."""
+    if ref.rule2 is not None:
+        return ref.rule2
+    for _ in range(RULE2_RUNS):
         try:
-            if outcome(ref.first(seed)) == outcome(want):
-                continue
-            r = ref.settled(seed)
+            r = ref.one(REF_SEED)
         except ReferenceFailed as e:
-            return None, f" (seed check stopped: {e})"
-        if r is None:
-            return unreproducible(seed).replace("rule 1", "rule 2"), ""
+            ref.rule2 = (None, f" (reproducibility check stopped: {e})")
+            return ref.rule2
         if outcome(r) != outcome(want):
-            return f"rule 2: CPython's output at PYTHONHASHSEED={seed} differs from seeds 1 and 2 (reproduced)", ""
-    return None, ""
+            ref.rule2 = (f"rule 2: CPython's output at PYTHONHASHSEED={REF_SEED} is not reproducible "
+                         f"(run {len(ref.runs[REF_SEED])} differs)", "")
+            return ref.rule2
+    ref.rule2 = (None, "")
+    return ref.rule2
 
 
 def run_case(case, cfg):
@@ -1592,7 +1783,7 @@ def run_case(case, cfg):
         (folder / rel).parent.mkdir(parents=True, exist_ok=True)
         (folder / rel).write_bytes(data)
     ref = Reference(lambda seed: reference(cfg.python, script, folder, seed, cfg))
-    random_output = bool(RANDOM_OUTPUT.match(case["id"])) or case["id"] in ADDRESS_ORDER
+    random_output = bool(RANDOM_OUTPUT.match(case["id"])) or case["id"] in ALWAYS_UNSTABLE
     try:
         a, unstable = stable_reference(ref, random_output)
     except ReferenceFailed as e:
@@ -1609,18 +1800,19 @@ def run_case(case, cfg):
         return {**case, "category": "excluded", "detail": f"skipped by CPython at run time: {why}"}
     modes = {}
     for mode in ("normal", "dyn"):
-        exe, path, why, crashed = build(script, folder, mode, cfg)
-        got = masked(run_limited([str(exe)], str(folder), run_env(folder, 1), cfg.timeout, cfg.mem_mb, cfg.sandbox)) if exe else None
+        exe, path, why, crashed, build_s = build(script, folder, mode, cfg)
+        got = masked(run_limited([str(exe)], str(folder), run_env(folder, REF_SEED), cfg.timeout, cfg.mem_mb, cfg.sandbox)) if exe else None
         category, detail = classify(a, (exe is not None, why, crashed), got)
         if random_output and category in ("matched", "wrong_output"):
-            category, detail = "unstable", ADDRESS_ORDER.get(case["id"], "CPython's output depends on unseeded random numbers") + " (checked for crashes and exit code only)"
+            category, detail = "unstable", ALWAYS_UNSTABLE.get(case["id"], "CPython's output depends on unseeded random numbers") + " (checked for crashes and exit code only)"
         if category == "wrong_output":
-            unstable, note = seed_dependence(ref, a)
+            unstable, note = reproducible(ref, a)
             if unstable:
-                return {**case, "category": "unstable", "detail": unstable}
+                # Name what the build printed too: a load-dependent test leaves the score this way, in both builds.
+                return {**case, "category": "unstable", "detail": f"{unstable}; the {mode} build's output differed ({detail})"}
             detail += note
         modes[mode] = {"category": category, "path": (path or {}).get("path"), "detail": detail, "silent": not a.out,
-                       "stderr": last_line(got.err) if got else ""}
+                       "stderr": last_line(got.err) if got else "", "build_s": build_s}
     shutil.rmtree(folder, ignore_errors=True)
     return {**case, "modes": modes}
 
@@ -1652,9 +1844,9 @@ def tally(results, mode):
     asserting = sum(1 for r in native_rows if not r["modes"][mode]["silent"])
     typed = sum(1 for r in native_rows if r["modes"][mode]["path"] == "typed")
     return {**counts, "total": len(results), "scored": total, "matched_through_cpython": bridged, "matched_silent": silent,
-            "coverage": round(native / total, 4) if total else 0, "wrong": counts["wrong_output"] + counts["wrong_exit"],
-            "matched_asserting": asserting, "assert_coverage": round(asserting / total, 4) if total else 0,
-            "matched_typed": typed, "typed_share": round(typed / native, 4) if native else 0}
+            "coverage": native / total if total else 0, "wrong": counts["wrong_output"] + counts["wrong_exit"],
+            "matched_asserting": asserting, "assert_coverage": asserting / total if total else 0,
+            "matched_typed": typed, "typed_share": typed / native if native else 0}
 
 
 def read_by_design():
@@ -1781,26 +1973,30 @@ def normalise(why):
     return re.sub(r"\d+", "N", re.sub(r"'[^']*'|\"[^\"]*\"|`[^`]*`", "X", why))[:90]
 
 
+def native(t):
+    return t["matched"] - t["matched_through_cpython"]
+
+
 def markdown(rep, results):
     def table(mode):
         out = ["| File | " + " | ".join(CATEGORIES) + " | total | coverage | wrong |",
                "| --- | " + " | ".join("---:" for _ in CATEGORIES) + " | ---: | ---: | ---: |"]
         for name, t in list(rep["files"].items()) + [("**all**", rep["totals"])]:
             t = t[mode]
-            cells = [t[k] for k in CATEGORIES] + [t["total"], f"{t['coverage'] * 100:.1f}%", t["wrong"]]
+            cells = [t[k] for k in CATEGORIES] + [t["total"], pct(native(t), t["scored"]), t["wrong"]]
             out.append(f"| {name} | " + " | ".join(str(c) for c in cells) + " |")
         return out
 
     n, d = rep["totals"]["normal"], rep["totals"]["dyn"]
     lines = ["# CPython conformance", "",
-             f"{rep['brevi'].capitalize()} against CPython {rep['python']} (tests from tag {rep['tag']}), {rep['date']}, {rep['platform']}.",
+             f"{rep['brevi'].capitalize()} (commit {rep['commit']}) against CPython {rep['python']} (tests from tag {rep['tag']}), {rep['date']}, {rep['platform']}.",
              f"Generated by `tools/conformance.py`; how to read and run it is in [bench/README.md](../README.md#cpython-conformance).", "",
-             f"**Coverage {n['coverage'] * 100:.1f}%** ({n['matched'] - n['matched_through_cpython']} of {n['scored']} tests print exactly what CPython prints from a native build). "
+             f"**Coverage {pct(native(n), n['scored'])}** ({n['matched'] - n['matched_through_cpython']} of {n['scored']} tests print exactly what CPython prints from a native build). "
              f"**Wrong: {n['wrong']}** built programs gave a different answer ({n['wrong_output']} output, {n['wrong_exit']} exit code).", "",
-             f"**Assertion-bearing coverage {n['assert_coverage'] * 100:.1f}%** ({n['matched_asserting']} of {n['scored']}: native matches that printed "
-             f"something to compare; {n['matched_silent']} matches print nothing). **Typed-path share {n['typed_share'] * 100:.1f}%** "
+             f"**Assertion-bearing coverage {pct(n['matched_asserting'], n['scored'])}** ({n['matched_asserting']} of {n['scored']}: native matches that printed "
+             f"something to compare; {n['matched_silent']} matches print nothing). **Typed-path share {pct(n['matched_typed'], native(n))}** "
              f"({n['matched_typed']} of {n['matched'] - n['matched_through_cpython']} native matches took the typed build).", "",
-             f"Forced dynamic build (`BREVI_DYN=1`): coverage {d['coverage'] * 100:.1f}%, wrong {d['wrong']}.", "",
+             f"Forced dynamic build (`BREVI_DYN=1`): coverage {pct(native(d), d['scored'])}, wrong {d['wrong']}.", "",
              f"**Refused by design: {n['by_design']}** tests run a string as code (compile, exec or eval), which a sandboxed "
              "native binary refuses on purpose. They are left out of the coverage denominator and listed by name below.", "",
              f"**Need the string model: {n['string_model']}** tests stop on a str holding a lone surrogate, which Brevi's "
@@ -1836,12 +2032,13 @@ def markdown(rep, results):
         why = collections.Counter(normalise(r["detail"]) for r in results if r.get("category") == cat)
         lines += [f"- {c}: {w}" for w, c in why.most_common(25)]
     lines += ["", "## Unstable (left out of the score)", "",
-              "Rule 1: CPython's output at PYTHONHASHSEED 1 and 2, each seed settled by a second run when they differ. "
-              "Rule 2: seeds 3 to 5, tried when a build's output differs.", ""]
+              f"CPython and the built programs run at PYTHONHASHSEED={REF_SEED}. Rule 1: a second CPython run, settled by a "
+              "third when they differ. Rule 2: three more runs, tried when a build's output differs.", ""]
     lines += [f"- `{r['id']}`: {r['detail']}" for r in results if r.get("category") == "unstable"]
-    random = sum(1 for r in results if any(x["category"] == "unstable" for x in r.get("modes", {}).values()))
-    if random:
-        lines.append(f"- {random} more print unseeded random numbers (checked for crashes and exit code only).")
+    # The tests that are always unstable (RANDOM_OUTPUT, ALWAYS_UNSTABLE) still ran in both builds: counted by reason
+    always = collections.Counter(next(x["detail"] for x in r["modes"].values() if x["category"] == "unstable") for r in results
+                                 if any(x["category"] == "unstable" for x in r.get("modes", {}).values()))
+    lines += [f"- {n} more: {why}." for why, n in sorted(always.items())]
     lines += ["", "## Top refusals (normal build)", ""]
     why = collections.Counter(normalise(r["modes"]["normal"]["detail"]) for r in results
                               if "modes" in r and r["modes"]["normal"]["category"] == "refused")
@@ -1863,6 +2060,71 @@ def markdown(rep, results):
     if held:
         lines.append(f"- {held} more ended on a signal; those are looked at privately first (see SECURITY.md).")
     return "\n".join(lines) + "\n"
+
+
+# The report main last published for each slice (conformance-main.yml writes it with --raise-floor): the run a
+# ratchet failure is traced against.
+PUBLISHED = {"core": ROOT / "bench" / "conformance" / "report.json", "stdlib": ROOT / "bench" / "conformance" / "stdlib" / "report.json"}
+
+
+def read_published(slice_name):
+    """The slice's published report as read before this run (a run with --out bench/conformance overwrites it), or None
+    when it is missing or from another platform (a Windows run is not traced against Linux's report)."""
+    path = PUBLISHED.get(slice_name)
+    try:
+        rep = json.loads(path.read_text())
+    except (OSError, ValueError, AttributeError):
+        return None
+    return rep if rep.get("platform") == sys.platform else None
+
+
+def native_matches(rows, mode):
+    return {r["id"] for r in rows if "modes" in r and r["modes"][mode]["category"] == "matched" and r["modes"][mode].get("path") != "pybridge"}
+
+
+def lost_matches(published, results):
+    """[(id, {mode: (category, detail)})] for every test that matched natively in the published report and does not now,
+    so a ratchet that falls short names the tests it lost and why (a build timeout, a CPython reference run that timed
+    out, a test turned unstable), never only a count. Rows held back for SECURITY.md are counted, not named."""
+    if not published:
+        return [], 0
+    ran, lost, held = {r["id"]: r for r in results}, {}, 0
+    for mode in ("normal", "dyn"):
+        for i in sorted(native_matches(published["tests"], mode) - native_matches(results, mode)):
+            r = ran.get(i)
+            if r is None:
+                continue  # --filter or --files left it out
+            if "modes" in r:
+                x = r["modes"][mode]
+                lost.setdefault(i, {})[mode] = (x["category"], x.get("path") or "", x["detail"])
+            else:  # the whole test left the score (unstable, not extractable): one line for both builds
+                lost.setdefault(i, {}).setdefault("both builds", (r["category"], "", r["detail"]))
+    out = []
+    for i, modes in lost.items():
+        if any(is_private(d) for _, _, d in modes.values()):
+            held += 1
+        else:
+            out.append((i, modes))
+    return out, held
+
+
+def lost_lines(lost, held, published):
+    if not lost and not held:
+        return []
+    lines = [f"{len(lost) + held} tests matched natively in the published report (commit {published.get('commit', '?')}) and do not now:"]
+    for i, modes in lost:
+        for mode, (category, path, detail) in modes.items():
+            how = "matched through the CPython bridge" if category == "matched" and path == "pybridge" else category
+            lines.append(f"  {i} ({mode}): {how}: {detail}")
+    if held:
+        lines.append(f"  {held} more ended on a signal; those are looked at privately first (see SECURITY.md).")
+    return lines
+
+
+def slowest_builds(results, n=10):
+    """The n slowest builds of this run, slowest first: (seconds, id, mode)."""
+    times = [(x["build_s"], r["id"], m) for r in results for m, x in r.get("modes", {}).items() if x.get("build_s") is not None]
+    return sorted(times, reverse=True)[:n]
 
 
 CANDIDATES = ROOT / "tools" / "conformance_candidates.json"
@@ -1934,8 +2196,19 @@ def main():
     cfg = ap.parse_args()
     global BASELINE, FLOOR, SCOPE
     SCOPE, BASELINE, FLOOR = SLICES[cfg.slice]
+    gates = cfg.check or cfg.raise_floor or cfg.release_gate or cfg.write_baseline
+    if WINDOWS:
+        if cfg.slice not in WINDOWS_SLICES:
+            if gates:
+                sys.exit(f"the {cfg.slice} slice has no Windows floor or known-wrong list: on Windows it only measures")
+        else:
+            BASELINE, FLOOR = WINDOWS_SLICES[cfg.slice]
+            # Never half enforced: a Windows ratchet with no measured floor would pass anything.
+            measured = read_floor().get("matched", {})
+            if (cfg.check or cfg.release_gate) and not (measured and all(measured.values()) and read_floor().get("release_gate")):
+                sys.exit(f"compat/{FLOOR.name} has no measured floor or release_gate: nothing to check against")
     if cfg.candidates:
-        if cfg.check or cfg.raise_floor or cfg.release_gate or cfg.write_baseline:
+        if gates:
             sys.exit("--candidates only measures: it never checks, gates, or writes a floor or a baseline")
         if not cfg.out:
             sys.exit("--candidates needs --out (a folder outside bench/conformance)")
@@ -1943,6 +2216,8 @@ def main():
             sys.exit("--candidates never writes into bench/conformance (main publishes those reports)")
         SCOPE = use_candidates(cfg.slice)
     cfg.files = cfg.files or ",".join(SCOPE)
+    # Read before the run: conformance-main.yml writes this run's report over it.
+    published = None if cfg.candidates else read_published(cfg.slice)
     names = cfg.files.split(",")
     unknown = [n for n in names if "test." + n not in SOURCES]
     if unknown:
@@ -1991,7 +2266,13 @@ def main():
                 if x["category"] == "refused":
                     x["category"] = "cpython_private"
     version = subprocess.run([cfg.brevi, "--version"], capture_output=True, text=True).stdout.strip()
-    rep = {"brevi": version, "python": PYTHON_VERSION, "tag": TAG, "date": time.strftime("%Y-%m-%d"), "platform": sys.platform,
+    # The commit measured, so a report says which tree its numbers belong to (release_notes.py refuses a report
+    # whose commit differs from the release's tree outside the reports and floors).
+    commit = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    dirty = subprocess.run(["git", "-C", str(ROOT), "status", "--porcelain", "--untracked-files=no", "--", ".",
+                            ":!bench/conformance", ":!compat/conformance_floor.json", ":!compat/conformance_stdlib_floor.json"],
+                           capture_output=True, text=True).stdout.strip()
+    rep = {"brevi": version, "commit": (commit[:12] + ("-dirty" if dirty else "")) if commit else "unknown", "python": PYTHON_VERSION, "tag": TAG, "date": time.strftime("%Y-%m-%d"), "platform": sys.platform,
            "sandboxed": cfg.sandbox, "timeout_s": cfg.timeout, "mem_mb": cfg.mem_mb,
            "totals": {m: tally(results, m) for m in ("normal", "dyn")},
            "files": {n: {m: tally([r for r in results if r["file"] == n], m) for m in ("normal", "dyn")} for n in names},
@@ -1999,17 +2280,27 @@ def main():
     out = cfg.out or cache
     out.mkdir(parents=True, exist_ok=True)
     (out / "report.json").write_text(json.dumps({**rep, "tests": public_rows(results)}, indent=0) + "\n")
-    (out / "report.md").write_text(markdown(rep, results))
+    lost, held = lost_matches(published, results)
+    traced = lost_lines(lost, held, published or {})
+    lost_md = "\n## Lost since the published report\n\n```\n" + "\n".join(traced) + "\n```\n" if traced else ""
+    (out / "report.md").write_text(markdown(rep, results) + lost_md)
     private = [{"id": r["id"], "mode": m, "detail": x["detail"], "stderr": x["stderr"]} for r in results
                for m, x in r.get("modes", {}).items() if is_private(x["detail"])]
     (cache / "private_signals.json").write_text(json.dumps(private, indent=1) + "\n")
     n = rep["totals"]["normal"]
-    print(f"coverage {n['coverage'] * 100:.1f}%, wrong {n['wrong']} ({n['wrong_output']} output, {n['wrong_exit']} exit), "
+    print(f"coverage {pct(native(n), n['scored'])}, wrong {n['wrong']} ({n['wrong_output']} output, {n['wrong_exit']} exit), "
           f"{n['by_design']} refused by design (strings run as code, not counted), "
           f"{n['string_model']} need the string model, {n['cpython_private']} call CPython-private helpers "
           f"(both counted as not matched); report in {out}")
+    if traced:
+        print("\n".join(traced))
+    slow = slowest_builds(results)
+    if slow:
+        print("slowest builds: " + ", ".join(f"{i} ({m}) {sec:g} s" for sec, i, m in slow), file=sys.stderr)
     bad = set(bad_ids(results))
-    matched = {m: rep["totals"][m]["matched"] for m in ("normal", "dyn")}
+    # The floor holds native matches, the coverage numerator: a match that moved to the CPython bridge (pybridge)
+    # lowers coverage, so it must not pass the floor.
+    matched = {m: rep["totals"][m]["matched"] - rep["totals"][m]["matched_through_cpython"] for m in ("normal", "dyn")}
     if cfg.write_baseline:
         write_baseline(bad, read_baseline())
         # Only ever lowers the floor (a regression accepted on purpose): main raises it after each merge (--raise-floor),
@@ -2065,13 +2356,13 @@ def main():
         if not cfg.filter and cfg.files == ",".join(SCOPE):
             for m, n in matched.items():
                 if m in floor and n < floor[m]:
-                    print(f"{m} build: {n} tests match, below the floor of {floor[m]}; find the regression (or lower the floor on purpose)")
+                    print(f"{m} build: {n} tests match natively, below the floor of {floor[m]}; find the regression (or lower the floor on purpose)")
                     failed = True
                 elif m in floor and n > floor[m]:
-                    print(f"{m} build: {n} tests match, above the floor of {floor[m]}; main raises the floor after the merge (leave the floor file alone)")
+                    print(f"{m} build: {n} tests match natively, above the floor of {floor[m]}; main raises the floor after the merge (leave the floor file alone)")
         if failed:
             sys.exit(1)
-        print(f"ratchet holds: no new wrong results ({len(bad)} known), matches {matched}")
+        print(f"ratchet holds: no new wrong results ({len(bad)} known), native matches {matched}")
         if cfg.raise_floor and not cfg.filter and cfg.files == ",".join(SCOPE):
             # Only main does this (.github/workflows/conformance-main.yml), after the ratchet held on the merged tree,
             # so PRs never edit the floors and never conflict on them.
@@ -2084,13 +2375,13 @@ def main():
         gate, n, problems = read_floor().get("release_gate", {}), rep["totals"]["normal"], []
         if not gate:
             sys.exit(f"no release_gate in {FLOOR.relative_to(ROOT)}")
-        if n["coverage"] < gate.get("coverage", 0):
-            problems.append(f"coverage {n['coverage'] * 100:.1f}% is below the release gate of {gate['coverage'] * 100:.0f}%")
+        if native(n) < gate.get("coverage", 0) * n["scored"]:  # the counts, not a rounded share
+            problems.append(f"coverage {pct(native(n), n['scored'])} is below the release gate of {gate['coverage'] * 100:.0f}%")
         if gate.get("wrong", 0) == 0 and bad:
             problems.append(f"{len(bad)} wrong results or crashes; the release gate allows none")
         if problems:
             print("release gate FAILS:\n  " + "\n  ".join(problems)); sys.exit(1)
-        print(f"release gate holds: coverage {n['coverage'] * 100:.1f}%, no wrong results, {n['by_design']} refused by design, "
+        print(f"release gate holds: coverage {pct(native(n), n['scored'])}, no wrong results, {n['by_design']} refused by design, "
               f"{n['string_model']} need the string model, {n['cpython_private']} call CPython-private helpers")
 
 

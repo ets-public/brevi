@@ -34,11 +34,21 @@ if [ "$mode" = pr ]; then
   fi
 fi
 # The GitHub-only "versions" job checks, for the PRs GitHub CI skips (docs, site, conformance lists).
-step "Workflows, credentials, built files, --limit claims"
-python3 tools/workflow_guard.py && python3 tools/secret_scan.py && python3 tools/no_binaries.py && python3 tools/limits_check.py
+step "Workflows, credentials, built files, --limit and security claims"
+python3 tools/workflow_guard.py && python3 tools/secret_scan.py && python3 tools/no_binaries.py && python3 tools/limits_check.py && python3 tools/security_claims.py
+# Brevi answers as CPython 3.13 does and runs no other CPython (src/cpython.rs), so the checks run with python3 =
+# CPython 3.13.13 (uv's build, the one conformance compares with), as GitHub CI runs them with 3.13. The machine's
+# own python3 (another version, say 3.15) stays out of the run, except for the model box check below.
+sys_py=$(command -v python3)
+if command -v uv >/dev/null 2>&1 && uv python install 3.13.13 --quiet 2>/dev/null && py313=$(uv python find 3.13.13 2>/dev/null); then
+  export PATH="$(dirname "$py313"):$PATH"
+  unset BREVI_PYTHON
+else
+  case "$(python3 -V 2>&1)" in "Python 3.13."*) ;; *) echo "ci_local: needs CPython 3.13 (install uv, https://docs.astral.sh/uv/, which fetches 3.13.13), and python3 is $(python3 -V 2>&1)" >&2; exit 1;; esac
+fi
 step "Toolchain"; rustc -V; python3 -V
-# The same Rust as GitHub CI (.github/rust-version), or results differ: a newer rustc's Unicode tables change what
-# re.IGNORECASE accepts. Fix with: rustup toolchain install X && rustup default X
+# The same Rust as GitHub CI (.github/rust-version), or results can differ (a new rustc can change what compiles or
+# how fast it runs). Fix with: rustup toolchain install X && rustup default X
 pin=$(cat .github/rust-version)
 case "$(rustc -V)" in "rustc $pin "*) ;; *) echo "ci_local: rustc must be $pin, as in GitHub CI (rustup default $pin)" >&2; exit 1;; esac
 step "Build"; cargo build --release -q
@@ -65,13 +75,16 @@ step "Unit tests"; cargo test --release -q
 step "Language tests"; BREVI=./target/release/brevi CHECK_SKIP=mcp_sdk,mcp_http python3 tests/check_parallel.py --quiet $fast
 step "MCP servers against the pinned mcp"; PATH="$mcp_path" BREVI=./target/release/brevi CHECK_ONLY=mcp_sdk,mcp_http python3 tests/check_parallel.py --quiet $fast
 step "MCP server"; python3 tests/mcp_test.py && PATH="$mcp_path" python3 tests/mcp_http_test.py
-step "Model box"; python3 tests/modelbox_test.py
+# (with the machine's own python3: the box hides $HOME, where uv keeps its CPython)
+step "Model box"; "$sys_py" tests/modelbox_test.py && "$sys_py" tests/privtmp_test.py
 step "Python SDK and brevi-python"; BREVI=./target/release/brevi python3 tests/sdk_test.py
 BREVI=./target/release/brevi node tests/sdk_node_test.mjs
 step "Guide budget"; python3 tools/guide_budget.py
 step "Code map summaries and agent hooks"; python3 tools/code_map.py --check && python3 tests/agent_hooks_test.py
+step "Conformance and release-notes figures"; python3 tests/conformance_test.py && python3 tests/release_notes_test.py
 step "Package versions"; python3 tools/version_sync.py
 step "Changelog fragments"; python3 tools/changelog.py --check
+step "Published numbers: docs/NUMBERS.md and every quoted headline's scope"; python3 tools/published_numbers.py --check && python3 tests/published_numbers_test.py
 if [ "$mode" = pr ] && [ -n "$base" ]; then step "Conformance floors left to main"; python3 tools/floor_guard.py "$base"; fi
 if [ "$mode" = pr ] && [ -n "$base" ]; then step "CHANGELOG.md and published scores left alone"; PR_TITLE="$(git log -1 --format=%s)" python3 tools/pr_guard.py "$base"; fi
 if [ $grammar = 1 ]; then

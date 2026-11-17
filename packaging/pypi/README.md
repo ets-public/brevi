@@ -1,8 +1,9 @@
 # Brevi: fast, safe native builds of AI-written Python
 
-Brevi is a compiler built for AI coding agents. The agent writes the plain Python it already writes best; Brevi builds it through Rust into a native binary that runs 1.6x to 37.9x faster than CPython (median 9.3x) on our 12 compute benchmarks with the default build, and aims to print exactly what CPython prints (58% of CPython 3.13's own tests match today; 14% still build and differ). Anything it cannot build comes back as one short JSON line the agent can act on.
+Brevi is a compiler built for AI coding agents. The agent writes the plain Python it already writes best; Brevi builds it through Rust into a native binary that runs 1.6x to 37.9x faster than CPython on our 12 compute benchmarks with the default typed build (median 9.3x; a program on the dynamic build runs at about CPython's speed, median 0.85x), and aims to print exactly what CPython prints (at v0.28.2, 97.3% of the scored suite, with 83 string-as-code tests excluded match CPython 3.13's own tests, and none build and differ). Anything it cannot build comes back as one short JSON line the agent can act on.
 
 ```
+uvx --python 3.13 brevi run --verify main.py   # install and run in one command
 pip install brevi        # or run it without installing: uvx brevi mcp
 ```
 
@@ -24,6 +25,7 @@ A sure mistake is reported before anything runs, as one line with a fix:
 Brevi compiles through `rustc`, so a Rust toolchain must be on the PATH ([rustup.rs](https://rustup.rs)).
 
 - **For agents:** add the MCP server as the command `brevi` with the argument `mcp` (Claude Code: `claude mcp add brevi -- brevi mcp`). Its tools sandbox by default. [For AI agents](https://brevi-lang.org/docs/agents)
+- **Security:** No external security audit yet. The sandbox is a policy layer, not an isolation boundary. Run untrusted code in a container or VM. `--allow-py` and `--allow native` are full trust. [Where Brevi stands](https://github.com/ets-public/brevi/blob/main/SECURITY.md#where-brevi-stands)
 - **Same answers as CPython:** every saved agent program and large test program matches CPython's output and exit status. Imports of installed packages (numpy, pandas, requests, ...) work; most numpy code builds natively.
 - **Public preview:** Brevi works today and is tested against CPython on every change, but expect the CLI to change between releases.
 

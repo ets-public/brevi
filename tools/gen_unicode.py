@@ -3,8 +3,11 @@
 
 Run with the CPython the conformance tests target (3.13, unicodedata 15.1.0):
     python3.13 tools/gen_unicode.py > src/unicode.rs
-`--check` exits 1 if src/unicode.rs differs from what this script writes.
+    python3.13 tools/gen_unicode.py --sre > src/unicode_sre.rs
+`--check` exits 1 if either file differs from what this script writes.
 """
+import _sre
+import re._casefix
 import sys
 import unicodedata
 from pathlib import Path
@@ -19,6 +22,45 @@ HEADER = """\
 // str.casefold() for every non-ASCII character whose folded form differs from the character itself:
 // the full (C and F) CaseFolding mappings, so it does not depend on rustc's Unicode version.
 const AX_CASEFOLD: &[(u32, &str)] = &[
+"""
+
+SRE_HEADER = """\
+// re.IGNORECASE's case tables, generated from CPython {py} (unicodedata {ud}) by
+// tools/gen_unicode.py --sre: do not edit by hand. Both builds' regex matchers use them: the typed build's
+// prelude (src/emit.rs PRELUDE, after its @regex marker, so only programs with regexes compile them) and the
+// dynamic runtime (src/dynpy/mod.rs).
+
+"""
+
+SRE_TAIL = """\
+fn py_sre_case(tab: &[(u32, u32, i32, u32)], c: u32) -> u32 {
+    match tab.binary_search_by(|&(a, b, _, _)| if b < c { std::cmp::Ordering::Less } else if a > c { std::cmp::Ordering::Greater } else { std::cmp::Ordering::Equal }) {
+        Ok(i) if (c - tab[i].0) % tab[i].3 == 0 => (c as i64 + tab[i].2 as i64) as u32,
+        _ => c,
+    }
+}
+
+// _sre.unicode_tolower (re.IGNORECASE): CPython's simple lowercase of a code point, whatever rustc's tables say.
+// Lone surrogates and every unassigned code point map to themselves.
+pub fn py_sre_lower(c: u32) -> u32 {
+    if c < 0x80 {
+        return if (0x41..=0x5a).contains(&c) { c + 32 } else { c };
+    }
+    py_sre_case(AX_SRE_LOWER, c)
+}
+
+// _sre's sre_upper_unicode (Py_UNICODE_TOUPPER), which re.IGNORECASE uses for ranges and sets.
+pub fn py_sre_upper(c: u32) -> u32 {
+    if c < 0x80 {
+        return if (0x61..=0x7a).contains(&c) { c - 32 } else { c };
+    }
+    py_sre_case(AX_SRE_UPPER, c)
+}
+
+// _sre.unicode_iscased: the code point has a different lowercase or uppercase.
+pub fn py_sre_iscased(c: u32) -> bool {
+    py_sre_lower(c) != c || py_sre_upper(c) != c
+}
 """
 
 TAIL = """\
@@ -43,6 +85,13 @@ pub fn py_casefold(t: &str) -> String {
 
 fn uni_tab_has(tab: &[(u32, u32)], u: u32) -> bool {
     tab.binary_search_by(|&(a, b)| if b < u { std::cmp::Ordering::Less } else if a > u { std::cmp::Ordering::Greater } else { std::cmp::Ordering::Equal }).is_ok()
+}
+
+// A str CPython's compiler leaves as it is when it NFKC-normalizes an identifier: true when every character is
+// ASCII or outside AX_NFKC_MAY_CHANGE (each such character is NFKC-invariant alone, a starter, and never the
+// second half of a composition, so no sequence of them changes). False means it may change, not that it does.
+pub fn py_nfkc_stable(t: &str) -> bool {
+    t.chars().all(|c| c.is_ascii() || !uni_tab_has(AX_NFKC_MAY_CHANGE, c as u32))
 }
 
 pub fn py_is_decimal(c: char) -> bool {
@@ -96,6 +145,49 @@ def ranges(pred):
     return "&[" + ", ".join(f"({a:#x}, {b:#x})" for a, b in out) + "]"
 
 
+def case_runs(first):
+    """(first, last, delta, step) runs over the non-ASCII code points `first` changes."""
+    out = []
+    for u, c in chars():
+        t = ord(first(c))
+        if t == u:
+            continue
+        d = t - u
+        if out:
+            a, b, dd, st = out[-1]
+            # step 2 only merges when the code point between is unchanged: it would be the last run otherwise
+            if dd == d and ((a == b and u - b in (1, 2)) or (a != b and u - b == st)):
+                out[-1] = [a, u, d, u - b]
+                continue
+        out.append([u, u, d, 1])
+    return "&[" + ", ".join(f"({a:#x}, {b:#x}, {d}, {st})" for a, b, d, st in out) + "]"
+
+
+def sre_lower(c):
+    # _sre.unicode_tolower is _PyUnicode_ToLowercase: the first character of the full lowercase mapping
+    t = _sre.unicode_tolower(ord(c))
+    assert t == ord(c.lower()[0])
+    return chr(t)
+
+
+SECONDS = None
+
+
+def nfkc_may_change(c):
+    global SECONDS
+    if SECONDS is None:
+        SECONDS = set()
+        for _, x in chars():
+            d = unicodedata.decomposition(x)
+            if d and not d.startswith("<"):
+                SECONDS.update(chr(int(h, 16)) for h in d.split()[1:])
+        SECONDS.update(map(chr, range(0x1161, 0x1176)))
+        SECONDS.update(map(chr, range(0x11A8, 0x11C3)))
+    first = unicodedata.normalize("NFKD", c)[0]
+    return (unicodedata.normalize("NFKC", c) != c or unicodedata.combining(c) != 0 or c in SECONDS
+            or unicodedata.combining(first) != 0 or first in SECONDS)
+
+
 def render():
     v = sys.version_info
     s = HEADER.format(py=f"{v.major}.{v.minor}", ud=unicodedata.unidata_version)
@@ -112,14 +204,36 @@ def render():
     s += "// Ranges of non-ASCII characters str.isnumeric() accepts beyond str.isdigit(): Numeric_Type=Numeric\n"
     s += "// (fractions, number words, and the Unihan numerals), not Nd or Digit (those are in AX_DIGIT above).\n"
     s += f"const AX_NUMERIC: &[(u32, u32)] = {ranges(lambda c: c.isnumeric() and not c.isdigit())};\n\n"
-    return s + TAIL
+    s += "// Ranges of non-ASCII characters a string's NFKC form may differ at: those NFKC changes alone, those with\n"
+    s += "// a nonzero combining class or whose NFKD starts with one, and those that can be the second character of a\n"
+    s += "// canonical composition (including Hangul medial and final jamo). Used by py_nfkc_stable.\n"
+    s += f"const AX_NFKC_MAY_CHANGE: &[(u32, u32)] = {ranges(nfkc_may_change)};\n\n"
+    return s.rstrip() + "\n\n" + TAIL
+
+
+def render_sre():
+    v = sys.version_info
+    s = SRE_HEADER.format(py=f"{v.major}.{v.minor}", ud=unicodedata.unidata_version)
+    s += "// _sre's case mappings (re.IGNORECASE): the first character of each non-ASCII code point's full\n"
+    s += "// lowercase / uppercase mapping (_PyUnicode_ToLowercase / _PyUnicode_ToUppercase), as runs\n"
+    s += "// (first, last, delta, step): first, first + step, ... last map to themselves + delta, the code points\n"
+    s += "// between them to themselves. Every other code point maps to itself.\n"
+    s += f"const AX_SRE_LOWER: &[(u32, u32, i32, u32)] = {case_runs(sre_lower)};\n"
+    s += f"const AX_SRE_UPPER: &[(u32, u32, i32, u32)] = {case_runs(lambda c: c.upper()[0])};\n\n"
+    s += "// re._casefix._EXTRA_CASES: the other lowercase characters with the same uppercase as a lowercase one\n"
+    s += "// (i and dotless i, s and long s, ...), which IGNORECASE also matches.\n"
+    s += "pub fn py_sre_extra_cases(c: u32) -> &'static [u32] {\n    match c {\n"
+    for k, v in sorted(re._casefix._EXTRA_CASES.items()):
+        s += f"        {k:#06x} => &[{', '.join(f'{x:#x}' for x in v)}],\n"
+    s += "        _ => &[],\n    }\n}\n\n"
+    return s + SRE_TAIL
 
 
 if __name__ == "__main__":
-    text = render()
+    src = Path(__file__).resolve().parent.parent / "src"
     if "--check" in sys.argv:
-        path = Path(__file__).resolve().parent.parent / "src" / "unicode.rs"
-        if path.read_text() != text:
-            sys.exit("src/unicode.rs is stale: run python3.13 tools/gen_unicode.py > src/unicode.rs")
+        for name, text, flag in (("unicode.rs", render(), ""), ("unicode_sre.rs", render_sre(), " --sre")):
+            if (src / name).read_text() != text:
+                sys.exit(f"src/{name} is stale: run python3.13 tools/gen_unicode.py{flag} > src/{name}")
     else:
-        sys.stdout.write(text)
+        sys.stdout.write(render_sre() if "--sre" in sys.argv else render())

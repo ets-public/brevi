@@ -6,6 +6,8 @@
 //   - the brevi binary (version, size and modification time), the toolchain (PATH, rustup settings) and
 //     the python3 on PATH,
 //   - the command and its flags, and every BREVI_* and Python setting in the environment,
+//   - what the build reads of the machine to choose a path: the CPU's numpy BLAS kernels, OPENBLAS_CORETYPE and
+//     numpy's own NPY_* / NUMPY_* settings,
 //   - the file's path and the text of every .py and .bv file next to it (the modules it may import; also
 //     those in package folders it imports).
 // A success is kept with its binary; a refusal is kept only when nothing outside the program's folder and
@@ -261,11 +263,16 @@ fn key(args: &[String], file: &str, envs: &[(&str, &str)], me: &Path) -> Option<
         .collect();
     vars.sort();
     parts.extend(vars.into_iter().map(|(k, v)| format!("{k}={v}")));
+    // What the build reads of the machine to choose a program's path (numpy's BLAS kernels and settings).
+    parts.push(crate::dynpy::emit::np_path_inputs());
     // The Python that library calls link against (an upgrade in place leaves PATH as it was).
-    let py = crate::python_exe();
-    let found = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).map(|d| d.join(&py)).find(|f| f.is_file())).flatten();
-    if let Some(m) = found.and_then(|f| std::fs::canonicalize(f).ok()).and_then(|f| std::fs::metadata(&f).ok().map(|m| (f, m))) {
-        parts.push(format!("{} {} {:?}", m.0.display(), m.1.len(), m.1.modified().ok()));
+    // Every interpreter the CPython 3.13 search would look at (src/cpython.rs), by file, without starting one:
+    // installing, removing or upgrading any of them can change which one is found.
+    for f in crate::cpython::candidates() {
+        let f = if f.components().count() == 1 { std::env::var_os("PATH").and_then(|p| std::env::split_paths(&p).map(|d| d.join(&f)).find(|x| x.is_file())).unwrap_or(f) } else { f };
+        if let Some(m) = std::fs::canonicalize(&f).ok().and_then(|f| std::fs::metadata(&f).ok().map(|m| (f, m))) {
+            parts.push(format!("{} {} {:?}", m.0.display(), m.1.len(), m.1.modified().ok()));
+        }
     }
     let path = std::fs::canonicalize(file).ok()?;
     parts.push(path.to_string_lossy().into());

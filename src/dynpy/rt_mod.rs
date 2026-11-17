@@ -889,9 +889,11 @@ fn update_wrapper(wrapper: V, wrapped: V, assigned: V, updated: V) -> R {
     let mut it = iter(&assigned)?;
     while let Some(x) = it.next()? {
         let n = wraps_name(&x)?;
-        // annotations Brevi doesn't keep: the wrapper's stay unkept too (reading either is refused)
+        // annotations Brevi doesn't keep: the wrapper's stay unkept too (reading either is refused). A bound method's
+        // __annotations__ is its function's, as in CPython.
         if n == "__annotations__" {
-            if let V::Func(wd) = &wrapped {
+            let func = if let V::Bound(b) = &wrapped { &b.1 } else { &wrapped };
+            if let V::Func(wd) = func {
                 if wd.attrs.borrow().iter().all(|(k, _)| *k != "__annotations__") {
                     continue;
                 }
@@ -2601,6 +2603,9 @@ pub fn shallow_copy(x: &V) -> R {
             if let Some(f) = o.cls.lookup("__copy__") {
                 return call(&f, Args::p(vec![x.clone()]));
             }
+            if let Some(r) = pk_copy(x, None) {
+                return r;
+            }
             iter_sub_copy_check(o)?;
             let hooked = copy_slot_sets(o)?;
             let n = Obj::new(o.cls.clone());
@@ -2687,7 +2692,8 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
             for y in t.iter() {
                 v.push(deepcopy(y, memo)?);
             }
-            tup(v)
+            // copy._deepcopy_tuple: the tuple itself when every item copies to itself
+            if t.iter().zip(v.iter()).all(|(a, b)| is(a, b)) { x.clone() } else { tup(v) }
         }
         V::Dict(d) => {
             let n = Rc::new(RefCell::new(Dict::new()));
@@ -2734,6 +2740,9 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
         V::Obj(o) => {
             if let Some(f) = o.cls.lookup("__deepcopy__") {
                 return call(&f, Args::p(vec![x.clone(), dict_new()]));
+            }
+            if let Some(r) = pk_copy(x, Some(&mut *memo)) {
+                return r;
             }
             iter_sub_copy_check(o)?;
             if o.cls.base_bt() == BT::Exc {
@@ -3012,6 +3021,8 @@ pub fn set_context(e: &E) {
 fn cur_exc() -> Option<V> {
     EXC_STACK.with(|s| s.borrow().last().map(|(_, e)| e.clone()))
 }
+// sys.setswitchinterval's interval in microseconds; CPython starts at 5000 (5 ms)
+static SWITCH_US: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(5000);
 pub fn sys_fn(name: &str, a: Args) -> R {
     match name {
         "exit" => bi_exit(a),
@@ -3021,6 +3032,52 @@ pub fn sys_fn(name: &str, a: Args) -> R {
             Ok(V::None)
         }
         "getrecursionlimit" => Ok(V::Int(REC_LIMIT.with(|l| l.get()) as i64)),
+        // Brevi's green threads switch only at blocking calls, so the interval schedules nothing; it is kept in whole
+        // microseconds exactly as CPython keeps it (set truncates, get gives 1e-6 * microseconds)
+        "setswitchinterval" => {
+            if !a.k.is_empty() {
+                return type_err("sys.setswitchinterval() takes no keyword arguments".into());
+            }
+            if a.p.len() != 1 {
+                return type_err(format!("sys.setswitchinterval() takes exactly one argument ({} given)", a.p.len()));
+            }
+            let v = &a.p[0];
+            let real = |v: &V| type_err(format!("must be real number, not {}", tn(v)));
+            let f = match v {
+                V::Float(_) | V::Int(_) | V::Bool(_) | V::Big(_) => to_float(v)?,
+                // as PyFloat_AsDouble: a float subclass instance gives its own value (no __float__ call); an int
+                // subclass calls its own __float__ if it defines one, else converts its value
+                V::Obj(o) if o.cls.base_bt() == BT::Float && o.inner().is_some() => to_float(&o.inner().unwrap())?,
+                V::Obj(o) if o.cls.lookup("__float__").is_some() => to_float(v)?,
+                V::Obj(o) if o.cls.base_bt() == BT::Int && o.inner().is_some() => to_float(&o.inner().unwrap())?,
+                V::Obj(o) if o.cls.lookup("__index__").is_some() => idx_of(v)? as f64,
+                V::Ext(x) => match x.to_f64() {
+                    Some(f) if cplx_of(v).is_none() => f,
+                    _ => return real(v),
+                },
+                _ => return real(v),
+            };
+            if f <= 0.0 {
+                return val_err("switch interval must be strictly positive".into());
+            }
+            // CPython casts 1e6 * interval to a C unsigned long: past 32 bits (or for nan and inf) the result
+            // depends on the platform (Windows' unsigned long is 32 bits), so there is no one answer to give
+            let us = 1e6 * f;
+            if !(us < 4294967296.0) {
+                return Err(unsupported("sys.setswitchinterval() of 4294.967296 seconds or more (CPython's value depends on the platform)"));
+            }
+            SWITCH_US.store(us as u64, std::sync::atomic::Ordering::Relaxed);
+            Ok(V::None)
+        }
+        "getswitchinterval" => {
+            if !a.k.is_empty() {
+                return type_err("sys.getswitchinterval() takes no keyword arguments".into());
+            }
+            if !a.p.is_empty() {
+                return type_err(format!("sys.getswitchinterval() takes no arguments ({} given)", a.p.len()));
+            }
+            Ok(V::Float(1e-6 * SWITCH_US.load(std::sync::atomic::Ordering::Relaxed) as f64))
+        }
         "getdefaultencoding" => {
             if !a.k.is_empty() {
                 return type_err("sys.getdefaultencoding() takes no keyword arguments".into());
@@ -3045,7 +3102,21 @@ pub fn sys_fn(name: &str, a: Args) -> R {
             a.want(name, 0, 0)?;
             Ok(V::Int(int_max_digits() as i64))
         }
-        "intern" => Ok(a1(&a, name)?),
+        "intern" => {
+            if !a.k.is_empty() {
+                return type_err("sys.intern() takes no keyword arguments".into());
+            }
+            if a.p.len() != 1 {
+                return type_err(format!("sys.intern() takes exactly one argument ({} given)", a.p.len()));
+            }
+            let V::Str(x) = &a.p[0] else {
+                return match &a.p[0] {
+                    V::Obj(o) if matches!(o.inner(), Some(V::Str(_))) => type_err(format!("can't intern {}", o.cls.name)),
+                    v => type_err(format!("intern() argument must be str, not {}", tn(v))),
+                };
+            };
+            Ok(sys_intern(x, &a.p[0]))
+        }
         "getsizeof" => Ok(V::Int(64)),
         "exception" => {
             a.want(name, 0, 0)?;
@@ -3299,6 +3370,55 @@ pub fn sys_modules() -> V {
         V::Dict(s.get_or_insert_with(|| Rc::new(RefCell::new(Dict::new()))).clone())
     })
 }
+// The reads of sys.modules a dynamic build compiles, with what emit.rs (sysmod_key) knew of the key, always a
+// literal: Dict, the dict alone decides (what the program imported and stored); Startup, CPython 3.13 had it when
+// the script started (with the module, when the read takes it); Lits, the key is a parameter whose every call
+// passes one of these strs, each decided as that literal is (emit.rs sysmod_param_lits).
+pub enum SysKey {
+    Dict,
+    Startup(Option<V>),
+    Lits(&'static [&'static str], Vec<SysKey>),
+}
+impl SysKey {
+    // the literal's own SysKey; a value no call passes reached the def by reflection the build did not see
+    fn pick(self, k: &V) -> Result<SysKey, E> {
+        let SysKey::Lits(ls, keys) = self else { return Ok(self) };
+        let at = if let V::Str(t) = k { ls.iter().position(|l| *l == t.text()) } else { None };
+        match at {
+            Some(i) => keys.into_iter().nth(i).unwrap().pick(k),
+            None => Err(unsupported("sys.modules read with a key the calls of its def do not pass (the def was reached by reflection)")),
+        }
+    }
+}
+pub fn is_sys_mod(v: &V) -> bool {
+    matches!(v, V::Module(m) if m.0 == "sys")
+}
+pub fn sysmod_store(k: &V, v: V) -> Result<(), E> {
+    setitem(&sys_modules(), k, v)
+}
+pub fn sysmod_has(k: &V, key: SysKey) -> Result<bool, E> {
+    match key.pick(k)? {
+        SysKey::Startup(_) => Ok(true),
+        _ => contains(&sys_modules(), k),
+    }
+}
+pub fn sysmod_item(k: &V, key: SysKey) -> R {
+    let d = sys_modules();
+    match key.pick(k)? {
+        SysKey::Startup(Some(m)) if !contains(&d, k)? => {
+            setitem(&d, k, m.clone())?;
+            Ok(m)
+        }
+        _ => getitem(&d, k),
+    }
+}
+pub fn sysmod_get(k: &V, default: V, key: SysKey) -> R {
+    match key.pick(k)? {
+        st @ SysKey::Startup(_) => sysmod_item(k, st),
+        SysKey::Dict if !contains(&sys_modules(), k)? => Ok(default),
+        _ => getitem(&sys_modules(), k),
+    }
+}
 // `import m` records the module object the program bound to `m`, so `sys.modules['m'] is m`.
 pub fn sys_modules_set(name: &str, v: &V) -> R {
     if let V::Dict(d) = sys_modules() {
@@ -3413,7 +3533,8 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         ("sys", "flags") => sys_flags(),
         ("sys", "version") => s("3.13.0 (brevi)"),
         ("sys", "float_info") => return Err(unsupported("sys.float_info")),
-        ("sys", "modules") => sys_modules(),
+        // reached through a module object, not `sys.modules` in the source (which emit.rs checks)
+        ("sys", "modules") => return Err(unsupported("sys.modules reached through getattr or another name (dynamic builds read sys.modules[k], k in sys.modules and sys.modules.get(k))")),
         // CPython puts the script's folder first; a built program has only itself, so its folder stands in
         ("sys", "path") => list(vec![s(&std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_string_lossy().into_owned())).unwrap_or_default())]),
         ("sys.stdin", "buffer") => V::Module(&ModName("sys.stdin.buffer")),
@@ -3444,6 +3565,8 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         // itertools' iterator types are classes, as in CPython: type(chain()) is chain, isinstance, subclassing
         ("itertools", n) if itertools_kind(n).is_some() => V::Class(it_class(itertools_kind(n).unwrap())?),
         ("dataclasses", "MISSING" | "KW_ONLY" | "InitVar" | "Field" | "FrozenInstanceError") => dataclass_attr(name).unwrap(),
+        ("dataclasses", "_dataclass_getstate") => dc_state_fn("_dataclass_getstate"),
+        ("dataclasses", "_dataclass_setstate") => dc_state_fn("_dataclass_setstate"),
         ("abc", "ABC") => V::Class(abc_class()),
         ("abc", "ABCMeta") => V::Class(abc_meta_class()),
         // CPython's re._compiler imports both from re._constants: the same objects
@@ -3962,13 +4085,10 @@ fn abc_class() -> Rc<Class> {
     })
 }
 
-// The same checks CPython's namedtuple makes, on the str values field_names was mapped with str().
+// The same checks CPython's namedtuple makes, on the str values field_names was mapped with str():
+// str.isidentifier() (CPython 3.13's XID tables) and keyword.iskeyword() (hard keywords only).
 fn py_ident(s: &str) -> bool {
-    let mut cs = s.chars();
-    match cs.next() {
-        Some(c) if c == '_' || c.is_alphabetic() => cs.all(|c| c == '_' || c.is_alphanumeric()),
-        _ => false,
-    }
+    py_isidentifier(s)
 }
 fn py_keyword(s: &str) -> bool {
     matches!(s,
@@ -4004,7 +4124,8 @@ fn namedtuple_with(mut a: Args, check_name: bool) -> R {
     a.want("namedtuple", 2, 2)?;
     let name = sym(&to_str(&a.p[0])?);
     let mut fields: Vec<Sym> = match &a.p[1] {
-        V::Str(x) => x.text().replace(',', " ").split_whitespace().map(sym).collect(),
+        // str.split() with no arguments: CPython's whitespace (\x1c-\x1f included), not Rust's
+        V::Str(x) => x.text().replace(',', " ").split(py_ch_isspace).filter(|w| !w.is_empty()).map(sym).collect(),
         x => {
             let mut out = vec![];
             for f in to_vec(x)? {
@@ -4040,6 +4161,12 @@ fn namedtuple_with(mut a: Args, check_name: bool) -> R {
             return val_err(format!("Encountered duplicate field name: {}", str_repr(f)));
         }
         seen.push(*f);
+    }
+    // CPython compiles __new__ from the field names, NFKC-normalizing them as identifiers: then 'ﬁ' and 'fi'
+    // are a duplicate argument (SyntaxError) and keyword arguments go by the normalized name. Names that may
+    // change under NFKC stop the program (uncatchably, since CPython may succeed) rather than build differently.
+    if let Some(f) = fields.iter().find(|f| !py_nfkc_stable(f)) {
+        refuse_stop(&format!("a namedtuple field name NFKC normalization may change ({})", str_repr(f)));
     }
     let defaults_given = matches!(&defaults, Some(d) if !matches!(d, V::None));
     let dflt: Vec<V> = match &defaults {
@@ -4846,12 +4973,83 @@ fn dc_set_new(c: &Rc<Class>, name: Sym, v: V) -> bool {
 fn dc_params(c: &Rc<Class>) -> Option<V> {
     c.lookup("__dataclass_params__")
 }
-// What an evaluated class annotation is to dataclasses: KW_ONLY, ClassVar, InitVar or a field (""). A string
-// annotation is told by the compiler's mark for the name (`mark`), as dataclasses._is_type reads the string.
-fn dc_ann_kind(v: &Option<V>, mark: &str) -> &'static str {
+// A global of a module of the program (`__main__` or a user module), as `sys.modules[m].__dict__.get(n)` reads it.
+fn program_global(m: &str, n: &str) -> Option<V> {
+    if m == "__main__" {
+        let tab = MAIN_GTAB.with(|g| g.get())?;
+        return glob_item(tab, &s(n)).ok();
+    }
+    USER_MOD.with(|u| u.get()).and_then(|f| f(m, n)).and_then(|r| r.ok())
+}
+// dataclasses._is_type (CPython 3.13) for a string annotation: _MODULE_IDENTIFIER_RE `^(?:\s*(\w+)\s*\.)?\s*(\w+)`
+// picks an optional module name and a name; the name is looked up in the class's module, which must bind the module
+// name (when there is one) to `typing` or `dataclasses` itself. Only the start of the string is read, so
+// 'typing.ClassVar+' is a ClassVar too.
+fn dc_string_kind(text: &str, module: &str) -> &'static str {
+    let c: Vec<char> = text.chars().collect();
+    let word = |mut i: usize| {
+        let st = i;
+        while i < c.len() && (c[i].is_alphanumeric() || c[i] == '_') {
+            i += 1;
+        }
+        (st, i)
+    };
+    let ws = |mut i: usize| {
+        while i < c.len() && c[i].is_whitespace() {
+            i += 1;
+        }
+        i
+    };
+    let mut module_name = None;
+    let mut at = 0;
+    let (a, b) = word(ws(0));
+    if b > a {
+        let d = ws(b);
+        if d < c.len() && c[d] == '.' {
+            module_name = Some(c[a..b].iter().collect::<String>());
+            at = d + 1;
+        }
+    }
+    let (a, b) = word(ws(at));
+    if b == a {
+        return "";
+    }
+    let name: String = c[a..b].iter().collect();
+    let g = dc_globals();
+    let kinds: &[&'static str] = match module_name.as_deref() {
+        None => &["ClassVar", "InitVar", "KW_ONLY"],
+        Some(mn) => match program_global(module, mn) {
+            Some(V::Module(m)) if &**m == "typing" => &["ClassVar"],
+            Some(V::Module(m)) if &**m == "dataclasses" => &["InitVar", "KW_ONLY"],
+            _ => return "",
+        },
+    };
+    let Some(x) = program_global(module, &name) else { return "" };
+    for k in kinds {
+        let hit = match *k {
+            // typing.ClassVar itself, or ClassVar[...] (a _GenericAlias whose origin is ClassVar)
+            "ClassVar" => match &x {
+                V::Class(k) => k.module == "typing" && k.name == "ClassVar",
+                V::Ext(e) => e.any().downcast_ref::<TForm>().is_some_and(|f| f.name == "ClassVar"),
+                _ => false,
+            },
+            "InitVar" => is(&x, &g.3) || matches!((&x, &g.3), (V::Obj(o), V::Class(iv)) if Rc::ptr_eq(&o.cls, iv)),
+            _ => is(&x, &g.2),
+        };
+        if hit {
+            return k;
+        }
+    }
+    ""
+}
+// What an evaluated class annotation is to dataclasses: KW_ONLY, ClassVar, InitVar or a field (""). A string is read
+// as dataclasses._is_type reads it, against the class's module (dc_string_kind); an annotation the build did not
+// evaluate is told by the compiler's mark for the name (`mark`).
+fn dc_ann_kind(v: &Option<V>, mark: &str, module: &str) -> &'static str {
     let g = dc_globals();
     match v {
-        Some(V::Str(_)) | None => match mark {
+        Some(V::Str(t)) => dc_string_kind(&t.text(), module),
+        None => match mark {
             "KW_ONLY" => "KW_ONLY",
             "ClassVar" => "ClassVar",
             "InitVar" => "InitVar",
@@ -5058,12 +5256,16 @@ fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> R {
         }
         _ => marks.iter().map(|(_, n)| (*n, None)).collect(),
     };
+    let module = match c.lookup("__module__") {
+        Some(V::Str(m)) => m.text().to_string(),
+        _ => "__main__".to_string(),
+    };
     let mut kw_only = o.kw_only;
     let mut seen_kw_only = false;
     let mut own_fields: Vec<V> = vec![];
     for (name, ty) in &anns {
         let mark = marks.iter().find(|(_, n)| n == name).map(|(k, _)| k.as_str()).unwrap_or("");
-        let kind = dc_ann_kind(ty, mark);
+        let kind = dc_ann_kind(ty, mark, &module);
         if kind == "KW_ONLY" {
             if seen_kw_only {
                 return type_err(format!("'{name}' is KW_ONLY, but KW_ONLY has already been specified"));
@@ -5346,7 +5548,20 @@ fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> R {
     if o.weakref_slot && !o.slots {
         return type_err("weakref_slot is True but slots is False".into());
     }
-    let c = if o.slots { dc_add_slots(c, &real, o.weakref_slot)? } else { c.clone() };
+    let c = if o.slots {
+        let n = dc_add_slots(c, &real, o.weakref_slot)?;
+        // _add_slots: a frozen class pickles and copies through _dataclass_getstate/_dataclass_setstate
+        if o.frozen {
+            for (k, f) in [("__getstate__", "_dataclass_getstate"), ("__setstate__", "_dataclass_setstate")] {
+                if c.own(k).is_none() {
+                    n.set(k, dc_state_fn(f));
+                }
+            }
+        }
+        n
+    } else {
+        c.clone()
+    };
     dc_update_abstract(&c)?;
     Ok(V::Class(c))
 }
@@ -5497,6 +5712,7 @@ pub fn ext_module_attr(m: &str, n: &str) -> Result<Option<V>, E> {
         ("enum", "Enum") => Some(V::Class(enum_base())),
         ("enum", "property") => Some(V::Class(eprop_class())),
         ("enum", "IntEnum" | "StrEnum" | "Flag" | "IntFlag" | "ReprEnum") => enum_class(n).map(V::Class),
+        ("enum", _) if enum_mod_attr(n)?.is_some() => enum_mod_attr(n)?,
         ("binascii", "Error") => Some(V::Class(exc_class("binascii.Error"))),
         _ => None,
     })
@@ -5696,4 +5912,29 @@ pub fn clock_ns(cpu: bool) -> i64 {
         unsafe { clock_gettime(clk, &mut ts) };
         ts.sec * 1_000_000_000 + ts.nsec
     }
+}
+
+thread_local! {
+    // sys.intern's table: the first str interned for each text (lone-surrogate strs keyed by their code points)
+    static INTERNED: RefCell<HashMap<Vec<u32>, V>> = RefCell::new(HashMap::new());
+}
+// sys.intern(s): the one str for that text. A str constant made only of name characters is one object in the
+// whole program (CPython's compiler interns it), so that constant is the interned str when there is one.
+fn sys_intern(x: &S, v: &V) -> V {
+    let key = x.cps();
+    if let Some(hit) = INTERNED.with(|t| t.borrow().get(&key).cloned()) {
+        return hit;
+    }
+    let mut got = v.clone();
+    if !x.is_lone() && name_chars_only(x.text()) {
+        let ks = unsafe { &*std::ptr::addr_of!(K) };
+        if let Some(k) = ks.iter().find(|k| matches!(k, V::Str(y) if !y.is_lone() && y.text() == x.text())) {
+            got = k.clone();
+        }
+    }
+    INTERNED.with(|t| t.borrow_mut().insert(key, got.clone()));
+    got
+}
+fn name_chars_only(s: &str) -> bool {
+    s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }

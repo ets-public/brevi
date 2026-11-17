@@ -13,6 +13,8 @@ brevi --version
 | Channel | Upgrade | Pin a version |
 | --- | --- | --- |
 | `install.sh` | run the install command again (see the README) | `BREVI_VERSION=0.27.0 sh install.sh` |
+| uvx | `uvx --python 3.13 brevi@latest run --verify main.py` (plain `uvx` reuses its cached copy) | `uvx --python 3.13 brevi@0.28.2 run --verify main.py` |
+| uv tool | `uv tool upgrade brevi` | `uv tool install --python 3.13 brevi==0.28.2` |
 | pip | `pip install --upgrade brevi` | `pip install brevi==0.27.0` |
 | npm | `npm install -g brevi@latest` | `npm install -g brevi@0.27.0` |
 | cargo | `cargo install brevi --force` | `cargo install brevi --version 0.27.0 --force` |
@@ -20,7 +22,7 @@ brevi --version
 | GitHub Action | `ets-public/brevi/setup` at a newer tag | `uses: ets-public/brevi/setup@v0.27.0`, or the `version` input |
 | Dev container feature | set `version` to `latest` (the default) | `"version": "0.27.0"` |
 | Python and Node SDKs | upgrade the pip or npm package | pin the package version |
-| Windows | unzip `brevi-x86_64-pc-windows-msvc.zip` from the release over the old `brevi.exe` | download that release's zip |
+| Windows | unzip `brevi-x86_64-pc-windows-msvc.zip` (or `brevi-aarch64-pc-windows-msvc.zip` on ARM64) from the release over the old `brevi.exe` | download that release's zip |
 
 Notes:
 
@@ -35,9 +37,31 @@ Notes:
 
 Newest first. Only changes that can affect programs or setups that already work.
 
-### Next release
+### v0.28.2
 
-These are on `main` now and ship with the next release.
+These changed in v0.28.2 (16 Nov 2026).
+
+- **Private temp folders (Linux and other unix).** Build folders, cargo projects, MCP work folders and the background build slots live in `$TMPDIR/brevi-UID` (else `~/.cache/brevi/tmp`), used only when it is a real folder owned by you with no access for anyone else. If neither can be used, brevi stops and says why instead of falling back to a shared name. With no home folder, the cache moves into the private folder too.
+- **`brevi mcp --http` closes slow or oversized requests.** A body past 4 MiB (chunked ones included) gets 413, a connection silent for 30 s or a request not whole within 120 s is closed, and past 64 connections at once the server answers 503.
+- **Windows:** CRLF source reads as CPython reads it (no `\r` kept in triple-quoted strings); source paths have no `\\?\` prefix; the cp1252 codec works and bytes `re.LOCALE` follows the C library's locale. With `PYTHONUTF8=1`, bridged CPython runs in UTF-8 mode, so `locale.getpreferredencoding()` is `utf-8`, as in python3.
+- **No `rustc` on the PATH no longer means no build** (Linux x86-64, macOS). brevi fetches the pinned Rust release it is tested with, and zig to link when there is no working C linker, each checked by SHA-256 and kept in Brevi's own folder; `install.sh` no longer installs rustup there. Set `BREVI_TOOLCHAIN=system` to keep the old behaviour (use only the Rust on PATH). A `rustc` already on the PATH is used as before.
+- **Bytes patterns with `re.LOCALE`** take case and word characters from the environment's LC_CTYPE locale on every platform, as CPython does. Under `--sandbox` such a match stops the program.
+
+### v0.28.1
+
+These changed in v0.28.1 (16 Nov 2026).
+
+- **Unicode case follows CPython 3.13.** `str.upper()`, `lower()`, `title()`, `capitalize()`, `swapcase()` and the `is*` case and space tests use CPython 3.13's Unicode 15.1 tables in both builds, with its title-case, final-sigma and word rules. Characters added to Unicode after 15.1 and a few title-case letters gave different answers before. `\x1c` to `\x1f` count as whitespace in `isspace()`, `split()` and `strip()`.
+- **`re.IGNORECASE` builds on any Rust.** It folds case with CPython 3.13's tables, so Unicode IGNORECASE patterns no longer refuse on Rust 1.100 and newer. Building Brevi from source is tested on Rust 1.100.0.
+- **`namedtuple` names** are checked with CPython 3.13's `str.isidentifier()` (`'a²'` is refused and `'a·b'` accepted, as in CPython).
+- **Regex patterns built at run time** in a typed build of a .py file are checked like literal ones: syntax the typed matcher lacks (back-references, named groups, look-arounds) stops the typed run, and `brevi run` re-runs it on the dynamic build.
+- **`--standalone` binaries use only the Python they carry.** One whose bundle is missing now refuses to run instead of using an installed Python, and dynamic `--standalone` builds carry CPython too. With `--standalone`, duckdb, onnxruntime, the network modules and (Linux, macOS) sqlite3 run in the bundled CPython.
+- **Windows:** `--standalone` works; HTTPS trusts the Windows certificate store when no CA file is given; ARM64 builds ship (`brevi-aarch64-pc-windows-msvc.zip`, `win_arm64` wheel, npm `win32-arm64`); a release is gated on Windows conformance.
+- **Conformance floors count native matches only** (a match through the CPython bridge no longer counts), and 4 `test_set.TestBasicOpsTriple` results are unstable on every platform, so core is scored over 1072 tests.
+
+### v0.28.0
+
+These changed in v0.28.0 (15 Nov 2026).
 
 - **Sandboxed CPython has no network without a grant (Linux).** Under `--sandbox`, a program that loads CPython (`--allow-py`, `--allow native`) and has no network grant gets `PermissionError` from `socket()`, in CPython, its C extensions and every process they start. A sandboxed program that starts CPython with hosts named by `--allow-net` is refused on every OS, because CPython cannot be held to those hosts. Grant `--allow net`, or leave CPython out.
 - **DuckDB and ONNX Runtime libraries are pinned to the build.** A program loads the library only if its bytes still match the ones it was built against. After upgrading duckdb or onnxruntime, `brevi run` rebuilds by itself, but a binary from `brevi build` must be built again.
@@ -49,6 +73,9 @@ These are on `main` now and ship with the next release.
 - **PEP 479 for generators.** In dynamic builds a `StopIteration` that escapes a generator or a generator expression raises `RuntimeError("generator raised StopIteration")`, as in CPython. Before, the generator ended quietly.
 - **`is` and `id()`.** The typed build no longer answers `is` by comparing values (`[1] is [1]` was True): a file that uses `is` with anything but None, True, False or Ellipsis goes to the dynamic build, where `id()` and `is` now agree for every value (`id()` of a float, set, function or iterator was often 1).
 - **OrderedDict and deque.** Pickling an OrderedDict gives back an OrderedDict (a plain dict before); calling dict's own methods on one (`dict.pop(od, k)`) is refused. Changing a deque or OrderedDict while iterating it raises, and `insert` into a full deque raises `IndexError`, as in CPython. `list.insert` past either end clamps in typed builds too.
+- **`match` statements build natively** in the dynamic build, so `brevi build` and `--native` no longer refuse them; a pattern CPython's compiler rejects refuses the build.
+- **New refusals at build time** (dynamic builds): `import dis`; `locals()` in the body of a class that may be an Enum; a class built on `datetime.date`, `datetime`, `time`, `timedelta` or `timezone`; reading `__bases__`, `__mro__`, `__dict__`, `dir()` or `vars()` of a class on `Generic` or `Protocol`; `issubclass()` with a Protocol; a module's `__spec__`, `__loader__` and `__dict__`. `brevi run` runs these with python3; `--strict` refuses them.
+- **Module reprs and `__file__`.** A program module's repr is CPython's (`<module 'helper' from '/abs/helper.py'>`) and its `__file__` and `__doc__` now read; a library module's repr is the one the build machine's CPython prints. On Windows `__file__` no longer starts with `\\?\`.
 - **Threads take turns.** In dynamic builds each `threading.Thread` runs on its own stack, and `Event`, `Lock`, `RLock`, `join()` and `time.sleep()` wait as in CPython. Before, `start()` ran the whole thread at once. A thread that never waits prints what it printed before.
 - **Windows paths are Windows paths.** In dynamic builds on Windows, `os.path` is `ntpath` (drive letters, both slashes, UNC shares), `os.sep` and `os.linesep` are Windows', and `sys.platform` is `win32` (`darwin` on macOS; it said `linux` everywhere before). A program on Windows that relied on POSIX path rules now gets CPython's answer. `pathlib` on Windows runs in CPython (refused with `--strict`).
 - **More CPython warnings.** Dynamic builds issue CPython 3.13's DeprecationWarning and FutureWarning where CPython does (`int()` of an `__int__` returning a bool, `functools.partial` read from an instance), naming the program's own line. `warnings` filters in the program hide them, as in CPython.

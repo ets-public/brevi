@@ -165,20 +165,48 @@ fn ax_pyb_conf() -> Result<(String, String, Vec<String>), String> {
     if let Some(c) = ax_pyb_bundle()? {
         return Ok(c);
     }
+    // Built with --standalone but carrying no bundle now (the file was cut short, or something such as code
+    // signing appended to it after the build): refused, never a quiet switch to whatever Python is installed.
+    if AX_PYB_STANDALONE {
+        return Err("this program was built with --standalone, but its bundled Python is missing from the file (it was changed after the build, for example by signing it); build it again and do not change the file afterwards".into());
+    }
     if let Some(c) = parse(AX_PYB_CONF).filter(|c| std::path::Path::new(&c.0).is_file()) {
         return Ok(c);
     }
-    let exe = std::env::var("BREVI_PYTHON").unwrap_or_else(|_| ax_default_python());
-    let out = std::process::Command::new(&exe).args(["-c", AX_PYB_QUERY]).output().map_err(|e| format!("cannot start {exe}: {e}"))?;
-    let s = String::from_utf8_lossy(&out.stdout).trim_end().to_string();
-    parse(&s).filter(|c| !c.0.is_empty()).ok_or_else(|| format!("{exe} has no shared library (libpython) to load"))
+    // The library moved: asked again of BREVI_PYTHON, else python3.13, else python3 (python on Windows). Only a
+    // CPython 3.13 answers; ax_pyb_load checks the library's own version too.
+    let names: Vec<String> = match std::env::var("BREVI_PYTHON") {
+        Ok(p) if !p.is_empty() => vec![p],
+        _ => vec!["python3.13".into(), ax_default_python()],
+    };
+    let mut why = String::new();
+    for exe in &names {
+        let q = format!("import sys\nif (sys.implementation.name, sys.version_info[:2]) != ('cpython', (3, 13)):\n    print('\\x02%s %d.%d.%d' % ((sys.implementation.name,) + tuple(sys.version_info[:3])))\n    sys.exit()\n{AX_PYB_QUERY}");
+        let out = match std::process::Command::new(exe).args(["-c", &q]).output() {
+            Ok(o) => o,
+            Err(e) => {
+                why = format!("cannot start {exe}: {e}");
+                continue;
+            }
+        };
+        let s = String::from_utf8_lossy(&out.stdout).trim_end().to_string();
+        if let Some(v) = s.strip_prefix('\u{2}') {
+            why = format!("{exe} is {v}, and Brevi answers as CPython 3.13 does, so it loads only CPython 3.13: set BREVI_PYTHON to a CPython 3.13");
+            continue;
+        }
+        match parse(&s).filter(|c| !c.0.is_empty()) {
+            Some(c) => return Ok(c),
+            None => why = format!("{exe} has no shared library (libpython) to load"),
+        }
+    }
+    Err(why)
 }
 
 // The CPython a standalone build carries (appended by pybundle.py): unpacked once into a cache folder
 // named by its hash, then loaded from there. None for a binary without one.
 fn ax_pyb_bundle() -> Result<Option<(String, String, Vec<String>)>, String> {
-    // A standalone bundle is built on Linux only for now; a Windows/macOS binary has none to find.
-    if !cfg!(unix) {
+    // Standalone bundles are built on Linux and Windows; a macOS binary has none to find.
+    if !AX_PYB_STANDALONE || cfg!(target_os = "macos") {
         return Ok(None);
     }
     use std::io::{Read, Seek, SeekFrom};
@@ -198,9 +226,18 @@ fn ax_pyb_bundle() -> Result<Option<(String, String, Vec<String>)>, String> {
     let tag = String::from_utf8_lossy(&t[8..24]).to_string();
     let base = match std::env::var_os("BREVI_PY_CACHE") {
         Some(d) => std::path::PathBuf::from(d),
+        None if cfg!(windows) => match std::env::var_os("LOCALAPPDATA") {
+            Some(d) if !d.is_empty() => std::path::PathBuf::from(d).join("brevi").join("py"),
+            _ => std::env::temp_dir().join("brevi-py"),
+        },
         None => match (std::env::var_os("XDG_CACHE_HOME"), std::env::var_os("HOME")) {
             (Some(x), _) if !x.is_empty() => std::path::PathBuf::from(x).join("brevi").join("py"),
             (_, Some(h)) if !h.is_empty() => std::path::PathBuf::from(h).join(".cache").join("brevi").join("py"),
+            // No home folder: a private folder (privdir.rs), never a shared /tmp/brevi-py, whose unpacked
+            // CPython another user could have put there for this program to load.
+            #[cfg(unix)]
+            _ => ax_priv::root("brevi-py", "py")?,
+            #[cfg(not(unix))]
             _ => std::env::temp_dir().join("brevi-py"),
         },
     };
@@ -209,22 +246,47 @@ fn ax_pyb_bundle() -> Result<Option<(String, String, Vec<String>)>, String> {
         std::fs::create_dir_all(&base).map_err(|e| format!("cannot create {}: {e}", base.display()))?;
         let tmp = base.join(format!(".{tag}.{}", std::process::id()));
         std::fs::remove_dir_all(&tmp).ok();
+        if len > size - 32 {
+            return Err("this program's bundled Python is damaged (shorter than its trailer says); build it again".into());
+        }
         f.seek(SeekFrom::Start(size - 32 - len)).map_err(|e| e.to_string())?;
-        let r = ax_pyb_unpack(&mut std::io::BufReader::with_capacity(1 << 20, f.take(len)), &tmp);
+        // CPython opens its files with paths of at most 259 characters (this program has no long-path
+        // manifest), so on Windows every unpacked file's full path must fit, checked before it is written.
+        let room = if cfg!(windows) { 259usize.saturating_sub(root.as_os_str().len() + 1) } else { usize::MAX };
+        let r = ax_pyb_unpack(&mut std::io::BufReader::with_capacity(1 << 20, f.take(len)), &tmp, room);
         if let Err(e) = r {
             std::fs::remove_dir_all(&tmp).ok();
+            if e.kind() == std::io::ErrorKind::InvalidInput {
+                return Err(format!("{e} under {}: set BREVI_PY_CACHE to a shorter folder, such as C:\\brevi-py", root.display()));
+            }
             return Err(format!("cannot unpack the bundled Python into {}: {e}", base.display()));
         }
         std::fs::write(tmp.join(".brevi-ok"), "").map_err(|e| e.to_string())?;
-        // Another run of the program may have unpacked it first.
-        if std::fs::rename(&tmp, &root).is_err() {
-            std::fs::remove_dir_all(&tmp).ok();
-            if !root.join(".brevi-ok").is_file() {
-                return Err(format!("cannot unpack the bundled Python into {}", root.display()));
+        // Another run of the program may have unpacked it first. On Windows a virus scanner may still hold a
+        // just-written file for a moment, which fails the rename: tried again for up to five seconds.
+        let mut tries = 0;
+        loop {
+            match std::fs::rename(&tmp, &root) {
+                Ok(()) => break,
+                Err(_) if root.join(".brevi-ok").is_file() => {
+                    std::fs::remove_dir_all(&tmp).ok();
+                    break;
+                }
+                Err(e) if !cfg!(windows) || tries >= 50 => {
+                    std::fs::remove_dir_all(&tmp).ok();
+                    return Err(format!("cannot unpack the bundled Python into {}: {e}", root.display()));
+                }
+                Err(_) => {
+                    tries += 1;
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
             }
         }
     }
-    let at = |p: &str| root.join(p).to_string_lossy().to_string();
+    let at = |p: &str| {
+        let p = if cfg!(windows) { p.replace('/', "\\") } else { p.to_string() };
+        root.join(p).to_string_lossy().to_string()
+    };
     let conf = std::fs::read_to_string(root.join(".brevi-conf")).map_err(|e| e.to_string())?;
     let mut lines = conf.lines();
     let lib = at(lines.next().unwrap_or(""));
@@ -248,7 +310,8 @@ fn ax_pyb_bundle() -> Result<Option<(String, String, Vec<String>)>, String> {
     Ok(Some((lib, root.to_string_lossy().to_string(), path)))
 }
 
-fn ax_pyb_unpack(r: &mut impl std::io::Read, dir: &std::path::Path) -> std::io::Result<()> {
+// `room`: the longest path a file may have under the folder it ends up in (Windows' 259 characters).
+fn ax_pyb_unpack(r: &mut impl std::io::Read, dir: &std::path::Path, room: usize) -> std::io::Result<()> {
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     let bad = || std::io::Error::new(std::io::ErrorKind::InvalidData, "damaged bundle");
@@ -268,8 +331,11 @@ fn ax_pyb_unpack(r: &mut impl std::io::Read, dir: &std::path::Path) -> std::io::
         let raw = u32::from_le_bytes(p[plen..plen + 4].try_into().unwrap()) as usize;
         let dlen = u32::from_le_bytes(p[plen + 4..].try_into().unwrap()) as usize;
         let name = String::from_utf8(p[..plen].to_vec()).map_err(|_| bad())?;
-        if name.starts_with('/') || name.split('/').any(|c| c == "..") {
+        if name.starts_with('/') || name.split('/').any(|c| c == "..") || cfg!(windows) && (name.contains('\\') || name.contains(':')) {
             return Err(bad());
+        }
+        if name.encode_utf16().count() > room {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("the bundled Python has a file ({name}) whose path would pass Windows' 260-character limit")));
         }
         let mut data = vec![0u8; dlen];
         r.read_exact(&mut data)?;
@@ -289,8 +355,9 @@ fn ax_pyb_unpack(r: &mut impl std::io::Read, dir: &std::path::Path) -> std::io::
             let fh = std::fs::File::open(&out);
             #[cfg(not(unix))]
             let fh = std::fs::File::options().write(true).open(&out);
-            if let Ok(fh) = fh {
-                fh.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(mtime)).ok();
+            // (checked: a time past what SystemTime holds is skipped, not a panic; fuzz/ bundle_unpack)
+            if let (Ok(fh), Some(t)) = (fh, std::time::UNIX_EPOCH.checked_add(std::time::Duration::from_secs(mtime))) {
+                fh.set_modified(t).ok();
             }
         }
     }
@@ -752,6 +819,21 @@ fn ax_pyb_load() -> Result<ax_pyffi::Api, String> {
     if h.is_null() {
         return Err(format!("cannot load {lib}"));
     }
+    // Brevi answers as CPython 3.13 does: a library of another version (one swapped in at the same path, a moved
+    // install found again, a BREVI_PYTHON of another version) is refused before it runs anything.
+    {
+        let c = CString::new("Py_GetVersion").unwrap();
+        let p = unsafe { ax_pyffi::ax_sym(h, c.as_ptr()) };
+        if p.is_null() {
+            return Err(format!("{lib} has no Py_GetVersion"));
+        }
+        let get: unsafe extern "C" fn() -> *const std::os::raw::c_char = unsafe { std::mem::transmute(p) };
+        let v = unsafe { std::ffi::CStr::from_ptr(get()) }.to_string_lossy().to_string();
+        let v = v.split_whitespace().next().unwrap_or("").to_string();
+        if !v.strip_prefix("3.13").is_some_and(|r| r.starts_with('.')) {
+            return Err(format!("{lib} is CPython {v}, and Brevi answers as CPython 3.13 does, so it loads only CPython 3.13: set BREVI_PYTHON to a CPython 3.13, or rebuild the program where python3.13 is found"));
+        }
+    }
     let sym = |n: &str| -> Result<ax_pyffi::P, String> {
         let c = CString::new(n).unwrap();
         let p = unsafe { ax_pyffi::ax_sym(h, c.as_ptr()) };
@@ -857,8 +939,15 @@ fn ax_pyb_load() -> Result<ax_pyffi::Api, String> {
     // Python's output goes straight out, so it keeps its place among the program's own lines.
     std::env::set_var("PYTHONUNBUFFERED", "1");
     // python3 under the C or POSIX locale reads and writes text as UTF-8 (PEP 538/540); an embedded Python
-    // does not unless told, and decodes files as ASCII (#211).
-    if std::env::var_os("PYTHONUTF8").is_none() {
+    // does not unless told, and decodes files as ASCII (#211). Py_InitializeEx reads only the legacy flag, never
+    // PYTHONUTF8, so PYTHONUTF8=1 is applied here too: without it locale.getpreferredencoding() gave the ANSI code
+    // page (cp1252) on Windows where python3 gives 'utf-8' (test_re test_locale_flag, #589).
+    let utf8 = std::env::var_os("PYTHONUTF8").filter(|v| !v.is_empty());
+    if utf8.as_deref() == Some(std::ffi::OsStr::new("1")) {
+        // No guess without the flag: a libpython that lacks it fails to load here.
+        let p = sym("Py_UTF8Mode")?;
+        unsafe { *(p as *mut std::ffi::c_int) = 1 };
+    } else if utf8.is_none() {
         let ctype = ["LC_ALL", "LC_CTYPE", "LANG"].iter().find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty())).unwrap_or_default();
         if matches!(ctype.as_str(), "" | "C" | "POSIX") {
             // Py_InitializeEx reads the legacy flag, not PYTHONUTF8.

@@ -33,6 +33,8 @@ To run an agent's code on a hosted sandbox (E2B, Daytona, Modal, Cloudflare) rat
 
 Any other MCP client works the same way: the command is `brevi`, with the argument `mcp`. A sandboxed agent can use the Docker image instead: `docker run --rm -i brevi mcp`.
 
+Brevi's sandbox is a policy layer, not an isolation boundary, and there has been no external security audit yet. Run untrusted code in a container or VM. `--allow-py` and `--allow native` are full trust. See [SECURITY.md](../SECURITY.md#where-brevi-stands).
+
 ## With Composio: live app data, sandboxed code
 
 [composio_agent.py](composio_agent.py) gives one LangChain agent two MCP servers: Composio's hosted server for app tools (here GitHub's issue list) and `brevi mcp` for code. Composio keeps the credentials and makes the network calls; the agent hands the data to Brevi's `run` as `stdin`, so the program runs in the sandbox with nothing granted and never sees a token. Any Composio toolkit works the same way: change `toolkits` and `tools` in `composio.create`.

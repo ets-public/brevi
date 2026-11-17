@@ -149,6 +149,9 @@ pub struct Coro {
     // Python frames this generator has open while suspended (counted again when it resumes).
     depth: usize,
     depth_base: usize,
+    // the same for PDEPTH (the program's own frames)
+    pdepth: usize,
+    pdepth_base: usize,
     // its slot in CORO_LIVE (nulled when it ends, so removal does not scan the list)
     live_idx: usize,
     // the order it was started in: slots are reused, so close_live_gens sorts by this to close in creation
@@ -309,6 +312,8 @@ impl Coro {
             running: false,
             depth: 0,
             depth_base: 0,
+            pdepth: 0,
+            pdepth_base: 0,
             live_idx: 0,
             live_seq: 0,
             wsite: None,
@@ -370,6 +375,8 @@ impl Coro {
             self.running = true;
             self.depth_base = DEPTH.with(|d| d.get());
             DEPTH.with(|d| d.set(self.depth_base + self.depth));
+            self.pdepth_base = PDEPTH.with(|d| d.get());
+            PDEPTH.with(|d| d.set(self.pdepth_base + self.pdepth));
             CORO_NOW.with(|s| s.borrow_mut().push(self as *mut Coro));
             CUR_GEN_NAME.with(|n| n.set(Some(self.name)));
             brevi_ctx_switch(&mut self.caller_sp, self.sp);
@@ -378,6 +385,8 @@ impl Coro {
             self.running = false;
             self.depth = DEPTH.with(|d| d.get()).saturating_sub(self.depth_base);
             DEPTH.with(|d| d.set(self.depth_base));
+            self.pdepth = PDEPTH.with(|d| d.get()).saturating_sub(self.pdepth_base);
+            PDEPTH.with(|d| d.set(self.pdepth_base));
         }
         match self.result.take() {
             None => Ok(Some(self.xfer.take().unwrap_or(V::None))),
@@ -409,6 +418,8 @@ impl Coro {
             self.running = true;
             self.depth_base = DEPTH.with(|d| d.get());
             DEPTH.with(|d| d.set(self.depth_base + self.depth));
+            self.pdepth_base = PDEPTH.with(|d| d.get());
+            PDEPTH.with(|d| d.set(self.pdepth_base + self.pdepth));
             let caller = fiber::CUR.with(|c| c.get());
             self.caller_fiber = caller;
             fiber::CUR.with(|c| c.set(self.fiber));
@@ -419,6 +430,8 @@ impl Coro {
             self.running = false;
             self.depth = DEPTH.with(|d| d.get()).saturating_sub(self.depth_base);
             DEPTH.with(|d| d.set(self.depth_base));
+            self.pdepth = PDEPTH.with(|d| d.get()).saturating_sub(self.pdepth_base);
+            PDEPTH.with(|d| d.set(self.pdepth_base));
             Ok(())
         }
     }

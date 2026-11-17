@@ -315,6 +315,12 @@ pub fn bi_ascii(a: Args) -> R {
     Ok(st(o))
 }
 pub fn bi_str(mut a: Args) -> R {
+    // str(object=x) is str(x)
+    if a.p.is_empty() {
+        if let Some(x) = a.kw("object") {
+            a.p.push(x);
+        }
+    }
     if a.p.is_empty() {
         return Ok(s(""));
     }
@@ -464,15 +470,8 @@ pub fn bi_set(a: Args) -> R {
     if a.p.is_empty() {
         return Ok(set_new());
     }
-    match &a.p[0] {
-        V::Set(_) | V::FSet(_) => Ok(V::Set(Rc::new(RefCell::new(set_of(&a.p[0]).unwrap().copy())))),
-        // CPython's set_update_dict: the dict's stored hashes, no key is hashed again
-        V::Dict(d) => {
-            let ks = d.borrow().keys_h();
-            Ok(V::Set(Rc::new(RefCell::new(PSet::from_dict(ks)?))))
-        }
-        x => Ok(V::Set(Rc::new(RefCell::new(PSet::from_iter(to_vec(x)?)?)))),
-    }
+    // make_new_set: a set (or subclass) is merged, an exact dict's stored hashes reused, else iterated
+    Ok(V::Set(Rc::new(RefCell::new(pset_of_iterable(&a.p[0])?))))
 }
 // set() and frozenset() take at most one argument, and none by keyword
 fn set_args(name: &str, a: &Args) -> Result<(), E> {
@@ -488,6 +487,10 @@ pub fn bi_frozenset(a: Args) -> R {
     set_args("frozenset", &a)?;
     if a.p.is_empty() {
         return Ok(V::FSet(Rc::new(PSet::new())));
+    }
+    // frozenset(f) is f itself for an exact frozenset
+    if let V::FSet(_) = &a.p[0] {
+        return Ok(a.p[0].clone());
     }
     match bi_set(a)? {
         V::Set(s) => Ok(V::FSet(Rc::new(s.borrow().clone()))),
@@ -1237,6 +1240,8 @@ pub fn type_of(x: &V) -> Result<Rc<Class>, E> {
         V::None => tclass(12, "NoneType"),
         // a collections.abc class (or a subclass of one) is made by abc.ABCMeta, a subclass of type
         V::Class(k) if k.meta.borrow().is_some() => k.meta.borrow().clone().unwrap(),
+        // Enum and every class built on it are made by enum.EnumType
+        V::Class(k) if enum_meta_of(k).is_some() => enum_meta_of(k).unwrap(),
         V::Class(k) if k.abc.get() => abc_meta_class(),
         V::Class(_) => tclass(13, "type"),
         V::Func(f) if f.kind.get() == 3 => ext_class("builtin_function_or_method"),
@@ -1590,10 +1595,6 @@ pub fn bi_type(a: Args) -> R {
         return make_class(name, "__main__", bases, attrs);
     }
     let x = a1(&a, "type")?;
-    // an Enum class's type is EnumType, which Brevi's enum classes do not have (they are made by type)
-    if matches!(&x, V::Class(c) if c.is_sub(&enum_base())) {
-        return Err(unsupported("type() of an Enum class (EnumType)"));
-    }
     Ok(V::Class(type_of(&x)?))
 }
 pub fn bi_issubclass(a: Args) -> R {
@@ -2300,7 +2301,8 @@ pub fn builtin_class_attr(c: &Rc<Class>, name: &str) -> Option<V> {
     thread_local! {
         static OBJ_ATTRS: RefCell<Vec<(Sym, V)>> = const { RefCell::new(vec![]) };
     }
-    let obj = c.module == "builtins" && c.name == "object";
+    // (not the classmethods: each read binds a new method, so object.__init_subclass__ is not itself)
+    let obj = c.module == "builtins" && c.name == "object" && !matches!(name, "__init_subclass__" | "__subclasshook__");
     if obj {
         if let Some(v) = OBJ_ATTRS.with(|m| m.borrow().iter().find(|(k, _)| *k == name).map(|(_, v)| v.clone())) {
             return Some(v);
@@ -2335,6 +2337,7 @@ fn builtin_class_attr_raw(c: &Rc<Class>, name: &str) -> Option<V> {
         // their first argument as self
         ("bytes" | "bytearray", "maketrans") => Some(builtin("maketrans", bytes_maketrans)),
         ("int", "from_bytes") => Some(builtin("from_bytes", |a: Args| int_from_bytes(&V::None, a))),
+        ("float", "fromhex") => Some(builtin("fromhex", float_fromhex)),
         // str.maketrans is a static method: class calls do not bind their first argument as self
         ("str", "maketrans") => Some(builtin("maketrans", |a: Args| str_maketrans(&a))),
         // int.__new__(cls, x) and the like, as a subclass's own __new__ calls it: an instance of cls wrapping the
@@ -2740,17 +2743,17 @@ fn char_at_byte(st: &S, b: usize) -> usize {
 }
 fn py_split_ws(t: &str, maxsplit: i64) -> Vec<V> {
     let mut out = vec![];
-    let mut rest = t.trim_start_matches(|c: char| c.is_whitespace());
+    let mut rest = t.trim_start_matches(py_ch_isspace);
     let mut n = 0;
     while !rest.is_empty() {
         if maxsplit >= 0 && n >= maxsplit {
             out.push(s(rest));
             return out;
         }
-        match rest.find(|c: char| c.is_whitespace()) {
+        match rest.find(py_ch_isspace) {
             Some(i) => {
                 out.push(s(&rest[..i]));
-                rest = rest[i..].trim_start_matches(|c: char| c.is_whitespace());
+                rest = rest[i..].trim_start_matches(py_ch_isspace);
                 n += 1;
             }
             None => {
@@ -2763,18 +2766,18 @@ fn py_split_ws(t: &str, maxsplit: i64) -> Vec<V> {
 }
 fn py_rsplit_ws(t: &str, maxsplit: i64) -> Vec<V> {
     let mut out = vec![];
-    let mut rest = t.trim_end_matches(|c: char| c.is_whitespace());
+    let mut rest = t.trim_end_matches(py_ch_isspace);
     let mut n = 0;
     while !rest.is_empty() {
         if maxsplit >= 0 && n >= maxsplit {
             out.push(s(rest));
             break;
         }
-        match rest.rfind(|c: char| c.is_whitespace()) {
+        match rest.rfind(py_ch_isspace) {
             Some(i) => {
                 let c = rest[i..].chars().next().unwrap();
                 out.push(s(&rest[i + c.len_utf8()..]));
-                rest = rest[..i].trim_end_matches(|c: char| c.is_whitespace());
+                rest = rest[..i].trim_end_matches(py_ch_isspace);
                 n += 1;
             }
             None => {
@@ -2788,24 +2791,6 @@ fn py_rsplit_ws(t: &str, maxsplit: i64) -> Vec<V> {
 }
 fn is_linebreak(c: char) -> bool {
     matches!(c, '\n' | '\r' | '\x0b' | '\x0c' | '\x1c' | '\x1d' | '\x1e' | '\u{85}' | '\u{2028}' | '\u{2029}')
-}
-fn py_title(t: &str) -> String {
-    let mut out = String::new();
-    let mut prev_cased = false;
-    for c in t.chars() {
-        if c.is_alphabetic() {
-            if prev_cased {
-                out.extend(c.to_lowercase());
-            } else {
-                out.extend(c.to_uppercase());
-            }
-            prev_cased = true;
-        } else {
-            out.push(c);
-            prev_cased = false;
-        }
-    }
-    out
 }
 fn strip_set(a: &Args, f: &str) -> Result<Option<Vec<char>>, E> {
     match a.p.first() {
@@ -2894,8 +2879,38 @@ fn str_method_cps(me: &Rc<S>, name: &str, a: Args) -> R {
         }
     }
 }
-fn str_join(me: &S, it: &V) -> R {
+// join where the one item is an exact str: CPython returns that item itself
+fn str_join_o(me: &S, it: &V) -> R {
     let items = to_vec(it)?;
+    if let [V::Str(y)] = &items[..] {
+        return Ok(V::Str(y.clone()));
+    }
+    str_join_items(me, items)
+}
+fn str_join(me: &S, it: &V) -> R {
+    str_join_items(me, to_vec(it)?)
+}
+// "{}", "{0}", "{x}" or "{x!s}" with that argument an exact str: CPython's format returns the str itself
+fn one_field_str(t: &str, a: &Args, map: bool) -> Option<V> {
+    let inner = t.strip_prefix('{')?.strip_suffix('}')?;
+    let inner = inner.strip_suffix("!s").unwrap_or(inner);
+    if !inner.chars().all(|c| c.is_alphanumeric() || c == '_') {
+        return None;
+    }
+    let v = if map {
+        let m = a.p.first()?;
+        let V::Dict(d) = m else { return None };
+        d.borrow().get(&s(inner)).ok()??
+    } else if inner.is_empty() {
+        a.p.first()?.clone()
+    } else if inner.bytes().all(|c| c.is_ascii_digit()) {
+        a.p.get(inner.parse::<usize>().ok()?)?.clone()
+    } else {
+        a.k.iter().find(|(n, _)| *n == inner)?.1.clone()
+    };
+    matches!(v, V::Str(_)).then_some(v)
+}
+fn str_join_items(me: &S, items: Vec<V>) -> R {
     let mut out = Txt::new();
     for (i, x) in items.iter().enumerate() {
         if i > 0 {
@@ -2964,6 +2979,10 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
                         v.reverse();
                         v
                     };
+                    // separator not found: CPython's list holds the str itself
+                    if parts.len() == 1 {
+                        return Ok(list(vec![o.clone()]));
+                    }
                     list(parts)
                 }
                 x => return type_err(format!("must be str or None, not {}", tn(&x))),
@@ -2973,7 +2992,7 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             let cs = strip_set(&a, name)?;
             let f = |c: char| match &cs {
                 Some(v) => v.contains(&c),
-                None => c.is_whitespace(),
+                None => py_ch_isspace(c),
             };
             let r = match name {
                 "strip" => t.trim_matches(f),
@@ -2985,13 +3004,17 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             }
             s(r)
         }
-        "join" => return str_join(me, &a1(&a, "join")?),
+        "join" => return str_join_o(me, &a1(&a, "join")?),
         "replace" => {
             a.want("replace", 2, 3)?;
             let (old, new) = (arg_str(&a.p[0], "replace")?, arg_str(&a.p[1], "replace")?);
             let count = opt_idx(&a, 2)?.unwrap_or(-1);
             // nothing to replace: the str itself, as CPython returns it
             if count == 0 || (old.text().is_empty() && new.text().is_empty()) || (!old.text().is_empty() && !t.contains(old.text())) {
+                return Ok(o.clone());
+            }
+            // old and new the same object (or the same one char): CPython finds nothing to change, returns self
+            if Rc::ptr_eq(&old, &new) || (old.nchars() == 1 && old.text() == new.text()) {
                 return Ok(o.clone());
             }
             if count < 0 {
@@ -3058,27 +3081,22 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             }
             V::Bool(r)
         }
-        "upper" => st(t.to_uppercase()),
-        "lower" => st(t.to_lowercase()),
+        // The case methods follow CPython 3.13's Unicode tables (src/unicode_case.rs), not rustc's.
+        "upper" => st(py_upper(t)),
+        "lower" => st(py_lower(t)),
         "casefold" => st(py_casefold(t)),
         "title" => st(py_title(t)),
-        "capitalize" => {
-            let mut cs = t.chars();
-            match cs.next() {
-                Some(c) => st(c.to_uppercase().collect::<String>() + &cs.as_str().to_lowercase()),
-                None => s(""),
-            }
-        }
-        "swapcase" => st(t.chars().map(|c| if c.is_uppercase() { c.to_lowercase().collect::<String>() } else { c.to_uppercase().collect() }).collect()),
+        "capitalize" => st(py_capitalize(t)),
+        "swapcase" => st(py_swapcase(t)),
         "isdigit" => V::Bool(py_str_isdigit(t)),
         "isdecimal" => V::Bool(py_str_isdecimal(t)),
         "isnumeric" => V::Bool(py_str_isnumeric(t)),
-        "isalpha" => V::Bool(!t.is_empty() && t.chars().all(|c| c.is_alphabetic())),
-        "isalnum" => V::Bool(!t.is_empty() && t.chars().all(|c| c.is_alphanumeric())),
-        "isspace" => V::Bool(!t.is_empty() && t.chars().all(|c| c.is_whitespace())),
-        "isupper" => V::Bool(t.chars().any(|c| c.is_uppercase()) && !t.chars().any(|c| c.is_lowercase())),
-        "islower" => V::Bool(t.chars().any(|c| c.is_lowercase()) && !t.chars().any(|c| c.is_uppercase())),
-        "istitle" => V::Bool(t.chars().any(|c| c.is_alphabetic()) && py_title(t) == t),
+        "isalpha" => V::Bool(py_str_isalpha(t)),
+        "isalnum" => V::Bool(py_str_isalnum(t)),
+        "isspace" => V::Bool(py_str_isspace(t)),
+        "isupper" => V::Bool(py_str_isupper(t)),
+        "islower" => V::Bool(py_str_islower(t)),
+        "istitle" => V::Bool(py_str_istitle(t)),
         "isascii" => V::Bool(t.is_ascii()),
         "isprintable" => V::Bool(t.chars().all(|c| if c.is_ascii() { (' '..='~').contains(&c) } else { !tab_has(PY_NOPRINT, c) })),
         "isidentifier" => V::Bool(py_isidentifier(t)),
@@ -3133,6 +3151,10 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
         }
         "splitlines" => {
             let keep = a.kw("keepends").or_else(|| a.p.first().cloned()).map(|k| truth(&k)).transpose()?.unwrap_or(false);
+            // one line, no break: CPython's list holds the str itself
+            if !t.is_empty() && !t.chars().any(is_linebreak) {
+                return Ok(list(vec![o.clone()]));
+            }
             let mut out = vec![];
             let cs: Vec<char> = t.chars().collect();
             let mut cur = String::new();
@@ -3159,7 +3181,13 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             }
             list(out)
         }
-        "format" | "format_map" => return str_method_cps(me, name, a),
+        "format" | "format_map" => {
+            // a template that is one plain field holding an exact str: that str itself
+            if let Some(v) = one_field_str(t, &a, name == "format_map") {
+                return Ok(v);
+            }
+            return str_method_cps(me, name, a);
+        }
         "removeprefix" => {
             let p = arg_str(&a1(&a, name)?, name)?;
             match t.strip_prefix(p.text()) {
@@ -3175,6 +3203,11 @@ pub fn str_method(me: &Rc<S>, o: &V, name: &str, mut a: Args) -> R {
             }
         }
         "expandtabs" => {
+            // no tab: CPython returns the str itself
+            if !t.contains('\t') {
+                opt_idx(&a, 0)?;
+                return Ok(o.clone());
+            }
             let ts = opt_idx(&a, 0)?.unwrap_or(8).max(0) as usize;
             let mut out = String::new();
             let mut col = 0;
@@ -3584,6 +3617,11 @@ pub fn dict_method(d: &Rc<RefCell<Dict>>, o: &V, name: &str, mut a: Args) -> R {
     if matches!(name, "keys" | "values" | "items" | "copy" | "clear" | "__len__") {
         no_args("dict", name, &a)?;
     }
+    // dict.fromkeys is a classmethod: called on an instance it runs on the instance's type
+    if name == "fromkeys" {
+        let f = getattr(&V::Class(type_of(o)?), name)?;
+        return call(&f, a);
+    }
     Ok(match name {
         "get" => {
             a.want("get", 1, 2)?;
@@ -3795,6 +3833,8 @@ pub fn set_method(o: &V, name: &str, a: Args) -> R {
     };
     Ok(match name {
         // set.__init__(iterable=()): empties the set, then adds the iterable's items
+        // frozenset keeps object.__init__: it takes any arguments and does nothing (frozenset_new did the work)
+        "__init__" if matches!(o, V::FSet(_)) => V::None,
         "__init__" if matches!(o, V::Set(_)) => {
             if !a.k.is_empty() {
                 return type_err("set() takes no keyword arguments".into());
@@ -3802,14 +3842,17 @@ pub fn set_method(o: &V, name: &str, a: Args) -> R {
             if a.p.len() > 1 {
                 return type_err(format!("set expected at most 1 argument, got {}", a.p.len()));
             }
+            // set_init: emptied (back to the small table), then updated from the iterable
             let m = mutable(o)?;
-            let items = match a.p.first() {
-                Some(x) => Some(pset_of_iterable(x)?),
-                None => None,
-            };
+            let x = a.p.first().map(|x| set_arg(set_id(o), x));
             PSet::cell_clear(&m);
-            if let Some(p) = items {
-                PSet::cell_merge(&m, &p)?;
+            if let Some(x) = x {
+                // the set itself was snapshot before it was cleared, so it adds its old items back
+                let x = match x {
+                    SetArg::Set(p, _) => SetArg::Set(p, false),
+                    x => x,
+                };
+                set_inplace(&m, &x, "|")?;
             }
             V::None
         }
@@ -3839,63 +3882,47 @@ pub fn set_method(o: &V, name: &str, a: Args) -> R {
             PSet::cell_clear(&*mutable(o)?);
             V::None
         }
+        // frozenset.copy of an exact frozenset is the frozenset itself
+        "copy" if matches!(o, V::FSet(_)) => o.clone(),
         "copy" => wrap(me().copy()),
+        // CPython's set_union_impl, set_intersection_multi_impl, set_difference_multi_impl and
+        // set_symmetric_difference_impl (each other operand told apart as set, exact dict or iterable)
         "union" | "intersection" | "difference" | "symmetric_difference" => {
-            let op = match name {
-                "union" => "|",
-                "intersection" => "&",
-                "difference" => "-",
-                _ => "^",
-            };
-            let mut r = me().copy();
-            for x in others(&a)? {
-                r = set_op(&r, &x, op)?;
-            }
-            wrap(r)
+            let id = set_id(o);
+            let xs: Vec<SetArg> = a.p.iter().map(|x| set_arg(id, x)).collect();
+            let so = me();
+            wrap(match name {
+                "union" => set_union(&so, &xs)?,
+                "intersection" => set_intersection_multi(&so, xs)?,
+                "difference" => set_difference_multi(&so, xs)?,
+                _ => {
+                    if xs.len() != 1 {
+                        return type_err(format!("{}.symmetric_difference() takes exactly one argument ({} given)", if matches!(o, V::FSet(_)) { "frozenset" } else { "set" }, xs.len()));
+                    }
+                    set_symmetric_difference(&so, &xs[0])?
+                }
+            })
         }
         "update" | "intersection_update" | "difference_update" | "symmetric_difference_update" => {
             let m = mutable(o)?;
-            let op = match name {
-                "update" => "|",
-                "intersection_update" => "&",
-                "difference_update" => "-",
-                _ => "^",
-            };
-            // No borrow of m is held while a key's __eq__ runs: it may change m.
-            if op == "|" {
-                for x in &a.p {
-                    match x {
-                        // CPython's set_merge: one resize up front, then a table copy or
-                        // insertion with the other set's own hashes.
-                        V::Set(_) | V::FSet(_) => {
-                            let p = set_of(x).unwrap();
-                            PSet::cell_merge(&m, &p)?;
-                        }
-                        // set_update_dict: the dict's stored hashes
-                        V::Dict(d) if d.borrow().kind == 0 => {
-                            let ks = d.borrow().keys_h();
-                            PSet::cell_update_dict(&m, ks)?;
-                        }
-                        _ => {
-                            for k in to_vec(x)? {
-                                PSet::cell_add(&m, k)?;
-                            }
-                        }
-                    }
+            let id = set_id(o);
+            match name {
+                "intersection_update" => {
+                    let xs: Vec<SetArg> = a.p.iter().map(|x| set_arg(id, x)).collect();
+                    let cur = m.borrow().clone();
+                    let r = set_intersection_multi(&cur, xs)?;
+                    PSet::cell_replace(&m, r);
                 }
-            } else {
-                for x in others(&a)? {
-                    match op {
-                        "-" => {
-                            for (k, h) in x.keys_h() {
-                                PSet::cell_discard_h(&m, &k, h)?;
-                            }
-                        }
-                        _ => {
-                            let cur = m.borrow().clone();
-                            let r = set_op(&cur, &x, op)?;
-                            PSet::cell_replace(&m, r);
-                        }
+                "symmetric_difference_update" => {
+                    if a.p.len() != 1 {
+                        return type_err(format!("set.symmetric_difference_update() takes exactly one argument ({} given)", a.p.len()));
+                    }
+                    set_inplace(&m, &set_arg(id, &a.p[0]), "^")?;
+                }
+                _ => {
+                    let op = if name == "update" { "|" } else { "-" };
+                    for x in &a.p {
+                        set_inplace(&m, &set_arg(id, x), op)?;
                     }
                 }
             }
@@ -4023,6 +4050,187 @@ pub fn int_to_bytes(o: &V, mut a: Args) -> R {
     }
     Ok(bytesv(out))
 }
+// float.hex(), as CPython's float_hex: '0x1.<13 hex digits>p<exp>' (subnormals '0x0.<...>p-1022')
+pub fn float_hex(x: f64) -> String {
+    if x.is_nan() {
+        return "nan".into();
+    }
+    if x.is_infinite() {
+        return if x < 0.0 { "-inf".into() } else { "inf".into() };
+    }
+    let sign = if x.is_sign_negative() { "-" } else { "" };
+    if x == 0.0 {
+        return format!("{sign}0x0.0p+0");
+    }
+    let b = x.to_bits();
+    let e = ((b >> 52) & 0x7ff) as i64;
+    let m = b & ((1u64 << 52) - 1);
+    if e == 0 {
+        format!("{sign}0x0.{m:013x}p-1022")
+    } else {
+        format!("{sign}0x1.{m:013x}p{:+}", e - 1023)
+    }
+}
+
+// 2.0**n for -1022 <= n <= 1023
+fn pow2(n: i64) -> f64 {
+    f64::from_bits(((n + 1023) as u64) << 52)
+}
+
+// float.fromhex(s), as CPython's float_fromhex: optional whitespace and sign, inf/infinity/nan, or an optional 0x,
+// hex digits with an optional point, and an optional p exponent; correctly rounded (half to even).
+pub fn float_fromhex_str(src: &str) -> Result<f64, E> {
+    let bad = || val_err::<f64>("invalid hexadecimal floating-point string".into());
+    let sp = |c: u8| matches!(c, b' ' | b'\t' | b'\n' | b'\x0b' | b'\x0c' | b'\r');
+    let s = src.as_bytes();
+    let mut i = 0;
+    while i < s.len() && sp(s[i]) {
+        i += 1;
+    }
+    let end_ok = |mut j: usize| {
+        while j < s.len() && sp(s[j]) {
+            j += 1;
+        }
+        j == s.len()
+    };
+    // infinities and nans (with their own optional sign)
+    {
+        let mut j = i;
+        let mut neg = false;
+        if j < s.len() && (s[j] == b'+' || s[j] == b'-') {
+            neg = s[j] == b'-';
+            j += 1;
+        }
+        let rest = &s[j..];
+        let low = |n: usize| rest.len() >= n && rest[..n].eq_ignore_ascii_case(&b"infinity"[..n]);
+        let special = if rest.len() >= 8 && rest[..8].eq_ignore_ascii_case(b"infinity") {
+            Some((f64::INFINITY, 8))
+        } else if low(3) {
+            Some((f64::INFINITY, 3))
+        } else if rest.len() >= 3 && rest[..3].eq_ignore_ascii_case(b"nan") {
+            Some((f64::NAN, 3))
+        } else {
+            None
+        };
+        if let Some((v, n)) = special {
+            if !end_ok(j + n) {
+                return bad();
+            }
+            return Ok(if neg { -v } else { v });
+        }
+    }
+    let mut neg = false;
+    if i < s.len() && (s[i] == b'+' || s[i] == b'-') {
+        neg = s[i] == b'-';
+        i += 1;
+    }
+    if i + 1 < s.len() && s[i] == b'0' && (s[i + 1] == b'x' || s[i + 1] == b'X') {
+        i += 2;
+    }
+    let hexd = |c: u8| (c as char).to_digit(16);
+    let mut digits: Vec<u32> = Vec::new();
+    let mut frac = 0i64;
+    while i < s.len() && hexd(s[i]).is_some() {
+        digits.push(hexd(s[i]).unwrap());
+        i += 1;
+    }
+    if i < s.len() && s[i] == b'.' {
+        i += 1;
+        while i < s.len() && hexd(s[i]).is_some() {
+            digits.push(hexd(s[i]).unwrap());
+            frac += 1;
+            i += 1;
+        }
+    }
+    if digits.is_empty() {
+        return bad();
+    }
+    let mut exp: i64 = 0;
+    if i < s.len() && (s[i] == b'p' || s[i] == b'P') {
+        i += 1;
+        let mut eneg = false;
+        if i < s.len() && (s[i] == b'+' || s[i] == b'-') {
+            eneg = s[i] == b'-';
+            i += 1;
+        }
+        if !(i < s.len() && s[i].is_ascii_digit()) {
+            return bad();
+        }
+        while i < s.len() && s[i].is_ascii_digit() {
+            exp = exp.saturating_mul(10).saturating_add((s[i] - b'0') as i64).min(1 << 50);
+            i += 1;
+        }
+        if eneg {
+            exp = -exp;
+        }
+    }
+    if !end_ok(i) {
+        return bad();
+    }
+    let sign = |v: f64| if neg { -v } else { v };
+    // the coefficient's bits, most significant first, without leading zeros
+    let mut bits: Vec<u8> = Vec::with_capacity(digits.len() * 4);
+    for d in &digits {
+        for k in (0..4).rev() {
+            let b = ((d >> k) & 1) as u8;
+            if b == 1 || !bits.is_empty() {
+                bits.push(b);
+            }
+        }
+    }
+    if bits.is_empty() {
+        return Ok(sign(0.0));
+    }
+    let e2 = exp - 4 * frac;
+    let top = bits.len() as i64 - 1 + e2;
+    let too_big = || Err(exc("OverflowError", "hexadecimal value too large to represent as a float".into()));
+    if top > 1023 {
+        return too_big();
+    }
+    if top < -1100 {
+        return Ok(sign(0.0));
+    }
+    let mut lsb = (top - 52).max(-1074);
+    let k = top - lsb + 1; // bits kept: indices 0..k
+    let mut m: u64 = 0;
+    for idx in 0..k.max(0) as usize {
+        m = (m << 1) | *bits.get(idx).unwrap_or(&0) as u64;
+    }
+    let (round, sticky) = if k < 0 {
+        (false, true)
+    } else {
+        let r = bits.get(k as usize).copied().unwrap_or(0) == 1;
+        let st = bits.iter().skip(k as usize + 1).any(|&b| b == 1);
+        (r, st)
+    };
+    if round && (sticky || m & 1 == 1) {
+        m += 1;
+        if m == 1u64 << 53 {
+            m >>= 1;
+            lsb += 1;
+        }
+    }
+    if m != 0 && lsb + (64 - m.leading_zeros() as i64) - 1 > 1023 {
+        return too_big();
+    }
+    let v = if lsb < -1000 { (m as f64) * pow2(lsb + 1000) * pow2(-1000) } else { (m as f64) * pow2(lsb) };
+    Ok(sign(v))
+}
+
+// float.fromhex(string) (a classmethod: cls(value) for a subclass, as CPython calls the type)
+pub fn float_fromhex(a: Args) -> R {
+    if !a.k.is_empty() {
+        return type_err("float.fromhex() takes no keyword arguments".into());
+    }
+    if a.p.len() != 1 {
+        return type_err(format!("float.fromhex() takes exactly one argument ({} given)", a.p.len()));
+    }
+    let V::Str(t) = &a.p[0] else {
+        return type_err("bad argument type for built-in operation".into());
+    };
+    Ok(V::Float(float_fromhex_str(t.text())?))
+}
+
 pub fn int_from_bytes(o: &V, mut a: Args) -> R {
     let f = "from_bytes";
     // from_bytes(bytes, byteorder='big', *, signed=False)
@@ -4166,7 +4374,8 @@ pub fn builtin_method(o: &V, name: &str, a: Args) -> R {
                 let g = big_gcd(&n, &d);
                 Ok(tup(vec![n.divmod(&g).0.norm(), d.divmod(&g).0.norm()]))
             }
-            "hex" => Err(unsupported("float.hex()")),
+            "hex" => Ok(st(float_hex(*f))),
+            "fromhex" => float_fromhex(a),
             "__add__" | "__radd__" => add(o, &a1(&a, name)?),
             "__eq__" => Ok(V::Bool(eq(o, &a1(&a, name)?)?)),
             "__lt__" => Ok(V::Bool(lt(o, &a1(&a, name)?)?)),

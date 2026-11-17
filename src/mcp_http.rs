@@ -15,17 +15,25 @@
 // - A request with an Origin header is refused (403) unless the origin is local (http://localhost,
 //   http://127.0.0.1, http://[::1], any port) or allowed with --allow-origin, so a web page cannot use a
 //   local server (DNS rebinding).
-// - Bodies are limited to 4 MiB (413).
+// - Bodies are limited to 4 MiB (413), and a body is stored only as its bytes arrive, so a request that
+//   claims a large body costs memory only for what it actually sends.
+// - The request line, headers and body are read before the token is checked, so that reading is bounded for
+//   everyone: a connection silent for IDLE is closed, a request must arrive whole within REQUEST, a reply the
+//   client does not read gives up after IDLE, and at most MAX_CONNS connections are served at once (503 past
+//   that).
 use crate::json::{parse, J};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::process::{ChildStdin, Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const MAX_BODY: usize = 4 * 1024 * 1024;
+const MAX_CONNS: usize = 64;
+const IDLE: Duration = Duration::from_secs(30);
+const REQUEST: Duration = Duration::from_secs(120);
 
 struct Front {
     token: Option<String>,
@@ -114,12 +122,78 @@ pub fn serve(argv: &[String]) -> ! {
         });
     }
     eprintln!("brevi mcp: Streamable HTTP on http://{addr}{}{}", front.path, if front.token.is_some() { " (bearer token required)" } else { "" });
+    let active = Arc::new(AtomicUsize::new(0));
+    // Refused connections, half closed and kept a little while: closing one at once, with the client's
+    // request unread, would reset it before the client reads the 503. The oldest is closed past MAX_CONNS.
+    let mut refused = std::collections::VecDeque::new();
     for conn in listener.incoming() {
-        let Ok(conn) = conn else { continue };
-        let front = front.clone();
-        std::thread::spawn(move || connection(&front, conn));
+        let Ok(mut conn) = conn else { continue };
+        if active.fetch_add(1, Ordering::SeqCst) >= MAX_CONNS {
+            active.fetch_sub(1, Ordering::SeqCst);
+            // never blocks the accept loop: a fresh socket's send buffer takes this whole
+            let _ = conn.set_nonblocking(true);
+            respond(&mut conn, 503, &[("retry-after", "1")], &error_body(-32600, "Service Unavailable: too many connections"), true);
+            let _ = conn.shutdown(std::net::Shutdown::Write);
+            refused.push_back(conn);
+            if refused.len() > MAX_CONNS {
+                refused.pop_front();
+            }
+            continue;
+        }
+        let (front, slot) = (front.clone(), Slot(active.clone()));
+        // a thread that cannot start drops its slot and the connection
+        let _ = std::thread::Builder::new().spawn(move || {
+            let _slot = slot;
+            connection(&front, conn)
+        });
     }
     std::process::exit(0);
+}
+
+// One of the MAX_CONNS connections being served, given back when its thread ends.
+struct Slot(Arc<AtomicUsize>);
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+// The socket as read for one request: each read waits at most IDLE, and none past the request's deadline.
+struct Timed {
+    s: TcpStream,
+    end: Instant,
+}
+
+impl Read for Timed {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let left = self.end.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(std::io::ErrorKind::TimedOut.into());
+        }
+        self.s.set_read_timeout(Some(left.min(IDLE)))?;
+        self.s.read(buf)
+    }
+}
+
+// Appends exactly n bytes from r to body, growing it only as bytes arrive (never by n up front); false if
+// the stream ends or fails first.
+fn read_n<R: Read>(r: &mut R, n: usize, body: &mut Vec<u8>) -> bool {
+    let mut buf = [0u8; 16 * 1024];
+    let mut left = n;
+    while left > 0 {
+        let want = left.min(buf.len());
+        match r.read(&mut buf[..want]) {
+            Ok(0) => return false,
+            Ok(k) => {
+                body.extend_from_slice(&buf[..k]);
+                left -= k;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => return false,
+        }
+    }
+    true
 }
 
 fn fail(m: &str) -> ! {
@@ -136,12 +210,12 @@ fn set(msg: &mut J, k: &str, v: J) {
     }
 }
 
-struct Req {
-    method: String,
-    path: String,
-    headers: Vec<(String, String)>,
-    body: Vec<u8>,
-    close: bool,
+pub(crate) struct Req {
+    pub(crate) method: String,
+    pub(crate) path: String,
+    pub(crate) headers: Vec<(String, String)>,
+    pub(crate) body: Vec<u8>,
+    pub(crate) close: bool,
 }
 
 impl Req {
@@ -150,13 +224,14 @@ impl Req {
     }
 }
 
-enum Read_ {
+pub(crate) enum Read_ {
     Req(Req),
     Bad(u16, &'static str),
     Gone,
 }
 
-fn read_req(r: &mut BufReader<TcpStream>) -> Read_ {
+// Generic over the reader so tests and fuzz/ can drive it from bytes.
+pub(crate) fn read_req<R: BufRead>(r: &mut R) -> Read_ {
     let mut line = String::new();
     // a blank line before the request line is allowed (RFC 9112 2.2)
     loop {
@@ -204,7 +279,7 @@ fn read_req(r: &mut BufReader<TcpStream>) -> Read_ {
                 return Read_::Gone;
             }
             let Ok(n) = usize::from_str_radix(line.trim().split(';').next().unwrap_or("").trim(), 16) else { return Read_::Bad(400, "Bad Request") };
-            if body.len() + n > MAX_BODY {
+            if body.len().checked_add(n).is_none_or(|t| t > MAX_BODY) {
                 return Read_::Bad(413, "Payload Too Large");
             }
             if n == 0 {
@@ -217,9 +292,7 @@ fn read_req(r: &mut BufReader<TcpStream>) -> Read_ {
                 }
                 break;
             }
-            let at = body.len();
-            body.resize(at + n, 0);
-            if r.read_exact(&mut body[at..]).is_err() {
+            if !read_n(r, n, &mut body) {
                 return Read_::Gone;
             }
             let mut crlf = [0u8; 2];
@@ -232,8 +305,7 @@ fn read_req(r: &mut BufReader<TcpStream>) -> Read_ {
         if n > MAX_BODY {
             return Read_::Bad(413, "Payload Too Large");
         }
-        body.resize(n, 0);
-        if r.read_exact(&mut body).is_err() {
+        if !read_n(r, n, &mut body) {
             return Read_::Gone;
         }
     }
@@ -255,6 +327,7 @@ fn reason(code: u16) -> &'static str {
         415 => "Unsupported Media Type",
         431 => "Request Header Fields Too Large",
         500 => "Internal Server Error",
+        503 => "Service Unavailable",
         _ => "Error",
     }
 }
@@ -292,10 +365,12 @@ fn same(a: &str, b: &str) -> bool {
 }
 
 fn connection(front: &Front, conn: TcpStream) {
-    let _ = conn.set_read_timeout(Some(Duration::from_secs(300)));
+    let _ = conn.set_write_timeout(Some(IDLE));
     let Ok(mut w) = conn.try_clone() else { return };
-    let mut r = BufReader::new(conn);
+    let mut r = BufReader::new(Timed { s: conn, end: Instant::now() + REQUEST });
     loop {
+        // each request (including the wait for it) gets its own deadline; bytes already buffered count
+        r.get_mut().end = Instant::now() + REQUEST;
         let req = match read_req(&mut r) {
             Read_::Req(q) => q,
             Read_::Bad(code, m) => {
@@ -396,4 +471,97 @@ fn answer(front: &Front, req: &Req) -> (u16, Vec<(&'static str, String)>, String
 fn write_line(front: &Front, line: &str) -> bool {
     let mut w = front.child.lock().unwrap();
     writeln!(w, "{line}").and_then(|_| w.flush()).is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    fn read(raw: &[u8]) -> Read_ {
+        read_req(&mut BufReader::new(Cursor::new(raw.to_vec())))
+    }
+
+    fn code(raw: &[u8]) -> u16 {
+        match read(raw) {
+            Read_::Req(_) => 200,
+            Read_::Bad(c, _) => c,
+            Read_::Gone => 0,
+        }
+    }
+
+    #[test]
+    fn bodies() {
+        let Read_::Req(q) = read(b"POST /mcp HTTP/1.1\r\ncontent-length: 5\r\n\r\nhello") else { panic!() };
+        assert_eq!(q.body, b"hello");
+        let Read_::Req(q) = read(b"POST /mcp HTTP/1.1\r\ntransfer-encoding: chunked\r\n\r\n3\r\nhel\r\n2;x=y\r\nlo\r\n0\r\nt: 1\r\n\r\n") else { panic!() };
+        assert_eq!(q.body, b"hello");
+        assert_eq!(code(b"POST /mcp HTTP/1.1\r\ncontent-length: 4194305\r\n\r\n"), 413);
+        assert_eq!(code(b"POST /mcp HTTP/1.1\r\ncontent-length: 4194304\r\n\r\nshort"), 0);
+        assert_eq!(code(b"POST /mcp HTTP/1.1\r\ncontent-length: x\r\n\r\n"), 400);
+    }
+
+    // Chunk sizes anywhere in usize's range, alone or adding up past it, are refused, never wrapped.
+    #[test]
+    fn chunk_sizes() {
+        let sizes = [MAX_BODY + 1, usize::MAX / 2 + 1, usize::MAX - 2, usize::MAX - 1, usize::MAX];
+        for n in sizes {
+            let alone = format!("POST /mcp HTTP/1.1\r\ntransfer-encoding: chunked\r\n\r\n{n:x}\r\n");
+            assert_eq!(code(alone.as_bytes()), 413, "{n:x}");
+            let after = format!("POST /mcp HTTP/1.1\r\ntransfer-encoding: chunked\r\n\r\n2\r\nab\r\n{n:x}\r\n");
+            assert_eq!(code(after.as_bytes()), 413, "2 then {n:x}");
+        }
+    }
+
+    // A body that claims the limit but sends little holds memory for what it sent, not what it claimed.
+    #[test]
+    fn memory_follows_bytes() {
+        let mut body = vec![];
+        assert!(!read_n(&mut Cursor::new(vec![7u8; 10]), MAX_BODY, &mut body));
+        assert_eq!(body.len(), 10);
+        assert!(body.capacity() < 64 * 1024, "{}", body.capacity());
+        let mut body = vec![];
+        assert!(read_n(&mut Cursor::new(vec![7u8; 100_000]), 100_000, &mut body));
+        assert_eq!(body.len(), 100_000);
+    }
+
+    // Mutated requests (deterministic xorshift): read_req never panics and never keeps more than MAX_BODY.
+    #[test]
+    fn fuzz_framing() {
+        let seeds: [&[u8]; 3] = [
+            b"POST /mcp HTTP/1.1\r\ncontent-length: 5\r\n\r\nhello",
+            b"POST /mcp HTTP/1.1\r\ntransfer-encoding: chunked\r\n\r\n3\r\nhel\r\n2\r\nlo\r\n0\r\n\r\n",
+            b"\r\nGET /mcp?x HTTP/1.0\r\nconnection: keep-alive\r\n\r\n",
+        ];
+        let mut x: u64 = 0x9e37_79b9_7f4a_7c15;
+        let mut next = move || {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            x
+        };
+        let alphabet = b"0123456789abcdefABCDEF;: \r\n-+xX";
+        for _ in 0..20_000 {
+            let mut v = seeds[(next() % 3) as usize].to_vec();
+            for _ in 0..1 + next() % 6 {
+                let at = (next() as usize) % (v.len() + 1);
+                match next() % 4 {
+                    0 if at < v.len() => v[at] = alphabet[(next() as usize) % alphabet.len()],
+                    1 => v.insert(at, alphabet[(next() as usize) % alphabet.len()]),
+                    2 if at < v.len() => {
+                        v.remove(at);
+                    }
+                    _ => {
+                        // a random chunk size or length, often huge
+                        let n = if next() % 2 == 0 { next() as usize } else { usize::MAX - (next() % 8) as usize };
+                        let s = if next() % 2 == 0 { format!("{n:x}") } else { n.to_string() };
+                        v.splice(at..at, s.bytes());
+                    }
+                }
+            }
+            if let Read_::Req(q) = read(&v) {
+                assert!(q.body.len() <= MAX_BODY);
+            }
+        }
+    }
 }

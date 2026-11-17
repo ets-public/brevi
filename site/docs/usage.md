@@ -36,8 +36,8 @@ A file can import its sibling `.py` files and packages as usual (`import util`, 
 | --- | --- | --- |
 | `--release` | run, build | Optimise fully (rustc opt-level 3, the runtime inlined into the program). Builds take a few seconds longer; programs often run up to twice as fast as with the default build. Use it for a binary you keep. |
 | `--native` | run | Never fall back to CPython: print Brevi's errors instead. `BREVI_NATIVE=1` does the same. |
-| `--strict` | run, build, check, verify | From the next release: no fallback of any kind, for CI and production jobs (see [Strict builds](#strict-builds)). `BREVI_STRICT=1` does the same. |
-| `--standalone` | build | For Python files that import libraries: pack CPython, the standard library and the imported packages into the binary, so it runs on a Linux machine with no Python. Linux only. |
+| `--strict` | run, build, check, verify | From v0.28.0: no fallback of any kind, for CI and production jobs (see [Strict builds](#strict-builds)). `BREVI_STRICT=1` does the same. |
+| `--standalone` | build | For Python files that import libraries: pack CPython, the standard library and the imported packages into the binary, so it runs on a machine with no Python. Linux and Windows. |
 | `--sandbox` | run, check, test | Refuse file access, native code and Python libraries unless the caller grants them (see [Sandbox](#sandbox)). |
 | `--allow read,write,net,native` | run, check, test | Under the sandbox, grant these capabilities (implies `--sandbox`). |
 | `--allow-read DIRS`, `--allow-write DIRS` | run, check, test | Under the sandbox, let the program read (or write) files only inside these folders or files, such as `--allow-read data --allow-write out` (implies `--sandbox`; from v0.26.0). |
@@ -76,7 +76,7 @@ For a Python file, `brevi run`, `build` and `check` print one JSON line on stder
 
 ## The CPython fallback
 
-`brevi run x.py` always gives a result. When Brevi cannot build a file natively, it runs it with `python3` (or `$BREVI_PYTHON`) and prints one line on stderr naming the first line that stopped it:
+`brevi run x.py` always gives a result. When Brevi cannot build a file natively, it runs it with CPython 3.13 (`$BREVI_PYTHON`, else the first 3.13 among `python3`, `python3.13` and `python` on PATH; Brevi answers as CPython 3.13 does, so it never runs another version) and prints one line on stderr naming the first line that stopped it:
 
 ```
 {"path":"cpython","line":2,"why":"Brevi could not build it: expected ')', found end of line","by":"python3"}
@@ -95,7 +95,7 @@ Use `brevi run --native`, `brevi build` or `brevi check` when you need to know a
 
 ### Strict builds
 
-From the next release, `--strict` (or `BREVI_STRICT=1`, which reaches every `brevi` and `brevi-python` a job starts) fails closed on any fallback, so a CI or production job can require the typed fast path:
+From v0.28.0, `--strict` (or `BREVI_STRICT=1`, which reaches every `brevi` and `brevi-python` a job starts) fails closed on any fallback, so a CI or production job can require the typed fast path:
 
 - Only the typed build may answer. A `pybridge` build is the typed build with the libraries it imports in CPython, and passes (its path line names them).
 - A file the typed build refuses, or one it would answer differently from CPython (the guard), is refused with one error line on stdout instead of being built over dynamic values: `{"e":"strict","path":"dynamic","line":3,"fn":"show","msg":"--strict allows no fallback, ...","fix":"rewrite show so the typed build takes it ..."}`, exit code 1. A file the dynamic build refuses too gets the typed build's own errors, as `--native` does.
@@ -108,7 +108,7 @@ From the next release, `--strict` (or `BREVI_STRICT=1`, which reaches every `bre
 
 ## Verify against CPython
 
-`brevi verify x.py` (from v0.26.0) is proof that the native build answers as CPython does. It builds the file natively (strict, as `brevi build` does: no fallback), then runs `python3` (or `$BREVI_PYTHON`) and the built program on the same inputs, and compares stdout byte for byte, the exit code and stderr. CPython's traceback frames are left out of the stderr comparison, since a built program names the exception but not the frames. CPython runs each input twice: output that changes from run to run (set order, the time, unseeded `random`) cannot be certified, and is reported as `unstable` instead of matched by luck.
+`brevi verify x.py` (from v0.26.0) is proof that the native build answers as CPython does. It builds the file natively (strict, as `brevi build` does: no fallback), then runs CPython 3.13 (as the fallback finds it) and the built program on the same inputs, and compares stdout byte for byte, the exit code and stderr. CPython's traceback frames are left out of the stderr comparison, since a built program names the exception but not the frames. CPython runs each input twice: output that changes from run to run (set order, the time, unseeded `random`) cannot be certified, and is reported as `unstable` instead of matched by luck.
 
 ```
 $ brevi verify main.py --input tests/ -- --verbose
@@ -180,7 +180,14 @@ Other mistakes that Python only finds when the line runs (an index out of range,
 
 ## Sandbox
 
-**What it is, and what it is not.** The sandbox is a cheap capability and limit layer for agent code you mostly trust. It is not an isolation boundary for hostile code. Brevi's own generated code enforces it: there is no seccomp filter, namespace or VM around the program, so the guarantee rests on Brevi being right. `--allow-py` and `--allow native` are full trust, Landlock holds CPython to the file grants on Linux 5.13 and later only, a file check and the open that follows are two steps, and no outside security review has been done yet. Run untrusted code inside a container or VM as well, and use the sandbox as a second layer inside it.
+**What it is, and what it is not.**
+
+- **No external security audit yet.** We have not had an external audit; we are seeking funding for one. Until then, do not run hostile code under the sandbox.
+- **The sandbox is a policy layer, not an isolation boundary.** It is a cheap capability and limit layer for agent code you mostly trust. Brevi's own build check and runtime code enforce it: there is no namespace, container or VM around the program, so the guarantee rests on Brevi being right. Only a program that loads CPython is held by the kernel as well, on Linux only: Landlock for files on 5.13 and later (where it is missing, named folders are refused and otherwise CPython keeps full file access), and on x86-64 and arm64 a seccomp filter against the network when none is granted. A file check and the open that follows are two steps.
+- **Run untrusted code in a container or VM**, and use the sandbox as a second layer inside it.
+- **`--allow-py` and `--allow native` are full trust.** Grant them only to code you would run without a sandbox.
+
+Who should use Brevi today is in [SECURITY.md](https://github.com/ets-public/brevi/blob/main/SECURITY.md#who-should-use-brevi-today); what each layer covers is in the [threat model](https://github.com/ets-public/brevi/blob/main/docs/THREAT_MODEL.md).
 
 With `--sandbox` (and in the MCP tools, which sandbox by default), **only the caller grants capabilities**: `--allow read,write,net,native`, `--allow-net api.example.com` to let the program reach just those hosts, `--allow-read data` and `--allow-write out` to let it read or write files only inside those folders, or `--allow-py yaml,pandas` to let CPython run just those libraries (the MCP tools' `allow`, `allow_net`, `allow_read`, `allow_write` and `allow_py` arguments). The code being sandboxed cannot grant itself anything: an `allow` line in it that asks for more than the caller granted is refused (from v0.24.6; before it, an allow line in the file was enough).
 
@@ -257,16 +264,16 @@ The sandbox decides what a program may touch; `--limit` decides how much it may 
 
 | Limit | Unit | Holds | How |
 | --- | --- | --- | --- |
-| `cpu` | seconds | CPU time, all threads together | the kernel (`RLIMIT_CPU`); refused on Windows |
+| `cpu` | seconds | CPU time, all threads together | the kernel (`RLIMIT_CPU`); on Windows a Job Object, counting every process the program starts too |
 | `mem` | MB | address space on Linux; committed memory of the program and everything it starts on Windows | the kernel (`RLIMIT_AS`); on Windows a Job Object, from v0.27.0; not on macOS |
 | `time` | seconds | wall-clock time, waiting included | `brevi`, which stops the program |
 | `output` | KB | stdout and stderr together | `brevi`, which passes output on and stops the program at the limit |
-| `file` | MB | the size of any one file the program writes | the kernel (`RLIMIT_FSIZE`); refused on Windows |
+| `file` | MB | the size of any one file the program writes | the kernel (`RLIMIT_FSIZE`); refused on Windows, which has no limit on one file's size |
 | `written` | MB | bytes written to files in all (stdout and stderr are `output`, network bytes are `net`; from v0.27.0, on every OS) | Brevi's own file code in the program, which counts before each write; `--sandbox` without `--allow-py` or `native` only |
 | `files` | count | files the program creates | Brevi's own file code in the program; `--sandbox` without `--allow-py` or `native` only |
 | `net` | MB | bytes sent and received over the network | Brevi's own network code in the program; `--sandbox` without `--allow-py` or `native` only |
-| `threads` | count | threads at once, the program's and those of every process it starts, Linux only | the kernel: the program runs in a cgroup of its own whose `pids.max` is the limit, so the thread or process past it is never created; refused where Brevi cannot make that cgroup (from v0.27.0) |
-| `fds` | count | files and sockets open at once | the kernel (`RLIMIT_NOFILE`): an open past it fails with `OSError: Too many open files`, it does not stop the program; refused on Windows |
+| `threads` | count | threads at once, the program's and those of every process it starts, Linux only | the kernel: the program runs in a cgroup of its own whose `pids.max` is the limit, so the thread or process past it is never created; refused where Brevi cannot make that cgroup (from v0.27.0), and on macOS and Windows (a Windows Job Object can cap processes but not threads) |
+| `fds` | count | files and sockets open at once | the kernel (`RLIMIT_NOFILE`): an open past it fails with `OSError: Too many open files`, it does not stop the program; refused on Windows, which has no limit on a process's open handles |
 
 Plain numbers use those units; `mem=1gb`, `output=512kb`, `time=1.5` and `time=500ms` work too. Join limits with commas:
 
@@ -285,7 +292,7 @@ A program stopped by a limit exits with status 124 and its last stderr line is o
 - With `output` (or `mem`, which reads stderr to tell an out-of-memory stop from a crash) the program's stdout or stderr is a pipe, not the terminal.
 - `files`, `net` and `written` are counted inside the program by Brevi's own file and network code (`open`, polars, sqlite3, duckdb, safetensors, onnxruntime, requests, httpx and the SDKs over it), which is why they need `--sandbox` without `--allow-py` or `--allow native` (refused otherwise, exit 2): CPython and native code would not be counted. Under `files`, DuckDB's SQL reaches no files besides the database.
 - From v0.27.0 `written` is counted before each write, so a write that would pass the limit never starts and the limit holds to the byte, however large one write is. Under it, SQLite, DuckDB and ONNX Runtime write no files themselves, because their bytes could not be counted: a SQLite database file opens read-only and SQLite keeps temporary data in memory; a DuckDB database file opens read-only, its SQL reaches no file and nothing spills to a temp folder; ONNX Runtime refuses `optimized_model_filepath` and profiling. The stop message is `the program tried to write more than N bytes to files`.
-- A limit Brevi cannot enforce on the machine is refused, never ignored: `mem` on macOS, `threads` outside Linux or where Brevi cannot create a pids cgroup (it needs the cgroup v1 pids controller, or a cgroup v2 subtree it may write, such as root in a container or `systemd-run --user -p Delegate=yes`), and `cpu`, `file` and `fds` on Windows, give an error and the program does not run.
+- A limit Brevi cannot enforce on the machine is refused, never ignored: `mem` on macOS, `threads` outside Linux or where Brevi cannot create a pids cgroup (it needs the cgroup v1 pids controller, or a cgroup v2 subtree it may write, such as root in a container or `systemd-run --user -p Delegate=yes`), and `file`, `fds` and `threads` on Windows, give an error and the program does not run.
 - In the MCP tools `run`, `test` and `verify` take `limits: {"cpu": 2, "mem": 512, "time": 10, "output": 64, "file": 10}` (and `written`, `net`, `threads`, `fds`, `files`) (each `cases` entry is held to them separately). The call's `timeout` still covers build and run together.
 
 What the sandbox and the limits protect against, and what they do not, is in the [threat model](https://github.com/ets-public/brevi/blob/main/docs/THREAT_MODEL.md).
@@ -326,7 +333,12 @@ window "tk"
 ## Libraries
 
 - **Python packages** in Python files: `import numpy as np`, `pandas`, `yaml`, `pathlib`, `subprocess` or any other installed module works. Its calls run in CPython inside the native program, so results are CPython's own. The program needs `libpython` where it runs, unless built with `--standalone`.
-- **Standalone binaries**: `brevi build x.py --standalone` carries CPython, the standard library and the imported packages (with what they require). The first run unpacks them once into `~/.cache/brevi/py`, about 1 to 3 seconds; later runs start at normal speed. Expect about 13 MB for a standard-library program and 30 to 45 MB with numpy or pandas. Linux only.
+- **Standalone binaries**: `brevi build x.py --standalone` carries CPython, the standard library and the imported packages (with what they require). The first run unpacks them once into `~/.cache/brevi/py` (`%LOCALAPPDATA%\brevi\py` on Windows), about 1 to 3 seconds; later runs start at normal speed. Expect about 13 MB for a standard-library program and 30 to 45 MB with numpy or pandas. Linux and Windows. A standalone binary uses only the Python it carries: if the file is changed after the build (code signing appends to it), it refuses to run instead of using an installed Python. On Windows the build is refused with Microsoft Store Python or a Python for another CPU. It is one file to copy, but it does not run in place: what it cannot carry or do:
+  - **Run without a writable cache.** The first run unpacks CPython into `BREVI_PY_CACHE`; on Windows a cache path that would put an unpacked file past 260 characters is refused (set `BREVI_PY_CACHE` shorter).
+  - **Desktop and build tooling from the standard library:** `tkinter`, `turtle`, IDLE, the Tcl/Tk DLLs, `ensurepip`, `lib2to3` and the `test` packages are left out.
+  - **Imports it cannot see at build time:** it carries the packages the program imports and what they import as they load, so a module imported only later, while the program runs (by a name built at run time, or lazily inside a library function), may be missing.
+  - **Survive changes to the file:** code signing or anything else that appends to the binary makes it refuse to run (never falling back to an installed Python).
+  - **macOS:** not yet; `--standalone` is refused there.
 - **Rust crates and Python code from Brevi programs**: `use sha2 "0.10"` with a `rust fn`, or a `py fn` with a Python body. See [Libraries](/docs/libraries).
 
 ## Speed and the build cache
@@ -335,7 +347,7 @@ Running `brevi check`, `build` or `run` again on files that did not change repla
 
 From v0.27.0, `brevi run` and `brevi test` after an edit don't wait for the optimised build. They build the program unoptimised (rustc opt-level 0), run it at once, and build the optimised binary (opt-level 1, the default) in the background into the cache. The next run of the unchanged program uses the optimised one. On a 200-line program, a run after an edit went from 0.82 s to 0.32 s on the typed path, and from 1.50 s to 0.50 s on the dynamic path. The unoptimised binary runs slower (often 2x to 5x slower on loops), so for a long computation use `--release`, or set `BREVI_TIERED=0`. `brevi build` always makes the optimised binary, and so does a run with `--no-cache`. The very first build after installing Brevi, or after a Rust update, also builds Brevi's runtime library once, which takes about 5 to 15 seconds.
 
-Write the plain, direct program. Brevi runs plain loops over ints and lists several times faster than CPython (1.6x to 37.9x, median 9.3x, on our 12 compute benchmarks), so code hand-tuned for CPython (bit tricks, packing values into big integers) is usually slower under Brevi, not faster.
+Write the plain, direct program. Brevi runs plain loops over ints and lists several times faster than CPython (typed build: 1.6x to 37.9x, median 9.3x, on our 12 compute benchmarks; when values change type it falls back to the dynamic build, median 0.85x), so code hand-tuned for CPython (bit tricks, packing values into big integers) is usually slower under Brevi, not faster.
 
 ## Environment variables
 
@@ -343,13 +355,13 @@ Write the plain, direct program. Brevi runs plain loops over ints and lists seve
 | --- | --- |
 | `BREVI_NATIVE=1` | Same as `--native`: never fall back to CPython. |
 | `BREVI_TRACEBACK=1` | Same as `--traceback`: show the whole CPython traceback after a fallback on a sure mistake. |
-| `BREVI_PYTHON` | The Python used for the fallback (default `python3`). |
+| `BREVI_PYTHON` | The CPython Brevi uses: the library bridge, the fallback and `brevi verify`. It must be a CPython 3.13 (default: the first 3.13 among `python3`, `python3.13` and `python` on PATH, then `uv python find 3.13`). |
 | `BREVI_CACHE` | Where builds and runtimes are cached (default `~/.cache/brevi`). |
 | `BREVI_NO_CACHE=1` | Same as `--no-cache`: do not use the result or build cache. |
 | `BREVI_CACHE_MB` | Most megabytes of builds the cache keeps (default 1024); the least recently used go first. |
 | `BREVI_TIME=1` | Print how long each build stage took, in ms, on stderr. |
 | `BREVI_TIERED=0` | From v0.27.0: `run` and `test` always wait for the optimised build instead of running an unoptimised one first. |
-| `BREVI_PY_CACHE` | Where `--standalone` binaries unpack CPython (default `~/.cache/brevi/py`). |
+| `BREVI_PY_CACHE` | Where `--standalone` binaries unpack CPython (default `~/.cache/brevi/py`; on Windows `%LOCALAPPDATA%\brevi\py`). |
 | `BREVI_GUI=headless` | Run a `--window` GUI build headless. |
 | `BREVI_DYN=1` / `BREVI_DYN=0` | Force the dynamic build, or turn it off (to see the typed build's errors). |
 | `BREVI_PATH=1` / `BREVI_PATH=0` | Print [which path ran](#which-path-ran) for every build, including typed ones, or never. |

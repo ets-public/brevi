@@ -127,6 +127,9 @@ pub static ANN_DEFS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBo
 // Set while the program names `from_callable` (inspect.Signature.from_callable) and its defs keep their
 // annotations (ANN_DEFS, which the use turns on under the same conditions): every def and lambda then records its
 // parameters and defaults (with_sig in rt_sig.rs). Without ANN_DEFS a from_callable call is refused at build time.
+// Set while the program imports a library CPython runs (the bridge, pyglue.rs): such a library may read a def's
+// __annotations__ (functools.wraps, inspect), so the defs keep them as when the program reads them itself.
+pub static BRIDGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 pub static SIG_DEFS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
@@ -177,11 +180,12 @@ pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
         walk_all(b, &mut |e, _| r |= matches!(e, Ex::Attr(_, a) if a == "from_callable") || matches!(e, Ex::Str(t) if t == "from_callable"));
         r
     });
-    let defs = (reads || sig)
+    let defs = (reads || sig || BRIDGED.load(std::sync::atomic::Ordering::Relaxed))
         && !OWN_PYDANTIC.load(std::sync::atomic::Ordering::Relaxed)
         && mods.iter().all(|(m, b)| !names[*m].lazy && !odd_def_annotation(b) && !typing_def_annotation(b, &names[*m]));
     ANN_DEFS.store(defs, std::sync::atomic::Ordering::Relaxed);
-    SIG_DEFS.store(sig && defs, std::sync::atomic::Ordering::Relaxed);
+    // a library CPython runs may read a def's __defaults__ and __kwdefaults__ (kept with the signature)
+    SIG_DEFS.store((sig || BRIDGED.load(std::sync::atomic::Ordering::Relaxed)) && defs, std::sync::atomic::Ordering::Relaxed);
     for (m, body) in mods {
         let nm = &names[*m];
         stmts(body, nm).map_err(|(l, w)| (m.to_string(), l, w))?;
@@ -266,25 +270,6 @@ pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
         });
         if let Some(l) = at {
             return Err((m.to_string(), l, "dataclasses: field(metadata=...) with a mapping class of the program needs CPython".into()));
-        }
-        // pickling a dataclass instance or class
-        if imports(body, "pickle") {
-            let mut dc = false;
-            let mut pk = None;
-            walk_all(body, &mut |e, line| {
-                dc |= matches!(e, Ex::Name(n) | Ex::Attr(_, n) if n == "dataclass" || n == "make_dataclass");
-                if matches!(e, Ex::Attr(o, a) if matches!(a.as_str(), "dumps" | "dump" | "Pickler") && matches!(o.as_ref(), Ex::Name(n) if n == "pickle")) {
-                    pk.get_or_insert(line);
-                }
-            });
-            walk_from(body, &mut |md, ns| {
-                if md == "pickle" && ns.iter().any(|n| matches!(n.as_str(), "dumps" | "dump" | "Pickler")) {
-                    pk.get_or_insert(0);
-                }
-            });
-            if let (true, Some(l)) = (dc, pk) {
-                return Err((m.to_string(), l, "pickle of the program's dataclasses needs CPython".into()));
-            }
         }
         // a unittest.mock object stored on a class of the program (`D.__set__ = Mock()`, or `x = Mock()` in its
         // body): the runtime would call it with the program's objects
@@ -881,9 +866,12 @@ fn class(c: &ClassDef, nm: &Names) -> Result<(), Er> {
             }
             continue;
         }
-        if !td || k != "total" || !matches!(v, Ex::True | Ex::False) {
+        // a TypedDict's total= is typing's own (a bool literal); any other keyword is a value for the
+        // metaclass and __init_subclass__ (dynpy/emit.rs class)
+        if td && (k != "total" || !matches!(v, Ex::True | Ex::False)) {
             return Err((c.line, "class keyword arguments are not supported".into()));
         }
+        expr(v, false, c.line, nm)?;
     }
     for b in &c.bases {
         let (head, sub) = match b {
@@ -1286,13 +1274,17 @@ pub fn enum_refusal(body: &[Stmt]) -> Option<(usize, &'static str)> {
     const EN: [&str; 6] = ["Enum", "IntEnum", "StrEnum", "Flag", "IntFlag", "ReprEnum"];
     let mut enums: Vec<String> = vec![];
     let mut mods: Vec<String> = vec![];
-    fn scan(body: &[Stmt], enums: &mut Vec<String>, mods: &mut Vec<String>) {
+    let mut metas: Vec<String> = vec![];
+    fn scan(body: &[Stmt], enums: &mut Vec<String>, mods: &mut Vec<String>, metas: &mut Vec<String>) {
         for s in body {
             match &s.st {
                 St::ImportFrom(m, v) if m == "enum" => {
                     for (n, a) in v {
                         if EN.contains(&n.as_str()) {
                             enums.push(a.clone().unwrap_or_else(|| n.clone()));
+                        }
+                        if matches!(n.as_str(), "EnumMeta" | "EnumType") {
+                            metas.push(a.clone().unwrap_or_else(|| n.clone()));
                         }
                     }
                 }
@@ -1305,11 +1297,11 @@ pub fn enum_refusal(body: &[Stmt]) -> Option<(usize, &'static str)> {
                 }
                 _ => {}
             }
-            blocks(&s.st, &mut |b| scan(b, enums, mods));
+            blocks(&s.st, &mut |b| scan(b, enums, mods, metas));
         }
     }
-    scan(body, &mut enums, &mut mods);
-    if enums.is_empty() && mods.is_empty() {
+    scan(body, &mut enums, &mut mods, &mut metas);
+    if enums.is_empty() && mods.is_empty() && metas.is_empty() {
         return None;
     }
     // classes built on an Enum class, in the order they are defined
@@ -1329,6 +1321,38 @@ pub fn enum_refusal(body: &[Stmt]) -> Option<(usize, &'static str)> {
         }
     }
     mark(body, &mut enums, &mods);
+    // classes whose members are ints as well as flags (on IntFlag, or on int and an Enum class), in definition order
+    let mut iflags: Vec<String> = vec![];
+    fn imported_intflag(body: &[Stmt], out: &mut Vec<String>) {
+        for s in body {
+            if let St::ImportFrom(m, v) = &s.st {
+                if m == "enum" {
+                    out.extend(v.iter().filter(|(n, _)| n == "IntFlag").map(|(n, a)| a.clone().unwrap_or_else(|| n.clone())));
+                }
+            }
+            blocks(&s.st, &mut |b| imported_intflag(b, out));
+        }
+    }
+    imported_intflag(body, &mut iflags);
+    let iflag_imports = iflags.len();
+    fn mark_iflags(body: &[Stmt], iflags: &mut Vec<String>, enums: &[String], mods: &[String]) {
+        for s in body {
+            if let St::Class(c) = &s.st {
+                let on_iflag = c.bases.iter().any(|b| match b {
+                    Ex::Name(n) => iflags.contains(n),
+                    Ex::Attr(o, a) => a == "IntFlag" && matches!(o.as_ref(), Ex::Name(m) if mods.contains(m)),
+                    _ => false,
+                });
+                let int_enum = enums.contains(&c.name) && c.bases.iter().any(|b| matches!(b, Ex::Name(n) if n == "int"));
+                if (on_iflag || int_enum) && !iflags.contains(&c.name) {
+                    iflags.push(c.name.clone());
+                }
+            }
+            blocks(&s.st, &mut |b| mark_iflags(b, iflags, enums, mods));
+        }
+    }
+    mark_iflags(body, &mut iflags, &enums, &mods);
+    let iflag_classes = &iflags[iflag_imports..];
     let is_enum_ex = |e: &Ex| match e {
         Ex::Name(n) => enums.contains(n),
         Ex::Attr(o, a) => EN.contains(&a.as_str()) && matches!(o.as_ref(), Ex::Name(m) if mods.contains(m)),
@@ -1343,6 +1367,40 @@ pub fn enum_refusal(body: &[Stmt]) -> Option<(usize, &'static str)> {
             blocks(&s.st, &mut |b| classes(b, f));
         }
     }
+    // `A.X | B.Y` on members of two IntFlag classes of the program: Flag.__or__ takes B.Y itself as the other value,
+    // so B's own operators and members end up in the result's value and name (enum.py), which Brevi's flags do not
+    // hold; refused here, and at run time where the build cannot see it (rt_enum.rs)
+    walk_all(body, &mut |e, l| {
+        if found.is_some() {
+            return;
+        }
+        if let Ex::Bin("|" | "&" | "^", a, b) = e {
+            if let (Ex::Attr(x, _), Ex::Attr(y, _)) = (a.as_ref(), b.as_ref()) {
+                if let (Ex::Name(x), Ex::Name(y)) = (x.as_ref(), y.as_ref()) {
+                    if x != y && iflag_classes.contains(x) && iflag_classes.contains(y) && !iflag_bits_kept(body, x, y, a, b) {
+                        found = Some((l, "an operator between members of two different IntFlag classes"));
+                    }
+                }
+            }
+        }
+    });
+    // a name CPython finds on EnumType read through an Enum class (`Color.__contains__`, `self.Color._find_new_`):
+    // EnumType's methods are not modelled, and the class itself does not have them
+    walk_all(body, &mut |e, l| {
+        if found.is_some() {
+            return;
+        }
+        if let Ex::Attr(o, a) = e {
+            let on_enum = match o.as_ref() {
+                Ex::Name(n) => enums.contains(n),
+                Ex::Attr(_, n) => enums.contains(n),
+                _ => false,
+            };
+            if on_enum && enum_type_only(a) {
+                found = Some((l, "a method of enum.EnumType read through an Enum class"));
+            }
+        }
+    });
     classes(body, &mut |c, line| {
         if found.is_some() {
             return;
@@ -1352,12 +1410,31 @@ pub fn enum_refusal(body: &[Stmt]) -> Option<(usize, &'static str)> {
             found = Some((line, "a metaclass built on type() of an Enum class"));
             return;
         }
+        let enum_meta_base = c.bases.iter().any(|b| match b {
+            Ex::Name(n) => metas.contains(n),
+            Ex::Attr(o, a) => matches!(a.as_str(), "EnumMeta" | "EnumType") && matches!(o.as_ref(), Ex::Name(m) if mods.contains(m)),
+            _ => false,
+        });
+        if enum_meta_base {
+            found = Some((line, "a subclass of enum.EnumType (EnumMeta)"));
+            return;
+        }
         if !enums.contains(&c.name) {
             return;
         }
+        // a Flag whose own __new__ shifts or raises to a power: its values may pass 2**62, which Brevi's flags do
+        // not hold (refused here rather than at run time)
+        let flag = c.bases.iter().any(|b| matches!(b, Ex::Name(n) | Ex::Attr(_, n) if n.contains("Flag") || iflags.contains(n)));
         for s in &c.body {
             let St::Def(d) = &s.st else { continue };
             if d.name == "__new__" {
+                if flag {
+                    walk_all(&d.body, &mut |e, l| {
+                        if found.is_none() && matches!(e, Ex::Bin("<<" | "**", _, _)) {
+                            found = Some((l, "a Flag whose __new__ makes its values with << or ** (values past 2**62)"));
+                        }
+                    });
+                }
                 continue;
             }
             walk_all(&d.body, &mut |e, l| {
@@ -1374,9 +1451,115 @@ pub fn enum_refusal(body: &[Stmt]) -> Option<(usize, &'static str)> {
     found
 }
 
+// For `A.X | B.Y` on two IntFlag classes of the program: whether every bit of the two members' values (int literals,
+// `1 << n`, `|`) is a single-bit member of both classes, so B's own operator gives a member and A's member for the
+// value has no `|<B.Z: n>` part (the cases Brevi's flags answer as CPython does; rt_enum.rs checks again at run time).
+fn iflag_bits_kept(body: &[Stmt], an: &str, bn: &str, a: &Ex, b: &Ex) -> bool {
+    fn lit(e: &Ex) -> Option<i64> {
+        match e {
+            Ex::Int(s) => {
+                let s = s.replace('_', "").to_ascii_lowercase();
+                match s.get(..2) {
+                    Some("0x") => i64::from_str_radix(&s[2..], 16).ok(),
+                    Some("0o") => i64::from_str_radix(&s[2..], 8).ok(),
+                    Some("0b") => i64::from_str_radix(&s[2..], 2).ok(),
+                    _ => s.parse().ok(),
+                }
+            }
+            Ex::Bin("<<", x, y) => {
+                let (x, y) = (lit(x)?, lit(y)?);
+                (0..62).contains(&y).then(|| x.checked_shl(y as u32)).flatten().filter(|v| *v >= 0 && *v < 1 << 62)
+            }
+            Ex::Bin("|", x, y) => Some(lit(x)? | lit(y)?),
+            _ => None,
+        }
+    }
+    // the members of the one class statement named n (None: no such class, more than one, or a value not known)
+    fn members(body: &[Stmt], n: &str) -> Option<Vec<(String, i64)>> {
+        let mut found: Vec<Option<Vec<(String, i64)>>> = vec![];
+        fn scan(body: &[Stmt], n: &str, found: &mut Vec<Option<Vec<(String, i64)>>>) {
+            for s in body {
+                if let St::Class(c) = &s.st {
+                    if c.name == n {
+                        let mut ms = Some(vec![]);
+                        for s in &c.body {
+                            if let St::Assign(ts, v) = &s.st {
+                                match (ts.as_slice(), lit(v), ms.as_mut()) {
+                                    ([Ex::Name(m)], Some(x), Some(l)) => l.push((m.clone(), x)),
+                                    _ => ms = None,
+                                }
+                            }
+                        }
+                        found.push(ms);
+                    }
+                }
+                blocks(&s.st, &mut |b| scan(b, n, found));
+            }
+        }
+        scan(body, n, &mut found);
+        if found.len() == 1 { found.pop().flatten() } else { None }
+    }
+    let (Some(am), Some(bm)) = (members(body, an), members(body, bn)) else { return false };
+    let singles = |ms: &[(String, i64)]| ms.iter().filter(|(_, v)| v.count_ones() == 1).fold(0, |s, (_, v)| s | v);
+    let val = |ms: &[(String, i64)], e: &Ex| match e {
+        Ex::Attr(_, m) => ms.iter().find(|(k, _)| k == m).map(|(_, v)| *v),
+        _ => None,
+    };
+    let (Some(va), Some(vb)) = (val(&am, a), val(&bm, b)) else { return false };
+    let bits = va | vb;
+    bits & !singles(&am) == 0 && bits & !singles(&bm) == 0
+}
+
 // A class built on a datetime class (`class D(date)`, `class E(datetime, Enum)`), or a functional Enum with
 // `type=datetime`: the dynamic build's datetime classes cannot be subclassed (their instances hold no value), so such a
 // program is refused at build time: (line, the class's dotted name).
+// hash() of a compiled pattern the build can see (`hash(re.compile(...))`, or of a name some assignment binds to
+// re.compile(...)): the module and line. CPython hashes a re.Pattern over its compiled sre code (_sre.c
+// pattern_hash), which Brevi's regex engine does not build; rt_core's py_hash stops on any other Pattern at run time.
+pub fn re_pattern_hash(mods: &[(&str, &[Stmt])]) -> Option<(String, usize)> {
+    fn compiled(e: &Ex) -> bool {
+        matches!(e, Ex::Call(f, _) if matches!(f.as_ref(), Ex::Attr(m, n) if n == "compile" && matches!(m.as_ref(), Ex::Name(r) if r == "re")))
+    }
+    for (m, body) in mods {
+        if !imports(body, "re") {
+            continue;
+        }
+        let mut pats: HashSet<String> = HashSet::new();
+        fn binds(body: &[Stmt], pats: &mut HashSet<String>, compiled: &dyn Fn(&Ex) -> bool) {
+            for s in body {
+                if let St::Assign(ts, v) = &s.st {
+                    if compiled(v) {
+                        for t in ts {
+                            if let Ex::Name(n) = t {
+                                pats.insert(n.clone());
+                            }
+                        }
+                    }
+                }
+                blocks(&s.st, &mut |b| binds(b, pats, compiled));
+            }
+        }
+        binds(body, &mut pats, &compiled);
+        let mut found = None;
+        walk_all(body, &mut |e, line| {
+            if found.is_none() {
+                if let Ex::Call(f, a) = e {
+                    if matches!(f.as_ref(), Ex::Name(n) if n == "hash") {
+                        if let [Arg::Pos(x)] = a.as_slice() {
+                            if compiled(x) || matches!(x, Ex::Name(n) if pats.contains(n)) {
+                                found = Some(line);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        if let Some(l) = found {
+            return Some((m.to_string(), l));
+        }
+    }
+    None
+}
 pub fn datetime_subclass(body: &[Stmt]) -> Option<(usize, String)> {
     const DT: [&str; 5] = ["date", "datetime", "time", "timedelta", "timezone"];
     let mut names: HashMap<String, String> = HashMap::new();
@@ -1449,4 +1632,15 @@ pub fn datetime_subclass(body: &[Stmt]) -> Option<(usize, String)> {
         });
     }
     found.map(|(l, n)| (l, format!("datetime.{n}")))
+}
+
+// EnumType's methods an Enum class has only through its type (enum.py 3.13's EnumType.__dict__, less what the
+// runtime's Enum classes hold themselves and the ones Flag defines too: __bool__, __contains__, __iter__ and
+// __len__ read through a plain Enum class are refused when the program runs)
+fn enum_type_only(n: &str) -> bool {
+    matches!(
+        n,
+        "__call__" | "__dir__" | "__getitem__" | "__reversed__" | "__prepare__" | "_add_member_"
+            | "_check_for_existing_members_" | "_convert_" | "_create_" | "_find_data_repr_" | "_find_data_type_" | "_find_new_" | "_get_mixins_"
+    )
 }

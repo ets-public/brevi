@@ -16,10 +16,10 @@ on 9 November 2026; where the review's figure and ours differ, ours is given wit
 ## If we only do three things
 
 1. **Verify by default.** Every agent run can check the native build against CPython on the program's own inputs
-   and report a certificate or the first difference. No other Python compiler offers that, and it turns today's
-   58.2% conformance score from a weakness into a product feature. (`brevi verify` exists since v0.26.0; the work
+   and report a certificate or the first difference. No other Python compiler offers that, and it turns any
+   gap in conformance (97.3% core of the scored suite, with 83 string-as-code tests excluded, at v0.28.2; 58.2% at v0.26.0) from a weakness into a product feature. (`brevi verify` exists since v0.26.0; the work
    is making it the default.)
-2. **A fast inner loop with no `rustc` in it.** `brevi check --fast` already answers in about 16 ms; the full check
+2. **A fast inner loop with no `rustc` in it.** `brevi check --fast` already answers in about 22 ms; the full check
    (94 ms) and a build after an edit (0.87 s typed, 1.5 s dynamic) are what an agent waits for. A warm daemon, and
    later a dev backend, take `rustc` out of the edit loop; full codegen stays for `brevi build`.
 3. **Be in the image, not on the website.** A harness SDK, a `python3` shim, and Brevi preinstalled in the E2B,
@@ -29,11 +29,11 @@ on 9 November 2026; where the review's figure and ours differ, ours is given wit
 
 | Question | Decision |
 |---|---|
-| Hosted service or SDK first? | **SDK and base images first.** A hosted beta (brevi.run) comes later, and only behind the WS7 isolation work. |
+| Hosted service or SDK first? | **SDK and base images first.** A hosted beta (brevi.run) comes later, and only behind the WS7 work: runs held in a VM or microVM. |
 | Keep developing `.bv`? | **Frozen.** Maintenance and bug fixes only; no new language features, no constrained-decoding grammar. |
 | Keep porting libraries? | **No new ports.** The existing native libraries (numpy, polars, duckdb, sqlite3, onnxruntime, safetensors, jinja2, pydantic, httpx, the LLM SDKs, tokenizers) are maintained; everything else is bridged to CPython. Revisit only if an alpha user shows a library is a must-have. |
 | Move to 1.0? | **Stay 0.x** until the 1.0 gates below are met. The version number is used honestly. |
-| Funding and the external security audit | Adam's call. Nothing in this plan waits on them until the hosted beta (Phase 2). |
+| Funding and the external security audit | **On the roadmap, not the critical path.** We have not had an external audit; we are seeking funding for one. Until then, do not run hostile code under the sandbox. Design-partner pilots do not wait on it (see WS7, launch tiers). |
 | Which harness first? | Open: the one of Claude Code, Cursor, Codex CLI or Gemini CLI with the most permissive extension surface. One deep integration beats five shallow ones. |
 
 ## The four levels of "default"
@@ -53,10 +53,10 @@ match CPython on their own tests, and do so on the first check. Fast, correct an
 | Metric | v0.26.0 baseline | 90 days | 12 months | Measured by |
 |---|---:|---:|---:|---|
 | ANER (real agent code) | not measured | 60% | 90% | opt-in alpha traffic sample |
-| Conformance (CPython 3.13.13 slice) | 96.5% (659/683; stdlib 724/726) on main, from the next release; 80.4% (250/311) at v0.27.0 | ≥70% | ≥90% | `tools/conformance.py` |
-| Known-wrong allowlist | 0 on main; 8 tests, 16 test-mode pairs at v0.27.0 (44 and 88 at v0.26.0) | ≤25 tests | 0 | `compat/conformance_known_wrong/` |
-| Crash or timeout (conformance) | 0 on main; 0 of 311 tests at v0.27.0 | 0 on fuzz corpus | 0 on fuzz corpus | fuzz harness (WS1) |
-| `brevi check --fast` p50 / p95 | 22 / 24 ms on main (d91ca4b; ships in the next release); 160 / 174 ms at v0.27.0, when a false refusal sent the fixture dynamic; 16 / 18 ms at v0.26.0 | ≤20 ms p50 | ≤10 ms p50 | `bench/latency.py` |
+| Conformance (CPython 3.13.13 slice) | 97.3% of the scored suite, with 83 string-as-code tests excluded (1043/1072; stdlib 1989/2053, 96.9%) at v0.28.2; 80.4% (250/311) at v0.27.0 | ≥70% | ≥90% | `tools/conformance.py` |
+| Known-wrong allowlist | 0 at v0.28.2; 8 tests, 16 test-mode pairs at v0.27.0 (44 and 88 at v0.26.0) | ≤25 tests | 0 | `compat/conformance_known_wrong/` |
+| Crash or timeout (conformance) | 0 at v0.28.2; 0 of 311 tests at v0.27.0 | 0 on fuzz corpus | 0 on fuzz corpus | fuzz harness (WS1) |
+| `brevi check --fast` p50 / p95 | 22 / 24 ms on main (d91ca4b; shipped in v0.28.0); 160 / 174 ms at v0.27.0, when a false refusal sent the fixture dynamic; 16 / 18 ms at v0.26.0 | ≤20 ms p50 | ≤10 ms p50 | `bench/latency.py` |
 | `brevi check` p50 / p95 | 94 / 107 ms on main; 160 / 209 ms at v0.27.0; 94 / 114 ms at v0.26.0 | ≤50 / ≤150 ms | ≤30 / ≤80 ms | `bench/latency.py` |
 | Build after an edit, p50 | 0.91 s typed, 1.6 s dynamic on main; `brevi run` after an edit 0.35 s with tiered builds; 1.18 s at v0.27.0; 0.87 s typed, 1.5 s dynamic at v0.26.0 | ≤500 ms | ≤300 ms | `bench/latency.py` |
 | Typed-path rate (agent corpus) | 567/813 (70%, v0.25.0) | 80% | 90% | `bench/typed_corpus.py` |
@@ -153,7 +153,7 @@ Adoption is about zero because installing needs `rustc` and no harness bundles B
   (the templates in `templates/` are the start), offered upstream.
 - A GitHub Action and a devcontainer feature for CI agents.
 - **Hosted (`brevi.run`):** a closed beta for a handful of harness teams, only after WS7.
-- Windows parity for library programs, and macOS `--standalone`.
+- Windows parity for library programs (Windows `--standalone` from v0.28.1), and macOS `--standalone`.
 
 Design: [SDK_AND_IMAGES.md](SDK_AND_IMAGES.md).
 *Done when:* zero to a native run in ≤60 s with no Rust installed; one third-party platform ships Brevi in a base
@@ -169,12 +169,20 @@ image by month 6; the SDK has a 10-line example and an integration test in CI.
 
 ### WS7: Safety at scale (gates the hosted service)
 
-- External security review before `--sandbox` is marketed for hostile code (deferred until adoption and funding).
+- **Launch tiers.** Design partners: their own trusted agent code inside their existing container or VM, no audit
+  needed, as long as nobody claims the sandbox is the boundary. Public beta: an independent security review of a fixed
+  scope (sandbox checks, MCP server, DLL loading on Windows) strongly recommended first. Marketing the sandbox for
+  hostile code: a paid external audit first, and not before funding. The same tiers are in `SECURITY.md`.
+- **Fund the external audit.** Apply to open-source security funding programmes, ask for a scoped independent
+  review, and let paid design-partner support contracts fund a focused review. Until it is done, every page says:
+  no external security audit yet; the sandbox is a policy layer, not an isolation boundary; run untrusted code in a
+  container or VM; `--allow-py` and `--allow native` are full trust (`tools/security_claims.py` holds this in CI).
+- Security testing in the open: attack surface, fuzz targets and red-team results in `docs/SECURITY_TESTING.md`.
 - OS-level isolation for hosted and recommended local use: the platform's VM or microVM, optionally gVisor or
   Firecracker, with the in-process capability check as a second layer.
 - Wider Landlock coverage; on macOS and Windows, state the gap or refuse.
 - Fuzz the capability check and the bridges; any escape is a security release.
-- Sandbox claims on the site match `docs/THREAT_MODEL.md` exactly.
+- Sandbox claims on the site match `docs/THREAT_MODEL.md` exactly, and no page calls the sandbox an isolation boundary.
 
 ## Phases and gates
 
@@ -189,8 +197,8 @@ panics in 30 days of fuzzing, 10 alpha users running weekly.
 
 **Phase 2, weeks 13 to 24: fast path and hosted.** Hybrid typing; typed rate ≥80%; hosted closed beta; Windows library
 parity; three model families; the first third-party integration.
-*Gate (public beta):* conformance ≥75% and published, no absolute claims, external audit scheduled or its scope
-published, two harnesses, hosted beta behind isolation, tokens-to-green ≤1.10x.
+*Gate (public beta):* conformance ≥75% and published, no absolute claims, a fixed-scope independent security review
+done or booked, two harnesses, hosted beta behind isolation, tokens-to-green ≤1.10x.
 
 **Phase 3, months 7 to 12: 1.0.** Conformance ≥90% and no known-wrong results; typed rate ≥90%; check p50 ≤30 ms;
 a stable 1.0 API; external audit complete; three harnesses; the real-task benchmark shows a win on success, latency

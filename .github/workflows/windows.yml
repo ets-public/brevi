@@ -43,7 +43,15 @@ jobs:
   platform:
     # Draft PRs skip CI (AGENTS.md), and so does this job.
     if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && github.event.schedule != '17 7 * * 0'
-    runs-on: windows-2022
+    # x86-64 and ARM64 Windows both ship a zip, so both run every check here on a real machine of that kind
+    # (windows-11-arm is a standard runner: free on public repositories). Nothing is emulated or cross-built.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-2022, target: x86_64-pc-windows-msvc }
+          - { os: windows-11-arm, target: aarch64-pc-windows-msvc }
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -53,7 +61,7 @@ jobs:
       - name: What the checks depend on
         id: tree
         shell: bash
-        run: echo "key=windows-passed-$(git rev-parse HEAD:src HEAD:runtime HEAD:Cargo.toml HEAD:Cargo.lock HEAD:tests/windows HEAD:tests/requirements-native.txt HEAD:.github/workflows/windows.yml | sha256sum | cut -c1-20)" >> "$GITHUB_OUTPUT"
+        run: echo "key=windows-${{ matrix.target }}-passed-$(git rev-parse HEAD:src HEAD:runtime HEAD:Cargo.toml HEAD:Cargo.lock HEAD:tests/windows HEAD:tests/requirements-native.txt HEAD:.github/workflows/windows.yml | sha256sum | cut -c1-20)" >> "$GITHUB_OUTPUT"
 
       - name: Already passed with this tree?
         id: seen
@@ -72,11 +80,25 @@ jobs:
           rustup toolchain install "$v" --profile minimal --no-self-update
           rustup default "$v"
           rustc -V
+          rustc -vV | grep -qx "host: ${{ matrix.target }}" || { echo "::error::rustc's host is not ${{ matrix.target }}"; exit 1; }
 
       - name: Python 3.13
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.13"
+          architecture: ${{ matrix.target == 'aarch64-pc-windows-msvc' && 'arm64' || 'x64' }}
+
+      # cryptography (mcp's server imports it, and the MCP checks run that server) has no win_arm64 wheel after
+      # 46.0.3, whose wheels carry open advisories. So on ARM64 pip builds the current cryptography from source,
+      # linked statically against an OpenSSL that vcpkg builds here (both come with the runner image).
+      - name: OpenSSL for building cryptography (ARM64)
+        if: matrix.target == 'aarch64-pc-windows-msvc'
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install openssl:arm64-windows-static-md
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg could not build OpenSSL for arm64" }
+          "OPENSSL_DIR=$env:VCPKG_INSTALLATION_ROOT\installed\arm64-windows-static-md" >> $env:GITHUB_ENV
+          "OPENSSL_STATIC=1" >> $env:GITHUB_ENV
 
       # Required, never optional: a green run means every native-copy check ran.
       - name: Python packages the checks compare with (pinned)
@@ -103,22 +125,32 @@ jobs:
 
       # The last release's zip, as users install it, against today's runner image and Python. The
       # programs are copies from tests/windows that every release since v0.27.0 supports.
+      # The ARM64 zip ships from v0.28.1: a release before that has none, so there is nothing to canary on ARM64 yet.
+      # A release from v0.28.1 on that lacks it fails here.
       - name: Canary (the last release's Windows zip)
         if: github.event_name != 'pull_request'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          TARGET: ${{ matrix.target }}
         run: |
+          $zip = "brevi-$env:TARGET.zip"
+          $tag = gh release view -R $env:GITHUB_REPOSITORY --json tagName --jq .tagName
+          if ($LASTEXITCODE -ne 0 -or -not $tag) { throw "could not read the last release's tag" }
+          if ($env:TARGET -eq "aarch64-pc-windows-msvc" -and [version]($tag.TrimStart("v")) -lt [version]"0.28.1") {
+            Write-Host "SKIP canary: $tag predates the ARM64 Windows zip (first in v0.28.1)"
+            exit 0
+          }
           $dir = Join-Path $env:RUNNER_TEMP "canary"
-          gh release download -R $env:GITHUB_REPOSITORY -p "brevi-x86_64-pc-windows-msvc.zip" -p SHA256SUMS -D $dir
-          if ($LASTEXITCODE -ne 0) { throw "could not download the last release's Windows zip" }
+          gh release download $tag -R $env:GITHUB_REPOSITORY -p $zip -p SHA256SUMS -D $dir
+          if ($LASTEXITCODE -ne 0) { throw "could not download $zip from $tag" }
           Push-Location $dir
-          $want = (Get-Content SHA256SUMS | Where-Object { $_ -match 'brevi-x86_64-pc-windows-msvc\.zip$' }) -split '\s+' | Select-Object -First 1
-          $got = (Get-FileHash brevi-x86_64-pc-windows-msvc.zip -Algorithm SHA256).Hash.ToLower()
+          $want = (Get-Content SHA256SUMS | Where-Object { $_ -match ([regex]::Escape($zip) + '$') }) -split '\s+' | Select-Object -First 1
+          $got = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
           if (-not $want -or $want -ne $got) { throw "the release zip's SHA-256 $got does not match SHA256SUMS ($want)" }
-          Expand-Archive brevi-x86_64-pc-windows-msvc.zip -DestinationPath .
+          Expand-Archive $zip -DestinationPath .
           Pop-Location
-          $brevi = Join-Path $dir "brevi-x86_64-pc-windows-msvc\brevi.exe"
+          $brevi = Join-Path $dir "brevi-$env:TARGET\brevi.exe"
           & $brevi --version
           foreach ($p in @("plain.py", "bridge_yaml.py", "sqlite.py", "duckdb_native.py")) {
             $out = (& $brevi verify (Join-Path "tests\windows" $p) 2>&1 | ForEach-Object { "$_" }) -join "`n"
@@ -138,14 +170,20 @@ jobs:
           n=$(gh issue list --state open --label windows --search "\"$title\" in:title" --json number,title --jq ".[] | select(.title == \"$title\") | .number" | head -1)
           if [ -n "$n" ]; then gh issue comment "$n" --body-file body.md; else gh issue create --title "$title" --label windows --body-file body.md; fi
 
-  # CPython conformance on Windows: the same pinned CPython tests as the Linux ratchet (tools/conformance.py, core
-  # slice), built and run here, so a Windows number exists next to the Linux one. Weekly and on demand only
-  # (Windows minutes count double). It reports; it does not gate yet: a Windows known-wrong list and floor come
-  # from its first results.
+  # CPython conformance on Windows: the same pinned CPython tests as the Linux ratchet (tools/conformance.py, core and
+  # stdlib slices), built and run here. On Windows the ratchet reads each slice's own floor and known-wrong list
+  # (compat/conformance_windows_floor.json and _known_wrong/, compat/conformance_windows_stdlib_floor.json and
+  # _stdlib_known_wrong/), and a release runs the same checks plus the release gates on the brevi.exe it ships
+  # (release.yml), so a Windows regression in either slice blocks a release. Weekly and on demand only (Windows
+  # minutes count double). On main, the floors go up to what this run measures and are committed, as
+  # conformance-main.yml does for Linux; a failure opens or updates a "conformance" issue.
   conformance:
     if: github.event.schedule == '17 7 * * 0' || github.event_name == 'workflow_dispatch'
     runs-on: windows-2022
-    timeout-minutes: 90
+    timeout-minutes: 120
+    permissions:
+      contents: write
+      issues: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -165,17 +203,64 @@ jobs:
       - name: Build Brevi
         run: cargo build --release --locked
 
-      - name: CPython conformance (core slice; report only)
+      - name: CPython conformance (core slice; the Windows score may not drop, its known-wrong list only shrinks)
         shell: bash
         run: |
           python -m pip install --quiet uv
           uv python install 3.13.13 --quiet
-          python tools/conformance.py --python "$(uv python find 3.13.13)" --jobs 4 --out conformance-windows
+          raise=; [ "$GITHUB_REF" = refs/heads/main ] && raise=--raise-floor
+          python tools/conformance.py --check $raise --python "$(uv python find 3.13.13)" --jobs 4 --out conformance-windows
           cat conformance-windows/report.md >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Keep the report
+      # Runs even when the core slice failed, so one run reports both slices.
+      - name: CPython conformance (stdlib slice; the same ratchet with its own Windows floor and known-wrong list)
+        if: success() || failure()
+        shell: bash
+        run: |
+          raise=; [ "$GITHUB_REF" = refs/heads/main ] && raise=--raise-floor
+          python tools/conformance.py --slice stdlib --check $raise --python "$(uv python find 3.13.13)" --jobs 4 --out conformance-windows-stdlib
+          cat conformance-windows-stdlib/report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the reports
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: conformance-windows
-          path: conformance-windows
+          path: |
+            conformance-windows
+            conformance-windows-stdlib
+
+      # Each slice's step writes its floor only after its own ratchet held, so whatever changed here is safe to commit,
+      # even when the other slice failed.
+      - name: Commit the raised Windows floors to main
+        if: (success() || failure()) && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          floors="compat/conformance_windows_floor.json compat/conformance_windows_stdlib_floor.json"
+          git diff --quiet -- $floors && { echo "Windows floors unchanged"; exit 0; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -q -m "Windows conformance floors: what main measures" -- $floors
+          # Only this job writes these files, so a newer merge never conflicts with this commit.
+          for i in 1 2 3; do git pull -q --rebase origin main && git push -q origin HEAD:main && exit 0; sleep 5; done
+          exit 1
+
+      - name: Open or update an issue
+        if: failure() && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Windows conformance dropped on main"
+          {
+            echo "The weekly CPython conformance run on Windows failed on main: a new wrong result, a score below a Windows floor (compat/conformance_windows_floor.json, compat/conformance_windows_stdlib_floor.json), or a stale entry in a Windows known-wrong list (compat/conformance_windows_known_wrong/, compat/conformance_windows_stdlib_known_wrong/). A release runs the same check on the brevi.exe it ships, so no release goes out until this is fixed."
+            echo
+            echo "- Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "- Commit $GITHUB_SHA"
+            echo
+            for r in conformance-windows conformance-windows-stdlib; do [ -f $r/report.md ] && { sed -n '1,40p' $r/report.md; echo; }; done
+            echo "See the run log for the ratchet's own message."
+          } > body.md
+          gh label create conformance --color D93F0B --description "CPython conformance dropped" 2>/dev/null || true
+          n=$(gh issue list --state open --label conformance --search "\"$title\" in:title" --json number,title --jq ".[] | select(.title == \"$title\") | .number" | head -1)
+          if [ -n "$n" ]; then gh issue comment "$n" --body-file body.md; else gh issue create --title "$title" --label conformance --body-file body.md; fi

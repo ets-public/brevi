@@ -443,6 +443,12 @@ fn enum_more() -> [Rc<Class>; 4] {
         }
         let k = [ie, se, fl, ifl];
         *e.borrow_mut() = Some(k.clone());
+        // `class Flag(Enum, boundary=STRICT)`, `class IntFlag(int, ReprEnum, Flag, boundary=KEEP)`: FlagBoundary is
+        // a StrEnum, made once the four classes are
+        if let (Ok(strict), Ok(keep)) = (flag_boundary("STRICT"), flag_boundary("KEEP")) {
+            k[2].set("_boundary_", strict);
+            k[3].set("_boundary_", keep);
+        }
         k
     })
 }
@@ -472,7 +478,8 @@ pub fn enum_base() -> Rc<Class> {
 }
 pub fn is_enum(c: &Rc<Class>) -> bool {
     let en = enum_base();
-    !Rc::ptr_eq(c, &en) && c.module != "enum" && c.is_sub(&en)
+    // the enum module's own Enum classes with members (FlagBoundary, EnumCheck) are enums too
+    !Rc::ptr_eq(c, &en) && (c.module != "enum" || c.own("__bv_enum_made__").is_some()) && c.is_sub(&en)
 }
 fn enum_text(v: &V, rep: bool) -> R {
     let V::Obj(o) = v else { return type_err("descriptor needs an Enum member".into()) };
@@ -521,10 +528,13 @@ pub struct EnumCtx {
     members: Vec<(String, V)>,
     seen: Vec<(String, V)>,
     ignore: Vec<String>,
+    // the names member() made members and the ones nonmember() kept plain (enum_setup follows them)
+    forced: Vec<String>,
+    nonmembers: Vec<String>,
 }
 pub fn enum_auto_ctx(cls: &str, bases: &[&V]) -> EnumCtx {
     let en = enum_base();
-    let mut ctx = EnumCtx { cls: cls.to_string(), kind: 0, gnv: None, count: 0, auto_called: false, members: vec![], seen: vec![], ignore: vec![] };
+    let mut ctx = EnumCtx { cls: cls.to_string(), kind: 0, gnv: None, count: 0, auto_called: false, members: vec![], seen: vec![], ignore: vec![], forced: vec![], nonmembers: vec![] };
     for b in bases {
         if let V::Class(c) = b {
             if c.is_sub(&en) {
@@ -572,7 +582,7 @@ fn auto_next(ctx: i64, name: &str, last: &[V]) -> R {
         return Ok(V::Int(1i64 << (hb + 1)));
     }
     if ctx & 4 != 0 {
-        return Ok(st(name.to_lowercase()));
+        return Ok(st(py_lower(&name)));
     }
     let mut best: Option<V> = None;
     for x in last {
@@ -596,7 +606,13 @@ pub fn enum_auto_store(last: &mut Vec<V>, ctx: &mut EnumCtx, name: &str, v: V) -
     if ctx.kind == 0 {
         return Ok(v);
     }
+    let wrap = enum_wrap_kind(&v);
     let r = enum_store_in(last, ctx, name, v)?;
+    // a name stored again is what its latest store made it (EnumDict keeps no memory of a nonmember())
+    ctx.nonmembers.retain(|n| n != name);
+    if wrap == Some(false) && !ctx.ignore.iter().any(|n| n == name) {
+        ctx.nonmembers.push(name.to_string());
+    }
     // the namespace's own dict: a member's name is in it too, and `del` (Unbound) takes a name out
     ctx.seen.retain(|(n, _)| n != name);
     if !matches!(r, V::Unbound) {
@@ -653,6 +669,21 @@ fn enum_store_in(last: &mut Vec<V>, ctx: &mut EnumCtx, name: &str, v: V) -> R {
     if ctx.ignore.iter().any(|n| n == name) {
         return Ok(v);
     }
+    // EnumDict.__setitem__: nonmember(x) is x, a plain attribute; member(x) makes x a member whatever it is
+    match enum_wrap_kind(&v) {
+        Some(false) => return getattr(&v, "value"),
+        Some(true) => {
+            if let Some((_, old)) = ctx.seen.iter().find(|(n, _)| n == name) {
+                return type_err(format!("{} already defined as {}", repr(&s(name))?, repr(old)?));
+            }
+            let inner = getattr(&v, "value")?;
+            let r = enum_member_store(last, ctx, name, inner)?;
+            ctx.members.push((name.to_string(), r.clone()));
+            ctx.forced.push(name.to_string());
+            return Ok(r);
+        }
+        None => {}
+    }
     if is_partial(&v) {
         re_warn("FutureWarning", "functools.partial will be a method descriptor in future Python versions; wrap it in enum.member() if you want to preserve the old behavior".into())?;
         return Ok(v);
@@ -669,11 +700,13 @@ fn enum_store_in(last: &mut Vec<V>, ctx: &mut EnumCtx, name: &str, v: V) -> R {
 }
 // _ignore_'s names leave the class namespace before the class is made (EnumType.__new__ pops them)
 pub fn enum_ignore_drop(ctx: &EnumCtx, at: &mut Vec<(Sym, V)>) {
+    enum_body_done(ctx);
     if !ctx.ignore.is_empty() {
         at.retain(|(k, _)| !ctx.ignore.iter().any(|n| n == k));
     }
 }
 pub fn enum_ignore_ns(ctx: &EnumCtx, ns: &V, meta: bool) -> Result<(), E> {
+    enum_body_done(ctx);
     if ctx.ignore.is_empty() {
         return Ok(());
     }
@@ -763,6 +796,10 @@ fn find_data_type(c: &Rc<Class>) -> Result<Rc<Class>, E> {
 }
 // Called by make_class for a subclass of Enum.
 pub fn enum_setup(c: &Rc<Class>) -> Result<(), E> {
+    enum_setup_b(c, V::None)
+}
+// As enum_setup, with the class statement's boundary= (V::None without one), as EnumType.__new__ takes it
+pub fn enum_setup_b(c: &Rc<Class>, boundary: V) -> Result<(), E> {
     let au = enum_classes().1;
     // EnumType.__prepare__'s _check_for_existing_members_, then _get_mixins_: the last base must be an enum
     for chain in c.bases.iter() {
@@ -824,8 +861,13 @@ pub fn enum_setup(c: &Rc<Class>) -> Result<(), E> {
     }
     BUILDING.with(|b| b.borrow_mut().push(c.clone()));
     let building = Building;
+    let (forced, nonmembers) = enum_body_take(c);
     for (n, v) in attrs {
-        if (n.starts_with('_') && enum_not_member(c.name, n)) || is_descriptor(&v) || is_partial(&v) || enum_internal_class(c.name, &v) {
+        if nonmembers.iter().any(|x| x == n) {
+            continue;
+        }
+        let plain = (n.starts_with('_') && enum_not_member(c.name, n)) || is_descriptor(&v) || is_partial(&v) || enum_internal_class(c.name, &v);
+        if plain && !forced.iter().any(|x| x == n) {
             continue;
         }
         let val = match &v {
@@ -1027,7 +1069,7 @@ pub fn enum_setup(c: &Rc<Class>) -> Result<(), E> {
         c.set("__new_member__", f);
         c.del_exact("__new__");
     }
-    enum_cpy_attrs(c, &new_fn, &mt, &members, &seen)?;
+    enum_cpy_attrs(c, &new_fn, &mt, &members, &seen, boundary)?;
     // EnumType.__new__: a __repr__, __str__, __format__ or __reduce_ex__ the class would find on its data type
     // (or object) becomes its first enum base's. Brevi's runtime gives builtin data types theirs already; a
     // program's own data type (a namedtuple, a class with __new__) has its methods in its dict, so they are
@@ -1052,7 +1094,7 @@ pub fn enum_setup(c: &Rc<Class>) -> Result<(), E> {
 // The rest of what EnumType.__new__ keeps on the class (enum.py 3.13): _generate_next_value_ as a staticmethod,
 // the _new_member_ the members were made with, _use_args_, _member_names_, the value maps and lists,
 // _value_repr_, and a Flag's _boundary_ and _inverted_.
-fn enum_cpy_attrs(c: &Rc<Class>, new_fn: &Option<V>, mt: &Rc<Class>, members: &[V], seen: &[(Sym, V, V)]) -> Result<(), E> {
+fn enum_cpy_attrs(c: &Rc<Class>, new_fn: &Option<V>, mt: &Rc<Class>, members: &[V], seen: &[(Sym, V, V)], boundary: V) -> Result<(), E> {
     let gnv = match c.own("_generate_next_value_") {
         Some(f @ V::Obj(_)) if matches!(&f, V::Obj(o) if o.cls.name == "staticmethod") => f,
         Some(f) => bi_staticmethod(Args::p(vec![f]))?,
@@ -1166,7 +1208,17 @@ fn enum_cpy_attrs(c: &Rc<Class>, new_fn: &Option<V>, mt: &Rc<Class>, members: &[
 
     c.set("_value_repr_", data_repr(&c.bases)?);
     if is_flag(c) {
-        c.set("_boundary_", flag_boundary(if c.lookup("__bv_keep__").is_some() { "KEEP" } else { "STRICT" })?);
+        // `boundary or getattr(first_enum, '_boundary_', None)`: the last base's (Flag's STRICT, IntFlag's KEEP)
+        let b = if truth(&boundary)? {
+            boundary
+        } else {
+            match c.bases.last() {
+                Some(last) if !(last.module == "enum" && matches!(last.name, "Flag" | "IntFlag")) && last.lookup("_boundary_").is_some() => last.lookup("_boundary_").unwrap(),
+                Some(last) => flag_boundary(if last.lookup("__bv_keep__").is_some() { "KEEP" } else { "STRICT" })?,
+                None => flag_boundary("STRICT")?,
+            }
+        };
+        c.set("_boundary_", b);
         c.set("_inverted_", V::None);
     }
     Ok(())
@@ -1246,13 +1298,29 @@ thread_local! {
 fn strenum_new() -> V {
     STRENUM_NEW.with(|x| x.borrow_mut().get_or_insert_with(|| builtin("__new__", |_a: Args| Err(unsupported("calling StrEnum.__new__ directly")))).clone())
 }
+// A Flag class's _boundary_, as the name of the FlagBoundary member it is ("" for any other value)
+fn boundary_of(c: &Rc<Class>) -> &'static str {
+    let Some(b) = c.lookup("_boundary_") else {
+        return if c.lookup("__bv_keep__").is_some() { "KEEP" } else { "STRICT" };
+    };
+    for n in ["STRICT", "CONFORM", "EJECT", "KEEP"] {
+        if flag_boundary(n).is_ok_and(|m| is(&m, &b)) {
+            return n;
+        }
+    }
+    ""
+}
 // enum.FlagBoundary's member `n` (a Flag's _boundary_)
 fn flag_boundary(n: &str) -> R {
     let c = match FLAG_BOUNDARY.with(|x| x.borrow().clone()) {
         Some(c) => c,
         None => {
             let se = enum_more()[1].clone();
-            let attrs = vec![("__module__", s("enum")), ("STRICT", s("strict")), ("CONFORM", s("conform")), ("EJECT", s("eject")), ("KEEP", s("keep"))];
+            // making the enum classes made FlagBoundary already (Flag's and IntFlag's _boundary_)
+            if let Some(c) = FLAG_BOUNDARY.with(|x| x.borrow().clone()) {
+                return getattr(&V::Class(c), n);
+            }
+            let attrs = vec![("__module__", s("enum")), ("__bv_enum_made__", V::Bool(true)), ("STRICT", s("strict")), ("CONFORM", s("conform")), ("EJECT", s("eject")), ("KEEP", s("keep"))];
             let V::Class(c) = make_class_f("FlagBoundary", "FlagBoundary", "enum", vec![V::Class(se)], attrs, vec![])? else { unreachable!() };
             FLAG_BOUNDARY.with(|x| *x.borrow_mut() = Some(c.clone()));
             c
@@ -1353,17 +1421,30 @@ fn flag_member(c: &Rc<Class>, value: i64) -> R {
         return Ok(m);
     }
     let (fm, sm, all) = (cls_int(c, "_flag_mask_"), cls_int(c, "_singles_mask_"), cls_int(c, "_all_bits_"));
-    let keep = c.lookup("__bv_keep__").is_some();
+    let bnd = boundary_of(c);
+    let keep = bnd == "KEEP";
     let mut value = value;
     let mut neg = None;
     if !(!all <= value && value <= all) || value & (all ^ fm) != 0 {
-        if !keep {
+        if bnd == "STRICT" {
             let bl = |x: i64| 64 - (if x >= 0 { x as u64 } else { !(x as u64) }).leading_zeros() as usize;
             let mb = bl(value).max(bl(fm));
             return val_err(format!("<flag '{}'> invalid value {}\n    given {}\n  allowed {}", c.name, value, flag_bin(value, mb), flag_bin(fm, mb)));
         }
-        if value < 0 {
-            let bl = 64 - (!(value as u64)).leading_zeros();
+        if bnd == "CONFORM" {
+            value &= fm;
+        }
+        // EJECT: the plain int (Enum.__new__ returns it as it is)
+        if bnd == "EJECT" {
+            return Ok(V::Int(value));
+        }
+        if bnd.is_empty() {
+            let b = c.lookup("_boundary_").unwrap_or(V::None);
+            return val_err(format!("<flag '{}'> unknown flag boundary {}", c.name, repr(&b)?));
+        }
+        if keep && value < 0 {
+            // CPython's value.bit_length() (of |value|)
+            let bl = 64 - value.unsigned_abs().leading_zeros();
             if bl >= 62 {
                 return Err(unsupported("IntFlag values past 2**62"));
             }
@@ -1374,12 +1455,13 @@ fn flag_member(c: &Rc<Class>, value: i64) -> R {
         neg = Some(value);
         value = all + 1 + value;
     }
-    // a member (or pseudo-member) already made for the value is the one returned (enum.py's setdefault)
-    if neg.is_some() {
-        if let Some(m) = Dict::get_cell(&v2m, &V::Int(value))? {
-            Dict::set_cell(&v2m, V::Int(neg.unwrap()), m.clone())?;
-            return Ok(m);
+    // a member (or pseudo-member) already made for the value is the one returned (enum.py's setdefault): the
+    // value may have changed above (a negative one, CONFORM's mask, KEEP's wrap)
+    if let Some(m) = Dict::get_cell(&v2m, &V::Int(value))? {
+        if let Some(n) = neg {
+            Dict::set_cell(&v2m, V::Int(n), m.clone())?;
         }
+        return Ok(m);
     }
     let unknown0 = value & !fm;
     let aliases = value & !sm;
@@ -1418,7 +1500,7 @@ fn flag_member(c: &Rc<Class>, value: i64) -> R {
         }
         if combined == 0 {
             name = V::None;
-        } else if unknown != 0 && !keep {
+        } else if unknown != 0 && bnd == "STRICT" {
             return val_err(format!("<flag '{}'>: no members with value {unknown}", c.name));
         } else if unknown != 0 {
             name = st(format!("{}|{unknown}", names.join("|")));
@@ -1466,6 +1548,32 @@ fn flag_methods(fl: &Rc<Class>) {
     for (name, op) in [("__or__", '|'), ("__ror__", '|'), ("__and__", '&'), ("__rand__", '&'), ("__xor__", '^'), ("__rxor__", '^')] {
         fl.set(name, builtin(name, move |a: Args| {
             let c = me_cls(&a)?;
+            // a member of another Flag class is `other_value` as it is, so `value | other` is that class's own
+            // operator and the member's name and value then hold that class's members (enum.py's Flag.__or__)
+            if let Some(V::Obj(x)) = a.p.get(1) {
+                if is_flag(&x.cls) && !x.cls.is_sub(&c) && !matches!(c.base_bt(), BT::Object | BT::Other) {
+                    let d = x.cls.clone();
+                    let (v, o) = (flag_int(&a.p[0]), flag_int(&a.p[1]));
+                    let r = match op {
+                        '|' => v | o,
+                        '&' => v & o,
+                        _ => v ^ o,
+                    };
+                    // `value | other` is the other class's own operator: its member (or its error) first
+                    match flag_member(&d, r)? {
+                        V::Obj(_) => {}
+                        V::Int(i) => return flag_member(&c, i),
+                        m => return Ok(m),
+                    }
+                    // then this class's member for it: kept as Brevi keeps it only when its every bit is one of this
+                    // class's single-bit members (no `|<D.X: n>` name part, and a member already made is the one)
+                    let sm = cls_int(&c, "_singles_mask_");
+                    if r < 0 || r & !sm != 0 {
+                        return Err(unsupported("an operator between members of two different IntFlag classes"));
+                    }
+                    return flag_member(&c, r);
+                }
+            }
             let Some(o) = a.p.get(1).and_then(|x| other_val(&c, x)) else { return Ok(V::NotImpl) };
             flag_none_check(&a.p[0], Some(op))?;
             flag_none_check(&a.p[1], Some(op))?;
@@ -1484,7 +1592,16 @@ fn flag_methods(fl: &Rc<Class>) {
         flag_none_check(&a.p[0], None)?;
         int_flag_value(&a.p[0])?;
         let v = flag_int(&a.p[0]);
-        if c.lookup("__bv_keep__").is_some() {
+        // `self._boundary_ in (EJECT, KEEP)`: by == for a boundary that is not a FlagBoundary member
+        let ek = match boundary_of(&c) {
+            "EJECT" | "KEEP" => true,
+            "" => {
+                let b = c.lookup("_boundary_").unwrap_or(V::None);
+                eq(&b, &flag_boundary("EJECT")?)? || eq(&b, &flag_boundary("KEEP")?)?
+            }
+            _ => false,
+        };
+        if ek {
             flag_member(&c, !v)
         } else {
             flag_member(&c, cls_int(&c, "_singles_mask_") & !v)
@@ -1596,7 +1713,7 @@ fn gen_next(gnv: &Option<V>, kind: i64, name: &str, start: &V, count: usize, las
         return call(&f, Args::p(vec![s(name), start.clone(), V::Int(count as i64), list(last.to_vec())]));
     }
     if kind & 4 != 0 {
-        return Ok(st(name.to_lowercase()));
+        return Ok(st(py_lower(&name)));
     }
     if kind & 2 != 0 {
         if count == 0 {
@@ -1682,6 +1799,9 @@ fn enum_create(c: &Rc<Class>, name: &V, names: V, module: V, qualname: V, ty: V,
     let au = enum_classes().1;
     for (k, v) in pairs {
         let V::Str(kt) = &k else { return Err(unsupported("an Enum member name that is not a str")) };
+        if enum_wrap_kind(&v).is_some() {
+            return Err(unsupported("enum.member() or enum.nonmember() in the Enum functional API"));
+        }
         let kn = sym(&kt.text());
         // the namespace's checks (EnumDict.__setitem__) for the names a class body could not have made
         enum_name_check(kn)?;
@@ -1873,7 +1993,7 @@ pub fn enum_contains(c: &Rc<Class>, x: &V) -> Result<bool, E> {
         }
     }
     if is_flag(c) {
-        let keep = c.lookup("__bv_keep__").is_some();
+        let keep = boundary_of(c) == "KEEP";
         let v = match x {
             V::Int(i) => Some(*i),
             V::Bool(b) => Some(*b as i64),
@@ -1890,7 +2010,8 @@ pub fn enum_contains(c: &Rc<Class>, x: &V) -> Result<bool, E> {
             // _missing_ raises ValueError for values it cannot make a member of; EnumType.__contains__ then
             // falls through to the member-value check below (and returns False there).
             return match flag_member(c, v) {
-                Ok(_) => Ok(true),
+                // `isinstance(result, cls)`: an EJECT Flag's _missing_ gives a plain int for a value out of range
+                Ok(m) => Ok(matches!(&m, V::Obj(o) if o.cls.is_sub(c))),
                 Err(e) if is_val_err(&e) => Ok(false),
                 Err(e) => Err(e),
             };
@@ -1940,7 +2061,10 @@ pub fn enum_fn(n: &str, a: Args) -> R {
         "Enum" => call(&V::Class(enum_base()), a),
         _ => match enum_class(n) {
             Some(k) => call(&V::Class(k), a),
-            None => Err(unsupported(&format!("enum.{n}"))),
+            None => match enum_mod_attr(n)? {
+                Some(v) => call(&v, a),
+                None => enum_helper(n, a).unwrap_or_else(|| Err(unsupported(&format!("enum.{n}")))),
+            },
         },
     }
 }
@@ -2079,6 +2203,9 @@ pub fn enum_setattr_block(c: &Rc<Class>, name: &str) -> Option<E> {
 }
 // EnumType.__delattr__: a member in the class's _member_map_ (its own or a base's) cannot be deleted.
 pub fn enum_delattr_block(c: &Rc<Class>, name: &str) -> Option<E> {
+    if is_enum_shell(c) {
+        return Some(enum_shell_refused(&format!("deleting {name}")));
+    }
     if !is_enum(c) {
         return None;
     }
@@ -2094,6 +2221,7 @@ pub fn enum_delattr_block(c: &Rc<Class>, name: &str) -> Option<E> {
 // or a program class on the way defines its own __dir__.
 pub fn enum_dir(x: &V) -> Option<R> {
     let c = match x {
+        V::Class(c) if is_enum_shell(c) => return Some(Err(enum_shell_refused("dir()"))),
         V::Class(c) if is_enum(c) && c.meta.borrow().is_none() => c.clone(),
         V::Obj(o) if is_enum(&o.cls) => o.cls.clone(),
         _ => return None,
@@ -2508,4 +2636,444 @@ pub fn enum_class_dict(c: &Rc<Class>, values: bool) -> Result<Vec<(Sym, V)>, E> 
         }
     }
     Ok(r)
+}
+
+// ---------- enum.EnumType (EnumMeta), member, nonmember, verify, EnumCheck, the _is_* helpers ----------
+thread_local! {
+    static ENUM_TYPE: RefCell<Option<Rc<Class>>> = const { RefCell::new(None) };
+    // enum.member and enum.nonmember
+    static ENUM_WRAPS: RefCell<Option<(Rc<Class>, Rc<Class>)>> = const { RefCell::new(None) };
+    static ENUM_CHECK: RefCell<Option<Rc<Class>>> = const { RefCell::new(None) };
+    static ENUM_VERIFY: RefCell<Option<Rc<Class>>> = const { RefCell::new(None) };
+    // what the class body that just ended decided (EnumDict's _member_names_ and its nonmember() names),
+    // for the enum_setup of the class it makes: (class name, names member() forced, names nonmember() kept out)
+    static ENUM_BODY: RefCell<Option<(String, Vec<String>, Vec<String>)>> = const { RefCell::new(None) };
+}
+// enum.EnumType (EnumMeta is the same class): the type of every Enum class. Brevi's Enum classes keep their
+// behaviour in the runtime (meta None); type() gives this class for them. A class made by EnumType without an
+// Enum base (`class S(metaclass=EnumMeta): pass`, a memberless "enum" CPython allows as a base) has it as
+// its meta: its repr and len are CPython's, being a base of an Enum class is too, and the rest is refused.
+pub fn enum_type_class() -> Rc<Class> {
+    if let Some(c) = ENUM_TYPE.with(|e| e.borrow().clone()) {
+        return c;
+    }
+    let c = Class::new("EnumType", "enum", vec![tclass(13, "type")], BT::Other);
+    c.set("__doc__", s("\nMetaclass for Enum\n"));
+    c.set("__len__", builtin("__len__", |a: Args| match a.p.first() {
+        Some(V::Class(k)) if is_enum_shell(k) => Ok(V::Int(0)),
+        _ => Err(unsupported("calling EnumType.__len__ directly")),
+    }));
+    c.set("__repr__", builtin("__repr__", |a: Args| match a.p.first() {
+        Some(V::Class(k)) if is_enum_shell(k) => Ok(st(format!("<enum '{}'>", k.name))),
+        _ => Err(unsupported("calling EnumType.__repr__ directly")),
+    }));
+    c.set("__bool__", builtin("__bool__", |a: Args| match a.p.first() {
+        Some(V::Class(k)) if is_enum_shell(k) => Ok(V::Bool(true)),
+        _ => Err(unsupported("calling EnumType.__bool__ directly")),
+    }));
+    // EnumType's other methods, read through the class or a memberless one: refused when called
+    for n in ["__iter__", "__reversed__", "__contains__", "__getitem__", "__dir__", "_add_member_", "_check_for_existing_members_", "_convert_", "_find_data_repr_", "_find_data_type_", "_find_new_", "_get_mixins_"] {
+        c.set(sym(n), builtin(sym(n), move |_a: Args| Err(unsupported(&format!("EnumType.{n}")))));
+    }
+    ENUM_TYPE.with(|e| *e.borrow_mut() = Some(c.clone()));
+    c
+}
+pub fn is_enum_type(k: &Rc<Class>) -> bool {
+    ENUM_TYPE.with(|e| e.borrow().as_ref().is_some_and(|t| Rc::ptr_eq(t, k)))
+}
+// a class made by EnumType that is not an Enum (see enum_type_class)
+pub fn is_enum_shell(k: &Rc<Class>) -> bool {
+    k.meta.borrow().as_ref().is_some_and(is_enum_type)
+}
+// type() of a class: EnumType for Enum and every class built on it (None: not an Enum class)
+pub fn enum_meta_of(k: &Rc<Class>) -> Option<Rc<Class>> {
+    let en = ENUM_CLS.with(|e| e.borrow().as_ref().map(|x| x.0.clone()))?;
+    if k.is_sub(&en) {
+        Some(enum_type_class())
+    } else {
+        None
+    }
+}
+// The refusal for what a class made by EnumType without an Enum base does beyond its repr, len, iteration
+// (empty) and being a base: reading or setting its attributes, calling it, dir(), `in`, [].
+pub fn enum_shell_refused(what: &str) -> E {
+    unsupported(&format!("{what} of a class made by enum.EnumType that is not an Enum"))
+}
+// The names a class made by EnumType without an Enum base can be asked for (the rest is refused).
+pub fn enum_shell_attr_ok(n: &str) -> bool {
+    matches!(n, "__name__" | "__qualname__" | "__module__" | "__mro__" | "__bases__" | "__base__" | "__class__")
+}
+// `class S(metaclass=EnumType)` (or EnumMeta): with an Enum among the bases, the class EnumType makes
+// anyway (as with no metaclass); with no bases and an empty body, a memberless EnumType class; else refused.
+pub fn enum_type_build(name: Sym, qualname: Sym, module: Sym, bases: Vec<V>, ns: &V, fields: Vec<Sym>) -> R {
+    let en = enum_base();
+    let items: Vec<(Sym, V)> = dict_sym_items(ns)?.into_iter().filter(|(k, _)| !matches!(*k, "__module__" | "__qualname__")).collect();
+    if bases.iter().any(|b| matches!(b, V::Class(k) if k.is_sub(&en))) {
+        return make_class_f(name, qualname, module, bases, items, fields);
+    }
+    if !bases.is_empty() || items.iter().any(|(k, _)| !matches!(*k, "__firstlineno__" | "__static_attributes__")) {
+        return Err(unsupported("a class made by enum.EnumType with no Enum base, other than an empty one with no bases"));
+    }
+    let c = make_class_f(name, qualname, module, vec![], items, fields)?;
+    if let V::Class(k) = &c {
+        *k.meta.borrow_mut() = Some(enum_type_class());
+    }
+    Ok(c)
+}
+fn enum_wraps() -> (Rc<Class>, Rc<Class>) {
+    if let Some(w) = ENUM_WRAPS.with(|e| e.borrow().clone()) {
+        return w;
+    }
+    let mk = |n: &'static str, doc: &'static str| {
+        let c = Class::new(n, "enum", vec![bclass("object")], BT::Other);
+        c.set("__doc__", s(doc));
+        c.set("__init__", func(sym("__init__"), move |a: Args| {
+            let mut value = a.p.get(1).cloned();
+            for (k, v) in &a.k {
+                if *k != "value" {
+                    return type_err(format!("{n}.__init__() got an unexpected keyword argument '{k}'"));
+                }
+                if value.is_some() {
+                    return type_err(format!("{n}.__init__() got multiple values for argument 'value'"));
+                }
+                value = Some(v.clone());
+            }
+            if a.p.len() > 2 {
+                return type_err(format!("{n}.__init__() takes 2 positional arguments but {} were given", a.p.len()));
+            }
+            let Some(value) = value else { return type_err(format!("{n}.__init__() missing 1 required positional argument: 'value'")) };
+            setattr(&a.p[0], sym("value"), value)?;
+            Ok(V::None)
+        }));
+        tdict_setup(&c, &c.bases.clone(), None);
+        c
+    };
+    let w = (mk("member", "\nForces item to become an Enum member during class creation.\n"), mk("nonmember", "\nProtects item from becoming an Enum member during class creation.\n"));
+    ENUM_WRAPS.with(|e| *e.borrow_mut() = Some(w.clone()));
+    w
+}
+// isinstance(v, enum.member) (Some(true)) or isinstance(v, enum.nonmember) (Some(false))
+fn enum_wrap_kind(v: &V) -> Option<bool> {
+    let V::Obj(o) = v else { return None };
+    let (m, n) = ENUM_WRAPS.with(|e| e.borrow().clone())?;
+    if o.cls.is_sub(&m) {
+        Some(true)
+    } else if o.cls.is_sub(&n) {
+        Some(false)
+    } else {
+        None
+    }
+}
+// The class body's member() and nonmember() names, kept for the enum_setup of the class it makes.
+pub fn enum_body_done(ctx: &EnumCtx) {
+    ENUM_BODY.with(|b| *b.borrow_mut() = if ctx.kind == 0 { None } else { Some((ctx.cls.clone(), ctx.forced.clone(), ctx.nonmembers.clone())) });
+}
+// (forced, nonmembers) for the class enum_setup is making: what its body recorded, when that body was its own
+fn enum_body_take(c: &Rc<Class>) -> (Vec<String>, Vec<String>) {
+    match ENUM_BODY.with(|b| b.borrow_mut().take()) {
+        Some((n, f, nm)) if n == c.name.to_string() => (f, nm),
+        _ => (vec![], vec![]),
+    }
+}
+// enum.EnumCheck (a StrEnum, as enum.py's @_simple_enum(StrEnum) makes it) and its members
+fn enum_check(n: &str) -> R {
+    let c = match ENUM_CHECK.with(|x| x.borrow().clone()) {
+        Some(c) => c,
+        None => {
+            let se = enum_more()[1].clone();
+            let attrs = vec![
+                ("__module__", s("enum")),
+                ("__bv_enum_made__", V::Bool(true)),
+                ("__doc__", s("\nvarious conditions to check an enumeration for\n")),
+                ("CONTINUOUS", s("no skipped integer values")),
+                ("NAMED_FLAGS", s("multi-flag aliases may not contain unnamed flags")),
+                ("UNIQUE", s("one name per value")),
+            ];
+            let V::Class(c) = make_class_f("EnumCheck", "EnumCheck", "enum", vec![V::Class(se)], attrs, vec![])? else { unreachable!() };
+            ENUM_CHECK.with(|x| *x.borrow_mut() = Some(c.clone()));
+            c
+        }
+    };
+    if n.is_empty() {
+        return Ok(V::Class(c));
+    }
+    getattr(&V::Class(c), n)
+}
+fn enum_verify_class() -> Rc<Class> {
+    if let Some(c) = ENUM_VERIFY.with(|e| e.borrow().clone()) {
+        return c;
+    }
+    let c = Class::new("verify", "enum", vec![bclass("object")], BT::Other);
+    c.set("__doc__", s("\nCheck an enumeration for various constraints. (see EnumCheck)\n"));
+    c.set("__init__", func(sym("__init__"), |a: Args| {
+        if !a.k.is_empty() {
+            return type_err(format!("verify.__init__() got an unexpected keyword argument '{}'", a.k[0].0));
+        }
+        setattr(&a.p[0], sym("checks"), tup(a.p[1..].to_vec()))?;
+        Ok(V::None)
+    }));
+    c.set("__call__", func(sym("__call__"), |a: Args| {
+        if a.p.len() != 2 || !a.k.is_empty() {
+            return Err(unsupported("calling an enum.verify other than with one class"));
+        }
+        enum_verify(&getattr(&a.p[0], "checks")?, &a.p[1])
+    }));
+    tdict_setup(&c, &c.bases.clone(), None);
+    ENUM_VERIFY.with(|e| *e.borrow_mut() = Some(c.clone()));
+    c
+}
+// an int value of a member, as enum.py's checks compute with it (None: not an int Brevi holds in an i64)
+fn check_int(v: &V) -> Option<i64> {
+    match v {
+        V::Int(i) => Some(*i),
+        V::Bool(b) => Some(*b as i64),
+        _ => None,
+    }
+}
+fn bit_length(v: i64) -> i64 {
+    64 - v.unsigned_abs().leading_zeros() as i64
+}
+// verify.__call__: enum.py's checks, in the order given; the class back when all pass
+fn enum_verify(checks: &V, cls: &V) -> R {
+    let V::Class(k) = cls else { return Err(unsupported("enum.verify on a value that is not a class")) };
+    let en = enum_base();
+    let enum_type = if is_flag(k) {
+        "flag"
+    } else if k.is_sub(&en) {
+        "enum"
+    } else {
+        return type_err("the 'verify' decorator only works with Enum and Flag".into());
+    };
+    let cls_name = k.name.to_string();
+    let (unique, continuous, named) = (enum_check("UNIQUE")?, enum_check("CONTINUOUS")?, enum_check("NAMED_FLAGS")?);
+    for check in to_vec(checks)? {
+        if is(&check, &unique) {
+            let mut dups = vec![];
+            for (name, m) in dict_items_of(&getattr(cls, "__members__")?)? {
+                let real = getattr(&m, "name")?;
+                if !eq(&name, &real)? {
+                    dups.push(format!("{} -> {}", to_str(&name)?, to_str(&real)?));
+                }
+            }
+            if !dups.is_empty() {
+                return val_err(format!("aliases found in {}: {}", repr(cls)?, dups.join(", ")));
+            }
+        } else if is(&check, &continuous) {
+            let mut values: Vec<i64> = vec![];
+            for m in to_vec(cls)? {
+                let v = getattr(&m, "value")?;
+                let Some(i) = check_int(&v) else { return Err(unsupported("enum.verify(CONTINUOUS) on values that are not ints")) };
+                if !values.contains(&i) {
+                    values.push(i);
+                }
+            }
+            if values.len() < 2 {
+                continue;
+            }
+            let (low, high) = (*values.iter().min().unwrap(), *values.iter().max().unwrap());
+            let mut missing: Vec<i64> = vec![];
+            if enum_type == "flag" {
+                for i in bit_length(low)..(bit_length(high) - 1) {
+                    if i >= 63 {
+                        return Err(unsupported("enum.verify(CONTINUOUS) on Flag values past 2**62"));
+                    }
+                    if !values.contains(&(1i64 << i)) {
+                        missing.push(1i64 << i);
+                    }
+                }
+            } else {
+                if high as i128 - low as i128 > 10_000_000 {
+                    return Err(unsupported("enum.verify(CONTINUOUS) over a range of more than 10,000,000 values"));
+                }
+                for i in (low + 1)..high {
+                    if !values.contains(&i) {
+                        missing.push(i);
+                    }
+                }
+            }
+            if !missing.is_empty() {
+                let msg = format!("invalid {enum_type} {}: missing values {}", repr(&s(&cls_name))?, missing.iter().map(|m| m.to_string()).collect::<Vec<_>>().join(", "));
+                return val_err(msg.chars().take(256).collect());
+            }
+        } else if is(&check, &named) {
+            let member_names = to_vec(&getattr(cls, "_member_names_")?)?;
+            let mut member_values: Vec<V> = vec![];
+            for m in to_vec(cls)? {
+                member_values.push(getattr(&m, "value")?);
+            }
+            let mut missing_names: Vec<String> = vec![];
+            let mut missing_value: i64 = 0;
+            for (name, alias) in dict_items_of(&getattr(cls, "_member_map_")?)? {
+                let mut is_member = false;
+                for n in &member_names {
+                    if eq(n, &name)? {
+                        is_member = true;
+                    }
+                }
+                if is_member {
+                    continue;
+                }
+                let Some(av) = check_int(&getattr(&alias, "value")?) else { return Err(unsupported("enum.verify(NAMED_FLAGS) on values that are not ints")) };
+                if av < 0 {
+                    continue;
+                }
+                let mut missed = vec![];
+                let mut n = av;
+                while n != 0 {
+                    let b = n & n.wrapping_neg();
+                    let mut found = false;
+                    for mv in &member_values {
+                        if eq(mv, &V::Int(b))? {
+                            found = true;
+                        }
+                    }
+                    if !found {
+                        missed.push(b);
+                    }
+                    n ^= b;
+                }
+                if !missed.is_empty() {
+                    missing_names.push(to_str(&name)?.to_string());
+                    for b in missed {
+                        missing_value |= b;
+                    }
+                }
+            }
+            if !missing_names.is_empty() {
+                let alias = if missing_names.len() == 1 {
+                    format!("alias {} is missing", missing_names[0])
+                } else {
+                    format!("aliases {} and {} are missing", missing_names[..missing_names.len() - 1].join(", "), missing_names[missing_names.len() - 1])
+                };
+                let value = if missing_value != 0 && missing_value & (missing_value - 1) == 0 { format!("value 0x{missing_value:x}") } else { format!("combined values of 0x{missing_value:x}") };
+                return val_err(format!("invalid Flag {}: {alias} {value} [use enum.show_flag_values(value) for details]", repr(&s(&cls_name))?));
+            }
+        }
+    }
+    Ok(cls.clone())
+}
+// enum._iter_bits_lsb(num): a generator of num's set bits, lowest first (a negative num raises when it starts)
+fn iter_bits_lsb(a: &Args) -> R {
+    let [num] = a.p.as_slice() else { return Err(unsupported("enum._iter_bits_lsb other than with one argument")) };
+    if !a.k.is_empty() {
+        return Err(unsupported("enum._iter_bits_lsb with keyword arguments"));
+    }
+    let original = num.clone();
+    let mut state: Option<i64> = None;
+    let mut done = false;
+    Ok(gen_iter(ItKind::Generator, move || {
+        if done {
+            return Ok(None);
+        }
+        let n = match state {
+            Some(n) => n,
+            None => {
+                let v = match &original {
+                    V::Obj(o) if is_enum(&o.cls) => getattr(&original, "value")?,
+                    x => x.clone(),
+                };
+                let Some(n) = check_int(&v) else {
+                    done = true;
+                    return Err(unsupported("enum._iter_bits_lsb of a value that is not an int"));
+                };
+                if n < 0 {
+                    done = true;
+                    return val_err(format!("{} is not a positive integer", repr(&original)?));
+                }
+                n
+            }
+        };
+        if n == 0 {
+            done = true;
+            return Ok(None);
+        }
+        let b = n & n.wrapping_neg();
+        state = Some(n ^ b);
+        Ok(Some(V::Int(b)))
+    }))
+}
+fn name_arg(a: &Args, i: usize, f: &str) -> Result<Vec<char>, E> {
+    if !a.k.is_empty() {
+        return Err(unsupported(&format!("enum.{f} with keyword arguments")));
+    }
+    match a.p.get(i) {
+        Some(V::Str(t)) => Ok(t.text().chars().collect()),
+        _ => Err(unsupported(&format!("enum.{f} of a value that is not a str"))),
+    }
+}
+// enum.py's own helpers and module values, as enum.py defines them
+pub fn enum_helper(n: &str, a: Args) -> Option<R> {
+    if !matches!(n, "_is_dunder" | "_is_sunder" | "_is_private" | "_is_descriptor" | "_iter_bits_lsb" | "show_flag_values") {
+        return None;
+    }
+    let arity = |k: usize| -> Result<(), E> {
+        if a.p.len() != k {
+            return Err(unsupported(&format!("enum.{n} with {} arguments", a.p.len())));
+        }
+        Ok(())
+    };
+    Some((|| -> R {
+        match n {
+            "_is_dunder" => {
+                arity(1)?;
+                let c = name_arg(&a, 0, n)?;
+                let l = c.len();
+                Ok(V::Bool(l > 4 && c[0] == '_' && c[1] == '_' && c[l - 1] == '_' && c[l - 2] == '_' && c[2] != '_' && c[l - 3] != '_'))
+            }
+            "_is_sunder" => {
+                arity(1)?;
+                let c = name_arg(&a, 0, n)?;
+                let l = c.len();
+                Ok(V::Bool(l > 2 && c[0] == '_' && c[l - 1] == '_' && c[1] != '_' && c[l - 2] != '_'))
+            }
+            "_is_private" => {
+                arity(2)?;
+                let cls = name_arg(&a, 0, n)?;
+                let c = name_arg(&a, 1, n)?;
+                let pat: Vec<char> = std::iter::once('_').chain(cls).chain("__".chars()).collect();
+                let l = c.len();
+                Ok(V::Bool(l > pat.len() && c.starts_with(&pat) && (c[l - 1] != '_' || c[l - 2] != '_')))
+            }
+            "_is_descriptor" => {
+                arity(1)?;
+                if !a.k.is_empty() {
+                    return Err(unsupported("enum._is_descriptor with keyword arguments"));
+                }
+                let v = &a.p[0];
+                Ok(V::Bool(!is_partial(v) && (hasattr(v, "__get__")? || hasattr(v, "__set__")? || hasattr(v, "__delete__")?)))
+            }
+            "_iter_bits_lsb" => iter_bits_lsb(&a),
+            "show_flag_values" => to_vec(&iter_bits_lsb(&a)?).map(list),
+            _ => Err(unsupported(&format!("enum.{n}"))),
+        }
+    })())
+}
+// enum's classes and constants beyond Enum and its kinds (module_attr)
+pub fn enum_mod_attr(n: &str) -> Result<Option<V>, E> {
+    Ok(Some(match n {
+        "EnumType" | "EnumMeta" => V::Class(enum_type_class()),
+        "member" => V::Class(enum_wraps().0),
+        "nonmember" => V::Class(enum_wraps().1),
+        "verify" => V::Class(enum_verify_class()),
+        "EnumCheck" => enum_check("")?,
+        "UNIQUE" | "CONTINUOUS" | "NAMED_FLAGS" => enum_check(n)?,
+        "STRICT" | "CONFORM" | "EJECT" | "KEEP" => flag_boundary(n)?,
+        "FlagBoundary" => {
+            flag_boundary("STRICT")?;
+            V::Class(FLAG_BOUNDARY.with(|x| x.borrow().clone()).unwrap())
+        }
+        _ => return Ok(None),
+    }))
+}
+// enum's classes that make plain instances (their own __init__): member, nonmember, verify
+pub fn enum_plain_class(c: &Rc<Class>) -> bool {
+    ENUM_WRAPS.with(|e| e.borrow().as_ref().is_some_and(|(m, n)| Rc::ptr_eq(m, c) || Rc::ptr_eq(n, c))) || ENUM_VERIFY.with(|e| e.borrow().as_ref().is_some_and(|v| Rc::ptr_eq(v, c)))
+}
+// the names EnumType's own __dict__ holds (CPython 3.13)
+pub fn enum_type_name(n: &str) -> bool {
+    matches!(
+        n,
+        "__bool__" | "__call__" | "__contains__" | "__delattr__" | "__dir__" | "__getitem__" | "__iter__" | "__len__" | "__members__" | "__new__" | "__prepare__" | "__repr__"
+            | "__reversed__" | "__setattr__" | "_add_member_" | "_check_for_existing_members_" | "_convert_" | "_create_" | "_find_data_repr_" | "_find_data_type_" | "_find_new_" | "_get_mixins_"
+    )
 }

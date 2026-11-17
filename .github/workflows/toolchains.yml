@@ -36,6 +36,8 @@ on:
       # A PR changing nothing but files this list skips merges on tools/ci_local.sh alone (AGENTS.md, "Before merging").
       - "!compat/conformance_known_wrong/**"
       - "!compat/conformance_stdlib_known_wrong/**"
+      - "!compat/conformance_windows_known_wrong/**"
+      - "!compat/conformance_windows_stdlib_known_wrong/**"
       - "!compat/conformance_by_design.txt"
       - "!compat/conformance_cpython_private.txt"
       - "!compat/conformance_needs_string_model.txt"
@@ -85,8 +87,14 @@ jobs:
         run: python3 tools/no_binaries.py
       - name: The --limit platform claims (MCP schema, docs) match the code
         run: python3 tools/limits_check.py
+      - name: Security statements present, and no page calls the sandbox an isolation boundary
+        run: python3 tools/security_claims.py
       - name: Every src file says what it holds (tools/code_map.py), and the agent hooks hold
         run: python3 tools/code_map.py --check && python3 tests/agent_hooks_test.py
+      - name: Conformance extractor, classifier and published shares; release-notes figure checks
+        run: python3 tests/conformance_test.py && python3 tests/release_notes_test.py
+      - name: Published numbers (docs/NUMBERS.md is its release tag's; no headline quoted without its scope)
+        run: python3 tools/published_numbers.py --check && python3 tests/published_numbers_test.py
       - id: py
         name: Find the next Python release (pre-release)
         # Never blocks the matrix: if the lookup fails, fall back to a guess.
@@ -103,9 +111,9 @@ jobs:
         env:
           FULL: ${{ inputs.full }}
         run: |
-          stable='{"rust":"stable","python":"3.x"}'
+          stable='{"rust":"stable","python":"3.13"}'
           next='{"rust":"stable","python":"next"}'
-          weekly='{"rust":"beta","python":"3.x"},{"rust":"nightly","python":"3.x"}'
+          weekly='{"rust":"beta","python":"3.13"},{"rust":"nightly","python":"3.13"}'
           if [ "${{ github.event_name }}" = schedule ] && [ "$(date -u +%u)" = 1 ] || [ "$FULL" = true ]; then
             m="[$stable,$next,$weekly]"
           elif [ "${{ github.event_name }}" = schedule ]; then
@@ -137,8 +145,7 @@ jobs:
           fetch-depth: 2
 
       - name: Install Rust ${{ matrix.rust }}
-        # "stable" means the pinned version in .github/rust-version, so a new Rust release can't turn every PR red
-        # (Rust 1.100's Unicode 18 tables did: re.IGNORECASE is refused until they are checked against CPython).
+        # "stable" means the pinned version in .github/rust-version, so a new Rust release can't turn every PR red.
         # Only the daily schedule tests the real latest stable, so the watch still reports a new release.
         run: |
           v=${{ matrix.rust }}
@@ -155,6 +162,15 @@ jobs:
         with:
           python-version: ${{ matrix.python == 'next' && needs.versions.outputs.next_python || matrix.python }}
           allow-prereleases: true
+
+      - name: CPython 3.13 beside the next Python
+        # Brevi answers as CPython 3.13 does and runs no other CPython (src/cpython.rs), so the next-Python run gives
+        # Brevi a 3.13 too; python3 stays the next Python for the comparisons that watch it.
+        if: matrix.python == 'next'
+        run: |
+          python3 -m pip install --quiet uv
+          uv python install 3.13.13 --quiet
+          echo "BREVI_PYTHON=$(uv python find 3.13.13)" >> "$GITHUB_ENV"
 
       - name: Toolchain fingerprint
         id: fp
@@ -234,6 +250,18 @@ jobs:
         if: steps.seen.outputs.cache-hit != 'true'
         run: cargo test --release
 
+      # check.sh runs a numpy binary on qemu's older CPUs to see it refuse float BLAS calls there (tests/numpy_cpu);
+      # BREVI_QEMU_TESTS=1 makes a missing qemu a failure instead of a skip.
+      - name: qemu for the numpy runtime refusal check
+        if: steps.seen.outputs.cache-hit != 'true' && matrix.rust == 'stable' && matrix.python == '3.13'
+        run: |
+          sudo apt-get install -y -q qemu-user >/dev/null || { sudo apt-get update -q >/dev/null && sudo apt-get install -y -q qemu-user >/dev/null; }
+          qemu-x86_64 --version | head -1
+          # this runner's own libraries need AVX2: check.sh runs the binary on ubuntu:24.04's under a static qemu
+          file -L "$(command -v qemu-x86_64)"
+          docker pull -q ubuntu:24.04
+          echo "BREVI_QEMU_TESTS=1" >> "$GITHUB_ENV"
+
       - name: Language tests (tests/run, tests/errors)
         if: steps.seen.outputs.cache-hit != 'true'
         env:
@@ -241,11 +269,21 @@ jobs:
         # check.sh in parallel, one job per CPU (the same checks, the same report)
         run: python3 tests/check_parallel.py
 
+      # Brevi's temp folders stay private when another local user plants folders first (src/privdir.rs). The test
+      # needs root and a second user, so it runs here under sudo (GitHub's runners have it), never skipped:
+      # BREVI_ROOT_TESTS=1 makes a skip a failure. The box (tools/modelbox.py) finds the toolchains under /root; -B so
+      # root leaves no __pycache__ in the checkout that later steps cannot write.
+      - name: Private temp folders (as root, with a second user)
+        if: steps.seen.outputs.cache-hit != 'true' && matrix.rust == 'stable' && matrix.python == '3.13'
+        run: |
+          for t in .cargo .rustup; do sudo mkdir -p "/root/$t" && sudo mount --bind "$HOME/$t" "/root/$t"; done
+          sudo env "PATH=$PATH" BREVI_ROOT_TESTS=1 BREVI="$PWD/target/release/brevi" python3 -B tests/privtmp_test.py
+
       # The language tests above skip these sections (this runner's Python has no duckdb, onnxruntime or mcp, and the
       # newest Python may have no wheels for them yet). The daily run and the release run them on CPython 3.13 with the
       # pinned packages, where a section that cannot run fails instead of skipping.
       - name: Native copies against the real duckdb, onnxruntime and mcp (daily and release; never skipped)
-        if: steps.seen.outputs.cache-hit != 'true' && github.event_name != 'pull_request' && matrix.rust == 'stable' && matrix.python == '3.x'
+        if: steps.seen.outputs.cache-hit != 'true' && github.event_name != 'pull_request' && matrix.rust == 'stable' && matrix.python == '3.13'
         env:
           BREVI: ./target/release/brevi
           CHECK_REQUIRE_LIBS: "1"
@@ -262,7 +300,7 @@ jobs:
       # as the daily run, without duckdb and onnxruntime, about a minute), so a change to Brevi's mcp or pydantic copy,
       # or a pin bump without new transcripts, fails on the PR instead of the next day.
       - name: MCP servers against the real mcp (pull requests; never skipped)
-        if: steps.seen.outputs.cache-hit != 'true' && github.event_name == 'pull_request' && matrix.rust == 'stable' && matrix.python == '3.x'
+        if: steps.seen.outputs.cache-hit != 'true' && github.event_name == 'pull_request' && matrix.rust == 'stable' && matrix.python == '3.13'
         env:
           BREVI: ./target/release/brevi
           CHECK_REQUIRE_LIBS: "1"
@@ -292,9 +330,17 @@ jobs:
         if: steps.seen.outputs.cache-hit != 'true'
         run: python3 tools/version_sync.py
 
+      - name: The case tables in src/unicode_case.rs are CPython 3.13's (str.upper, lower, title, isalpha, ...)
+        if: steps.seen.outputs.cache-hit != 'true'
+        run: '"${BREVI_PYTHON:-python3}" tools/gen_unicode_case.py --check'
+
       - name: Changelog fragments are CHANGELOG lines
         if: steps.seen.outputs.cache-hit != 'true'
         run: python3 tools/changelog.py --check
+
+      - name: The Unicode tables in src/unicode.rs are CPython 3.13's (str.casefold, isdigit, re.IGNORECASE)
+        if: steps.seen.outputs.cache-hit != 'true'
+        run: '"${BREVI_PYTHON:-python3}" tools/gen_unicode.py --check'
 
       - name: Grammar accepts every test program, and the GBNF copy is current
         if: steps.seen.outputs.cache-hit != 'true' && steps.scope.outputs.grammar == 'true'
@@ -310,7 +356,7 @@ jobs:
       - name: CPython conformance ratchet (CPython's own tests; the score may not drop, the known-wrong list only shrinks)
         # Only when the compiler could have changed, on one toolchain: the run takes about 10 minutes. The pinned
         # test files come from python/cpython at the tag in tools/conformance.py and are checked against their hashes.
-        if: steps.seen.outputs.cache-hit != 'true' && steps.scope.outputs.compat == 'true' && matrix.rust == 'stable' && matrix.python == '3.x'
+        if: steps.seen.outputs.cache-hit != 'true' && steps.scope.outputs.compat == 'true' && matrix.rust == 'stable' && matrix.python == '3.13'
         env:
           RELEASE: ${{ inputs.release }}
         run: |
@@ -319,19 +365,34 @@ jobs:
           # A release also holds each slice to its absolute bar (release_gate in compat/conformance*_floor.json: core 90%,
           # stdlib 80%, no known-wrong result). Below it, nothing is released or published.
           gate=""; [ "$RELEASE" = true ] && gate="--release-gate"
-          python3 tools/conformance.py --check $gate --python "$(uv python find 3.13.13)" --out conformance-report
-          cat conformance-report/report.md >> "$GITHUB_STEP_SUMMARY"
+          # A failing check still adds its report to the summary (it names each test lost against main's published
+          # report, and why), and the step after this one keeps the report folders; the step still fails.
+          rc=0
+          python3 tools/conformance.py --check $gate --python "$(uv python find 3.13.13)" --out conformance-report || rc=$?
+          [ -f conformance-report/report.md ] && cat conformance-report/report.md >> "$GITHUB_STEP_SUMMARY"
+          [ "$rc" = 0 ] || exit "$rc"
           # The stdlib slice (itertools, collections, re, ...) takes as long again, so only the daily run and a release check it.
           if [ "${{ github.event_name }}" = schedule ] || [ "$RELEASE" = true ]; then
-            python3 tools/conformance.py --slice stdlib --check $gate --python "$(uv python find 3.13.13)" --out conformance-stdlib
-            cat conformance-stdlib/report.md >> "$GITHUB_STEP_SUMMARY"
+            python3 tools/conformance.py --slice stdlib --check $gate --python "$(uv python find 3.13.13)" --out conformance-stdlib || rc=$?
+            [ -f conformance-stdlib/report.md ] && cat conformance-stdlib/report.md >> "$GITHUB_STEP_SUMMARY"
+            [ "$rc" = 0 ] || exit "$rc"
           fi
+
+      - name: Keep the conformance reports of a failed check
+        if: failure() && (hashFiles('conformance-report/report.json') != '' || hashFiles('conformance-stdlib/report.json') != '')
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: conformance-reports
+          path: |
+            conformance-report/
+            conformance-stdlib/
+          if-no-files-found: ignore
 
       - name: Fuzz for panics (generated programs; a panic, signal or compiler crash fails the run)
         # Pull requests replay the saved corpus (bench/fuzz/corpus: once-failing cases that must stay fixed); the daily
         # run also tries 60 fresh batches of 12 cases, seeded by the date so a failure reproduces. Wrong answers are
         # listed in the summary, not failed on, until the known ones are fixed.
-        if: steps.seen.outputs.cache-hit != 'true' && steps.scope.outputs.compat == 'true' && matrix.rust == 'stable' && matrix.python == '3.x'
+        if: steps.seen.outputs.cache-hit != 'true' && steps.scope.outputs.compat == 'true' && matrix.rust == 'stable' && matrix.python == '3.13'
         run: |
           python3 tools/fuzz.py --replay bench/fuzz/corpus --jobs 4
           if [ "${{ github.event_name }}" = schedule ]; then
@@ -363,7 +424,7 @@ jobs:
 
       - name: Drop the replay cache and machine-specific paths before saving
         if: >
-          success() && steps.seen.outputs.cache-hit != 'true' && matrix.rust == 'stable' && matrix.python == '3.x' &&
+          success() && steps.seen.outputs.cache-hit != 'true' && matrix.rust == 'stable' && matrix.python == '3.13' &&
           github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: rm -rf ~/.cache/brevi/runs ~/.cache/brevi/toolchain
 
@@ -371,7 +432,7 @@ jobs:
         # Only the daily (and manual main) run saves it, so a PR can never seed what other PRs reuse. The run
         # started cold, so every entry came from this commit's compiler. One entry per day; GitHub evicts old ones.
         if: >
-          success() && steps.seen.outputs.cache-hit != 'true' && matrix.rust == 'stable' && matrix.python == '3.x' &&
+          success() && steps.seen.outputs.cache-hit != 'true' && matrix.rust == 'stable' && matrix.python == '3.13' &&
           github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:

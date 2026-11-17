@@ -93,7 +93,42 @@ class Assertions(unittest.TestCase):
             cut("    def test_a(self):\n        f = lambda: self.assertEqual(1, 1)\n        f()\n")
 
 
+    def test_raises_in_a_class_body_binds_nothing(self):
+        # `except E as _e` in a class body would put _e in the class namespace (an EnumDict refuses a second one)
+        s = cut("    def test_a(self):\n        class C:\n            with self.assertRaises(KeyError):\n                x = {}['k']\n"
+                "        self.assertEqual(sorted(k for k in vars(C) if not k.startswith('__')), [])\n")
+        self.assertIn("with _conf_Raises(KeyError):", s)
+        self.assertEqual(run(s).stdout, "raises KeyError\n[]\n[]\n")
+
+    def test_equality_only_compares(self):
+        key = ("test.test_x", "test_a")
+        c.EQUALITY_ONLY[key] = "test"
+        try:
+            self.assertEqual(self.rewritten("self.assertEqual(a, g())"), "print((a) == (g()))")
+        finally:
+            del c.EQUALITY_ONLY[key]
+
+
 class Inlining(unittest.TestCase):
+    def test_convert_brings_the_module_constants_its_filter_takes(self):
+        head = "import enum, unittest\nMODULE = __name__\nP_B = 2\nQ_A = 3\nP_A = 1\nclass T(unittest.TestCase):\n"
+        s = cut("    def test_a(self):\n        E = enum.IntEnum._convert_('E', MODULE, filter=lambda x: x.startswith('P_'))\n"
+                "        self.assertEqual([m.name for m in E], ['P_A', 'P_B'])\n", head=head)
+        self.assertNotIn("Q_A", s)
+        self.assertLess(s.index("P_B = 2"), s.index("P_A = 1"))  # the file's order
+        self.assertEqual(run(s).stdout, "['P_A', 'P_B']\n" * 2)
+        for call in ("enum.IntEnum._convert_('E', 'other', filter=lambda x: x.startswith('P_'))",
+                     "enum.IntEnum._convert_('E', MODULE, filter=lambda x: x.endswith('_A'))",
+                     "enum.IntEnum._convert_('E', MODULE, filter=lambda x: x.startswith('P_'), source={})"):
+            with self.assertRaises(c.CantExtract):
+                cut(f"    def test_a(self):\n        E = {call}\n", head=head)
+
+    def test_unittest_only_as_an_item_of_a_display(self):
+        s = cut("    def test_a(self):\n        for bad in 1, unittest:\n            self.assertTrue(bad)\n")
+        self.assertEqual(run(s).stdout, "True\nTrue\n")
+        with self.assertRaises(c.CantExtract):
+            cut("    def test_a(self):\n        m = unittest\n        self.assertTrue(m)\n")
+
     def test_mixin_tests_run_with_the_c_copy_and_the_py_copy_is_excluded(self):
         head = ("import unittest\nfrom test.support import import_helper\n"
                 "py_json = import_helper.import_fresh_module('json', blocked=['_json'])\n"
@@ -268,6 +303,59 @@ class Reach(unittest.TestCase):
         self.assertIn("(_conf_TestCase)", s)
         self.assertEqual(run(s).stdout, "1\n1\n")
 
+    def test_enter_context_enters_now_and_exits_after_tear_down(self):
+        s = cut("    def setUp(self):\n        self.x = self.enterContext(M())\n    def tearDown(self):\n        print('down')\n"
+                "    def test_a(self):\n        print(self.x)\n",
+                head="import unittest\nclass M:\n    def __enter__(self):\n        print('in')\n        return 7\n"
+                     "    def __exit__(self, *a):\n        print('out', a)\n" + HEAD.split("\n", 1)[1])
+        self.assertEqual(run(s).stdout, "in\n7\ndown\nout (None, None, None)\n")
+
+    def test_an_assertion_passed_as_a_value_prints_like_the_inline_one(self):
+        head = ("import unittest\ndef check(assertion, a, b):\n    assertion(a, b)\n"
+                "def boom(assertion):\n    with assertion(KeyError):\n        {}['k']\n" + HEAD.split("\n", 1)[1])
+        s = cut("    def test_a(self):\n        check(self.assertIs, None, None)\n        check(self.assertEqual, 1, 2)\n"
+                "        boom(self.assertRaises)\n", head=head)
+        self.assertEqual(run(s).stdout, "True\n1\n2\nraises KeyError\n")
+        with self.assertRaisesRegex(c.CantExtract, "assertCountEqual"):
+            cut("    def test_a(self):\n        check(self.assertCountEqual, [], [])\n", head=head)
+
+    def test_which_test_class_runs_is_compared_by_name(self):
+        head = HEAD + "    def test_a(self):\n        print(type(self) not in (U, V), type(self) is T)\n"
+        body = "class U(unittest.TestCase):\n    pass\nclass V(unittest.TestCase):\n    pass\n"
+        s = cut(body, head=head)
+        self.assertNotIn("unittest", s.split("\n", 2)[2])
+        self.assertEqual(run(s).stdout, "True True\n")
+
+    def test_a_decorator_the_file_defines_is_applied_as_written(self):
+        head = ("import unittest\ndef deco(tag):\n    def wrap(f):\n        def inner(*a):\n            print(tag)\n"
+                "            return f(*a)\n        return inner\n    return wrap\n" + HEAD.split("\n", 1)[1])
+        s = cut("    @deco('d')\n    def test_a(self):\n        print(self.k)\n    k = 3\n", head=head)
+        self.assertEqual(run(s).stdout, "d\n3\n")
+
+    def test_unittest_skip_is_excluded(self):
+        with self.assertRaisesRegex(c.Excluded, "skipped by CPython: to-do"):
+            cut("    @unittest.skip('to-do')\n    def test_a(self):\n        pass\n")
+
+    def test_python_version_condition_needs_the_files_own_binding(self):
+        def make(binding, cond):
+            u = universe(f"    @unittest.skipIf({cond}, 'old')\n    def test_a(self):\n        print(1)\n",
+                         head=f"import sys\nimport unittest\n{binding}\n" + HEAD.split("\n", 1)[1])
+            u.python = sys.executable
+            return u.extract("test_x", "T", "test_a")
+        self.assertEqual(run(make("python_version = sys.version_info[:2]", "python_version < (3, 0)")).stdout, "1\n")
+        with self.assertRaisesRegex(c.Excluded, "skipped by CPython: old"):
+            make("python_version = sys.version_info[:2]", "python_version >= (3, 0)")
+        with self.assertRaisesRegex(c.CantExtract, "cannot be decided"):
+            make("python_version = (3, 13)", "python_version < (3, 0)")
+
+    def test_string_annotations_get_the_files_bindings(self):
+        head = "import typing\nimport unittest\nfrom dataclasses import *\n" + HEAD.split("\n", 1)[1]
+        s = cut("    def test_a(self):\n        @dataclass\n        class C:\n            x: 'typing.ClassVar[int]'\n"
+                "            y: 'InitVar[int]'\n        C(1)\n        print(fields(C))\n", head=head)
+        self.assertIn("import typing", s)
+        self.assertIn("from dataclasses import InitVar", s)
+        self.assertEqual(run(s).stdout, "()\n")
+
     def test_a_subprocess_cpython_test_is_excluded(self):
         with self.assertRaisesRegex(c.Excluded, "subprocess"):
             cut("    def test_a(self):\n        assert_python_ok('-c', 'pass')\n")
@@ -309,103 +397,230 @@ class Instability(unittest.TestCase):
     timeout = c.Run(-9, b"", b"", "timeout")
     killed = c.Run(-9, b"1", b"", "")
 
-    def test_agreeing_seeds_take_one_run_each(self):
-        r = self.ref(s1=[self.ok], s2=[self.ok])
+    def test_two_agreeing_runs_at_the_seed_are_the_reference(self):
+        r = self.ref(s0=[self.ok, self.ok])
         self.assertEqual(c.stable_reference(r, False), (self.ok, None))
-        self.assertEqual(r.calls, [1, 2])
+        self.assertEqual(r.calls, [0, 0])
 
     def test_a_timed_out_run_is_retried_not_unstable(self):
-        r = self.ref(s1=[self.ok], s2=[self.timeout, self.ok])
+        r = self.ref(s0=[self.ok, self.timeout, self.ok])
         self.assertEqual(c.stable_reference(r, False), (self.ok, None))
 
     def test_a_killed_run_is_retried(self):
-        r = self.ref(s1=[self.killed, self.ok], s2=[self.ok])
+        r = self.ref(s0=[self.killed, self.ok, self.ok])
         self.assertEqual(c.stable_reference(r, False), (self.ok, None))
 
     def test_a_reference_that_keeps_failing_is_an_error(self):
-        r = self.ref(s1=[self.timeout, self.timeout])
-        with self.assertRaisesRegex(c.ReferenceFailed, r"PYTHONHASHSEED=1: timeout \(2 tries\)"):
+        r = self.ref(s0=[self.timeout, self.timeout])
+        with self.assertRaisesRegex(c.ReferenceFailed, r"PYTHONHASHSEED=0: timeout \(2 tries\)"):
             c.stable_reference(r, False)
 
     def test_one_disturbed_normal_run_is_outvoted(self):
-        # seed 2's first run printed something else; its next run agrees with seed 1
-        r = self.ref(s1=[self.ok, self.ok], s2=[self.other, self.ok, self.ok])
+        # the second run printed something else; the third agrees with the first
+        r = self.ref(s0=[self.ok, self.other, self.ok])
         self.assertEqual(c.stable_reference(r, False), (self.ok, None))
-        # the disturbed run was seed 1's: seed 2's output is the reference
-        r = self.ref(s1=[self.other, self.ok, self.ok], s2=[self.ok, self.ok])
+        # the first run was the disturbed one: the other two are the reference
+        r = self.ref(s0=[self.other, self.ok, self.ok])
         self.assertEqual(c.stable_reference(r, False), (self.ok, None))
 
-    def test_a_reproduced_seed_difference_is_unstable_by_rule_1(self):
-        r = self.ref(s1=[self.ok, self.ok], s2=[self.other, self.other])
+    def test_output_that_the_seed_does_not_reproduce_is_unstable_by_rule_1(self):
+        r = self.ref(s0=[self.ok, self.other, self.third])
         a, why = c.stable_reference(r, False)
         self.assertIsNone(a)
         self.assertIn("rule 1", why)
-        self.assertIn("PYTHONHASHSEED=1 and 2", why)
+        self.assertIn("3 runs at PYTHONHASHSEED=0 all differ", why)
 
-    def test_output_that_no_seed_reproduces_is_unstable(self):
-        r = self.ref(s1=[self.ok, self.other, self.third], s2=[self.third])
-        a, why = c.stable_reference(r, False)
-        self.assertIsNone(a)
-        self.assertIn("3 runs at PYTHONHASHSEED=1 all differ", why)
-
-    def test_random_output_runs_seed_1_only(self):
-        r = self.ref(s1=[self.ok])
+    def test_random_output_takes_one_run(self):
+        r = self.ref(s0=[self.ok])
         self.assertEqual(c.stable_reference(r, True), (self.ok, None))
-        self.assertEqual(r.calls, [1])
+        self.assertEqual(r.calls, [0])
 
-    def test_rule_2_needs_a_reproduced_difference(self):
-        # seed 3's first run differs but is not reproduced: the wrong result stands
-        r = self.ref(s3=[self.other, self.ok, self.ok], s4=[self.ok], s5=[self.ok])
-        self.assertEqual(c.seed_dependence(r, self.ok), (None, ""))
-        r = self.ref(s3=[self.ok], s4=[self.other, self.other])
-        why, note = c.seed_dependence(r, self.ok)
+    def test_rule_2_keeps_a_wrong_result_that_cpython_reproduces(self):
+        r = self.ref(s0=[self.ok, self.ok, self.ok])
+        self.assertEqual(c.reproducible(r, self.ok), (None, ""))
+        self.assertEqual(r.calls, [0, 0, 0])
+
+    def test_rule_2_makes_a_run_that_differs_unstable(self):
+        r = self.ref(s0=[self.ok, self.other])
+        why, note = c.reproducible(r, self.ok)
         self.assertIn("rule 2", why)
-        self.assertIn("PYTHONHASHSEED=4", why)
-
-    def test_rule_2_matching_runs_need_no_second_run(self):
-        r = self.ref(s3=[self.ok], s4=[self.ok], s5=[self.ok])
-        self.assertEqual(c.seed_dependence(r, self.ok), (None, ""))
-        self.assertEqual(r.calls, [3, 4, 5])
+        self.assertIn("PYTHONHASHSEED=0 is not reproducible", why)
 
     def test_rule_2_runs_are_shared_by_both_builds(self):
-        r = self.ref(s3=[self.ok], s4=[self.ok], s5=[self.ok])
-        c.seed_dependence(r, self.ok)
-        self.assertEqual(c.seed_dependence(r, self.ok), (None, ""))
-        self.assertEqual(r.calls, [3, 4, 5])
+        r = self.ref(s0=[self.ok, self.ok, self.ok])
+        c.reproducible(r, self.ok)
+        self.assertEqual(c.reproducible(r, self.ok), (None, ""))
+        self.assertEqual(r.calls, [0, 0, 0])
 
     def test_rule_2_failed_reference_keeps_the_wrong_result(self):
-        r = self.ref(s3=[self.timeout, self.timeout])
-        why, note = c.seed_dependence(r, self.ok)
+        r = self.ref(s0=[self.timeout, self.timeout])
+        why, note = c.reproducible(r, self.ok)
         self.assertIsNone(why)
-        self.assertIn("PYTHONHASHSEED=3: timeout", note)
+        self.assertIn("PYTHONHASHSEED=0: timeout", note)
 
     def run_case(self, runs):
         """run_case with CPython's runs scripted per seed and a build that refuses (no compiler needed)."""
         import types
-        saved = c.reference, c.build
+        saved = c.reference, c.build_once
         c.reference = lambda py, script, folder, seed, cfg: runs[seed].pop(0)
-        c.build = lambda script, folder, mode, cfg: (None, None, "refused here", False)
+        c.build_once = lambda script, folder, mode, cfg: (None, None, "refused here", False)
         try:
             with tempfile.TemporaryDirectory() as t:
                 cfg = types.SimpleNamespace(work=Path(t), python="python3", timeout=1, mem_mb=64, sandbox=False)
                 return c.run_case({"id": "test_x.T.test_a", "file": "test_x", "script": "print(1)\n"}, cfg)
         finally:
-            c.reference, c.build = saved
+            c.reference, c.build_once = saved
 
     def test_run_case_scores_a_test_whose_reference_run_was_disturbed_once(self):
-        r = self.run_case({1: [self.ok], 2: [self.timeout, self.ok]})
+        r = self.run_case({0: [self.ok, self.timeout, self.ok]})
         self.assertEqual(r["modes"]["normal"]["category"], "refused")
 
     def test_run_case_reports_a_failing_reference_as_not_extractable(self):
-        r = self.run_case({1: [self.timeout, self.timeout]})
+        r = self.run_case({0: [self.timeout, self.timeout]})
         self.assertEqual(r["category"], "not_extractable")
-        self.assertIn("reference run failed at PYTHONHASHSEED=1: timeout", r["detail"])
+        self.assertIn("reference run failed at PYTHONHASHSEED=0: timeout", r["detail"])
 
-    def test_run_case_names_the_rule_for_a_reproduced_difference(self):
-        r = self.run_case({1: [self.ok, self.ok], 2: [self.other, self.other]})
+    def test_run_case_names_the_rule_for_output_the_seed_does_not_reproduce(self):
+        r = self.run_case({0: [self.ok, self.other, self.third]})
         self.assertEqual(r["category"], "unstable")
         self.assertTrue(r["detail"].startswith("rule 1:"))
 
+
+    def test_rule_2_unstable_names_what_the_build_printed(self):
+        import types, unittest.mock as m
+        runs = {0: [self.ok, self.ok, self.ok, self.other]}
+        with m.patch.object(c, "reference", lambda py, script, folder, seed, cfg: runs[seed].pop(0)), \
+                m.patch.object(c, "build_once", lambda script, folder, mode, cfg: (folder / "prog", None, "", False)), \
+                m.patch.object(c, "run_limited", lambda *a: c.Run(0, b"3\n", b"", "")), tempfile.TemporaryDirectory() as t:
+            cfg = types.SimpleNamespace(work=Path(t), python="python3", timeout=1, mem_mb=64, sandbox=False)
+            r = c.run_case({"id": "test_x.T.test_a", "file": "test_x", "script": "print(1)\n"}, cfg)
+        self.assertEqual(r["category"], "unstable")
+        self.assertTrue(r["detail"].startswith("rule 2:"))
+        self.assertIn("the normal build's output differed (line 1: expected '1', got '3')", r["detail"])
+
+    def test_run_case_times_each_build(self):
+        r = self.run_case({0: [self.ok, self.ok]})
+        self.assertIsInstance(r["modes"]["dyn"]["build_s"], float)
+
+    def test_a_build_timeout_names_the_limit(self):
+        import types, unittest.mock as m
+        cfg = types.SimpleNamespace(python="python3", brevi="brevi", build_timeout=300)
+        with tempfile.TemporaryDirectory() as t, \
+                m.patch.object(c.subprocess, "run", side_effect=c.subprocess.TimeoutExpired("brevi", 300)):
+            got = c.build(Path(t) / "case.py", Path(t), "normal", cfg)
+        self.assertEqual(got[2:4], ("build timed out after 300 s", True))
+
+
+class LostMatches(unittest.TestCase):
+    """A ratchet that falls short names each test it lost against the published report, and why."""
+    def row(self, i, normal, dyn=None, path="dynamic", detail=""):
+        return {"id": i, "file": "test_x", "modes": {"normal": {"category": normal, "path": path, "detail": detail},
+                                                      "dyn": {"category": dyn or normal, "path": path, "detail": detail}}}
+
+    published = {"commit": "abc", "platform": sys.platform, "tests": [
+        {"id": "a", "file": "test_x", "modes": {"normal": {"category": "matched", "path": "dynamic"}, "dyn": {"category": "matched", "path": "dynamic"}}},
+        {"id": "b", "file": "test_x", "modes": {"normal": {"category": "matched", "path": "typed"}, "dyn": {"category": "matched", "path": "dynamic"}}},
+        {"id": "c", "file": "test_x", "modes": {"normal": {"category": "matched", "path": "dynamic"}, "dyn": {"category": "matched", "path": "dynamic"}}},
+        {"id": "d", "file": "test_x", "modes": {"normal": {"category": "matched", "path": "dynamic"}, "dyn": {"category": "matched", "path": "dynamic"}}},
+        {"id": "e", "file": "test_x", "modes": {"normal": {"category": "refused", "path": "", "detail": "x"}, "dyn": {"category": "refused", "path": "", "detail": "x"}}}]}
+
+    def test_names_each_lost_test_with_its_reason(self):
+        results = [self.row("a", "matched"),
+                   self.row("b", "crash_or_timeout", "matched", detail="build timed out after 300 s"),
+                   {"id": "c", "file": "test_x", "category": "unstable", "detail": "rule 2: run 3 differs"},
+                   self.row("e", "matched")]  # d: left out by --filter
+        lost, held = c.lost_matches(self.published, results)
+        self.assertEqual(held, 0)
+        self.assertEqual([i for i, _ in lost], ["b", "c"])
+        text = "\n".join(c.lost_lines(lost, held, self.published))
+        self.assertIn("2 tests matched natively in the published report (commit abc)", text)
+        self.assertIn("b (normal): crash_or_timeout: build timed out after 300 s", text)
+        self.assertNotIn("b (dyn)", text)
+        self.assertIn("c (both builds): unstable: rule 2: run 3 differs", text)
+        self.assertEqual(text.count("c ("), 1)
+
+    def test_a_match_moved_to_the_bridge_is_lost(self):
+        lost, _ = c.lost_matches(self.published, [self.row("a", "matched", path="pybridge")])
+        self.assertIn("matched through the CPython bridge", "\n".join(c.lost_lines(lost, 0, self.published)))
+
+    def test_signals_held_for_security_are_counted_not_named(self):
+        sig = next(iter(c.PRIVATE_SIGNALS))
+        lost, held = c.lost_matches(self.published, [self.row("a", "crash_or_timeout", detail=f"signal {sig}")])
+        self.assertEqual((lost, held), ([], 1))
+        self.assertIn("1 more ended on a signal", "\n".join(c.lost_lines(lost, held, self.published)))
+
+    def test_nothing_lost_prints_nothing(self):
+        self.assertEqual(c.lost_lines(*c.lost_matches(self.published, [self.row("a", "matched")]), self.published), [])
+        self.assertEqual(c.lost_matches(None, [self.row("a", "refused")]), ([], 0))
+
+    def test_another_platforms_report_is_not_traced_against(self):
+        import json, unittest.mock as m
+        with tempfile.TemporaryDirectory() as t:
+            f = Path(t) / "report.json"
+            f.write_text(json.dumps({**self.published, "platform": "elsewhere"}))
+            with m.patch.dict(c.PUBLISHED, {"core": f}):
+                self.assertIsNone(c.read_published("core"))
+                f.write_text(json.dumps(self.published))
+                self.assertEqual(c.read_published("core")["commit"], "abc")
+
+    def test_slowest_builds_come_first(self):
+        r = self.row("a", "matched")
+        r["modes"]["normal"]["build_s"], r["modes"]["dyn"]["build_s"] = 12.5, 40.0
+        self.assertEqual(c.slowest_builds([r], 1), [(40.0, "a", "dyn")])
+
+
+class WindowsRatchet(unittest.TestCase):
+    """On Windows each slice uses its own floor and known-wrong list, and nothing checks against an unmeasured one."""
+    def gate(self, argv, floor=None):
+        import json, unittest.mock as m
+        with tempfile.TemporaryDirectory() as t:
+            f = Path(t) / "floor.json"
+            if floor is not None:
+                f.write_text(json.dumps(floor))
+            slices = {"core": (Path(t) / "known_wrong", f)}
+            with m.patch.object(c, "WINDOWS", True), m.patch.object(c, "WINDOWS_SLICES", slices), m.patch.object(c, "FLOOR", c.FLOOR), \
+                    m.patch.object(c, "BASELINE", c.BASELINE), m.patch.object(c, "SCOPE", c.SCOPE), \
+                    m.patch.object(sys, "argv", ["conformance.py", *argv]), self.assertRaises(SystemExit) as e:
+                c.main()
+            return str(e.exception.code)
+
+    def test_a_slice_without_windows_files_only_measures_on_windows(self):
+        # gate() patches WINDOWS_SLICES to core only, so stdlib stands for any slice with no Windows floor.
+        for flag in ("--check", "--raise-floor", "--release-gate", "--write-baseline"):
+            self.assertIn("no Windows floor", self.gate(["--slice", "stdlib", flag]))
+
+    def test_every_slice_has_its_own_measured_windows_floor(self):
+        # The release gates both slices on Windows (release.yml), so each needs Windows files of its own, never the
+        # Linux ones, and a floor that was measured (an unmeasured one refuses, which would fail every release).
+        import json
+        self.assertEqual(set(c.WINDOWS_SLICES), set(c.SLICES))
+        for name, (known_wrong, floor) in c.WINDOWS_SLICES.items():
+            _, linux_known_wrong, linux_floor = c.SLICES[name]
+            self.assertNotEqual(known_wrong, linux_known_wrong)
+            self.assertNotEqual(floor, linux_floor)
+            self.assertTrue(known_wrong.is_dir(), known_wrong)
+            data = json.loads(floor.read_text())
+            self.assertEqual(set(data["matched"]), {"normal", "dyn"}, floor)
+            self.assertTrue(all(n > 0 for n in data["matched"].values()), floor)
+            self.assertEqual(data["release_gate"]["wrong"], 0, floor)
+            self.assertEqual(data["release_gate"]["coverage"], json.loads(linux_floor.read_text())["release_gate"]["coverage"], floor)
+
+    def test_unmeasured_windows_floor_refuses(self):
+        gate = {"coverage": 0.9, "wrong": 0}
+        for floor in (None, {"release_gate": gate}, {"matched": {"normal": 0, "dyn": 0}, "release_gate": gate},
+                      {"matched": {"normal": 900, "dyn": 900}}):
+            self.assertIn("no measured floor", self.gate(["--check"], floor))
+            self.assertIn("no measured floor", self.gate(["--release-gate"], floor))
+
+    def test_address_ordered_triples_are_unstable(self):
+        for t in ("test_empty_union", "test_self_equality", "test_self_intersection", "test_union_empty"):
+            self.assertIn(f"test_set.TestBasicOpsTriple.{t}", c.ADDRESS_ORDER)
+
+    def test_threads_printing_at_once_are_unstable(self):
+        # CPython's OS scheduler orders (and splits) these lines, so its output must never decide the score
+        for t in ("threaded", "threaded2", "threaded3"):
+            self.assertIn(f"test_functools.TestLRUC.test_lru_cache_{t}", c.ALWAYS_UNSTABLE)
+        self.assertLessEqual(set(c.ADDRESS_ORDER), set(c.ALWAYS_UNSTABLE))
 
 if __name__ == "__main__":
     unittest.main()

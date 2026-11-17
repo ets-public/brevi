@@ -822,6 +822,23 @@ impl Cx<'_> {
     }
 
     fn look_expr(&mut self, n: &str, e: &Expr, env: &mut Env, acc: &mut T) {
+        // `totals.get(k, 0) + amount` with amount a float or Decimal: the values are of amount's type (the int
+        // default is made one in Ck::expr), not ints.
+        if let Expr::Binary("+" | "-" | "*", a, b) = e {
+            if matches!(&*acc, Map(..) | Hole) {
+                for (x, y) in [(a, b), (b, a)] {
+                    if let Expr::Method(r, m, args, _) = x.as_ref() {
+                        if m == "get_or" && Self::is_n(r, n) && matches!(args.get(1), Some(Expr::Int(_))) {
+                            let yt = self.ty(y, env);
+                            if matches!(yt, Dec | F64) {
+                                let kt = self.ty(&args[0], env);
+                                *acc = merge(acc.clone(), Map(Box::new(kt), Box::new(yt)));
+                            }
+                        }
+                    }
+                }
+            }
+        }
         match e {
             Expr::Method(recv, m, args, _) => {
                 let a0 = args.first().map(|a| self.ty(a, env)).unwrap_or(Hole);
@@ -1214,7 +1231,7 @@ impl Cx<'_> {
             "list" => List(Box::new(Json)),
             "repeat" | "slice" | "slice_step" | "rev" if matches!(r, Str) => Str,
             "join" => Str,
-            "words" | "lines" | "lines_keep" | "chars" | "split" | "split_n" | "rsplit_n" | "re_full" | "re_find" | "re_split" | "re_list" | "re_match" | "re_findall" => List(Box::new(Str)),
+            "words" | "words_n" | "lines" | "lines_keep" | "chars" | "split" | "split_n" | "rsplit_n" | "re_full" | "re_find" | "re_split" | "re_list" | "re_match" | "re_findall" => List(Box::new(Str)),
             "partition" => Tuple(vec![Str, Str, Str]),
             "re_all" | "csv_rows" => List(Box::new(List(Box::new(Str)))),
             "csv_dicts" => List(Box::new(Map(Box::new(Str), Box::new(Str)))),
@@ -3490,6 +3507,44 @@ impl Ck<'_, '_> {
         }
     }
 
+    // The values `a if c else (b if d else e)` may give (a `Block` with no statements around each one).
+    fn if_leaves<'e>(e: &'e Expr, out: &mut Vec<&'e Expr>) {
+        match e {
+            Expr::If(_, t, Some(f)) => {
+                for b in [t, f] {
+                    match b.as_ref() {
+                        Expr::Block(st, Some(tail)) if st.is_empty() => Self::if_leaves(tail, out),
+                        x => out.push(x),
+                    }
+                }
+            }
+            x => out.push(x),
+        }
+    }
+    // Whether a conditional expression gives one type (or one this pass does not know how to show).
+    fn one_type(&self, e: &Expr, env: &Env) -> bool {
+        let mut leaves = vec![];
+        Self::if_leaves(e, &mut leaves);
+        let ts: Vec<T> = leaves.iter().map(|x| self.cx.ty(x, env)).collect();
+        !leaves.iter().all(|x| !matches!(x, Expr::Block(..) | Expr::If(..))) || ts.iter().any(|t| !matches!(t, Int | F64 | Bool | Str)) || ts.iter().all(|t| *t == ts[0])
+    }
+    fn show_branches(&self, e: &mut Expr, env: &Env, line: usize) {
+        if let Expr::If(_, t, Some(f)) = e {
+            for b in [t, f] {
+                if let Expr::Block(st, Some(tail)) = b.as_mut() {
+                    if st.is_empty() {
+                        if matches!(tail.as_ref(), Expr::If(_, _, Some(_))) {
+                            self.show_branches(tail, env, line);
+                        } else if self.cx.ty(tail, env) != Str {
+                            let v = std::mem::replace(&mut **tail, Expr::Int(0));
+                            **tail = Expr::Call("str".into(), vec![(None, v)], line);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fn expr(&mut self, e: &mut Expr, env: &mut Env) {
         // A .py file calling Brevi's `xs.push(x)` on a value sure to be a list, dict, text or number.
         if let Expr::Method(r, m, _, line) = &*e {
@@ -3611,6 +3666,46 @@ impl Ck<'_, '_> {
                     let b = v.pop().unwrap();
                     let a = v.pop().unwrap();
                     *e = Expr::Binary("/", Box::new(a), Box::new(b));
+                }
+            }
+        }
+        // `ch * int(code[i:j])`: text repeated. The emitter knows only literal and global types, so a local str
+        // times a computed int is made a repeat here. `n * s` swaps the operands, so only when one is a plain name
+        // or literal (nothing that runs or fails between them).
+        if let Expr::Binary("*", a, b) = &mut *e {
+            let (ta, tb) = (self.cx.ty(a, env), self.cx.ty(b, env));
+            let lone = |x: &Expr| matches!(x, Expr::Ident(_) | Expr::Int(_) | Expr::Str(_));
+            if (ta == Str && tb == Int) || (ta == Int && tb == Str && (lone(a) || lone(b))) {
+                let (s, n) = if ta == Str { (std::mem::replace(&mut **a, Expr::Int(0)), std::mem::replace(&mut **b, Expr::Int(0))) } else { (std::mem::replace(&mut **b, Expr::Int(0)), std::mem::replace(&mut **a, Expr::Int(0))) };
+                *e = Expr::Method(Box::new(s), "repeat".into(), vec![n], 0);
+            }
+        }
+        // `totals.get(k, 0) + amount` with Decimal (or float) values: Python's 0 + x is x's type with the same
+        // value, so the int default is made that type when the lookup is an operand of + - * with one.
+        if let Expr::Binary(op @ ("+" | "-" | "*"), a, b) = &mut *e {
+            let _ = op;
+            let (ta, tb) = (self.cx.ty(a, env), self.cx.ty(b, env));
+            for (x, yt) in [(&mut **a, tb), (&mut **b, ta)] {
+                if let Expr::Method(r, m, args, _) = x {
+                    if m == "get_or" && args.len() == 2 && matches!(yt, Dec | F64) && matches!(self.cx.ty(r, env), Map(_, ref v) if **v == yt) {
+                        if let Expr::Int(n) = args[1] {
+                            args[1] = if yt == Dec { Expr::Method(Box::new(Expr::Int(n)), "dec".into(), vec![], 0) } else { Expr::Float(n as f64) };
+                        }
+                    }
+                }
+            }
+        }
+        // `print("Fizz" if i % 3 == 0 else i)`: print shows str(x) of what it is given, so branches of different
+        // plain types are each made str first (Python's print and str() agree for int, float, bool and str).
+        if self.py {
+            if let Expr::Call(f, args, line) = &mut *e {
+                if f == "print" {
+                    let line = *line;
+                    for (name, a) in args.iter_mut() {
+                        if name.is_none() && matches!(a, Expr::If(_, _, Some(_))) && !self.one_type(a, env) {
+                            self.show_branches(a, env, line);
+                        }
+                    }
                 }
             }
         }

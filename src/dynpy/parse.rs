@@ -146,7 +146,8 @@ fn unescape_at(body: &str, line: usize, lone: &mut Option<&mut Vec<(usize, u32)>
 }
 
 pub fn lex(src: &str) -> Result<Lexed, (usize, String)> {
-    let cs: Vec<char> = src.chars().collect();
+    // CRLF or CR line ends read as `\n`, as CPython reads source (crate::read_src does the same for files)
+    let cs: Vec<char> = crate::universal_newlines(src).chars().collect();
     let mut toks: Vec<(Tok, usize)> = vec![];
     let mut i = 0;
     let mut line = 1;
@@ -1506,6 +1507,10 @@ impl P {
             while !self.is_op(")") {
                 if let Tok::Name(n) = self.peek().clone() {
                     if matches!(self.toks.get(self.i + 1).map(|t| &t.0), Some(Tok::Op("="))) {
+                        // a keyword given twice is CPython's SyntaxError
+                        if kwargs.iter().any(|(k, _)| *k == n) || (n == "metaclass" && abc_meta) {
+                            return Err(err(line, &format!("keyword argument repeated: {n}")));
+                        }
                         if n == "metaclass" {
                             // ABCMeta is the abc module's own (collections.abc's rules); any other is called
                             // as CPython's __build_class__ calls it (dynpy/emit.rs, meta_build)
@@ -1522,18 +1527,21 @@ impl P {
                             }
                             continue;
                         }
-                        if n == "total" {
-                            self.next();
-                            self.next();
-                            let v = self.expr()?;
-                            kwargs.push((n, v));
-                            if !self.eat_op(",") {
-                                break;
-                            }
-                            continue;
+                        // any other keyword goes to the metaclass (EnumType's boundary=) and __init_subclass__
+                        // (dynpy/emit.rs class, rt_call.rs make_class_impl); a name given twice is CPython's SyntaxError
+                        self.next();
+                        self.next();
+                        let v = self.expr()?;
+                        kwargs.push((n, v));
+                        if !self.eat_op(",") {
+                            break;
                         }
-                        return Err(err(line, "class keyword arguments are not supported"));
+                        continue;
                     }
+                }
+                // a positional base after a keyword is CPython's SyntaxError
+                if !kwargs.is_empty() || abc_meta {
+                    return Err(err(line, "positional argument follows keyword argument"));
                 }
                 // `class C(*bases)`: the bases unpacked at run time (dynpy/emit.rs class)
                 if self.eat_op("*") {

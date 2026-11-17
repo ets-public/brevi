@@ -1,0 +1,28 @@
+0.005
+1e-06
+0.0
+2e-06
+1.0
+1.0
+0.333333
+0.004999
+0.09999999999999999
+ValueError switch interval must be strictly positive
+ValueError switch interval must be strictly positive
+TypeError must be real number, not str
+TypeError must be real number, not NoneType
+TypeError must be real number, not bytes
+TypeError must be real number, not complex
+ok 3.0
+ok 0.25
+ValueError boom
+OverflowError int too large to convert to float
+TypeError must be real number, not list
+TypeError sys.setswitchinterval() takes no keyword arguments
+TypeError sys.setswitchinterval() takes exactly one argument (0 given)
+TypeError sys.setswitchinterval() takes exactly one argument (2 given)
+TypeError sys.getswitchinterval() takes no arguments (1 given)
+TypeError sys.getswitchinterval() takes no keyword arguments
+2.0
+0.25
+0.125

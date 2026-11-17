@@ -1922,7 +1922,11 @@ pub fn np_truth(a: &NdArr) -> Result<bool, E> {
 
 // numpy hands float dot and matmul to OpenBLAS, whose kernels (picked for the CPU) add in their own
 // orders with fused multiply-adds. These follow the SkylakeX (AVX-512) and Haswell/Zen (AVX2) kernels, so
-// results match numpy's on the same kind of machine; elsewhere a plain loop.
+// results match numpy's on the same kind of machine. On any other CPU (ARM64, or x86-64 without AVX2 and FMA)
+// numpy's OpenBLAS runs kernels these do not model, so float products and linear algebra are refused there
+// (np_blas_ok): the build sends such a program to CPython (emit.rs np_blas_here), and a binary moved to such a
+// CPU raises NotImplementedError rather than print other last digits than numpy's. (The runtime reads no
+// environment, so OPENBLAS_CORETYPE is the build's to check.)
 #[derive(Clone, Copy, PartialEq)]
 enum Blas {
     Skx,
@@ -1944,6 +1948,14 @@ fn np_blas() -> Blas {
         Blas::Plain
     })
 }
+// Err on a CPU whose OpenBLAS kernels are not modelled: every float matrix product, norm and linear algebra
+// routine calls this before its BLAS model runs.
+pub fn np_blas_ok(what: &str) -> Result<(), E> {
+    if np_blas() == Blas::Plain {
+        return Err(np_unsup(&format!("{what} on this CPU (numpy's OpenBLAS kernels for it are not modelled; Brevi models x86-64 with AVX2 and FMA)")));
+    }
+    Ok(())
+}
 // a * b + c rounded once. The runtime is built for baseline x86-64, where this is a software routine; the
 // hot kernels below are also compiled for CPUs with FMA (fma_on) and pick that copy at run time, where it is
 // the CPU's own instruction. Either way the result is the same.
@@ -1956,7 +1968,8 @@ fn fma(a: f64, b: f64, c: f64) -> f64 {
 pub fn np_fmaf(a: f32, b: f32, c: f32) -> f32 {
     a.mul_add(b, c)
 }
-// numpy's float32 exp/tanh/log1p/sin/cos loops are reproduced for its AVX-512 (SkylakeX) dispatch only
+// numpy's float32 exp/tanh/log1p/sin/cos loops are reproduced for its AVX-512 (SkylakeX) dispatch only, as are
+// OpenBLAS's float32 sdot/sgemv/sgemm kernels
 pub fn np_f32_simd() -> bool {
     np_blas() == Blas::Skx
 }
@@ -1992,13 +2005,7 @@ fma_on!(ddot1, ddot1_i, (x: &[f64], y: &[f64], unit: bool, k: Blas) -> f64);
 #[inline(always)]
 fn ddot1_i(x: &[f64], y: &[f64], unit: bool, k: Blas) -> f64 {
     let n = x.len();
-    if k == Blas::Plain {
-        let mut s = 0.0;
-        for i in 0..n {
-            s += x[i] * y[i];
-        }
-        return s;
-    }
+    assert!(k != Blas::Plain, "np_blas_ok was not checked");
     if !unit {
         let (mut t1, mut t2) = (0.0, 0.0);
         let n1 = n & !3;
@@ -2071,7 +2078,7 @@ fn ddot1_i(x: &[f64], y: &[f64], unit: bool, k: Blas) -> f64 {
 fn np_ddot(x: &[f64], y: &[f64], unit: bool) -> f64 {
     let k = np_blas();
     let n = x.len();
-    if n <= 10000 || k == Blas::Plain {
+    if n <= 10000 {
         return ddot1(x, y, unit, k);
     }
     let nt = std::thread::available_parallelism().map_or(1, |v| v.get()).min(64);
@@ -2869,13 +2876,7 @@ fn np_sgemm_small(xv: &[f32], yv: &[f32], m: usize, k: usize, n: usize, xf: bool
 // one element of a float matrix product: the k-loop as one fused multiply-add chain (OpenBLAS's gemm
 // kernels); for a matrix times a vector, gemv's four lanes
 fn dot_f(x: &[f64], y: &[f64]) -> f64 {
-    if np_blas() == Blas::Plain {
-        let mut s = 0.0;
-        for i in 0..x.len() {
-            s += x[i] * y[i];
-        }
-        return s;
-    }
+    assert!(np_blas() != Blas::Plain, "np_blas_ok was not checked");
     let mut s = 0.0;
     for i in 0..x.len() {
         s = fma(x[i], y[i], s);
@@ -3655,6 +3656,7 @@ pub fn np_dot2(x: &NdArr, y: &NdArr, matmul: bool) -> R {
     }
     let out = match d {
         NT::F => {
+            np_blas_ok(if matmul { "matmul of float arrays" } else { "dot of float arrays" })?;
             let (xv, yv) = (x.fv(), y.fv());
             if x.ndim() == 1 && y.ndim() == 1 {
                 let unit = x.st.first().is_none_or(|s| *s == 1) && y.st.first().is_none_or(|s| *s == 1);
@@ -3666,7 +3668,7 @@ pub fn np_dot2(x: &NdArr, y: &NdArr, matmul: bool) -> R {
                     a.ndim() != 2 || ok(a.st[0], a.st[1], a.shape[1]) || ok(a.st[1], a.st[0], a.shape[0]) || a.shape.contains(&1)
                 };
                 let bl1 = |a: &NdArr| a.ndim() != 1 || a.st[0] >= 1 || a.shape[0] <= 1;
-                let blas = np_blas() != Blas::Plain && (!matmul || (bl2(x) && bl2(y) && bl1(x) && bl1(y)));
+                let blas = !matmul || (bl2(x) && bl2(y) && bl1(x) && bl1(y));
                 // a 2-d operand stored in Fortran order (a transpose) reaches BLAS as the other kind of gemv
                 let ford = |a: &NdArr| a.ndim() == 2 && a.shape[0] > 1 && a.shape[1] > 1 && a.st[0] == 1;
                 let vunit = |a: &NdArr| a.st.first().is_none_or(|s| *s == 1);
@@ -3719,10 +3721,10 @@ pub fn np_dot2(x: &NdArr, y: &NdArr, matmul: bool) -> R {
                         }
                     }
                     Buf::F(o)
-                } else if np_blas() != Blas::Plain && x.ndim() == 2 && y.ndim() == 2 && m > 1 && n > 1 && k > 0 && syrk(x, y) && (if matmul { bl2(x) } else { contig(x) }) {
+                } else if x.ndim() == 2 && y.ndim() == 2 && m > 1 && n > 1 && k > 0 && syrk(x, y) && (if matmul { bl2(x) } else { contig(x) }) {
                     let v: Vec<Vec<f64>> = (0..m).map(|i| xv[i * k..(i + 1) * k].to_vec()).collect();
                     Buf::F(np_syrk(&v, k))
-                } else if np_blas() != Blas::Plain && x.ndim() == 2 && y.ndim() == 2 && m > 1 && n > 1 && k > 0 {
+                } else if x.ndim() == 2 && y.ndim() == 2 && m > 1 && n > 1 && k > 0 {
                     // which operands OpenBLAS reads transposed: matmul passes a strided matrix BLAS can describe
                     // as it is and copies any other (numpy 2.5, keeping it Fortran-like when its rows are closer
                     // together than its columns); np.dot passes only a contiguous one and copies the rest to C order

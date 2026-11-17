@@ -13,7 +13,7 @@
 // Brevi says nothing of its own: the {"path":...} line and CPython's whole traceback are as CPython would
 // print them, unless BREVI_SHIM_VERBOSE=1. A program that looks at what differs between a native run and
 // CPython (sys.executable, sys.argv[0], sys.orig_argv, argparse's program name, __file__ for -c) goes to
-// CPython. CPython is BREVI_PYTHON, else the first python3 on PATH that is not this binary.
+// CPython. CPython is always a CPython 3.13 (src/cpython.rs): BREVI_PYTHON, else the first one found.
 use std::ffi::OsString;
 use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
@@ -132,25 +132,15 @@ fn needs_cpython(src: &str, inline: bool) -> bool {
     false
 }
 
-// CPython: BREVI_PYTHON, else the first python3 (then python) on PATH that is not this binary.
+// CPython: always a CPython 3.13 (src/cpython.rs: BREVI_PYTHON, else the first 3.13 found that is not this binary).
 fn cpython() -> OsString {
-    if let Some(p) = std::env::var_os("BREVI_PYTHON").filter(|p| !p.is_empty()) {
-        return p;
-    }
-    let me = std::env::current_exe().ok().and_then(|p| p.canonicalize().ok());
-    let path = std::env::var_os("PATH").unwrap_or_default();
-    let exe = |n: &str| if cfg!(windows) { format!("{n}.exe") } else { n.to_string() };
-    let names: [&str; 3] = if cfg!(windows) { ["python", "python3", "python3.real"] } else { ["python3", "python3.real", "python"] };
-    for name in names {
-        for dir in std::env::split_paths(&path) {
-            let p = dir.join(exe(name));
-            if p.is_file() && p.canonicalize().ok() != me {
-                return p.into_os_string();
-            }
+    match crate::cpython::exe_os() {
+        Ok(p) => p,
+        Err(why) => {
+            eprintln!("brevi-python: {why}");
+            std::process::exit(127)
         }
     }
-    eprintln!("brevi-python: no CPython found: set BREVI_PYTHON to the python3 to run when Brevi cannot build a program");
-    std::process::exit(127)
 }
 
 fn read_stdin() -> String {

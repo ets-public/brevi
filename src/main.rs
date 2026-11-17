@@ -7,6 +7,7 @@ mod ast;
 mod bigint;
 mod caps;
 mod cgroup;
+mod cpython;
 mod diag;
 mod dynpy;
 mod emit;
@@ -30,11 +31,13 @@ mod share_guard;
 mod typed_guard;
 mod unicode_names;
 mod pysentinel;
+mod privdir;
 mod pystd;
 mod pygen;
 mod scoped;
 mod runcache;
 mod tier;
+mod toolchain;
 mod shim;
 mod verify;
 
@@ -159,19 +162,31 @@ fn print_diag(d: &Diag) {
     explain(&d.msg, d.fix.as_deref().unwrap_or(""));
 }
 
-/// The CPython to run when a library program falls back, or when verify compares: `python` on Windows
-/// (there `python3` is often a Store alias), `python3` elsewhere.
-pub fn python_exe() -> String {
-    std::env::var("BREVI_PYTHON").unwrap_or_else(|_| if cfg!(windows) { "python".into() } else { "python3".into() })
+/// The CPython to run when a program falls back, or when verify compares: always a CPython 3.13
+/// (src/cpython.rs), or why there is none.
+pub fn python_exe() -> Result<String, String> {
+    cpython::exe()
 }
 
-/// A program's source file, read as Python reads it: a UTF-8 byte order mark at the start is not part of the text.
+/// A program's source file, read as Python reads it: a UTF-8 byte order mark at the start is not part of the text,
+/// and every line ends in `\n` (universal newlines: `\r\n` and a lone `\r` become `\n`, so a file saved on Windows
+/// gives the same string literals and line continuations as on Linux).
 pub fn read_src(p: impl AsRef<Path>) -> std::io::Result<String> {
     let s = std::fs::read_to_string(p)?;
-    Ok(match s.strip_prefix('\u{feff}') {
+    let s = match s.strip_prefix('\u{feff}') {
         Some(t) => t.to_string(),
         None => s,
-    })
+    };
+    Ok(universal_newlines(&s).into_owned())
+}
+
+/// Python's universal newlines on source text: `\r\n` and a lone `\r` become `\n`, as CPython's tokenizer reads them.
+/// Text that has no `\r` comes back borrowed.
+pub fn universal_newlines(s: &str) -> std::borrow::Cow<'_, str> {
+    if !s.contains('\r') {
+        return std::borrow::Cow::Borrowed(s);
+    }
+    std::borrow::Cow::Owned(s.replace("\r\n", "\n").replace('\r', "\n"))
 }
 
 // `brevi run` options that take a value in the next argument (or after `=`).
@@ -230,6 +245,18 @@ fn quiet_on_closed_pipe() {
 }
 
 fn main() {
+    // `brevi __copy FROM TO` (copy_exe): before anything else, so this process starts no thread and no child.
+    {
+        let mut a = std::env::args_os().skip(1);
+        if a.next().is_some_and(|c| c == "__copy") {
+            let (Some(from), Some(to), None) = (a.next(), a.next(), a.next()) else { exit(2) };
+            exit(if copy_job(Path::new(&from), Path::new(&to)) { 0 } else { 1 });
+        }
+    }
+    // `brevi-cc`: the linker rustc runs when zig links (src/toolchain.rs).
+    if toolchain::is_cc() {
+        toolchain::cc_main();
+    }
     tm("start");
     if let Some(args) = shim::args() {
         shim::main(args);
@@ -263,6 +290,9 @@ fn main() {
     }
     if argv.first().map(|a| a.as_str()) == Some("__tier") {
         tier::job(&argv[1..]);
+    }
+    if argv.first().map(|a| a.as_str()) == Some("toolchain") {
+        toolchain::main(&argv[1..]);
     }
     if matches!(argv.first().map(|a| a.as_str()), Some("--help" | "-h" | "help")) {
         println!("{USAGE}");
@@ -420,6 +450,7 @@ fn main() {
         PY_FILE.store(true, std::sync::atomic::Ordering::Relaxed);
     }
     // An unchanged program is not built again: check, build and strict runs replay the build from the cache.
+    pybridge::set_standalone(standalone && cmd == "build");
     if matches!(cmd, "check" | "build" | "run") && !(cmd == "run" && is_py(&file) && !native) && !standalone && runcache::on() && !runcache::in_child() {
         let mut flags: Vec<String> = vec![];
         for (on, f) in [(fast, "--fast"), (sandbox, "--sandbox"), (gui::window(), "--window"), (EXPLAIN.load(std::sync::atomic::Ordering::Relaxed), "--explain"), (native, "--native")] {
@@ -670,15 +701,8 @@ fn main() {
                 fail(cmd);
             }
             if cmd == "build" {
-                // --standalone: a program that calls Python libraries carries its own CPython.
-                if standalone && pybridge::active() {
-                    match pybridge::bundle(&file, &bin) {
-                        Ok(note) => eprintln!("note: {note}"),
-                        Err(m) => {
-                            print_diag(&Diag::new("build", 1, 1, &m).fix_hint("build without --standalone; the program then needs python3 and its libraries installed"));
-                            exit(1);
-                        }
-                    }
+                if pybridge::active() {
+                    standalone_bundle(&file, &bin);
                 }
                 say_typed();
                 return;
@@ -772,11 +796,15 @@ fn dyn_fallback(cmd: &str, file: &str, argv: &[String], why: Why) -> bool {
         // builds at once, a full disk) or rustc may have been stopped. The refusal printed next names the typed
         // build's reason, which a later build (after the machine is fine) would not stop at.
         runcache::not_kept();
-        *DYN_BLOCKED.lock().unwrap() = Some((file.to_string(), 0, "internal: the dynamic build's code did not compile".into()));
+        let why = link_failure(&e).map_or_else(|| "internal: the dynamic build's code did not compile".into(), |w| format!("the dynamic build could not link: {w}"));
+        *DYN_BLOCKED.lock().unwrap() = Some((file.to_string(), 0, why));
         return false;
     }
     let (wfile, line, func, why, extra, relocate) = why;
     say_path("dynamic", &wfile, line, func, &why, &format!("{extra}{}", dyn_py_field()), relocate);
+    if cmd == "build" && !dynpy::bridged().is_empty() {
+        standalone_bundle(file, &bin);
+    }
     if cmd == "run" {
         let mut c = proc::script(&bin, file);
         c.args(argv.get(dash + 1..).unwrap_or(&[]));
@@ -899,6 +927,21 @@ fn dyn_blocked_note() {
     }
 }
 
+// --standalone: a program that calls Python libraries (typed or dynamic build) carries its own CPython. A build
+// that cannot bundle it fails, and leaves a binary that refuses to run rather than one using installed Python.
+fn standalone_bundle(file: &str, bin: &Path) {
+    if !pybridge::standalone() {
+        return;
+    }
+    match pybridge::bundle(file, bin) {
+        Ok(note) => eprintln!("note: {note}"),
+        Err(m) => {
+            print_diag(&Diag::new("build", 1, 1, &m).fix_hint("build without --standalone; the program then needs python3 and its libraries installed"));
+            exit(1);
+        }
+    }
+}
+
 // Builds (and runs) a Python file through the dynamic-value path. Never returns.
 fn dyn_cmd(cmd: &str, file: &str, argv: &[String]) -> ! {
     let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
@@ -919,12 +962,18 @@ fn dyn_cmd(cmd: &str, file: &str, argv: &[String]) -> ! {
     let out_path = argv[..dash].iter().position(|a| a == "-o").and_then(|i| argv.get(i + 1)).map(PathBuf::from);
     let bin = if cmd == "build" { out_path.unwrap_or_else(|| PathBuf::from(&stem)) } else { dir.join(format!("{stem}-dyn")) };
     if let Err(e) = dynpy::compile(&rust, &dir, &bin, release, &cache_dir(), rustc_version()) {
-        println!("{{\"e\":\"dyn\",\"msg\":\"internal: generated code did not compile\"}}");
+        match link_failure(&e) {
+            Some(w) => println!("{{\"e\":\"dyn\",\"msg\":\"the dynamic build could not link: {}\"}}", esc(&w)),
+            None => println!("{{\"e\":\"dyn\",\"msg\":\"internal: generated code did not compile\"}}"),
+        }
         eprintln!("{e}");
         exit(1);
     }
     say_path("dynamic", "", 0, None, "BREVI_DYN=1", &dyn_py_field(), false);
     if cmd == "build" {
+        if !dynpy::bridged().is_empty() {
+            standalone_bundle(file, &bin);
+        }
         exit(0);
     }
     let mut c = proc::script(&bin, file);
@@ -1042,7 +1091,16 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
         }
         Ok(o) => {
             let out = String::from_utf8_lossy(&o.stdout).to_string();
-            let python = python_exe();
+            let python = match python_exe() {
+                Ok(p) => p,
+                Err(why) => {
+                    // No CPython 3.13 here: show Brevi's errors as a strict run would, and why nothing else ran.
+                    print!("{out}");
+                    std::io::stderr().write_all(&o.stderr).ok();
+                    eprintln!("note: not run with CPython: {why}");
+                    exit(1);
+                }
+            };
             // On a sure mistake the note already names the error, so CPython's traceback is cut to its last
             // line (`--traceback` or BREVI_TRACEBACK=1 shows all of it).
             let short = o.code == Some(3) && !TRACEBACK.load(std::sync::atomic::Ordering::Relaxed);
@@ -1056,18 +1114,22 @@ fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> !
             if short {
                 cmd.stderr(std::process::Stdio::piped());
             }
+            // The note goes out before CPython starts: printed after the spawn, it raced the program's own output
+            // and could land after lines the program had already written (stderr and stdout often share one pipe).
+            // python_exe() has just run this interpreter, so the spawn below fails only if it vanished since.
+            say_cpython(file, &python, &out, &String::from_utf8_lossy(&o.stderr));
             match cmd.spawn() {
                 Ok(mut child) => {
-                    say_cpython(file, &python, &out, &String::from_utf8_lossy(&o.stderr));
                     if let Some(err) = child.stderr.take() {
                         last_traceback_line(err);
                     }
                     child.wait().map(proc::code).unwrap_or(1)
                 }
-                Err(_) => {
-                    // No Python here: show Brevi's errors as a strict run would.
+                Err(e) => {
+                    // CPython could not start after all: say so, and show Brevi's errors as a strict run would.
                     print!("{out}");
                     std::io::stderr().write_all(&o.stderr).ok();
+                    eprintln!("note: not run with CPython: {python} did not start ({e})");
                     1
                 }
             }
@@ -1282,8 +1344,54 @@ fn enclosing_def(src: &str, line: usize) -> Option<String> {
     Some(parts.join("."))
 }
 
+// What the linker said, when rustc's error is "linking with ... failed": its own error lines (rustc puts them
+// in a note after the command line), so a refusal names the cause instead of only an exit code. Reads rustc's
+// JSON (--error-format=json) and its text output.
+pub(crate) fn link_failure(stderr: &str) -> Option<String> {
+    let mut text = String::new();
+    let mut found = false;
+    for l in stderr.lines() {
+        if let Some(j) = json::parse(l) {
+            if j.get("message").and_then(|v| v.str()).is_some_and(|m| m.starts_with("linking with")) {
+                found = true;
+                for c in j.get("children").map(|c| c.arr()).unwrap_or(&[]) {
+                    text.push_str(c.get("message").and_then(|v| v.str()).unwrap_or(""));
+                    text.push('\n');
+                }
+            }
+        } else if found {
+            text.push_str(l);
+            text.push('\n');
+        } else if l.contains("error: linking with") {
+            found = true;
+        }
+    }
+    if !found {
+        return None;
+    }
+    let lines: Vec<&str> = text
+        .lines()
+        .map(|l| l.trim().trim_start_matches('|').trim().trim_start_matches("= note:").trim())
+        .filter(|l| !l.is_empty() && !l.starts_with('"') && !l.starts_with("some arguments are omitted") && !l.starts_with("error: aborting due to") && !l.starts_with("For more information"))
+        .take(4)
+        .collect();
+    let mut s = lines.join("; ");
+    if s.len() > 600 {
+        let mut end = 600;
+        while !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        s.truncate(end);
+        s.push_str("...");
+    }
+    Some(s).filter(|s| !s.is_empty())
+}
+
 // The first error of a failed rustc run over the typed build's code, in one line.
 fn rustc_first_error(stderr: &str) -> String {
+    if let Some(why) = link_failure(stderr) {
+        return format!("the typed build could not link ({why})");
+    }
     for l in stderr.lines() {
         if let Some(j) = json::parse(l) {
             if j.get("level").and_then(|v| v.str()) == Some("error") {
@@ -1501,7 +1609,7 @@ fn compile_once(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>
         match engine::glue(&mods, &froms, &items) {
             Some(g) => foreign.rust_top.push_str(&g),
             None => {
-                pybridge::python_ok().map_err(|m| vec![Diag::new("check", 1, 1, &m).fix_hint("run the program with python3")])?;
+                pybridge::python_ok().map_err(|m| vec![Diag::new("check", 1, 1, &m).fix_hint("install CPython 3.13 with its shared library (libpython), or set BREVI_PYTHON to one")])?;
                 foreign.rust_top.push_str(&pybridge::runtime());
             }
         }
@@ -1695,7 +1803,30 @@ pub fn build_dir_path(file: &str) -> PathBuf {
     for b in abs.to_string_lossy().bytes() {
         h = (h ^ b as u64).wrapping_mul(1099511628211);
     }
-    std::env::temp_dir().join(format!("brevi-{h:x}"))
+    tmp_root().join(format!("brevi-{h:x}"))
+}
+
+// Where Brevi keeps its temporary folders (build folders, MCP work folders, ...). On unix a private folder of
+// this user's (privdir.rs): $TMPDIR/brevi-UID, else ~/.cache/brevi/tmp. Another local user can read nothing in
+// it and change nothing, so a build cannot be swapped between being made and being run. When neither is
+// private, brevi stops with the reason rather than build in a folder someone else controls.
+pub(crate) fn tmp_root() -> PathBuf {
+    #[cfg(unix)]
+    {
+        static ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+        ROOT.get_or_init(|| match privdir::ax_priv::root("brevi", "tmp") {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("brevi: {e}");
+                std::process::exit(1)
+            }
+        })
+        .clone()
+    }
+    #[cfg(not(unix))]
+    {
+        std::env::temp_dir()
+    }
 }
 
 // The builds to try in order: with inferred types for empty values, then without (the errors shown come
@@ -1793,8 +1924,12 @@ pub(crate) fn cache_dir() -> PathBuf {
         // Absolute, so a background build (src/tier.rs), which runs in its own folder, finds the same cache.
         return std::path::absolute(&d).unwrap_or_else(|_| PathBuf::from(d));
     }
-    let home = std::env::var("HOME").map(PathBuf::from).unwrap_or_else(|_| std::env::temp_dir());
-    home.join(".cache").join("brevi")
+    // With no home folder, in the private temp folder: never a shared one (a cache in /tmp/.cache could be
+    // filled with binaries by another user).
+    match std::env::var("HOME") {
+        Ok(h) if !h.is_empty() => PathBuf::from(h).join(".cache").join("brevi"),
+        _ => tmp_root().join("cache"),
+    }
 }
 
 // Builds with cargo, for programs that use crates. Same results as compile().
@@ -1818,7 +1953,7 @@ fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &
     // On the first line, so rustc's line numbers still match the generated code.
     std::fs::write(dir.join("main.rs"), format!("#![allow(warnings)] {rust}")).expect("write generated rust");
     let test = extra.contains(&"--test");
-    let mut c = Command::new("cargo");
+    let mut c = toolchain::cargo_cmd(Path::new(rustc_cmd().get_program()));
     if extra.contains(&"--emit=metadata") {
         c.arg("check");
     } else if test {
@@ -1862,7 +1997,7 @@ fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &
             // A fresh file, never a write into the old one: `out` may be a hard link to a cached program (copy_bin)
             // that another process is running.
             std::fs::remove_file(out).ok();
-            if std::fs::copy(&e, out).is_err() {
+            if !copy_exe(Path::new(&e), out) {
                 println!("{{\"e\":\"io\",\"msg\":\"cannot write {}\"}}", esc(&out.to_string_lossy()));
                 return None;
             }
@@ -2007,7 +2142,8 @@ fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Op
             Err(String::from_utf8_lossy(&o.stderr).to_string())
         }
         Err(e) => {
-            println!("{{\"e\":\"io\",\"msg\":\"rustc not found: {}\"}}", esc(&e.to_string()));
+            let why = toolchain::why().map(|w| format!(" ({w})")).unwrap_or_default();
+            println!("{{\"e\":\"io\",\"msg\":\"rustc not found: {}{}\"}}", esc(&e.to_string()), esc(&why));
             return None;
         }
     };
@@ -2018,7 +2154,7 @@ fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Op
     if use_cache && std::fs::create_dir_all(&cdir).is_ok() {
         let tmp = cdir.join(format!("{key}.{}", std::process::id()));
         let saved = match &r {
-            Ok(()) if link => std::fs::copy(out, &tmp).is_ok(),
+            Ok(()) if link => copy_exe(out, &tmp),
             Ok(()) => std::fs::write(&tmp, "").is_ok(),
             Err(e) if about_code => std::fs::write(&tmp, e).is_ok(),
             Err(_) => false,
@@ -2161,36 +2297,44 @@ pub(crate) fn rustc_version() -> &'static str {
     V.get_or_init(|| rustc_cmd().arg("-vV").output().map(|o| String::from_utf8_lossy(&o.stdout).to_string()).unwrap_or_default())
 }
 
+// The rustc builds use, with `-C linker=...` when zig links (src/toolchain.rs): the rustc on PATH, or Brevi's
+// pinned Rust when there is none (fetched once) or BREVI_TOOLCHAIN=pinned.
+pub(crate) fn rustc_cmd() -> Command {
+    static P: std::sync::OnceLock<(PathBuf, Vec<String>)> = std::sync::OnceLock::new();
+    let (path, args) = P.get_or_init(|| {
+        let system = system_rustc();
+        let pinned = toolchain::rustc(system.as_deref());
+        let linker = toolchain::linker_args(pinned.is_some());
+        (pinned.or(system).unwrap_or_else(|| PathBuf::from("rustc")), linker)
+    });
+    let mut c = Command::new(path);
+    c.args(args);
+    c
+}
+
 // rustc itself rather than the rustup proxy on PATH: each call through the proxy costs 20 to 50 ms, and a
 // build makes two or three. The toolchain is still the one the proxy picks. Its answer is remembered in the
 // cache under a key of everything rustup decides by (PATH, RUSTUP_* settings, rustup's settings file and any
-// rust-toolchain file above the working directory), so a toolchain switch asks the proxy again.
-pub(crate) fn rustc_cmd() -> Command {
-    static P: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-    Command::new(P.get_or_init(|| {
-        let saved = toolchain_key().map(|k| cache_dir().join("toolchain").join(k));
-        if let Some(p) = saved.as_ref().and_then(|f| std::fs::read_to_string(f).ok()).map(PathBuf::from) {
-            if p.is_file() {
-                return p;
-            }
+// rust-toolchain file above the working directory), so a toolchain switch asks the proxy again. None: no rustc.
+pub(crate) fn system_rustc() -> Option<PathBuf> {
+    let saved = toolchain_key().map(|k| cache_dir().join("toolchain").join(k));
+    if let Some(p) = saved.as_ref().and_then(|f| std::fs::read_to_string(f).ok()).map(PathBuf::from) {
+        if p.is_file() {
+            return Some(p);
         }
-        let real = Command::new("rustc").args(["--print", "sysroot"]).output().ok().filter(|o| o.status.success()).map(|o| {
-            PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()).join("bin").join(format!("rustc{}", std::env::consts::EXE_SUFFIX))
-        });
-        match real.filter(|p| p.is_file()) {
-            Some(p) => {
-                if let Some(f) = saved {
-                    let tmp = f.with_extension(format!("tmp{}", std::process::id()));
-                    let ok = std::fs::create_dir_all(f.parent().unwrap()).is_ok() && std::fs::write(&tmp, p.to_string_lossy().as_bytes()).is_ok();
-                    if !(ok && std::fs::rename(&tmp, &f).is_ok()) {
-                        std::fs::remove_file(&tmp).ok();
-                    }
-                }
-                p
-            }
-            None => PathBuf::from("rustc"),
+    }
+    let real = Command::new("rustc").args(["--print", "sysroot"]).output().ok().filter(|o| o.status.success()).map(|o| {
+        PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()).join("bin").join(format!("rustc{}", std::env::consts::EXE_SUFFIX))
+    });
+    let p = real.filter(|p| p.is_file())?;
+    if let Some(f) = saved {
+        let tmp = f.with_extension(format!("tmp{}", std::process::id()));
+        let ok = std::fs::create_dir_all(f.parent().unwrap()).is_ok() && std::fs::write(&tmp, p.to_string_lossy().as_bytes()).is_ok();
+        if !(ok && std::fs::rename(&tmp, &f).is_ok()) {
+            std::fs::remove_file(&tmp).ok();
         }
-    }))
+    }
+    Some(p)
 }
 
 // What rustup's choice of toolchain depends on, hashed. None (always ask the proxy) without a working directory.
@@ -2240,7 +2384,53 @@ pub(crate) fn copy_bin(from: &Path, to: &Path) -> bool {
         return true;
     }
     let tmp = to.with_extension(format!("tmp{}", std::process::id()));
-    std::fs::copy(from, &tmp).is_ok() && std::fs::rename(&tmp, to).is_ok()
+    let ok = copy_exe(from, &tmp) && std::fs::rename(&tmp, to).is_ok();
+    if !ok {
+        std::fs::remove_file(&tmp).ok();
+    }
+    ok
+}
+
+// Copies a program (a file that is run afterwards, here or by another process through a link) to `to`, a fresh
+// path. Every copy of one goes through here: the only other `std::fs::copy` in Brevi is in copy_job.
+//
+// Unix: the copy is made by a child process (`brevi __copy FROM TO`) that does nothing else, never this one.
+// A handle open for writing on a program makes every exec of it fail with ETXTBSY ("Text file busy", os error
+// 26), and a process that starts a child (fork) while one of its threads holds such a handle gives the child
+// that handle too, until the child's own exec. Brevi starts children from other threads (the rustc probe at
+// start-up, the MCP server's calls, verify's runs), so a copy written here could be held open, by a child
+// still starting, at the moment the program is run. That failed about one run in sixty when the cache and the
+// build folder were on different file systems or mounts (no hard links, so every cached program is copied), as
+// on a CI machine whose /tmp is a bind mount. The helper is single-threaded and starts nothing, so its handle
+// is closed when it exits, before the wait here returns. Windows: handles Brevi opens are never inherited, so
+// the copy is made in this process.
+pub(crate) fn copy_exe(from: &Path, to: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        let Ok(me) = std::env::current_exe() else { return false };
+        // argv[0] "brevi": the helper must not take itself for the python3 shim (src/shim.rs), whatever this
+        // binary is called.
+        Command::new(me)
+            .arg0("brevi")
+            .arg("__copy")
+            .arg(from)
+            .arg(to)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+    }
+    #[cfg(not(unix))]
+    {
+        copy_job(from, to)
+    }
+}
+
+// The copy itself: `brevi __copy FROM TO` on Unix (copy_exe), in-process elsewhere.
+fn copy_job(from: &Path, to: &Path) -> bool {
+    std::fs::copy(from, to).is_ok()
 }
 
 // Marks a cache entry as just used (the cache evicts the least recently used). Its time is set through a
@@ -2298,6 +2488,11 @@ fn report(rust: &str, stderr: &str) {
         };
         let aline = line_map.get(rline.saturating_sub(1)).copied().unwrap_or(0);
         let mut text = to_brevi_words(msg);
+        if msg.starts_with("linking with") {
+            if let Some(why) = link_failure(stderr) {
+                text = format!("{text}: {why}");
+            }
+        }
         if code == "E0596" || code == "E0384" {
             let name = msg.split_whitespace().skip_while(|w| *w != "borrow" && *w != "variable").nth(1).unwrap_or("it").replace('`', "");
             text = format!("cannot change {name}: it was declared with let");
@@ -2641,6 +2836,40 @@ pub fn python_style(src: &str) -> bool {
 mod path_tests {
     use super::*;
 
+    // privdir.rs takes only a real folder of this user's that no one else can open, under folders no one else
+    // can change (tests/privtmp_test.py covers folders made by another user, which needs root).
+    #[cfg(unix)]
+    #[test]
+    fn private_folders_only() {
+        use privdir::ax_priv::{check, make};
+        use std::os::unix::fs::PermissionsExt;
+        let set = |p: &Path, m: u32| std::fs::set_permissions(p, std::fs::Permissions::from_mode(m)).unwrap();
+        let base = std::env::temp_dir().join(format!("brevi-priv-test-{}", std::process::id()));
+        std::fs::remove_dir_all(&base).ok();
+        std::fs::create_dir(&base).unwrap();
+        set(&base, 0o700);
+        let ok = make(&base.join("new")).unwrap();
+        assert_eq!(std::fs::metadata(&ok).unwrap().permissions().mode() & 0o777, 0o700);
+        assert!(make(&ok).is_ok(), "an existing private folder is taken again");
+        let open = base.join("open");
+        std::fs::create_dir(&open).unwrap();
+        set(&open, 0o755);
+        assert!(make(&open).unwrap_err().contains("open to other users"));
+        std::os::unix::fs::symlink(&ok, base.join("link")).unwrap();
+        assert!(make(&base.join("link")).unwrap_err().contains("not a folder"));
+        std::fs::write(base.join("file"), "").unwrap();
+        assert!(make(&base.join("file")).is_err());
+        // a folder above that others can change (not sticky): refused; sticky (as /tmp): fine
+        let shared = base.join("shared");
+        std::fs::create_dir(&shared).unwrap();
+        set(&shared, 0o777);
+        assert!(make(&shared.join("x")).unwrap_err().contains("not sticky"));
+        set(&shared, 0o1777);
+        assert!(make(&shared.join("y")).is_ok());
+        assert!(check(&shared.join("x")).is_ok(), "x was made private before it was refused for its parent");
+        std::fs::remove_dir_all(&base).ok();
+    }
+
     #[test]
     fn build_lock_makes_its_folder() {
         // a fresh cache: the lock's folder does not exist yet, and the lock must still be taken (it used to wait forever)
@@ -2650,6 +2879,33 @@ mod path_tests {
         assert!(build_lock(&lock, &|| false));
         assert!(lock.exists());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // copy_exe's guarantee holds only if every copy of a program goes through it: a `std::fs::copy` anywhere
+    // else in Brevi's own code could be a program written by a process with other threads (ETXTBSY).
+    #[test]
+    fn programs_are_copied_only_by_the_helper() {
+        // the needle split in two, so this test's own line is not a hit
+        fn walk(d: &Path, hits: &mut Vec<String>) {
+            let needle = ["fs::", "copy("].concat();
+            for e in std::fs::read_dir(d).unwrap().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, hits);
+                } else if p.extension().is_some_and(|x| x == "rs") {
+                    let text = std::fs::read_to_string(&p).unwrap();
+                    for (i, l) in text.lines().enumerate() {
+                        if l.contains(&needle) && !l.trim_start().starts_with("//") {
+                            hits.push(format!("{}:{}: {}", p.display(), i + 1, l.trim()));
+                        }
+                    }
+                }
+            }
+        }
+        let mut hits = vec![];
+        walk(&Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut hits);
+        assert_eq!(hits.len(), 1, "copy programs with copy_exe, not std::fs::copy: {hits:#?}");
+        assert!(hits[0].contains("src/main.rs") && hits[0].ends_with("(from, to).is_ok()"), "{hits:#?}");
     }
 
     #[test]
@@ -2675,5 +2931,15 @@ mod path_tests {
         assert_eq!(rustc_first_error(&format!("{{\"level\":\"warning\",\"message\":\"unused\"}}\n{j}")), "the typed build's Rust did not compile (mismatched types)");
         assert_eq!(rustc_first_error("error[E0308]: mismatched types\n"), "the typed build's Rust did not compile (mismatched types)");
         assert_eq!(rustc_first_error(""), "the typed build's Rust did not compile");
+    }
+
+    #[test]
+    fn link_failure_names_what_the_linker_said() {
+        let j = r#"{"message":"linking with `brevi-cc` failed: exit status: 1","level":"error","spans":[],"children":[{"message":" \"brevi-cc\" \"-nolibc\"","level":"note"},{"message":"some arguments are omitted. use `--verbose` to show all linker arguments","level":"note"},{"message":"error: unable to find dynamic system library \"msvcrt\"\n  searched paths:","level":"note"}]}"#;
+        assert_eq!(link_failure(j).as_deref(), Some("error: unable to find dynamic system library \"msvcrt\"; searched paths:"));
+        assert_eq!(rustc_first_error(j), "the typed build could not link (error: unable to find dynamic system library \"msvcrt\"; searched paths:)");
+        let t = "error: linking with `cc` failed: exit status: 1\n  |\n  = note:  \"cc\" \"-m64\"\n  = note: some arguments are omitted. use `--verbose` to show all linker arguments\n  = note: error: unsupported linker arg: --fix-cortex-a53-843419\n\nerror: aborting due to 1 previous error\n";
+        assert_eq!(link_failure(t).as_deref(), Some("error: unsupported linker arg: --fix-cortex-a53-843419"));
+        assert_eq!(link_failure("error[E0308]: mismatched types\n"), None);
     }
 }

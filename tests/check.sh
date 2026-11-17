@@ -12,6 +12,36 @@ has() {
   if [ "$CHECK_REQUIRE_LIBS" = 1 ]; then echo "FAIL python3 cannot import $1 (CHECK_REQUIRE_LIBS=1; pip install -r tests/requirements-native.txt)"; fail=1; fi
   return 1
 }
+# Float matrix products, norms and linear algebra are Brevi's only where it models the OpenBLAS kernels numpy
+# runs (see the numpy section). np_to_cpython FILE: FILE uses them and this CPU has no model, so Brevi must send it
+# to CPython or refuse it (the numpy, bv_libs and sandbox sections use it).
+np_flags() { for fl in "$@"; do grep -qw "$fl" /proc/cpuinfo 2>/dev/null || return 1; done; }
+np_avx512=0; np_flags avx512f avx512dq avx512cd avx512bw avx512vl && np_avx512=1
+np_fma=0; np_flags avx2 fma && np_fma=1
+case "$(printf '%s' "${OPENBLAS_CORETYPE:-}" | tr A-Z a-z)" in
+  "") np_kern=none; [ "$np_fma" = 1 ] && np_kern=hsw; [ "$np_avx512" = 1 ] && np_kern=skx ;;
+  skylakex) np_kern=none; [ "$np_avx512" = 1 ] && np_kern=skx ;;
+  haswell | zen) np_kern=none; [ "$np_fma" = 1 ] && [ "$np_avx512" = 0 ] && np_kern=hsw ;;
+  *) np_kern=none ;;
+esac
+np_uses_blas() { grep -Eq '[])A-Za-z0-9_] *@=? |\.dot\(|np\.(dot|matmul|inner|vdot|cov|corrcoef|polyfit)\(|linalg' "$1"; }
+np_to_cpython() {
+  np_uses_blas "$1" || return 1
+  [ "$np_kern" = none ] && return 0
+  [ "$np_kern" = hsw ] && grep -q float32 "$1"
+}
+# Brevi names the CPython it handed a file to in its path report ("by"): python3 when that is the CPython 3.13 it
+# found first on PATH, else the interpreter's path. With BREVI_PYTHON set (the next-Python lane gives Brevi uv's 3.13
+# while python3 is the newer Python), that path is BREVI_PYTHON itself; by_python3 reads exactly that value as
+# python3, so the .expected files hold on both lanes and any other interpreter named there still fails.
+by_python3() {
+  if [ -n "${BREVI_PYTHON:-}" ]; then
+    by=$(printf '%s' "$BREVI_PYTHON" | sed 's/\\/\\\\/g; s/"/\\"/g; s/[][\\.*^$|]/\\&/g')
+    sed "s|\"by\":\"$by\"|\"by\":\"python3\"|g"
+  else
+    cat
+  fi
+}
 #== run split
 # tests/run and tests/errors check what the typed build makes of each file, Python-style ones included: a .bv
 # file in plain Python is kept off the .py path here (BREVI_BV_PY=0, BREVI_BV_DYN=0; tests/bv_py checks that path).
@@ -22,6 +52,7 @@ for f in tests/run/*.bv tests/errors/*.bv; do
     tests/run/*) inp="${f%.bv}.in"; [ -f "$inp" ] || inp=/dev/null; out=$($BREVI run "$f" < "$inp" 2>&1; $BREVI test "$f" 2>&1 | grep "test result" | sed "s/; finished in .*//") ;;
     *) out=$(cd tests/errors && ../../$BREVI check "$(basename "$f")" 2>&1) ;;
   esac
+  out=$(printf '%s\n' "$out" | by_python3)
   if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
   if [ "$out" != "$(cat "$exp")" ]; then
     echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
@@ -38,6 +69,7 @@ unset BREVI_BV_PY BREVI_BV_DYN
 for f in tests/errors/*.py; do
   exp="${f%.py}.expected"
   out=$(cd tests/errors && b=$(basename "$f") && ../../$BREVI check "$b" 2>&1; echo "check exit $?"; r=$(../../$BREVI run "$b" 2>&1); c=$?; printf '%s\n' "$r" | grep -v '^  \|^Traceback\|^[A-Za-z]*Error'; echo "run exit $c"; echo "run tracebacks $(printf '%s\n' "$r" | grep -c '^Traceback')")
+  out=$(printf '%s\n' "$out" | by_python3)
   if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
   if [ "$out" != "$(cat "$exp")" ]; then
     echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
@@ -51,6 +83,7 @@ no_rustc_words='s/\(Rust did not compile\) ([^"]*)/\1 (rustc: ...)/'
 for f in tests/fallback/*.py; do
   exp="${f%.py}.expected"
   out=$($BREVI run "$f" 2>&1; $BREVI run "$f" --native >/dev/null 2>&1; echo "native exit $?")
+  out=$(printf '%s\n' "$out" | by_python3)
   if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
   # The note quotes rustc's first error, whose wording (how it prints a type, e.g. `Vec<_>` or `Vec<Vec<i64>>`)
   # is rustc's, not Brevi's: compare everything but that quote, so the test holds on any rustc.
@@ -79,6 +112,22 @@ if [ "$1" != "--update" ]; then
   done
   rm -rf "$it_dir"
 fi
+# Flags the dynamic build cannot hold are refused when it builds, never answered wrong: an operator between members
+# of two IntFlag classes (enum.py keeps the other class's member in the result), and a Flag whose __new__ shifts its
+# values past what Brevi's flags hold.
+if [ "$1" != "--update" ]; then
+  fl_dir=$(mktemp -d)
+  printf 'from enum import IntFlag, KEEP\nclass A(IntFlag, boundary=KEEP):\n    X = 1\nclass B(IntFlag):\n    Y = 2\nprint(repr(A.X | B.Y))\n' > "$fl_dir/a.py"
+  printf 'from enum import Flag\nclass F(Flag):\n    def __new__(cls, c):\n        self = object.__new__(cls)\n        self._value_ = 1 << c\n        return self\n    a = 97\nprint(F.a.value)\n' > "$fl_dir/b.py"
+  for p in "a:an operator between members of two different IntFlag classes" "b:a Flag whose __new__ makes its values with << or **"; do
+    out=$(BREVI_DYN=1 $BREVI build "$fl_dir/${p%%:*}.py" -o "$fl_dir/prog" 2>&1)
+    case "$out" in
+      *"${p#*:}"*) echo "ok   dynamic build refuses ${p#*:}" ;;
+      *) echo "FAIL dynamic build refuses ${p#*:}"; printf '%s\n' "$out" | tail -3; fail=1 ;;
+    esac
+  done
+  rm -rf "$fl_dir"
+fi
 # A warning whose line the dynamic build does not know is refused, never placed wrong: stacklevel above 1 when
 # it builds, a call opening on a later line of its statement when it runs.
 if [ "$1" != "--update" ]; then
@@ -101,6 +150,7 @@ fi
 for f in tests/path/py_*.py; do
   exp="${f%.py}.expected"
   out=$(cd tests/path && b=$(basename "$f") && ../../$BREVI check "$b" 2>&1; ../../$BREVI run "$b" 2>&1 >/dev/null; ../../$BREVI run "$b" --explain 2>&1 >/dev/null)
+  out=$(printf '%s\n' "$out" | by_python3)
   if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
   if [ "$out" != "$(cat "$exp")" ]; then
     echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
@@ -203,7 +253,14 @@ for f in tests/bv_libs/*.bv tests/bv_py/*.bv; do
   exp="${f%.bv}.expected"
   out=$(cd "$(dirname "$f")" && BREVI_PATH=1 timeout 600 ../../$BREVI run "$(basename "$f")" 2>/tmp/brevi_bv_err)
   if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
-  if grep -q '"path":"\(pybridge\|cpython\)"' /tmp/brevi_bv_err; then
+  # Where this CPU has no OpenBLAS model, a file using float BLAS goes to CPython (CI has no numpy: only the path
+  # line counts) or stops at the refused call with what it printed before matching.
+  if np_to_cpython "$f" && grep -q '"path":"\(pybridge\|cpython\)"' /tmp/brevi_bv_err; then
+    echo "ok   $f (CPython: no OpenBLAS model for this CPU)"
+  elif [ "$out" != "$(cat "$exp")" ] && np_to_cpython "$f" && grep -q OpenBLAS /tmp/brevi_bv_err \
+     && case "$(cat "$exp")" in "$out"*) true ;; *) false ;; esac; then
+    echo "ok   $f (refused: no OpenBLAS model for this CPU)"
+  elif grep -q '"path":"\(pybridge\|cpython\)"' /tmp/brevi_bv_err; then
     echo "FAIL $f (ran in CPython)"; cat /tmp/brevi_bv_err; fail=1
   elif [ "$out" != "$(cat "$exp")" ]; then
     echo "FAIL $f"; cat /tmp/brevi_bv_err; printf '%s\n' "$out" | diff "$exp" - ; fail=1
@@ -216,7 +273,11 @@ done
 # natively there too (never CPython, which a sandbox without a grant refuses).
 for f in tests/bv_libs/*.bv; do
   out=$(cd "$(dirname "$f")" && BREVI_PATH=1 timeout 600 ../../$BREVI run --sandbox "$(basename "$f")" 2>/tmp/brevi_bv_err)
-  if grep -q '"path":"\(pybridge\|cpython\)"' /tmp/brevi_bv_err || [ "$out" != "$(cat "${f%.bv}.expected")" ]; then
+  # No OpenBLAS model on this CPU: the build refuses the BLAS call (CPython would need a grant) and prints nothing else.
+  if [ "$out" != "$(cat "${f%.bv}.expected")" ] && np_to_cpython "$f" && ! grep -q '"path":"\(pybridge\|cpython\)"' /tmp/brevi_bv_err \
+     && printf '%s\n' "$out" | grep -q "CPython's .*numpy needs a grant" && ! printf '%s\n' "$out" | grep -qv '^{\|^note: '; then
+    echo "ok   $f (--sandbox, refused: no OpenBLAS model for this CPU)"
+  elif grep -q '"path":"\(pybridge\|cpython\)"' /tmp/brevi_bv_err || [ "$out" != "$(cat "${f%.bv}.expected")" ]; then
     echo "FAIL $f (--sandbox)"; cat /tmp/brevi_bv_err; fail=1
   else
     echo "ok   $f (--sandbox)"
@@ -224,11 +285,13 @@ for f in tests/bv_libs/*.bv; do
 done
 #== numpy split
 # numpy programs must print what CPython's numpy prints, byte for byte, with Brevi's own numpy: never CPython.
-# The .expected files come from real numpy (numpy 2.5.4, see tools/upstream_pins.json; CI has none): `--update` needs it installed.
+# The .expected files come from real numpy (numpy 2.5.5, see tools/upstream_pins.json; CI has none): `--update` needs it installed.
 # A test that prints full precision can differ between numpy's AVX-512 and AVX2 kernels: it keeps the AVX2 output
 # in NAME.avx2.expected, which a CPU without AVX-512 checks against.
-np_avx512=1
-for fl in avx512f avx512dq avx512cd avx512bw avx512vl; do grep -qw "$fl" /proc/cpuinfo 2>/dev/null || np_avx512=0; done
+# Float matrix products, norms and linear algebra are Brevi's only where it models the OpenBLAS kernels numpy
+# runs (rt_np.rs np_blas): SkylakeX on AVX-512 CPUs, Haswell on AVX2+FMA ones (float64 only), with no
+# OPENBLAS_CORETYPE naming other kernels. Elsewhere (ARM64, older x86-64) a test using them must go to CPython instead
+# (only its path line is checked: CI has no numpy).
 for f in tests/numpy/*.py; do
   exp="${f%.py}.expected"
   if [ "$1" = "--update" ]; then
@@ -236,9 +299,17 @@ for f in tests/numpy/*.py; do
     [ -f "${f%.py}.avx2.expected" ] && OPENBLAS_CORETYPE=Haswell python3 "$f" > "${f%.py}.avx2.expected" 2>/dev/null
     continue
   fi
-  [ "$np_avx512" = 0 ] && [ -f "${f%.py}.avx2.expected" ] && exp="${f%.py}.avx2.expected"
+  [ "$np_kern" != skx ] && [ -f "${f%.py}.avx2.expected" ] && exp="${f%.py}.avx2.expected"
   # NAME_avx512.py: Brevi reproduces this numpy code for AVX-512 CPUs only; elsewhere the program goes to CPython
   case "$f" in *_avx512.py) [ "$np_avx512" = 0 ] && { echo "skip $f (needs AVX-512)"; continue; } ;; esac
+  if np_to_cpython "$f"; then
+    if BREVI_PATH=1 timeout 600 $BREVI run "$f" --no-cache 2>&1 >/dev/null | grep -q '^{"path":"\(pybridge\|cpython\)"'; then
+      echo "ok   $f (CPython: no OpenBLAS model for this CPU)"
+    else
+      echo "FAIL $f (float matrix products must go to CPython on this CPU)"; fail=1
+    fi
+    continue
+  fi
   out=$(BREVI_PATH=1 timeout 600 $BREVI run "$f" --native 2>/tmp/brevi_np_err)
   if ! grep -q '"path":"dynamic"' /tmp/brevi_np_err; then
     echo "FAIL $f (not built with Brevi's numpy)"; cat /tmp/brevi_np_err; fail=1
@@ -248,6 +319,85 @@ for f in tests/numpy/*.py; do
     echo "ok   $f"
   fi
 done
+# Where the model exists, an OPENBLAS_CORETYPE naming other kernels stands in for an ARM64 CPU: the build sends
+# the program to CPython rather than print numpy's last digits wrong.
+if [ "$np_kern" != none ] && [ "$1" != "--update" ]; then
+  if OPENBLAS_CORETYPE=Prescott BREVI_PATH=1 timeout 600 $BREVI run tests/numpy/lstsq.py --no-cache 2>&1 >/dev/null | grep -q '^{"path":"\(pybridge\|cpython\)"'; then
+    echo "ok   numpy BLAS refusal"
+  else
+    echo "FAIL numpy BLAS refusal (lstsq.py built natively under OPENBLAS_CORETYPE=Prescott)"; fail=1
+  fi
+  # The result cache keys on what chose the path: a native build kept without OPENBLAS_CORETYPE is not replayed
+  # under one naming other kernels, nor that CPython build once it is unset again (runcache.rs key).
+  npc=$(mktemp -d); cp tests/numpy/lstsq.py "$npc/main.py"
+  npp() { env BREVI_CACHE="$npc/cache" BREVI_PATH=1 "$@" timeout 600 $BREVI run "$npc/main.py" 2>&1 >/dev/null | grep -o '^{"path":"[a-z]*"' | head -1; }
+  npc_out="$(npp; npp OPENBLAS_CORETYPE=Prescott; npp)"
+  if [ "$npc_out" = '{"path":"dynamic"
+{"path":"pybridge"
+{"path":"dynamic"' ] || [ "$npc_out" = '{"path":"dynamic"
+{"path":"cpython"
+{"path":"dynamic"' ]; then
+    echo "ok   result cache keys on OPENBLAS_CORETYPE"
+  else
+    echo "FAIL result cache keys on OPENBLAS_CORETYPE (path lines: no env, Prescott, no env)"; printf '%s\n' "$npc_out"; fail=1
+  fi
+  rm -rf "$npc"
+fi
+# numpy's own settings (NPY_DISABLE_CPU_FEATURES, NPY_ENABLE_CPU_FEATURES and any other NPY_* / NUMPY_*) change
+# which SIMD loops numpy runs, so its float32 exp/tanh/... digits: with one set the build uses CPython's numpy
+# (dynpy/mod.rs to_rust, emit::np_settings), and the result cache keys on them, so a native build kept without
+# them is not replayed under them, nor the CPython build once they are unset (runcache.rs key).
+if [ "$1" != "--update" ]; then
+  npf=tests/numpy/compound_interest.py; [ "$np_avx512" = 1 ] && npf=tests/numpy/float32_ufuncs_avx512.py
+  npc=$(mktemp -d); cp "$npf" "$npc/main.py"
+  # Brevi's numpy: path dynamic with no "py" list naming numpy; CPython's: path pybridge or cpython, or a dynamic
+  # build calling numpy through the bridge ("py":["numpy"]).
+  npp() {
+    l=$(env BREVI_CACHE="$npc/cache" BREVI_PATH=1 "$@" timeout 600 $BREVI run "$npc/main.py" 2>&1 >/dev/null | grep '^{"path":' | head -1)
+    case "$l" in '{"path":"dynamic"'*) case "$l" in *'"py":['*'"numpy'*) echo cpython ;; *) echo native ;; esac ;; '{"path":"pybridge"'* | '{"path":"cpython"'*) echo cpython ;; *) echo "other: $l" ;; esac
+  }
+  npc_out="$(npp; npp NPY_DISABLE_CPU_FEATURES=AVX512_SKX; npp "NPY_ENABLE_CPU_FEATURES=SSE SSE2 SSE3"; npp NPY_DISABLE_CPU_FEATURES=; npp)"
+  if [ "$(echo $npc_out)" = "native cpython cpython cpython native" ]; then
+    echo "ok   numpy CPU feature settings go to CPython (and key the result cache)"
+  else
+    echo "FAIL numpy CPU feature settings (path lines: none, DISABLE, ENABLE, DISABLE empty, none)"; printf '%s\n' "$npc_out"; fail=1
+  fi
+  rm -rf "$npc"
+fi
+# A binary built here and copied to a CPU without a modelled kernel must raise NotImplementedError at each float
+# BLAS/LAPACK call (rt_np.rs np_blas_ok), never print other digits. qemu stands in for that CPU: SandyBridge (no AVX2
+# or FMA) for the float64 kernels, Haswell (no AVX-512) for the float32 ones. Where this system's own libraries need
+# a newer CPU (GitHub's Ubuntu 26.04 runner: /bin/true stops with an illegal instruction on qemu's SandyBridge), the
+# binary runs on an ubuntu:24.04 container's libraries instead (docker, with this qemu if it is static).
+# BREVI_QEMU_TESTS=1 (GitHub CI) makes a skip a failure.
+if [ "$np_kern" != none ] && [ "$1" != "--update" ] && [ "$(uname -m)" = x86_64 ]; then
+  if ! command -v qemu-x86_64 >/dev/null; then
+    if [ "${BREVI_QEMU_TESTS:-}" = 1 ]; then echo "FAIL numpy runtime refusal (qemu-x86_64 not installed)"; fail=1
+    else echo "skip numpy runtime refusal (no qemu-x86_64)"; fi
+  else
+    npq=$(mktemp -d)
+    npq_run() { # npq_run CPU PROGRAM: PROGRAM on qemu's CPU, on this system's libraries or else ubuntu:24.04's
+      if qemu-x86_64 -cpu "$1" /bin/true 2>/dev/null; then qemu-x86_64 -cpu "$1" "$2"
+      else docker run --rm -v "$npq:$npq:ro" -v "$(command -v qemu-x86_64):/usr/local/bin/qemu-x86_64:ro" ubuntu:24.04 qemu-x86_64 -cpu "$1" "$2"; fi
+    }
+    for t in blas_refusal:SandyBridge f32_refusal:Haswell; do
+      f=tests/numpy_cpu/${t%%:*}.py cpu=${t##*:}
+      # float32 products are Brevi's only on AVX-512 CPUs: elsewhere the build already sends them to CPython
+      [ "$cpu" = Haswell ] && [ "$np_kern" != skx ] && { echo "skip $f (needs AVX-512 to build natively)"; continue; }
+      if ! npq_run "$cpu" /bin/true >/dev/null 2>&1; then
+        echo "FAIL $f (no system runs on qemu's $cpu CPU here: docker with ubuntu:24.04 and a static qemu-x86_64 are needed)"; fail=1
+      elif ! BREVI_PATH=1 timeout 600 $BREVI build "$f" -o "$npq/b" --no-cache 2>"$npq/err" >/dev/null || ! grep -q '"path":"dynamic"' "$npq/err"; then
+        echo "FAIL $f (not built with Brevi's numpy)"; cat "$npq/err"; fail=1
+      elif [ "$(npq_run "$cpu" "$npq/b" 2>/dev/null)" != "$(cat "${f%.py}.expected")" ]; then
+        echo "FAIL $f (on a $cpu CPU)"; npq_run "$cpu" "$npq/b" 2>&1 | diff "${f%.py}.expected" - | head -20; fail=1
+      else
+        echo "ok   $f (refused on a $cpu CPU)"
+      fi
+    done
+    rm -rf "$npq"
+  fi
+fi
+
 #== tiktoken split
 # tiktoken programs must print what CPython's tiktoken prints, with Brevi's own tiktoken: never CPython. The
 # .expected files come from tiktoken 0.14 (CI has none): `--update` needs it installed. Building one gets OpenAI's
@@ -482,7 +632,7 @@ if [ "$1" != "--update" ]; then
   esac
 fi
 #== onnxruntime
-# onnxruntime programs must print what CPython's onnxruntime 1.31 prints (1.29 prints the same), with Brevi's own onnxruntime over ONNX
+# onnxruntime programs must print what CPython's onnxruntime 1.32 prints (1.29 and 1.31 print the same), with Brevi's own onnxruntime over ONNX
 # Runtime's C API (the onnxruntime package's library, or libonnxruntime): never CPython. Skipped without the
 # onnxruntime package (PR CI has none; releases and the daily run install it and fail without it). tests/onnxruntime/models/make_models.py (needs onnx) wrote the models.
 if has onnxruntime; then
@@ -558,7 +708,7 @@ if [ "$1" != "--update" ]; then
 fi
 kill $srv 2>/dev/null
 #== llm split
-# anthropic and openai programs must print what CPython's anthropic 2.6 and openai 3.49 print (models, streams,
+# anthropic and openai programs must print what CPython's anthropic 2.8 and openai 3.51 print (models, streams,
 # tool calls, errors, retries), with Brevi's own copies over its httpx: never CPython. They talk to the mock API in
 # tests/llm/server.py on 18090. `--update` needs both SDKs (and tools/gen_llm_types.py rewrites the types).
 # tests/check_parallel.py starts this server once for all its jobs (CHECK_SERVERS=1).
@@ -701,6 +851,11 @@ rm -rf "$t"
 # A str with a lone surrogate on a path not yet written for one stops the program, even inside try/except: never a
 # different answer (handoffs/string-model-design.md).
 t=$(mktemp -d)
+# A namedtuple field name NFKC normalization may change stops the program, even inside try/except: CPython compiles
+# __new__ from the normalized names ('\ufb01' and 'fi' collide there), so Brevi refuses rather than answer differently.
+printf 'from collections import namedtuple\ntry:\n    T = namedtuple("T", ["\\ufb01"])\n    print(T._fields)\nexcept Exception as e:\n    print("caught", e)\n' > "$t/nt_nfkc.py"
+o=$(BREVI_DYN=1 $BREVI run "$t/nt_nfkc.py" 2>&1)
+case "$o" in "NotImplementedError: brevi: a namedtuple field name NFKC normalization may change ('"*"') is not supported in dynamic builds") echo "ok   a namedtuple field name NFKC may change stops" ;; *) echo "FAIL a namedtuple field name NFKC may change"; printf '%s\n' "$o"; fail=1 ;; esac
 # A module attribute or repr Brevi cannot give as CPython does is refused, never a different answer: the import
 # machinery's __spec__ when the program is built, or read through a variable when the program runs; the repr of
 # sys.stdout or a decimal context likewise. A library module's repr is the build machine's CPython's.
@@ -720,9 +875,45 @@ case "$o" in *"the repr of sys.stdout is not supported in dynamic builds"*) echo
 printf 'import decimal\nc = [decimal.getcontext()]\nprint(c)\n' > "$t/m5.py"
 o=$(BREVI_DYN=1 $BREVI run "$t/m5.py" 2>&1)
 case "$o" in *"NotImplementedError: brevi: the repr of decimal.context is not supported in dynamic builds") echo "ok   a decimal context's repr the build cannot see stops" ;; *) echo "FAIL a decimal context's repr at run time"; printf '%s\n' "$o"; fail=1 ;; esac
+# A missing attribute of a program file that shadows a standard library module is CPython 3.13's AttributeError
+# (it names the file); `from FILE import *` of a program file, and a new attribute set through a program
+# module object, are refused (the file's names are fixed when it is built).
+printf 'X = 1\n' > "$t/tabnanny.py"
+printf 'import tabnanny\ntry:\n    tabnanny.nope\nexcept AttributeError as e:\n    print(e)\n' > "$t/m6.py"
+o=$(BREVI_DYN=1 $BREVI run "$t/m6.py" 2>&1)
+if [ "$o" = "$(python3 "$t/m6.py" 2>&1)" ]; then echo "ok   a missing attribute of a file shadowing the stdlib"; else echo "FAIL a missing attribute of a file shadowing the stdlib"; printf '%s\n' "$o"; fail=1; fi
+printf 'from helper import *\nprint(X)\n' > "$t/m7.py"
+o=$(BREVI_DYN=1 $BREVI run "$t/m7.py" 2>&1)
+case "$o" in *"from helper import * (a file of the program) is not supported in dynamic builds"*) echo "ok   a star import of a program file is refused" ;; *) echo "FAIL a star import of a program file"; printf '%s\n' "$o"; fail=1 ;; esac
+printf 'import helper\nm = helper\nm.X = 2\nprint(helper.X)\nm.Z = 3\n' > "$t/m8.py"
+o=$(BREVI_DYN=1 $BREVI run "$t/m8.py" 2>&1)
+case "$o" in "2"*"NotImplementedError: brevi: setting a new attribute helper.Z through the module object is not supported in dynamic builds") echo "ok   a new attribute through a program module object stops" ;; *) echo "FAIL a new attribute through a program module object"; printf '%s\n' "$o"; fail=1 ;; esac
 printf 'import json\ntry:\n    print(json.loads(chr(34) + chr(0xd800) + chr(34)))\nexcept BaseException:\n    print("caught")\nprint("after")\n' > "$t/s.py"
 o=$(BREVI_DYN=1 $BREVI run "$t/s.py" 2>&1); c=$?
 case "$c:$o" in "1:NotImplementedError: brevi: this operation on a str with a lone surrogate (U+D800..U+DFFF) is not supported in dynamic builds yet"*) echo "ok   a lone surrogate on an unwritten path stops the program" ;; *) echo "FAIL a lone surrogate on an unwritten path ($c)"; printf '%s\n' "$o"; fail=1 ;; esac
+# sys.modules: a read whose CPython answer is not sure is refused when it builds (tests/dyn/sys_modules_startup.py
+# has the exact ones).
+for c in 'import sys\nprint(len(sys.modules))\n|only as `k in sys.modules`' \
+         'import sys, json\nprint("re" in sys.modules)\n|when the program imports json' \
+         'import sys\nprint("encodings.utf_8" in sys.modules)\n|depends on its environment' \
+         'import sys\nprint("x".encode("idna"), "re" in sys.modules)\n|look up a codec by name' \
+         'from sys import modules\n|from sys import modules is not supported' \
+         'import sys\nprint(sys.modules["os"].sep)\n|a module CPython loads at startup'; do
+  printf "${c%%|*}" > "$t/sm.py"
+  o=$(BREVI_DYN=1 $BREVI build "$t/sm.py" -o "$t/sm" 2>&1)
+  case "$o" in *"${c#*|}"*) echo "ok   sys.modules refused: ${c#*|}" ;; *) echo "FAIL sys.modules not refused: ${c#*|}"; printf '%s\n' "$o"; fail=1 ;; esac
+done
+# a key known only at run time is refused when it builds, never at run time (even when every import is quiet),
+# unless it is a parameter whose every call passes a literal (tests/dyn/sys_modules_param.py)
+for c in 'import sys, json\nk = "re"\nprint(k in sys.modules)\n' 'import sys\nfor k in ["os", "x"]:\n    print(sys.modules.get(k))\n' \
+         'import sys\ndef mod(n):\n    return sys.modules[n]\nprint(mod("sys"), mod("x" * 2))\n' 'import sys\ndef mod(n):\n    return sys.modules[n]\ng = mod\nprint(mod("sys"))\n' \
+         'import sys\ndef mod(n):\n    return sys.modules[n]\nprint(mod("sys"), globals())\n' 'import sys\ndef mod(n):\n    return sys.modules[n]\nprint(mod("__main__"))\n' \
+         'import sys\ndef mod(n):\n    n = "os"\n    return sys.modules[n]\nprint(mod("sys"))\n' 'import sys\ndef mod(n):\n    return sys.modules[n]\nprint(mod(*["sys"]))\n' \
+         'import sys\nprint(1)\nimport json, functools\nprint(sys.modules["json"] is json)\n'; do
+  printf "$c" > "$t/sm.py"
+  o=$(BREVI_DYN=1 $BREVI build "$t/sm.py" -o "$t/sm" 2>&1)
+  case "$o" in *"is not supported in dynamic builds"*) echo "ok   sys.modules key refused at build: $(printf "$c" | tail -n 1)" ;; *) echo "FAIL sys.modules key not refused at build"; printf '%s\n' "$o"; fail=1 ;; esac
+done
 # locals() in an Enum's body is enum.EnumDict, whose writes check names (a member set twice is a TypeError); Brevi's
 # namespace is a plain dict, so a class that may be an Enum and calls locals() is refused when it builds.
 printf 'import enum\nclass E(enum.Enum):\n    A = 1\n    locals().update({"B": 2}, **{"A": 3})\nprint(list(E))\n' > "$t/el.py"
@@ -740,6 +931,30 @@ if [ -n "$want" ] && [ "$got" = "$want" ]; then echo "ok   a lone surrogate on s
 # Under --sandbox the program reads no environment, so it cannot name stdout's error handler: it stops instead.
 o=$(BREVI_DYN=1 $BREVI run --sandbox "$t/c.py" 2>&1); c=$?
 case "$c:$o" in "1:NotImplementedError: brevi: this operation on a str with a lone surrogate"*) echo "ok   a lone surrogate on stdout under --sandbox stops" ;; *) echo "FAIL a lone surrogate on stdout under --sandbox ($c)"; printf '%s\n' "$o"; fail=1 ;; esac
+# re.LOCALE on bytes asks the C library in the environment's LC_CTYPE locale, as CPython's sre does (#589: Windows'
+# cp1252 locale). Compared with python3 under single-byte locales built here (skipped where localedef cannot).
+printf 'import re\nfor b in range(256):\n    c = bytes([b])\n    print(b, bool(re.match(re.escape(c), c.lower(), re.L | re.I)), bool(re.match(re.escape(c), c.upper(), re.L | re.I)), bool(re.match(rb"\\w", c, re.L)), bool(re.match(b"[" + re.escape(c) + b"]", c.swapcase(), re.L | re.I)), bool(re.match(rb"(.)\\1", c + c.swapcase(), re.L | re.I)), len(re.findall(rb"\\b", b"a" + c + b" ", re.L)))\nprint(re.findall(rb"(?Li)[\\xc0-\\xc5]+|\\w+", b"\\xe0\\xe5\\xc0 ab\\xff_"))\n' > "$t/loc.py"
+mkdir -p "$t/locs"
+for loc in "ISO-8859-1 en_US" "CP1252 en_US" "ISO-8859-9 tr_TR"; do
+  cm=${loc% *}; li=${loc#* }
+  if localedef -f "$cm" -i "$li" "$t/locs/$li.$cm" >/dev/null 2>&1 || [ -d "$t/locs/$li.$cm" ]; then
+    want=$(LOCPATH="$t/locs" LC_ALL="$li.$cm" python3 "$t/loc.py" 2>&1)
+    got=$(LOCPATH="$t/locs" LC_ALL="$li.$cm" BREVI_DYN=1 $BREVI run "$t/loc.py" 2>/dev/null)
+    if [ -n "$want" ] && [ "$got" = "$want" ]; then echo "ok   re.LOCALE under $li.$cm"; else echo "FAIL re.LOCALE under $li.$cm"; printf 'want %s\ngot  %s\n' "$(printf '%s\n' "$want" | head -3)" "$(printf '%s\n' "$got" | head -3)"; fail=1; fi
+  else
+    echo "skip re.LOCALE under $li.$cm (localedef cannot build it here)"
+  fi
+done
+# Under --sandbox the program reads no environment, so it cannot know the locale re.LOCALE asks: it stops instead.
+printf 'import re\nprint(re.match(b"a", b"A", re.L | re.I))\n' > "$t/locsb.py"
+o=$(BREVI_DYN=1 $BREVI run --sandbox "$t/locsb.py" 2>&1); c=$?
+case "$c:$o" in *"1:NotImplementedError: brevi: re.LOCALE under --sandbox"*) echo "ok   re.LOCALE under --sandbox stops" ;; *) echo "FAIL re.LOCALE under --sandbox ($c)"; printf '%s\n' "$o"; fail=1 ;; esac
+# UTF-8 mode (PYTHONUTF8=1) reaches the embedded CPython, which Py_InitializeEx alone ignores: the preferred
+# encoding is 'utf-8' as in python3, not the locale's (ASCII under C here, the ANSI code page on Windows; #589).
+printf 'import locale\nprint(locale.getpreferredencoding())\n' > "$t/penc.py"
+want=$(LC_ALL=C PYTHONUTF8=1 python3 "$t/penc.py" 2>&1)
+got=$(LC_ALL=C PYTHONUTF8=1 BREVI_DYN=1 $BREVI run "$t/penc.py" 2>&1)
+if [ "$want" = utf-8 ] && [ "$got" = "$want" ]; then echo "ok   PYTHONUTF8=1 preferred encoding"; else echo "FAIL PYTHONUTF8=1 preferred encoding: want $want got $got"; fail=1; fi
 # What a native coroutine cannot give is refused when the program is built (test_coroutines): its frame and code
 # objects, and types.coroutine (which marks a code object) in every spelling the build can see, except as the
 # innermost decorator of a generator function (tests/lib/coroutine_protocol.py).
@@ -785,6 +1000,17 @@ B=$BREVI; case $B in /*) ;; *) B=$PWD/$B ;; esac
 o=$(cd "$t" && BREVI_DYN=1 $B run m.py 2>&1)
 case "$o" in *"async code with a library CPython runs (brlib)"*) echo "ok   async code handing a coroutine to a bridged library is refused" ;; *) echo "FAIL async code handing a coroutine to a bridged library"; printf '%s\n' "$o"; fail=1 ;; esac
 rm -rf "$t"
+# A compiled function has no CPython bytecode: a bridged library that reads it (dis loaded through importlib,
+# inspect.signature reading co_argcount) gets the dynamic build's refusal, never a TypeError CPython would not raise.
+t=$(mktemp -d)
+printf 'import importlib\ndis = importlib.import_module("dis")\ndef f(x):\n    return x\ntry:\n    print(list(dis.get_instructions(f)))\nexcept TypeError as e:\n    print("TypeError", e)\n' > "$t/via_dis.py"
+printf 'import importlib\ndef f(x, y=2):\n    return x\nprint(importlib.import_module("inspect").signature(f))\n' > "$t/via_sig.py"
+for c in "dis:brevi: the code object's co_code" "sig:brevi: the code object's co_argcount"; do
+  n=${c%%:*}; want=${c#*:}
+  o=$(cd "$t" && BREVI_DYN=1 $B run via_$n.py 2>&1)
+  case "$o" in *"$want"*) echo "ok   a bridged library reading a compiled function's bytecode is refused ($n)" ;; *) echo "FAIL a bridged library reading a compiled function's bytecode is refused ($n)"; printf '%s\n' "$o" | tail -3; fail=1 ;; esac
+done
+rm -rf "$t"
 # Under the C locale (no LANG), text files a bridged library reads decode as UTF-8, as in python3 (#211).
 f=tests/bridge/c_locale/read_utf8.py
 out=$(env -u LANG -u LC_ALL -u LC_CTYPE $BREVI run --native "$f" 2>/dev/null)
@@ -802,7 +1028,10 @@ for f in tests/sandbox/*.py; do
   g=$(cat "${f%.py}.flags" 2>/dev/null)
   out=$($BREVI run --sandbox $g "$f" 2>&1; echo "exit $?"; echo "-- dynamic"; BREVI_DYN=1 $BREVI run --sandbox $g "$f" 2>&1; echo "exit $?"; echo "-- typed"; BREVI_DYN=0 $BREVI run --sandbox $g --native "$f" 2>&1; echo "exit $?")
   if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
-  if [ "$out" != "$(cat "$exp")" ]; then
+  if [ "$out" != "$(cat "$exp")" ] && np_to_cpython "$f" && ! printf '%s\n' "$out" | grep -q '^exit 0$' \
+     && printf '%s\n' "$out" | grep -q 'OpenBLAS kernels Brevi does not model'; then
+    echo "ok   $f (refused on every path: no OpenBLAS model for this CPU)"
+  elif [ "$out" != "$(cat "$exp")" ]; then
     echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
   else
     echo "ok   $f"
@@ -897,12 +1126,26 @@ for f in tests/standalone/*.py; do
   $BREVI build "$f" --native --standalone -o "$t/prog" >/dev/null 2>&1
   out=$(env -i HOME="$t" PATH=/nonexistent BREVI_PY_CACHE="$t/cache" "$t/prog" 2>&1; ls "$t"/cache/*/.brevi-ok >/dev/null 2>&1 || echo "bundle not unpacked")
   if unshare -r true 2>/dev/null; then
-    mkdir -p "$t/root/tmp"; cp "$t/prog" "$t/root/prog"
+    # /dev/urandom too, as every machine has it: uv's CPython builds read it when they start.
+    mkdir -p "$t/root/tmp" "$t/root/dev"; touch "$t/root/dev/urandom"; cp "$t/prog" "$t/root/prog"
     for l in $(ldd "$t/prog" | grep -o '/[^ ]*') $(ldconfig -p | grep -E '/(libm|libpthread|libdl|librt|libutil)\.so\.[0-9]+$' | grep -o '/[^ ]*$'); do mkdir -p "$t/root$(dirname "$l")"; cp -L "$l" "$t/root$l"; done
-    bare=$(unshare -r env -i HOME=/tmp "$(command -v chroot)" "$t/root" /prog 2>&1)
+    bare=$(unshare -r -m sh -c 'mount --bind /dev/urandom "$1/dev/urandom" 2>/dev/null; exec env -i HOME=/tmp "$2" "$1" /prog' sh "$t/root" "$(command -v chroot)" 2>&1)
     [ "$bare" = "$out" ] || out="$out
 in an empty root: $bare"
   fi
+  # The dynamic build carries its CPython too.
+  # Brevi's own sqlite3 would load the system's libsqlite3, which the binary does not carry: CPython runs it.
+  BREVI_DYN=1 $BREVI build "$f" --standalone --explain -o "$t/dyn" 2>&1 | grep -q '"py":\[[^]]*"sqlite3"' || out="$out
+dynamic build: sqlite3 not handed to the bundled CPython"
+  dyn=$(env -i HOME="$t" PATH=/nonexistent BREVI_PY_CACHE="$t/cache" "$t/dyn" 2>&1)
+  [ "$dyn" = "$(cat "$exp")" ] || out="$out
+dynamic build: $dyn"
+  # Bytes appended after the build (as code signing does) hide the bundle: refused, even with python3 on PATH,
+  # never run on the installed Python instead.
+  cp "$t/prog" "$t/signed"; printf 'appended after the build' >> "$t/signed"
+  cut=$(BREVI_PY_CACHE="$t/cache2" "$t/signed" 2>&1; echo "exit $?")
+  printf '%s\n' "$cut" | grep -q 'built with --standalone, but its bundled Python is missing' && ! printf '%s\n' "$cut" | grep -qx 'exit 0' || out="$out
+appended to: $cut"
   rm -rf "$t"
   if [ "$1" = "--update" ]; then python3 "$f" > "$exp" 2>&1; continue; fi
   if [ "$out" != "$(cat "$exp")" ]; then
@@ -1029,6 +1272,14 @@ exp=tests/run_verify.expected
 if [ "$1" = "--update" ]; then printf '%s\n' "$rvout" > "$exp"
 elif [ "$rvout" != "$(cat "$exp")" ]; then echo "FAIL brevi run --verify"; printf '%s\n' "$rvout" | diff "$exp" - ; fail=1
 else echo "ok   brevi run --verify"; fi
+# Only CPython 3.13 (src/cpython.rs): one of another version is refused by the fallback, verify and brevi-python,
+# never run (tests/verify/py314.sh says it is 3.14).
+o=$(BREVI_PYTHON=tests/verify/py314.sh $BREVI run tests/fallback/globals_write.py 2>&1
+  BREVI_PYTHON=tests/verify/py314.sh $BREVI verify tests/verify/sq.py --input tests/verify/sq 2>&1
+  echo 'print(6 * 7)' | BREVI_PYTHON=tests/verify/py314.sh $BREVI python - 2>&1)
+n=$(printf '%s\n' "$o" | grep -c "is cpython 3.14.0, and Brevi answers as CPython 3.13 does")
+if [ "$n" != 3 ] || printf '%s\n' "$o" | grep -qx 42; then echo "FAIL only CPython 3.13 ($n of 3 refused)"; printf '%s\n' "$o"; fail=1
+else echo "ok   only CPython 3.13"; fi
 exp=tests/cache.expected
 if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"
 elif [ "$out" != "$(cat "$exp")" ]; then echo "FAIL result cache"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
@@ -1087,4 +1338,30 @@ if [ -n "$t4bad" ]; then
   echo "FAIL the build cache marks a running program as used:$t4bad"; cat "$t4"/build* 2>/dev/null; fail=1
 else echo "ok   the build cache marks a running program as used"; fi
 rm -rf "$t4"
+# With the build folder (TMPDIR) on another file system or mount than the cache, cached programs are copied,
+# not hard linked, and a copy written by a brevi process with other threads (the rustc probe at start-up) could
+# still be open in a child that thread was starting when the program ran: "Text file busy" in about 1 run in 60
+# at 8 at once. Copies are made by a single-threaded helper (copy_exe), so none of these runs may fail.
+t5=$(mktemp -d)
+t5t=/dev/shm/brevi-check-$$
+t5k="${BREVI_CACHE:-$HOME/.cache/brevi}"
+mkdir -p "$t5k"
+if mkdir -p "$t5t" 2>/dev/null && [ "$(stat -c %d "$t5t")" != "$(stat -c %d "$t5k")" ]; then
+  printf 'import sys\nprint(sys.argv[1:], %s)\n' "$$" > "$t5/p.py"
+  BREVI_DYN=1 BREVI_TIERED=0 TMPDIR="$t5t" $BREVI run "$t5/p.py" --native w > /dev/null 2>&1
+  for j in 1 2 3 4 5 6 7 8; do
+    ( mkdir -p "$t5t/t$j"; i=0; while [ $i -lt 60 ]; do
+        BREVI_DYN=1 BREVI_TIERED=0 TMPDIR="$t5t/t$j" $BREVI run "$t5/p.py" --native $j $i 2>&1; i=$((i + 1)); done > "$t5/out$j" ) &
+  done
+  wait
+  t5bad=0; j=1
+  while [ $j -le 8 ]; do
+    i=0; while [ $i -lt 60 ]; do echo "['$j', '$i'] $$"; i=$((i + 1)); done | cmp -s - "$t5/out$j" || t5bad=$((t5bad + 1)); j=$((j + 1))
+  done
+  if [ $t5bad = 0 ]; then echo "ok   cached programs copied across file systems run (480 runs, 8 at once)"
+  else echo "FAIL cached programs copied across file systems run: $t5bad of 8 loops went wrong"; grep -hv "^\[" "$t5"/out* | sort | uniq -c | head; fail=1; fi
+else
+  echo "ok   cached programs copied across file systems run (skipped: no /dev/shm on another file system than the cache)"
+fi
+rm -rf "$t5" "$t5t"
 exit $fail

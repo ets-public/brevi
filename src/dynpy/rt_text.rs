@@ -9,11 +9,11 @@ pub enum RNode {
     Eol(bool),
     StrStart,
     StrEnd,
-    WordB(bool, bool), // boundary? (else \B), ASCII-only word characters
+    WordB(bool, u8), // boundary? (else \B), word characters: W_UNI, W_ASCII or W_LOC
     Group(Rc<Vec<Vec<RNode>>>, Option<usize>),
     // behind?, negative?, and a look-behind's fixed width (set by the width pass after parsing)
     Look(Rc<Vec<Vec<RNode>>>, bool, bool, Cell<usize>),
-    Backref(usize, u8), // group, IGNORECASE fold in scope (0, FOLD_UNI, FOLD_ASCII)
+    Backref(usize, u8), // group, IGNORECASE fold in scope (0, FOLD_UNI, FOLD_ASCII, FOLD_LOC)
     Repeat(Box<RNode>, usize, usize, bool),
     Atomic(Rc<Vec<Vec<RNode>>>),
     // (?(1)yes|no)
@@ -30,14 +30,23 @@ pub struct RClass {
 }
 const FOLD_UNI: u8 = 1;
 const FOLD_ASCII: u8 = 2;
-// bytes under LOCALE|IGNORECASE: sets match when the lower or upper case of a byte is in them (C locale)
+// bytes under LOCALE|IGNORECASE: a set matches when the locale's lower or upper case of a byte is in it
+// (IN_LOC_IGNORE); FOLD_LOC_LIT is a one-literal set or a literal, which also matches the byte itself
+// (LITERAL_LOC_IGNORE's char_loc_ignore). A backreference compares the locale's lower cases.
 const FOLD_LOC: u8 = 3;
+const FOLD_LOC_LIT: u8 = 4;
+// which characters \w and \b take as word characters: Unicode's, ASCII's, or the locale's (bytes under LOCALE)
+const W_UNI: u8 = 0;
+const W_ASCII: u8 = 1;
+const W_LOC: u8 = 2;
 #[derive(Clone, Debug)]
 enum CItem {
     Ch(u32),
     Range(u32, u32),
     Digit(bool),
     Word(bool),
+    // \w under LOCALE (bytes): CATEGORY_LOC_WORD, the locale's isalnum() or '_'
+    LocWord(bool),
     Space(bool),
     // CPython's RANGE_UNI_IGNORE (a range reaching past the BMP under Unicode IGNORECASE): the lowercased input
     // character or its uppercase is in the range
@@ -148,8 +157,6 @@ struct RP<'a> {
     pat: Option<V>,
     // a lone backslash at the end: CPython's tokenizer raises for it as soon as the token before it is read
     tail_bs: Option<usize>,
-    // Unicode IGNORECASE was used (refused when Rust's Unicode tables are not ones case_after_15_1 covers)
-    uni_fold: Cell<bool>,
     // the warnings CPython's parser issues while it reads the pattern (category, message), in order
     warns: &'a RefCell<Vec<(&'static str, String)>>,
     // the pattern is a str with lone surrogates: `c` holds each one as LONE_PH + (cp - 0xD800), see LONE_PH;
@@ -230,12 +237,23 @@ impl<'a> RP<'a> {
         if self.bytes || (self.flags & F_A != 0 && self.flags & 32 == 0) {
             FOLD_ASCII
         } else {
-            self.uni_fold.set(true);
             FOLD_UNI
         }
     }
     fn backref(&self, g: usize) -> RNode {
-        RNode::Backref(g, if self.flags & F_I != 0 { self.fold_mode() } else { 0 })
+        RNode::Backref(g, if self.flags & F_I == 0 { 0 } else if self.loc() { FOLD_LOC } else { self.fold_mode() })
+    }
+    // a bytes pattern under LOCALE: case and word characters are the C library's, in the locale's LC_CTYPE
+    fn loc(&self) -> bool {
+        self.bytes && self.flags & F_L != 0
+    }
+    // \w in scope: CATEGORY_LOC_WORD under LOCALE, else CATEGORY_WORD
+    fn word_item(&self, neg: bool) -> CItem {
+        if self.loc() {
+            CItem::LocWord(neg)
+        } else {
+            CItem::Word(neg)
+        }
     }
     fn token_at(&self, i: usize) -> String {
         match self.c.get(i) {
@@ -622,7 +640,7 @@ impl<'a> RP<'a> {
                 self.i += 1;
                 let item = match e {
                     'd' | 'D' => CItem::Digit(e == 'D'),
-                    'w' | 'W' => CItem::Word(e == 'W'),
+                    'w' | 'W' => self.word_item(e == 'W'),
                     's' | 'S' => CItem::Space(e == 'S'),
                     'b' => CItem::Ch(0x08),
                     'x' => CItem::Ch(self.hex_escape(e, back)?),
@@ -673,7 +691,7 @@ impl<'a> RP<'a> {
                     self.i += 1;
                     let item = match e {
                         'd' | 'D' => CItem::Digit(e == 'D'),
-                        'w' | 'W' => CItem::Word(e == 'W'),
+                        'w' | 'W' => self.word_item(e == 'W'),
                         's' | 'S' => CItem::Space(e == 'S'),
                         'b' => CItem::Ch(0x08),
                         'x' => CItem::Ch(self.hex_escape(e, back)?),
@@ -696,7 +714,7 @@ impl<'a> RP<'a> {
                 } else {
                     (CItem::Ch(self.cp(that)), that.to_string())
                 };
-                let is_cat = |x: &CItem| matches!(x, CItem::Digit(_) | CItem::Word(_) | CItem::Space(_));
+                let is_cat = |x: &CItem| matches!(x, CItem::Digit(_) | CItem::Word(_) | CItem::LocWord(_) | CItem::Space(_));
                 // CPython names the range by its tokens (an escape is `\\` and one character) and puts the
                 // position that many characters back from the end of the range
                 let back = (self.i).saturating_sub(lo_disp.chars().count() + 1 + hi_disp.chars().count());
@@ -715,10 +733,10 @@ impl<'a> RP<'a> {
         let ascii = self.bytes || (self.flags & F_A != 0 && self.flags & 32 == 0);
         let mut fold = 0;
         // bytes with LOCALE|IGNORECASE: CPython compiles the set unfolded (IN_LOC_IGNORE) and tests the
-        // lowercase and uppercase of each character against it, negation included. A one-literal set is
-        // a (NOT_)LITERAL at parse time, which ASCII folding matches exactly.
-        if self.flags & F_I != 0 && self.bytes && self.flags & F_L != 0 && !(items.len() == 1 && matches!(items[0], CItem::Ch(_))) {
-            fold = FOLD_LOC;
+        // locale's lowercase and uppercase of each character against it, negation included. A one-literal set
+        // is a (NOT_)LITERAL at parse time: (NOT_)LITERAL_LOC_IGNORE.
+        if self.flags & F_I != 0 && self.loc() {
+            fold = if items.len() == 1 && matches!(items[0], CItem::Ch(_)) { FOLD_LOC_LIT } else { FOLD_LOC };
         } else if self.flags & F_I != 0 {
             (items, fold) = fold_set(items, self.fold_mode());
         }
@@ -731,7 +749,17 @@ impl<'a> RP<'a> {
         let ic = self.flags & F_I != 0;
         let ascii = self.bytes || (self.flags & F_A != 0 && self.flags & 32 == 0);
         let fm = if ic { self.fold_mode() } else { 0 };
-        let ch = |c: u32| if ic { fold_literal(c, fm, ascii) } else { RNode::Char(c) };
+        let loc = self.loc();
+        let wm = if loc { W_LOC } else if ascii { W_ASCII } else { W_UNI };
+        let ch = |c: u32| {
+            if ic && loc {
+                RNode::Class(Rc::new(RClass { items: vec![CItem::Ch(c)], neg: false, ascii, fold: FOLD_LOC_LIT }))
+            } else if ic {
+                fold_literal(c, fm, ascii)
+            } else {
+                RNode::Char(c)
+            }
+        };
         Ok(Some(match c {
             '.' => RNode::Any(self.flags & F_S != 0),
             '^' => RNode::Bol(self.flags & F_M != 0),
@@ -751,10 +779,10 @@ impl<'a> RP<'a> {
                 self.i += 1;
                 match e {
                     'd' | 'D' => RNode::Class(Rc::new(RClass { items: vec![CItem::Digit(e == 'D')], neg: false, ascii, fold: 0 })),
-                    'w' | 'W' => RNode::Class(Rc::new(RClass { items: vec![CItem::Word(e == 'W')], neg: false, ascii, fold: 0 })),
+                    'w' | 'W' => RNode::Class(Rc::new(RClass { items: vec![self.word_item(e == 'W')], neg: false, ascii, fold: 0 })),
                     's' | 'S' => RNode::Class(Rc::new(RClass { items: vec![CItem::Space(e == 'S')], neg: false, ascii, fold: 0 })),
-                    'b' => RNode::WordB(true, ascii),
-                    'B' => RNode::WordB(false, ascii),
+                    'b' => RNode::WordB(true, wm),
+                    'B' => RNode::WordB(false, wm),
                     'A' => RNode::StrStart,
                     'Z' => RNode::StrEnd,
                     '0' => ch(self.octal_escape(e, back)?),
@@ -1036,16 +1064,10 @@ impl<'a> RP<'a> {
         }
     }
 }
-// CPython 3.13 has Unicode 15.1; Rust's tables can be newer. These characters gained case mappings after 15.1
-// (up to Unicode 17), so for re they keep CPython's identity mapping. A Rust newer than Unicode 17 may have more:
-// IGNORECASE patterns are then refused (see UNI_FOLD_OK).
+// IGNORECASE uses CPython 3.13's own case tables (src/unicode_sre.rs, generated from _sre), never rustc's, whose
+// Unicode version follows the toolchain that builds the program.
 // The engine works on code points (u32), as CPython's sre does: a str may hold lone surrogates (U+D800..U+DFFF).
 // A surrogate is category Cs: not a word, digit or space character, uncased, and it folds to itself.
-fn case_after_15_1(c: u32) -> bool {
-    matches!(c, 0x19b | 0x264 | 0x1c89..=0x1c8a | 0xa7cb..=0xa7cf | 0xa7d2..=0xa7d5 | 0xa7da..=0xa7dc
-        | 0x10d50..=0x10d65 | 0x10d70..=0x10d85 | 0x16ea0..=0x16eb8 | 0x16ebb..=0x16ed3)
-}
-const UNI_FOLD_OK: bool = char::UNICODE_VERSION.0 >= 15 && char::UNICODE_VERSION.0 <= 17;
 #[inline]
 fn a_lower(c: u32) -> u32 {
     if (0x41..=0x5a).contains(&c) { c + 32 } else { c }
@@ -1063,23 +1085,13 @@ fn is_a_alnum(c: u32) -> bool {
     is_a_alpha(c) || (0x30..=0x39).contains(&c)
 }
 // _sre.unicode_tolower: the simple lowercase (the first character of the full mapping, as for U+0130)
+#[inline]
 fn lower_uni(c: u32) -> u32 {
-    if c < 0x80 {
-        return a_lower(c);
-    }
-    match char::from_u32(c) {
-        Some(ch) if !case_after_15_1(c) => ch.to_lowercase().next().map_or(c, |x| x as u32),
-        _ => c,
-    }
+    py_sre_lower(c)
 }
+#[inline]
 fn upper_uni(c: u32) -> u32 {
-    if c < 0x80 {
-        return a_upper(c);
-    }
-    match char::from_u32(c) {
-        Some(ch) if !case_after_15_1(c) => ch.to_uppercase().next().map_or(c, |x| x as u32),
-        _ => c,
-    }
+    py_sre_upper(c)
 }
 #[inline(never)]
 fn fold_slow(c: u32, fold: u8) -> u32 {
@@ -1089,6 +1101,7 @@ fn fold_char(c: u32, fold: u8) -> u32 {
     match fold {
         FOLD_UNI => lower_uni(c),
         FOLD_ASCII => a_lower(c),
+        FOLD_LOC => loc_lower(c),
         _ => c,
     }
 }
@@ -1096,68 +1109,12 @@ fn is_cased(c: u32, fold: u8) -> bool {
     if fold == FOLD_ASCII || c < 0x80 {
         return is_a_alpha(c);
     }
-    if case_after_15_1(c) {
-        return false;
-    }
-    let Some(ch) = char::from_u32(c) else { return false };
-    let (mut l, mut u) = (ch.to_lowercase(), ch.to_uppercase());
-    !(l.next() == Some(ch) && l.next().is_none() && u.next() == Some(ch) && u.next().is_none())
+    py_sre_iscased(c)
 }
-// re._casefix._EXTRA_CASES (CPython 3.13): other lowercase characters with the same uppercase
+// re._casefix._EXTRA_CASES (CPython 3.13, src/unicode_sre.rs): other lowercase characters with the same uppercase
+#[inline]
 fn extra_cases(c: u32) -> &'static [u32] {
-    match c {
-        0x0069 => &[0x131],
-        0x0073 => &[0x17f],
-        0x00b5 => &[0x3bc],
-        0x0131 => &[0x69],
-        0x017f => &[0x73],
-        0x0345 => &[0x3b9, 0x1fbe],
-        0x0390 => &[0x1fd3],
-        0x03b0 => &[0x1fe3],
-        0x03b2 => &[0x3d0],
-        0x03b5 => &[0x3f5],
-        0x03b8 => &[0x3d1],
-        0x03b9 => &[0x345, 0x1fbe],
-        0x03ba => &[0x3f0],
-        0x03bc => &[0xb5],
-        0x03c0 => &[0x3d6],
-        0x03c1 => &[0x3f1],
-        0x03c2 => &[0x3c3],
-        0x03c3 => &[0x3c2],
-        0x03c6 => &[0x3d5],
-        0x03d0 => &[0x3b2],
-        0x03d1 => &[0x3b8],
-        0x03d5 => &[0x3c6],
-        0x03d6 => &[0x3c0],
-        0x03f0 => &[0x3ba],
-        0x03f1 => &[0x3c1],
-        0x03f5 => &[0x3b5],
-        0x0432 => &[0x1c80],
-        0x0434 => &[0x1c81],
-        0x043e => &[0x1c82],
-        0x0441 => &[0x1c83],
-        0x0442 => &[0x1c84, 0x1c85],
-        0x044a => &[0x1c86],
-        0x0463 => &[0x1c87],
-        0x1c80 => &[0x432],
-        0x1c81 => &[0x434],
-        0x1c82 => &[0x43e],
-        0x1c83 => &[0x441],
-        0x1c84 => &[0x442, 0x1c85],
-        0x1c85 => &[0x442, 0x1c84],
-        0x1c86 => &[0x44a],
-        0x1c87 => &[0x463],
-        0x1c88 => &[0xa64b],
-        0x1e61 => &[0x1e9b],
-        0x1e9b => &[0x1e61],
-        0x1fbe => &[0x345, 0x3b9],
-        0x1fd3 => &[0x390],
-        0x1fe3 => &[0x3b0],
-        0xa64b => &[0x1c88],
-        0xfb05 => &[0xfb06],
-        0xfb06 => &[0xfb05],
-        _ => &[],
-    }
+    py_sre_extra_cases(c)
 }
 // A literal under IGNORECASE, as CPython's compiler emits it.
 fn fold_literal(c: u32, fold: u8, ascii: bool) -> RNode {
@@ -1221,6 +1178,32 @@ fn fold_set(items: Vec<CItem>, fold: u8) -> (Vec<CItem>, u8) {
     out.extend(tail);
     (out, if cased { fold } else { 0 })
 }
+// re.LOCALE asks the C library, in the LC_CTYPE locale the process has, as CPython's sre does at match time
+// (Modules/_sre/sre.c sre_tolower, sre_toupper, sre_isalnum; through btowc and the wide functions on macOS).
+// The locale is the environment's, set at startup as python3 sets it: outside the sandbox dynpy::to_rust sets
+// the reader (LOC_CTYPE_FN in mod.rs); under it the hook stays unset and the program stops instead of guessing.
+pub static LOC_CTYPE: std::sync::OnceLock<fn(u32) -> (u32, u32, bool)> = std::sync::OnceLock::new();
+#[cold]
+#[inline(never)]
+fn loc_ctype(c: u32) -> (u32, u32, bool) {
+    if c > 0xff {
+        return (c, c, false);
+    }
+    match LOC_CTYPE.get() {
+        Some(f) => f(c),
+        None => refuse_stop("re.LOCALE under --sandbox (the locale is the environment's)"),
+    }
+}
+fn loc_lower(c: u32) -> u32 {
+    loc_ctype(c).0
+}
+fn loc_upper(c: u32) -> u32 {
+    loc_ctype(c).1
+}
+// SRE_LOC_IS_WORD
+fn loc_word(c: u32) -> bool {
+    c == 0x5f || loc_ctype(c).2
+}
 fn is_word(c: u32, ascii: bool) -> bool {
     if c < 0x80 {
         is_a_alnum(c) || c == 0x5f
@@ -1255,7 +1238,7 @@ impl RClass {
     fn matches(&self, c: u32, ascii: bool) -> bool {
         let c = if self.fold == 0 {
             c
-        } else if self.fold == FOLD_LOC {
+        } else if self.fold >= FOLD_LOC {
             return self.loc_ignore(c, ascii);
         } else {
             fold_slow(c, self.fold)
@@ -1265,26 +1248,29 @@ impl RClass {
     #[cold]
     #[inline(never)]
     fn loc_ignore(&self, c: u32, ascii: bool) -> bool {
-        let (lo, up) = (a_lower(c), a_upper(c));
+        let (lo, up) = (loc_lower(c), loc_upper(c));
+        if self.fold == FOLD_LOC_LIT {
+            // char_loc_ignore: the byte, its lower or its upper case is the literal; NOT_LITERAL negates that
+            let hit = self.inside(c, ascii) || self.inside(lo, ascii) || self.inside(up, ascii);
+            return hit != self.neg;
+        }
         self.raw(lo, ascii) || (up != lo && self.raw(up, ascii))
     }
     #[inline]
     fn raw(&self, c: u32, ascii: bool) -> bool {
-        let mut hit = false;
-        for it in &self.items {
-            if match it {
-                CItem::Ch(x) => *x == c,
-                CItem::Range(a, b) => *a <= c && c <= *b,
-                CItem::Digit(n) => is_digit(c, ascii) != *n,
-                CItem::Word(n) => is_word(c, ascii) != *n,
-                CItem::Space(n) => is_space(c, ascii) != *n,
-                CItem::RangeUI(a, b) => range_ui(*a, *b, c),
-            } {
-                hit = true;
-                break;
-            }
-        }
-        hit != self.neg
+        self.inside(c, ascii) != self.neg
+    }
+    #[inline]
+    fn inside(&self, c: u32, ascii: bool) -> bool {
+        self.items.iter().any(|it| match it {
+            CItem::Ch(x) => *x == c,
+            CItem::Range(a, b) => *a <= c && c <= *b,
+            CItem::Digit(n) => is_digit(c, ascii) != *n,
+            CItem::Word(n) => is_word(c, ascii) != *n,
+            CItem::LocWord(n) => loc_word(c) != *n,
+            CItem::Space(n) => is_space(c, ascii) != *n,
+            CItem::RangeUI(a, b) => range_ui(*a, *b, c),
+        })
     }
 }
 
@@ -1378,6 +1364,10 @@ thread_local! {
     static RE_SITE: Cell<Option<ReSite>> = const { Cell::new(None) };
     // the program uses the warnings module (CPython's, through the bridge): warnings go through it
     static WARN_BRIDGE: Cell<Option<WarnFn>> = const { Cell::new(None) };
+    // the bridge's answer to "no module has a __warningregistry__ yet" (pyglue's pyd_regs_clean)
+    static REGS_CLEAN: Cell<Option<fn() -> Result<bool, E>>> = const { Cell::new(None) };
+    // the runtime issued a warning (through the bridge or not)
+    static WARNED: Cell<bool> = const { Cell::new(false) };
     // what the default filters already showed: (module, message, category, line), shown once ("default")
     static WARN_SHOWN: RefCell<std::collections::HashSet<(&'static str, String, &'static str, usize)>> = RefCell::new(std::collections::HashSet::new());
 }
@@ -1424,9 +1414,25 @@ pub fn set_name_lookup(f: fn(&str) -> Option<char>) {
 pub fn set_warn_bridge(f: WarnFn) {
     WARN_BRIDGE.set(Some(f));
 }
+pub fn set_regs_clean(f: fn() -> Result<bool, E>) {
+    REGS_CLEAN.set(Some(f));
+}
+// No module's globals hold a __warningregistry__: CPython makes one in the globals of the frame a warning is
+// attributed to, and Brevi's runtime (re_warn) or the bridge's warn (_d.regs, _d.lib_reg) is where every
+// warning of a program goes. None: that is not known (a warning was issued).
+pub fn no_warn_registry() -> Result<bool, E> {
+    if WARNED.get() {
+        return Ok(false);
+    }
+    match REGS_CLEAN.get() {
+        Some(f) => f(),
+        None => Ok(true),
+    }
+}
 // warnings.warn(msg, cat, stacklevel=<the caller>) as CPython issues it, for a warning Brevi's runtime issues
 // where CPython's C code would (re's, int()'s).
 pub fn re_warn(cat: &'static str, msg: String) -> Result<(), E> {
+    WARNED.set(true);
     let site = RE_SITE.get();
     if let Some(warn) = WARN_BRIDGE.get() {
         let Some(s) = site else {
@@ -1459,6 +1465,7 @@ pub fn re_warn(cat: &'static str, msg: String) -> Result<(), E> {
 // is "<copy>" for copy.py, which the bridge names by CPython's own copy.__file__. With no bridge the default
 // filters apply: a DeprecationWarning outside __main__ is ignored.
 pub fn re_warn_at(cat: &'static str, msg: String, file: &str, line: usize, module: &str) -> Result<(), E> {
+    WARNED.set(true);
     if let Some(warn) = WARN_BRIDGE.get() {
         return warn(cat, &msg, file, line, module);
     }
@@ -1521,7 +1528,6 @@ fn re_compile3(src: &str, flags: i64, pat: Option<V>, lone: Option<V>, warns: &R
         global_ok: true,
         cond_refs: vec![],
         bytes: pat.is_some(),
-        uni_fold: Cell::new(false),
         warns,
         tail_bs: (chars.iter().rev().take_while(|&&c| c == '\\').count() % 2 == 1).then(|| chars.len() - 1),
         pat,
@@ -1548,9 +1554,6 @@ fn re_compile3(src: &str, flags: i64, pat: Option<V>, lone: Option<V>, warns: &R
     }
     if p.i < chars.len() {
         return p.err("unbalanced parenthesis", p.i);
-    }
-    if p.uni_fold.get() && !UNI_FOLD_OK {
-        return Err(unsupported("re.IGNORECASE with this Rust toolchain's Unicode tables"));
     }
     for &(g, pos) in &p.cond_refs {
         if g > p.ngroups {
@@ -1644,9 +1647,10 @@ impl<'a> Ctx<'a> {
             }
             RNode::StrStart => pos == 0 && self.seq(rest, pos, k),
             RNode::StrEnd => pos == self.s.len() && self.seq(rest, pos, k),
-            RNode::WordB(want, wa) => {
-                let a = pos > 0 && is_word(self.s[pos - 1], *wa);
-                let b = pos < self.s.len() && is_word(self.s[pos], *wa);
+            RNode::WordB(want, wm) => {
+                let w = |c: u32| if *wm == W_LOC { loc_word(c) } else { is_word(c, *wm == W_ASCII) };
+                let a = pos > 0 && w(self.s[pos - 1]);
+                let b = pos < self.s.len() && w(self.s[pos]);
                 // CPython 3.13: \B never matches in an empty string
                 if (a != b) == *want && (*want || !self.s.is_empty()) {
                     self.seq(rest, pos, k)
@@ -2198,9 +2202,7 @@ impl Ext for RPat {
             _ => false,
         })
     }
-    fn hash(&self) -> Option<i64> {
-        Some((self.prog.src.len() as i64) ^ if self.prog.bytes { 1 } else { 0 })
-    }
+    // no hash: CPython's covers the compiled sre code (rt_core py_hash refuses)
     fn attr(&self, _me: &V, n: &str) -> Option<R> {
         Some(Ok(match n {
             "pattern" if self.prog.scan_flags.is_some() => V::None,
@@ -2703,6 +2705,10 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
             let mut out: Vec<u32> = vec![];
             let mut last = 0;
             let nsub = ms.len();
+            // CPython joins the pieces: a lone piece is returned as it is (the subject when nothing matched,
+            // the exact str a callable gave for a match of the whole subject)
+            let mut whole: Option<V> = None;
+            let one_whole = nsub == 1 && ms[0][0] == 0 && ms[0][1] == sc.len();
             for c in ms {
                 out.extend(sc[last..c[0]].iter());
                 if wrong_type {
@@ -2723,6 +2729,9 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
                                 None => return type_err(format!("sequence item 0: expected a bytes-like object, {} found", tn(&r))),
                             }
                         } else {
+                            if one_whole && matches!(r, V::Str(_)) {
+                                whole = Some(r.clone());
+                            }
                             match &r {
                                 V::Str(x) => match x.lone() {
                                     Some(v) => out.extend_from_slice(v),
@@ -2736,7 +2745,15 @@ fn pat_call(prog: &Rc<Prog>, n: &str, a: &mut Args) -> R {
                 last = c[1];
             }
             out.extend(sc[last..].iter());
-            let rv = if prog.bytes { bytesv(out.iter().map(|&c| c as u8).collect()) } else { st_cps(out) };
+            let rv = if prog.bytes {
+                bytesv(out.iter().map(|&c| c as u8).collect())
+            } else if let Some(w) = whole {
+                w
+            } else if nsub == 0 && matches!(sv, V::Str(_)) {
+                sv.clone()
+            } else {
+                st_cps(out)
+            };
             Ok(if n == "subn" { tup(vec![rv, V::Int(nsub as i64)]) } else { rv })
         }
         "split" => {

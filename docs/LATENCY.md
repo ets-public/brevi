@@ -5,7 +5,7 @@ Fixture and method: `bench/latency.py` (METRICS.md, "Check latency").
 
 ## Main (d91ca4b), 11 November 2026
 
-Machine: Intel Xeon @ 2.10 GHz, 4 cores, rustc 1.97.0, CPython 3.13.18 (the same kind of machine as the v0.26.0 baseline). Release build of main at d91ca4b, with the sharing-proof fix (#414) and the faster guard (#462), both shipping in the next release. `bench/latency-results/2026-11-11-main-d91ca4b[-dyn].json` (the run after #414 alone, at 0349bd8, is kept next to it).
+Machine: Intel Xeon @ 2.10 GHz, 4 cores, rustc 1.97.0, CPython 3.13.18 (the same kind of machine as the v0.26.0 baseline). Release build of main at d91ca4b, with the sharing-proof fix (#414) and the faster guard (#462), both shipped in v0.28.0. `bench/latency-results/2026-11-11-main-d91ca4b[-dyn].json` (the run after #414 alone, at 0349bd8, is kept next to it).
 
 | Mode | Typed path p50 / p95 | Dynamic path (`--dyn`) p50 / p95 |
 |---|---|---|

@@ -276,7 +276,7 @@ pub fn learn(diags: &[crate::diag::Diag], src: &str) -> bool {
 
 // Whether a public class of CPython's module m has attribute f (asked of python3).
 fn class_has(m: &str, f: &str) -> bool {
-    let exe = py_exe();
+    let Ok(exe) = py_exe() else { return false };
     let q = "import sys, importlib\nm = importlib.import_module(sys.argv[1])\nprint(any(isinstance(getattr(m, n, None), type) and hasattr(getattr(m, n), sys.argv[2]) for n in dir(m) if not n.startswith('_')))";
     std::process::Command::new(exe).args(["-c", q, m, f]).output().is_ok_and(|o| String::from_utf8_lossy(&o.stdout).trim() == "True")
 }
@@ -1207,14 +1207,15 @@ fn expr_pat(e: &Expr) -> Option<Pat> {
 
 // ------------------------------------------------------------------------------------------- the runtime
 
-const RUNTIME: &str = concat!(include_str!("pyrt_load.rs"), include_str!("pyrt.rs"));
+const RUNTIME: &str = concat!(include_str!("privdir.rs"), include_str!("pyrt_load.rs"), include_str!("pyrt.rs"));
 // The loader alone, for the dynamic builds' bridge (dynpy/pyglue.rs).
-pub const LOADER: &str = include_str!("pyrt_load.rs");
+pub const LOADER: &str = concat!(include_str!("privdir.rs"), include_str!("pyrt_load.rs"));
 
 // Asked of python3 when the program is built: libpython's path, PYTHONHOME and sys.path (minus the script's
 // folder), joined by \x01.
-fn py_exe() -> String {
-    std::env::var("BREVI_PYTHON").unwrap_or_else(|_| if cfg!(windows) { "python".into() } else { "python3".into() })
+// Always a CPython 3.13 (src/cpython.rs); a build that bridges a library is refused without one.
+fn py_exe() -> Result<String, String> {
+    crate::python_exe()
 }
 
 pub const QUERY: &str = r#"import sys, os, sysconfig
@@ -1240,11 +1241,21 @@ pub fn set_file(f: &str) {
     FILE.set(f.to_string()).ok();
 }
 
+// `brevi build --standalone`: compiled into the program (AX_PYB_STANDALONE), which then loads only the CPython
+// it carries and is refused if that is missing, never falling back to one installed on the machine.
+static STANDALONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub fn set_standalone(on: bool) {
+    STANDALONE.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+pub fn standalone() -> bool {
+    STANDALONE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 // What python3 answers to QUERY (asked once).
 fn conf() -> &'static Result<String, String> {
     static C: std::sync::OnceLock<Result<String, String>> = std::sync::OnceLock::new();
     C.get_or_init(|| {
-        let exe = py_exe();
+        let exe = py_exe()?;
         let out = std::process::Command::new(&exe).args(["-c", QUERY]).output().map_err(|e| format!("cannot start {exe}: {e}"))?;
         let s = String::from_utf8_lossy(&out.stdout).trim_end().to_string();
         match s.split('\u{1}').next() {
@@ -1272,7 +1283,7 @@ pub fn dyn_runtime() -> String {
 fn consts() -> String {
     let file = FILE.get().cloned().unwrap_or_default();
     let conf = conf().clone().unwrap_or_default();
-    let abs = std::fs::canonicalize(&file).map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|_| file.clone());
+    let abs = crate::modules::abs_path(std::path::Path::new(&file));
     let dir = std::path::Path::new(&abs).parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
     // sys.path[0] is the script's folder, as python3 sets it.
     let conf = match conf.split_once('\u{1}') {
@@ -1283,7 +1294,7 @@ fn consts() -> String {
         None => String::new(),
     };
     let subs = SUBS.with(|x| x.borrow().clone());
-    format!("const AX_PYB_SUBS: &[&str] = &{subs:?};\nconst AX_PYB_CONF: &str = {conf:?};\nconst AX_PYB_QUERY: &str = {QUERY:?};\nconst AX_PYB_FILE: &str = {file:?};\nconst AX_PYB_HOLD: AxPybHold = {};\nconst AX_PYB_NET: u8 = {};\n", fs_hold(), net_hold())
+    format!("const AX_PYB_SUBS: &[&str] = &{subs:?};\nconst AX_PYB_CONF: &str = {conf:?};\nconst AX_PYB_QUERY: &str = {QUERY:?};\nconst AX_PYB_FILE: &str = {file:?};\nconst AX_PYB_HOLD: AxPybHold = {};\nconst AX_PYB_NET: u8 = {};\nconst AX_PYB_STANDALONE: bool = {};\n", fs_hold(), net_hold(), STANDALONE.load(std::sync::atomic::Ordering::Relaxed))
 }
 
 // Under --sandbox, CPython's network is held by the kernel too (Linux seccomp, pyrt_load.rs ax_pyb_nonet):
@@ -1332,20 +1343,23 @@ fn fs_hold() -> String {
 const BUNDLER: &str = include_str!("pybundle.py");
 
 // `brevi build --standalone`: appends CPython (libpython, its shared libraries, the standard library and the
-// packages the program imports) to the binary, which then runs where no Python is installed. pyrt.rs unpacks
-// it into a cache folder on first run. Linux only for now.
+// packages the program imports) to the binary, which then runs where no Python is installed. pyrt_load.rs
+// unpacks it into a cache folder on first run. Linux and Windows; macOS is refused.
 pub fn bundle(file: &str, bin: &std::path::Path) -> Result<String, String> {
-    if !cfg!(target_os = "linux") {
-        return Err("--standalone builds of programs that use Python libraries need Linux for now".into());
+    if !cfg!(any(target_os = "linux", windows)) {
+        return Err("--standalone builds of programs that use Python libraries need Linux or Windows for now".into());
     }
     let conf = conf().clone()?;
     let lib = conf.split('\u{1}').next().unwrap_or_default().to_string();
-    let exe = py_exe();
+    let exe = py_exe()?;
     let out = std::process::Command::new(&exe)
         .args(["-c", BUNDLER, file, &bin.to_string_lossy(), &lib])
         .output()
         .map_err(|e| format!("cannot start {exe}: {e}"))?;
     let err = String::from_utf8_lossy(&out.stderr).to_string();
+    if let Some(why) = err.lines().find_map(|l| l.strip_prefix("brevi: refused: ")) {
+        return Err(format!("--standalone refused: {why}"));
+    }
     if !out.status.success() {
         return Err(format!("bundling Python failed: {}", err.trim().lines().last().unwrap_or("")));
     }

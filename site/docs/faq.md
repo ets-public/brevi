@@ -16,7 +16,7 @@ No. Write Python. Brevi also has its own language for `.bv` files, but measureme
 ## How is this different from Codon, Nuitka, Cython or PyPy?
 
 - **Codon** compiles a Python-like language and is very fast, but changes Python's behaviour (64-bit integers that wrap, different printing) and refuses much real code. On 591 of our saved agent programs it built 206 and got 36 of those wrong; Brevi built all 591, all matching CPython (they are our own regression set, so this favours Brevi). Codon never promised CPython's exact behaviour, and it is faster than Brevi on numeric code.
-- **Nuitka** matches CPython's behaviour, but keeps CPython's object model, so it runs at about CPython's speed. Brevi's default build is 1.6x to 37.9x faster than CPython on our 12 compute benchmarks (median 9.3x). Nuitka runs far more of Python than Brevi does today.
+- **Nuitka** matches CPython's behaviour, but keeps CPython's object model, so it runs at about CPython's speed. Brevi's default typed build is 1.6x to 37.9x faster than CPython on our 12 compute benchmarks (median 9.3x); a program on the dynamic build runs at about CPython's speed (the dynamic build's median is 0.85x). Nuitka runs far more of Python than Brevi does today.
 - **Cython** speeds up code you annotate with C types. Brevi needs no annotations.
 - **PyPy** is a faster interpreter with a JIT. Brevi produces a standalone native binary, checks programs before they run, and gives errors built for agents.
 
@@ -24,7 +24,7 @@ No. Write Python. Brevi also has its own language for `.bv` files, but measureme
 
 ## Will my program give the same answer?
 
-That is the aim, and usually yes, but not always yet. Brevi tries to refuse at build time anything it cannot match, and every change is checked against hundreds of saved programs and behaviour traps. On CPython 3.13's own tests, though, 80% match, 12% are refused, and 8 of 311 tests (3%) still build and answer differently, and none crash ([In numbers](/docs/compatibility#in-numbers)). For a program that matters, run `brevi verify x.py --input tests/`: it runs the native build and CPython on the same inputs and certifies them only if they agree. If you find a difference, it is a bug, so please report it.
+That is the aim, and usually yes, but not always yet. Brevi tries to refuse at build time anything it cannot match, and every change is checked against hundreds of saved programs and behaviour traps. On CPython 3.13's own tests, 97.3% of the scored suite, with 83 string-as-code tests excluded match (1,043 of 1,072, at v0.28.2), 26 are refused at build time, and none build and answer differently or crash ([In numbers](/docs/compatibility#in-numbers)). For a program that matters, run `brevi verify x.py --input tests/`: it runs the native build and CPython on the same inputs and certifies them only if they agree. If you find a difference, it is a bug, so please report it.
 
 ## What happens when Brevi cannot build my file?
 
@@ -44,15 +44,17 @@ About 0.25 s for a tiny new program and a median of about 1.2 s for a typical ag
 
 ## Is it safe to run code an agent wrote?
 
-Brevi programs are memory-safe, and integers never silently overflow. A program can declare what it touches (`allow read, write`, and `allow native` for crates and Python libraries), and `--sandbox` refuses anything the caller did not grant (`--allow`, `--allow-py`) on every build path, whatever the program's own allow lines say. A sandboxed program never falls back to CPython (from v0.24.1). Running untrusted code in a container or VM as well is still wise. See [Sandbox](/docs/usage#sandbox).
+Code you trust, yes; code that may be hostile, not on Brevi's sandbox alone. **No external security audit yet**: we have not had an external audit; we are seeking funding for one. Until then, do not run hostile code under the sandbox.
+
+**The sandbox is a policy layer, not an isolation boundary.** Under `--sandbox` (the default in the MCP tools and the SDKs, except `verify`, which runs CPython) a program may touch only what the caller grants (`--allow`, `--allow-net`, `--allow-read`, `--allow-write`, `--allow-py`), checked before every build path and, for folders and hosts, again when the program runs, and its own `allow` lines grant nothing; a sandboxed program never falls back to CPython. That holds careless or overreaching agent code. But Brevi's own checks and runtime enforce it, with no container or VM around the program, so **run untrusted code in a container or VM** and use the sandbox as a second layer inside it. **`--allow-py` and `--allow native` are full trust**: grant them only to code you would run without a sandbox. Brevi builds programs as Rust and integers never silently overflow, which rules out some classes of bug, not the need for isolation. See [Sandbox](/docs/usage#sandbox).
 
 ## Does it cost more tokens than Python?
 
-About the same. In the v0.27.0 release test (24 tasks, two runs), Brevi cost 1.08x (Sonnet) and 0.97x (Haiku) of what the same models cost running Python with CPython. Every task passed, and 92 of 96 final programs built natively (the other 4 failed to build only while another job used the same machine, and build natively when rebuilt). Recent releases have stayed between 0.97x and 1.09x for Sonnet, mostly a few percent above 1.00x, so Brevi does not save model cost on ordinary tasks. In this test, when Brevi cannot build a file it runs with CPython, as `brevi run` does, so the model does not see Brevi's build errors. On four heavy tasks, telling the model (on the Brevi side only) that its code is compiled and should be written plainly brought the cost to about half; CPython has not yet been run with the same line, so that does not yet show what Brevi itself saves. [Benchmarks](/docs/benchmarks#the-release-test) has every run.
+About the same. In the v0.28.0 release test (24 tasks, two runs), Brevi cost 1.08x (Sonnet) and 1.00x (Haiku) of what the same models cost running Python with CPython. Every task passed, and 95 of 96 final programs built natively. Recent releases have stayed between 0.97x and 1.09x for Sonnet, mostly a few percent above 1.00x, so Brevi does not save model cost on ordinary tasks. In this test, when Brevi cannot build a file it runs with CPython, as `brevi run` does, so the model does not see Brevi's build errors. On four heavy tasks, telling the model (on the Brevi side only) that its code is compiled and should be written plainly brought the cost to about half; CPython has not yet been run with the same line, so that does not yet show what Brevi itself saves. [Benchmarks](/docs/benchmarks#the-release-test) has every run.
 
 ## Which platforms?
 
-Linux, macOS and Windows on x86-64 and ARM64 (Windows x86-64 only). Library calls through CPython work on Windows too from v0.27.0 (the Python on PATH must have its DLL); `--standalone` builds are Linux only for now. See [Platforms](/docs/compatibility#platforms).
+Linux, macOS and Windows on x86-64 and ARM64 (Windows ARM64 from v0.28.1). Library calls through CPython work on Windows too from v0.27.0 (the Python on PATH must have its DLL); `--standalone` builds work on Linux and Windows from v0.28.1, not yet on macOS. See [Platforms](/docs/compatibility#platforms).
 
 ## Is it free? What is brevi.run?
 
@@ -60,7 +62,7 @@ The compiler is open source under Apache-2.0 and will stay that way. brevi.run i
 
 ## Can I install it with pip, npm or Homebrew?
 
-pip and npm, yes: `pip install brevi` or `npm install -g brevi` (or `uvx brevi mcp` / `npx brevi mcp` without installing), and the crate is on crates.io. Homebrew not yet. See [Install](/docs/install).
+pip and npm, yes: `pip install brevi` or `npm install -g brevi` (or `uvx --python 3.13 brevi run --verify main.py`, `uvx brevi mcp` or `npx brevi mcp` without installing), and the crate is on crates.io. Homebrew not yet. See [Install](/docs/install).
 
 ## Who makes Brevi?
 

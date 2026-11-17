@@ -18,6 +18,7 @@ PLATFORMS = {
     "aarch64-apple-darwin": "macosx_11_0_arm64",
     "x86_64-apple-darwin": "macosx_10_12_x86_64",
     "x86_64-pc-windows-msvc": "win_amd64",
+    "aarch64-pc-windows-msvc": "win_arm64",
 }
 
 

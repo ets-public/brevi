@@ -69,6 +69,8 @@ def sample(schema, said, defs=None):
             return sample(schema[k][0], said, defs)
     if "enum" in schema:
         return schema["enum"][0]
+    if "const" in schema:
+        return schema["const"]
     t = schema.get("type")
     if t == "object":
         return {n: sample(p, said, defs) for n, p in schema.get("properties", {}).items()}

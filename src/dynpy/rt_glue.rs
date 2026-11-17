@@ -21,6 +21,34 @@ pub fn gl(i: usize, name: &str) -> R {
         v => Ok(v.clone()),
     }
 }
+// Global slot i of a module read as an attribute of the module object (`m.n`): unbound is the module's
+// AttributeError (the emitter's mod_attr_err).
+pub fn gla(i: usize, err: impl FnOnce() -> E) -> R {
+    match gref(i) {
+        V::Unbound => Err(err()),
+        v => Ok(v.clone()),
+    }
+}
+// CPython 3.13's AttributeError for name n missing from module m (Objects/moduleobject.c, module_getattro).
+// state: the module's import (0 not run, 1 running, 2 done); sub: the same for its submodule named n (0 when n
+// names none); shadow: 1 when its file could shadow a library (a top-level module of the script's directory,
+// sys.path[0]), 2 when that library is in sys.stdlib_module_names; origin: its file.
+pub fn mod_attr_err(m: &str, n: &str, state: u8, sub: u8, shadow: u8, origin: &str) -> E {
+    exc(
+        "AttributeError",
+        if shadow == 2 {
+            format!("module '{m}' has no attribute '{n}' (consider renaming '{origin}' since it has the same name as the standard library module named '{m}' and prevents importing that standard library module)")
+        } else if state == 1 && shadow == 1 {
+            format!("module '{m}' has no attribute '{n}' (consider renaming '{origin}' if it has the same name as a library you intended to import)")
+        } else if state == 1 {
+            format!("partially initialized module '{m}' has no attribute '{n}' (most likely due to a circular import)")
+        } else if sub == 1 {
+            format!("cannot access submodule '{n}' of module '{m}' (most likely due to a circular import)")
+        } else {
+            format!("module '{m}' has no attribute '{n}'")
+        },
+    )
+}
 // a global that may shadow a builtin
 pub fn glb(i: usize, name: &str) -> R {
     match gref(i) {
@@ -188,6 +216,26 @@ pub fn fset_rebuild(v: V) -> R {
     };
     Ok(V::FSet(Rc::new(PSet::from_iter(keys)?)))
 }
+// CPython rebuilds the frozenset once more when the code object interns one of its strings (codeobject.c
+// intern_constants; emit.rs set_rebuilds decides when)
+pub fn fset_rebuild2(v: V) -> R {
+    fset_rebuild(fset_rebuild(v)?)
+}
+// Whether CPython rebuilds the frozenset a second time depends on the strings interned before the module was
+// compiled, which the build cannot know (a module Brevi copies, imported at run time). With a random hash key any
+// layout is one CPython could give; with a fixed one (PYTHONHASHSEED) the program stops when the two layouts
+// iterate differently.
+pub fn fset_rebuild_unsure(v: V) -> R {
+    let one = fset_rebuild(v)?;
+    if !HASH_RANDOM.load(std::sync::atomic::Ordering::Relaxed) {
+        let two = fset_rebuild(one.clone())?;
+        let (V::FSet(a), V::FSet(b)) = (&one, &two) else { unreachable!() };
+        if a.keys().iter().zip(b.keys().iter()).any(|(x, y)| !is(x, y)) {
+            return Err(unsupported("a set literal of strings in a library module whose order CPython takes from the strings already interned when it imports the module"));
+        }
+    }
+    Ok(one)
+}
 pub fn make_exc(v: V) -> Result<E, E> {
     match &v {
         V::Class(c) => {
@@ -281,6 +329,42 @@ pub fn glob_get(tab: fn(&str) -> Option<usize>, k: &V, d: V) -> R {
 }
 pub fn glob_has(tab: fn(&str) -> Option<usize>, k: &V) -> Result<bool, E> {
     Ok(glob_slot(tab, k)?.is_some())
+}
+
+// ---------- sys._getframe(n).f_globals ----------
+// The build lets a frame from sys._getframe(n) (n a literal) be used only as
+// `frame.f_globals.get('__warningregistry__'[, d])` (emit.rs frame_vars); the frame is never a value. Which
+// module's globals those are is not known here, so the key is answered only while its answer is the same in
+// every module: absent, while no module has a registry yet (test.support's check_warnings reads it). Anything
+// else stops the run. n must reach no further than the program's own frames (PDEPTH, each of which CPython has too), and
+// not past a call from a Python library (whose frames the program does not know).
+pub fn getframe_check(n: i64) -> Result<(), E> {
+    if GT_CB.with(|c| c.get()) > 0 {
+        return Err(unsupported("sys._getframe() in a function a Python library called"));
+    }
+    // the program's own frames, and __main__'s module frame while its body runs (a thread running then has
+    // threading's frames under it instead)
+    let known = PDEPTH.with(|d| d.get()) + MAIN_RUNNING.with(|m| m.get()) as usize;
+    if n > 0 && n as usize >= known {
+        return Err(unsupported("sys._getframe(n) with n past the program's own frames"));
+    }
+    Ok(())
+}
+fn fglob_absent(k: &V) -> Result<(), E> {
+    match k {
+        V::Str(x) if x.text() == "__warningregistry__" => {
+            if no_warn_registry()? {
+                Ok(())
+            } else {
+                Err(unsupported("frame.f_globals['__warningregistry__'] once a warning was issued"))
+            }
+        }
+        _ => Err(unsupported("reading a frame's f_globals other than '__warningregistry__'")),
+    }
+}
+pub fn fglob_get(k: &V, d: V) -> R {
+    fglob_absent(k)?;
+    Ok(d)
 }
 
 thread_local! {
