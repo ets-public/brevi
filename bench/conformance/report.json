@@ -1,9 +1,9 @@
 {
 "brevi": "brevi 0.28.2",
-"commit": "08c1c06ad6f1",
+"commit": "4b02886c39d0",
 "python": "3.13.13",
 "tag": "v3.13.13",
-"date": "2026-11-16",
+"date": "2026-11-17",
 "platform": "linux",
 "sandboxed": false,
 "timeout_s": 20,
