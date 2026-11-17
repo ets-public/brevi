@@ -316,7 +316,8 @@ _BrInst.__module__ = '_brevi_dyn'
 import copyreg as _cr
 _cr.dispatch_table[_BrOT] = lambda c: _bf_reduce(type.__getattribute__(c, '_b'), c)
 def _mkst(n, qn, m, b):
-    return _BrOT(n, (_BrInst,), {'__slots__': (), '__module__': m, '__qualname__': qn, '_b': b})
+    # interned, as CPython's __module__ and __qualname__ are, so pickle memoizes the module name once (_pk_global)
+    return _BrOT(n, (_BrInst,), {'__slots__': (), '__module__': _s.intern(m), '__qualname__': _s.intern(qn), '_b': b})
 def _mkinst(c, r, b):
     o = object.__new__(c)
     o._r = r
