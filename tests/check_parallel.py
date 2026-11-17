@@ -11,7 +11,8 @@ a file's build), so jobs never share one. The HTTP and
 LLM mock servers are started once here (CHECK_SERVERS=1 tells check.sh not to start its own), so the per-file
 jobs that talk to them can run side by side.
 
-Env CHECK_ONLY=NAME,... runs only those sections; CHECK_SKIP=NAME,... leaves those out.
+Env CHECK_ONLY=NAME,... runs only those sections; CHECK_SKIP=NAME,... leaves those out. CHECK_PATH=NAME,...=DIRS
+runs those sections with PATH=DIRS (tools/ci_local.sh: the MCP sections' python3 is the pinned mcp venv's).
 usage: check_parallel.py [--update] [--jobs N] [--quiet] [--changed-since REF]
   --quiet               leave out the "ok" lines
   --changed-since REF   the fast tier for a branch (tools/ci_local.sh uses it): skip the sections for Brevi's
@@ -148,7 +149,7 @@ def sh_quote(s):
     return "'" + s.replace("'", "'\\''") + "'"
 
 
-def run(script, args, tmp):
+def run(script, args, tmp, path=None):
     os.makedirs(tmp, exist_ok=True)
     # check.sh keeps its scratch files in /tmp under fixed names: give each job its own folder for them. Files a
     # test program itself makes (/tmp/brevi_sb_*, which the sandbox checks look for) keep their names.
@@ -157,7 +158,7 @@ def run(script, args, tmp):
     with (SCOPED if "tests/sandbox/scoped" in text or uses_scoped(script) else NOLOCK):
         # TMPDIR too: brevi builds a file in TMPDIR/brevi-HASH-OF-ITS-PATH, so two jobs building the same file
         # (tests/bv_libs and their --sandbox runs) would share that folder and clobber each other's build.
-        p = subprocess.run(["sh", "-c", text, "check.sh"] + args, cwd=ROOT, capture_output=True, text=True, env=dict(os.environ, TMPDIR=tmp))
+        p = subprocess.run(["sh", "-c", text, "check.sh"] + args, cwd=ROOT, capture_output=True, text=True, env=dict(os.environ, TMPDIR=tmp, **({"PATH": path} if path else {})))
     return p.returncode, p.stdout + p.stderr, time.time() - t
 
 
@@ -199,13 +200,24 @@ def main():
             print("check_parallel: fast tier, skipping the library sections nothing here changes: "
                   + ", ".join(sorted(skip)) + " (CI and releases run them)", file=sys.stderr)
     with open(CHECK) as fh:
-        secs = [s for s in sections(fh.readlines()) if s[0] not in skip]
+        every = sections(fh.readlines())
+    secs = [s for s in every if s[0] not in skip]
     only = [x for x in os.environ.get("CHECK_ONLY", "").split(",") if x]  # CHECK_ONLY=polars,jinja2: just those
     if only:
         secs = secs[:1] + [s for s in secs[1:] if s[0] in only]
     leave = [x for x in os.environ.get("CHECK_SKIP", "").split(",") if x]  # CHECK_SKIP=mcp_sdk: run those elsewhere
     if leave:
         secs = secs[:1] + [s for s in secs[1:] if s[0] not in leave]
+    # CHECK_PATH=mcp_sdk,mcp_http=/venv/bin:...: those sections' jobs get that PATH, the rest keep this one's.
+    path_for = {}
+    if os.environ.get("CHECK_PATH"):
+        names, sep, dirs = os.environ["CHECK_PATH"].partition("=")
+        if not sep or not dirs:
+            raise SystemExit("check_parallel: CHECK_PATH is NAME,...=DIRS")
+        unknown = [x for x in names.split(",") if x and x not in {s[0] for s in every[1:]}]
+        if unknown:
+            raise SystemExit("check_parallel: CHECK_PATH names no section " + ", ".join(unknown))
+        path_for = {x: dirs for x in names.split(",") if x}
     pre = secs[0][2]
     # The preamble (BREVI=..., fail=0) goes in front of every job; it must not run checks itself.
     if any(re.match(r"(for|if|while) ", l) for l in pre):
@@ -239,7 +251,8 @@ def main():
         order = sorted(range(len(jobs)), key=lambda k: -took.get(jobs[k][0], 0))
         res = [None] * len(jobs)
         with cf.ThreadPoolExecutor(n) as ex:
-            futs = {ex.submit(run, jobs[k][1], args, os.path.join(top, str(k))): k for k in order}
+            futs = {ex.submit(run, jobs[k][1], args, os.path.join(top, str(k)), path_for.get(jobs[k][0].split(":")[0])): k
+                    for k in order}
             nxt = 0
             for fu in cf.as_completed(futs):
                 res[futs[fu]] = fu.result()

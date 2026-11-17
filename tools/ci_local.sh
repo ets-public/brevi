@@ -72,8 +72,8 @@ else
   echo "warning: uv not installed (https://docs.astral.sh/uv/): the MCP checks compare against this Python's own mcp and pydantic, not the pinned ones"
 fi
 step "Unit tests"; cargo test --release -q
-step "Language tests"; BREVI=./target/release/brevi CHECK_SKIP=mcp_sdk,mcp_http python3 tests/check_parallel.py --quiet $fast
-step "MCP servers against the pinned mcp"; PATH="$mcp_path" BREVI=./target/release/brevi CHECK_ONLY=mcp_sdk,mcp_http python3 tests/check_parallel.py --quiet $fast
+# One pool, so the MCP sections (~90 s) fill the language tests' tail; their python3 is the pinned mcp venv's.
+step "Language tests (MCP servers against the pinned mcp)"; BREVI=./target/release/brevi CHECK_PATH="mcp_sdk,mcp_http=$mcp_path" python3 tests/check_parallel.py --quiet $fast
 step "MCP server"; python3 tests/mcp_test.py && PATH="$mcp_path" python3 tests/mcp_http_test.py
 # (with the machine's own python3: the box hides $HOME, where uv keeps its CPython)
 step "Model box"; "$sys_py" tests/modelbox_test.py && "$sys_py" tests/privtmp_test.py

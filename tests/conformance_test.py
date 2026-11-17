@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Unit tests for the extractor and classifier in tools/conformance.py. Needs no network and no compiler:
   python3 tests/conformance_test.py"""
-import subprocess, sys, tempfile, unittest
+import os, subprocess, sys, tempfile, unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
@@ -621,6 +621,23 @@ class WindowsRatchet(unittest.TestCase):
         for t in ("threaded", "threaded2", "threaded3"):
             self.assertIn(f"test_functools.TestLRUC.test_lru_cache_{t}", c.ALWAYS_UNSTABLE)
         self.assertLessEqual(set(c.ADDRESS_ORDER), set(c.ALWAYS_UNSTABLE))
+
+class HashSeed(unittest.TestCase):
+    """A test reaching two helpers that each refuse it must get the same reason under every hash seed (the names it
+    reads are a set, and the first helper followed decides: test_lru_recursion's detail flipped between runs)."""
+
+    def test_same_reason_under_every_seed(self):
+        prog = ("import sys; sys.path.insert(0, sys.argv[1]); import conformance as c\n"
+                "head = 'import unittest\\nfrom test.support import get_c_recursion_limit, infinite_recursion\\nclass T(unittest.TestCase):\\n'\n"
+                "u = c.Universe({'test.test_x': (head + '    def test_a(self):\\n        get_c_recursion_limit(); infinite_recursion()\\n').encode(),\n"
+                "                'test.support': b'def get_c_recursion_limit(): pass\\ndef infinite_recursion(): pass\\n'})\n"
+                "try:\n    print(u.extract('test_x', 'T', 'test_a'))\nexcept Exception as e:\n    print(type(e).__name__, e)\n")
+        tools = str(Path(c.__file__).parent)
+        got = {subprocess.run([sys.executable, "-c", prog, tools], capture_output=True, text=True,
+                              env={**os.environ, "PYTHONHASHSEED": str(seed)}).stdout for seed in range(8)}
+        self.assertEqual(len(got), 1, got)
+        self.assertIn("_testcapi cannot be decided", got.pop())
+
 
 if __name__ == "__main__":
     unittest.main()
