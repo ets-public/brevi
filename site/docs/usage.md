@@ -168,6 +168,8 @@ There is no file path, column, error code or Rust in them. In a program over sev
 
 A Python file exits as CPython does: status 1 after an uncaught exception, and its own status after `sys.exit(n)`. A `.bv` program exits with status 101 after a runtime error like the one above.
 
+**Exit status of `brevi` itself** follows one rule. Exit 2 means the command line was wrong and nothing was tried: an unknown command or option, a missing argument, a malformed `--allow` or `--limit` value, or a `--limit` the command or the grants cannot hold; `brevi verify` also exits 2 when it cannot run the CPython it compares with. Exit 1 means Brevi tried and stopped: a file it cannot read or write, a program it refuses to build (a capability the grants do not cover included), a failed build, a `--strict` refusal, or a `verify` verdict other than `identical`. A program that ran exits with its own status, or 124 when a [limit](#resource-limits) stopped it. Fix an exit 2 in the command, and an exit 1 in the program or the machine.
+
 **Sure mistakes in Python files are reported before the program runs.** A name that is never defined, a method no Python type has, and adding text to a number stop `check` and `build` with one error line and a hint. Code that may never run is left alone (branches under `sys.version_info`, `sys.platform`, `TYPE_CHECKING` or `if False`, and `except` blocks). `brevi run` falls back to python3 instead and names the mistake in its path line:
 
 ```

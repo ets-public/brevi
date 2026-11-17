@@ -13,13 +13,18 @@ MEASURED_OUTPUTS = ("bench/conformance", "compat/conformance_floor.json", "compa
                     "compat/conformance_windows_floor.json", "compat/conformance_windows_stdlib_floor.json")
 
 
+def read(path):
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
 def check_reports(tag):
     """Fails unless both published conformance reports were measured by this release's version on this release's
     tree: same Brevi version as the tag, and no file changed between the measured commit and HEAD except the
     reports and floors. release.yml runs it in preflight, so the release notes never quote another tree's numbers."""
     problems = []
     for rel in ("report.md", os.path.join("stdlib", "report.md")):
-        r = open(os.path.join(ROOT, "bench", "conformance", rel)).read()
+        r = read(os.path.join(ROOT, "bench", "conformance", rel))
         m = re.search(r"^Brevi (\S+) \(commit ([0-9a-f]+)(-dirty)?\) against CPython", r, re.M)
         if not m:
             problems.append(f"bench/conformance/{rel}: no measured commit in its header (made before the report named it)")
@@ -53,7 +58,7 @@ def read_report(tag, rel):
     if exists.returncode == 0:
         return None  # the tag exists and has no such report: quote nothing rather than another tree's numbers
     f = os.path.join(ROOT, path)
-    return open(f).read() if os.path.exists(f) else None
+    return read(f) if os.path.exists(f) else None
 
 
 FIGURES = {
@@ -113,7 +118,7 @@ def main():
         problems = []
         for rel in ("report.md", "stdlib/report.md"):
             base = os.path.join(ROOT, "bench", "conformance", rel)
-            problems += check_figures(open(base).read(), open(base[:-3] + ".json").read(), rel)
+            problems += check_figures(read(base), read(base[:-3] + ".json"), rel)
         if problems:
             sys.exit("The conformance reports' figures do not hold:\n  " + "\n  ".join(problems))
         print("every published share is pct() of its counts")
