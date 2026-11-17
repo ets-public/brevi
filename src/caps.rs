@@ -382,7 +382,7 @@ const OWN_ANTHROPIC: &[&str] = &[
     "CMEKKeyDisabledError", "RampLimitExceededError", "CMEKKeyUnreachableError", "OrganizationOnHoldError", "CMEKKeyNetworkBlockedError",
     "CMEKContextUnavailableError", "ClaudeCodeVersionTooOldError", "EnforcedSpendLimitReachedError", "RequestBodyEncodingInvalidError",
     "OrganizationTypeNotSupportedError", "ClaudeCodeKeyCreatorNotMemberError", "RequestBodyEncodingUnsupportedError",
-    "RequestBodyTooLargeAfterDecodingError",
+    "RequestBodyTooLargeAfterDecodingError", "SandboxEgressRestrictedError",
 ];
 const ANTHROPIC_LACKS: &[&str] = &[
     ".beta", ".batches", ".files", ".skills", ".organization", ".user_profiles", "tool_runner", "with_raw_response",

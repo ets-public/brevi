@@ -3,7 +3,7 @@
 # count_tokens and messages.stream with output_format. Talks to tests/llm/server.py.
 import json
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from anthropic import Anthropic
 from pydantic import BaseModel, Field
@@ -85,3 +85,11 @@ print(type(f).__name__, f.parsed_output)
 Scores = Optional[list[float]]
 sc = client.messages.parse(model="claude-mock-haiku", max_tokens=50, messages=[{"role": "user", "content": "scores"}], output_format=Scores)
 print(sc.content[0].text, sc.parsed_output)
+
+# literals: since anthropic 2.8 a const or a primitive enum stands for the type in the schema sent
+class Order(BaseModel):
+    kind: Literal["order"]
+    size: Literal[1, 2, 3]
+    flag: Literal[True, None] = None
+o = client.messages.parse(model="claude-mock-haiku", max_tokens=80, messages=[{"role": "user", "content": "an order"}], output_format=Order)
+print(o.id, o.content[0].text, o.parsed_output)

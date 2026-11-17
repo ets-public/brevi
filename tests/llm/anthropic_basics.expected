@@ -79,5 +79,5 @@ ModelInfo(id='claude-mock-haiku', capabilities=None, created_at=datetime.datetim
 2026 Claude Mock Haiku {'id': 'claude-mock-haiku', 'created_at': datetime.datetime(2026, 1, 15, 0, 0, tzinfo=datetime.timezone.utc), 'display_name': 'Claude Mock Haiku', 'max_input_tokens': 200000, 'max_tokens': 64000, 'type': 'model'}
 NotFoundError 404
 http://127.0.0.1:18090/v0/ 2 test-key Timeout(connect=5.0, read=600, write=600, pool=600)
-2.6.0 2
+2.8.0 2
 Echo: ctx

@@ -1,4 +1,4 @@
-# Brevi's anthropic: the Python SDK's API (anthropic 2.6) for what agent programs use: Anthropic and AsyncAnthropic,
+# Brevi's anthropic: the Python SDK's API (anthropic 2.8) for what agent programs use: Anthropic and AsyncAnthropic,
 # messages.create (also stream=True), messages.stream with its MessageStream helper (text_stream, the TextEvent /
 # InputJsonEvent / ... events, get_final_message, get_final_text), messages.count_tokens, models.list (pages)
 # and models.retrieve, with_options / copy, the SDK's errors, retries and request headers. Response objects are
@@ -46,7 +46,7 @@ import _brevi_anthropic_types as _ty
 import pydantic as _pyd
 
 __title__ = "anthropic"
-__version__ = "2.6.0"
+__version__ = "2.8.0"
 ANTHROPIC_API_VERSION = "2026-10-21"
 DEFAULT_MAX_RETRIES = 2
 DEFAULT_TIMEOUT = httpx.Timeout(timeout=10 * 60, connect=5.0)
@@ -253,6 +253,7 @@ RequestBodyEncodingInvalidError = _BY_NAME["RequestBodyEncodingInvalidError"]
 OrganizationTypeNotSupportedError = _BY_NAME["OrganizationTypeNotSupportedError"]
 ClaudeCodeKeyCreatorNotMemberError = _BY_NAME["ClaudeCodeKeyCreatorNotMemberError"]
 RequestBodyEncodingUnsupportedError = _BY_NAME["RequestBodyEncodingUnsupportedError"]
+SandboxEgressRestrictedError = _BY_NAME["SandboxEgressRestrictedError"]
 RequestBodyTooLargeAfterDecodingError = _BY_NAME["RequestBodyTooLargeAfterDecodingError"]
 
 _ERR_DETAILS = _ty._UNIONS.get("ErrorDetails")
@@ -540,6 +541,10 @@ def _count_body(messages, model, cache_control, output_config, speed, system, th
 _SUPPORTED_STRING_FORMATS = ("date-time", "time", "date", "duration", "email", "hostname", "uri", "ipv4", "ipv6", "uuid")
 
 
+def _is_primitive(value):
+    return value is None or isinstance(value, (str, int, float, bool))
+
+
 def transform_schema(json_schema):
     # the SDK's lib/_parse/_transform.py: a JSON schema as the API takes it
     if isinstance(json_schema, type) and issubclass(json_schema, _pyd.BaseModel):
@@ -560,19 +565,26 @@ def transform_schema(json_schema):
     any_of = json_schema.pop("anyOf", None)
     one_of = json_schema.pop("oneOf", None)
     all_of = json_schema.pop("allOf", None)
+    # since 2.8: a primitive enum or const stands for the type (the type is dropped)
+    enum = json_schema.get("enum")
+    if isinstance(enum, list) and enum and all(_is_primitive(v) for v in enum):
+        strict_schema["enum"] = json_schema.pop("enum")
+    if "const" in json_schema and _is_primitive(json_schema["const"]):
+        strict_schema["const"] = json_schema.pop("const")
+    has_literals = "enum" in strict_schema or "const" in strict_schema
+    if has_literals:
+        type_ = None
     if isinstance(any_of, list):
         strict_schema["anyOf"] = [transform_schema(v) for v in any_of]
     elif isinstance(one_of, list):
         strict_schema["anyOf"] = [transform_schema(v) for v in one_of]
     elif isinstance(all_of, list):
         strict_schema["allOf"] = [transform_schema(v) for v in all_of]
-    else:
+    elif not has_literals:
         if type_ is None:
-            raise ValueError("Schema must have a 'type', 'anyOf', 'oneOf', or 'allOf' field.")
+            raise ValueError("Schema must have a 'type', 'anyOf', 'oneOf', or 'allOf' field, "
+                             "or a 'const' or non-empty 'enum' of strings, numbers, booleans, or null.")
         strict_schema["type"] = type_
-    enum = json_schema.pop("enum", None)
-    if isinstance(enum, list):
-        strict_schema["enum"] = enum
     description = json_schema.pop("description", None)
     if description is not None:
         strict_schema["description"] = description
