@@ -885,9 +885,12 @@ fn class(c: &ClassDef, nm: &Names) -> Result<(), Er> {
             }
             continue;
         }
-        if !td || k != "total" || !matches!(v, Ex::True | Ex::False) {
+        // a TypedDict's total= is typing's own (a bool literal); any other keyword is a value for the
+        // metaclass and __init_subclass__ (dynpy/emit.rs class)
+        if td && (k != "total" || !matches!(v, Ex::True | Ex::False)) {
             return Err((c.line, "class keyword arguments are not supported".into()));
         }
+        expr(v, false, c.line, nm)?;
     }
     for b in &c.bases {
         let (head, sub) = match b {
@@ -1337,6 +1340,38 @@ pub fn enum_refusal(body: &[Stmt]) -> Option<(usize, &'static str)> {
         }
     }
     mark(body, &mut enums, &mods);
+    // classes whose members are ints as well as flags (on IntFlag, or on int and an Enum class), in definition order
+    let mut iflags: Vec<String> = vec![];
+    fn imported_intflag(body: &[Stmt], out: &mut Vec<String>) {
+        for s in body {
+            if let St::ImportFrom(m, v) = &s.st {
+                if m == "enum" {
+                    out.extend(v.iter().filter(|(n, _)| n == "IntFlag").map(|(n, a)| a.clone().unwrap_or_else(|| n.clone())));
+                }
+            }
+            blocks(&s.st, &mut |b| imported_intflag(b, out));
+        }
+    }
+    imported_intflag(body, &mut iflags);
+    let iflag_imports = iflags.len();
+    fn mark_iflags(body: &[Stmt], iflags: &mut Vec<String>, enums: &[String], mods: &[String]) {
+        for s in body {
+            if let St::Class(c) = &s.st {
+                let on_iflag = c.bases.iter().any(|b| match b {
+                    Ex::Name(n) => iflags.contains(n),
+                    Ex::Attr(o, a) => a == "IntFlag" && matches!(o.as_ref(), Ex::Name(m) if mods.contains(m)),
+                    _ => false,
+                });
+                let int_enum = enums.contains(&c.name) && c.bases.iter().any(|b| matches!(b, Ex::Name(n) if n == "int"));
+                if (on_iflag || int_enum) && !iflags.contains(&c.name) {
+                    iflags.push(c.name.clone());
+                }
+            }
+            blocks(&s.st, &mut |b| mark_iflags(b, iflags, enums, mods));
+        }
+    }
+    mark_iflags(body, &mut iflags, &enums, &mods);
+    let iflag_classes = &iflags[iflag_imports..];
     let is_enum_ex = |e: &Ex| match e {
         Ex::Name(n) => enums.contains(n),
         Ex::Attr(o, a) => EN.contains(&a.as_str()) && matches!(o.as_ref(), Ex::Name(m) if mods.contains(m)),
@@ -1351,6 +1386,23 @@ pub fn enum_refusal(body: &[Stmt]) -> Option<(usize, &'static str)> {
             blocks(&s.st, &mut |b| classes(b, f));
         }
     }
+    // `A.X | B.Y` on members of two IntFlag classes of the program: Flag.__or__ takes B.Y itself as the other value,
+    // so B's own operators and members end up in the result's value and name (enum.py), which Brevi's flags do not
+    // hold; refused here, and at run time where the build cannot see it (rt_enum.rs)
+    walk_all(body, &mut |e, l| {
+        if found.is_some() {
+            return;
+        }
+        if let Ex::Bin("|" | "&" | "^", a, b) = e {
+            if let (Ex::Attr(x, _), Ex::Attr(y, _)) = (a.as_ref(), b.as_ref()) {
+                if let (Ex::Name(x), Ex::Name(y)) = (x.as_ref(), y.as_ref()) {
+                    if x != y && iflag_classes.contains(x) && iflag_classes.contains(y) {
+                        found = Some((l, "an operator between members of two different IntFlag classes"));
+                    }
+                }
+            }
+        }
+    });
     // a name CPython finds on EnumType read through an Enum class (`Color.__contains__`, `self.Color._find_new_`):
     // EnumType's methods are not modelled, and the class itself does not have them
     walk_all(body, &mut |e, l| {
@@ -1389,9 +1441,19 @@ pub fn enum_refusal(body: &[Stmt]) -> Option<(usize, &'static str)> {
         if !enums.contains(&c.name) {
             return;
         }
+        // a Flag whose own __new__ shifts or raises to a power: its values may pass 2**62, which Brevi's flags do
+        // not hold (refused here rather than at run time)
+        let flag = c.bases.iter().any(|b| matches!(b, Ex::Name(n) | Ex::Attr(_, n) if n.contains("Flag") || iflags.contains(n)));
         for s in &c.body {
             let St::Def(d) = &s.st else { continue };
             if d.name == "__new__" {
+                if flag {
+                    walk_all(&d.body, &mut |e, l| {
+                        if found.is_none() && matches!(e, Ex::Bin("<<" | "**", _, _)) {
+                            found = Some((l, "a Flag whose __new__ makes its values with << or ** (values past 2**62)"));
+                        }
+                    });
+                }
                 continue;
             }
             walk_all(&d.body, &mut |e, l| {

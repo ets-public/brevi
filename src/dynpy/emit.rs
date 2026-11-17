@@ -5694,12 +5694,32 @@ impl Em {
         let mut decls = String::new();
         write!(decls, "{base_decls}").unwrap();
         write!(decls, "let mut {ctx}: EnumCtx = enum_auto_ctx({}, {base_refs}); let mut {av}: Vec<V> = vec![]; ", lit(&c.name)).unwrap();
-        if let Some(mx) = meta {
+        // the class keywords, in source order after the bases (as __build_class__ gets them): the metaclass,
+        // and the rest for the metaclass (EnumType's boundary=) and __init_subclass__ (rt_call.rs make_class_impl)
+        let mut kw_items = vec![];
+        for (i, (k, x)) in c.kwargs.iter().enumerate() {
+            let xv = self.ex(x, c.line)?;
+            if k == "metaclass" {
+                write!(decls, "let __meta{id}: V = {xv}; ").unwrap();
+            } else {
+                write!(decls, "let __kwv{id}_{i}: V = {xv}; ").unwrap();
+                kw_items.push(format!("({}, __kwv{id}_{i})", lit(k)));
+            }
+        }
+        let has_kw = !kw_items.is_empty();
+        if has_kw {
+            write!(decls, "let __kw{id}: Vec<(Sym, V)> = vec![{}]; ", kw_items.join(", ")).unwrap();
+        }
+        let kw_arg = if has_kw { format!(", __kw{id}.clone()") } else { String::new() };
+        let mk_fn = if has_kw { "make_class_sk" } else { "make_class_s" };
+        if meta.is_some() {
             // as __build_class__: the metaclass after the bases, then its __prepare__, then the body's own first
             // stores (__module__, __qualname__, __firstlineno__, SETUP_ANNOTATIONS, the docstring)
-            let mv = self.ex(mx, c.line)?;
-            write!(decls, "let __meta{id}: V = {mv}; ").unwrap();
-            let prep = self.q(&format!("meta_prepare(&__meta{id}, {}, &{base_tup})", lit(&c.name)));
+            let prep = if has_kw {
+                self.q(&format!("meta_prepare_k(&__meta{id}, {}, &{base_tup}, __kw{id}.clone())", lit(&c.name)))
+            } else {
+                self.q(&format!("meta_prepare(&__meta{id}, {}, &{base_tup})", lit(&c.name)))
+            };
             write!(decls, "let mut {ns_var}: V = {prep}; ").unwrap();
             for (k, v) in [("__module__", format!("s({})", lit(if self.module == "__main__" { "__main__" } else { &self.module }))), ("__qualname__", format!("s({})", lit(&qualname))), ("__firstlineno__", format!("V::Int({first})"))] {
                 let set = self.q(&format!("setitem(&{ns_var}, &s(\"{k}\"), {v})"));
@@ -5824,12 +5844,12 @@ impl Em {
                 let set = self.q(&format!("setitem(&{ns_var}, &s(\"__static_attributes__\"), tup(vec![{}]))", sa.join(", ")));
                 let ig = self.q(&format!("enum_ignore_ns(&{ctx}, &{ns_var}, true)"));
                 let set = format!("{set}; {ig}");
-                let mk = self.q(&format!("meta_build(&__meta{id}, {}, {}, {}, {base_vec}, {ns_var}.clone(), vec![{}])", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), fields.join(", ")));
+                let mk = self.q(&format!("{}(&__meta{id}, {}, {}, {}, {base_vec}, {ns_var}.clone(), vec![{}]{kw_arg})", if has_kw { "meta_build_k" } else { "meta_build" }, lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), fields.join(", ")));
                 format!("{{ {decls}\n{body}\n{set}; {w} let __c = {mk}; __c }}")
             } else {
             let attrs = String::new();
             let items = self.q(&format!("dict_sym_items(&{ns_var})"));
-            let mk = self.q(&format!("make_class_s({}, {}, {}, {base_vec}, {items}, vec![{}], {}, &[{}], {})", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), fields.join(", "), first, sattrs, lit(why)));
+            let mk = self.q(&format!("{mk_fn}({}, {}, {}, {base_vec}, {items}, vec![{}], {}, &[{}], {}{kw_arg})", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), fields.join(", "), first, sattrs, lit(why)));
             // a docstring is the body's first store (CPython's STORE_NAME __doc__), after SETUP_ANNOTATIONS
             let doc_set = match docstring(&c.body) {
                 Some(d) => {
@@ -5889,7 +5909,7 @@ impl Em {
                 let r = format!("a{id}_{}", rust_ident(n));
                 write!(attrs, "if !matches!({r}, V::Unbound) {{ __at.push(({}, {r})); }} ", lit(n)).unwrap();
             }
-            let mk = self.q(&format!("make_class_s({}, {}, {}, {base_vec}, __at, vec![{}], {}, &[{}], {})", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), fields.join(", "), first, sattrs, lit(why)));
+            let mk = self.q(&format!("{mk_fn}({}, {}, {}, {base_vec}, __at, vec![{}], {}, &[{}], {}{kw_arg})", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), fields.join(", "), first, sattrs, lit(why)));
             format!("{{ {decls}\n{body}\nlet mut __at: Vec<(Sym, V)> = vec![]; {attrs} enum_ignore_drop(&{ctx}, &mut __at); {w} let __c = {mk}; {abcm} __c }}")
         };
         for dec in c.decorators.iter().rev() {
