@@ -35,6 +35,13 @@ Notes:
 
 Newest first. Only changes that can affect programs or setups that already work.
 
+### v0.28.3
+
+These changed in v0.28.3 (18 Nov 2026).
+
+- **Unknown options are refused.** `brevi build`, `check`, `emit`, `test` and `fix` stop with exit code 2 on an option they do not have, naming the nearest real one (`did you mean --sandbox?`), instead of ignoring it. `brevi run` also refuses one before the file, and `--timeout`, `--input`, `--once` and `--mcp` without `--verify`. A script that passed a misspelt or unsupported flag now fails: fix the flag. `-o=PATH` is refused; write `-o PATH`.
+- **Words after `--` belong to the program.** `brevi run main.py -- --fast` passes `--fast` to the program; put Brevi's own options before `--`.
+
 ### v0.28.2
 
 These changed in v0.28.2 (16 Nov 2026).

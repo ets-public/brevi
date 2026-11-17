@@ -9,7 +9,7 @@
     "version": {
       "type": "string",
       "default": "latest",
-      "description": "Brevi release to install, e.g. 0.28.2, or latest"
+      "description": "Brevi release to install, e.g. 0.28.3, or latest"
     }
   },
   "containerEnv": {

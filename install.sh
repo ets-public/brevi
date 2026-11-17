@@ -6,7 +6,7 @@
 # (a release without `brevi toolchain`, or a machine the pinned toolchain is not verified on yet), rustup installs Rust.
 # It also links brevi-python, the brevi binary acting as python3 (native when Brevi can build the program).
 # usage: sh install.sh            (BREVI_FROM_SOURCE=1 always builds from source;
-#                                  BREVI_VERSION=0.28.2 installs that release instead of the latest)
+#                                  BREVI_VERSION=0.28.3 installs that release instead of the latest)
 set -e
 # Stops with nothing installed: a download that cannot be verified is never unpacked.
 die() {

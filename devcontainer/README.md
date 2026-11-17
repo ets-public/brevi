@@ -11,4 +11,4 @@ Adds Brevi to any dev container (VS Code, Codespaces, the devcontainer CLI): the
 }
 ```
 
-`version` is a Brevi release such as `0.28.2`, or `latest` (the default). Each release publishes the feature to `ghcr.io/ets-public/features/brevi` (release.yml), from v0.27.0. The feature's source is [src/brevi](src/brevi).
+`version` is a Brevi release such as `0.28.3`, or `latest` (the default). Each release publishes the feature to `ghcr.io/ets-public/features/brevi` (release.yml), from v0.27.0. The feature's source is [src/brevi](src/brevi).
