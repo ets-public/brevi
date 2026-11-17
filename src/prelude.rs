@@ -2404,7 +2404,7 @@ impl AxStr for String {
         self.is_empty()
     }
     fn ax_words(&self) -> Vec<String> {
-        self.split_whitespace().map(String::from).collect()
+        self.split(ax_py_ws).filter(|w| !w.is_empty()).map(String::from).collect()
     }
     fn ax_lines(&self) -> Vec<String> {
         self.lines().map(String::from).collect()
@@ -2433,7 +2433,7 @@ impl AxStr for String {
         self.to_uppercase()
     }
     fn ax_trim(&self) -> String {
-        self.trim().to_string()
+        self.trim_matches(ax_py_ws).to_string()
     }
     fn ax_contains(&self, s: &String) -> bool {
         self.contains(s.as_str())
@@ -2493,10 +2493,10 @@ impl AxStr for String {
         !self.is_empty() && self.chars().all(|c| c.is_alphabetic())
     }
     fn ax_is_space(&self) -> bool {
-        !self.is_empty() && self.chars().all(|c| c.is_whitespace())
+        !self.is_empty() && self.chars().all(ax_py_ws)
     }
     fn ax_ints(&self) -> R<Vec<i64>> {
-        self.split_whitespace().map(|w| w.parse::<i64>().map_err(|_| AxErr(format!("not an int: {w:?}")))).collect()
+        self.split(ax_py_ws).filter(|w| !w.is_empty()).map(|w| w.parse::<i64>().map_err(|_| AxErr(format!("not an int: {w:?}")))).collect()
     }
 }
 
@@ -3796,7 +3796,7 @@ impl Json {
     pub fn ax_dec(&self) -> Dec {
         match self {
             Json::Num { v, .. } => Dec::parse(&v.to_string()).unwrap_or_default(),
-            Json::Str { v } => Dec::parse(v.trim()).unwrap_or_default(),
+            Json::Str { v } => Dec::parse(v.trim_matches(ax_py_ws)).unwrap_or_default(),
             _ => Dec::default(),
         }
     }
@@ -4859,7 +4859,7 @@ impl AxTallyWords for String {
     fn ax_tally_words(&self) -> AxM<String, i64> {
         let mut at: HashMap<&str, usize, BuildHasherDefault<AxHasher>> = HashMap::default();
         let mut seen: Vec<(&str, i64)> = Vec::new();
-        for w in self.split_whitespace() {
+        for w in self.split(ax_py_ws).filter(|w| !w.is_empty()) {
             match at.get(w) {
                 Some(&i) => seen[i].1 += 1,
                 None => {
@@ -5097,14 +5097,14 @@ impl AxStrPy for String {
         self.trim_matches(|c| cs.contains(c)).to_string()
     }
     fn ax_trim_end(&self) -> String {
-        self.trim_end().to_string()
+        self.trim_end_matches(ax_py_ws).to_string()
     }
     fn ax_trim_end_of(&self, cs: impl AsRef<str>) -> String {
         let cs = cs.as_ref();
         self.trim_end_matches(|c| cs.contains(c)).to_string()
     }
     fn ax_trim_start(&self) -> String {
-        self.trim_start().to_string()
+        self.trim_start_matches(ax_py_ws).to_string()
     }
     fn ax_trim_start_of(&self, cs: impl AsRef<str>) -> String {
         let cs = cs.as_ref();
@@ -5366,7 +5366,7 @@ impl Dec {
         self.frac_parts().1 as i64
     }
     fn parse(s: &str) -> R<Dec> {
-        let t = s.trim();
+        let t = s.trim_matches(ax_py_ws);
         // Fraction("3/4"): an exact ratio of two whole numbers.
         if let Some((a, b)) = t.split_once('/') {
             let whole = |x: &str| x.strip_prefix(['-', '+']).unwrap_or(x).chars().all(|c| c.is_ascii_digit()) && !x.is_empty();
@@ -6672,6 +6672,10 @@ impl AxLinesKeep for String {
         self.split_inclusive('\n').map(String::from).collect()
     }
 }
+// Python's str.isspace() for one character: Rust's whitespace and the separators U+001C..U+001F.
+pub fn ax_py_ws(c: char) -> bool {
+    c.is_whitespace() || ('\x1c'..='\x1f').contains(&c)
+}
 pub trait AxStrMore {
     fn ax_count(&self, sub: impl AsRef<str>) -> i64;
     fn ax_count_of(&self, sub: impl AsRef<str>) -> i64;
@@ -6679,6 +6683,7 @@ pub trait AxStrMore {
     fn ax_ljust(&self, n: i64) -> String;
     fn ax_skip(&self, n: i64) -> Vec<String>;
     fn ax_split_n(&self, sep: impl AsRef<str>, n: i64) -> Vec<String>;
+    fn ax_words_n(&self, n: i64) -> Vec<String>;
     fn ax_rsplit_n(&self, sep: impl AsRef<str>, n: i64) -> Vec<String>;
     fn ax_rjust(&self, n: i64) -> String;
     fn ax_ljust_with(&self, n: i64, fill: impl AsRef<str>) -> String;
@@ -6702,6 +6707,21 @@ impl AxStrMore for String {
     }
     fn ax_skip(&self, n: i64) -> Vec<String> {
         self.chars().skip(n.max(0) as usize).map(|c| c.to_string()).collect()
+    }
+    // s.split(None, n): at most n splits on runs of whitespace; the rest keeps its trailing whitespace.
+    fn ax_words_n(&self, n: i64) -> Vec<String> {
+        let mut out = vec![];
+        let mut rest = self.trim_start_matches(ax_py_ws);
+        while !rest.is_empty() {
+            if n >= 0 && out.len() as i64 == n {
+                out.push(rest.to_string());
+                break;
+            }
+            let end = rest.find(ax_py_ws).unwrap_or(rest.len());
+            out.push(rest[..end].to_string());
+            rest = rest[end..].trim_start_matches(ax_py_ws);
+        }
+        out
     }
     // s.split(sep, n): at most n splits, as in Python (n < 0 means all).
     fn ax_split_n(&self, sep: impl AsRef<str>, n: i64) -> Vec<String> {
