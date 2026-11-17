@@ -128,8 +128,9 @@ jobs:
   test:
     needs: versions
     runs-on: ubuntu-latest
-    # A release adds the stdlib conformance slice to a cold run.
-    timeout-minutes: ${{ inputs.release && 90 || 60 }}
+    # A release adds the stdlib conformance slice to a cold run. The daily run's stable/3.13 job also runs privtmp, the
+    # native copies and the ratchet before the fuzzer (~65 min), so 60 cancelled it before fuzz every day (#606).
+    timeout-minutes: ${{ (inputs.release || github.event_name == 'schedule') && 90 || 60 }}
     strategy:
       fail-fast: false
       matrix:
