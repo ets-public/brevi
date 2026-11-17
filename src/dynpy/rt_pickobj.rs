@@ -93,7 +93,7 @@ pub fn pk_reduce(v: &V, proto: i64) -> Result<(PkHow, Rc<Class>, Vec<V>, V), E> 
     let Some(cat) = pk_cat(&c) else { return type_err(format!("cannot pickle '{}' object", tn(v))) };
     for n in ["__reduce_ex__", "__reduce__", "__getnewargs__", "__getnewargs_ex__"] {
         if pk_own(&c, n).is_some() {
-            return Err(unsupported(&format!("pickling an instance of a class that defines {n}")));
+            return Err(unsupported_stop(&format!("pickling an instance of a class that defines {n}")));
         }
     }
     match cat {
@@ -149,7 +149,7 @@ pub fn pk_build_runs_code(c: &Rc<Class>) -> bool {
 // copy: hasattr(y, "__setstate__") and then y.__setstate__, so a __getattr__ of the program runs once or
 // twice), or else the __dict__ part stored in the instance's __dict__ and the slots part set with setattr.
 pub fn pk_setstate(o: &V, state: V, load: bool) -> Result<(), E> {
-    let V::Obj(ob) = o else { return Err(unsupported("setting the pickled state of this object")) };
+    let V::Obj(ob) = o else { return Err(unsupported_stop("setting the pickled state of this object")) };
     let c = ob.cls.clone();
     let own_ga = pk_own(&c, "__getattribute__").is_some();
     if own_ga || pk_own(&c, "__getattr__").is_some() {
@@ -185,21 +185,21 @@ pub fn pk_setstate(o: &V, state: V, load: bool) -> Result<(), E> {
         }
         V::Dict(x) if ob.cls.has_dict() => {
             for (k, x) in x.borrow().items() {
-                let V::Str(k) = k else { return Err(unsupported("a pickled __dict__ key that is not a str")) };
+                let V::Str(k) = k else { return Err(unsupported_stop("a pickled __dict__ key that is not a str")) };
                 ob.set_res(sym(k.text()), x)?;
             }
         }
-        _ => return Err(unsupported("a pickled state that is not a dictionary for the instance's __dict__")),
+        _ => return Err(unsupported_stop("a pickled state that is not a dictionary for the instance's __dict__")),
     }
     match &slots {
         V::None => {}
         V::Dict(x) => {
             for (k, x) in x.borrow().items() {
-                let V::Str(k) = k else { return Err(unsupported("a pickled slot name that is not a str")) };
+                let V::Str(k) = k else { return Err(unsupported_stop("a pickled slot name that is not a str")) };
                 setattr(o, sym(k.text()), x)?;
             }
         }
-        _ => return Err(unsupported("a pickled slot state that is not a dictionary")),
+        _ => return Err(unsupported_stop("a pickled slot state that is not a dictionary")),
     }
     Ok(())
 }
@@ -260,7 +260,7 @@ pub fn pk_copy(x: &V, memo: Option<&mut Vec<(usize, V)>>) -> Option<R> {
         return None;
     }
     if cat.is_none() {
-        return Some(Err(unsupported(&format!("copying an instance of a class that defines {}", hook.unwrap()))));
+        return Some(Err(unsupported_stop(&format!("copying an instance of a class that defines {}", hook.unwrap()))));
     }
     Some(pk_copy_red(x, &c, cat.unwrap(), memo))
 }
@@ -280,8 +280,13 @@ fn pk_copy_red(x: &V, c: &Rc<Class>, cat: BT, mut memo: Option<&mut Vec<(usize, 
             return Ok(x.clone());
         }
         let V::Tuple(t) = &rv else { return Err(exc("copy.Error", format!("un(deep)copyable object of type {}", c.name))) };
-        if t.len() < 2 || t.len() > 5 {
-            return Err(unsupported("copying an object whose __reduce__ gives a tuple of this length"));
+        // copy: `_reconstruct(x, memo, *rv)`, whose positional parameters are x, memo, func, args, state,
+        // listiter and dictiter
+        match t.len() {
+            0 => return type_err("_reconstruct() missing 2 required positional arguments: 'func' and 'args'".into()),
+            1 => return type_err("_reconstruct() missing 1 required positional argument: 'args'".into()),
+            n if n > 5 => return type_err(format!("_reconstruct() takes from 4 to 7 positional arguments but {} were given", n + 2)),
+            _ => {}
         }
         let args = to_vec(&t[1])?;
         let opt = |i: usize| t.get(i).cloned().filter(|v| !matches!(v, V::None));
@@ -307,7 +312,7 @@ fn pk_copy_red(x: &V, c: &Rc<Class>, cat: BT, mut memo: Option<&mut Vec<(usize, 
                     let V::Dict(k) = &t[1] else { return type_err(format!("second item of the tuple returned by __getnewargs_ex__ must be a dict, not '{}'", tn(&t[1]))) };
                     let mut kw = vec![];
                     for (kk, vv) in k.borrow().items() {
-                        let V::Str(kk) = kk else { return Err(unsupported("__getnewargs_ex__ keywords that are not str")) };
+                        let V::Str(kk) = kk else { return Err(unsupported_stop("__getnewargs_ex__ keywords that are not str")) };
                         kw.push((sym(kk.text()), vv));
                     }
                     (Some(a.to_vec()), kw)
@@ -355,7 +360,7 @@ fn pk_copy_red(x: &V, c: &Rc<Class>, cat: BT, mut memo: Option<&mut Vec<(usize, 
             _ if getattr(&y, "__setstate__").is_ok() => {
                 call_method(&y, "__setstate__", Args::p(vec![s]))?;
             }
-            _ => return Err(unsupported("copying an object whose __reduce__ makes an object of another kind with a state")),
+            _ => return Err(unsupported_stop("copying an object whose __reduce__ makes an object of another kind with a state")),
         }
     }
     if let Some(li) = listiter {

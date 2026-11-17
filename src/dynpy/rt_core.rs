@@ -501,6 +501,12 @@ pub fn refuse_stop(what: &str) -> ! {
     err_write(&format!("NotImplementedError: brevi: {what} is not supported in dynamic builds\n"));
     std::process::exit(1)
 }
+// refuse_stop typed as an error, for a site that would otherwise return unsupported(what): a refusal a try could
+// catch lets the program go on with an answer CPython never gives, so these stop instead.
+#[cold]
+pub fn unsupported_stop(what: &str) -> E {
+    refuse_stop(what)
+}
 // A one-character str for a code point, a lone surrogate or not.
 pub fn cp1(c: u32) -> V {
     match char::from_u32(c) {
