@@ -1,0 +1,20 @@
+(self, i: int, j: str = 'x', k: __main__.F = <factory>, l: float = 3.0, *, m: int = 5) -> None <Signature (self, i: int, j: str = 'x', k: __main__.F = <factory>, l: float = 3.0, *, m: int = 5) -> None>
+mappingproxy(OrderedDict({'self': <Parameter "self">, 'i': <Parameter "i: int">, 'j': <Parameter "j: str = 'x'">, 'k': <Parameter "k: __main__.F = <factory>">, 'l': <Parameter "l: float = 3.0">, 'm': <Parameter "m: int = 5">}))
+True None True
+<Parameter "self"> self self POSITIONAL_OR_KEYWORD <_ParameterKind.POSITIONAL_OR_KEYWORD: 1> positional or keyword True <class 'inspect._empty'> POSITIONAL_OR_KEYWORD
+<Parameter "i: int"> i: int i POSITIONAL_OR_KEYWORD <_ParameterKind.POSITIONAL_OR_KEYWORD: 1> positional or keyword True <class 'int'> POSITIONAL_OR_KEYWORD
+<Parameter "j: str = 'x'"> j: str = 'x' j POSITIONAL_OR_KEYWORD <_ParameterKind.POSITIONAL_OR_KEYWORD: 1> positional or keyword False <class 'str'> POSITIONAL_OR_KEYWORD
+<Parameter "k: __main__.F = <factory>"> k: __main__.F = <factory> k POSITIONAL_OR_KEYWORD <_ParameterKind.POSITIONAL_OR_KEYWORD: 1> positional or keyword False <class '__main__.F'> POSITIONAL_OR_KEYWORD
+<Parameter "l: float = 3.0"> l: float = 3.0 l POSITIONAL_OR_KEYWORD <_ParameterKind.POSITIONAL_OR_KEYWORD: 1> positional or keyword False <class 'float'> POSITIONAL_OR_KEYWORD
+<Parameter "m: int = 5"> m: int = 5 m KEYWORD_ONLY <_ParameterKind.KEYWORD_ONLY: 3> keyword-only False <class 'int'> KEYWORD_ONLY
+{'i': <class 'int'>, 'j': <class 'str'>, 'k': <class '__main__.F'>, 'l': <class 'float'>, 'm': <class 'int'>, 'return': None}
+(cls=None, /, *, init=True, repr=True, eq=True, order=False, unsafe_hash=False, frozen=False, match_args=True, kw_only=False, slots=False, weakref_slot=False)
+<class 'inspect._empty'> True True True
+<enum '_ParameterKind'> (<enum '_ParameterKind'>, <enum 'IntEnum'>, <class 'int'>, <enum 'ReprEnum'>, <enum 'Enum'>, <class 'object'>) True <class 'inspect.Parameter'>
+[<_ParameterKind.POSITIONAL_ONLY: 0>, <_ParameterKind.POSITIONAL_OR_KEYWORD: 1>, <_ParameterKind.VAR_POSITIONAL: 2>, <_ParameterKind.KEYWORD_ONLY: 3>, <_ParameterKind.VAR_KEYWORD: 4>] 3 KEYWORD_ONLY True
+'foo' D(self='foo') ['__dataclass_self__', 'self']
+(a, /, b: int = 2, *c, d, **e) -> str [('a', 'POSITIONAL_ONLY'), ('b', 'POSITIONAL_OR_KEYWORD'), ('c', 'VAR_POSITIONAL'), ('d', 'KEYWORD_ONLY'), ('e', 'VAR_KEYWORD')] <class 'str'>
+True
+signature() missing 1 required positional argument: 'obj'
+signature() got an unexpected keyword argument 'foo'
+3 is not a callable object

@@ -981,6 +981,22 @@ for c in 'from unittest.mock import Mock\nclass D:\n    pass\nm = Mock(return_va
   o=$(BREVI_DYN=1 $BREVI run "$t/mk.py" 2>&1)
   case "$o" in "NotImplementedError: brevi: "*"${c#*|}"*) echo "ok   mock on a class stops: ${c#*|}" ;; *) echo "FAIL mock on a class does not stop: ${c#*|}"; printf '%s\n' "$o"; fail=1 ;; esac
 done
+# Brevi's own inspect has signature, Signature.parameters and Parameter (tests/dyn/inspect_signature.py has the
+# answers); constructing a Signature or a Parameter builds with CPython's inspect, whose signature cannot read the
+# program's defs (refused), and what a Parameter does not have stops the program.
+for c in 'from inspect import signature, Parameter\ndef f(a): pass\nprint(Parameter("a", Parameter.POSITIONAL_ONLY), signature(f))\n|inspect.signature' \
+         'import inspect\ndef f(a): pass\nprint(inspect.Signature([]), inspect.signature(f))\n|inspect.signature'; do
+  printf "${c%%|*}" > "$t/sg.py"
+  o=$(BREVI_DYN=1 $BREVI build "$t/sg.py" -o "$t/sg" 2>&1)
+  case "$o" in *"${c#*|}"*"needs CPython"*) echo "ok   inspect.Signature/Parameter construction refused at build" ;; *) echo "FAIL inspect.Signature/Parameter construction not refused at build"; printf '%s\n' "$o"; fail=1 ;; esac
+done
+for c in 'import inspect\ndef f(a): pass\nprint(inspect.signature(f).parameters["a"].replace(name="b"))\n|inspect.Parameter.replace' \
+         'import inspect\ndef f(a): pass\nprint(hash(inspect.signature(f).parameters["a"]))\n|hash() of an inspect.Parameter' \
+         'import inspect\nclass K:\n    pass\nprint(inspect.signature(K))\n|of a '"'"'type'"'"' object'; do
+  printf "${c%%|*}" > "$t/sg.py"
+  o=$(BREVI_DYN=1 $BREVI run "$t/sg.py" 2>&1)
+  case "$o" in *"NotImplementedError: brevi: "*"${c#*|}"*) echo "ok   inspect.signature stops: ${c#*|}" ;; *) echo "FAIL inspect.signature does not stop: ${c#*|}"; printf '%s\n' "$o"; fail=1 ;; esac
+done
 # locals() in an Enum's body is enum.EnumDict, whose writes check names (a member set twice is a TypeError); Brevi's
 # namespace is a plain dict, so a class that may be an Enum and calls locals() is refused when it builds.
 printf 'import enum\nclass E(enum.Enum):\n    A = 1\n    locals().update({"B": 2}, **{"A": 3})\nprint(list(E))\n' > "$t/el.py"

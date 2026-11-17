@@ -177,7 +177,8 @@ pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
     });
     let sig = mods.iter().any(|(_, b)| {
         let mut r = false;
-        walk_all(b, &mut |e, _| r |= matches!(e, Ex::Attr(_, a) if a == "from_callable") || matches!(e, Ex::Str(t) if t == "from_callable"));
+        walk_all(b, &mut |e, _| r |= matches!(e, Ex::Attr(_, a) if a == "from_callable" || a == "signature") || matches!(e, Ex::Str(t) if t == "from_callable"));
+        walk_from(b, &mut |md, names| r |= md == "inspect" && names.iter().any(|n| n == "signature"));
         r
     });
     let defs = (reads || sig || BRIDGED.load(std::sync::atomic::Ordering::Relaxed))
@@ -194,20 +195,64 @@ pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
         return Err((m, l, "typing: reading a class's bases, MRO, __dict__, dir() or vars() in a program with a class on Generic or Protocol (left out of its bases here) needs CPython's typing".into()));
     }
     // inspect.signature and its kin run in CPython's inspect (through the bridge), which cannot read the
-    // program's own functions and classes: refused rather than raising there
+    // program's own functions and classes: refused rather than raising there. Brevi's own inspect has
+    // signature (rt_sig.rs) while the defs keep their parameters and annotations (SIG_DEFS); constructing a
+    // Signature or a Parameter it does not have, so the program is built again with CPython's inspect.
+    let native = super::emit::INSPECT_NATIVE.load(std::sync::atomic::Ordering::Relaxed);
     for (m, body) in mods {
         if !imports(body, "inspect") {
             continue;
         }
+        if native {
+            let mut own: Vec<&str> = vec![];
+            walk_from(body, &mut |md, names| {
+                if md == "inspect" {
+                    for n in ["Signature", "Parameter"] {
+                        if names.iter().any(|x| x == n) {
+                            own.push(n);
+                        }
+                    }
+                }
+            });
+            let mut made = None;
+            walk_all(body, &mut |e, line| {
+                if let Ex::Call(f, _) = e {
+                    let n = match f.as_ref() {
+                        Ex::Attr(o, a) if matches!(o.as_ref(), Ex::Name(n) if n == "inspect") => a.as_str(),
+                        Ex::Name(n) if own.contains(&n.as_str()) => n.as_str(),
+                        _ => return,
+                    };
+                    if matches!(n, "Signature" | "Parameter") {
+                        made.get_or_insert((line, n.to_string()));
+                    }
+                }
+            });
+            if let Some((l, n)) = made {
+                return Err((m.to_string(), l, format!("inspect.{n}() is not supported in dynamic builds")));
+            }
+            if sig && !SIG_DEFS.load(std::sync::atomic::Ordering::Relaxed) {
+                let mut at = None;
+                walk_all(body, &mut |e, line| {
+                    if matches!(e, Ex::Attr(o, a) if a == "signature" && matches!(o.as_ref(), Ex::Name(n) if n == "inspect")) {
+                        at.get_or_insert(line);
+                    }
+                });
+                let mut from = false;
+                walk_from(body, &mut |md, names| from |= md == "inspect" && names.iter().any(|n| n == "signature"));
+                if let Some(l) = at.or(if from { Some(0) } else { None }) {
+                    return Err((m.to_string(), l, "inspect.signature in a program whose def annotations are not kept needs CPython".into()));
+                }
+            }
+        }
         const SIG: [&str; 3] = ["signature", "getfullargspec", "getcallargs"];
         let mut at = None;
         walk_all(body, &mut |e, line| {
-            if matches!(e, Ex::Attr(o, a) if SIG.contains(&a.as_str()) && matches!(o.as_ref(), Ex::Name(n) if n == "inspect")) {
+            if matches!(e, Ex::Attr(o, a) if SIG.contains(&a.as_str()) && !(native && a == "signature") && matches!(o.as_ref(), Ex::Name(n) if n == "inspect")) {
                 at.get_or_insert(line);
             }
         });
         let mut from = false;
-        walk_from(body, &mut |md, names| from |= md == "inspect" && names.iter().any(|n| SIG.contains(&n.as_str())));
+        walk_from(body, &mut |md, names| from |= md == "inspect" && names.iter().any(|n| SIG.contains(&n.as_str()) && !(native && n == "signature")));
         if from && at.is_none() {
             at = Some(0);
         }
