@@ -179,7 +179,7 @@ Some Python programs type cleanly but would still print something different from
 
 A file the guard cannot read (its parser rejects it) has passed none of these checks, so the typed build may not build it either: if the typed front end accepts it, it is refused with the guard's reason. A file the typed build refuses too keeps the typed errors. Either way `brevi run` falls back to CPython.
 
-`BREVI_GUARD=print brevi build x.py` prints the guard's verdict.
+`BREVI_GUARD=print brevi build x.py` prints the guard's verdict. `BREVI_DYN=0` keeps the guard (a file it sends to the dynamic build is refused); only the compiler's own typed tests skip it, with `BREVI_DYN=0 BREVI_GUARD=off` (never under `--strict`).
 
 Before the guard and the typed build, `pysentinel.rs` rewrites a sentinel `MISSING = object()` to None when the program cannot tell the two apart (see the rules at the top of that file).
 
@@ -319,7 +319,7 @@ For `brevi run x.py` without `--native`, Brevi runs a strict build of itself as 
 
 | Question | Start in |
 | --- | --- |
-| Why did my Python file build dynamically? | `BREVI_GUARD=print`, then `BREVI_DYN=0 brevi build x.py` to see the typed errors |
+| Why did my Python file build dynamically? | `BREVI_GUARD=print`, then `BREVI_DYN=0 brevi build x.py` to see the typed errors (or the guard's reason) |
 | What Rust did Brevi write? | `brevi emit x.py` (typed) or `BREVI_DYN=1 brevi emit x.py` (dynamic) |
 | Why did `brevi run` use CPython? | The `{"path":"cpython"}` line on stderr names the first error and its function; `brevi run --native x.py` shows them all |
 | A wrong answer compared with CPython | `tools/parity_probe.py`; typed fixes go in `infer.rs`/`emit.rs`/`prelude.rs`, dynamic ones in `dynpy/rt_*.rs` |

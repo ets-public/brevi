@@ -29,6 +29,8 @@ struct G {
 }
 
 // Why the file needs the dynamic build, with the line: None when the typed build gives CPython's answer.
+// Tests only: the compiler reads files through check_soft_at.
+#[cfg(test)]
 pub fn check(src: &str) -> Option<(usize, String)> {
     check_soft(src).unwrap_or_else(|(l, m)| Some((l, m, vec![]))).map(|(l, w, _)| (l, w))
 }
@@ -36,6 +38,7 @@ pub fn check(src: &str) -> Option<(usize, String)> {
 // As check, with the names the typed build may still take the file on (empty: it may not; today always empty,
 // as a set walked in hash order always goes to the dynamic build, see check_body).
 // Err (line, why): the dynamic build's parser cannot read the file, so none of this was checked.
+#[cfg(test)]
 pub fn check_soft(src: &str) -> Result<Option<(usize, String, Vec<String>)>, (usize, String)> {
     Ok(check_body(&crate::dynpy::parse::parse(src)?))
 }

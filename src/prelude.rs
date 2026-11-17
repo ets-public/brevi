@@ -1801,6 +1801,26 @@ pub trait Plus<Rhs = Self> {
     type Out;
     fn plus(self, o: Rhs) -> Self::Out;
 }
+// `xs += v` (and `xs.extend(v)`): `+` everywhere but a list of JSON values extended by a JSON value, which
+// Python walks as `for x in v` does (a list's items, an object's keys, a string's characters; TypeError else).
+pub trait PlusEq<Rhs = Self> {
+    type Out;
+    fn plus_eq(self, o: Rhs) -> Self::Out;
+}
+impl<A: Plus<B>, B> PlusEq<B> for A {
+    type Out = A::Out;
+    #[inline]
+    fn plus_eq(self, o: B) -> A::Out {
+        self.plus(o)
+    }
+}
+impl PlusEq<Json> for Vec<Json> {
+    type Out = Vec<Json>;
+    fn plus_eq(mut self, o: Json) -> Vec<Json> {
+        self.extend(o.ax_walk());
+        self
+    }
+}
 impl Plus for i64 {
     type Out = i64;
     #[inline]
@@ -2551,6 +2571,15 @@ pub trait AxList<T: Clone> {
     fn ax_enumerate(&self) -> Vec<(i64, T)>;
     fn ax_zip<U: Clone>(&self, o: Vec<U>) -> Vec<(T, U)>;
     fn ax_slice(&self, a: i64, b: i64) -> Vec<T>;
+}
+// `zip(s, xs)` with s a string the build knew only as a value: its characters, as Python walks it.
+pub trait AxStrZip {
+    fn ax_zip<U: Clone>(&self, o: Vec<U>) -> Vec<(String, U)>;
+}
+impl AxStrZip for String {
+    fn ax_zip<U: Clone>(&self, o: Vec<U>) -> Vec<(String, U)> {
+        self.chars().map(|c| c.to_string()).zip(o).collect()
+    }
 }
 impl<T: Clone> AxList<T> for Vec<T> {
     fn ax_len(&self) -> i64 {
@@ -3351,7 +3380,7 @@ impl AxIn<Json> for Json {
             (Json::Obj { .. }, _) => false,
             (Json::Str { v }, Json::Str { v: k }) => v.contains(k.as_str()),
             (Json::Str { .. }, _) => panic!("TypeError: 'in <string>' requires string as left operand"),
-            _ => panic!("TypeError: argument of type is not iterable"),
+            _ => panic!("TypeError: argument of type '{}' is not iterable", self.ax_kind()),
         }
     }
 }
@@ -3882,7 +3911,8 @@ impl Json {
             Json::Arr { v } | Json::Tup { v } => v.clone(),
             Json::Obj { v } => v.keys().map(|k| Json::Str { v: k.clone() }).collect(),
             Json::Str { v } => v.chars().map(|c| Json::Str { v: c.to_string() }).collect(),
-            _ => vec![],
+            // A number, bool or None: Python stops, it never loops zero times.
+            _ => panic!("TypeError: '{}' object is not iterable", self.ax_kind()),
         }
     }
 }

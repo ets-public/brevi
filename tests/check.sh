@@ -160,11 +160,12 @@ for f in tests/path/py_*.py; do
 done
 #== typed split
 # Python programs built typed (BREVI_DYN=0 --native) must print what python3 prints, in time: the set
-# tests take minutes if `in` scans a list instead of using AxSet's hash index.
+# tests take minutes if `in` scans a list instead of using AxSet's hash index. BREVI_GUARD=off: these test the
+# typed build itself, also on files the guard sends to the dynamic build (tests/path checks the guard).
 for f in tests/typed/*.py; do
   exp="${f%.py}.expected"
   inp="${f%.py}.in"; [ -f "$inp" ] || inp=/dev/null
-  out=$(BREVI_DYN=0 timeout 60 $BREVI run "$f" --native < "$inp" 2>&1)
+  out=$(BREVI_DYN=0 BREVI_GUARD=off timeout 60 $BREVI run "$f" --native < "$inp" 2>&1)
   if [ "$1" = "--update" ]; then python3 "$f" < "$inp" > "$exp" 2>&1; continue; fi
   if [ "$out" != "$(cat "$exp")" ]; then
     echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; fail=1
@@ -1181,6 +1182,9 @@ if [ "$out" = "$want" ]; then echo "ok   cli uncaught error type"; else echo "FA
 # `{  1[1] }` for `f"{ {1: 2}[1] }"`); the default run builds it over dynamic values.
 out=$(BREVI_DYN=0 $BREVI run tests/cli/fstring_brace_field.py --native 2>&1; echo "exit $?")
 if printf '%s\n' "$out" | grep -q 'f-string value the typed build cannot read' && printf '%s\n' "$out" | grep -qx 'exit 1'; then echo "ok   cli f-string field refused typed"; else echo "FAIL cli f-string field refused typed"; printf '%s\n' "$out"; fail=1; fi
+# BREVI_DYN=0 keeps the wrong-answer guard: a file it sends to the dynamic build is refused, never built typed.
+out=$(BREVI_DYN=0 $BREVI run tests/cli/guard_dyn0.py --native 2>&1; echo "exit $?")
+if printf '%s\n' "$out" | grep -q "CPython's hash order, and this file cannot be built over dynamic values (BREVI_DYN=0 turns the dynamic build off)" && printf '%s\n' "$out" | grep -qx 'exit 1'; then echo "ok   cli BREVI_DYN=0 keeps the guard"; else echo "FAIL cli BREVI_DYN=0 keeps the guard"; printf '%s\n' "$out"; fail=1; fi
 out=$($BREVI run tests/cli/fstring_brace_field.py --native 2>/dev/null)
 if [ "$out" = "$(python3 tests/cli/fstring_brace_field.py)" ]; then echo "ok   cli f-string field"; else echo "FAIL cli f-string field"; printf '%s\n' "$out"; fail=1; fi
 # A reader that stops early ends brevi report quietly (it panicked on the closed pipe).
