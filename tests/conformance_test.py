@@ -93,7 +93,42 @@ class Assertions(unittest.TestCase):
             cut("    def test_a(self):\n        f = lambda: self.assertEqual(1, 1)\n        f()\n")
 
 
+    def test_raises_in_a_class_body_binds_nothing(self):
+        # `except E as _e` in a class body would put _e in the class namespace (an EnumDict refuses a second one)
+        s = cut("    def test_a(self):\n        class C:\n            with self.assertRaises(KeyError):\n                x = {}['k']\n"
+                "        self.assertEqual(sorted(k for k in vars(C) if not k.startswith('__')), [])\n")
+        self.assertIn("with _conf_Raises(KeyError):", s)
+        self.assertEqual(run(s).stdout, "raises KeyError\n[]\n[]\n")
+
+    def test_equality_only_compares(self):
+        key = ("test.test_x", "test_a")
+        c.EQUALITY_ONLY[key] = "test"
+        try:
+            self.assertEqual(self.rewritten("self.assertEqual(a, g())"), "print((a) == (g()))")
+        finally:
+            del c.EQUALITY_ONLY[key]
+
+
 class Inlining(unittest.TestCase):
+    def test_convert_brings_the_module_constants_its_filter_takes(self):
+        head = "import enum, unittest\nMODULE = __name__\nP_B = 2\nQ_A = 3\nP_A = 1\nclass T(unittest.TestCase):\n"
+        s = cut("    def test_a(self):\n        E = enum.IntEnum._convert_('E', MODULE, filter=lambda x: x.startswith('P_'))\n"
+                "        self.assertEqual([m.name for m in E], ['P_A', 'P_B'])\n", head=head)
+        self.assertNotIn("Q_A", s)
+        self.assertLess(s.index("P_B = 2"), s.index("P_A = 1"))  # the file's order
+        self.assertEqual(run(s).stdout, "['P_A', 'P_B']\n" * 2)
+        for call in ("enum.IntEnum._convert_('E', 'other', filter=lambda x: x.startswith('P_'))",
+                     "enum.IntEnum._convert_('E', MODULE, filter=lambda x: x.endswith('_A'))",
+                     "enum.IntEnum._convert_('E', MODULE, filter=lambda x: x.startswith('P_'), source={})"):
+            with self.assertRaises(c.CantExtract):
+                cut(f"    def test_a(self):\n        E = {call}\n", head=head)
+
+    def test_unittest_only_as_an_item_of_a_display(self):
+        s = cut("    def test_a(self):\n        for bad in 1, unittest:\n            self.assertTrue(bad)\n")
+        self.assertEqual(run(s).stdout, "True\nTrue\n")
+        with self.assertRaises(c.CantExtract):
+            cut("    def test_a(self):\n        m = unittest\n        self.assertTrue(m)\n")
+
     def test_mixin_tests_run_with_the_c_copy_and_the_py_copy_is_excluded(self):
         head = ("import unittest\nfrom test.support import import_helper\n"
                 "py_json = import_helper.import_fresh_module('json', blocked=['_json'])\n"
