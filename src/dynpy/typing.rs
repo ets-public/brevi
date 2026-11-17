@@ -272,36 +272,98 @@ pub fn check(mods: &[(&str, &[Stmt])]) -> Result<(), (String, usize, String)> {
             return Err((m.to_string(), l, "dataclasses: field(metadata=...) with a mapping class of the program needs CPython".into()));
         }
         // a unittest.mock object stored on a class of the program (`D.__set__ = Mock()`, or `x = Mock()` in its
-        // body): the runtime would call it with the program's objects
+        // body): the runtime calls it with the program's objects, which go in sealed (pyglue.rs _BrOpq: the mock
+        // keeps them and gives them back; any other use stops the program). Built when every such store is under
+        // a plain name or as __set__, __delete__, __set_name__ or __get__ (called as CPython's slots call them,
+        // rt_call.rs call_slot), of a Mock, MagicMock or NonCallable one, and the program reads nothing that
+        // shows what a mock was called with (a repr or == of a sealed object would stop it).
         if imports(body, "unittest") {
-            fn is_mock(e: &Ex) -> bool {
-                matches!(e, Ex::Call(f, _) if matches!(f.as_ref(), Ex::Name(n) | Ex::Attr(_, n) if matches!(n.as_str(), "Mock" | "MagicMock" | "NonCallableMock" | "NonCallableMagicMock" | "AsyncMock" | "PropertyMock" | "create_autospec")))
+            // the mock's kind, when `e` makes one
+            fn mock_kind(e: &Ex) -> Option<&str> {
+                match e {
+                    Ex::Call(f, _) => match f.as_ref() {
+                        Ex::Name(n) | Ex::Attr(_, n) if matches!(n.as_str(), "Mock" | "MagicMock" | "NonCallableMock" | "NonCallableMagicMock" | "AsyncMock" | "PropertyMock" | "create_autospec") => Some(n.as_str()),
+                        _ => None,
+                    },
+                    _ => None,
+                }
             }
-            fn walk(body: &[Stmt], classes: &HashSet<String>, in_class: bool, at: &mut Option<usize>) {
+            // why a mock of kind `k` stored on a class as `name` (None: a name the build cannot see) is refused
+            fn mock_store_why(k: &str, name: Option<&str>) -> Option<String> {
+                if !matches!(k, "Mock" | "MagicMock" | "NonCallableMock" | "NonCallableMagicMock") {
+                    return Some(format!("unittest.mock: {k} stored on a class of the program needs CPython"));
+                }
+                let Some(n) = name else { return Some("unittest.mock: a Mock stored on a class of the program under a name the build cannot see needs CPython".into()) };
+                let special = (n.len() > 4 && n.starts_with("__") && n.ends_with("__")) || (n.len() > 2 && n.starts_with('_') && n.ends_with('_') && !n.starts_with("__"));
+                if special && !matches!(n, "__get__" | "__set__" | "__delete__" | "__set_name__") {
+                    return Some(format!("unittest.mock: a Mock stored as {n} of a class of the program needs CPython"));
+                }
+                None
+            }
+            fn walk(body: &[Stmt], classes: &HashSet<String>, in_class: bool, found: &mut bool, at: &mut Option<(usize, String)>) {
                 for s in body {
-                    match &s.st {
-                        St::Assign(ts, v) if is_mock(v) => {
-                            if in_class || ts.iter().any(|t| matches!(t, Ex::Attr(o, _) if matches!(o.as_ref(), Ex::Name(n) if classes.contains(n)))) {
-                                at.get_or_insert(s.line);
+                    let mut store = |k: &str, name: Option<&str>| {
+                        *found = true;
+                        if at.is_none() {
+                            if let Some(w) = mock_store_why(k, name) {
+                                *at = Some((s.line, w));
                             }
                         }
-                        St::AnnAssign(_, Some(v), _, _) if in_class && is_mock(v) => {
-                            at.get_or_insert(s.line);
+                    };
+                    match &s.st {
+                        St::Assign(ts, v) if mock_kind(v).is_some() => {
+                            let k = mock_kind(v).unwrap();
+                            for t in ts {
+                                match t {
+                                    Ex::Name(n) if in_class => store(k, Some(n)),
+                                    Ex::Attr(o, n) if matches!(o.as_ref(), Ex::Name(c) if classes.contains(c)) => store(k, Some(n)),
+                                    Ex::Name(_) | Ex::Attr(..) => {}
+                                    _ if in_class => store(k, None),
+                                    _ => {}
+                                }
+                            }
+                        }
+                        St::AnnAssign(t, Some(v), _, _) if in_class && mock_kind(v).is_some() => {
+                            let k = mock_kind(v).unwrap();
+                            match t {
+                                Ex::Name(n) => store(k, Some(n)),
+                                _ => store(k, None),
+                            }
                         }
                         St::Expr(Ex::Call(f, args)) if matches!(f.as_ref(), Ex::Name(n) if n == "setattr") => {
-                            if matches!(args.first(), Some(Arg::Pos(Ex::Name(n))) if classes.contains(n)) && matches!(args.get(2), Some(Arg::Pos(v)) if is_mock(v)) {
-                                at.get_or_insert(s.line);
+                            if let (Some(Arg::Pos(Ex::Name(c))), Some(Arg::Pos(v))) = (args.first(), args.get(2)) {
+                                if let (true, Some(k)) = (classes.contains(c), mock_kind(v)) {
+                                    match args.get(1) {
+                                        Some(Arg::Pos(Ex::Str(n))) => store(k, Some(n)),
+                                        _ => store(k, None),
+                                    }
+                                }
                             }
                         }
-                        St::Class(c) => walk(&c.body, classes, true, at),
-                        st => blocks(st, &mut |b| walk(b, classes, false, at)),
+                        St::Class(c) => walk(&c.body, classes, true, found, at),
+                        st => blocks(st, &mut |b| walk(b, classes, false, found, at)),
                     }
                 }
             }
-            let mut at = None;
-            walk(body, classes, false, &mut at);
-            if let Some(l) = at {
-                return Err((m.to_string(), l, "unittest.mock: a Mock stored on a class of the program needs CPython".into()));
+            let (mut found, mut at) = (false, None);
+            walk(body, classes, false, &mut found, &mut at);
+            if found && at.is_none() {
+                walk_all(body, &mut |e, l| {
+                    if at.is_some() {
+                        return;
+                    }
+                    let n = match e {
+                        Ex::Attr(_, a) => a.as_str(),
+                        Ex::Str(t) => t.as_str(),
+                        _ => return,
+                    };
+                    if matches!(n, "call_args" | "call_args_list" | "mock_calls" | "method_calls" | "await_args" | "await_args_list" | "assert_called_with" | "assert_called_once_with" | "assert_any_call" | "assert_has_calls" | "assert_awaited_with" | "assert_awaited_once_with" | "assert_any_await" | "assert_has_awaits") {
+                        at = Some((l, format!("unittest.mock: {n} of a program with a Mock stored on one of its classes needs CPython")));
+                    }
+                });
+            }
+            if let Some((l, w)) = at {
+                return Err((m.to_string(), l, w));
             }
         }
     }
