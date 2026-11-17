@@ -308,7 +308,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "enum" => &[
             "Enum", "IntEnum", "StrEnum", "Flag", "IntFlag", "auto", "unique", "property", "ReprEnum", "EnumType", "EnumMeta", "member", "nonmember", "verify", "EnumCheck",
             "UNIQUE", "CONTINUOUS", "NAMED_FLAGS", "FlagBoundary", "STRICT", "CONFORM", "EJECT", "KEEP", "show_flag_values", "_is_dunder", "_is_sunder", "_is_private", "_is_descriptor",
-            "_iter_bits_lsb", "global_enum",
+            "_iter_bits_lsb", "global_enum", "pickle_by_global_name", "_reduce_ex_by_global_name", "pickle_by_enum_name", "_make_class_unpicklable",
         ],
         "_brevi_term" => &["columns"],
         "hashlib" => &["new", "md5", "sha1", "sha224", "sha256", "sha384", "sha512"],

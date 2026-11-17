@@ -189,6 +189,16 @@ pub trait Ext {
     fn subclasscheck(&self, _sub: &V) -> Option<Result<bool, E>> {
         None
     }
+    // `issubclass(me, cls)` with me a Python library class and cls a class of the program's (a builtin one, or
+    // the program's class for a Python exception class): None when me is not a Python class.
+    fn subclass_of(&self, _cls: &Rc<Class>) -> Option<Result<bool, E>> {
+        None
+    }
+    // `me is cls`: true when me is the Python class the program's class cls stands for (pickle.PicklingError
+    // and type(e) of the PicklingError pickle raised).
+    fn is_class(&self, _cls: &Class) -> bool {
+        false
+    }
     fn lazy_iter(&self) -> Option<Result<It, E>> {
         None
     }

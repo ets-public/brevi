@@ -3237,7 +3237,8 @@ pub fn modfn_cached(m: &str, n: &str) -> Option<V> {
     MODFNS.with(|c| c.borrow().iter().find(|((cm, cn), _)| *cm == m && *cn == n).map(|(_, v)| v.clone()))
 }
 fn modfn(m: &'static str, n: &str) -> V {
-    let n: Sym = sym(n);
+    // enum.py 3.13: `_reduce_ex_by_global_name = pickle_by_global_name`, one function under two names
+    let n: Sym = sym(if m == "enum" && n == "_reduce_ex_by_global_name" { "pickle_by_global_name" } else { n });
     if let Some(v) = MODFNS.with(|c| c.borrow().get(&(m, n)).cloned()) {
         return v;
     }
@@ -3245,7 +3246,12 @@ fn modfn(m: &'static str, n: &str) -> V {
     // marked as a module's function, so it never reads as the builtins function of its name (math.pow.__doc__)
     if let V::Func(f) = &v {
         f.attrs.borrow_mut().push(("__bv_mod__", s(m)));
-        f.attrs.borrow_mut().push(("__bv_nobind__", V::Bool(true)));
+        // enum's pickle helpers are Python functions in CPython: set as a class's __reduce_ex__, they bind
+        if m == "enum" && enum_binds(&n) {
+            f.attrs.borrow_mut().push(("__module__", s("enum")));
+        } else {
+            f.attrs.borrow_mut().push(("__bv_nobind__", V::Bool(true)));
+        }
     }
     MODFNS.with(|c| {
         c.borrow_mut().insert((m, n), v.clone());

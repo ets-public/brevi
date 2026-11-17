@@ -2057,6 +2057,17 @@ pub fn enum_fn(n: &str, a: Args) -> R {
         "auto" => Ok(V::Obj(Obj::new(enum_classes().1))),
         "property" => eprop_new(a),
         "global_enum" => global_enum(a),
+        // enum.py 3.13: `return self.name`; `return getattr, (self.__class__, self._name_)`
+        "pickle_by_global_name" => {
+            let me = self_proto("pickle_by_global_name", a)?;
+            getattr(&me, "name")
+        }
+        "pickle_by_enum_name" => {
+            let me = self_proto("pickle_by_enum_name", a)?;
+            let ga = builtin_value("getattr").expect("builtins.getattr");
+            Ok(tup(vec![ga, tup(vec![getattr(&me, "__class__")?, getattr(&me, "_name_")?])]))
+        }
+        "_make_class_unpicklable" => make_class_unpicklable(a),
         "unique" => {
             let c = a.p.first().cloned().unwrap_or(V::None);
             if let V::Class(k) = &c {
@@ -3151,6 +3162,60 @@ fn global_str(a: Args) -> R {
         return Ok(s(&format!("{cls_name}({})", repr(&value)?)));
     }
     Ok(s(&to_str(&name)?))
+}
+// The enum functions that are Python functions in CPython and bind when a class holds them (__reduce_ex__).
+pub fn enum_binds(n: &str) -> bool {
+    matches!(n, "pickle_by_global_name" | "pickle_by_enum_name")
+}
+// enum._make_class_unpicklable(obj), enum.py 3.13: obj (a dict, or anything else through setattr) gets
+// __reduce_ex__ = _break_on_call_reduce (a new function each call, raising TypeError('%r cannot be pickled' %
+// self)) and __module__ = '<unknown>'.
+fn make_class_unpicklable(a: Args) -> R {
+    a.want("_make_class_unpicklable", 1, 1)?;
+    let brk = builtin(sym("_break_on_call_reduce"), |a: Args| {
+        let me = self_proto("_break_on_call_reduce", a)?;
+        type_err(format!("{} cannot be pickled", repr(&me)?))
+    });
+    if let V::Func(f) = &brk {
+        f.qualname.set(sym("_make_class_unpicklable.<locals>._break_on_call_reduce"));
+        f.attrs.borrow_mut().push(("__module__", s("enum")));
+    }
+    let obj = &a.p[0];
+    if let V::Dict(d) = obj {
+        d.borrow_mut().set(s("__reduce_ex__"), brk)?;
+        d.borrow_mut().set(s("__module__"), s("<unknown>"))?;
+    } else {
+        setattr(obj, sym("__reduce_ex__"), brk)?;
+        setattr(obj, sym("__module__"), s("<unknown>"))?;
+    }
+    Ok(V::None)
+}
+// The arguments of an enum.py function `def f(self, proto)`, bound as CPython binds them: self (proto unused).
+fn self_proto(f: &str, a: Args) -> R {
+    let mut slots: [Option<V>; 2] = [None, None];
+    if a.p.len() > 2 {
+        return type_err(format!("{f}() takes 2 positional arguments but {} were given", a.p.len()));
+    }
+    for (i, v) in a.p.into_iter().enumerate() {
+        slots[i] = Some(v);
+    }
+    for (k, v) in a.k {
+        let i = match &*k {
+            "self" => 0,
+            "proto" => 1,
+            _ => return type_err(format!("{f}() got an unexpected keyword argument '{k}'")),
+        };
+        if slots[i].is_some() {
+            return type_err(format!("{f}() got multiple values for argument '{k}'"));
+        }
+        slots[i] = Some(v);
+    }
+    match slots {
+        [Some(me), Some(_)] => Ok(me),
+        [None, None] => type_err(format!("{f}() missing 2 required positional arguments: 'self' and 'proto'")),
+        [None, _] => type_err(format!("{f}() missing 1 required positional argument: 'self'")),
+        [_, None] => type_err(format!("{f}() missing 1 required positional argument: 'proto'")),
+    }
 }
 // enum.global_enum(cls, update_str=False)
 pub fn global_enum(a: Args) -> R {
