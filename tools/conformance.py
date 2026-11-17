@@ -982,7 +982,7 @@ class Universe:
         script.test_fn = fn
         for w in wrappers:
             if w[0] == "decorator":
-                for n in uses(w[1])[0]:
+                for n in sorted(uses(w[1])[0]):
                     script.need(owner, n)
         if any(isinstance(n, ast.Constant) and isinstance(n.value, str) and STRING_ANNOTATION.search(n.value) for n in ast.walk(fn)):
             # dataclasses reads a string annotation ('typing.ClassVar[int]', 'InitVar') by looking the names up in the
@@ -1004,7 +1004,7 @@ class Universe:
         if plain:
             text = dedent(body, fn.col_offset)
             text = re.sub(r"^def (\w+)\(self(?:, |\))", lambda mo: f"def {mo.group(1)}(" + ("" if mo.group(0).endswith(", ") else ")"), text, count=1)
-            for n in names:
+            for n in sorted(names):
                 script.need(owner, n)
             script.call = wrapped_call(wrappers, method)
             tail = f"{text}\n\n{script.call}\n"
@@ -1284,7 +1284,7 @@ class Script:
             return
         text = mod.block(node)
         self.nodes[key] = text
-        for n in uses(text)[0]:
+        for n in sorted(uses(text)[0]):  # sorted: set order follows the hash seed, and need() can raise
             self.need(mod, n)
 
     def class_shape(self, chain, leaf, method, wrappers):
@@ -1303,7 +1303,7 @@ class Script:
                         continue
                     picked.setdefault(i, {})[node.lineno] = text
                     names, attrs = uses(text)
-                    for n in names:
+                    for n in sorted(names):
                         self.need(mod, n)
                     todo += sorted(attrs | names)
         out, base = [], ""
