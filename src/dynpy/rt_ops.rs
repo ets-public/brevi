@@ -3146,6 +3146,12 @@ pub fn iter_v(v: &V) -> R {
     if let V::Iter(_) = v {
         return Ok(v.clone());
     }
+    // CPython's standard input streams are their own iterators: iter(sys.stdin) is sys.stdin, and
+    // iter(sys.stdin.buffer) is sys.stdin.buffer, so reading through one and through the other shares
+    // the position. (Other module values are not iterable at all.)
+    if matches!(v, V::Module(&ModName("sys.stdin" | "sys.stdin.buffer"))) {
+        return Ok(v.clone());
+    }
     if let V::Obj(o) = v {
         if let Some(f) = o.cls.lookup("__iter__") {
             let r = call(&f, Args::p(vec![v.clone()]))?;

@@ -3145,7 +3145,9 @@ pub fn stream_fn(stream: &str, name: &str, a: Args) -> R {
             }
             Ok(list(v))
         }
-        ("sys.stdin", "__iter__") => Ok(stdin_lines()),
+        ("sys.stdin", "__iter__") => Ok(V::Module(&ModName("sys.stdin"))),
+        // sys.stdin is its own iterator: next() through either name reads one line from the shared stdin
+        ("sys.stdin", "__next__") => Ok(read_line().map(st).ok_or_else(|| exc0("StopIteration"))?),
         ("sys.stdin", "isatty") => Ok(V::Bool(false)),
         ("sys.stdin", "fileno") => Ok(V::Int(0)),
         ("sys.stdout", "write") => {
@@ -3202,7 +3204,9 @@ pub fn stream_fn(stream: &str, name: &str, a: Args) -> R {
             }
             Ok(list(v))
         }
-        ("sys.stdin.buffer", "__iter__") => Ok(gen_iter(ItKind::Unknown, || Ok(read_line_bytes().map(bytesv)))),
+        ("sys.stdin.buffer", "__iter__") => Ok(V::Module(&ModName("sys.stdin.buffer"))),
+        // sys.stdin.buffer is its own iterator too: next() through either name reads one shared line, as bytes
+        ("sys.stdin.buffer", "__next__") => Ok(read_line_bytes().map(bytesv).ok_or_else(|| exc0("StopIteration"))?),
         ("sys.stdin.buffer", "fileno") => Ok(V::Int(0)),
         ("sys.stdin.buffer" | "sys.stdout.buffer" | "sys.stderr.buffer", "isatty") => Ok(V::Bool(false)),
         ("sys.stdout.buffer" | "sys.stderr.buffer", "write") => {

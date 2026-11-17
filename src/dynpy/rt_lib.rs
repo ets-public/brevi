@@ -282,7 +282,8 @@ pub fn bi_input(a: Args) -> R {
     }
 }
 pub fn stdin_lines() -> V {
-    gen_iter(ItKind::Unknown, || Ok(read_line().map(st)))
+    // sys.stdin is its own iterator in CPython; reading through it and through sys.stdin shares the position
+    V::Module(&ModName("sys.stdin"))
 }
 
 // ---------- builtin functions ----------
@@ -916,6 +917,9 @@ pub fn bi_next(a: Args) -> R {
             },
             None => return type_err(format!("'{}' object is not an iterator", tn(&a.p[0]))),
         },
+        // sys.stdin and sys.stdin.buffer are their own iterators in CPython
+        V::Module(&ModName("sys.stdin")) => read_line().map(st),
+        V::Module(&ModName("sys.stdin.buffer")) => read_line_bytes().map(bytesv),
         x => return type_err(format!("'{}' object is not an iterator", tn(x))),
     };
     match r {
@@ -1276,8 +1280,18 @@ pub fn type_of(x: &V) -> Result<Rc<Class>, E> {
         V::Ext(e) => ext_class(e.tname()),
         V::Iter(it) => return iter_type_of(it),
         V::NTF(_) => ext_class("collections._tuplegetter"),
+        // the standard streams are module-shaped values whose CPython type is their _io stream class
+        V::Module(&ModName("sys.stdin")) => stream_class("TextIOWrapper"),
+        V::Module(&ModName("sys.stdin.buffer")) => stream_class("BufferedReader"),
         _ => tclass(18, "object"),
     })
+}
+thread_local! {
+    // sys.stdin and sys.stdin.buffer's classes: one object per class so `type(a) is type(b)` holds.
+    static STREAM_CLASSES: RefCell<HashMap<&'static str, Rc<Class>>> = RefCell::new(HashMap::new());
+}
+fn stream_class(n: &'static str) -> Rc<Class> {
+    STREAM_CLASSES.with(|m| m.borrow_mut().entry(n).or_insert_with(|| Class::new(n, "_io", vec![bclass("object")], BT::Other)).clone())
 }
 fn iter_type_unsupported() -> E {
     exc("NotImplementedError", "brevi: type() of this iterator is not supported".into())
