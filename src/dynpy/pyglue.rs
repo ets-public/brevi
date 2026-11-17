@@ -306,17 +306,35 @@ _d.cr_prog = lambda: any(getattr(k, '__name__', None) == 'brevi_function' for k 
 # reference as the program's class does (_bf_reduce). The program's Unpickler finds the stand-in class for such a
 # class, so NEWOBJ, REDUCE and BUILD make a stand-in instance that only records what pickle did to it (_ops);
 # the program's object is made from that once the load has finished (pyd_stinst).
+# A class whose instances are made by code of the program (its own __new__ or __init__, or __new__ given
+# arguments) or on an int or tuple base (_d._steager) is made at once instead, in CPython's order: the call
+# (REDUCE), cls.__new__ (NEWOBJ) or base.__new__ (_reconstructor) runs in the program there (_d._stnow), which
+# gives a stand-in instance holding the object (_bv), and each BUILD on it runs there too (_d._stset).
 class _BrOT(type):
-    pass
+    def __call__(c, *a, **k):
+        if _d._steager(c, 'call', len(a) + len(k)):
+            return _d._stnow(c, 'call', [a, k])
+        return type.__call__(c, *a, **k)
 class _BrInst(metaclass=_BrOT):
     __slots__ = ('_r', '_bv', '_ops')
     def __new__(cls, *a, **k):
+        if _d._steager(cls, 'new', len(a) + len(k)):
+            return _d._stnow(cls, 'new', [a, k])
         o = object.__new__(cls)
         o._ops = [['new', a, k]]
         return o
     def __init__(s, *a, **k):
-        s._ops[0][0] = 'call'
+        try:
+            s._ops[0][0] = 'call'
+        except AttributeError:
+            pass
     def __setstate__(s, state):
+        try:
+            s._bv
+        except AttributeError:
+            pass
+        else:
+            return _d._stset(s, [state])
         try:
             ops = s._ops
         except AttributeError:
@@ -334,6 +352,10 @@ class _BrInst(metaclass=_BrOT):
             return (_cr.__newobj__, (c,) + a, st, None, None)
         if t == 1:
             return (_cr._reconstructor, (c,) + a, st) if st is not None else (_cr._reconstructor, (c,) + a)
+        if t == 3:
+            return (_cr.__newobj_ex__, (c, a[0], a[1]), st, None, None)
+        if t == 4:
+            return c
         return (c, a, st)
     def _items(s, *a):
         _d._stop('loading a pickle that adds items to an instance of a class of the program')
@@ -359,7 +381,9 @@ def _stparts(o):
 # for another base would need the program's class)
 def _br_recon(cls, base, state):
     if isinstance(cls, _BrOT) and base is not object:
-        _d._stop('loading a pickle that rebuilds an instance of a class of the program on a builtin base other than object')
+        if base not in (int, tuple) or not _d._steager(cls, 'recon', 0):
+            _d._stop('loading a pickle that rebuilds an instance of a class of the program on a builtin base other than object, int or tuple')
+        return _d._stnow(cls, 'recon', [(base, state), {}])
     return _cr._reconstructor(cls, base, state)
 _d.brot = _BrOT
 _d.mkst = _mkst
@@ -1080,6 +1104,87 @@ unsafe fn pyd_wrap(p: P, deep: bool) -> R {
 unsafe fn from_memo_put(p: P, v: &V) {
     (pyd_api().IncRef)(p);
     FROM_MEMO.with(|m| m.borrow_mut().1.insert(p as usize, (p, v.clone())));
+    if LOAD_HOLD.with(|h| h.get()) > 0 {
+        if let Some(f) = load_fp(p) {
+            LOAD_SNAP.with(|s| s.borrow_mut().push((p as usize, f)));
+        }
+    }
+}
+
+// While the program's pickle.load runs, objects of the program are made at once (_d._stnow, _d._stset) from
+// Python objects the Unpickler made, and the result is made after it. One conversion memo is kept from the
+// start of the outermost load until its result is made (LOAD_HOLD), so a Python object met in both is one object
+// of the program, as in CPython. A list, dict or set met while the Unpickler may still be adding to it (a
+// structure that holds an object that holds it) would come back without what came later: each one met during
+// the hold is checked against what it was when met (load_fp) once the result is made, and the program stops
+// when one changed, as no `except` may turn that into an answer.
+thread_local! {
+    static LOAD_HOLD: Cell<i64> = const { Cell::new(0) };
+    static LOAD_SNAP: RefCell<Vec<(usize, Vec<usize>)>> = const { RefCell::new(Vec::new()) };
+}
+// What a list, dict or set holds, as the addresses of its items (a dict: keys and values; a set: its size)
+unsafe fn load_fp(p: P) -> Option<Vec<usize>> {
+    let a = pyd_api();
+    let t = (a.Type)(p);
+    (a.DecRef)(t);
+    if t == a.TList {
+        let n = (a.ListSize)(p);
+        return Some((0..n).map(|i| (a.ListGet)(p, i) as usize).collect());
+    }
+    if t == a.TSet {
+        let n = pyd_mod_call("builtins", "len", &[p]).ok()?;
+        let r = pyd_wrap(n, false).ok();
+        return Some(vec![usize::MAX, match r {
+            Some(V::Int(n)) => n as usize,
+            _ => usize::MAX - 1,
+        }]);
+    }
+    if (a.IsInstance)(p, a.TDict) == 1 {
+        let mut out = vec![];
+        let (mut pos, mut k, mut x): (isize, P, P) = (0, std::ptr::null_mut(), std::ptr::null_mut());
+        while (a.DictNext)(p, &mut pos, &mut k, &mut x) != 0 {
+            out.push(k as usize);
+            out.push(x as usize);
+        }
+        return Some(out);
+    }
+    None
+}
+// pickle.load starting (`d` 1) or ending (-1); the outermost start holds the conversion memo (see LOAD_HOLD)
+fn load_hold(d: i64) {
+    if d > 0 && PYD_UNPICKLING.with(|c| c.get()) == 0 {
+        LOAD_HOLD.with(|h| h.set(h.get() + 1));
+        FROM_MEMO.with(|m| m.borrow_mut().0 += 1);
+    }
+}
+// After a library call's result is made: let go of the holds its loads took (`from`: how many there were before
+// it), checking the objects met (see LOAD_HOLD) once none is left
+unsafe fn load_release(from: i64) -> Result<(), E> {
+    let a = pyd_api();
+    let mut n = 0;
+    while LOAD_HOLD.with(|h| h.get()) > from {
+        LOAD_HOLD.with(|h| h.set(h.get() - 1));
+        n += 1;
+    }
+    if n == 0 {
+        return Ok(());
+    }
+    let mut changed = false;
+    if LOAD_HOLD.with(|h| h.get()) == 0 {
+        let snaps = LOAD_SNAP.with(|s| std::mem::take(&mut *s.borrow_mut()));
+        // the memo still holds each object, so its address is still that object's
+        changed = snaps.iter().any(|(p, f)| load_fp(*p as P).as_ref() != Some(f));
+    }
+    let held = FROM_MEMO.with(|m| {
+        let mut m = m.borrow_mut();
+        m.0 -= n;
+        if m.0 == 0 { m.1.drain().map(|(_, e)| e.0).collect::<Vec<_>>() } else { vec![] }
+    });
+    held.into_iter().for_each(|q| (a.DecRef)(q));
+    if changed {
+        refuse_stop("loading a pickle whose object of the program is made from a list, dict or set the load adds to after it is made");
+    }
+    Ok(())
 }
 
 unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
@@ -1730,7 +1835,23 @@ unsafe fn pyd_register(a: &ax_pyffi::Api) -> bool {
                 Some(V::Int(d)) => *d,
                 _ => 0,
             };
+            load_hold(d);
             PYD_UNPICKLING.with(|c| c.set(c.get() + d));
+            Ok(V::None)
+        })),
+        // whether pickle making an instance of a stand-in class this way (REDUCE: 'call', NEWOBJ: 'new' with `n`
+        // arguments, _reconstructor on int or tuple: 'recon') makes the program's object at once (_BrOT)
+        (c"_steager", func(sym("_steager"), |a: Args| {
+            let (Some(V::Class(c)), Some(V::Str(kind))) = (a.p.first(), a.p.get(1)) else { return Ok(V::Bool(false)) };
+            let n = matches!(a.p.get(2), Some(V::Int(n)) if *n > 0);
+            Ok(V::Bool(st_eager(c, kind.text(), n)))
+        })),
+        (c"_stnow", func(sym("_stnow"), stand_now)),
+        (c"_stset", func(sym("_stset"), |a: Args| {
+            let (Some(o), Some(packed)) = (a.p.first(), a.p.get(1)) else { return Err(unsupported_stop("a BUILD of a stand-in object without its state")) };
+            let state = unsafe { unpack_held(packed)? }.into_iter().next().unwrap_or(V::None);
+            PYD_BUSER.with(|u| u.set(PYD_BSEQ.with(|s| s.get())));
+            pk_setstate(o, state, true)?;
             Ok(V::None)
         })),
         // a BUILD of a stand-in object of the program's class: its number in CPython's order
@@ -2651,7 +2772,8 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
         // program's Unpickler finds the program's again (pickle_lookup)
         V::Func(f) if f.kind.get() == 3 && PYD_PICKLING.with(|x| x.get()) && pickle_lookup("builtins", f.name.get()).is_ok_and(|k| is(&k, v)) && pyd_builtin_fn(f.name.get()) => pyd_builtins_attr(f.name.get())?,
         // (an Enum member with a namedtuple mixin going into or out of pickle reduces as a member, below)
-        V::Obj(o) if o.cls.lookup("__bv_namedtuple__").is_some() && !((PYD_PICKLING.with(|c| c.get()) || PYD_UNPICKLING.with(|c| c.get()) > 0) && is_enum(&o.cls) && o.get("_value_").is_some()) => pyd_namedtuple(v)?,
+        // (a namedtuple of the program going into pickle reduces as the program's object, below)
+        V::Obj(o) if o.cls.lookup("__bv_namedtuple__").is_some() && !((PYD_PICKLING.with(|c| c.get()) || PYD_UNPICKLING.with(|c| c.get()) > 0) && is_enum(&o.cls) && o.get("_value_").is_some()) && !(PYD_PICKLING.with(|c| c.get()) && pk_cat(&o.cls).is_some()) => pyd_namedtuple(v)?,
         // a class of the program going into pickle.dumps or pickle.dump, when it is one pickle rebuilds instances
         // of with object's or set's rules: its stand-in class (one for the program's life), which pickles by
         // reference as the class does, and which the instances' reductions name
@@ -2818,12 +2940,21 @@ unsafe fn pyd_obj_red(v: &V, c: &Rc<Class>) -> Result<P, E> {
             _ => 0,
         };
         let (how, c, rest, state) = pk_reduce(&me, proto)?;
-        let tag = match how {
-            PkHow::NewObj => 0,
-            PkHow::Recon => 1,
-            PkHow::Call => 2,
+        let (tag, rest) = match how {
+            PkHow::NewObj => (0, tup(rest)),
+            PkHow::Recon => (1, tup(rest)),
+            PkHow::Call => (2, tup(rest)),
+            PkHow::NewObjEx(kw) => {
+                let mut d = Dict::new();
+                for (k, x) in kw {
+                    d.set(k, x)?;
+                }
+                (3, tup(vec![tup(rest), V::Dict(Rc::new(RefCell::new(d)))]))
+            }
+            // the class's own reduce value, saved as it is
+            PkHow::Raw(rv) => return Ok(tup(vec![V::Int(4), rv, tup(vec![]), V::None])),
         };
-        Ok(tup(vec![V::Int(tag), V::Class(c), tup(rest), state]))
+        Ok(tup(vec![V::Int(tag), V::Class(c), rest, state]))
     });
     let t = pyd_stand(c)?;
     let r = match pyd_callable(&red) {
@@ -2849,6 +2980,94 @@ unsafe fn pyd_obj_red(v: &V, c: &Rc<Class>) -> Result<P, E> {
     Ok(o)
 }
 
+// The items of a Python list the program's Unpickler passed (as a list, so it comes as the Python object), each
+// made into the program's value with the load's held memo (see LOAD_HOLD)
+unsafe fn unpack_held(v: &V) -> Result<Vec<V>, E> {
+    let a = pyd_api();
+    let Some(pv) = pyv_of(v) else { return Err(unsupported_stop("a stand-in step without its Python values")) };
+    let t = (a.Type)(pv.p);
+    (a.DecRef)(t);
+    if LOAD_HOLD.with(|h| h.get()) == 0 || t != a.TList {
+        return Err(unsupported_stop("a stand-in step outside the program's pickle.load"));
+    }
+    let mut out = vec![];
+    for i in 0..(a.ListSize)(pv.p) {
+        let x = (a.ListGet)(pv.p, i);
+        (a.IncRef)(x);
+        out.push(pyd_wrap(x, true)?);
+    }
+    Ok(out)
+}
+// Whether pickle making an instance of the program's class `c` as `kind` says (see _steager) runs the program at
+// once: when making it runs code of the program (its own __new__, its own __init__ on a call, __new__ given
+// arguments) or needs the int or tuple it holds. Other instances are made once the load has finished (pyd_stinst).
+fn st_eager(c: &Rc<Class>, kind: &str, args: bool) -> bool {
+    let Some(cat) = pk_cat(c) else { return false };
+    let base = matches!(cat, BT::Int | BT::Tuple);
+    match kind {
+        "recon" => base,
+        "new" => base || args || pk_own(c, "__new__").is_some(),
+        "call" => base || pk_own(c, "__new__").is_some() || pk_own(c, "__init__").is_some(),
+        _ => false,
+    }
+}
+// _brevi_dyn._stnow(cls, kind, args, kwargs): the program's instance of stand-in class `cls`, made now as pickle
+// asks (REDUCE: cls(*args, **kwargs); NEWOBJ: cls.__new__(cls, *args, **kwargs); _reconstructor: int.__new__(cls,
+// state) or tuple's), as a stand-in instance holding it. Code of the program runs inside the load here, as in
+// CPython, so a BUILD numbered before now that runs code may not run after the load (see pyd_stinst).
+fn stand_now(a: Args) -> R {
+    let (Some(V::Class(c)), Some(V::Str(kind)), Some(packed)) = (a.p.first(), a.p.get(1), a.p.get(2)) else { return Err(unsupported_stop("making a stand-in object without its class")) };
+    // [args, kwargs], made with the load's memo (see LOAD_HOLD)
+    let parts = unsafe { unpack_held(packed)? };
+    let args = match parts.first() {
+        Some(x) => to_vec(x)?,
+        None => vec![],
+    };
+    let mut kw = vec![];
+    if let Some(V::Dict(d)) = parts.get(1) {
+        for (n, x) in d.borrow().items() {
+            let V::Str(n) = n else { return Err(unsupported_stop("a pickled keyword that is not a str")) };
+            kw.push((sym(n.text()), x));
+        }
+    }
+    if !st_eager(c, kind.text(), !args.is_empty() || !kw.is_empty()) {
+        return Err(unsupported_stop("making a stand-in object of the program at once"));
+    }
+    PYD_BUSER.with(|u| u.set(PYD_BSEQ.with(|s| s.get())));
+    let cls = V::Class(c.clone());
+    let o = match kind.text() {
+        "call" => call(&cls, Args { p: args, k: kw })?,
+        "new" => {
+            let new = getattr(&cls, "__new__")?;
+            let mut p = vec![cls];
+            p.extend(args);
+            call(&new, Args { p, k: kw })?
+        }
+        "recon" => {
+            // copyreg._reconstructor(cls, base, state): base.__new__(cls, state) (int's and tuple's __init__ are object's)
+            let base = match pk_cat(c) {
+                Some(BT::Int) => bclass("int"),
+                Some(BT::Tuple) => bclass("tuple"),
+                _ => return Err(unsupported_stop("rebuilding an instance of a class of the program on this base")),
+            };
+            match args.first() {
+                Some(V::Class(b)) if Rc::ptr_eq(b, &base) => {}
+                _ => return Err(unsupported_stop("rebuilding an instance of a class of the program on another base than its own")),
+            }
+            let new = getattr(&V::Class(base), "__new__")?;
+            call(&new, Args::p(vec![cls, args.get(1).cloned().unwrap_or(V::None)]))?
+        }
+        _ => return Err(unsupported_stop("making a stand-in object this way")),
+    };
+    match &o {
+        V::Obj(ob) if pk_cat(&ob.cls).is_some() => {
+            let k = ob.cls.clone();
+            unsafe { Ok(pyv(pyd_obj_red(&o, &k)?, false)) }
+        }
+        _ => Ok(o),
+    }
+}
+
 // An instance of a stand-in class `t` coming out of Python: the program's object it stands for, or, made by the
 // program's Unpickler, the program's object made as pickle asked (copyreg._reconstructor: object.__new__(cls);
 // NEWOBJ: cls.__new__(cls); REDUCE: cls(*args)), then given each BUILD's state (rt_pickobj's pk_setstate). It is
@@ -2868,7 +3087,10 @@ unsafe fn pyd_stinst(p: P, t: P, deep: bool) -> R {
         return v.ok_or_else(|| unsupported_stop("a stand-in object whose object of the program is gone"));
     }
     (a.ErrClear)();
-    if !deep || PYD_UNPICKLING.with(|c| c.get()) > 0 {
+    // met inside the load (an object of the program made at once holds it, or the load passes it to the program):
+    // made now from what pickle did to it so far, and from then on given each BUILD at once (_bv, see _BrInst)
+    let during = PYD_UNPICKLING.with(|c| c.get()) > 0;
+    if !deep && !during {
         return Err(unsupported_stop("the program seeing one of its objects that pickle.load has not finished making"));
     }
     let k = pyd_own((a.GetAttr)(t, c"_b".as_ptr()))?;
@@ -2925,6 +3147,15 @@ unsafe fn pyd_stinst(p: P, t: P, deep: bool) -> R {
             }
             PYD_BPEND.with(|m| m.borrow_mut().remove(&n));
             pk_setstate(&o, state, true)?;
+        }
+        if during {
+            let b = pyd_callable(&o)?;
+            let r = (a.SetAttr)(p, c"_bv".as_ptr(), b);
+            (a.DecRef)(b);
+            if r != 0 {
+                (a.ErrClear)();
+                return Err(unsupported_stop("making an object of the program inside pickle.load"));
+            }
         }
         Ok(o)
     })();
@@ -3237,6 +3468,7 @@ unsafe fn pyd_invoke(f: P, pre: &[V], args: &Args, deep: bool) -> R {
     let dump = !f.is_null() && (f == pyd_ptr(&PYD_PDUMPS) || f == pyd_ptr(&PYD_PDUMP));
     let was = PYD_PICKLING.with(|c| c.replace(dump));
     let was_unp = PYD_UNPICKLING.with(|c| c.replace(0));
+    let hold = LOAD_HOLD.with(|h| h.get());
     let pa = pyd_args(f, pre, args);
     let r = match &pa {
         Ok(pa) => (a.Call)(f, pa.t, pa.kw),
@@ -3248,18 +3480,25 @@ unsafe fn pyd_invoke(f: P, pre: &[V], args: &Args, deep: bool) -> R {
     let pa = pa?;
     if r.is_null() {
         let e = pyd_err();
+        load_release(hold)?;
         pyd_build_left(true)?;
         pyd_ba_sync(&pa)?;
         return Err(e);
     }
     if let Err(e) = pyd_ba_sync(&pa) {
         (a.DecRef)(r);
+        load_release(hold)?;
         return Err(e);
     }
-    pyd_write_back(&pa)?;
+    if let Err(e) = pyd_write_back(&pa) {
+        (a.DecRef)(r);
+        load_release(hold)?;
+        return Err(e);
+    }
     PYD_BCONV.with(|c| c.set(c.get() + 1));
     let v = pyd_wrap(r, deep);
     PYD_BCONV.with(|c| c.set(c.get() - 1));
+    load_release(hold)?;
     pyd_build_left(v.is_ok())?;
     v
 }

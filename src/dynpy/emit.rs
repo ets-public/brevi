@@ -555,6 +555,35 @@ const SYSMOD_DYN_KEY: &str = "sys.modules with a key that is not a string litera
 fn fglob_get_args(a: &[Arg]) -> bool {
     matches!(a, [Arg::Pos(Ex::Str(k))] | [Arg::Pos(Ex::Str(k)), Arg::Pos(_)] if k == "__warningregistry__")
 }
+// The str literal keys of `globals()['name'] = v` stores anywhere in a file (targets of assignments, nested
+// in tuples and lists too), when the file does not bind `globals` itself.
+fn globals_stores(body: &[Stmt]) -> BTreeSet<String> {
+    fn tgt(t: &Ex, out: &mut BTreeSet<String>) {
+        match t {
+            Ex::Index(o, k) => {
+                if let (Ex::Call(f, a), Ex::Str(k)) = (&**o, &**k) {
+                    // an identifier, and not a dunder name (the module's own __name__, __doc__, __warningregistry__, ...)
+                    let ident = k.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_') && k.chars().all(|c| c.is_alphanumeric() || c == '_');
+                    let dunder = k.len() > 4 && k.starts_with("__") && k.ends_with("__");
+                    if a.is_empty() && matches!(&**f, Ex::Name(g) if g == "globals") && ident && !dunder {
+                        out.insert(k.clone());
+                    }
+                }
+            }
+            Ex::Tuple(v) | Ex::List(v) => v.iter().for_each(|x| tgt(x, out)),
+            Ex::Star(x) => tgt(x, out),
+            _ => {}
+        }
+    }
+    let mut out = BTreeSet::new();
+    each_stmt(body, &mut |s| match &s.st {
+        St::Assign(ts, _) => ts.iter().for_each(|t| tgt(t, &mut out)),
+        St::For(t, _, _, _) => tgt(t, &mut out),
+        St::With(items, _) => items.iter().filter_map(|(_, t)| t.as_ref()).for_each(|t| tgt(t, &mut out)),
+        _ => {}
+    });
+    out
+}
 fn each_stmt<'a>(body: &'a [Stmt], f: &mut dyn FnMut(&'a Stmt)) {
     for s in body {
         f(s);
@@ -2381,6 +2410,8 @@ pub struct Em {
     re_names: HashSet<(String, String)>,
     // the program uses the warnings module: every statement says where it is, so a warning names its line
     track_warn: bool,
+    // (module, name) a `globals()['name'] = v` stores to: names nothing else in the module binds
+    gstore: HashSet<(String, String)>,
     // the program calls sys._getframe: its own functions count their frames (PDepth)
     uses_getframe: bool,
     // module -> the lines whose logical line runs over more than one line (None: the module did not lex)
@@ -4395,6 +4426,15 @@ impl Em {
                 let c = self.q(&format!("setattr_ic(&{oo}, {}, __v, &IC{ic})", lit(n)));
                 format!("{{ let __v = {val}; {c}; }}")
             }
+            Ex::Index(o, i) if self.is_globals(o) => {
+                if let Ex::Str(k) = &**i {
+                    if self.gstore.contains(&(self.module.clone(), k.clone())) && !self.has_del {
+                        let slot = self.gslot(&self.module.clone(), k);
+                        return Ok(format!("gs({slot}, {val});"));
+                    }
+                }
+                return Err(err(line, "globals()[key] = value is supported in dynamic builds only with a str literal key naming a global nothing else in the file binds (and no __del__ in the program)"));
+            }
             Ex::Index(o, i) => {
                 // `sys.modules[k] = v` stores into the dict the reads above see
                 if self.is_sys_modules(o) {
@@ -6278,6 +6318,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         n: 0,
         globals: HashMap::new(),
         nglobals: 0,
+        gstore: HashSet::new(),
         uses_getframe: false,
         consts: vec![],
         const_idx: HashMap::new(),
@@ -6403,6 +6444,15 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
                 }
             }
             globals_in(&m.body, &mut names);
+            // `globals()['name'] = v` anywhere in the file, for a name nothing else binds: a global slot of its own
+            if !names.contains("globals") {
+                for k in globals_stores(&m.body) {
+                    if !names.contains(&k) {
+                        names.insert(k.clone());
+                        em.gstore.insert((m.name.clone(), k));
+                    }
+                }
+            }
             // how often each name is bound at module level (top level statements only)
             let mut binds: HashMap<String, usize> = HashMap::new();
             let mut import_of: HashMap<String, String> = HashMap::new();

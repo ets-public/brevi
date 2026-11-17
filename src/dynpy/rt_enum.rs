@@ -1083,6 +1083,13 @@ pub fn enum_setup_b(c: &Rc<Class>, boundary: V) -> Result<(), E> {
         c.set("__new_member__", f);
         c.del_exact("__new__");
     }
+    // EnumType.__new__ sets enum_class.__new__ = Enum.__new__: a data type's own __new__ (a class of the program
+    // with __new__ before Enum in the MRO) is not what the class finds
+    if let Some(en_new) = en_pair().0.own("__new__") {
+        if !c.lookup("__new__").is_some_and(|f| is(&f, &en_new)) {
+            c.set("__new__", en_new);
+        }
+    }
     enum_cpy_attrs(c, &new_fn, &mt, &members, &seen, boundary)?;
     // EnumType.__new__: a __repr__, __str__, __format__ or __reduce_ex__ the class would find on its data type
     // (or object) becomes its first enum base's. Brevi's runtime gives builtin data types theirs already; a

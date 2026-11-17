@@ -870,14 +870,15 @@ for c in "ps1:in another order than CPython's" "ps2:where the result does not re
     case "$o" in *"NotImplementedError: brevi: loading a pickle"*"${c#*:}"*" is not supported in dynamic builds") echo "ok   a pickle BUILD running program code out of CPython's order stops (${c%%:*})" ;; *) echo "FAIL a pickle BUILD running program code out of CPython's order (${c%%:*})"; printf '%s\n' "$o"; fail=1 ;; esac
 done
 # Every other refusal on the pickle and copy paths stops the program too, as no `except` may catch it and go on
-# with an answer CPython never gives: a class's own __reduce__, a bound method, items added to a program instance
-# by a load (the Python glue's refusals). A copy whose __reduce__ gives a tuple of the wrong length is CPython's
+# with an answer CPython never gives: a __reduce__ giving a global name, a bound method, items added to a program
+# instance by a load (the Python glue's refusals), an int subclass made from a list the load adds to after it. A copy whose __reduce__ gives a tuple of the wrong length is CPython's
 # TypeError, not a refusal.
 pk_try='try:\n    %s\nexcept Exception as e:\n    print("caught", type(e).__name__)\nprint("after")\n'
-printf "import pickle\nclass A:\n    def __reduce__(self):\n        return (A, ())\n$pk_try" 'print(pickle.dumps(A()))' > "$t/pk1.py"
+printf "import pickle\nclass A:\n    def __reduce__(self):\n        return 'a'\na = A()\n$pk_try" 'print(pickle.dumps(A()))' > "$t/pk1.py"
 printf "import pickle\nclass T:\n    def k(self):\n        return 1\n$pk_try" 'print(pickle.dumps(T().k))' > "$t/pk2.py"
 printf "import pickle\nclass A:\n    pass\n$pk_try" 'print(pickle.loads(b"\x80\x02c__main__\nA\n)\x81(K\x01e."))' > "$t/pk3.py"
-for c in "pk1:pickling an instance of a class that defines __reduce__" "pk2:pickling a bound method" "pk3:loading a pickle that adds items to an instance of a class of the program"; do
+printf "import pickle\nclass N(int):\n    pass\nx = []\nn = N(3)\nn.owner = x\nx.append(n)\n$pk_try" 'print(pickle.loads(pickle.dumps(x, 2)))' > "$t/pk5.py"
+for c in "pk1:pickling an object of the program whose __reduce__ gives a global name" "pk2:pickling a bound method" "pk3:loading a pickle that adds items to an instance of a class of the program" "pk5:loading a pickle whose object of the program is made from a list, dict or set the load adds to after it is made"; do
     o=$(BREVI_DYN=1 $BREVI run "$t/${c%%:*}.py" 2>&1)
     case "$o" in "NotImplementedError: brevi: ${c#*:} is not supported in dynamic builds") echo "ok   a pickle refusal inside try/except stops (${c%%:*})" ;; *) echo "FAIL a pickle refusal inside try/except (${c%%:*})"; printf '%s\n' "$o"; fail=1 ;; esac
 done
