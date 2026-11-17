@@ -331,6 +331,42 @@ pub fn glob_has(tab: fn(&str) -> Option<usize>, k: &V) -> Result<bool, E> {
     Ok(glob_slot(tab, k)?.is_some())
 }
 
+// ---------- sys._getframe(n).f_globals ----------
+// The build lets a frame from sys._getframe(n) (n a literal) be used only as
+// `frame.f_globals.get('__warningregistry__'[, d])` (emit.rs frame_vars); the frame is never a value. Which
+// module's globals those are is not known here, so the key is answered only while its answer is the same in
+// every module: absent, while no module has a registry yet (test.support's check_warnings reads it). Anything
+// else stops the run. n must reach no further than the program's own frames (PDEPTH, each of which CPython has too), and
+// not past a call from a Python library (whose frames the program does not know).
+pub fn getframe_check(n: i64) -> Result<(), E> {
+    if GT_CB.with(|c| c.get()) > 0 {
+        return Err(unsupported("sys._getframe() in a function a Python library called"));
+    }
+    // the program's own frames, and __main__'s module frame while its body runs (a thread running then has
+    // threading's frames under it instead)
+    let known = PDEPTH.with(|d| d.get()) + MAIN_RUNNING.with(|m| m.get()) as usize;
+    if n > 0 && n as usize >= known {
+        return Err(unsupported("sys._getframe(n) with n past the program's own frames"));
+    }
+    Ok(())
+}
+fn fglob_absent(k: &V) -> Result<(), E> {
+    match k {
+        V::Str(x) if x.text() == "__warningregistry__" => {
+            if no_warn_registry()? {
+                Ok(())
+            } else {
+                Err(unsupported("frame.f_globals['__warningregistry__'] once a warning was issued"))
+            }
+        }
+        _ => Err(unsupported("reading a frame's f_globals other than '__warningregistry__'")),
+    }
+}
+pub fn fglob_get(k: &V, d: V) -> R {
+    fglob_absent(k)?;
+    Ok(d)
+}
+
 thread_local! {
     // the classes whose creation is running user code (an Enum's members made by its own __new__ and __init__),
     // innermost last: a zero-argument super() in that code finds its class here before the name is bound

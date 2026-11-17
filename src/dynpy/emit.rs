@@ -550,6 +550,11 @@ fn sys_binds(body: &[Stmt], out: &mut BTreeSet<String>) {
 // m.n (n may be a submodule). `if TYPE_CHECKING:` blocks too: more names only refuse more.
 const SYSMOD_DYN_KEY: &str = "sys.modules with a key that is not a string literal (or __name__, or a parameter of a def whose every call passes one) is not supported in dynamic builds: CPython's answer for a key known only at run time may not be sure";
 // Every statement of a body, nested bodies included.
+// The arguments of a frame's `f_globals.get(...)` the build answers: '__warningregistry__' (rt_glue's fglob_get),
+// with or without a default, both positional. Any other key is refused when the program is built.
+fn fglob_get_args(a: &[Arg]) -> bool {
+    matches!(a, [Arg::Pos(Ex::Str(k))] | [Arg::Pos(Ex::Str(k)), Arg::Pos(_)] if k == "__warningregistry__")
+}
 fn each_stmt<'a>(body: &'a [Stmt], f: &mut dyn FnMut(&'a Stmt)) {
     for s in body {
         f(s);
@@ -1966,6 +1971,9 @@ struct Func {
     direct_defs: HashMap<String, (String, Vec<String>, usize)>,
     // a class body run in namespace-dict mode: the Rust local holding its namespace dict
     ns: Option<String>,
+    // locals that only ever hold a frame from sys._getframe(n), read only as `x.f_globals.get('__warningregistry__')`
+    // (frame_vars)
+    fvars: HashSet<String>,
 }
 
 pub struct Module {
@@ -2373,6 +2381,8 @@ pub struct Em {
     re_names: HashSet<(String, String)>,
     // the program uses the warnings module: every statement says where it is, so a warning names its line
     track_warn: bool,
+    // the program calls sys._getframe: its own functions count their frames (PDepth)
+    uses_getframe: bool,
     // module -> the lines whose logical line runs over more than one line (None: the module did not lex)
     multi: HashMap<String, Option<HashSet<usize>>>,
     // the WMod statics written so far
@@ -3589,6 +3599,11 @@ impl Em {
         if name == "__main__" || self.prog_mods.contains(&name) {
             return Ok((kk, "SysKey::Dict".into()));
         }
+        // a leading import of a one-file program (sysmod_early) put it in both dicts before the program's first read,
+        // whether or not CPython's startup had loaded it already
+        if self.module == "__main__" && self.sysmod_early.contains(&name) && (builtin_mod(&name) || self.user_modules.contains(&name) || self.bridge.has(&name)) {
+            return Ok((kk, "SysKey::Dict".into()));
+        }
         if sysmod_unsure(&name) {
             return Err(err(line, &format!("{name:?} in sys.modules is not supported in dynamic builds: CPython's answer depends on its environment or on its builtins' own imports")));
         }
@@ -3603,6 +3618,63 @@ impl Em {
             }));
         }
         Ok((kk, "SysKey::Dict".into()))
+    }
+    // The plain locals of a def (`cands`) that only ever hold a frame: bound only by `x = sys._getframe(n)` and read
+    // only as `x.f_globals.get('__warningregistry__'[, d])`, in a def that never hands its locals out (locals(), vars(), dir(), eval,
+    // exec). Such a frame is never made: the build checks n where the frame is taken and answers the read
+    // (rt_glue's getframe_check and fglob_get). Every other use of a frame is refused, as sys._getframe is.
+    fn frame_vars<'a>(&self, body: &[Stmt], cands: impl Iterator<Item = &'a String>) -> HashSet<String> {
+        let mut out = HashSet::new();
+        let mut gf = false;
+        visit_any(body, &mut |e| gf |= self.getframe_depth(e).is_some());
+        if !gf {
+            return out;
+        }
+        let mut leaks = false;
+        visit_any(body, &mut |e| leaks |= matches!(e, Ex::Name(x) if matches!(x.as_str(), "locals" | "vars" | "dir" | "eval" | "exec")));
+        if leaks {
+            return out;
+        }
+        for n in cands {
+            let (mut total, mut gets, mut walrus) = (0, 0, false);
+            visit_any(body, &mut |e| match e {
+                Ex::Name(x) if x == n => total += 1,
+                Ex::Walrus(x, _) if x == n => walrus = true,
+                Ex::Call(f, a) if fglob_get_args(a) => {
+                    if let Ex::Attr(o, m) = &**f {
+                        if m == "get" && matches!(&**o, Ex::Attr(b, g) if g == "f_globals" && matches!(&**b, Ex::Name(x) if x == n)) {
+                            gets += 1;
+                        }
+                    }
+                }
+                _ => {}
+            });
+            let mut takes = 0;
+            each_stmt(body, &mut |st| {
+                if let St::Assign(ts, v) = &st.st {
+                    if matches!(ts.as_slice(), [Ex::Name(x)] if x == n) && self.getframe_depth(v).is_some() {
+                        takes += 1;
+                    }
+                }
+            });
+            if !walrus && takes > 0 && total == takes + gets && bind_count(body, n) == takes {
+                out.insert(n.clone());
+            }
+        }
+        out
+    }
+    // `sys._getframe()` / `sys._getframe(n)` with n a non-negative int literal: n
+    fn getframe_depth(&self, e: &Ex) -> Option<u32> {
+        let Ex::Call(f, a) = e else { return None };
+        let Ex::Attr(o, n) = &**f else { return None };
+        if n != "_getframe" || self.static_module(o).as_deref() != Some("sys") {
+            return None;
+        }
+        match a.as_slice() {
+            [] => Some(0),
+            [Arg::Pos(Ex::Int(t))] if t.bytes().all(|c| c.is_ascii_digit()) => t.parse().ok(),
+            _ => None,
+        }
     }
     fn is_globals(&self, e: &Ex) -> bool {
         matches!(e, Ex::Call(f, a) if a.is_empty() && matches!(&**f, Ex::Name(n) if n == "globals") && self.lookup("globals").is_none())
@@ -3767,6 +3839,37 @@ impl Em {
                     return Ok(self.q(&body));
                 }
                 _ => {}
+            }
+        }
+        // frame.f_globals.get(k[, d]) for a frame_vars local, or sys._getframe(n).f_globals.get(k[, d])
+        if let Ex::Attr(o, m) = f {
+            if let Ex::Attr(fr, g) = &**o {
+                if m == "get" && g == "f_globals" && fglob_get_args(args) {
+                    let pre = match &**fr {
+                        Ex::Name(n) if self.f().fvars.contains(n) && matches!(self.lookup(n), Some(Var::Local(_))) => {
+                            let r = self.ex(fr, line)?;
+                            Some(format!("let _ = {r};"))
+                        }
+                        e => match self.getframe_depth(e) {
+                            Some(k) => {
+                                self.uses_getframe = true;
+                                Some(format!("{};", self.q(&format!("getframe_check({k})"))))
+                            }
+                            None => None,
+                        },
+                    };
+                    if let Some(pre) = pre {
+                        let mut xs = vec![];
+                        for a in args {
+                            if let Arg::Pos(x) = a {
+                                xs.push(self.ex(x, line)?);
+                            }
+                        }
+                        let d = xs.get(1).cloned().unwrap_or_else(|| "V::None".into());
+                        let c = self.q(&format!("fglob_get(&__k, {d})"));
+                        return Ok(format!("{{ {pre} let __k = {}; {c} }}", xs[0]));
+                    }
+                }
             }
         }
         // globals().get(k) / globals().get(k, d)
@@ -4030,7 +4133,7 @@ impl Em {
         let gq = self.qualname_of("<genexpr>");
         let gq_lit = lit(&gq);
         let (class_expr, self_name) = (parent.class_expr.clone(), parent.self_name.clone());
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, qname: gq, exc_vars: vec![], is_module: false, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: true, direct_defs: HashMap::new(), cells: format!("g{id}_"), order: vec![], ns: None };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, qname: gq, exc_vars: vec![], is_module: false, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: true, direct_defs: HashMap::new(), cells: format!("g{id}_"), order: vec![], ns: None, fvars: HashSet::new() };
         let mut tdecl = String::new();
         for n in &names {
             if inner_free.contains(n) {
@@ -4466,6 +4569,15 @@ impl Em {
                 format!("let _ = {ee};")
             }
             St::Assign(ts, v) => {
+                // `frame = sys._getframe(n)` for a frame_vars local: the depth is checked, the frame never made
+                if let ([Ex::Name(n)], Some(k)) = (ts.as_slice(), self.getframe_depth(v)) {
+                    if self.f().fvars.contains(n) && matches!(self.lookup(n), Some(Var::Local(_))) {
+                        self.uses_getframe = true;
+                        let c = self.q(&format!("getframe_check({k})"));
+                        let a = self.assign(&ts[0], "V::None", line)?;
+                        return Ok(format!("{c}; {a}"));
+                    }
+                }
                 let vv = self.ex(v, line)?;
                 if ts.len() == 1 {
                     if let Ex::Name(_) = &ts[0] {
@@ -5317,10 +5429,11 @@ impl Em {
         // this function's frame
         let parent = self.fstack.last().unwrap();
         let (class_expr, self_name) = if self.class_ctx.is_some() { (self.class_ctx.clone(), p.pos.first().map(|x| x.0.clone())) } else { (parent.class_expr.clone(), parent.self_name.clone()) };
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, qname: qualname.to_string(), exc_vars: vec![], is_module: false, is_class: false, enum_cnv: None, is_async, is_agen: is_async && is_gen, is_gen, direct_defs: HashMap::new(), cells: format!("k{id}_"), order: vec![], ns: None };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, qname: qualname.to_string(), exc_vars: vec![], is_module: false, is_class: false, enum_cnv: None, is_async, is_agen: is_async && is_gen, is_gen, direct_defs: HashMap::new(), cells: format!("k{id}_"), order: vec![], ns: None, fvars: HashSet::new() };
         for (n, r) in &captures {
             fr.vars.insert(n.clone(), Var::Cell(r.clone()));
         }
+        fr.fvars = self.frame_vars(body, sc.locals.iter().filter(|n| !params.contains(n) && !inner_free.contains(*n)));
         {
             let text = format!("{body:?}");
             let at = |n: &String| text.find(&format!("{n:?}")).unwrap_or(usize::MAX);
@@ -5688,7 +5801,7 @@ impl Em {
         let ns_var = format!("__ns{id}");
         // sys.settrace: a class body is its own frame (a closure here), so its errors leave it by `?`
         let class_frames = if self.trace.is_some() { vec![] } else { parent.frames.clone() };
-        let mut fr = Func { vars: HashMap::new(), frames: class_frames, class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), qname: qualname.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![], ns: dict_mode.then_some(ns_var.clone()) };
+        let mut fr = Func { vars: HashMap::new(), frames: class_frames, class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), qname: qualname.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![], ns: dict_mode.then_some(ns_var.clone()), fvars: HashSet::new() };
         let ctx = format!("__auto_ctx{id}");
         let av = format!("__auto_last{id}");
         let mut decls = String::new();
@@ -6146,6 +6259,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         n: 0,
         globals: HashMap::new(),
         nglobals: 0,
+        uses_getframe: false,
         consts: vec![],
         const_idx: HashMap::new(),
         kraw: HashMap::new(),
@@ -6356,7 +6470,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
             em.lazy = future_annotations(&m.body);
             IN_COPY.with(|c| c.set(OWN_COPIES.lock().unwrap().contains(&m.name)));
             em.eval_ann = !em.lazy && gi == 1 && !copies.contains(&m.name) && !BV_SPELLING.load(std::sync::atomic::Ordering::Relaxed);
-            let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, qname: String::new(), exc_vars: vec![], is_module: true, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![], ns: None };
+            let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, qname: String::new(), exc_vars: vec![], is_module: true, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![], ns: None, fvars: HashSet::new() };
             for n in em.mod_names[&m.name].clone() {
                 let i = em.gslot(&m.name, &n);
                 fr.vars.insert(n.clone(), Var::Global(i));
@@ -6496,12 +6610,12 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     };
     write!(
         out,
-        "fn __run() -> Result<(), E> {{ unsafe {{ GL = vec![V::Unbound; {}]; K = Vec::new(); {} }} USER_MOD.with(|u| u.set(Some(user_mod))); USER_MOD_FILE.with(|u| u.set(Some(user_mod_file))); LIB_MOD_REPR.with(|u| u.set(Some(lib_mod_repr))); USER_MOD_SET.with(|u| u.set(Some(user_mod_set))); MAIN_GTAB.with(|u| u.set(Some(gtab___main__))); sys_modules_set(\"__main__\", &V::Module(&ModName(\"__main__\")))?; {}{}{}{} let r = init___main__(); fin_point(); r }}\nfn main() {{ run_main(__run); }}\n",
+        "fn __run() -> Result<(), E> {{ unsafe {{ GL = vec![V::Unbound; {}]; K = Vec::new(); {} }} USER_MOD.with(|u| u.set(Some(user_mod))); USER_MOD_FILE.with(|u| u.set(Some(user_mod_file))); LIB_MOD_REPR.with(|u| u.set(Some(lib_mod_repr))); USER_MOD_SET.with(|u| u.set(Some(user_mod_set))); MAIN_GTAB.with(|u| u.set(Some(gtab___main__))); sys_modules_set(\"__main__\", &V::Module(&ModName(\"__main__\")))?; {}{}{}{} MAIN_RUNNING.with(|m| m.set(true)); let r = init___main__(); MAIN_RUNNING.with(|m| m.set(false)); fin_point(); r }}\nfn main() {{ run_main(__run); }}\n",
         em.nglobals.max(1),
         consts.join(" "),
         del_on,
         // the program uses CPython's warnings module: the warnings the runtime issues go through it
-        if em.bridged_used.contains("warnings") { " set_warn_bridge(pyd_warn_at); pyd_warn_install()?;" } else { "" },
+        if em.bridged_used.contains("warnings") { " set_warn_bridge(pyd_warn_at); set_regs_clean(pyd_regs_clean); pyd_warn_install()?;" } else { "" },
         if uname { " set_name_lookup(__uname);" } else { "" },
         if em.trace.is_some() { " trace_build_on();" } else { "" }
     )
@@ -6515,6 +6629,21 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     let _ = &em.out;
     // a program using warnings: each function puts its caller's line back when it returns (or raises)
     let out = if em.track_warn { out.replace("let __depth = Depth::new()?;", "let __depth = Depth::new()?; let __wg = warn_guard();") } else { out };
+    // a program calling sys._getframe: the functions of its own files count their frames (rt_call's PDEPTH);
+    // Brevi's library copies, before LIB_END, are not frames CPython has
+    let out = if em.uses_getframe {
+        // the only f_globals read answered is '__warningregistry__' while no module has one: a program that
+        // binds that name itself would make the answer wrong
+        if em.globals.keys().any(|(_, n)| n == "__warningregistry__") {
+            return Err((mods[0].name.clone(), 0, "sys._getframe() is not supported in dynamic builds when the program binds __warningregistry__".into()));
+        }
+        match out.split_once(LIB_END) {
+            Some((lib, prog)) => format!("{lib}{LIB_END}{}", prog.replace("let __depth = Depth::new()?;", "let __depth = PDepth::new()?;")),
+            None => out.replace("let __depth = Depth::new()?;", "let __depth = PDepth::new()?;"),
+        }
+    } else {
+        out
+    };
     // CPython's re matches any buffer (array.array, mmap, ctypes arrays) as bytes; Brevi's re takes a
     // library object's buffer for array.array, but an mmap's buffer changes under the match and ctypes was
     // not checked. weakref would be handed Brevi's Pattern and Match values, which a bridged library

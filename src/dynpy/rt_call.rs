@@ -12,6 +12,11 @@ thread_local! {
     // __main__'s name -> global slot table (its gtab), for lookups by name at run time (pickle by reference)
     pub static MAIN_GTAB: Cell<Option<fn(&str) -> Option<usize>>> = Cell::new(None);
     pub static DEPTH: Cell<usize> = Cell::new(0);
+    // the frames of the program's own functions among DEPTH's (not Brevi's library copies), kept only by
+    // programs that call sys._getframe (PDepth): CPython has at least this many frames below the running one
+    pub static PDEPTH: Cell<usize> = Cell::new(0);
+    // __main__'s body is running: its module frame is under every frame (MAIN_RUNNING, set by the program's __run)
+    pub static MAIN_RUNNING: Cell<bool> = Cell::new(false);
     pub static REC_LIMIT: Cell<usize> = Cell::new(1000);
 }
 // CPython merges a call's keywords (explicit and **) into one dict before it binds anything, and
@@ -340,6 +345,23 @@ impl Depth {
 impl Drop for Depth {
     #[inline]
     fn drop(&mut self) {
+        leave();
+    }
+}
+// Depth for a function of the program's own files, in a program that calls sys._getframe
+pub struct PDepth;
+impl PDepth {
+    #[inline]
+    pub fn new() -> Result<PDepth, E> {
+        enter()?;
+        PDEPTH.with(|d| d.set(d.get() + 1));
+        Ok(PDepth)
+    }
+}
+impl Drop for PDepth {
+    #[inline]
+    fn drop(&mut self) {
+        PDEPTH.with(|d| d.set(d.get().saturating_sub(1)));
         leave();
     }
 }
