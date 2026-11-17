@@ -1,0 +1,4 @@
+4 '123\x00'
+'a\nb' 'A' 'x\x07y' '\x00' '\x01' 'A'
+hi a	b 1
+invalid literal for int() with base 10: '123\x00'

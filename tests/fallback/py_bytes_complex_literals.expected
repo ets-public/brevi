@@ -1,0 +1,5 @@
+{"path":"dynamic","line":4,"why":"a bytes literal (b\"...\"): the typed build has no bytes type"}
+b'a\\d' b'q' b'z'
+b'A\x00' 1
+2j (1+2j) 0.5j 1000j 5.0
+native exit 0

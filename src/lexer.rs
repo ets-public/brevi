@@ -938,6 +938,10 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             }
             let text: String = chars[start..i].iter().filter(|&&d| d != '_').collect();
             col += i - start;
+            // Python's `2j` is a complex number; read as `2` then `j` it only failed with "found j".
+            if py && matches!(chars.get(i), Some('j' | 'J')) {
+                return Err(Diag::new("lex", tl, tc, "a complex number literal (2j): the typed build has no complex type"));
+            }
             if is_float {
                 push(&mut out, Tok::Float(text.parse().unwrap()));
             } else {
@@ -963,6 +967,15 @@ pub fn lex(src: &str) -> Result<Vec<Token>, Diag> {
             // Python's `def f(...)` is `fn f(...)`.
             if word == "def" && chars.get(i) == Some(&' ') && chars.get(i + 1).map_or(false, |c| c.is_alphabetic() || *c == '_') {
                 push(&mut out, Tok::Kw("fn"));
+                continue;
+            }
+            // Python's bytes `b"..."`, `rb"..."`: the typed build has no bytes type, and reading one as a str would
+            // print `ab` where Python prints `b'ab'`.
+            if py && matches!(word.to_ascii_lowercase().as_str(), "b" | "rb" | "br") && matches!(chars.get(i), Some('"') | Some('\'')) {
+                return Err(Diag::new("lex", tl, tc, "a bytes literal (b\"...\"): the typed build has no bytes type"));
+            }
+            // Python's `u"..."` is a plain string.
+            if py && matches!(word.as_str(), "u" | "U") && matches!(chars.get(i), Some('"') | Some('\'')) {
                 continue;
             }
             // Python's raw strings `r"\d+"`: backslashes stay as written and braces are plain text.
