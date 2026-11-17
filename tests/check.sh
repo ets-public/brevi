@@ -1282,6 +1282,48 @@ if [ -n "$(ls -A "$t2/cache/runs" 2>/dev/null)" ] || printf '%s\n' "$t2out" | gr
   echo "FAIL result cache keeps a machine failure"; printf '%s\n' "$t2out"; ls -A "$t2/cache/runs"; fail=1
 else echo "ok   result cache keeps no machine failure"; fi
 rm -rf "$t2"
+# The cache is trusted: a replay runs the binary it holds. So no folder grant may reach it (a sandboxed program
+# granted write there could plant a binary a later run executes with no hold), and a cache other users can change
+# is not used at all: a private one stands in. The control run shows a planted binary would run otherwise.
+tc=$(mktemp -d); printf 'print(6 * 7)\n' > "$tc/main.py"; mkdir "$tc/out"
+cc() { env BREVI_CACHE="$tc/cache" $BREVI "$@" "$tc/main.py" 2>&1; echo "exit $?"; }
+tcout=$(cc run >/dev/null
+  for b in "$tc"/cache/runs/*/bin; do printf '#!/bin/sh\necho planted\n' > "$b"; done
+  echo "-- control"; cc run
+  echo "-- grant holding the cache"; cc run --sandbox --allow-write "$tc" | sed -n 's/.*the folder holds Brevi.s build cache.*/holds the cache/p; /^exit/p'
+  echo "-- grant inside the cache"; cc run --sandbox --allow-write "$tc/cache/runs" | sed -n 's/.*the folder is inside Brevi.s build cache.*/inside the cache/p; /^exit/p'
+  echo "-- grant beside it"; cc run --sandbox --allow-write "$tc/out" | grep -v planted
+  echo "-- shared"; chmod 777 "$tc/cache/runs"; cc run | sed 's/ [^ ]*brevi-[0-9]*\/cache / PRIVATE /; s/build cache [^:]*:/build cache CACHE:/; s/: [^ ]*\/runs can/: RUNS can/')
+tcwant='-- control
+planted
+exit 0
+-- grant holding the cache
+holds the cache
+exit 2
+-- grant inside the cache
+inside the cache
+exit 2
+-- grant beside it
+42
+exit 0
+-- shared
+brevi: not using the build cache CACHE: RUNS can be changed by other users (mode 777); using PRIVATE instead (set BREVI_CACHE to a folder only you can write)
+42
+exit 0'
+if [ "$tcout" = "$tcwant" ]; then echo "ok   cache trust: no grant reaches it, a shared one is not used"
+else echo "FAIL cache trust"; printf '%s\n' "$tcwant" > "$tc/want"; printf '%s\n' "$tcout" | diff "$tc/want" -; fail=1; fi
+chmod -R u+rwX "$tc"; rm -rf "$tc"
+# BREVI_CACHE_SEED: a read-only folder of runtime libraries built ahead (the sandbox image's, made as root). A
+# fresh cache links the seed's library instead of building its own, unless others could change the seed.
+ts=$(mktemp -d); chmod 755 "$ts"; printf 'print(sum([1, 2, 3]))\n' > "$ts/main.py"
+tsr() { env BREVI_CACHE="$ts/$1" BREVI_CACHE_SEED="$ts/seed" BREVI_TIERED=0 $BREVI run --native "$ts/main.py" 2>&1; }
+env BREVI_CACHE="$ts/seed" BREVI_TIERED=0 $BREVI run --native "$ts/main.py" >/dev/null 2>&1; chmod -R go-w "$ts/seed"
+tsout="$(tsr own) $(ls "$ts/own" | grep -c '^rt$')"
+chmod o+w "$ts/seed/rt"
+tsout="$tsout / $(tsr own2) $(ls "$ts/own2" | grep -c '^rt$')"
+if [ "$tsout" = "6 0 / 6 1" ]; then echo "ok   cache seed: used when only its owner can change it"
+else echo "FAIL cache seed: $tsout (want 6 0 / 6 1)"; fail=1; fi
+rm -rf "$ts"
 # Tiered builds (src/tier.rs): run after an edit builds at opt-level 0 and builds opt-level 1 in the background;
 # the next run of the unchanged file gets the opt-level 1 binary. build, --release and BREVI_TIERED=0 never tier.
 t3=$(mktemp -d)

@@ -1927,6 +1927,26 @@ static RUST_LINES: std::sync::OnceLock<Vec<(usize, usize)>> = std::sync::OnceLoc
 
 // Where crates are built once and shared by every program: $BREVI_CACHE, else ~/.cache/brevi.
 pub(crate) fn cache_dir() -> PathBuf {
+    static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
+        let d = cache_dir_named();
+        match cache_trusted(&d) {
+            Ok(()) => d,
+            Err(why) => {
+                // Brevi runs the binaries kept here and links every program with the runtime libraries kept here,
+                // so a cache someone else can write is never used: a private one stands in (empty, so slower).
+                let own = tmp_root().join("cache");
+                if !runcache::in_child() {
+                    eprintln!("brevi: not using the build cache {}: {why}; using {} instead (set BREVI_CACHE to a folder only you can write)", d.display(), own.display());
+                }
+                own
+            }
+        }
+    })
+    .clone()
+}
+
+fn cache_dir_named() -> PathBuf {
     if let Ok(d) = std::env::var("BREVI_CACHE") {
         // Absolute, so a background build (src/tier.rs), which runs in its own folder, finds the same cache.
         return std::path::absolute(&d).unwrap_or_else(|_| PathBuf::from(d));
@@ -1937,6 +1957,111 @@ pub(crate) fn cache_dir() -> PathBuf {
         Ok(h) if !h.is_empty() => PathBuf::from(h).join(".cache").join("brevi"),
         _ => tmp_root().join("cache"),
     }
+}
+
+// The build cache is used only if no other user can change what is in it: the folder and every folder or file
+// directly in it are this user's, not links, every folder above it safe (folders_above_ok), and writable by no other user (group-writable only for this
+// user's own group, as a umask of 002 makes them). Brevi makes everything deeper itself, inside these. Unix
+// only: on Windows the cache is under the user's own profile.
+#[cfg(unix)]
+fn cache_trusted(d: &Path) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+    unsafe extern "C" {
+        fn getegid() -> u32;
+    }
+    // SAFETY: getegid takes nothing and cannot fail.
+    let gid = unsafe { getegid() };
+    let me = privdir::ax_priv::me();
+    std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
+    folders_above_ok(d)?;
+    let ok = |p: &Path, m: &std::fs::Metadata| -> Result<(), String> {
+        if m.uid() != me {
+            return Err(format!("{} belongs to another user (uid {})", p.display(), m.uid()));
+        }
+        if m.mode() & 0o002 != 0 || (m.mode() & 0o020 != 0 && m.gid() != gid) {
+            return Err(format!("{} can be changed by other users (mode {:o})", p.display(), m.mode() & 0o7777));
+        }
+        Ok(())
+    };
+    ok(d, &std::fs::metadata(d).map_err(|e| e.to_string())?)?;
+    for e in std::fs::read_dir(d).map_err(|e| e.to_string())?.flatten() {
+        let p = e.path();
+        let m = std::fs::symlink_metadata(&p).map_err(|e| e.to_string())?;
+        if m.file_type().is_symlink() {
+            return Err(format!("{} is a link", p.display()));
+        }
+        ok(&p, &m)?;
+    }
+    Ok(())
+}
+
+// Every folder above `p` (as given and as resolved) belongs to this user or root (or, in a user namespace, the
+// unmapped owner of the host's folders), and no other user can rename what is in it: not writable by others
+// unless sticky as /tmp is, and group-writable only for this user's own group (a umask of 002 makes ~/.cache so).
+#[cfg(unix)]
+fn folders_above_ok(p: &Path) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+    unsafe extern "C" {
+        fn getegid() -> u32;
+    }
+    // SAFETY: getegid takes nothing and cannot fail.
+    let gid = unsafe { getegid() };
+    let me = privdir::ax_priv::me();
+    let other = privdir::ax_priv::unmapped();
+    let given = std::path::absolute(p).map_err(|e| format!("{}: {e}", p.display()))?;
+    let real = std::fs::canonicalize(p).map_err(|e| format!("{}: {e}", p.display()))?;
+    for top in [given, real] {
+        for a in top.ancestors().skip(1) {
+            let m = std::fs::metadata(a).map_err(|e| format!("{}: {e}", a.display()))?;
+            if m.uid() != me && m.uid() != 0 && Some(m.uid()) != other {
+                return Err(format!("{} belongs to another user (uid {})", a.display(), m.uid()));
+            }
+            let sticky = m.mode() & 0o1000 != 0;
+            if !sticky && (m.mode() & 0o002 != 0 || (m.mode() & 0o020 != 0 && m.gid() != gid)) {
+                return Err(format!("{} can be changed by other users and is not sticky", a.display()));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn cache_trusted(_: &Path) -> Result<(), String> {
+    Ok(())
+}
+
+// A runtime library built ahead of time into a read-only seed folder, BREVI_CACHE_SEED (the sandbox image warms
+// one as root, so each user's own cache starts without the minutes it takes to build them). `rel` is the
+// library's path inside the cache. Used only if no user but root and this one can change it: the seed folder,
+// every folder down to the file and the file itself are owned by root or this user, are not links, and are
+// writable by no one else, and every folder above the seed is safe (folders_above_ok).
+#[cfg(unix)]
+pub(crate) fn seed_file(rel: &Path) -> Option<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    let seed = PathBuf::from(std::env::var_os("BREVI_CACHE_SEED").filter(|v| !v.is_empty())?);
+    if !seed.is_absolute() || rel.components().any(|c| !matches!(c, std::path::Component::Normal(_))) {
+        return None;
+    }
+    folders_above_ok(&seed).ok()?;
+    let me = privdir::ax_priv::me();
+    let mut p = seed;
+    let mut parts = vec![p.clone()];
+    for c in rel.components() {
+        p.push(c);
+        parts.push(p.clone());
+    }
+    for q in &parts {
+        let m = std::fs::symlink_metadata(q).ok()?;
+        if m.file_type().is_symlink() || (m.uid() != 0 && m.uid() != me) || m.mode() & 0o022 != 0 {
+            return None;
+        }
+    }
+    std::fs::metadata(&p).ok().filter(|m| m.is_file()).map(|_| p)
+}
+
+#[cfg(not(unix))]
+pub(crate) fn seed_file(_: &Path) -> Option<PathBuf> {
+    None
 }
 
 // Builds with cargo, for programs that use crates. Same results as compile().
@@ -2246,10 +2371,14 @@ fn runtime_lib(release: bool) -> Option<PathBuf> {
             }
             let src = runtime_lib_source();
             let mode = if release { "release" } else { "dev-o3" };
-            let dir = cache_dir().join("rt").join(format!("{:016x}-{mode}", fnv(&[&src, rustc_version()], 1)));
+            let name = format!("{:016x}-{mode}", fnv(&[&src, rustc_version()], 1));
+            let dir = cache_dir().join("rt").join(&name);
             let lib = dir.join("libbrevi_rt.rlib");
             if lib.exists() {
                 return Some(lib);
+            }
+            if let Some(seeded) = seed_file(&Path::new("rt").join(&name).join("libbrevi_rt.rlib")) {
+                return Some(seeded);
             }
             std::fs::create_dir_all(&dir).ok()?;
             // programs built side by side wait for one build of it

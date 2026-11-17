@@ -12,8 +12,10 @@
 # It installs the latest Brevi release (or BREVI_VERSION), checked against the release's SHA256SUMS. The file
 # has no COPY lines, so the E2B, Daytona and Modal SDKs can build it from the text alone.
 #
-# Commands may run as any user (E2B runs them as `user`, Daytona as `daytona`), so the toolchain and the
-# build cache live in /opt and are writable by everyone.
+# Commands may run as any user (E2B runs them as `user`, Daytona as `daytona`), so the toolchain lives in /opt.
+# Each user keeps a build cache of their own (~/.cache/brevi): Brevi runs and links what a cache holds, so it
+# never uses one another user could change. The runtime libraries are built once here, as root, into the
+# read-only seed /opt/brevi-seed (BREVI_CACHE_SEED), which every user's cache links from.
 FROM debian:trixie-slim
 
 ARG BREVI_VERSION=
@@ -22,7 +24,7 @@ LABEL org.opencontainers.image.source=https://github.com/ets-public/brevi \
       org.opencontainers.image.description="Brevi: AI-written Python built natively and sandboxed" \
       org.opencontainers.image.licenses=Apache-2.0
 
-ENV RUSTUP_HOME=/opt/rust CARGO_HOME=/opt/rust BREVI_CACHE=/opt/brevi-cache BREVI_PYTHON=/usr/bin/python3 \
+ENV RUSTUP_HOME=/opt/rust CARGO_HOME=/opt/rust BREVI_CACHE_SEED=/opt/brevi-seed BREVI_PYTHON=/usr/bin/python3 \
     PATH=/opt/rust/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 RUN apt-get update \
@@ -42,14 +44,15 @@ RUN if [ -n "$BREVI_VERSION" ]; then ref="v${BREVI_VERSION#v}"; else ref=main; f
  && curl -fsSL "https://raw.githubusercontent.com/ets-public/brevi/$ref/packaging/pypi/brevi/__init__.py" -o "$sdk/__init__.py" \
  && python3 -c 'import brevi'
 
-# Warm the build cache once, so the first program an agent runs does not pay for the toolchain lookups or
-# for building Brevi's runtime libraries: the typed one, and the dynamic one (about 50 s cold), which
-# `brevi mcp` and the SDK also build when they start.
-RUN mkdir -p /tmp/warm "$BREVI_CACHE" \
+# Build the runtime libraries once into the seed, so the first program an agent runs does not pay for building
+# them: the typed one, and the dynamic one (about 50 s cold), which `brevi mcp` and the SDK also build when they
+# start. Only the libraries stay; the seed is root's and read-only to everyone else.
+RUN mkdir -p /tmp/warm \
  && printf 'import sys\nprint(sum(int(x) for x in sys.stdin.read().split()))\n' > /tmp/warm/main.py \
- && echo 1 2 3 | brevi run --sandbox /tmp/warm/main.py \
- && BREVI_DYN=1 brevi build /tmp/warm/main.py -o /tmp/warm/dyn \
- && rm -rf /tmp/warm && chmod -R a+rwX "$BREVI_CACHE" \
+ && echo 1 2 3 | BREVI_CACHE=/opt/brevi-seed brevi run --sandbox /tmp/warm/main.py \
+ && BREVI_DYN=1 BREVI_CACHE=/opt/brevi-seed brevi build /tmp/warm/main.py -o /tmp/warm/dyn \
+ && rm -rf /tmp/warm /root/.cache/brevi && find /opt/brevi-seed -mindepth 1 -maxdepth 1 ! -name rt ! -name dynrt -exec rm -rf {} + \
+ && chmod -R go-w /opt/brevi-seed && ls /opt/brevi-seed/rt /opt/brevi-seed/dynrt \
  && mkdir -p /workspace && chmod 1777 /workspace
 
 # The python3 variant: brevi-python first on PATH as python3. Scripts that name /usr/bin/python3 still get CPython.
