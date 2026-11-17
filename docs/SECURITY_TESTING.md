@@ -9,7 +9,7 @@ This page records what has been done to test Brevi's security, how to repeat it,
 | Part | What | Where it runs | Status |
 | --- | --- | --- | --- |
 | Threat model | the attack surface, one row per place outside input reaches Brevi | [THREAT_MODEL.md](THREAT_MODEL.md#attack-surface) | done 2026-11-16 |
-| Coverage-guided fuzzing | 10 `cargo fuzz` targets over the surfaces, with AddressSanitizer and debug assertions on | maintainer's machine (`tools/security_checks.sh`) | first runs 2026-11-16 (below) |
+| Coverage-guided fuzzing | 11 `cargo fuzz` targets over the surfaces, with AddressSanitizer and debug assertions on | maintainer's machine (`tools/security_checks.sh`) | first runs 2026-11-16 (below) |
 | Program fuzzing | generated Python programs built both ways and compared with CPython (`tools/fuzz.py`, `bytes_fuzz.py`, `trace_fuzz.py`) | GitHub, daily and on every PR (saved corpus) | in place |
 | Static analysis | CodeQL (`security-extended`) on Rust, Python and the workflows | GitHub, weekly (`.github/workflows/codeql.yml`) | from 2026-11-16 |
 | Dependencies | `cargo audit` and `cargo deny` (`deny.toml`) on every Cargo.lock; OSV advisories for every dependency three times a week (`tools/advisories.py`); Dependabot | maintainer's machine; GitHub (`upstream.yml`) | audit/deny from 2026-11-16 |
@@ -31,6 +31,7 @@ GitHub Actions minutes are limited, so heavy runs (long fuzzing, sanitizer build
 | --- | --- | --- | --- |
 | `parse_bv` | 1 source text | any text | — (lexer and parser) |
 | `parse_py` | 1 source text | any text | — (the dynamic build's parser and f-string parser) |
+| `front_end` | 1 source text | any text | — (the typed build after parsing: aliasing checks, records, inference and the typed emitter, without rustc) |
 | `caps_check` | 2 capability check | any text | — (a panic there would be a way around the check) |
 | `mcp_json` | 4 MCP JSON-RPC | any text | what the reader accepts, the writer writes back as JSON the reader accepts and writes the same way again; every tool's argument check |
 | `mcp_grants` | 4 MCP grants | a tool call's arguments, under five server policies | without `--trust-calls` a call never runs unsandboxed, and every grant it passes on is inside the server's flags, checked again from the flags with paths resolved on disk (the granted folder holds links that lead out of it) |
@@ -58,6 +59,16 @@ A crash that has been fixed stays fixed: its input is kept in `fuzz/regressions/
 | `fs_scope` | 4,685,796 | 165 | nothing |
 | `bundle_inflate` | 721,420 | 246 | nothing |
 | `bundle_unpack` | — | 377 | **a bug, fixed:** a file time past what `SystemTime` holds panicked. It had no security impact: the bundle is the program's own trailer, and changing it means changing the program. |
+
+**2026-11-17, front end.** The new `front_end` target for 20 minutes (3 jobs), then `parse_bv` and `parse_py` for 10 minutes each (2 jobs each), on a 4-core cloud container with ASan and debug assertions, seeded with 489 `.bv` and `.py` files from `tests/` and then with `front_end`'s corpus.
+
+| Target | Runs | Coverage (edges) | Found |
+| --- | --- | --- | --- |
+| `front_end` | 492,285 | 36,194 | nothing |
+| `parse_bv` | 354,532 | 15,765 | nothing |
+| `parse_py` | 404,167 | 3,677 | nothing |
+
+Review of the same code turned up panics on input the fuzzers do not reach, now clean errors: the output name of a source path with no file stem, and a build folder that cannot be written (full disk, read-only) now gives an `io` error instead of a panic. The lexer and parser `unwrap()`s listed in the review were all guarded by the check just before them; one in pattern parsing no longer relies on that.
 
 ## Self red-team
 

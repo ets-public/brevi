@@ -1,0 +1,1 @@
+- A build folder Brevi cannot write to (full disk, read-only folder) now gives an `io` error instead of a crash. A new fuzz target covers the typed build's front end (parsing, inference and code generation); 20 minutes of it found no crashes.

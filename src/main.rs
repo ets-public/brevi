@@ -691,7 +691,7 @@ fn main() {
         }
         "build" | "run" | "test" => {
             let dir = build_dir(&file);
-            let stem = Path::new(&file).file_stem().unwrap().to_string_lossy().to_string();
+            let stem = file_stem(&file);
             let bin = if cmd == "build" { out_path.unwrap_or_else(|| PathBuf::from(&stem)) } else { dir.join(&stem) };
             let mut extra: Vec<&str> = Vec::new();
             if cmd == "test" {
@@ -788,7 +788,7 @@ fn dyn_fallback(cmd: &str, file: &str, argv: &[String], why: Why) -> bool {
     let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
     let release = argv[..dash].iter().any(|a| a == "--release");
     let dir = build_dir(file);
-    let stem = Path::new(file).file_stem().unwrap().to_string_lossy().to_string();
+    let stem = file_stem(file);
     let out_path = argv[..dash].iter().position(|a| a == "-o").and_then(|i| argv.get(i + 1)).map(PathBuf::from);
     let bin = if cmd == "build" { out_path.unwrap_or_else(|| PathBuf::from(&stem)) } else { dir.join(format!("{stem}-dyn")) };
     let built = if cmd == "check" { dynpy::check(&rust, &dir, &cache_dir(), rustc_version()) } else { dynpy::compile(&rust, &dir, &bin, release, &cache_dir(), rustc_version()) };
@@ -964,7 +964,7 @@ fn dyn_cmd(cmd: &str, file: &str, argv: &[String]) -> ! {
         exit(0);
     }
     let dir = build_dir(file);
-    let stem = Path::new(file).file_stem().unwrap().to_string_lossy().to_string();
+    let stem = file_stem(file);
     let out_path = argv[..dash].iter().position(|a| a == "-o").and_then(|i| argv.get(i + 1)).map(PathBuf::from);
     let bin = if cmd == "build" { out_path.unwrap_or_else(|| PathBuf::from(&stem)) } else { dir.join(format!("{stem}-dyn")) };
     if let Err(e) = dynpy::compile(&rust, &dir, &bin, release, &cache_dir(), rustc_version()) {
@@ -1042,7 +1042,7 @@ fn cached(cmd: &str, file: &str, argv: &[String], flags: &[String]) -> ! {
 fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> ! {
     let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
     let prog_args = argv.get(dash + 1..).unwrap_or(&[]).to_vec();
-    let stem = Path::new(file).file_stem().unwrap().to_string_lossy().to_string();
+    let stem = file_stem(file);
     let bin = build_dir(file).join(&stem);
     // main removed --sandbox, --window and --explain from argv when it read them: pass them on again (the child
     // build once ran without --sandbox, unchecked).
@@ -1939,6 +1939,19 @@ pub(crate) fn cache_dir() -> PathBuf {
     }
 }
 
+// The build folder can be read-only or its disk full: say so as an io error and stop, never panic.
+fn write_or_exit(path: &Path, contents: &str) {
+    if let Err(e) = std::fs::write(path, contents) {
+        println!("{{\"e\":\"io\",\"at\":\"{}\",\"msg\":\"{}\"}}", esc(&path.to_string_lossy()), esc(&e.to_string()));
+        exit(1);
+    }
+}
+
+// The output name for a source file: its stem, or `main` for a path with none (`..`, `/`).
+fn file_stem(file: &str) -> String {
+    Path::new(file).file_stem().map(|s| s.to_string_lossy().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| "main".into())
+}
+
 // Builds with cargo, for programs that use crates. Same results as compile().
 fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Option<Result<(), String>> {
     // The cargo project stays at one path per source file (build_dir_path/cargo, not this process's folder), so
@@ -1955,10 +1968,10 @@ fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &
     let toml = ffi::cargo_toml(&name, deps);
     let tp = dir.join("Cargo.toml");
     if std::fs::read_to_string(&tp).ok().as_deref() != Some(toml.as_str()) {
-        std::fs::write(&tp, &toml).expect("write Cargo.toml");
+        write_or_exit(&tp, &toml);
     }
     // On the first line, so rustc's line numbers still match the generated code.
-    std::fs::write(dir.join("main.rs"), format!("#![allow(warnings)] {rust}")).expect("write generated rust");
+    write_or_exit(&dir.join("main.rs"), &format!("#![allow(warnings)] {rust}"));
     let test = extra.contains(&"--test");
     let mut c = toolchain::cargo_cmd(Path::new(rustc_cmd().get_program()));
     if extra.contains(&"--emit=metadata") {
@@ -2129,7 +2142,7 @@ fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Op
     }
     let rust: &str = &engine_rust(rust);
     let rs = dir.join("main.rs");
-    std::fs::write(&rs, rust).expect("write generated rust");
+    write_or_exit(&rs, rust);
     let mut c = rustc_cmd();
     c.args(rustc_args(extra, rt.as_deref(), release));
     if link {
