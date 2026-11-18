@@ -310,7 +310,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
             "UNIQUE", "CONTINUOUS", "NAMED_FLAGS", "FlagBoundary", "STRICT", "CONFORM", "EJECT", "KEEP", "show_flag_values", "_is_dunder", "_is_sunder", "_is_private", "_is_descriptor",
             "_iter_bits_lsb", "global_enum", "pickle_by_global_name", "_reduce_ex_by_global_name", "pickle_by_enum_name", "_make_class_unpicklable",
         ],
-        "_brevi_term" => &["columns"],
+        "_brevi_term" => &["columns", "lib_warn"],
         "hashlib" => &["new", "md5", "sha1", "sha224", "sha256", "sha384", "sha512"],
         "base64" => &["b64encode", "b64decode", "standard_b64encode", "standard_b64decode", "urlsafe_b64encode", "urlsafe_b64decode", "encodebytes", "decodebytes", "b16encode", "b16decode"],
         "binascii" => &["Error", "hexlify", "unhexlify", "b2a_hex", "a2b_hex"],

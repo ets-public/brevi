@@ -60,6 +60,9 @@ class BaseModel:
     _RN = None
     # fields left out of dumps (pydantic's Field(exclude=True))
     _EX = ()
+    # fields whose type is a TypeVar defaulting to None (openai's ResponseFormatT, TextFormatT): pydantic's
+    # serializer expects None there, so dumping a parsed value warns (see _sdump)
+    _NV = ()
 
     def __init__(self, **data):
         _fill(self, data)
@@ -120,18 +123,18 @@ class BaseModel:
 
     def model_dump(self, *, mode="python", include=None, exclude=None, context=None, by_alias=None, exclude_unset=False, exclude_defaults=False,
                    exclude_none=False, exclude_computed_fields=False, round_trip=False, warnings=True, fallback=None, serialize_as_any=False):
-        return _dump(self, mode == "json", bool(by_alias), exclude_unset, exclude_defaults, exclude_none, include, exclude)
+        return _sdump(self, mode == "json", bool(by_alias), exclude_unset, exclude_defaults, exclude_none, include, exclude, warnings, False)
 
     def model_dump_json(self, *, indent=None, ensure_ascii=False, include=None, exclude=None, context=None, by_alias=None, exclude_unset=False,
                         exclude_defaults=False, exclude_none=False, exclude_computed_fields=False, round_trip=False, warnings=True, fallback=None,
                         serialize_as_any=False):
-        return _jdump(_dump(self, True, bool(by_alias), exclude_unset, exclude_defaults, exclude_none, include, exclude), indent)
+        return _jdump(_sdump(self, True, bool(by_alias), exclude_unset, exclude_defaults, exclude_none, include, exclude, warnings, True), indent)
 
     def to_dict(self, *, mode="python", use_api_names=True, exclude_unset=True, exclude_defaults=False, exclude_none=False, warnings=True):
-        return _dump(self, mode == "json", use_api_names, exclude_unset, exclude_defaults, exclude_none, None, None)
+        return _sdump(self, mode == "json", use_api_names, exclude_unset, exclude_defaults, exclude_none, None, None, warnings, False)
 
     def to_json(self, *, indent=2, use_api_names=True, exclude_unset=True, exclude_defaults=False, exclude_none=False, warnings=True):
-        return _jdump(_dump(self, True, use_api_names, exclude_unset, exclude_defaults, exclude_none, None, None), indent)
+        return _jdump(_sdump(self, True, use_api_names, exclude_unset, exclude_defaults, exclude_none, None, None, warnings, True), indent)
 
     def model_copy(self, *, update=None, deep=False):
         m = object.__new__(type(self))
@@ -450,6 +453,8 @@ def _dump(m, js, by_alias, unset, defaults, none, include, exclude):
             continue
         if defaults and dflt[0] != "r" and v == _default(dflt):
             continue
+        if v is not None and name in type(m)._NV and _SW:
+            _SW[-1].append(_unexpected("none", name, v))
         out[alias if by_alias and alias is not None else name] = _dv(v, js, by_alias, unset, defaults, none)
     for k, v in m._bv_extra.items():
         if none and v is None:
@@ -458,6 +463,54 @@ def _dump(m, js, by_alias, unset, defaults, none, include, exclude):
             continue
         out[k] = _dv(v, js, by_alias, unset, defaults, none)
     return out
+
+
+# pydantic's model_dump / model_dump_json (main.py:520 / :587, the lines CPython's warning names): the dump, with
+# the serializer's warnings gathered in field order and issued as one UserWarning once it is done ("warn", True),
+# raised as PydanticSerializationError ("error"), or dropped ("none", False). (A program that writes `warnings=`
+# runs pydantic in CPython, caps.rs PYDANTIC_LACKS; the argument still counts when it comes in a **dict.)
+_SW = []
+# pydantic's PydanticSerializationError, set by the copy that marks _NV fields (openai), so that the SDKs that
+# never warn do not import pydantic
+_SER_ERROR = None
+
+
+def _sdump(m, js, by_alias, unset, defaults, none, include, exclude, warnings, to_json):
+    if not (warnings is True or warnings is False or (isinstance(warnings, str) and warnings in ("none", "warn", "error"))):
+        # pydantic-core's own message for the argument it cannot take
+        got = "'None' is not" if warnings is None else "'" + type(warnings).__name__ + "' object is not"
+        raise TypeError("failed to extract enum WarningsArg ('Bool | Literal')\n- variant Bool (Bool): TypeError: failed to extract field"
+                        " WarningsArg::Bool.0, caused by TypeError: " + got + " an instance of 'bool'\n- variant Literal (Literal): TypeError:"
+                        " failed to extract field WarningsArg::Literal.0, caused by " + ("ValueError" if isinstance(warnings, str) else "TypeError")
+                        + ": Invalid warnings parameter, should be `'none'`, `'warn'`, `'error'` or a `bool`")
+    _SW.append([])
+    try:
+        out = _dump(m, js, by_alias, unset, defaults, none, include, exclude)
+    finally:
+        ws = _SW.pop()
+    if ws and warnings not in (False, "none"):
+        text = "Pydantic serializer warnings:\n  " + "\n  ".join(ws)
+        if warnings == "error":
+            raise _SER_ERROR(text)
+        import _brevi_term
+        if to_json:
+            _brevi_term.lib_warn("UserWarning", text, ".../pydantic/main.py", 587, "pydantic.main", "return self.__pydantic_serializer__.to_json(")
+        else:
+            _brevi_term.lib_warn("UserWarning", text, ".../pydantic/main.py", 520, "pydantic.main", "return self.__pydantic_serializer__.to_python(")
+    return out
+
+
+def _unexpected(expected, field, v):
+    # pydantic-core's PydanticSerializationUnexpectedValue line; its input_value is the repr cut to 50 bytes
+    # (first 25 and last 24, on character boundaries)
+    r = repr(v)
+    b = r.encode("utf-8")
+    if len(b) > 50:
+        head = b[:25].decode("utf-8", "ignore")
+        tail = b[len(b) - 24:].decode("utf-8", "ignore")
+        r = head + "..." + tail
+    return ("PydanticSerializationUnexpectedValue(Expected `" + expected + "` - serialized value may not be as expected [field_name="
+            + repr(field) + ", input_value=" + r + ", input_type=" + type(v).__name__ + "])")
 
 
 def _dv(v, js, by_alias, unset, defaults, none):

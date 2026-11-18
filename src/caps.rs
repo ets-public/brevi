@@ -1556,6 +1556,8 @@ mod tests {
         let ok = [
             "_brevi_sdk", "_brevi_http", "_brevi_anthropic_types", "_brevi_openai_types", "httpx", "asyncio", "base64", "datetime", "json", "random",
             "time", "sys", "anthropic.types", "openai.types", "pydantic",
+            // lib_warn: pydantic's serializer warning, on stderr or through the program's warnings module
+            "_brevi_term",
         ];
         for (name, src) in [
             ("_brevi_sdk.py", include_str!("dynpy/py/_brevi_sdk.py")),

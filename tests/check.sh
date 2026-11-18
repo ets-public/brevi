@@ -712,6 +712,7 @@ kill $srv 2>/dev/null
 # anthropic and openai programs must print what CPython's anthropic 2.8 and openai 3.51 print (models, streams,
 # tool calls, errors, retries), with Brevi's own copies over its httpx: never CPython. They talk to the mock API in
 # tests/llm/server.py on 18090. `--update` needs both SDKs (and tools/gen_llm_types.py rewrites the types).
+# A NAME.stderr file holds what CPython prints on stderr too (pydantic's warnings, its site-packages path as ".../").
 # tests/check_parallel.py starts this server once for all its jobs (CHECK_SERVERS=1).
 if [ -z "$CHECK_SERVERS" ]; then
   python3 tests/llm/server.py 18090 > /tmp/brevi_llm_srv 2>&1 &
@@ -721,7 +722,14 @@ fi
 for f in tests/llm/anthropic_*.py tests/llm/openai_*.py; do
   exp="${f%.py}.expected"
   if [ "$1" = "--update" ]; then
-    python3 -c "import anthropic, openai" 2>/dev/null && env -u ANTHROPIC_API_KEY -u OPENAI_API_KEY python3 "$f" > "$exp" 2>&1
+    if python3 -c "import anthropic, openai" 2>/dev/null; then
+      if [ -f "${f%.py}.stderr" ]; then
+        env -u ANTHROPIC_API_KEY -u OPENAI_API_KEY python3 "$f" > "$exp" 2>/tmp/brevi_llm_err
+        sed 's#^.*/site-packages/#.../#' /tmp/brevi_llm_err > "${f%.py}.stderr"
+      else
+        env -u ANTHROPIC_API_KEY -u OPENAI_API_KEY python3 "$f" > "$exp" 2>&1
+      fi
+    fi
     continue
   fi
   out=$(env -u ANTHROPIC_API_KEY -u OPENAI_API_KEY BREVI_PATH=1 timeout 300 $BREVI run "$f" --native 2>/tmp/brevi_llm_err)
@@ -729,6 +737,8 @@ for f in tests/llm/anthropic_*.py tests/llm/openai_*.py; do
     echo "FAIL $f (not built with Brevi's anthropic / openai)"; cat /tmp/brevi_llm_err; fail=1
   elif [ "$out" != "$(cat "$exp")" ]; then
     echo "FAIL $f"; printf '%s\n' "$out" | diff "$exp" - ; grep -v '"path"' /tmp/brevi_llm_err | tail -5; fail=1
+  elif [ -f "${f%.py}.stderr" ] && [ "$(grep -v '"path"' /tmp/brevi_llm_err)" != "$(cat "${f%.py}.stderr")" ]; then
+    echo "FAIL $f (stderr)"; grep -v '"path"' /tmp/brevi_llm_err | diff "${f%.py}.stderr" - ; fail=1
   else
     echo "ok   $f"
   fi

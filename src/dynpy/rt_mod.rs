@@ -5696,6 +5696,7 @@ pub fn ext_module_call(m: &str, n: &str, a: Args) -> R {
         "base64" => base64_fn(n, a),
         "binascii" => binascii_fn(n, a),
         "_brevi_term" if n == "columns" => Ok(V::Int(term_columns())),
+        "_brevi_term" if n == "lib_warn" => brevi_lib_warn(a),
         _ => Err(unsupported(&format!("{m}.{n}"))),
     }
 }
@@ -5861,6 +5862,27 @@ pub fn run_main(f: fn() -> Result<(), E>) {
 // shutil.get_terminal_size().columns, for Brevi's copy of argparse. The runtime reads no environment (caps.rs
 // tests it, for --sandbox), so the program sets this outside the sandbox (dynpy::to_rust adds the reader);
 // under it, or unset, help text is 80 columns wide.
+// _brevi_term.lib_warn(category, message, file, line, module, source): a warning a library copy issues where
+// CPython's library warns from a frame of its own (pydantic's serializer, from pydantic/main.py), see lib_warn
+fn brevi_lib_warn(a: Args) -> R {
+    let txt = |i: usize| match a.p.get(i) {
+        Some(V::Str(s)) => Ok(s.text().to_string()),
+        _ => Err(unsupported("_brevi_term.lib_warn with a non-str argument")),
+    };
+    let line = match a.p.get(3) {
+        Some(V::Int(n)) if *n > 0 => *n as usize,
+        _ => return Err(unsupported("_brevi_term.lib_warn without a line")),
+    };
+    let cat: &'static str = match txt(0)?.as_str() {
+        "UserWarning" => "UserWarning",
+        "DeprecationWarning" => "DeprecationWarning",
+        "RuntimeWarning" => "RuntimeWarning",
+        "FutureWarning" => "FutureWarning",
+        c => return Err(unsupported(&format!("_brevi_term.lib_warn of a {c}"))),
+    };
+    lib_warn(cat, txt(1)?, &txt(2)?, line, &txt(4)?, &txt(5)?)?;
+    Ok(V::None)
+}
 pub static TERM_COLS: std::sync::OnceLock<fn() -> i64> = std::sync::OnceLock::new();
 fn term_columns() -> i64 {
     TERM_COLS.get().map_or(80, |f| f())

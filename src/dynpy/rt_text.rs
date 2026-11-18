@@ -1474,6 +1474,35 @@ pub fn re_warn_at(cat: &'static str, msg: String, file: &str, line: usize, modul
     }
     Err(unsupported("a warning at a line of a Python library module"))
 }
+// A warning a Python library issues from a frame of its own module (pydantic's serializer warnings, named at
+// pydantic/main.py:520), for Brevi's copy of that library. `file` is the place it prints (".../pydantic/main.py":
+// the program has no such file), `src` the library's line CPython shows under it. CPython's default filters
+// apply: a DeprecationWarning outside __main__ is ignored, anything else shown once per (module, text, category,
+// line), that module's __warningregistry__. A program that imports warnings runs these libraries in CPython
+// (the build puts them on its "py" list), so the filters it sets never reach here; if one ever does, the
+// warning is refused rather than shown past them.
+pub fn lib_warn(cat: &'static str, msg: String, file: &str, line: usize, module: &str, src: &str) -> Result<(), E> {
+    WARNED.set(true);
+    if WARN_BRIDGE.get().is_some() {
+        return Err(unsupported("a library's own warning in a program that uses the warnings module"));
+    }
+    if cat == "DeprecationWarning" && module != "__main__" {
+        return Ok(());
+    }
+    if LIB_SHOWN.with(|w| w.borrow_mut().insert((module.to_string(), msg.clone(), cat, line))) {
+        out_flush();
+        if src.is_empty() {
+            eprintln!("{file}:{line}: {cat}: {msg}");
+        } else {
+            eprintln!("{file}:{line}: {cat}: {msg}\n  {}", src.trim());
+        }
+    }
+    Ok(())
+}
+thread_local! {
+    // what the default filters already showed of lib_warn's warnings: (module, message, category, line)
+    static LIB_SHOWN: RefCell<std::collections::HashSet<(String, String, &'static str, usize)>> = RefCell::new(std::collections::HashSet::new());
+}
 fn re_compile2(src: &str, flags: i64, pat: Option<V>) -> Result<Rc<Prog>, E> {
     re_compile_w(src, flags, pat, None)
 }

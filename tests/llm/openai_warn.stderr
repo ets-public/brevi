@@ -1,0 +1,43 @@
+== to_dict
+.../pydantic/main.py:520: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected `none` - serialized value may not be as expected [field_name='parsed', input_value=Step(explanation='solve', output='solve'), input_type=Step])
+  return self.__pydantic_serializer__.to_python(
+== to_dict again
+== to_json
+.../pydantic/main.py:587: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected `none` - serialized value may not be as expected [field_name='parsed', input_value=Step(explanation='solve', output='solve'), input_type=Step])
+  return self.__pydantic_serializer__.to_json(
+== model_dump json
+== model_dump_json
+== warnings False
+== warnings 'none'
+== warnings 'error'
+== warnings 'bad'
+== warnings 0
+== warnings None
+== exclude parsed
+== include content
+== no format
+== message
+.../pydantic/main.py:520: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected `none` - serialized value may not be as expected [field_name='parsed', input_value=Step(explanation='other', output='other'), input_type=Step])
+  return self.__pydantic_serializer__.to_python(
+== its completion
+== long
+.../pydantic/main.py:520: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected `none` - serialized value may not be as expected [field_name='parsed', input_value=Long(text='réponse très...a réponse très éle'), input_type=Long])
+  return self.__pydantic_serializer__.to_python(
+== responses
+== content.delta
+== content.delta
+== content.delta
+== content.delta
+== content.done
+.../pydantic/main.py:520: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected `none` - serialized value may not be as expected [field_name='parsed', input_value=Step(explanation='stream it', output='stream it'), input_type=Step])
+  return self.__pydantic_serializer__.to_python(
+== final
+== response.output_text.done
+.../pydantic/main.py:520: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected `none` - serialized value may not be as expected [field_name='parsed', input_value=Step(explanation='stream ...put='stream a response'), input_type=Step])
+  return self.__pydantic_serializer__.to_python(

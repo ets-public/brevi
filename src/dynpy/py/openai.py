@@ -1311,6 +1311,13 @@ _GMessage = _generic(_ty.ParsedChatCompletionMessage, "TypeVar")
 _OCompletion = _generic(_ty.ParsedChatCompletion, "object")
 _OChoice = _generic(_ty.ParsedChoice, "object")
 _OMessage = _generic(_ty.ParsedChatCompletionMessage, "object")
+# parsed: Optional[ResponseFormatT] / Optional[TextFormatT], TypeVars that default to None, so pydantic's
+# serializer expects None and warns when a dump meets a parsed model ([object] and ParsedResponseOutputText's
+# ContentType have no default: any value, no warning)
+_GMessage._NV = ("parsed",)
+_ty.ContentDoneEvent._NV = ("parsed",)
+_ty.ResponseTextDoneEvent_2._NV = ("parsed",)
+_brevi_sdk._SER_ERROR = _pyd.PydanticSerializationError
 
 
 def _parse_chat_completion(response_format, input_tools, chat_completion):
