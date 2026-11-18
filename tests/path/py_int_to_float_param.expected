@@ -1,0 +1,3 @@
+{"path":"dynamic","line":13,"why":"show() takes x as a float, but gets an int here, which Python keeps an int"}
+{"path":"dynamic","line":13,"why":"show() takes x as a float, but gets an int here, which Python keeps an int"}
+{"path":"dynamic","line":13,"why":"show() takes x as a float, but gets an int here, which Python keeps an int","fix":"pass x as a float (`float(...)`) at every call","also":[{"line":14,"msg":"Box() takes w as a float, but gets an int here, which Python keeps an int","fix":"pass w as a float (`float(...)`) at every call"}]}
