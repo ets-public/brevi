@@ -1251,7 +1251,7 @@ impl Cx<'_> {
                 Map(_, v) => *v.clone(),
                 _ => Hole,
             },
-            "first" | "last" | "pop" | "min" | "max" | "min_or" | "max_or" | "first_or" | "sum" | "sum_from" | "heap_pop" | "heap_push_pop" | "heap_replace" | "pop_at" | "next_or" | "next_or_empty" | "next_or_none" => match &r {
+            "first" | "last" | "pop" | "min" | "max" | "min_or" | "max_or" | "first_or" | "sum" | "sum_from" | "sum_from_int" | "heap_pop" | "heap_push_pop" | "heap_replace" | "pop_at" | "next_or" | "next_or_empty" | "next_or_none" => match &r {
                 Map(_, v) if m == "pop" || m == "pop_at" => *v.clone(),
                 // Python's `min(d)`: a key.
                 Map(k, _) if py_on() && (m == "min" || m == "max") => *k.clone(),
@@ -3244,6 +3244,75 @@ fn float_lit(e: &mut Expr) {
     }
 }
 
+// Python keeps an int argument an int inside the function, where the typed build makes it a float when the
+// parameter is a float (`def f(x): print(x)` with f(2.5) and f(3) printed 3.0). That is unseen only where every
+// read of the parameter gives the same answer for 3 and 3.0: next to a float in arithmetic, in `/`, compared,
+// turned into a float, or formatted as one (`{x:.2f}`). Such parameters, by function and name.
+fn float_safe_params(items: &[Item]) -> HashSet<(String, String)> {
+    let mut out = HashSet::new();
+    for it in items {
+        let Item::Fn { name, params, body, .. } = it else { continue };
+        for p in params {
+            if from_ast(&p.ty) == F64 && float_safe(body, &p.name) {
+                out.insert((name.clone(), p.name.clone()));
+            }
+        }
+    }
+    out
+}
+
+fn float_safe(body: &Expr, p: &str) -> bool {
+    let bare = |e: &Expr| matches!(e, Expr::Ident(n) | Expr::Move(n) if n == p);
+    // A value that is a float in Python too, whatever the parameter holds.
+    fn real(e: &Expr) -> bool {
+        match e {
+            Expr::Float(_) => true,
+            Expr::Unary("-", x) => real(x),
+            Expr::Binary("+" | "-" | "*" | "/" | "//" | "%" | "**", a, b) => real(a) || real(b),
+            Expr::Call(f, _, _) => f == "__truediv",
+            Expr::Method(_, m, a, _) => m == "float" && a.is_empty(),
+            _ => false,
+        }
+    }
+    let (mut uses, mut safe, mut set) = (0usize, 0usize, false);
+    walk(body, &mut |e| {
+        match e {
+            Expr::Ident(n) | Expr::Move(n) if n == p => uses += 1,
+            Expr::Binary(op, a, b) => {
+                let cmp = matches!(*op, "==" | "!=" | "<" | ">" | "<=" | ">=");
+                let arith = matches!(*op, "+" | "-" | "*" | "/" | "//" | "%" | "**");
+                for (x, y) in [(a, b), (b, a)] {
+                    if bare(x) && (cmp || *op == "/" || (arith && real(y))) {
+                        safe += 1;
+                    }
+                }
+            }
+            Expr::Call(f, args, _) if f == "__truediv" => safe += args.iter().filter(|(_, a)| bare(a)).count(),
+            Expr::Method(r, m, args, _) if bare(r) => {
+                let spec = match args.as_slice() {
+                    [Expr::Str(parts)] => match parts.as_slice() {
+                        [StrPart::Lit(s)] => s.ends_with(['f', 'F', 'e', 'E', 'g', 'G', '%']),
+                        _ => false,
+                    },
+                    _ => false,
+                };
+                if (m == "float" && args.is_empty()) || (m == "spec" && spec) {
+                    safe += 1;
+                }
+            }
+            Expr::Block(stmts, _) => {
+                if stmts.iter().any(|st| matches!(st, Stmt::Let { name, .. } if pat_names(name).iter().any(|n| n == p))) {
+                    set = true;
+                }
+            }
+            Expr::For(pat, ..) if pat_names(pat).iter().any(|n| n == p) => set = true,
+            Expr::Lambda(ps, _) if ps.iter().any(|n| n == p) => set = true,
+            _ => {}
+        }
+    });
+    !set && safe >= uses
+}
+
 struct Ck<'a, 'b> {
     cx: &'a Cx<'b>,
     line: usize,
@@ -3262,6 +3331,8 @@ struct Ck<'a, 'b> {
     maybe_none: HashSet<String>,
     // Functions that return None somewhere.
     none_fns: &'a HashSet<String>,
+    // Float parameters an int argument may be passed to unseen (float_safe_params).
+    float_ok: &'a HashSet<(String, String)>,
 }
 
 impl Ck<'_, '_> {
@@ -3565,8 +3636,8 @@ impl Ck<'_, '_> {
                         let line = *line;
                         let xs = std::mem::replace(xs, Box::new(Expr::Int(0)));
                         let a = std::mem::replace(a.as_mut(), Expr::Int(0));
-                        let a = if start == Int { Expr::Method(Box::new(a), "float".into(), vec![], 0) } else { a };
-                        *e = Expr::Method(xs, "sum_from".into(), vec![a], line);
+                        let m = if start == Int { "sum_from_int" } else { "sum_from" };
+                        *e = Expr::Method(xs, m.into(), vec![a], line);
                     }
                 }
             }
@@ -4142,6 +4213,22 @@ impl Ck<'_, '_> {
                     self.expr(a, env);
                 }
                 if let Some((ps, _)) = self.cx.fns.get(n.as_str()) {
+                    // Python: an int given to a float parameter stays an int there; refused where that shows.
+                    if self.py {
+                        for (j, (an, a)) in args.iter().enumerate() {
+                            let pi = match an {
+                                Some(an) => ps.iter().position(|p| &p.0 == an),
+                                None => Some(j),
+                            };
+                            let Some((pn, pt)) = pi.and_then(|i| ps.get(i)) else { continue };
+                            if *pt == F64 && self.cx.ty(a, env) == Int && !self.float_ok.contains(&(n.clone(), pn.clone())) {
+                                // (`Box__new` is the class Box called.)
+                                let shown = n.strip_suffix("__new").or_else(|| n.strip_suffix("_new")).filter(|c| c.starts_with(|ch: char| ch.is_uppercase())).unwrap_or(n);
+                                let msg = format!("{shown}() takes {pn} as a float, but gets an int here, which Python keeps an int");
+                                self.err(msg, format!("pass {pn} as a float (`float(...)`) at every call"));
+                            }
+                        }
+                    }
                     if args.iter().all(|(name, _)| name.is_none()) && args.len() == ps.len() {
                         for ((_, pt), (_, a)) in ps.iter().zip(args.iter_mut()) {
                             if *pt == F64 {
@@ -4308,6 +4395,7 @@ pub fn check(items: &mut [Item], py: bool) -> Vec<crate::diag::Diag> {
     cx.genv = ecx.genv;
     cx.mixed = ecx.mixed;
     let empties = ecx.hint_t;
+    let float_ok = if py { float_safe_params(items) } else { HashSet::new() };
     let mut errs = Vec::new();
     for it in items.iter_mut() {
         let (params, body, line, ret): (&[Param], &mut Expr, usize, T) = match it {
@@ -4316,7 +4404,7 @@ pub fn check(items: &mut [Item], py: bool) -> Vec<crate::diag::Diag> {
             _ => continue,
         };
         let mut env: Env = params.iter().map(|p| (p.name.clone(), from_ast(&p.ty))).collect();
-        let mut ck = Ck { cx: &cx, line, errs: vec![], set_at: HashMap::new(), empties: &empties, py, next_own: params.iter().map(|p| p.name.clone()).collect(), maybe_none: none_or_empty_names.clone(), none_fns: &none_fns, ret };
+        let mut ck = Ck { cx: &cx, line, errs: vec![], set_at: HashMap::new(), empties: &empties, py, next_own: params.iter().map(|p| p.name.clone()).collect(), maybe_none: none_or_empty_names.clone(), none_fns: &none_fns, float_ok: &float_ok, ret };
         if !matches!(body, Expr::Block(..)) {
             ck.next_own.clear();
         }

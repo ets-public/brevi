@@ -331,7 +331,13 @@ pub fn ax_needs_dyn(msg: &str) -> Option<&str> {
 }
 fn ax_i64_stop(what: &str) -> String {
     let why = AX_I64_WHY.get().copied().unwrap_or("it was not built as a Python file");
-    let lacks = if what.starts_with("a regex with ") { "which the typed build's regex matcher does not have" } else { "which its 64-bit numbers cannot hold exactly" };
+    let lacks = if what.starts_with("a regex with ") {
+        "which the typed build's regex matcher does not have"
+    } else if what.starts_with("a float where ") {
+        "where Python mixes int and float values"
+    } else {
+        "which its 64-bit numbers cannot hold exactly"
+    };
     match std::env::var_os("BREVI_I64_REPLAY") {
         Some(p) if why.is_empty() => {
             use std::io::Write;
@@ -2788,18 +2794,34 @@ fn ax_fsum(start: f64, xs: impl Iterator<Item = f64>) -> f64 {
     }
     f
 }
+// Python's sum of no floats is the int 0 (its start), which the typed build's f64 cannot show: a Python file
+// stops there (`brevi run` re-runs it on the dynamic build) instead of printing 0.0.
+fn ax_fsum_empty() -> ! {
+    panic!("AX_DYN: a float where the typed build holds an int (sum() of no floats is the int start)")
+}
 impl AxSum<f64> for Vec<f64> {
     fn ax_sum(&self) -> f64 {
+        if self.is_empty() && ax_py_on() {
+            ax_fsum_empty();
+        }
         ax_fsum(0.0, self.iter().copied())
     }
 }
 // sum(xs, start) of floats: the start is the sum's first term.
 pub trait AxSumFrom {
     fn ax_sum_from(&self, start: f64) -> f64;
+    fn ax_sum_from_int(&self, start: i64) -> f64;
 }
 impl AxSumFrom for Vec<f64> {
     fn ax_sum_from(&self, start: f64) -> f64 {
         ax_fsum(start, self.iter().copied())
+    }
+    // An int start: the sum of no floats is that int.
+    fn ax_sum_from_int(&self, start: i64) -> f64 {
+        if self.is_empty() && ax_py_on() {
+            ax_fsum_empty();
+        }
+        ax_fsum(start as f64, self.iter().copied())
     }
 }
 // Numbers held as JSON (a function returning `v` or `0`): their sum, as JSON.
@@ -6414,6 +6436,9 @@ pub fn ax_unsupported(what: String) -> String {
 pub fn ax_jas_int(o: Json) -> i64 {
     match o {
         Json::Num { v, f } if v.fract() == 0.0 && v.abs() < 1e15 && !(f && ax_py_on()) => v as i64,
+        // A float where the typed build holds ints (`def f(a, b): return a + b` given 0.5 at one call): the
+        // dynamic build gives Python's answer, so `brevi run` re-runs there; elsewhere the run stops.
+        Json::Num { f: true, .. } if ax_py_on() => panic!("AX_DYN: a float where the typed build holds an int"),
         o => panic!("expected an int here, got {}", ax_json_py(&o, true)),
     }
 }
