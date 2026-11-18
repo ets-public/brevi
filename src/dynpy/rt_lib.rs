@@ -281,10 +281,6 @@ pub fn bi_input(a: Args) -> R {
         }
     }
 }
-pub fn stdin_lines() -> V {
-    // sys.stdin is its own iterator in CPython; reading through it and through sys.stdin shares the position
-    V::Module(&ModName("sys.stdin"))
-}
 
 // ---------- builtin functions ----------
 
