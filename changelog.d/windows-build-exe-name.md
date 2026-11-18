@@ -1,0 +1,1 @@
+- Windows: `brevi build x.py` without `-o` writes `x.exe`, not `x`, which Windows would not start ("not a valid Win32 application") until renamed. An `-o` name is used as given, as rustc does, so write `-o app.exe` on Windows.

@@ -19,7 +19,7 @@ A file can import its sibling `.py` files and packages as usual (`import util`, 
 | Command | What it does |
 | --- | --- |
 | `brevi run FILE [-- ARGS]` | Build, then run with the arguments after `--`. Exits with the program's status. For `.py` files, falls back to `python3` when no native build works (see [below](#the-cpython-fallback)). |
-| `brevi build FILE [-o OUT]` | Build a native program and write it to `OUT` (default: the file name without its extension). Never falls back. |
+| `brevi build FILE [-o OUT]` | Build a native program and write it to `OUT` (default: the file name without its extension, plus `.exe` on Windows). Never falls back. |
 | `brevi check FILE [--fast]` | Build without running and print the errors, or nothing. `--fast` runs only Brevi's own checks, in milliseconds, without `rustc`. |
 | `brevi test FILE` | Run the `test "name":` blocks of a Brevi program. |
 | `brevi verify FILE.py [--input PATH]... [--mcp] [-- ARGS]` | Build natively, run the program and `python3` on the same inputs, and print a certificate when the two agree: stdout, exit code and stderr. See [Verify against CPython](#verify-against-cpython). |
@@ -49,7 +49,7 @@ A file can import its sibling `.py` files and packages as usual (`import util`, 
 | `--explain` | any | Under each error, add the lines of the guide about the names it mentions. For Python files, also print [which path ran](#which-path-ran) even when it is the typed one, with every reason. |
 | `--fast` | check | Brevi's own checks only, without `rustc`. |
 | `--no-cache` | check, build, run | Build from scratch: skip the result cache and the build cache (`BREVI_NO_CACHE=1` does the same). |
-| `-o OUT` | build | Where to write the binary. |
+| `-o OUT` | build | Where to write the binary, used as given (as rustc does): on Windows write `-o app.exe`, since a program named without `.exe` does not start from a shell. |
 
 ## How a Python file is built
 

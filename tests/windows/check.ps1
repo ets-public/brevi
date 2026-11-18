@@ -138,6 +138,8 @@ if ($LASTEXITCODE -ne 0) { throw "requests is not installed: $needs" }
 $env:BREVI = $brevi
 # --standalone: one .exe carrying its own CPython, run with Python out of reach (standalone.ps1 throws on a failure).
 & (Join-Path $root "tests\windows\standalone.ps1")
+# brevi build without -o writes FILE.exe (exe_name.ps1 throws on a failure).
+& (Join-Path $root "tests\windows\exe_name.ps1")
 & python (Join-Path $root "tests\windows\mcp_check.py")
 if ($LASTEXITCODE -ne 0) { throw "mcp_check.py exited $LASTEXITCODE" }
 Write-Host "all Windows checks passed"
