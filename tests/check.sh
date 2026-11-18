@@ -24,6 +24,9 @@ case "$(printf '%s' "${OPENBLAS_CORETYPE:-}" | tr A-Z a-z)" in
   haswell | zen) np_kern=none; [ "$np_fma" = 1 ] && [ "$np_avx512" = 0 ] && np_kern=hsw ;;
   *) np_kern=none ;;
 esac
+# OpenBLAS's other settings (thread counts, blocking: any OPENBLAS_*, GOTO_* or OMP_* variable) send float BLAS to
+# CPython too (emit.rs np_blas_settings)
+env | grep -E '^(OPENBLAS_|GOTO_|OMP_)' | grep -qv '^OPENBLAS_CORETYPE=' && np_kern=none
 np_uses_blas() { grep -Eq '[])A-Za-z0-9_] *@=? |\.dot\(|np\.(dot|matmul|inner|vdot|cov|corrcoef|polyfit)\(|linalg' "$1"; }
 np_to_cpython() {
   np_uses_blas "$1" || return 1
@@ -364,6 +367,52 @@ if [ "$1" != "--update" ]; then
     echo "FAIL numpy CPU feature settings (path lines: none, DISABLE, ENABLE, DISABLE empty, none)"; printf '%s\n' "$npc_out"; fail=1
   fi
   rm -rf "$npc"
+fi
+# A built binary reads numpy's and OpenBLAS's settings when it starts (dynpy/mod.rs NP_ENV_FN, rt_np.rs np_env_set),
+# as numpy reads them when it loads: run later under an NPY_* setting it stops before printing anything; under an
+# OPENBLAS_CORETYPE naming other kernels or an OpenBLAS thread count it raises NotImplementedError at the first
+# float BLAS call, having printed only what numpy would have printed before it. A build under a thread count sends
+# BLAS to CPython, and so does a .bv file's `@` (engine.rs: the typed build's libraries stay CPython's).
+if [ "$1" != "--update" ]; then
+  npb=$(mktemp -d)
+  if BREVI_CACHE="$npb/cache" timeout 600 $BREVI build tests/numpy/compound_interest.py -o "$npb/ci" >/dev/null 2>&1 \
+     && NPY_DISABLE_CPU_FEATURES= "$npb/ci" >"$npb/out" 2>"$npb/err"; then
+    echo "FAIL numpy binary under NPY_DISABLE_CPU_FEATURES (ran)"; fail=1
+  elif [ -s "$npb/out" ] || ! grep -q '^NotImplementedError: NPY_DISABLE_CPU_FEATURES is set' "$npb/err"; then
+    echo "FAIL numpy binary under NPY_DISABLE_CPU_FEATURES (must stop before printing)"; cat "$npb/out" "$npb/err"; fail=1
+  else
+    echo "ok   numpy binary refuses numpy settings at startup"
+  fi
+  rm -rf "$npb"
+fi
+if [ "$np_kern" != none ] && [ "$1" != "--update" ]; then
+  npb=$(mktemp -d)
+  BREVI_CACHE="$npb/cache" timeout 600 $BREVI build tests/numpy/lstsq.py -o "$npb/lsq" >/dev/null 2>&1
+  for e in OPENBLAS_CORETYPE=Prescott OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=; do
+    if env "$e" "$npb/lsq" >"$npb/out" 2>"$npb/err"; then
+      echo "FAIL numpy binary under $e (ran)"; fail=1
+    elif ! grep -q "^NotImplementedError: .* with ${e%%=*} set" "$npb/err" || ! case "$(cat tests/numpy/lstsq.expected)" in "$(cat "$npb/out")"*) true ;; *) false ;; esac; then
+      echo "FAIL numpy binary under $e (must refuse its first BLAS call)"; cat "$npb/err"; fail=1
+    else
+      echo "ok   numpy binary refuses BLAS under $e"
+    fi
+  done
+  if [ "$("$npb/lsq" 2>/dev/null)" = "$(cat tests/numpy/lstsq.expected)" ]; then
+    echo "ok   numpy binary without OpenBLAS settings"
+  else
+    echo "FAIL numpy binary without OpenBLAS settings"; fail=1
+  fi
+  if OMP_NUM_THREADS=1 BREVI_CACHE="$npb/cache" BREVI_PATH=1 timeout 600 $BREVI run tests/numpy/lstsq.py 2>&1 >/dev/null | grep -q '^{"path":"\(pybridge\|cpython\)"'; then
+    echo "ok   numpy BLAS under OMP_NUM_THREADS goes to CPython"
+  else
+    echo "FAIL numpy BLAS under OMP_NUM_THREADS (built natively)"; fail=1
+  fi
+  if (cd tests/bv_libs && OPENBLAS_CORETYPE=Prescott BREVI_CACHE="$npb/cache" BREVI_PATH=1 timeout 600 ../../$BREVI run numpy_stats.bv 2>&1 >/dev/null) | grep -q '^{"path":"\(pybridge\|cpython\)"'; then
+    echo "ok   numpy_stats.bv's @ goes to CPython where OpenBLAS is not modelled"
+  else
+    echo "FAIL numpy_stats.bv under OPENBLAS_CORETYPE=Prescott (must keep CPython's numpy, not stop at @)"; fail=1
+  fi
+  rm -rf "$npb"
 fi
 # A binary built here and copied to a CPU without a modelled kernel must raise NotImplementedError at each float
 # BLAS/LAPACK call (rt_np.rs np_blas_ok), never print other digits. qemu stands in for that CPU: SandyBridge (no AVX2

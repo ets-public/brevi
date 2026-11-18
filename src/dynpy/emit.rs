@@ -83,10 +83,15 @@ fn np_blas_here() -> bool {
 fn np_sgemm_here() -> bool {
     np_blas_kind_here() == 2
 }
-// 2: SkylakeX kernels, 1: Haswell, 0: none modelled. The runtime picks by the CPU alone (it reads no environment),
-// so an OPENBLAS_CORETYPE naming other kernels than the CPU's own makes numpy add in an order Brevi's would not.
+// 2: SkylakeX kernels, 1: Haswell, 0: none modelled. An OPENBLAS_CORETYPE naming other kernels than the CPU's own,
+// or another OpenBLAS setting (np_blas_settings), makes numpy add in an order Brevi's would not. The program reads
+// the same variables at startup (dynpy/mod.rs NP_ENV_FN, rt_np.rs np_blas), so a binary run later under them
+// refuses its BLAS calls.
 fn np_blas_kind_here() -> u8 {
     let cpu = np_blas_cpu();
+    if np_blas_settings().next().is_some() {
+        return 0;
+    }
     if let Some(c) = std::env::var_os("OPENBLAS_CORETYPE").filter(|c| !c.is_empty()) {
         let named = match c.to_string_lossy().to_ascii_lowercase().as_str() {
             "skylakex" => 2,
@@ -108,11 +113,11 @@ fn np_blas_cpu() -> u8 {
     0
 }
 // Every input outside the program that decides which numpy code is Brevi's and which goes to CPython (the CPU's
-// kernels and OPENBLAS_CORETYPE, as np_blas_kind_here reads them), for the result cache's key (runcache.rs): a
+// kernels, OPENBLAS_CORETYPE and the other OpenBLAS settings, as np_blas_kind_here reads them, and numpy's own), for the result cache's key (runcache.rs): a
 // build kept under one must not be replayed under another.
 pub fn np_path_inputs() -> String {
     let mut s = format!("numpy cpu={} OPENBLAS_CORETYPE={:?}", np_blas_cpu(), std::env::var_os("OPENBLAS_CORETYPE").unwrap_or_default());
-    let mut np: Vec<_> = np_settings().collect();
+    let mut np: Vec<_> = np_settings().chain(np_blas_settings()).collect();
     np.sort();
     for (k, v) in np {
         s.push_str(&format!(" {k:?}={v:?}"));
@@ -126,6 +131,13 @@ pub fn np_path_inputs() -> String {
 // result cache keys on them (np_path_inputs).
 fn np_settings() -> impl Iterator<Item = (std::ffi::OsString, std::ffi::OsString)> {
     std::env::vars_os().filter(|(k, _)| k.to_str().is_some_and(|k| k.starts_with("NPY_") || k.starts_with("NUMPY_")))
+}
+// OpenBLAS's own settings other than OPENBLAS_CORETYPE: the thread counts (OPENBLAS_NUM_THREADS, GOTO_NUM_THREADS,
+// OMP_NUM_THREADS) decide how dot, gemv and gemm split their sums across threads (the runtime models one thread per
+// CPU), OPENBLAS_BLOCK_FACTOR their blocking, OPENBLAS_VERBOSE prints. Any OPENBLAS_*, GOTO_* or OMP_* variable set
+// (even empty) sends float BLAS to CPython (np_blas_kind_here), and the result cache keys on them (np_path_inputs).
+fn np_blas_settings() -> impl Iterator<Item = (std::ffi::OsString, std::ffi::OsString)> {
+    std::env::vars_os().filter(|(k, _)| k.to_str().is_some_and(|k| k != "OPENBLAS_CORETYPE" && (k.starts_with("OPENBLAS_") || k.starts_with("GOTO_") || k.starts_with("OMP_"))))
 }
 pub fn np_settings_set() -> bool {
     np_settings().next().is_some()

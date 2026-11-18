@@ -268,6 +268,12 @@ fn walk(e: &Expr, out: &mut Vec<String>) {
                 return;
             }
         }
+        // `@` is a call into the library too (numpy's matmul, OpenBLAS): the dynamic build refuses it where it
+        // does not model the kernels numpy runs (ARM64, OPENBLAS_CORETYPE), so the program keeps CPython's numpy
+        // rather than stop at the product.
+        if f == "ax_pyb_op" && a.len() == 3 && matches!(lit(&a[0].1), Some("@" | "@=")) {
+            out.push("_v @ _v".into());
+        }
         if f == "ax_pyb_get" && a.len() == 2 {
             let r = recv(e);
             if r != "_v" {

@@ -67,7 +67,7 @@ The full model is [THREAT_MODEL.md](THREAT_MODEL.md). No external security audit
 ## Platform gaps
 
 - `--limit mem` is refused on macOS. `--limit threads` works only on Linux with a cgroup Brevi can create.
-- Native float64 numpy matrix products and linear algebra (`@`, `dot`, `matmul`, `inner`, `vdot`, `cov`, `corrcoef`, `polyfit`, `numpy.linalg`) run in Brevi only on x86-64 CPUs with AVX2 and FMA, whose OpenBLAS kernels Brevi reproduces. On ARM64 and older x86-64 CPUs they run in CPython.
+- Native float64 numpy matrix products and linear algebra (`@`, `dot`, `matmul`, `inner`, `vdot`, `cov`, `corrcoef`, `polyfit`, `numpy.linalg`) run in Brevi only on x86-64 CPUs with AVX2 and FMA, whose OpenBLAS kernels Brevi reproduces. On ARM64 and older x86-64 CPUs they run in CPython. They also run in CPython when OpenBLAS is told to run differently: an `OPENBLAS_CORETYPE` naming other kernels, or any other `OPENBLAS_*`, `GOTO_*` or `OMP_*` variable (thread counts change how OpenBLAS splits its sums). A binary built earlier and run under one of these raises `NotImplementedError` at its first such call, and one run under an `NPY_*` or `NUMPY_*` setting stops before running anything.
 - Native float32 numpy (`@`, `dot`, `matmul`, `exp`, `tanh`, `sin`, `cos`, `log1p`, `norm`) runs in Brevi only on AVX-512 CPUs. Other CPUs run them in CPython, as does float32 matrix @ vector with 6 or 7 columns.
 - The dev container feature works on Debian, Ubuntu and Fedora based images (glibc), not Alpine.
 - `--standalone` works on Linux and Windows, not macOS.

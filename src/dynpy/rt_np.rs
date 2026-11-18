@@ -1925,33 +1925,73 @@ pub fn np_truth(a: &NdArr) -> Result<bool, E> {
 // results match numpy's on the same kind of machine. On any other CPU (ARM64, or x86-64 without AVX2 and FMA)
 // numpy's OpenBLAS runs kernels these do not model, so float products and linear algebra are refused there
 // (np_blas_ok): the build sends such a program to CPython (emit.rs np_blas_here), and a binary moved to such a
-// CPU raises NotImplementedError rather than print other last digits than numpy's. (The runtime reads no
-// environment, so OPENBLAS_CORETYPE is the build's to check.)
+// CPU raises NotImplementedError rather than print other last digits than numpy's. OpenBLAS also reads its own
+// environment variables when numpy loads it: OPENBLAS_CORETYPE picks other kernels, the thread counts
+// (OPENBLAS_NUM_THREADS, GOTO_NUM_THREADS, OMP_NUM_THREADS) change how dot, gemv and gemm split their sums, and
+// OPENBLAS_BLOCK_FACTOR their blocking. The runtime reads no environment (caps.rs): the program reads these once
+// at startup (dynpy/mod.rs NP_ENV_FN) into NP_ENV, so a binary run later under any of them refuses BLAS too.
+// Under --sandbox the program reads nothing and Brevi starts it without them (proc.rs hold_env), as CPython would.
 #[derive(Clone, Copy, PartialEq)]
 enum Blas {
     Skx,
     Hsw,
     Plain,
 }
+// What the program found in its environment at startup: (an NPY_* / NUMPY_* variable, an OpenBLAS variable other
+// than OPENBLAS_CORETYPE, OPENBLAS_CORETYPE in lower case when not empty). Set by the program outside --sandbox.
+pub static NP_ENV: std::sync::OnceLock<(Option<String>, Option<String>, Option<String>)> = std::sync::OnceLock::new();
+// Called first by a program built with Brevi's numpy, with what it read (NP_ENV). numpy's own settings change
+// which SIMD loops it runs and what it prints, which Brevi's numpy does not model for any of its functions, so
+// the program stops before running anything (exit 1); the build already hands such a program to CPython's numpy
+// when one is set (dynpy/mod.rs to_rust), so this is for a binary run later under one.
+pub fn np_env_set(env: (Option<String>, Option<String>, Option<String>)) {
+    if let Some(k) = &env.0 {
+        out_flush();
+        err_write(&format!("Traceback (most recent call last):\nNotImplementedError: {k} is set: numpy's settings change what it computes, which Brevi's native numpy does not model (run the program with `brevi run`, which uses CPython's numpy then, or unset it)\n"));
+        std::process::exit(1);
+    }
+    NP_ENV.set(env).ok();
+}
+// The kernels this CPU alone gets (emit.rs np_blas_cpu)
+fn np_blas_cpu() -> Blas {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512dq") && is_x86_feature_detected!("avx512cd") && is_x86_feature_detected!("avx512bw") && is_x86_feature_detected!("avx512vl") {
+            return Blas::Skx;
+        }
+        if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
+            return Blas::Hsw;
+        }
+    }
+    Blas::Plain
+}
+// The kernels numpy's OpenBLAS runs here, if modelled (emit.rs np_blas_kind_here, which the build reads the same way)
 fn np_blas() -> Blas {
     static K: std::sync::OnceLock<Blas> = std::sync::OnceLock::new();
     *K.get_or_init(|| {
-        #[cfg(target_arch = "x86_64")]
-        {
-            if is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512dq") && is_x86_feature_detected!("avx512cd") && is_x86_feature_detected!("avx512bw") && is_x86_feature_detected!("avx512vl") {
-                return Blas::Skx;
-            }
-            if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
-                return Blas::Hsw;
-            }
+        let cpu = np_blas_cpu();
+        let Some((_, other, core)) = NP_ENV.get() else { return cpu };
+        if other.is_some() {
+            return Blas::Plain;
         }
-        Blas::Plain
+        if let Some(c) = core {
+            let named = match c.as_str() {
+                "skylakex" => Blas::Skx,
+                "haswell" | "zen" => Blas::Hsw,
+                _ => Blas::Plain,
+            };
+            return if named == cpu { cpu } else { Blas::Plain };
+        }
+        cpu
     })
 }
 // Err on a CPU whose OpenBLAS kernels are not modelled: every float matrix product, norm and linear algebra
 // routine calls this before its BLAS model runs.
 pub fn np_blas_ok(what: &str) -> Result<(), E> {
     if np_blas() == Blas::Plain {
+        if let Some(k) = NP_ENV.get().filter(|_| np_blas_cpu() != Blas::Plain).and_then(|(_, o, c)| o.clone().or_else(|| c.as_ref().map(|_| "OPENBLAS_CORETYPE".to_string()))) {
+            return Err(np_unsup(&format!("{what} with {k} set (numpy's OpenBLAS adds in another order then)")));
+        }
         return Err(np_unsup(&format!("{what} on this CPU (numpy's OpenBLAS kernels for it are not modelled; Brevi models x86-64 with AVX2 and FMA)")));
     }
     Ok(())
@@ -1968,9 +2008,13 @@ fn fma(a: f64, b: f64, c: f64) -> f64 {
 pub fn np_fmaf(a: f32, b: f32, c: f32) -> f32 {
     a.mul_add(b, c)
 }
-// numpy's float32 exp/tanh/log1p/sin/cos loops are reproduced for its AVX-512 (SkylakeX) dispatch only, as are
-// OpenBLAS's float32 sdot/sgemv/sgemm kernels
+// numpy's float32 exp/tanh/log1p/sin/cos loops are reproduced for its AVX-512 (SkylakeX) dispatch only (numpy's
+// own, so OpenBLAS's variables do not change them)
 pub fn np_f32_simd() -> bool {
+    np_blas_cpu() == Blas::Skx
+}
+// OpenBLAS's float32 sdot/sgemv/sgemm kernels: SkylakeX's only
+pub fn np_sgemm_ok() -> bool {
     np_blas() == Blas::Skx
 }
 fn fma_cpu() -> bool {
@@ -2691,7 +2735,7 @@ fn np_sgemm(xv: &[f32], yv: &[f32], m: usize, k: usize, n: usize, xf: bool, yf: 
 }
 // numpy dot / matmul of two float32 arrays (1-d or 2-d): the float32 branch of np_dot2.
 pub fn np_dot2_f32(x: &NdArr, y: &NdArr, matmul: bool) -> R {
-    if !np_f32_simd() {
+    if !np_sgemm_ok() {
         return Err(np_unsup("float32 dot/matmul (OpenBLAS sgemm, AVX-512 only)"));
     }
     let d = np_promote(x.dt(), y.dt());

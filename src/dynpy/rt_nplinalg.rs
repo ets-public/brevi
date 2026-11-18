@@ -647,7 +647,7 @@ fn np_norm(a: &Args) -> R {
         let nd = xa.ndim();
         let fro = ord.is_none() || (matches!(ord_s.as_deref(), Some("f" | "fro")) && nd == 2) || (ord_f == Some(2.0) && nd == 1);
         if axis.is_none() && fro {
-            if !np_f32_simd() {
+            if !np_sgemm_ok() {
                 return Err(np_unsup("np.linalg.norm of a float32 array on this CPU (OpenBLAS sdot, AVX-512 only)"));
             }
             // ravel('K'): memory order, which is the transpose's for a Fortran-ordered matrix

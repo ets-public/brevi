@@ -476,6 +476,28 @@ fn __ctype_locale() -> Option<String> {
 }
 "#;
 
+// Brevi's numpy (rt_np.rs np_env_set): what numpy and its OpenBLAS would read of the environment when numpy loads,
+// read once by the program at startup, never by the runtime (caps.rs). The same variables as the build reads
+// (emit.rs np_settings, np_blas_settings and OPENBLAS_CORETYPE in np_blas_kind_here).
+const NP_ENV_FN: &str = r#"
+fn __np_env() -> (Option<String>, Option<String>, Option<String>) {
+    let mut np: Option<String> = None;
+    let mut blas: Option<String> = None;
+    let mut core: Option<String> = None;
+    for (k, v) in std::env::vars_os() {
+        let Some(k) = k.to_str() else { continue };
+        if k.starts_with("NPY_") || k.starts_with("NUMPY_") {
+            np = np.or(Some(k.to_string()));
+        } else if k == "OPENBLAS_CORETYPE" {
+            core = Some(v.to_string_lossy().to_ascii_lowercase()).filter(|c| !c.is_empty());
+        } else if k.starts_with("OPENBLAS_") || k.starts_with("GOTO_") || k.starts_with("OMP_") {
+            blas = blas.or(Some(k.to_string()));
+        }
+    }
+    (np, blas, core)
+}
+"#;
+
 // re.LOCALE's C library answers (rt_text.rs LOC_CTYPE). python3 sets LC_CTYPE from the environment at startup
 // (setlocale(LC_CTYPE, ""), Python/pylifecycle.c), and the program does the same here, so a later
 // locale.setlocale that reaches the C library is seen too. sre asks tolower, toupper and isalnum, or on macOS
@@ -1152,6 +1174,11 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
             rust.push_str(LIBPIN);
         }
         rust.push_str(include_str!("ortglue.rs"));
+    }
+    // Brevi's numpy: the settings numpy and OpenBLAS read, by the program (runs after the lines added below)
+    if emit::NP_ON.load(std::sync::atomic::Ordering::Relaxed) && !crate::pybridge::no_native() {
+        rust = rust.replacen("fn main() { ", "fn main() { np_env_set(__np_env()); ", 1);
+        rust.push_str(NP_ENV_FN);
     }
     // reading the environment for stdout's error handler is the program's, never the runtime's (caps.rs)
     if !crate::pybridge::no_native() {
