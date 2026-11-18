@@ -783,6 +783,12 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     texts.insert("__main__".into(), (file.to_string(), src.clone()));
     let mut k = 0;
     while k < mods.len() {
+        // the program's own files (Brevi's module copies are not in texts): builtins.locals() and the rest
+        if let Some((ps, _)) = texts.get(&mods[k].name) {
+            if let Some((l, why)) = crate::frame_guard::check(&mods[k].body) {
+                return Err((ps.clone(), l, format!("{why}: not supported in dynamic builds")));
+            }
+        }
         // A program that names one of the four user-object classes builds the full Python collections module
         // (the native module has no such classes); checked per file, so a class named only in an imported
         // module of the program still gets it.

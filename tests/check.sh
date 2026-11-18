@@ -986,6 +986,23 @@ done
 printf 'import enum\nclass E(enum.Enum):\n    A = 1\n    locals().update({"B": 2}, **{"A": 3})\nprint(list(E))\n' > "$t/el.py"
 o=$(BREVI_DYN=1 $BREVI build "$t/el.py" -o "$t/el" 2>&1)
 case "$o" in *"locals() in the body of a class that may be an Enum is not supported in dynamic builds"*) echo "ok   locals() in an Enum body is refused" ;; *) echo "FAIL locals() in an Enum body"; printf '%s\n' "$o"; fail=1 ;; esac
+# locals(), vars(), dir(), eval() and the rest reached through the builtins module read a frame CPython cannot see
+# from a native build (SystemError "frame does not exist"): refused at build, so the program runs in CPython and
+# prints CPython's answer. builtins.len still builds.
+for c in 'import builtins\ndef f():\n    x = 1\n    return builtins.locals()\nprint(f())' \
+         'import builtins as b\ndef f():\n    x = 1\n    return b.vars(), b.dir()\nprint(f())' \
+         'import builtins\ndef f():\n    x = 1\n    return getattr(builtins, "locals")()\nprint(f())' \
+         'import builtins\nb = builtins\ndef f():\n    x = 2\n    return b.eval("x")\nprint(f())' \
+         'from builtins import locals as l\ndef f():\n    x = 1\n    return l()\nprint(f())' \
+         'import builtins, enum\ntry:\n    class E(enum.Enum):\n        A = 1\n        builtins.locals()["A"] = 3\nexcept TypeError as e:\n    print(e)'; do
+  printf "$c\n" > "$t/fb.py"
+  want=$("${BREVI_PYTHON:-python3}" "$t/fb.py" 2>/dev/null)
+  got=$($BREVI run "$t/fb.py" 2>"$t/fb.err")
+  if [ -n "$want" ] && [ "$got" = "$want" ] && grep -q '"path":"cpython"' "$t/fb.err"; then echo "ok   frame builtin through builtins runs in CPython: ${c%%\\n*}"; else echo "FAIL frame builtin through builtins: $c"; echo "want $want"; echo "got  $got"; cat "$t/fb.err"; fail=1; fi
+done
+printf 'import builtins\nprint(builtins.len([1, 2]), getattr(builtins, "abs")(-3))\n' > "$t/fb.py"
+o=$($BREVI run "$t/fb.py" 2>&1)
+case "$o" in *'"path":"cpython"'*) echo "FAIL builtins.len goes to CPython"; printf '%s\n' "$o"; fail=1 ;; *"2 3"*) echo "ok   builtins.len still builds" ;; *) echo "FAIL builtins.len"; printf '%s\n' "$o"; fail=1 ;; esac
 printf 'def f():\n    "\\ud800"\n' > "$t/d.py"
 o=$(BREVI_DYN=1 $BREVI run "$t/d.py" 2>&1)
 case "$o" in *"a docstring with a lone surrogate (U+D800..U+DFFF) is not supported"*) echo "ok   a docstring with a lone surrogate is refused" ;; *) echo "FAIL a docstring with a lone surrogate"; printf '%s\n' "$o"; fail=1 ;; esac

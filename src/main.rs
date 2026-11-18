@@ -29,6 +29,7 @@ mod patch;
 mod ann_guard;
 mod share_guard;
 mod typed_guard;
+mod frame_guard;
 mod unicode_names;
 mod pysentinel;
 mod privdir;

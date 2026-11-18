@@ -100,7 +100,17 @@ fn ax_pyb_text(p: &AxPy) -> String {
 
 #[inline]
 fn ax_pyb_own(p: ax_pyffi::P) -> R<AxPy> {
-    if p.is_null() { Err(ax_pyb_err()) } else { Ok(AxPy(p)) }
+    if p.is_null() { Err(ax_pyb_err()) } else { ax_pyb_frame_check(AxPy(p)) }
+}
+
+// builtins.locals and the others that read the caller's frame cannot run from native code (pyrt_load.rs
+// frame_builtin): refused when one comes back from CPython, before the program can call it.
+fn ax_pyb_frame_check(p: AxPy) -> R<AxPy> {
+    let _g = AxGil::take();
+    match unsafe { ax_pyffi::frame_builtin(ax_pybapi(), p.0) } {
+        Some(n) => Err(AxErr(format!("\u{1}NotImplementedError,RuntimeError,Exception,BaseException\u{1}brevi: builtins.{n} reached through a library value reads the caller's frame, which a native build does not have"))),
+        None => Ok(p),
+    }
 }
 
 fn ax_pyb_tuple_raw(xs: Vec<AxPy>) -> ax_pyffi::P {
@@ -394,7 +404,7 @@ impl Iterator for AxPyIter {
         if p.is_null() {
             if unsafe { (ax_pybapi().ErrOccurred)() }.is_null() { None } else { Some(Err(ax_pyb_err())) }
         } else {
-            Some(Ok(AxPy(p)))
+            Some(ax_pyb_frame_check(AxPy(p)))
         }
     }
 }
