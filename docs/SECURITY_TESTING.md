@@ -59,6 +59,8 @@ A crash that has been fixed stays fixed: its input is kept in `fuzz/regressions/
 | `bundle_inflate` | 721,420 | 246 | nothing |
 | `bundle_unpack` | — | 377 | **a bug, fixed:** a file time past what `SystemTime` holds panicked. It had no security impact: the bundle is the program's own trailer, and changing it means changing the program. |
 
+**2026-11-18, parser runs.** `parse_bv` and `parse_py`, 15 minutes each with two fork workers, ASan and debug assertions, on a 4-core cloud container, seeded with the 597 `.bv` and Python files and 391 Python files from `tests/`. Nothing found: `parse_bv` 378,173 runs (16,782 edges), `parse_py` 430,691 runs (4,388 edges), no crash, hang or out-of-memory. The same pass found by hand that a build which cannot write its files (a full disk) panicked with exit 101; it now prints an `{"e":"io"}` line and exits 1 (not a security issue: no input from a program reaches it).
+
 ## Self red-team
 
 Each attempt tries to break one promise in THREAT_MODEL.md. Attempts are written down here whether they succeed or fail. Exploit code is model-written, so it runs only inside `tools/modelbox.py`, never on a maintainer's machine. A successful attempt is a vulnerability: it is fixed in its own security point release, as [SECURITY.md](../SECURITY.md) describes, and recorded here once the fix ships.
