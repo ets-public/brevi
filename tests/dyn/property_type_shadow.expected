@@ -1,0 +1,11 @@
+True False True
+True property <class 'property'> <class 'property'>
+9
+TypeError argument for property() given by name ('fget') and position (1)
+TypeError property() got an unexpected keyword argument 'bad'
+TypeError property() takes at most 4 arguments (5 given)
+ok 2 1
+prop prop called 1
+5
+late 1
+property 'x' of 'N' object has no getter

@@ -1514,7 +1514,9 @@ pub fn getattr_ic(o: &V, name: Sym, ic: &std::sync::atomic::AtomicUsize) -> R {
         // the same name's text can sit at another address in another part of the program
         if let Some(v) = d.attrs.at_named(w, name) {
             // a data descriptor of the program wins over the instance attribute (see getattr)
-            if USER_DATA_DESC.load(std::sync::atomic::Ordering::Relaxed) && ob.cls.lookup(name).is_some_and(|x| is_data_desc(&x)) {
+            if USER_DATA_DESC.load(std::sync::atomic::Ordering::Relaxed) && ob.cls.lookup(name).is_some_and(|x| is_data_desc(&x))
+                || PROP_LATE.load(std::sync::atomic::Ordering::Relaxed) && ob.cls.is_prop(name)
+            {
                 drop(d);
                 return getattr(o, name);
             }
@@ -1532,7 +1534,9 @@ fn getattr_ic_slow(o: &V, name: Sym, ic: &std::sync::atomic::AtomicUsize) -> R {
             return getattr(o, name);
         }
         if let Some(i) = d.attrs.find(name) {
-            if USER_DATA_DESC.load(std::sync::atomic::Ordering::Relaxed) && ob.cls.lookup(name).is_some_and(|x| is_data_desc(&x)) {
+            if USER_DATA_DESC.load(std::sync::atomic::Ordering::Relaxed) && ob.cls.lookup(name).is_some_and(|x| is_data_desc(&x))
+                || PROP_LATE.load(std::sync::atomic::Ordering::Relaxed) && ob.cls.is_prop(name)
+            {
                 drop(d);
                 return getattr(o, name);
             }
@@ -1631,6 +1635,30 @@ fn dotted_type_name(c: &Class) -> Option<(&'static str, &'static str)> {
 // Set once the program makes a class with __set__ or __delete__ (a data descriptor type), so attribute reads
 // of programs without one never look at the class first.
 pub static USER_DATA_DESC: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+// set once a program sets a property on an existing class (C.x = property(...)): an instance may then hold an
+// attribute the property must win over, so the attribute caches ask the class first
+pub static PROP_LATE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+// the class's property of this name when one may be shadowed by the instance's own attribute (a live __dict__,
+// or PROP_LATE); None otherwise, at the cost of one flag or dict check on the common path
+fn prop_shadow(ob: &Obj, name: &str) -> Option<Rc<(V, V, V, V)>> {
+    if !PROP_LATE.load(std::sync::atomic::Ordering::Relaxed) && ob.d.borrow().dict.is_none() {
+        return None;
+    }
+    if !ob.cls.is_prop(name) {
+        return None;
+    }
+    match ob.cls.lookup(name) {
+        Some(V::Prop(p)) => Some(p),
+        _ => None,
+    }
+}
+// reading a property of the program's class from an instance: its getter, or CPython's message when it has none
+pub fn prop_get(p: &Rc<(V, V, V, V)>, o: &V, cls: &Rc<Class>, name: &str) -> R {
+    if matches!(p.0, V::None) {
+        return Err(exc("AttributeError", format!("property '{name}' of '{}' object has no getter", cls.name)));
+    }
+    call(&p.0, Args::p(vec![o.clone()]))
+}
 // an instance of a program class that defines __set__ or __delete__
 pub fn is_data_desc(v: &V) -> bool {
     match v {
@@ -1889,6 +1917,11 @@ pub fn getattr(o: &V, name: &str) -> R {
                     }
                 }
             }
+            // a property is a data descriptor too: it wins over an instance attribute of its name, which only a
+            // live __dict__ or a property set on the class after the attribute can leave (see PROP_LATE)
+            if let Some(p) = prop_shadow(ob, name) {
+                return prop_get(&p, o, &ob.cls, name);
+            }
             if let Some(v) = ob.get_attr(name)? {
                 return Ok(v);
             }
@@ -1908,7 +1941,7 @@ pub fn getattr(o: &V, name: &str) -> R {
                         2 => V::Bound(Rc::new((V::Class(ob.cls.clone()), v.clone()))),
                         _ => V::Bound(Rc::new((o.clone(), v.clone()))),
                     }),
-                    V::Prop(p) => call(&p.0, Args::p(vec![o.clone()])),
+                    V::Prop(p) => prop_get(p, o, &ob.cls, name),
                     // a namedtuple field descriptor: index the wrapped tuple directly, no Args and no call
                     V::NTF(n) => ntf_get(o, ob, n.idx),
                     _ => {
@@ -2312,6 +2345,10 @@ pub fn setattr(o: &V, name: Sym, v: V) -> Result<(), E> {
             if name == "__set__" || name == "__delete__" {
                 USER_DATA_DESC.store(true, std::sync::atomic::Ordering::Relaxed);
             }
+            // a property set on a class after its instances may already hold an attribute of that name
+            if matches!(v, V::Prop(_)) {
+                PROP_LATE.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
             plain_slot_check(&name, &v)?;
             // type's __name__ and __qualname__ setters: a str only, kept apart from the class's own attributes of
             // those names (class_getattr)
@@ -2556,6 +2593,10 @@ pub fn call_method(o: &V, name: &str, mut a: Args) -> R {
                     }
                 }
             }
+            if let Some(p) = prop_shadow(ob, name) {
+                let f = prop_get(&p, o, &ob.cls, name)?;
+                return call(&f, a);
+            }
             if let Some(v) = ob.get_attr(name)? {
                 return call(&v, a);
             }
@@ -2575,7 +2616,7 @@ pub fn call_method(o: &V, name: &str, mut a: Args) -> R {
                         }
                         _ => call_self(&v, o.clone(), a),
                     },
-                    V::Prop(p) => call(&call(&p.0, Args::p(vec![o.clone()]))?, a),
+                    V::Prop(p) => call(&prop_get(p, o, &ob.cls, name)?, a),
                     V::NTF(_) => {
                         // p.x(args): the field's value is called (CPython evaluates the attribute, then calls it)
                         let f = getattr(o, name)?;

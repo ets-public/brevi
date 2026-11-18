@@ -1276,6 +1276,7 @@ pub fn type_of(x: &V) -> Result<Rc<Class>, E> {
         V::Ext(e) => ext_class(e.tname()),
         V::Iter(it) => return iter_type_of(it),
         V::NTF(_) => ext_class("collections._tuplegetter"),
+        V::Prop(_) => ext_class("property"),
         _ => tclass(18, "object"),
     })
 }
@@ -2077,14 +2078,22 @@ fn rewrap(x: &Rc<Func>, kind: u8) -> V {
     g
 }
 pub fn bi_property(mut a: Args) -> R {
-    let getter = a.p.first().cloned().or(a.kw("fget")).unwrap_or(V::None);
-    let setter = a.p.get(1).cloned().or(a.kw("fset")).unwrap_or(V::None);
-    let deleter = a.p.get(2).cloned().or(a.kw("fdel")).unwrap_or(V::None);
-    let doc = a.p.get(3).cloned().or(a.kw("doc")).unwrap_or(V::None);
-    a.no_kw("property")?;
-    if a.p.len() > 4 {
-        return type_err(format!("property() takes at most 4 arguments ({} given)", a.p.len()));
+    // CPython's argument clinic order: too many arguments, a name also given by position, an unknown keyword
+    if a.p.len() + a.k.len() > 4 {
+        return type_err(format!("property() takes at most 4 arguments ({} given)", a.p.len() + a.k.len()));
     }
+    let mut got = [V::None, V::None, V::None, V::None];
+    for (i, n) in ["fget", "fset", "fdel", "doc"].iter().enumerate() {
+        let k = a.kw(n);
+        match (a.p.get(i), k) {
+            (Some(_), Some(_)) => return type_err(format!("argument for property() given by name ('{n}') and position ({})", i + 1)),
+            (Some(v), None) => got[i] = v.clone(),
+            (None, Some(v)) => got[i] = v,
+            (None, None) => {}
+        }
+    }
+    a.no_kw("property")?;
+    let [getter, setter, deleter, doc] = got;
     Ok(V::Prop(Rc::new((getter, setter, deleter, doc))))
 }
 pub fn bi_object(_a: Args) -> R {
@@ -2210,6 +2219,10 @@ pub fn builtin_value(name: &str) -> Option<V> {
     if name == "staticmethod" || name == "classmethod" {
         return Some(V::Class(ext_class(if name == "staticmethod" { "staticmethod" } else { "classmethod" })));
     }
+    // property is a type too (isinstance(x, property), type(C.p) is property); calling it makes a V::Prop
+    if name == "property" {
+        return Some(V::Class(ext_class("property")));
+    }
     if builtin_type_name(name) && name != "slice" {
         return Some(V::Class(bclass(name)));
     }
@@ -2266,6 +2279,9 @@ pub fn builtin_type_call(c: &Rc<Class>, a: &mut Args) -> Option<R> {
     }
     if c.name == "staticmethod" && c.module == "builtins" {
         return Some(bi_staticmethod(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));
+    }
+    if c.name == "property" && c.module == "builtins" {
+        return Some(bi_property(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));
     }
     if c.name == "classmethod" && c.module == "builtins" {
         return Some(bi_classmethod(Args { p: std::mem::take(&mut a.p), k: std::mem::take(&mut a.k) }));
