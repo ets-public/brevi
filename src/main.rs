@@ -691,7 +691,7 @@ fn main() {
         }
         "build" | "run" | "test" => {
             let dir = build_dir(&file);
-            let stem = Path::new(&file).file_stem().unwrap().to_string_lossy().to_string();
+            let stem = stem_of(&file);
             let bin = if cmd == "build" { out_path.unwrap_or_else(|| PathBuf::from(&stem)) } else { dir.join(&stem) };
             let mut extra: Vec<&str> = Vec::new();
             if cmd == "test" {
@@ -788,7 +788,7 @@ fn dyn_fallback(cmd: &str, file: &str, argv: &[String], why: Why) -> bool {
     let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
     let release = argv[..dash].iter().any(|a| a == "--release");
     let dir = build_dir(file);
-    let stem = Path::new(file).file_stem().unwrap().to_string_lossy().to_string();
+    let stem = stem_of(file);
     let out_path = argv[..dash].iter().position(|a| a == "-o").and_then(|i| argv.get(i + 1)).map(PathBuf::from);
     let bin = if cmd == "build" { out_path.unwrap_or_else(|| PathBuf::from(&stem)) } else { dir.join(format!("{stem}-dyn")) };
     let built = if cmd == "check" { dynpy::check(&rust, &dir, &cache_dir(), rustc_version()) } else { dynpy::compile(&rust, &dir, &bin, release, &cache_dir(), rustc_version()) };
@@ -964,7 +964,7 @@ fn dyn_cmd(cmd: &str, file: &str, argv: &[String]) -> ! {
         exit(0);
     }
     let dir = build_dir(file);
-    let stem = Path::new(file).file_stem().unwrap().to_string_lossy().to_string();
+    let stem = stem_of(file);
     let out_path = argv[..dash].iter().position(|a| a == "-o").and_then(|i| argv.get(i + 1)).map(PathBuf::from);
     let bin = if cmd == "build" { out_path.unwrap_or_else(|| PathBuf::from(&stem)) } else { dir.join(format!("{stem}-dyn")) };
     if let Err(e) = dynpy::compile(&rust, &dir, &bin, release, &cache_dir(), rustc_version()) {
@@ -1001,7 +1001,7 @@ fn cached(cmd: &str, file: &str, argv: &[String], flags: &[String]) -> ! {
         opts.drain(i..(i + 2).min(opts.len()));
         o
     });
-    let stem = Path::new(file).file_stem().unwrap_or_default().to_string_lossy().to_string();
+    let stem = stem_of(file);
     let bin = match cmd {
         "check" => None,
         "build" => Some(PathBuf::from(out.unwrap_or_else(|| stem.clone()))),
@@ -1042,7 +1042,7 @@ fn cached(cmd: &str, file: &str, argv: &[String], flags: &[String]) -> ! {
 fn run_or_fall_back(file: &str, argv: &[String], sandbox: bool, held: bool) -> ! {
     let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
     let prog_args = argv.get(dash + 1..).unwrap_or(&[]).to_vec();
-    let stem = Path::new(file).file_stem().unwrap().to_string_lossy().to_string();
+    let stem = stem_of(file);
     let bin = build_dir(file).join(&stem);
     // main removed --sandbox, --window and --explain from argv when it read them: pass them on again (the child
     // build once ran without --sandbox, unchecked).
@@ -1939,6 +1939,31 @@ pub(crate) fn cache_dir() -> PathBuf {
     }
 }
 
+// The file name without its extension, for the binary's name. A path with no file name ("..", "/") stops
+// with an io line, exit 1 (reading it fails first today; this keeps a later caller from panicking).
+fn stem_of(file: &str) -> String {
+    match Path::new(file).file_stem() {
+        Some(s) if !s.is_empty() => s.to_string_lossy().to_string(),
+        _ => {
+            println!("{{\"e\":\"io\",\"at\":\"{}\",\"msg\":\"not a file name\"}}", esc(file));
+            exit(1);
+        }
+    }
+}
+
+// Writes a build file. On failure (a full disk, a read-only folder) prints an io line and returns false: like a
+// missing rustc, not a fact about the program, so the result is not kept.
+fn write_or_say(p: &Path, data: &[u8]) -> bool {
+    match std::fs::write(p, data) {
+        Ok(()) => true,
+        Err(e) => {
+            runcache::not_kept();
+            println!("{{\"e\":\"io\",\"at\":\"{}\",\"msg\":\"{}\"}}", esc(&p.to_string_lossy()), esc(&e.to_string()));
+            false
+        }
+    }
+}
+
 // Builds with cargo, for programs that use crates. Same results as compile().
 fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Option<Result<(), String>> {
     // The cargo project stays at one path per source file (build_dir_path/cargo, not this process's folder), so
@@ -1955,10 +1980,14 @@ fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &
     let toml = ffi::cargo_toml(&name, deps);
     let tp = dir.join("Cargo.toml");
     if std::fs::read_to_string(&tp).ok().as_deref() != Some(toml.as_str()) {
-        std::fs::write(&tp, &toml).expect("write Cargo.toml");
+        if !write_or_say(&tp, toml.as_bytes()) {
+            return None;
+        }
     }
     // On the first line, so rustc's line numbers still match the generated code.
-    std::fs::write(dir.join("main.rs"), format!("#![allow(warnings)] {rust}")).expect("write generated rust");
+    if !write_or_say(&dir.join("main.rs"), format!("#![allow(warnings)] {rust}").as_bytes()) {
+        return None;
+    }
     let test = extra.contains(&"--test");
     let mut c = toolchain::cargo_cmd(Path::new(rustc_cmd().get_program()));
     if extra.contains(&"--emit=metadata") {
@@ -2129,7 +2158,9 @@ fn compile(rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Op
     }
     let rust: &str = &engine_rust(rust);
     let rs = dir.join("main.rs");
-    std::fs::write(&rs, rust).expect("write generated rust");
+    if !write_or_say(&rs, rust.as_bytes()) {
+        return None;
+    }
     let mut c = rustc_cmd();
     c.args(rustc_args(extra, rt.as_deref(), release));
     if link {
@@ -2886,6 +2917,16 @@ mod path_tests {
         assert!(build_lock(&lock, &|| false));
         assert!(lock.exists());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // A build file that cannot be written (full disk, read-only folder) is an io line, never a panic.
+    #[test]
+    fn unwritable_build_file_is_reported() {
+        let p = std::env::temp_dir().join(format!("brevi-nodir-{}", std::process::id())).join("main.rs");
+        assert!(!write_or_say(&p, b"fn main() {}"));
+        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/main.rs")).unwrap();
+        let (bad_stem, bad_write) = (["file_stem()", ".unwrap()"].concat(), [".expect(", "\"write"].concat());
+        assert!(!src.contains(&bad_stem) && !src.contains(&bad_write), "use stem_of / write_or_say");
     }
 
     // copy_exe's guarantee holds only if every copy of a program goes through it: a `std::fs::copy` anywhere

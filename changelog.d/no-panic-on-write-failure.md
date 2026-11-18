@@ -1,0 +1,1 @@
+- A build that cannot write its files (a full disk, a read-only build folder) now stops with an `{"e":"io"}` line naming the file and exit status 1, instead of a Rust panic (exit 101).
