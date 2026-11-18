@@ -1280,18 +1280,12 @@ pub fn type_of(x: &V) -> Result<Rc<Class>, E> {
         V::Ext(e) => ext_class(e.tname()),
         V::Iter(it) => return iter_type_of(it),
         V::NTF(_) => ext_class("collections._tuplegetter"),
-        // the standard streams are module-shaped values whose CPython type is their _io stream class
-        V::Module(&ModName("sys.stdin")) => stream_class("TextIOWrapper"),
-        V::Module(&ModName("sys.stdin.buffer")) => stream_class("BufferedReader"),
+        // the standard input streams are module-shaped values: their type is the class open() files of the same
+        // kind get as library values
+        V::Module(&ModName("sys.stdin")) => ext_class("TextIOWrapper"),
+        V::Module(&ModName("sys.stdin.buffer")) => ext_class("BufferedReader"),
         _ => tclass(18, "object"),
     })
-}
-thread_local! {
-    // sys.stdin and sys.stdin.buffer's classes: one object per class so `type(a) is type(b)` holds.
-    static STREAM_CLASSES: RefCell<HashMap<&'static str, Rc<Class>>> = RefCell::new(HashMap::new());
-}
-fn stream_class(n: &'static str) -> Rc<Class> {
-    STREAM_CLASSES.with(|m| m.borrow_mut().entry(n).or_insert_with(|| Class::new(n, "_io", vec![bclass("object")], BT::Other)).clone())
 }
 fn iter_type_unsupported() -> E {
     exc("NotImplementedError", "brevi: type() of this iterator is not supported".into())

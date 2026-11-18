@@ -1,0 +1,1 @@
+- Dynamic builds: `iter(sys.stdin)` is `sys.stdin` and `iter(sys.stdin.buffer)` is `sys.stdin.buffer`, as in CPython, so `next()` through either shares one position, and `type()` of them names `TextIOWrapper`/`BufferedReader` instead of refusing.
