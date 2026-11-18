@@ -45,6 +45,7 @@ Windows builds, runs and verifies programs natively, including library calls thr
 - Windows' own SQLite can be a different version from CPython's, so version-specific output may differ.
 - DuckDB and ONNX Runtime need their libraries installed (`pip install duckdb`, onnxruntime 1.16 or later).
 - Windows x86-64 and ARM64 (from v0.28.1) are built.
+- `brevi build x.py` without `-o` writes `x.exe` from the next release (v0.28.2 and earlier wrote `x`, which starts only once renamed to `x.exe`). An `-o` name is used as given, as rustc does: write `-o app.exe`.
 - Conformance on Windows is gated for both slices. Each release runs CPython's core and standard-library tests on the shipped `brevi.exe` (windows-2022 and windows-11-arm) and refuses to ship below the floor, below 90% (core) or 80% (stdlib), or with any wrong answer. The 23 Windows-only stdlib wrong answers measured after v0.28.1 (`\\?\` source paths [#587](https://github.com/ets-public/brevi/issues/587), CRLF string literals [#588](https://github.com/ets-public/brevi/issues/588), no cp1252 codec [#589](https://github.com/ets-public/brevi/issues/589)) are fixed in v0.28.2, and both Windows known-wrong lists are empty.
 - In v0.27.x, dynamic builds on Windows use POSIX path rules (`os.path.basename("C:\\a\\b.txt")` gives the whole path) and report `sys.platform` as `linux`. From v0.28.0 `os.path` is `ntpath`, `sys.platform` is `win32`, and `pathlib` runs in CPython.
 

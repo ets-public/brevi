@@ -692,7 +692,7 @@ fn main() {
         "build" | "run" | "test" => {
             let dir = build_dir(&file);
             let stem = Path::new(&file).file_stem().unwrap().to_string_lossy().to_string();
-            let bin = if cmd == "build" { out_path.unwrap_or_else(|| PathBuf::from(&stem)) } else { dir.join(&stem) };
+            let bin = if cmd == "build" { out_path.unwrap_or_else(|| default_bin(&stem)) } else { dir.join(&stem) };
             let mut extra: Vec<&str> = Vec::new();
             if cmd == "test" {
                 extra.push("--test");
@@ -790,7 +790,7 @@ fn dyn_fallback(cmd: &str, file: &str, argv: &[String], why: Why) -> bool {
     let dir = build_dir(file);
     let stem = Path::new(file).file_stem().unwrap().to_string_lossy().to_string();
     let out_path = argv[..dash].iter().position(|a| a == "-o").and_then(|i| argv.get(i + 1)).map(PathBuf::from);
-    let bin = if cmd == "build" { out_path.unwrap_or_else(|| PathBuf::from(&stem)) } else { dir.join(format!("{stem}-dyn")) };
+    let bin = if cmd == "build" { out_path.unwrap_or_else(|| default_bin(&stem)) } else { dir.join(format!("{stem}-dyn")) };
     let built = if cmd == "check" { dynpy::check(&rust, &dir, &cache_dir(), rustc_version()) } else { dynpy::compile(&rust, &dir, &bin, release, &cache_dir(), rustc_version()) };
     if let Err(e) = built {
         if std::env::var("BREVI_DYN_DEBUG").is_ok() {
@@ -935,6 +935,14 @@ fn dyn_blocked_note() {
 
 // --standalone: a program that calls Python libraries (typed or dynamic build) carries its own CPython. A build
 // that cannot bundle it fails, and leaves a binary that refuses to run rather than one using installed Python.
+// Where `brevi build FILE` writes the program without -o: the file's name without its extension, plus .exe on
+// Windows, whose shells and Explorer start a program only by that name ("not a valid Win32 application"
+// otherwise). An -o name is used as given, as rustc does. Brevi's own binaries in the build folder need no
+// .exe: they are started through CreateProcess, which reads the file, not its name.
+fn default_bin(stem: &str) -> PathBuf {
+    PathBuf::from(format!("{stem}{}", std::env::consts::EXE_SUFFIX))
+}
+
 fn standalone_bundle(file: &str, bin: &Path) {
     if !pybridge::standalone() {
         return;
@@ -966,7 +974,7 @@ fn dyn_cmd(cmd: &str, file: &str, argv: &[String]) -> ! {
     let dir = build_dir(file);
     let stem = Path::new(file).file_stem().unwrap().to_string_lossy().to_string();
     let out_path = argv[..dash].iter().position(|a| a == "-o").and_then(|i| argv.get(i + 1)).map(PathBuf::from);
-    let bin = if cmd == "build" { out_path.unwrap_or_else(|| PathBuf::from(&stem)) } else { dir.join(format!("{stem}-dyn")) };
+    let bin = if cmd == "build" { out_path.unwrap_or_else(|| default_bin(&stem)) } else { dir.join(format!("{stem}-dyn")) };
     if let Err(e) = dynpy::compile(&rust, &dir, &bin, release, &cache_dir(), rustc_version()) {
         match link_failure(&e) {
             Some(w) => println!("{{\"e\":\"dyn\",\"msg\":\"the dynamic build could not link: {}\"}}", esc(&w)),
@@ -1004,7 +1012,7 @@ fn cached(cmd: &str, file: &str, argv: &[String], flags: &[String]) -> ! {
     let stem = Path::new(file).file_stem().unwrap_or_default().to_string_lossy().to_string();
     let bin = match cmd {
         "check" => None,
-        "build" => Some(PathBuf::from(out.unwrap_or_else(|| stem.clone()))),
+        "build" => Some(out.map_or_else(|| default_bin(&stem), PathBuf::from)),
         _ => Some(build_dir(file).join(&stem)),
     };
     let mut args: Vec<String> = vec![if cmd == "check" { "check" } else { "build" }.into(), file.into()];
