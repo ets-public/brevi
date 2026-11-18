@@ -1956,6 +1956,79 @@ pub fn np_blas_ok(what: &str) -> Result<(), E> {
     }
     Ok(())
 }
+// How many threads numpy's OpenBLAS splits large work across by default: its blas_cpu_number, which is
+// get_num_procs() (driver/others/memory.c) capped at the wheel's NUM_THREADS of 64. On Linux that is the
+// configured CPUs, fewer if the process's affinity allows fewer; unlike std's available_parallelism it ignores a
+// cgroup CPU quota (`docker --cpus 2` still gets one thread per CPU). On macOS it is the physical cores
+// (hw.physicalcpu, not the logical CPUs), on Windows GetSystemInfo's processor count. The thread count changes
+// the order a large dot's parts are added in. The build sends float BLAS to CPython when OPENBLAS_NUM_THREADS and
+// the like are set (emit.rs blas_settings).
+fn np_ncpu() -> usize {
+    static N: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *N.get_or_init(|| {
+        #[cfg(target_os = "linux")]
+        {
+            extern "C" {
+                fn sysconf(name: i32) -> i64;
+                fn sched_getaffinity(pid: i32, size: usize, mask: *mut u8) -> i32;
+            }
+            const SC_NPROCESSORS_CONF: i32 = 83;
+            let conf = unsafe { sysconf(SC_NPROCESSORS_CONF) };
+            if conf > 0 {
+                let mut n = conf as usize;
+                // CPU_ALLOC_SIZE(conf) bytes, as OpenBLAS sizes its set
+                let mut mask = vec![0u8; n.div_ceil(64) * 8];
+                if unsafe { sched_getaffinity(0, mask.len(), mask.as_mut_ptr()) } == 0 {
+                    let c = mask.iter().map(|b| b.count_ones() as usize).sum::<usize>();
+                    if c > 0 && c < n {
+                        n = c;
+                    }
+                }
+                return n.min(64);
+            }
+        }
+        #[cfg(target_os = "macos")]
+        {
+            extern "C" {
+                fn sysctlbyname(name: *const u8, oldp: *mut i32, oldlenp: *mut usize, newp: *mut u8, newlen: usize) -> i32;
+            }
+            let (mut n, mut len) = (0i32, std::mem::size_of::<i32>());
+            if unsafe { sysctlbyname(b"hw.physicalcpu\0".as_ptr(), &mut n, &mut len, std::ptr::null_mut(), 0) } == 0 && n > 0 {
+                return (n as usize).min(64);
+            }
+        }
+        #[cfg(windows)]
+        {
+            #[repr(C)]
+            struct SystemInfo {
+                arch: u16,
+                reserved: u16,
+                page_size: u32,
+                min_addr: *mut u8,
+                max_addr: *mut u8,
+                active_mask: usize,
+                processors: u32,
+                processor_type: u32,
+                granularity: u32,
+                level: u16,
+                revision: u16,
+            }
+            #[link(name = "kernel32")]
+            extern "system" {
+                fn GetSystemInfo(info: *mut SystemInfo);
+            }
+            let mut si = std::mem::MaybeUninit::<SystemInfo>::zeroed();
+            let n = unsafe {
+                GetSystemInfo(si.as_mut_ptr());
+                si.assume_init().processors
+            };
+            if n > 0 {
+                return (n as usize).min(64);
+            }
+        }
+        std::thread::available_parallelism().map_or(1, |v| v.get()).min(64)
+    })
+}
 // a * b + c rounded once. The runtime is built for baseline x86-64, where this is a software routine; the
 // hot kernels below are also compiled for CPUs with FMA (fma_on) and pick that copy at run time, where it is
 // the CPU's own instruction. Either way the result is the same.
@@ -2081,7 +2154,7 @@ fn np_ddot(x: &[f64], y: &[f64], unit: bool) -> f64 {
     if n <= 10000 {
         return ddot1(x, y, unit, k);
     }
-    let nt = std::thread::available_parallelism().map_or(1, |v| v.get()).min(64);
+    let nt = np_ncpu();
     let (mut rest, mut pos, mut d) = (n, 0usize, 0.0);
     for j in 0..nt {
         if rest == 0 {
@@ -2101,7 +2174,7 @@ fn np_ddot(x: &[f64], y: &[f64], unit: bool) -> f64 {
 // (sgemm_kernel_16x4_skylakex_3.c) through level3.c / level3_thread.c. These run only when the CPU is
 // AVX-512 (np_f32_simd), matching the numpy ufunc gate. -------------
 fn f32_ncpu() -> usize {
-    std::thread::available_parallelism().map_or(1, |v| v.get()).min(64)
+    np_ncpu()
 }
 // numpy's float32 dot of two vectors (FLOAT_dot, one cblas_sdot call; the 2048 chunk is unreachable
 // with ILP64 ints). This is sdot.c's strided and unit paths with sdot_microk_skylakex-2.c's kernel.
@@ -2892,7 +2965,7 @@ fn np_gemv_nt(m: usize, k: usize) -> usize {
     if m * k < 460800 {
         1
     } else {
-        std::thread::available_parallelism().map_or(1, |v| v.get()).min(64)
+        np_ncpu()
     }
 }
 // gemv_thread.c's split of `n` items over `nt` threads: (start, length)
@@ -3096,7 +3169,7 @@ fn np_gemm_i(xv: &[f64], yv: &[f64], m: usize, k: usize, n: usize, xf: bool, yf:
         s
     };
     let mnk = m as f64 * n as f64 * k as f64;
-    let ncpu = std::thread::available_parallelism().map_or(1, |v| v.get()).min(64);
+    let ncpu = np_ncpu();
     let nthreads = if mnk <= 262144.0 {
         1
     } else if mnk / (ncpu as f64) < 262144.0 {
@@ -3299,7 +3372,7 @@ fn np_syrk_i(v: &[Vec<f64>], k: usize) -> Vec<f64> {
             rest
         }
     };
-    let ncpu = std::thread::available_parallelism().map_or(1, |v| v.get()).min(64);
+    let ncpu = np_ncpu();
     let nnk = (n as f64 + 1.0) * n as f64 * k as f64;
     let nth = if nnk <= 109944.0 * 4.0 { 1 } else { ncpu };
     let blocks = np_gemm_kblocks(k, lkh.q, 0, true);

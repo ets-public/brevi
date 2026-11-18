@@ -268,6 +268,12 @@ fn walk(e: &Expr, out: &mut Vec<String>) {
                 return;
             }
         }
+        // `a @ b` on library values: the dynamic build refuses it where numpy's OpenBLAS kernels are not
+        // modelled (ARM64, x86-64 without AVX2 and FMA, a foreign OPENBLAS_CORETYPE) or for float32 arrays, so
+        // the stub repeats it and the program keeps CPython's numpy instead of stopping at the product mid-run.
+        if f == "ax_pyb_op" && a.len() == 3 && matches!(lit(&a[0].1), Some("@")) {
+            out.push("_v @ _v".into());
+        }
         if f == "ax_pyb_get" && a.len() == 2 {
             let r = recv(e);
             if r != "_v" {

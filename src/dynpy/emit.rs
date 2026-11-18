@@ -87,6 +87,9 @@ fn np_sgemm_here() -> bool {
 // so an OPENBLAS_CORETYPE naming other kernels than the CPU's own makes numpy add in an order Brevi's would not.
 fn np_blas_kind_here() -> u8 {
     let cpu = np_blas_cpu();
+    if blas_settings().next().is_some() {
+        return 0;
+    }
     if let Some(c) = std::env::var_os("OPENBLAS_CORETYPE").filter(|c| !c.is_empty()) {
         let named = match c.to_string_lossy().to_ascii_lowercase().as_str() {
             "skylakex" => 2,
@@ -96,6 +99,16 @@ fn np_blas_kind_here() -> u8 {
         return if named == cpu { cpu } else { 0 };
     }
     cpu
+}
+// OpenBLAS's own settings other than OPENBLAS_CORETYPE: OPENBLAS_NUM_THREADS, GOTO_NUM_THREADS and OMP_NUM_THREADS
+// set how many threads split a large dot, matrix-vector or matrix product (and so the order its parts are added
+// in), OPENBLAS_BLOCK_FACTOR the blocking, and a later OpenBLAS may read more. The runtime models numpy's
+// defaults (one thread per CPU the process may run on, rt_np.rs np_ncpu) and reads no environment, so with any of
+// them set (even empty) float BLAS goes to CPython, as on a CPU whose kernels are not modelled.
+fn blas_settings() -> impl Iterator<Item = (std::ffi::OsString, std::ffi::OsString)> {
+    std::env::vars_os().filter(|(k, _)| {
+        k.to_str().is_some_and(|k| (k.starts_with("OPENBLAS_") && k != "OPENBLAS_CORETYPE") || k.starts_with("GOTO") || k.starts_with("OMP_"))
+    })
 }
 // The kernels this CPU alone would get: 2 SkylakeX (AVX-512), 1 Haswell (AVX2 and FMA), 0 none modelled
 fn np_blas_cpu() -> u8 {
@@ -108,11 +121,11 @@ fn np_blas_cpu() -> u8 {
     0
 }
 // Every input outside the program that decides which numpy code is Brevi's and which goes to CPython (the CPU's
-// kernels and OPENBLAS_CORETYPE, as np_blas_kind_here reads them), for the result cache's key (runcache.rs): a
+// kernels, OPENBLAS_CORETYPE and OpenBLAS's other settings, as np_blas_kind_here reads them), for the result cache's key (runcache.rs): a
 // build kept under one must not be replayed under another.
 pub fn np_path_inputs() -> String {
     let mut s = format!("numpy cpu={} OPENBLAS_CORETYPE={:?}", np_blas_cpu(), std::env::var_os("OPENBLAS_CORETYPE").unwrap_or_default());
-    let mut np: Vec<_> = np_settings().collect();
+    let mut np: Vec<_> = np_settings().chain(blas_settings()).collect();
     np.sort();
     for (k, v) in np {
         s.push_str(&format!(" {k:?}={v:?}"));

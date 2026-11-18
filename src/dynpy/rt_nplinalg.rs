@@ -41,8 +41,9 @@ fn fchain(a: &[f64], b: &[f64]) -> f64 {
 // follows OpenBLAS (0.3.30) step by step on one thread: getrf_single.c (recursive blocking), getf2_k.c,
 // dgemv_n_4.c, the dgemm kernels' k-loops (dgemm_kernel_16x2_skylakex.c, dgemm_kernel_4x8_haswell.S),
 // trsm_kernel_LT/LN.c, trsv_L/U.c and daxpy.c, for the SkylakeX (AVX-512) and Haswell (AVX2) kernels.
-// numpy itself runs this on one thread for solve and inv below 100 x 100 and for det below about
-// 140 x 140; larger ones it splits across threads, which adds in another order.
+// numpy itself runs this on one thread for solve and inv below 100 x 100 and for det and slogdet below
+// 20000 values; larger ones it splits across threads, which adds in another order, so those are refused
+// where numpy would have more than one thread (lk_one_thread).
 // Matrices here are column-major (LAPACK's), element (i, j) at i + j * ld.
 struct Lk {
     skx: bool,
@@ -418,6 +419,17 @@ fn lk_getrf_rec(k: &Lk, a: &mut [f64], lda: usize, ipiv: &mut [usize], off: usiz
     info
 }
 // dgetrf on a column-major n x n matrix: (pivot rows, info)
+// OpenBLAS's choice of threads for an n x n dgetrf (interface/lapack/getrf.c: none below 10000 values, then
+// at most one per 10000 values) or dgesv (gesv.c: from 10000 values, one per CPU): Err where that is more than
+// one, since getrf_parallel.c adds in an order that depends on the thread count, which is not modelled.
+fn lk_one_thread(what: &str, n: usize, gesv: bool) -> Result<(), E> {
+    let mn = n * n;
+    let threads = if mn < 10000 { 1 } else if gesv { np_ncpu() } else { np_ncpu().min(mn / 10000) };
+    if threads > 1 {
+        return Err(np_unsup(&format!("{what} of a {n} x {n} matrix on more than one CPU (numpy's OpenBLAS splits it across {threads} threads, whose order Brevi does not model; BREVI_NUMPY=0 uses CPython's numpy)")));
+    }
+    Ok(())
+}
 fn lk_getrf(a: &mut [f64], n: usize) -> (Vec<usize>, usize) {
     let k = lk();
     let mut ipiv = vec![0; n];
@@ -502,11 +514,12 @@ fn lk_rowmajor(a: &[f64], n: usize, m: usize) -> Vec<f64> {
     }
     out
 }
-fn np_det_parts(a: &NdArr) -> Result<(f64, f64), E> {
+fn np_det_parts(a: &NdArr, what: &str) -> Result<(f64, f64), E> {
     let n = square_check(a)?;
     if n == 0 {
         return Ok((1.0, 0.0));
     }
+    lk_one_thread(what, n, false)?;
     let mut m = lk_colmajor(&a.fv(), n, n);
     let (piv, info) = lk_getrf(&mut m, n);
     if info != 0 {
@@ -535,12 +548,12 @@ pub fn np_linalg_call(n: &str, a: &mut Args) -> R {
     match n {
         "det" => {
             let x = np_float_arr(&first()?)?;
-            let (s, l) = np_det_parts(&x)?;
+            let (s, l) = np_det_parts(&x, &format!("np.linalg.{n}"))?;
             Ok(np_sc(Sc::F(s * l.exp())))
         }
         "slogdet" => {
             let x = np_float_arr(&first()?)?;
-            let (sg, l) = np_det_parts(&x)?;
+            let (sg, l) = np_det_parts(&x, &format!("np.linalg.{n}"))?;
             thread_local! { static SLOGDET: RefCell<Option<V>> = RefCell::new(None); }
             let c = match SLOGDET.with(|c| c.borrow().clone()) {
                 Some(c) => c,
@@ -573,6 +586,7 @@ pub fn np_linalg_call(n: &str, a: &mut Args) -> R {
                     _ => return Err(np_unsup("np.linalg.solve on stacks")),
                 }
             };
+            lk_one_thread(&format!("np.linalg.{n}"), k, true)?;
             let mut lu = lk_colmajor(&lu, k, k);
             let (piv, info) = lk_getrf(&mut lu, k);
             if info != 0 {

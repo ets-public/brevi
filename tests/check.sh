@@ -24,6 +24,8 @@ case "$(printf '%s' "${OPENBLAS_CORETYPE:-}" | tr A-Z a-z)" in
   haswell | zen) np_kern=none; [ "$np_fma" = 1 ] && [ "$np_avx512" = 0 ] && np_kern=hsw ;;
   *) np_kern=none ;;
 esac
+# OpenBLAS's other settings (thread count, blocking) make the build send float BLAS to CPython too (emit.rs blas_settings)
+[ -n "$(env | grep -E '^(OPENBLAS_|GOTO|OMP_)' | grep -v '^OPENBLAS_CORETYPE=')" ] && np_kern=none
 np_uses_blas() { grep -Eq '[])A-Za-z0-9_] *@=? |\.dot\(|np\.(dot|matmul|inner|vdot|cov|corrcoef|polyfit)\(|linalg' "$1"; }
 np_to_cpython() {
   np_uses_blas "$1" || return 1
@@ -254,13 +256,10 @@ for f in tests/bv_libs/*.bv tests/bv_py/*.bv; do
   exp="${f%.bv}.expected"
   out=$(cd "$(dirname "$f")" && BREVI_PATH=1 timeout 600 ../../$BREVI run "$(basename "$f")" 2>/tmp/brevi_bv_err)
   if [ "$1" = "--update" ]; then printf '%s\n' "$out" > "$exp"; continue; fi
-  # Where this CPU has no OpenBLAS model, a file using float BLAS goes to CPython (CI has no numpy: only the path
-  # line counts) or stops at the refused call with what it printed before matching.
+  # Where this CPU has no OpenBLAS model, a file using float BLAS goes to CPython at build (CI has no numpy: only
+  # the path line counts), never stopping at the product mid-run.
   if np_to_cpython "$f" && grep -q '"path":"\(pybridge\|cpython\)"' /tmp/brevi_bv_err; then
     echo "ok   $f (CPython: no OpenBLAS model for this CPU)"
-  elif [ "$out" != "$(cat "$exp")" ] && np_to_cpython "$f" && grep -q OpenBLAS /tmp/brevi_bv_err \
-     && case "$(cat "$exp")" in "$out"*) true ;; *) false ;; esac; then
-    echo "ok   $f (refused: no OpenBLAS model for this CPU)"
   elif grep -q '"path":"\(pybridge\|cpython\)"' /tmp/brevi_bv_err; then
     echo "FAIL $f (ran in CPython)"; cat /tmp/brevi_bv_err; fail=1
   elif [ "$out" != "$(cat "$exp")" ]; then
@@ -269,6 +268,17 @@ for f in tests/bv_libs/*.bv tests/bv_py/*.bv; do
     echo "ok   $f"
   fi
 done
+# A .bv file whose only BLAS use is `a @ b` on library values: where the kernels are not modelled (here
+# simulated with OPENBLAS_CORETYPE=ARMV8 on an x86-64 CPU that has a model) the typed build's engine stub must
+# repeat the `@` so the build sends numpy to CPython; it used to keep Brevi's numpy and stop at `@` on ARM64.
+if [ "$np_kern" != none ] && [ "$1" != "--update" ]; then
+  (cd tests/bv_libs && OPENBLAS_CORETYPE=ARMV8 BREVI_PATH=1 timeout 600 ../../$BREVI run --no-cache numpy_stats.bv >/dev/null 2>/tmp/brevi_bv_err)
+  if grep -q '"path":"\(pybridge\|cpython\)"' /tmp/brevi_bv_err; then
+    echo "ok   numpy_stats.bv (unmodelled OpenBLAS: CPython at build)"
+  else
+    echo "FAIL numpy_stats.bv under OPENBLAS_CORETYPE=ARMV8 kept Brevi's numpy"; cat /tmp/brevi_bv_err; fail=1
+  fi
+fi
 #== bv_libs_sandbox split
 # The same Brevi files under --sandbox with no grant: Brevi's own libraries hold to the sandbox, so they run
 # natively there too (never CPython, which a sandbox without a grant refuses).
@@ -332,17 +342,30 @@ if [ "$np_kern" != none ] && [ "$1" != "--update" ]; then
   # under one naming other kernels, nor that CPython build once it is unset again (runcache.rs key).
   npc=$(mktemp -d); cp tests/numpy/lstsq.py "$npc/main.py"
   npp() { env BREVI_CACHE="$npc/cache" BREVI_PATH=1 "$@" timeout 600 $BREVI run "$npc/main.py" 2>&1 >/dev/null | grep -o '^{"path":"[a-z]*"' | head -1; }
-  npc_out="$(npp; npp OPENBLAS_CORETYPE=Prescott; npp)"
-  if [ "$npc_out" = '{"path":"dynamic"
-{"path":"pybridge"
-{"path":"dynamic"' ] || [ "$npc_out" = '{"path":"dynamic"
-{"path":"cpython"
-{"path":"dynamic"' ]; then
-    echo "ok   result cache keys on OPENBLAS_CORETYPE"
+  npc_out="$(npp; npp OPENBLAS_CORETYPE=Prescott; npp; npp OPENBLAS_NUM_THREADS=1; npp OMP_NUM_THREADS=; npp GOTO_NUM_THREADS=2; npp OPENBLAS_BLOCK_FACTOR=2; npp)"
+  # OpenBLAS's thread count (OPENBLAS_NUM_THREADS, GOTO_NUM_THREADS, OMP_NUM_THREADS) changes the order a large dot's
+  # parts are added in, and its other OPENBLAS_* settings its blocking: with one set, even empty, float BLAS goes to
+  # CPython too (emit.rs blas_settings).
+  if [ "$(echo $npc_out | sed 's/"cpython"/"pybridge"/g')" = '{"path":"dynamic" {"path":"pybridge" {"path":"dynamic" {"path":"pybridge" {"path":"pybridge" {"path":"pybridge" {"path":"pybridge" {"path":"dynamic"' ]; then
+    echo "ok   result cache keys on OPENBLAS_CORETYPE and OpenBLAS's thread settings"
   else
-    echo "FAIL result cache keys on OPENBLAS_CORETYPE (path lines: no env, Prescott, no env)"; printf '%s\n' "$npc_out"; fail=1
+    echo "FAIL result cache keys on OPENBLAS_CORETYPE and OpenBLAS's thread settings (path lines: no env, Prescott, no env, NUM_THREADS=1, OMP empty, GOTO=2, BLOCK_FACTOR=2, no env)"; printf '%s\n' "$npc_out"; fail=1
   fi
   rm -rf "$npc"
+fi
+# numpy runs solve and inv from 100 x 100 and det from 20000 values on OpenBLAS's threaded LU when the process
+# has more than one CPU; Brevi models only the one-thread LU, so it gives numpy's digits on one CPU and refuses
+# there otherwise (rt_nplinalg.rs lk_one_thread).
+if [ "$np_kern" != none ] && [ "$1" != "--update" ] && command -v taskset >/dev/null; then
+  f=tests/numpy_cpu/lu_threads.py
+  one=$(BREVI_PATH=1 timeout 600 taskset -c 0 $BREVI run "$f" --no-cache 2>/tmp/brevi_lu_err)
+  if ! grep -q '"path":"dynamic"' /tmp/brevi_lu_err || grep -q '"py":\[[^]]*numpy' /tmp/brevi_lu_err || [ "$one" != "$(cat "${f%.py}.expected")" ]; then
+    echo "FAIL $f (one CPU)"; cat /tmp/brevi_lu_err; printf '%s\n' "$one" | diff "${f%.py}.expected" -; fail=1
+  elif [ "$(taskset -c 0,1 sh -c 'nproc' 2>/dev/null)" = 2 ] && ! BREVI_PATH=1 timeout 600 taskset -c 0,1 $BREVI run "$f" 2>&1 | grep -q 'NotImplementedError: np.linalg.solve of a 100 x 100 matrix on more than one CPU'; then
+    echo "FAIL $f (two CPUs: not refused)"; fail=1
+  else
+    echo "ok   $f (one CPU: numpy's digits; two: refused)"
+  fi
 fi
 # numpy's own settings (NPY_DISABLE_CPU_FEATURES, NPY_ENABLE_CPU_FEATURES and any other NPY_* / NUMPY_*) change
 # which SIMD loops numpy runs, so its float32 exp/tanh/... digits: with one set the build uses CPython's numpy
