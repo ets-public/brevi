@@ -1,0 +1,1 @@
+- Dynamic builds: `builtins.property(...)`, `builtins.staticmethod(...)` and `builtins.classmethod(...)` called directly in a class body make the program's own descriptor (it printed `<property object ...>` before); properties also keep `fdel` and `doc`, run their deleter on `del obj.x`, and take `__doc__` from the getter.

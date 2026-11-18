@@ -1,0 +1,7 @@
+a's doc g doc given None g doc
+1 2 2 3
+property 'a' of 'A' object has no deleter
+property 'a' of 'A' object has no setter
+True None None
+2 [1, 3] True 3
+TypeError property() takes at most 4 arguments (5 given)

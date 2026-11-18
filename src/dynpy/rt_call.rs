@@ -2191,7 +2191,12 @@ pub fn getattr(o: &V, name: &str) -> R {
         V::Prop(p) if name == "__isabstractmethod__" => Ok(V::Bool(is_abstract_method(&p.0)? || is_abstract_method(&p.1)? || is_abstract_method(&p.2)?)),
         V::Prop(p) if name == "fset" => Ok(p.1.clone()),
         V::Prop(p) if name == "fdel" => Ok(p.2.clone()),
-        V::Prop(p) if name == "__doc__" => Ok(p.3.clone()),
+        // property.__doc__: the doc it was given, else its getter's docstring (CPython copies it at creation)
+        V::Prop(p) if name == "__doc__" => match (&p.3, &p.0) {
+            (V::None, V::None) => Ok(V::None),
+            (V::None, f) => getattr(f, "__doc__").or(Ok(V::None)),
+            (d, _) => Ok(d.clone()),
+        },
         V::Prop(p) if matches!(name, "setter" | "getter" | "deleter") => {
             let p = p.clone();
             let which = name.to_string();

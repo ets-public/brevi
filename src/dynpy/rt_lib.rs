@@ -2083,7 +2083,7 @@ pub fn bi_property(mut a: Args) -> R {
     let doc = a.p.get(3).cloned().or(a.kw("doc")).unwrap_or(V::None);
     a.no_kw("property")?;
     if a.p.len() > 4 {
-        return type_err(format!("property expected at most 4 arguments, got {}", a.p.len()));
+        return type_err(format!("property() takes at most 4 arguments ({} given)", a.p.len()));
     }
     Ok(V::Prop(Rc::new((getter, setter, deleter, doc))))
 }
