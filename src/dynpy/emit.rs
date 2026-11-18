@@ -3417,7 +3417,7 @@ impl Em {
         // (the module is still known: line 0 says so, and a warning the filters turn into an error is exact there)
         let site = match self.wmod() {
             Some(m) if self.lam_line == Some(line) || !self.multi_line(line) => format!("re_site({line}, &{m});"),
-            Some(m) => format!("re_site(0, &{m});"),
+            Some(m) => format!("re_site_near({line}, &{m});"),
             None => "re_site_clear();".to_string(),
         };
         format!("{{ let __ra = {args}; let __ws = re_site_get(); {site} let __rr = {call}; re_site_put(__ws); __rr }}")
@@ -3477,7 +3477,8 @@ impl Em {
         let known = known && line != 0 && (self.lam_line == Some(line) || !self.multi_line(line));
         // Brevi's own library copies have no lines of CPython's to name; line 0 is this module at a line not known
         match self.wmod() {
-            Some(m) => format!("re_site({}, &{m});", if known { line } else { 0 }),
+            Some(m) if known => format!("re_site({line}, &{m});"),
+            Some(m) => format!("re_site_near({line}, &{m});"),
             None => "re_site_clear();".into(),
         }
     }

@@ -731,10 +731,11 @@ pub fn bi_reversed(a: Args) -> R {
         };
         return Ok(new_iter(It::Range(last, stop, neg), IterClass::Kind(ItKind::RangeIter)));
     }
-    // list, dict and dict views have their own reverse iterators; every other reversible sequence gets
-    // the generic `reversed` object, as in CPython.
+    // list, dict, dict views and deque have their own reverse iterators; every other reversible sequence
+    // gets the generic `reversed` object, as in CPython.
     let kind = match &x {
         V::List(_) => ItKind::ListReverseIter,
+        V::Deque(_) => ItKind::DequeRevIter,
         V::Dict(_) => ItKind::DictReverseKeys,
         V::View(v) => match v.1 {
             0 | 3 => ItKind::DictReverseKeys,
@@ -1313,6 +1314,7 @@ pub fn it_class(k: ItKind) -> Result<Rc<Class>, E> {
         ItKind::CallableIterator => ("builtins", "callable_iterator"),
         ItKind::BytesIter => ("builtins", "bytes_iterator"),
         ItKind::DequeIter => ("collections", "_deque_iterator"),
+        ItKind::DequeRevIter => ("collections", "_deque_reverse_iterator"),
         ItKind::Iterator => ("builtins", "iterator"),
         ItKind::ItCount => ("itertools", "count"),
         ItKind::ItChain => ("itertools", "chain"),

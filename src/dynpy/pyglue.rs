@@ -179,7 +179,13 @@ def _at_unknown(message, category, module):
             if ln == 0 and action == "error":
                 raise message
             break
-    _d._stop("a warning at a line of the program the dynamic build does not know")
+    _d._stop(_unknown_line())
+# What a refusal of a warning at a line not known says: the statement it is in, when known, and the fix
+# (the text is the runtime's, unknown_line_what, so both refusals read the same).
+def _unknown_line():
+    site = getattr(_d, 'site', None)
+    s = site() if site is not None else None
+    return s[3] if s is not None else "a warning at a line of the program the dynamic build does not know"
 _d.regs = {}
 # a warning attributed to a library's own frame: that module's globals got a __warningregistry__
 _d.lib_reg = False
@@ -248,11 +254,16 @@ def _install_warn(site):
             module = g['__name__'] if '__name__' in g else '<string>'
             return _w.warn_explicit(message, category, fm.f_code.co_filename, fm.f_lineno, module, g.setdefault('__warningregistry__', {}), g, source)
         if i == P and s is not None:
-            file, line, module = s
+            file, line, module = s[:3]
             if line == 0:
                 return _at_unknown(message, category, module)
             return _w.warn_explicit(message, category, file, line, module, _d.regs.setdefault(module, {}), None, source)
-        _d._stop("a warning at a line of the program the dynamic build does not know")
+        if i > P and s is not None:
+            # the stacklevel names a frame further out than the program's line that called the library (the
+            # caller of that function of the program, whose line the dynamic build does not keep)
+            at = " (the library is called in the statement starting at line {} of {})".format(s[4], s[0]) if s[4] else ""
+            _d._stop("a warning whose stacklevel names a frame further out than the program's call of the library" + at)
+        _d._stop(_unknown_line())
     warn.__doc__ = _w.warn.__doc__
     warn.__module__ = '_warnings'
     warn.__qualname__ = 'warn'
@@ -261,7 +272,7 @@ def _install_warn(site):
     show = _w._showwarnmsg
     def _showwarnmsg(msg):
         if msg.filename == '<sys>':
-            _d._stop("a warning at a line of the program the dynamic build does not know")
+            _d._stop(_unknown_line())
         return show(msg)
     _w._showwarnmsg = _showwarnmsg
 _d.install_warn = _install_warn
@@ -1116,8 +1127,12 @@ pub fn pyd_warn_at(cat: &str, msg: &str, file: &str, line: usize, module: &str) 
 // The program uses the warnings module: CPython's warnings.warn names the program's line (see _install_warn).
 static PYD_WARN_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 pub fn pyd_warn_install() -> Result<(), E> {
+    // (file, line, module, what a refusal of a warning at a line not known says, the statement's first line)
     let site = func("site", |_a: Args| Ok(match warn_site() {
-        Some((f, l, m)) => tup(vec![s(f), V::Int(l as i64), s(m)]),
+        Some((f, l, m)) => {
+            let near = warn_near();
+            tup(vec![s(f), V::Int(l as i64), s(m), st(unknown_line_what(near, f)), V::Int(near as i64)])
+        }
         None => V::None,
     }));
     unsafe {

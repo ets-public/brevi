@@ -1,0 +1,46 @@
+list 0 TypeError cannot create 'list_iterator' instances
+list 1 TypeError cannot create 'list_iterator' instances
+tuple 0 TypeError cannot create 'tuple_iterator' instances
+tuple 1 TypeError cannot create 'tuple_iterator' instances
+str 0 TypeError cannot create 'str_ascii_iterator' instances
+str 1 TypeError cannot create 'str_ascii_iterator' instances
+str_u 0 TypeError cannot create 'str_iterator' instances
+str_u 1 TypeError cannot create 'str_iterator' instances
+bytes 0 TypeError cannot create 'bytes_iterator' instances
+bytes 1 TypeError cannot create 'bytes_iterator' instances
+bytearray 0 TypeError cannot create 'bytearray_iterator' instances
+bytearray 1 TypeError cannot create 'bytearray_iterator' instances
+set 0 TypeError cannot create 'set_iterator' instances
+set 1 TypeError cannot create 'set_iterator' instances
+frozenset 0 TypeError cannot create 'set_iterator' instances
+frozenset 1 TypeError cannot create 'set_iterator' instances
+dict 0 TypeError cannot create 'dict_keyiterator' instances
+dict 1 TypeError cannot create 'dict_keyiterator' instances
+values 0 TypeError cannot create 'dict_valueiterator' instances
+values 1 TypeError cannot create 'dict_valueiterator' instances
+items 0 TypeError cannot create 'dict_itemiterator' instances
+items 1 TypeError cannot create 'dict_itemiterator' instances
+range 0 TypeError cannot create 'range_iterator' instances
+range 1 TypeError cannot create 'range_iterator' instances
+bigrange 0 TypeError cannot create 'longrange_iterator' instances
+bigrange 1 TypeError cannot create 'longrange_iterator' instances
+rev_list 0 TypeError cannot create 'list_reverseiterator' instances
+rev_list 1 TypeError cannot create 'list_reverseiterator' instances
+rev_dict 0 TypeError cannot create 'dict_reversekeyiterator' instances
+rev_dict 1 TypeError cannot create 'dict_reversekeyiterator' instances
+callable 0 TypeError cannot create 'callable_iterator' instances
+callable 1 TypeError cannot create 'callable_iterator' instances
+gen 0 TypeError cannot create 'generator' instances
+gen 1 TypeError cannot create 'generator' instances
+genexpr 0 TypeError cannot create 'generator' instances
+genexpr 1 TypeError cannot create 'generator' instances
+seq 0 TypeError cannot create 'generator' instances
+seq 1 TypeError cannot create 'generator' instances
+odict 0 TypeError cannot create 'odict_iterator' instances
+odict 1 TypeError cannot create 'odict_iterator' instances
+memview 0 TypeError cannot create 'memory_iterator' instances
+memview 1 TypeError cannot create 'memory_iterator' instances
+_deque_reverse_iterator collections _deque_reverse_iterator
+False True False
+[3, 2, 1] [3, 2, 1] _deque_reverse_iterator
+list_reverseiterator

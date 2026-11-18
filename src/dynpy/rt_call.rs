@@ -892,6 +892,10 @@ pub fn instantiate(c: &Rc<Class>, mut a: Args) -> R {
         if let Some(r) = iter_class_call(c, a) {
             return r;
         }
+        // CPython's builtin iterator types other than those above have no constructor
+        if c.module == "builtins" {
+            return type_err(format!("cannot create '{}' instances", c.name));
+        }
         return Err(refusal("NotImplementedError", &format!("brevi: calling the {}.{} class is not supported in dynamic builds", c.module, c.name)));
     }
     if plain_new(c) {

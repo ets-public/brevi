@@ -1352,6 +1352,8 @@ fn re_compile_bytes(src: &str, flags: i64, pat: V) -> Result<Rc<Prog>, E> {
 #[derive(Clone, Copy)]
 pub struct ReSite {
     line: usize,
+    // the first line of the statement running now, also when `line` is 0 (not known): what a refusal names
+    near: usize,
     m: &'static WMod,
 }
 // A module of the program, for the place a warning names: its file, its name and its source (the line shown).
@@ -1373,7 +1375,25 @@ thread_local! {
 }
 #[inline]
 pub fn re_site(line: usize, m: &'static WMod) {
-    RE_SITE.set(Some(ReSite { line, m }));
+    RE_SITE.set(Some(ReSite { line, near: line, m }));
+}
+// The program is in the statement starting at line `near` (0: not known either), at a line of it not known.
+#[inline]
+pub fn re_site_near(near: usize, m: &'static WMod) {
+    RE_SITE.set(Some(ReSite { line: 0, near, m }));
+}
+// The first line of the statement running now (0 when not known), for a refusal of a warning whose line is
+// not known: where to look, and what to change.
+pub fn warn_near() -> usize {
+    RE_SITE.get().map_or(0, |s| s.near)
+}
+pub fn unknown_line_what(near: usize, file: &str) -> String {
+    let hint = "the dynamic build knows only the line a statement starts on: make the call that warns a statement of its own";
+    if near == 0 {
+        format!("a warning at a line of the program the dynamic build does not know ({hint})")
+    } else {
+        format!("a warning at a line of the program the dynamic build does not know (in the statement starting at line {near} of {file}; {hint})")
+    }
 }
 pub fn re_site_clear() {
     RE_SITE.set(None);
@@ -1436,7 +1456,7 @@ pub fn re_warn(cat: &'static str, msg: String) -> Result<(), E> {
     let site = RE_SITE.get();
     if let Some(warn) = WARN_BRIDGE.get() {
         let Some(s) = site else {
-            return Err(unsupported("a warning from a call whose line the dynamic build does not know"));
+            return Err(unsupported(&unknown_line_what(0, "")));
         };
         // line 0: the module is known and the line is not; the bridge decides only where the line cannot matter
         return warn(cat, &msg, s.m.file, s.line, s.m.module);
@@ -1447,7 +1467,7 @@ pub fn re_warn(cat: &'static str, msg: String) -> Result<(), E> {
         return Ok(());
     }
     if s.line == 0 {
-        return Err(unsupported("a warning from a call whose line the dynamic build does not know"));
+        return Err(unsupported(&unknown_line_what(s.near, s.m.file)));
     }
     if WARN_SHOWN.with(|w| w.borrow_mut().insert((s.m.module, msg.clone(), cat, s.line))) {
         out_flush();

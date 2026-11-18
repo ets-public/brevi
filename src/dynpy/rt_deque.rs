@@ -504,7 +504,7 @@ pub fn deque_method(d: &Rc<RefCell<Deq>>, o: &V, name: &str, mut a: Args) -> R {
         }
         "__contains__" => V::Bool(deque_contains(d, &one(&a)?)?),
         "__iter__" => new_iter(deque_iter(d, false), IterClass::Kind(ItKind::DequeIter)),
-        "__reversed__" => new_iter(deque_iter(d, true), IterClass::Kind(ItKind::Reversed)),
+        "__reversed__" => new_iter(deque_iter(d, true), IterClass::Kind(ItKind::DequeRevIter)),
         "__add__" => deque_concat(d, &one(&a)?)?,
         "__mul__" | "__rmul__" => deque_mul(d, &one(&a)?)?,
         "__iadd__" => {

@@ -139,7 +139,7 @@ if [ "$1" != "--update" ]; then
   esac
   out=$(BREVI_DYN=1 $BREVI build tests/warnings/later_line.py -o "$wr_dir/prog" 2>&1 && "$wr_dir/prog" 2>&1)
   case "$out" in
-    *'a warning at a line of the program the dynamic build does not know is not supported in dynamic builds'*) echo "ok   a warning on a later line of its statement is refused" ;;
+    *'a warning at a line of the program the dynamic build does not know (in the statement starting at line 5 of '*'make the call that warns a statement of its own) is not supported in dynamic builds'*) echo "ok   a warning on a later line of its statement is refused, naming the statement's line" ;;
     *) echo "FAIL a warning on a later line of its statement is refused"; printf '%s\n' "$out" | tail -3; fail=1 ;;
   esac
   rm -rf "$wr_dir"

@@ -2668,6 +2668,8 @@ pub enum ItKind {
     CallableIterator,
     BytesIter,
     DequeIter,
+    // reversed() of a deque: CPython's collections._deque_reverse_iterator
+    DequeRevIter,
     // an OrderedDict's iterators (its keys, values, items, and reversed): CPython's one odict_iterator type
     OdictIter,
     Iterator,
