@@ -26,8 +26,5 @@ print(call("process_vm_writev", 271 if arm else 311, me, 0, 0))
 print(call("pidfd_getfd", 438, -1, 0, 0))
 # UFFD_USER_MODE_ONLY and a bad flag: EINVAL unheld
 print(call("userfaultfd", 282 if arm else 323, 1 | 0x40000000, 0, 0))
-try:
-    os.close(os.pidfd_open(me))
-    print("pidfd_open ran")
-except PermissionError:
-    print("pidfd_open refused")
+# own pid: a file descriptor unheld (made by syscall, as not every CPython build has os.pidfd_open)
+print(call("pidfd_open", 434, me, 0, 0))
