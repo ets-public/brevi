@@ -31,7 +31,7 @@ MODULES = [
 # Brevi's own Python copies of stdlib modules (src/dynpy/py, sandbox_module in mod.rs) whose defs the table
 # covers by their qualified names: module name as the dynamic build names it, then the copy's file. ntpath is
 # left out (on Windows CPython swaps some of its functions for C ones of nt), so are third-party libraries'
-# copies and Brevi's _brevi_* modules: CPython has no answer for them, and their defs' introspection is refused.
+# copies and Brevi's _brevi_* modules, whose answers depend on the package's version (not checked here).
 COPIES = [
     ("random", "random.py"), ("collections", "collections.py"), ("collections.abc", "collections_abc.py"),
     ("os", "os.py"), ("posixpath", "posixpath.py"), ("pathlib", "pathlib.py"), ("io", "io.py"),
@@ -133,7 +133,14 @@ def cpython_def(mod, qual, decs):
         side = plain[0].rsplit(".", 1)[-1]
         obj = getattr(obj, {"property": "fget", "getter": "fget", "setter": "fset", "deleter": "fdel"}[side])
         plain = []
-    if plain or not isinstance(obj, types.FunctionType) or vars(obj):
+    if plain:
+        # another decorator: the copy's def is what it wrapped (functools.wraps keeps it as __wrapped__), or the
+        # decorator handed back the def itself; either way CPython's def has the same qualified name
+        obj = inspect.unwrap(obj) if callable(obj) else obj
+        if getattr(obj, "__qualname__", None) != qual:
+            return None
+    # (an abstract method's own __isabstractmethod__ the copy's abstractmethod sets too)
+    if not isinstance(obj, types.FunctionType) or set(vars(obj)) - {"__isabstractmethod__"}:
         return None
     return obj
 
@@ -159,6 +166,7 @@ with open(path, "w") as fh:
     fh.write("\n".join(rows) + "\n];\n")
     fh.write("// Each def of Brevi's own copies of stdlib modules, by (module, qualified name), sorted: CPython's function\n")
     fh.write("// there as (__module__, __name__, __qualname__, __doc__), or None when CPython's is not a plain Python function.\n")
+    fh.write("pub static COPYFN_MODULES: &[&str] = &[" + ", ".join(rust_str(m) for m, _ in COPIES) + "];\n")
     fh.write("#[allow(clippy::type_complexity)]\n")
     fh.write("pub static COPYFN_IDS: &[(&str, &str, Option<(Option<&str>, &str, &str, Option<&str>)>)] = &[\n")
     for (m, q), f in copy_rows:

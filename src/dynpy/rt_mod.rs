@@ -3336,9 +3336,13 @@ fn copyfn_id(m: &str, q: &str) -> Option<usize> {
 }
 // A def of Brevi's own copy of a module (emit.rs, IN_COPY), made as CPython's function at the same qualified name
 // when that is a plain Python function: its __module__, names and __doc__ are CPython's (the copy's differ or are
-// missing). Any other def (a C function or method in CPython, a name CPython lacks, a def of a third-party
-// library's copy or of Brevi's own _brevi_* modules) is marked -1, and what CPython would say about it refused.
+// missing). Any other def of a stdlib copy (a C function or method in CPython, a name CPython lacks) is marked
+// -1, and what CPython would say about it refused. Third-party libraries' copies and Brevi's own _brevi_* modules
+// are not in the table (their answers depend on the package's version) and keep Brevi's.
 pub fn copy_def(f: V, m: &str, q: &str) -> V {
+    if !COPYFN_MODULES.contains(&m) {
+        return f;
+    }
     if let V::Func(ff) = &f {
         let row = copyfn_id(m, q).and_then(|i| COPYFN_IDS[i].2.map(|r| (i, r)));
         let mut a = ff.attrs.borrow_mut();
@@ -3358,7 +3362,10 @@ pub fn copy_def(f: V, m: &str, q: &str) -> V {
 }
 // A def nested in a function of Brevi's own copy of a module: CPython's code may make another object there, so
 // its type, repr and attributes are refused until the copy (or the program) assigns them (functools.wraps).
-pub fn copy_def_nested(f: V) -> V {
+pub fn copy_def_nested(f: V, m: &str) -> V {
+    if !COPYFN_MODULES.contains(&m) {
+        return f;
+    }
     if let V::Func(ff) = &f {
         let mut a = ff.attrs.borrow_mut();
         a.retain(|(k, _)| *k != "__module__" && *k != "__doc__");

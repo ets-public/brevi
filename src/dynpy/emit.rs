@@ -5402,7 +5402,7 @@ impl Em {
         }
         // a def of Brevi's own copy of a module: CPython's function of that name, or refused (rt_mod.rs copy_def)
         if IN_COPY.with(|k| k.get()) {
-            v = if qn.contains("<locals>") { format!("copy_def_nested({v})") } else { format!("copy_def({v}, {}, {})", lit(&self.module), lit(&qn)) };
+            v = if qn.contains("<locals>") { format!("copy_def_nested({v}, {})", lit(&self.module)) } else { format!("copy_def({v}, {}, {})", lit(&self.module), lit(&qn)) };
         }
         // the def's annotations, evaluated now (after the defaults, as CPython does), while the program reads
         // __annotations__ somewhere: parameters in order, then "return"
