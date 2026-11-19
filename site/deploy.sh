@@ -33,35 +33,13 @@ for top, _, names in sorted(os.walk(d)):
         files[key] = [base64.b64encode(raw).decode() if ext in binary else raw.decode(), types[ext], ext in binary]
 print("const FILES = " + json.dumps(files) + ";")
 print("const bytes = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));")
-print('''// Waitlist sign-ups from /pricing (POST /api/waitlist), kept in the WAITLIST KV namespace as
-// "LIST:email" -> {email, list, note, ts, country}. No IP address is stored. site/waitlist.sh exports them.
-const LISTS = new Set(["pro", "hosted"]);
-async function waitlist(req, env, url) {
-  if (!env.WAITLIST) return new Response("Waitlist not available here\\n", { status: 404 });
-  let form;
-  try { form = await req.formData(); } catch { return new Response("Bad form\\n", { status: 400 }); }
-  const list = String(form.get("list") || "");
-  const email = String(form.get("email") || "").trim().toLowerCase();
-  const note = String(form.get("note") || "").trim().slice(0, 500);
-  const back = (q) => Response.redirect(url.origin + "/pricing" + q, 303);
-  if (!LISTS.has(list)) return new Response("Unknown list\\n", { status: 400 });
-  // A bot that fills the hidden field is told it worked and nothing is kept.
-  if (form.get("website")) return back("?joined=" + list + "#" + list);
-  if (email.length > 254 || !/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(email))
-    return new Response("Please go back and enter a valid email address.\\n", { status: 400, headers: { "content-type": "text/plain; charset=utf-8" } });
-  const key = list + ":" + email;
-  const old = await env.WAITLIST.get(key, "json");
-  const rec = { email, list, note: note || (old && old.note) || "", ts: (old && old.ts) || new Date().toISOString(), country: (req.cf && req.cf.country) || "" };
-  if (old) rec.updated = new Date().toISOString();
-  await env.WAITLIST.put(key, JSON.stringify(rec));
-  return back("?joined=" + list + "#" + list);
-}
+print('''// The /pricing waitlists closed on 19 Nov 2026, when Brevi was archived: POST /api/waitlist answers 410
+// and stores nothing. Sign-ups made before then stay in the WAITLIST KV namespace; site/waitlist.sh exports them.
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     if (url.pathname === "/api/waitlist") {
-      if (req.method !== "POST") return new Response("Use the form on /pricing\\n", { status: 405, headers: { allow: "POST" } });
-      return waitlist(req, env || {}, url);
+      return new Response("The waitlists are closed: Brevi is archived.\\n", { status: 410, headers: { "content-type": "text/plain; charset=utf-8" } });
     }
     let p = url.pathname;
     // One address per page for search engines: www goes to the bare domain, and .html to the clean address.
