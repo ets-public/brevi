@@ -435,3 +435,8 @@ footer.site .about p { margin: 12px 0 0; max-width: 22rem; }
   .actions .more { margin-left: 0; flex-basis: 100%; }
 }
 @media (max-width: 640px) { table.vs { min-width: 0; } table.vs th, table.vs td { padding: 12px; overflow-wrap: anywhere; } table.vs td:first-child, table.vs th:first-child { width: 30%; } }
+
+/* Archived notice on every page (19 Nov 2026). */
+.archived { background: var(--tint); color: var(--fg); border-bottom: 1px solid var(--line2); font-size: 0.92rem; line-height: 1.45; }
+.archived .wrap { padding-top: 10px; padding-bottom: 10px; }
+.archived a { color: var(--accent); text-decoration: underline; }

@@ -491,8 +491,9 @@ def header(active, site="org", public=False):
     nav += '<a class="gh" href="%s" rel="noopener">%sGitHub</a>' % (GITHUB, GH_ICON)
     home = "/" if site == "org" else "https://brevi-lang.org/"
     name = "Brevi" if site == "org" else "brevi.run"
-    tag = '<span class="ver">v__VERSION__</span>' if site == "org" else '<span class="ver">hosted, coming</span>'
+    tag = '<span class="ver">v__VERSION__</span>' if site == "org" else '<span class="ver">will not launch</span>'
     return """<a class="skip" href="#main">Skip to content</a>
+<div class="archived" role="note"><div class="wrap"><b>Brevi is archived.</b> It is no longer developed: none of the ten most-downloaded Python MCP servers built natively with it. <a href="https://github.com/ets-public/brevi/blob/main/POSTMORTEM.md">Why we stopped</a> · <a href="https://github.com/ets-public/brevi/blob/main/bench/showcase/REAL_SERVERS.md">The report</a></div></div>
 <header class="top ink">
   <div class="wrap bar">
     <a class="brand" href="%s">%s%s%s</a>
