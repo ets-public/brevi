@@ -4373,6 +4373,8 @@ fn held_of(cx: &Cx, e: &Ex) -> Wr {
                 e = b;
             }
             Ex::Index(b, _) => e = b,
+            // an imported module is not a place the typed build borrows
+            Ex::Name(_) if cx.is_module(e) => break,
             Ex::Name(n) => {
                 if matches!(cx.place(n), Pl::G(_)) && (cx.p.module_names.contains(n) || cx.p.fn_globals.contains(n)) {
                     h.g.insert(n.clone());
@@ -4409,6 +4411,59 @@ fn write_of(cx: &Cx, t: &Ex, selfp: Option<&str>, d: &mut Direct) {
     }
 }
 
+// The arguments of a call into code outside the program (the standard library, a builtin): it may change what
+// it is given. A module's attribute passed on (`os.open(p, os.O_RDONLY)`, `re.search(x, t, re.I)`) is not an
+// assignment target: at most the object it names changes, which a held place reaches only as a field or a
+// global of that name (`import __main__` makes the module's globals attributes), so the name counts as both.
+fn args_write(cx: &Cx, args: &[Arg], d: &mut Direct) {
+    for a in args {
+        let (Arg::Pos(v) | Arg::Star(v) | Arg::Kw(_, v) | Arg::KwStar(v)) = a;
+        match v {
+            Ex::Attr(b, f) if cx.is_module(b) => {
+                d.w.f.insert(f.clone());
+                d.w.g.insert(f.clone());
+            }
+            _ => write_of(cx, v, None, d),
+        }
+    }
+}
+
+// The lambda a called name is bound to, when it is bound to nothing else (lambda_names: one binding in its
+// scope, never `global` or `nonlocal` anywhere, not a def, class, import or loop name).
+fn lambda_of<'a>(cx: &Cx<'_, 'a>, n: &str) -> Option<&'a Ex> {
+    match cx.place(n) {
+        Pl::L(_) => cx.p.lambdas.get(&(cx.f, n.to_string())).copied(),
+        Pl::G(_) => cx.p.lambdas.get(&(MODULE, n.to_string())).copied(),
+        _ => None,
+    }
+}
+
+thread_local! {
+    // the lambdas whose bodies are being walked, so a lambda that calls itself is walked once
+    static IN_LAMBDA: std::cell::RefCell<Vec<*const Ex>> = const { std::cell::RefCell::new(vec![]) };
+}
+
+// What calling a lambda may change: its body's calls and writes. A lambda that calls one of its own parameters
+// runs whatever it was given, which this pass does not follow: that may change anything.
+fn lambda_direct(cx: &Cx, lam: &Ex, init: bool, d: &mut Direct) {
+    let Ex::Lambda(ps, body) = lam else { return d.w.all = true };
+    let key = lam as *const Ex;
+    if IN_LAMBDA.with(|v| v.borrow().contains(&key)) {
+        return;
+    }
+    let names: Vec<&String> = ps.pos.iter().chain(ps.kwonly.iter()).map(|(n, _)| n).chain(ps.star.iter()).chain(ps.kwstar.iter()).collect();
+    walk_ex(body, &mut |x| {
+        if let Ex::Call(g, _) = x {
+            if matches!(g.as_ref(), Ex::Name(n) if names.contains(&n)) {
+                d.w.all = true;
+            }
+        }
+    });
+    IN_LAMBDA.with(|v| v.borrow_mut().push(key));
+    direct_ex(cx, body, None, init, d);
+    IN_LAMBDA.with(|v| v.borrow_mut().pop());
+}
+
 // The calls and container changes inside an expression.
 fn direct_ex(cx: &Cx, e: &Ex, _selfp: Option<&str>, init: bool, d: &mut Direct) {
     walk_ex(e, &mut |x| match x {
@@ -4441,19 +4496,16 @@ fn direct_ex(cx: &Cx, e: &Ex, _selfp: Option<&str>, init: bool, d: &mut Direct) 
                     } else if cx.p.fromimp.get(n).is_some_and(|(root, _)| STDLIB.contains(&root.as_str())) && matches!(cx.place(n), Pl::G(_)) && !cx.p.bound_other.contains(n.as_str()) {
                         // `from fractions import Fraction`: code outside the program changes only what it is given
                         // (and calls back the program's functions, counted in `implicit`)
-                        for a in args {
-                            let (Arg::Pos(v) | Arg::Star(v) | Arg::Kw(_, v) | Arg::KwStar(v)) = a;
-                            write_of(cx, v, None, d);
-                        }
+                        args_write(cx, args, d);
+                    } else if let Some(lam) = lambda_of(cx, n) {
+                        // a name bound only to this lambda: its call runs the lambda's body
+                        lambda_direct(cx, lam, init, d);
                     } else if !matches!(cx.place(n), Pl::G(_)) || cx.p.module_names.contains(n.as_str()) {
                         d.w.all = true;
                     } else if matches!(n.as_str(), "setattr" | "delattr" | "exec" | "eval" | "globals" | "vars" | "locals" | "__import__") {
                         d.w.all = true;
                     } else if !BUILTIN_SCALAR.contains(&n.as_str()) && !BUILTIN_COPY.contains(&n.as_str()) && !matches!(n.as_str(), "range" | "enumerate" | "zip" | "min" | "max" | "map" | "filter" | "iter" | "next" | "print" | "super") {
-                        for a in args {
-                            let (Arg::Pos(v) | Arg::Star(v) | Arg::Kw(_, v) | Arg::KwStar(v)) = a;
-                            write_of(cx, v, None, d);
-                        }
+                        args_write(cx, args, d);
                     }
                 }
                 Ex::Attr(o, m) => {
@@ -4463,10 +4515,7 @@ fn direct_ex(cx: &Cx, e: &Ex, _selfp: Option<&str>, init: bool, d: &mut Direct) 
                     }
                     if cx.is_module(root) {
                         // heapq.heappush(self.h, x), random.shuffle(self.items), bisect.insort(...)
-                        for a in args {
-                            let (Arg::Pos(v) | Arg::Star(v) | Arg::Kw(_, v) | Arg::KwStar(v)) = a;
-                            write_of(cx, v, None, d);
-                        }
+                        args_write(cx, args, d);
                         return;
                     }
                     // super().__init__(...) and Base.__init__(self, ...) in a constructor set up the new object
@@ -4631,6 +4680,14 @@ impl<'c, 'p, 'a> Held<'c, 'p, 'a> {
                             user = true;
                         } else if let Some(Some(id)) = self.cx.p.classes.get(n) {
                             callee.add(&self.fresh[*id]);
+                            user = true;
+                        } else if let Some(lam) = lambda_of(self.cx, n) {
+                            let mut d = Direct::default();
+                            lambda_direct(self.cx, lam, false, &mut d);
+                            callee.add(&d.w);
+                            for (id, fresh) in d.calls {
+                                callee.add(if fresh { &self.fresh[id] } else { &self.full[id] });
+                            }
                             user = true;
                         }
                     }
