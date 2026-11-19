@@ -1,6 +1,6 @@
 # Known issues
 
-This page describes `main` as of v0.28.2 (16 November 2026). It lists limits that are known and tracked. It is not a list of every bug: open issues are on [GitHub](https://github.com/ets-public/brevi/issues). Report anything new as described in [SUPPORT.md](SUPPORT.md). For security problems, use [SECURITY.md](../SECURITY.md).
+This page describes `main` as of v0.28.3 (19 November 2026). It lists limits that are known and tracked. It is not a list of every bug: open issues are on [GitHub](https://github.com/ets-public/brevi/issues). Report anything new as described in [SUPPORT.md](SUPPORT.md). For security problems, use [SECURITY.md](../SECURITY.md).
 
 ## Correctness and conformance
 
