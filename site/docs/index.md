@@ -1,7 +1,7 @@
 # Brevi documentation
 <!-- description: Brevi documentation (experimental, archived): what Brevi builds, how, and why real MCP servers did not build natively. -->
 
-> **Brevi is experimental and archived.** It works on small programs, but of the ten most-downloaded Python MCP servers on PyPI, built unchanged on 19 November 2026 with Brevi 0.28.3, none built natively: all ten needed the CPython bridge, and so Python on the run machine, and started at 1.00x to 1.16x CPython's time to the first tool call. The [real-server report](repo:bench/showcase/REAL_SERVERS.md) has the data. We are not developing Brevi further and do not recommend it for new projects. The pages below describe what it does on the programs it does build.
+> **Brevi is experimental and archived.** It works on small programs, but of the ten most-downloaded Python MCP servers on PyPI, built unchanged on 19 November 2026 with Brevi 0.28.3, none built natively: all ten needed the CPython bridge, and so Python on the run machine, and started at 1.00x to 1.16x CPython's time to the first tool call. The [real-server report](repo:bench/showcase/REAL_SERVERS.md) has the data, and the [post-mortem](repo:POSTMORTEM.md) says what we built and why we stopped. We are not developing Brevi further and do not recommend it for new projects. The pages below describe what it does on the programs it does build.
 
 Brevi compiles Python through Rust into one native file. For a program it builds natively, the machine that runs it needs no Python, no virtualenv and no packages.
 
