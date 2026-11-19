@@ -1350,6 +1350,17 @@ if [ -n "$(ls -A "$t2/cache/runs" 2>/dev/null)" ] || printf '%s\n' "$t2out" | gr
   echo "FAIL result cache keeps a machine failure"; printf '%s\n' "$t2out"; ls -A "$t2/cache/runs"; fail=1
 else echo "ok   result cache keeps no machine failure"; fi
 rm -rf "$t2"
+# A replayed result starts no rustc: the `rustc -vV` probe runs only in the process that builds (main.rs), so a
+# cache hit of run, build and check execs no compiler at all. Needs strace; skipped without it.
+if command -v strace >/dev/null 2>&1; then
+  t4=$(mktemp -d); printf 'print(6 * 7)\n' > "$t4/main.py"
+  for c in run build check; do o=; [ $c = build ] && o="-o $t4/x"; env BREVI_CACHE="$t4/cache" $BREVI $c "$t4/main.py" $o >/dev/null 2>&1; done
+  t4out=$(for c in run build check; do o=; [ $c = build ] && o="-o $t4/y"; env BREVI_CACHE="$t4/cache" strace -f -qq -e trace=execve -o "$t4/st" $BREVI $c "$t4/main.py" $o >/dev/null 2>&1; echo "$c: exit $?"; grep -v ENOENT "$t4/st" | grep -o 'execve("[^"]*rustc"' ; done)
+  if printf '%s\n' "$t4out" | grep -q 'rustc"\|exit [1-9]'; then
+    echo "FAIL result cache hit starts rustc"; printf '%s\n' "$t4out"; fail=1
+  else echo "ok   result cache hit starts no rustc"; fi
+  rm -rf "$t4"
+else echo "skip result cache hit starts no rustc (no strace)"; fi
 # The cache is trusted: a replay runs the binary it holds. So no folder grant may reach it (a sandboxed program
 # granted write there could plant a binary a later run executes with no hold), and a cache other users can change
 # is not used at all: a private one stands in. The control run shows a planted binary would run otherwise.
