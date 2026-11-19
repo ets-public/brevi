@@ -195,7 +195,7 @@ const RUN_FLAGS: [&str; 14] = ["--allow-unlocked-python", "--release", "--fast",
 
 // Options of build, check, emit, test and fix (before `--`); run takes RUN_FLAGS and RUN_VALUE_FLAGS.
 const BUILD_VALUE_FLAGS: [&str; 7] = ["--allow", "--allow-py", "--allow-net", "--allow-read", "--allow-write", "--limit", "-o"];
-const BUILD_FLAGS: [&str; 10] = ["--release", "--fast", "--native", "--sandbox", "--traceback", "--window", "--explain", "--standalone", "--no-cache", "--strict"];
+const BUILD_FLAGS: [&str; 11] = ["--allow-unlocked-python", "--release", "--fast", "--native", "--sandbox", "--traceback", "--window", "--explain", "--standalone", "--no-cache", "--strict"];
 // run options that only `brevi run --verify` reads.
 const VERIFY_ONLY: [&str; 4] = ["--once", "--mcp", "--timeout", "--input"];
 

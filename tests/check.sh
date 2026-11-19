@@ -1204,6 +1204,11 @@ rm -rf "$t"
 # (off Linux the build is refused without it, pybridge.rs lock_refusal; the PC's Windows checks cover that side).
 out=$(cd tests/bridge && $B run --sandbox --allow-py brlib --allow-unlocked-python lib_values.py 2>&1; echo "exit $?")
 if [ "$(printf '%s\n' "$out" | grep -v '^{"path"')" = "$want" ]; then echo "ok   sandbox bridge --allow-unlocked-python on Linux"; else echo "FAIL sandbox bridge --allow-unlocked-python on Linux"; printf '%s\n' "$out"; fail=1; fi
+# build (and check, emit, test, fix) take it too: the unknown-option check must know it (run --verify builds with it).
+t=$(mktemp -d)
+out=$(cd tests/bridge && $B build --sandbox --allow-py brlib --allow-unlocked-python lib_values.py -o "$t/lv" 2>&1 && "$t/lv" 2>&1; echo "exit $?")
+if [ "$(printf '%s\n' "$out" | grep -v '^{"path"')" = "$want" ]; then echo "ok   sandbox bridge build --allow-unlocked-python"; else echo "FAIL sandbox bridge build --allow-unlocked-python"; printf '%s\n' "$out"; fail=1; fi
+rm -rf "$t"
 #== standalone split
 # brevi build --standalone: a program calling Python libraries carries its own CPython. Run without python3 on
 # PATH and, where user namespaces allow it, in an empty root holding only the C library.
