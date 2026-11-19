@@ -1,0 +1,8 @@
+{"line":6,"msg":"a hidden import of _brevi_proc (not at the start of a line of its own, where the sandbox's check reads imports) needs allow native","fix":"put the import at the start of a line of its own (`import M` or `from M import x`); do without it, or the caller grants it: --allow native (MCP tools: \"allow\": [\"native\"])"}
+exit 1
+-- dynamic
+{"line":6,"msg":"a hidden import of _brevi_proc (not at the start of a line of its own, where the sandbox's check reads imports) needs allow native","fix":"put the import at the start of a line of its own (`import M` or `from M import x`); do without it, or the caller grants it: --allow native (MCP tools: \"allow\": [\"native\"])"}
+exit 1
+-- typed
+{"line":6,"msg":"a hidden import of _brevi_proc (not at the start of a line of its own, where the sandbox's check reads imports) needs allow native","fix":"put the import at the start of a line of its own (`import M` or `from M import x`); do without it, or the caller grants it: --allow native (MCP tools: \"allow\": [\"native\"])"}
+exit 1

@@ -1,0 +1,9 @@
+{"path":"dynamic","line":3,"fn":"main","why":"expected end of line, found fn"}
+b'hi\n' 0
+exit 0
+-- dynamic
+b'hi\n' 0
+exit 0
+-- typed
+{"line":3,"msg":"expected end of line, found fn"}
+exit 1

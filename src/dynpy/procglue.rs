@@ -66,7 +66,21 @@ mod brevi_procglue {
         }
     }
 
+    // Under --sandbox a child process is the native grant (it runs outside the sandbox): every call checks it here,
+    // whatever reached _brevi_proc, so the caps.rs source check is not the only guard (PROC_SANDBOX / PROC_NATIVE,
+    // set by the compiler).
+    fn held() -> Result<(), NetErr> {
+        if super::PROC_SANDBOX && !super::PROC_NATIVE {
+            return Err(NetErr { kind: "PermissionError", msg: "brevi: a child process under --sandbox needs --allow native".into() });
+        }
+        Ok(())
+    }
+
     fn op_spawn(argv: &[String], cwd: Option<&str>, env: Option<&[(String, String)]>, modes: [i64; 3]) -> Result<(i64, i64, [i64; 3]), NetErr> {
+        held()?;
+        if argv.is_empty() {
+            return Err(NetErr { kind: "ValueError", msg: "empty argv".into() });
+        }
         let mut cmd = Command::new(&argv[0]);
         cmd.args(&argv[1..]);
         if let Some(d) = cwd {
@@ -166,6 +180,7 @@ mod brevi_procglue {
     }
 
     fn op_read(fd: i64, n: usize) -> Result<Option<Vec<u8>>, NetErr> {
+        held()?;
         let mut b = vec![0u8; n];
         loop {
             let k = unsafe { read(fd as c_int, b.as_mut_ptr() as *mut c_void, n) };
@@ -185,6 +200,7 @@ mod brevi_procglue {
     }
 
     fn op_write(fd: i64, b: &[u8]) -> Result<i64, NetErr> {
+        held()?;
         loop {
             let k = unsafe { write(fd as c_int, b.as_ptr() as *const c_void, b.len()) };
             if k < 0 {
@@ -205,10 +221,14 @@ mod brevi_procglue {
     }
 
     fn op_close(fd: i64) {
+        if held().is_err() {
+            return;
+        }
         unsafe { close(fd as c_int) };
     }
 
     fn op_wait(id: i64, block: bool) -> Result<Option<i64>, NetErr> {
+        held()?;
         let mut g = CHILDREN.lock().unwrap();
         let c = match g.as_mut().and_then(|m| m.get_mut(&id)) {
             Some(c) => c,
@@ -226,6 +246,7 @@ mod brevi_procglue {
     }
 
     fn op_signal(pid: i64, sig: i64) -> Result<(), NetErr> {
+        held()?;
         if unsafe { kill(pid as c_int, sig as c_int) } < 0 {
             let e = errno();
             return Err(if e == 3 { NetErr { kind: "ProcessLookupError", msg: format!("[Errno 3] {}", strerror(3)) } } else { err(e) });
@@ -234,6 +255,7 @@ mod brevi_procglue {
     }
 
     fn op_poll(fds: &[(i64, i64)], timeout: f64) -> Result<Vec<i64>, NetErr> {
+        held()?;
         let mut p: Vec<PollFd> = fds.iter().map(|&(fd, ev)| PollFd { fd: fd as c_int, events: ev as i16, revents: 0 }).collect();
         let ms = if timeout < 0.0 { -1 } else { (timeout * 1000.0).ceil() as c_int };
         loop {
