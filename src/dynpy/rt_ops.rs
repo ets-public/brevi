@@ -343,6 +343,7 @@ pub fn eq(a: &V, b: &V) -> Result<bool, E> {
             }
             is(a, b)
         }
+        (V::Class(c), V::Ext(e)) | (V::Ext(e), V::Class(c)) if e.is_class(c) => true,
         (V::Ext(x), _) => match x.eq_rich(a, b, false) {
             Some(r) => r?,
             None => match x.eq(b) {
@@ -479,6 +480,7 @@ pub fn is(a: &V, b: &V) -> bool {
         (V::View(x), V::View(y)) => Rc::ptr_eq(x, y),
         (V::Prop(x), V::Prop(y)) => Rc::ptr_eq(x, y),
         (V::NotImpl, V::NotImpl) | (V::Ellipsis, V::Ellipsis) => true,
+        (V::Class(c), V::Ext(e)) | (V::Ext(e), V::Class(c)) => e.is_class(c),
         _ => false,
     }
 }

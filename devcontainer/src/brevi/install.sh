@@ -18,8 +18,15 @@ if ! need rustc; then
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --no-modify-path
   chmod -R a+rwX /usr/local/rustup /usr/local/cargo
 fi
-[ "$VERSION" = latest ] && VERSION=
-curl -fsSL https://raw.githubusercontent.com/ets-public/brevi/main/install.sh -o /tmp/brevi-install.sh
+# install.sh from the release being installed, never main: the latest release is found once
+# (releases/latest redirects to releases/tag/vX.Y.Z) and both scripts use that tag.
+if [ "$VERSION" = latest ]; then
+  VERSION=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/ets-public/brevi/releases/latest)
+  VERSION=${VERSION##*/}
+fi
+VERSION="v${VERSION#v}"
+case "$VERSION" in v[0-9]*.[0-9]*) ;; *) echo "brevi feature: no Brevi release found (got '$VERSION')" >&2; exit 1 ;; esac
+curl -fsSL "https://raw.githubusercontent.com/ets-public/brevi/$VERSION/install.sh" -o /tmp/brevi-install.sh
 HOME=/tmp/brevi-home BREVI_VERSION="$VERSION" sh /tmp/brevi-install.sh
 install -m 755 /tmp/brevi-home/.cargo/bin/brevi /usr/local/bin/brevi
 ln -sf brevi /usr/local/bin/brevi-python

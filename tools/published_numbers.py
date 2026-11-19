@@ -142,6 +142,11 @@ def render(tag):
     c, s = slice_numbers(tag, "report.json"), slice_numbers(tag, "stdlib/report.json")
     sp, med = speed()
     wfloor = json.loads(at_tag(tag, "compat/conformance_windows_floor.json"))["matched"]["normal"]
+    # The stdlib slice gates a Windows release only when the tag's release.yml runs it with --release-gate (v0.28.2 on).
+    wstd = None
+    if any("--slice stdlib" in ln and "--release-gate" in ln
+           for ln in at_tag(tag, ".github/workflows/release.yml").splitlines()):
+        wstd = json.loads(at_tag(tag, "compat/conformance_windows_stdlib_floor.json"))["matched"]["normal"]
     blob = f"{REPO}/blob/{tag}/"
     num = lambda x: f"{x:,}"
     share = lambda a, b: f"{num(a)} of {num(b)} ({pct(a, b)})"
@@ -221,9 +226,13 @@ def render(tag):
         "",
         "## Windows",
         "",
-        f"The {tag} release gate held the core slice on the shipped `brevi.exe` (at least 90%, no wrong answer; Windows "
-        f"floor {num(wfloor)} native matches). The standard-library slice was not gated on Windows in {tag}; its limits "
-        "are in [KNOWN_ISSUES.md](KNOWN_ISSUES.md#windows-beta).",
+        (f"The {tag} release gate held the core slice on the shipped `brevi.exe` (at least 90%, no wrong answer; Windows "
+         f"floor {num(wfloor)} native matches), on x86-64 and ARM64, and the standard-library slice too (at least 80%, "
+         f"no wrong answer; Windows floor {num(wstd)} native matches). Windows limits are in "
+         "[KNOWN_ISSUES.md](KNOWN_ISSUES.md#windows-beta)." if wstd is not None else
+         f"The {tag} release gate held the core slice on the shipped `brevi.exe` (at least 90%, no wrong answer; Windows "
+         f"floor {num(wfloor)} native matches). The standard-library slice was not gated on Windows in {tag}; its limits "
+         "are in [KNOWN_ISSUES.md](KNOWN_ISSUES.md#windows-beta)."),
         "",
     ]
     return "\n".join(L)
@@ -232,6 +241,9 @@ def render(tag):
 PUBLIC = re.compile(r"^(README\.md|BREVI\.md|REFERENCE\.md|CHANGELOG\.md|changelog\.d/.+\.md|docs/.+|"
                     r"site/(?!out).+\.(html|md|txt)|packaging/.+\.md|skills/.+|plugins/.+\.(md|mdc|json)|"
                     r"bench/README\.md|bench/[^/]+/README\.md|src/mcp\.rs)$")
+
+
+FEW = re.compile(r"small (fraction|share)", re.I)
 
 
 def scan(name, text, c, med):
@@ -249,9 +261,17 @@ def scan(name, text, c, med):
                 if need not in line:
                     problems.append(f"{name}:{i}: quotes {share} without \"{need}\"")
                     break
+        for share in core_shares:
+            whole = str(round(float(share[:-1])))
+            if re.search(r"(?<![\d.])" + whole + r"\s?%(?![\d])", line) and need not in line:
+                problems.append(f"{name}:{i}: quotes a rounded {whole}% without \"{need}\"")
+                break
         for t in typed:
-            if re.search(r"(?<![\d.])" + re.escape(t) + r"(?![\d])", line) and dyn not in line:
-                problems.append(f"{name}:{i}: quotes the typed median {t} without the dynamic median {dyn}")
+            if re.search(r"(?<![\d.])" + re.escape(t) + r"(?![\d])", line):
+                if dyn not in line:
+                    problems.append(f"{name}:{i}: quotes the typed median {t} without the dynamic median {dyn}")
+                elif name != OUT and not line.lstrip().startswith("|") and not FEW.search(line) and not (c.get("typed") and c["typed"] in line):
+                    problems.append(f"{name}:{i}: quotes the typed median {t} without saying only a small fraction of programs take the typed build")
     return problems
 
 

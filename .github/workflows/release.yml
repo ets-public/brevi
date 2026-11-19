@@ -33,8 +33,8 @@ on:
         description: "Build and run every release check, then stop: no GitHub release, no publishing"
         type: boolean
         default: false
-permissions:
-  contents: write
+# Nothing by default: each job names the few permissions it needs, so a job added later starts with none.
+permissions: {}
 jobs:
   # Fails in a minute what would otherwise fail after the builds: a tag that is not Cargo.toml's version, or a tag
   # that already exists on another commit than the one being built.
@@ -105,6 +105,8 @@ jobs:
           - { os: windows-11-arm, targets: aarch64-pc-windows-msvc, test: true }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Rust (pinned in .github/rust-version)
@@ -468,7 +470,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Publish server.json
         run: |
-          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+          # Pinned by version and SHA-256 (from that release's registry_VERSION_checksums.txt): this job holds an
+          # OIDC token, so it runs only the publisher it was reviewed with. Bump both together.
+          v=v1.8.9 sum=4d527ca8f1ced0394c962dc925c2a4a4addef441cbefd62501c875e9481823a8
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/download/$v/mcp-publisher_linux_amd64.tar.gz" -o mcp-publisher.tgz
+          echo "$sum  mcp-publisher.tgz" | sha256sum -c -
+          tar xzf mcp-publisher.tgz mcp-publisher
           ./mcp-publisher login github-oidc
           # A new npm version can take a few minutes to show, and the registry checks it exists, so retry.
           for try in 1 2 3 4 5 6; do

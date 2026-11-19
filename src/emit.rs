@@ -53,7 +53,7 @@ pub const METHODS: &[&str] = &[
     "weekday", "words", "year", "zip", "month", "code", "char", "unique", "step", "json", "spec", "flatten", "enumerate_from", "is_none", "is_true_obj", "is_false_obj", "not_true_obj", "not_false_obj",
     "text", "list", "is_null", "bool", "re_find", "re_full", "re_all", "re_list", "partition", "re_sub", "re_split",
     "trim_of", "trim_end", "trim_end_of", "trim_start", "trim_start_of", "is_upper", "is_lower", "is_alnum",
-    "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "quantize", "frac", "frac_div", "csv_rows", "csv_dicts", "re_match", "re_m_find", "re_m_full", "re_m_match", "re_m_match_at", "re_m_find_at", "re_m_all", "re_findall", "next_or", "next_or_empty", "tally", "tally_words", "to_dict", "clear", "splice", "most_common", "most_common_all", "count_sub", "zfill", "title", "center", "center_with", "capitalize", "exit_with", "ljust", "rjust", "ljust_with", "rjust_with", "split_n", "rsplit_n", "update", "delta_days", "month_range", "is_leap", "is_ascii", "is_integer", "isinstance", "type_kind", "lines_keep", "pop_or", "py_repr", "py_dumps", "group_runs", "count_of", "min_or", "max_or", "first_or", "re_start", "re_end", "re_span", "re_groups", "isqrt", "lax", "int_base", "big_base", "next_or_none", "tuple_items",
+    "heap_push", "heap_pop", "heapify", "heap_push_pop", "heap_replace", "pop_at", "move_to_end", "pop_item", "next_or", "next_or_empty", "quantize", "frac", "frac_div", "csv_rows", "csv_dicts", "re_match", "re_m_find", "re_m_full", "re_m_match", "re_m_match_at", "re_m_find_at", "re_m_all", "re_findall", "next_or", "next_or_empty", "tally", "tally_words", "to_dict", "clear", "splice", "most_common", "most_common_all", "count_sub", "zfill", "title", "center", "center_with", "capitalize", "exit_with", "ljust", "rjust", "ljust_with", "rjust_with", "split_n", "words_n", "rsplit_n", "update", "delta_days", "month_range", "is_leap", "is_ascii", "is_integer", "isinstance", "type_kind", "lines_keep", "pop_or", "py_repr", "py_dumps", "group_runs", "count_of", "min_or", "max_or", "first_or", "re_start", "re_end", "re_span", "re_groups", "isqrt", "lax", "int_base", "big_base", "next_or_none", "tuple_items",
     "m_log", "m_logb", "m_log2", "m_log10", "m_log1p", "m_exp", "m_expm1", "m_sin", "m_cos", "m_tan", "m_asin", "m_acos", "m_atan", "m_atan2", "m_sinh", "m_cosh", "m_tanh", "m_hypot", "m_fabs", "m_trunc", "m_degrees", "m_radians", "m_copysign", "m_fmod", "m_isnan", "m_isinf", "m_isfinite", "m_inf", "m_nan", "m_time", "m_perf_counter", "m_monotonic", "bin_text", "hex_text", "oct_text", "starts_with_at", "ends_with_at", "csv_writerow", "csv_writerows", "lax_def", "lax_mk",
 ];
 
@@ -1348,7 +1348,7 @@ impl Emitter {
             },
             Expr::Method(_, m, _, _) => match m.as_str() {
                 "len" | "count" | "find" | "find_from" | "index_of" | "digit" => named("int"),
-                "words" | "lines" | "lines_keep" | "chars" | "split" | "split_n" | "rsplit_n" => Some(Ty::List(Box::new(Ty::Named("str".into())))),
+                "words" | "words_n" | "lines" | "lines_keep" | "chars" | "split" | "split_n" | "rsplit_n" => Some(Ty::List(Box::new(Ty::Named("str".into())))),
                 "trim" | "lower" | "casefold" | "upper" | "join" | "replace" | "text" | "trim_of" | "trim_end" | "trim_end_of" | "trim_start" | "trim_start_of" | "zfill" | "title" | "center" | "center_with" | "capitalize" | "ljust" | "rjust" | "ljust_with" | "rjust_with" => named("str"),
                 "list" => Some(Ty::List(Box::new(Ty::Named("Json".into())))),
                 "dec" | "big" if matches!(e, Expr::Method(r, ..) if matches!(r.as_ref(), Expr::Int(_) | Expr::Float(_))) => named(m),
@@ -2290,7 +2290,7 @@ impl Emitter {
                     }
                     (_, "+=") => {
                         let p = self.place_mut(target);
-                        format!("{{ let __v = {v}; let __p = &mut {p}; *__p = ax_ck(Plus::plus(std::mem::take(__p), __v)); }}")
+                        format!("{{ let __v = {v}; let __p = &mut {p}; *__p = ax_ck(PlusEq::plus_eq(std::mem::take(__p), __v)); }}")
                     }
                     (_, op @ ("-=" | "*=")) => {
                         let p = self.place_mut(target);
@@ -2706,7 +2706,11 @@ impl Emitter {
             // A None put in a JSON slot: JSON null (no type to take ax_none's from).
             Expr::Call(name, args, _) if name == "ax_to_json" && matches!(args.as_slice(), [(_, Expr::Call(n, a, _))] if n == "none" && a.is_empty()) => "Json::Null".to_string(),
             Expr::Call(name, args, line) => {
-                self.line = *line;
+                // A call the inference made (`ax_jas_int(..)`, line 0) keeps the statement's line for its errors.
+                if *line != 0 {
+                    self.line = *line;
+                }
+                let line = &{ self.line };
                 // A call to a checked function inside a try that catches its error, or inside another checked
                 // function (where the error propagates with ?).
                 let ck_catch = self.py_mode

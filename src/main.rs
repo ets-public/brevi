@@ -46,7 +46,7 @@ use std::path::{Path, PathBuf};
 use std::io::Write;
 use std::process::{exit, Command};
 
-const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--strict] [--sandbox] [--allow read,write,net,native] [--allow-py MODULES] [--allow-net HOSTS] [--allow-read DIRS] [--allow-write DIRS] [--limit cpu=S,mem=MB,time=S,output=KB,file=MB,written=MB,net=MB,threads=N,fds=N,files=N] [--traceback] [--window] [--explain] [--standalone] [-o OUT] [ARGS...] [-- ARGS...] | brevi run --verify FILE.py [--strict] [-- ARGS...] | brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [--limit SPEC] [-- ARGS...] | brevi report [--clear] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp [--http [HOST:]PORT --token TOKEN]";
+const USAGE: &str = "usage: brevi <run|build|test|check|fix|emit> FILE.py|FILE.bv [--release] [--fast] [--native] [--strict] [--sandbox] [--allow read,write,net,native] [--allow-py MODULES] [--allow-net HOSTS] [--allow-read DIRS] [--allow-write DIRS] [--allow-unlocked-python] [--limit cpu=S,mem=MB,time=S,output=KB,file=MB,written=MB,net=MB,threads=N,fds=N,files=N] [--traceback] [--window] [--explain] [--standalone] [-o OUT] [ARGS...] [-- ARGS...] | brevi run --verify FILE.py [--strict] [-- ARGS...] | brevi verify FILE.py [--input PATH]... [--once] [--timeout SECS] [--limit SPEC] [-- ARGS...] | brevi report [--clear] | brevi guide [SECTION|WORD] | brevi patch FILE PATCH | brevi mcp [--http [HOST:]PORT --token TOKEN]";
 
 // The language guide, so `brevi guide` and `--explain` can serve parts of it.
 pub const GUIDE: &str = include_str!("../BREVI.md");
@@ -191,11 +191,11 @@ pub fn universal_newlines(s: &str) -> std::borrow::Cow<'_, str> {
 
 // `brevi run` options that take a value in the next argument (or after `=`).
 const RUN_VALUE_FLAGS: [&str; 9] = ["--allow", "--allow-py", "--allow-net", "--allow-read", "--allow-write", "--limit", "-o", "--timeout", "--input"];
-const RUN_FLAGS: [&str; 13] = ["--release", "--fast", "--native", "--sandbox", "--traceback", "--window", "--explain", "--standalone", "--no-cache", "--verify", "--strict", "--once", "--mcp"];
+const RUN_FLAGS: [&str; 14] = ["--allow-unlocked-python", "--release", "--fast", "--native", "--sandbox", "--traceback", "--window", "--explain", "--standalone", "--no-cache", "--verify", "--strict", "--once", "--mcp"];
 
 // Options of build, check, emit, test and fix (before `--`); run takes RUN_FLAGS and RUN_VALUE_FLAGS.
 const BUILD_VALUE_FLAGS: [&str; 7] = ["--allow", "--allow-py", "--allow-net", "--allow-read", "--allow-write", "--limit", "-o"];
-const BUILD_FLAGS: [&str; 10] = ["--release", "--fast", "--native", "--sandbox", "--traceback", "--window", "--explain", "--standalone", "--no-cache", "--strict"];
+const BUILD_FLAGS: [&str; 11] = ["--allow-unlocked-python", "--release", "--fast", "--native", "--sandbox", "--traceback", "--window", "--explain", "--standalone", "--no-cache", "--strict"];
 // run options that only `brevi run --verify` reads.
 const VERIFY_ONLY: [&str; 4] = ["--once", "--mcp", "--timeout", "--input"];
 
@@ -455,6 +455,13 @@ fn main() {
         }
         sandbox = true;
     }
+    // --allow-unlocked-python: let a sandboxed build run CPython where the kernel cannot lock it (it implies
+    // --sandbox; pybridge.rs lock_refusal).
+    let dash = argv.iter().position(|a| a == "--").unwrap_or(argv.len());
+    if argv[..dash].iter().position(|a| a == "--allow-unlocked-python").map(|i| argv.remove(i)).is_some() {
+        caps::UNLOCKED_PY.store(true, std::sync::atomic::Ordering::Relaxed);
+        sandbox = true;
+    }
     // --limit cpu=2,mem=256,time=5,output=64,file=10: what the program may use while it runs (proc.rs).
     let limits = proc::take_limit_flags(&mut argv).unwrap_or_else(|m| {
         eprintln!("{m}");
@@ -540,7 +547,11 @@ fn main() {
     if is_py(&file) && matches!(cmd, "build" | "run" | "emit") {
         emit::I64_WHY.set(replay::why_not(&file)).ok();
     }
-    if is_py(&file) && matches!(cmd, "build" | "run" | "check" | "emit") && std::env::var("BREVI_DYN").map_or(true, |v| v != "0") {
+    // BREVI_DYN=0 keeps the guard: it only turns the dynamic build off, so what the guard sends there is refused.
+    // Only the compiler's own typed tests turn it off (BREVI_DYN=0 BREVI_GUARD=off: the typed build of a file
+    // whose answer may then differ from CPython's); never under --strict.
+    let guard_off = std::env::var("BREVI_GUARD").is_ok_and(|v| v == "off") && std::env::var("BREVI_DYN").is_ok_and(|v| v == "0") && !strict();
+    if is_py(&file) && matches!(cmd, "build" | "run" | "check" | "emit") && !guard_off {
         let guard;
         tm("guard: start");
         (guard, unread) = guard_files(&file);
@@ -618,6 +629,11 @@ fn main() {
     }
     let foreign = ffi::split(&src).1;
     let mut deps = ffi::all_deps(&foreign);
+    let dep_errs = ffi::dep_errors(&deps, sandbox);
+    if !dep_errs.is_empty() {
+        dep_errs.iter().for_each(|(line, msg, fix)| print_diag(&Diag::new("check", (*line).max(1), 1, msg).fix_hint(fix)));
+        exit(1);
+    }
     // A tkinter program built with --window draws through eframe.
     if gui::window() && src.lines().any(|l| (l.starts_with("import tkinter") || l.starts_with("from tkinter")) && !deps.iter().any(|d| d.name == "eframe")) {
         deps.push(gui::window_dep());
@@ -858,7 +874,8 @@ fn dyn_fallback(cmd: &str, file: &str, argv: &[String], why: Why) -> bool {
         // builds at once, a full disk) or rustc may have been stopped. The refusal printed next names the typed
         // build's reason, which a later build (after the machine is fine) would not stop at.
         runcache::not_kept();
-        *DYN_BLOCKED.lock().unwrap() = Some((file.to_string(), 0, "internal: the dynamic build's code did not compile".into()));
+        let why = link_failure(&e).map_or_else(|| "internal: the dynamic build's code did not compile".into(), |w| format!("the dynamic build could not link: {w}"));
+        *DYN_BLOCKED.lock().unwrap() = Some((file.to_string(), 0, why));
         return false;
     }
     let (wfile, line, func, why, extra, relocate) = why;
@@ -886,7 +903,8 @@ fn guard_refusal(cmd: &str, file: &str, argv: &[String], line: usize, why: &str,
         if cmd != "emit" {
             refuse_sure(&file, pydiag::scan);
         }
-        if cmd == "emit" {
+        let dyn_off = std::env::var("BREVI_DYN").is_ok_and(|v| v == "0");
+        if cmd == "emit" && !dyn_off {
             dyn_cmd(cmd, &file, &argv);
         }
         let gsrc = crate::read_src(&gfile).unwrap_or_default();
@@ -902,6 +920,7 @@ fn guard_refusal(cmd: &str, file: &str, argv: &[String], line: usize, why: &str,
         let blocked = match DYN_BLOCKED.lock().unwrap().as_ref() {
             Some((f, l, m)) if *l > 0 => format!(" ({} line {l}: {m})", Path::new(f).file_name().unwrap_or_default().to_string_lossy()),
             Some((_, _, m)) => format!(" ({m})"),
+            None if dyn_off => " (BREVI_DYN=0 turns the dynamic build off)".to_string(),
             None => String::new(),
         };
         let mut d = Diag::new("check", line, 1, &format!("{why}, and this file cannot be built over dynamic values{blocked}"));
@@ -1023,7 +1042,10 @@ fn dyn_cmd(cmd: &str, file: &str, argv: &[String]) -> ! {
     let out_path = argv[..dash].iter().position(|a| a == "-o").and_then(|i| argv.get(i + 1)).map(PathBuf::from);
     let bin = if cmd == "build" { out_path.unwrap_or_else(|| PathBuf::from(&stem)) } else { dir.join(format!("{stem}-dyn")) };
     if let Err(e) = dynpy::compile(&rust, &dir, &bin, release, &cache_dir(), rustc_version()) {
-        println!("{{\"e\":\"dyn\",\"msg\":\"internal: generated code did not compile\"}}");
+        match link_failure(&e) {
+            Some(w) => println!("{{\"e\":\"dyn\",\"msg\":\"the dynamic build could not link: {}\"}}", esc(&w)),
+            None => println!("{{\"e\":\"dyn\",\"msg\":\"internal: generated code did not compile\"}}"),
+        }
         eprintln!("{e}");
         exit(1);
     }
@@ -1402,8 +1424,54 @@ fn enclosing_def(src: &str, line: usize) -> Option<String> {
     Some(parts.join("."))
 }
 
+// What the linker said, when rustc's error is "linking with ... failed": its own error lines (rustc puts them
+// in a note after the command line), so a refusal names the cause instead of only an exit code. Reads rustc's
+// JSON (--error-format=json) and its text output.
+pub(crate) fn link_failure(stderr: &str) -> Option<String> {
+    let mut text = String::new();
+    let mut found = false;
+    for l in stderr.lines() {
+        if let Some(j) = json::parse(l) {
+            if j.get("message").and_then(|v| v.str()).is_some_and(|m| m.starts_with("linking with")) {
+                found = true;
+                for c in j.get("children").map(|c| c.arr()).unwrap_or(&[]) {
+                    text.push_str(c.get("message").and_then(|v| v.str()).unwrap_or(""));
+                    text.push('\n');
+                }
+            }
+        } else if found {
+            text.push_str(l);
+            text.push('\n');
+        } else if l.contains("error: linking with") {
+            found = true;
+        }
+    }
+    if !found {
+        return None;
+    }
+    let lines: Vec<&str> = text
+        .lines()
+        .map(|l| l.trim().trim_start_matches('|').trim().trim_start_matches("= note:").trim())
+        .filter(|l| !l.is_empty() && !l.starts_with('"') && !l.starts_with("some arguments are omitted") && !l.starts_with("error: aborting due to") && !l.starts_with("For more information"))
+        .take(4)
+        .collect();
+    let mut s = lines.join("; ");
+    if s.len() > 600 {
+        let mut end = 600;
+        while !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        s.truncate(end);
+        s.push_str("...");
+    }
+    Some(s).filter(|s| !s.is_empty())
+}
+
 // The first error of a failed rustc run over the typed build's code, in one line.
 fn rustc_first_error(stderr: &str) -> String {
+    if let Some(why) = link_failure(stderr) {
+        return format!("the typed build could not link ({why})");
+    }
     for l in stderr.lines() {
         if let Some(j) = json::parse(l) {
             if j.get("level").and_then(|v| v.str()) == Some("error") {
@@ -1622,6 +1690,7 @@ fn compile_once(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>
             Some(g) => foreign.rust_top.push_str(&g),
             None => {
                 pybridge::python_ok().map_err(|m| vec![Diag::new("check", 1, 1, &m).fix_hint("install CPython 3.13 with its shared library (libpython), or set BREVI_PYTHON to one")])?;
+                pybridge::lock_refusal().map_err(|m| vec![Diag::new("caps", 1, 1, &m).fix_hint(pybridge::LOCK_FIX)])?;
                 foreign.rust_top.push_str(&pybridge::runtime());
             }
         }
@@ -1641,7 +1710,8 @@ fn compile_once(src: &str, moves: bool, hints: bool) -> Result<String, Vec<Diag>
         if !errs.is_empty() {
             return Err(errs);
         }
-        let errs = alias::share_marks(&mut items);
+        let mut errs = alias::share_marks(&mut items);
+        errs.extend(alias::share_writebacks());
         if !errs.is_empty() {
             return Err(errs);
         }
@@ -1932,6 +2002,26 @@ static RUST_LINES: std::sync::OnceLock<Vec<(usize, usize)>> = std::sync::OnceLoc
 
 // Where crates are built once and shared by every program: $BREVI_CACHE, else ~/.cache/brevi.
 pub(crate) fn cache_dir() -> PathBuf {
+    static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
+        let d = cache_dir_named();
+        match cache_trusted(&d) {
+            Ok(()) => d,
+            Err(why) => {
+                // Brevi runs the binaries kept here and links every program with the runtime libraries kept here,
+                // so a cache someone else can write is never used: a private one stands in (empty, so slower).
+                let own = tmp_root().join("cache");
+                if !runcache::in_child() {
+                    eprintln!("brevi: not using the build cache {}: {why}; using {} instead (set BREVI_CACHE to a folder only you can write)", d.display(), own.display());
+                }
+                own
+            }
+        }
+    })
+    .clone()
+}
+
+fn cache_dir_named() -> PathBuf {
     if let Ok(d) = std::env::var("BREVI_CACHE") {
         // Absolute, so a background build (src/tier.rs), which runs in its own folder, finds the same cache.
         return std::path::absolute(&d).unwrap_or_else(|_| PathBuf::from(d));
@@ -1942,6 +2032,111 @@ pub(crate) fn cache_dir() -> PathBuf {
         Ok(h) if !h.is_empty() => PathBuf::from(h).join(".cache").join("brevi"),
         _ => tmp_root().join("cache"),
     }
+}
+
+// The build cache is used only if no other user can change what is in it: the folder and every folder or file
+// directly in it are this user's, not links, every folder above it safe (folders_above_ok), and writable by no other user (group-writable only for this
+// user's own group, as a umask of 002 makes them). Brevi makes everything deeper itself, inside these. Unix
+// only: on Windows the cache is under the user's own profile.
+#[cfg(unix)]
+fn cache_trusted(d: &Path) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+    unsafe extern "C" {
+        fn getegid() -> u32;
+    }
+    // SAFETY: getegid takes nothing and cannot fail.
+    let gid = unsafe { getegid() };
+    let me = privdir::ax_priv::me();
+    std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
+    folders_above_ok(d)?;
+    let ok = |p: &Path, m: &std::fs::Metadata| -> Result<(), String> {
+        if m.uid() != me {
+            return Err(format!("{} belongs to another user (uid {})", p.display(), m.uid()));
+        }
+        if m.mode() & 0o002 != 0 || (m.mode() & 0o020 != 0 && m.gid() != gid) {
+            return Err(format!("{} can be changed by other users (mode {:o})", p.display(), m.mode() & 0o7777));
+        }
+        Ok(())
+    };
+    ok(d, &std::fs::metadata(d).map_err(|e| e.to_string())?)?;
+    for e in std::fs::read_dir(d).map_err(|e| e.to_string())?.flatten() {
+        let p = e.path();
+        let m = std::fs::symlink_metadata(&p).map_err(|e| e.to_string())?;
+        if m.file_type().is_symlink() {
+            return Err(format!("{} is a link", p.display()));
+        }
+        ok(&p, &m)?;
+    }
+    Ok(())
+}
+
+// Every folder above `p` (as given and as resolved) belongs to this user or root (or, in a user namespace, the
+// unmapped owner of the host's folders), and no other user can rename what is in it: not writable by others
+// unless sticky as /tmp is, and group-writable only for this user's own group (a umask of 002 makes ~/.cache so).
+#[cfg(unix)]
+fn folders_above_ok(p: &Path) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+    unsafe extern "C" {
+        fn getegid() -> u32;
+    }
+    // SAFETY: getegid takes nothing and cannot fail.
+    let gid = unsafe { getegid() };
+    let me = privdir::ax_priv::me();
+    let other = privdir::ax_priv::unmapped();
+    let given = std::path::absolute(p).map_err(|e| format!("{}: {e}", p.display()))?;
+    let real = std::fs::canonicalize(p).map_err(|e| format!("{}: {e}", p.display()))?;
+    for top in [given, real] {
+        for a in top.ancestors().skip(1) {
+            let m = std::fs::metadata(a).map_err(|e| format!("{}: {e}", a.display()))?;
+            if m.uid() != me && m.uid() != 0 && Some(m.uid()) != other {
+                return Err(format!("{} belongs to another user (uid {})", a.display(), m.uid()));
+            }
+            let sticky = m.mode() & 0o1000 != 0;
+            if !sticky && (m.mode() & 0o002 != 0 || (m.mode() & 0o020 != 0 && m.gid() != gid)) {
+                return Err(format!("{} can be changed by other users and is not sticky", a.display()));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn cache_trusted(_: &Path) -> Result<(), String> {
+    Ok(())
+}
+
+// A runtime library built ahead of time into a read-only seed folder, BREVI_CACHE_SEED (the sandbox image warms
+// one as root, so each user's own cache starts without the minutes it takes to build them). `rel` is the
+// library's path inside the cache. Used only if no user but root and this one can change it: the seed folder,
+// every folder down to the file and the file itself are owned by root or this user, are not links, and are
+// writable by no one else, and every folder above the seed is safe (folders_above_ok).
+#[cfg(unix)]
+pub(crate) fn seed_file(rel: &Path) -> Option<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    let seed = PathBuf::from(std::env::var_os("BREVI_CACHE_SEED").filter(|v| !v.is_empty())?);
+    if !seed.is_absolute() || rel.components().any(|c| !matches!(c, std::path::Component::Normal(_))) {
+        return None;
+    }
+    folders_above_ok(&seed).ok()?;
+    let me = privdir::ax_priv::me();
+    let mut p = seed;
+    let mut parts = vec![p.clone()];
+    for c in rel.components() {
+        p.push(c);
+        parts.push(p.clone());
+    }
+    for q in &parts {
+        let m = std::fs::symlink_metadata(q).ok()?;
+        if m.file_type().is_symlink() || (m.uid() != 0 && m.uid() != me) || m.mode() & 0o022 != 0 {
+            return None;
+        }
+    }
+    std::fs::metadata(&p).ok().filter(|m| m.is_file()).map(|_| p)
+}
+
+#[cfg(not(unix))]
+pub(crate) fn seed_file(_: &Path) -> Option<PathBuf> {
+    None
 }
 
 // Builds with cargo, for programs that use crates. Same results as compile().
@@ -2251,10 +2446,14 @@ fn runtime_lib(release: bool) -> Option<PathBuf> {
             }
             let src = runtime_lib_source();
             let mode = if release { "release" } else { "dev-o3" };
-            let dir = cache_dir().join("rt").join(format!("{:016x}-{mode}", fnv(&[&src, rustc_version()], 1)));
+            let name = format!("{:016x}-{mode}", fnv(&[&src, rustc_version()], 1));
+            let dir = cache_dir().join("rt").join(&name);
             let lib = dir.join("libbrevi_rt.rlib");
             if lib.exists() {
                 return Some(lib);
+            }
+            if let Some(seeded) = seed_file(&Path::new("rt").join(&name).join("libbrevi_rt.rlib")) {
+                return Some(seeded);
             }
             std::fs::create_dir_all(&dir).ok()?;
             // programs built side by side wait for one build of it
@@ -2500,6 +2699,11 @@ fn report(rust: &str, stderr: &str) {
         };
         let aline = line_map.get(rline.saturating_sub(1)).copied().unwrap_or(0);
         let mut text = to_brevi_words(msg);
+        if msg.starts_with("linking with") {
+            if let Some(why) = link_failure(stderr) {
+                text = format!("{text}: {why}");
+            }
+        }
         if code == "E0596" || code == "E0384" {
             let name = msg.split_whitespace().skip_while(|w| *w != "borrow" && *w != "variable").nth(1).unwrap_or("it").replace('`', "");
             text = format!("cannot change {name}: it was declared with let");
@@ -2938,5 +3142,15 @@ mod path_tests {
         assert_eq!(rustc_first_error(&format!("{{\"level\":\"warning\",\"message\":\"unused\"}}\n{j}")), "the typed build's Rust did not compile (mismatched types)");
         assert_eq!(rustc_first_error("error[E0308]: mismatched types\n"), "the typed build's Rust did not compile (mismatched types)");
         assert_eq!(rustc_first_error(""), "the typed build's Rust did not compile");
+    }
+
+    #[test]
+    fn link_failure_names_what_the_linker_said() {
+        let j = r#"{"message":"linking with `brevi-cc` failed: exit status: 1","level":"error","spans":[],"children":[{"message":" \"brevi-cc\" \"-nolibc\"","level":"note"},{"message":"some arguments are omitted. use `--verbose` to show all linker arguments","level":"note"},{"message":"error: unable to find dynamic system library \"msvcrt\"\n  searched paths:","level":"note"}]}"#;
+        assert_eq!(link_failure(j).as_deref(), Some("error: unable to find dynamic system library \"msvcrt\"; searched paths:"));
+        assert_eq!(rustc_first_error(j), "the typed build could not link (error: unable to find dynamic system library \"msvcrt\"; searched paths:)");
+        let t = "error: linking with `cc` failed: exit status: 1\n  |\n  = note:  \"cc\" \"-m64\"\n  = note: some arguments are omitted. use `--verbose` to show all linker arguments\n  = note: error: unsupported linker arg: --fix-cortex-a53-843419\n\nerror: aborting due to 1 previous error\n";
+        assert_eq!(link_failure(t).as_deref(), Some("error: unsupported linker arg: --fix-cortex-a53-843419"));
+        assert_eq!(link_failure("error[E0308]: mismatched types\n"), None);
     }
 }

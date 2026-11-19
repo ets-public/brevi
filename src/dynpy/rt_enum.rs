@@ -443,6 +443,12 @@ fn enum_more() -> [Rc<Class>; 4] {
         }
         let k = [ie, se, fl, ifl];
         *e.borrow_mut() = Some(k.clone());
+        // `class Flag(Enum, boundary=STRICT)`, `class IntFlag(int, ReprEnum, Flag, boundary=KEEP)`: FlagBoundary is
+        // a StrEnum, made once the four classes are
+        if let (Ok(strict), Ok(keep)) = (flag_boundary("STRICT"), flag_boundary("KEEP")) {
+            k[2].set("_boundary_", strict);
+            k[3].set("_boundary_", keep);
+        }
         k
     })
 }
@@ -718,11 +724,18 @@ pub fn enum_ignore_ns(ctx: &EnumCtx, ns: &V, meta: bool) -> Result<(), E> {
 fn enum_member_store(last: &mut Vec<V>, ctx: &mut EnumCtx, name: &str, v: V) -> R {
     let au = enum_classes().1;
     let is_auto = |x: &V| matches!(x, V::Obj(o) if Rc::ptr_eq(&o.cls, &au));
-    // EnumDict.__setitem__: an auto(), alone or in a plain tuple, gets its value (the same auto() assigned
-    // again keeps the value it was given first); only those values are remembered then
+    // EnumDict.__setitem__: an auto(), alone or in a tuple, gets its value (the same auto() assigned again keeps
+    // the value it was given first); only those values are remembered then. A tuple subclass (a namedtuple) is
+    // made again as CPython does: t(values), or t(*values) when that raises TypeError.
+    let mut sub: Option<Rc<Class>> = None;
     let (items, single) = match &v {
         x if is_auto(x) => (vec![x.clone()], true),
         V::Tuple(xs) if xs.iter().any(|x| is_auto(x)) => (xs.to_vec(), false),
+        V::Obj(o) if matches!(o.inner(), Some(V::Tuple(ref xs)) if xs.iter().any(|x| is_auto(x))) => {
+            sub = Some(o.cls.clone());
+            let Some(V::Tuple(xs)) = o.inner() else { unreachable!() };
+            (xs.to_vec(), false)
+        }
         _ => {
             last.push(v.clone());
             ctx.count += 1;
@@ -752,6 +765,13 @@ fn enum_member_store(last: &mut Vec<V>, ctx: &mut EnumCtx, name: &str, v: V) -> 
         out.push(val);
     }
     ctx.count += 1;
+    if let Some(c) = sub {
+        let t = V::Class(c);
+        return match call(&t, Args::p(vec![list(out.clone())])) {
+            Err(E(e)) if is_exc(&e, "TypeError") => call(&t, Args::p(out)),
+            r => r,
+        };
+    }
     Ok(if single { out.pop().unwrap_or(V::None) } else { tup(out) })
 }
 // EnumType._find_data_type_: the type the members are instances of (object for a plain Enum).
@@ -790,6 +810,10 @@ fn find_data_type(c: &Rc<Class>) -> Result<Rc<Class>, E> {
 }
 // Called by make_class for a subclass of Enum.
 pub fn enum_setup(c: &Rc<Class>) -> Result<(), E> {
+    enum_setup_b(c, V::None)
+}
+// As enum_setup, with the class statement's boundary= (V::None without one), as EnumType.__new__ takes it
+pub fn enum_setup_b(c: &Rc<Class>, boundary: V) -> Result<(), E> {
     let au = enum_classes().1;
     // EnumType.__prepare__'s _check_for_existing_members_, then _get_mixins_: the last base must be an enum
     for chain in c.bases.iter() {
@@ -1059,7 +1083,14 @@ pub fn enum_setup(c: &Rc<Class>) -> Result<(), E> {
         c.set("__new_member__", f);
         c.del_exact("__new__");
     }
-    enum_cpy_attrs(c, &new_fn, &mt, &members, &seen)?;
+    // EnumType.__new__ sets enum_class.__new__ = Enum.__new__: a data type's own __new__ (a class of the program
+    // with __new__ before Enum in the MRO) is not what the class finds
+    if let Some(en_new) = en_pair().0.own("__new__") {
+        if !c.lookup("__new__").is_some_and(|f| is(&f, &en_new)) {
+            c.set("__new__", en_new);
+        }
+    }
+    enum_cpy_attrs(c, &new_fn, &mt, &members, &seen, boundary)?;
     // EnumType.__new__: a __repr__, __str__, __format__ or __reduce_ex__ the class would find on its data type
     // (or object) becomes its first enum base's. Brevi's runtime gives builtin data types theirs already; a
     // program's own data type (a namedtuple, a class with __new__) has its methods in its dict, so they are
@@ -1084,7 +1115,7 @@ pub fn enum_setup(c: &Rc<Class>) -> Result<(), E> {
 // The rest of what EnumType.__new__ keeps on the class (enum.py 3.13): _generate_next_value_ as a staticmethod,
 // the _new_member_ the members were made with, _use_args_, _member_names_, the value maps and lists,
 // _value_repr_, and a Flag's _boundary_ and _inverted_.
-fn enum_cpy_attrs(c: &Rc<Class>, new_fn: &Option<V>, mt: &Rc<Class>, members: &[V], seen: &[(Sym, V, V)]) -> Result<(), E> {
+fn enum_cpy_attrs(c: &Rc<Class>, new_fn: &Option<V>, mt: &Rc<Class>, members: &[V], seen: &[(Sym, V, V)], boundary: V) -> Result<(), E> {
     let gnv = match c.own("_generate_next_value_") {
         Some(f @ V::Obj(_)) if matches!(&f, V::Obj(o) if o.cls.name == "staticmethod") => f,
         Some(f) => bi_staticmethod(Args::p(vec![f]))?,
@@ -1198,7 +1229,17 @@ fn enum_cpy_attrs(c: &Rc<Class>, new_fn: &Option<V>, mt: &Rc<Class>, members: &[
 
     c.set("_value_repr_", data_repr(&c.bases)?);
     if is_flag(c) {
-        c.set("_boundary_", flag_boundary(if c.lookup("__bv_keep__").is_some() { "KEEP" } else { "STRICT" })?);
+        // `boundary or getattr(first_enum, '_boundary_', None)`: the last base's (Flag's STRICT, IntFlag's KEEP)
+        let b = if truth(&boundary)? {
+            boundary
+        } else {
+            match c.bases.last() {
+                Some(last) if !(last.module == "enum" && matches!(last.name, "Flag" | "IntFlag")) && last.lookup("_boundary_").is_some() => last.lookup("_boundary_").unwrap(),
+                Some(last) => flag_boundary(if last.lookup("__bv_keep__").is_some() { "KEEP" } else { "STRICT" })?,
+                None => flag_boundary("STRICT")?,
+            }
+        };
+        c.set("_boundary_", b);
         c.set("_inverted_", V::None);
     }
     Ok(())
@@ -1278,12 +1319,28 @@ thread_local! {
 fn strenum_new() -> V {
     STRENUM_NEW.with(|x| x.borrow_mut().get_or_insert_with(|| builtin("__new__", |_a: Args| Err(unsupported("calling StrEnum.__new__ directly")))).clone())
 }
+// A Flag class's _boundary_, as the name of the FlagBoundary member it is ("" for any other value)
+fn boundary_of(c: &Rc<Class>) -> &'static str {
+    let Some(b) = c.lookup("_boundary_") else {
+        return if c.lookup("__bv_keep__").is_some() { "KEEP" } else { "STRICT" };
+    };
+    for n in ["STRICT", "CONFORM", "EJECT", "KEEP"] {
+        if flag_boundary(n).is_ok_and(|m| is(&m, &b)) {
+            return n;
+        }
+    }
+    ""
+}
 // enum.FlagBoundary's member `n` (a Flag's _boundary_)
 fn flag_boundary(n: &str) -> R {
     let c = match FLAG_BOUNDARY.with(|x| x.borrow().clone()) {
         Some(c) => c,
         None => {
             let se = enum_more()[1].clone();
+            // making the enum classes made FlagBoundary already (Flag's and IntFlag's _boundary_)
+            if let Some(c) = FLAG_BOUNDARY.with(|x| x.borrow().clone()) {
+                return getattr(&V::Class(c), n);
+            }
             let attrs = vec![("__module__", s("enum")), ("__bv_enum_made__", V::Bool(true)), ("STRICT", s("strict")), ("CONFORM", s("conform")), ("EJECT", s("eject")), ("KEEP", s("keep"))];
             let V::Class(c) = make_class_f("FlagBoundary", "FlagBoundary", "enum", vec![V::Class(se)], attrs, vec![])? else { unreachable!() };
             FLAG_BOUNDARY.with(|x| *x.borrow_mut() = Some(c.clone()));
@@ -1385,17 +1442,30 @@ fn flag_member(c: &Rc<Class>, value: i64) -> R {
         return Ok(m);
     }
     let (fm, sm, all) = (cls_int(c, "_flag_mask_"), cls_int(c, "_singles_mask_"), cls_int(c, "_all_bits_"));
-    let keep = c.lookup("__bv_keep__").is_some();
+    let bnd = boundary_of(c);
+    let keep = bnd == "KEEP";
     let mut value = value;
     let mut neg = None;
     if !(!all <= value && value <= all) || value & (all ^ fm) != 0 {
-        if !keep {
+        if bnd == "STRICT" {
             let bl = |x: i64| 64 - (if x >= 0 { x as u64 } else { !(x as u64) }).leading_zeros() as usize;
             let mb = bl(value).max(bl(fm));
             return val_err(format!("<flag '{}'> invalid value {}\n    given {}\n  allowed {}", c.name, value, flag_bin(value, mb), flag_bin(fm, mb)));
         }
-        if value < 0 {
-            let bl = 64 - (!(value as u64)).leading_zeros();
+        if bnd == "CONFORM" {
+            value &= fm;
+        }
+        // EJECT: the plain int (Enum.__new__ returns it as it is)
+        if bnd == "EJECT" {
+            return Ok(V::Int(value));
+        }
+        if bnd.is_empty() {
+            let b = c.lookup("_boundary_").unwrap_or(V::None);
+            return val_err(format!("<flag '{}'> unknown flag boundary {}", c.name, repr(&b)?));
+        }
+        if keep && value < 0 {
+            // CPython's value.bit_length() (of |value|)
+            let bl = 64 - value.unsigned_abs().leading_zeros();
             if bl >= 62 {
                 return Err(unsupported("IntFlag values past 2**62"));
             }
@@ -1406,12 +1476,13 @@ fn flag_member(c: &Rc<Class>, value: i64) -> R {
         neg = Some(value);
         value = all + 1 + value;
     }
-    // a member (or pseudo-member) already made for the value is the one returned (enum.py's setdefault)
-    if neg.is_some() {
-        if let Some(m) = Dict::get_cell(&v2m, &V::Int(value))? {
-            Dict::set_cell(&v2m, V::Int(neg.unwrap()), m.clone())?;
-            return Ok(m);
+    // a member (or pseudo-member) already made for the value is the one returned (enum.py's setdefault): the
+    // value may have changed above (a negative one, CONFORM's mask, KEEP's wrap)
+    if let Some(m) = Dict::get_cell(&v2m, &V::Int(value))? {
+        if let Some(n) = neg {
+            Dict::set_cell(&v2m, V::Int(n), m.clone())?;
         }
+        return Ok(m);
     }
     let unknown0 = value & !fm;
     let aliases = value & !sm;
@@ -1450,7 +1521,7 @@ fn flag_member(c: &Rc<Class>, value: i64) -> R {
         }
         if combined == 0 {
             name = V::None;
-        } else if unknown != 0 && !keep {
+        } else if unknown != 0 && bnd == "STRICT" {
             return val_err(format!("<flag '{}'>: no members with value {unknown}", c.name));
         } else if unknown != 0 {
             name = st(format!("{}|{unknown}", names.join("|")));
@@ -1498,6 +1569,32 @@ fn flag_methods(fl: &Rc<Class>) {
     for (name, op) in [("__or__", '|'), ("__ror__", '|'), ("__and__", '&'), ("__rand__", '&'), ("__xor__", '^'), ("__rxor__", '^')] {
         fl.set(name, builtin(name, move |a: Args| {
             let c = me_cls(&a)?;
+            // a member of another Flag class is `other_value` as it is, so `value | other` is that class's own
+            // operator and the member's name and value then hold that class's members (enum.py's Flag.__or__)
+            if let Some(V::Obj(x)) = a.p.get(1) {
+                if is_flag(&x.cls) && !x.cls.is_sub(&c) && !matches!(c.base_bt(), BT::Object | BT::Other) {
+                    let d = x.cls.clone();
+                    let (v, o) = (flag_int(&a.p[0]), flag_int(&a.p[1]));
+                    let r = match op {
+                        '|' => v | o,
+                        '&' => v & o,
+                        _ => v ^ o,
+                    };
+                    // `value | other` is the other class's own operator: its member (or its error) first
+                    match flag_member(&d, r)? {
+                        V::Obj(_) => {}
+                        V::Int(i) => return flag_member(&c, i),
+                        m => return Ok(m),
+                    }
+                    // then this class's member for it: kept as Brevi keeps it only when its every bit is one of this
+                    // class's single-bit members (no `|<D.X: n>` name part, and a member already made is the one)
+                    let sm = cls_int(&c, "_singles_mask_");
+                    if r < 0 || r & !sm != 0 {
+                        return Err(unsupported("an operator between members of two different IntFlag classes"));
+                    }
+                    return flag_member(&c, r);
+                }
+            }
             let Some(o) = a.p.get(1).and_then(|x| other_val(&c, x)) else { return Ok(V::NotImpl) };
             flag_none_check(&a.p[0], Some(op))?;
             flag_none_check(&a.p[1], Some(op))?;
@@ -1516,7 +1613,16 @@ fn flag_methods(fl: &Rc<Class>) {
         flag_none_check(&a.p[0], None)?;
         int_flag_value(&a.p[0])?;
         let v = flag_int(&a.p[0]);
-        if c.lookup("__bv_keep__").is_some() {
+        // `self._boundary_ in (EJECT, KEEP)`: by == for a boundary that is not a FlagBoundary member
+        let ek = match boundary_of(&c) {
+            "EJECT" | "KEEP" => true,
+            "" => {
+                let b = c.lookup("_boundary_").unwrap_or(V::None);
+                eq(&b, &flag_boundary("EJECT")?)? || eq(&b, &flag_boundary("KEEP")?)?
+            }
+            _ => false,
+        };
+        if ek {
             flag_member(&c, !v)
         } else {
             flag_member(&c, cls_int(&c, "_singles_mask_") & !v)
@@ -1908,7 +2014,7 @@ pub fn enum_contains(c: &Rc<Class>, x: &V) -> Result<bool, E> {
         }
     }
     if is_flag(c) {
-        let keep = c.lookup("__bv_keep__").is_some();
+        let keep = boundary_of(c) == "KEEP";
         let v = match x {
             V::Int(i) => Some(*i),
             V::Bool(b) => Some(*b as i64),
@@ -1925,7 +2031,8 @@ pub fn enum_contains(c: &Rc<Class>, x: &V) -> Result<bool, E> {
             // _missing_ raises ValueError for values it cannot make a member of; EnumType.__contains__ then
             // falls through to the member-value check below (and returns False there).
             return match flag_member(c, v) {
-                Ok(_) => Ok(true),
+                // `isinstance(result, cls)`: an EJECT Flag's _missing_ gives a plain int for a value out of range
+                Ok(m) => Ok(matches!(&m, V::Obj(o) if o.cls.is_sub(c))),
                 Err(e) if is_val_err(&e) => Ok(false),
                 Err(e) => Err(e),
             };
@@ -1949,6 +2056,18 @@ pub fn enum_fn(n: &str, a: Args) -> R {
     match n {
         "auto" => Ok(V::Obj(Obj::new(enum_classes().1))),
         "property" => eprop_new(a),
+        "global_enum" => global_enum(a),
+        // enum.py 3.13: `return self.name`; `return getattr, (self.__class__, self._name_)`
+        "pickle_by_global_name" => {
+            let me = self_proto("pickle_by_global_name", a)?;
+            getattr(&me, "name")
+        }
+        "pickle_by_enum_name" => {
+            let me = self_proto("pickle_by_enum_name", a)?;
+            let ga = builtin_value("getattr").expect("builtins.getattr");
+            Ok(tup(vec![ga, tup(vec![getattr(&me, "__class__")?, getattr(&me, "_name_")?])]))
+        }
+        "_make_class_unpicklable" => make_class_unpicklable(a),
         "unique" => {
             let c = a.p.first().cloned().unwrap_or(V::None);
             if let V::Class(k) = &c {
@@ -2990,4 +3109,244 @@ pub fn enum_type_name(n: &str) -> bool {
         "__bool__" | "__call__" | "__contains__" | "__delattr__" | "__dir__" | "__getitem__" | "__iter__" | "__len__" | "__members__" | "__new__" | "__prepare__" | "__repr__"
             | "__reversed__" | "__setattr__" | "_add_member_" | "_check_for_existing_members_" | "_convert_" | "_create_" | "_find_data_repr_" | "_find_data_type_" | "_find_new_" | "_get_mixins_"
     )
+}
+
+// ---------- enum.global_enum and EnumType._convert_ (CPython 3.13 enum.py) ----------
+// They export a class's members into its module's globals (rt_glue's GMod: a name the build fixed, or one the
+// program reads by name without binding it, is refused there), so the class's module must be a file of the program.
+fn enum_gmod(c: &Rc<Class>, what: &str) -> Result<&'static GMod, E> {
+    let m = to_str(&getattr(&V::Class(c.clone()), "__module__")?)?;
+    gmod_named(&m).ok_or_else(|| unsupported(&format!("{what} for a class whose module ({m}) is not a file of the program")))
+}
+// `sys.modules[cls.__module__].__dict__.update(cls.__members__)`: aliases too, in definition order
+fn enum_export(c: &Rc<Class>, g: &GMod) -> Result<(), E> {
+    let mm = getattr(&V::Class(c.clone()), "__members__")?;
+    for (k, v) in dict_items_of(&call_method(&mm, "copy", Args::p(vec![]))?)? {
+        glob_set_name(g, &to_str(&k)?, v)?;
+    }
+    Ok(())
+}
+fn genum_parts(me: &V) -> Result<(String, String, V, V), E> {
+    let V::Obj(o) = me else { return type_err("descriptor needs an Enum member".into()) };
+    let m = to_str(&getattr(&V::Class(o.cls.clone()), "__module__")?)?;
+    let module = m.rsplit('.').next().unwrap_or("").to_string();
+    Ok((module, o.cls.name.to_string(), getattr(me, "_name_")?, getattr(me, "_value_")?))
+}
+fn global_enum_repr(a: Args) -> R {
+    let (module, _, name, _) = genum_parts(a.p.first().unwrap_or(&V::None))?;
+    Ok(s(&format!("{module}.{}", to_str(&name)?)))
+}
+fn global_flag_repr(a: Args) -> R {
+    let me = a.p.first().unwrap_or(&V::None);
+    let (module, cls_name, name, value) = genum_parts(me)?;
+    if matches!(name, V::None) {
+        return Ok(s(&format!("{module}.{cls_name}({})", repr(&value)?)));
+    }
+    let single = match &value {
+        V::Int(i) => *i > 0 && i & (i - 1) == 0,
+        V::Bool(b) => *b,
+        _ => return Err(unsupported("a global Flag member whose value is not a small int")),
+    };
+    let name = to_str(&name)?;
+    if single {
+        return Ok(s(&format!("{module}.{name}")));
+    }
+    let V::Obj(o) = me else { unreachable!() };
+    let keep = boundary_of(&o.cls) == "KEEP";
+    let parts: Vec<String> = name.split('|').map(|n| if keep && n.chars().next().is_some_and(|c| c.is_ascii_digit()) { n.to_string() } else { format!("{module}.{n}") }).collect();
+    Ok(s(&parts.join("|")))
+}
+fn global_str(a: Args) -> R {
+    let (_, cls_name, name, value) = genum_parts(a.p.first().unwrap_or(&V::None))?;
+    if matches!(name, V::None) {
+        return Ok(s(&format!("{cls_name}({})", repr(&value)?)));
+    }
+    Ok(s(&to_str(&name)?))
+}
+// The enum functions that are Python functions in CPython and bind when a class holds them (__reduce_ex__).
+pub fn enum_binds(n: &str) -> bool {
+    matches!(n, "pickle_by_global_name" | "pickle_by_enum_name")
+}
+// enum._make_class_unpicklable(obj), enum.py 3.13: obj (a dict, or anything else through setattr) gets
+// __reduce_ex__ = _break_on_call_reduce (a new function each call, raising TypeError('%r cannot be pickled' %
+// self)) and __module__ = '<unknown>'.
+fn make_class_unpicklable(a: Args) -> R {
+    a.want("_make_class_unpicklable", 1, 1)?;
+    let brk = builtin(sym("_break_on_call_reduce"), |a: Args| {
+        let me = self_proto("_break_on_call_reduce", a)?;
+        type_err(format!("{} cannot be pickled", repr(&me)?))
+    });
+    if let V::Func(f) = &brk {
+        f.qualname.set(sym("_make_class_unpicklable.<locals>._break_on_call_reduce"));
+        f.attrs.borrow_mut().push(("__module__", s("enum")));
+    }
+    let obj = &a.p[0];
+    if let V::Dict(d) = obj {
+        d.borrow_mut().set(s("__reduce_ex__"), brk)?;
+        d.borrow_mut().set(s("__module__"), s("<unknown>"))?;
+    } else {
+        setattr(obj, sym("__reduce_ex__"), brk)?;
+        setattr(obj, sym("__module__"), s("<unknown>"))?;
+    }
+    Ok(V::None)
+}
+// The arguments of an enum.py function `def f(self, proto)`, bound as CPython binds them: self (proto unused).
+fn self_proto(f: &str, a: Args) -> R {
+    let mut slots: [Option<V>; 2] = [None, None];
+    if a.p.len() > 2 {
+        return type_err(format!("{f}() takes 2 positional arguments but {} were given", a.p.len()));
+    }
+    for (i, v) in a.p.into_iter().enumerate() {
+        slots[i] = Some(v);
+    }
+    for (k, v) in a.k {
+        let i = match &*k {
+            "self" => 0,
+            "proto" => 1,
+            _ => return type_err(format!("{f}() got an unexpected keyword argument '{k}'")),
+        };
+        if slots[i].is_some() {
+            return type_err(format!("{f}() got multiple values for argument '{k}'"));
+        }
+        slots[i] = Some(v);
+    }
+    match slots {
+        [Some(me), Some(_)] => Ok(me),
+        [None, None] => type_err(format!("{f}() missing 2 required positional arguments: 'self' and 'proto'")),
+        [None, _] => type_err(format!("{f}() missing 1 required positional argument: 'self'")),
+        [_, None] => type_err(format!("{f}() missing 1 required positional argument: 'proto'")),
+    }
+}
+// enum.global_enum(cls, update_str=False)
+pub fn global_enum(a: Args) -> R {
+    let mut update_str = a.p.get(1).cloned();
+    for (k, v) in &a.k {
+        match &**k {
+            "update_str" if update_str.is_none() => update_str = Some(v.clone()),
+            _ => return Err(unsupported(&format!("enum.global_enum with the keyword {k}"))),
+        }
+    }
+    if a.p.len() > 2 || a.p.is_empty() {
+        return Err(unsupported("enum.global_enum with these arguments"));
+    }
+    let cls = a.p[0].clone();
+    let V::Class(c) = &cls else { return Err(unsupported("enum.global_enum on a value that is not an Enum class")) };
+    if !is_enum(c) {
+        return Err(unsupported("enum.global_enum on a class that is not an Enum"));
+    }
+    let g = enum_gmod(c, "enum.global_enum")?;
+    if is_flag(c) {
+        setattr(&cls, sym("__repr__"), builtin(sym("global_flag_repr"), global_flag_repr))?;
+    } else {
+        setattr(&cls, sym("__repr__"), builtin(sym("global_enum_repr"), global_enum_repr))?;
+    }
+    if !is_repr_enum(c) || update_str.as_ref().map(truth).transpose()?.unwrap_or(false) {
+        setattr(&cls, sym("__str__"), builtin(sym("global_str"), global_str))?;
+    }
+    enum_export(c, g)?;
+    Ok(cls)
+}
+// A value whose comparisons run no code of the program's and give one consistent answer: then the order in which
+// _convert_'s sort compares them cannot show.
+fn convert_plain(v: &V, nested: bool) -> bool {
+    match v {
+        V::None | V::Bool(_) | V::Int(_) | V::Big(_) | V::Str(_) => true,
+        V::Float(f) => !f.is_nan(),
+        V::Ext(_) => matches!(tn(v).as_str(), "complex" | "bytes"),
+        V::Tuple(t) if !nested => t.to_vec().iter().all(|x| convert_plain(x, true)),
+        _ => false,
+    }
+}
+// the names CPython 3.13 puts in a script's or a module's globals itself
+const MOD_DUNDERS: [&str; 9] = ["__name__", "__doc__", "__package__", "__loader__", "__spec__", "__annotations__", "__builtins__", "__file__", "__cached__"];
+// `cls._convert_(name, module, filter, source=None, *, boundary=None, as_global=False)`, called with `f` the
+// attribute the program read. The build sends a call here only when filter is a lambda that runs no code of the
+// program's and has no effects (emit.rs pure_name_filter), so the order CPython calls it in cannot show; the
+// members come from the module's globals as they are now, sorted by (value, name) or, when two values cannot be
+// compared, by name, exactly as enum.py does. The class is made as _simple_enum makes it from a plain class.
+// `o._convert_` as the program reads it: None when that is EnumType's own (an Enum class whose classes and
+// metaclass define no _convert_ of their own), which the build calls as enum_convert_call
+pub fn enum_convert_attr(o: &V) -> Result<Option<V>, E> {
+    if let V::Class(c) = o {
+        // (Brevi's EnumType stub, which refuses a call, is the only builtin named _convert_)
+        if c.is_sub(&enum_base()) && c.lookup("_convert_").is_none_or(|f| matches!(&f, V::Func(x) if x.kind.get() == 3 && x.name.get() == "_convert_")) {
+            return Ok(None);
+        }
+    }
+    getattr(o, "_convert_").map(Some)
+}
+pub fn enum_convert_call(o: &V, f: Option<V>, a: Args) -> R {
+    let Some(f) = f else { return enum_convert(o, a) };
+    call(&f, a)
+}
+fn enum_convert(o: &V, a: Args) -> R {
+    let V::Class(c) = o else { return Err(unsupported("_convert_")) };
+    if is_flag(c) {
+        return Err(unsupported("_convert_ on a Flag"));
+    }
+    if matches!(c.lookup("_member_map_"), Some(V::Dict(d)) if d.borrow().len() > 0) {
+        return Err(unsupported("_convert_ on an Enum class with members"));
+    }
+    let mut p = a.p.clone();
+    let mut as_global = V::Bool(false);
+    for (k, v) in &a.k {
+        match &**k {
+            "filter" if p.len() == 2 => p.push(v.clone()),
+            "as_global" => as_global = v.clone(),
+            "source" | "boundary" if matches!(v, V::None) => {}
+            _ => return Err(unsupported(&format!("_convert_ with the argument {k}"))),
+        }
+    }
+    if p.len() != 3 {
+        return Err(unsupported("_convert_ with these arguments"));
+    }
+    let (V::Str(_), V::Str(mn)) = (&p[0], &p[1]) else { return Err(unsupported("_convert_ with a name or module that is not a str")) };
+    let module = mn.text().to_string();
+    let g = gmod_named(&module).ok_or_else(|| unsupported(&format!("_convert_ from module {module}, which is not a file of the program")))?;
+    let filter = p[2].clone();
+    for d in MOD_DUNDERS {
+        if truth(&call(&filter, Args::p(vec![s(d)]))?)? {
+            return Err(unsupported("_convert_ with a filter that takes the module's own dunder names"));
+        }
+    }
+    let mut members: Vec<(String, V)> = vec![];
+    for (n, v) in glob_pairs(g) {
+        if truth(&call(&filter, Args::p(vec![s(&n)]))?)? {
+            if !convert_plain(&v, false) {
+                return Err(unsupported(&format!("_convert_ of the global {n}, whose value's comparisons the build cannot follow")));
+            }
+            members.push((n, v));
+        }
+    }
+    // members.sort(key=lambda t: (t[1], t[0])), or by name when that raises TypeError
+    let keys: Vec<V> = members.iter().map(|(n, v)| tup(vec![v.clone(), s(n)])).collect();
+    let mut by_value = true;
+    'pairs: for i in 0..keys.len() {
+        for j in i + 1..keys.len() {
+            if let Err(e) = lt(&keys[i], &keys[j]) {
+                if matches!(&e.0, V::Obj(o) if o.cls.name == "TypeError") {
+                    by_value = false;
+                    break 'pairs;
+                }
+                return Err(e);
+            }
+        }
+    }
+    let mut idx: Vec<usize> = (0..members.len()).collect();
+    if by_value {
+        idx.sort_by(|&x, &y| if lt(&keys[x], &keys[y]).unwrap_or(false) { std::cmp::Ordering::Less } else if lt(&keys[y], &keys[x]).unwrap_or(false) { std::cmp::Ordering::Greater } else { std::cmp::Ordering::Equal });
+    } else {
+        idx.sort_by(|&x, &y| members[x].0.cmp(&members[y].0));
+    }
+    let names = list(idx.iter().map(|&i| tup(vec![s(&members[i].0), members[i].1.clone()])).collect());
+    let cls = enum_create(c, &p[0], names, p[1].clone(), V::None, V::None, V::Int(1))?;
+    setattr(&cls, sym("__doc__"), s("An enumeration."))?;
+    let V::Class(k) = &cls else { return Err(unsupported("_convert_ that made no class")) };
+    if truth(&as_global)? {
+        global_enum(Args::p(vec![cls.clone()]))?;
+    } else {
+        enum_export(k, g)?;
+    }
+    glob_set_name(g, &to_str(&p[0])?, cls.clone())?;
+    Ok(cls)
 }

@@ -41,6 +41,9 @@ Each week Claude Sonnet, Claude Haiku and DeepSeek V4.1 Flash solve the 24 tasks
 
 | Date | Brevi | Model | Cost per run, Brevi / CPython | Ratio | Tasks finished, Brevi / CPython | Built natively | Programs run, Brevi / CPython | Speed |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 2026-11-16 | v0.28.2 | Sonnet 5.5 | $0.751 / $0.699 | **1.07x** | 48/48 / 48/48 | 48/48 | 0.71 s / 4.41 s | 6.23x |
+| 2026-11-16 | v0.28.2 | Haiku 5.5 | $0.083 / $0.082 | **1.00x** | 48/48 / 48/48 | 48/48 | 0.64 s / 4.74 s | 7.4x |
+| 2026-11-16 | v0.28.2 | DeepSeek V4.1 Flash | $0.358 / $0.339 | **1.06x** | 47/48 / 47/48 | 47/48 | 0.85 s / 4.30 s | 5.07x |
 | 2026-11-09 | v0.26.0 | Sonnet 5.5 | $0.746 / $0.698 | **1.07x** | 48/48 / 48/48 | 47/48 | 1.51 s / 4.56 s | 3.02x |
 | 2026-11-09 | v0.26.0 | Haiku 5.5 | $0.084 / $0.084 | **1.01x** | 48/48 / 48/48 | 48/48 | 0.56 s / 4.49 s | 8.0x |
 | 2026-11-09 | v0.26.0 | DeepSeek V4.1 Flash | $0.377 / $0.314 | **1.20x** | 47/48 / 47/48 | 45/48 | 0.76 s / 4.53 s | 5.94x |
@@ -122,6 +125,8 @@ Re-measured alone on a Ryzen 9 5950X (32 threads) under WSL2 Ubuntu 24.04, Brevi
 | **Median** | | **9.3x** | **9.8x** | **0.85x** |
 
 The ranges are 1.6x to 37.9x (default), 2.1x to 38.8x (`--release`) and 0.5x to 1.4x (dynamic). The dynamic build (`BREVI_DYN=1`, with `--release`) is what a program whose values change type gets; it runs at about CPython's speed, slower on numeric loops. Median cold build: 0.2 s default, 1.1 s `--release`, 0.3 s dynamic. The 3 November figures came from a different machine, so the two sets are not a like-for-like comparison.
+
+These 12 programs all take the typed build. Which build agent-written programs actually take, and what that means for their speed, is measured on 587 of them in [Speed by build path](/docs/path-split).
 
 Library and dynamic-path cases (`bench/speed/gaps`, median of 3): polars on a large frame 2.0x faster than CPython; an asyncio loop 1.2x slower; sqlite point queries 1.3x slower; a Jinja chat template 2.9x slower; bulk pydantic validation 10.2x slower. A small autograd program shaped like microgpt (100 steps) ran 1.18x faster than CPython with 13% more memory.
 

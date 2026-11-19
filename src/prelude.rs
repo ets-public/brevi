@@ -1801,6 +1801,26 @@ pub trait Plus<Rhs = Self> {
     type Out;
     fn plus(self, o: Rhs) -> Self::Out;
 }
+// `xs += v` (and `xs.extend(v)`): `+` everywhere but a list of JSON values extended by a JSON value, which
+// Python walks as `for x in v` does (a list's items, an object's keys, a string's characters; TypeError else).
+pub trait PlusEq<Rhs = Self> {
+    type Out;
+    fn plus_eq(self, o: Rhs) -> Self::Out;
+}
+impl<A: Plus<B>, B> PlusEq<B> for A {
+    type Out = A::Out;
+    #[inline]
+    fn plus_eq(self, o: B) -> A::Out {
+        self.plus(o)
+    }
+}
+impl PlusEq<Json> for Vec<Json> {
+    type Out = Vec<Json>;
+    fn plus_eq(mut self, o: Json) -> Vec<Json> {
+        self.extend(o.ax_walk());
+        self
+    }
+}
 impl Plus for i64 {
     type Out = i64;
     #[inline]
@@ -2404,7 +2424,7 @@ impl AxStr for String {
         self.is_empty()
     }
     fn ax_words(&self) -> Vec<String> {
-        self.split_whitespace().map(String::from).collect()
+        self.split(ax_py_ws).filter(|w| !w.is_empty()).map(String::from).collect()
     }
     fn ax_lines(&self) -> Vec<String> {
         self.lines().map(String::from).collect()
@@ -2433,7 +2453,7 @@ impl AxStr for String {
         self.to_uppercase()
     }
     fn ax_trim(&self) -> String {
-        self.trim().to_string()
+        self.trim_matches(ax_py_ws).to_string()
     }
     fn ax_contains(&self, s: &String) -> bool {
         self.contains(s.as_str())
@@ -2493,10 +2513,10 @@ impl AxStr for String {
         !self.is_empty() && self.chars().all(|c| c.is_alphabetic())
     }
     fn ax_is_space(&self) -> bool {
-        !self.is_empty() && self.chars().all(|c| c.is_whitespace())
+        !self.is_empty() && self.chars().all(ax_py_ws)
     }
     fn ax_ints(&self) -> R<Vec<i64>> {
-        self.split_whitespace().map(|w| w.parse::<i64>().map_err(|_| AxErr(format!("not an int: {w:?}")))).collect()
+        self.split(ax_py_ws).filter(|w| !w.is_empty()).map(|w| w.parse::<i64>().map_err(|_| AxErr(format!("not an int: {w:?}")))).collect()
     }
 }
 
@@ -2551,6 +2571,15 @@ pub trait AxList<T: Clone> {
     fn ax_enumerate(&self) -> Vec<(i64, T)>;
     fn ax_zip<U: Clone>(&self, o: Vec<U>) -> Vec<(T, U)>;
     fn ax_slice(&self, a: i64, b: i64) -> Vec<T>;
+}
+// `zip(s, xs)` with s a string the build knew only as a value: its characters, as Python walks it.
+pub trait AxStrZip {
+    fn ax_zip<U: Clone>(&self, o: Vec<U>) -> Vec<(String, U)>;
+}
+impl AxStrZip for String {
+    fn ax_zip<U: Clone>(&self, o: Vec<U>) -> Vec<(String, U)> {
+        self.chars().map(|c| c.to_string()).zip(o).collect()
+    }
 }
 impl<T: Clone> AxList<T> for Vec<T> {
     fn ax_len(&self) -> i64 {
@@ -3351,7 +3380,7 @@ impl AxIn<Json> for Json {
             (Json::Obj { .. }, _) => false,
             (Json::Str { v }, Json::Str { v: k }) => v.contains(k.as_str()),
             (Json::Str { .. }, _) => panic!("TypeError: 'in <string>' requires string as left operand"),
-            _ => panic!("TypeError: argument of type is not iterable"),
+            _ => panic!("TypeError: argument of type '{}' is not iterable", self.ax_kind()),
         }
     }
 }
@@ -3692,7 +3721,13 @@ fn json_value(c: &[char], i: &mut usize) -> R<Json> {
                 *i += 1;
             }
             let t: String = c[start..*i].iter().collect();
-            t.parse::<f64>().map(|v| Json::Num { v, f: t.contains(['.', 'e', 'E']) }).map_err(|_| bad(start))
+            let f = t.contains(['.', 'e', 'E']);
+            // Json numbers are f64: an int past 2^53 would lose digits (9007199254740993 read as ...992), so
+            // stop instead; `brevi run` then re-runs a Python file on the dynamic build, which keeps every digit.
+            if !f && t.parse::<i128>().map_or_else(|_| t.len() > 30 && t.trim_start_matches('-').bytes().all(|b| b.is_ascii_digit()), |n| n.unsigned_abs() > 1 << 53) {
+                panic!("AX_DYN: a JSON int past 2**53 (the typed build keeps JSON numbers as 64-bit floats)");
+            }
+            t.parse::<f64>().map(|v| Json::Num { v, f }).map_err(|_| bad(start))
         }
         _ => Err(bad(*i)),
     }
@@ -3796,7 +3831,7 @@ impl Json {
     pub fn ax_dec(&self) -> Dec {
         match self {
             Json::Num { v, .. } => Dec::parse(&v.to_string()).unwrap_or_default(),
-            Json::Str { v } => Dec::parse(v.trim()).unwrap_or_default(),
+            Json::Str { v } => Dec::parse(v.trim_matches(ax_py_ws)).unwrap_or_default(),
             _ => Dec::default(),
         }
     }
@@ -3882,7 +3917,8 @@ impl Json {
             Json::Arr { v } | Json::Tup { v } => v.clone(),
             Json::Obj { v } => v.keys().map(|k| Json::Str { v: k.clone() }).collect(),
             Json::Str { v } => v.chars().map(|c| Json::Str { v: c.to_string() }).collect(),
-            _ => vec![],
+            // A number, bool or None: Python stops, it never loops zero times.
+            _ => panic!("TypeError: '{}' object is not iterable", self.ax_kind()),
         }
     }
 }
@@ -4859,7 +4895,7 @@ impl AxTallyWords for String {
     fn ax_tally_words(&self) -> AxM<String, i64> {
         let mut at: HashMap<&str, usize, BuildHasherDefault<AxHasher>> = HashMap::default();
         let mut seen: Vec<(&str, i64)> = Vec::new();
-        for w in self.split_whitespace() {
+        for w in self.split(ax_py_ws).filter(|w| !w.is_empty()) {
             match at.get(w) {
                 Some(&i) => seen[i].1 += 1,
                 None => {
@@ -5097,14 +5133,14 @@ impl AxStrPy for String {
         self.trim_matches(|c| cs.contains(c)).to_string()
     }
     fn ax_trim_end(&self) -> String {
-        self.trim_end().to_string()
+        self.trim_end_matches(ax_py_ws).to_string()
     }
     fn ax_trim_end_of(&self, cs: impl AsRef<str>) -> String {
         let cs = cs.as_ref();
         self.trim_end_matches(|c| cs.contains(c)).to_string()
     }
     fn ax_trim_start(&self) -> String {
-        self.trim_start().to_string()
+        self.trim_start_matches(ax_py_ws).to_string()
     }
     fn ax_trim_start_of(&self, cs: impl AsRef<str>) -> String {
         let cs = cs.as_ref();
@@ -5366,7 +5402,7 @@ impl Dec {
         self.frac_parts().1 as i64
     }
     fn parse(s: &str) -> R<Dec> {
-        let t = s.trim();
+        let t = s.trim_matches(ax_py_ws);
         // Fraction("3/4"): an exact ratio of two whole numbers.
         if let Some((a, b)) = t.split_once('/') {
             let whole = |x: &str| x.strip_prefix(['-', '+']).unwrap_or(x).chars().all(|c| c.is_ascii_digit()) && !x.is_empty();
@@ -6315,6 +6351,10 @@ impl AxToJson for Json {
 }
 impl AxToJson for i64 {
     fn ax_json(&self) -> Json {
+        // Past 2^53 the f64 inside Json would round the int: stop rather than give another number.
+        if self.unsigned_abs() > 1 << 53 {
+            panic!("AX_DYN: an int past 2**53 kept in a value of mixed type");
+        }
         Json::Num { v: *self as f64, f: false }
     }
 }
@@ -6372,7 +6412,7 @@ impl<A: AxToJson, B: AxToJson, C: AxToJson, D: AxToJson, E: AxToJson, F: AxToJso
 // `total += c[3]` with c a JSON tuple: only a whole number keeps total an int, as in Python.
 pub fn ax_jint(o: Json) -> i64 {
     match o {
-        Json::Num { v, .. } if v.fract() == 0.0 && v.abs() < 1e15 => v as i64,
+        Json::Num { v, .. } if v.fract() == 0.0 && v.abs() <= 9007199254740992.0 => v as i64,
         o => panic!("cannot add {} to an int here", ax_json_py(&o, false)),
     }
 }
@@ -6383,7 +6423,7 @@ pub fn ax_unsupported(what: String) -> String {
 // A dynamic value given where an int or a str is taken.
 pub fn ax_jas_int(o: Json) -> i64 {
     match o {
-        Json::Num { v, f } if v.fract() == 0.0 && v.abs() < 1e15 && !(f && ax_py_on()) => v as i64,
+        Json::Num { v, f } if v.fract() == 0.0 && v.abs() <= 9007199254740992.0 && !(f && ax_py_on()) => v as i64,
         o => panic!("expected an int here, got {}", ax_json_py(&o, true)),
     }
 }
@@ -6672,6 +6712,10 @@ impl AxLinesKeep for String {
         self.split_inclusive('\n').map(String::from).collect()
     }
 }
+// Python's str.isspace() for one character: Rust's whitespace and the separators U+001C..U+001F.
+pub fn ax_py_ws(c: char) -> bool {
+    c.is_whitespace() || ('\x1c'..='\x1f').contains(&c)
+}
 pub trait AxStrMore {
     fn ax_count(&self, sub: impl AsRef<str>) -> i64;
     fn ax_count_of(&self, sub: impl AsRef<str>) -> i64;
@@ -6679,6 +6723,7 @@ pub trait AxStrMore {
     fn ax_ljust(&self, n: i64) -> String;
     fn ax_skip(&self, n: i64) -> Vec<String>;
     fn ax_split_n(&self, sep: impl AsRef<str>, n: i64) -> Vec<String>;
+    fn ax_words_n(&self, n: i64) -> Vec<String>;
     fn ax_rsplit_n(&self, sep: impl AsRef<str>, n: i64) -> Vec<String>;
     fn ax_rjust(&self, n: i64) -> String;
     fn ax_ljust_with(&self, n: i64, fill: impl AsRef<str>) -> String;
@@ -6702,6 +6747,21 @@ impl AxStrMore for String {
     }
     fn ax_skip(&self, n: i64) -> Vec<String> {
         self.chars().skip(n.max(0) as usize).map(|c| c.to_string()).collect()
+    }
+    // s.split(None, n): at most n splits on runs of whitespace; the rest keeps its trailing whitespace.
+    fn ax_words_n(&self, n: i64) -> Vec<String> {
+        let mut out = vec![];
+        let mut rest = self.trim_start_matches(ax_py_ws);
+        while !rest.is_empty() {
+            if n >= 0 && out.len() as i64 == n {
+                out.push(rest.to_string());
+                break;
+            }
+            let end = rest.find(ax_py_ws).unwrap_or(rest.len());
+            out.push(rest[..end].to_string());
+            rest = rest[end..].trim_start_matches(ax_py_ws);
+        }
+        out
     }
     // s.split(sep, n): at most n splits, as in Python (n < 0 means all).
     fn ax_split_n(&self, sep: impl AsRef<str>, n: i64) -> Vec<String> {
@@ -7238,7 +7298,7 @@ impl AxIsInstance for Json {
         match self {
             Json::Null => "NoneType",
             Json::Bool { .. } => "bool",
-            Json::Num { v, f } => if v.fract() == 0.0 && v.abs() < 1e15 && !(*f && ax_py_on()) { "int" } else { "float" },
+            Json::Num { v, f } => if v.fract() == 0.0 && v.abs() <= 9007199254740992.0 && !(*f && ax_py_on()) { "int" } else { "float" },
             Json::Str { .. } => "str",
             Json::Arr { .. } => "list", Json::Tup { .. } if ax_json_sent(self) => "object", Json::Tup { .. } => "tuple",
             Json::Obj { .. } => "dict",

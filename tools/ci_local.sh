@@ -6,7 +6,8 @@
 #                                 branch changes (against origin/main) can affect them. GitHub CI runs them all.
 #   sh tools/ci_local.sh --full   everything, as the daily run and a release do
 #   sh tools/ci_local.sh --quick  skip the old-solutions rebuild (only for changes outside the compiler)
-# The language tests run in parallel (tests/check_parallel.py, one job per CPU; JOBS=N to change that).
+# The language tests run in parallel (tests/check_parallel.py, one job per CPU; JOBS=N to change that). The
+# conformance ratchets run CONF_JOBS tests at once (default JOBS when JOBS is set, else conformance.py's default of 4).
 set -e
 step() { printf '\n== %s  (%s)\n' "$1" "$(date +%H:%M:%S)"; }
 # Room for every test program and old solution, so a second run finds them all cached (the default 1 GB evicts mid-run).
@@ -71,8 +72,8 @@ else
   echo "warning: uv not installed (https://docs.astral.sh/uv/): the MCP checks compare against this Python's own mcp and pydantic, not the pinned ones"
 fi
 step "Unit tests"; cargo test --release -q
-step "Language tests"; BREVI=./target/release/brevi CHECK_SKIP=mcp_sdk,mcp_http python3 tests/check_parallel.py --quiet $fast
-step "MCP servers against the pinned mcp"; PATH="$mcp_path" BREVI=./target/release/brevi CHECK_ONLY=mcp_sdk,mcp_http python3 tests/check_parallel.py --quiet $fast
+# One pool, so the MCP sections (~90 s) fill the language tests' tail; their python3 is the pinned mcp venv's.
+step "Language tests (MCP servers against the pinned mcp)"; BREVI=./target/release/brevi CHECK_PATH="mcp_sdk,mcp_http=$mcp_path" python3 tests/check_parallel.py --quiet $fast
 step "MCP server"; python3 tests/mcp_test.py && PATH="$mcp_path" python3 tests/mcp_http_test.py
 # (with the machine's own python3: the box hides $HOME, where uv keeps its CPython)
 step "Model box"; "$sys_py" tests/modelbox_test.py && "$sys_py" tests/privtmp_test.py
@@ -80,6 +81,7 @@ step "Python SDK and brevi-python"; BREVI=./target/release/brevi python3 tests/s
 BREVI=./target/release/brevi node tests/sdk_node_test.mjs
 step "Guide budget"; python3 tools/guide_budget.py
 step "Code map summaries and agent hooks"; python3 tools/code_map.py --check && python3 tests/agent_hooks_test.py
+step "DeepSeek harness spend cap and lane limit"; python3 tests/ds_contrib_test.py
 step "Conformance and release-notes figures"; python3 tests/conformance_test.py && python3 tests/release_notes_test.py
 step "Package versions"; python3 tools/version_sync.py
 step "Changelog fragments"; python3 tools/changelog.py --check
@@ -102,10 +104,16 @@ fi
 if [ $compat = 1 ] || [ $conf = 1 ] || [ "$mode" = --full ]; then
   step "CPython conformance ratchet (CPython 3.13.13 via uv; ~10 min)"
   if command -v uv >/dev/null 2>&1 && uv python install 3.13.13 --quiet 2>/dev/null; then
-    python3 tools/conformance.py --check --python "$(uv python find 3.13.13)" --out /tmp/brevi-conformance
+    # The language tests' JOBS (the PC's 16). Cold on the PC (11-16/17, main a37bcee6), core took 449, 240 and 190 s and
+    # stdlib 1022, ~630 and 524 s at 4, 8 and 16 jobs, with the same matches (8 vs 16 differed only in the threaded
+    # lru_cache row whose CPython reference varies; #622 classes it unstable). Every test runs in its own folder and
+    # processes: only how many run at once changes.
+    cj=${CONF_JOBS:-$JOBS}
+    cj=${cj:+--jobs $cj}
+    python3 tools/conformance.py $cj --check --python "$(uv python find 3.13.13)" --out /tmp/brevi-conformance
     if [ $stdlib = 1 ]; then
       step "CPython conformance ratchet, stdlib slice (~6 min)"
-      python3 tools/conformance.py --slice stdlib --check --python "$(uv python find 3.13.13)" --out /tmp/brevi-conformance-stdlib
+      python3 tools/conformance.py $cj --slice stdlib --check --python "$(uv python find 3.13.13)" --out /tmp/brevi-conformance-stdlib
     else
       echo "(stdlib slice skipped: nothing here can change it; main runs it after the merge)"
     fi

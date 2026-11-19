@@ -22,7 +22,7 @@ pub mod ax_priv {
     // In a user namespace (a container or sandbox that maps only some users) a folder whose owner is not mapped
     // shows as the overflow user: the host's own system folders (/, /usr, /home) look like that. Such an owner is
     // accepted only there, and only for a folder above the private one.
-    fn unmapped() -> Option<u32> {
+    pub fn unmapped() -> Option<u32> {
         let map = std::fs::read_to_string("/proc/self/uid_map").ok()?;
         let whole = map.split_whitespace().collect::<Vec<_>>() == ["0", "0", "4294967295"];
         if whole {

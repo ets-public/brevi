@@ -1,0 +1,40 @@
+B.__init_subclass__() takes no keyword arguments
+isc Q {'a': 1, 'b': 2}
+isc R {'a': 1}
+S.__init_subclass__() takes no keyword arguments
+prep T {'z': 3}
+new T {'z': 3}
+init T {'z': 3}
+strict keep None
+False
+ValueError <flag 'F'> unknown flag boundary 5
+-8 <A: 8> 8
+-4 <A: 0> 0
+-1 <A.X|Y: 3> 3
+5 <A.X|4: 5> 5
+9 <A.X|8: 9> 9
+-9 <A.X|Y|4: 7> 7
+<C.X|Y: 3> <C.X|Y|Z: 11> <C.Y|Z: 10> <C: 0> True True
+3 -2 False True <J.X|Y: 5>
+3 2 int -2
+VE <flag 'SI'> invalid value 5
+    given 0b0 101
+  allowed 0b0 011
+conform <Sub.P: 1>
+<K.A|B|2: 7> <K.B|2: 6> 7
+False E.a
+x
+TE R.__init_subclass__() takes no keyword arguments
+10
+strict
+<FlagBoundary.STRICT: 'strict'> <FlagBoundary.STRICT: 'strict'> True True
+True True
+ok Q
+Q2.__init_subclass__() takes no arguments (1 given)
+Q3 1 2
+Q4 0 5
+TE P3.__init_subclass__() missing 1 required positional argument: 'a'
+t {'tag': 't'}
+u {'tag': 'u'} M
+4
+TE AD.__init_subclass__() takes no keyword arguments

@@ -1,0 +1,3 @@
+{"path":"dynamic","why":"the typed build's Rust did not compile (the trait bound `Vec<i64>: AxWhole` is not satisfied)"}
+{'a': [], 'b': [2]} [1, 1]
+native exit 0

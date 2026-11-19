@@ -1,6 +1,6 @@
 # Known issues
 
-This page describes `main` as of v0.28.3 (18 November 2026). It lists limits that are known and tracked. It is not a list of every bug: open issues are on [GitHub](https://github.com/ets-public/brevi/issues). Report anything new as described in [SUPPORT.md](SUPPORT.md). For security problems, use [SECURITY.md](../SECURITY.md).
+This page describes `main` as of v0.28.2 (16 November 2026). It lists limits that are known and tracked. It is not a list of every bug: open issues are on [GitHub](https://github.com/ets-public/brevi/issues). Report anything new as described in [SUPPORT.md](SUPPORT.md). For security problems, use [SECURITY.md](../SECURITY.md).
 
 ## Correctness and conformance
 
@@ -15,18 +15,18 @@ Brevi's aim is that a build prints what CPython prints, or is refused. Two outco
 | --- | ---: | ---: | ---: | ---: |
 | Core: `test_grammar`, `test_scope`, `test_int`, `test_list`, `test_dict` ([report](../bench/conformance/report.md)) | 250 of 311 (80.4%) | 38 | 8, all exit status | 0 |
 | Stdlib: `itertools`, `collections`, `re`, `textwrap`, `functools`, `string` ([report](../bench/conformance/stdlib/report.md)) | 250 of 554 (45.1%) | 170 | 22 (3 output, 19 exit status) | 1 |
-| Core at v0.28.1, 16 November (10 files with `test_contains`, `test_binop`, `test_richcmp`, `test_set`, `test_patma`; at `PYTHONHASHSEED=0`; 83 by-design refusals left out; 3 not extractable) | 1043 of 1072 (97.3% of the scored suite, with 83 string-as-code tests excluded) | 26 | 0 | 0 |
-| Stdlib at v0.28.1, 16 November (11 files with `test_graphlib`, `test_colorsys`, `test_deque`, `test_dataclasses`, `test_enum`; 6 by-design refusals left out; 11 not extractable; 2 match only through the CPython bridge) | 1989 of 2053 (96.9%) | 51 | 0 | 0 |
+| Core at v0.28.2, 16 November (10 files with `test_contains`, `test_binop`, `test_richcmp`, `test_set`, `test_patma`; at `PYTHONHASHSEED=0`; 83 by-design refusals left out; 3 not extractable) | 1043 of 1072 (97.3% of the scored suite, with 83 string-as-code tests excluded) | 26 | 0 | 0 |
+| Stdlib at v0.28.2, 16 November (11 files with `test_graphlib`, `test_colorsys`, `test_deque`, `test_dataclasses`, `test_enum`; 6 by-design refusals left out; 11 not extractable; 2 match only through the CPython bridge) | 1989 of 2053 (96.9%) | 51 | 0 | 0 |
 
 Forced dynamic builds score 97.3% (core, of the scored suite, with 83 string-as-code tests excluded) and 97.0% (stdlib), also with 0 wrong. 88.2% of core tests and 94.3% of stdlib tests are matches that print something to compare (the rest print nothing), and 2.6% and 1.2% of the native matches took the typed build.
 
 Things to know when reading these numbers:
 
 - 46 of the 250 core matches print nothing, so they show only that the program built and exited cleanly.
-- Weak modules in the stdlib set at v0.27.0: `test_string` 2.6%, `test_functools` 12.2%, `test_collections` 35.7% (all 100% at v0.28.1).
-- The v0.28.1 score covers the 21 files scored, not all of CPython: more test files are measured with `tools/conformance.py --candidates` for planning and are not in the score yet.
+- Weak modules in the stdlib set at v0.27.0: `test_string` 2.6%, `test_functools` 12.2%, `test_collections` 35.7% (all 100% at v0.28.2).
+- The v0.28.2 score covers the 21 files scored, not all of CPython: more test files are measured with `tools/conformance.py --candidates` for planning and are not in the score yet.
 - Tests that depend on CPython internals, or that cannot be cut into a standalone script, are left out of the score.
-- Known wrong results are listed in [compat/conformance_known_wrong/](../compat/conformance_known_wrong/) (core) and [compat/conformance_stdlib_known_wrong/](../compat/conformance_stdlib_known_wrong/). At v0.27.0 the core ones were pickling of dict and list iterators and two `test_scope` cell cases; at v0.28.1 both folders are empty. CI fails if a line stops being wrong or a new wrong result appears, so the lists only shrink.
+- Known wrong results are listed in [compat/conformance_known_wrong/](../compat/conformance_known_wrong/) (core) and [compat/conformance_stdlib_known_wrong/](../compat/conformance_stdlib_known_wrong/). At v0.27.0 the core ones were pickling of dict and list iterators and two `test_scope` cell cases; at v0.28.2 both folders are empty. CI fails if a line stops being wrong or a new wrong result appears, so the lists only shrink.
 - The score floors are in [compat/conformance_floor.json](../compat/conformance_floor.json). The score can only go up: after each merge, main raises the floors to what the merged tree measures (`.github/workflows/conformance-main.yml`), and pull requests leave them alone (`tools/floor_guard.py`).
 - [compat/baseline.txt](../compat/baseline.txt) lists saved programs that once passed and must keep passing. It is a regression set, not a measure of how much Python works.
 
@@ -40,7 +40,7 @@ Outside the aim: text on stderr, and output CPython itself changes between runs 
 
 Windows builds, runs and verifies programs natively, including library calls through CPython (the `python` on PATH needs its DLL). Differences:
 
-- `--limit cpu`, `file`, `fds` and `threads` are refused, not half enforced. `--limit mem` works (a Job Object). `time` and `output` work as on Linux.
+- `--limit mem` works, held by a Job Object around the program and every process it starts; from the next release `cpu` does too (it counts their user and kernel time together; v0.28.2 and earlier refuse it on Windows). `time`, `output`, `written`, `net` and `files` work as on Linux. `--limit file`, `fds` and `threads` are refused with an error, not half enforced: Windows has no limit on the size of one file or on the handles a process opens, and a Job Object can cap processes but not threads.
 - `--standalone` works (from v0.28.1; one .exe carrying CPython, unpacked once into `%LOCALAPPDATA%\brevi\py`). It is refused at build time with Microsoft Store Python or a Python for another CPU. A cache folder deep enough to push an unpacked file past 260 characters is refused at run time (set `BREVI_PY_CACHE` shorter). A standalone .exe changed after the build, for example by code signing, refuses to run rather than use an installed Python.
 - Windows' own SQLite can be a different version from CPython's, so version-specific output may differ.
 - DuckDB and ONNX Runtime need their libraries installed (`pip install duckdb`, onnxruntime 1.16 or later).
@@ -54,8 +54,8 @@ Tests: [tests/windows/check.ps1](../tests/windows/check.ps1).
 
 The full model is [THREAT_MODEL.md](THREAT_MODEL.md). No external security audit yet: we have not had an external audit; we are seeking funding for one. Until then, do not run hostile code under the sandbox. The sandbox is a policy layer, not an isolation boundary: a compile-time capability check plus Brevi's own runtime code, with no container or VM around the program. Run untrusted code in a container or VM. In short:
 
-- `--allow-py` and `--allow native` are full trust. For CPython, files are held on Linux 5.13 or later with Landlock, and the network on Linux x86-64 and arm64 with seccomp (next line); a `rust fn` or crate is not held at all. Where Landlock is missing, named folders are refused, and with none named CPython keeps full file access.
-- Processes and the `files`, `net` and `written` limits are not held for CPython. The network is held for it only on Linux, from v0.28.0 (no network without a grant; hosts named with `--allow-net` are refused); on macOS and Windows CPython keeps the network.
+- `--allow-py` and `--allow native` are full trust. For CPython, files are held on Linux 5.13 or later with Landlock, and the network on Linux x86-64 and arm64 with seccomp (next line); a `rust fn` or crate is not held at all. Where a lock is missing (macOS, Windows, Linux without Landlock), the program is refused from v0.28.3 unless built with `--allow-unlocked-python`, which warns on every start.
+- Processes and the `files`, `net` and `written` limits are not held for CPython. The network is held for it only on Linux, from v0.28.0 (no network without a grant; hosts named with `--allow-net` are refused); on macOS and Windows, from v0.28.3, such a program is refused unless built with `--allow-unlocked-python` (it then warns on every start and CPython keeps the network).
 - `--allow read` and `--allow write` are whole-account grants. A swap of a folder for a symlink by another process between check and open can redirect an open.
 - The network grant matches host names. `--allow net` reaches anything the machine can, including `localhost` and cloud metadata.
 - Not limited: connections to granted hosts, disk space used by overwriting bytes, writes through memory maps.
@@ -67,6 +67,7 @@ The full model is [THREAT_MODEL.md](THREAT_MODEL.md). No external security audit
 ## Platform gaps
 
 - `--limit mem` is refused on macOS. `--limit threads` works only on Linux with a cgroup Brevi can create.
+- Native float64 numpy matrix products and linear algebra (`@`, `dot`, `matmul`, `inner`, `vdot`, `cov`, `corrcoef`, `polyfit`, `numpy.linalg`) run in Brevi only on x86-64 CPUs with AVX2 and FMA, whose OpenBLAS kernels Brevi reproduces. On ARM64 and older x86-64 CPUs they run in CPython.
 - Native float32 numpy (`@`, `dot`, `matmul`, `exp`, `tanh`, `sin`, `cos`, `log1p`, `norm`) runs in Brevi only on AVX-512 CPUs. Other CPUs run them in CPython, as does float32 matrix @ vector with 6 or 7 columns.
 - The dev container feature works on Debian, Ubuntu and Fedora based images (glibc), not Alpine.
 - `--standalone` works on Linux and Windows, not macOS.

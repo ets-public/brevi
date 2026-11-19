@@ -590,7 +590,7 @@ pub fn deque_pickle_parts(v: &V) -> Result<(Option<Rc<Class>>, Option<usize>, V,
     for k in own.clone() {
         for n in ["__reduce__", "__reduce_ex__", "__getstate__", "__getnewargs__", "__getnewargs_ex__", "extend", "append"] {
             if k.own(n).is_some() {
-                return Err(unsupported(&format!("pickling an instance of a deque subclass that defines {n}")));
+                return Err(unsupported_stop(&format!("pickling an instance of a deque subclass that defines {n}")));
             }
         }
     }
@@ -644,12 +644,12 @@ pub fn deque_pickle_setstate(o: &V, state: V) -> Result<(), E> {
     };
     let V::Obj(ob) = o else { return Ok(()) };
     // (pickle.UnpicklingError in CPython; a pickle made here never holds one)
-    let bad = |what: &str| unsupported(&format!("loading a pickled deque whose {what} is not a dictionary"));
+    let bad = |what: &str| unsupported_stop(&format!("loading a pickled deque whose {what} is not a dictionary"));
     match &dict {
         V::None => {}
         V::Dict(x) => {
             for (k, x) in x.borrow().items() {
-                let V::Str(k) = k else { return Err(unsupported("a pickled __dict__ key that is not a str")) };
+                let V::Str(k) = k else { return Err(unsupported_stop("a pickled __dict__ key that is not a str")) };
                 ob.set_res(sym(k.text()), x)?;
             }
         }
@@ -659,7 +659,7 @@ pub fn deque_pickle_setstate(o: &V, state: V) -> Result<(), E> {
         V::None => {}
         V::Dict(x) => {
             for (k, x) in x.borrow().items() {
-                let V::Str(k) = k else { return Err(unsupported("a pickled slot name that is not a str")) };
+                let V::Str(k) = k else { return Err(unsupported_stop("a pickled slot name that is not a str")) };
                 setattr(o, sym(k.text()), x)?;
             }
         }

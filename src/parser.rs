@@ -2215,6 +2215,19 @@ impl Parser {
                             }
                             crate::pydiag::note_call(line, &name, &e);
                             let name = if matches!(&e, Expr::Ident(m) if m == "re") { name } else { python_method(&name, args.len()).unwrap_or(name) };
+                            // `s.split(None, n)`: at most n splits on runs of whitespace.
+                            let name = if name == "split" && args.len() == 1 && !kws_given && matches!(&args[0], Expr::Call(n, a, _) if n == "none" && a.is_empty()) && !self.own_method(&e) {
+                                args.clear();
+                                "words".to_string()
+                            } else {
+                                name
+                            };
+                            let name = if name == "split_n" && !kws_given && matches!(&args[0], Expr::Call(n, a, _) if n == "none" && a.is_empty()) && !self.own_method(&e) {
+                                args.remove(0);
+                                "words_n".to_string()
+                            } else {
+                                name
+                            };
                             // s.splitlines(True): the flag is in the name now.
                             if name == "lines_keep" {
                                 args.clear();

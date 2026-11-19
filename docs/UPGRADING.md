@@ -13,6 +13,8 @@ brevi --version
 | Channel | Upgrade | Pin a version |
 | --- | --- | --- |
 | `install.sh` | run the install command again (see the README) | `BREVI_VERSION=0.27.0 sh install.sh` |
+| uvx | `uvx --python 3.13 brevi@latest run --verify main.py` (plain `uvx` reuses its cached copy) | `uvx --python 3.13 brevi@0.28.2 run --verify main.py` |
+| uv tool | `uv tool upgrade brevi` | `uv tool install --python 3.13 brevi==0.28.2` |
 | pip | `pip install --upgrade brevi` | `pip install brevi==0.27.0` |
 | npm | `npm install -g brevi@latest` | `npm install -g brevi@0.27.0` |
 | cargo | `cargo install brevi --force` | `cargo install brevi --version 0.27.0 --force` |
@@ -35,12 +37,18 @@ Notes:
 
 Newest first. Only changes that can affect programs or setups that already work.
 
-### v0.28.3
+### Next release
 
-These changed in v0.28.3 (18 Nov 2026).
+These are on `main` now and ship with the next release.
 
-- **Unknown options are refused.** `brevi build`, `check`, `emit`, `test` and `fix` stop with exit code 2 on an option they do not have, naming the nearest real one (`did you mean --sandbox?`), instead of ignoring it. `brevi run` also refuses one before the file, and `--timeout`, `--input`, `--once` and `--mcp` without `--verify`. A script that passed a misspelt or unsupported flag now fails: fix the flag. `-o=PATH` is refused; write `-o PATH`.
-- **Words after `--` belong to the program.** `brevi run main.py -- --fast` passes `--fast` to the program; put Brevi's own options before `--`.
+- **Crate lines are checked.** A version must be a Cargo version requirement and features Cargo feature names, and under `--sandbox` every crate needs a version: add `use NAME "VERSION"` for a crate the rust code names without one.
+- **`brevi mcp --http` without a token answers only local Host names** (localhost, 127.0.0.1, [::1]). A tunnel that forwards to 127.0.0.1 with its own host name (cloudflared does by default) needs `--allow-host NAME`, or better a token. With a token, five wrong tokens in a row from one address get 429 for a growing wait (up to 60 s).
+- **Sandboxed CPython is refused where the kernel cannot lock it.** Under `--sandbox` with `--allow-py` or `--allow native`, a program that runs CPython is refused on macOS and Windows at build time, and at start on a Linux kernel without Landlock (or without seccomp, or on an architecture other than x86-64 and arm64, when no network is granted). Before, CPython there kept full file access when no folders were named, and the network on macOS and Windows. Grant `--allow read,write` and `--allow net` if CPython should have them, or pass `--allow-unlocked-python` (`brevi mcp --allow-unlocked-python` for a server) to build it anyway: it then warns on every start.
+- **`--limit cpu` works on Windows**, held by a Job Object and a watch thread over user and kernel time. `file`, `fds` and `threads` stay refused there.
+- **`BREVI_DYN=0` keeps the wrong-answer guard.** A file the guard sends to the dynamic build is refused instead of built typed.
+- **Pickle and copy refusals stop the program** instead of raising an exception a `try` could catch. Pickles of the program's own classes, int and tuple subclasses and namedtuples now have CPython's exact bytes, and `copy` honours a class's `__reduce__`, `__getstate__` and `__setstate__` (they were skipped before).
+- **numpy with `NPY_*` or `NUMPY_*` settings** in the environment runs with CPython's numpy, not Brevi's.
+- **Typed build:** a loop over a JSON number, bool or None raises Python's `TypeError` (it looped zero times), and `split()`, `strip()` and `isspace()` treat U+001C to U+001F as whitespace.
 
 ### v0.28.2
 

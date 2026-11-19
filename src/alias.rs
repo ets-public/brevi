@@ -32,6 +32,8 @@ struct Cx {
 }
 
 thread_local! {
+    // Write-backs put in: (line of the statement that changed the name, the name, the container's root name).
+    static WB_DONE: std::cell::RefCell<HashSet<(usize, String, String)>> = std::cell::RefCell::new(HashSet::new());
     // (function, parameter index) pairs whose function changes that parameter in place (`dq.popleft()`, `lot[0] -= t`).
     static CHANGES_PARAM: std::cell::RefCell<HashSet<(String, usize)>> = std::cell::RefCell::new(HashSet::new());
 }
@@ -58,11 +60,62 @@ pub fn share_marks(items: &mut [Item]) -> Vec<Diag> {
     errs
 }
 
+// The sharing proof's write-backs (share_guard::Required::wbs): after each change of m at that line, `q[k] = m`
+// must follow (see writeback), or the typed build would leave the change in a copy.
+pub fn share_writebacks() -> Vec<Diag> {
+    let mut errs = vec![];
+    let done = WB_DONE.with(|d| d.borrow().clone());
+    for (line, m, q) in crate::share_guard::required().wbs {
+        if !done.iter().any(|(l, r, b)| *l == line && (r == &m || r.trim_end_matches('_') == m) && (b == &q || b.trim_end_matches('_') == q)) {
+            err_d(&mut errs, line, format!("{m} is an item of {q} that is changed while {q} is still used, and the typed build would change only a copy"));
+        }
+    }
+    errs
+}
+
+fn note_wb(line: usize, r: &str, wb: &Stmt) {
+    if let Stmt::Assign { target, .. } = wb {
+        if let Some(b) = root(target) {
+            WB_DONE.with(|d| d.borrow_mut().insert((line, r.to_string(), b.to_string())));
+        }
+    }
+}
+
+// The lines of the statements in lp that change r (all written back after lp).
+fn note_wb_in(lp: &Expr, r: &str, wb: &Stmt) {
+    let mut lines = vec![];
+    any_expr(lp, &mut |s| {
+        if direct_wb(r, s) {
+            lines.push(stmt_line(s));
+        }
+        false
+    });
+    walk_tails(lp, &mut |t| {
+        if let Expr::Method(recv, m, _, l) = t {
+            if root(recv) == Some(r) && CHANGING.contains(&m.as_str()) {
+                lines.push(*l);
+            }
+        }
+    });
+    lines.into_iter().for_each(|l| note_wb(l, r, wb));
+}
+
+// Each block's last expression, inside e.
+fn walk_tails(e: &Expr, f: &mut dyn FnMut(&Expr)) {
+    let mut probe = e.clone();
+    crate::parser::walk_mut(&mut probe, &mut |x| {
+        if let Expr::Block(_, Some(t)) = x {
+            f(t);
+        }
+    });
+}
+
 fn err_d(errs: &mut Vec<Diag>, line: usize, msg: String) {
     errs.push(Diag::new("check", line, 1, &msg));
 }
 
 pub fn writeback(items: &mut [Item]) -> Vec<Diag> {
+    WB_DONE.with(|d| d.borrow_mut().clear());
     // A Python loop body's last call (`for k, v in d.items(): v.pop(0)`) is a statement, whose value nothing
     // uses: made one, so the write-back after it is put in as after any other change.
     if crate::infer::py_on() {
@@ -1342,6 +1395,20 @@ fn walk(e: &mut Expr, cx: &mut Cx) {
                     break;
                 }
             }
+            // Each chained write-back follows every write-back it was put after (chain above), at that one's lines.
+            for _ in 0..3 {
+                for (r2, wb2) in wbs.iter() {
+                    for (r1, wb1) in wbs.iter() {
+                        let Stmt::Assign { target: Expr::Index(b1, _), .. } = wb1 else { continue };
+                        if root(b1) != Some(r2.as_str()) {
+                            continue;
+                        }
+                        let b1 = r2.clone();
+                        let lines: Vec<usize> = WB_DONE.with(|d| d.borrow().iter().filter(|(_, r, b)| r == r1 && *b == b1).map(|(l, _, _)| *l).collect());
+                        lines.into_iter().for_each(|l| note_wb(l, r2, wb2));
+                    }
+                }
+            }
         }
         Expr::If(_, a, b) => {
             walk(a, cx);
@@ -1682,6 +1749,7 @@ fn add_in(r: &str, wb: &Stmt, stmts: &mut Vec<Stmt>, tail: &mut Option<Box<Expr>
         // change inside it (a whole-row copy per cell), when nothing in the loop could see the difference.
         if let Stmt::Expr { expr: lp @ (Expr::For(..) | Expr::While(..)), .. } = &st {
             if quiet_loop(lp, wb) && any_expr(lp, &mut |s| direct_wb(r, s)) {
+                note_wb_in(lp, r, wb);
                 stmts.push(st);
                 stmts.push(wb.clone());
                 continue;
@@ -1692,8 +1760,10 @@ fn add_in(r: &str, wb: &Stmt, stmts: &mut Vec<Stmt>, tail: &mut Option<Box<Expr>
             Stmt::Let { value, .. } | Stmt::Assign { value, .. } => add_expr(r, wb, value, false),
             _ => {}
         }
+        let line = stmt_line(&st);
         stmts.push(st);
         if d {
+            note_wb(line, r, wb);
             stmts.push(wb.clone());
         }
     }
@@ -1709,6 +1779,10 @@ fn add_in(r: &str, wb: &Stmt, stmts: &mut Vec<Stmt>, tail: &mut Option<Box<Expr>
                 _ => 0,
             };
             let t = tail.take().unwrap();
+            note_wb_in(&t, r, wb);
+            if let Expr::Method(_, _, _, l) = t.as_ref() {
+                note_wb(*l, r, wb);
+            }
             stmts.push(Stmt::Expr { expr: *t, line });
             stmts.push(wb.clone());
             return;
@@ -1722,6 +1796,9 @@ fn add_in(r: &str, wb: &Stmt, stmts: &mut Vec<Stmt>, tail: &mut Option<Box<Expr>
                 _ => 0,
             };
             let t = tail.take().unwrap();
+            if let Expr::Method(_, _, _, l) = t.as_ref() {
+                note_wb(*l, r, wb);
+            }
             stmts.push(Stmt::Expr { expr: *t, line });
             stmts.push(wb.clone());
         } else {

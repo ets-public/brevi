@@ -1,7 +1,9 @@
 # Brevi documentation
 <!-- description: Brevi documentation: install, use, connect agents, and how the compiler works. -->
 
-Brevi is a compiler built for AI coding agents. The agent writes ordinary Python, and Brevi builds it through Rust into a native program. On our 12 compute benchmarks the default typed build runs 1.6x to 37.9x faster than CPython (median 9.3x); a program on the dynamic build runs at about CPython's speed (the dynamic build's median is 0.85x). Brevi aims to print exactly what CPython prints and to refuse what it cannot match; on CPython 3.13's own tests it matches 97.3% of the scored suite, with 83 string-as-code tests excluded at v0.28.1 and gets none wrong, but it is a preview, not a drop-in `python3` ([the numbers](/docs/compatibility#in-numbers)). When Brevi cannot build something, it says so in one short JSON line the agent can act on.
+**The verified native runtime for agent-written Python.** The agent writes plain Python; Brevi runs it native and `brevi run --verify` checks each run against CPython 3.13. New here? [Quickstart for agents](/docs/quickstart) goes from install to a verified run in a few commands.
+
+Brevi is a compiler built for AI coding agents. The agent writes ordinary Python, and Brevi builds it through Rust into a native program. On our 12 compute benchmarks the typed build runs 1.6x to 37.9x faster than CPython (median 9.3x), but only a small share of programs take it; the dynamic build most programs get runs at about CPython's speed (median 0.85x). Brevi aims to print exactly what CPython prints and to refuse what it cannot match; on CPython 3.13's own tests it matches 97.3% of the scored suite, with 83 string-as-code tests excluded, at v0.28.2 and gets none wrong, but it is a preview, not a drop-in `python3` ([the numbers](/docs/compatibility#in-numbers)). When Brevi cannot build something, it says so in one short JSON line the agent can act on.
 
 Brevi is written in Rust and released under the Apache-2.0 license.
 
@@ -38,4 +40,4 @@ cat: 1
 
 ## Status
 
-Brevi is a preview, at version __VERSION__. It builds most real-world agent-written Python natively today, and the [roadmap](/docs/roadmap) lists what is still missing. Install it with the script, `pip install brevi`, `npm install -g brevi`, `cargo install brevi` or from the GitHub release ([Install](/docs/install)); Homebrew and the hosted service at [brevi.run](https://brevi.run) are coming.
+Brevi is a preview, at version __VERSION__. It builds most real-world agent-written Python natively today, and the [roadmap](/docs/roadmap) lists what is still missing. Install and run it in one command with `uvx --python 3.13 brevi run --verify main.py` (no Rust needed on Linux x86-64 and macOS; on Linux ARM64 and Windows from the next release), or with the script, `pip install brevi`, `npm install -g brevi`, `cargo install brevi` or from the GitHub release ([Install](/docs/install)); Homebrew and the hosted service at [brevi.run](https://brevi.run) are coming.

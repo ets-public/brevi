@@ -1,0 +1,20 @@
+0 [('a1', []), ('a2', []), ('a', ['a1', 'a2']), ('b', []), ('root', ['a', 'b'])] a2
+1 [('a1', []), ('a2', []), ('a', ['a1', 'a2']), ('b', []), ('root', ['a', 'b'])] a2
+2 [('a1', []), ('a2', []), ('a', ['a1', 'a2']), ('b', []), ('root', ['a', 'b'])] a2
+3 [('a1', []), ('a2', []), ('a', ['a1', 'a2']), ('b', []), ('root', ['a', 'b'])] a2
+4 [('a1', []), ('a2', []), ('a', ['a1', 'a2']), ('b', []), ('root', ['a', 'b'])] a2
+5 [('a1', []), ('a2', []), ('a', ['a1', 'a2']), ('b', []), ('root', ['a', 'b'])] a2
+0 [('c', False), ('p', True)] True True True
+2 [('c', False), ('p', True)] True True True
+4 [('c', False), ('p', True)] True True True
+{'a': 1, 'b': [2, 3]}
+ValueError negative
+1 ['__setstate__']
+['__setstate__', ('set', ['x'])] False
+[('a', 1), ('b', 2)] 1 2
+0 True True True
+1 True True True
+2 True True True
+3 True True True
+4 True True True
+5 True True True

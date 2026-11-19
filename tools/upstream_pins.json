@@ -2,7 +2,7 @@
   "_doc": "Upstream Python libraries Brevi mirrors natively, at the versions its tests/*/NAME.expected files were made with. tools/parity_drift.py installs each pinned version and the newest release side by side, runs the tests in CPython and opens an `upstream` issue when a release changes what they print. Bump a pin only together with the .expected files (sh tests/check.sh --update with that version installed).",
   "groups": {
     "numpy": {
-      "watch": {"numpy": "2.5.4"},
+      "watch": {"numpy": "2.5.5"},
       "tests": ["tests/numpy/*.py"],
       "stderr": false
     },
@@ -29,7 +29,7 @@
       "stderr": false
     },
     "llm": {
-      "watch": {"anthropic": "2.6.0", "openai": "3.49.0"},
+      "watch": {"anthropic": "2.8.0", "openai": "3.51.0"},
       "tests": ["tests/llm/anthropic_*.py", "tests/llm/openai_*.py"],
       "server": ["tests/llm/server.py", "18090", "listening"],
       "unset_env": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"],
@@ -57,7 +57,7 @@
       "stderr": false
     },
     "onnxruntime": {
-      "watch": {"onnxruntime": "1.31.1"},
+      "watch": {"onnxruntime": "1.32.0"},
       "tests": ["tests/onnxruntime/*.py"],
       "stderr": false
     },

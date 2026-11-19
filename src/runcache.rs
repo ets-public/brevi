@@ -6,6 +6,8 @@
 //   - the brevi binary (version, size and modification time), the toolchain (PATH, rustup settings) and
 //     the python3 on PATH,
 //   - the command and its flags, and every BREVI_* and Python setting in the environment,
+//   - what the build reads of the machine to choose a path: the CPU's numpy BLAS kernels, OPENBLAS_CORETYPE and
+//     numpy's own NPY_* / NUMPY_* settings,
 //   - the file's path and the text of every .py and .bv file next to it (the modules it may import; also
 //     those in package folders it imports).
 // A success is kept with its binary; a refusal is kept only when nothing outside the program's folder and
@@ -261,6 +263,8 @@ fn key(args: &[String], file: &str, envs: &[(&str, &str)], me: &Path) -> Option<
         .collect();
     vars.sort();
     parts.extend(vars.into_iter().map(|(k, v)| format!("{k}={v}")));
+    // What the build reads of the machine to choose a program's path (numpy's BLAS kernels and settings).
+    parts.push(crate::dynpy::emit::np_path_inputs());
     // The Python that library calls link against (an upgrade in place leaves PATH as it was).
     // Every interpreter the CPython 3.13 search would look at (src/cpython.rs), by file, without starting one:
     // installing, removing or upgrading any of them can change which one is found.

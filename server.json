@@ -7,12 +7,12 @@
     "source": "github"
   },
   "websiteUrl": "https://brevi-lang.org",
-  "version": "0.28.3",
+  "version": "0.28.2",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "brevi",
-      "version": "0.28.3",
+      "version": "0.28.2",
       "transport": {
         "type": "stdio"
       },
@@ -26,7 +26,7 @@
     {
       "registryType": "npm",
       "identifier": "brevi",
-      "version": "0.28.3",
+      "version": "0.28.2",
       "transport": {
         "type": "stdio"
       },

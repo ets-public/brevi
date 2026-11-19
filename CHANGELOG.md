@@ -4,11 +4,6 @@ Each release's section here becomes its GitHub release notes (`.github/workflows
 
 ## Unreleased
 
-## v0.28.3 (18 Nov 2026)
-
-- Security: `brevi build`, `check`, `emit`, `test` and `fix` now refuse an option they do not have, with a clear error and exit code 2, as `brevi run` already did after the file. Before, a misspelt flag was dropped silently: `brevi build fs.py --sandbx` built an unsandboxed binary and exited 0. `brevi run` now also refuses an unknown option before the file, and `--timeout`, `--input`, `--once` and `--mcp` without `--verify`; the error names the nearest real option (`did you mean --sandbox?`). An unknown command (`brevi biuld`) is refused before anything is built, and `brevi toolchain install` takes no further words.
-- Fix: words after `--` are the program's own: `brevi run main.py -- --fast --sandbox` passes both to the program instead of taking them as Brevi options.
-
 ## v0.28.2 (16 Nov 2026)
 
 - Security: `brevi mcp --http` now bounds what a client can make it hold before the token is checked. Chunk sizes that would add up past the 4 MiB body limit are refused (413) instead of wrapping, a body is stored only as its bytes arrive, a connection silent for 30 s or a request not whole within 120 s is closed, and at most 64 connections are served at once (503 past that).

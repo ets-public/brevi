@@ -73,6 +73,65 @@ fn np_f32_simd_here() -> bool {
     #[allow(unreachable_code)]
     false
 }
+// Whether numpy here runs OpenBLAS kernels the runtime models (rt_np.rs np_blas: x86-64 with AVX2 and FMA, and
+// no OPENBLAS_CORETYPE naming others). Elsewhere (ARM64, older x86-64) a program with a float matrix product, norm or
+// linear algebra routine goes to CPython: Brevi's results would differ from numpy's in the last digits.
+fn np_blas_here() -> bool {
+    np_blas_kind_here() > 0
+}
+// float32 dot / matmul / `@`: only OpenBLAS's SkylakeX kernels are reproduced (rt_np.rs np_f32_simd)
+fn np_sgemm_here() -> bool {
+    np_blas_kind_here() == 2
+}
+// 2: SkylakeX kernels, 1: Haswell, 0: none modelled. The runtime picks by the CPU alone (it reads no environment),
+// so an OPENBLAS_CORETYPE naming other kernels than the CPU's own makes numpy add in an order Brevi's would not.
+fn np_blas_kind_here() -> u8 {
+    let cpu = np_blas_cpu();
+    if let Some(c) = std::env::var_os("OPENBLAS_CORETYPE").filter(|c| !c.is_empty()) {
+        let named = match c.to_string_lossy().to_ascii_lowercase().as_str() {
+            "skylakex" => 2,
+            "haswell" | "zen" => 1,
+            _ => 0,
+        };
+        return if named == cpu { cpu } else { 0 };
+    }
+    cpu
+}
+// The kernels this CPU alone would get: 2 SkylakeX (AVX-512), 1 Haswell (AVX2 and FMA), 0 none modelled
+fn np_blas_cpu() -> u8 {
+    #[cfg(target_arch = "x86_64")]
+    {
+        let hsw = std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma");
+        return if np_f32_simd_here() { 2 } else if hsw { 1 } else { 0 };
+    }
+    #[allow(unreachable_code)]
+    0
+}
+// Every input outside the program that decides which numpy code is Brevi's and which goes to CPython (the CPU's
+// kernels and OPENBLAS_CORETYPE, as np_blas_kind_here reads them), for the result cache's key (runcache.rs): a
+// build kept under one must not be replayed under another.
+pub fn np_path_inputs() -> String {
+    let mut s = format!("numpy cpu={} OPENBLAS_CORETYPE={:?}", np_blas_cpu(), std::env::var_os("OPENBLAS_CORETYPE").unwrap_or_default());
+    let mut np: Vec<_> = np_settings().collect();
+    np.sort();
+    for (k, v) in np {
+        s.push_str(&format!(" {k:?}={v:?}"));
+    }
+    s
+}
+// numpy's own settings in the environment: NPY_DISABLE_CPU_FEATURES and NPY_ENABLE_CPU_FEATURES choose which SIMD
+// loops it runs (the float32 exp/tanh/log1p/sin/cos and float64 loops whose last digits Brevi's numpy reproduces
+// for the CPU's own dispatch only), NPY_PROMOTION_STATE makes it warn, and a later numpy may read more. With any
+// NPY_* or NUMPY_* variable set (even empty) the build uses CPython's numpy (dynpy/mod.rs to_rust), and the
+// result cache keys on them (np_path_inputs).
+fn np_settings() -> impl Iterator<Item = (std::ffi::OsString, std::ffi::OsString)> {
+    std::env::vars_os().filter(|(k, _)| k.to_str().is_some_and(|k| k.starts_with("NPY_") || k.starts_with("NUMPY_")))
+}
+pub fn np_settings_set() -> bool {
+    np_settings().next().is_some()
+}
+// The numpy functions that run OpenBLAS (with numpy.linalg's, and the .dot method and `@`)
+const NP_BLAS_FUNCS: &[&str] = &["dot", "matmul", "inner", "vdot", "cov", "corrcoef", "polyfit"];
 const NP_NARROW_FUNCS: &[&str] = &[
     "pi", "e", "inf", "nan", "euler_gamma", "newaxis", "True_", "False_", "float64", "double", "int64", "int_", "intp", "bool_", "bool", "ndarray",
     "integer", "signedinteger", "floating", "number", "generic", "inexact", "float32", "single", "int32", "intc",
@@ -207,7 +266,10 @@ fn np_attr_check(n: &str, kws: &[&str], line: usize) -> ER<()> {
     if n == "metadata" && NP_ATTR_ST.load(std::sync::atomic::Ordering::Relaxed) {
         return Ok(());
     }
-    if np_narrow() && matches!(n, "dot" | "trace") && !(n == "dot" && np_f32_simd_here()) {
+    if n == "dot" && !np_blas_here() {
+        return Err(err(line, "numpy: .dot on a CPU whose OpenBLAS kernels Brevi does not model"));
+    }
+    if np_narrow() && matches!(n, "dot" | "trace") && !(n == "dot" && np_sgemm_here()) {
         return Err(err(line, &format!("numpy: .{n} of float32 arrays is not in Brevi's native numpy")));
     }
     match NP_ATTR_OK.iter().find(|(a, _)| *a == n) {
@@ -227,10 +289,10 @@ pub fn module_has(m: &str, n: &str) -> bool {
     let names: &[&str] = match m {
         "__future__" => return true,
         "typing" | "typing_extensions" => return super::typing::module_has(m, n),
-        "numpy" => return np_func_kw(n).is_some() && (!np_narrow() || NP_NARROW_FUNCS.contains(&n) || (NP_F32_SIMD.contains(&n) && np_f32_simd_here()) || (matches!(n, "dot" | "matmul") && np_f32_simd_here())),
+        "numpy" => return np_func_kw(n).is_some() && (np_blas_here() || !NP_BLAS_FUNCS.contains(&n)) && (!np_narrow() || NP_NARROW_FUNCS.contains(&n) || (NP_F32_SIMD.contains(&n) && np_f32_simd_here()) || (matches!(n, "dot" | "matmul") && np_sgemm_here())),
         "numpy.random" => return np_rand_kw(n).is_some(),
-        "numpy.linalg" => return np_linalg_kw(n).is_some() && (!np_narrow() || n == "norm"),
-        "sys" => &["exit", "setrecursionlimit", "getrecursionlimit", "getdefaultencoding", "getsizeof", "intern", "set_int_max_str_digits", "get_int_max_str_digits", "stdin", "stdout", "stderr", "__stdin__", "__stdout__", "__stderr__", "argv", "maxsize", "platform", "byteorder", "version_info", "flags", "version", "modules", "path", "exception", "exc_info"],
+        "numpy.linalg" => return np_linalg_kw(n).is_some() && (np_blas_here() || n == "LinAlgError") && (!np_narrow() || (n == "norm" && np_sgemm_here())),
+        "sys" => &["exit", "setrecursionlimit", "getrecursionlimit", "setswitchinterval", "getswitchinterval", "getdefaultencoding", "getsizeof", "intern", "set_int_max_str_digits", "get_int_max_str_digits", "stdin", "stdout", "stderr", "__stdin__", "__stdout__", "__stderr__", "argv", "maxsize", "platform", "byteorder", "version_info", "flags", "version", "modules", "path", "exception", "exc_info"],
         "math" => &["acos", "asin", "atan", "atan2", "ceil", "comb", "copysign", "cos", "cosh", "degrees", "dist", "exp", "fabs", "factorial", "floor", "fmod", "frexp", "fsum", "gcd", "hypot", "isclose", "isfinite", "isinf", "isnan", "isqrt", "lcm", "ldexp", "log", "log10", "log1p", "log2", "modf", "perm", "pow", "prod", "radians", "remainder", "sin", "sinh", "sqrt", "tan", "tanh", "trunc", "pi", "e", "tau", "inf", "nan"],
         "atexit" => &["register", "unregister", "_run_exitfuncs", "_clear", "_ncallbacks"],
         "heapq" => &["heapify", "heappop", "heappush", "heappushpop", "heapreplace", "merge", "nlargest", "nsmallest"],
@@ -246,7 +308,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "enum" => &[
             "Enum", "IntEnum", "StrEnum", "Flag", "IntFlag", "auto", "unique", "property", "ReprEnum", "EnumType", "EnumMeta", "member", "nonmember", "verify", "EnumCheck",
             "UNIQUE", "CONTINUOUS", "NAMED_FLAGS", "FlagBoundary", "STRICT", "CONFORM", "EJECT", "KEEP", "show_flag_values", "_is_dunder", "_is_sunder", "_is_private", "_is_descriptor",
-            "_iter_bits_lsb",
+            "_iter_bits_lsb", "global_enum", "pickle_by_global_name", "_reduce_ex_by_global_name", "pickle_by_enum_name", "_make_class_unpicklable",
         ],
         "_brevi_term" => &["columns"],
         "hashlib" => &["new", "md5", "sha1", "sha224", "sha256", "sha384", "sha512"],
@@ -275,7 +337,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "_brevi_col" => &["fsum", "cmp", "farith", "iarith", "take", "mask", "group1", "infer"],
         "_brevi_mt" => &["new", "seed", "next", "random", "bits", "below", "shuffle"],
         "collections" => &["defaultdict", "Counter", "OrderedDict", "deque", "namedtuple", "abc", "_count_elements"],
-        "dataclasses" => &["asdict", "astuple", "dataclass", "field", "fields", "replace", "is_dataclass", "make_dataclass", "MISSING", "KW_ONLY", "InitVar", "Field", "FrozenInstanceError"],
+        "dataclasses" => &["asdict", "astuple", "dataclass", "field", "fields", "replace", "is_dataclass", "make_dataclass", "MISSING", "KW_ONLY", "InitVar", "Field", "FrozenInstanceError", "_dataclass_getstate", "_dataclass_setstate"],
         "re" => &["compile", "_compile", "escape", "findall", "finditer", "fullmatch", "match", "purge", "search", "split", "sub", "subn", "IGNORECASE", "I", "LOCALE", "L", "MULTILINE", "M", "DOTALL", "S", "VERBOSE", "X", "ASCII", "A", "NOFLAG", "UNICODE", "U", "DEBUG", "RegexFlag", "error", "PatternError", "Pattern", "Match", "Scanner"],
         "re._constants" => &["MAXGROUPS", "MAXREPEAT"],
         "re._compiler" => &["_generate_overlap_table", "MAXGROUPS", "MAXREPEAT"],
@@ -293,7 +355,7 @@ pub fn module_has(m: &str, n: &str) -> bool {
         "zoneinfo" => &["ZoneInfo", "ZoneInfoNotFoundError", "available_timezones", "TZPATH", "reset_tzpath"],
         "gc" => &["collect"],
         "weakref" => &["ref", "proxy"],
-        "inspect" => &["Signature", "isabstract"],
+        "inspect" => &["Signature", "Parameter", "signature", "isabstract"],
         _ => return false,
     };
     names.contains(&n)
@@ -488,6 +550,79 @@ fn sys_binds(body: &[Stmt], out: &mut BTreeSet<String>) {
 // m.n (n may be a submodule). `if TYPE_CHECKING:` blocks too: more names only refuse more.
 const SYSMOD_DYN_KEY: &str = "sys.modules with a key that is not a string literal (or __name__, or a parameter of a def whose every call passes one) is not supported in dynamic builds: CPython's answer for a key known only at run time may not be sure";
 // Every statement of a body, nested bodies included.
+// The arguments of a frame's `f_globals.get(...)` the build answers: '__warningregistry__' (rt_glue's fglob_get),
+// with or without a default, both positional. Any other key is refused when the program is built.
+fn fglob_get_args(a: &[Arg]) -> bool {
+    matches!(a, [Arg::Pos(Ex::Str(k))] | [Arg::Pos(Ex::Str(k)), Arg::Pos(_)] if k == "__warningregistry__")
+}
+// Takes one off the count of each plain name a store target binds (rt_glue GMod's free names).
+fn name_targets(t: &Ex, seen: &mut HashMap<String, isize>) {
+    match t {
+        Ex::Name(n) => *seen.entry(n.clone()).or_default() -= 1,
+        Ex::Tuple(v) | Ex::List(v) => v.iter().for_each(|x| name_targets(x, seen)),
+        Ex::Star(x) => name_targets(x, seen),
+        _ => {}
+    }
+}
+// A `lambda n: ...` that, given a str, runs no code of the program's and has no effects: its body uses only n,
+// literals, str methods that read (called on n or on such a value, with such arguments), not/and/or, if-else,
+// comparisons and indexing. enum's _convert_ calls it on every global's name, in an order the build does not keep.
+fn pure_name_filter(e: &Ex) -> bool {
+    let Ex::Lambda(p, body) = e else { return false };
+    let [(n, None)] = p.pos.as_slice() else { return false };
+    if p.star.is_some() || p.kwstar.is_some() || !p.kwonly.is_empty() {
+        return false;
+    }
+    fn pure(e: &Ex, n: &str) -> bool {
+        match e {
+            Ex::Name(x) => x == n,
+            Ex::Str(_) | Ex::Int(_) | Ex::NoneV | Ex::True | Ex::False => true,
+            Ex::Tuple(v) => v.iter().all(|x| pure(x, n)),
+            Ex::Unary("not", x) => pure(x, n),
+            Ex::And(a, b) | Ex::Or(a, b) => pure(a, n) && pure(b, n),
+            Ex::IfExp(a, b, c) => pure(a, n) && pure(b, n) && pure(c, n),
+            Ex::Cmp(a, rest) => pure(a, n) && rest.iter().all(|(op, x)| matches!(*op, "==" | "!=" | "in" | "not in") && pure(x, n)),
+            Ex::Index(a, i) => pure(a, n) && pure(i, n),
+            Ex::Slice(a, b, c) => [a, b, c].iter().all(|x| x.as_deref().is_none_or(|x| pure(x, n))),
+            Ex::Call(f, args) => {
+                let Ex::Attr(o, m) = &**f else { return false };
+                const READS: [&str; 16] = ["startswith", "endswith", "isupper", "islower", "isidentifier", "isalpha", "isdigit", "isalnum", "upper", "lower", "strip", "lstrip", "rstrip", "removeprefix", "removesuffix", "casefold"];
+                READS.contains(&m.as_str()) && pure(o, n) && args.iter().all(|a| matches!(a, Arg::Pos(x) if pure(x, n)))
+            }
+            _ => false,
+        }
+    }
+    pure(body, n)
+}
+// The str literal keys of `globals()['name'] = v` stores anywhere in a file (targets of assignments, nested
+// in tuples and lists too), when the file does not bind `globals` itself.
+fn globals_stores(body: &[Stmt]) -> BTreeSet<String> {
+    fn tgt(t: &Ex, out: &mut BTreeSet<String>) {
+        match t {
+            Ex::Index(o, k) => {
+                if let (Ex::Call(f, a), Ex::Str(k)) = (&**o, &**k) {
+                    // an identifier, and not a dunder name (the module's own __name__, __doc__, __warningregistry__, ...)
+                    let ident = k.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_') && k.chars().all(|c| c.is_alphanumeric() || c == '_');
+                    let dunder = k.len() > 4 && k.starts_with("__") && k.ends_with("__");
+                    if a.is_empty() && matches!(&**f, Ex::Name(g) if g == "globals") && ident && !dunder {
+                        out.insert(k.clone());
+                    }
+                }
+            }
+            Ex::Tuple(v) | Ex::List(v) => v.iter().for_each(|x| tgt(x, out)),
+            Ex::Star(x) => tgt(x, out),
+            _ => {}
+        }
+    }
+    let mut out = BTreeSet::new();
+    each_stmt(body, &mut |s| match &s.st {
+        St::Assign(ts, _) => ts.iter().for_each(|t| tgt(t, &mut out)),
+        St::For(t, _, _, _) => tgt(t, &mut out),
+        St::With(items, _) => items.iter().filter_map(|(_, t)| t.as_ref()).for_each(|t| tgt(t, &mut out)),
+        _ => {}
+    });
+    out
+}
 fn each_stmt<'a>(body: &'a [Stmt], f: &mut dyn FnMut(&'a Stmt)) {
     for s in body {
         f(s);
@@ -1904,6 +2039,12 @@ struct Func {
     direct_defs: HashMap<String, (String, Vec<String>, usize)>,
     // a class body run in namespace-dict mode: the Rust local holding its namespace dict
     ns: Option<String>,
+    // locals that only ever hold a frame from sys._getframe(n), read only as `x.f_globals.get('__warningregistry__')`
+    // (frame_vars)
+    fvars: HashSet<String>,
+    // locals that only ever hold this module's globals(): bound only by `g = globals()` and used only as g[k] (read
+    // or store), g.get(...) and `k in g` (glob_vars)
+    gvars: HashSet<String>,
 }
 
 pub struct Module {
@@ -2311,6 +2452,14 @@ pub struct Em {
     re_names: HashSet<(String, String)>,
     // the program uses the warnings module: every statement says where it is, so a warning names its line
     track_warn: bool,
+    // (module, name) a `globals()['name'] = v` stores to: names nothing else in the module binds
+    gstore: HashSet<(String, String)>,
+    // (module, name): names a def, class or import of the file binds, which a store by key may not change (rt_glue GMod)
+    gfixed: BTreeSet<(String, String)>,
+    // (module, name): names the file reads without binding them (builtins, NameError), which a store by key may not add
+    gfree: BTreeSet<(String, String)>,
+    // the program calls sys._getframe: its own functions count their frames (PDepth)
+    uses_getframe: bool,
     // module -> the lines whose logical line runs over more than one line (None: the module did not lex)
     multi: HashMap<String, Option<HashSet<usize>>>,
     // the WMod statics written so far
@@ -2664,7 +2813,9 @@ impl Em {
         if parent.qname.rsplit('.').next().is_some_and(|l| l.starts_with("__brevi_gp_")) && self.fstack.len() >= 2 {
             parent = &self.fstack[self.fstack.len() - 2];
         }
-        if parent.is_module {
+        // a def or class whose name the enclosing function declares `global` is a module-level qualname (CPython's
+        // compiler_set_qualname: GLOBAL_EXPLICIT in the parent scope)
+        if parent.is_module || (!parent.is_class && matches!(parent.vars.get(name), Some(Var::Global(_)))) {
             name.to_string()
         } else if parent.is_class {
             format!("{}.{}", parent.qname, name)
@@ -3026,7 +3177,10 @@ impl Em {
             }
             Ex::Call(f, args) => self.call(f, args, line)?,
             Ex::Bin(op, a, b) => {
-                if *op == "@" && np_on() && np_narrow() && !np_f32_simd_here() {
+                if *op == "@" && np_on() && !np_blas_here() {
+                    return Err(err(line, "numpy: @ on a CPU whose OpenBLAS kernels Brevi does not model"));
+                }
+                if *op == "@" && np_on() && np_narrow() && !np_sgemm_here() {
                     return Err(err(line, "numpy: @ with float32 arrays (OpenBLAS sgemm) is not in Brevi's native numpy"));
                 }
                 let aa = self.ex(a, line)?;
@@ -3524,6 +3678,11 @@ impl Em {
         if name == "__main__" || self.prog_mods.contains(&name) {
             return Ok((kk, "SysKey::Dict".into()));
         }
+        // a leading import of a one-file program (sysmod_early) put it in both dicts before the program's first read,
+        // whether or not CPython's startup had loaded it already
+        if self.module == "__main__" && self.sysmod_early.contains(&name) && (builtin_mod(&name) || self.user_modules.contains(&name) || self.bridge.has(&name)) {
+            return Ok((kk, "SysKey::Dict".into()));
+        }
         if sysmod_unsure(&name) {
             return Err(err(line, &format!("{name:?} in sys.modules is not supported in dynamic builds: CPython's answer depends on its environment or on its builtins' own imports")));
         }
@@ -3539,13 +3698,137 @@ impl Em {
         }
         Ok((kk, "SysKey::Dict".into()))
     }
+    // The plain locals of a def (`cands`) that only ever hold a frame: bound only by `x = sys._getframe(n)` and read
+    // only as `x.f_globals.get('__warningregistry__'[, d])`, in a def that never hands its locals out (locals(), vars(), dir(), eval,
+    // exec). Such a frame is never made: the build checks n where the frame is taken and answers the read
+    // (rt_glue's getframe_check and fglob_get). Every other use of a frame is refused, as sys._getframe is.
+    fn frame_vars<'a>(&self, body: &[Stmt], cands: impl Iterator<Item = &'a String>) -> HashSet<String> {
+        let mut out = HashSet::new();
+        let mut gf = false;
+        visit_any(body, &mut |e| gf |= self.getframe_depth(e).is_some());
+        if !gf {
+            return out;
+        }
+        let mut leaks = false;
+        visit_any(body, &mut |e| leaks |= matches!(e, Ex::Name(x) if matches!(x.as_str(), "locals" | "vars" | "dir" | "eval" | "exec")));
+        if leaks {
+            return out;
+        }
+        for n in cands {
+            let (mut total, mut gets, mut walrus) = (0, 0, false);
+            visit_any(body, &mut |e| match e {
+                Ex::Name(x) if x == n => total += 1,
+                Ex::Walrus(x, _) if x == n => walrus = true,
+                Ex::Call(f, a) if fglob_get_args(a) => {
+                    if let Ex::Attr(o, m) = &**f {
+                        if m == "get" && matches!(&**o, Ex::Attr(b, g) if g == "f_globals" && matches!(&**b, Ex::Name(x) if x == n)) {
+                            gets += 1;
+                        }
+                    }
+                }
+                _ => {}
+            });
+            let mut takes = 0;
+            each_stmt(body, &mut |st| {
+                if let St::Assign(ts, v) = &st.st {
+                    if matches!(ts.as_slice(), [Ex::Name(x)] if x == n) && self.getframe_depth(v).is_some() {
+                        takes += 1;
+                    }
+                }
+            });
+            if !walrus && takes > 0 && total == takes + gets && bind_count(body, n) == takes {
+                out.insert(n.clone());
+            }
+        }
+        out
+    }
+    // `sys._getframe()` / `sys._getframe(n)` with n a non-negative int literal: n
+    fn getframe_depth(&self, e: &Ex) -> Option<u32> {
+        let Ex::Call(f, a) = e else { return None };
+        let Ex::Attr(o, n) = &**f else { return None };
+        if n != "_getframe" || self.static_module(o).as_deref() != Some("sys") {
+            return None;
+        }
+        match a.as_slice() {
+            [] => Some(0),
+            [Arg::Pos(Ex::Int(t))] if t.bytes().all(|c| c.is_ascii_digit()) => t.parse().ok(),
+            _ => None,
+        }
+    }
     fn is_globals(&self, e: &Ex) -> bool {
-        matches!(e, Ex::Call(f, a) if a.is_empty() && matches!(&**f, Ex::Name(n) if n == "globals") && self.lookup("globals").is_none())
+        match e {
+            Ex::Call(f, a) => a.is_empty() && matches!(&**f, Ex::Name(n) if n == "globals") && self.lookup("globals").is_none(),
+            Ex::Name(n) => self.fstack.last().is_some_and(|f| f.gvars.contains(n)) && matches!(self.lookup(n), Some(Var::Local(_))),
+            _ => false,
+        }
+    }
+    // The plain locals of a def (`cands`) that only ever hold the module's globals(): bound only by `g = globals()`,
+    // and used only as g[k] (a read, or the target of a plain assignment or for loop), g.get(...) and `k in g` /
+    // `k not in g`, in a def that never hands its locals out. No dict is made: each use is the globals() use it
+    // stands for. Any other use (passing g on, g.items(), del g[k], g[k] += v) leaves g a plain local, and
+    // globals() as a value stays refused.
+    fn glob_vars<'a>(&self, body: &[Stmt], cands: impl Iterator<Item = &'a String>) -> HashSet<String> {
+        let mut out = HashSet::new();
+        let is_g = |e: &Ex| matches!(e, Ex::Call(f, a) if a.is_empty() && matches!(&**f, Ex::Name(n) if n == "globals"));
+        let mut any = false;
+        visit_any(body, &mut |e| any |= is_g(e));
+        if !any || self.lookup("globals").is_some() || bind_count(body, "globals") > 0 {
+            return out;
+        }
+        let mut leaks = false;
+        visit_any(body, &mut |e| leaks |= matches!(e, Ex::Name(x) if matches!(x.as_str(), "locals" | "vars" | "dir" | "eval" | "exec")));
+        if leaks {
+            return out;
+        }
+        for n in cands {
+            let is_n = |e: &Ex| matches!(e, Ex::Name(x) if x == n);
+            let (mut total, mut uses, mut bad) = (0, 0, false);
+            visit_any(body, &mut |e| match e {
+                Ex::Name(x) if x == n => total += 1,
+                Ex::Walrus(x, _) if x == n => bad = true,
+                Ex::Index(o, _) if is_n(o) => uses += 1,
+                Ex::Call(f, _) if matches!(&**f, Ex::Attr(o, m) if m == "get" && is_n(o)) => uses += 1,
+                Ex::Cmp(_, rest) if rest.len() == 1 && matches!(rest[0].0, "in" | "not in") && is_n(&rest[0].1) => uses += 1,
+                _ => {}
+            });
+            let mut takes = 0;
+            each_stmt(body, &mut |st| match &st.st {
+                St::Assign(ts, v) if matches!(ts.as_slice(), [Ex::Name(x)] if x == n) && is_g(v) => takes += 1,
+                St::AugAssign(x, _, _) | St::AnnAssign(x, _, _, _) if matches!(x, Ex::Index(o, _) if is_n(o)) => bad = true,
+                St::Del(ts) if ts.iter().any(|x| matches!(x, Ex::Index(o, _) if is_n(o))) => bad = true,
+                _ => {}
+            });
+            if !bad && takes > 0 && total == takes + uses && bind_count(body, n) == takes {
+                out.insert(n.clone());
+            }
+        }
+        out
     }
     fn gtab(&self) -> String {
-        format!("gtab_{}", rust_ident(&self.module))
+        format!("&GMOD_{}", rust_ident(&self.module))
     }
     fn call(&mut self, f: &Ex, args: &[Arg], line: usize) -> ER<String> {
+        // `cls._convert_(name, module, filter=lambda n: ...)` with a filter that runs no code of the program's
+        // (pure_name_filter): rt_enum's enum_convert_call, which makes the class when the attribute is EnumType's own
+        if let Ex::Attr(o, m) = f {
+            if m == "_convert_" {
+                let filt = args.iter().find_map(|a| match a {
+                    Arg::Kw(k, v) if k == "filter" => Some(v),
+                    _ => None,
+                });
+                let filt = filt.or_else(|| match args.get(2) {
+                    Some(Arg::Pos(v)) => Some(v),
+                    _ => None,
+                });
+                if filt.is_some_and(pure_name_filter) {
+                    let oo = self.ex(o, line)?;
+                    let g = self.q("enum_convert_attr(&__o)");
+                    let a = self.args(args, line, None)?;
+                    let c = self.q("enum_convert_call(&__o, __f, __a)");
+                    return Ok(format!("{{ let __o = {oo}; let __f = {g}; let __a = {a}; {c} }}"));
+                }
+            }
+        }
         // sys.modules.get(k[, default])
         if let Ex::Attr(o, m) = f {
             if m == "get" && self.is_sys_modules(o) && (1..=2).contains(&args.len()) && args.iter().all(|a| matches!(a, Arg::Pos(_))) {
@@ -3702,6 +3985,37 @@ impl Em {
                     return Ok(self.q(&body));
                 }
                 _ => {}
+            }
+        }
+        // frame.f_globals.get(k[, d]) for a frame_vars local, or sys._getframe(n).f_globals.get(k[, d])
+        if let Ex::Attr(o, m) = f {
+            if let Ex::Attr(fr, g) = &**o {
+                if m == "get" && g == "f_globals" && fglob_get_args(args) {
+                    let pre = match &**fr {
+                        Ex::Name(n) if self.f().fvars.contains(n) && matches!(self.lookup(n), Some(Var::Local(_))) => {
+                            let r = self.ex(fr, line)?;
+                            Some(format!("let _ = {r};"))
+                        }
+                        e => match self.getframe_depth(e) {
+                            Some(k) => {
+                                self.uses_getframe = true;
+                                Some(format!("{};", self.q(&format!("getframe_check({k})"))))
+                            }
+                            None => None,
+                        },
+                    };
+                    if let Some(pre) = pre {
+                        let mut xs = vec![];
+                        for a in args {
+                            if let Arg::Pos(x) = a {
+                                xs.push(self.ex(x, line)?);
+                            }
+                        }
+                        let d = xs.get(1).cloned().unwrap_or_else(|| "V::None".into());
+                        let c = self.q(&format!("fglob_get(&__k, {d})"));
+                        return Ok(format!("{{ {pre} let __k = {}; {c} }}", xs[0]));
+                    }
+                }
             }
         }
         // globals().get(k) / globals().get(k, d)
@@ -3965,7 +4279,7 @@ impl Em {
         let gq = self.qualname_of("<genexpr>");
         let gq_lit = lit(&gq);
         let (class_expr, self_name) = (parent.class_expr.clone(), parent.self_name.clone());
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, qname: gq, exc_vars: vec![], is_module: false, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: true, direct_defs: HashMap::new(), cells: format!("g{id}_"), order: vec![], ns: None };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, qname: gq, exc_vars: vec![], is_module: false, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: true, direct_defs: HashMap::new(), cells: format!("g{id}_"), order: vec![], ns: None, fvars: HashSet::new(), gvars: HashSet::new() };
         let mut tdecl = String::new();
         for n in &names {
             if inner_free.contains(n) {
@@ -4225,6 +4539,20 @@ impl Em {
                 let c = self.q(&format!("setattr_ic(&{oo}, {}, __v, &IC{ic})", lit(n)));
                 format!("{{ let __v = {val}; {c}; }}")
             }
+            Ex::Index(o, i) if self.is_globals(o) => {
+                if let Ex::Str(k) = &**i {
+                    if self.gstore.contains(&(self.module.clone(), k.clone())) && !self.has_del {
+                        let slot = self.gslot(&self.module.clone(), k);
+                        return Ok(format!("gs({slot}, {val});"));
+                    }
+                }
+                if self.has_del {
+                    return Err(err(line, "globals()[key] = value is not supported in dynamic builds in a program with __del__"));
+                }
+                let ii = self.ex(i, line)?;
+                let c = self.q(&format!("glob_set({}, &__i, __v)", self.gtab()));
+                return Ok(format!("{{ let __v = {val}; let __i = {ii}; {c}; }}"));
+            }
             Ex::Index(o, i) => {
                 // `sys.modules[k] = v` stores into the dict the reads above see
                 if self.is_sys_modules(o) {
@@ -4401,6 +4729,21 @@ impl Em {
                 format!("let _ = {ee};")
             }
             St::Assign(ts, v) => {
+                // `frame = sys._getframe(n)` for a frame_vars local: the depth is checked, the frame never made
+                if let ([Ex::Name(n)], Some(k)) = (ts.as_slice(), self.getframe_depth(v)) {
+                    if self.f().fvars.contains(n) && matches!(self.lookup(n), Some(Var::Local(_))) {
+                        self.uses_getframe = true;
+                        let c = self.q(&format!("getframe_check({k})"));
+                        let a = self.assign(&ts[0], "V::None", line)?;
+                        return Ok(format!("{c}; {a}"));
+                    }
+                }
+                // `g = globals()` for a glob_vars local: nothing is made
+                if let [Ex::Name(n)] = ts.as_slice() {
+                    if self.f().gvars.contains(n) && matches!(self.lookup(n), Some(Var::Local(_))) && matches!(v, Ex::Call(..)) && self.is_globals(v) {
+                        return self.assign(&ts[0], "V::None", line);
+                    }
+                }
                 let vv = self.ex(v, line)?;
                 if ts.len() == 1 {
                     if let Ex::Name(_) = &ts[0] {
@@ -4434,7 +4777,10 @@ impl Em {
                 code
             }
             St::AugAssign(t, op, v) => {
-                if *op == "@" && np_on() && np_narrow() && !np_f32_simd_here() {
+                if *op == "@" && np_on() && !np_blas_here() {
+                    return Err(err(line, "numpy: @= on a CPU whose OpenBLAS kernels Brevi does not model"));
+                }
+                if *op == "@" && np_on() && np_narrow() && !np_sgemm_here() {
                     return Err(err(line, "numpy: @= with float32 arrays (OpenBLAS sgemm) is not in Brevi's native numpy"));
                 }
                 let vv = self.ex(v, line)?;
@@ -5249,10 +5595,12 @@ impl Em {
         // this function's frame
         let parent = self.fstack.last().unwrap();
         let (class_expr, self_name) = if self.class_ctx.is_some() { (self.class_ctx.clone(), p.pos.first().map(|x| x.0.clone())) } else { (parent.class_expr.clone(), parent.self_name.clone()) };
-        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, qname: qualname.to_string(), exc_vars: vec![], is_module: false, is_class: false, enum_cnv: None, is_async, is_agen: is_async && is_gen, is_gen, direct_defs: HashMap::new(), cells: format!("k{id}_"), order: vec![], ns: None };
+        let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr, self_name, qname: qualname.to_string(), exc_vars: vec![], is_module: false, is_class: false, enum_cnv: None, is_async, is_agen: is_async && is_gen, is_gen, direct_defs: HashMap::new(), cells: format!("k{id}_"), order: vec![], ns: None, fvars: HashSet::new(), gvars: HashSet::new() };
         for (n, r) in &captures {
             fr.vars.insert(n.clone(), Var::Cell(r.clone()));
         }
+        fr.fvars = self.frame_vars(body, sc.locals.iter().filter(|n| !params.contains(n) && !inner_free.contains(*n)));
+        fr.gvars = self.glob_vars(body, sc.locals.iter().filter(|n| !params.contains(n) && !inner_free.contains(*n)));
         {
             let text = format!("{body:?}");
             let at = |n: &String| text.find(&format!("{n:?}")).unwrap_or(usize::MAX);
@@ -5620,18 +5968,38 @@ impl Em {
         let ns_var = format!("__ns{id}");
         // sys.settrace: a class body is its own frame (a closure here), so its errors leave it by `?`
         let class_frames = if self.trace.is_some() { vec![] } else { parent.frames.clone() };
-        let mut fr = Func { vars: HashMap::new(), frames: class_frames, class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), qname: qualname.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![], ns: dict_mode.then_some(ns_var.clone()) };
+        let mut fr = Func { vars: HashMap::new(), frames: class_frames, class_expr: parent.class_expr.clone(), self_name: parent.self_name.clone(), qname: qualname.clone(), exc_vars: parent.exc_vars.clone(), is_module: false, is_class: true, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![], ns: dict_mode.then_some(ns_var.clone()), fvars: HashSet::new(), gvars: HashSet::new() };
         let ctx = format!("__auto_ctx{id}");
         let av = format!("__auto_last{id}");
         let mut decls = String::new();
         write!(decls, "{base_decls}").unwrap();
         write!(decls, "let mut {ctx}: EnumCtx = enum_auto_ctx({}, {base_refs}); let mut {av}: Vec<V> = vec![]; ", lit(&c.name)).unwrap();
-        if let Some(mx) = meta {
+        // the class keywords, in source order after the bases (as __build_class__ gets them): the metaclass,
+        // and the rest for the metaclass (EnumType's boundary=) and __init_subclass__ (rt_call.rs make_class_impl)
+        let mut kw_items = vec![];
+        for (i, (k, x)) in c.kwargs.iter().enumerate() {
+            let xv = self.ex(x, c.line)?;
+            if k == "metaclass" {
+                write!(decls, "let __meta{id}: V = {xv}; ").unwrap();
+            } else {
+                write!(decls, "let __kwv{id}_{i}: V = {xv}; ").unwrap();
+                kw_items.push(format!("({}, __kwv{id}_{i})", lit(k)));
+            }
+        }
+        let has_kw = !kw_items.is_empty();
+        if has_kw {
+            write!(decls, "let __kw{id}: Vec<(Sym, V)> = vec![{}]; ", kw_items.join(", ")).unwrap();
+        }
+        let kw_arg = if has_kw { format!(", __kw{id}.clone()") } else { String::new() };
+        let mk_fn = if has_kw { "make_class_sk" } else { "make_class_s" };
+        if meta.is_some() {
             // as __build_class__: the metaclass after the bases, then its __prepare__, then the body's own first
             // stores (__module__, __qualname__, __firstlineno__, SETUP_ANNOTATIONS, the docstring)
-            let mv = self.ex(mx, c.line)?;
-            write!(decls, "let __meta{id}: V = {mv}; ").unwrap();
-            let prep = self.q(&format!("meta_prepare(&__meta{id}, {}, &{base_tup})", lit(&c.name)));
+            let prep = if has_kw {
+                self.q(&format!("meta_prepare_k(&__meta{id}, {}, &{base_tup}, __kw{id}.clone())", lit(&c.name)))
+            } else {
+                self.q(&format!("meta_prepare(&__meta{id}, {}, &{base_tup})", lit(&c.name)))
+            };
             write!(decls, "let mut {ns_var}: V = {prep}; ").unwrap();
             for (k, v) in [("__module__", format!("s({})", lit(if self.module == "__main__" { "__main__" } else { &self.module }))), ("__qualname__", format!("s({})", lit(&qualname))), ("__firstlineno__", format!("V::Int({first})"))] {
                 let set = self.q(&format!("setitem(&{ns_var}, &s(\"{k}\"), {v})"));
@@ -5756,12 +6124,12 @@ impl Em {
                 let set = self.q(&format!("setitem(&{ns_var}, &s(\"__static_attributes__\"), tup(vec![{}]))", sa.join(", ")));
                 let ig = self.q(&format!("enum_ignore_ns(&{ctx}, &{ns_var}, true)"));
                 let set = format!("{set}; {ig}");
-                let mk = self.q(&format!("meta_build(&__meta{id}, {}, {}, {}, {base_vec}, {ns_var}.clone(), vec![{}])", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), fields.join(", ")));
+                let mk = self.q(&format!("{}(&__meta{id}, {}, {}, {}, {base_vec}, {ns_var}.clone(), vec![{}]{kw_arg})", if has_kw { "meta_build_k" } else { "meta_build" }, lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), fields.join(", ")));
                 format!("{{ {decls}\n{body}\n{set}; {w} let __c = {mk}; __c }}")
             } else {
             let attrs = String::new();
             let items = self.q(&format!("dict_sym_items(&{ns_var})"));
-            let mk = self.q(&format!("make_class_s({}, {}, {}, {base_vec}, {items}, vec![{}], {}, &[{}], {})", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), fields.join(", "), first, sattrs, lit(why)));
+            let mk = self.q(&format!("{mk_fn}({}, {}, {}, {base_vec}, {items}, vec![{}], {}, &[{}], {}{kw_arg})", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), fields.join(", "), first, sattrs, lit(why)));
             // a docstring is the body's first store (CPython's STORE_NAME __doc__), after SETUP_ANNOTATIONS
             let doc_set = match docstring(&c.body) {
                 Some(d) => {
@@ -5821,7 +6189,7 @@ impl Em {
                 let r = format!("a{id}_{}", rust_ident(n));
                 write!(attrs, "if !matches!({r}, V::Unbound) {{ __at.push(({}, {r})); }} ", lit(n)).unwrap();
             }
-            let mk = self.q(&format!("make_class_s({}, {}, {}, {base_vec}, __at, vec![{}], {}, &[{}], {})", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), fields.join(", "), first, sattrs, lit(why)));
+            let mk = self.q(&format!("{mk_fn}({}, {}, {}, {base_vec}, __at, vec![{}], {}, &[{}], {}{kw_arg})", lit(&own_name), lit(&qualname), lit(if self.module == "__main__" { "__main__" } else { &self.module }), fields.join(", "), first, sattrs, lit(why)));
             format!("{{ {decls}\n{body}\nlet mut __at: Vec<(Sym, V)> = vec![]; {attrs} enum_ignore_drop(&{ctx}, &mut __at); {w} let __c = {mk}; {abcm} __c }}")
         };
         for dec in c.decorators.iter().rev() {
@@ -6033,9 +6401,6 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         if let Some((line, what)) = super::typing::enum_refusal(&m.body) {
             return Err((m.name.clone(), line, format!("{what} is not supported in dynamic builds")));
         }
-        if let Some((line, n)) = super::typing::pickled_set_subclass(&m.body).filter(|_| bridge.srcs.contains_key(&m.name)) {
-            return Err((m.name.clone(), line, format!("pickling an instance of a subclass of {n} is not supported in dynamic builds")));
-        }
     }
     let progs: Vec<(&str, &[Stmt])> = mods.iter().filter(|m| bridge.srcs.contains_key(&m.name)).map(|m| (m.name.as_str(), m.body.as_slice())).collect();
     if let Some((m, line)) = super::typing::re_pattern_hash(&progs) {
@@ -6078,6 +6443,10 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
         n: 0,
         globals: HashMap::new(),
         nglobals: 0,
+        gstore: HashSet::new(),
+        gfixed: BTreeSet::new(),
+        gfree: BTreeSet::new(),
+        uses_getframe: false,
         consts: vec![],
         const_idx: HashMap::new(),
         kraw: HashMap::new(),
@@ -6202,6 +6571,48 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
                 }
             }
             globals_in(&m.body, &mut names);
+            // `globals()['name'] = v` anywhere in the file, for a name nothing else binds: a global slot of its own
+            if !names.contains("globals") {
+                for k in globals_stores(&m.body) {
+                    if !names.contains(&k) {
+                        names.insert(k.clone());
+                        em.gstore.insert((m.name.clone(), k));
+                    }
+                }
+            }
+            // names a def, class or import binds anywhere in the file: fixed for stores by key
+            each_stmt(&m.body, &mut |s| {
+                let mut add = |n: &str| {
+                    em.gfixed.insert((m.name.clone(), n.to_string()));
+                };
+                match &s.st {
+                    St::Import(v) => v.iter().for_each(|(x, a)| add(a.as_deref().unwrap_or(x.split('.').next().unwrap_or(x)))),
+                    St::ImportFrom(_, v) => v.iter().for_each(|(x, a)| add(a.as_deref().unwrap_or(x))),
+                    St::Def(d) => add(&d.name),
+                    St::Class(c) => add(&c.name),
+                    _ => {}
+                }
+            });
+            // every name the file reads anywhere (some compile as builtins or NameError, some calls straight to the
+            // runtime): a store by key may not add one
+            // (a name only ever stored to, such as a class body's member names, is not read)
+            let mut seen: HashMap<String, isize> = HashMap::new();
+            visit_any(&m.body, &mut |e| match e {
+                Ex::Name(n) => *seen.entry(n.clone()).or_default() += 1,
+                Ex::Comp(_, _, _, fs) => fs.iter().for_each(|f| name_targets(&f.target, &mut seen)),
+                _ => {}
+            });
+            each_stmt(&m.body, &mut |s| match &s.st {
+                St::Assign(ts, _) => ts.iter().for_each(|x| name_targets(x, &mut seen)),
+                St::For(x, _, _, _) | St::AnnAssign(x, _, _, _) => name_targets(x, &mut seen),
+                St::With(items, _) => items.iter().filter_map(|(_, x)| x.as_ref()).for_each(|x| name_targets(x, &mut seen)),
+                _ => {}
+            });
+            for (n, c) in seen {
+                if c > 0 {
+                    em.gfree.insert((m.name.clone(), n));
+                }
+            }
             // how often each name is bound at module level (top level statements only)
             let mut binds: HashMap<String, usize> = HashMap::new();
             let mut import_of: HashMap<String, String> = HashMap::new();
@@ -6288,7 +6699,7 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
             em.lazy = future_annotations(&m.body);
             IN_COPY.with(|c| c.set(OWN_COPIES.lock().unwrap().contains(&m.name)));
             em.eval_ann = !em.lazy && gi == 1 && !copies.contains(&m.name) && !BV_SPELLING.load(std::sync::atomic::Ordering::Relaxed);
-            let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, qname: String::new(), exc_vars: vec![], is_module: true, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![], ns: None };
+            let mut fr = Func { vars: HashMap::new(), frames: vec![], class_expr: None, self_name: None, qname: String::new(), exc_vars: vec![], is_module: true, is_class: false, enum_cnv: None, is_async: false, is_agen: false, is_gen: false, direct_defs: HashMap::new(), cells: String::new(), order: vec![], ns: None, fvars: HashSet::new(), gvars: HashSet::new() };
             for n in em.mod_names[&m.name].clone() {
                 let i = em.gslot(&m.name, &n);
                 fr.vars.insert(n.clone(), Var::Global(i));
@@ -6353,7 +6764,8 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
             }
         }
         let e = em.mod_attr_err(&m.name, "n", false);
-        write!(hook, "_ => Some(Err({e})) }} }} ").unwrap();
+        // a key set at run time (rt_glue GOVER)
+        write!(hook, "_ => Some(match gover_get({}, n) {{ Some(v) => Ok(v), None => Err({e}) }}) }} }} ", lit(&m.name)).unwrap();
     }
     hook.push_str("_ => None } }\n");
     out.push_str(&hook);
@@ -6395,9 +6807,12 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     files.push_str("_ => None } }\n");
     out.push_str(&files);
     // name -> global slot, per module, for globals()
-    for m in mods.iter().filter(|m| !libs.iter().any(|l| l.name == m.name)) {
+    let gm: Vec<&Module> = mods.iter().filter(|m| !libs.iter().any(|l| l.name == m.name)).collect();
+    for m in &gm {
         out.push_str(&gtab(&em, &m.name));
     }
+    let all: Vec<String> = gm.iter().map(|m| format!("&GMOD_{}", rust_ident(&m.name))).collect();
+    write!(out, "static GMOD_ALL: &[&GMod] = &[{}];\n", all.join(", ")).unwrap();
     let lone: HashMap<usize, &String> = em.lone_idx.iter().map(|(h, &i)| (i, &h.1)).collect();
     // one slot at a time: a tuple constant reads the slots of its items, made before it
     let consts: Vec<String> = em.consts.iter().enumerate().map(|(i, c)| match (lone.get(&i), em.kraw.get(&i)) {
@@ -6428,12 +6843,12 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     };
     write!(
         out,
-        "fn __run() -> Result<(), E> {{ unsafe {{ GL = vec![V::Unbound; {}]; K = Vec::new(); {} }} USER_MOD.with(|u| u.set(Some(user_mod))); USER_MOD_FILE.with(|u| u.set(Some(user_mod_file))); LIB_MOD_REPR.with(|u| u.set(Some(lib_mod_repr))); USER_MOD_SET.with(|u| u.set(Some(user_mod_set))); MAIN_GTAB.with(|u| u.set(Some(gtab___main__))); sys_modules_set(\"__main__\", &V::Module(&ModName(\"__main__\")))?; {}{}{}{} let r = init___main__(); fin_point(); r }}\nfn main() {{ run_main(__run); }}\n",
+        "fn __run() -> Result<(), E> {{ unsafe {{ GL = vec![V::Unbound; {}]; K = Vec::new(); {} }} USER_MOD.with(|u| u.set(Some(user_mod))); USER_MOD_FILE.with(|u| u.set(Some(user_mod_file))); LIB_MOD_REPR.with(|u| u.set(Some(lib_mod_repr))); USER_MOD_SET.with(|u| u.set(Some(user_mod_set))); MAIN_GTAB.with(|u| u.set(Some(&GMOD___main__))); GMODS.with(|u| u.set(GMOD_ALL)); sys_modules_set(\"__main__\", &V::Module(&ModName(\"__main__\")))?; {}{}{}{} MAIN_RUNNING.with(|m| m.set(true)); let r = init___main__(); MAIN_RUNNING.with(|m| m.set(false)); fin_point(); r }}\nfn main() {{ run_main(__run); }}\n",
         em.nglobals.max(1),
         consts.join(" "),
         del_on,
         // the program uses CPython's warnings module: the warnings the runtime issues go through it
-        if em.bridged_used.contains("warnings") { " set_warn_bridge(pyd_warn_at); pyd_warn_install()?;" } else { "" },
+        if em.bridged_used.contains("warnings") { " set_warn_bridge(pyd_warn_at); set_regs_clean(pyd_regs_clean); pyd_warn_install()?;" } else { "" },
         if uname { " set_name_lookup(__uname);" } else { "" },
         if em.trace.is_some() { " trace_build_on();" } else { "" }
     )
@@ -6447,6 +6862,21 @@ pub fn program(mods: &[Module], bridge: Bridge) -> Result<(String, Vec<String>),
     let _ = &em.out;
     // a program using warnings: each function puts its caller's line back when it returns (or raises)
     let out = if em.track_warn { out.replace("let __depth = Depth::new()?;", "let __depth = Depth::new()?; let __wg = warn_guard();") } else { out };
+    // a program calling sys._getframe: the functions of its own files count their frames (rt_call's PDEPTH);
+    // Brevi's library copies, before LIB_END, are not frames CPython has
+    let out = if em.uses_getframe {
+        // the only f_globals read answered is '__warningregistry__' while no module has one: a program that
+        // binds that name itself would make the answer wrong
+        if em.globals.keys().any(|(_, n)| n == "__warningregistry__") {
+            return Err((mods[0].name.clone(), 0, "sys._getframe() is not supported in dynamic builds when the program binds __warningregistry__".into()));
+        }
+        match out.split_once(LIB_END) {
+            Some((lib, prog)) => format!("{lib}{LIB_END}{}", prog.replace("let __depth = Depth::new()?;", "let __depth = PDepth::new()?;")),
+            None => out.replace("let __depth = Depth::new()?;", "let __depth = PDepth::new()?;"),
+        }
+    } else {
+        out
+    };
     // CPython's re matches any buffer (array.array, mmap, ctypes arrays) as bytes; Brevi's re takes a
     // library object's buffer for array.array, but an mmap's buffer changes under the match and ctypes was
     // not checked. weakref would be handed Brevi's Pattern and Match values, which a bridged library
@@ -6479,6 +6909,24 @@ fn gtab(em: &Em, m: &str) -> String {
         write!(out, "{} => Some({i}), ", lit(&n)).unwrap();
     }
     out.push_str("_ => None } }\n");
+    let list = |v: Vec<&String>| v.iter().map(|n| lit(n)).collect::<Vec<_>>().join(", ");
+    let mut names: Vec<&String> = em.globals.keys().filter(|(mm, n)| mm == m && !n.starts_with('<')).map(|(_, n)| n).collect();
+    names.sort();
+    let mut fixed: Vec<&String> = em.gfixed.iter().filter(|(mm, _)| mm == m).map(|(_, n)| n).collect();
+    fixed.sort();
+    let mut free: Vec<&String> = em.gfree.iter().filter(|(mm, _)| mm == m).map(|(_, n)| n).collect();
+    free.sort();
+    write!(
+        out,
+        "#[allow(dead_code)] static GMOD_{r}: GMod = GMod {{ name: {}, tab: gtab_{r}, names: &[{}], fixed: &[{}], free: &[{}], dyn_ok: {} }};\n",
+        lit(m),
+        list(names),
+        list(fixed),
+        list(free),
+        !em.has_del,
+        r = rust_ident(m)
+    )
+    .unwrap();
     out
 }
 

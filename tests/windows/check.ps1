@@ -1,5 +1,5 @@
 # Windows platform checks: library bridge (typed and dynamic), output parity, --standalone builds, and the
-# resource limits (mem in a Job Object; cpu, file and fds refused). Run from the repository root after `cargo build --release`
+# resource limits (mem and cpu in a Job Object; file, fds and threads refused). Run from the repository root after `cargo build --release`
 # (or set BREVI to the brevi.exe to check, as the release does for the binary it ships).
 # Every check runs: the duckdb, onnxruntime, requests and PyYAML checks need those packages
 # (python -m pip install -r tests\requirements-native.txt) and fail without them, never skip.
@@ -76,8 +76,30 @@ $raw = & $brevi run --limit mem=512 (Join-Path $root "tests\windows\plain.py") 2
 $out = Clean-Output $raw
 if ($LASTEXITCODE -ne 0 -or $out -ne "45") { throw "plain.py under a mem limit exited $LASTEXITCODE`n$out" }
 Write-Host "PASS run under a mem limit"
-# cpu (Windows caps only user-mode time), file and fds have no full OS limit on Windows: refused, never half enforced
-foreach ($lim in @("cpu=1", "file=1", "fds=16")) {
+# cpu is held by the same job: the kernel ends it at the limit of user-mode time, and Brevi's watch thread at the
+# limit of user and kernel time together, counting every process the program starts
+Check-Limit "limit_cpu.py" "cpu=1" "cpu"
+Check-Limit "limit_cpu_child.py" "cpu=1" "cpu"
+# a program spending much of its time in kernel mode is stopped once user and kernel time together reach the
+# limit, before its user time alone does (its last line is its own user and kernel seconds; no wall clock,
+# which would count the build too)
+$raw = & $brevi run --limit cpu=2 (Join-Path $root "tests\windows\limit_cpu_kernel.py") 2>&1
+$code = $LASTEXITCODE
+$out = ($raw | ForEach-Object { "$_" }) -join "`n"
+if ($code -ne 124 -or $out -notmatch '"on":"cpu"') { throw "limit cpu=2 on limit_cpu_kernel.py exited $code without naming cpu`n$out" }
+$times = @($raw | ForEach-Object { "$_" } | Where-Object { $_ -match '^\d+\.\d+ \d+\.\d+$' })
+if ($times.Count -eq 0) { throw "limit_cpu_kernel.py printed no CPU times`n$out" }
+$user, $kern = $times[-1].Split(' ') | ForEach-Object { [double]$_ }
+if ($kern -lt 0.2) { throw "limit_cpu_kernel.py spent only $kern s in kernel mode: the check needs more" }
+if ($user -ge 1.9) { throw "limit cpu=2 stopped limit_cpu_kernel.py only after $user s of user time ($kern s kernel): kernel-mode time was not counted" }
+if ($user + $kern -lt 1.7) { throw "limit cpu=2 stopped limit_cpu_kernel.py early, at $user s user + $kern s kernel" }
+Write-Host "PASS limit cpu counts kernel time (stopped at $user s user + $kern s kernel)"
+$raw = & $brevi run --limit cpu=30 (Join-Path $root "tests\windows\plain.py") 2>&1
+$out = ($raw | ForEach-Object { "$_" }) -join "`n"
+if ($LASTEXITCODE -ne 0 -or $out -ne "45") { throw "plain.py under a cpu limit exited $LASTEXITCODE`n$out" }
+Write-Host "PASS run under a cpu limit"
+# Windows has no limit on one file's size or on open handles, and a job cannot cap threads: refused, never half enforced
+foreach ($lim in @("file=1", "fds=16", "threads=8")) {
     $raw = & $brevi run --limit $lim (Join-Path $root "tests\windows\plain.py") 2>&1
     $code = $LASTEXITCODE
     $out = ($raw | ForEach-Object { "$_" }) -join "`n"

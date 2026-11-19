@@ -147,6 +147,11 @@ pub trait Ext {
     fn descriptor(&self, _me: &V, _obj: &V, _cls: &V) -> Option<R> {
         None
     }
+    // A callable Python object stored on a class of the program as a special method (`D.__set__ = Mock()`) whose type
+    // has no __get__: CPython's slots (and type.__new__'s __set_name__) call it as it is, without the instance.
+    fn plain_slot(&self) -> bool {
+        false
+    }
     fn binop(&self, _me: &V, _op: &str, _o: &V, _right: bool) -> Option<R> {
         None
     }
@@ -188,6 +193,16 @@ pub trait Ext {
     // `issubclass(sub, me)` with me a Python library class (a bridged collections.abc ABC, ...).
     fn subclasscheck(&self, _sub: &V) -> Option<Result<bool, E>> {
         None
+    }
+    // `issubclass(me, cls)` with me a Python library class and cls a class of the program's (a builtin one, or
+    // the program's class for a Python exception class): None when me is not a Python class.
+    fn subclass_of(&self, _cls: &Rc<Class>) -> Option<Result<bool, E>> {
+        None
+    }
+    // `me is cls`: true when me is the Python class the program's class cls stands for (pickle.PicklingError
+    // and type(e) of the PicklingError pickle raised).
+    fn is_class(&self, _cls: &Class) -> bool {
+        false
     }
     fn lazy_iter(&self) -> Option<Result<It, E>> {
         None
@@ -500,6 +515,12 @@ pub fn refuse_stop(what: &str) -> ! {
     out_flush();
     err_write(&format!("NotImplementedError: brevi: {what} is not supported in dynamic builds\n"));
     std::process::exit(1)
+}
+// refuse_stop typed as an error, for a site that would otherwise return unsupported(what): a refusal a try could
+// catch lets the program go on with an answer CPython never gives, so these stop instead.
+#[cold]
+pub fn unsupported_stop(what: &str) -> E {
+    refuse_stop(what)
 }
 // A one-character str for a code point, a lone surrogate or not.
 pub fn cp1(c: u32) -> V {
@@ -1694,6 +1715,7 @@ pub fn py_hash(v: &V) -> Result<i64, E> {
             Some(h) => h,
             None if memview_of(v).is_some() => return memview_hash(v).unwrap(),
             None if x.any().is::<SigV>() => return Err(unsupported("hash() of an inspect.Signature")),
+            None if x.any().is::<ParamV>() => return Err(unsupported("hash() of an inspect.Parameter")),
             None if x.any().is::<RPat>() => return Err(unsupported("hash() of a re.Pattern (CPython hashes its compiled sre code)")),
             None => return type_err(format!("unhashable type: '{}'", x.tname())),
         },

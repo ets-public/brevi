@@ -510,8 +510,14 @@ pub fn bi_dict(mut a: Args) -> R {
     Ok(V::Dict(Rc::new(RefCell::new(d))))
 }
 pub fn bi_range(a: Args) -> R {
-    let a = enum_nums(a);
+    let mut a = enum_nums(a);
     a.no_kw("range")?;
+    // an int subclass or an object with __index__: its int (CPython's PyNumber_Index, argument by argument)
+    for x in a.p.iter_mut() {
+        if matches!(x, V::Obj(_)) || is_np(x) {
+            *x = num_index(x)?.norm();
+        }
+    }
     if (1..=3).contains(&a.p.len()) && a.p.iter().any(|x| matches!(x, V::Big(_))) {
         let mut bs = Vec::new();
         for x in &a.p {
@@ -1266,6 +1272,7 @@ pub fn type_of(x: &V) -> Result<Rc<Class>, E> {
         V::Ext(e) if e.tname() == "range" => tclass(15, "range"),
         V::Ext(e) if e.tname() == "typing.TypeVar" => ext_class_mod("typing", "TypeVar"),
         V::Ext(e) if e.any().is::<SigV>() => sig_class(),
+        V::Ext(e) if e.any().is::<ParamV>() => param_class(),
         V::Ext(e) if e.any().is::<TeeDataV>() => teedata_class(),
         V::Ext(e) => ext_class(e.tname()),
         V::Iter(it) => return iter_type_of(it),
@@ -1480,7 +1487,7 @@ fn iter_base_attrs(k: &Rc<Class>) {
         a.want("__reduce__", 1, 1)?;
         let it = iter_self(&a.p[0], &b(), "__reduce__")?;
         if let V::Obj(o) = &a.p[0] {
-            return Err(unsupported(&format!("pickling or copying an instance of {}, a subclass of {}", o.cls.name, iter_tp_name(&b()))));
+            return Err(unsupported_stop(&format!("pickling or copying an instance of {}, a subclass of {}", o.cls.name, iter_tp_name(&b()))));
         }
         iter_reduce_v(&it)
     }));
@@ -1489,7 +1496,7 @@ fn iter_base_attrs(k: &Rc<Class>) {
         a.want("__setstate__", 2, 2)?;
         let it = iter_self(&a.p[0], &b(), "__setstate__")?;
         if let V::Obj(o) = &a.p[0] {
-            return Err(unsupported(&format!("__setstate__ of an instance of {}, a subclass of {}", o.cls.name, iter_tp_name(&b()))));
+            return Err(unsupported_stop(&format!("__setstate__ of an instance of {}, a subclass of {}", o.cls.name, iter_tp_name(&b()))));
         }
         iter_setstate_v(&it, &a.p[1])
     }));
@@ -1612,6 +1619,13 @@ pub fn bi_issubclass(a: Args) -> R {
                     return r;
                 }
                 let Some(sub) = &sub else {
+                    // a Python class against a builtin class or the program's class for a Python exception
+                    // (issubclass(pickle.PicklingError, Exception)): CPython answers
+                    if let V::Ext(e) = &a.p[0] {
+                        if let Some(r) = e.subclass_of(k) {
+                            return r;
+                        }
+                    }
                     return type_err("issubclass() arg 1 must be a class".into());
                 };
                 if proto_info(k).is_some() {
@@ -1623,7 +1637,11 @@ pub fn bi_issubclass(a: Args) -> R {
                     Ok(sub.is_sub(k))
                 }
             }
-            V::Ext(e) => match e.subclasscheck(&V::Class(sub.clone().ok_or_else(|| exc("TypeError", "issubclass() arg 1 must be a class".into()))?)) {
+            // a Python class goes to subclasscheck as itself (issubclass(pickle.PicklingError, pickle.PickleError))
+            V::Ext(e) => match e.subclasscheck(&match &sub {
+                Some(c) => V::Class(c.clone()),
+                None => a.p[0].clone(),
+            }) {
                 Some(r) => r,
                 None => type_err("issubclass() arg 2 must be a class, a tuple of classes, or a union".into()),
             },
@@ -1724,9 +1742,38 @@ fn chr_code(i: i64) -> R {
         None => Ok(st_cps(vec![i as u32])),
     }
 }
+// CPython's PyNumber_Index, as an int: an int subclass gives its int value (its own __index__ is not called),
+// another object its __index__, which must give an int.
+fn num_index(x: &V) -> Result<Big, E> {
+    if let Some(b) = big_of(x) {
+        return Ok(b);
+    }
+    if let V::Obj(o) = x {
+        if let Some(i @ (V::Int(_) | V::Bool(_) | V::Big(_))) = inner_of(x) {
+            return Ok(big_of(&i).unwrap());
+        }
+        if let Some(f) = o.cls.lookup("__index__") {
+            let r = call(&f, Args::p(vec![x.clone()]))?;
+            return match big_of(&r) {
+                Some(b) => Ok(b),
+                // an int subclass: CPython warns (DeprecationWarning) and goes on
+                None if matches!(inner_of(&r), Some(V::Int(_) | V::Bool(_) | V::Big(_))) => Err(unsupported_stop("__index__ returning an int subclass")),
+                None => type_err(format!("__index__ returned non-int (type {})", tn(&r))),
+            };
+        }
+    }
+    if let V::Ext(e) = x {
+        if is_np(x) {
+            if let Some(r) = e.method(x, "__index__", &mut Args::p(vec![])) {
+                return num_index(&r?);
+            }
+        }
+    }
+    type_err(format!("'{}' object cannot be interpreted as an integer", tn(x)))
+}
 fn radix(a: Args, f: &str, r: u32, p: &str) -> R {
     let x = a1(&a, f)?;
-    let b = big_of(&x).ok_or_else(|| exc("TypeError", format!("'{}' object cannot be interpreted as an integer", tn(&x))))?;
+    let b = num_index(&x)?;
     let body = Big { neg: false, mag: b.mag.clone() }.to_radix(r);
     Ok(st(format!("{}{}{}", if b.neg { "-" } else { "" }, p, body)))
 }
@@ -1757,6 +1804,11 @@ pub fn bi_round(a: Args) -> R {
             return call(&f, Args::p(args));
         }
     }
+    // an int or float subclass without its own __round__: int.__round__ / float.__round__ of its value
+    let x = match inner_of(&x) {
+        Some(i @ (V::Int(_) | V::Big(_) | V::Bool(_) | V::Float(_))) if matches!(x, V::Obj(_)) => i,
+        _ => x,
+    };
     // round() looks __round__ up on the type, and a proxy's type has none
     if proxy_deref(&x).is_some() {
         return type_err(format!("type {} doesn't define __round__ method", proxy_tn(&x)));
@@ -2118,6 +2170,7 @@ thread_local! {
     // builtin classes found by builtin_value, by the address of the name asked for (a hit is checked against
     // the class's own name, so a reused address cannot give a wrong class); emptied by init_builtin_classes
     pub static BV_CACHE: RefCell<[(usize, Option<Rc<Class>>); 16]> = RefCell::new(Default::default());
+    static BV_FNS: RefCell<HashMap<String, V>> = RefCell::new(HashMap::new());
 }
 pub fn builtin_value(name: &str) -> Option<V> {
     let addr = name.as_ptr() as usize;
@@ -2170,12 +2223,17 @@ pub fn builtin_value(name: &str) -> Option<V> {
     if let Some(k) = kind {
         return it_class(k).ok().map(V::Class);
     }
+    // one function object per builtin, as in CPython (`getattr is getattr`, pickle's lookup finding it again)
+    if let Some(v) = BV_FNS.with(|c| c.borrow().get(name).cloned()) {
+        return Some(v);
+    }
     if let Some(f) = builtin_fn(name) {
         let n: Sym = sym(name);
         let v = builtin(n, f);
         if let V::Func(x) = &v {
             x.attrs.borrow_mut().push(("__bv_nobind__", V::Bool(true)));
         }
+        BV_FNS.with(|c| c.borrow_mut().insert(name.to_string(), v.clone()));
         return Some(v);
     }
     match name {

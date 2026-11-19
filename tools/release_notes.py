@@ -57,7 +57,7 @@ def read_report(tag, rel):
 
 
 FIGURES = {
-    "cov": r"\*\*Coverage ([\d.]+%)\*\* \((\d+) of (\d+) tests",
+    "cov": r"\*\*Coverage ([\d.]+%)\*\*(?: of the scored suite, with \d+ string-as-code tests excluded)? \((\d+) of (\d+) tests",
     "wrong": r"\*\*Wrong: (\d+)\*\*",
     "design": r"\*\*Refused by design: (\d+)\*\*",
     "asserting": r"\*\*Assertion-bearing coverage ([\d.]+%)\*\* \((\d+) of (\d+):[^;]*; (\d+) matches print nothing",
@@ -198,9 +198,23 @@ def main():
     if thanked:
         print("**Contributors:** thanks to " + ", ".join(thanked) + " for their work in this release.")
         print()
-    print("Prebuilt brevi compiler for Linux, macOS and Windows. brevi still needs rustc on the PATH to build programs. "
-          "On Linux and macOS, `sh install.sh` installs rustc if it is missing and picks the right download; on Windows, "
-          "install Rust with rustup and unzip the .zip. Details: https://brevi-lang.org/docs/install")
+    print(install_line(tag))
+
+
+def install_line(tag):
+    """The notes' closing install line. From v0.28.2 brevi fetches its pinned Rust (and zig) on Linux x86-64 and macOS,
+    so the line for those releases says no Rust install is needed there; older releases keep the line they shipped."""
+    m = re.match(r"v(\d+)\.(\d+)\.(\d+)", tag)
+    if m and tuple(map(int, m.groups())) >= (0, 28, 2):
+        return ("Prebuilt brevi compiler for Linux, macOS and Windows. On Linux x86-64 and macOS no Rust install is "
+                "needed: with no rustc on the PATH, brevi fetches the Rust release it is tested with on its first build "
+                "(and zig to link, if there is no C linker), each checked by SHA-256; `uvx --python 3.13 brevi run "
+                "--verify main.py` is a whole install. On Linux ARM64, `sh install.sh` installs Rust with rustup if it "
+                "is missing; on Windows, install Rust with rustup and unzip the .zip. Details: "
+                "https://brevi-lang.org/docs/install")
+    return ("Prebuilt brevi compiler for Linux, macOS and Windows. brevi still needs rustc on the PATH to build programs. "
+            "On Linux and macOS, `sh install.sh` installs rustc if it is missing and picks the right download; on Windows, "
+            "install Rust with rustup and unzip the .zip. Details: https://brevi-lang.org/docs/install")
 
 
 if __name__ == "__main__":

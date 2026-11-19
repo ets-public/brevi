@@ -1,57 +1,57 @@
 {
 "brevi": "brevi 0.28.2",
-"commit": "e524e954941a",
+"commit": "5150964a5a75",
 "python": "3.13.13",
 "tag": "v3.13.13",
-"date": "2026-11-16",
+"date": "2026-11-19",
 "platform": "linux",
 "sandboxed": false,
 "timeout_s": 20,
 "mem_mb": 2048,
 "totals": {
 "normal": {
-"matched": 1043,
-"refused": 26,
+"matched": 1070,
+"refused": 0,
 "by_design": 83,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 3,
+"not_extractable": 0,
 "unstable": 138,
-"excluded": 44,
+"excluded": 46,
 "total": 1337,
-"scored": 1072,
+"scored": 1070,
 "matched_through_cpython": 0,
 "matched_silent": 98,
-"coverage": 0.9729477611940298,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 945,
-"assert_coverage": 0.8815298507462687,
+"matched_asserting": 972,
+"assert_coverage": 0.908411214953271,
 "matched_typed": 27,
-"typed_share": 0.02588686481303931
+"typed_share": 0.025233644859813085
 },
 "dyn": {
-"matched": 1043,
-"refused": 26,
+"matched": 1070,
+"refused": 0,
 "by_design": 83,
 "string_model": 0,
 "cpython_private": 0,
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 3,
+"not_extractable": 0,
 "unstable": 138,
-"excluded": 44,
+"excluded": 46,
 "total": 1337,
-"scored": 1072,
+"scored": 1070,
 "matched_through_cpython": 0,
 "matched_silent": 98,
-"coverage": 0.9729477611940298,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 945,
-"assert_coverage": 0.8815298507462687,
+"matched_asserting": 972,
+"assert_coverage": 0.908411214953271,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -347,7 +347,7 @@
 },
 "test_binop": {
 "normal": {
-"matched": 11,
+"matched": 12,
 "refused": 0,
 "by_design": 0,
 "string_model": 0,
@@ -355,22 +355,22 @@
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 1,
+"not_extractable": 0,
 "unstable": 0,
 "excluded": 0,
 "total": 12,
 "scored": 12,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.9166666666666666,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 11,
-"assert_coverage": 0.9166666666666666,
+"matched_asserting": 12,
+"assert_coverage": 1.0,
 "matched_typed": 1,
-"typed_share": 0.09090909090909091
+"typed_share": 0.08333333333333333
 },
 "dyn": {
-"matched": 11,
+"matched": 12,
 "refused": 0,
 "by_design": 0,
 "string_model": 0,
@@ -378,17 +378,17 @@
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 1,
+"not_extractable": 0,
 "unstable": 0,
 "excluded": 0,
 "total": 12,
 "scored": 12,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.9166666666666666,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 11,
-"assert_coverage": 0.9166666666666666,
+"matched_asserting": 12,
+"assert_coverage": 1.0,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -443,8 +443,8 @@
 },
 "test_set": {
 "normal": {
-"matched": 459,
-"refused": 26,
+"matched": 485,
+"refused": 0,
 "by_design": 5,
 "string_model": 0,
 "cpython_private": 0,
@@ -458,16 +458,16 @@
 "scored": 485,
 "matched_through_cpython": 0,
 "matched_silent": 51,
-"coverage": 0.9463917525773196,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 408,
-"assert_coverage": 0.8412371134020619,
+"matched_asserting": 434,
+"assert_coverage": 0.8948453608247423,
 "matched_typed": 0,
 "typed_share": 0.0
 },
 "dyn": {
-"matched": 459,
-"refused": 26,
+"matched": 485,
+"refused": 0,
 "by_design": 5,
 "string_model": 0,
 "cpython_private": 0,
@@ -481,10 +481,10 @@
 "scored": 485,
 "matched_through_cpython": 0,
 "matched_silent": 51,
-"coverage": 0.9463917525773196,
+"coverage": 1.0,
 "wrong": 0,
-"matched_asserting": 408,
-"assert_coverage": 0.8412371134020619,
+"matched_asserting": 434,
+"assert_coverage": 0.8948453608247423,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -499,17 +499,17 @@
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 2,
+"not_extractable": 0,
 "unstable": 0,
-"excluded": 0,
+"excluded": 2,
 "total": 327,
-"scored": 283,
+"scored": 281,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.9929328621908127,
+"coverage": 1.0,
 "wrong": 0,
 "matched_asserting": 281,
-"assert_coverage": 0.9929328621908127,
+"assert_coverage": 1.0,
 "matched_typed": 0,
 "typed_share": 0.0
 },
@@ -522,17 +522,17 @@
 "wrong_output": 0,
 "wrong_exit": 0,
 "crash_or_timeout": 0,
-"not_extractable": 2,
+"not_extractable": 0,
 "unstable": 0,
-"excluded": 0,
+"excluded": 2,
 "total": 327,
-"scored": 283,
+"scored": 281,
 "matched_through_cpython": 0,
 "matched_silent": 0,
-"coverage": 0.9929328621908127,
+"coverage": 1.0,
 "wrong": 0,
 "matched_asserting": 281,
-"assert_coverage": 0.9929328621908127,
+"assert_coverage": 1.0,
 "matched_typed": 0,
 "typed_share": 0.0
 }
@@ -540,13 +540,13 @@
 },
 "paths": {
 "normal": {
-"dynamic": 1146,
-"refused": 109,
+"dynamic": 1173,
+"refused": 83,
 "typed": 27
 },
 "dyn": {
-"dynamic": 1173,
-"refused": 109
+"dynamic": 1200,
+"refused": 83
 }
 },
 "tests": [
@@ -5261,8 +5261,16 @@
 {
 "id": "test_binop.RatTestCase.test_constructor",
 "file": "test_binop",
-"category": "not_extractable",
-"detail": "uses unittest beyond mock"
+"modes": {
+"normal": {
+"category": "matched",
+"path": "dynamic"
+},
+"dyn": {
+"category": "matched",
+"path": "dynamic"
+}
+}
 },
 {
 "id": "test_binop.RatTestCase.test_div",
@@ -6659,12 +6667,12 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "isinstance with a typing name, and this file cannot be built over dynamic values (case.py line 6: pickling an instance of a subclass of set is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "pickling an instance of a subclass of set is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -6743,12 +6751,12 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found ="
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "pickling an instance of a subclass of set is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -7747,12 +7755,12 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "isinstance with a typing name, and this file cannot be built over dynamic values (case.py line 6: pickling an instance of a subclass of frozenset is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "pickling an instance of a subclass of frozenset is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -7831,12 +7839,12 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "expected end of line, found ="
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "pickling an instance of a subclass of frozenset is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -9883,12 +9891,12 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`check_warnings` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 78: sys._getframe is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys._getframe is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -9897,12 +9905,12 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`check_warnings` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 78: sys._getframe is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys._getframe is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -9911,12 +9919,12 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`check_warnings` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 78: sys._getframe is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys._getframe is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -9925,12 +9933,12 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`check_warnings` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 78: sys._getframe is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys._getframe is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -9939,12 +9947,12 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`check_warnings` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 78: sys._getframe is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys._getframe is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -9953,12 +9961,12 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`check_warnings` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 78: sys._getframe is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys._getframe is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -9967,12 +9975,12 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`check_warnings` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 78: sys._getframe is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys._getframe is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -9981,12 +9989,12 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`check_warnings` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 78: sys._getframe is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys._getframe is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -9995,12 +10003,12 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`check_warnings` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 78: sys._getframe is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys._getframe is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -10009,12 +10017,12 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`check_warnings` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 78: sys._getframe is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys._getframe is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -10023,12 +10031,12 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`check_warnings` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 78: sys._getframe is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys._getframe is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -10037,12 +10045,12 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`check_warnings` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 78: sys._getframe is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys._getframe is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -10051,12 +10059,12 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`check_warnings` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 78: sys._getframe is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys._getframe is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -10065,12 +10073,12 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`check_warnings` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 79: sys._getframe is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys._getframe is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -10079,12 +10087,12 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`check_warnings` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 78: sys._getframe is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys._getframe is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -10093,12 +10101,12 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`check_warnings` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 78: sys._getframe is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys._getframe is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -10107,12 +10115,12 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`check_warnings` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 78: sys._getframe is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys._getframe is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -10121,12 +10129,12 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`check_warnings` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 78: sys._getframe is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys._getframe is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -10135,12 +10143,12 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`check_warnings` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 78: sys._getframe is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys._getframe is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -10149,12 +10157,12 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`check_warnings` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 78: sys._getframe is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys._getframe is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -10163,12 +10171,12 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`check_warnings` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 78: sys._getframe is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys._getframe is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -10177,12 +10185,12 @@
 "file": "test_set",
 "modes": {
 "normal": {
-"category": "refused",
-"detail": "`check_warnings` has a decorator the typed build would leave out, and this file cannot be built over dynamic values (case.py line 78: sys._getframe is not supported in dynamic builds)"
+"category": "matched",
+"path": "dynamic"
 },
 "dyn": {
-"category": "refused",
-"detail": "sys._getframe is not supported in dynamic builds"
+"category": "matched",
+"path": "dynamic"
 }
 }
 },
@@ -14529,8 +14537,8 @@
 {
 "id": "test_patma.TestCompiler.test_refleaks",
 "file": "test_patma",
-"category": "not_extractable",
-"detail": "uses open()"
+"category": "excluded",
+"detail": "compiles its own source file to find reference leaks in CPython's compiler"
 },
 {
 "id": "test_patma.TestInheritance.test_late_registration_mapping",
@@ -18987,8 +18995,8 @@
 {
 "id": "test_patma.TestSourceLocations.test_jump_threading",
 "file": "test_patma",
-"category": "not_extractable",
-"detail": "imports dis"
+"category": "excluded",
+"detail": "inspects CPython's bytecode (dis)"
 },
 {
 "id": "test_patma.TestTracing.test_default_capture",

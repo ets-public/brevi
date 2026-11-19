@@ -9,8 +9,6 @@
 # (tools/floor_guard.py): when each PR raised the same numbers and rewrote the same reports, every merge put every
 # other open PR into conflict, and each one merged main, re-measured and re-ran CI.
 # A push made with the workflow's own token starts no workflow, so this commit never triggers itself.
-# Dispatched on a release branch (a point release cut from a tag), it measures that branch and commits the reports
-# to that branch, never to main: release.yml's preflight needs reports measured on the tree it releases.
 name: Conformance on main
 
 on:
@@ -30,7 +28,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: conformance-main-${{ github.ref }}
+  group: conformance-main
   cancel-in-progress: true
 
 jobs:
@@ -72,18 +70,18 @@ jobs:
           python3 tools/conformance.py --slice stdlib --check --raise-floor --python "$py" --out bench/conformance/stdlib
           cat bench/conformance/stdlib/report.md >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Commit the raised floors and the current reports to the branch measured (main, or a release branch)
+      - name: Commit the raised floors and the current reports to main
         run: |
           git diff --quiet -- compat/ bench/conformance/ && { echo "floors and reports unchanged"; exit 0; }
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -q -m "Conformance floors and reports: what $GITHUB_REF_NAME measures" -- compat/conformance_floor.json compat/conformance_stdlib_floor.json bench/conformance/
+          git commit -q -m "Conformance floors and reports: what main measures" -- compat/conformance_floor.json compat/conformance_stdlib_floor.json bench/conformance/
           # Only this job writes these files, so a newer merge never conflicts with this commit.
-          for i in 1 2 3; do git pull -q --rebase origin "$GITHUB_REF_NAME" && git push -q origin "HEAD:$GITHUB_REF_NAME" && exit 0; sleep 5; done
+          for i in 1 2 3; do git pull -q --rebase origin main && git push -q origin HEAD:main && exit 0; sleep 5; done
           exit 1
 
       - name: Open or update an issue
-        if: failure() && github.ref == 'refs/heads/main'
+        if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

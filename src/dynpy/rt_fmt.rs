@@ -518,8 +518,12 @@ pub fn repr(v: &V) -> Result<String, E> {
         }
         V::Module(m) => module_repr(m)?,
         V::View(x) => {
-            // kind 3 is a mappingproxy: the dict's own repr in `mappingproxy({...})`.
+            // kind 3 is a mappingproxy: the dict's own repr in `mappingproxy({...})` (an OrderedDict's
+            // is `OrderedDict({...})`).
             if x.1 == 3 {
+                if matches!(&x.0, V::Dict(d) if d.borrow().kind == 3) {
+                    return Ok(format!("mappingproxy({})", repr(&x.0)?));
+                }
                 if let V::Dict(d) = &x.0 {
                     let p = Rc::as_ptr(d) as usize;
                     if !guard(p) {
@@ -1401,6 +1405,13 @@ pub fn percent_format(fs: &S, args: &V) -> Result<S, E> {
             'x' | 'X' | 'o' => {
                 let n = match &v {
                     V::Int(_) | V::Big(_) | V::Bool(_) => v.clone(),
+                    // an int subclass, or an object with __index__ (CPython's PyNumber_Index)
+                    V::Obj(o) if matches!(inner_of(&v), Some(V::Int(_) | V::Big(_) | V::Bool(_))) || o.cls.lookup("__index__").is_some() => match num_index(&v) {
+                        Ok(b) => b.norm(),
+                        // CPython reports a TypeError from __index__ as the format's own
+                        Err(E(e)) if is_exc(&e, "TypeError") => return type_err(format!("%{ty} format: an integer is required, not {}", tn(&v))),
+                        Err(e) => return Err(e),
+                    },
                     _ => return type_err(format!("%{ty} format: an integer is required, not {}", tn(&v))),
                 };
                 let mut sp2 = spec.clone();

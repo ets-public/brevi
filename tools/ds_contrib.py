@@ -17,9 +17,18 @@ start if a self-check finds the box leaking (see tools/modelbox.py). When it cal
 `finish`, the harness reruns the test (or check) itself and, if the change helps, commits it on a branch with
 DeepSeek as the author. Nothing is pushed: a human (or Claude) reviews the branch, runs the wider tests, and opens the PR.
 
-Spend is counted from the API's own usage numbers at the prices below and the run stops at --budget.
-Every request, reply and tool result is logged as JSON lines to --log (default bench/logs/ds_contrib/ID.jsonl)
-so the run can be read afterwards. Needs DEEPSEEK_API_KEY; stdlib only.
+Spend is a hard stop (Adam 11-17). --budget is at most RUN_CAP ($2). Before each call the harness prices its worst
+case (every prompt token a cache miss, a prompt-token bound from the request's bytes, max_tokens of output, peak
+prices if peak could begin during the call) and lowers max_tokens so it fits under --budget, or stops the run when
+no useful call fits. After the call it charges the API's own usage numbers; a reply whose usage is missing or does
+not add up, or an attempt that may have been billed without a reply (timeout, dropped connection, 5xx, empty
+body), is charged at its worst case, and an unreadable usage stops the run (fail closed). A lane (one test id, or
+one --id / --check in task mode) gets RUNS_PER_LANE runs: the first and one resume. Every run is written to a
+ledger on shared storage (--ledger, default DS_LEDGER or /mnt/project-files/deepseek/ledger.jsonl) before its
+first call; a third run of a lane is refused (hand it to Opus), and so is any run when the ledger can't be read or
+written. Every request, reply and tool result is logged as JSON lines to --log (default
+bench/logs/ds_contrib/ID.jsonl, ID.run2.jsonl for the resume) so the run can be read afterwards. Needs
+DEEPSEEK_API_KEY; stdlib only.
 """
 import argparse, atexit, datetime, http.client, json, os, re, shlex, subprocess, sys, time, urllib.error, urllib.request
 from pathlib import Path
@@ -47,6 +56,112 @@ def next_off_peak(now=None):
     while is_peak(t):
         t += datetime.timedelta(hours=1)
     return t.strftime("%H:%M UTC")
+
+
+RUN_CAP = 2.00  # dollars: the most one run may spend, whatever --budget says (Adam 11-17)
+RUNS_PER_LANE = 2  # the first run and one resume; after that the lane goes to Opus (Adam 11-17)
+LEDGER = Path(os.environ.get("DS_LEDGER", "/mnt/project-files/deepseek/ledger.jsonl"))
+MAX_TOKENS = 32000  # output tokens (reasoning included) asked for per call, lowered when the budget is short
+MIN_TOKENS = 4000  # a call that can't afford this many output tokens is not worth making: the run stops instead
+PROMPT_SLACK = 2000  # tokens of chat template around the messages and tools, which the request bytes don't count
+CALL_TIMEOUT = 900  # seconds per HTTP attempt
+CALL_WINDOW = datetime.timedelta(seconds=5 * CALL_TIMEOUT + 100)  # longest one chat() can take, retries included
+
+
+class BudgetStop(Exception):
+    """The run must stop now: the next call could pass the budget, or a call's cost could not be read."""
+
+
+def prices(model, peak):
+    return tuple(p if peak else p / 2 for p in PRICES[model])
+
+
+def peak_during(start, end):
+    """Whether any of [start, end] is in peak hours. Peak windows are hours apart and a call is shorter than the
+    off-peak gap between them, so checking the two ends is enough."""
+    return is_peak(start) or is_peak(end)
+
+
+class Meter:
+    """A run's spend, held under its budget call by call (see the module docstring)."""
+
+    def __init__(self, model, budget):
+        self.model, self.budget, self.spent = model, budget, 0.0
+        self.last = None  # (prompt_tokens, request bytes) of the last call whose usage was read
+
+    def prompt_bound(self, nbytes):
+        # A token is at least one byte of the request text, and the JSON around each message is longer than the
+        # template's tokens for it, so a new request's prompt is at most the last call's prompt tokens plus the bytes
+        # appended since (the message list only grows). The first call is bounded by its whole body.
+        base = nbytes if self.last is None else self.last[0] + max(0, nbytes - self.last[1])
+        return base + PROMPT_SLACK
+
+    def worst(self, nbytes, max_tokens, peak):
+        pin, _, pout = prices(self.model, peak)
+        return (self.prompt_bound(nbytes) * pin + max_tokens * pout) / 1e6
+
+    def plan(self, nbytes, peak):
+        """max_tokens for the next call such that its worst case keeps the run within budget; BudgetStop if none."""
+        pin, _, pout = prices(self.model, peak)
+        left = self.budget - self.spent - self.prompt_bound(nbytes) * pin / 1e6
+        n = min(MAX_TOKENS, int(left * 1e6 / pout)) if left > 0 else 0
+        if n < MIN_TOKENS:
+            raise BudgetStop(f"budget: ${self.spent:.3f} of ${self.budget:.2f} spent, and the next call's worst case "
+                             f"(${self.worst(nbytes, MIN_TOKENS, peak):.3f} with {MIN_TOKENS} output tokens) does not fit")
+        return n
+
+    def charge_unknown(self, nbytes, max_tokens, peak):
+        """An attempt that may have been billed but gave no usage: charge the worst case it was planned on."""
+        self.spent += self.worst(nbytes, max_tokens, peak)
+
+    def charge(self, usage, nbytes, max_tokens, peak):
+        """Charge one reply from the API's usage. Fails closed: usage that can't be read is charged at its worst
+        case and stops the run, and so does usage beyond the bound the call was planned on."""
+        bound = self.prompt_bound(nbytes)
+        try:
+            prompt, out = usage["prompt_tokens"], usage["completion_tokens"]
+            hit = usage.get("prompt_cache_hit_tokens", 0)
+            miss = usage.get("prompt_cache_miss_tokens", prompt - hit if type(hit) is int and type(prompt) is int else None)
+            if not all(type(v) is int and v >= 0 for v in (prompt, out, hit, miss)) or hit + miss != prompt:
+                raise ValueError
+        except (KeyError, TypeError, ValueError):
+            self.charge_unknown(nbytes, max_tokens, peak)
+            raise BudgetStop(f"the API's usage for a reply could not be read ({str(usage)[:200]}): charged the call's "
+                             f"worst case and stopped, since spend can no longer be counted")
+        pin, phit, pout = prices(self.model, peak)
+        self.spent += (miss * pin + hit * phit + out * pout) / 1e6
+        self.last = (prompt, nbytes)
+        if out > max_tokens or prompt > bound:
+            raise BudgetStop(f"a reply used {prompt} prompt and {out} output tokens, past the {bound} and {max_tokens} "
+                             f"the call was priced on: the cost bound no longer holds, so the run stops")
+        if self.spent > self.budget:
+            raise BudgetStop(f"spend ${self.spent:.3f} passed the ${self.budget:.2f} budget")
+
+
+def ledger_runs(ledger, lane, check=None):
+    """The runs of this lane already in the ledger (a run is written before its first call, so a killed run
+    counts). Raises OSError or ValueError if the ledger can't be read: the caller refuses the run then."""
+    if not ledger.exists():
+        return []
+    runs = []
+    for i, line in enumerate(ledger.read_text().splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            r = json.loads(line)
+        except ValueError:
+            raise ValueError(f"{ledger}:{i} is not JSON")
+        if r.get("event") == "start" and (r.get("lane") == lane or (check and r.get("check") == check)):
+            runs.append(r)
+    return runs
+
+
+def ledger_write(ledger, **rec):
+    ledger.parent.mkdir(exist_ok=True)  # one level only: a missing shared mount is an error, not a new folder
+    with ledger.open("a") as f:
+        f.write(json.dumps({"t": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"), **rec}) + "\n")
+
+
 MAX_OUT = 14000  # characters of one tool result sent back to the model
 
 SYSTEM = """You are contributing a fix to Brevi, a compiler written in Rust that takes plain Python and emits a native
@@ -358,36 +473,46 @@ def run_tool(name, a, task):
     raise ValueError("unknown tool " + name)
 
 
-def chat(model, messages, tools, effort="max"):
-    body = json.dumps({"model": model, "messages": messages, "tools": tools, "max_tokens": 32000,
-                       "reasoning_effort": effort}).encode()
+def now_utc():
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+def chat(model, messages, tools, effort, meter, sleep=time.sleep):
+    """One model reply, with every attempt priced and charged on `meter` (BudgetStop when one would not fit)."""
     for attempt in range(5):
+        t0 = now_utc()
+        est_peak = peak_during(t0, t0 + CALL_WINDOW)
+        sized = {"model": model, "messages": messages, "tools": tools, "max_tokens": MAX_TOKENS, "reasoning_effort": effort}
+        n = meter.plan(len(json.dumps(sized).encode()), est_peak)
+        body = json.dumps({**sized, "max_tokens": n}).encode()
         req = urllib.request.Request(BASE_URL + "/chat/completions", data=body, headers={
             "Content-Type": "application/json", "Authorization": "Bearer " + os.environ["DEEPSEEK_API_KEY"]})
         try:
-            with urllib.request.urlopen(req, timeout=900) as r:
+            with urllib.request.urlopen(req, timeout=CALL_TIMEOUT) as r:
                 out = json.loads(r.read())
-            # the API now and then answers 200 with an empty or choice-less body: retry rather than crash
-            if isinstance(out, dict) and out.get("choices"):
-                return out
-            if attempt < 4:
-                time.sleep(2 ** attempt * 3); continue
-            raise RuntimeError(f"no reply from the model after 5 tries: {str(out)[:300]}")
         except urllib.error.HTTPError as e:
+            if e.code != 429:
+                meter.charge_unknown(len(body), n, est_peak)  # a 5xx may come after the model ran; 429 is refused up front
             if e.code in (429, 500, 502, 503) and attempt < 4:
-                time.sleep(2 ** attempt * 3); continue
+                sleep(2 ** attempt * 3); continue
             raise RuntimeError(f"HTTP {e.code}: {e.read()[:500]!r}")
         except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.HTTPException, json.JSONDecodeError):
+            meter.charge_unknown(len(body), n, est_peak)  # the request may have been served and billed
             if attempt < 4:
-                time.sleep(2 ** attempt * 3); continue
+                sleep(2 ** attempt * 3); continue
             raise
-
-
-def cost(model, u, peak=True):
-    pin, phit, pout = (p if peak else p / 2 for p in PRICES[model])
-    hit = u.get("prompt_cache_hit_tokens", 0) or 0
-    miss = u.get("prompt_cache_miss_tokens", max(0, u.get("prompt_tokens", 0) - hit))
-    return (miss * pin + hit * phit + u.get("completion_tokens", 0) * pout) / 1e6
+        peak = peak_during(t0, now_utc())  # billed at the price in force (the plan above assumed the worse one)
+        # the API now and then answers 200 with an empty or choice-less body: charge it and retry rather than crash
+        if isinstance(out, dict) and out.get("choices"):
+            meter.charge(out.get("usage"), len(body), n, peak)
+            return out
+        if isinstance(out, dict) and out.get("usage"):
+            meter.charge(out["usage"], len(body), n, peak)
+        else:
+            meter.charge_unknown(len(body), n, est_peak)
+        if attempt < 4:
+            sleep(2 ** attempt * 3); continue
+        raise RuntimeError(f"no reply from the model after 5 tries: {str(out)[:300]}")
 
 
 def baseline_ids():
@@ -409,7 +534,9 @@ def main():
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--model", default="deepseek-v4-pro", choices=sorted(PRICES))
     ap.add_argument("--effort", default="max", choices=["low", "high", "max"], help="DeepSeek reasoning effort (default %(default)s)")
-    ap.add_argument("--budget", type=float, default=1.50, help="stop at this many dollars (default %(default)s)")
+    ap.add_argument("--budget", type=float, default=1.50,
+                    help=f"stop before spending more than this many dollars, at most {RUN_CAP:.2f} (default %(default)s)")
+    ap.add_argument("--ledger", type=Path, default=LEDGER, help="the shared run ledger (default %(default)s)")
     ap.add_argument("--steps", type=int, default=150, help="most model calls (default %(default)s)")
     ap.add_argument("--explore", type=int, default=50,
                     help="model calls allowed before the first edit; the run stops there without one (default %(default)s)")
@@ -423,6 +550,8 @@ def main():
     ap.add_argument("--check", help="task mode: the command (one string, split like a shell) whose exit 0 means done")
     ap.add_argument("--protect", action="append", default=[], help="task mode: a file the model must not edit (repeat)")
     a = ap.parse_args()
+    if not 0 < a.budget <= RUN_CAP:  # also refuses nan
+        ap.error(f"--budget must be more than 0 and at most {RUN_CAP:.2f} dollars (the per-run cap)")
     if a.list:
         print("\n".join(baseline_ids())); return 0
     task_mode = a.task is not None
@@ -437,11 +566,22 @@ def main():
     if is_peak() and not a.allow_peak:
         sys.exit(f"DeepSeek peak hours (01:00-04:00 and 06:00-10:00 UTC, Mon-Fri, double price): queue this run for "
                  f"{next_off_peak()} or later. --allow-peak only with Adam's explicit go-ahead.")
+    check_key = a.check if task_mode else None
+    try:
+        earlier = ledger_runs(a.ledger, a.test_id, check_key)
+        a.ledger.parent.mkdir(exist_ok=True)
+        a.ledger.open("a").close()  # writable now, not only when the first call is about to go out
+    except (OSError, ValueError) as e:
+        sys.exit(f"the run ledger {a.ledger} can't be read or written ({e}): runs per lane can't be counted, so no run starts")
+    if len(earlier) >= RUNS_PER_LANE:
+        sys.exit(f"lane {a.test_id} already had {len(earlier)} DeepSeek runs (the first and one resume; ledger "
+                 f"{a.ledger}): hand it to Opus with the review notes instead of running DeepSeek again")
+    run_no = len(earlier) + 1
     if git("status", "--porcelain", "--untracked-files=no")[1].strip():
         sys.exit("the working tree has changes: start from a clean checkout")
     box_init()
     task = CheckTask(a.id, a.task.read_text(), shlex.split(a.check), a.python) if task_mode else Task(a.test_id, a.python)
-    log_path = a.log or ROOT / "bench" / "logs" / "ds_contrib" / (a.test_id + ".jsonl")
+    log_path = a.log or ROOT / "bench" / "logs" / "ds_contrib" / (a.test_id + (".jsonl" if run_no == 1 else f".run{run_no}.jsonl"))
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log = log_path.open("w")
 
@@ -465,7 +605,15 @@ def main():
         prompt += "\n\nA reviewer rejected an earlier fix for this test. Their notes, which your fix must respect:\n" + note_text
     messages = [{"role": "system", "content": TASK_SYSTEM if task_mode else SYSTEM}, {"role": "user", "content": prompt}]
     tools = tool_schemas(task_mode)
-    spent, finished = 0.0, None
+    finished, stopped = None, None
+    meter = Meter(a.model, a.budget)
+    try:  # written before the first call, so a run killed mid-way still counts towards its lane
+        ledger_write(a.ledger, event="start", lane=a.test_id, check=check_key, run=run_no, model=a.model, budget=a.budget)
+    except OSError as e:
+        sys.exit(f"the run ledger {a.ledger} can't be written ({e}): runs per lane can't be counted, so no run starts")
+    atexit.register(lambda: ledger_write(a.ledger, event="end", lane=a.test_id, run=run_no, spent=round(meter.spent, 4),
+                                         stopped=stopped, fixed=bool(result.get("fixed")) if result else None))
+    result = None
     # Pace, held by the harness: a lane that read for 130 of its 150 calls (threading-1112 lane c, 11-12) ran
     # out of steps with an unfinished edit. Nudges at EXPLORE_NUDGE and 10 calls before --explore; at --explore
     # with no edit the run stops, so a vague brief costs a third of a run, not all of it.
@@ -475,15 +623,16 @@ def main():
             print(f"[ds] no edit after {a.explore} calls: stopping. Sharpen the brief (name the files and "
                   f"functions to change) and rerun, or raise --explore", flush=True)
             note(event="explore_stop", step=step); break
-        if spent >= a.budget:
-            print(f"[ds] budget ${a.budget:.2f} reached", flush=True); break
         if is_peak() and not a.allow_peak:
             print(f"[ds] DeepSeek peak hours began: stopping; resume from {next_off_peak()} with --note", flush=True)
             note(event="peak_stop", step=step); break
-        peak = is_peak()
-        resp = chat(a.model, messages, tools, a.effort)
-        u = resp.get("usage", {})
-        spent += cost(a.model, u, peak)
+        try:
+            resp = chat(a.model, messages, tools, a.effort, meter)
+        except BudgetStop as e:
+            stopped = str(e)
+            print(f"[ds] stopping: {e}", flush=True)
+            note(event="budget_stop", step=step, spent=round(meter.spent, 4), reason=stopped); break
+        u = resp["usage"]
         m = resp["choices"][0]["message"]
         msg = {"role": "assistant", "content": m.get("content") or ""}
         if m.get("reasoning_content"):
@@ -491,7 +640,7 @@ def main():
         if m.get("tool_calls"):
             msg["tool_calls"] = m["tool_calls"]
         messages.append(msg)
-        note(event="reply", step=step, usage=u, spent=round(spent, 4), content=msg["content"],
+        note(event="reply", step=step, usage=u, spent=round(meter.spent, 4), content=msg["content"],
              reasoning=(m.get("reasoning_content") or "")[:4000], calls=m.get("tool_calls"))
         if not m.get("tool_calls"):
             messages.append({"role": "user", "content": "Continue with a tool call, or call finish."})
@@ -520,7 +669,7 @@ def main():
                     reads.setdefault(key, step)
             out = redact(out)
             short = json.dumps(args)[:120] if args else ""
-            print(f"[ds] step {step} ${spent:.3f} {name} {short}", flush=True)
+            print(f"[ds] step {step} ${meter.spent:.3f} {name} {short}", flush=True)
             note(event="tool", name=name, args=args, result=out[:4000])
             messages.append({"role": "tool", "tool_call_id": tc["id"], "content": out})
         if first_edit is None and not finished:
@@ -536,20 +685,22 @@ def main():
                              f"{'run_check' if task_mode else 'check_test'}, then call finish."})
         if finished:
             break
+    spent = meter.spent
     print(f"[ds] done after ${spent:.3f}; rebuilding and checking", flush=True)
     diff = git("diff")[1]
     if diff and not finished:
         # Out of steps or budget mid-edit: keep the work so a reviewer, or a rerun with --note, can pick it up.
         kept = log_path.with_suffix(".patch")
         kept.write_text(diff)
-        print(f"[ds] unfinished: the diff is in {kept}; review it, or apply it and rerun with "
-              f"--note describing what is left (off-peak only)", flush=True)
+        nxt = ("apply it and rerun with --note describing what is left (off-peak only; this lane's last DeepSeek run)"
+               if run_no < RUNS_PER_LANE else "this lane has had its DeepSeek resume, so finish it on Opus")
+        print(f"[ds] unfinished: the diff is in {kept}; review it, or {nxt}", flush=True)
     built = run_tool("build", {}, task) == "ok" if diff else True
     after, after_text = task.results() if built else ({}, "build failed")
     builds = ("check",) if task_mode else ("normal", "dyn")
     fixed = [b for b in builds if before.get(b) != "matched" and after.get(b) == "matched"]
     broke = [b for b in builds if before.get(b) == "matched" and after.get(b) != "matched"]
-    result = {"test": a.test_id, "model": a.model, "spent": round(spent, 4), "claimed_ok": bool(finished and finished.get("ok")),
+    result = {"test": a.test_id, "model": a.model, "run": run_no, "spent": round(spent, 4), "stopped": stopped, "claimed_ok": bool(finished and finished.get("ok")),
               "summary": (finished or {}).get("summary"), "before": before, "after": after, "fixed": fixed, "broke": broke,
               "changed_files": git("diff", "--name-only")[1].split()}
     note(event="result", **result)

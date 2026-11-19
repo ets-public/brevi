@@ -1,0 +1,25 @@
+0x1a 0o32 0b11010 0x1a 1a 32 0X1A 26 int
+0x5 [0, 1, 2] [1, 101, 201] 1200
+0x12c 12c
+__index__ returned non-int (type float)
+%x format: an integer is required, not BadIdx
+'float' object cannot be interpreted as an integer
+'float' object cannot be interpreted as an integer
+2.57 2
+T(index=1, desc='money') 2 T(index=5, desc=3)
+0 True True
+1 True True
+2 True True
+3 True True
+4 True True
+5 True True
+True True
+b'(lp0\nc__builtin__\ngetattr\np1\nac__builtin__\nlen\np2\nac__builtin__\nmax\np3\na.' True True 9
+b']q\x00(c__builtin__\ngetattr\nq\x01c__builtin__\nlen\nq\x02c__builtin__\nmax\nq\x03e.' True True 9
+b'\x80\x02]q\x00(c__builtin__\ngetattr\nq\x01c__builtin__\nlen\nq\x02c__builtin__\nmax\nq\x03e.' True True 9
+b'\x80\x03]q\x00(cbuiltins\ngetattr\nq\x01cbuiltins\nlen\nq\x02cbuiltins\nmax\nq\x03e.' True True 9
+b'\x80\x04\x950\x00\x00\x00\x00\x00\x00\x00]\x94(\x8c\x08builtins\x94\x8c\x07getattr\x94\x93\x94h\x01\x8c\x03len\x94\x93\x94h\x01\x8c\x03max\x94\x93\x94e.' True True 9
+b'\x80\x05\x950\x00\x00\x00\x00\x00\x00\x00]\x94(\x8c\x08builtins\x94\x8c\x07getattr\x94\x93\x94h\x01\x8c\x03len\x94\x93\x94h\x01\x8c\x03max\x94\x93\x94e.' True True 9
+Named inst Named other
+Renamed RQ <class '__main__.RQ'>
+can only assign string to Renamed.__name__, not 'int'

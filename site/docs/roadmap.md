@@ -46,7 +46,7 @@ Each measure links to where its number comes from. Notes on the marked numbers a
 2. Measured at v0.25.0.
 3. Measured at v0.26.0, one run each with Haiku and Sonnet, with Brevi's errors shown to the model.
 4. Possible since v0.27.0 with the [brevi-sandbox image](https://github.com/ets-public/brevi/blob/main/docs/SDK_AND_IMAGES.md).
-5. At v0.28.1, 16 November (CPython's core tests, at `PYTHONHASHSEED=0`; the 83 that run a string as code are left out as refused by design). The standard-library slice is 96.9% (1989 of 2053) with none wrong. That covers the 21 files scored (ten added from 12 to 14 November: `test_set` and `test_patma` in core, `test_dataclasses` and `test_enum` in stdlib among them); more files are measured for planning but not scored yet. At v0.27.0: 80.4% (250 of 311) and 8 wrong; at v0.26.0, 44 wrong.
+5. At v0.28.2, 16 November (CPython's core tests, at `PYTHONHASHSEED=0`; the 83 that run a string as code are left out as refused by design). The standard-library slice is 96.9% (1989 of 2053) with none wrong. That covers the 21 files scored (ten added from 12 to 14 November: `test_set` and `test_patma` in core, `test_dataclasses` and `test_enum` in stdlib among them); more files are measured for planning but not scored yet. At v0.27.0: 80.4% (250 of 311) and 8 wrong; at v0.26.0, 44 wrong.
 
 Unless marked, numbers are from v0.27.0 (11 November 2026). Edit times are from one 4-core Xeon @ 2.10 GHz, the same kind of machine as the v0.26.0 numbers.
 
@@ -88,7 +88,6 @@ The north star is the share of real agent-written programs that build natively, 
 
 Each item is in the [changelog](/docs/changelog) with its release.
 
-- **In v0.28.3:** security fix: every command refuses an option it does not have (a misspelt `--sandbox` no longer builds an unsandboxed binary), and words after `--` are the program's own.
 - **In v0.28.2:** security fixes for temp folders (private to the user on Linux and other unix) and `brevi mcp --http` (requests bounded before the token check); on Windows, CRLF source, source paths without `\\?\`, the cp1252 codec and `re.LOCALE`, and the standard-library conformance slice gates a release.
 - **In v0.28.1:** `re.IGNORECASE` and str case methods answer with CPython 3.13's Unicode tables on any Rust toolchain (Rust 1.100 pinned); `namedtuple` names checked as CPython checks them; run-time regex patterns the typed matcher lacks re-run on the dynamic build; Windows `--standalone`, the Windows certificate store, Windows ARM64, and Windows conformance as a release gate.
 - **In v0.28.0:** `--strict`; core conformance 97.3% (of the scored suite, with 83 string-as-code tests excluded) and stdlib 96.9% over 21 files with no wrong answers; `match` statements; complex numbers, metaclasses, `def f[T]`, threads that take turns, `weakref.proxy`, strs with lone surrogates, and exact `vars()`/`dir()` in dynamic builds; releases held to the conformance gates, with an SBOM, provenance attestations and a reproducible-build check; native `bytearray`, `memoryview`, `collections.abc`, `ChainMap` and the `User*` classes, `functools.singledispatch`, `partialmethod` and `cached_property`, `string.Template`, `itertools.tee` and `batched`, warnings with the program's lines, and bytes patterns in `re`; sandboxed CPython gets no network without a grant; engine libraries pinned by hash; Windows paths as `ntpath`.

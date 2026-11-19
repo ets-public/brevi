@@ -1,7 +1,7 @@
 # Install Brevi
 <!-- description: Install the Brevi compiler on Linux, macOS or Windows from the GitHub release, pip, npm, Docker, or from source. -->
 
-Brevi turns programs into Rust and calls `rustc` to build them. You do not need to install Rust: when no `rustc` is on the PATH, brevi fetches the Rust release it is tested with on its first build, and, when the machine has no C linker either, zig to link with. Both are checked against SHA-256 sums compiled into brevi and kept in Brevi's own folder (see [The pinned toolchain](#the-pinned-toolchain)). From the next release, Linux x86-64 and macOS (Apple silicon and Intel); Linux ARM64 and Windows follow as each passes CI, and until then brevi asks for Rust there.
+Brevi turns programs into Rust and calls `rustc` to build them. You do not need to install Rust: when no `rustc` is on the PATH, brevi fetches the Rust release it is tested with on its first build, and, when the machine has no C linker either, zig to link with. Both are checked against SHA-256 sums compiled into brevi and kept in Brevi's own folder (see [The pinned toolchain](#the-pinned-toolchain)). This works on Linux x86-64 and macOS (Apple silicon and Intel) from v0.28.2, and on Linux ARM64 and Windows (x86-64 and ARM64) from the next release.
 
 ## One command (with uv)
 
@@ -19,6 +19,7 @@ The first build fetches about 300 MB once (Rust and zig) and builds Brevi's runt
 | --- | --- | --- |
 | `rustc` (Rust stable) | Brevi compiles every program through it | Fetched by brevi when none is on the PATH (the pinned toolchain), where that is verified; elsewhere installed by the script with rustup. Any recent stable works; CI tests stable daily and beta and nightly weekly. |
 | a C linker (`cc`) | rustc links programs with it | Not needed: with no working `cc` (Linux without the C library's development files, macOS without the Command Line Tools), brevi links with zig, fetched once. |
+| CPython 3.13 (for `--verify`) | `brevi run --verify` and `brevi verify` compare each run with CPython 3.13, and use no other version | Brevi takes `BREVI_PYTHON` when set, else the first 3.13 among `python3`, `python3.13` and `python` on PATH, then (Windows) the `py` launcher, then `uv python find 3.13`, so `uv python install 3.13` is enough. |
 | `python3` (optional) | The CPython fallback of `brevi run`, and programs that import libraries such as numpy | Not needed for programs that use only the standard library. Library programs need `libpython` where they run, unless built with `--standalone`. |
 | Linux, macOS or Windows | Prebuilt binaries for x86-64 and ARM64 Linux, Apple silicon and Intel Macs, and x86-64 and ARM64 Windows (ARM64 from v0.28.1) | Library calls through CPython work on Windows from v0.27.0 (the `python` on PATH needs its DLL); `--standalone` builds work on Linux and Windows from v0.28.1. |
 
@@ -51,7 +52,7 @@ $ printf 'print(sum(range(10)))\n' > hello.py && brevi run hello.py
 
 ## Windows
 
-1. Install Rust with [rustup](https://rustup.rs). It also asks for the Microsoft C++ build tools, which `rustc` needs to link programs.
+1. From the release after v0.28.2, skip this step: brevi fetches its own Rust and zig on the first build ([the pinned toolchain](#the-pinned-toolchain)). For v0.28.2 and earlier, install Rust with [rustup](https://rustup.rs); it also asks for the Microsoft C++ build tools, which `rustc` needs to link programs.
 2. Download `brevi-x86_64-pc-windows-msvc.zip` (or `brevi-aarch64-pc-windows-msvc.zip` on ARM64 Windows, from v0.28.1) from the latest [GitHub release](__GITHUB__/releases/latest), unzip it, and put `brevi.exe` on your PATH (for example in `%USERPROFILE%\.cargo\bin`, next to `rustc`).
 3. In PowerShell or cmd: `brevi --version`.
 
@@ -63,9 +64,9 @@ When a build needs `rustc` and none is on the PATH, brevi downloads the Rust rel
 
 | Platform | Pinned toolchain |
 | --- | --- |
-| Linux x86-64 | Used automatically (from the next release) |
-| macOS, Apple silicon and Intel | Used automatically (from the next release). With Apple's Command Line Tools installed it links with them, otherwise with zig. |
-| Linux ARM64, Windows x86-64 and ARM64 | Not verified yet (linking with zig fails there today): brevi asks you to install Rust instead, or set `BREVI_TOOLCHAIN=pinned` to try it. Each is enabled once it passes the same checks in CI. On Windows it is the GNU-ABI (`gnullvm`) Rust with zig, so Visual Studio is not needed. |
+| Linux x86-64 and ARM64 | Used automatically (x86-64 from v0.28.2, ARM64 from the next release). With a working `cc` it links with that, otherwise with zig. Not on a machine with an Arm Cortex-A53 core (such as a Raspberry Pi 3), whose erratum 843419 needs a linker fix zig cannot apply: there brevi asks for a C compiler or Rust. |
+| macOS, Apple silicon and Intel | Used automatically (from v0.28.2). With Apple's Command Line Tools installed it links with them, otherwise with zig. |
+| Windows x86-64 and ARM64 | Used automatically (from the next release): the GNU-ABI (`gnullvm`) Rust, linked with zig, so neither Visual Studio nor its C++ build tools are needed. Programs use the Universal C Runtime that comes with Windows 10 and 11. |
 
 | Setting | Effect |
 | --- | --- |
@@ -114,7 +115,7 @@ Or `cargo install --git __GITHUB__ brevi`. See [Contributing](/docs/contributing
 
 ## Package managers
 
-Each release is published to these registries with the same prebuilt binaries as the GitHub release. They need the Rust toolchain on the PATH too ([rustup.rs](https://rustup.rs)).
+Each release is published to these registries with the same prebuilt binaries as the GitHub release. They fetch the pinned toolchain like any other install where brevi does (Linux x86-64 and macOS from v0.28.2); elsewhere they need the Rust toolchain on the PATH ([rustup.rs](https://rustup.rs)).
 
 | Channel | Command | Notes |
 | --- | --- | --- |

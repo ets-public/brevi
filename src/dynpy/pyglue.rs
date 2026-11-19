@@ -27,6 +27,9 @@ static PYD_BRIT: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::ato
 // back as the program's own (pickle.loads of a pickled pattern)
 static PYD_REPAT: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_BRRED: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+// the type of _brevi_dyn's _BrOpq (an object of the program a unittest.mock object was called with), once one has
+// been made
+static PYD_BROPQ: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 // CPython's collections.deque, its iterator type, _brevi_dyn's _BrNew and _mkobj (set when Python starts), and
 // pickle.dumps and pickle.dump once the program imports pickle: a deque goes into Python only for those two
 // (pyd_invoke sets PYD_PICKLING), since any other library would get a copy whose changes the program never sees
@@ -44,12 +47,38 @@ static PYD_BRMETH: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::a
 // _mkfn and _mkmeth: make one (calling the classes is FunctionType(...) and MethodType(...), as a library expects)
 static PYD_MKFN: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_MKMETH: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+// _brevi_dyn's _BrOT: the metaclass of the stand-in classes pickle sees for the program's classes (see _BrInst)
+static PYD_BROT: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+// _brevi_dyn's _pk_getattr, which the program's Unpickler gives for builtins.getattr: the program's getattr when it
+// comes back as a value
+static PYD_PKGA: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_PDUMPS: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 static PYD_PDUMP: std::sync::atomic::AtomicPtr<std::ffi::c_void> = std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 thread_local! {
     static PYD_PICKLING: Cell<bool> = const { Cell::new(false) };
     // how many of the program's pickle Unpickler.load calls are running (see _pmod)
     static PYD_UNPICKLING: Cell<i64> = const { Cell::new(0) };
+    // the stand-in Python class made for each class of the program pickle has met (see _BrInst), kept for the
+    // program's life
+    static PYD_STAND: RefCell<Vec<(Rc<Class>, usize)>> = const { RefCell::new(Vec::new()) };
+    // pickle.load's BUILDs of stand-in objects (_BrInst.__setstate__), numbered in the order CPython's Unpickler
+    // runs them, that no program object has been given yet: number -> the program's class (see pyd_stinst)
+    static PYD_BPEND: RefCell<std::collections::BTreeMap<i64, Rc<Class>>> = const { RefCell::new(std::collections::BTreeMap::new()) };
+    // the last BUILD number given out, and what it was when code of the program last ran inside a load
+    static PYD_BSEQ: Cell<i64> = const { Cell::new(0) };
+    static PYD_BUSER: Cell<i64> = const { Cell::new(0) };
+    // how many results of Python calls are being made (pyd_invoke): Python calls made meanwhile, by Brevi's glue
+    // or by the program's own __setstate__, are not the end of a load
+    static PYD_BCONV: Cell<i64> = const { Cell::new(0) };
+    // the Python callable pyd_invoke is building arguments for: an object of the program with no Python form goes
+    // to a unittest.mock object sealed (_BrOpq), since a mock only keeps what it is called with
+    static PYD_CALLEE: Cell<usize> = const { Cell::new(0) };
+}
+// _brevi_dyn's own functions (pyd_register): Brevi's glue, not code of the program, when Python calls them
+static PYD_GLUE: std::sync::Mutex<Vec<usize>> = std::sync::Mutex::new(Vec::new());
+fn pyd_is_glue(f: &V) -> bool {
+    let V::Func(f) = f else { return false };
+    PYD_GLUE.lock().map(|g| g.contains(&(Rc::as_ptr(f) as usize))).unwrap_or(false)
 }
 fn pyd_ptr(s: &std::sync::atomic::AtomicPtr<std::ffi::c_void>) -> P {
     s.load(std::sync::atomic::Ordering::Relaxed) as P
@@ -137,6 +166,8 @@ def _warn_at(msg, cat, file, line, module):
 # before the registry or the line is looked at); anything else is refused.
 def _at_unknown(message, category, module):
     import warnings as _w
+    # CPython makes the frame's registry before it looks at the filters
+    _d.regs.setdefault(module, {})
     if isinstance(message, Warning):
         text = str(message)
         category = message.__class__
@@ -150,6 +181,11 @@ def _at_unknown(message, category, module):
             break
     raise NotImplementedError("brevi: a warning at a line of the program the dynamic build does not know is not supported in dynamic builds")
 _d.regs = {}
+# a warning attributed to a library's own frame: that module's globals got a __warningregistry__
+_d.lib_reg = False
+def _regs_clean():
+    return not _d.regs and not _d.lib_reg
+_d.regs_clean = _regs_clean
 _d.warn_at = _warn_at
 # The program uses the warnings module. A program frame is no Python frame, so CPython's warnings.warn would
 # report a warning that points at the program (warnings.warn called by it, or a library's warn whose
@@ -208,6 +244,7 @@ def _install_warn(site):
         if i < P:
             fm = fr[i]
             g = fm.f_globals
+            _d.lib_reg = True
             module = g['__name__'] if '__name__' in g else '<string>'
             return _w.warn_explicit(message, category, fm.f_code.co_filename, fm.f_lineno, module, g.setdefault('__warningregistry__', {}), g, source)
         if i == P and s is not None:
@@ -238,6 +275,35 @@ def _buf(o):
         return m.tobytes()
 _d.buf = _buf
 _d.red = _BrRed
+# An object of the program a unittest.mock object is called with (`D.__set__ = Mock()`: the program calls it with its
+# own objects), which has no Python form: the mock keeps it and gives it back (call_args, side_effect) as the
+# program's object. Python doing anything else with it (repr, ==, hash, an attribute) stops the program, since
+# CPython would use the object itself there; the build refuses the reads that show what a mock was called with.
+class _BrOpq:
+    __slots__ = ('b',)
+    def __init__(s, b): object.__setattr__(s, 'b', b)
+def _opq_stop(*a, **k):
+    _d._stop('a Python library using an object of the program that a unittest.mock object was called with')
+for _n in ('__getattr__', '__setattr__', '__delattr__', '__repr__', '__str__', '__format__', '__bytes__', '__eq__',
+           '__ne__', '__lt__', '__le__', '__gt__', '__ge__', '__hash__', '__bool__', '__len__', '__iter__', '__next__',
+           '__reversed__', '__contains__', '__getitem__', '__setitem__', '__delitem__', '__call__', '__reduce__',
+           '__reduce_ex__', '__getstate__', '__setstate__', '__copy__', '__deepcopy__', '__dir__', '__sizeof__',
+           '__int__', '__float__', '__complex__', '__index__', '__round__', '__trunc__', '__floor__', '__ceil__',
+           '__neg__', '__pos__', '__abs__', '__invert__', '__enter__', '__exit__', '__await__', '__aiter__',
+           '__anext__', '__aenter__', '__aexit__', '__get__', '__set__', '__delete__', '__set_name__',
+           '__instancecheck__', '__subclasscheck__', '__init_subclass__', '__class_getitem__', '__mro_entries__',
+           '__fspath__', '__buffer__', '__release_buffer__', '__length_hint__', '__missing__', '__matmul__', '__rmatmul__'):
+    setattr(_BrOpq, _n, _opq_stop)
+for _n in ('add', 'sub', 'mul', 'truediv', 'floordiv', 'mod', 'divmod', 'pow', 'lshift', 'rshift', 'and', 'or', 'xor'):
+    for _p in ('__%s__', '__r%s__', '__i%s__'):
+        setattr(_BrOpq, _p % _n, _opq_stop)
+del _n, _p
+_d.opq = _BrOpq
+def _ismock(f):
+    m = _s.modules.get('unittest.mock')
+    return m is not None and _b.isinstance(f, m.NonCallableMock)
+_d.ismock = _ismock
+_d.plain_slot = lambda f: _b.callable(f) and not _b.hasattr(type(f), '__get__')
 # A deque pickled here (CPython's deque.__reduce__ form): the deque type and its iterator's, which come back as
 # the program's own; an instance of a program's deque subclass loads as a _BrNew that holds what pickle gives
 # it (its class and arguments, its items, its state) until the loaded value comes back to the program, which
@@ -267,6 +333,100 @@ _mkobj.__module__ = '_brevi_dyn'
 _d._mkobj = _mkobj
 _d.brnew_t = _BrNew
 _d.cr_prog = lambda: any(getattr(k, '__name__', None) == 'brevi_function' for k in _cr.dispatch_table)
+# An instance of a class of the program that CPython would reduce with object's or set's own rules (rt_pickobj.rs
+# pk_cat): pickle sees an instance of a stand-in class (_BrOT, one per class of the program, with its name,
+# qualname and module), whose __reduce_ex__ gives what CPython's object.__reduce_ex__ or set.__reduce__ gives,
+# with the stand-in class in place of the program's: CPython's pickle then writes the very bytes CPython writes
+# (copyreg.__newobj__ as NEWOBJ, which checks the class is a type and obj.__class__). The stand-in class pickles by
+# reference as the program's class does (_bf_reduce). The program's Unpickler finds the stand-in class for such a
+# class, so NEWOBJ, REDUCE and BUILD make a stand-in instance that only records what pickle did to it (_ops);
+# the program's object is made from that once the load has finished (pyd_stinst).
+# A class whose instances are made by code of the program (its own __new__ or __init__, or __new__ given
+# arguments) or on an int or tuple base (_d._steager) is made at once instead, in CPython's order: the call
+# (REDUCE), cls.__new__ (NEWOBJ) or base.__new__ (_reconstructor) runs in the program there (_d._stnow), which
+# gives a stand-in instance holding the object (_bv), and each BUILD on it runs there too (_d._stset).
+class _BrOT(type):
+    def __call__(c, *a, **k):
+        if _d._steager(c, 'call', len(a) + len(k)):
+            return _d._stnow(c, 'call', [a, k])
+        # recorded as a call, made once the load has finished (_BrInst.__new__ is then only NEWOBJ's)
+        o = object.__new__(c)
+        o._ops = [['call', a, k]]
+        return o
+class _BrInst(metaclass=_BrOT):
+    __slots__ = ('_r', '_bv', '_ops')
+    def __new__(cls, *a, **k):
+        if _d._steager(cls, 'new', len(a) + len(k)):
+            return _d._stnow(cls, 'new', [a, k])
+        o = object.__new__(cls)
+        o._ops = [['new', a, k]]
+        return o
+    def __init__(s, *a, **k):
+        try:
+            s._ops[0][0] = 'call'
+        except AttributeError:
+            pass
+    def __setstate__(s, state):
+        try:
+            s._bv
+        except AttributeError:
+            pass
+        else:
+            return _d._stset(s, [state])
+        try:
+            ops = s._ops
+        except AttributeError:
+            ops = s._ops = [['obj', (), {}]]
+        ops.append((_d._bseq(type(s)), state))
+    def __reduce_ex__(s, proto):
+        if _d.cr_prog():
+            _d._stop('pickling an instance of a class of the program while copyreg holds a reducer for a class or function of the program')
+        try:
+            r = s._r
+        except AttributeError:
+            _d._stop('pickling an object of the program that pickle.load has not finished making')
+        t, c, a, st = r(proto)
+        if t == 0:
+            return (_cr.__newobj__, (c,) + a, st, None, None)
+        if t == 1:
+            return (_cr._reconstructor, (c,) + a, st) if st is not None else (_cr._reconstructor, (c,) + a)
+        if t == 3:
+            return (_cr.__newobj_ex__, (c, a[0], a[1]), st, None, None)
+        if t == 4:
+            return c
+        return (c, a, st)
+    def _items(s, *a):
+        _d._stop('loading a pickle that adds items to an instance of a class of the program')
+    append = extend = __setitem__ = _items
+_BrInst.__module__ = '_brevi_dyn'
+import copyreg as _cr
+_cr.dispatch_table[_BrOT] = lambda c: _bf_reduce(type.__getattribute__(c, '_b'), c)
+def _mkst(n, qn, m, b):
+    # interned, as CPython's __module__ and __qualname__ are, so pickle memoizes the module name once (_pk_global)
+    return _BrOT(n, (_BrInst,), {'__slots__': (), '__module__': _s.intern(m), '__qualname__': _s.intern(qn), '_b': b})
+def _mkinst(c, r, b):
+    o = object.__new__(c)
+    o._r = r
+    o._bv = b
+    return o
+def _stparts(o):
+    try:
+        ops = o._ops
+    except AttributeError:
+        ops = [['obj', (), {}]]
+    return (ops[0][0], ops[0][1], ops[0][2], tuple(ops[1:]))
+# copyreg._reconstructor as a pickle names it: on a stand-in class only over object (CPython's base.__new__(cls)
+# for another base would need the program's class)
+def _br_recon(cls, base, state):
+    if isinstance(cls, _BrOT) and base is not object:
+        if base not in (int, tuple) or not _d._steager(cls, 'recon', 0):
+            _d._stop('loading a pickle that rebuilds an instance of a class of the program on a builtin base other than object, int or tuple')
+        return _d._stnow(cls, 'recon', [(base, state), {}])
+    return _cr._reconstructor(cls, base, state)
+_d.brot = _BrOT
+_d.mkst = _mkst
+_d.mkinst = _mkinst
+_d.stparts = _stparts
 # The program's own `pickle` module: CPython's, except that a pickle naming an itertools class loads as the
 # program's itertools iterator (as pickles the program makes do), not CPython's, whose __setstate__ warns from C
 # code with no frame to name. Libraries keep CPython's pickle.
@@ -291,11 +451,13 @@ def _pmod():
                 if '.' in name:
                     p = self.__dict__.get('_bvp')
                     if p is None:
-                        raise NotImplementedError("brevi: loading a pickle that names a dotted attribute of the program from a file that cannot seek is not supported in dynamic builds")
+                        _d._stop("loading a pickle that names a dotted attribute of the program from a file that cannot seek")
                     if p < 4:
                         _d._missing(module, name)
-                return _pt_mk(_d._lookup(module, name))
+                return _pt_mk(_d._stand(_d._lookup(module, name)))
             obj = super().find_class(module, name)
+            if obj is _cr._reconstructor:
+                return _br_recon
             # below protocol 4 a method or nested class loads as getattr(class, name): on a class of the
             # program, the program's getattr
             if obj is _b.getattr:
@@ -447,12 +609,17 @@ class _PkPath:
 def _pk_getattr(o, *a):
     if type(o) is type(len) and o.__name__ == 'brevi_function' and type(o.__self__).__name__ == 'PyCapsule':
         return _d._lookup('builtins', 'getattr')(o, *a)
+    # a class of the program found as its stand-in (a nested class below protocol 4: getattr(Outer, 'Inner')):
+    # the program's attribute, as a stand-in again when it is a class pickle rebuilds by object's rules
+    if isinstance(o, _BrOT):
+        return _pt_mk(_d._stand(_d._lookup('builtins', 'getattr')(o, *a)))
     return _b.getattr(o, *a)
+_d.pk_getattr = _pk_getattr
 def _pk_global(f, m, q, setmod=True):
     # interned, as CPython's __module__ and __qualname__ are, so pickle memoizes the module name once
     m, q = _s.intern(m), _s.intern(q)
     if m == 'builtins':
-        raise NotImplementedError("brevi: pickling this builtin is not supported in dynamic builds")
+        _d._stop("pickling this builtin")
     if setmod:
         f.__module__ = m
     old = {}
@@ -762,13 +929,26 @@ unsafe fn pyd_exc_of(v: P) -> E {
 thread_local! {
     // Python exception class (name, module) -> the program's class for it.
     static PYD_EXC: RefCell<std::collections::HashMap<(String, String), Rc<Class>>> = RefCell::new(std::collections::HashMap::new());
+    // the program's class for a Python exception class (by address: PYD_EXC keeps it alive) -> that Python class
+    // (a reference held for good), so issubclass and `is` answer as CPython does for type(e)
+    static PYD_EXC_T: RefCell<std::collections::HashMap<usize, usize>> = RefCell::new(std::collections::HashMap::new());
+}
+// The Python class the program's class c stands for, when c was made for a Python exception class (borrowed).
+fn pyd_exc_pytype(c: &Class) -> Option<P> {
+    PYD_EXC_T.with(|m| m.borrow().get(&(c as *const Class as usize)).map(|p| *p as P))
 }
 
 unsafe fn pyd_exc_class(v: P) -> Rc<Class> {
     let a = pyd_api();
     let t = (a.Type)(v);
-    let mro = pyd_helper("mro", &[t]).ok().and_then(|m| to_vec(&m).ok()).unwrap_or_default();
+    let c = pyd_exc_class_of(t);
     (a.DecRef)(t);
+    c
+}
+// pyd_exc_class for Python exception class t (borrowed).
+unsafe fn pyd_exc_class_of(t: P) -> Rc<Class> {
+    let a = pyd_api();
+    let mro = pyd_helper("mro", &[t]).ok().and_then(|m| to_vec(&m).ok()).unwrap_or_default();
     let names: Vec<(String, String)> = mro.iter().filter_map(|x| to_vec(x).ok()).filter(|p| p.len() == 2).map(|p| (to_str(&p[0]).unwrap_or_default(), to_str(&p[1]).unwrap_or_default())).collect();
     let known = |n: &str| BUILTIN_CLASSES.with(|b| b.borrow().get(n).is_some_and(|c| c.bt == BT::Exc || c.is_sub(&exc_class("BaseException"))));
     let base = names.iter().find(|(n, m)| m == "builtins" && known(n)).map(|(n, _)| exc_class(n)).unwrap_or_else(|| exc_class("Exception"));
@@ -779,7 +959,47 @@ unsafe fn pyd_exc_class(v: P) -> Rc<Class> {
     if let Some(c) = PYD_EXC.with(|m| m.borrow().get(&(name.clone(), module.clone())).cloned()) {
         return c;
     }
-    let c = Class::new(sym(&name), sym(&module), vec![base.clone()], base.bt);
+    // its bases as CPython has them (pickle.PicklingError: PickleError, then Exception), so __mro__, __bases__
+    // and except clauses see the same chain; a base that is not an exception class (a mixin) is left out
+    let mut bases = vec![];
+    let bs = (a.GetAttr)(t, c"__bases__".as_ptr());
+    if bs.is_null() {
+        (a.ErrClear)();
+    } else {
+        if let Ok(be) = pyd_builtins_attr("BaseException") {
+            for i in 0..(a.TupleSize)(bs) {
+                let b = (a.TupleGet)(bs, i);
+                match (a.IsSubclass)(b, be) {
+                    1 => bases.push(pyd_exc_class_of(b)),
+                    r => {
+                        if r < 0 {
+                            (a.ErrClear)();
+                        }
+                    }
+                }
+            }
+            (a.DecRef)(be);
+        } else {
+            (a.ErrClear)();
+        }
+        (a.DecRef)(bs);
+    }
+    if bases.is_empty() {
+        bases.push(base.clone());
+    }
+    let bt = bases[0].bt;
+    let c = Class::new(sym(&name), sym(&module), bases, bt);
+    // calling it (raise type(e)('again')) makes the Python exception, as calling the Python class does
+    (a.IncRef)(t);
+    let pt = pyv(t, false);
+    let me = Rc::downgrade(&c);
+    c.set("__new__", func(sym("__new__"), move |mut a: Args| {
+        let k = if a.p.is_empty() { V::None } else { a.p.remove(0) };
+        match (&k, me.upgrade()) {
+            (V::Class(k), Some(c)) if Rc::ptr_eq(k, &c) => call(&pt, a),
+            _ => Err(unsupported_stop("a subclass of a Python library's exception class")),
+        }
+    }));
     let py = |o: &V| -> Option<V> {
         match o {
             V::Obj(o) => o.get("__pyexc__"),
@@ -798,6 +1018,8 @@ unsafe fn pyd_exc_class(v: P) -> Rc<Class> {
         }
     }));
     PYD_EXC.with(|m| m.borrow_mut().insert((name, module), c.clone()));
+    (a.IncRef)(t);
+    PYD_EXC_T.with(|m| m.borrow_mut().insert(Rc::as_ptr(&c) as usize, t as usize));
     c
 }
 
@@ -909,6 +1131,13 @@ pub fn pyd_warn_install() -> Result<(), E> {
     PYD_WARN_ON.store(true, std::sync::atomic::Ordering::Relaxed);
     Ok(())
 }
+// no module has a __warningregistry__ yet (rt_text's no_warn_registry)
+pub fn pyd_regs_clean() -> Result<bool, E> {
+    unsafe {
+        let _g = PydGil::take();
+        truth(&pyd_helper("regs_clean", &[])?)
+    }
+}
 unsafe fn pyd_type_is(p: P, t: P) -> bool {
     let a = pyd_api();
     let x = (a.Type)(p);
@@ -968,6 +1197,87 @@ unsafe fn pyd_wrap(p: P, deep: bool) -> R {
 unsafe fn from_memo_put(p: P, v: &V) {
     (pyd_api().IncRef)(p);
     FROM_MEMO.with(|m| m.borrow_mut().1.insert(p as usize, (p, v.clone())));
+    if LOAD_HOLD.with(|h| h.get()) > 0 {
+        if let Some(f) = load_fp(p) {
+            LOAD_SNAP.with(|s| s.borrow_mut().push((p as usize, f)));
+        }
+    }
+}
+
+// While the program's pickle.load runs, objects of the program are made at once (_d._stnow, _d._stset) from
+// Python objects the Unpickler made, and the result is made after it. One conversion memo is kept from the
+// start of the outermost load until its result is made (LOAD_HOLD), so a Python object met in both is one object
+// of the program, as in CPython. A list, dict or set met while the Unpickler may still be adding to it (a
+// structure that holds an object that holds it) would come back without what came later: each one met during
+// the hold is checked against what it was when met (load_fp) once the result is made, and the program stops
+// when one changed, as no `except` may turn that into an answer.
+thread_local! {
+    static LOAD_HOLD: Cell<i64> = const { Cell::new(0) };
+    static LOAD_SNAP: RefCell<Vec<(usize, Vec<usize>)>> = const { RefCell::new(Vec::new()) };
+}
+// What a list, dict or set holds, as the addresses of its items (a dict: keys and values; a set: its size)
+unsafe fn load_fp(p: P) -> Option<Vec<usize>> {
+    let a = pyd_api();
+    let t = (a.Type)(p);
+    (a.DecRef)(t);
+    if t == a.TList {
+        let n = (a.ListSize)(p);
+        return Some((0..n).map(|i| (a.ListGet)(p, i) as usize).collect());
+    }
+    if t == a.TSet {
+        let n = pyd_mod_call("builtins", "len", &[p]).ok()?;
+        let r = pyd_wrap(n, false).ok();
+        return Some(vec![usize::MAX, match r {
+            Some(V::Int(n)) => n as usize,
+            _ => usize::MAX - 1,
+        }]);
+    }
+    if (a.IsInstance)(p, a.TDict) == 1 {
+        let mut out = vec![];
+        let (mut pos, mut k, mut x): (isize, P, P) = (0, std::ptr::null_mut(), std::ptr::null_mut());
+        while (a.DictNext)(p, &mut pos, &mut k, &mut x) != 0 {
+            out.push(k as usize);
+            out.push(x as usize);
+        }
+        return Some(out);
+    }
+    None
+}
+// pickle.load starting (`d` 1) or ending (-1); the outermost start holds the conversion memo (see LOAD_HOLD)
+fn load_hold(d: i64) {
+    if d > 0 && PYD_UNPICKLING.with(|c| c.get()) == 0 {
+        LOAD_HOLD.with(|h| h.set(h.get() + 1));
+        FROM_MEMO.with(|m| m.borrow_mut().0 += 1);
+    }
+}
+// After a library call's result is made: let go of the holds its loads took (`from`: how many there were before
+// it), checking the objects met (see LOAD_HOLD) once none is left
+unsafe fn load_release(from: i64) -> Result<(), E> {
+    let a = pyd_api();
+    let mut n = 0;
+    while LOAD_HOLD.with(|h| h.get()) > from {
+        LOAD_HOLD.with(|h| h.set(h.get() - 1));
+        n += 1;
+    }
+    if n == 0 {
+        return Ok(());
+    }
+    let mut changed = false;
+    if LOAD_HOLD.with(|h| h.get()) == 0 {
+        let snaps = LOAD_SNAP.with(|s| std::mem::take(&mut *s.borrow_mut()));
+        // the memo still holds each object, so its address is still that object's
+        changed = snaps.iter().any(|(p, f)| load_fp(*p as P).as_ref() != Some(f));
+    }
+    let held = FROM_MEMO.with(|m| {
+        let mut m = m.borrow_mut();
+        m.0 -= n;
+        if m.0 == 0 { m.1.drain().map(|(_, e)| e.0).collect::<Vec<_>>() } else { vec![] }
+    });
+    held.into_iter().for_each(|q| (a.DecRef)(q));
+    if changed {
+        refuse_stop("loading a pickle whose object of the program is made from a list, dict or set the load adds to after it is made");
+    }
+    Ok(())
 }
 
 unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
@@ -982,6 +1292,27 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
         (a.DecRef)(p);
         Ok(v)
     };
+    // a stand-in class (see _BrInst): the program's class; one of its instances: the program's object
+    let brot = pyd_ptr(&PYD_BROT);
+    if !brot.is_null() {
+        if t == brot {
+            let b = pyd_own((a.GetAttr)(p, c"_b".as_ptr()));
+            let v = b.map(|b| {
+                let v = pyd_callable_v(b);
+                (a.DecRef)(b);
+                v
+            });
+            (a.DecRef)(p);
+            return v?.ok_or_else(|| unsupported_stop("a stand-in class whose class of the program is gone"));
+        }
+        let tt = (a.Type)(t);
+        (a.DecRef)(tt);
+        if tt == brot {
+            let r = pyd_stinst(p, t, deep);
+            (a.DecRef)(p);
+            return r;
+        }
+    }
     if t == a.TBool {
         let b = (a.IsTrue)(p) == 1;
         return done(V::Bool(b));
@@ -993,6 +1324,9 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
     if tt == t {
         if let Some(c) = pyd_builtin_exc(p).or_else(|| pyd_types_class(p)) {
             return done(V::Class(c));
+        }
+        if let Some(v) = pyd_builtin_fn_back(p) {
+            return done(v);
         }
     }
     if t == a.TLong {
@@ -1208,7 +1542,7 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
         (a.DecRef)(p);
         return r;
     }
-    if t == PYD_BRIT.load(std::sync::atomic::Ordering::Relaxed) || t == PYD_BRRED.load(std::sync::atomic::Ordering::Relaxed) || t == pyd_ptr(&PYD_BRFN) || t == pyd_ptr(&PYD_BRMETH) {
+    if t == PYD_BRIT.load(std::sync::atomic::Ordering::Relaxed) || t == PYD_BRRED.load(std::sync::atomic::Ordering::Relaxed) || t == pyd_ptr(&PYD_BROPQ) || t == pyd_ptr(&PYD_BRFN) || t == pyd_ptr(&PYD_BRMETH) {
         // an iterator of the program that went into Python (a library returned it, or types.coroutine)
         let b = (a.GetAttr)(p, c"b".as_ptr());
         if !b.is_null() {
@@ -1235,10 +1569,19 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
         (a.DecRef)(p);
         return r;
     }
+    if p == pyd_ptr(&PYD_PKGA) && !p.is_null() {
+        if let Some(v) = builtin_value("getattr") {
+            return done(v);
+        }
+    }
     if t == a.TCFunction {
         if let Some(v) = pyd_callable_v(p) {
             (a.DecRef)(p);
             return Ok(v);
+        }
+        // CPython's own builtin function (pickle.loads found builtins.getattr): the program's, so `is` holds
+        if let Some(v) = pyd_builtin_fn_back(p) {
+            return done(v);
         }
     }
     if deep {
@@ -1320,10 +1663,10 @@ unsafe fn pyd_brnew(p: P) -> R {
     let cls = pyd_callable_v(c);
     (a.DecRef)(c);
     let Some(cls @ V::Class(_)) = cls else {
-        return Err(unsupported("loading a pickled deque subclass or partial that is not a class of the program"));
+        return Err(unsupported_stop("loading a pickled deque subclass or partial that is not a class of the program"));
     };
     let V::Tuple(args) = pyd_wrap(part(c"a")?, true)? else {
-        return Err(unsupported("loading a pickled deque subclass without its arguments"));
+        return Err(unsupported_stop("loading a pickled deque subclass without its arguments"));
     };
     let o = call(&cls, Args::p(args.to_vec()))?;
     from_memo_put(p, &o);
@@ -1552,8 +1895,20 @@ unsafe fn pyd_register(a: &ax_pyffi::Api) -> bool {
         (c"_progmod", func(sym("_progmod"), pickle_progmod)),
         (c"_ispt", func(sym("_ispt"), |a: Args| Ok(V::Bool(matches!(a.p.first(), Some(V::Class(c)) if c.is_sub(&partial_class())))))),
         (c"_missing", func(sym("_missing"), pickle_missing_fn)),
+        // a refusal on the pickle path: the program stops (refuse_stop), as no `except` may turn it into an answer
+        (c"_stop", func(sym("_stop"), |a: Args| match a.p.first() {
+            Some(V::Str(w)) => refuse_stop(w.text()),
+            _ => refuse_stop("this pickle operation"),
+        })),
         (c"setstate", setstate),
         (c"_rebuild_obj", func(sym("_rebuild_obj"), pickle_rebuild)),
+        // find_class of the program's Unpickler: the stand-in class for a class of the program pickle rebuilds
+        // with object's or set's rules, anything else as it is
+        (c"_stand", func(sym("_stand"), |a: Args| match a.p.first() {
+            Some(V::Class(c)) if pk_cat(c).is_some() => unsafe { Ok(pyv(pyd_stand(c)?, false)) },
+            Some(x) => Ok(x.clone()),
+            None => Ok(V::None),
+        })),
         (c"_fget", func(sym("_fget"), brfn_get)),
         (c"_fcode", func(sym("_fcode"), brfn_code)),
         (c"_fset", func(sym("_fset"), |a: Args| {
@@ -1573,13 +1928,42 @@ unsafe fn pyd_register(a: &ax_pyffi::Api) -> bool {
                 Some(V::Int(d)) => *d,
                 _ => 0,
             };
+            load_hold(d);
             PYD_UNPICKLING.with(|c| c.set(c.get() + d));
             Ok(V::None)
+        })),
+        // whether pickle making an instance of a stand-in class this way (REDUCE: 'call', NEWOBJ: 'new' with `n`
+        // arguments, _reconstructor on int or tuple: 'recon') makes the program's object at once (_BrOT)
+        (c"_steager", func(sym("_steager"), |a: Args| {
+            let (Some(V::Class(c)), Some(V::Str(kind))) = (a.p.first(), a.p.get(1)) else { return Ok(V::Bool(false)) };
+            let n = matches!(a.p.get(2), Some(V::Int(n)) if *n > 0);
+            Ok(V::Bool(st_eager(c, kind.text(), n)))
+        })),
+        (c"_stnow", func(sym("_stnow"), stand_now)),
+        (c"_stset", func(sym("_stset"), |a: Args| {
+            let (Some(o), Some(packed)) = (a.p.first(), a.p.get(1)) else { return Err(unsupported_stop("a BUILD of a stand-in object without its state")) };
+            let state = unsafe { unpack_held(packed)? }.into_iter().next().unwrap_or(V::None);
+            PYD_BUSER.with(|u| u.set(PYD_BSEQ.with(|s| s.get())));
+            pk_setstate(o, state, true)?;
+            Ok(V::None)
+        })),
+        // a BUILD of a stand-in object of the program's class: its number in CPython's order
+        (c"_bseq", func(sym("_bseq"), |a: Args| {
+            let Some(V::Class(c)) = a.p.first() else { return Err(unsupported_stop("a BUILD of a stand-in object whose class of the program is gone")) };
+            let n = PYD_BSEQ.with(|s| {
+                s.set(s.get() + 1);
+                s.get()
+            });
+            PYD_BPEND.with(|m| m.borrow_mut().insert(n, c.clone()));
+            Ok(V::Int(n))
         })),
     ];
     for (n, f) in fns {
         if !ok {
             break;
+        }
+        if let (V::Func(r), Ok(mut g)) = (&f, PYD_GLUE.lock()) {
+            g.push(Rc::as_ptr(r) as usize);
         }
         match pyd_callable_in(a, &f) {
             Ok(p) => {
@@ -1590,7 +1974,7 @@ unsafe fn pyd_register(a: &ax_pyffi::Api) -> bool {
         }
     }
     // kept for the program's life (the references are never given back)
-    for (n, at) in [(c"deq_t", &PYD_DEQ), (c"deqit_t", &PYD_DEQIT), (c"brnew_t", &PYD_BRNEW), (c"_mkobj", &PYD_MKOBJ), (c"dd_t", &PYD_DDICT), (c"ctr_t", &PYD_CTR), (c"fn_t", &PYD_BRFN), (c"meth_t", &PYD_BRMETH), (c"mkfn", &PYD_MKFN), (c"mkmeth", &PYD_MKMETH)] {
+    for (n, at) in [(c"deq_t", &PYD_DEQ), (c"deqit_t", &PYD_DEQIT), (c"brnew_t", &PYD_BRNEW), (c"_mkobj", &PYD_MKOBJ), (c"dd_t", &PYD_DDICT), (c"ctr_t", &PYD_CTR), (c"fn_t", &PYD_BRFN), (c"meth_t", &PYD_BRMETH), (c"mkfn", &PYD_MKFN), (c"mkmeth", &PYD_MKMETH), (c"brot", &PYD_BROT), (c"pk_getattr", &PYD_PKGA)] {
         if !ok {
             break;
         }
@@ -1646,17 +2030,19 @@ fn pickle_ref(a: Args) -> R {
         // a module's function (operator.pow): by reference to that module, as CPython pickles its own
         V::Func(f) if matches!(f.attrs.borrow().iter().find(|(k, _)| *k == "__bv_mod__"), Some((_, V::Str(_)))) => {
             let m = f.attrs.borrow().iter().find(|(k, _)| *k == "__bv_mod__").map(|(_, x)| x.clone()).unwrap_or(V::None);
-            let V::Str(m) = m else { return Err(unsupported("pickling a builtin function")) };
+            let V::Str(m) = m else { return Err(unsupported_stop("pickling a builtin function")) };
             let n = f.name.get();
             return match modfn_cached(m.text(), n) {
                 // (4, ...): pickled under the module and qualname CPython's own function has (operator.add is
                 // _operator.add)
                 Some(found) if is(&found, &v) => Ok(tup(vec![V::Int(4), st(m.text().to_string()), s(n)])),
-                _ => Err(unsupported("pickling a builtin function")),
+                _ => Err(unsupported_stop("pickling a builtin function")),
             };
         }
-        V::Func(_) => return Err(unsupported("pickling a builtin function")),
-        V::Bound(_) | V::BMeth(_) => return Err(unsupported("pickling a bound method")),
+        // a builtin function (getattr), which pickle met as CPython's own (pyd_to): pickled as CPython pickles it
+        V::Func(f) if pickle_lookup("builtins", f.name.get()).is_ok_and(|k| is(&k, &v)) && unsafe { pyd_builtin_fn(f.name.get()) } => return Ok(V::None),
+        V::Func(_) => return Err(unsupported_stop("pickling a builtin function")),
+        V::Bound(_) | V::BMeth(_) => return Err(unsupported_stop("pickling a bound method")),
         _ => return Ok(V::None),
     }
     let text = |x: R| -> Result<Option<String>, E> {
@@ -1786,6 +2172,11 @@ unsafe extern "C" fn pyd_tramp(me: P, args: P, kw: P) -> P {
         return std::ptr::null_mut();
     }
     let f = (*f).clone();
+    // code of the program running inside pickle.load: a BUILD numbered before now that runs code of the program
+    // too would run after this one here, but before it in CPython (see pyd_stinst)
+    if PYD_UNPICKLING.with(|c| c.get()) > 0 && !pyd_is_glue(&f) {
+        PYD_BUSER.with(|u| u.set(PYD_BSEQ.with(|s| s.get())));
+    }
     // CPython's frames are under this call: the program's threads may not switch stacks until it returns
     GT_CB.with(|c| c.set(c.get() + 1));
     struct CbGuard;
@@ -1860,6 +2251,55 @@ unsafe fn pyd_raise(e: &E) {
 fn pyd_builtin_class_named(n: &str) -> Option<Rc<Class>> {
     let c = BUILTIN_CLASSES.with(|b| b.borrow().get(n).cloned())?;
     (c.module == "builtins").then_some(c)
+}
+// The program's own value for CPython's builtins.<name> when p is that very object: a builtin function (pickle
+// found builtins.getattr), or property, staticmethod or classmethod (`@builtins.property` in a class body), which
+// the program's classes must see as their own
+unsafe fn pyd_builtin_fn_back(p: P) -> Option<V> {
+    let a = pyd_api();
+    let n = match pyd_own((a.GetAttr)(p, c"__name__".as_ptr())) {
+        Ok(n) => n,
+        Err(_) => {
+            (a.ErrClear)();
+            return None;
+        }
+    };
+    let name = pyd_text(n);
+    (a.DecRef)(n);
+    let name = name.ok()?;
+    let same = match pyd_builtins_attr(&name) {
+        Ok(q) => {
+            (a.DecRef)(q);
+            q == p
+        }
+        Err(_) => {
+            (a.ErrClear)();
+            false
+        }
+    };
+    if !same {
+        return None;
+    }
+    match builtin_value(&name) {
+        Some(v @ V::Func(_)) if builtin_fn(&name).is_some() => Some(v),
+        Some(v) if matches!(name.as_str(), "property" | "staticmethod" | "classmethod") => Some(v),
+        _ => None,
+    }
+}
+// CPython's builtins has a builtin function (not a class) named n
+unsafe fn pyd_builtin_fn(n: &str) -> bool {
+    let a = pyd_api();
+    match pyd_builtins_attr(n) {
+        Ok(q) => {
+            let r = pyd_type_is(q, a.TCFunction);
+            (a.DecRef)(q);
+            r
+        }
+        Err(_) => {
+            (a.ErrClear)();
+            false
+        }
+    }
 }
 // Whether CPython's builtins module has a class named `n` (and not some other value).
 unsafe fn pyd_has_builtin(n: &str) -> bool {
@@ -2049,6 +2489,8 @@ fn memo_key(v: &V) -> Option<usize> {
         V::Obj(o) if is_enum(&o.cls) && o.get("_value_").is_some() => Some(Rc::as_ptr(o) as *const u8 as usize),
         // a functools.partial: one Python callable per library call, so pickle memoizes `[p, p]` as CPython does
         V::Obj(o) if is_partial_v(v) => Some(Rc::as_ptr(o) as *const u8 as usize),
+        // an object of the program pickle reduces (see pyd_obj_red): one stand-in per pickle call, memoized alike
+        V::Obj(o) if pk_cat(&o.cls).is_some() => Some(Rc::as_ptr(o) as *const u8 as usize),
         // a tee link: one Python object per pickle, so tees that share it share it again when loaded
         V::Ext(_) => teedata_of(v).map(|l| Rc::as_ptr(&l) as *const u8 as usize),
         _ => None,
@@ -2089,6 +2531,24 @@ unsafe fn to_memo_exit() {
         if m.0 == 0 { m.1.drain().map(|(_, e)| e).collect::<Vec<_>>() } else { vec![] }
     });
     held.into_iter().for_each(|(p, _)| (pyd_api().DecRef)(p)); // the program's values drop here, after
+}
+
+// Whether the Python callable pyd_invoke is building arguments for is a unittest.mock object (see _BrOpq)
+unsafe fn pyd_callee_mock() -> bool {
+    let a = pyd_api();
+    let f = PYD_CALLEE.with(|c| c.get()) as P;
+    if f.is_null() {
+        return false;
+    }
+    let r = pyd_mod_call("_brevi_dyn", "ismock", &[f]);
+    match r {
+        Ok(r) => {
+            let yes = (a.IsTrue)(r) == 1;
+            (a.DecRef)(r);
+            yes
+        }
+        Err(_) => false,
+    }
 }
 
 unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
@@ -2415,11 +2875,32 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
         }
         // a builtin exception class: CPython's own, so a library's isinstance and except clauses see the very class
         V::Class(c) if c.module == "builtins" && (c.bt == BT::Exc || c.is_sub(&exc_class("BaseException"))) => pyd_builtins_attr(c.name)?,
+        // the program's class for a Python exception class (type(e) of a PicklingError pickle raised): that class
+        V::Class(c) if pyd_exc_pytype(c).is_some() => {
+            let t = pyd_exc_pytype(c).unwrap();
+            (a.IncRef)(t);
+            t
+        }
         // any other builtin class (int, list, map) going into pickle: CPython's own, which pickle saves as
         // builtins.int, as CPython does. It comes back as the program's class (pyd_builtin_exc). Elsewhere it
         // stays a callable of the program: an Unpickler calls the map class it found as the program's map.
         V::Class(c) if c.module == "builtins" && PYD_PICKLING.with(|x| x.get()) && pickle_lookup("builtins", c.name).is_ok_and(|k| is(&k, v)) && pyd_has_builtin(c.name) => pyd_builtins_attr(c.name)?,
-        V::Obj(o) if o.cls.lookup("__bv_namedtuple__").is_some() => pyd_namedtuple(v)?,
+        // a builtin function (getattr) going into pickle: CPython's own, which pickle saves as builtins.getattr; the
+        // program's Unpickler finds the program's again (pickle_lookup)
+        V::Func(f) if f.kind.get() == 3 && PYD_PICKLING.with(|x| x.get()) && pickle_lookup("builtins", f.name.get()).is_ok_and(|k| is(&k, v)) && pyd_builtin_fn(f.name.get()) => pyd_builtins_attr(f.name.get())?,
+        // (an Enum member with a namedtuple mixin going into or out of pickle reduces as a member, below)
+        // (a namedtuple of the program going into pickle reduces as the program's object, below)
+        V::Obj(o) if o.cls.lookup("__bv_namedtuple__").is_some() && !((PYD_PICKLING.with(|c| c.get()) || PYD_UNPICKLING.with(|c| c.get()) > 0) && is_enum(&o.cls) && o.get("_value_").is_some()) && !(PYD_PICKLING.with(|c| c.get()) && pk_cat(&o.cls).is_some()) => pyd_namedtuple(v)?,
+        // a class of the program going into pickle.dumps or pickle.dump, when it is one pickle rebuilds instances
+        // of with object's or set's rules: its stand-in class (one for the program's life), which pickles by
+        // reference as the class does, and which the instances' reductions name
+        V::Class(c) if PYD_PICKLING.with(|x| x.get()) && pk_cat(c).is_some() => {
+            let p = pyd_stand(c)?;
+            to_memo_put(v, p);
+            p
+        }
+        // an instance of such a class: an instance of the stand-in class that reduces as CPython reduces it
+        V::Obj(o) if PYD_PICKLING.with(|x| x.get()) && pk_cat(&o.cls).is_some() => pyd_obj_red(v, &o.cls)?,
         V::Deque(_) | V::Obj(_) if PYD_PICKLING.with(|c| c.get()) && (matches!(v, V::Deque(_)) || matches!(inner_of(v), Some(V::Deque(_)))) => pyd_deque_red(v)?,
         // an Enum member going into pickle.dumps or pickle.dump, or coming back from a program class while the
         // program's Unpickler loads: a _BrRed that pickles as the member's __reduce_ex__ says, and that comes back
@@ -2466,6 +2947,17 @@ unsafe fn pyd_to_new(v: &V) -> Result<P, E> {
             p
         }
         V::Obj(o) if o.cls.lookup("__call__").is_some() => pyd_callable(v)?,
+        _ if pyd_callee_mock() => {
+            let b = pyd_callable(v)?;
+            let o = pyd_mod_call("_brevi_dyn", "opq", &[b]);
+            (a.DecRef)(b);
+            let o = o?;
+            to_memo_put(v, o);
+            let t = (a.Type)(o);
+            (a.DecRef)(t);
+            PYD_BROPQ.store(t, std::sync::atomic::Ordering::Relaxed);
+            o
+        }
         _ => return type_err(format!("brevi: a '{}' object cannot be passed to a Python library in a dynamic build", tn(v))),
     })
 }
@@ -2542,6 +3034,263 @@ fn brfn_code(a: Args) -> R {
     }
 }
 
+// The stand-in Python class for the program's class `c` (a new reference): made once, by _brevi_dyn._mkst, with
+// c's name, qualname and module and the program's class itself (`_b`).
+unsafe fn pyd_stand(c: &Rc<Class>) -> Result<P, E> {
+    let a = pyd_api();
+    if let Some(p) = PYD_STAND.with(|s| s.borrow().iter().find(|(k, _)| Rc::ptr_eq(k, c)).map(|e| e.1)) {
+        (a.IncRef)(p as P);
+        return Ok(p as P);
+    }
+    let b = pyd_callable(&V::Class(c.clone()))?;
+    let parts = [pyd_str_obj(c.name), pyd_str_obj(c.qualname.get()), pyd_str_obj(c.module), b];
+    let t = pyd_mod_call("_brevi_dyn", "mkst", &parts);
+    parts.iter().for_each(|x| (a.DecRef)(*x));
+    let t = t?;
+    if pyd_ptr(&PYD_BROT).is_null() {
+        let m = (a.Type)(t);
+        PYD_BROT.store(m, std::sync::atomic::Ordering::Relaxed);
+    }
+    (a.IncRef)(t);
+    PYD_STAND.with(|s| s.borrow_mut().push((c.clone(), t as usize)));
+    Ok(t)
+}
+
+// An instance of a class of the program going into pickle.dumps or pickle.dump: an instance of its stand-in class
+// whose __reduce_ex__(proto) gives rt_pickobj's pk_reduce, computed when pickle asks (so a __getstate__ of the
+// program runs where CPython runs it), and that comes back out of Python as the object itself.
+unsafe fn pyd_obj_red(v: &V, c: &Rc<Class>) -> Result<P, E> {
+    let a = pyd_api();
+    let me = v.clone();
+    let red = func(sym("__reduce_ex__"), move |a: Args| {
+        let proto = match a.p.first() {
+            Some(V::Int(i)) => *i,
+            _ => 0,
+        };
+        let (how, c, rest, state) = pk_reduce(&me, proto)?;
+        let (tag, rest) = match how {
+            PkHow::NewObj => (0, tup(rest)),
+            PkHow::Recon => (1, tup(rest)),
+            PkHow::Call => (2, tup(rest)),
+            PkHow::NewObjEx(kw) => {
+                let mut d = Dict::new();
+                for (k, x) in kw {
+                    d.set(k, x)?;
+                }
+                (3, tup(vec![tup(rest), V::Dict(Rc::new(RefCell::new(d)))]))
+            }
+            // the class's own reduce value, saved as it is
+            PkHow::Raw(rv) => return Ok(tup(vec![V::Int(4), rv, tup(vec![]), V::None])),
+        };
+        Ok(tup(vec![V::Int(tag), V::Class(c), rest, state]))
+    });
+    let t = pyd_stand(c)?;
+    let r = match pyd_callable(&red) {
+        Ok(r) => r,
+        Err(e) => {
+            (a.DecRef)(t);
+            return Err(e);
+        }
+    };
+    let b = match pyd_callable(v) {
+        Ok(b) => b,
+        Err(e) => {
+            (a.DecRef)(t);
+            (a.DecRef)(r);
+            return Err(e);
+        }
+    };
+    let ps = [t, r, b];
+    let o = pyd_mod_call("_brevi_dyn", "mkinst", &ps);
+    ps.iter().for_each(|x| (a.DecRef)(*x));
+    let o = o?;
+    to_memo_put(v, o);
+    Ok(o)
+}
+
+// The items of a Python list the program's Unpickler passed (as a list, so it comes as the Python object), each
+// made into the program's value with the load's held memo (see LOAD_HOLD)
+unsafe fn unpack_held(v: &V) -> Result<Vec<V>, E> {
+    let a = pyd_api();
+    let Some(pv) = pyv_of(v) else { return Err(unsupported_stop("a stand-in step without its Python values")) };
+    let t = (a.Type)(pv.p);
+    (a.DecRef)(t);
+    if LOAD_HOLD.with(|h| h.get()) == 0 || t != a.TList {
+        return Err(unsupported_stop("a stand-in step outside the program's pickle.load"));
+    }
+    let mut out = vec![];
+    for i in 0..(a.ListSize)(pv.p) {
+        let x = (a.ListGet)(pv.p, i);
+        (a.IncRef)(x);
+        out.push(pyd_wrap(x, true)?);
+    }
+    Ok(out)
+}
+// Whether pickle making an instance of the program's class `c` as `kind` says (see _steager) runs the program at
+// once: when making it runs code of the program (its own __new__, its own __init__ on a call, __new__ given
+// arguments) or needs the int or tuple it holds. Other instances are made once the load has finished (pyd_stinst).
+fn st_eager(c: &Rc<Class>, kind: &str, args: bool) -> bool {
+    let Some(cat) = pk_cat(c) else { return false };
+    let base = matches!(cat, BT::Int | BT::Tuple);
+    match kind {
+        "recon" => base,
+        "new" => base || (args && cat == BT::Object) || pk_own(c, "__new__").is_some(),
+        "call" => base || pk_own(c, "__new__").is_some() || pk_own(c, "__init__").is_some(),
+        _ => false,
+    }
+}
+// _brevi_dyn._stnow(cls, kind, args, kwargs): the program's instance of stand-in class `cls`, made now as pickle
+// asks (REDUCE: cls(*args, **kwargs); NEWOBJ: cls.__new__(cls, *args, **kwargs); _reconstructor: int.__new__(cls,
+// state) or tuple's), as a stand-in instance holding it. Code of the program runs inside the load here, as in
+// CPython, so a BUILD numbered before now that runs code may not run after the load (see pyd_stinst).
+fn stand_now(a: Args) -> R {
+    let (Some(V::Class(c)), Some(V::Str(kind)), Some(packed)) = (a.p.first(), a.p.get(1), a.p.get(2)) else { return Err(unsupported_stop("making a stand-in object without its class")) };
+    // [args, kwargs], made with the load's memo (see LOAD_HOLD)
+    let parts = unsafe { unpack_held(packed)? };
+    let args = match parts.first() {
+        Some(x) => to_vec(x)?,
+        None => vec![],
+    };
+    let mut kw = vec![];
+    if let Some(V::Dict(d)) = parts.get(1) {
+        for (n, x) in d.borrow().items() {
+            let V::Str(n) = n else { return Err(unsupported_stop("a pickled keyword that is not a str")) };
+            kw.push((sym(n.text()), x));
+        }
+    }
+    if !st_eager(c, kind.text(), !args.is_empty() || !kw.is_empty()) {
+        return Err(unsupported_stop("making a stand-in object of the program at once"));
+    }
+    PYD_BUSER.with(|u| u.set(PYD_BSEQ.with(|s| s.get())));
+    let cls = V::Class(c.clone());
+    let o = match kind.text() {
+        "call" => call(&cls, Args { p: args, k: kw })?,
+        "new" => {
+            let new = getattr(&cls, "__new__")?;
+            let mut p = vec![cls];
+            p.extend(args);
+            call(&new, Args { p, k: kw })?
+        }
+        "recon" => {
+            // copyreg._reconstructor(cls, base, state): base.__new__(cls, state) (int's and tuple's __init__ are object's)
+            let base = match pk_cat(c) {
+                Some(BT::Int) => bclass("int"),
+                Some(BT::Tuple) => bclass("tuple"),
+                _ => return Err(unsupported_stop("rebuilding an instance of a class of the program on this base")),
+            };
+            match args.first() {
+                Some(V::Class(b)) if Rc::ptr_eq(b, &base) => {}
+                _ => return Err(unsupported_stop("rebuilding an instance of a class of the program on another base than its own")),
+            }
+            let new = getattr(&V::Class(base), "__new__")?;
+            call(&new, Args::p(vec![cls, args.get(1).cloned().unwrap_or(V::None)]))?
+        }
+        _ => return Err(unsupported_stop("making a stand-in object this way")),
+    };
+    match &o {
+        V::Obj(ob) if pk_cat(&ob.cls).is_some() => {
+            let k = ob.cls.clone();
+            unsafe { Ok(pyv(pyd_obj_red(&o, &k)?, false)) }
+        }
+        _ => Ok(o),
+    }
+}
+
+// An instance of a stand-in class `t` coming out of Python: the program's object it stands for, or, made by the
+// program's Unpickler, the program's object made as pickle asked (copyreg._reconstructor: object.__new__(cls);
+// NEWOBJ: cls.__new__(cls); REDUCE: cls(*args)), then given each BUILD's state (rt_pickobj's pk_setstate). It is
+// made only once the load has finished and the whole result comes back, so code of the program that would run
+// while making it (its own __new__ or __init__) is refused: CPython would run it in the middle of the load. A
+// BUILD that runs code of the program (rt_pickobj's pk_build_runs_code: its own __setstate__, ...) runs here, after
+// the load, only when CPython's order would show no difference: every BUILD numbered before it (_bseq) has been
+// given already, and no code of the program ran inside the load after it was numbered (pyd_tramp). Otherwise,
+// and when such a BUILD never reaches the result (pyd_build_left), the program stops: a refusal a try statement
+// could catch would change what the program prints.
+unsafe fn pyd_stinst(p: P, t: P, deep: bool) -> R {
+    let a = pyd_api();
+    let b = (a.GetAttr)(p, c"_bv".as_ptr());
+    if !b.is_null() {
+        let v = pyd_callable_v(b);
+        (a.DecRef)(b);
+        return v.ok_or_else(|| unsupported_stop("a stand-in object whose object of the program is gone"));
+    }
+    (a.ErrClear)();
+    // met inside the load (an object of the program made at once holds it, or the load passes it to the program):
+    // made now from what pickle did to it so far, and from then on given each BUILD at once (_bv, see _BrInst)
+    let during = PYD_UNPICKLING.with(|c| c.get()) > 0;
+    if !deep && !during {
+        return Err(unsupported_stop("the program seeing one of its objects that pickle.load has not finished making"));
+    }
+    let k = pyd_own((a.GetAttr)(t, c"_b".as_ptr()))?;
+    let cls = pyd_callable_v(k);
+    (a.DecRef)(k);
+    let Some(V::Class(cls)) = cls else { return Err(unsupported_stop("a stand-in object whose class of the program is gone")) };
+    let Some(cat) = pk_cat(&cls) else { return Err(unsupported_stop("loading a pickle of this class of the program")) };
+    let parts = pyd_mod_call("_brevi_dyn", "stparts", &[p])?;
+    let r = (|| -> R {
+        let item = |i: isize| -> R {
+            let x = (a.TupleGet)(parts, i);
+            (a.IncRef)(x);
+            pyd_wrap(x, true)
+        };
+        let kind = to_str(&item(0)?)?;
+        let args = to_vec(&item(1)?)?;
+        let kw = match item(2)? {
+            V::Dict(d) => d.borrow().items(),
+            _ => vec![],
+        };
+        let own = |n: &str| pk_own(&cls, n).is_some();
+        let o = match kind.as_str() {
+            "obj" if cat == BT::Object => V::Obj(Obj::new(cls.clone())),
+            "new" if cat == BT::Object && args.is_empty() && kw.is_empty() && !own("__new__") => V::Obj(Obj::new(cls.clone())),
+            "call" if !own("__new__") && !own("__init__") => {
+                let mut k = vec![];
+                for (n, x) in kw {
+                    let V::Str(n) = n else { return Err(unsupported_stop("a pickled keyword that is not a str")) };
+                    k.push((sym(n.text()), x));
+                }
+                call(&V::Class(cls.clone()), Args { p: args, k })?
+            }
+            _ => return Err(unsupported_stop(&format!("loading a pickle that makes an instance of {} this way", cls.name))),
+        };
+        from_memo_put(p, &o);
+        let states = (a.TupleGet)(parts, 3);
+        let code = pk_build_runs_code(&cls);
+        for i in 0..(a.TupleSize)(states) {
+            let x = (a.TupleGet)(states, i);
+            (a.IncRef)(x);
+            // (BUILD number, state)
+            let (n, state) = match pyd_wrap(x, true)? {
+                V::Tuple(t) if t.len() == 2 => match &t[0] {
+                    V::Int(n) => (*n, t[1].clone()),
+                    _ => return Err(unsupported_stop("a BUILD of a stand-in object without its number")),
+                },
+                _ => return Err(unsupported_stop("a BUILD of a stand-in object without its number")),
+            };
+            if code {
+                let first = PYD_BPEND.with(|m| m.borrow().keys().next().copied());
+                if first != Some(n) || PYD_BUSER.with(|u| u.get()) >= n {
+                    refuse_stop(&format!("loading a pickle whose instances of {} would be given their state, which runs code of the program, in another order than CPython's", cls.name));
+                }
+            }
+            PYD_BPEND.with(|m| m.borrow_mut().remove(&n));
+            pk_setstate(&o, state, true)?;
+        }
+        if during {
+            let b = pyd_callable(&o)?;
+            let r = (a.SetAttr)(p, c"_bv".as_ptr(), b);
+            (a.DecRef)(b);
+            if r != 0 {
+                (a.ErrClear)();
+                return Err(unsupported_stop("making an object of the program inside pickle.load"));
+            }
+        }
+        Ok(o)
+    })();
+    (a.DecRef)(parts);
+    r
+}
+
 // A deque of the program, or an instance of a subclass of deque, going into pickle.dumps or pickle.dump (only
 // those: see PYD_PDUMPS): a _BrRed whose __reduce__ gives CPython's deque.__reduce__ value when pickle asks for
 // it, so the iterator in it walks the program's deque as pickle saves the items.
@@ -2616,7 +3365,7 @@ fn deque_reduce_py(v: &V) -> R {
         let held = (a.IsTrue)(o) == 1;
         (a.DecRef)(o);
         if held {
-            return Err(unsupported("pickling a deque while copyreg holds a reducer for a class or function of the program"));
+            return Err(unsupported_stop("pickling a deque while copyreg holds a reducer for a class or function of the program"));
         }
     }
     let (cls, max, state, it) = deque_pickle_parts(v)?;
@@ -2847,7 +3596,10 @@ unsafe fn pyd_invoke(f: P, pre: &[V], args: &Args, deep: bool) -> R {
     let dump = !f.is_null() && (f == pyd_ptr(&PYD_PDUMPS) || f == pyd_ptr(&PYD_PDUMP));
     let was = PYD_PICKLING.with(|c| c.replace(dump));
     let was_unp = PYD_UNPICKLING.with(|c| c.replace(0));
+    let hold = LOAD_HOLD.with(|h| h.get());
+    let callee = PYD_CALLEE.with(|c| c.replace(f as usize));
     let pa = pyd_args(f, pre, args);
+    PYD_CALLEE.with(|c| c.set(callee));
     let r = match &pa {
         Ok(pa) => (a.Call)(f, pa.t, pa.kw),
         Err(_) => std::ptr::null_mut(),
@@ -2858,15 +3610,44 @@ unsafe fn pyd_invoke(f: P, pre: &[V], args: &Args, deep: bool) -> R {
     let pa = pa?;
     if r.is_null() {
         let e = pyd_err();
+        load_release(hold)?;
+        pyd_build_left(true)?;
         pyd_ba_sync(&pa)?;
         return Err(e);
     }
     if let Err(e) = pyd_ba_sync(&pa) {
         (a.DecRef)(r);
+        load_release(hold)?;
         return Err(e);
     }
-    pyd_write_back(&pa)?;
-    pyd_wrap(r, deep)
+    if let Err(e) = pyd_write_back(&pa) {
+        (a.DecRef)(r);
+        load_release(hold)?;
+        return Err(e);
+    }
+    PYD_BCONV.with(|c| c.set(c.get() + 1));
+    let v = pyd_wrap(r, deep);
+    PYD_BCONV.with(|c| c.set(c.get() - 1));
+    load_release(hold)?;
+    pyd_build_left(v.is_ok())?;
+    v
+}
+
+// Once the outermost pickle.load is over and its result made: BUILDs of stand-in objects never given to a program
+// object (an object the result does not reach, or a load that failed after them). CPython ran each when it read
+// it: refused when that ran code of the program (`check`), else dropped. When making the result failed, each one
+// left comes after the failing one, which CPython never ran either.
+fn pyd_build_left(check: bool) -> Result<(), E> {
+    if PYD_UNPICKLING.with(|c| c.get()) > 0 || PYD_BCONV.with(|c| c.get()) > 0 {
+        return Ok(());
+    }
+    let left = PYD_BPEND.with(|m| std::mem::take(&mut *m.borrow_mut()));
+    if check {
+        if let Some(c) = left.values().find(|c| pk_build_runs_code(c)) {
+            refuse_stop(&format!("loading a pickle that gives an instance of {} its state, which runs code of the program, where the result does not reach it or the load fails after it", c.name));
+        }
+    }
+    Ok(())
 }
 
 impl PyV {
@@ -3038,6 +3819,11 @@ impl Ext for PyV {
         self
     }
     fn hash(&self) -> Option<i64> {
+        // a Python exception class the program has a class for hashes as that class (rt_core hash_of), so the
+        // two find one dict slot, as the one object they are in CPython
+        if let Some(c) = PYD_EXC_T.with(|m| m.borrow().iter().find(|(_, t)| **t == self.p as usize).map(|(c, _)| *c)) {
+            return Some((c >> 4) as i64);
+        }
         let _g = PydGil::take();
         let a = pyd_api();
         let h = unsafe { (a.Hash)(self.p) };
@@ -3317,7 +4103,17 @@ impl Ext for PyV {
                     (a.DecRef)(m);
                     pyd_own(r)
                 };
+                // the program's class for a Python exception (type(e)), or a subclass of one: that Python class
+                let exc_t = match sub {
+                    V::Class(k) => k.mro.borrow().iter().find_map(|c| pyd_exc_pytype(c)),
+                    _ => pyv_of(sub).map(|p| p.p),
+                };
                 let sp = match sub {
+                    _ if exc_t.is_some() => {
+                        let t = exc_t.unwrap();
+                        (a.IncRef)(t);
+                        t
+                    }
                     V::Class(k) if k.module == "builtins" => pyd_builtins_attr(k.name)?,
                     V::Class(k) if k.module == "collections" => collections_attr(k.name)?,
                     V::Class(k) => match k.base_bt() {
@@ -3342,6 +4138,52 @@ impl Ext for PyV {
                 if r < 0 { Err(pyd_err()) } else { Ok(r == 1) }
             })()
         })
+    }
+    // issubclass(me, cls): cls a builtin or collections class (its CPython twin), the program's class for a
+    // Python exception (that Python class), or any other class of the program, which no Python class derives from
+    fn subclass_of(&self, cls: &Rc<Class>) -> Option<Result<bool, E>> {
+        let _g = PydGil::take();
+        let a = pyd_api();
+        Some(unsafe {
+            (|| {
+                let kp = if let Some(t) = pyd_exc_pytype(cls) {
+                    (a.IncRef)(t);
+                    t
+                } else if cls.module == "builtins" || cls.module == "collections" {
+                    let m = CString::new(cls.module.to_string()).unwrap();
+                    let mp = pyd_own((a.Import)(m.as_ptr()))?;
+                    let n = CString::new(cls.name.to_string()).unwrap();
+                    let r = (a.GetAttr)(mp, n.as_ptr());
+                    (a.DecRef)(mp);
+                    if r.is_null() {
+                        (a.ErrClear)();
+                        return Err(unsupported_stop(&format!("issubclass() of a Python class and {}", cls.name)));
+                    }
+                    r
+                } else if cls.abc.get() {
+                    return Err(unsupported_stop("issubclass() of a Python class and an ABC of the program"));
+                } else {
+                    // CPython still checks that arg 1 is a class
+                    let ty = pyd_own((a.Import)(c"builtins".as_ptr()))?;
+                    let o = (a.GetAttr)(ty, c"object".as_ptr());
+                    (a.DecRef)(ty);
+                    let o = pyd_own(o)?;
+                    let r = (a.IsSubclass)(self.p, o);
+                    (a.DecRef)(o);
+                    return if r < 0 { Err(pyd_err()) } else { Ok(false) };
+                };
+                let r = (a.IsSubclass)(self.p, kp);
+                (a.DecRef)(kp);
+                if r < 0 { Err(pyd_err()) } else { Ok(r == 1) }
+            })()
+        })
+    }
+    fn is_class(&self, cls: &Class) -> bool {
+        pyd_exc_pytype(cls) == Some(self.p)
+    }
+    fn plain_slot(&self) -> bool {
+        let _g = PydGil::take();
+        matches!(unsafe { pyd_helper("plain_slot", &[self.p]) }, Ok(V::Bool(true)))
     }
     fn native(&self) -> Option<R> {
         let _g = PydGil::take();

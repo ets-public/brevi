@@ -61,6 +61,7 @@ struct GThread {
     // the thread's own context while another thread runs
     coro_now: Vec<*mut Coro>,
     depth: usize,
+    pdepth: usize,
     gen_name: Option<Sym>,
     site: Option<ReSite>,
     exc: Vec<(u64, V)>,
@@ -85,6 +86,7 @@ impl GThread {
             joiners: WaitQ::new(),
             coro_now: Vec::new(),
             depth: 0,
+            pdepth: 0,
             gen_name: None,
             site: None,
             exc: Vec::new(),
@@ -229,6 +231,7 @@ unsafe fn gt_switch(to: usize) -> Result<(), E> {
     }
     (*f).coro_now = CORO_NOW.with(|s| std::mem::take(&mut *s.borrow_mut()));
     (*f).depth = DEPTH.with(|d| d.get());
+    (*f).pdepth = PDEPTH.with(|d| d.get());
     (*f).gen_name = CUR_GEN_NAME.with(|n| n.get());
     (*f).site = re_site_get();
     (*f).exc = EXC_STACK.with(|s| std::mem::take(&mut *s.borrow_mut()));
@@ -238,6 +241,7 @@ unsafe fn gt_switch(to: usize) -> Result<(), E> {
     (*f).dround = DROUND.with(|p| p.get());
     CORO_NOW.with(|s| *s.borrow_mut() = std::mem::take(&mut (*t).coro_now));
     DEPTH.with(|d| d.set((*t).depth));
+    PDEPTH.with(|d| d.set((*t).pdepth));
     CUR_GEN_NAME.with(|n| n.set((*t).gen_name));
     re_site_put((*t).site);
     EXC_STACK.with(|s| *s.borrow_mut() = std::mem::take(&mut (*t).exc));

@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Brevi: compile the Python your AI agent writes</title>
-<meta name="description" content="Brevi is built for AI coding agents: the agent writes ordinary Python, and Brevi builds it through Rust into a fast, memory-safe native binary, checked against CPython's own tests.">
+<title>Brevi: the verified native runtime for agent-written Python</title>
+<meta name="description" content="Brevi is the verified native runtime for agent-written Python: the agent writes ordinary Python, Brevi compiles it through Rust into a native binary, checks each run against CPython, and says in one line of JSON when it cannot.">
 <link rel="alternate" type="text/plain" href="/llms.txt" title="llms.txt">
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -21,38 +21,33 @@ __HEADER__
   <div class="hero-band ink">
     <div class="wrap hero">
       <div>
-        <p class="eyebrow">A compiler for AI coding agents</p>
-        <h1>Run the Python your agent writes as a native binary</h1>
-        <p class="lede">Your agent keeps writing ordinary Python. Brevi compiles it through Rust into a native binary that runs <strong>1.6x to 37.9x faster</strong> than CPython (median 9.3x) on our compute benchmarks, on its typed build. Programs on its dynamic build run at about CPython's speed (median 0.85x).</p>
-        <div class="install" aria-label="Install command"><span class="p">$</span><code>curl -fsSL https://raw.githubusercontent.com/ets-public/brevi/main/install.sh | sh</code><button class="copy" type="button" data-copy>Copy</button></div>
+        <p class="eyebrow">The verified native runtime for agent-written Python</p>
+        <h1>Your agent writes Python. Brevi runs it native, checked against CPython.</h1>
+        <p class="lede">Brevi compiles the plain Python your agent writes into a native binary, and <code>brevi run --verify</code> checks each run against CPython 3.13. Your harness gets a certified native answer, CPython's own answer, or an answer marked unchecked, never an unchecked one passed off as checked, and every refusal is <strong>one line of JSON</strong> the model can act on.</p>
+        <div class="install" aria-label="Install command"><span class="p">$</span><code>uvx --python 3.13 brevi run --verify main.py</code><button class="copy" type="button" data-copy>Copy</button></div>
+        <p class="fine">One command with <a href="https://docs.astral.sh/uv/" rel="noopener">uv</a>: brevi, CPython 3.13 and the pinned Rust, nothing else to install on Linux x86-64 and macOS. Linux ARM64 and Windows need Rust from rustup until the next release. <a href="/docs/install">Other ways to install</a>.</p>
         <div class="actions">
-          <a class="btn primary" href="/docs/install">Get started</a>
+          <a class="btn primary" href="/docs/quickstart">Quickstart for agents</a>
           <a class="btn ghost" href="__GITHUB__" rel="noopener">__GHICON__View on GitHub</a>
           <a class="more" href="/docs/agents">Set up an agent →</a>
         </div>
-        <p class="fine">It aims to print exactly what CPython prints and to refuse what it cannot match; today it matches <strong>97% of the CPython 3.13 tests it scores</strong>, so it is a preview, not a drop-in <code>python3</code>. When Brevi cannot build a file, it says why in one line of JSON.</p>
+        <p class="fine">It aims to print exactly what CPython prints and to refuse what it cannot match; today it matches <strong>97.3% of the scored suite, with 83 string-as-code tests excluded</strong>, of CPython 3.13's own tests, so it is a preview, not a drop-in <code>python3</code>. When Brevi cannot build a file, it says why in one line of JSON.</p>
         <p class="status jl">__STATUS__</p>
       </div>
-      <div class="term" aria-label="Example program and output">
-        <div class="tbar"><span>top.py</span><span>plain Python</span></div>
-<pre><span class="k">import</span> sys
-<span class="k">from</span> collections <span class="k">import</span> Counter
-
-<span class="c"># Three most common words on stdin</span>
-counts = Counter(sys.stdin.read().lower().split())
-<span class="k">for</span> word, n <span class="k">in</span> counts.most_common(3):
-    print(<span class="s">f"{word}: {n}"</span>)</pre>
-        <div class="tbar"><span>$ brevi run top.py &lt; text.txt</span><span>native binary</span></div>
-<pre class="out">the: 3
-and: 2
-cat: 1</pre>
-        <div class="tbar"><span>$ brevi check broken.py</span><span>one line per error</span></div>
-<pre class="out wrapline">{"line":8,"msg":"name 'totl' is not defined","fix":"did you mean total?"}</pre>
+      <div class="term" aria-label="The agent loop: check, fix, verify">
+        <div class="tbar"><span>$ brevi check main.py</span><span>agent's first draft</span></div>
+<pre class="out wrapline">{"line":16,"msg":"name 'totl' is not defined","fix":"did you mean total?"}</pre>
+        <div class="tbar"><span>$ echo 1000 | brevi run --verify main.py</span><span>after fixing line 16</span></div>
+<pre class="out wrapline">168 primes below 1000
+sum 76127
+{"verify":"identical",...,"path":"typed","exit":0,"stdout_same":true,"stderr_same":true,...}</pre>
+        <div class="tbar"><span>$ brevi run --verify clock.py</span><span>cannot be checked: said so</span></div>
+<pre class="out wrapline">{"verify":"refused","why":"reads the clock","msg":"not checked against CPython: ..."}</pre>
       </div>
     </div>
     <div class="wrap">
       <div class="stats">
-        <div class="stat"><span class="num">9.3x</span><span class="lab">Median speed over CPython</span><span class="sub">1.6x to 37.9x on 12 compute benchmarks, typed build; dynamic build median 0.85x</span></div>
+        <div class="stat"><span class="num">9.3x</span><span class="lab">Median speed over CPython</span><span class="sub">1.6x to 37.9x on 12 compute benchmarks, typed build, which only a small share of programs take; dynamic build median 0.85x</span></div>
         <div class="stat"><span class="num">1,043 of 1,072</span><span class="lab">CPython 3.13 tests matched</span><span class="sub">97.3% of the scored suite, with 83 string-as-code tests excluded, in v__VERSION__; none answer differently. <a href="/docs/compatibility#in-numbers">All the numbers</a></span></div>
         <div class="stat"><span class="num">591 of 591</span><span class="lab">Saved agent programs still match</span><span class="sub">A regression check, not a measure of Python coverage</span></div>
         <div class="stat"><span class="num">1 line</span><span class="lab">Per error, as JSON</span><span class="sub">With the line number and, where it can, a fix</span></div>
@@ -63,13 +58,14 @@ cat: 1</pre>
   <section class="band" id="how">
     <div class="wrap">
       <div class="band-head">
-        <h2>Python in, Rust speed out</h2>
-        <p>The model has no new syntax to learn and no guide to load. Brevi replaces <code>python3</code> in the agent's loop.</p>
+        <h2>One loop: write, check, verify, run</h2>
+        <p>The model has no new syntax to learn and no guide to load. Brevi replaces <code>python3</code> in the agent's loop, and adds a check CPython alone cannot give: that the fast answer is the right one. <a href="__GITHUB__/tree/main/examples/agent-loop">Run the whole loop yourself</a>.</p>
       </div>
-      <ol class="steps">
+      <ol class="steps four">
         <li><h3>The agent writes Python</h3><p>Ordinary Python 3, with the standard library or installed packages, in one file or many. No type annotations needed.</p></li>
-        <li><h3>Brevi compiles it</h3><p>It infers the type of every value and writes Rust. Where a type changes at run time, it writes Rust over dynamic values instead. <code>rustc</code> makes the binary.</p></li>
-        <li><h3>Checked against CPython</h3><p>Where Brevi knows it cannot match CPython, it refuses at build time, and <code>brevi run</code> runs the file with python3 instead and says so in one line (<code>--native</code> turns that off). It does not catch every difference yet, so check programs that matter with <code>brevi verify</code>.</p></li>
+        <li><h3>Brevi compiles it</h3><p>It infers the type of every value and writes Rust; where a type changes at run time, Rust over dynamic values instead. A sure mistake comes back before anything runs, as one JSON line with the line number and a fix.</p></li>
+        <li><h3><code>--verify</code> checks it against CPython</h3><p>Each run is compared with CPython 3.13 on the same input. Same answer: a certificate the harness can log. Different: CPython's answer, and a <code>{"verify":"differs"}</code> line. Cannot be compared (clock, files, network): a <code>{"verify":"refused"}</code> line, never a silent pass.</p></li>
+        <li><h3>Native, or through MCP</h3><p>The checked program runs as a native binary, or through <code>brevi mcp</code>, where <code>run</code> checks by default: under its default sandbox, a program on the typed build is checked against Brevi's dynamic build, and any other run says it was not checked. Outside the sandbox, a file Brevi cannot build runs in CPython, and one line says which line stopped the build.</p></li>
       </ol>
     </div>
   </section>
@@ -122,7 +118,7 @@ cat: 1</pre>
         </div>
         <div>
           <h3>CPython's own tests</h3>
-          <p>At v0.28.1, of 1,072 tests from CPython 3.13's own suite (ten files, among them <code>test_set</code> and <code>test_patma</code>), 1,043 build natively and print exactly what CPython prints, the rest are refused with a reason, and none answer differently or crash. Of 2,053 of CPython's tests for the standard-library modules agents use most, 1,989 match and none answer differently (tests that run a string as code are left out by design). At v0.27.0 it was 250 of 311 core tests with 8 answering differently, and 250 of 554 stdlib tests with 22. <a href="/docs/compatibility#in-numbers">The numbers</a></p>
+          <p>At v0.28.2, of 1,072 tests from CPython 3.13's own suite (ten files, among them <code>test_set</code> and <code>test_patma</code>), 1,043 build natively and print exactly what CPython prints, the rest are refused with a reason, and none answer differently or crash. Of 2,053 of CPython's tests for the standard-library modules agents use most, 1,989 match and none answer differently (tests that run a string as code are left out by design). At v0.27.0 it was 250 of 311 core tests with 8 answering differently, and 250 of 554 stdlib tests with 22. <a href="/docs/compatibility#in-numbers">The numbers</a></p>
         </div>
       </div>
       <div class="grid3">
@@ -188,7 +184,7 @@ IndexError: list index out of range</pre>
               </tbody>
             </table>
           </div>
-          <p class="note">3 November 2026, one 4-core Linux machine (Codon 0.20.6, Nuitka 4.3.4, CPython 3.13). Without <code>--release</code>, Brevi's default build is 1.7x to 39.5x faster than CPython on these 12 programs, median 8.5x. Codon and Nuitka were timed in an earlier session on the same machine. Re-measured on 12 November 2026 on a Ryzen 9 5950X (WSL2, CPython 3.13.13), the default build is 1.6x to 37.9x faster, median 9.3x, and <code>--release</code> 2.1x to 38.8x, median 9.8x, while the dynamic build's median is 0.85x. These are compute-heavy programs on Brevi's typed build; programs on its dynamic build run much closer to CPython's speed.</p>
+          <p class="note">3 November 2026, one 4-core Linux machine (Codon 0.20.6, Nuitka 4.3.4, CPython 3.13). Codon and Nuitka were timed in an earlier session on the same machine. Re-measured on 12 November 2026 on a Ryzen 9 5950X (WSL2, CPython 3.13.13), the default build is 1.6x to 37.9x faster, median 9.3x, and <code>--release</code> 2.1x to 38.8x, median 9.8x, while the dynamic build's median is 0.85x. These are compute-heavy programs on Brevi's typed build, which only a small share of CPython's own test programs take; programs on its dynamic build run much closer to CPython's speed.</p>
         </div>
         <div>
           <div class="table-wrap">

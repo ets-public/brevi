@@ -25,7 +25,8 @@ helper (re._compile, functools._c3_mro); it is printed beside the score and coun
 self.skipTest() under the reference CPython is excluded as skipped by CPython, like a skip decorator.
 CPython and both built programs run at one fixed PYTHONHASHSEED (REF_SEED): Brevi hashes str and bytes exactly as
 CPython 3.13 does at the same seed, so a set of strings must print in CPython's own order. unstable is a test whose
-CPython output is not reproducible at that seed (object addresses, the clock, unseeded random numbers), and only a
+CPython output is not reproducible at that seed (object addresses, the clock, unseeded random numbers, threads that
+print at once; the known ones are always unstable: ALWAYS_UNSTABLE, RANDOM_OUTPUT), and only a
 reproduced difference counts: a CPython run that timed out or died is retried, then reported as not_extractable, never
 as unstable (rule 1: a second run at the seed, settled by a third when they differ; rule 2: three more runs, tried for a
 wrong result).
@@ -375,6 +376,9 @@ _ODICT_DICT_METHODS = ("dict's own method called on an OrderedDict: tests that C
 EXCLUDED_TESTS = {("test_ordered_dict", m): _ODICT_DICT_METHODS for m in (
     "test_dict_setitem", "test_dict_delitem", "test_dict_clear", "test_dict_pop", "test_dict_popitem",
     "test_dict_setdefault", "test_dict_update")}
+# test_patma's test_refleaks reads its own file and compiles it, so that `-R` runs catch reference leaks in CPython's
+# pattern compiler: a test of CPython's compiler and its refcounts, with nothing of the language in what it checks
+EXCLUDED_TESTS[("test_patma", "test_refleaks")] = "compiles its own source file to find reference leaks in CPython's compiler"
 EXCLUDED_SOURCE = [
     (r"\b_test(capi|internalcapi|limitedcapi)\b", "tests the C API"),
     (r"\bsys\.getrefcount\b|\bcheck_free_after_iterating\b", "depends on reference counts"),
@@ -384,6 +388,7 @@ EXCLUDED_SOURCE = [
     (r"\bassert_python_(ok|failure)\b|\bspawn_python\b", "runs a fresh CPython in a subprocess (a CPython crash regression)"),
     (r"\bmultiprocessing\.Process\b", "starts a child process"),
     (r"\bsre_(compile|constants|parse)\b", "tests CPython's deprecated sre_* modules"),
+    (r"\bdis\.\w+", "inspects CPython's bytecode (dis)"),
 ]
 # Tests whose CPython output comes from unseeded random numbers (test_set's *Mutating* classes print a line only when
 # a random __eq__ happens to raise RuntimeError): two CPython runs agree by luck most of the time, so such a test
@@ -397,12 +402,27 @@ ADDRESS_ORDER = {
     "test_enum.TestSpecial.test_too_many_data_types": "CPython's TypeError message prints a set of classes, which orders them by memory address",
     **{f"test_set.TestBasicOpsTriple.{t}": _TRIPLE for t in ("test_empty_union", "test_self_equality", "test_self_intersection", "test_union_empty")},
 }
+# Tests whose threads print at the same time: CPython's OS threads interleave the lines in scheduler order, and split a
+# line when a thread switch falls between print's text and its newline, so CPython's output changes from run to run
+# (test_lru_cache_threaded3 flipped between matched and unstable and failed the stdlib floor by one on the PC and on
+# GitHub; threaded2 splits lines on a busy box). Classed unstable like RANDOM_OUTPUT, so the scheduler never moves the
+# floor; both builds still run them, so a crash, a wrong exit code or a refusal still counts.
+_THREADS = "CPython's threads print at the same time, so the OS scheduler orders the lines and can split one between print's text and its newline"
+THREAD_ORDER = {f"test_functools.TestLRUC.test_lru_cache_{t}": _THREADS for t in ("threaded", "threaded2", "threaded3")}
+ALWAYS_UNSTABLE = {**ADDRESS_ORDER, **THREAD_ORDER}  # test id -> why CPython's output can't be compared
 RECEIVERS = {"self", "testcase"}
 SAME_AS_EQUAL = {"assertEqual", "assertListEqual", "assertTupleEqual", "assertDictEqual", "assertSetEqual",
                  "assertSequenceEqual", "assertMultiLineEqual"}
 COMPARE = {"assertNotEqual": "!=", "assertIs": "is", "assertIsNot": "is not", "assertIn": "in", "assertNotIn": "not in",
            "assertLess": "<", "assertLessEqual": "<=", "assertGreater": ">", "assertGreaterEqual": ">="}
 TEST_API = {"fail", "skipTest", "subTest", "addCleanup", "addTypeEqualityFunc", "doCleanups", "enterContext"}
+# (file, test method): assertEqual and its kin become `print(a == b)` instead of printing both reprs, where the repr
+# of a side raises under CPython although the comparison never reads what it is missing, each with why
+EQUALITY_ONLY = {
+    ("test.test_dataclasses", "test_frozen_slots_pickle_custom_state"):
+        "the object pickle.loads rebuilds through __getstate__ lacks the compare=False field getstate_called, so "
+        "its repr raises AttributeError, while the dataclass __eq__ that assertEqual calls skips that field",
+}
 NO_RAISE = "NO-RAISE"  # printed where an assertRaises saw nothing: the extraction changed the test
 
 
@@ -524,12 +544,19 @@ class Rewriter(ast.NodeVisitor):
 
     def __init__(self, mod, helper_modules):
         self.m, self.helpers, self.caught, self.alias = mod, helper_modules, set(), {}
+        self.equality = False  # inside a test of EQUALITY_ONLY
+        self.in_class_body = set()  # ids of the with statements written directly in a class body
+
+    def visit_ClassDef(self, node):
+        self.in_class_body.update(id(st) for st in node.body if isinstance(st, ast.With))
+        self.generic_visit(node)
 
     def visit_FunctionDef(self, node):
-        saved, self.caught, saved_alias = self.caught, set(), self.alias
+        saved, self.caught, saved_alias, saved_eq = self.caught, set(), self.alias, self.equality
         self.alias = self.find_aliases(node)
+        self.equality = self.equality or (self.m.name, node.name) in EQUALITY_ONLY
         self.generic_visit(node)
-        self.caught, self.alias = saved, saved_alias
+        self.caught, self.alias, self.equality = saved, saved_alias, saved_eq
 
     def find_aliases(self, fn):
         """`eq = self.assertEqual` inside a test: calls of `eq` are the assertion, if that is all `eq` is used for."""
@@ -632,7 +659,7 @@ class Rewriter(ast.NodeVisitor):
         f = call.func
         if isinstance(f, ast.Name) and f.id in self.alias:
             name = self.alias[f.id].value.attr
-            lines = rewrite_assertion(self.m, node, name, call)
+            lines = rewrite_assertion(self.m, node, name, call, self.equality)
             if lines:
                 sep = "\n" + " " * node.col_offset if self.m.alone(node) else "; "
                 if "\n" in sep or not any(ln.startswith((" ", "try:", "except", "else:")) for ln in lines):
@@ -649,7 +676,7 @@ class Rewriter(ast.NodeVisitor):
             fn, *rest = [self.m.expr(a) for a in call.args]
             self.m.edit(*self.m.span(node), f"_conf_cleanups.append(({fn}, ({''.join(r + ', ' for r in rest)})))")
         elif isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) and f.value.id in RECEIVERS:
-            lines = rewrite_assertion(self.m, node, f.attr, call)
+            lines = rewrite_assertion(self.m, node, f.attr, call, self.equality)
             if lines:
                 sep = "\n" + " " * node.col_offset if self.m.alone(node) else "; "
                 if "\n" not in sep and any(ln.startswith((" ", "try:", "except", "else:")) for ln in lines):
@@ -675,6 +702,12 @@ class Rewriter(ast.NodeVisitor):
         elif c.func.attr in ("assertWarns", "assertWarnsRegex") and len(c.args) == (2 if c.func.attr == "assertWarnsRegex" else 1) and not c.keywords:
             # the same block, recorded: _conf_Warns prints whether a matching warning was raised
             self.m.edit(*self.m.span(c), "_conf_Warns(" + ", ".join(self.m.expr(a) for a in c.args) + ")")
+        elif c.func.attr in ("assertRaises", "assertRaisesRegex") and c.args and id(node) in self.in_class_body:
+            # in a class body every name a statement binds lands in the class namespace (`except E as _e` would add
+            # _e to the class, and to an EnumDict a second _e is an error), so the block keeps its with, around the
+            # context manager that prints what the try/except form prints and binds nothing
+            if item.optional_vars is None and not c.keywords and len(c.args) == (2 if c.func.attr == "assertRaisesRegex" else 1):
+                self.m.edit(*self.m.span(c), "_conf_Raises(" + ", ".join(self.m.expr(a) for a in c.args) + ")")
         elif c.func.attr in ("assertRaises", "assertRaisesRegex") and c.args:
             lines = caught_lines(self.m.expr(c.args[0]), c.func.attr == "assertRaisesRegex")
             if item.optional_vars is not None:
@@ -735,7 +768,7 @@ def is_module_name(m, node):
     return isinstance(node, ast.Name) and m.imports.get(node.id, ("",))[0] == "import"
 
 
-def rewrite_assertion(m, stmt, name, call):
+def rewrite_assertion(m, stmt, name, call, equality=False):
     """The lines that replace `self.<name>(...)`, or None to leave it for the final check."""
     if any(k.arg not in ("msg", None) for k in call.keywords) and not name.startswith("assertRaises"):
         return None
@@ -743,8 +776,9 @@ def rewrite_assertion(m, stmt, name, call):
     if any(isinstance(a, ast.Starred) for a in args[:2]):
         return None
     t = [m.expr(a) for a in args]
-    if name in SAME_AS_EQUAL and len(t) >= 2 and any(is_module_name(m, a) for a in args[:2]):
-        # a module's repr names the file it was loaded from, which differs between machines: compare instead
+    if name in SAME_AS_EQUAL and len(t) >= 2 and (equality or any(is_module_name(m, a) for a in args[:2])):
+        # a module's repr names the file it was loaded from, which differs between machines, and EQUALITY_ONLY tests
+        # have a side whose repr raises: compare instead
         return [f"print(({t[0]}) == ({t[1]}))"]
     if name in SAME_AS_EQUAL and len(t) >= 2:
         b = args[1]
@@ -948,7 +982,7 @@ class Universe:
         script.test_fn = fn
         for w in wrappers:
             if w[0] == "decorator":
-                for n in uses(w[1])[0]:
+                for n in sorted(uses(w[1])[0]):
                     script.need(owner, n)
         if any(isinstance(n, ast.Constant) and isinstance(n.value, str) and STRING_ANNOTATION.search(n.value) for n in ast.walk(fn)):
             # dataclasses reads a string annotation ('typing.ClassVar[int]', 'InitVar') by looking the names up in the
@@ -970,18 +1004,52 @@ class Universe:
         if plain:
             text = dedent(body, fn.col_offset)
             text = re.sub(r"^def (\w+)\(self(?:, |\))", lambda mo: f"def {mo.group(1)}(" + ("" if mo.group(0).endswith(", ") else ")"), text, count=1)
-            for n in names:
+            for n in sorted(names):
                 script.need(owner, n)
             script.call = wrapped_call(wrappers, method)
             tail = f"{text}\n\n{script.call}\n"
         else:
             tail = script.class_shape(chain, cls_name, method, wrappers)
+        convert_sources(script, owner, list(script.nodes.values()) + [tail])
         header = f"# Extracted by tools/conformance.py from CPython {TAG} Lib/test/{name}.py, {cls_name}.{method}\n"
         header += "# (CPython's test suite is under the PSF licence: https://docs.python.org/3/license.html)\n"
         out = script.finish(header, tail)
         self.last_files = dict(PACKAGE_STANDINS[m] if m in PACKAGE_STANDINS else (COMPANIONS[m][0], self.companions[m])
                                for m in sorted(script.companions))
         return out
+
+
+def code_tree(text):
+    """The tree of a piece of a script: top-level code, or a class member (indented, as Mod.block returns it)."""
+    return parse("class _:\n" + text if text[:1].isspace() else text)
+
+
+def convert_sources(script, mod, texts):
+    """`enum.IntEnum._convert_('Name', MODULE, filter=lambda x: x.startswith('CONVERT_'))` builds an enum from the
+    globals of the module named MODULE (`MODULE = __name__`) that pass the filter: names the test never mentions, so
+    following names cannot find them. The script carries every top-level binding of the test file whose name the
+    filter takes, in the file's order (the order is part of what _convert_ tests). Any other _convert_ call (another
+    module, another filter, a `source=` mapping) cannot be followed and leaves the test not extractable."""
+    for text in texts:
+        for n in ast.walk(code_tree(text)):
+            if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "_convert_"):
+                continue
+            kws = {k.arg: k.value for k in n.keywords}
+            source = n.args[1] if len(n.args) > 1 else kws.get("module")
+            filt = n.args[2] if len(n.args) > 2 else kws.get("filter")
+            ok = (isinstance(source, ast.Name) and [ast.unparse(d) for d in mod.defs.get(source.id, [])] == [f"{source.id} = __name__"]
+                  and None not in kws and "source" not in kws and len(n.args) <= 3
+                  and isinstance(filt, ast.Lambda) and len(filt.args.args) == 1 and not filt.args.defaults
+                  and isinstance(filt.body, ast.Call) and isinstance(filt.body.func, ast.Attribute)
+                  and filt.body.func.attr == "startswith" and isinstance(filt.body.func.value, ast.Name)
+                  and filt.body.func.value.id == filt.args.args[0].arg and len(filt.body.args) == 1 and not filt.body.keywords
+                  and isinstance(filt.body.args[0], ast.Constant) and isinstance(filt.body.args[0].value, str))
+            if not ok:
+                raise CantExtract("_convert_ of names the script cannot pick (another module, filter or source)")
+            prefix = filt.body.args[0].value
+            for name in sorted(set(mod.defs) | set(mod.imports)):
+                if name.startswith(prefix):
+                    script.need(mod, name)
 
 
 SKIPS = {"skipIf": False, "skipUnless": True}  # unittest decorator -> the value of the condition that lets the test run
@@ -1216,7 +1284,7 @@ class Script:
             return
         text = mod.block(node)
         self.nodes[key] = text
-        for n in uses(text)[0]:
+        for n in sorted(uses(text)[0]):  # sorted: set order follows the hash seed, and need() can raise
             self.need(mod, n)
 
     def class_shape(self, chain, leaf, method, wrappers):
@@ -1235,7 +1303,7 @@ class Script:
                         continue
                     picked.setdefault(i, {})[node.lineno] = text
                     names, attrs = uses(text)
-                    for n in names:
+                    for n in sorted(names):
                         self.need(mod, n)
                     todo += sorted(attrs | names)
         out, base = [], ""
@@ -1328,6 +1396,11 @@ def validate(script):
     # the attribute reads of a restricted module that are allowed: `io.StringIO`, `unittest.mock`
     allowed_reads = {id(n.value) for n in ast.walk(tree) if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)
                      and n.attr in RESTRICTED_IMPORTS.get(n.value.id, ())}
+    # the unittest module itself as one item of a tuple or list display (`for bad in "0", 0.0, None, Rat, unittest:`
+    # in test_binop, a value Rat must refuse): a plain object there, no unittest code runs (io is never let through
+    # this way, as io.open reaches files)
+    allowed_reads |= {id(e) for n in ast.walk(tree) if isinstance(n, (ast.Tuple, ast.List)) for e in n.elts
+                      if isinstance(e, ast.Name) and e.id == "unittest"}
     for n in ast.walk(tree):
         roots = []
         if isinstance(n, ast.Import):
@@ -1710,7 +1783,7 @@ def run_case(case, cfg):
         (folder / rel).parent.mkdir(parents=True, exist_ok=True)
         (folder / rel).write_bytes(data)
     ref = Reference(lambda seed: reference(cfg.python, script, folder, seed, cfg))
-    random_output = bool(RANDOM_OUTPUT.match(case["id"])) or case["id"] in ADDRESS_ORDER
+    random_output = bool(RANDOM_OUTPUT.match(case["id"])) or case["id"] in ALWAYS_UNSTABLE
     try:
         a, unstable = stable_reference(ref, random_output)
     except ReferenceFailed as e:
@@ -1731,7 +1804,7 @@ def run_case(case, cfg):
         got = masked(run_limited([str(exe)], str(folder), run_env(folder, REF_SEED), cfg.timeout, cfg.mem_mb, cfg.sandbox)) if exe else None
         category, detail = classify(a, (exe is not None, why, crashed), got)
         if random_output and category in ("matched", "wrong_output"):
-            category, detail = "unstable", ADDRESS_ORDER.get(case["id"], "CPython's output depends on unseeded random numbers") + " (checked for crashes and exit code only)"
+            category, detail = "unstable", ALWAYS_UNSTABLE.get(case["id"], "CPython's output depends on unseeded random numbers") + " (checked for crashes and exit code only)"
         if category == "wrong_output":
             unstable, note = reproducible(ref, a)
             if unstable:
@@ -1918,12 +1991,12 @@ def markdown(rep, results):
     lines = ["# CPython conformance", "",
              f"{rep['brevi'].capitalize()} (commit {rep['commit']}) against CPython {rep['python']} (tests from tag {rep['tag']}), {rep['date']}, {rep['platform']}.",
              f"Generated by `tools/conformance.py`; how to read and run it is in [bench/README.md](../README.md#cpython-conformance).", "",
-             f"**Coverage {pct(native(n), n['scored'])}** ({n['matched'] - n['matched_through_cpython']} of {n['scored']} tests print exactly what CPython prints from a native build). "
+             f"**Coverage {pct(native(n), n['scored'])}** of the scored suite, with {n['by_design']} string-as-code tests excluded ({n['matched'] - n['matched_through_cpython']} of {n['scored']} tests print exactly what CPython prints from a native build). "
              f"**Wrong: {n['wrong']}** built programs gave a different answer ({n['wrong_output']} output, {n['wrong_exit']} exit code).", "",
              f"**Assertion-bearing coverage {pct(n['matched_asserting'], n['scored'])}** ({n['matched_asserting']} of {n['scored']}: native matches that printed "
              f"something to compare; {n['matched_silent']} matches print nothing). **Typed-path share {pct(n['matched_typed'], native(n))}** "
              f"({n['matched_typed']} of {n['matched'] - n['matched_through_cpython']} native matches took the typed build).", "",
-             f"Forced dynamic build (`BREVI_DYN=1`): coverage {pct(native(d), d['scored'])}, wrong {d['wrong']}.", "",
+             f"Forced dynamic build (`BREVI_DYN=1`): coverage {pct(native(d), d['scored'])} of the scored suite (same exclusions), wrong {d['wrong']}.", "",
              f"**Refused by design: {n['by_design']}** tests run a string as code (compile, exec or eval), which a sandboxed "
              "native binary refuses on purpose. They are left out of the coverage denominator and listed by name below.", "",
              f"**Need the string model: {n['string_model']}** tests stop on a str holding a lone surrogate, which Brevi's "
@@ -1962,9 +2035,10 @@ def markdown(rep, results):
               f"CPython and the built programs run at PYTHONHASHSEED={REF_SEED}. Rule 1: a second CPython run, settled by a "
               "third when they differ. Rule 2: three more runs, tried when a build's output differs.", ""]
     lines += [f"- `{r['id']}`: {r['detail']}" for r in results if r.get("category") == "unstable"]
-    random = sum(1 for r in results if any(x["category"] == "unstable" for x in r.get("modes", {}).values()))
-    if random:
-        lines.append(f"- {random} more print unseeded random numbers (checked for crashes and exit code only).")
+    # The tests that are always unstable (RANDOM_OUTPUT, ALWAYS_UNSTABLE) still ran in both builds: counted by reason
+    always = collections.Counter(next(x["detail"] for x in r["modes"].values() if x["category"] == "unstable") for r in results
+                                 if any(x["category"] == "unstable" for x in r.get("modes", {}).values()))
+    lines += [f"- {n} more: {why}." for why, n in sorted(always.items())]
     lines += ["", "## Top refusals (normal build)", ""]
     why = collections.Counter(normalise(r["modes"]["normal"]["detail"]) for r in results
                               if "modes" in r and r["modes"]["normal"]["category"] == "refused")

@@ -32,6 +32,14 @@ pub static GRANT: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
 // Whether this run is under --sandbox (or --allow / --allow-py, which imply it).
 pub static SANDBOX: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+// `--allow-unlocked-python`: under --sandbox, CPython may run where the kernel cannot lock it to the file and
+// network grants (pybridge.rs lock_refusal); the program then warns on every start (pyrt_load.rs).
+pub static UNLOCKED_PY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn unlocked_py() -> bool {
+    UNLOCKED_PY.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 pub fn sandboxed() -> bool {
     SANDBOX.load(std::sync::atomic::Ordering::Relaxed)
 }
@@ -111,12 +119,55 @@ pub fn parse_paths(cap: &str, value: &str) -> Result<Vec<String>, String> {
         if real.contains(',') {
             return Err(format!("--allow-{cap} {w}: a path with a comma cannot be granted"));
         }
+        if cap == "write" {
+            let here = std::path::Path::new(real);
+            if let Some((what, var, at)) = own_folders().into_iter().find(|(_, _, at)| at.starts_with(here) || here.starts_with(at)) {
+                let how = if here.starts_with(&at) { "is inside" } else { "holds" };
+                return Err(format!(
+                    "--allow-write {w}: the folder {how} {what} ({}), which later runs trust and run with no sandbox hold, so a program could plant code there that escapes the sandbox; grant a folder that does not reach it, or move it with {var}=DIR",
+                    at.display()
+                ));
+            }
+        }
         out.push(format!("{cap}:{real}"));
     }
     if out.is_empty() {
         return Err(format!("--allow-{cap} takes folders or files: --allow-{cap} data,out"));
     }
     Ok(out)
+}
+
+// The folders Brevi keeps what it builds, links and runs in: the build cache (result cache entries with their
+// binaries, the runtime libraries every program links, the rustc it calls) and the temp folder its builds work
+// in. A later run trusts what is there, and runs it with no sandbox hold of its own, so no folder grant may
+// reach them (parse_paths). Resolved, as granted folders are. A whole-account `--allow write` reaches them
+// as it reaches shell profiles: that grant is full trust (THREAT_MODEL.md).
+fn own_folders() -> Vec<(&'static str, &'static str, std::path::PathBuf)> {
+    use std::path::PathBuf;
+    let real = |p: PathBuf| {
+        std::fs::create_dir_all(&p).ok();
+        std::fs::canonicalize(&p).unwrap_or(p)
+    };
+    let env = |k: &str| std::env::var_os(k).filter(|d| !d.is_empty()).map(PathBuf::from);
+    // Where standalone programs unpack the CPython they load (pyrt_load.rs, ax_pyb_bundle).
+    let py = env("BREVI_PY_CACHE").or_else(|| {
+        if cfg!(windows) {
+            env("LOCALAPPDATA").map(|d| d.join("brevi").join("py"))
+        } else {
+            env("XDG_CACHE_HOME").map(|x| x.join("brevi").join("py")).or_else(|| env("HOME").map(|h| h.join(".cache").join("brevi").join("py")))
+        }
+    });
+    // With no home folder, the private one privdir.rs makes for it in the temp folder.
+    #[cfg(unix)]
+    let py = py.or_else(|| {
+        let p = std::env::temp_dir().join(format!("brevi-py-{}", crate::privdir::ax_priv::me()));
+        p.is_dir().then_some(p)
+    });
+    let mut out = vec![("Brevi's build cache", "BREVI_CACHE", real(crate::cache_dir())), ("Brevi's temp folder", "TMPDIR", real(crate::tmp_root()))];
+    if let Some(p) = py {
+        out.push(("the CPython standalone programs unpack and load", "BREVI_PY_CACHE", real(p)));
+    }
+    out
 }
 
 // A host name for --allow-net: letters, digits, '-', '.', or an IP address.
@@ -177,6 +228,9 @@ pub fn grant_flags() -> Vec<String> {
     }
     if !writes.is_empty() {
         out.extend(["--allow-write".to_string(), writes.join(",")]);
+    }
+    if unlocked_py() {
+        out.push("--allow-unlocked-python".to_string());
     }
     out
 }
@@ -382,7 +436,7 @@ const OWN_ANTHROPIC: &[&str] = &[
     "CMEKKeyDisabledError", "RampLimitExceededError", "CMEKKeyUnreachableError", "OrganizationOnHoldError", "CMEKKeyNetworkBlockedError",
     "CMEKContextUnavailableError", "ClaudeCodeVersionTooOldError", "EnforcedSpendLimitReachedError", "RequestBodyEncodingInvalidError",
     "OrganizationTypeNotSupportedError", "ClaudeCodeKeyCreatorNotMemberError", "RequestBodyEncodingUnsupportedError",
-    "RequestBodyTooLargeAfterDecodingError",
+    "RequestBodyTooLargeAfterDecodingError", "SandboxEgressRestrictedError",
 ];
 const ANTHROPIC_LACKS: &[&str] = &[
     ".beta", ".batches", ".files", ".skills", ".organization", ".user_profiles", "tool_runner", "with_raw_response",
@@ -1454,7 +1508,14 @@ mod tests {
         assert!(!ok(std::path::PathBuf::from("/")));
         let _ = std::fs::remove_dir_all(&base);
         assert!(super::parse_paths("read", "/no/such/folder").is_err());
-        assert_eq!(super::parse_paths("write", "/").unwrap(), ["write:/"]);
+        // A folder holding Brevi's own build cache or temp folder, or inside one, is never granted write.
+        assert!(super::parse_paths("read", "/").is_ok());
+        assert!(super::parse_paths("write", "/").is_err());
+        assert!(super::parse_paths("write", crate::cache_dir().to_str().unwrap()).is_err());
+        let under = crate::tmp_root().join("grant-test");
+        std::fs::create_dir_all(&under).unwrap();
+        assert!(super::parse_paths("write", under.to_str().unwrap()).is_err());
+        let _ = std::fs::remove_dir_all(&under);
     }
 
     // The modules built in place of CPython's under the sandbox (dynpy::sandbox_module) import only each other,

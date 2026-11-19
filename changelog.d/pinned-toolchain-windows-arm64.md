@@ -1,0 +1,2 @@
+- No Rust install needed on Linux ARM64 and Windows (x86-64 and ARM64) either: with no `rustc` on the PATH, brevi fetches its pinned Rust there too and links with zig (on Windows the GNU-ABI Rust, so neither Visual Studio nor its C++ build tools are needed), each checked by `pinned-toolchain.yml` on a real machine of that kind. Refused, with the reason, on an ARM64 Linux machine with a Cortex-A53 core and no C compiler (zig cannot apply the linker fix for its erratum 843419).
+- A program that fails to link now says what the linker printed, instead of only its exit code.

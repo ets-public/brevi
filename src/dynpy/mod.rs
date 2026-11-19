@@ -91,6 +91,7 @@ pub const RUNTIME: &str = concat!(
     include_str!("rt_ort.rs"),
     include_str!("rt_col.rs"),
     include_str!("rt_deque.rs"),
+    include_str!("rt_pickobj.rs"),
     include_str!("../alloc_rt.rs"),
 );
 
@@ -622,7 +623,9 @@ fn add_collections(mods: &mut Vec<emit::Module>, own_mods: &mut HashSet<String>)
 pub fn to_rust(file: &str) -> Result<String, (String, usize, String)> {
     BRIDGED.lock().unwrap().clear();
     use std::sync::atomic::Ordering::Relaxed;
-    let np_off = std::env::var("BREVI_NUMPY").is_ok_and(|v| v == "0");
+    // numpy settings in the environment (NPY_DISABLE_CPU_FEATURES and the rest, emit::np_settings) change what
+    // numpy computes or prints in ways Brevi's numpy does not model: CPython's numpy runs the program then.
+    let np_off = std::env::var("BREVI_NUMPY").is_ok_and(|v| v == "0") || emit::np_settings_set();
     emit::NP_NATIVE.store(!np_off, Relaxed);
     let r = to_rust_np(file);
     emit::NP_ON.store(false, Relaxed);
@@ -1056,6 +1059,7 @@ fn to_rust_with(file: &str, copies: bool) -> Result<String, (String, usize, Stri
     rust = borrow_cells(&rust);
     rust.push_str(&emit::ic_statics());
     if !used.is_empty() {
+        crate::pybridge::lock_refusal().map_err(|m| (file.to_string(), 0, format!("{m}; {}", crate::pybridge::LOCK_FIX)))?;
         crate::pybridge::set_file(file);
         rust.push_str(&crate::pybridge::dyn_runtime());
         rust.push_str(GLUE);
@@ -1257,10 +1261,14 @@ fn lib_copies(own: &HashSet<String>) -> Vec<String> {
 
 // The runtime as a library, built once per rustc version into the cache.
 fn runtime_lib(cache: &Path, rustc_v: &str) -> Result<PathBuf, String> {
-    let dir = cache.join("dynrt").join(format!("{:016x}", fnv(&[RUNTIME, rustc_v])));
+    let name = format!("{:016x}", fnv(&[RUNTIME, rustc_v]));
+    let dir = cache.join("dynrt").join(&name);
     let lib = dir.join("libbrevi_dyn.rlib");
     if lib.exists() {
         return Ok(lib);
+    }
+    if let Some(seeded) = crate::seed_file(&Path::new("dynrt").join(&name).join("libbrevi_dyn.rlib")) {
+        return Ok(seeded);
     }
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     // programs built side by side wait for one build of the runtime instead of each building it

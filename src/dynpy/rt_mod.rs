@@ -2537,7 +2537,7 @@ pub fn copy_fn(name: &str, a: Args) -> R {
 // __reduce__ (the class called again with the base's arguments, and no __dict__), which Brevi does not model
 fn iter_sub_copy_check(o: &Rc<Obj>) -> Result<(), E> {
     match iter_base_of(&o.cls) {
-        Some(b) if matches!(o.inner(), Some(V::Iter(_))) => Err(unsupported(&format!("copying an instance of {}, a subclass of {}", o.cls.name, iter_tp_name(&b)))),
+        Some(b) if matches!(o.inner(), Some(V::Iter(_))) => Err(unsupported_stop(&format!("copying an instance of {}, a subclass of {}", o.cls.name, iter_tp_name(&b)))),
         _ => Ok(()),
     }
 }
@@ -2602,6 +2602,9 @@ pub fn shallow_copy(x: &V) -> R {
         V::Obj(o) => {
             if let Some(f) = o.cls.lookup("__copy__") {
                 return call(&f, Args::p(vec![x.clone()]));
+            }
+            if let Some(r) = pk_copy(x, None) {
+                return r;
             }
             iter_sub_copy_check(o)?;
             let hooked = copy_slot_sets(o)?;
@@ -2737,6 +2740,9 @@ pub fn deepcopy(x: &V, memo: &mut Vec<(usize, V)>) -> R {
         V::Obj(o) => {
             if let Some(f) = o.cls.lookup("__deepcopy__") {
                 return call(&f, Args::p(vec![x.clone(), dict_new()]));
+            }
+            if let Some(r) = pk_copy(x, Some(&mut *memo)) {
+                return r;
             }
             iter_sub_copy_check(o)?;
             if o.cls.base_bt() == BT::Exc {
@@ -3015,6 +3021,8 @@ pub fn set_context(e: &E) {
 fn cur_exc() -> Option<V> {
     EXC_STACK.with(|s| s.borrow().last().map(|(_, e)| e.clone()))
 }
+// sys.setswitchinterval's interval in microseconds; CPython starts at 5000 (5 ms)
+static SWITCH_US: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(5000);
 pub fn sys_fn(name: &str, a: Args) -> R {
     match name {
         "exit" => bi_exit(a),
@@ -3024,6 +3032,52 @@ pub fn sys_fn(name: &str, a: Args) -> R {
             Ok(V::None)
         }
         "getrecursionlimit" => Ok(V::Int(REC_LIMIT.with(|l| l.get()) as i64)),
+        // Brevi's green threads switch only at blocking calls, so the interval schedules nothing; it is kept in whole
+        // microseconds exactly as CPython keeps it (set truncates, get gives 1e-6 * microseconds)
+        "setswitchinterval" => {
+            if !a.k.is_empty() {
+                return type_err("sys.setswitchinterval() takes no keyword arguments".into());
+            }
+            if a.p.len() != 1 {
+                return type_err(format!("sys.setswitchinterval() takes exactly one argument ({} given)", a.p.len()));
+            }
+            let v = &a.p[0];
+            let real = |v: &V| type_err(format!("must be real number, not {}", tn(v)));
+            let f = match v {
+                V::Float(_) | V::Int(_) | V::Bool(_) | V::Big(_) => to_float(v)?,
+                // as PyFloat_AsDouble: a float subclass instance gives its own value (no __float__ call); an int
+                // subclass calls its own __float__ if it defines one, else converts its value
+                V::Obj(o) if o.cls.base_bt() == BT::Float && o.inner().is_some() => to_float(&o.inner().unwrap())?,
+                V::Obj(o) if o.cls.lookup("__float__").is_some() => to_float(v)?,
+                V::Obj(o) if o.cls.base_bt() == BT::Int && o.inner().is_some() => to_float(&o.inner().unwrap())?,
+                V::Obj(o) if o.cls.lookup("__index__").is_some() => idx_of(v)? as f64,
+                V::Ext(x) => match x.to_f64() {
+                    Some(f) if cplx_of(v).is_none() => f,
+                    _ => return real(v),
+                },
+                _ => return real(v),
+            };
+            if f <= 0.0 {
+                return val_err("switch interval must be strictly positive".into());
+            }
+            // CPython casts 1e6 * interval to a C unsigned long: past 32 bits (or for nan and inf) the result
+            // depends on the platform (Windows' unsigned long is 32 bits), so there is no one answer to give
+            let us = 1e6 * f;
+            if !(us < 4294967296.0) {
+                return Err(unsupported("sys.setswitchinterval() of 4294.967296 seconds or more (CPython's value depends on the platform)"));
+            }
+            SWITCH_US.store(us as u64, std::sync::atomic::Ordering::Relaxed);
+            Ok(V::None)
+        }
+        "getswitchinterval" => {
+            if !a.k.is_empty() {
+                return type_err("sys.getswitchinterval() takes no keyword arguments".into());
+            }
+            if !a.p.is_empty() {
+                return type_err(format!("sys.getswitchinterval() takes no arguments ({} given)", a.p.len()));
+            }
+            Ok(V::Float(1e-6 * SWITCH_US.load(std::sync::atomic::Ordering::Relaxed) as f64))
+        }
         "getdefaultencoding" => {
             if !a.k.is_empty() {
                 return type_err("sys.getdefaultencoding() takes no keyword arguments".into());
@@ -3183,7 +3237,8 @@ pub fn modfn_cached(m: &str, n: &str) -> Option<V> {
     MODFNS.with(|c| c.borrow().iter().find(|((cm, cn), _)| *cm == m && *cn == n).map(|(_, v)| v.clone()))
 }
 fn modfn(m: &'static str, n: &str) -> V {
-    let n: Sym = sym(n);
+    // enum.py 3.13: `_reduce_ex_by_global_name = pickle_by_global_name`, one function under two names
+    let n: Sym = sym(if m == "enum" && n == "_reduce_ex_by_global_name" { "pickle_by_global_name" } else { n });
     if let Some(v) = MODFNS.with(|c| c.borrow().get(&(m, n)).cloned()) {
         return v;
     }
@@ -3191,7 +3246,12 @@ fn modfn(m: &'static str, n: &str) -> V {
     // marked as a module's function, so it never reads as the builtins function of its name (math.pow.__doc__)
     if let V::Func(f) = &v {
         f.attrs.borrow_mut().push(("__bv_mod__", s(m)));
-        f.attrs.borrow_mut().push(("__bv_nobind__", V::Bool(true)));
+        // enum's pickle helpers are Python functions in CPython: set as a class's __reduce_ex__, they bind
+        if m == "enum" && enum_binds(&n) {
+            f.attrs.borrow_mut().push(("__module__", s("enum")));
+        } else {
+            f.attrs.borrow_mut().push(("__bv_nobind__", V::Bool(true)));
+        }
     }
     MODFNS.with(|c| {
         c.borrow_mut().insert((m, n), v.clone());
@@ -3302,6 +3362,7 @@ pub fn module_call(m: &str, n: &str, a: Args) -> R {
         "gc" => gc_fn(n, a),
         "weakref" => weakref_fn(n, a),
         "inspect" if n == "isabstract" => call(&ext_module_attr2(m, n).expect("inspect.isabstract"), a),
+        "inspect" if n == "signature" => sig_signature(a),
         _ => ext_module_call(m, n, a),
     }
 }
@@ -3511,6 +3572,8 @@ pub fn module_attr(m: &'static str, name: &str) -> R {
         // itertools' iterator types are classes, as in CPython: type(chain()) is chain, isinstance, subclassing
         ("itertools", n) if itertools_kind(n).is_some() => V::Class(it_class(itertools_kind(n).unwrap())?),
         ("dataclasses", "MISSING" | "KW_ONLY" | "InitVar" | "Field" | "FrozenInstanceError") => dataclass_attr(name).unwrap(),
+        ("dataclasses", "_dataclass_getstate") => dc_state_fn("_dataclass_getstate"),
+        ("dataclasses", "_dataclass_setstate") => dc_state_fn("_dataclass_setstate"),
         ("abc", "ABC") => V::Class(abc_class()),
         ("abc", "ABCMeta") => V::Class(abc_meta_class()),
         // CPython's re._compiler imports both from re._constants: the same objects
@@ -5335,7 +5398,9 @@ fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> R {
             }
         }
         let order: Vec<V> = pos.iter().chain(kwo.iter()).cloned().collect();
-        let mut params: Vec<Sym> = vec!["self"];
+        // _process_class: '__dataclass_self__' when a field (of any kind) is named self
+        let self_name: Sym = if fields.iter().any(|(n, _)| *n == "self") { "__dataclass_self__" } else { "self" };
+        let mut params: Vec<Sym> = vec![self_name];
         params.extend(order.iter().map(field_name));
         let sig = Sig { name: sym(&format!("{}.__init__", c.qualname.get())), params: Box::leak(params.into_boxed_slice()), npos: pos.len() + 1, npo: 0, star: false, kwstar: false };
         // the defaults bind fills in (a factory is called afterwards, once per missing value)
@@ -5349,7 +5414,17 @@ fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> R {
         let slots = o.slots;
         let post = c.lookup("__post_init__").is_some();
         let all2 = all.clone();
-        add.push(("__init__", dc_fn(c, "__init__", move |a: Args| {
+        // what inspect.signature and __annotations__ read: the parameters with their defaults (the
+        // <factory> marker for a default_factory), each field's type, and 'return': None
+        let (np, sig_pd, sig_kd) = (pos.len() + 1, dflt[..pos.len() + 1].to_vec(), dflt[pos.len() + 1..].to_vec());
+        let sig_pos: Vec<&'static str> = sig.params[..np].to_vec();
+        let sig_kw: Vec<&'static str> = sig.params[np..].to_vec();
+        let mut ann = Dict::new();
+        for f in &order {
+            ann.set(s(field_name(f)), fget(f, "type"))?;
+        }
+        ann.set(s("return"), V::None)?;
+        let init = dc_fn(c, "__init__", move |a: Args| {
             let vals = bind(&sig, &dflt, a)?;
             let me = vals[0].clone();
             let mut initvars = vec![];
@@ -5388,7 +5463,12 @@ fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> R {
                 call_method(&me, "__post_init__", Args::p(initvars))?;
             }
             Ok(V::None)
-        }), None, false));
+        });
+        let init = with_sig(init, &sig_pos, 0, None, &sig_kw, None, sig_pd, sig_kd);
+        if let V::Func(f) = &init {
+            f.attrs.borrow_mut().push(("__annotations__", V::Dict(Rc::new(RefCell::new(ann)))));
+        }
+        add.push(("__init__", init, None, false));
     }
     if o.repr {
         let fs = names(&real, "repr")?;
@@ -5492,7 +5572,20 @@ fn make_dataclass(c: &Rc<Class>, o: &DcOpts) -> R {
     if o.weakref_slot && !o.slots {
         return type_err("weakref_slot is True but slots is False".into());
     }
-    let c = if o.slots { dc_add_slots(c, &real, o.weakref_slot)? } else { c.clone() };
+    let c = if o.slots {
+        let n = dc_add_slots(c, &real, o.weakref_slot)?;
+        // _add_slots: a frozen class pickles and copies through _dataclass_getstate/_dataclass_setstate
+        if o.frozen {
+            for (k, f) in [("__getstate__", "_dataclass_getstate"), ("__setstate__", "_dataclass_setstate")] {
+                if c.own(k).is_none() {
+                    n.set(k, dc_state_fn(f));
+                }
+            }
+        }
+        n
+    } else {
+        c.clone()
+    };
     dc_update_abstract(&c)?;
     Ok(V::Class(c))
 }
