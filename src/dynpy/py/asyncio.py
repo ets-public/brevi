@@ -9,6 +9,7 @@
 # future that is not done, and _brevi_async.suspend(None) is CPython's bare `yield` (sleep(0)).
 
 import _brevi_async
+import _brevi_stop
 import _brevi_proc
 import collections
 import heapq
@@ -53,8 +54,9 @@ class BrokenBarrierError(RuntimeError):
 TimeoutError = TimeoutError
 
 
+# a refusal stops the program (no `except` may catch it); `raise _unsupported(...)` never gets to raise
 def _unsupported(what):
-    return NotImplementedError("brevi: " + what + " is not supported in dynamic builds")
+    _brevi_stop.stop("NotImplementedError", "brevi: " + what + " is not supported in dynamic builds")
 
 
 def iscoroutine(obj):

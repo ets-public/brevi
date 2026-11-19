@@ -21,7 +21,7 @@ pub struct ZoneOps {
 }
 pub static ZONE_FS: std::sync::OnceLock<ZoneOps> = std::sync::OnceLock::new();
 fn zone_ops() -> Result<&'static ZoneOps, E> {
-    ZONE_FS.get().ok_or_else(|| exc("OSError", "brevi: this program was built without the time zone database".into()))
+    ZONE_FS.get().ok_or_else(|| refusal("OSError", "brevi: this program was built without the time zone database"))
 }
 
 #[derive(Clone, Debug, PartialEq)]

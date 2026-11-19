@@ -9,6 +9,7 @@
 # shaped for the wire by the SDK's per-version wire models (_brevi_mcp_types.py, generated tables, see
 # _sieve); a tool function's signature comes from the compiler (fn.__brevi_sig__, see src/dynpy/mcpsig.rs)
 # since Brevi does not evaluate annotations.
+import _brevi_stop
 import json
 import sys
 import asyncio
@@ -1273,7 +1274,7 @@ class Image:
     def to_image_content(self, annotations=None):
         if self.path:
             # (a file: refused when the program is built, src/caps.rs)
-            raise NotImplementedError("brevi: Image(path=...) / Audio(path=...) are not in Brevi's mcp")
+            _brevi_stop.stop("NotImplementedError", "brevi: Image(path=...) / Audio(path=...) are not in Brevi's mcp")
         elif self.data is not None:
             data = base64.b64encode(self.data).decode()
         else:
@@ -1301,7 +1302,7 @@ class Audio:
     def to_audio_content(self, annotations=None):
         if self.path:
             # (a file: refused when the program is built, src/caps.rs)
-            raise NotImplementedError("brevi: Image(path=...) / Audio(path=...) are not in Brevi's mcp")
+            _brevi_stop.stop("NotImplementedError", "brevi: Image(path=...) / Audio(path=...) are not in Brevi's mcp")
         elif self.data is not None:
             data = base64.b64encode(self.data).decode()
         else:
@@ -2511,7 +2512,7 @@ class Server:
         if on_progress is not None:
             _warn_dep("Client-to-server progress is deprecated as of 2026-07-28.")
         if cache_hints:
-            raise NotImplementedError("brevi: Server(cache_hints=...) is not in Brevi's mcp")
+            _brevi_stop.stop("NotImplementedError", "brevi: Server(cache_hints=...) is not in Brevi's mcp")
         self.name = name
         self.version = version
         self.title = title
@@ -3200,7 +3201,7 @@ class stdio_server:
     # stderr while it runs
     def __init__(self, stdin=None, stdout=None):
         if stdin is not None or stdout is not None:
-            raise NotImplementedError("brevi: stdio_server(stdin=..., stdout=...) is not in Brevi's mcp")
+            _brevi_stop.stop("NotImplementedError", "brevi: stdio_server(stdin=..., stdout=...) is not in Brevi's mcp")
         self._fds = None
 
     async def __aenter__(self):
@@ -3493,7 +3494,7 @@ class MCPServer:
         for what, v in (("auth_server_provider", auth_server_provider), ("token_verifier", token_verifier), ("extensions", extensions), ("auth", auth),
                         ("request_state_security", request_state_security), ("cache_hints", cache_hints)):
             if v:
-                raise NotImplementedError("brevi: MCPServer(%s=...) is not in Brevi's mcp" % what)
+                _brevi_stop.stop("NotImplementedError", "brevi: MCPServer(%s=...) is not in Brevi's mcp" % what)
         if log_level not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
             raise _settings_error("log_level", log_level)
         self._resource_security = resource_security
@@ -5319,7 +5320,7 @@ async def _run_http(app, kind, kw):
     json_response = kw.pop("json_response", False)
     stateless = kw.pop("stateless_http", False)
     if kw.pop("event_store", None) is not None:
-        raise NotImplementedError("brevi: run_streamable_http_async(event_store=...) is not in Brevi's mcp")
+        _brevi_stop.stop("NotImplementedError", "brevi: run_streamable_http_async(event_store=...) is not in Brevi's mcp")
     kw.pop("retry_interval", None)
     idle = kw.pop("session_idle_timeout", DEFAULT_SESSION_IDLE_TIMEOUT)
     max_sessions = kw.pop("max_sessions", DEFAULT_MAX_SESSIONS)

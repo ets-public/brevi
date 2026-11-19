@@ -516,11 +516,37 @@ pub fn refuse_stop(what: &str) -> ! {
     err_write(&format!("NotImplementedError: brevi: {what} is not supported in dynamic builds\n"));
     std::process::exit(1)
 }
-// refuse_stop typed as an error, for a site that would otherwise return unsupported(what): a refusal a try could
-// catch lets the program go on with an answer CPython never gives, so these stop instead.
+// A refusal whose whole message is given (`brevi: ...`, after the exception name), stopping as refuse_stop does.
 #[cold]
-pub fn unsupported_stop(what: &str) -> E {
-    refuse_stop(what)
+pub fn refuse_stop_msg(exc_name: &str, msg: &str) -> ! {
+    out_flush();
+    err_write(&format!("{exc_name}: {msg}\n"));
+    std::process::exit(1)
+}
+// refuse_stop_msg typed as an error, for `return Err(refusal(..))`.
+#[cold]
+pub fn refusal(exc_name: &str, msg: &str) -> E {
+    if SOFT_REFUSALS.with(|c| c.get()) > 0 {
+        return exc(exc_name, msg.to_string());
+    }
+    refuse_stop_msg(exc_name, msg)
+}
+thread_local! {
+    static SOFT_REFUSALS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+// Runs `f` with refusals raised as errors instead of stopping, for the runtime's own probes that take a refusal
+// as "no" and go another way (a class dict built by hand, an iterator's type name). `f` must run no code of the
+// program: an `except` of the program must never see a refusal.
+pub fn soft_refusals<T>(f: impl FnOnce() -> T) -> T {
+    struct Back;
+    impl Drop for Back {
+        fn drop(&mut self) {
+            SOFT_REFUSALS.with(|c| c.set(c.get() - 1));
+        }
+    }
+    SOFT_REFUSALS.with(|c| c.set(c.get() + 1));
+    let _back = Back;
+    f()
 }
 // A one-character str for a code point, a lone surrogate or not.
 pub fn cp1(c: u32) -> V {
@@ -892,8 +918,12 @@ pub fn type_err<T>(m: String) -> Result<T, E> {
 pub fn val_err<T>(m: String) -> Result<T, E> {
     Err(exc("ValueError", m))
 }
+// Every run-time refusal of the dynamic build stops the program (refuse_stop), typed as an error so a site can
+// `return Err(unsupported(..))`: a refusal that a try could catch lets the program go on with an answer CPython
+// never gives, so none is raised as an exception.
+#[cold]
 pub fn unsupported(what: &str) -> E {
-    exc("NotImplementedError", format!("brevi: {what} is not supported in dynamic builds"))
+    refusal("NotImplementedError", &format!("brevi: {what} is not supported in dynamic builds"))
 }
 
 // ---------- big integers ----------

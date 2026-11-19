@@ -202,7 +202,7 @@ pub fn iter_reduce_v(v: &V) -> R {
             // deque subclass instance would name the instance, which the iterator here does not keep.
             It::Deq(d, _, left, _, false) if matches!(cell.kind, IterClass::Kind(ItKind::DequeIter)) => {
                 if d.borrow().sub {
-                    return Err(unsupported_stop("pickling or copying an iterator over an instance of a deque subclass"));
+                    return Err(unsupported("pickling or copying an iterator over an instance of a deque subclass"));
                 }
                 let n = d.borrow().v.len() as i64;
                 Plan::Deq(V::Deque(d.clone()), n - *left as i64)
@@ -220,7 +220,7 @@ pub fn iter_reduce_v(v: &V) -> R {
             // generators, and the iterators CPython gives no __reduce__ (pairwise, batched)
             It::Coro(_) | It::GenExp(..) => return Err(cannot_pickle(v)),
             _ if matches!(cell.kind, IterClass::Kind(ItKind::Generator | ItKind::ItPairwise | ItKind::ItBatched)) => return Err(cannot_pickle(v)),
-            _ => return Err(unsupported_stop(&format!("pickling or copying a '{}' object", tn(v)))),
+            _ => return Err(unsupported(&format!("pickling or copying a '{}' object", tn(v)))),
         }
     };
     let iter_f = bv("iter");
@@ -234,7 +234,7 @@ pub fn iter_reduce_v(v: &V) -> R {
         Plan::Range(a, b, step) => {
             let n = range_len(&V::Range(Rc::new((a, b, step)))) as i64;
             let Some(stop) = n.checked_mul(step).and_then(|d| a.checked_add(d)) else {
-                return Err(unsupported_stop("pickling a range iterator whose stop is past 64 bits"));
+                return Err(unsupported("pickling a range iterator whose stop is past 64 bits"));
             };
             tup(vec![iter_f, tup(vec![V::Range(Rc::new((a, stop, step)))]), V::None])
         }
@@ -320,7 +320,7 @@ pub fn iter_setstate_v(v: &V, st: &V) -> R {
         if matches!(cell.kind, IterClass::Kind(ItKind::Generator | ItKind::ItPairwise | ItKind::ItBatched | ItKind::ItRepeat | ItKind::ItCount) | IterClass::Kind(ItKind::Map | ItKind::Filter | ItKind::Enumerate)) {
             return Err(exc("AttributeError", format!("'{}' object has no attribute '__setstate__'", tn(v))));
         }
-        return Err(unsupported_stop(&format!("__setstate__ of a '{}' object", tn(v))));
+        return Err(unsupported(&format!("__setstate__ of a '{}' object", tn(v))));
     }
     let idx = state_index(st)?;
     let mut g = cell.it.try_borrow_mut().map_err(|_| exc("ValueError", "iterator already executing".into()))?;
@@ -355,7 +355,7 @@ pub fn iter_copy(x: &V, memo: Option<&mut Vec<(usize, V)>>) -> R {
         iter_reduce_v(x)?
     };
     let V::Tuple(t) = &rv else {
-        return Err(unsupported_stop("copying an iterator"));
+        return Err(unsupported("copying an iterator"));
     };
     let f = t.first().cloned().unwrap_or(V::None);
     let mut args = t.get(1).cloned().unwrap_or_else(|| tup(vec![]));

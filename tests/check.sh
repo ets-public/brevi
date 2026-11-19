@@ -882,6 +882,16 @@ for c in "pk1:pickling an object of the program whose __reduce__ gives a global 
     o=$(BREVI_DYN=1 $BREVI run "$t/${c%%:*}.py" 2>&1)
     case "$o" in "NotImplementedError: brevi: ${c#*:} is not supported in dynamic builds") echo "ok   a pickle refusal inside try/except stops (${c%%:*})" ;; *) echo "FAIL a pickle refusal inside try/except (${c%%:*})"; printf '%s\n' "$o"; fail=1 ;; esac
 done
+# Every other run-time refusal stops too, in the runtime (rt1: isinstance with collections.abc.Callable[...]) and
+# in Brevi's own Python copies (rt2: asyncio's Handle repr), and weakref.proxy with a callback (rt3): an `except` that caught it would go on where CPython
+# does not (CPython raises TypeError in rt1, so the program printed "caught NotImplementedError").
+printf "class A:\n    pass\nimport collections.abc as c\n$pk_try" 'print(isinstance(A(), c.Callable[[int], int]))' > "$t/rt1.py"
+printf 'import asyncio\nasync def m():\n    h = asyncio.get_running_loop().call_soon(print, 1)\n    try:\n        print(repr(h))\n    except Exception as e:\n        print("caught", type(e).__name__)\n    print("after")\nasyncio.run(m())\n' > "$t/rt2.py"
+printf "import weakref\nclass A:\n    pass\na = A()\n$pk_try" 'weakref.proxy(a, print)' > "$t/rt3.py"
+for c in "rt1:isinstance() with typing.Callable[...]" "rt2:repr of an asyncio Handle" "rt3:weakref.proxy with a callback"; do
+    o=$(BREVI_DYN=1 $BREVI run "$t/${c%%:*}.py" 2>&1)
+    case "$o" in "NotImplementedError: brevi: ${c#*:} is not supported in dynamic builds") echo "ok   a run-time refusal inside try/except stops (${c%%:*})" ;; *) echo "FAIL a run-time refusal inside try/except (${c%%:*})"; printf '%s\n' "$o"; fail=1 ;; esac
+done
 printf 'import copy\nclass A:\n    def __reduce__(self):\n        return (A, (), None, None, None, None)\nfor f in (copy.copy, copy.deepcopy):\n    try:\n        f(A())\n    except TypeError as e:\n        print(e)\nclass B:\n    def __reduce__(self):\n        return (B,)\ntry:\n    copy.copy(B())\nexcept TypeError as e:\n    print(e)\n' > "$t/pk4.py"
 o=$(BREVI_DYN=1 $BREVI run "$t/pk4.py" 2>&1)
 if [ "$o" = "$("${BREVI_PYTHON:-python3}" "$t/pk4.py" 2>&1)" ]; then echo "ok   copy of a __reduce__ tuple of the wrong length is CPython's TypeError"; else echo "FAIL copy of a __reduce__ tuple of the wrong length"; printf '%s\n' "$o"; fail=1; fi

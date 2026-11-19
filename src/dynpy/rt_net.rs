@@ -46,7 +46,7 @@ thread_local! {
 }
 
 fn net() -> Result<&'static NetOps, E> {
-    NET.get().ok_or_else(|| exc("OSError", "brevi: this program was built without network access".into()))
+    NET.get().ok_or_else(|| refusal("OSError", "brevi: this program was built without network access"))
 }
 
 fn net_err(e: NetErr) -> E {
@@ -711,7 +711,7 @@ pub struct StdioOps {
 pub static STDIO: std::sync::OnceLock<StdioOps> = std::sync::OnceLock::new();
 
 fn stdio() -> Result<&'static StdioOps, E> {
-    STDIO.get().ok_or_else(|| exc("OSError", "brevi: this program was built without Brevi's mcp stdio".into()))
+    STDIO.get().ok_or_else(|| refusal("OSError", "brevi: this program was built without Brevi's mcp stdio"))
 }
 
 pub fn brevi_stdio_fn(n: &str, a: Args) -> R {
@@ -767,7 +767,7 @@ pub struct ProcOps {
 pub static PROC: std::sync::OnceLock<ProcOps> = std::sync::OnceLock::new();
 
 fn procs() -> Result<&'static ProcOps, E> {
-    PROC.get().ok_or_else(|| exc("OSError", "brevi: this program was built without child processes".into()))
+    PROC.get().ok_or_else(|| refusal("OSError", "brevi: this program was built without child processes"))
 }
 
 pub fn brevi_proc_fn(n: &str, a: Args) -> R {
@@ -844,7 +844,7 @@ pub struct SrvOps {
 pub static SRV: std::sync::OnceLock<SrvOps> = std::sync::OnceLock::new();
 
 fn srv() -> Result<&'static SrvOps, E> {
-    SRV.get().ok_or_else(|| exc("OSError", "brevi: this program was built without an HTTP server".into()))
+    SRV.get().ok_or_else(|| refusal("OSError", "brevi: this program was built without an HTTP server"))
 }
 
 pub fn brevi_srv_fn(n: &str, a: Args) -> R {
@@ -913,7 +913,7 @@ pub struct FsOps {
 pub static FS: std::sync::OnceLock<FsOps> = std::sync::OnceLock::new();
 
 fn fs_ops() -> Result<&'static FsOps, E> {
-    FS.get().ok_or_else(|| exc("OSError", "brevi: this program was built without file access".into()))
+    FS.get().ok_or_else(|| refusal("OSError", "brevi: this program was built without file access"))
 }
 
 pub fn brevi_fs_fn(n: &str, a: Args) -> R {

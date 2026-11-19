@@ -47,7 +47,7 @@ fn pm_kind(x: &V) -> Result<i64, E> {
             let t = getattr(x, "__class__")?;
             return match getattr(&t, "__flags__")? {
                 V::Int(f) => Ok(f & 96),
-                _ => Err(exc("NotImplementedError", "brevi: a match pattern on this library value is not supported".into())),
+                _ => Err(refusal("NotImplementedError", "brevi: a match pattern on this library value is not supported")),
             };
         }
         _ => {}
@@ -166,7 +166,7 @@ pub fn bi___brevi_pm_cls(a: Args) -> R {
         V::Class(k) => k.clone(),
         _ => {
             if isinstance(c, &V::Class(tclass(13, "type")))? {
-                return Err(exc("NotImplementedError", "brevi: a class pattern on a library class is not supported".into()));
+                return Err(refusal("NotImplementedError", "brevi: a class pattern on a library class is not supported"));
             }
             return type_err("called match pattern must be a class".into());
         }

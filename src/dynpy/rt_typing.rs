@@ -1224,7 +1224,7 @@ pub fn proto_register(c: &Rc<Class>) {
             inexact = Some(format!("the members of Protocol class {} ({w})", k.qualname.get()));
             continue;
         }
-        let keys: Vec<Sym> = match class_dict_with(k, false) {
+        let keys: Vec<Sym> = match soft_refusals(|| class_dict_with(k, false)) {
             Ok(v) => v.into_iter().map(|(n, _)| n).collect(),
             Err(_) => {
                 inexact = Some(format!("the members of Protocol class {}", k.qualname.get()));

@@ -2,6 +2,7 @@
 # through to the file on each write, with CPython's modes, newline handling, errors and reprs. Files are reached
 # only through _brevi_fs (src/dynpy/fsglue.rs), which holds --sandbox's read and write grants and folders.
 # Not here (a program using them runs in CPython): '+' modes, seek and tell, buffering and opener.
+import _brevi_stop
 import _brevi_fs
 
 
@@ -124,7 +125,7 @@ class _Base:
             self.write(line)
 
     def fileno(self):
-        raise OSError("brevi: fileno() of a file is not native")
+        _brevi_stop.stop("OSError", "brevi: fileno() of a file is not native")
 
 
 class TextIOWrapper(_Base):
@@ -187,13 +188,13 @@ def open(file, mode="r", buffering=-1, encoding=None, errors=None, newline=None,
         if hasattr(file, "__fspath__"):
             file = file.__fspath__()
         elif isinstance(file, int):
-            raise OSError("brevi: open() of a file descriptor is not native")
+            _brevi_stop.stop("OSError", "brevi: open() of a file descriptor is not native")
         else:
             raise TypeError("expected str, bytes or os.PathLike object, not " + type(file).__name__)
     if not isinstance(mode, str):
         raise TypeError("open() argument 'mode' must be str, not " + type(mode).__name__)
     if opener is not None:
-        raise OSError("brevi: open(opener=...) is not native")
+        _brevi_stop.stop("OSError", "brevi: open(opener=...) is not native")
     if len(set(mode)) != len(mode) or any(c not in "rwxabt+" for c in mode):
         raise ValueError("invalid mode: '%s'" % mode)
     kinds = [c for c in mode if c in "rwxa"]
@@ -203,7 +204,7 @@ def open(file, mode="r", buffering=-1, encoding=None, errors=None, newline=None,
     if binary and "t" in mode:
         raise ValueError("can't have text and binary mode at once")
     if "+" in mode:
-        raise OSError("brevi: open() mode '%s' (reading and writing) is not native" % mode)
+        _brevi_stop.stop("OSError", "brevi: open() mode '%s' (reading and writing) is not native" % mode)
     if binary and encoding is not None:
         raise ValueError("binary mode doesn't take an encoding argument")
     if binary and errors is not None:

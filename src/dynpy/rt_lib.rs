@@ -1162,9 +1162,9 @@ fn class_has_method(c: &Rc<Class>, name: &str) -> Result<bool, E> {
                 if ABC_HOOK_NAMES.contains(&name) {
                     return Ok(names.contains(&name));
                 }
-                return Err(exc("NotImplementedError", format!("brevi: collections.abc cannot check '{name}' on {} in dynamic builds", k.name)));
+                return Err(refusal("NotImplementedError", &format!("brevi: collections.abc cannot check '{name}' on {} in dynamic builds", k.name)));
             }
-            Some(None) => return Err(exc("NotImplementedError", format!("brevi: collections.abc checks of {} objects are not supported in dynamic builds", k.name))),
+            Some(None) => return Err(refusal("NotImplementedError", &format!("brevi: collections.abc checks of {} objects are not supported in dynamic builds", k.name))),
             None => {
                 if let Some(v) = k.own(name) {
                     return Ok(!matches!(v, V::None));
@@ -1281,7 +1281,7 @@ pub fn type_of(x: &V) -> Result<Rc<Class>, E> {
     })
 }
 fn iter_type_unsupported() -> E {
-    exc("NotImplementedError", "brevi: type() of this iterator is not supported".into())
+    refusal("NotImplementedError", "brevi: type() of this iterator is not supported")
 }
 fn iter_type_of(it: &Rc<IterCell>) -> Result<Rc<Class>, E> {
     match &it.kind {
@@ -1487,7 +1487,7 @@ fn iter_base_attrs(k: &Rc<Class>) {
         a.want("__reduce__", 1, 1)?;
         let it = iter_self(&a.p[0], &b(), "__reduce__")?;
         if let V::Obj(o) = &a.p[0] {
-            return Err(unsupported_stop(&format!("pickling or copying an instance of {}, a subclass of {}", o.cls.name, iter_tp_name(&b()))));
+            return Err(unsupported(&format!("pickling or copying an instance of {}, a subclass of {}", o.cls.name, iter_tp_name(&b()))));
         }
         iter_reduce_v(&it)
     }));
@@ -1496,7 +1496,7 @@ fn iter_base_attrs(k: &Rc<Class>) {
         a.want("__setstate__", 2, 2)?;
         let it = iter_self(&a.p[0], &b(), "__setstate__")?;
         if let V::Obj(o) = &a.p[0] {
-            return Err(unsupported_stop(&format!("__setstate__ of an instance of {}, a subclass of {}", o.cls.name, iter_tp_name(&b()))));
+            return Err(unsupported(&format!("__setstate__ of an instance of {}, a subclass of {}", o.cls.name, iter_tp_name(&b()))));
         }
         iter_setstate_v(&it, &a.p[1])
     }));
@@ -1757,7 +1757,7 @@ fn num_index(x: &V) -> Result<Big, E> {
             return match big_of(&r) {
                 Some(b) => Ok(b),
                 // an int subclass: CPython warns (DeprecationWarning) and goes on
-                None if matches!(inner_of(&r), Some(V::Int(_) | V::Bool(_) | V::Big(_))) => Err(unsupported_stop("__index__ returning an int subclass")),
+                None if matches!(inner_of(&r), Some(V::Int(_) | V::Bool(_) | V::Big(_))) => Err(unsupported("__index__ returning an int subclass")),
                 None => type_err(format!("__index__ returned non-int (type {})", tn(&r))),
             };
         }
@@ -1961,7 +1961,7 @@ pub fn bi_id(a: Args) -> R {
         V::Tuple(o) => p(Tup::as_ptr(o)),
         V::Int(i) => Big::from_i128(*i as i128 * 32 + 1).norm(),
         V::Float(f) if f.is_nan() && !same_nan(*f, *f) => {
-            return Err(exc("NotImplementedError", "brevi: id() of a NaN made by arithmetic is not supported (it has no identity of its own); use math.isnan()".into()))
+            return Err(refusal("NotImplementedError", "brevi: id() of a NaN made by arithmetic is not supported (it has no identity of its own); use math.isnan()"))
         }
         V::Float(f) => Big::from_i128(f.to_bits() as i128 * 8 + 4).norm(),
         V::Set(o) => p(Rc::as_ptr(o) as *const u8),

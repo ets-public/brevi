@@ -334,7 +334,7 @@ fn aw_in(x: &V, afor: bool) -> R {
     if !class_has(x, "__await__") {
         // an iterator is named by its own type ("generator"), as CPython does
         let t = match x {
-            V::Iter(_) => type_of(x).map(|c| c.name.to_string()).unwrap_or_else(|_| type_name(x)),
+            V::Iter(_) => soft_refusals(|| type_of(x)).map(|c| c.name.to_string()).unwrap_or_else(|_| type_name(x)),
             _ => type_name(x),
         };
         return Err(wrap(exc("TypeError", format!("object {t} can't be used in 'await' expression"))));

@@ -2537,7 +2537,7 @@ pub fn copy_fn(name: &str, a: Args) -> R {
 // __reduce__ (the class called again with the base's arguments, and no __dict__), which Brevi does not model
 fn iter_sub_copy_check(o: &Rc<Obj>) -> Result<(), E> {
     match iter_base_of(&o.cls) {
-        Some(b) if matches!(o.inner(), Some(V::Iter(_))) => Err(unsupported_stop(&format!("copying an instance of {}, a subclass of {}", o.cls.name, iter_tp_name(&b)))),
+        Some(b) if matches!(o.inner(), Some(V::Iter(_))) => Err(unsupported(&format!("copying an instance of {}, a subclass of {}", o.cls.name, iter_tp_name(&b)))),
         _ => Ok(()),
     }
 }
@@ -5698,6 +5698,11 @@ pub fn ext_module_call(m: &str, n: &str, a: Args) -> R {
         "enum" => enum_fn(n, a),
         "_brevi_mt" => brevi_mt_fn(n, a),
         "_brevi_col" => brevi_col_fn(n, a),
+        // a refusal in Brevi's own Python copies (src/dynpy/py): the program stops, as no `except` may catch it
+        "_brevi_stop" if n == "stop" => match (a.p.first(), a.p.get(1)) {
+            (Some(V::Str(k)), Some(V::Str(m))) => Err(refusal(k.text(), m.text())),
+            _ => Err(refusal("NotImplementedError", "brevi: a refusal of Brevi's own library code")),
+        },
         "_brevi_async" => brevi_async_fn(n, a),
         "_brevi_tok" => brevi_tok_fn(n, a),
         "_brevi_net" => brevi_net_fn(n, a),

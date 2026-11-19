@@ -20,6 +20,7 @@ __all__ = [
     'namedtuple',
 ]
 
+import _brevi_stop
 import sys as _sys
 
 import collections.abc as _collections_abc
@@ -442,7 +443,7 @@ class UserString(_collections_abc.Sequence):
 
     def __complex__(self):
         # the dynamic build has no complex numbers: refused when called
-        raise NotImplementedError("brevi: complex() is not supported in dynamic builds")
+        _brevi_stop.stop("NotImplementedError", "brevi: complex() is not supported in dynamic builds")
 
     def __hash__(self):
         return hash(self.data)

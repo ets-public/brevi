@@ -179,7 +179,7 @@ def _at_unknown(message, category, module):
             if ln == 0 and action == "error":
                 raise message
             break
-    raise NotImplementedError("brevi: a warning at a line of the program the dynamic build does not know is not supported in dynamic builds")
+    _d._stop("a warning at a line of the program the dynamic build does not know")
 _d.regs = {}
 # a warning attributed to a library's own frame: that module's globals got a __warningregistry__
 _d.lib_reg = False
@@ -252,7 +252,7 @@ def _install_warn(site):
             if line == 0:
                 return _at_unknown(message, category, module)
             return _w.warn_explicit(message, category, file, line, module, _d.regs.setdefault(module, {}), None, source)
-        raise NotImplementedError("brevi: a warning at a line of the program the dynamic build does not know is not supported in dynamic builds")
+        _d._stop("a warning at a line of the program the dynamic build does not know")
     warn.__doc__ = _w.warn.__doc__
     warn.__module__ = '_warnings'
     warn.__qualname__ = 'warn'
@@ -261,7 +261,7 @@ def _install_warn(site):
     show = _w._showwarnmsg
     def _showwarnmsg(msg):
         if msg.filename == '<sys>':
-            raise NotImplementedError("brevi: a warning at a line of the program the dynamic build does not know is not supported in dynamic builds")
+            _d._stop("a warning at a line of the program the dynamic build does not know")
         return show(msg)
     _w._showwarnmsg = _showwarnmsg
 _d.install_warn = _install_warn
@@ -477,12 +477,12 @@ def _pmod():
                         except Exception:
                             continue
                     try:
-                        return _d._lookup(mm, on if mm != module else name)
+                        return _d._lookup(mm, on if mm != module else name, True)
                     except Exception:
                         pass
             if isinstance(obj, type) and (obj.__module__ == 'itertools' or obj.__module__ == 'builtins' and name in ('map', 'filter', 'zip', 'enumerate')):
                 try:
-                    return _d._lookup(obj.__module__, obj.__name__)
+                    return _d._lookup(obj.__module__, obj.__name__, True)
                 except Exception:
                     pass
             return obj
@@ -662,8 +662,8 @@ _cr.dispatch_table[type(len)] = _bf_reduce
 # TypeError, inspect.signature ValueError), inspect.isfunction False. This one answers from the program's own
 # value (_d._fget): its names, doc, defaults, attributes, co_flags and co_name; isinstance sees a function (a
 # method), and it binds as one when a library puts it in a class. What compiled code cannot answer truly (its
-# bytecode, other co_* fields, __globals__, __closure__, writes to __dict__) raises NotImplementedError("brevi:
-# ..."), the dynamic build's refusal, never a wrong answer. The library's call reaches the program through b.
+# bytecode, other co_* fields, __globals__, __closure__, writes to __dict__) stops the program with
+# the dynamic build's refusal (_d._stop: no `except` can catch it), never a wrong answer. The library's call reaches the program through b.
 # type(f) is _BrFn, whose metaclass _BrT answers as FunctionType (MethodType for _BrMeth) does: ==, hash (so a
 # dict or set keyed by FunctionType finds it), attributes, repr, isinstance, calling it. Only identity (`is`, id),
 # issubclass(type(f), FunctionType) and type(type(f)) can tell them apart: CPython checks those on the C type.
@@ -735,7 +735,7 @@ def _mcopy(b):
 _mcopy.__module__ = '_brevi_dyn'
 _d._mcopy = _mcopy
 def _no(what):
-    raise NotImplementedError('brevi: ' + what + ' is not supported in dynamic builds')
+    _d._stop(what)
 class _BrCode:
     __slots__ = ('g',)
     def __init__(s, g): object.__setattr__(s, 'g', g)
@@ -997,7 +997,7 @@ unsafe fn pyd_exc_class_of(t: P) -> Rc<Class> {
         let k = if a.p.is_empty() { V::None } else { a.p.remove(0) };
         match (&k, me.upgrade()) {
             (V::Class(k), Some(c)) if Rc::ptr_eq(k, &c) => call(&pt, a),
-            _ => Err(unsupported_stop("a subclass of a Python library's exception class")),
+            _ => Err(unsupported("a subclass of a Python library's exception class")),
         }
     }));
     let py = |o: &V| -> Option<V> {
@@ -1303,7 +1303,7 @@ unsafe fn pyd_wrap_new(p: P, deep: bool) -> R {
                 v
             });
             (a.DecRef)(p);
-            return v?.ok_or_else(|| unsupported_stop("a stand-in class whose class of the program is gone"));
+            return v?.ok_or_else(|| unsupported("a stand-in class whose class of the program is gone"));
         }
         let tt = (a.Type)(t);
         (a.DecRef)(tt);
@@ -1663,10 +1663,10 @@ unsafe fn pyd_brnew(p: P) -> R {
     let cls = pyd_callable_v(c);
     (a.DecRef)(c);
     let Some(cls @ V::Class(_)) = cls else {
-        return Err(unsupported_stop("loading a pickled deque subclass or partial that is not a class of the program"));
+        return Err(unsupported("loading a pickled deque subclass or partial that is not a class of the program"));
     };
     let V::Tuple(args) = pyd_wrap(part(c"a")?, true)? else {
-        return Err(unsupported_stop("loading a pickled deque subclass without its arguments"));
+        return Err(unsupported("loading a pickled deque subclass without its arguments"));
     };
     let o = call(&cls, Args::p(args.to_vec()))?;
     from_memo_put(p, &o);
@@ -1869,13 +1869,13 @@ unsafe fn pyd_callable_in(a: &ax_pyffi::Api, v: &V) -> Result<P, E> {
     if cap.is_null() {
         drop(Box::from_raw(b));
         (a.ErrClear)();
-        return Err(exc("RuntimeError", "brevi: could not make a Python callable".into()));
+        return Err(refusal("RuntimeError", "brevi: could not make a Python callable"));
     }
     let f = (a.CFunctionNew)(std::ptr::addr_of_mut!(PYD_DEF) as *mut ax_pyffi::MethodDef, cap, std::ptr::null_mut());
     (a.DecRef)(cap);
     if f.is_null() {
         (a.ErrClear)();
-        return Err(exc("RuntimeError", "brevi: could not make a Python callable".into()));
+        return Err(refusal("RuntimeError", "brevi: could not make a Python callable"));
     }
     Ok(f)
 }
@@ -1941,7 +1941,7 @@ unsafe fn pyd_register(a: &ax_pyffi::Api) -> bool {
         })),
         (c"_stnow", func(sym("_stnow"), stand_now)),
         (c"_stset", func(sym("_stset"), |a: Args| {
-            let (Some(o), Some(packed)) = (a.p.first(), a.p.get(1)) else { return Err(unsupported_stop("a BUILD of a stand-in object without its state")) };
+            let (Some(o), Some(packed)) = (a.p.first(), a.p.get(1)) else { return Err(unsupported("a BUILD of a stand-in object without its state")) };
             let state = unsafe { unpack_held(packed)? }.into_iter().next().unwrap_or(V::None);
             PYD_BUSER.with(|u| u.set(PYD_BSEQ.with(|s| s.get())));
             pk_setstate(o, state, true)?;
@@ -1949,7 +1949,7 @@ unsafe fn pyd_register(a: &ax_pyffi::Api) -> bool {
         })),
         // a BUILD of a stand-in object of the program's class: its number in CPython's order
         (c"_bseq", func(sym("_bseq"), |a: Args| {
-            let Some(V::Class(c)) = a.p.first() else { return Err(unsupported_stop("a BUILD of a stand-in object whose class of the program is gone")) };
+            let Some(V::Class(c)) = a.p.first() else { return Err(unsupported("a BUILD of a stand-in object whose class of the program is gone")) };
             let n = PYD_BSEQ.with(|s| {
                 s.set(s.get() + 1);
                 s.get()
@@ -2030,19 +2030,19 @@ fn pickle_ref(a: Args) -> R {
         // a module's function (operator.pow): by reference to that module, as CPython pickles its own
         V::Func(f) if matches!(f.attrs.borrow().iter().find(|(k, _)| *k == "__bv_mod__"), Some((_, V::Str(_)))) => {
             let m = f.attrs.borrow().iter().find(|(k, _)| *k == "__bv_mod__").map(|(_, x)| x.clone()).unwrap_or(V::None);
-            let V::Str(m) = m else { return Err(unsupported_stop("pickling a builtin function")) };
+            let V::Str(m) = m else { return Err(unsupported("pickling a builtin function")) };
             let n = f.name.get();
             return match modfn_cached(m.text(), n) {
                 // (4, ...): pickled under the module and qualname CPython's own function has (operator.add is
                 // _operator.add)
                 Some(found) if is(&found, &v) => Ok(tup(vec![V::Int(4), st(m.text().to_string()), s(n)])),
-                _ => Err(unsupported_stop("pickling a builtin function")),
+                _ => Err(unsupported("pickling a builtin function")),
             };
         }
         // a builtin function (getattr), which pickle met as CPython's own (pyd_to): pickled as CPython pickles it
-        V::Func(f) if pickle_lookup("builtins", f.name.get()).is_ok_and(|k| is(&k, &v)) && unsafe { pyd_builtin_fn(f.name.get()) } => return Ok(V::None),
-        V::Func(_) => return Err(unsupported_stop("pickling a builtin function")),
-        V::Bound(_) | V::BMeth(_) => return Err(unsupported_stop("pickling a bound method")),
+        V::Func(f) if pickle_probe("builtins", f.name.get()).is_ok_and(|k| is(&k, &v)) && unsafe { pyd_builtin_fn(f.name.get()) } => return Ok(V::None),
+        V::Func(_) => return Err(unsupported("pickling a builtin function")),
+        V::Bound(_) | V::BMeth(_) => return Err(unsupported("pickling a bound method")),
         _ => return Ok(V::None),
     }
     let text = |x: R| -> Result<Option<String>, E> {
@@ -2057,7 +2057,7 @@ fn pickle_ref(a: Args) -> R {
     if q.split('.').any(|p| p == "<locals>") {
         return Ok(tup(vec![V::Int(2), st(format!("Can't get local object '{q}'"))]));
     }
-    match pickle_lookup(&m, &q) {
+    match pickle_probe(&m, &q) {
         Ok(found) if is(&found, &v) => Ok(tup(vec![V::Int(0), st(m), st(q)])),
         Ok(_) => Ok(tup(vec![V::Int(1), st(format!("Can't pickle {}: it's not the same object as {m}.{q}", repr(&v)?))])),
         Err(_) => Ok(tup(vec![V::Int(1), st(format!("Can't pickle {}: attribute lookup {q} on {m} failed", repr(&v)?))])),
@@ -2104,7 +2104,23 @@ fn pickle_lookup_fn(a: Args) -> R {
         Some(V::Str(x)) => Ok(x.text().to_string()),
         _ => type_err("_lookup() takes a module name and a qualified name".into()),
     };
-    pickle_lookup(&t(0)?, &t(1)?)
+    let (m, q) = (t(0)?, t(1)?);
+    // a probe (a third argument, true) whose miss the glue takes as "not this one": the module repr its
+    // AttributeError would name may be refused without stopping, as nothing shows the message
+    if matches!(a.p.get(2), Some(V::Bool(true))) {
+        return pickle_probe(&m, &q);
+    }
+    pickle_lookup(&m, &q)
+}
+// pickle_lookup for a caller that takes any miss as "not found" and never shows its AttributeError
+fn pickle_probe(m: &str, q: &str) -> R {
+    let was = PK_PROBE.with(|p| p.replace(true));
+    let r = pickle_lookup(m, q);
+    PK_PROBE.with(|p| p.set(was));
+    r
+}
+thread_local! {
+    static PK_PROBE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 // The AttributeError CPython's find_class raises for `q` missing from module `m`. It names the module by its
 // repr, which for __main__ and the program's modules holds the absolute path of the file, which the program
@@ -2113,7 +2129,7 @@ fn pickle_missing(m: &str, q: &str, what: &str) -> E {
     match m {
         "builtins" | "itertools" => exc("AttributeError", format!("Can't get {what}'{q}' on <module '{m}' (built-in)>")),
         // CPython names the module by its repr (refused where Brevi cannot give it exactly)
-        _ => match module_repr(m) {
+        _ => match if PK_PROBE.with(|p| p.get()) { soft_refusals(|| module_repr(m)) } else { module_repr(m) } {
             Ok(r) => exc("AttributeError", format!("Can't get {what}'{q}' on {r}")),
             Err(e) => e,
         },
@@ -3112,11 +3128,11 @@ unsafe fn pyd_obj_red(v: &V, c: &Rc<Class>) -> Result<P, E> {
 // made into the program's value with the load's held memo (see LOAD_HOLD)
 unsafe fn unpack_held(v: &V) -> Result<Vec<V>, E> {
     let a = pyd_api();
-    let Some(pv) = pyv_of(v) else { return Err(unsupported_stop("a stand-in step without its Python values")) };
+    let Some(pv) = pyv_of(v) else { return Err(unsupported("a stand-in step without its Python values")) };
     let t = (a.Type)(pv.p);
     (a.DecRef)(t);
     if LOAD_HOLD.with(|h| h.get()) == 0 || t != a.TList {
-        return Err(unsupported_stop("a stand-in step outside the program's pickle.load"));
+        return Err(unsupported("a stand-in step outside the program's pickle.load"));
     }
     let mut out = vec![];
     for i in 0..(a.ListSize)(pv.p) {
@@ -3144,7 +3160,7 @@ fn st_eager(c: &Rc<Class>, kind: &str, args: bool) -> bool {
 // state) or tuple's), as a stand-in instance holding it. Code of the program runs inside the load here, as in
 // CPython, so a BUILD numbered before now that runs code may not run after the load (see pyd_stinst).
 fn stand_now(a: Args) -> R {
-    let (Some(V::Class(c)), Some(V::Str(kind)), Some(packed)) = (a.p.first(), a.p.get(1), a.p.get(2)) else { return Err(unsupported_stop("making a stand-in object without its class")) };
+    let (Some(V::Class(c)), Some(V::Str(kind)), Some(packed)) = (a.p.first(), a.p.get(1), a.p.get(2)) else { return Err(unsupported("making a stand-in object without its class")) };
     // [args, kwargs], made with the load's memo (see LOAD_HOLD)
     let parts = unsafe { unpack_held(packed)? };
     let args = match parts.first() {
@@ -3154,12 +3170,12 @@ fn stand_now(a: Args) -> R {
     let mut kw = vec![];
     if let Some(V::Dict(d)) = parts.get(1) {
         for (n, x) in d.borrow().items() {
-            let V::Str(n) = n else { return Err(unsupported_stop("a pickled keyword that is not a str")) };
+            let V::Str(n) = n else { return Err(unsupported("a pickled keyword that is not a str")) };
             kw.push((sym(n.text()), x));
         }
     }
     if !st_eager(c, kind.text(), !args.is_empty() || !kw.is_empty()) {
-        return Err(unsupported_stop("making a stand-in object of the program at once"));
+        return Err(unsupported("making a stand-in object of the program at once"));
     }
     PYD_BUSER.with(|u| u.set(PYD_BSEQ.with(|s| s.get())));
     let cls = V::Class(c.clone());
@@ -3176,16 +3192,16 @@ fn stand_now(a: Args) -> R {
             let base = match pk_cat(c) {
                 Some(BT::Int) => bclass("int"),
                 Some(BT::Tuple) => bclass("tuple"),
-                _ => return Err(unsupported_stop("rebuilding an instance of a class of the program on this base")),
+                _ => return Err(unsupported("rebuilding an instance of a class of the program on this base")),
             };
             match args.first() {
                 Some(V::Class(b)) if Rc::ptr_eq(b, &base) => {}
-                _ => return Err(unsupported_stop("rebuilding an instance of a class of the program on another base than its own")),
+                _ => return Err(unsupported("rebuilding an instance of a class of the program on another base than its own")),
             }
             let new = getattr(&V::Class(base), "__new__")?;
             call(&new, Args::p(vec![cls, args.get(1).cloned().unwrap_or(V::None)]))?
         }
-        _ => return Err(unsupported_stop("making a stand-in object this way")),
+        _ => return Err(unsupported("making a stand-in object this way")),
     };
     match &o {
         V::Obj(ob) if pk_cat(&ob.cls).is_some() => {
@@ -3212,20 +3228,20 @@ unsafe fn pyd_stinst(p: P, t: P, deep: bool) -> R {
     if !b.is_null() {
         let v = pyd_callable_v(b);
         (a.DecRef)(b);
-        return v.ok_or_else(|| unsupported_stop("a stand-in object whose object of the program is gone"));
+        return v.ok_or_else(|| unsupported("a stand-in object whose object of the program is gone"));
     }
     (a.ErrClear)();
     // met inside the load (an object of the program made at once holds it, or the load passes it to the program):
     // made now from what pickle did to it so far, and from then on given each BUILD at once (_bv, see _BrInst)
     let during = PYD_UNPICKLING.with(|c| c.get()) > 0;
     if !deep && !during {
-        return Err(unsupported_stop("the program seeing one of its objects that pickle.load has not finished making"));
+        return Err(unsupported("the program seeing one of its objects that pickle.load has not finished making"));
     }
     let k = pyd_own((a.GetAttr)(t, c"_b".as_ptr()))?;
     let cls = pyd_callable_v(k);
     (a.DecRef)(k);
-    let Some(V::Class(cls)) = cls else { return Err(unsupported_stop("a stand-in object whose class of the program is gone")) };
-    let Some(cat) = pk_cat(&cls) else { return Err(unsupported_stop("loading a pickle of this class of the program")) };
+    let Some(V::Class(cls)) = cls else { return Err(unsupported("a stand-in object whose class of the program is gone")) };
+    let Some(cat) = pk_cat(&cls) else { return Err(unsupported("loading a pickle of this class of the program")) };
     let parts = pyd_mod_call("_brevi_dyn", "stparts", &[p])?;
     let r = (|| -> R {
         let item = |i: isize| -> R {
@@ -3246,12 +3262,12 @@ unsafe fn pyd_stinst(p: P, t: P, deep: bool) -> R {
             "call" if !own("__new__") && !own("__init__") => {
                 let mut k = vec![];
                 for (n, x) in kw {
-                    let V::Str(n) = n else { return Err(unsupported_stop("a pickled keyword that is not a str")) };
+                    let V::Str(n) = n else { return Err(unsupported("a pickled keyword that is not a str")) };
                     k.push((sym(n.text()), x));
                 }
                 call(&V::Class(cls.clone()), Args { p: args, k })?
             }
-            _ => return Err(unsupported_stop(&format!("loading a pickle that makes an instance of {} this way", cls.name))),
+            _ => return Err(unsupported(&format!("loading a pickle that makes an instance of {} this way", cls.name))),
         };
         from_memo_put(p, &o);
         let states = (a.TupleGet)(parts, 3);
@@ -3263,9 +3279,9 @@ unsafe fn pyd_stinst(p: P, t: P, deep: bool) -> R {
             let (n, state) = match pyd_wrap(x, true)? {
                 V::Tuple(t) if t.len() == 2 => match &t[0] {
                     V::Int(n) => (*n, t[1].clone()),
-                    _ => return Err(unsupported_stop("a BUILD of a stand-in object without its number")),
+                    _ => return Err(unsupported("a BUILD of a stand-in object without its number")),
                 },
-                _ => return Err(unsupported_stop("a BUILD of a stand-in object without its number")),
+                _ => return Err(unsupported("a BUILD of a stand-in object without its number")),
             };
             if code {
                 let first = PYD_BPEND.with(|m| m.borrow().keys().next().copied());
@@ -3282,7 +3298,7 @@ unsafe fn pyd_stinst(p: P, t: P, deep: bool) -> R {
             (a.DecRef)(b);
             if r != 0 {
                 (a.ErrClear)();
-                return Err(unsupported_stop("making an object of the program inside pickle.load"));
+                return Err(unsupported("making an object of the program inside pickle.load"));
             }
         }
         Ok(o)
@@ -3331,7 +3347,7 @@ unsafe fn pyd_enum_red(v: &V) -> Result<P, E> {
             V::Str(m) => m.text().to_string(),
             _ => return Ok(tup(vec![V::Int(-2), st(format!("Can't pickle {}: no __module__", repr(&me)?))])),
         };
-        Ok(match pickle_lookup(&m, &n) {
+        Ok(match pickle_probe(&m, &n) {
             Ok(found) if is(&found, &me) => tup(vec![V::Int(-1), st(m), st(n)]),
             Ok(_) => tup(vec![V::Int(-2), st(format!("Can't pickle {}: it's not the same object as {m}.{n}", repr(&me)?))]),
             Err(_) => tup(vec![V::Int(-2), st(format!("Can't pickle {}: attribute lookup {n} on {m} failed", repr(&me)?))]),
@@ -3365,7 +3381,7 @@ fn deque_reduce_py(v: &V) -> R {
         let held = (a.IsTrue)(o) == 1;
         (a.DecRef)(o);
         if held {
-            return Err(unsupported_stop("pickling a deque while copyreg holds a reducer for a class or function of the program"));
+            return Err(unsupported("pickling a deque while copyreg holds a reducer for a class or function of the program"));
         }
     }
     let (cls, max, state, it) = deque_pickle_parts(v)?;
@@ -4157,11 +4173,11 @@ impl Ext for PyV {
                     (a.DecRef)(mp);
                     if r.is_null() {
                         (a.ErrClear)();
-                        return Err(unsupported_stop(&format!("issubclass() of a Python class and {}", cls.name)));
+                        return Err(unsupported(&format!("issubclass() of a Python class and {}", cls.name)));
                     }
                     r
                 } else if cls.abc.get() {
-                    return Err(unsupported_stop("issubclass() of a Python class and an ABC of the program"));
+                    return Err(unsupported("issubclass() of a Python class and an ABC of the program"));
                 } else {
                     // CPython still checks that arg 1 is a class
                     let ty = pyd_own((a.Import)(c"builtins".as_ptr()))?;

@@ -1482,7 +1482,7 @@ mod tests {
         for l in src.lines().map(str::trim).filter(|l| !l.starts_with('#')) {
             if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
                 let m = m.split_whitespace().next().unwrap();
-                assert!(["_brevi_async", "_brevi_proc", "collections", "heapq", "math", "time", "sys"].contains(&m), "asyncio.py imports {m}");
+                assert!(["_brevi_async", "_brevi_proc", "_brevi_stop", "collections", "heapq", "math", "time", "sys"].contains(&m), "asyncio.py imports {m}");
             }
             // child processes only through _brevi_proc (whose system calls a program gets only when it starts one)
             for bad in ["open(", "__import__", "exec(", "eval(", "socket", "import subprocess", "subprocess.Popen", "import os", "fork"] {
@@ -1652,7 +1652,7 @@ mod tests {
             for l in src.lines().map(str::trim).filter(|l| !l.starts_with('#')) {
                 if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
                     let m = m.split_whitespace().next().unwrap();
-                    assert!(["polars", "math", "json", "re", "io", "_brevi_fs", "_brevi_col"].contains(&m), "{name} imports {m}");
+                    assert!(["polars", "math", "json", "re", "io", "_brevi_fs", "_brevi_col", "_brevi_stop"].contains(&m), "{name} imports {m}");
                 }
                 for bad in ["open(", "__import__", "exec(", "eval(", "compile(", "socket", "subprocess", "Thread", "os.", "sys."] {
                     let own = l.match_indices(bad).any(|(i, _)| !l[..i].ends_with(|c: char| c.is_alphanumeric() || c == '_' || c == '.') && !l[..i].ends_with("def "));
@@ -1695,7 +1695,7 @@ mod tests {
         for l in src.lines().map(str::trim).filter(|l| !l.starts_with('#')) {
             if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
                 let m = m.split_whitespace().next().unwrap();
-                assert!(["datetime", "_brevi_sqlite"].contains(&m), "sqlite3.py imports {m}");
+                assert!(["datetime", "_brevi_sqlite", "_brevi_stop"].contains(&m), "sqlite3.py imports {m}");
             }
             for bad in ["open(", "__import__", "exec(", "eval(", "compile(", "socket", "subprocess", "Thread", "os.", "sys."] {
                 let own = l.match_indices(bad).any(|(i, _)| !l[..i].ends_with(|c: char| c.is_alphanumeric() || c == '_' || c == '.') && !l[..i].ends_with("def "));
@@ -1736,7 +1736,7 @@ mod tests {
         for l in src.lines().map(str::trim).filter(|l| !l.starts_with('#')) {
             if let Some(m) = l.strip_prefix("import ").or_else(|| l.strip_prefix("from ")) {
                 let m = m.split_whitespace().next().unwrap();
-                assert!(["_brevi_duckdb"].contains(&m), "duckdb.py imports {m}");
+                assert!(["_brevi_duckdb", "_brevi_stop"].contains(&m), "duckdb.py imports {m}");
             }
             for bad in ["open(", "__import__", "exec(", "eval(", "compile(", "socket", "subprocess", "Thread", "os.", "sys."] {
                 let own = l.match_indices(bad).any(|(i, _)| !l[..i].ends_with(|c: char| c.is_alphanumeric() || c == '_' || c == '.') && !l[..i].ends_with("def "));
@@ -1778,7 +1778,7 @@ mod tests {
     #[test]
     fn safetensors_onnxruntime_copies_reach_nothing() {
         for (name, src, ok) in [
-            ("safetensors.py", include_str!("dynpy/py/safetensors.py"), &["_brevi_fs", "_brevi_st"][..]),
+            ("safetensors.py", include_str!("dynpy/py/safetensors.py"), &["_brevi_stop", "_brevi_fs", "_brevi_st"][..]),
             ("safetensors_numpy.py", include_str!("dynpy/py/safetensors_numpy.py"), &["numpy", "_brevi_fs", "_brevi_st", "safetensors"][..]),
             ("onnxruntime.py", include_str!("dynpy/py/onnxruntime.py"), &["sys", "numpy", "_brevi_ort", "onnxruntime.capi.onnxruntime_pybind11_state"][..]),
             ("onnxruntime_state.py", include_str!("dynpy/py/onnxruntime_state.py"), &[][..]),

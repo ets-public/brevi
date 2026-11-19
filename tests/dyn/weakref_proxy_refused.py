@@ -1,12 +1,11 @@
-# weakref.proxy refuses what it cannot do exactly: a callback, and a referent with numeric conversions
+# weakref.proxy refuses what it cannot do exactly: a callback, and a referent with numeric conversions. A
+# refusal stops the program: the `except` never sees it (check.sh checks the callback refusal the same way).
 import weakref
 class N:
     def __index__(self): return 1
-class A:
-    pass
-a = A()
-for f in [lambda: weakref.proxy(N()), lambda: weakref.proxy(a, print)]:
-    try:
-        f()
-    except NotImplementedError as e:
-        print(e)
+print("start")
+try:
+    weakref.proxy(N())
+except NotImplementedError as e:
+    print("caught", e)
+print("not reached")

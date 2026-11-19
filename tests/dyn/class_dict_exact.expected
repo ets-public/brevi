@@ -10,4 +10,4 @@
 True True True
 ['__weakref__', 'b', 'm', 'x'] False
 collections.abc.Iterable[int] <classmethod(<class 'types.GenericAlias'>)>
-refused
+NotImplementedError: brevi: the __dict__ of class Callable (a class of Brevi's own copy of a module) is not supported in dynamic builds
