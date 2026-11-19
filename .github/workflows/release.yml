@@ -239,11 +239,37 @@ jobs:
           b=$(sha256sum < rebuilt-here/target/x86_64-unknown-linux-gnu/release/brevi)
           echo "shipped: $a"; echo "rebuilt: $b"
           [ "$a" = "$b" ] || { echo "the shipped binary is not reproducible from this commit"; exit 1; }
+  # The sandbox image, built before anything is published (dry runs too) from this run's own Linux x86-64 binary
+  # and SDK in place of the release download, and checked by tools/image_test.sh: the image job after the release
+  # builds it from the release itself and runs the same checks before it pushes.
+  image-test:
+    needs: [build]
+    if: ${{ !inputs.from_release }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: brevi-ubuntu-22.04
+          path: shipped
+      - name: Build the image from this run's binary and check it
+        run: |
+          ctx=$(mktemp -d)
+          tar xzf shipped/brevi-x86_64-unknown-linux-gnu.tar.gz -C "$ctx"
+          mv "$ctx/brevi-x86_64-unknown-linux-gnu/brevi" "$ctx/brevi"
+          cp packaging/pypi/brevi/__init__.py "$ctx/sdk_init.py"
+          python3 tools/image_local.py templates/image/Dockerfile > "$ctx/Dockerfile"
+          docker build -t brevi-sandbox:test "$ctx"
+          docker build --build-arg PYTHON3_SHIM=1 -t brevi-sandbox:test-python3 "$ctx"
+          sh tools/image_test.sh brevi-sandbox:test brevi-sandbox:test-python3
   release:
-    needs: [preflight, suite, build, reproducible]
+    needs: [preflight, suite, build, reproducible, image-test]
     # Every platform built and passed, and the suite passed on this commit; or from_release, which publishes what is
     # already attached. A dry run stops here.
-    if: ${{ !cancelled() && !inputs.dry_run && needs.preflight.result == 'success' && (inputs.from_release || (needs.build.result == 'success' && needs.suite.result == 'success' && needs.reproducible.result == 'success')) }}
+    if: ${{ !cancelled() && !inputs.dry_run && needs.preflight.result == 'success' && (inputs.from_release || (needs.build.result == 'success' && needs.suite.result == 'success' && needs.reproducible.result == 'success' && needs['image-test'].result == 'success')) }}
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     # id-token and attestations: the build-provenance attestations (signed through Sigstore with this run's identity)
@@ -440,9 +466,7 @@ jobs:
           img=ghcr.io/${GITHUB_REPOSITORY_OWNER}/brevi-sandbox
           docker build --build-arg BREVI_VERSION=$v -t $img:$v -t $img:latest templates/image
           docker build --build-arg BREVI_VERSION=$v --build-arg PYTHON3_SHIM=1 -t $img:$v-python3 -t $img:python3 templates/image
-          docker run --rm $img:$v sh -c 'echo "print(sum(range(10)))" > m.py && brevi run --sandbox m.py' | grep -qx 45
-          docker run --rm $img:$v python3 -c 'import brevi; print(brevi.run("print(6 * 7)").stdout, end="")' | grep -qx 42
-          docker run --rm $img:$v-python3 python3 -c 'print(sum(range(10)))' | grep -qx 45
+          sh tools/image_test.sh $img:$v $img:$v-python3
           echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           docker push --all-tags $img
           docker image ls $img
