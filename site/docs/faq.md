@@ -3,7 +3,7 @@
 
 ## What is Brevi, in one sentence?
 
-A compiler, written in Rust, that turns the plain Python an AI agent writes into a fast, memory-safe native binary with exactly CPython's output, and reports problems as one-line JSON an agent can act on.
+A compiler, written in Rust, that turns the plain Python an AI agent writes into one fast-starting native binary checked against CPython's output, and reports problems as one-line JSON an agent can act on.
 
 ## Why "AI-first"? Does it work for people too?
 
