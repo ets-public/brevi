@@ -2134,6 +2134,75 @@ pub(crate) fn seed_file(_: &Path) -> Option<PathBuf> {
     None
 }
 
+// The cargo home crate builds run with: $CARGO_HOME, else ~/.cargo. cargo runs what it holds (config.toml can name
+// a rustc wrapper, a linker or build scripts' flags, and registry/src keeps the crate sources it compiles without
+// checking them again), so a home another user can change is never used: a private one stands in (empty, so its
+// crates are fetched again). Used only if the folder and everything directly in it (a link is followed and its
+// target checked the same way) belong to this user or root and are writable by no other user (group-writable
+// only for this user's own group), and every folder above it is safe (folders_above_ok).
+fn cargo_home() -> PathBuf {
+    static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
+        let named = std::env::var_os("CARGO_HOME")
+            .filter(|v| !v.is_empty())
+            .map(|v| std::path::absolute(&v).unwrap_or_else(|_| PathBuf::from(v)))
+            .or_else(|| std::env::var_os("HOME").filter(|h| !h.is_empty()).map(|h| PathBuf::from(h).join(".cargo")));
+        let why = match &named {
+            Some(d) => match cargo_home_trusted(d) {
+                Ok(()) => return d.clone(),
+                Err(why) => why,
+            },
+            None => "neither CARGO_HOME nor HOME is set".into(),
+        };
+        let own = tmp_root().join("cargo");
+        // Only builds (the child phase, where crates are built) get here, so this prints once per build.
+        let d = named.map(|d| d.display().to_string()).unwrap_or_default();
+        eprintln!("brevi: not using the cargo home {d}: {why}; using {} instead (set CARGO_HOME to a folder only you can write)", own.display());
+        own
+    })
+    .clone()
+}
+
+#[cfg(unix)]
+fn cargo_home_trusted(d: &Path) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+    unsafe extern "C" {
+        fn getegid() -> u32;
+    }
+    // SAFETY: getegid takes nothing and cannot fail.
+    let gid = unsafe { getegid() };
+    let me = privdir::ax_priv::me();
+    std::fs::create_dir_all(d).map_err(|e| format!("cannot make it: {e}"))?;
+    folders_above_ok(d)?;
+    let ok = |p: &Path, m: &std::fs::Metadata| -> Result<(), String> {
+        if m.uid() != me && m.uid() != 0 {
+            return Err(format!("{} belongs to another user (uid {})", p.display(), m.uid()));
+        }
+        if m.mode() & 0o002 != 0 || (m.mode() & 0o020 != 0 && m.gid() != gid) {
+            return Err(format!("{} can be changed by other users (mode {:o})", p.display(), m.mode() & 0o7777));
+        }
+        Ok(())
+    };
+    ok(d, &std::fs::metadata(d).map_err(|e| e.to_string())?)?;
+    for e in std::fs::read_dir(d).map_err(|e| e.to_string())?.flatten() {
+        let p = e.path();
+        let link = std::fs::symlink_metadata(&p).map_err(|e| e.to_string())?;
+        if link.file_type().is_symlink() {
+            // A dangling link is refused too: another user could make what it names.
+            folders_above_ok(&p)?;
+            ok(&p, &std::fs::metadata(&p).map_err(|e| format!("{}: {e}", p.display()))?)?;
+        } else {
+            ok(&p, &link)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn cargo_home_trusted(_: &Path) -> Result<(), String> {
+    Ok(())
+}
+
 // Builds with cargo, for programs that use crates. Same results as compile().
 fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &[&str], link: bool) -> Option<Result<(), String>> {
     // The cargo project stays at one path per source file (build_dir_path/cargo, not this process's folder), so
@@ -2141,7 +2210,7 @@ fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &
     // A lock file keeps two processes building the same file from writing it at the same time.
     let base = dir.parent().filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("brevi-"))).unwrap_or(dir);
     let name = base.file_name().map(|n| n.to_string_lossy().replace('-', "_")).unwrap_or_else(|| "brevi_prog".into());
-    let dir = &base.join("cargo");
+    let dir = &std::path::absolute(base.join("cargo")).unwrap_or_else(|_| base.join("cargo"));
     std::fs::create_dir_all(dir).ok();
     let lock = std::fs::File::create(base.join("build.lock")).ok();
     if let Some(l) = &lock {
@@ -2168,6 +2237,11 @@ fn cargo_compile(deps: &[ffi::Dep], rust: &str, dir: &Path, out: &Path, extra: &
     }
     c.args(["-q", "--message-format=json", "--manifest-path"]).arg(&tp);
     c.env("CARGO_TARGET_DIR", cache_dir().join("target"));
+    // cargo also reads .cargo/config.toml in every folder above the one it runs in, so it runs in the project's own
+    // folder inside Brevi's private temp folder (tmp_root), never in the caller's (a shared /workspace
+    // or /tmp, where another user could leave one), and with a home only this user can change (cargo_home).
+    c.current_dir(dir);
+    c.env("CARGO_HOME", cargo_home());
     let o = match c.output() {
         Ok(o) => o,
         Err(e) => {

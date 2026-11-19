@@ -1305,6 +1305,23 @@ while [ $i -lt 400 ]; do mkdir -p "$t/differs/r$i"; printf '{"file":"x.py","on":
 BREVI_CACHE="$t" $BREVI report 2>"$t/err" | head -1 >/dev/null
 if [ ! -s "$t/err" ]; then echo "ok   cli report into a closed pipe"; else echo "FAIL cli report into a closed pipe"; cat "$t/err"; fail=1; fi
 rm -rf "$t"
+#== cargo_home
+# Crate builds run cargo, and cargo runs what its home and any .cargo/config.toml above its folder name (a rustc
+# wrapper here). So a cargo home other users can change is not used (a private one stands in), and cargo never
+# runs in the caller's folder, where another user of a shared /workspace or /tmp could leave a .cargo/config.toml.
+# The control run shows the planted wrapper would run otherwise.
+tk=$(mktemp -d); chmod 755 "$tk"; cp tests/run/crate_use.bv "$tk/p.bv"; tkb=$(realpath "$BREVI")
+printf '#!/bin/sh\ntouch "%s/planted"\nexec "$@"\n' "$tk" > "$tk/wrap"; chmod 755 "$tk/wrap"
+for d in own shared cwd/.cargo; do mkdir -p "$tk/$d"; printf '[build]\nrustc-wrapper = "%s/wrap"\n' "$tk" > "$tk/$d/config.toml"; done
+chmod 777 "$tk/shared"; chmod 1777 "$tk/cwd"; mkdir "$tk/cwd/sub"
+tkr() { rm -f "$tk/planted"; h=$1; shift; (cd "$tk/${1:-.}" && env CARGO_HOME="$tk/$h" BREVI_CACHE="$tk/cache-$h${1:+-cwd}" "$tkb" run "$tk/p.bv" 2>&1 | sed 's/^brevi: not using the cargo home .*: .* can be changed by other users.*/refused shared home/'); [ -e "$tk/planted" ] && echo planted; }
+tkout="$(tkr own) / $(tkr shared) / $(mkdir -p "$tk/home2"; tkr home2 cwd/sub)"
+want='ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+planted / refused shared home
+ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad / ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
+if [ "$tkout" = "$want" ]; then echo "ok   cargo home trust: a shared home or a planted .cargo/config.toml is not used"
+else echo "FAIL cargo home trust"; printf '%s\n' "$tkout"; fail=1; fi
+chmod -R u+rwX "$tk"; rm -rf "$tk"
 #== cache
 # The result cache: an unchanged program is replayed (path report line included), a changed module is built
 # again, and --no-cache always builds.
