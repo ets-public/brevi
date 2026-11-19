@@ -12,7 +12,7 @@ LABEL org.opencontainers.image.source=https://github.com/ets-public/brevi \
       org.opencontainers.image.description="Brevi: AI-written Python built natively and sandboxed" \
       org.opencontainers.image.licenses=Apache-2.0
 
-ENV RUSTUP_HOME=/opt/rust CARGO_HOME=/opt/rust BREVI_CACHE_SEED=/opt/brevi-seed BREVI_PYTHON=/usr/bin/python3 \
+ENV RUSTUP_HOME=/opt/rust BREVI_CACHE_SEED=/opt/brevi-seed BREVI_PYTHON=/usr/bin/python3 \
     PATH=/opt/rust/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 RUN apt-get update \
@@ -20,7 +20,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup.sh \
- && sh /tmp/rustup.sh -y --profile minimal --no-modify-path && rm /tmp/rustup.sh \
+ && CARGO_HOME=/opt/rust sh /tmp/rustup.sh -y --profile minimal --no-modify-path && rm /tmp/rustup.sh \
  && rustc --version
 
 # Brevi, brevi-python beside it, and the SDK, all from one release: BREVI_VERSION, or the latest release
@@ -51,9 +51,9 @@ RUN if [ "$PYTHON3_SHIM" = 1 ]; then \
       ln -s brevi /usr/local/bin/python3 && ln -s /usr/bin/python3 /usr/local/bin/python3.real \
       && [ "$(echo 'print(6 * 7)' | python3)" = 42 ]; fi
 
-# cargo keeps its registry and lock files in CARGO_HOME; the toolchain stays in /opt/rust, read-only.
-ENV CARGO_HOME=/opt/brevi-cache/cargo
-RUN useradd --system --create-home --shell /bin/sh brevi && mkdir -p "$CARGO_HOME" && chmod a+rwX "$CARGO_HOME"
+# cargo keeps its registry, the crate sources it compiles and its config in each user's own ~/.cargo (CARGO_HOME
+# is left unset), never in a folder shared between users; the toolchain stays in /opt/rust, read-only.
+RUN useradd --system --create-home --shell /bin/sh brevi
 USER brevi
 WORKDIR /workspace
 # @cloudflare/sandbox's shim has only been run as root, so this image keeps root (the shared body above ends
