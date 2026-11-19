@@ -494,6 +494,8 @@ fn check_body(body: &[Stmt]) -> Result<Required, (usize, String)> {
         req.wbs.extend(cx.req_wbs.iter().cloned());
         global_edges.extend(cx.global_edges.iter().cloned());
     }
+    // A place the typed build holds a reference to while code that may change it runs (see held_refs).
+    keep(held_refs(&p, body), &mut first);
     // A field or global changed by a callback (at times the proof cannot see) must share with nothing.
     for (pl, d) in &unseen_muts {
         if let Some(e) = global_edges.iter().find(|(a, da, b, db)| (a == pl && d >= da) || (b == pl && d >= db)) {
@@ -4299,4 +4301,493 @@ fn has_change(e: &Ex) -> bool {
         }
     });
     hit
+}
+
+// ---------------------------------------------------------------- references held across user code
+//
+// The typed build reaches an object's field through a handle (`(*h.ax_d()).items`) or a module-level name
+// through a `static mut`, outside rustc's borrow checks. Where Python reads a place and then runs more code in
+// the same expression (`bx.rows[0].append(f(bx))`, `b.n += g(b)`, `h(bx.items, bx)`, a loop over `self.items`),
+// the typed build holds a reference to that place while the code runs. If that code changes the place (sets the
+// field, or grows the list it is in), the reference is stale or points at freed memory: a wrong answer or a
+// crash. This pass finds every place held so and every write the later code may make (by field name over every
+// class, and by global name), and sends a file where the two can meet to the dynamic build.
+
+#[derive(Default, Clone, PartialEq)]
+struct Wr {
+    all: bool, // may change anything (an unknown callable)
+    f: BTreeSet<String>,
+    g: BTreeSet<String>,
+}
+
+impl Wr {
+    fn add(&mut self, o: &Wr) {
+        self.all |= o.all;
+        self.f.extend(o.f.iter().cloned());
+        self.g.extend(o.g.iter().cloned());
+    }
+    fn hits(&self, h: &Wr) -> Option<String> {
+        if h.f.is_empty() && h.g.is_empty() {
+            return None;
+        }
+        let f = h.f.iter().find(|x| self.all || self.f.contains(*x)).map(|x| format!(".{x}"));
+        f.or_else(|| h.g.iter().find(|x| self.all || self.g.contains(*x)).cloned())
+    }
+}
+
+// One function's own writes, and the functions it calls (true: a constructor's own `self.f = ...` on the
+// object it makes, which nothing can hold yet, do not count).
+#[derive(Default, Clone)]
+struct Direct {
+    w: Wr,
+    own: BTreeSet<String>, // fields set through the function's first parameter (`self.f = ...`)
+    calls: BTreeSet<(usize, bool)>,
+}
+
+struct Held<'c, 'p, 'a> {
+    cx: &'c Cx<'p, 'a>,
+    full: &'c [Wr],
+    fresh: &'c [Wr],
+    implicit: &'c Wr,
+    line: usize,
+    found: Option<(usize, String)>,
+}
+
+fn self_param(p: &Prog, f: usize) -> Option<String> {
+    let fi = p.fns.get(f)?;
+    fi.class.as_ref()?;
+    fi.params.first().cloned()
+}
+
+// The fields and globals a place reads through: `a.b[i].c` -> {b, c}; a module-level name -> itself.
+fn held_of(cx: &Cx, e: &Ex) -> Wr {
+    let mut h = Wr::default();
+    let mut e = e;
+    loop {
+        match e {
+            Ex::Attr(b, f) => {
+                if cx.is_module(b) {
+                    break;
+                }
+                h.f.insert(f.clone());
+                e = b;
+            }
+            Ex::Index(b, _) => e = b,
+            Ex::Name(n) => {
+                if matches!(cx.place(n), Pl::G(_)) && (cx.p.module_names.contains(n) || cx.p.fn_globals.contains(n)) {
+                    h.g.insert(n.clone());
+                }
+                break;
+            }
+            _ => break,
+        }
+    }
+    h
+}
+
+// What a write to a place changes: `a.b.c = v` the field c, `a.rows[i] = v` (or `a.rows.append(v)`) the
+// field rows, a module-level name itself.
+fn write_of(cx: &Cx, t: &Ex, selfp: Option<&str>, d: &mut Direct) {
+    match t {
+        Ex::Tuple(xs) | Ex::List(xs) => xs.iter().for_each(|x| write_of(cx, x, selfp, d)),
+        Ex::Star(x) => write_of(cx, x, selfp, d),
+        Ex::Attr(b, f) if !cx.is_module(b) => {
+            if selfp.is_some() && matches!(b.as_ref(), Ex::Name(n) if Some(n.as_str()) == selfp) {
+                d.own.insert(f.clone());
+            } else {
+                d.w.f.insert(f.clone());
+            }
+        }
+        Ex::Index(b, _) => write_of(cx, b, selfp, d),
+        Ex::Name(n) => {
+            if matches!(cx.place(n), Pl::G(_)) {
+                d.w.g.insert(n.clone());
+            }
+        }
+        Ex::Attr(..) => d.w.all = true, // a module's attribute set
+        _ => {}
+    }
+}
+
+// The calls and container changes inside an expression.
+fn direct_ex(cx: &Cx, e: &Ex, _selfp: Option<&str>, init: bool, d: &mut Direct) {
+    walk_ex(e, &mut |x| match x {
+        Ex::Call(g, args) => {
+            for a in args {
+                let (Arg::Pos(v) | Arg::Star(v) | Arg::Kw(_, v) | Arg::KwStar(v)) = a;
+                // a function handed on may be called by the callee
+                match v {
+                    Ex::Name(n) => {
+                        if let Some(id) = cx.resolve(n) {
+                            d.calls.insert((id, false));
+                        }
+                    }
+                    Ex::Attr(_, m) => {
+                        for id in cx.p.methods.get(m).into_iter().flatten() {
+                            d.calls.insert((*id, false));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            match g.as_ref() {
+                Ex::Name(n) => {
+                    if let Some(id) = cx.resolve(n) {
+                        d.calls.insert((id, false));
+                    } else if let Some(init) = cx.p.classes.get(n) {
+                        if let Some(id) = init {
+                            d.calls.insert((*id, true));
+                        }
+                    } else if cx.p.fromimp.get(n).is_some_and(|(root, _)| STDLIB.contains(&root.as_str())) && matches!(cx.place(n), Pl::G(_)) && !cx.p.bound_other.contains(n.as_str()) {
+                        // `from fractions import Fraction`: code outside the program changes only what it is given
+                        // (and calls back the program's functions, counted in `implicit`)
+                        for a in args {
+                            let (Arg::Pos(v) | Arg::Star(v) | Arg::Kw(_, v) | Arg::KwStar(v)) = a;
+                            write_of(cx, v, None, d);
+                        }
+                    } else if !matches!(cx.place(n), Pl::G(_)) || cx.p.module_names.contains(n.as_str()) {
+                        d.w.all = true;
+                    } else if matches!(n.as_str(), "setattr" | "delattr" | "exec" | "eval" | "globals" | "vars" | "locals" | "__import__") {
+                        d.w.all = true;
+                    } else if !BUILTIN_SCALAR.contains(&n.as_str()) && !BUILTIN_COPY.contains(&n.as_str()) && !matches!(n.as_str(), "range" | "enumerate" | "zip" | "min" | "max" | "map" | "filter" | "iter" | "next" | "print" | "super") {
+                        for a in args {
+                            let (Arg::Pos(v) | Arg::Star(v) | Arg::Kw(_, v) | Arg::KwStar(v)) = a;
+                            write_of(cx, v, None, d);
+                        }
+                    }
+                }
+                Ex::Attr(o, m) => {
+                    let mut root = o.as_ref();
+                    while let Ex::Attr(r, _) | Ex::Index(r, _) = root {
+                        root = r;
+                    }
+                    if cx.is_module(root) {
+                        // heapq.heappush(self.h, x), random.shuffle(self.items), bisect.insort(...)
+                        for a in args {
+                            let (Arg::Pos(v) | Arg::Star(v) | Arg::Kw(_, v) | Arg::KwStar(v)) = a;
+                            write_of(cx, v, None, d);
+                        }
+                        return;
+                    }
+                    // super().__init__(...) and Base.__init__(self, ...) in a constructor set up the new object
+                    let up = init
+                        && m == "__init__"
+                        && (matches!(o.as_ref(), Ex::Call(s, _) if matches!(s.as_ref(), Ex::Name(n) if n == "super"))
+                            || matches!(o.as_ref(), Ex::Name(c) if cx.p.classes.contains_key(c)));
+                    for id in cx.p.methods.get(m).into_iter().flatten() {
+                        d.calls.insert((*id, up));
+                    }
+                    if MUTATORS.contains(&m.as_str()) {
+                        write_of(cx, o, None, d);
+                    }
+                }
+                _ => d.w.all = true,
+            }
+        }
+        Ex::Walrus(n, _) => {
+            if matches!(cx.place(n), Pl::G(_)) {
+                d.w.g.insert(n.clone());
+            }
+        }
+        // A suspended generator lets its caller run anything before it goes on.
+        Ex::Yield(_) | Ex::YieldFrom(_) | Ex::Await(_) => d.w.all = true,
+        _ => {}
+    });
+}
+
+fn direct_block(cx: &Cx, b: &[Stmt], selfp: Option<&str>, init: bool, d: &mut Direct) {
+    each_expr_block(b, &mut |e| direct_ex(cx, e, selfp, init, d));
+    writes_block(cx, b, selfp, d);
+}
+
+fn writes_block(cx: &Cx, b: &[Stmt], selfp: Option<&str>, d: &mut Direct) {
+    for s in b {
+        match &s.st {
+            St::Def(_) | St::Class(_) => continue,
+            St::Assign(ts, _) | St::Del(ts) => ts.iter().for_each(|t| write_of(cx, t, selfp, d)),
+            St::AugAssign(t, _, _) | St::AnnAssign(t, Some(_), _, _) | St::For(t, ..) => write_of(cx, t, selfp, d),
+            St::With(items, _) => items.iter().for_each(|(_, t)| {
+                if let Some(t) = t {
+                    write_of(cx, t, selfp, d)
+                }
+            }),
+            St::Try(_, hs, _, _) => {
+                for h in hs {
+                    if let Some(n) = &h.name {
+                        if matches!(cx.place(n), Pl::G(_)) {
+                            d.w.g.insert(n.clone());
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        for_child_blocks(s, &mut |c| writes_block(cx, c, selfp, d));
+    }
+}
+
+// A statement's own expressions (not those of the blocks inside it).
+fn stmt_exprs(s: &Stmt) -> Vec<&Ex> {
+    let mut v: Vec<&Ex> = vec![];
+    match &s.st {
+        St::Expr(e) | St::Return(Some(e)) | St::While(e, _, _) => v.push(e),
+        St::Assign(ts, e) => {
+            v.push(e);
+            v.extend(ts.iter());
+        }
+        St::AugAssign(t, _, e) => {
+            v.push(t);
+            v.push(e);
+        }
+        St::AnnAssign(t, e, _, _) => {
+            v.extend(e.iter());
+            v.push(t);
+        }
+        St::If(arms, _) => v.extend(arms.iter().map(|(c, _)| c)),
+        St::For(t, it, _, _) => {
+            v.push(it);
+            v.push(t);
+        }
+        St::With(items, _) => items.iter().for_each(|(c, t)| {
+            v.push(c);
+            v.extend(t.iter());
+        }),
+        St::Raise(a, b) => v.extend(a.iter().chain(b.iter())),
+        St::Del(ts) => v.extend(ts.iter()),
+        St::Assert(a, b) => {
+            v.push(a);
+            v.extend(b.iter());
+        }
+        _ => {}
+    }
+    v
+}
+
+impl<'c, 'p, 'a> Held<'c, 'p, 'a> {
+    fn fail(&mut self, what: String) {
+        if self.found.as_ref().map_or(true, |c| self.line < c.0) {
+            self.found = Some((self.line, format!("{what} is read and then changed by code in the same statement (or in a loop over it); the typed build would keep a reference to it across that change")));
+        }
+    }
+
+    // What evaluating e may change.
+    fn eff(&self, e: &Ex) -> Wr {
+        let mut d = Direct::default();
+        direct_ex(self.cx, e, None, false, &mut d);
+        let mut w = d.w;
+        for (id, fresh) in d.calls {
+            w.add(if fresh { &self.fresh[id] } else { &self.full[id] });
+        }
+        if !matches!(e, Ex::Name(_) | Ex::Int(_) | Ex::Float(_) | Ex::Str(_) | Ex::NoneV | Ex::True | Ex::False | Ex::Ellipsis) {
+            w.add(self.implicit);
+        }
+        w
+    }
+
+    fn block_eff(&self, b: &[Stmt]) -> Wr {
+        let mut d = Direct::default();
+        direct_block(self.cx, b, None, false, &mut d);
+        let mut w = d.w;
+        for (id, fresh) in d.calls {
+            w.add(if fresh { &self.fresh[id] } else { &self.full[id] });
+        }
+        if !b.is_empty() {
+            w.add(self.implicit);
+        }
+        w
+    }
+
+    // Each operand is read before the ones after it; a call's callee runs after all of them.
+    fn ordered(&mut self, ops: &[&Ex], then: Option<&Wr>) {
+        for i in 0..ops.len() {
+            let h = held_of(self.cx, ops[i]);
+            if h.f.is_empty() && h.g.is_empty() {
+                continue;
+            }
+            for later in &ops[i + 1..] {
+                if let Some(w) = self.eff(later).hits(&h) {
+                    return self.fail(w);
+                }
+            }
+            if let Some(w) = then.and_then(|t| t.hits(&h)) {
+                return self.fail(w);
+            }
+        }
+    }
+
+    fn ex(&mut self, e: &Ex) {
+        match e {
+            Ex::Call(g, args) => {
+                let vals: Vec<&Ex> = args.iter().map(|a| match a {
+                    Arg::Pos(v) | Arg::Star(v) | Arg::Kw(_, v) | Arg::KwStar(v) => v,
+                }).collect();
+                // the callee's own changes, for a function or method of the program
+                let mut callee = Wr::default();
+                let mut user = false;
+                match g.as_ref() {
+                    Ex::Name(n) => {
+                        if let Some(id) = self.cx.resolve(n) {
+                            callee.add(&self.full[id]);
+                            user = true;
+                        } else if let Some(Some(id)) = self.cx.p.classes.get(n) {
+                            callee.add(&self.fresh[*id]);
+                            user = true;
+                        }
+                    }
+                    Ex::Attr(_, m) => {
+                        for id in self.cx.p.methods.get(m).into_iter().flatten() {
+                            callee.add(&self.full[*id]);
+                            user = true;
+                        }
+                    }
+                    _ => {}
+                }
+                // A method's receiver is held while the arguments run. It is not held while a method of the
+                // program runs: the typed build passes that method a copy of the object's handle, and a
+                // container's own method (`self.skus.add(s)`, also when a class defines `add`) runs no code of
+                // the program.
+                if let Ex::Attr(o, _) = g.as_ref() {
+                    let mut ops: Vec<&Ex> = vec![o];
+                    ops.extend(vals.iter().copied());
+                    self.ordered(&ops, None);
+                }
+                self.ordered(&vals, if user { Some(&callee) } else { None });
+            }
+            Ex::Comp(_, a, b, fors) => {
+                for (i, c) in fors.iter().enumerate() {
+                    let h = held_of(self.cx, &c.iter);
+                    let mut later: Vec<&Ex> = c.ifs.iter().collect();
+                    fors[i + 1..].iter().for_each(|c2| {
+                        later.push(&c2.iter);
+                        later.extend(c2.ifs.iter());
+                    });
+                    later.push(a);
+                    if let Some(b) = b {
+                        later.push(b);
+                    }
+                    for l in later {
+                        if let Some(w) = self.eff(l).hits(&h) {
+                            return self.fail(w);
+                        }
+                    }
+                }
+            }
+            Ex::Lambda(..) => {}
+            _ => {
+                let mut ops = vec![];
+                children(e, &mut ops);
+                self.ordered(&ops, None);
+            }
+        }
+        let mut ops = vec![];
+        children(e, &mut ops);
+        for c in ops {
+            self.ex(c);
+        }
+    }
+
+    fn block(&mut self, b: &[Stmt]) {
+        for s in b {
+            self.line = s.line;
+            match &s.st {
+                St::Def(_) | St::Class(_) => continue,
+                St::AugAssign(t, _, v) => {
+                    self.ordered(&[t, v], None);
+                }
+                St::For(t, it, body, _) => {
+                    let h = held_of(self.cx, it);
+                    let mut w = self.block_eff(body);
+                    let mut d = Direct::default();
+                    write_of(self.cx, t, None, &mut d);
+                    w.add(&d.w);
+                    if let Some(x) = w.hits(&h) {
+                        self.fail(x);
+                    }
+                }
+                _ => {}
+            }
+            for e in stmt_exprs(s) {
+                self.ex(e);
+            }
+            for_child_blocks(s, &mut |c| self.block(c));
+        }
+    }
+}
+
+fn held_refs(p: &Prog, body: &[Stmt]) -> Option<(usize, String)> {
+    let n = p.fns.len();
+    let mut dir: Vec<Direct> = Vec::with_capacity(n);
+    for f in 0..n {
+        let cx = Cx::new(p, f, false);
+        let selfp = self_param(p, f);
+        let init = p.fns[f].def.name == "__init__" && selfp.is_some();
+        let mut d = Direct::default();
+        let b = &p.fns[f].def.body;
+        direct_block(&cx, b, selfp.as_deref(), init, &mut d);
+        // share_guard's own summary follows changes made through names that alias a field or global
+        d.w.f.extend(p.sums[f].mutf.keys().cloned());
+        d.w.g.extend(p.sums[f].mutg.keys().cloned());
+        if !init {
+            let own = std::mem::take(&mut d.own);
+            d.w.f.extend(own);
+        }
+        dir.push(d);
+    }
+    // full: everything a call may change; fresh: a constructor's, less its own fields of the new object
+    let mut full: Vec<Wr> = dir.iter().map(|d| {
+        let mut w = d.w.clone();
+        w.f.extend(d.own.iter().cloned());
+        w
+    }).collect();
+    let mut fresh: Vec<Wr> = dir.iter().map(|d| d.w.clone()).collect();
+    loop {
+        let mut changed = false;
+        for f in 0..n {
+            let (mut a, mut b) = (full[f].clone(), fresh[f].clone());
+            for (id, fr) in &dir[f].calls {
+                let c = if *fr { fresh[*id].clone() } else { full[*id].clone() };
+                a.add(&c);
+                b.add(&c);
+            }
+            if a != full[f] || b != fresh[f] {
+                full[f] = a;
+                fresh[f] = b;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    // Code the program runs without naming it: operators and builtins call dunder methods, attribute reads
+    // call properties, `next()` and loops resume generators.
+    let mut implicit = Wr::default();
+    for f in 0..n {
+        let d = &p.fns[f].def;
+        let mut is_gen = false;
+        each_expr_block(&d.body, &mut |e| walk_ex(e, &mut |x| is_gen |= matches!(x, Ex::Yield(_) | Ex::YieldFrom(_) | Ex::Await(_))));
+        let dunder = d.name.starts_with("__") && d.name.ends_with("__") && d.name != "__init__";
+        if dunder || is_gen || !d.decorators.is_empty() || p.as_value.contains(&f) {
+            implicit.add(&full[f]);
+        }
+    }
+    let mut first: Option<(usize, String)> = None;
+    let mut keep = |c: Option<(usize, String)>| {
+        if let Some(c) = c {
+            if first.as_ref().map_or(true, |f| c.0 < f.0) {
+                first = Some(c);
+            }
+        }
+    };
+    for f in 0..n {
+        let cx = Cx::new(p, f, false);
+        let mut h = Held { cx: &cx, full: &full, fresh: &fresh, implicit: &implicit, line: 0, found: None };
+        h.block(&p.fns[f].def.body);
+        keep(h.found);
+    }
+    let cx = Cx::new(p, MODULE, false);
+    let mut h = Held { cx: &cx, full: &full, fresh: &fresh, implicit: &implicit, line: 0, found: None };
+    h.block(body);
+    keep(h.found);
+    first
 }

@@ -95,6 +95,7 @@ impl AxPool {
             }
             self.pnext.set(n.add(AX_PAGE));
             p = n as *mut AxPage;
+            p.expose_provenance();
             let sz = c << 4;
             let first = n.add(AX_HDR);
             std::ptr::write(p, AxPage { free: std::ptr::null_mut(), next: first, end: n.add(AX_HDR + (AX_PAGE - AX_HDR) / sz * sz), owner: self as *const AxPool as usize, link: std::ptr::null_mut(), in_list: false });
@@ -104,7 +105,13 @@ impl AxPool {
     }
     #[inline(always)]
     unsafe fn free(&self, b: *mut u8, c: usize) {
-        let p = (b as usize & !(AX_PAGE - 1)) as *mut AxPage;
+        // The page header, found from the block's address: the page's pointer was exposed when the page was
+        // made (alloc_slow), so this is a valid pointer to it (a block pointer, made into a Box or Vec, may only
+        // reach its own bytes).
+        let p = std::ptr::with_exposed_provenance_mut::<AxPage>(b.addr() & !(AX_PAGE - 1));
+        // The free-list link fills the whole 16-byte slot, which can be more than the caller's block (a 4-byte
+        // Vec), so it is written through the page's pointer too.
+        let b = std::ptr::with_exposed_provenance_mut::<u8>(b.addr());
         if (*p).owner != self as *const AxPool as usize {
             *(b as *mut *mut u8) = self.loose[c].get();
             self.loose[c].set(b);
@@ -170,7 +177,9 @@ unsafe impl std::alloc::GlobalAlloc for AxAlloc {
             return std::alloc::System.realloc(p, l, new);
         }
         if ax_small(&l) && new <= AX_SMALL && new > 0 && (new + 15) >> 4 == (l.size() + 15) >> 4 {
-            return p;
+            // The same slot, which has room: returned with the page's provenance (see free), since the
+            // caller's pointer may only reach the old size.
+            return std::ptr::with_exposed_provenance_mut::<u8>(p.addr());
         }
         let nl = std::alloc::Layout::from_size_align_unchecked(new, l.align());
         let q = self.alloc(nl);

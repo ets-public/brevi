@@ -1,0 +1,3 @@
+{"path":"dynamic","line":19,"why":".items is read and then changed by code in the same statement (or in a loop over it); the typed build would keep a reference to it across that change, so the typed build would differ from CPython"}
+{"path":"dynamic","line":19,"why":".items is read and then changed by code in the same statement (or in a loop over it); the typed build would keep a reference to it across that change, so the typed build would differ from CPython"}
+{"path":"dynamic","line":19,"why":".items is read and then changed by code in the same statement (or in a loop over it); the typed build would keep a reference to it across that change, so the typed build would differ from CPython"}

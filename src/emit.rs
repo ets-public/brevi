@@ -140,6 +140,8 @@ pub struct Emitter {
     // Fields that hold their own type (directly or in a cycle) are boxed: (owner type, field), and the field names.
     boxed: HashSet<(String, String)>,
     boxed_names: HashSet<String>,
+    // Set while `place_read` builds a place that is only read: Python objects' fields on it borrow shared.
+    reading: bool,
     // Field names only Python objects (shared handles) have: read and written through the handle's data.
     shared_fields: HashSet<String>,
     // Keys of map literals that are Json objects (values of different types).
@@ -884,6 +886,28 @@ fn root_name(e: &Expr) -> Option<&str> {
 
 // True when the block sets `name` or calls a method that changes it, like `name.sort()`.
 // `m[k]`, `m[k].f`, `xs[i].0.f`: a place inside a list or map.
+// A plain chain of names and fields (`a`, `self.items`, `p.q.xs`): borrowing it runs nothing.
+fn field_chain(e: &Expr) -> bool {
+    match e {
+        Expr::Ident(_) => true,
+        Expr::Field(b, _) | Expr::TupleField(b, _) => field_chain(b),
+        _ => false,
+    }
+}
+
+// A place made only of names, fields and index reads (`a.xs[i].n`), none on a defaultdict (whose read puts
+// the key in): reading it changes nothing but what its keys change. `is_dd` says which bases are defaultdicts.
+fn read_chain(e: &Expr, is_dd: &dyn Fn(&Expr) -> bool) -> bool {
+    match e {
+        Expr::Ident(_) | Expr::Int(_) | Expr::Str(_) => true,
+        Expr::Field(b, _) | Expr::TupleField(b, _) => read_chain(b, is_dd),
+        // The key is not part of the place: it gets its own borrow, and is computed first when it is not a
+        // read itself (see `place`).
+        Expr::Index(b, _) => !is_dd(b) && read_chain(b, is_dd),
+        _ => false,
+    }
+}
+
 fn through_index(e: &Expr) -> bool {
     match e {
         Expr::Index(..) => true,
@@ -1072,6 +1096,7 @@ impl Emitter {
                 .collect(),
             boxed: HashSet::new(),
             boxed_names: HashSet::new(),
+            reading: false,
             shared_fields: HashSet::new(),
             unbox: Vec::new(),
             hints: HashMap::new(),
@@ -1532,7 +1557,23 @@ impl Emitter {
                     }
                     if marked {
                         out.push_str(&format!("}}\n#[derive(Clone, Copy)]\npub struct {name}(*mut {data});\n"));
-                        out.push_str(&format!("impl {name} {{ pub fn ax_new(d: {data}) -> Self {{ {name}(Box::into_raw(Box::new(d))) }} #[inline] pub fn ax_d(&self) -> &'static mut {data} {{ if self.0.is_null() {{ ax_none_attr() }} unsafe {{ &mut *self.0 }} }} }}\n"));
+                        // Field access goes through one accessor per field, never a `&mut` to the whole object:
+                        // Python lets two names reach one object, so `a.xs.append(b.n)` with `a is b` must not
+                        // hold two `&mut` to the same bytes (undefined behaviour, which Miri flags and LLVM may
+                        // miscompile). Each accessor projects the field from the raw pointer (`addr_of_mut!`), so
+                        // borrows of different fields are disjoint. Two borrows of the same field never overlap
+                        // because of how the emitter uses them (see `shared_field` and the method-call arm):
+                        // reads use the shared `axr_` form, a method that changes a field gets its arguments
+                        // evaluated before its receiver is borrowed, and the program is single-threaded (objects
+                        // never cross threads in the typed build). The accessors take the handle by value, so no
+                        // reference to the holder lives across the projection. tools/miri_emitted.py checks it.
+                        let mut acc = String::new();
+                        for f in fields {
+                            let t = self.field_ty(name, f);
+                            let n = &f.name;
+                            acc.push_str(&format!(" #[inline] pub fn axf_{n}(self) -> &'static mut {t} {{ if self.0.is_null() {{ ax_none_attr() }} unsafe {{ &mut *std::ptr::addr_of_mut!((*self.0).{n}) }} }} #[inline] pub fn axr_{n}(self) -> &'static {t} {{ if self.0.is_null() {{ ax_none_attr() }} unsafe {{ &*std::ptr::addr_of!((*self.0).{n}) }} }}"));
+                        }
+                        out.push_str(&format!("impl {name} {{ pub fn ax_new(d: {data}) -> Self {{ {name}(Box::into_raw(Box::new(d))) }}{acc} }}\n"));
                         out.push_str(&format!("impl Default for {name} {{ fn default() -> Self {{ {name}(std::ptr::null_mut()) }} }}\n"));
                         if crate::records::is_record(name) {
                             // `dict(v)` / `v.copy()` on a dict record: a new dict with the same values.
@@ -2338,8 +2379,11 @@ impl Emitter {
                 self.check_ident(n);
                 if self.refs.contains(n) { format!("(*{n})") } else { n.clone() }
             }
+            Expr::Field(b, f) if self.shared_fields.contains(f) => {
+                let b = self.place(b);
+                self.shared_field(&b, f, false)
+            }
             Expr::Field(b, f) if self.boxed_names.contains(f) => format!("(*{}.{f})", self.place_mut(b)),
-            Expr::Field(b, f) if self.shared_fields.contains(f) => format!("(*{}.ax_d()).{f}", self.place(b)),
             Expr::Field(b, f) => format!("{}.{f}", self.place_mut(b)),
             Expr::TupleField(b, i) => format!("{}.{i}", self.place_mut(b)),
             Expr::Index(b, i) => {
@@ -2433,6 +2477,13 @@ impl Emitter {
         Some(format!("    /*@L{line}*/ax_l({line}); let {tmp} = {d}.ax_read_miss_ref({k}); let ({ps}) = ({fs});\n"))
     }
 
+    // A field of a Python object (a shared handle, see the `axf_` accessors on the handle type): a place that
+    // borrows only that field. A boxed field (`AxB<..>`) is unboxed after the projection.
+    fn shared_field(&self, base: &str, f: &str, read: bool) -> String {
+        let p = if read { format!("(*{base}.axr_{f}())") } else { format!("(*{base}.axf_{f}())") };
+        if self.boxed_names.contains(f) { format!("(*{p})") } else { p }
+    }
+
     // A place to read through without cloning (method receivers, field bases).
     fn place(&mut self, e: &Expr) -> String {
         if let Expr::Ident(n) = e {
@@ -2444,28 +2495,55 @@ impl Emitter {
             Expr::Ident(n) if self.locals.contains(n) => {
                 if self.refs.contains(n) { format!("(*{n})") } else { n.clone() }
             }
+            Expr::Field(b, f) if self.shared_fields.contains(f) => {
+                let b = self.place(b);
+                self.shared_field(&b, f, self.reading)
+            }
             Expr::Field(b, f) if self.boxed_names.contains(f) => format!("(*{}.{f})", self.place(b)),
-            Expr::Field(b, f) if self.shared_fields.contains(f) => format!("(*{}.ax_d()).{f}", self.place(b)),
-            Expr::Field(b, f) if (f == "numerator" || f == "denominator") && !self.structs.values().any(|fs| fs.iter().any(|x| &x.name == f)) => format!("({}).ax_{f}()", self.expr(b)),
+            Expr::Field(b, f) if (f == "numerator" || f == "denominator") && !self.structs.values().any(|fs| fs.iter().any(|x| &x.name == f)) => {
+                let saved = std::mem::replace(&mut self.reading, false);
+                let b = self.expr(b);
+                self.reading = saved;
+                format!("({b}).ax_{f}()")
+            }
             Expr::Field(b, f) => format!("{}.{f}", self.place(b)),
             Expr::TupleField(b, i) => format!("{}.{i}", self.place(b)),
             Expr::Index(b, i) if self.is_dd(b) => {
+                let saved = std::mem::replace(&mut self.reading, false);
                 let b = self.place_mut(b);
-                format!("({}.ax_read_miss({}))", b, self.arg_ref(i))
+                let out = format!("({}.ax_read_miss({}))", b, self.arg_ref(i));
+                self.reading = saved;
+                out
             }
-            Expr::Index(b, i) => {
+            Expr::Index(b, ix) => {
                 let b = self.place(b);
-                let i = self.arg_ref(i);
-                if self.py_mode && !self.catch.is_empty() && self.catches("IndexError") {
-                    let lab = self.catch.last().unwrap().clone();
-                    format!("(*match {b}.ax_try_ref({i}) {{ Ok(v) => v, Err(e) => {{ {lab} = Some(e); break '{lab}; }} }})")
-                } else if self.py_mode && self.ck_ie {
-                    format!("(*{b}.ax_try_ref({i})?)")
+                let mut i = self.arg_ref(ix);
+                // A key that is not a plain read (`xs[f()]`, `xs[ys.pop()]`) is computed before the read borrow of
+                // a Python object's field is taken, so it can change that object; the base place runs nothing.
+                let hoist = self.reading && b.contains(".axr_") && !read_chain(ix, &|x| self.is_dd(x));
+                let pre = if hoist {
+                    let p = format!("let __axk = {i}; ");
+                    i = "__axk".into();
+                    p
                 } else {
-                    format!("(*{b}.ax_ref({i}))")
-                }
+                    String::new()
+                };
+                let r = if self.py_mode && !self.catch.is_empty() && self.catches("IndexError") {
+                    let lab = self.catch.last().unwrap().clone();
+                    format!("match {b}.ax_try_ref({i}) {{ Ok(v) => v, Err(e) => {{ {lab} = Some(e); break '{lab}; }} }}")
+                } else if self.py_mode && self.ck_ie {
+                    format!("{b}.ax_try_ref({i})?")
+                } else {
+                    format!("{b}.ax_ref({i})")
+                };
+                if hoist { format!("(*{{ {pre}{r} }})") } else { format!("(*{r})") }
             }
-            other => format!("({})", self.expr(other)),
+            other => {
+                let saved = std::mem::replace(&mut self.reading, false);
+                let out = format!("({})", self.expr(other));
+                self.reading = saved;
+                out
+            }
         }
     }
 
@@ -2478,7 +2556,16 @@ impl Emitter {
 
     // A reference to a value, for arguments that are only read (keys, searched-for items).
     fn arg_ref(&mut self, e: &Expr) -> String {
-        format!("&{}", self.place(e))
+        format!("&{}", self.place_read(e))
+    }
+
+    // A place only read (cloned or borrowed shared): the fields of Python objects on it borrow shared (`axr_`).
+    fn place_read(&mut self, e: &Expr) -> String {
+        let read = read_chain(e, &|b| self.is_dd(b));
+        let saved = std::mem::replace(&mut self.reading, read);
+        let p = self.place(e);
+        self.reading = saved;
+        p
     }
 
     fn check_ident(&mut self, n: &str) {
@@ -2891,23 +2978,49 @@ impl Emitter {
                 let name = if name == "sort_by" && a.len() == 2 { "sort_by_rev" } else { name };
                 // `s.re_sub(p, g => ...)` builds each replacement from the match groups.
                 let name = if name == "re_sub" && matches!(args.get(1), Some(Expr::Lambda(..))) { if crate::infer::py_on() { "re_m_sub_with" } else { "re_sub_with" } } else { name };
+                // A receiver that is a field of a Python object (`a.xs`, see `shared_field`): the methods that
+                // only read it borrow it shared, and for the others the arguments are computed before the field
+                // is borrowed, so an argument that reaches the same object (`a.xs.append(b.n)` with `a is b`, or
+                // a call that changes `a`) never runs while a `&mut` to it is held. Only for a receiver that is
+                // a plain chain of names and fields, whose borrow has no side effect, so Python's order holds.
+                let (r, a, pre) = if r.contains(".axf_") && field_chain(recv) {
+                    if ref_arg {
+                        (r.replace(".axf_", ".axr_"), a, String::new())
+                    } else {
+                        let mut pre = String::new();
+                        let a = a
+                            .into_iter()
+                            .enumerate()
+                            .map(|(k, x)| {
+                                if x.starts_with("(|") {
+                                    return x;
+                                }
+                                pre.push_str(&format!("let __axa{k} = {x}; "));
+                                format!("__axa{k}")
+                            })
+                            .collect();
+                        (r, a, pre)
+                    }
+                } else {
+                    (r, a, String::new())
+                };
                 if tries && !self.catch.is_empty() {
                     let lab = self.catch.last().unwrap().clone();
                     let brk = if lab.starts_with("ax_tryv") { " None" } else { "" };
-                    format!("{{ ax_l({line}); match {r}.ax_try_{name}({}) {{ Ok(v) => v, Err(e) => {{ {lab} = Some(AxErr::from(e)); break '{lab}{brk}; }} }} }}", a.join(", "))
+                    format!("{{ ax_l({line}); {pre}match {r}.ax_try_{name}({}) {{ Ok(v) => v, Err(e) => {{ {lab} = Some(AxErr::from(e)); break '{lab}{brk}; }} }} }}", a.join(", "))
                 } else if tries {
-                    format!("{{ ax_l({line}); {r}.ax_try_{name}({})? }}", a.join(", "))
+                    format!("{{ ax_l({line}); {pre}{r}.ax_try_{name}({})? }}", a.join(", "))
                 } else {
-                    format!("{{ ax_l({line}); {r}.ax_{name}({}) }}", a.join(", "))
+                    format!("{{ ax_l({line}); {pre}{r}.ax_{name}({}) }}", a.join(", "))
                 }
             }
             // `d.year`, `d.weekday` without brackets read a date's parts.
             Expr::Field(b, f) if ["year", "month", "day", "weekday", "numerator", "denominator"].contains(&f.as_str()) && !self.structs.values().any(|fs| fs.iter().any(|x| &x.name == f)) => {
                 format!("({}).ax_{f}()", self.expr(b))
             }
-            Expr::Field(..) | Expr::TupleField(..) => format!("{}.clone()", self.place(e)),
+            Expr::Field(..) | Expr::TupleField(..) => format!("{}.clone()", self.place_read(e)),
             Expr::Index(b, _) if self.is_dd(b) => self.place(e),
-            Expr::Index(..) => format!("{}.clone()", self.place(e)),
+            Expr::Index(..) => format!("{}.clone()", self.place_read(e)),
             Expr::Lambda(params, body) => {
                 let outer = self.locals.clone();
                 for p in params {
