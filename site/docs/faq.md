@@ -3,7 +3,7 @@
 
 ## What is Brevi?
 
-A compiler, written in Rust, that turns a small Python MCP server or CLI script into one native binary. The machine that runs the binary needs no Python. It also starts fast: the first tool call of the official `mcp-server-time` is answered in 35 ms, against 730 ms on CPython 3.13 (Brevi 0.26.0, Linux x86-64, Intel Xeon 2.10 GHz, 4 cores, median of 10 runs, same output byte for byte).
+A compiler, written in Rust, that turns a small Python MCP server or CLI script into one native binary. The machine that runs the binary needs no Python. It also starts fast: the first tool call of the official `mcp-server-time` 2026.11.4 is answered in 35 ms, against 730 ms on CPython 3.13 (Brevi 0.26.0, Linux x86-64, Intel Xeon 2.10 GHz, 4 cores, median of 10 runs, same output byte for byte). (Its current release, 2026.11.18, no longer builds natively: it takes the CPython bridge.) Most real MCP servers need the bridge today: of the ten most-downloaded Python MCP servers on PyPI, built unchanged on 19 November with Brevi 0.28.3, none built natively, and all ten took 1.00x to 1.16x CPython's time to the first tool call ([report](repo:bench/showcase/REAL_SERVERS.md)).
 
 ```
 brevi build server.py --release -o my-server
@@ -16,7 +16,7 @@ Brevi is a preview, and not every server builds. [Ship an MCP server or CLI as o
 
 Not for programs Brevi builds itself, which includes the official `mcp` SDK, sqlite3, tiktoken and the rest of what [What works](/docs/compatibility) lists. The binary links no libpython.
 
-An import Brevi does not build itself (pandas, yaml, ...) runs in CPython through a bridge. The build says so with a `{"path":"pybridge",...}` line. That binary needs libpython on the run machine, or `--standalone`, which packs CPython into the binary (Linux and Windows only; about 13 MB for the stdlib alone, 30 to 45 MB with numpy) and unpacks it to `~/.cache` on first run, which takes 1 to 3 s. The fast start is lost on the bridge.
+An import Brevi does not build itself (pandas, yaml, ...) runs in CPython through a bridge. The build says so with a `{"path":"pybridge",...}` line. That binary needs Python 3.13 and the packages it was built against (the build venv's site-packages) on the run machine, or `--standalone`, which packs CPython and the packages into the binary (Linux and Windows only; about 13 MB for the stdlib alone, 30 to 45 MB with numpy) and unpacks them to `~/.cache` on first run, which takes 1 to 3 s. `--standalone` misses packages imported lazily, and broke 4 of the 10 popular servers we tested ([report](repo:bench/showcase/REAL_SERVERS.md)). The fast start is lost on the bridge.
 
 ## How big is the binary?
 
@@ -28,7 +28,7 @@ Measured on Brevi 0.26.0 (commit 69caf93, 10 Nov 2026), Linux x86-64, Intel Xeon
 
 | Program | Brevi | CPython | Binary |
 |---|---|---|---|
-| `mcp-server-time`, unchanged, first tool call | 35 ms | 730 ms | 19.2 MB |
+| `mcp-server-time` 2026.11.4, unchanged, first tool call | 35 ms | 730 ms | 19.2 MB |
 | SQLite MCP server, official `mcp` SDK | 27 ms | 718 ms | 18.0 MB |
 | Token counter (tiktoken), one file | 33 ms | 375 ms | 11.5 MB |
 
@@ -40,7 +40,7 @@ Servers and scripts that use the standard library, the official `mcp` SDK and th
 
 ## What if my server imports something Brevi lacks?
 
-It still builds when the import can go through the CPython bridge (see the second question), but the binary then needs libpython on the run machine or `--standalone`, and it no longer starts fast. If you need a binary with no Python at all, check the build output for the `pybridge` line and replace that import.
+It still builds when the import can go through the CPython bridge (see the second question), but the binary then needs Python 3.13 and the packages it was built against (the build venv's site-packages) on the run machine, or `--standalone` (which can miss lazily imported packages), and it no longer starts fast. That is the case for most real servers today ([report](repo:bench/showcase/REAL_SERVERS.md)). If you need a binary with no Python at all, check the build output for the `pybridge` line and replace that import.
 
 ## Which platforms?
 

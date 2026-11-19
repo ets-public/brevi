@@ -52,9 +52,9 @@ brevi build server.py --release -o my-server
 claude mcp add my-server -- "$PWD/my-server"
 ```
 
-`my-server` is one file with no libpython linked. Claude Code starts it over stdio like any other MCP server. On the
-official `mcp-server-time`, the first tool call is answered in 35 ms against 730 ms on CPython (Brevi 0.26.0, Linux
-x86-64, Intel Xeon 2.10 GHz, 4 cores, median of 10 runs, CPython 3.13); the binary is 19.2 MB, with sizes not tuned yet.
+If the build printed no path line with a `"py"` list (such as `{"path":"pybridge",...}`), `my-server` is one file that needs no Python. Claude Code starts it over stdio like any other MCP server. On the
+official `mcp-server-time` 2026.11.4, the first tool call is answered in 35 ms against 730 ms on CPython (Brevi 0.26.0, Linux
+x86-64, Intel Xeon 2.10 GHz, 4 cores, median of 10 runs, CPython 3.13); the binary is 19.2 MB, with sizes not tuned yet. (Its current release, 2026.11.18, no longer builds natively: it takes the CPython bridge.)
 
 ## 4. Build a CLI
 
@@ -66,8 +66,8 @@ brevi build tool.py --release -o tool
 ## Limits to know before you ship
 
 - An import Brevi does not build itself (pandas, yaml, ...) runs in CPython through a bridge, shown at build as
-  `{"path":"pybridge",...}`. That binary needs libpython on the run machine, or `--standalone` (Linux and Windows
-  only), and it loses the fast start.
+  `{"path":"pybridge",...}`. That binary needs Python 3.13 and the packages it was built against (the build venv's site-packages) on the run machine, or `--standalone` (Linux and Windows
+  only; it misses lazily imported packages), and it loses the fast start. Most real MCP servers need the bridge today: of the ten most-downloaded Python MCP servers on PyPI, built unchanged on 19 November with Brevi 0.28.3, none built natively, and all ten took 1.00x to 1.16x CPython's time to the first tool call ([report](repo:bench/showcase/REAL_SERVERS.md)).
 - Linux binaries link the system glibc dynamically: build on the oldest Linux you target.
 - macOS programs are not tested by CI, and Windows is beta ([Known issues](repo:docs/KNOWN_ISSUES.md#windows-beta)).
 - The speed win is start-up, not throughput: most programs run at about CPython's speed (median 0.85x).

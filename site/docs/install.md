@@ -1,7 +1,7 @@
 # Install Brevi
 <!-- description: Install Brevi on the machine that builds your binary, on Linux, macOS or Windows: uvx, install script, pip, npm, Docker or source. -->
 
-Install Brevi on the machine that builds. The machine that runs your binary needs nothing for a native build (a build that calls Python libraries needs libpython there, or `--standalone`).
+Install Brevi on the machine that builds. The machine that runs your binary needs nothing for a native build (a build that calls Python libraries needs Python 3.13 and the packages it was built against there, or `--standalone`).
 
 Brevi turns programs into Rust and calls `rustc` to build them. You do not need to install Rust: when no `rustc` is on the PATH, brevi fetches the Rust release it is tested with on its first build, and, when the machine has no C linker either, zig to link with. Both are checked against SHA-256 sums compiled into brevi and kept in Brevi's own folder (see [The pinned toolchain](#the-pinned-toolchain)). This works on Linux x86-64 and macOS (Apple silicon and Intel) from v0.28.2, and on Linux ARM64 and Windows (x86-64 and ARM64) from v0.28.3.
 
@@ -30,7 +30,7 @@ uvx --python 3.13 brevi run --verify main.py
 | `rustc` (Rust stable) | Brevi compiles every program through it | Fetched by brevi when none is on the PATH (the pinned toolchain), where that is verified; elsewhere installed by the script with rustup. Any recent stable works; CI tests stable daily and beta and nightly weekly. |
 | a C linker (`cc`) | rustc links programs with it | Not needed: with no working `cc` (Linux without the C library's development files, macOS without the Command Line Tools), brevi links with zig, fetched once. |
 | CPython 3.13 (for `--verify`) | `brevi run --verify` and `brevi verify` compare each run with CPython 3.13, and use no other version | Brevi takes `BREVI_PYTHON` when set, else the first 3.13 among `python3`, `python3.13` and `python` on PATH, then (Windows) the `py` launcher, then `uv python find 3.13`, so `uv python install 3.13` is enough. |
-| `python3` (optional) | The CPython fallback of `brevi run`, and programs that import libraries such as numpy | Not needed for programs that use only the standard library. Library programs need `libpython` where they run, unless built with `--standalone`. |
+| `python3` (optional) | The CPython fallback of `brevi run`, and programs that import libraries such as numpy | Not needed for programs that use only the standard library. Library programs need Python 3.13 and the packages they were built against (the build venv's site-packages) where they run, unless built with `--standalone`. |
 | Linux, macOS or Windows | Prebuilt binaries for x86-64 and ARM64 Linux, Apple silicon and Intel Macs, and x86-64 and ARM64 Windows (ARM64 from v0.28.1) | Library calls through CPython work on Windows from v0.27.0 (the `python` on PATH needs its DLL); `--standalone` builds work on Linux and Windows from v0.28.1. |
 
 ## Linux and macOS: the install script
